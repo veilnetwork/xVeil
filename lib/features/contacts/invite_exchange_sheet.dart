@@ -91,7 +91,21 @@ class _InviteExchangeSheetState extends State<InviteExchangeSheet> {
                 ),
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
+            // The raw link, so it works on desktop (no camera) — selectable +
+            // copyable.
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: SelectableText(
+                widget.myInvite!,
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+              ),
+            ),
+            const SizedBox(height: 4),
             Center(
               child: TextButton.icon(
                 onPressed: () async {
