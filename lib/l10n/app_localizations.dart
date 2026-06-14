@@ -1,0 +1,414 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:intl/intl.dart' as intl;
+
+import 'app_localizations_en.dart';
+import 'app_localizations_ru.dart';
+
+// ignore_for_file: type=lint
+
+/// Callers can lookup localized strings with an instance of AppL10n
+/// returned by `AppL10n.of(context)`.
+///
+/// Applications need to include `AppL10n.delegate()` in their app's
+/// `localizationDelegates` list, and the locales they support in the app's
+/// `supportedLocales` list. For example:
+///
+/// ```dart
+/// import 'l10n/app_localizations.dart';
+///
+/// return MaterialApp(
+///   localizationsDelegates: AppL10n.localizationsDelegates,
+///   supportedLocales: AppL10n.supportedLocales,
+///   home: MyApplicationHome(),
+/// );
+/// ```
+///
+/// ## Update pubspec.yaml
+///
+/// Please make sure to update your pubspec.yaml to include the following
+/// packages:
+///
+/// ```yaml
+/// dependencies:
+///   # Internationalization support.
+///   flutter_localizations:
+///     sdk: flutter
+///   intl: any # Use the pinned version from flutter_localizations
+///
+///   # Rest of dependencies
+/// ```
+///
+/// ## iOS Applications
+///
+/// iOS applications define key application metadata, including supported
+/// locales, in an Info.plist file that is built into the application bundle.
+/// To configure the locales supported by your app, you’ll need to edit this
+/// file.
+///
+/// First, open your project’s ios/Runner.xcworkspace Xcode workspace file.
+/// Then, in the Project Navigator, open the Info.plist file under the Runner
+/// project’s Runner folder.
+///
+/// Next, select the Information Property List item, select Add Item from the
+/// Editor menu, then select Localizations from the pop-up menu.
+///
+/// Select and expand the newly-created Localizations item then, for each
+/// locale your application supports, add a new item and select the locale
+/// you wish to add from the pop-up menu in the Value field. This list should
+/// be consistent with the languages listed in the AppL10n.supportedLocales
+/// property.
+abstract class AppL10n {
+  AppL10n(String locale)
+    : localeName = intl.Intl.canonicalizedLocale(locale.toString());
+
+  final String localeName;
+
+  static AppL10n of(BuildContext context) {
+    return Localizations.of<AppL10n>(context, AppL10n)!;
+  }
+
+  static const LocalizationsDelegate<AppL10n> delegate = _AppL10nDelegate();
+
+  /// A list of this localizations delegate along with the default localizations
+  /// delegates.
+  ///
+  /// Returns a list of localizations delegates containing this delegate along with
+  /// GlobalMaterialLocalizations.delegate, GlobalCupertinoLocalizations.delegate,
+  /// and GlobalWidgetsLocalizations.delegate.
+  ///
+  /// Additional delegates can be added by appending to this list in
+  /// MaterialApp. This list does not have to be used at all if a custom list
+  /// of delegates is preferred or required.
+  static const List<LocalizationsDelegate<dynamic>> localizationsDelegates =
+      <LocalizationsDelegate<dynamic>>[
+        delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+      ];
+
+  /// A list of this localizations delegate's supported locales.
+  static const List<Locale> supportedLocales = <Locale>[
+    Locale('en'),
+    Locale('ru'),
+  ];
+
+  /// No description provided for @appName.
+  ///
+  /// In en, this message translates to:
+  /// **'xVeil'**
+  String get appName;
+
+  /// No description provided for @actionContinue.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue'**
+  String get actionContinue;
+
+  /// No description provided for @actionBack.
+  ///
+  /// In en, this message translates to:
+  /// **'Back'**
+  String get actionBack;
+
+  /// No description provided for @actionCancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get actionCancel;
+
+  /// No description provided for @actionDone.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get actionDone;
+
+  /// No description provided for @actionCopy.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy'**
+  String get actionCopy;
+
+  /// No description provided for @actionUnderstood.
+  ///
+  /// In en, this message translates to:
+  /// **'I understand'**
+  String get actionUnderstood;
+
+  /// No description provided for @onboardWelcomeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Welcome to xVeil'**
+  String get onboardWelcomeTitle;
+
+  /// No description provided for @onboardWelcomeBody.
+  ///
+  /// In en, this message translates to:
+  /// **'A decentralized, censorship-resistant messenger. No phone number. No central server. Your identity and your messages stay with you.'**
+  String get onboardWelcomeBody;
+
+  /// No description provided for @onboardChooseTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Set up your identity'**
+  String get onboardChooseTitle;
+
+  /// No description provided for @onboardCreateIdentity.
+  ///
+  /// In en, this message translates to:
+  /// **'Create a new identity'**
+  String get onboardCreateIdentity;
+
+  /// No description provided for @onboardCreateIdentitySub.
+  ///
+  /// In en, this message translates to:
+  /// **'Generate a fresh sovereign key on this device'**
+  String get onboardCreateIdentitySub;
+
+  /// No description provided for @onboardRestoreIdentity.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore from recovery phrase'**
+  String get onboardRestoreIdentity;
+
+  /// No description provided for @onboardRestoreIdentitySub.
+  ///
+  /// In en, this message translates to:
+  /// **'Use your 24-word phrase to recover an existing identity'**
+  String get onboardRestoreIdentitySub;
+
+  /// No description provided for @onboardImportBackup.
+  ///
+  /// In en, this message translates to:
+  /// **'Import a backup'**
+  String get onboardImportBackup;
+
+  /// No description provided for @onboardImportBackupSub.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore from an encrypted backup file'**
+  String get onboardImportBackupSub;
+
+  /// No description provided for @recoveryTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Save your recovery phrase'**
+  String get recoveryTitle;
+
+  /// No description provided for @recoveryBody.
+  ///
+  /// In en, this message translates to:
+  /// **'These 24 words ARE your identity. Anyone with them controls it; lose them and it is gone forever. Write them on paper and store them somewhere safe. Never store them online or photograph them.'**
+  String get recoveryBody;
+
+  /// No description provided for @recoveryConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'I have written down my recovery phrase'**
+  String get recoveryConfirm;
+
+  /// No description provided for @storageTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'How should we store your data?'**
+  String get storageTitle;
+
+  /// No description provided for @storageHiddenTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Hidden space (recommended)'**
+  String get storageHiddenTitle;
+
+  /// No description provided for @storageHiddenBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Your chats and keys live in a deniable encrypted container. An adversary who seizes your device cannot prove the data even exists.'**
+  String get storageHiddenBody;
+
+  /// No description provided for @storagePlainTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Plain storage'**
+  String get storagePlainTitle;
+
+  /// No description provided for @storagePlainBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Faster to set up, but the existence of your data is visible to anyone who inspects the device.'**
+  String get storagePlainBody;
+
+  /// No description provided for @storagePlainWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'Not recommended for high-risk users. Choose this only if deniability is not a concern for you.'**
+  String get storagePlainWarning;
+
+  /// No description provided for @lockTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock xVeil'**
+  String get lockTitle;
+
+  /// No description provided for @lockPasswordHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter your password'**
+  String get lockPasswordHint;
+
+  /// No description provided for @lockUnlock.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock'**
+  String get lockUnlock;
+
+  /// No description provided for @lockWrong.
+  ///
+  /// In en, this message translates to:
+  /// **'Wrong password'**
+  String get lockWrong;
+
+  /// No description provided for @navChats.
+  ///
+  /// In en, this message translates to:
+  /// **'Chats'**
+  String get navChats;
+
+  /// No description provided for @navNetwork.
+  ///
+  /// In en, this message translates to:
+  /// **'Network'**
+  String get navNetwork;
+
+  /// No description provided for @navSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Settings'**
+  String get navSettings;
+
+  /// No description provided for @chatsEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No conversations yet'**
+  String get chatsEmpty;
+
+  /// No description provided for @chatsEmptyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Start a new chat to begin messaging'**
+  String get chatsEmptyHint;
+
+  /// No description provided for @chatNewMessageHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Message'**
+  String get chatNewMessageHint;
+
+  /// No description provided for @chatSend.
+  ///
+  /// In en, this message translates to:
+  /// **'Send'**
+  String get chatSend;
+
+  /// No description provided for @networkTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Overlay network'**
+  String get networkTitle;
+
+  /// No description provided for @networkStatusConnected.
+  ///
+  /// In en, this message translates to:
+  /// **'Connected'**
+  String get networkStatusConnected;
+
+  /// No description provided for @networkStatusConnecting.
+  ///
+  /// In en, this message translates to:
+  /// **'Connecting…'**
+  String get networkStatusConnecting;
+
+  /// No description provided for @networkStatusOffline.
+  ///
+  /// In en, this message translates to:
+  /// **'Offline'**
+  String get networkStatusOffline;
+
+  /// No description provided for @networkPeers.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} peers'**
+  String networkPeers(int count);
+
+  /// No description provided for @settingsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Settings'**
+  String get settingsTitle;
+
+  /// No description provided for @settingsIdentity.
+  ///
+  /// In en, this message translates to:
+  /// **'Identity'**
+  String get settingsIdentity;
+
+  /// No description provided for @settingsStorage.
+  ///
+  /// In en, this message translates to:
+  /// **'Storage & spaces'**
+  String get settingsStorage;
+
+  /// No description provided for @settingsNetwork.
+  ///
+  /// In en, this message translates to:
+  /// **'Network & nodes'**
+  String get settingsNetwork;
+
+  /// No description provided for @settingsAppearance.
+  ///
+  /// In en, this message translates to:
+  /// **'Appearance'**
+  String get settingsAppearance;
+
+  /// No description provided for @settingsAbout.
+  ///
+  /// In en, this message translates to:
+  /// **'About'**
+  String get settingsAbout;
+}
+
+class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {
+  const _AppL10nDelegate();
+
+  @override
+  Future<AppL10n> load(Locale locale) {
+    return SynchronousFuture<AppL10n>(lookupAppL10n(locale));
+  }
+
+  @override
+  bool isSupported(Locale locale) =>
+      <String>['en', 'ru'].contains(locale.languageCode);
+
+  @override
+  bool shouldReload(_AppL10nDelegate old) => false;
+}
+
+AppL10n lookupAppL10n(Locale locale) {
+  // Lookup logic when only language code is specified.
+  switch (locale.languageCode) {
+    case 'en':
+      return AppL10nEn();
+    case 'ru':
+      return AppL10nRu();
+  }
+
+  throw FlutterError(
+    'AppL10n.delegate failed to load unsupported locale "$locale". This is likely '
+    'an issue with the localizations generation tool. Please file an issue '
+    'on GitHub with a reproducible sample app and the gen-l10n configuration '
+    'that was used.',
+  );
+}
