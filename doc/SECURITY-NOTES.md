@@ -37,6 +37,16 @@ constraints are not optional polish — treat a violation as a release blocker.
 
 ## Current status
 
-The present milestone runs on **in-memory fakes** — nothing is persisted or transmitted
-yet. The constraints above are written now so the native adapters are built to them, not
-retrofitted.
+The real adapters are live: data persists to a deniable `hidden-volume` container, and
+messages transmit over the veil overlay (a real node, embedded in-process or via
+`veil-cli`). A **consent gate** stops strangers messaging unsolicited. The constraints
+above are enforced by these adapters, not retrofitted.
+
+Known gaps to close before any real-user release:
+- Desktop dev runs **unsandboxed** (macOS DEBUG entitlement) to reach local node
+  sockets/dylibs; the release build must keep the sandbox, bundle the dylibs, and keep
+  storage inside the container.
+- Identity is still a local placeholder until the real veil master-phrase derivation is
+  wired (needs the veil-side FFI).
+- iOS background is short scheduled windows (BGProcessingTask), not a 24/7 relay —
+  offline delivery must lean on mailbox/rendezvous + push, not a persistent on-device node.
