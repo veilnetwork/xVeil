@@ -52,13 +52,17 @@ dependencies:
   # in the hidden-volume container. See doc/SECURITY-NOTES.md.
   shared_preferences: ^2.3.3
 
-  # --- Native overlay-network + storage layers (path deps to submodules) ---
-  # Wired behind the VeilTransport / Storage ports. Commented until the
-  # native dylibs build on the dev platform; the app runs on fakes meanwhile.
+  # --- Native storage layer (path dep to the hidden-volume submodule) ---
+  # The real Storage adapter (HvKvLogStore) binds to this. The plugin ships
+  # android/ios/windows native impls today; desktop (macOS/Linux) link glue
+  # is pending, so the running app still selects the in-memory SpaceOpener.
+  hidden_volume:
+    path: third_party/hidden-volume/experimental/flutter_plugin/hidden_volume
+
+  # --- Native overlay-network layer (path dep to the veil submodule) ---
+  # The real VeilTransport adapter will bind to this next.
   # veil_flutter:
   #   path: third_party/veil/flutter/veil_flutter
-  # hidden_volume:
-  #   path: third_party/hidden-volume/experimental/flutter_plugin/hidden_volume
 
 dev_dependencies:
   flutter_test:
