@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -22,12 +23,14 @@ class ChatsScreen extends ConsumerWidget {
       appBar: AppBar(
         title: Text(l.navChats),
         actions: [
-          // Dev / loopback affordance: start a chat by raw node id or a demo peer.
-          IconButton(
-            icon: const Icon(Icons.science_outlined),
-            tooltip: 'Demo chat',
-            onPressed: () => _newChat(context),
-          ),
+          // Dev-only affordance (debug builds): start a chat by raw node id or
+          // a demo peer. Hidden in release so it can't ship to users.
+          if (kDebugMode)
+            IconButton(
+              icon: const Icon(Icons.science_outlined),
+              tooltip: 'Demo chat',
+              onPressed: () => _newChat(context),
+            ),
         ],
       ),
       floatingActionButton: FloatingActionButton(
