@@ -53,6 +53,8 @@ dependencies:
   shared_preferences: ^2.3.3
   # QR rendering for the bootstrap-invite contact-exchange flow.
   qr_flutter: ^4.1.0
+  # Direct dart:ffi helpers (Utf8/calloc) for the embedded-node binding.
+  ffi: ^2.1.0
 
   # --- Native storage layer (path dep to the hidden-volume submodule) ---
   # The real Storage adapter (HvKvLogStore) binds to this. The plugin ships
