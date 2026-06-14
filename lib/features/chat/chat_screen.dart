@@ -28,12 +28,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     super.dispose();
   }
 
-  Future<void> _send() async {
+  Future<void> _submit(ContactStatus? status) async {
     final text = _input.text;
     if (text.trim().isEmpty) return;
     _input.clear();
-    await ref.read(messagingServiceProvider).sendText(_peer, text);
+    final svc = ref.read(messagingServiceProvider);
+    if (status == ContactStatus.accepted) {
+      await svc.sendText(_peer, text);
+    } else {
+      // No contact yet / not accepted — the first message is the request.
+      await svc.sendRequest(_peer, text);
+    }
     _scrollToBottom();
+  }
+
+  Future<void> _accept() =>
+      ref.read(messagingServiceProvider).acceptContact(_peer);
+
+  Future<void> _block() async {
+    await ref.read(messagingServiceProvider).blockContact(_peer);
+    if (mounted) Navigator.of(context).maybePop();
   }
 
   void _scrollToBottom() {
@@ -52,6 +66,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final messages = ref.watch(messagesProvider(widget.peerHex));
+    final status = ref.watch(contactProvider(widget.peerHex)).value?.status;
     ref.listen(messagesProvider(widget.peerHex), (_, _) => _scrollToBottom());
 
     return Scaffold(
@@ -83,8 +98,105 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ),
             ),
           ),
-          _Composer(controller: _input, hint: l.chatNewMessageHint, onSend: _send),
+          _bottom(status, l),
         ],
+      ),
+    );
+  }
+
+  Widget _bottom(ContactStatus? status, AppL10n l) {
+    switch (status) {
+      case ContactStatus.pendingOutgoing:
+        return const _Banner(
+          icon: Icons.hourglass_top,
+          text: 'Request sent — waiting for approval',
+        );
+      case ContactStatus.pendingIncoming:
+        return _RequestActions(onAccept: _accept, onBlock: _block);
+      case ContactStatus.blocked:
+        return const _Banner(icon: Icons.block, text: 'You blocked this contact');
+      case ContactStatus.accepted:
+        return _Composer(
+          controller: _input,
+          hint: l.chatNewMessageHint,
+          onSend: () => _submit(status),
+        );
+      case null:
+        return _Composer(
+          controller: _input,
+          hint: 'Write a connection request…',
+          onSend: () => _submit(status),
+        );
+    }
+  }
+}
+
+class _Banner extends StatelessWidget {
+  const _Banner({required this.icon, required this.text});
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 18, color: scheme.onSurfaceVariant),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(text,
+                  style: TextStyle(color: scheme.onSurfaceVariant)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RequestActions extends StatelessWidget {
+  const _RequestActions({required this.onAccept, required this.onBlock});
+  final VoidCallback onAccept;
+  final VoidCallback onBlock;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('This contact wants to connect',
+                style: Theme.of(context).textTheme.bodyMedium),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onBlock,
+                    icon: const Icon(Icons.block, size: 18),
+                    label: const Text('Block'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: onAccept,
+                    icon: const Icon(Icons.check, size: 18),
+                    label: const Text('Accept'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
