@@ -60,9 +60,12 @@ dependencies:
     path: third_party/hidden-volume/experimental/flutter_plugin/hidden_volume
 
   # --- Native overlay-network layer (path dep to the veil submodule) ---
-  # The real VeilTransport adapter will bind to this next.
-  # veil_flutter:
-  #   path: third_party/veil/flutter/veil_flutter
+  # The real VeilTransport adapter (VeilFlutterTransport) binds to this. Like
+  # hidden_volume it ships android/ios native hooks only; desktop uses the
+  # VEIL_FFI_DYLIB preload path. App still selects the loopback transport at
+  # runtime until live-node wiring lands.
+  veil_flutter:
+    path: third_party/veil/flutter/veil_flutter
 
 dev_dependencies:
   flutter_test:
