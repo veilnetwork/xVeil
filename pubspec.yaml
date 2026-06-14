@@ -51,6 +51,8 @@ dependencies:
   # Non-sensitive UI prefs ONLY (theme, locale). Never secrets — those live
   # in the hidden-volume container. See doc/SECURITY-NOTES.md.
   shared_preferences: ^2.3.3
+  # QR rendering for the bootstrap-invite contact-exchange flow.
+  qr_flutter: ^4.1.0
 
   # --- Native storage layer (path dep to the hidden-volume submodule) ---
   # The real Storage adapter (HvKvLogStore) binds to this. The plugin ships
