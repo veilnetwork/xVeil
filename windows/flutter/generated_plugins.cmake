@@ -3,6 +3,7 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  hidden_volume
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST

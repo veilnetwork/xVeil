@@ -149,6 +149,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "14.8.1"
+  hidden_volume:
+    dependency: "direct main"
+    description:
+      path: "third_party/hidden-volume/experimental/flutter_plugin/hidden_volume"
+      relative: true
+    source: path
+    version: "0.0.1"
   hooks:
     dependency: transitive
     description:
