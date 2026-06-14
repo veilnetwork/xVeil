@@ -164,3 +164,16 @@ final messagesProvider =
     yield await storage.loadMessages(conversationId);
   }
 });
+
+/// The stored contact (with relationship status) for a peer, refreshed on
+/// every change. Null until we have a record of them.
+final contactProvider =
+    StreamProvider.family<Contact?, String>((ref, peerHex) async* {
+  final service = ref.watch(messagingServiceProvider);
+  final storage = ref.watch(storageProvider);
+  final id = NodeId.fromHex(peerHex);
+  yield await storage.getContact(id);
+  await for (final _ in service.changes) {
+    yield await storage.getContact(id);
+  }
+});
