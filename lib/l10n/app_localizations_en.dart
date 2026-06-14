@@ -103,6 +103,13 @@ class AppL10nEn extends AppL10n {
   String get lockWrong => 'Wrong password';
 
   @override
+  String get lockStartOver => 'Start over';
+
+  @override
+  String get lockStartOverBody =>
+      'Set up a new identity on this device. Your existing data is not deleted, but you will need its password to reach it again. Continue?';
+
+  @override
   String get navChats => 'Chats';
 
   @override

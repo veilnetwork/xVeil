@@ -111,6 +111,18 @@ class AppController extends Notifier<AppState> {
     state = const AppState(AppPhase.locked);
   }
 
+  /// Escape hatch from the lock screen: forget the onboarded flag and return to
+  /// onboarding (e.g. forgotten password, or a moved/missing container). The
+  /// existing container file is left untouched on disk — deniability means we
+  /// can't and shouldn't prove it exists; the user simply sets up anew.
+  Future<void> startOver() async {
+    await ref.read(storageProvider).close();
+    final prefs = await ref.read(prefsProvider.future);
+    await prefs.remove(_kOnboardedKey);
+    await prefs.remove(_kStorageModeKey);
+    state = const AppState(AppPhase.onboarding);
+  }
+
   /// Generates a fresh sovereign identity. The real implementation derives a
   /// 24-word BIP-39 phrase + node id via veil_flutter; here we mint a random
   /// node id so the rest of the flow is exercisable.
