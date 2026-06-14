@@ -54,10 +54,14 @@ Future<List<Override>> _bootstrapOverrides() async {
     try {
       if (ensureVeilClientLoaded()) {
         final sock = '${File(config).parent.path}/app.sock';
+        // XVEIL_NODE_MODE=embedded runs the node in-process (no subprocess) —
+        // requires a node-embedded dylib. Default spawns veil-cli.
+        final embedded = Platform.environment['XVEIL_NODE_MODE'] == 'embedded';
         final stack = await RealVeilStack.start(
           veilCliPath: cli,
           configPath: config,
           appSocketPath: sock,
+          embedded: embedded,
         );
         overrides.add(realStackProvider.overrideWithValue(stack));
         // ignore: avoid_print
