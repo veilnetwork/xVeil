@@ -74,7 +74,14 @@ class AppController extends Notifier<AppState> {
   /// Returning user: try to unlock the space with [password].
   Future<void> unlock(String password) async {
     final storage = ref.read(storageProvider);
-    final ok = await storage.open(password: password);
+    bool ok;
+    try {
+      ok = await storage.open(password: password);
+    } catch (_) {
+      // Wrong password, missing or corrupt container — never let unlock throw
+      // (that would freeze the lock screen's spinner). Surface as an error.
+      ok = false;
+    }
     if (!ok) {
       state = state.copyWith(unlockError: true);
       return;
