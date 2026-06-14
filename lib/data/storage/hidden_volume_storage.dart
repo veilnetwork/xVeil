@@ -94,7 +94,11 @@ class HiddenVolumeStorage implements Storage {
 
   @override
   Future<void> upsertContact(Contact contact) async {
-    final json = jsonEncode({'n': contact.nodeId.hex, 'name': contact.name});
+    final json = jsonEncode({
+      'n': contact.nodeId.hex,
+      'name': contact.name,
+      's': contact.status.index,
+    });
     // Maintain a contacts index (hidden-volume has no KV key enumeration) so
     // the chat list can show contacts that have no messages yet.
     final index = _contactIndex();
@@ -111,11 +115,24 @@ class HiddenVolumeStorage implements Storage {
     return (jsonDecode(utf8.decode(raw)) as List).cast<String>();
   }
 
+  @override
+  Future<Contact?> getContact(NodeId nodeId) async {
+    if (_s.get(Ns.contacts, nodeId.bytes) == null) return null;
+    return _contactFor(nodeId);
+  }
+
   Contact _contactFor(NodeId id) {
     final raw = _s.get(Ns.contacts, id.bytes);
     if (raw == null) return Contact(nodeId: id);
     final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
-    return Contact(nodeId: id, name: m['name'] as String?);
+    final s = m['s'] as int?;
+    return Contact(
+      nodeId: id,
+      name: m['name'] as String?,
+      status: s != null && s >= 0 && s < ContactStatus.values.length
+          ? ContactStatus.values[s]
+          : ContactStatus.accepted,
+    );
   }
 
   // --- Conversations & messages -----------------------------------------

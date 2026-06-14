@@ -1,13 +1,35 @@
 import '../core/ids.dart';
 
+/// Relationship state with a peer — gates messaging so strangers can't write
+/// without consent.
+/// - [pendingOutgoing]: we sent a connection request, awaiting their approval.
+/// - [pendingIncoming]: they requested us; we can accept / decline / block.
+/// - [accepted]: mutual — free messaging.
+/// - [blocked]: their messages are dropped.
+enum ContactStatus { pendingOutgoing, pendingIncoming, accepted, blocked }
+
 /// A remote party the user can message.
 class Contact {
-  const Contact({required this.nodeId, this.name});
+  const Contact({
+    required this.nodeId,
+    this.name,
+    this.status = ContactStatus.accepted,
+  });
 
   final NodeId nodeId;
   final String? name;
+  final ContactStatus status;
 
   String get label => name ?? nodeId.short;
+
+  /// Free messaging is only allowed once the relationship is accepted.
+  bool get canMessage => status == ContactStatus.accepted;
+
+  Contact copyWith({String? name, ContactStatus? status}) => Contact(
+        nodeId: nodeId,
+        name: name ?? this.name,
+        status: status ?? this.status,
+      );
 }
 
 /// Direction of a message relative to the local user.
