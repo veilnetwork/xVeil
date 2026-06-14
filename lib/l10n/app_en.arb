@@ -1,0 +1,60 @@
+{
+  "@@locale": "en",
+  "appName": "xVeil",
+
+  "actionContinue": "Continue",
+  "actionBack": "Back",
+  "actionCancel": "Cancel",
+  "actionDone": "Done",
+  "actionCopy": "Copy",
+  "actionUnderstood": "I understand",
+
+  "onboardWelcomeTitle": "Welcome to xVeil",
+  "onboardWelcomeBody": "A decentralized, censorship-resistant messenger. No phone number. No central server. Your identity and your messages stay with you.",
+  "onboardChooseTitle": "Set up your identity",
+  "onboardCreateIdentity": "Create a new identity",
+  "onboardCreateIdentitySub": "Generate a fresh sovereign key on this device",
+  "onboardRestoreIdentity": "Restore from recovery phrase",
+  "onboardRestoreIdentitySub": "Use your 24-word phrase to recover an existing identity",
+  "onboardImportBackup": "Import a backup",
+  "onboardImportBackupSub": "Restore from an encrypted backup file",
+
+  "recoveryTitle": "Save your recovery phrase",
+  "recoveryBody": "These 24 words ARE your identity. Anyone with them controls it; lose them and it is gone forever. Write them on paper and store them somewhere safe. Never store them online or photograph them.",
+  "recoveryConfirm": "I have written down my recovery phrase",
+
+  "storageTitle": "How should we store your data?",
+  "storageHiddenTitle": "Hidden space (recommended)",
+  "storageHiddenBody": "Your chats and keys live in a deniable encrypted container. An adversary who seizes your device cannot prove the data even exists.",
+  "storagePlainTitle": "Plain storage",
+  "storagePlainBody": "Faster to set up, but the existence of your data is visible to anyone who inspects the device.",
+  "storagePlainWarning": "Not recommended for high-risk users. Choose this only if deniability is not a concern for you.",
+
+  "lockTitle": "Unlock xVeil",
+  "lockPasswordHint": "Enter your password",
+  "lockUnlock": "Unlock",
+  "lockWrong": "Wrong password",
+
+  "navChats": "Chats",
+  "navNetwork": "Network",
+  "navSettings": "Settings",
+
+  "chatsEmpty": "No conversations yet",
+  "chatsEmptyHint": "Start a new chat to begin messaging",
+  "chatNewMessageHint": "Message",
+  "chatSend": "Send",
+
+  "networkTitle": "Overlay network",
+  "networkStatusConnected": "Connected",
+  "networkStatusConnecting": "Connecting…",
+  "networkStatusOffline": "Offline",
+  "networkPeers": "{count} peers",
+  "@networkPeers": { "placeholders": { "count": { "type": "int" } } },
+
+  "settingsTitle": "Settings",
+  "settingsIdentity": "Identity",
+  "settingsStorage": "Storage & spaces",
+  "settingsNetwork": "Network & nodes",
+  "settingsAppearance": "Appearance",
+  "settingsAbout": "About"
+}
