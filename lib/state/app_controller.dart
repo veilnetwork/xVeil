@@ -86,7 +86,17 @@ class AppController extends Notifier<AppState> {
   Future<void> _enterSession(Identity identity) async {
     // Kick the node off without blocking the UI transition.
     ref.read(nodeControllerProvider).start();
-    state = AppState(AppPhase.ready, identity: identity);
+    // In real mode the user's identity IS the node's identity — show the real
+    // node id (and invite) rather than the local placeholder.
+    final stack = ref.read(realStackProvider);
+    final effective = stack != null
+        ? Identity(
+            nodeId: stack.myInvite.nodeId,
+            displayName: identity.displayName,
+            username: identity.username,
+          )
+        : identity;
+    state = AppState(AppPhase.ready, identity: effective);
   }
 
   Future<void> lock() async {
