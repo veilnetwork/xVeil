@@ -7,7 +7,7 @@ void main() {
   testWidgets('boots to the splash screen', (tester) async {
     await tester.pumpWidget(const ProviderScope(child: XVeilApp()));
     await tester.pump();
-    // Splash shows the brand mark while bootstrapping.
-    expect(find.byIcon(Icons.shield_moon_outlined), findsOneWidget);
+    // Splash shows a spinner while bootstrapping.
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
   });
 }

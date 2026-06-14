@@ -11,7 +11,20 @@ class SplashScreen extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.shield_moon_outlined, size: 72, color: scheme.primary),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: Image.asset(
+                'assets/icon/app_icon.png',
+                width: 96,
+                height: 96,
+                // Fall back to the brand glyph if the asset is unavailable.
+                errorBuilder: (_, __, ___) => Icon(
+                  Icons.shield_moon_outlined,
+                  size: 72,
+                  color: scheme.primary,
+                ),
+              ),
+            ),
             const SizedBox(height: 24),
             const SizedBox(
               width: 28,
