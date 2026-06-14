@@ -7,6 +7,11 @@ class Ns {
   static const int contacts = 2;
   static const int messageLog = 3;
   static const int media = 4;
+
+  /// Append-log namespace for file-transfer chunk bytes (KV values are capped
+  /// ~2KB, so large files live here as <=8KiB log records — deniable, in the
+  /// container, not plaintext on disk).
+  static const int fileChunks = 5;
 }
 
 /// A single write in an atomic [KvLogStore.commit] batch. Mirrors
