@@ -8,6 +8,8 @@ import '../../core/ids.dart';
 import '../../domain/chat.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/messaging.dart';
+import '../../state/providers.dart';
+import '../contacts/invite_exchange_sheet.dart';
 
 class ChatsScreen extends ConsumerWidget {
   const ChatsScreen({super.key});
@@ -17,17 +19,27 @@ class ChatsScreen extends ConsumerWidget {
     final l = AppL10n.of(context);
     final convos = ref.watch(conversationsProvider);
     return Scaffold(
-      appBar: AppBar(title: Text(l.navChats)),
+      appBar: AppBar(
+        title: Text(l.navChats),
+        actions: [
+          // Dev / loopback affordance: start a chat by raw node id or a demo peer.
+          IconButton(
+            icon: const Icon(Icons.science_outlined),
+            tooltip: 'Demo chat',
+            onPressed: () => _newChat(context),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () => _newChat(context),
-        child: const Icon(Icons.edit_outlined),
+        onPressed: () => _addByInvite(context, ref),
+        child: const Icon(Icons.person_add_alt_1),
       ),
       body: convos.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('$e')),
         data: (list) {
           if (list.isEmpty) {
-            return _EmptyState(l: l, onStart: () => _newChat(context));
+            return _EmptyState(l: l, onStart: () => _addByInvite(context, ref));
           }
           return ListView.separated(
             itemCount: list.length,
@@ -46,6 +58,28 @@ class ChatsScreen extends ConsumerWidget {
     );
     if (hex == null || !context.mounted) return;
     context.push('/chat/$hex');
+  }
+
+  /// Add a contact by exchanging veil bootstrap invites. Persists the peer and
+  /// opens the chat. (When the real veil stack is active this also redeems the
+  /// invite via veilBootstrapJoin; in loopback it just records the contact.)
+  Future<void> _addByInvite(BuildContext context, WidgetRef ref) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetCtx) => InviteExchangeSheet(
+        myInvite: null,
+        onAddContact: (invite) async {
+          await ref
+              .read(storageProvider)
+              .upsertContact(Contact(nodeId: invite.nodeId));
+          ref.invalidate(conversationsProvider);
+          if (sheetCtx.mounted) Navigator.of(sheetCtx).pop();
+          if (context.mounted) context.push('/chat/${invite.nodeId.hex}');
+        },
+      ),
+    );
   }
 }
 
