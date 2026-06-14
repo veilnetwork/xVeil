@@ -59,7 +59,8 @@ class _InviteExchangeSheetState extends State<InviteExchangeSheet> {
         24,
         24 + MediaQuery.of(context).viewInsets.bottom,
       ),
-      child: Column(
+      child: SingleChildScrollView(
+        child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -149,6 +150,7 @@ class _InviteExchangeSheetState extends State<InviteExchangeSheet> {
             child: const Text('Add contact'),
           ),
         ],
+        ),
       ),
     );
   }
