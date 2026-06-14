@@ -11,6 +11,7 @@ import '../data/storage/kv_log_store.dart';
 import '../data/storage/storage.dart';
 import '../data/transport/loopback_transport.dart';
 import '../data/transport/veil_transport.dart';
+import '../data/veil_stack.dart';
 
 /// --- Infrastructure providers -------------------------------------------
 ///
@@ -37,17 +38,32 @@ final storageProvider = Provider<Storage>((ref) {
   return storage;
 });
 
+/// The real veil stack, when running. Null by default (loopback mode); main()
+/// overrides it with a started [RealVeilStack] only when the opt-in env flags
+/// are set, so the default startup path is completely unchanged.
+final realStackProvider = Provider<RealVeilStack?>((ref) => null);
+
 final nodeControllerProvider = Provider<NodeController>((ref) {
+  final stack = ref.watch(realStackProvider);
+  if (stack != null) return stack.controller; // owned/disposed by the stack
   final node = FakeNodeController();
   ref.onDispose(node.stop);
   return node;
 });
 
 final veilTransportProvider = Provider<VeilTransport>((ref) {
+  final stack = ref.watch(realStackProvider);
+  if (stack != null) return stack.transport; // owned/disposed by the stack
   final transport = LoopbackTransport();
   ref.onDispose(transport.dispose);
   return transport;
 });
+
+/// This device's shareable invite URI for the contact-exchange sheet — only
+/// available in real mode (null on loopback, which hides the QR).
+final myInviteProvider = Provider<String?>(
+  (ref) => ref.watch(realStackProvider)?.myInvite.toUri(),
+);
 
 /// Live node status, surfaced to the network UI. Seeds with the current
 /// snapshot so the stream provider has data before the first event.

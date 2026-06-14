@@ -69,8 +69,11 @@ class ChatsScreen extends ConsumerWidget {
       isScrollControlled: true,
       showDragHandle: true,
       builder: (sheetCtx) => InviteExchangeSheet(
-        myInvite: null,
+        myInvite: ref.read(myInviteProvider),
         onAddContact: (invite) async {
+          // In real mode, redeem the invite so our node dials the peer; in
+          // loopback we just record the contact.
+          await ref.read(realStackProvider)?.addContact(invite);
           await ref
               .read(storageProvider)
               .upsertContact(Contact(nodeId: invite.nodeId));
