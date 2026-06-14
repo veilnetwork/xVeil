@@ -12,19 +12,22 @@ Cross-platform Flutter: **Android · iOS · Windows · Linux · macOS**.
 
 ## Status
 
-Milestone 1 — **foundation + minimal chat** — is in place and runs on all desktop
-targets today:
+**Real P2P chat works end to end.** Verified between two app instances over the live
+veil overlay, including:
 
-- First-run onboarding (create identity → recovery phrase → storage choice → password)
-- Lock screen + `AppPhase`-gated navigation
-- Messenger: chat list + 1:1 conversation
-- Network + Settings tabs (live node status; proxy/VPN and node management stubbed)
-- Full RU/EN localization
+- Onboarding, lock screen + `AppPhase`-gated navigation, "start over" recovery
+- **Deniable storage** on a real `hidden-volume` container (desktop)
+- A real **veil node** — spawned (`veil-cli`) *or* run **in-process** via FFI
+  (`node-embedded`, the iOS/sandbox path; RocksDB stripped for a slim mobile build)
+- Real overlay **transport**; contact exchange via bootstrap invites (QR + paste)
+- **Consent gate** — request → accept before anyone can message you
+- Master vault (one password → several spaces); RU/EN; veil-branded icons
 
-Everything runs against **in-memory fakes** behind clean ports, so the app builds and
-runs without the native Rust stack. Wiring the real `veil` node + `hidden-volume`
-storage is the next milestone — it only re-points three providers. See
-[`doc/ARCHITECTURE.md`](doc/ARCHITECTURE.md).
+The app still builds/runs/tests on **in-memory fakes** behind clean ports (no native
+stack needed); the real stack activates via env (`XVEIL_VEIL_CLI`/`XVEIL_VEIL_CONFIG`,
+`XVEIL_NODE_MODE=embedded`). See [`doc/REAL-MODE.md`](doc/REAL-MODE.md) and
+[`doc/ARCHITECTURE.md`](doc/ARCHITECTURE.md). ~52 unit/widget tests + env-gated live
+tests under `test/native/`.
 
 ## Develop
 
