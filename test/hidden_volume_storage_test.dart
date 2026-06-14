@@ -122,4 +122,28 @@ void main() {
     await storage.open(password: 'pw');
     expect(await storage.getSetting('k'), 'v');
   });
+
+  test('a contact with no messages still appears in the chat list', () async {
+    await storage.upsertContact(Contact(nodeId: _id(5), name: 'Carol'));
+
+    final convos = await storage.loadConversations();
+    expect(convos.map((c) => c.peer.nodeId), contains(_id(5)));
+    final carol = convos.firstWhere((c) => c.peer.nodeId == _id(5));
+    expect(carol.peer.name, 'Carol');
+    expect(carol.lastMessage, isNull);
+  });
+
+  test('a messaged contact sorts above a message-less one', () async {
+    await storage.upsertContact(Contact(nodeId: _id(5), name: 'Carol'));
+    await storage.appendMessage(_msg(
+      conv: _id(6).hex,
+      dir: MessageDirection.outgoing,
+      body: 'yo',
+      ts: DateTime(2026, 2, 1),
+    ));
+
+    final convos = await storage.loadConversations();
+    expect(convos.first.peer.nodeId, _id(6)); // has a message
+    expect(convos.last.peer.nodeId, _id(5)); // message-less, at the bottom
+  });
 }

@@ -95,7 +95,20 @@ class HiddenVolumeStorage implements Storage {
   @override
   Future<void> upsertContact(Contact contact) async {
     final json = jsonEncode({'n': contact.nodeId.hex, 'name': contact.name});
-    _s.commit([PutOp(Ns.contacts, contact.nodeId.bytes, _sk(json))]);
+    // Maintain a contacts index (hidden-volume has no KV key enumeration) so
+    // the chat list can show contacts that have no messages yet.
+    final index = _contactIndex();
+    if (!index.contains(contact.nodeId.hex)) index.add(contact.nodeId.hex);
+    _s.commit([
+      PutOp(Ns.contacts, contact.nodeId.bytes, _sk(json)),
+      PutOp(Ns.settings, _sk('contacts:index'), _sk(jsonEncode(index))),
+    ]);
+  }
+
+  List<String> _contactIndex() {
+    final raw = _s.get(Ns.settings, _sk('contacts:index'));
+    if (raw == null) return [];
+    return (jsonDecode(utf8.decode(raw)) as List).cast<String>();
   }
 
   Contact _contactFor(NodeId id) {
@@ -116,14 +129,26 @@ class HiddenVolumeStorage implements Storage {
         byConv[entry.conversationId] = entry;
       }
     }
-    final out = byConv.entries.map((e) {
-      return Conversation(
-        peer: _contactFor(NodeId.fromHex(e.key)),
-        lastMessage: e.value,
-      );
-    }).toList()
-      ..sort((a, b) => (b.lastMessage?.timestamp ?? DateTime(0))
-          .compareTo(a.lastMessage?.timestamp ?? DateTime(0)));
+    // Union of known contacts and any conversation that has messages (a peer
+    // we received from is auto-added, but include log-only ids defensively).
+    final ids = <String>{..._contactIndex(), ...byConv.keys};
+    final out = ids
+        .map((hex) => Conversation(
+              peer: _contactFor(NodeId.fromHex(hex)),
+              lastMessage: byConv[hex],
+            ))
+        .toList()
+      ..sort((a, b) {
+        final at = a.lastMessage?.timestamp;
+        final bt = b.lastMessage?.timestamp;
+        // Conversations with messages first (newest), message-less by name.
+        if (at == null && bt == null) {
+          return a.peer.label.compareTo(b.peer.label);
+        }
+        if (at == null) return 1;
+        if (bt == null) return -1;
+        return bt.compareTo(at);
+      });
     return out;
   }
 
