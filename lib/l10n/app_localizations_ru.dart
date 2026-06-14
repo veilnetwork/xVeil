@@ -104,6 +104,13 @@ class AppL10nRu extends AppL10n {
   String get lockWrong => 'Неверный пароль';
 
   @override
+  String get lockStartOver => 'Начать заново';
+
+  @override
+  String get lockStartOverBody =>
+      'Настроить новую личность на этом устройстве. Существующие данные не удаляются, но для доступа к ним снова понадобится их пароль. Продолжить?';
+
+  @override
   String get navChats => 'Чаты';
 
   @override

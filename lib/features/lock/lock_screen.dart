@@ -28,6 +28,30 @@ class _LockScreenState extends ConsumerState<LockScreen> {
     if (mounted) setState(() => _busy = false);
   }
 
+  Future<void> _startOver() async {
+    final l = AppL10n.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l.lockStartOver),
+        content: Text(l.lockStartOverBody),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(l.actionCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(l.lockStartOver),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await ref.read(appControllerProvider.notifier).startOver();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
@@ -70,6 +94,11 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                         width: 20,
                         child: CircularProgressIndicator(strokeWidth: 2))
                     : Text(l.lockUnlock),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: _busy ? null : _startOver,
+                child: Text(l.lockStartOver),
               ),
               const Spacer(flex: 2),
             ],
