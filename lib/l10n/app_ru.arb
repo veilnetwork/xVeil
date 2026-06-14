@@ -1,0 +1,60 @@
+{
+  "@@locale": "ru",
+  "appName": "xVeil",
+
+  "actionContinue": "Продолжить",
+  "actionBack": "Назад",
+  "actionCancel": "Отмена",
+  "actionDone": "Готово",
+  "actionCopy": "Копировать",
+  "actionUnderstood": "Понятно",
+
+  "onboardWelcomeTitle": "Добро пожаловать в xVeil",
+  "onboardWelcomeBody": "Децентрализованный мессенджер, устойчивый к цензуре. Без номера телефона. Без центрального сервера. Ваша личность и переписка остаются только у вас.",
+  "onboardChooseTitle": "Настройка личности",
+  "onboardCreateIdentity": "Создать новую личность",
+  "onboardCreateIdentitySub": "Сгенерировать новый суверенный ключ на этом устройстве",
+  "onboardRestoreIdentity": "Восстановить из фразы",
+  "onboardRestoreIdentitySub": "Используйте 24 слова, чтобы восстановить существующую личность",
+  "onboardImportBackup": "Импорт резервной копии",
+  "onboardImportBackupSub": "Восстановить из зашифрованного файла резервной копии",
+
+  "recoveryTitle": "Сохраните фразу восстановления",
+  "recoveryBody": "Эти 24 слова — и есть ваша личность. Любой, у кого они есть, управляет ею; потеряете — восстановить будет невозможно. Запишите их на бумаге и храните в надёжном месте. Никогда не храните их в сети и не фотографируйте.",
+  "recoveryConfirm": "Я записал(а) фразу восстановления",
+
+  "storageTitle": "Как хранить ваши данные?",
+  "storageHiddenTitle": "Скрытое пространство (рекомендуется)",
+  "storageHiddenBody": "Переписка и ключи хранятся в зашифрованном контейнере с правдоподобным отрицанием. Противник, изъявший устройство, не сможет доказать, что данные вообще существуют.",
+  "storagePlainTitle": "Открытое хранение",
+  "storagePlainBody": "Быстрее настроить, но факт существования ваших данных виден любому, кто осмотрит устройство.",
+  "storagePlainWarning": "Не рекомендуется пользователям с высоким риском. Выбирайте только если отрицаемость для вас не важна.",
+
+  "lockTitle": "Разблокировать xVeil",
+  "lockPasswordHint": "Введите пароль",
+  "lockUnlock": "Разблокировать",
+  "lockWrong": "Неверный пароль",
+
+  "navChats": "Чаты",
+  "navNetwork": "Сеть",
+  "navSettings": "Настройки",
+
+  "chatsEmpty": "Пока нет переписок",
+  "chatsEmptyHint": "Начните новый чат, чтобы написать сообщение",
+  "chatNewMessageHint": "Сообщение",
+  "chatSend": "Отправить",
+
+  "networkTitle": "Оверлей-сеть",
+  "networkStatusConnected": "Подключено",
+  "networkStatusConnecting": "Подключение…",
+  "networkStatusOffline": "Не в сети",
+  "networkPeers": "{count} узлов",
+  "@networkPeers": { "placeholders": { "count": { "type": "int" } } },
+
+  "settingsTitle": "Настройки",
+  "settingsIdentity": "Личность",
+  "settingsStorage": "Хранилище и пространства",
+  "settingsNetwork": "Сеть и узлы",
+  "settingsAppearance": "Оформление",
+  "settingsAbout": "О приложении"
+}

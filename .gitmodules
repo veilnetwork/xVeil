@@ -1,0 +1,6 @@
+[submodule "third_party/hidden-volume"]
+	path = third_party/hidden-volume
+	url = git@github.com:veilnetwork/hidden-volume.git
+[submodule "third_party/veil"]
+	path = third_party/veil
+	url = git@github.com:veilnetwork/veil.git
