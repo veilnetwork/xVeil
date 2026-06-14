@@ -1,9 +1,13 @@
+import 'dart:typed_data';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/node/fake_node_controller.dart';
 import '../data/node/node_controller.dart';
-import '../data/storage/in_memory_storage.dart';
+import '../data/storage/fake_kv_log_store.dart';
+import '../data/storage/hidden_volume_storage.dart';
+import '../data/storage/kv_log_store.dart';
 import '../data/storage/storage.dart';
 import '../data/transport/loopback_transport.dart';
 import '../data/transport/veil_transport.dart';
@@ -19,7 +23,16 @@ final prefsProvider = FutureProvider<SharedPreferences>((ref) {
 });
 
 final storageProvider = Provider<Storage>((ref) {
-  final storage = InMemoryStorage();
+  // Dev/test wiring: the real domain→namespace/log mapping runs over an
+  // in-memory space that persists for the session (so lock→unlock keeps
+  // data). Swapping to native is just a different SpaceOpener (HvSpace).
+  // An empty password unlocks nothing — exercises the auth-fail path.
+  final session = FakeKvLogStore();
+  KvLogStore? opener({required Uint8List password, required bool create}) {
+    return password.isEmpty ? null : session;
+  }
+
+  final storage = HiddenVolumeStorage(opener);
   ref.onDispose(storage.close);
   return storage;
 });
