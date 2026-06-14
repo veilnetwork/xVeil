@@ -53,6 +53,28 @@ void main() {
     expect(c.read(appControllerProvider).phase, AppPhase.ready);
   });
 
+  test('startOver clears onboarding and returns to onboarding', () async {
+    final c = ProviderContainer();
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+    await ctrl.completeOnboarding(
+        identity: AppController.generateIdentity(),
+        password: 'pw',
+        mode: StorageMode.hiddenSpace);
+    expect(c.read(appControllerProvider).phase, AppPhase.ready);
+
+    await ctrl.startOver();
+    expect(c.read(appControllerProvider).phase, AppPhase.onboarding);
+
+    // A fresh controller now boots to onboarding (the flag was cleared).
+    final c2 = ProviderContainer();
+    addTearDown(c2.dispose);
+    c2.read(appControllerProvider.notifier);
+    await _settle(c2);
+    expect(c2.read(appControllerProvider).phase, AppPhase.onboarding);
+  });
+
   test('unlock with an empty password reports an error', () async {
     final c = ProviderContainer();
     addTearDown(c.dispose);

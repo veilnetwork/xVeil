@@ -271,6 +271,18 @@ abstract class AppL10n {
   /// **'Wrong password'**
   String get lockWrong;
 
+  /// No description provided for @lockStartOver.
+  ///
+  /// In en, this message translates to:
+  /// **'Start over'**
+  String get lockStartOver;
+
+  /// No description provided for @lockStartOverBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Set up a new identity on this device. Your existing data is not deleted, but you will need its password to reach it again. Continue?'**
+  String get lockStartOverBody;
+
   /// No description provided for @navChats.
   ///
   /// In en, this message translates to:

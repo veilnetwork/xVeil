@@ -34,6 +34,8 @@
   "lockPasswordHint": "Enter your password",
   "lockUnlock": "Unlock",
   "lockWrong": "Wrong password",
+  "lockStartOver": "Start over",
+  "lockStartOverBody": "Set up a new identity on this device. Your existing data is not deleted, but you will need its password to reach it again. Continue?",
 
   "navChats": "Chats",
   "navNetwork": "Network",
