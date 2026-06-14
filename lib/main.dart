@@ -60,9 +60,15 @@ Future<List<Override>> _bootstrapOverrides() async {
           appSocketPath: sock,
         );
         overrides.add(realStackProvider.overrideWithValue(stack));
+        // ignore: avoid_print
+        print('xVeil[real]: connected, node=${stack.myInvite.nodeId.short}');
+      } else {
+        // ignore: avoid_print
+        print('xVeil[real]: veil dylib failed to load');
       }
-    } catch (_) {
-      // Real stack unavailable — stay on loopback.
+    } catch (e) {
+      // ignore: avoid_print
+      print('xVeil[real]: start failed -> loopback: $e');
     }
   }
 
