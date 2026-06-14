@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import '../transport/bootstrap_invite.dart';
 import 'process_launcher.dart';
 import 'subprocess_node_controller.dart';
 
@@ -46,23 +47,28 @@ SubprocessNodeController veilSubprocessController({
   );
 }
 
-/// Ensures a runnable veil config exists at [configPath] and that its app IPC
-/// socket is enabled; returns the app socket path. On first run this MINES a
-/// fresh identity (>=24-bit PoW — can take minutes), so call it from the
-/// identity-creation flow, not on every launch. Idempotent thereafter.
+/// Ensures a runnable veil config exists at [configPath] with the app IPC
+/// socket enabled and a listener (required for the bidirectional session
+/// veil's directional dedup needs — see BootstrapInvite). Returns the app
+/// socket path. On first run this MINES a fresh identity (>=24-bit PoW — can
+/// take minutes), so call it from the identity-creation flow, not on every
+/// launch. Idempotent thereafter.
 Future<String> ensureVeilConfig({
   required String veilCliPath,
   required String configPath,
   String? appSocketPath,
+  String listenTransport = 'tcp://127.0.0.1:9000',
 }) async {
-  final socket =
-      appSocketPath ?? '${File(configPath).parent.path}/app.sock';
+  final socket = appSocketPath ?? '${File(configPath).parent.path}/app.sock';
   if (!await File(configPath).exists()) {
     final init =
         await Process.run(veilCliPath, ['config', 'init', configPath]);
     if (init.exitCode != 0) {
       throw StateError('veil config init failed: ${init.stderr}');
     }
+    // A fresh config has no listener; add one so peers can dial us.
+    await Process.run(
+        veilCliPath, ['-c', configPath, 'listen', 'add', listenTransport]);
   }
   // Enable the separate app IPC socket (admin socket is admin-only).
   await Process.run(
@@ -70,4 +76,36 @@ Future<String> ensureVeilConfig({
   await Process.run(veilCliPath,
       ['-c', configPath, 'config', 'set', 'ipc.socket_uri', 'unix://$socket']);
   return socket;
+}
+
+/// This node's shareable bootstrap invite (for the contact-add QR). Reads the
+/// first listener + current identity from [configPath].
+Future<BootstrapInvite> veilBootstrapInvite({
+  required String veilCliPath,
+  required String configPath,
+}) async {
+  final r = await Process.run(
+      veilCliPath, ['-c', configPath, 'bootstrap', 'invite']);
+  if (r.exitCode != 0) {
+    throw StateError('veil bootstrap invite failed: ${r.stderr}');
+  }
+  final match = RegExp(r'veil:bootstrap\?\S+').firstMatch('${r.stdout}');
+  if (match == null) {
+    throw StateError('no invite URI in output: ${r.stdout}');
+  }
+  return BootstrapInvite.parse(match.group(0)!);
+}
+
+/// Redeem a scanned/pasted invite — appends the peer as a `[[bootstrap_peers]]`
+/// entry so this node dials it (establishing the session in both directions).
+Future<void> veilBootstrapJoin({
+  required String veilCliPath,
+  required String configPath,
+  required String inviteUri,
+}) async {
+  final r = await Process.run(
+      veilCliPath, ['-c', configPath, 'bootstrap', 'join', '--uri', inviteUri]);
+  if (r.exitCode != 0) {
+    throw StateError('veil bootstrap join failed: ${r.stderr}');
+  }
 }
