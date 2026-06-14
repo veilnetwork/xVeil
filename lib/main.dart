@@ -31,8 +31,13 @@ Future<List<Override>> _bootstrapOverrides() async {
 
   try {
     if (ensureHiddenVolumeLoaded()) {
+      // XVEIL_STORE_PATH lets two instances on one machine use separate
+      // containers (dev/demo); otherwise the per-app support dir.
+      final override = Platform.environment['XVEIL_STORE_PATH'];
       final dir = await getApplicationSupportDirectory();
-      final path = '${dir.path}/xveil.store';
+      final path = (override != null && override.isNotEmpty)
+          ? override
+          : '${dir.path}/xveil.store';
       overrides.add(storageProvider.overrideWith((ref) {
         final storage = HiddenVolumeStorage(hvSpaceOpener(path));
         ref.onDispose(storage.close);
