@@ -13,19 +13,28 @@ import 'providers.dart';
 
 const _uuid = Uuid();
 
-/// Wires the [VeilTransport] inbound stream into [Storage] and exposes a
-/// send path. Persists every message, then invalidates the read providers so
-/// the UI refreshes. This is the single seam where transport meets storage.
+/// Wires the [VeilTransport] inbound stream into [Storage] and exposes a send
+/// path. Persists every message, then signals [changes] so the read providers
+/// refresh. Intentionally Riverpod-free (no Ref) — it owns a plain broadcast
+/// stream, which keeps it testable and avoids invalidating providers from
+/// async stream callbacks.
 class MessagingService {
-  MessagingService(this._transport, this._storage, this._ref);
+  MessagingService(this._transport, this._storage);
 
   final VeilTransport _transport;
   final Storage _storage;
-  final Ref _ref;
+  final _changes = StreamController<void>.broadcast();
   StreamSubscription<InboundMessage>? _sub;
+
+  /// Emits whenever stored conversations/messages change.
+  Stream<void> get changes => _changes.stream;
 
   void start() {
     _sub ??= _transport.messages().listen(_onInbound);
+  }
+
+  void _signal() {
+    if (!_changes.isClosed) _changes.add(null);
   }
 
   Future<void> _onInbound(InboundMessage m) async {
@@ -39,8 +48,7 @@ class MessagingService {
       timestamp: DateTime.now(),
       status: MessageStatus.delivered,
     ));
-    _ref.invalidate(conversationsProvider);
-    _ref.invalidate(messagesProvider(convId));
+    _signal();
   }
 
   Future<void> sendText(NodeId dst, String text) async {
@@ -56,14 +64,14 @@ class MessagingService {
       timestamp: DateTime.now(),
       status: MessageStatus.sent,
     ));
-    _ref.invalidate(conversationsProvider);
-    _ref.invalidate(messagesProvider(convId));
+    _signal();
     await _transport.send(dst, Uint8List.fromList(utf8.encode(trimmed)));
   }
 
   Future<void> dispose() async {
     await _sub?.cancel();
     _sub = null;
+    await _changes.close();
   }
 }
 
@@ -72,21 +80,29 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
   final service = MessagingService(
     ref.watch(veilTransportProvider),
     ref.watch(storageProvider),
-    ref,
   );
   service.start();
   ref.onDispose(service.dispose);
   return service;
 });
 
-final conversationsProvider = FutureProvider<List<Conversation>>((ref) async {
-  // Ensure inbound wiring is live whenever the chat list is shown.
-  ref.watch(messagingServiceProvider);
-  return ref.watch(storageProvider).loadConversations();
+/// Conversations, re-loaded on first build and whenever the service signals a
+/// change. StreamProvider yields the same AsyncValue the UI already consumes.
+final conversationsProvider = StreamProvider<List<Conversation>>((ref) async* {
+  final service = ref.watch(messagingServiceProvider);
+  final storage = ref.watch(storageProvider);
+  yield await storage.loadConversations();
+  await for (final _ in service.changes) {
+    yield await storage.loadConversations();
+  }
 });
 
 final messagesProvider =
-    FutureProvider.family<List<Message>, String>((ref, conversationId) async {
-  ref.watch(messagingServiceProvider);
-  return ref.watch(storageProvider).loadMessages(conversationId);
+    StreamProvider.family<List<Message>, String>((ref, conversationId) async* {
+  final service = ref.watch(messagingServiceProvider);
+  final storage = ref.watch(storageProvider);
+  yield await storage.loadMessages(conversationId);
+  await for (final _ in service.changes) {
+    yield await storage.loadMessages(conversationId);
+  }
 });
