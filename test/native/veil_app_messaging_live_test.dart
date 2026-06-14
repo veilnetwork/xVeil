@@ -6,6 +6,7 @@ import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/transport/veil_flutter_transport.dart';
+import 'package:xveil/domain/chat.dart';
 import 'package:xveil/state/messaging.dart';
 import 'package:xveil/state/providers.dart';
 
@@ -48,21 +49,37 @@ void main() {
       await tB.dispose();
     });
 
-    // Start B listening (the provider wires transport -> storage and listens).
-    cB.read(messagingServiceProvider);
+    final mA = cA.read(messagingServiceProvider);
+    final mB = cB.read(messagingServiceProvider); // both listen
     final aId = await tA.nodeId();
     final bId = await tB.nodeId();
 
-    await cA.read(messagingServiceProvider).sendText(bId, 'hello pipeline');
-
-    // Poll B's storage for the delivered message.
-    var got = <dynamic>[];
-    for (var i = 0; i < 40; i++) {
-      got = await sB.loadMessages(aId.hex);
-      if (got.isNotEmpty) break;
-      await Future<void>.delayed(const Duration(milliseconds: 250));
+    Future<bool> until(Future<bool> Function() cond) async {
+      for (var i = 0; i < 40; i++) {
+        if (await cond()) return true;
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      }
+      return false;
     }
-    expect(got, isNotEmpty, reason: 'B should have received the message');
-    expect(got.single.body, 'hello pipeline');
-  }, skip: skip, timeout: const Timeout(Duration(seconds: 40)));
+
+    // Full consent handshake over the real overlay: request -> accept -> msg.
+    await mA.sendRequest(bId, 'hi');
+    expect(
+        await until(() async =>
+            (await sB.getContact(aId))?.status == ContactStatus.pendingIncoming),
+        isTrue);
+
+    await mB.acceptContact(aId);
+    expect(
+        await until(() async =>
+            (await sA.getContact(bId))?.status == ContactStatus.accepted),
+        isTrue);
+
+    await mA.sendText(bId, 'hello pipeline');
+    expect(
+        await until(() async => (await sB.loadMessages(aId.hex))
+            .any((m) => m.body == 'hello pipeline')),
+        isTrue,
+        reason: 'B should receive the message after accepting');
+  }, skip: skip, timeout: const Timeout(Duration(seconds: 60)));
 }

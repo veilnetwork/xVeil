@@ -1,3 +1,4 @@
+import '../../core/ids.dart';
 import '../../domain/chat.dart';
 import '../../domain/identity.dart';
 
@@ -22,6 +23,10 @@ abstract interface class Storage {
   Future<String?> getSetting(String key);
 
   Future<void> upsertContact(Contact contact);
+
+  /// The stored contact for [nodeId], or null if we have no record of them.
+  Future<Contact?> getContact(NodeId nodeId);
+
   Future<List<Conversation>> loadConversations();
 
   Future<List<Message>> loadMessages(String conversationId);
