@@ -18,7 +18,7 @@ class SplashScreen extends StatelessWidget {
                 width: 96,
                 height: 96,
                 // Fall back to the brand glyph if the asset is unavailable.
-                errorBuilder: (_, __, ___) => Icon(
+                errorBuilder: (_, _, _) => Icon(
                   Icons.shield_moon_outlined,
                   size: 72,
                   color: scheme.primary,
