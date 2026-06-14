@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/format.dart';
 import '../../core/ids.dart';
 import '../../domain/chat.dart';
 import '../../l10n/app_localizations.dart';
@@ -114,10 +115,40 @@ class _Bubble extends StatelessWidget {
             bottomRight: Radius.circular(outgoing ? 4 : 16),
           ),
         ),
-        child: Text(message.body),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(message.body),
+            const SizedBox(height: 2),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  formatHhmm(message.timestamp),
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                ),
+                if (outgoing) ...[
+                  const SizedBox(width: 4),
+                  Icon(_statusIcon(message.status),
+                      size: 13, color: scheme.onSurfaceVariant),
+                ],
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
+
+  static IconData _statusIcon(MessageStatus s) => switch (s) {
+        MessageStatus.sending => Icons.schedule,
+        MessageStatus.sent => Icons.check,
+        MessageStatus.delivered => Icons.done_all,
+        MessageStatus.failed => Icons.error_outline,
+      };
 }
 
 class _Composer extends StatelessWidget {
