@@ -72,8 +72,11 @@ class ChatsScreen extends ConsumerWidget {
         myInvite: ref.read(myInviteProvider),
         onAddContact: (invite) async {
           // In real mode, redeem the invite so our node dials the peer; in
-          // loopback we just record the contact.
-          await ref.read(realStackProvider)?.addContact(invite);
+          // loopback we just record the contact. A redeem failure (e.g. the
+          // peer is already known) must not block adding the contact locally.
+          try {
+            await ref.read(realStackProvider)?.addContact(invite);
+          } catch (_) {}
           await ref
               .read(storageProvider)
               .upsertContact(Contact(nodeId: invite.nodeId));
