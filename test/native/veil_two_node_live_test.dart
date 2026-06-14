@@ -12,16 +12,16 @@ import 'package:xveil/data/transport/veil_transport.dart';
 /// XVEIL_TEST_SOCK_A / XVEIL_TEST_SOCK_B to two running, peered nodes' app
 /// sockets and VEIL_FFI_DYLIB to libveilclient_ffi.
 ///
-/// HARNESS — PENDING inter-node route bring-up. With two isolated local nodes
-/// (B listening on tcp://127.0.0.1:9101, A holding B via BOTH `peers add` and a
-/// `bootstrap join` `[[bootstrap_peers]]` entry), an A->B app send still logs
-/// `route.discovery.miss dst=…`: A never opens a session to the peer and the
-/// DHT route lookup misses (veil's known "DHT fallback ~0% with no relays").
-/// Establishing a real session between two isolated nodes needs deeper veil
-/// bring-up (a relay / a populated routing table) — covered by veil's own
-/// SimNetworkBuilder cross-node IPC suite. xVeil's transport adapter is proven
-/// by veil_transport_live_test (self-send through a real node); flip this on
-/// once node-to-node routing is wired end to end.
+/// PASSES with the correct two-node topology (verified 2026-06-14):
+///   1. EACH node has its own listener: `listen add tcp://127.0.0.1:<port>`.
+///   2. The nodes mutually `bootstrap join` each other's `bootstrap invite`.
+/// The session then forms in the direction veil's *directional dedup* accepts
+/// (lower node_id listens / accepts inbound, higher node_id dials). Get this
+/// wrong — e.g. only the callee has a listener — and the dialer's own session
+/// is "duplicate session rejected", the link drops with EOF, and every app
+/// send loops `route.discovery.miss`. With both listeners + mutual bootstrap
+/// the session stays `active`, route discovery resolves over it, and A->B
+/// delivers. See test/native/README or memory for the exact CLI recipe.
 void main() {
   final sockA = Platform.environment['XVEIL_TEST_SOCK_A'];
   final sockB = Platform.environment['XVEIL_TEST_SOCK_B'];
