@@ -71,16 +71,13 @@ class ChatsScreen extends ConsumerWidget {
       builder: (sheetCtx) => InviteExchangeSheet(
         myInvite: ref.read(myInviteProvider),
         onAddContact: (invite) async {
-          // In real mode, redeem the invite so our node dials the peer; in
-          // loopback we just record the contact. A redeem failure (e.g. the
-          // peer is already known) must not block adding the contact locally.
+          // In real mode, redeem the invite so our node can dial the peer
+          // (a redeem failure, e.g. already known, must not block the flow).
           try {
             await ref.read(realStackProvider)?.addContact(invite);
           } catch (_) {}
-          await ref
-              .read(storageProvider)
-              .upsertContact(Contact(nodeId: invite.nodeId));
-          ref.invalidate(conversationsProvider);
+          // No contact is recorded yet — opening the chat lets the user send a
+          // connection request (the first message becomes the greeting).
           if (sheetCtx.mounted) Navigator.of(sheetCtx).pop();
           if (context.mounted) context.push('/chat/${invite.nodeId.hex}');
         },
@@ -121,18 +118,32 @@ class _ConversationTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final last = conversation.lastMessage;
+    final status = conversation.peer.status;
+
+    final (String? hint, Color? hintColor) = switch (status) {
+      ContactStatus.pendingIncoming => ('● wants to connect', scheme.primary),
+      ContactStatus.pendingOutgoing => ('request sent', scheme.onSurfaceVariant),
+      ContactStatus.blocked => ('blocked', scheme.error),
+      ContactStatus.accepted => (null, null),
+    };
+
     return ListTile(
       leading: CircleAvatar(
         child: Text(conversation.peer.label.characters.first.toUpperCase()),
       ),
       title: Text(conversation.peer.label),
-      subtitle: last == null
-          ? null
-          : Text(last.body, maxLines: 1, overflow: TextOverflow.ellipsis),
-      trailing: conversation.unread > 0
-          ? Badge(label: Text('${conversation.unread}'))
-          : null,
+      subtitle: hint != null
+          ? Text(hint, style: TextStyle(color: hintColor))
+          : (last == null
+              ? null
+              : Text(last.body, maxLines: 1, overflow: TextOverflow.ellipsis)),
+      trailing: status == ContactStatus.pendingIncoming
+          ? Icon(Icons.fiber_new, color: scheme.primary)
+          : (conversation.unread > 0
+              ? Badge(label: Text('${conversation.unread}'))
+              : null),
       onTap: () => context.push('/chat/${conversation.peer.nodeId.hex}'),
     );
   }
