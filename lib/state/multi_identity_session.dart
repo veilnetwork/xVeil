@@ -2,6 +2,8 @@
 // for this small orchestration constructor.
 // ignore_for_file: prefer_initializing_formals
 
+import 'dart:async';
+
 import '../data/storage/hidden_volume_storage.dart';
 import '../data/storage/multi_space_store.dart';
 import '../data/storage/storage.dart';
@@ -109,6 +111,11 @@ class MultiIdentitySession {
   final int _listenPortBase;
   final IdentityNodeBoot _boot;
 
+  /// Per-identity node-boot ceiling (mining a fresh identity can take a few
+  /// seconds; the deferred admin-connect retries up to ~90s, so cap well under
+  /// that to fail fast on a stuck bind).
+  static const _bootTimeout = Duration(seconds: 45);
+
   final _storages = <String, Storage>{};
   final _nodes = <String, IdentityNode>{};
   final _messaging = <String, MessagingService>{};
@@ -130,7 +137,10 @@ class MultiIdentitySession {
           MultiSpaceKvLogStore(_backing, spec.spaceId));
       _storages[spec.label] = storage;
       try {
-        final node = await _boot(spec, storage);
+        // Bound the boot: a node that can't bind its port (e.g. one just freed
+        // by a previous mode) otherwise retries the admin-connect for ~90s and
+        // would hang the whole unlock. On timeout we skip it (best-effort).
+        final node = await _boot(spec, storage).timeout(_bootTimeout);
         _nodes[spec.label] = node;
         _messaging[spec.label] = MessagingService(node.transport, storage)
           ..start();
