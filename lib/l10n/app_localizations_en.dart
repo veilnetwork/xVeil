@@ -117,6 +117,16 @@ class AppL10nEn extends AppL10n {
       'Set up a new identity on this device. Your existing data is not deleted, but you will need its password to reach it again. Continue?';
 
   @override
+  String get lockWipe => 'Clear all data';
+
+  @override
+  String get lockWipeBody =>
+      'This permanently deletes the container and EVERY identity inside it — including any hidden or decoy ones. This cannot be undone: without the container the data is unrecoverable, even with the right password. Are you absolutely sure?';
+
+  @override
+  String get lockWipeConfirm => 'Delete forever';
+
+  @override
   String get navChats => 'Chats';
 
   @override

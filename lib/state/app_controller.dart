@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -566,6 +567,38 @@ class AppController extends Notifier<AppState> {
     await _teardownRealStack();
     await ref.read(storageProvider).close();
     _clearMasterSession();
+    final prefs = await ref.read(prefsProvider.future);
+    await prefs.remove(_kOnboardedKey);
+    await prefs.remove(_kStorageModeKey);
+    state = const AppState(AppPhase.onboarding);
+  }
+
+  /// IRREVERSIBLE WIPE: delete the on-disk container, destroying EVERY identity
+  /// it holds — including any hidden/decoy master — then return to onboarding.
+  ///
+  /// Unlike [startOver], which only forgets that this device set up a container
+  /// (the encrypted file is left intact, so the same password still opens it
+  /// later), this scrubs the file itself. There is NO recovery: by design the
+  /// spaces are unrecoverable without the container. The UI must gate this
+  /// behind an explicit, clearly-worded confirmation.
+  Future<void> wipeContainers() async {
+    await _teardownSession();
+    await _teardownRealStack();
+    await ref.read(storageProvider).close();
+    _clearMasterSession();
+
+    // Delete the container file when we know its path (native/deniable build).
+    // On the in-memory/loopback path there is no file — startOver semantics.
+    final path = ref.read(deniableBootProvider)?.storePath;
+    if (path != null) {
+      try {
+        final f = File(path);
+        if (await f.exists()) await f.delete();
+      } catch (e) {
+        debugPrint('xVeil[wipe]: failed to delete container at $path: $e');
+      }
+    }
+
     final prefs = await ref.read(prefsProvider.future);
     await prefs.remove(_kOnboardedKey);
     await prefs.remove(_kStorageModeKey);
