@@ -209,6 +209,29 @@ void main() {
     expect(await storage.loadMessages(_id(9).hex), isEmpty);
   });
 
+  test('deleting a file message also purges the stored blob', () async {
+    final conv = _id(11).hex;
+    await storage.storeFile('blob1', Uint8List.fromList([1, 2, 3, 4]),
+        name: 'secret.bin');
+    final m = Message(
+      id: 'filemsg',
+      conversationId: conv,
+      direction: MessageDirection.incoming,
+      body: '📎 secret.bin',
+      timestamp: DateTime(2026, 3, 5),
+      fileId: 'blob1',
+      fileName: 'secret.bin',
+    );
+    await storage.appendMessage(m);
+    expect(await storage.loadFile('blob1'), isNotNull);
+
+    await storage.deleteMessage('filemsg');
+    await storage.scrubDeleted();
+
+    expect(await storage.loadMessages(conv), isEmpty);
+    expect(await storage.loadFile('blob1'), isNull); // blob gone, not just row
+  });
+
   test('a deleted id stays gone after a scrub pass', () async {
     final conv = _id(10).hex;
     final m = _msg(
