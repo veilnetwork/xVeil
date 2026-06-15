@@ -246,6 +246,42 @@ class AppL10nRu extends AppL10n {
   String get settingsSwitchIdentity => 'Сменить личность';
 
   @override
+  String get settingsAddIdentity => 'Добавить личность';
+
+  @override
+  String get addIdentityTitle => 'Добавить личность';
+
+  @override
+  String get addIdentitySubtitle =>
+      'Новая личность прячется в том же файле. При первом добавлении ваша текущая личность и новая управляются мастер-паролем, который вы зададите ниже.';
+
+  @override
+  String get addIdentityCurrentName => 'Имя текущей личности';
+
+  @override
+  String get addIdentityNewName => 'Имя новой личности';
+
+  @override
+  String get addIdentityNewPassword => 'Пароль новой личности';
+
+  @override
+  String get addIdentityMasterPassword => 'Мастер-пароль';
+
+  @override
+  String get addIdentityMasterHint =>
+      'Открывает выбор личностей. Должен отличаться от пароля каждой личности.';
+
+  @override
+  String get addIdentityCreate => 'Создать';
+
+  @override
+  String get addIdentityIncomplete => 'Заполните все поля.';
+
+  @override
+  String get addIdentityClash =>
+      'Этот мастер-пароль уже занят личностью — выберите другой.';
+
+  @override
   String get languageSystem => 'Системный';
 
   @override
