@@ -385,6 +385,66 @@ abstract class AppL10n {
   /// **'File is too large'**
   String get chatFileTooLarge;
 
+  /// No description provided for @chatMsgEdit.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit'**
+  String get chatMsgEdit;
+
+  /// No description provided for @chatMsgDeleteForEveryone.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete for everyone'**
+  String get chatMsgDeleteForEveryone;
+
+  /// No description provided for @chatMsgDeleteForMe.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete for me'**
+  String get chatMsgDeleteForMe;
+
+  /// No description provided for @chatEditTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit message'**
+  String get chatEditTitle;
+
+  /// No description provided for @chatEditSave.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get chatEditSave;
+
+  /// No description provided for @chatDeleteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete message?'**
+  String get chatDeleteTitle;
+
+  /// No description provided for @chatDeleteForMeBody.
+  ///
+  /// In en, this message translates to:
+  /// **'It is permanently erased from this device.'**
+  String get chatDeleteForMeBody;
+
+  /// No description provided for @chatDeleteForEveryoneBody.
+  ///
+  /// In en, this message translates to:
+  /// **'It is erased here and a delete request is sent to the other person — but they may already have seen or copied it.'**
+  String get chatDeleteForEveryoneBody;
+
+  /// No description provided for @chatDeleteConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get chatDeleteConfirm;
+
+  /// No description provided for @chatEdited.
+  ///
+  /// In en, this message translates to:
+  /// **'edited'**
+  String get chatEdited;
+
   /// No description provided for @networkTitle.
   ///
   /// In en, this message translates to:

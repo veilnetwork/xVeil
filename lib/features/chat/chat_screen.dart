@@ -95,6 +95,111 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void _snack(String msg) => ScaffoldMessenger.of(context)
       .showSnackBar(SnackBar(content: Text(msg)));
 
+  /// Long-press menu on a message bubble. Own (outgoing) text messages can be
+  /// edited or unsent for everyone; any message can be deleted from this device
+  /// (the deniable "purge what was sent to you").
+  Future<void> _showMessageActions(Message m) async {
+    final l = AppL10n.of(context);
+    final own = m.direction == MessageDirection.outgoing;
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (sheet) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (own && !m.isFile)
+              ListTile(
+                leading: const Icon(Icons.edit_outlined),
+                title: Text(l.chatMsgEdit),
+                onTap: () {
+                  Navigator.of(sheet).pop();
+                  _editMessage(m);
+                },
+              ),
+            if (own)
+              ListTile(
+                leading: const Icon(Icons.delete_forever_outlined),
+                title: Text(l.chatMsgDeleteForEveryone),
+                onTap: () {
+                  Navigator.of(sheet).pop();
+                  _deleteMessage(m, forEveryone: true);
+                },
+              ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: Text(l.chatMsgDeleteForMe),
+              onTap: () {
+                Navigator.of(sheet).pop();
+                _deleteMessage(m, forEveryone: false);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _editMessage(Message m) async {
+    final l = AppL10n.of(context);
+    final controller = TextEditingController(text: m.body);
+    final newText = await showDialog<String>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text(l.chatEditTitle),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: null,
+          textInputAction: TextInputAction.done,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialog).pop(),
+            child: Text(l.actionCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialog).pop(controller.text),
+            child: Text(l.chatEditSave),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    final trimmed = newText?.trim();
+    if (trimmed == null || trimmed.isEmpty || trimmed == m.body) return;
+    await ref.read(messagingServiceProvider).editOwnMessage(m.id, trimmed);
+  }
+
+  Future<void> _deleteMessage(Message m, {required bool forEveryone}) async {
+    final l = AppL10n.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text(l.chatDeleteTitle),
+        content: Text(forEveryone
+            ? l.chatDeleteForEveryoneBody
+            : l.chatDeleteForMeBody),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialog).pop(false),
+            child: Text(l.actionCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialog).pop(true),
+            child: Text(l.chatDeleteConfirm),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final svc = ref.read(messagingServiceProvider);
+    if (forEveryone) {
+      await svc.deleteForEveryone(m.id);
+    } else {
+      await svc.deleteMessageLocally(m.id);
+    }
+  }
+
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scroll.hasClients) {
@@ -139,8 +244,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 controller: _scroll,
                 padding: const EdgeInsets.all(12),
                 itemCount: list.length,
-                itemBuilder: (_, i) =>
-                    _Bubble(message: list[i], onTapFile: _saveFile),
+                itemBuilder: (_, i) => _Bubble(
+                  message: list[i],
+                  onTapFile: _saveFile,
+                  onLongPress: _showMessageActions,
+                ),
               ),
             ),
           ),
@@ -251,17 +359,22 @@ class _RequestActions extends StatelessWidget {
 }
 
 class _Bubble extends StatelessWidget {
-  const _Bubble({required this.message, this.onTapFile});
+  const _Bubble({required this.message, this.onTapFile, this.onLongPress});
   final Message message;
   final void Function(Message message)? onTapFile;
+  final void Function(Message message)? onLongPress;
 
   @override
   Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
     final outgoing = message.direction == MessageDirection.outgoing;
     return Align(
       alignment: outgoing ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
+      child: GestureDetector(
+        onLongPress:
+            onLongPress == null ? null : () => onLongPress!(message),
+        child: Container(
         margin: const EdgeInsets.symmetric(vertical: 4),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         constraints: BoxConstraints(
@@ -305,6 +418,16 @@ class _Bubble extends StatelessWidget {
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (message.edited) ...[
+                  Text(
+                    l.chatEdited,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                          fontStyle: FontStyle.italic,
+                        ),
+                  ),
+                  const SizedBox(width: 4),
+                ],
                 Text(
                   formatHhmm(message.timestamp),
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
@@ -320,6 +443,7 @@ class _Bubble extends StatelessWidget {
             ),
           ],
         ),
+      ),
       ),
     );
   }

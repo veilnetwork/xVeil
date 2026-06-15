@@ -64,6 +64,48 @@ void main() {
     expect(find.byIcon(Icons.attach_file), findsOneWidget);
   });
 
+  Message txt(String body,
+          {required MessageDirection dir, bool edited = false}) =>
+      Message(
+        id: 'm-$body',
+        conversationId: _hex,
+        direction: dir,
+        body: body,
+        timestamp: DateTime(2026, 1, 1),
+        edited: edited,
+      );
+
+  testWidgets('long-press on own message offers edit + both deletes',
+      (tester) async {
+    await tester.pumpWidget(_host(_c(ContactStatus.accepted),
+        messages: [txt('hi', dir: MessageDirection.outgoing)]));
+    await tester.pump();
+    await tester.longPress(find.text('hi'));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit'), findsOneWidget);
+    expect(find.text('Delete for everyone'), findsOneWidget);
+    expect(find.text('Delete for me'), findsOneWidget);
+  });
+
+  testWidgets('long-press on a received message offers only "delete for me"',
+      (tester) async {
+    await tester.pumpWidget(_host(_c(ContactStatus.accepted),
+        messages: [txt('hello', dir: MessageDirection.incoming)]));
+    await tester.pump();
+    await tester.longPress(find.text('hello'));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit'), findsNothing);
+    expect(find.text('Delete for everyone'), findsNothing);
+    expect(find.text('Delete for me'), findsOneWidget);
+  });
+
+  testWidgets('an edited message renders the "edited" marker', (tester) async {
+    await tester.pumpWidget(_host(_c(ContactStatus.accepted),
+        messages: [txt('fixed', dir: MessageDirection.outgoing, edited: true)]));
+    await tester.pump();
+    expect(find.text('edited'), findsOneWidget);
+  });
+
   testWidgets('a file message renders with its name + a save affordance',
       (tester) async {
     final fileMsg = Message(
