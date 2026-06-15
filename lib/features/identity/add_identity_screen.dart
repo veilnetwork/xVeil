@@ -73,8 +73,10 @@ class _AddIdentityScreenState extends ConsumerState<AddIdentityScreen> {
 
     return Scaffold(
       appBar: AppBar(title: Text(l.addIdentityTitle)),
-      body: SafeArea(
-        child: ListView(
+      body: Stack(
+        children: [
+          SafeArea(
+            child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
             Text(l.addIdentitySubtitle,
@@ -125,15 +127,35 @@ class _AddIdentityScreenState extends ConsumerState<AddIdentityScreen> {
             const SizedBox(height: 24),
             FilledButton(
               onPressed: _busy ? null : () => _submit(converting),
-              child: _busy
-                  ? const SizedBox(
-                      height: 18,
-                      width: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2))
-                  : Text(l.addIdentityCreate),
+              child: Text(l.addIdentityCreate),
             ),
           ],
-        ),
+            ),
+          ),
+          // Argon2 container opens block the platform thread for a moment; show
+          // an intentional "working" overlay so it doesn't read as a freeze.
+          if (_busy)
+            Positioned.fill(
+              child: ColoredBox(
+                color: Colors.black54,
+                child: Center(
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const CircularProgressIndicator(),
+                          const SizedBox(height: 16),
+                          Text(l.addIdentityWorking, textAlign: TextAlign.center),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

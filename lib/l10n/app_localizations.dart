@@ -607,6 +607,12 @@ abstract class AppL10n {
   /// **'That master password is already used by an identity — choose a different one.'**
   String get addIdentityClash;
 
+  /// No description provided for @addIdentityWorking.
+  ///
+  /// In en, this message translates to:
+  /// **'Setting up your new identity…\nThis can take a few seconds.'**
+  String get addIdentityWorking;
+
   /// No description provided for @settingsDecoyMaster.
   ///
   /// In en, this message translates to:
