@@ -50,13 +50,35 @@ class MessagingService {
   final Storage _storage;
   final _changes = StreamController<void>.broadcast();
   StreamSubscription<InboundMessage>? _sub;
+  Timer? _retryTimer;
+  bool _flushing = false;
   final Map<String, _Incoming> _inFlight = {};
+
+  /// How often to re-send still-un-acked messages. Covers the case where the
+  /// RECIPIENT was offline (e.g. the peer switched to another identity, taking
+  /// that identity's node down) — our node-connect flush only fires on OUR
+  /// reconnect, so without this a message to a temporarily-offline peer would
+  /// never be retried. Bounded: a message stops being re-sent once acked.
+  static const _retryInterval = Duration(seconds: 15);
 
   /// Emits whenever stored conversations/messages change.
   Stream<void> get changes => _changes.stream;
 
   void start() {
     _sub ??= _transport.messages().listen(_onInbound);
+    _retryTimer ??= Timer.periodic(_retryInterval, (_) => _retryFlush());
+  }
+
+  Future<void> _retryFlush() async {
+    if (_flushing) return; // don't stack overlapping flushes
+    _flushing = true;
+    try {
+      await flushOutbox();
+    } catch (_) {
+      // Transport hiccup — the next tick retries.
+    } finally {
+      _flushing = false;
+    }
   }
 
   void _signal() {
@@ -374,6 +396,8 @@ class MessagingService {
   }
 
   Future<void> dispose() async {
+    _retryTimer?.cancel();
+    _retryTimer = null;
     await _sub?.cancel();
     _sub = null;
     await _changes.close();
