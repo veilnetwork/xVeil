@@ -265,10 +265,17 @@ already (rocksdb opt-in), confirm no peer cache / logs leak.
     (`children/addChild/linkChild/openChild/removeChild`), keys-based —
     replaces the pre-FFI password-storing interim. Fully unit-tested via a
     multi-space fake container.
-  - ⏳ Remaining (needs user review — touches the verified onboarding/unlock
-    flow + product UX): detect master after unlock → identity picker;
-    per-identity conversation ownership + send-as picker; **decoy master** setup
-    for duress; one active node + fast switch.
+  - ✅ **App integration — DONE** (2026-06-15): master detection after unlock →
+    identity picker; switch identity (node swap, one space open at a time);
+    **add identity / convert single→master** with the chosen password model
+    (master password + per-identity passwords; clash guard so a master password
+    can't corrupt an identity space); **decoy/duress master** (separate duress
+    password, shares only chosen safe identities, clash guard so it can't
+    overwrite the real master). Per-identity conversations are inherent (each
+    identity = its own space); send-as = the active identity. Screens:
+    IdentityPicker / AddIdentity / DecoyMaster. ~125 tests green; single-identity
+    flow verified unchanged. **Still needs: manual end-to-end run on a real
+    native build** (two instances: create master, switch, decoy under duress).
   - ⚠️ **Constraint found via real-container test (2026-06-15):** the native
     container takes an **exclusive per-file flock** — only ONE space per
     container is open at a time. So the master and a child cannot be open
