@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/ids.dart';
+import '../data/veil_stack.dart';
 import '../domain/identity.dart';
 import 'providers.dart';
 
@@ -91,11 +92,17 @@ class AppController extends Notifier<AppState> {
   }
 
   Future<void> _enterSession(Identity identity) async {
-    // Kick the node off without blocking the UI transition.
-    ref.read(nodeControllerProvider).start();
+    // Deniable path: now that the space is open, boot the in-process node from
+    // the in-space identity (mining it on first run). Best-effort — never block
+    // entering the session if the node fails.
+    await _ensureRealStack();
+    final stack = ref.read(realStackProvider);
+    if (stack == null) {
+      // Loopback / legacy: kick the placeholder controller without blocking.
+      ref.read(nodeControllerProvider).start();
+    }
     // In real mode the user's identity IS the node's identity — show the real
     // node id (and invite) rather than the local placeholder.
-    final stack = ref.read(realStackProvider);
     final effective = stack != null
         ? Identity(
             nodeId: stack.myInvite.nodeId,
@@ -106,9 +113,36 @@ class AppController extends Notifier<AppState> {
     state = AppState(AppPhase.ready, identity: effective);
   }
 
+  /// Build the in-process deniable stack post-unlock (storage is open) when the
+  /// embedded boot is configured and not already running.
+  Future<void> _ensureRealStack() async {
+    if (ref.read(realStackProvider) != null) return;
+    final boot = ref.read(deniableBootProvider);
+    if (boot == null) return;
+    try {
+      final stack = await RealVeilStack.startDeniable(
+        storage: ref.read(storageProvider),
+        runtimeDir: boot.runtimeDir,
+        listenPort: boot.listenPort,
+      );
+      ref.read(realStackProvider.notifier).state = stack;
+    } catch (_) {
+      // Stay on loopback — a node-boot failure must not trap the user.
+    }
+  }
+
   Future<void> lock() async {
+    await _teardownRealStack();
     await ref.read(storageProvider).close();
     state = const AppState(AppPhase.locked);
+  }
+
+  Future<void> _teardownRealStack() async {
+    final stack = ref.read(realStackProvider);
+    if (stack != null) {
+      await stack.dispose();
+      ref.read(realStackProvider.notifier).state = null;
+    }
   }
 
   /// Escape hatch from the lock screen: forget the onboarded flag and return to
@@ -116,6 +150,7 @@ class AppController extends Notifier<AppState> {
   /// existing container file is left untouched on disk — deniability means we
   /// can't and shouldn't prove it exists; the user simply sets up anew.
   Future<void> startOver() async {
+    await _teardownRealStack();
     await ref.read(storageProvider).close();
     final prefs = await ref.read(prefsProvider.future);
     await prefs.remove(_kOnboardedKey);
