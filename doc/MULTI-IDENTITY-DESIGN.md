@@ -30,11 +30,13 @@ indistinguishable from padding.
 
 **Duress decoy (master level).** The user pre-configures a *decoy master* space
 with plausible identities and "correct"-looking chats. Under coercion they give
-the **duress password**, which opens the decoy master. Its roster points **only**
-to decoy identity spaces — never to the real master or real identities. So
-coercion yields a believable, complete-looking setup while revealing nothing
-real. This is why the master roster (§3b) is per-master: the decoy master and
-the real master are separate spaces that share no references.
+the **duress password**, which opens the decoy master. Its roster lists only
+identities that are **safe to reveal** — pure decoys and/or *shared innocuous*
+identities (e.g. a real "relatives" identity also kept in the real master, §3b);
+**never** the real master or any sensitive identity. So coercion yields a
+believable, complete-looking setup — including some genuine harmless chats —
+while revealing nothing sensitive. The decoy master and the real master are
+separate spaces; a sensitive identity is never referenced from the decoy.
 
 ## 3. Core principle: identity ≡ space
 
@@ -66,10 +68,24 @@ A password can open either kind of space (indistinguishable from outside):
   act as any identity in the roster.
 
 The roster lives **inside** the master space (encrypted, deniable), never on
-disk and never referenced from any other space. A **decoy master** (§2) has a
-roster of decoy identities only. Identity spaces remain openable *directly* by
-their own password too (so the same identity works in single mode and as a
-master's child).
+disk. Identity spaces remain openable *directly* by their own password too (so
+the same identity works in single mode and as a master's child).
+
+**A child may belong to several rosters.** The same identity's `SpaceKeys` can
+be recorded in more than one master — e.g. an innocuous "relatives" identity
+that lives in *both* the real master and the decoy master. Under duress the
+decoy then shows genuine, believable chats (real conversations with real people),
+which makes the decoy far more convincing, while the sensitive identities stay
+hidden. This is safe because of one invariant:
+
+> **References are one-directional: master → child. A child never references its
+> master(s).** Identity spaces are reference-free leaves, so opening one reveals
+> nothing about which masters point at it or whether other masters exist.
+
+Caveat for the user: a shared child's **full content is exposed** whenever any
+master that lists it is opened — including under duress. So only share genuinely
+innocuous identities into a decoy; never one whose chats could implicate you or
+hint at the hidden set.
 
 ## 3c. Acting as an identity (send-as)
 
@@ -132,9 +148,10 @@ only half-real (this is why "design the whole thing first").
    record its label + `SpaceKeys` in the master roster. The app has the child
    keys at creation time, so no separate password round-trip is needed.
 3. **Decoy master:** same mechanism with the duress password; populate its roster
-   only with decoy identities holding plausible chats. The app must never write a
-   real child's keys into the decoy roster (enforced by keeping master sessions
-   separate — you build the decoy while *in* the decoy master).
+   with decoy identities and/or *shared innocuous* identities (a real child can be
+   added to both rosters — §3b). The app must never write a *sensitive* child's
+   keys into the decoy roster (enforced by keeping master sessions separate — you
+   build the decoy while *in* the decoy master, and choose which children to add).
 
 **Lock**
 1. Stop the node(s), zeroize key material (including any cached child SpaceKeys),
@@ -199,12 +216,10 @@ Also audit: the embedded node must not persist identity-bearing state to disk
    that manages several. Plus an explicit **send-as-identity** mechanism: each
    conversation is owned by one identity; starting a chat picks the identity
    (§3c).
-2. **Master mode node activation — OPEN.** Run all roster identities'
-   nodes simultaneously (receive on every identity at once, heavier / more
-   network surface) vs one active node you switch (simpler, only the active
-   identity online). *Recommendation:* start with one active node + fast switch,
-   design the data model so simultaneous can be enabled later without a schema
-   change (conversations are already per-identity).
+2. **Master mode node activation — DECIDED: one active node + fast switch.**
+   Only the active identity is online; switching identity swaps the running node.
+   The data model is per-identity from the start, so running all roster nodes
+   simultaneously can be enabled later (Phase 3) without a schema change.
 3. **Distinct password per identity** (confirmed): the model can't deniably
    dedupe passwords (AuthFailed conflation); UX steers to distinct passwords,
    `add_space` adopts on exact `SpaceAlreadyExists` collision.
@@ -232,8 +247,12 @@ Also audit: the embedded node must not persist identity-bearing state to disk
 - [ ] Count of identities not derivable from the container or any sidecar.
 - [ ] A single coerced password opens exactly one space and reveals nothing
       about the others.
-- [ ] The decoy master's roster references only decoy identities; opening it
-      under duress cannot reach the real master or any real identity.
+- [ ] The decoy master's roster references only safe-to-reveal identities (pure
+      decoys + shared innocuous ones); opening it under duress cannot reach the
+      real master or any sensitive identity.
+- [ ] References are one-directional (master → child); a child never references a
+      master, so a shared child reveals nothing about which masters list it or
+      whether others exist.
 - [ ] A master and its child rosters live only inside spaces — no on-disk index,
       no cross-space reference an adversary could follow.
 - [ ] Node runtime writes nothing identity-bearing to disk.
