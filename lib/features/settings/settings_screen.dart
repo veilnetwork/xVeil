@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
+import '../../state/keep_all_online_controller.dart';
 import '../../state/locale_controller.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -91,6 +92,16 @@ class SettingsScreen extends ConsumerWidget {
               title: Text(l.settingsDecoyMaster),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/decoy-master'),
+            ),
+          if (master.$1)
+            SwitchListTile(
+              secondary: const Icon(Icons.wifi_tethering_outlined),
+              title: Text(l.settingsKeepAllOnline),
+              subtitle: Text(l.settingsKeepAllOnlineHint),
+              isThreeLine: true,
+              value: ref.watch(keepAllOnlineProvider),
+              onChanged: (v) =>
+                  ref.read(keepAllOnlineProvider.notifier).set(v),
             ),
           ListTile(
             leading: const Icon(Icons.badge_outlined),

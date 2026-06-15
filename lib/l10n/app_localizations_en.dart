@@ -292,6 +292,13 @@ class AppL10nEn extends AppL10n {
       'Hide this identity\'s network activity through veil\'s overlay so it can\'t be linked to your other identities. Slower.';
 
   @override
+  String get settingsKeepAllOnline => 'Keep all identities online';
+
+  @override
+  String get settingsKeepAllOnlineHint =>
+      'Run every identity\'s node at once so none goes offline when you switch. Less anonymous — an observer may link your identities by their shared device. Mark sensitive identities to route anonymously.';
+
+  @override
   String get settingsDecoyMaster => 'Set up decoy access';
 
   @override
