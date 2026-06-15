@@ -35,6 +35,35 @@ constraints are not optional polish — treat a violation as a release blocker.
   Never persist it elsewhere, never copy it to the clipboard without a clear warning,
   never include it in any export that is not itself encrypted.
 
+## File transfer
+
+- Files are stored **deniably**, the same as messages: chunked into the hidden-volume
+  append-log (namespace `fileChunks`), never written as plaintext files on disk. They
+  inherit the container's deniability — an adversary with the device + one password
+  cannot prove a stored file exists.
+- The **receive path treats every inbound frame as hostile by default** — chunks arrive
+  from a (possibly compromised) accepted peer. It is hardened along independent axes,
+  each with a regression test:
+  - **Consent** — file frames from a non-accepted / blocked peer are dropped (same gate
+    as chat messages).
+  - **Sender identity** — a chunk is bound to the transfer's originator; a *different*
+    accepted peer cannot contribute to (or hijack) someone else's in-flight transfer by
+    guessing its id.
+  - **Structural validity** — the reassembler rejects out-of-range / duplicate indices
+    and a `total` that shifts mid-transfer, so a peer cannot fake completion or trigger a
+    missing-slot crash.
+  - **Memory** — bounded on two axes so a hostile peer cannot exhaust memory:
+    `kMaxIncomingFileBytes` per transfer (declared size refused up front, real bytes
+    enforced mid-stream) and `kMaxConcurrentIncomingFiles` simultaneous transfers. These
+    are **local safety bounds, not protocol values** — tune them freely; the two sides
+    need not agree.
+  - **Fault isolation** — a malformed datagram (bad JSON, wrong types, bad base64) is
+    dropped and can never throw out of the inbound stream listener to disrupt delivery
+    for other peers.
+- **Anonymity caveat:** file transfers currently use the same direct `app.send` path as
+  chat, not an onion path. Large transfers have correspondingly larger metadata/timing
+  surface — revisit before treating file transfer as a high-risk-safe flow.
+
 ## Current status
 
 The real adapters are live: data persists to a deniable `hidden-volume` container, and
@@ -50,3 +79,5 @@ Known gaps to close before any real-user release:
   wired (needs the veil-side FFI).
 - iOS background is short scheduled windows (BGProcessingTask), not a 24/7 relay —
   offline delivery must lean on mailbox/rendezvous + push, not a persistent on-device node.
+- File transfer has no UI yet (picker + rendering); the backend is complete and hardened
+  (see above). Large-file anonymity over the direct send path is unaddressed.
