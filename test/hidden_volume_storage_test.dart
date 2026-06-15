@@ -262,6 +262,73 @@ void main() {
     expect(await storage.loadFile('blob1'), isNull); // blob gone, not just row
   });
 
+  test('editing a delivered message preserves its delivery status', () async {
+    final conv = _id(12).hex;
+    final m = _msg(
+        conv: conv,
+        dir: MessageDirection.outgoing,
+        body: 'v1',
+        ts: DateTime(2026, 4, 1));
+    await storage.appendMessage(m);
+    await storage.markMessageStatus(m.id, MessageStatus.delivered);
+
+    await storage.editMessage(m.id, 'v2');
+
+    final msg = (await storage.loadMessages(conv)).single;
+    expect(msg.body, 'v2');
+    expect(msg.edited, isTrue);
+    expect(msg.status, MessageStatus.delivered,
+        reason: 'an edit must not reset delivery state');
+  });
+
+  test('a status update after an edit still folds onto the edited message',
+      () async {
+    final conv = _id(13).hex;
+    final m = _msg(
+        conv: conv,
+        dir: MessageDirection.outgoing,
+        body: 'hello',
+        ts: DateTime(2026, 4, 2));
+    await storage.appendMessage(m);
+    await storage.editMessage(m.id, 'hello (fixed)');
+    await storage.markMessageStatus(m.id, MessageStatus.delivered);
+
+    final msg = (await storage.loadMessages(conv)).single;
+    expect(msg.body, 'hello (fixed)');
+    expect(msg.edited, isTrue);
+    expect(msg.status, MessageStatus.delivered);
+  });
+
+  test('deleting the same message twice is idempotent', () async {
+    final conv = _id(14).hex;
+    final m = _msg(
+        conv: conv,
+        dir: MessageDirection.incoming,
+        body: 'gone',
+        ts: DateTime(2026, 4, 3));
+    await storage.appendMessage(m);
+
+    await storage.deleteMessage(m.id);
+    await storage.deleteMessage(m.id); // index already cleared → no-op
+
+    expect(await storage.loadMessages(conv), isEmpty);
+  });
+
+  test('editing a deleted message is a no-op (cannot resurrect)', () async {
+    final conv = _id(15).hex;
+    final m = _msg(
+        conv: conv,
+        dir: MessageDirection.outgoing,
+        body: 'secret',
+        ts: DateTime(2026, 4, 4));
+    await storage.appendMessage(m);
+    await storage.deleteMessage(m.id);
+
+    await storage.editMessage(m.id, 'resurrected?');
+
+    expect(await storage.loadMessages(conv), isEmpty);
+  });
+
   test('a deleted id stays gone after a scrub pass', () async {
     final conv = _id(10).hex;
     final m = _msg(
