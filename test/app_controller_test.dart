@@ -257,6 +257,46 @@ void main() {
     expect(ctrl.activeIdentity, 'work');
   });
 
+  test('setIdentityAnonymous flips an identity flag and persists to the master',
+      () async {
+    SharedPreferences.setMockInitialValues({'onboarded': true});
+    final container = FakeHvContainer();
+    final alice = container.storage();
+    await alice.open(password: 'pw-alice', createIfMissing: true);
+    await alice.saveIdentity(AppController.generateIdentity(displayName: 'Alice'));
+    final aliceKeys = alice.exportSpaceKeys();
+    await alice.close();
+    final master = container.storage();
+    await master.open(password: 'masterpw', createIfMissing: true);
+    await master
+        .saveRoster([RosterEntry(label: 'alice', spaceKeys: aliceKeys)]);
+    await master.close();
+
+    final app = container.storage();
+    final c = ProviderContainer(
+        overrides: [storageProvider.overrideWith((ref) => app)]);
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+    await ctrl.unlock('masterpw');
+    await ctrl.pickIdentity('alice');
+    expect(ctrl.isIdentityAnonymous('alice'), isFalse);
+
+    // Toggle on (active identity) — reopens the master by its cached keys, no
+    // password re-prompt, and reboots alice.
+    expect(await ctrl.setIdentityAnonymous('alice', true), isTrue);
+    expect(ctrl.isIdentityAnonymous('alice'), isTrue);
+
+    // Persisted: a fresh master open sees the flag set.
+    await ctrl.lock();
+    final check = container.storage();
+    await check.open(password: 'masterpw');
+    final entry =
+        (await check.loadRoster())!.firstWhere((e) => e.label == 'alice');
+    await check.close();
+    expect(entry.anonymous, isTrue);
+  });
+
   test('addIdentity appends to the master ON-DISK roster even with a stale '
       'in-memory roster (regression: overwrite/lockout)', () async {
     SharedPreferences.setMockInitialValues({'onboarded': true});
