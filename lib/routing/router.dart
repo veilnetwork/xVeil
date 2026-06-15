@@ -6,6 +6,7 @@ import '../features/chat/chat_screen.dart';
 import '../features/home/home_shell.dart';
 import '../features/lock/lock_screen.dart';
 import '../features/onboarding/onboarding_screen.dart';
+import '../features/preparing/preparing_screen.dart';
 import '../features/splash/splash_screen.dart';
 import '../state/app_controller.dart';
 
@@ -34,9 +35,14 @@ final routerProvider = Provider<GoRouter>((ref) {
           return loc == '/onboarding' ? null : '/onboarding';
         case AppPhase.locked:
           return loc == '/lock' ? null : '/lock';
+        case AppPhase.preparingNode:
+          return loc == '/preparing' ? null : '/preparing';
         case AppPhase.ready:
           // Bounce the gate screens to home; allow everything else (chat).
-          if (loc == '/splash' || loc == '/lock' || loc == '/onboarding') {
+          if (loc == '/splash' ||
+              loc == '/lock' ||
+              loc == '/onboarding' ||
+              loc == '/preparing') {
             return '/home';
           }
           return null;
@@ -49,6 +55,10 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, _) => const OnboardingScreen(),
       ),
       GoRoute(path: '/lock', builder: (_, _) => const LockScreen()),
+      GoRoute(
+        path: '/preparing',
+        builder: (_, _) => const PreparingScreen(),
+      ),
       GoRoute(path: '/home', builder: (_, _) => const HomeShell()),
       GoRoute(
         path: '/chat/:peerHex',

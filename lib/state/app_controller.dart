@@ -19,6 +19,10 @@ enum AppPhase {
   /// An identity exists; the space is locked and needs a password.
   locked,
 
+  /// Space unlocked; the in-process node is being provisioned/booted (mining the
+  /// identity on first run can take a few seconds) — show a "setting up" screen.
+  preparingNode,
+
   /// Space unlocked, node starting/connected — show the messenger.
   ready,
 }
@@ -94,7 +98,12 @@ class AppController extends Notifier<AppState> {
   Future<void> _enterSession(Identity identity) async {
     // Deniable path: now that the space is open, boot the in-process node from
     // the in-space identity (mining it on first run). Best-effort — never block
-    // entering the session if the node fails.
+    // entering the session if the node fails. Show a "setting up" screen while
+    // it provisions (the mining runs off the UI isolate; see startDeniable).
+    if (ref.read(deniableBootProvider) != null &&
+        ref.read(realStackProvider) == null) {
+      state = state.copyWith(phase: AppPhase.preparingNode);
+    }
     await _ensureRealStack();
     final stack = ref.read(realStackProvider);
     if (stack == null) {

@@ -1,5 +1,6 @@
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:flutter/foundation.dart';
 
@@ -10,6 +11,18 @@ import 'storage/storage.dart';
 import 'transport/bootstrap_invite.dart';
 import 'transport/veil_flutter_transport.dart';
 import 'transport/veil_transport.dart';
+
+/// Mine a node identity in a worker isolate. Opens the veil dylib from
+/// `VEIL_FFI_DYLIB` (falling back to the process symbols) so the FFI resolves
+/// independently of how the parent isolate loaded it. Top-level so it is a
+/// valid `Isolate.run` entry point.
+String _mineConfigInIsolate() {
+  final path = Platform.environment['VEIL_FFI_DYLIB'];
+  final lib = (path != null && path.isNotEmpty && File(path).existsSync())
+      ? DynamicLibrary.open(path)
+      : DynamicLibrary.process();
+  return EmbeddedNode.mineConfig(0, lib: lib);
+}
 
 /// The composed real veil stack the app runs: a started node ([controller]), a
 /// connected overlay [transport], this device's shareable [myInvite], and
@@ -56,11 +69,21 @@ class RealVeilStack {
     int listenPort = 9000,
   }) async {
     // 1. Load this identity's node config, or mine + store it on first run.
-    var identityToml = await storage.loadNodeConfig();
-    if (identityToml == null) {
+    final String identityToml;
+    final existing = await storage.loadNodeConfig();
+    if (existing != null) {
+      identityToml = existing;
+    } else {
       debugPrint('xVeil[deniable]: mining node identity (first run)…');
-      // Canonical-difficulty PoW — blocking; first run only.
-      identityToml = EmbeddedNode.mineConfig(0, lib: lib);
+      // Canonical-difficulty PoW is CPU-heavy. Run it on a separate isolate so
+      // the UI thread stays responsive (the "setting up" screen animates). The
+      // worker isolate re-opens the dylib itself (from VEIL_FFI_DYLIB) rather
+      // than relying on the parent's load being visible via process(), which is
+      // not guaranteed across isolates. The explicit-lib path (tests) mines
+      // inline.
+      identityToml = lib == null
+          ? await Isolate.run(_mineConfigInIsolate)
+          : EmbeddedNode.mineConfig(0, lib: lib);
       await storage.saveNodeConfig(identityToml);
     }
     debugPrint('xVeil[deniable]: identity ready (${identityToml.length} B)');
