@@ -285,6 +285,13 @@ class AppL10nEn extends AppL10n {
       'Setting up your new identity…\nThis can take a few seconds.';
 
   @override
+  String get addIdentityAnonymous => 'Route anonymously';
+
+  @override
+  String get addIdentityAnonymousHint =>
+      'Hide this identity\'s network activity through veil\'s overlay so it can\'t be linked to your other identities. Slower.';
+
+  @override
   String get settingsDecoyMaster => 'Set up decoy access';
 
   @override

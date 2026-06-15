@@ -286,6 +286,13 @@ class AppL10nRu extends AppL10n {
       'Создаём новую личность…\nЭто может занять несколько секунд.';
 
   @override
+  String get addIdentityAnonymous => 'Анонимная маршрутизация';
+
+  @override
+  String get addIdentityAnonymousHint =>
+      'Скрыть сетевую активность этой личности через overlay veil, чтобы её нельзя было связать с другими вашими личностями. Медленнее.';
+
+  @override
   String get settingsDecoyMaster => 'Настроить ложный доступ';
 
   @override

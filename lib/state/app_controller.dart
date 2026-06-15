@@ -228,6 +228,7 @@ class AppController extends Notifier<AppState> {
     required String label,
     required String password,
     String existingLabel = 'Identity 1',
+    bool anonymous = false,
   }) async {
     final storage = ref.read(storageProvider);
     await _teardownRealStack();
@@ -265,7 +266,11 @@ class AppController extends Notifier<AppState> {
       return false;
     }
     await storage.saveIdentity(generateIdentity(displayName: label));
-    roster.add(RosterEntry(label: label, spaceKeys: storage.exportSpaceKeys()));
+    roster.add(RosterEntry(
+      label: label,
+      spaceKeys: storage.exportSpaceKeys(),
+      anonymous: anonymous,
+    ));
     await storage.close();
 
     // Persist the roster into the (now-existing) master.
