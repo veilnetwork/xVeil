@@ -19,6 +19,11 @@ abstract interface class Storage {
 
   bool get isOpen;
 
+  /// Export this open space's opaque `SpaceKeys` (64 bytes) so a master roster
+  /// can store it and later reopen this space without a password. **Sensitive**
+  /// — never log; lives only inside a master space.
+  Uint8List exportSpaceKeys();
+
   Future<void> saveIdentity(Identity identity);
   Future<Identity?> loadIdentity();
 
