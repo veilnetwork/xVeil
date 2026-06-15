@@ -213,6 +213,17 @@ class AppController extends Notifier<AppState> {
   /// The identity currently active in a master session, or null in single mode.
   String? get activeIdentity => _activeLabel;
 
+  /// Whether the active identity is configured for anonymous (onion) routing.
+  /// False in single-identity mode (no roster) and for non-anonymous children.
+  bool _activeAnonymous() {
+    final label = _activeLabel;
+    if (label == null || _pendingRoster == null) return false;
+    for (final e in _pendingRoster!) {
+      if (e.label == label) return e.anonymous;
+    }
+    return false;
+  }
+
   /// Add a new identity. On the FIRST add this converts the current single
   /// identity into a master managed by [masterPassword] (the existing identity
   /// becomes a child labelled [existingLabel]); thereafter it just appends to
@@ -412,6 +423,7 @@ class AppController extends Notifier<AppState> {
         storage: ref.read(storageProvider),
         runtimeDir: boot.runtimeDir,
         listenPort: boot.listenPort,
+        anonymous: _activeAnonymous(),
       );
       ref.read(realStackProvider.notifier).state = stack;
       debugPrint('xVeil[deniable]: node up, invite=${stack.myInvite.nodeId.short}');

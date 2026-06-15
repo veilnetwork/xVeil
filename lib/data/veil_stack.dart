@@ -67,6 +67,7 @@ class RealVeilStack {
     required String runtimeDir,
     DynamicLibrary? lib,
     int listenPort = 9000,
+    bool anonymous = false,
   }) async {
     // 1. Load this identity's node config, or mine + store it on first run.
     final String identityToml;
@@ -101,7 +102,11 @@ class RealVeilStack {
       ipcSocket: ipcSock,
       adminSocket: adminSock,
       lib: lib,
+      anonymous: anonymous,
     );
+    if (anonymous) {
+      debugPrint('xVeil[deniable]: anonymous routing (onion_service) enabled');
+    }
     debugPrint('xVeil[deniable]: composed config, booting deferred @ $adminSock');
 
     // 4. Boot deferred, then apply the real config IN MEMORY (no file).
