@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -123,42 +122,41 @@ class MessagingService {
             MessageStatus.delivered);
       case WireKind.fileMeta:
         if (existing?.status != ContactStatus.accepted) return;
-        final j = jsonDecode(env.body) as Map<String, dynamic>;
+        final meta = parseFileMeta(env.body);
         // Refuse over-budget transfers up front (the declared size is a hint;
         // the per-chunk guard below enforces it even if the peer lies here).
-        final size = j['size'];
-        if (size is int && size > kMaxIncomingFileBytes) return;
-        _inFlight[j['tid'] as String] = _Incoming(
+        if (meta.size != null && meta.size! > kMaxIncomingFileBytes) return;
+        _inFlight[meta.transferId] = _Incoming(
           src: m.src,
-          name: j['name'] as String?,
+          name: meta.name,
           reasm: FileReassembler(),
         );
         return; // nothing to show until the file completes
       case WireKind.fileChunk:
         if (existing?.status != ContactStatus.accepted) return;
-        final j = jsonDecode(env.body) as Map<String, dynamic>;
-        final tid = j['tid'] as String;
-        final inc = _inFlight[tid];
+        final frame = parseFileChunk(env.body);
+        final inc = _inFlight[frame.transferId];
         // Unknown transfer (chunk before meta), or a different peer trying to
         // contribute to someone else's in-flight transfer — drop it.
         if (inc == null || inc.src != m.src) return;
         inc.reasm.add(FileChunk(
-          transferId: tid,
-          index: j['i'] as int,
-          total: j['total'] as int,
-          data: base64.decode(j['d'] as String),
+          transferId: frame.transferId,
+          index: frame.index,
+          total: frame.total,
+          data: frame.data,
         ));
         // Enforce the memory budget even if the peer lied about size — abort
         // and discard the partial transfer rather than buffer unboundedly.
         if (inc.reasm.bufferedBytes > kMaxIncomingFileBytes) {
-          _inFlight.remove(tid);
+          _inFlight.remove(frame.transferId);
           return;
         }
         if (!inc.reasm.isComplete) return; // wait for the rest
-        await _storage.storeFile(tid, inc.reasm.assemble(), name: inc.name);
+        await _storage.storeFile(
+            frame.transferId, inc.reasm.assemble(), name: inc.name);
         await _store(m.src, MessageDirection.incoming, '📎 ${inc.name ?? 'file'}',
-            MessageStatus.delivered, fileId: tid, fileName: inc.name);
-        _inFlight.remove(tid);
+            MessageStatus.delivered, fileId: frame.transferId, fileName: inc.name);
+        _inFlight.remove(frame.transferId);
     }
     _signal();
   }
@@ -215,27 +213,21 @@ class MessagingService {
     final chunks = chunkBytes(bytes, transferId: fileId, maxChunk: _wireChunkBytes);
     await _transport.send(
       dst,
-      WireEnvelope(
-        WireKind.fileMeta,
-        jsonEncode({
-          'tid': fileId,
-          'name': name,
-          'size': bytes.length,
-          'count': chunks.length,
-        }),
+      fileMetaEnvelope(
+        transferId: fileId,
+        name: name,
+        size: bytes.length,
+        count: chunks.length,
       ).encode(),
     );
     for (final c in chunks) {
       await _transport.send(
         dst,
-        WireEnvelope(
-          WireKind.fileChunk,
-          jsonEncode({
-            'tid': fileId,
-            'i': c.index,
-            'total': c.total,
-            'd': base64.encode(c.data),
-          }),
+        fileChunkEnvelope(
+          transferId: c.transferId,
+          index: c.index,
+          total: c.total,
+          data: c.data,
         ).encode(),
       );
     }
