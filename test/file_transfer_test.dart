@@ -79,6 +79,16 @@ void main() {
     expect(r.received, 4);
   });
 
+  test('bufferedBytes tracks unique bytes and is dedup-accurate', () {
+    final r = FileReassembler();
+    r.add(FileChunk(transferId: 't', index: 0, total: 2, data: _bytes(100)));
+    r.add(FileChunk(transferId: 't', index: 1, total: 2, data: _bytes(60)));
+    expect(r.bufferedBytes, 160);
+    // Re-adding index 0 (different bytes, same length) must not double-count.
+    r.add(FileChunk(transferId: 't', index: 0, total: 2, data: _bytes(100)));
+    expect(r.bufferedBytes, 160);
+  });
+
   test('a total that disagrees mid-transfer is ignored', () {
     final r = FileReassembler();
     r.add(FileChunk(transferId: 't', index: 0, total: 2, data: _bytes(10)));

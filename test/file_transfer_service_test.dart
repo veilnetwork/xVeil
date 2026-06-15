@@ -109,6 +109,25 @@ void main() {
     expect((await sB.loadMessages(a.hex)).where((m) => m.isFile), isEmpty);
   });
 
+  test('an over-budget file is refused at meta and its chunks are dropped',
+      () async {
+    await accept();
+    // Declare a size past the memory cap; B must not start the transfer.
+    await tA.send(
+        b,
+        WireEnvelope(WireKind.fileMeta,
+                jsonEncode({'tid': 'big', 'name': 'huge.bin', 'size': kMaxIncomingFileBytes + 1, 'count': 1}))
+            .encode());
+    await tA.send(
+        b,
+        WireEnvelope(WireKind.fileChunk,
+                jsonEncode({'tid': 'big', 'i': 0, 'total': 1, 'd': base64Encode(_bytes(100))}))
+            .encode());
+    await _pump();
+    expect(await sB.loadFile('big'), isNull);
+    expect((await sB.loadMessages(a.hex)).where((m) => m.isFile), isEmpty);
+  });
+
   test('a third party cannot inject chunks into another peer\'s transfer',
       () async {
     await accept(); // A is accepted by B

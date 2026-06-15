@@ -53,6 +53,7 @@ List<FileChunk> chunkBytes(
 class FileReassembler {
   final Map<int, Uint8List> _chunks = {};
   int? _total;
+  int _bytes = 0;
 
   /// Register a chunk. Out-of-order and duplicate chunks are fine; malformed
   /// chunks are ignored so a hostile sender cannot crash reassembly. Rejected:
@@ -67,11 +68,18 @@ class FileReassembler {
     } else if (total != chunk.total) {
       return;
     }
+    final prev = _chunks[chunk.index];
+    if (prev != null) _bytes -= prev.length; // dedup: replace, don't double-count
     _chunks[chunk.index] = chunk.data;
+    _bytes += chunk.data.length;
   }
 
   int get received => _chunks.length;
   int? get total => _total;
+
+  /// Bytes currently buffered (after dedup) — lets a caller abort a transfer
+  /// that grows past a memory budget before it completes.
+  int get bufferedBytes => _bytes;
 
   bool get isComplete => _total != null && _chunks.length == _total;
 
