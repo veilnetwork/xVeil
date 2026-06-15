@@ -41,7 +41,11 @@ final storageProvider = Provider<Storage>((ref) {
 /// Parameters for the in-process deniable boot, set by main() when the
 /// node-embedded dylib is loaded. Null disables it (loopback / legacy paths).
 class DeniableBootConfig {
-  const DeniableBootConfig({required this.runtimeDir, this.listenPort = 9000});
+  const DeniableBootConfig({
+    required this.runtimeDir,
+    this.listenPort = 9000,
+    this.storePath,
+  });
 
   /// Directory for the ephemeral, identity-free node sockets (admin + app IPC).
   final String runtimeDir;
@@ -49,6 +53,11 @@ class DeniableBootConfig {
   /// This instance's listener port (give two instances on one host distinct
   /// ports so they don't collide).
   final int listenPort;
+
+  /// Path to the deniable container file. Needed by the "all identities online"
+  /// branch to open the container as one `HvMultiSpace` (host every identity at
+  /// once). Null on the in-memory/loopback path (all-online unavailable).
+  final String? storePath;
 }
 
 /// Present (non-null) when the app should boot the node in-process from the
