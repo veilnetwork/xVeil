@@ -4,5 +4,11 @@
 <dict>
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
+	<!-- Lets file_picker read attachments / write files the user explicitly
+	     chooses. NOTE: a release build still needs the network entitlements
+	     (client/server) for the node + bundled dylibs — tracked as part of
+	     release hardening (see doc/SECURITY-NOTES.md). -->
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
 </dict>
 </plist>
