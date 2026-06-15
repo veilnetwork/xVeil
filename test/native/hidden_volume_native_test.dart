@@ -204,8 +204,8 @@ void main() {
   // The master-space FFI (open_with_keys / space_keys) end-to-end through
   // xVeil's stack on a real container — using the flock-respecting flow: the
   // real library takes an EXCLUSIVE per-container lock, so only ONE space is
-  // open at a time. (This is why MasterVault's current simultaneous-open model
-  // works against the fake but NOT a real container — see the design note.)
+  // open at a time — the flow IdentityManager serializes (open/close), and the
+  // reason the earlier simultaneous-open MasterVault only worked on the fake.
   test('master roster + openWithKeys, one space open at a time (real container)',
       () async {
     final dir = Directory.systemTemp.createTempSync('xveil_hv_master_');
