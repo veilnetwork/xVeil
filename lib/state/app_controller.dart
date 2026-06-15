@@ -447,6 +447,15 @@ class AppController extends Notifier<AppState> {
       return false;
     }
 
+    // First conversion (no existing master roster) needs the current identity's
+    // keys to wrap it as the first child. Without them (the active space wasn't
+    // open when we started) we'd write a roster of ONLY the new identity and
+    // ORPHAN the existing one — abort instead of losing it.
+    if (existingRoster == null && currentKeys == null) {
+      await _recoverToActive();
+      return false;
+    }
+
     // Base roster: an EXISTING master → its OWN on-disk roster (append to it); a
     // fresh master → wrap the current single identity as the first child.
     final base = <RosterEntry>[
