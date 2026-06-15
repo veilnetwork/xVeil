@@ -281,6 +281,10 @@ class AppL10nEn extends AppL10n {
       'That master password is already used by an identity — choose a different one.';
 
   @override
+  String get addIdentityWorking =>
+      'Setting up your new identity…\nThis can take a few seconds.';
+
+  @override
   String get settingsDecoyMaster => 'Set up decoy access';
 
   @override
