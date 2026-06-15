@@ -23,8 +23,11 @@ HV="$ROOT/third_party/hidden-volume"
 echo "==> Building hidden-volume-ffi ($PROFILE)"
 ( cd "$HV" && cargo build -p hidden-volume-ffi ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} )
 
-echo "==> Building veilclient-ffi ($PROFILE)"
-( cd "$VEIL" && cargo build -p veilclient-ffi ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} )
+echo "==> Building veilclient-ffi ($PROFILE, node-embedded)"
+# node-embedded bundles the in-process node runtime (veil_config_init /
+# veil_node_start_deferred / veil_node_apply_config), required for the deniable
+# in-process boot. It is additive — the client-only symbols are still present.
+( cd "$VEIL" && cargo build -p veilclient-ffi --features node-embedded ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} )
 
 echo "==> Building veil-cli ($PROFILE)"
 ( cd "$VEIL" && cargo build -p veil-cli ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} )
