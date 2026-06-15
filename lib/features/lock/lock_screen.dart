@@ -52,6 +52,36 @@ class _LockScreenState extends ConsumerState<LockScreen> {
     }
   }
 
+  Future<void> _wipe() async {
+    final l = AppL10n.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: Icon(Icons.warning_amber_rounded, color: scheme.error),
+        title: Text(l.lockWipe),
+        content: Text(l.lockWipeBody),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(l.actionCancel),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: scheme.error,
+              foregroundColor: scheme.onError,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(l.lockWipeConfirm),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await ref.read(appControllerProvider.notifier).wipeContainers();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
@@ -99,6 +129,11 @@ class _LockScreenState extends ConsumerState<LockScreen> {
               TextButton(
                 onPressed: _busy ? null : _startOver,
                 child: Text(l.lockStartOver),
+              ),
+              TextButton(
+                onPressed: _busy ? null : _wipe,
+                style: TextButton.styleFrom(foregroundColor: scheme.error),
+                child: Text(l.lockWipe),
               ),
               const Spacer(flex: 2),
             ],
