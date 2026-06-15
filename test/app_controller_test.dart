@@ -285,6 +285,45 @@ void main() {
     expect(ctrl.activeIdentity, 'work');
   });
 
+  test('addIdentity rejects a duplicate label without corrupting the roster',
+      () async {
+    SharedPreferences.setMockInitialValues({'onboarded': true});
+    final container = FakeHvContainer();
+    final alice = container.storage();
+    await alice.open(password: 'pw-alice', createIfMissing: true);
+    await alice.saveIdentity(AppController.generateIdentity(displayName: 'Alice'));
+    final aliceKeys = alice.exportSpaceKeys();
+    await alice.close();
+    final master = container.storage();
+    await master.open(password: 'masterpw', createIfMissing: true);
+    await master
+        .saveRoster([RosterEntry(label: 'alice', spaceKeys: aliceKeys)]);
+    await master.close();
+
+    final app = container.storage();
+    final c = ProviderContainer(
+        overrides: [storageProvider.overrideWith((ref) => app)]);
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+    await ctrl.unlock('masterpw');
+    await ctrl.pickIdentity('alice');
+
+    // A label that collides with an existing identity must be refused (a
+    // duplicate label would break label-based switching) — and the guard fires
+    // BEFORE any child space is created, so the roster is untouched.
+    final ok = await ctrl.addIdentity(
+        masterPassword: 'masterpw', label: 'alice', password: 'pw-other');
+    expect(ok, isFalse);
+
+    await ctrl.lock();
+    final check = container.storage();
+    await check.open(password: 'masterpw');
+    final labels = (await check.loadRoster())!.map((e) => e.label).toList();
+    await check.close();
+    expect(labels, ['alice'], reason: 'roster unchanged, no duplicate added');
+  });
+
   test('setIdentityAnonymous flips an identity flag and persists to the master',
       () async {
     SharedPreferences.setMockInitialValues({'onboarded': true});
