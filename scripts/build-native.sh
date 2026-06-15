@@ -21,13 +21,13 @@ VEIL="$ROOT/third_party/veil"
 HV="$ROOT/third_party/hidden-volume"
 
 echo "==> Building hidden-volume-ffi ($PROFILE)"
-( cd "$HV" && cargo build -p hidden-volume-ffi "${CARGO_FLAGS[@]}" )
+( cd "$HV" && cargo build -p hidden-volume-ffi ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} )
 
 echo "==> Building veilclient-ffi ($PROFILE)"
-( cd "$VEIL" && cargo build -p veilclient-ffi "${CARGO_FLAGS[@]}" )
+( cd "$VEIL" && cargo build -p veilclient-ffi ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} )
 
 echo "==> Building veil-cli ($PROFILE)"
-( cd "$VEIL" && cargo build -p veil-cli "${CARGO_FLAGS[@]}" )
+( cd "$VEIL" && cargo build -p veil-cli ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} )
 
 case "$(uname -s)" in
   Darwin) EXT="dylib" ;;
