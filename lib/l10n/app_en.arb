@@ -97,6 +97,8 @@
   "addIdentityIncomplete": "Fill in every field.",
   "addIdentityClash": "That master password is already used by an identity — choose a different one.",
   "addIdentityWorking": "Setting up your new identity…\nThis can take a few seconds.",
+  "addIdentityAnonymous": "Route anonymously",
+  "addIdentityAnonymousHint": "Hide this identity's network activity through veil's overlay so it can't be linked to your other identities. Slower.",
   "settingsDecoyMaster": "Set up decoy access",
   "decoyTitle": "Decoy (duress) access",
   "decoySubtitle": "A separate password that, under coercion, opens only the identities you tick below. Your real master and every other identity stay hidden.",

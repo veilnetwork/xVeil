@@ -144,7 +144,11 @@ class HiddenVolumeStorage implements Storage {
   Future<void> saveRoster(List<RosterEntry> entries) async {
     final json = jsonEncode([
       for (final e in entries)
-        {'l': e.label, 'k': base64.encode(e.spaceKeys)},
+        {
+          'l': e.label,
+          'k': base64.encode(e.spaceKeys),
+          if (e.anonymous) 'a': 1,
+        },
     ]);
     _s.commit([PutOp(Ns.settings, _sk('master:roster'), _sk(json))]);
   }
@@ -159,6 +163,7 @@ class HiddenVolumeStorage implements Storage {
         RosterEntry(
           label: e['l'] as String,
           spaceKeys: base64.decode(e['k'] as String),
+          anonymous: e['a'] == 1,
         ),
     ];
   }

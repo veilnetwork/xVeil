@@ -31,6 +31,8 @@ void main() {
     await tester.pumpWidget(_host());
     await tester.pump();
 
+    await tester.drag(find.byType(ListView), const Offset(0, -400));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Create'));
     await tester.pump();
     expect(find.text('Fill in every field.'), findsOneWidget);
