@@ -40,7 +40,13 @@ Future<List<Override>> _bootstrapOverrides() async {
           ? override
           : '${dir.path}/xveil.store';
       overrides.add(storageProvider.overrideWith((ref) {
-        final storage = HiddenVolumeStorage(hvSpaceOpener(path));
+        // Wire the keys-opener too so a master space can open its children by
+        // their stored SpaceKeys (master mode). Additive: the single-identity
+        // flow never calls openWithKeys, so its behaviour is unchanged.
+        final storage = HiddenVolumeStorage(
+          hvSpaceOpener(path),
+          keysOpener: hvKeysSpaceOpener(path),
+        );
         ref.onDispose(storage.close);
         return storage;
       }));
