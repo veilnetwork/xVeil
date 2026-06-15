@@ -95,6 +95,10 @@
   "networkStatusError": "Ошибка",
 
   "onboardRepeatPassword": "Повторите пароль",
+  "onboardPasswordSubtitle": "Этот пароль открывает ваше пространство на этом устройстве. Сброса нет.",
+  "onboardPasswordTooShort": "Минимум 6 символов",
+  "onboardPasswordMismatch": "Пароли не совпадают",
+  "onboardComingSoon": "{label} — появится в следующей версии",
   "recoveryPhraseHint": "Введите фразу восстановления, слова через пробел",
 
   "demoChatTooltip": "Демо-чат",

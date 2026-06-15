@@ -57,7 +57,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/lock', builder: (_, _) => const LockScreen()),
       GoRoute(
         path: '/preparing',
-        builder: (_, _) => const PreparingScreen(),
+        // No transition: the switch happens right before a brief CPU-bound
+        // block (Argon2 container open), so an animated slide would freeze
+        // half-way. Showing the screen instantly avoids a stuck half-transition.
+        pageBuilder: (_, _) => const NoTransitionPage(child: PreparingScreen()),
       ),
       GoRoute(path: '/home', builder: (_, _) => const HomeShell()),
       GoRoute(

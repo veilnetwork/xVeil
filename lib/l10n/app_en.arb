@@ -95,6 +95,13 @@
   "networkStatusError": "Error",
 
   "onboardRepeatPassword": "Repeat password",
+  "onboardPasswordSubtitle": "This password unlocks your space on this device. There is no reset.",
+  "onboardPasswordTooShort": "Use at least 6 characters",
+  "onboardPasswordMismatch": "Passwords do not match",
+  "onboardComingSoon": "{label} — coming in the next milestone",
+  "@onboardComingSoon": {
+    "placeholders": { "label": { "type": "String" } }
+  },
   "recoveryPhraseHint": "Enter your recovery phrase, words separated by spaces",
 
   "demoChatTooltip": "Demo chat",
