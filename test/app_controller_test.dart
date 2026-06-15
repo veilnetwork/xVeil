@@ -263,6 +263,88 @@ void main() {
     expect(s.identity!.displayName, 'Solo');
   });
 
+  test('createDecoyMaster builds a duress master with only the shared identities',
+      () async {
+    SharedPreferences.setMockInitialValues({'onboarded': true});
+    final container = FakeHvContainer();
+    final roster = <RosterEntry>[];
+    for (final (label, pw) in [('alice', 'pw-a'), ('bob', 'pw-b')]) {
+      final ch = container.storage();
+      await ch.open(password: pw, createIfMissing: true);
+      await ch.saveIdentity(AppController.generateIdentity(displayName: label));
+      roster.add(RosterEntry(label: label, spaceKeys: ch.exportSpaceKeys()));
+      await ch.close();
+    }
+    final m = container.storage();
+    await m.open(password: 'masterpw', createIfMissing: true);
+    await m.saveRoster(roster);
+    await m.close();
+
+    final app = container.storage();
+    final c = ProviderContainer(
+        overrides: [storageProvider.overrideWith((ref) => app)]);
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+    await ctrl.unlock('masterpw');
+    await ctrl.pickIdentity('alice');
+
+    final ok = await ctrl.createDecoyMaster(
+        duressPassword: 'duresspw', includeLabels: ['bob']);
+    expect(ok, isTrue);
+    await ctrl.lock(); // release the active handle to inspect the container
+
+    // The duress password opens a master listing ONLY the shared identity.
+    final decoy = container.storage();
+    expect(await decoy.open(password: 'duresspw'), isTrue);
+    expect((await decoy.loadRoster())!.map((e) => e.label), ['bob']);
+    await decoy.close();
+
+    // The real master is untouched.
+    final real = container.storage();
+    await real.open(password: 'masterpw');
+    expect((await real.loadRoster())!.map((e) => e.label), ['alice', 'bob']);
+    await real.close();
+  });
+
+  test('createDecoyMaster refuses to overwrite the real master (clash)',
+      () async {
+    SharedPreferences.setMockInitialValues({'onboarded': true});
+    final container = FakeHvContainer();
+    final roster = <RosterEntry>[];
+    for (final (label, pw) in [('alice', 'pw-a'), ('bob', 'pw-b')]) {
+      final ch = container.storage();
+      await ch.open(password: pw, createIfMissing: true);
+      await ch.saveIdentity(AppController.generateIdentity(displayName: label));
+      roster.add(RosterEntry(label: label, spaceKeys: ch.exportSpaceKeys()));
+      await ch.close();
+    }
+    final m = container.storage();
+    await m.open(password: 'masterpw', createIfMissing: true);
+    await m.saveRoster(roster);
+    await m.close();
+
+    final app = container.storage();
+    final c = ProviderContainer(
+        overrides: [storageProvider.overrideWith((ref) => app)]);
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+    await ctrl.unlock('masterpw');
+    await ctrl.pickIdentity('alice');
+
+    // Duress password == the real master password → would clobber it.
+    final ok = await ctrl.createDecoyMaster(
+        duressPassword: 'masterpw', includeLabels: ['bob']);
+    expect(ok, isFalse);
+    await ctrl.lock();
+
+    final real = container.storage();
+    await real.open(password: 'masterpw');
+    expect((await real.loadRoster())!.map((e) => e.label), ['alice', 'bob']);
+    await real.close();
+  });
+
   test('a single-identity space unlocks straight to ready (no picker)',
       () async {
     SharedPreferences.setMockInitialValues({'onboarded': true});
