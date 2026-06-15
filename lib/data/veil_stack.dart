@@ -96,6 +96,11 @@ class RealVeilStack {
     final listen = 'tcp://127.0.0.1:$listenPort';
 
     // 3. Compose a full, bootable config (identity + runtime) in memory.
+    // INVARIANT: `anonymous` here MUST match the value passed to startDeferred
+    // below. veil pins [anonymity] from the STUB boot config; the applied config
+    // is a reload that does not re-apply it but DOES warn `config.anonymity.
+    // reload_ignored` if its [anonymity] differs from the boot state. Keeping the
+    // applied config's anonymity consistent with the stub's avoids that warning.
     final fullConfig = EmbeddedNode.composeConfig(
       identityToml: identityToml,
       listenTransport: listen,
