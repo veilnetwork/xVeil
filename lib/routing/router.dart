@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../features/chat/chat_screen.dart';
 import '../features/home/home_shell.dart';
+import '../features/identity/add_identity_screen.dart';
 import '../features/identity/identity_picker_screen.dart';
 import '../features/lock/lock_screen.dart';
 import '../features/onboarding/onboarding_screen.dart';
@@ -71,6 +72,10 @@ final routerProvider = Provider<GoRouter>((ref) {
         pageBuilder: (_, _) => const NoTransitionPage(child: PreparingScreen()),
       ),
       GoRoute(path: '/home', builder: (_, _) => const HomeShell()),
+      GoRoute(
+        path: '/add-identity',
+        builder: (_, _) => const AddIdentityScreen(),
+      ),
       GoRoute(
         path: '/chat/:peerHex',
         builder: (_, state) =>

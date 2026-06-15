@@ -245,6 +245,42 @@ class AppL10nEn extends AppL10n {
   String get settingsSwitchIdentity => 'Switch identity';
 
   @override
+  String get settingsAddIdentity => 'Add identity';
+
+  @override
+  String get addIdentityTitle => 'Add identity';
+
+  @override
+  String get addIdentitySubtitle =>
+      'A new identity is hidden in the same file. The first time you add one, your current identity and the new one are managed by a master password you set below.';
+
+  @override
+  String get addIdentityCurrentName => 'Name for your current identity';
+
+  @override
+  String get addIdentityNewName => 'New identity name';
+
+  @override
+  String get addIdentityNewPassword => 'New identity password';
+
+  @override
+  String get addIdentityMasterPassword => 'Master password';
+
+  @override
+  String get addIdentityMasterHint =>
+      'Unlocks the identity chooser. Must be different from each identity\'s own password.';
+
+  @override
+  String get addIdentityCreate => 'Create';
+
+  @override
+  String get addIdentityIncomplete => 'Fill in every field.';
+
+  @override
+  String get addIdentityClash =>
+      'That master password is already used by an identity — choose a different one.';
+
+  @override
   String get languageSystem => 'System default';
 
   @override

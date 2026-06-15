@@ -55,7 +55,10 @@ void main() {
     expect(find.text('Nat'), findsOneWidget);
     expect(find.text(id.nodeId.short), findsWidgets);
 
-    // "Lock now" locks the session.
+    // "Lock now" locks the session (scroll the list — more tiles can push it
+    // below the test viewport).
+    await tester.drag(find.byType(ListView), const Offset(0, -400));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Lock now'));
     await tester.pump();
     expect(container.read(appControllerProvider).phase, AppPhase.locked);
