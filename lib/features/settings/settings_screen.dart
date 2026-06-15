@@ -85,6 +85,13 @@ class SettingsScreen extends ConsumerWidget {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => context.push('/add-identity'),
           ),
+          if (master.$1)
+            ListTile(
+              leading: const Icon(Icons.theater_comedy_outlined),
+              title: Text(l.settingsDecoyMaster),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/decoy-master'),
+            ),
           ListTile(
             leading: const Icon(Icons.badge_outlined),
             title: Text(l.settingsIdentity),

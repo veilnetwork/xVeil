@@ -607,6 +607,66 @@ abstract class AppL10n {
   /// **'That master password is already used by an identity — choose a different one.'**
   String get addIdentityClash;
 
+  /// No description provided for @settingsDecoyMaster.
+  ///
+  /// In en, this message translates to:
+  /// **'Set up decoy access'**
+  String get settingsDecoyMaster;
+
+  /// No description provided for @decoyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Decoy (duress) access'**
+  String get decoyTitle;
+
+  /// No description provided for @decoySubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'A separate password that, under coercion, opens only the identities you tick below. Your real master and every other identity stay hidden.'**
+  String get decoySubtitle;
+
+  /// No description provided for @decoyWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'Anyone you give this password to sees the FULL content of every identity you tick. Include only genuinely safe ones.'**
+  String get decoyWarning;
+
+  /// No description provided for @decoyPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Duress password'**
+  String get decoyPassword;
+
+  /// No description provided for @decoyInclude.
+  ///
+  /// In en, this message translates to:
+  /// **'Identities to show under duress'**
+  String get decoyInclude;
+
+  /// No description provided for @decoyCreate.
+  ///
+  /// In en, this message translates to:
+  /// **'Create decoy access'**
+  String get decoyCreate;
+
+  /// No description provided for @decoyCreated.
+  ///
+  /// In en, this message translates to:
+  /// **'Decoy access created.'**
+  String get decoyCreated;
+
+  /// No description provided for @decoyPickOne.
+  ///
+  /// In en, this message translates to:
+  /// **'Select at least one identity.'**
+  String get decoyPickOne;
+
+  /// No description provided for @decoyClash.
+  ///
+  /// In en, this message translates to:
+  /// **'That password is already in use — choose a different one.'**
+  String get decoyClash;
+
   /// No description provided for @languageSystem.
   ///
   /// In en, this message translates to:

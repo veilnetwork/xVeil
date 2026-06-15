@@ -282,6 +282,38 @@ class AppL10nRu extends AppL10n {
       'Этот мастер-пароль уже занят личностью — выберите другой.';
 
   @override
+  String get settingsDecoyMaster => 'Настроить ложный доступ';
+
+  @override
+  String get decoyTitle => 'Ложный доступ (под принуждением)';
+
+  @override
+  String get decoySubtitle =>
+      'Отдельный пароль, который под принуждением открывает только отмеченные ниже личности. Ваш настоящий мастер и остальные личности остаются скрытыми.';
+
+  @override
+  String get decoyWarning =>
+      'Тот, кому вы выдадите этот пароль, увидит ВСЁ содержимое каждой отмеченной личности. Включайте только действительно безопасные.';
+
+  @override
+  String get decoyPassword => 'Пароль под принуждением';
+
+  @override
+  String get decoyInclude => 'Какие личности показывать под принуждением';
+
+  @override
+  String get decoyCreate => 'Создать ложный доступ';
+
+  @override
+  String get decoyCreated => 'Ложный доступ создан.';
+
+  @override
+  String get decoyPickOne => 'Выберите хотя бы одну личность.';
+
+  @override
+  String get decoyClash => 'Этот пароль уже занят — выберите другой.';
+
+  @override
   String get languageSystem => 'Системный';
 
   @override
