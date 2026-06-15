@@ -29,6 +29,7 @@ Future<void> main() async {
 ///   blocking launch.
 Future<List<Override>> _bootstrapOverrides() async {
   final overrides = <Override>[];
+  String? storePath; // the deniable container path, shared with the boot config
 
   try {
     if (ensureHiddenVolumeLoaded()) {
@@ -39,6 +40,7 @@ Future<List<Override>> _bootstrapOverrides() async {
       final path = (override != null && override.isNotEmpty)
           ? override
           : '${dir.path}/xveil.store';
+      storePath = path;
       overrides.add(storageProvider.overrideWith((ref) {
         // Wire the keys-opener too so a master space can open its children by
         // their stored SpaceKeys (master mode). Additive: the single-identity
@@ -88,8 +90,8 @@ Future<List<Override>> _bootstrapOverrides() async {
         '${Directory.systemTemp.path}/xveil-rt-$pid';
     final port =
         int.tryParse(Platform.environment['XVEIL_LISTEN_PORT'] ?? '') ?? 9000;
-    overrides.add(deniableBootProvider.overrideWithValue(
-        DeniableBootConfig(runtimeDir: runtimeDir, listenPort: port)));
+    overrides.add(deniableBootProvider.overrideWithValue(DeniableBootConfig(
+        runtimeDir: runtimeDir, listenPort: port, storePath: storePath)));
     debugPrint('xVeil[real:deniable]: armed (runtimeDir=$runtimeDir port=$port)');
   }
 
