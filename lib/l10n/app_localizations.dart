@@ -619,6 +619,12 @@ abstract class AppL10n {
   /// **'Repeat password'**
   String get onboardRepeatPassword;
 
+  /// No description provided for @onboardPasswordTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Set a password'**
+  String get onboardPasswordTitle;
+
   /// No description provided for @onboardPasswordSubtitle.
   ///
   /// In en, this message translates to:
