@@ -445,6 +445,18 @@ abstract class AppL10n {
   /// **'edited'**
   String get chatEdited;
 
+  /// No description provided for @identityPickerTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose an identity'**
+  String get identityPickerTitle;
+
+  /// No description provided for @identityPickerSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'This vault holds several identities — pick one to act as.'**
+  String get identityPickerSubtitle;
+
   /// No description provided for @networkTitle.
   ///
   /// In en, this message translates to:

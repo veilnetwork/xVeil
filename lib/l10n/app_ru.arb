@@ -66,6 +66,8 @@
   "chatDeleteForEveryoneBody": "Оно стирается здесь, а собеседнику отправляется запрос на удаление — но он мог уже увидеть или скопировать его.",
   "chatDeleteConfirm": "Удалить",
   "chatEdited": "изменено",
+  "identityPickerTitle": "Выберите личность",
+  "identityPickerSubtitle": "В этом хранилище несколько личностей — выберите, от какой действовать.",
 
   "networkTitle": "Оверлей-сеть",
   "networkStatusConnected": "Подключено",

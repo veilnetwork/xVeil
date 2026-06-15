@@ -194,6 +194,13 @@ class AppL10nEn extends AppL10n {
   String get chatEdited => 'edited';
 
   @override
+  String get identityPickerTitle => 'Choose an identity';
+
+  @override
+  String get identityPickerSubtitle =>
+      'This vault holds several identities — pick one to act as.';
+
+  @override
   String get networkTitle => 'Overlay network';
 
   @override
