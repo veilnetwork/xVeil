@@ -39,6 +39,9 @@
   "lockWrong": "Wrong password",
   "lockStartOver": "Start over",
   "lockStartOverBody": "Set up a new identity on this device. Your existing data is not deleted, but you will need its password to reach it again. Continue?",
+  "lockWipe": "Clear all data",
+  "lockWipeBody": "This permanently deletes the container and EVERY identity inside it — including any hidden or decoy ones. This cannot be undone: without the container the data is unrecoverable, even with the right password. Are you absolutely sure?",
+  "lockWipeConfirm": "Delete forever",
 
   "navChats": "Chats",
   "navNetwork": "Network",

@@ -295,6 +295,24 @@ abstract class AppL10n {
   /// **'Set up a new identity on this device. Your existing data is not deleted, but you will need its password to reach it again. Continue?'**
   String get lockStartOverBody;
 
+  /// No description provided for @lockWipe.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear all data'**
+  String get lockWipe;
+
+  /// No description provided for @lockWipeBody.
+  ///
+  /// In en, this message translates to:
+  /// **'This permanently deletes the container and EVERY identity inside it — including any hidden or decoy ones. This cannot be undone: without the container the data is unrecoverable, even with the right password. Are you absolutely sure?'**
+  String get lockWipeBody;
+
+  /// No description provided for @lockWipeConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete forever'**
+  String get lockWipeConfirm;
+
   /// No description provided for @navChats.
   ///
   /// In en, this message translates to:
