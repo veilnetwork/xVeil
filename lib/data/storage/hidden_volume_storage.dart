@@ -224,13 +224,36 @@ class HiddenVolumeStorage implements Storage {
     return int.tryParse(utf8.decode(raw)) ?? 1;
   }
 
+  @override
+  Future<void> markMessageStatus(String messageId, MessageStatus status) async {
+    // Append-only log can't mutate a row, so record a status OP that [_scanLog]
+    // folds onto the message (latest wins). Drives the outbox: an ack flips a
+    // message to `delivered` so it is no longer re-sent.
+    final nextId = _nextLogId();
+    final payload =
+        jsonEncode({'op': 'status', 'id': messageId, 's': status.index});
+    _s.commit([
+      AppendLogOp(Ns.messageLog, nextId, _sk(payload)),
+      PutOp(Ns.settings, _sk('msg_next_id'), _sk('${nextId + 1}')),
+    ]);
+  }
+
+  /// Scan the log, building messages and folding status OPs onto them. Base
+  /// rows carry the message; `{op:'status'}` rows update an existing id.
   Iterable<Message> _scanLog() {
-    return _s
-        .iterLogRange(namespace: Ns.messageLog, limit: _logScanLimit)
-        .map((e) {
+    final order = <String>[];
+    final byId = <String, Message>{};
+    final statusOps = <String, MessageStatus>{};
+    for (final e in _s.iterLogRange(namespace: Ns.messageLog, limit: _logScanLimit)) {
       final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
-      return Message(
-        id: m['id'] as String,
+      if (m['op'] == 'status') {
+        statusOps[m['id'] as String] = MessageStatus.values[m['s'] as int];
+        continue;
+      }
+      final id = m['id'] as String;
+      if (!byId.containsKey(id)) order.add(id);
+      byId[id] = Message(
+        id: id,
         conversationId: m['c'] as String,
         direction: MessageDirection.values[m['d'] as int],
         body: m['b'] as String,
@@ -239,6 +262,11 @@ class HiddenVolumeStorage implements Storage {
         fileId: m['fi'] as String?,
         fileName: m['fn'] as String?,
       );
+    }
+    return order.map((id) {
+      final msg = byId[id]!;
+      final s = statusOps[id];
+      return s != null ? msg.copyWith(status: s) : msg;
     });
   }
 
