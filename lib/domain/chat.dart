@@ -49,6 +49,8 @@ class Message {
     required this.body,
     required this.timestamp,
     this.status = MessageStatus.sent,
+    this.fileId,
+    this.fileName,
   });
 
   final String id;
@@ -58,6 +60,13 @@ class Message {
   final DateTime timestamp;
   final MessageStatus status;
 
+  /// When set, this message carries a stored file (see Storage.loadFile);
+  /// [body] holds a human label and [fileName] the original name.
+  final String? fileId;
+  final String? fileName;
+
+  bool get isFile => fileId != null;
+
   Message copyWith({MessageStatus? status}) => Message(
         id: id,
         conversationId: conversationId,
@@ -65,6 +74,8 @@ class Message {
         body: body,
         timestamp: timestamp,
         status: status ?? this.status,
+        fileId: fileId,
+        fileName: fileName,
       );
 }
 
