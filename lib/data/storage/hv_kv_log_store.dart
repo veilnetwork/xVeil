@@ -53,6 +53,14 @@ class HvKvLogStore implements KvLogStore {
   int count(int namespace) => _space.count(namespace);
 
   @override
+  void scrub() {
+    // Reclaim/overwrite chunks orphaned by edited or tombstoned messages so the
+    // prior plaintext can no longer be recovered from the container — true
+    // deniable erasure, not a logical tombstone.
+    _space.vacuumDataBatches();
+  }
+
+  @override
   void close() => _space.close();
 }
 
