@@ -8,9 +8,12 @@ import 'node_controller.dart';
 import 'veil_node.dart' show veilSocketProbe;
 
 // C ABI from veilclient-ffi (node-embedded feature):
+//   char     *veil_config_init(uint32_t difficulty, char** err_out);
 //   VeilNode *veil_node_start(const uint8_t*, size_t, char** err_out);
-//   VeilNode *veil_node_start_deferred(char** err_out);
+//   VeilNode *veil_node_start_deferred(const uint8_t*, size_t, char** err_out);
+//   int       veil_node_apply_config(const VeilNode*, const uint8_t*, size_t, char** err_out);
 //   void      veil_node_stop(VeilNode*);
+//   void      veil_free_string(char*);
 typedef _StartNative = Pointer<Void> Function(
     Pointer<Uint8>, IntPtr, Pointer<Pointer<Utf8>>);
 typedef _StartDart = Pointer<Void> Function(
@@ -19,22 +22,59 @@ typedef _StopNative = Void Function(Pointer<Void>);
 typedef _StopDart = void Function(Pointer<Void>);
 typedef _FreeStrNative = Void Function(Pointer<Utf8>);
 typedef _FreeStrDart = void Function(Pointer<Utf8>);
+typedef _ConfigInitNative = Pointer<Utf8> Function(
+    Uint32, Pointer<Pointer<Utf8>>);
+typedef _ConfigInitDart = Pointer<Utf8> Function(
+    int, Pointer<Pointer<Utf8>>);
+typedef _ApplyConfigNative = Int32 Function(
+    Pointer<Void>, Pointer<Uint8>, IntPtr, Pointer<Pointer<Utf8>>);
+typedef _ApplyConfigDart = int Function(
+    Pointer<Void>, Pointer<Uint8>, int, Pointer<Pointer<Utf8>>);
 
 /// A veil node running IN-PROCESS via the embedded-node FFI (no subprocess).
 /// Requires a dylib built with `--features node-embedded` to be loaded.
 class EmbeddedNode {
-  EmbeddedNode._(this._handle, this._stopFn);
+  EmbeddedNode._(this._handle, this._dl);
 
   final Pointer<Void> _handle;
-  final _StopDart _stopFn;
+  final DynamicLibrary _dl;
   bool _stopped = false;
+
+  /// Provision a fresh node identity IN-PROCESS (generate keypair + mine the
+  /// PoW nonce) and return its config as TOML — **nothing is written to disk**.
+  /// Store the result inside the deniable container (see Storage.saveNodeConfig)
+  /// and later boot from it via [startDeferred] + [applyConfig].
+  ///
+  /// [difficulty] is the PoW difficulty in leading zero bits (0 = canonical
+  /// default). Mining can take a while — run it off the UI isolate.
+  static String mineConfig(int difficulty, {DynamicLibrary? lib}) {
+    final dl = lib ?? DynamicLibrary.process();
+    final initFn =
+        dl.lookupFunction<_ConfigInitNative, _ConfigInitDart>('veil_config_init');
+    final freeStr =
+        dl.lookupFunction<_FreeStrNative, _FreeStrDart>('veil_free_string');
+    final errOut = calloc<Pointer<Utf8>>();
+    try {
+      final out = initFn(difficulty, errOut);
+      if (out == nullptr) {
+        final err = errOut.value;
+        final msg = err == nullptr ? 'unknown error' : err.toDartString();
+        if (err != nullptr) freeStr(err);
+        throw StateError('veil_config_init failed: $msg');
+      }
+      final toml = out.toDartString();
+      freeStr(out);
+      return toml;
+    } finally {
+      calloc.free(errOut);
+    }
+  }
 
   /// Start a node from [configPath]. [lib] defaults to the in-process symbols
   /// (the preloaded libveilclient_ffi). Throws if start fails.
   static EmbeddedNode start(String configPath, {DynamicLibrary? lib}) {
     final dl = lib ?? DynamicLibrary.process();
     final startFn = dl.lookupFunction<_StartNative, _StartDart>('veil_node_start');
-    final stopFn = dl.lookupFunction<_StopNative, _StopDart>('veil_node_stop');
     final freeStr =
         dl.lookupFunction<_FreeStrNative, _FreeStrDart>('veil_free_string');
 
@@ -50,9 +90,66 @@ class EmbeddedNode {
         if (err != nullptr) freeStr(err);
         throw StateError('veil_node_start failed: $msg');
       }
-      return EmbeddedNode._(handle, stopFn);
+      return EmbeddedNode._(handle, dl);
     } finally {
       calloc.free(pathPtr);
+      calloc.free(errOut);
+    }
+  }
+
+  /// Start a node in deferred-init mode bound to [adminSocketPath] (an
+  /// ephemeral, identity-free path). It boots under a throwaway identity; call
+  /// [applyConfig] with the real config to promote it — so the private key never
+  /// touches a config file on disk.
+  static EmbeddedNode startDeferred(String adminSocketPath, {DynamicLibrary? lib}) {
+    final dl = lib ?? DynamicLibrary.process();
+    final startFn =
+        dl.lookupFunction<_StartNative, _StartDart>('veil_node_start_deferred');
+    final freeStr =
+        dl.lookupFunction<_FreeStrNative, _FreeStrDart>('veil_free_string');
+
+    final bytes = utf8.encode(adminSocketPath);
+    final sockPtr = calloc<Uint8>(bytes.length);
+    final errOut = calloc<Pointer<Utf8>>();
+    try {
+      sockPtr.asTypedList(bytes.length).setAll(0, bytes);
+      final handle = startFn(sockPtr, bytes.length, errOut);
+      if (handle == nullptr) {
+        final err = errOut.value;
+        final msg = err == nullptr ? 'unknown error' : err.toDartString();
+        if (err != nullptr) freeStr(err);
+        throw StateError('veil_node_start_deferred failed: $msg');
+      }
+      return EmbeddedNode._(handle, dl);
+    } finally {
+      calloc.free(sockPtr);
+      calloc.free(errOut);
+    }
+  }
+
+  /// Promote a deferred node to its real identity by applying [configToml]
+  /// (e.g. the bytes from [mineConfig], loaded from the deniable container) over
+  /// its admin socket, in memory. Throws if the apply fails.
+  void applyConfig(String configToml) {
+    final applyFn = _dl
+        .lookupFunction<_ApplyConfigNative, _ApplyConfigDart>('veil_node_apply_config');
+    final freeStr =
+        _dl.lookupFunction<_FreeStrNative, _FreeStrDart>('veil_free_string');
+
+    final bytes = utf8.encode(configToml);
+    final tomlPtr = calloc<Uint8>(bytes.length);
+    final errOut = calloc<Pointer<Utf8>>();
+    try {
+      tomlPtr.asTypedList(bytes.length).setAll(0, bytes);
+      final rc = applyFn(_handle, tomlPtr, bytes.length, errOut);
+      if (rc != 0) {
+        final err = errOut.value;
+        final msg = err == nullptr ? 'unknown error' : err.toDartString();
+        if (err != nullptr) freeStr(err);
+        throw StateError('veil_node_apply_config failed: $msg');
+      }
+    } finally {
+      calloc.free(tomlPtr);
       calloc.free(errOut);
     }
   }
@@ -60,7 +157,8 @@ class EmbeddedNode {
   void stop() {
     if (_stopped) return;
     _stopped = true;
-    _stopFn(_handle); // signals shutdown + joins the node thread
+    final stopFn = _dl.lookupFunction<_StopNative, _StopDart>('veil_node_stop');
+    stopFn(_handle); // signals shutdown + joins the node thread
   }
 }
 
