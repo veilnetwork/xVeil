@@ -195,18 +195,22 @@ into that file. Both must change so keys never touch disk.
   PoW nonce mining) as an FFI that **returns** the identity material in memory
   instead of writing a config file. xVeil stores it in the space's
   `node:identity` blob. Security-critical; mobile onboarding needs it anyway.
-- **Boot from in-memory identity — two options:**
-  - **(A, no new FFI)** Reuse the existing `veil_node_start_deferred` (boots
-    ephemeral, no config file) + push the real config — assembled in memory from
-    the space's `node:identity` — over the node's **admin IPC** (`apply_config`,
-    already on the backlog). Smallest veil-side change; relies on the deferred +
-    apply path being complete.
-  - **(B, new FFI)** Add `veil_node_start_from_config_bytes(bytes)` that parses
-    an in-memory TOML (no path) and boots directly. Cleaner boot, but the node
-    runtime currently takes a config *path* (`start_thread(Some(path), …)`), so
-    this needs the runtime to accept a parsed `Config` object.
-  *Recommendation:* try (A) first (no new FFI, exercises deferred+apply which we
-  want anyway); fall back to (B) if deferred+apply can't carry the full identity.
+- **Boot from in-memory identity — DECIDED: variant A (the intended messenger
+  flow).** `AdminCommand::ApplyConfig { toml_content, persist: false }` is
+  documented verbatim for the "messenger build … stores config in a secure
+  backend, not the filesystem, pushes it to the embedded daemon at startup" and
+  "deferred-init: daemon boots without an identity, binds only the admin socket,
+  this command provides the config that promotes it to full operation" cases. It
+  validates, re-initialises the node (identity included, same path as Reload),
+  and applies **in-memory** (a `apply_config_inmemory_updates_runtime_without_disk_write`
+  test exists). So: `veil_node_start_deferred` → push the space-stored config via
+  ApplyConfig over admin IPC → real identity adopted, nothing on disk. **No
+  boot-from-bytes FFI needed.**
+  - *Remaining veil glue:* xVeil must send ApplyConfig to the deferred node's
+    admin socket. Cleanest is a small FFI `veil_node_apply_config(node, toml)`
+    that connects to the node's admin socket in-process (so Dart doesn't speak
+    the admin protocol); the deferred stub config's admin-socket path must be
+    known/ephemeral.
 
 Also audit: the embedded node must not persist identity-bearing state to disk —
 admin/ipc socket **paths** must be ephemeral and identity-free, DHT is in-memory
