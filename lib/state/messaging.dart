@@ -119,7 +119,9 @@ class MessagingService {
         final j = jsonDecode(env.body) as Map<String, dynamic>;
         final tid = j['tid'] as String;
         final inc = _inFlight[tid];
-        if (inc == null) return; // chunk before meta / unknown transfer
+        // Unknown transfer (chunk before meta), or a different peer trying to
+        // contribute to someone else's in-flight transfer — drop it.
+        if (inc == null || inc.src != m.src) return;
         inc.reasm.add(FileChunk(
           transferId: tid,
           index: j['i'] as int,
