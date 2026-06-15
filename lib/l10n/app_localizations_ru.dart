@@ -195,6 +195,13 @@ class AppL10nRu extends AppL10n {
   String get chatEdited => 'изменено';
 
   @override
+  String get identityPickerTitle => 'Выберите личность';
+
+  @override
+  String get identityPickerSubtitle =>
+      'В этом хранилище несколько личностей — выберите, от какой действовать.';
+
+  @override
   String get networkTitle => 'Оверлей-сеть';
 
   @override

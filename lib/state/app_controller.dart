@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/ids.dart';
 import '../data/veil_stack.dart';
 import '../domain/identity.dart';
+import '../domain/roster.dart';
 import 'providers.dart';
 
 /// Top-level lifecycle of the app, used by the router to gate screens.
@@ -19,6 +20,10 @@ enum AppPhase {
   /// An identity exists; the space is locked and needs a password.
   locked,
 
+  /// The unlocked space is a MASTER managing several identities — let the user
+  /// pick which one to act as (master mode). Single-identity spaces skip this.
+  pickingIdentity,
+
   /// Space unlocked; the in-process node is being provisioned/booted (mining the
   /// identity on first run can take a few seconds) — show a "setting up" screen.
   preparingNode,
@@ -28,17 +33,32 @@ enum AppPhase {
 }
 
 class AppState {
-  const AppState(this.phase, {this.identity, this.unlockError = false});
+  const AppState(
+    this.phase, {
+    this.identity,
+    this.unlockError = false,
+    this.identities = const [],
+  });
 
   final AppPhase phase;
   final Identity? identity;
   final bool unlockError;
 
-  AppState copyWith({AppPhase? phase, Identity? identity, bool? unlockError}) =>
+  /// In [AppPhase.pickingIdentity], the labels of the identities the unlocked
+  /// master manages (the picker's options). Empty otherwise.
+  final List<String> identities;
+
+  AppState copyWith({
+    AppPhase? phase,
+    Identity? identity,
+    bool? unlockError,
+    List<String>? identities,
+  }) =>
       AppState(
         phase ?? this.phase,
         identity: identity ?? this.identity,
         unlockError: unlockError ?? false,
+        identities: identities ?? this.identities,
       );
 }
 
@@ -46,6 +66,11 @@ const _kOnboardedKey = 'onboarded';
 const _kStorageModeKey = 'storage_mode';
 
 class AppController extends Notifier<AppState> {
+  /// Roster of the master unlocked this session, cached between [unlock] (which
+  /// reads it then releases the master's lock) and [pickIdentity]. Holds child
+  /// SpaceKeys — cleared on lock/start-over. Null in single-identity mode.
+  List<RosterEntry>? _pendingRoster;
+
   @override
   AppState build() {
     _bootstrap();
@@ -99,6 +124,42 @@ class AppController extends Notifier<AppState> {
     }
     if (!ok) {
       state = state.copyWith(unlockError: true);
+      return;
+    }
+    // Master vs identity is decided AFTER unlock by inspecting contents (never
+    // from disk — deniability). A roster ⇒ master: read it, then release the
+    // exclusive lock (only one space open at a time) and let the user pick.
+    final roster = await storage.loadRoster();
+    if (roster != null && roster.isNotEmpty) {
+      _pendingRoster = roster;
+      await storage.close();
+      state = state.copyWith(
+        phase: AppPhase.pickingIdentity,
+        identities: [for (final e in roster) e.label],
+      );
+      return;
+    }
+    // Single identity space — unchanged path.
+    final identity = await storage.loadIdentity() ?? _placeholderIdentity();
+    await _enterSession(identity);
+  }
+
+  /// Master mode: open the chosen identity (by its stored keys) and enter its
+  /// session. The active identity is the single open space; switching later is
+  /// close-this-then-open-next (the exclusive lock allows only one at a time).
+  Future<void> pickIdentity(String label) async {
+    RosterEntry? entry;
+    for (final e in _pendingRoster ?? const <RosterEntry>[]) {
+      if (e.label == label) {
+        entry = e;
+        break;
+      }
+    }
+    if (entry == null) return;
+    final storage = ref.read(storageProvider);
+    if (!await storage.openWithKeys(entry.spaceKeys)) {
+      // The child keys no longer open a space — bounce back to locked.
+      state = const AppState(AppPhase.locked, unlockError: true);
       return;
     }
     final identity = await storage.loadIdentity() ?? _placeholderIdentity();
@@ -156,6 +217,7 @@ class AppController extends Notifier<AppState> {
   Future<void> lock() async {
     await _teardownRealStack();
     await ref.read(storageProvider).close();
+    _pendingRoster = null; // drop cached child keys
     state = const AppState(AppPhase.locked);
   }
 
@@ -174,6 +236,7 @@ class AppController extends Notifier<AppState> {
   Future<void> startOver() async {
     await _teardownRealStack();
     await ref.read(storageProvider).close();
+    _pendingRoster = null;
     final prefs = await ref.read(prefsProvider.future);
     await prefs.remove(_kOnboardedKey);
     await prefs.remove(_kStorageModeKey);
