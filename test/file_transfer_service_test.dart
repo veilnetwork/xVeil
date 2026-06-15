@@ -109,6 +109,22 @@ void main() {
     expect((await sB.loadMessages(a.hex)).where((m) => m.isFile), isEmpty);
   });
 
+  test('a malformed file envelope is dropped without breaking delivery',
+      () async {
+    await accept();
+    // Hostile fileMeta with a non-JSON body, then a fileChunk missing fields —
+    // both would throw mid-handler if unguarded.
+    await tA.send(b, WireEnvelope(WireKind.fileMeta, 'not json {{').encode());
+    await tA.send(b, WireEnvelope(WireKind.fileChunk, '{"tid":"z"}').encode());
+    await _pump();
+    // The inbound loop survived: a normal message still arrives.
+    await mA.sendText(b, 'still here');
+    await _pump();
+    final msgs = await sB.loadMessages(a.hex);
+    expect(msgs.any((m) => m.body == 'still here'), isTrue);
+    expect(msgs.where((m) => m.isFile), isEmpty);
+  });
+
   test('an over-budget file is refused at meta and its chunks are dropped',
       () async {
     await accept();
