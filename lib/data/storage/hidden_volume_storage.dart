@@ -16,6 +16,10 @@ const _logScanLimit = 100000;
 
 Uint8List _sk(String key) => Uint8List.fromList(utf8.encode(key));
 
+/// Opener for [HiddenVolumeStorage.fromStore], where the store is already open
+/// and [HiddenVolumeStorage.open] is never called.
+KvLogStore? _noOpener({required Uint8List password, required bool create}) => null;
+
 /// Domain [Storage] mapped onto a single hidden-volume space:
 /// - SETTINGS (KV): identity blob, app settings, the message-log counter
 /// - CONTACTS (KV): one entry per peer, keyed by node id bytes
@@ -26,6 +30,16 @@ Uint8List _sk(String key) => Uint8List.fromList(utf8.encode(key));
 /// runs over the in-memory fake (dev/tests) and the real `HvSpace` (native).
 class HiddenVolumeStorage implements Storage {
   HiddenVolumeStorage(this._opener, {this.keysOpener});
+
+  /// Wrap an ALREADY-OPEN [KvLogStore] (e.g. one [MultiSpaceKvLogStore] view of
+  /// a shared multi-space backing). Used in "all identities online" mode where
+  /// every identity's space is already hosted; [open]/[openWithKeys] are not
+  /// used. [close] tears down the view (a no-op for a shared backing — the owner
+  /// closes the backing once).
+  HiddenVolumeStorage.fromStore(KvLogStore store)
+      : _opener = _noOpener,
+        keysOpener = null,
+        _store = store;
 
   final SpaceOpener _opener;
 
