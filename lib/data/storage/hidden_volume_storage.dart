@@ -69,6 +69,10 @@ class HiddenVolumeStorage implements Storage {
       create: createIfMissing,
     );
     if (store == null) return false;
+    // Close any previously-open space before adopting the new one. Without this
+    // a re-open (e.g. switching identities) would leak the old handle and keep
+    // its exclusive flock, so the NEXT open of that container fails with `Busy`.
+    _store?.close();
     _store = store;
     return true;
   }
@@ -80,6 +84,7 @@ class HiddenVolumeStorage implements Storage {
   Future<bool> openWithKeys(Uint8List keys) async {
     final store = keysOpener?.call(keys);
     if (store == null) return false;
+    _store?.close();
     _store = store;
     return true;
   }
