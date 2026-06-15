@@ -85,6 +85,16 @@ class MessagingService {
   }
 
   Future<void> _onInbound(InboundMessage m) async {
+    try {
+      await _dispatch(m);
+    } catch (_) {
+      // A hostile or corrupt datagram (malformed JSON, missing/ill-typed
+      // fields, bad base64) must never throw out of the stream listener and
+      // disrupt delivery for everyone else — drop it silently.
+    }
+  }
+
+  Future<void> _dispatch(InboundMessage m) async {
     final env = WireEnvelope.decode(m.payload);
     final existing = await _storage.getContact(m.src);
     if (existing?.status == ContactStatus.blocked) return; // drop blocked
