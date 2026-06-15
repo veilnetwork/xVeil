@@ -53,29 +53,9 @@ class _LockScreenState extends ConsumerState<LockScreen> {
   }
 
   Future<void> _wipe() async {
-    final l = AppL10n.of(context);
-    final scheme = Theme.of(context).colorScheme;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        icon: Icon(Icons.warning_amber_rounded, color: scheme.error),
-        title: Text(l.lockWipe),
-        content: Text(l.lockWipeBody),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: Text(l.actionCancel),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: scheme.error,
-              foregroundColor: scheme.onError,
-            ),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text(l.lockWipeConfirm),
-          ),
-        ],
-      ),
+      builder: (ctx) => const _WipeConfirmDialog(),
     );
     if (confirmed == true) {
       await ref.read(appControllerProvider.notifier).wipeContainers();
@@ -130,16 +110,100 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                 onPressed: _busy ? null : _startOver,
                 child: Text(l.lockStartOver),
               ),
-              TextButton(
-                onPressed: _busy ? null : _wipe,
-                style: TextButton.styleFrom(foregroundColor: scheme.error),
-                child: Text(l.lockWipe),
-              ),
               const Spacer(flex: 2),
+              // Low-emphasis, corner-tucked destructive action (typed-phrase
+              // gated) so it can't be hit by an accidental double-tap.
+              Align(
+                alignment: Alignment.bottomRight,
+                child: TextButton.icon(
+                  onPressed: _busy ? null : _wipe,
+                  icon: Icon(Icons.delete_forever_outlined,
+                      size: 16, color: scheme.error.withValues(alpha: 0.7)),
+                  label: Text(l.lockWipe,
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: scheme.error.withValues(alpha: 0.7))),
+                  style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 8)),
+                ),
+              ),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Irreversible-wipe confirmation gated behind typing an exact phrase, so an
+/// accidental double-tap can't destroy the container. Owns its own controller
+/// (disposed correctly) — pops `true` only once the phrase matches.
+class _WipeConfirmDialog extends StatefulWidget {
+  const _WipeConfirmDialog();
+
+  @override
+  State<_WipeConfirmDialog> createState() => _WipeConfirmDialogState();
+}
+
+class _WipeConfirmDialogState extends State<_WipeConfirmDialog> {
+  final _typed = TextEditingController();
+
+  @override
+  void dispose() {
+    _typed.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final phrase = l.lockWipePhrase;
+    final matches = _typed.text.trim().toLowerCase() == phrase.toLowerCase();
+    return AlertDialog(
+      icon: Icon(Icons.warning_amber_rounded, color: scheme.error),
+      title: Text(l.lockWipe),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(l.lockWipeBody),
+            const SizedBox(height: 16),
+            Text(l.lockWipeTypePrompt,
+                style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(height: 4),
+            Text('"$phrase"',
+                style:
+                    TextStyle(fontWeight: FontWeight.bold, color: scheme.error)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _typed,
+              autofocus: true,
+              autocorrect: false,
+              enableSuggestions: false,
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(border: OutlineInputBorder()),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: Text(l.actionCancel),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: scheme.error,
+            foregroundColor: scheme.onError,
+          ),
+          // Disabled until the phrase is typed exactly.
+          onPressed: matches ? () => Navigator.of(context).pop(true) : null,
+          child: Text(l.lockWipeConfirm),
+        ),
+      ],
     );
   }
 }
