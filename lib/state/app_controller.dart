@@ -153,8 +153,16 @@ class AppController extends Notifier<AppState> {
       // once (needs the real container path). Else the one-active picker.
       final boot = ref.read(deniableBootProvider);
       if (ref.read(keepAllOnlineProvider) && boot?.storePath != null) {
-        await _enterAllOnline(roster, boot!);
-        return;
+        try {
+          await _enterAllOnline(roster, boot!);
+          return;
+        } catch (e, st) {
+          // All-online boot failed — never strand the user on a stuck unlock.
+          // Tear down any half-built session and fall back to the one-active
+          // picker (which is known-good). Surface WHY so we can fix it.
+          debugPrint('xVeil[all-online]: boot FAILED -> picker: $e\n$st');
+          await _teardownSession();
+        }
       }
       state = state.copyWith(
         phase: AppPhase.pickingIdentity,
