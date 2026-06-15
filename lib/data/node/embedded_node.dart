@@ -37,6 +37,19 @@ typedef _ApplyConfigNative = Int32 Function(
 typedef _ApplyConfigDart = int Function(
     Pointer<Void>, Pointer<Uint8>, int, Pointer<Pointer<Utf8>>);
 
+/// True when the loaded veil dylib exposes the embedded-node FFI (i.e. it was
+/// built `--features node-embedded`). Lets the app pick the in-process deniable
+/// boot path only when the symbols are actually present.
+bool embeddedNodeAvailable({DynamicLibrary? lib}) {
+  final dl = lib ?? DynamicLibrary.process();
+  try {
+    dl.lookup<NativeFunction<_ConfigInitNative>>('veil_config_init');
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 /// A veil node running IN-PROCESS via the embedded-node FFI (no subprocess).
 /// Requires a dylib built with `--features node-embedded` to be loaded.
 class EmbeddedNode {
@@ -221,18 +234,27 @@ class EmbeddedNode {
 /// readiness contract as the subprocess controller (probe the app socket).
 class EmbeddedNodeController implements NodeController {
   EmbeddedNodeController({
-    required this.configPath,
+    this.configPath,
     required this.appSocketPath,
     this.lib,
+    EmbeddedNode Function()? starter,
     this.readinessTimeout = const Duration(seconds: 25),
     this.pollInterval = const Duration(milliseconds: 300),
-  });
+  })  : _starter = starter,
+        assert(configPath != null || starter != null,
+            'provide a configPath or a custom starter');
 
-  final String configPath;
+  /// Config file to boot from (file mode). Null when a custom [_starter] is
+  /// used — e.g. the deniable path that boots deferred + apply-config.
+  final String? configPath;
   final String appSocketPath;
   final DynamicLibrary? lib;
   final Duration readinessTimeout;
   final Duration pollInterval;
+
+  /// Produces a started [EmbeddedNode]. Defaults to a file-config boot; the
+  /// deniable path passes a starter that does startDeferred + applyConfig.
+  final EmbeddedNode Function()? _starter;
 
   final _status = StreamController<NodeStatus>.broadcast();
   NodeStatus _current = NodeStatus.stopped;
@@ -262,7 +284,7 @@ class EmbeddedNodeController implements NodeController {
       return;
     }
     try {
-      _node = EmbeddedNode.start(configPath, lib: lib);
+      _node = (_starter ?? () => EmbeddedNode.start(configPath!, lib: lib))();
     } catch (e) {
       _emit(NodeStatus(phase: NodePhase.error, message: '$e'));
       return;
