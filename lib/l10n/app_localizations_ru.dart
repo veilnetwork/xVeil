@@ -310,6 +310,17 @@ class AppL10nRu extends AppL10n {
       'Запускать узлы всех личностей сразу, чтобы при переключении никто не уходил в оффлайн. Менее анонимно — наблюдатель может связать ваши личности по общему устройству. Чувствительные личности отмечайте для анонимной маршрутизации.';
 
   @override
+  String get settingsAnonymousRouting => 'Анонимная маршрутизация (onion)';
+
+  @override
+  String get settingsAnonymousEnabledHint =>
+      'теперь через onion — применится при следующем запуске';
+
+  @override
+  String get settingsAnonymousDisabledHint =>
+      'больше не через onion — применится при следующем запуске';
+
+  @override
   String get settingsDecoyMaster => 'Настроить ложный доступ';
 
   @override

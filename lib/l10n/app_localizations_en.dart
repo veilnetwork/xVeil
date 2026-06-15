@@ -309,6 +309,17 @@ class AppL10nEn extends AppL10n {
       'Run every identity\'s node at once so none goes offline when you switch. Less anonymous — an observer may link your identities by their shared device. Mark sensitive identities to route anonymously.';
 
   @override
+  String get settingsAnonymousRouting => 'Anonymous routing (onion)';
+
+  @override
+  String get settingsAnonymousEnabledHint =>
+      'now routes over onion — applies on its next start';
+
+  @override
+  String get settingsAnonymousDisabledHint =>
+      'no longer routes over onion — applies on its next start';
+
+  @override
   String get settingsDecoyMaster => 'Set up decoy access';
 
   @override
