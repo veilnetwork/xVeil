@@ -65,6 +65,16 @@ class AppController extends Notifier<AppState> {
     required String password,
     required StorageMode mode,
   }) async {
+    // Show the "setting up" screen up front and let it paint a frame BEFORE the
+    // CPU-heavy work begins — creating the container (Argon2id KDF) and
+    // provisioning the node identity both block briefly, and without this the
+    // onboarding window looks frozen on "Done". Only in deniable mode (the
+    // loopback/test path is instant, so it would just flash).
+    if (ref.read(deniableBootProvider) != null) {
+      state = state.copyWith(phase: AppPhase.preparingNode);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+
     final storage = ref.read(storageProvider);
     await storage.open(password: password, createIfMissing: true);
     await storage.saveIdentity(identity);
