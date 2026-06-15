@@ -48,3 +48,66 @@ class WireEnvelope {
     return WireEnvelope(WireKind.message, utf8.decode(bytes, allowMalformed: true));
   }
 }
+
+/// Parsed body of a [WireKind.fileMeta] frame: the start of a file transfer.
+typedef FileMetaFrame = ({String transferId, String? name, int? size, int? count});
+
+/// Parsed body of a [WireKind.fileChunk] frame: one piece of a transfer.
+typedef FileChunkFrame = ({String transferId, int index, int total, Uint8List data});
+
+/// The file-transfer frame wire format (key names, base64 of chunk bytes)
+/// lives here as the single source of truth, so the send and receive sides
+/// cannot drift apart. [parseFileMeta]/[parseFileChunk] throw on a body that
+/// is missing a required field or has the wrong type — the caller is expected
+/// to drop such (hostile/corrupt) datagrams.
+WireEnvelope fileMetaEnvelope({
+  required String transferId,
+  String? name,
+  int? size,
+  int? count,
+}) =>
+    WireEnvelope(
+      WireKind.fileMeta,
+      jsonEncode({
+        'tid': transferId,
+        'name': ?name,
+        'size': ?size,
+        'count': ?count,
+      }),
+    );
+
+FileMetaFrame parseFileMeta(String body) {
+  final j = jsonDecode(body) as Map<String, dynamic>;
+  return (
+    transferId: j['tid'] as String,
+    name: j['name'] as String?,
+    size: j['size'] is int ? j['size'] as int : null,
+    count: j['count'] is int ? j['count'] as int : null,
+  );
+}
+
+WireEnvelope fileChunkEnvelope({
+  required String transferId,
+  required int index,
+  required int total,
+  required Uint8List data,
+}) =>
+    WireEnvelope(
+      WireKind.fileChunk,
+      jsonEncode({
+        'tid': transferId,
+        'i': index,
+        'total': total,
+        'd': base64.encode(data),
+      }),
+    );
+
+FileChunkFrame parseFileChunk(String body) {
+  final j = jsonDecode(body) as Map<String, dynamic>;
+  return (
+    transferId: j['tid'] as String,
+    index: j['i'] as int,
+    total: j['total'] as int,
+    data: base64.decode(j['d'] as String),
+  );
+}
