@@ -1,6 +1,6 @@
 import 'dart:math';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/ids.dart';
@@ -126,8 +126,11 @@ class AppController extends Notifier<AppState> {
         listenPort: boot.listenPort,
       );
       ref.read(realStackProvider.notifier).state = stack;
-    } catch (_) {
-      // Stay on loopback — a node-boot failure must not trap the user.
+      debugPrint('xVeil[deniable]: node up, invite=${stack.myInvite.nodeId.short}');
+    } catch (e, st) {
+      // Stay on loopback — a node-boot failure must not trap the user — but
+      // surface WHY so we can fix it (the stack trace points at the failing step).
+      debugPrint('xVeil[deniable]: boot FAILED -> loopback: $e\n$st');
     }
   }
 
