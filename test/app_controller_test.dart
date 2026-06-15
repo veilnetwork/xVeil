@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -100,6 +102,32 @@ void main() {
     c2.read(appControllerProvider.notifier);
     await _settle(c2);
     expect(c2.read(appControllerProvider).phase, AppPhase.onboarding);
+  });
+
+  test('wipeContainers deletes the on-disk container file', () async {
+    final dir = Directory.systemTemp.createTempSync('xveil_wipe_');
+    final file = File('${dir.path}/test.store')..writeAsStringSync('container');
+    try {
+      SharedPreferences.setMockInitialValues({'onboarded': true});
+      final container = FakeHvContainer();
+      final app = container.storage();
+      final c = ProviderContainer(overrides: [
+        storageProvider.overrideWith((ref) => app),
+        deniableBootProvider.overrideWithValue(
+            DeniableBootConfig(runtimeDir: '/run', listenPort: 9000, storePath: file.path)),
+      ]);
+      addTearDown(c.dispose);
+      final ctrl = c.read(appControllerProvider.notifier);
+      await _settle(c);
+      expect(file.existsSync(), isTrue);
+
+      await ctrl.wipeContainers();
+      expect(file.existsSync(), isFalse,
+          reason: 'the container file must be permanently deleted');
+      expect(c.read(appControllerProvider).phase, AppPhase.onboarding);
+    } finally {
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+    }
   });
 
   test('unlock with an empty password reports an error', () async {
