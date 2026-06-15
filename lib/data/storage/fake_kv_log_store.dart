@@ -22,6 +22,10 @@ class FakeKvLogStore implements KvLogStore {
   final Uint8List _keys;
   int _seq = 0;
 
+  /// Invoked on [close]. Lets a multi-space container model the native
+  /// exclusive per-file lock by releasing it when this handle closes.
+  void Function()? onClose;
+
   @override
   int commit(List<KvLogOp> ops) {
     if (ops.isEmpty) return _seq;
@@ -89,5 +93,8 @@ class FakeKvLogStore implements KvLogStore {
   Uint8List exportKeys() => _keys;
 
   @override
-  void close() {}
+  void close() {
+    onClose?.call();
+    onClose = null;
+  }
 }
