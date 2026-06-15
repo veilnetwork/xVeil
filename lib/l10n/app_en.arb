@@ -66,6 +66,8 @@
   "chatDeleteForEveryoneBody": "It is erased here and a delete request is sent to the other person — but they may already have seen or copied it.",
   "chatDeleteConfirm": "Delete",
   "chatEdited": "edited",
+  "identityPickerTitle": "Choose an identity",
+  "identityPickerSubtitle": "This vault holds several identities — pick one to act as.",
 
   "networkTitle": "Overlay network",
   "networkStatusConnected": "Connected",

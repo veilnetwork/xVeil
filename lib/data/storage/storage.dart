@@ -19,6 +19,11 @@ abstract interface class Storage {
 
   bool get isOpen;
 
+  /// Open a child space directly from its [keys] (master mode) — no password.
+  /// Returns false if the keys match no space, or keys-based open isn't
+  /// configured. Mirrors [open] but via stored `SpaceKeys`.
+  Future<bool> openWithKeys(Uint8List keys);
+
   /// Export this open space's opaque `SpaceKeys` (64 bytes) so a master roster
   /// can store it and later reopen this space without a password. **Sensitive**
   /// — never log; lives only inside a master space.
