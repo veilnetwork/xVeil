@@ -258,6 +258,17 @@ class HiddenVolumeStorage implements Storage {
   Future<void> deleteMessage(String messageId) async {
     final logId = _logIdFor(messageId);
     if (logId == null) return;
+    // If it is a file message, purge the stored blob too — otherwise the
+    // attachment lingers in the container after the row is gone (a deniability
+    // hole). Look it up before we tombstone the row.
+    String? fileId;
+    for (final m in _scanLog()) {
+      if (m.id == messageId) {
+        fileId = m.fileId;
+        break;
+      }
+    }
+    if (fileId != null) FileStore(_s).deleteFile(fileId);
     // Tombstone the SAME log_id so the body no longer reads back, and drop the
     // index entry. The original record's chunk is orphaned; scrubDeleted()
     // reclaims it for forensic erasure.
