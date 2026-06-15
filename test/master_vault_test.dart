@@ -1,63 +1,89 @@
-import 'dart:typed_data';
-
 import 'package:flutter_test/flutter_test.dart';
-import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/master_vault.dart';
 
-ChildSpaceRef _ref(String label) => ChildSpaceRef(
-      label: label,
-      containerPath: '/spaces/$label.store',
-      password: Uint8List.fromList(utf8Pw(label)),
-    );
-
-List<int> utf8Pw(String s) => 'pw-$s'.codeUnits;
+import 'support/fake_hv_container.dart';
 
 void main() {
+  late FakeHvContainer container;
   late MasterVault vault;
 
-  setUp(() => vault = MasterVault(FakeKvLogStore()));
-
-  test('starts empty', () {
-    expect(vault.listChildren(), isEmpty);
-    expect(vault.getChild('alice'), isNull);
+  setUp(() async {
+    container = FakeHvContainer();
+    final master = container.storage();
+    await master.open(password: 'masterpw', createIfMissing: true);
+    vault = MasterVault(master, container.storage);
   });
 
-  test('adds children and lists them; round-trips fields', () {
-    vault.addChild(_ref('alice'));
-    vault.addChild(_ref('work'));
-
-    final children = vault.listChildren();
-    expect(children.map((c) => c.label), containsAll(['alice', 'work']));
-
-    final alice = vault.getChild('alice')!;
-    expect(alice.containerPath, '/spaces/alice.store');
-    expect(alice.password, Uint8List.fromList(utf8Pw('alice')));
+  test('starts with an empty roster', () async {
+    expect(await vault.children(), isEmpty);
   });
 
-  test('re-adding a label replaces, does not duplicate the index', () {
-    vault.addChild(_ref('alice'));
-    vault.addChild(ChildSpaceRef(
-      label: 'alice',
-      containerPath: '/spaces/alice2.store',
-      password: Uint8List.fromList(utf8Pw('alice')),
-    ));
-    expect(vault.listChildren().length, 1);
-    expect(vault.getChild('alice')!.containerPath, '/spaces/alice2.store');
+  test('addChild creates a child space, records it, opens it by keys',
+      () async {
+    final child = await vault.addChild('alice', 'pw-alice');
+    await child.putSetting('who', 'alice');
+
+    final entries = await vault.children();
+    expect(entries.map((e) => e.label), ['alice']);
+    expect(entries.single.spaceKeys.length, 64);
+
+    // The master reopens the child from its stored keys — no password.
+    final reopened = await vault.openChild(entries.single);
+    expect(await reopened.getSetting('who'), 'alice');
   });
 
-  test('removes a child and updates the index', () {
-    vault.addChild(_ref('alice'));
-    vault.addChild(_ref('work'));
-    vault.removeChild('alice');
+  test('a child stays openable by its OWN password too', () async {
+    final child = await vault.addChild('work', 'pw-work');
+    await child.putSetting('k', 'v');
 
-    expect(vault.getChild('alice'), isNull);
-    expect(vault.listChildren().map((c) => c.label), ['work']);
+    final direct = container.storage();
+    expect(await direct.open(password: 'pw-work'), isTrue);
+    expect(await direct.getSetting('k'), 'v');
   });
 
-  test('survives a fresh vault over the same store (persistence)', () {
-    final store = FakeKvLogStore();
-    MasterVault(store).addChild(_ref('alice'));
-    // A new vault instance over the same unlocked space sees the child.
-    expect(MasterVault(store).getChild('alice')!.label, 'alice');
+  test('re-adding a label replaces, does not duplicate', () async {
+    await vault.addChild('alice', 'pw-a1');
+    await vault.addChild('alice', 'pw-a2');
+    final entries = await vault.children();
+    expect(entries.length, 1);
+    // The newer space's keys are kept.
+    final reopened = await vault.openChild(entries.single);
+    expect(reopened.isOpen, isTrue);
+  });
+
+  test('linkChild records an existing identity as a shared child', () async {
+    // An identity created independently (e.g. already a child of the real
+    // master) is linked into THIS master too — the shared-decoy case.
+    final existing = container.storage();
+    await existing.open(password: 'pw-rel', createIfMissing: true);
+    await existing.putSetting('who', 'mom');
+
+    await vault.linkChild('relatives', existing);
+
+    final entry =
+        (await vault.children()).firstWhere((e) => e.label == 'relatives');
+    final viaMaster = await vault.openChild(entry);
+    expect(await viaMaster.getSetting('who'), 'mom');
+  });
+
+  test('removeChild drops it from the roster but not the space', () async {
+    final child = await vault.addChild('temp', 'pw-temp');
+    await child.putSetting('k', 'v');
+    await vault.removeChild('temp');
+
+    expect(await vault.children(), isEmpty);
+    // The space still exists — its own password still opens it.
+    final direct = container.storage();
+    expect(await direct.open(password: 'pw-temp'), isTrue);
+    expect(await direct.getSetting('k'), 'v');
+  });
+
+  test('roster persists across a fresh master session', () async {
+    await vault.addChild('alice', 'pw-alice');
+
+    final master2 = container.storage();
+    await master2.open(password: 'masterpw');
+    final vault2 = MasterVault(master2, container.storage);
+    expect((await vault2.children()).map((e) => e.label), ['alice']);
   });
 }
