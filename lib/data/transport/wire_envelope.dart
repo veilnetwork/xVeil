@@ -8,9 +8,11 @@ import 'dart:typed_data';
 /// - [fileMeta]: start of a file transfer (body = JSON {tid,name,size,count}).
 /// - [fileChunk]: one file chunk (body = JSON {tid,i,total,d=base64}).
 /// - [ack]: delivery acknowledgement (id = the acked message's id, body unused).
+/// - [edit]: edit of a previously-sent message (id = its id, body = new text).
+/// - [del]: deletion of a previously-sent message (id = its id, body unused).
 ///
 /// New kinds are APPENDED so existing wire indices (0/1/2) are unchanged.
-enum WireKind { request, accept, message, fileMeta, fileChunk, ack }
+enum WireKind { request, accept, message, fileMeta, fileChunk, ack, edit, del }
 
 /// Typed wrapper over the raw transport payload, so the receiver can tell a
 /// connection request from a chat message (the consent gate). Serialised as
@@ -32,6 +34,9 @@ class WireEnvelope {
   const WireEnvelope.message(String text, {String? id})
       : this(WireKind.message, text, id: id);
   const WireEnvelope.ack(String id) : this(WireKind.ack, '', id: id);
+  const WireEnvelope.edit(String id, String newText)
+      : this(WireKind.edit, newText, id: id);
+  const WireEnvelope.del(String id) : this(WireKind.del, '', id: id);
 
   Uint8List encode() => Uint8List.fromList(utf8.encode(jsonEncode({
         't': kind.index,
