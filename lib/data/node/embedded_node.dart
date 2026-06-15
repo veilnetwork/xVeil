@@ -100,6 +100,37 @@ class EmbeddedNode {
     required String ipcSocket,
     required String adminSocket,
     DynamicLibrary? lib,
+    bool anonymous = false,
+  }) {
+    return _composeConfigImpl(
+      identityToml: identityToml,
+      listenTransport: listenTransport,
+      ipcSocket: ipcSocket,
+      adminSocket: adminSocket,
+      lib: lib,
+      anonymous: anonymous,
+    );
+  }
+
+  /// Append a location-anonymous `[anonymity]` table to a composed [toml] when
+  /// [anonymous] — register at a rendezvous relay over an onion circuit
+  /// (Tor-hidden-service-style) so peers/relays never learn this identity's IP,
+  /// so it can't be correlated to the user's other identities. The defaults are
+  /// off + skipped in the rendered config, so appending a new table is safe
+  /// (`onion_service` implies the `receive_anonymous` lifecycle). Pure helper —
+  /// no FFI — so it is unit-testable.
+  static String withAnonymity(String toml, bool anonymous) {
+    if (!anonymous || toml.contains('[anonymity]')) return toml;
+    return '$toml\n[anonymity]\nreceive_anonymous = true\nonion_service = true\n';
+  }
+
+  static String _composeConfigImpl({
+    required String identityToml,
+    required String listenTransport,
+    required String ipcSocket,
+    required String adminSocket,
+    DynamicLibrary? lib,
+    bool anonymous = false,
   }) {
     final dl = lib ?? DynamicLibrary.process();
     final composeFn =
@@ -128,7 +159,7 @@ class EmbeddedNode {
       }
       final toml = out.toDartString();
       freeStr(out);
-      return toml;
+      return withAnonymity(toml, anonymous);
     } finally {
       for (final p in ptrs) {
         calloc.free(p);
