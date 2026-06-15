@@ -108,4 +108,36 @@ void main() {
     await _pump();
     expect((await sB.loadMessages(a.hex)).where((m) => m.isFile), isEmpty);
   });
+
+  test('a third party cannot inject chunks into another peer\'s transfer',
+      () async {
+    await accept(); // A is accepted by B
+    // A opens a transfer (sends only the meta), then a different accepted peer
+    // C tries to complete it by guessing the transfer id. B must drop C's
+    // chunks: they don't match the meta's sender.
+    final c = _id(3);
+    final tC = _FakeTransport(c)..peer = tB;
+    addTearDown(tC.dispose);
+    await sB.upsertContact(Contact(nodeId: c, status: ContactStatus.accepted));
+
+    final data = _bytes(9000);
+    await tA.send(
+        b,
+        WireEnvelope(WireKind.fileMeta,
+                jsonEncode({'tid': 'shared', 'name': 'x', 'size': data.length, 'count': 2}))
+            .encode());
+    await _pump();
+    // C injects both chunks for the same transfer id.
+    final parts = [data.sublist(0, 6000), data.sublist(6000)];
+    for (var i = 0; i < parts.length; i++) {
+      await tC.send(
+          b,
+          WireEnvelope(WireKind.fileChunk,
+                  jsonEncode({'tid': 'shared', 'i': i, 'total': 2, 'd': base64Encode(parts[i])}))
+              .encode());
+    }
+    await _pump();
+    expect(await sB.loadFile('shared'), isNull,
+        reason: "C's chunks must not complete A's transfer");
+  });
 }
