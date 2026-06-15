@@ -96,6 +96,7 @@
   "addIdentityCreate": "Create",
   "addIdentityIncomplete": "Fill in every field.",
   "addIdentityClash": "That master password is already used by an identity — choose a different one.",
+  "addIdentityWorking": "Setting up your new identity…\nThis can take a few seconds.",
   "settingsDecoyMaster": "Set up decoy access",
   "decoyTitle": "Decoy (duress) access",
   "decoySubtitle": "A separate password that, under coercion, opens only the identities you tick below. Your real master and every other identity stay hidden.",

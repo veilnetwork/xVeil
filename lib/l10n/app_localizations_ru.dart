@@ -282,6 +282,10 @@ class AppL10nRu extends AppL10n {
       'Этот мастер-пароль уже занят личностью — выберите другой.';
 
   @override
+  String get addIdentityWorking =>
+      'Создаём новую личность…\nЭто может занять несколько секунд.';
+
+  @override
   String get settingsDecoyMaster => 'Настроить ложный доступ';
 
   @override
