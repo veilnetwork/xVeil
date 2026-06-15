@@ -243,6 +243,9 @@ class AppL10nRu extends AppL10n {
   String get settingsLockNow => 'Заблокировать';
 
   @override
+  String get settingsSwitchIdentity => 'Сменить личность';
+
+  @override
   String get languageSystem => 'Системный';
 
   @override

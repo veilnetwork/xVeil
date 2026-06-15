@@ -535,6 +535,12 @@ abstract class AppL10n {
   /// **'Lock now'**
   String get settingsLockNow;
 
+  /// No description provided for @settingsSwitchIdentity.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch identity'**
+  String get settingsSwitchIdentity;
+
   /// No description provided for @languageSystem.
   ///
   /// In en, this message translates to:
