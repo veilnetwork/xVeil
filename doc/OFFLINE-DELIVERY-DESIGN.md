@@ -61,6 +61,65 @@ idempotency, so a message that was *both* mailboxed and later direct-synced is
 not shown twice. The mailbox blob carries the same `WireEnvelope` we already
 send live, just sealed.
 
+## 3b. Sender offline — local outbox (complements the mailbox)
+
+The mailbox covers a **recipient** being offline. A **sender** being offline
+("wrote a message in the woods, it should go out when I reconnect") is covered by
+a **local outbox** — app-layer, no relay, no crypto:
+
+- Every outgoing op (message / edit / delete / file chunk) is persisted with a
+  delivery state: `queued → sent → delivered` (or `queued` while the node is
+  offline). It already lives in the deniable container (it's just a Message row).
+- A flush runs whenever the node reaches `connected` (watch `nodeStatusProvider`)
+  and on app start: re-attempt every still-`queued`/unconfirmed op in order.
+- Per op, the flush decides the channel: a live session to the peer → direct
+  send; peer offline → mailbox.put (Phase B). The receiver dedups by message id,
+  so re-sending a queued op that secretly already arrived is harmless.
+
+Together the local outbox + mailbox cover all four online/offline combinations.
+This piece is safe + locally testable and ships first (no relay, no sealing).
+
+## 3c. Message edit + delete
+
+Edits and deletes are **operations referencing an existing message id**, carried
+over the exact same delivery channels (live / outbox / mailbox), so they reach an
+offline peer too:
+
+- Wire: extend `WireEnvelope` with `edit` (`{id, body}`) and `delete` (`{id}`)
+  kinds (appended — existing indices unchanged). Consent-gated like messages.
+- Storage: `Message` gains `editedAt` + an `isDeleted` tombstone. Edit rewrites
+  `body` (keep `editedAt` for an "edited" marker); delete replaces the row with a
+  tombstone ("message deleted") — the bytes are scrubbed from the container.
+- Semantics: **delete for me** (local only — never leaves the device) vs **delete
+  for everyone** (emit a `delete` op to the peer). Edit is always "for everyone"
+  (emit an `edit`). Editing/deleting a *received* message is delete-for-me only
+  (you can't rewrite someone else's outgoing copy).
+- Offline: an edit/delete to an offline peer is queued in the local outbox /
+  mailboxed like any op; the peer applies it by id on fetch.
+
+**Deniability requirement — delete/edit MUST scrub, not just hide.** In this
+threat model a "deleted" (or pre-edit) message must not be recoverable from the
+container after a coerced unlock. A view-only tombstone is NOT enough: messages
+currently live in the **append-only MESSAGE_LOG**, which has no per-entry delete,
+so the original plaintext would persist (encrypted, but recoverable once the
+space is open). Real scrubbing needs the message store to be **deletable +
+compactable**:
+- Move messages from the append-log to **KV keyed by message id + a maintained
+  id-index** (KV supports `DeleteOp`, and hidden-volume's open-time auto-vacuum +
+  `compact_known` scrub orphaned/ deleted entries so forensics can't recover
+  them). Trade-off: KV has no key enumeration, hence the explicit id-index (same
+  pattern already used for `contacts:index`).
+- Edit = overwrite the message's KV value (then compact to scrub the old bytes);
+  delete = `DeleteOp` the id + drop it from the index (+ compact).
+
+This is a **storage refactor of the verified message path** — a real decision
+(enumerability via index vs the current scannable log) and security-relevant, so
+it does NOT ship as a naive tombstone. The **local outbox** (3b) has no such
+caveat and ships first.
+
+The local outbox is safe + locally testable (fake transport, like the consent/
+file tests). Edit/delete ship after the message-store-deletability rework.
+
 ## 4. Open decisions (need the user / careful review)
 
 1. **E2E sealing of the blob — THE crypto question.** Relays can't decrypt, so
