@@ -28,7 +28,7 @@ class ChatsScreen extends ConsumerWidget {
           if (kDebugMode)
             IconButton(
               icon: const Icon(Icons.science_outlined),
-              tooltip: 'Demo chat',
+              tooltip: l.demoChatTooltip,
               onPressed: () => _newChat(context),
             ),
         ],
@@ -189,15 +189,16 @@ class _NewChatDialogState extends State<_NewChatDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
     return AlertDialog(
-      title: const Text('New chat'),
+      title: Text(l.demoNewChat),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           TextField(
             controller: _ctrl,
             decoration: InputDecoration(
-              labelText: 'Peer node id (hex)',
+              labelText: l.demoPeerNodeId,
               errorText: _error,
             ),
           ),
@@ -207,7 +208,7 @@ class _NewChatDialogState extends State<_NewChatDialog> {
             child: TextButton.icon(
               onPressed: _useDemoPeer,
               icon: const Icon(Icons.smart_toy_outlined),
-              label: const Text('Chat with a demo peer'),
+              label: Text(l.demoChatWith),
             ),
           ),
         ],
@@ -215,9 +216,9 @@ class _NewChatDialogState extends State<_NewChatDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(l.actionCancel),
         ),
-        FilledButton(onPressed: _submit, child: const Text('Open')),
+        FilledButton(onPressed: _submit, child: Text(l.actionOpen)),
       ],
     );
   }

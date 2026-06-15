@@ -30,22 +30,22 @@ class NetworkScreen extends ConsumerWidget {
           // milestones, behind their own ports (oproxy/ogate, SSH provisioning).
           ListTile(
             leading: const Icon(Icons.vpn_lock_outlined),
-            title: const Text('Route traffic (Proxy / VPN)'),
-            subtitle: const Text('oproxy / ogate — coming soon'),
+            title: Text(l.networkRouteTitle),
+            subtitle: Text(l.networkRouteSub),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => _soon(context),
           ),
           ListTile(
             leading: const Icon(Icons.dns_outlined),
-            title: const Text('My nodes'),
-            subtitle: const Text('Add a node over SSH, run ogate/oproxy'),
+            title: Text(l.networkNodesTitle),
+            subtitle: Text(l.networkNodesSub),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => _soon(context),
           ),
           ListTile(
             leading: const Icon(Icons.extension_outlined),
-            title: const Text('Extensions (Lua)'),
-            subtitle: const Text('Load sandboxed add-ons'),
+            title: Text(l.networkExtTitle),
+            subtitle: Text(l.networkExtSub),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => _soon(context),
           ),
@@ -56,7 +56,7 @@ class NetworkScreen extends ConsumerWidget {
 
   void _soon(BuildContext context) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Coming in a later milestone')),
+      SnackBar(content: Text(AppL10n.of(context).networkComingLater)),
     );
   }
 }
@@ -74,7 +74,7 @@ class _StatusCard extends ConsumerWidget {
       NodePhase.connected => (l.networkStatusConnected, Colors.green, Icons.check_circle),
       NodePhase.starting => (l.networkStatusConnecting, scheme.tertiary, Icons.sync),
       NodePhase.offline => (l.networkStatusOffline, scheme.outline, Icons.cloud_off),
-      NodePhase.error => ('Error', scheme.error, Icons.error_outline),
+      NodePhase.error => (l.networkStatusError, scheme.error, Icons.error_outline),
       NodePhase.stopped => (l.networkStatusOffline, scheme.outline, Icons.power_settings_new),
     };
     return Padding(
