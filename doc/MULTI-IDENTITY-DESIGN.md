@@ -257,10 +257,18 @@ already (rocksdb opt-in), confirm no peer cache / logs leak.
     (export → keys-only reopen → same data; Malformed/AuthFailed paths) against
     the native dylib. `SpaceKeys` = 64 opaque bytes (`container_id ‖ aead_root`),
     sensitive — kept only inside a master space, never logged.
-  - ⏳ Remaining: master-space roster (app layer); per-identity conversation
-    ownership + send-as picker; pre-built **decoy master** for duress; one
-    active node + fast switch. These are xVeil-side and touch the working
-    onboarding/unlock flow — to be built incrementally behind a clean seam.
+  - ✅ **Data + service layer — DONE** (xVeil, additive, single-identity flow
+    untouched): `RosterEntry` + `Storage.saveRoster/loadRoster` (master-vs-
+    identity discriminator); the keys seam (`KvLogStore.exportKeys`,
+    `KeysSpaceOpener`, `Storage.exportSpaceKeys`,
+    `HiddenVolumeStorage.openWithKeys`); and `MasterVault`
+    (`children/addChild/linkChild/openChild/removeChild`), keys-based —
+    replaces the pre-FFI password-storing interim. Fully unit-tested via a
+    multi-space fake container.
+  - ⏳ Remaining (needs user review — touches the verified onboarding/unlock
+    flow + product UX): detect master after unlock → identity picker;
+    per-identity conversation ownership + send-as picker; **decoy master** setup
+    for duress; one active node + fast switch.
 - **Phase 3:** simultaneous per-identity nodes, multi-device sync.
 
 ## 9. Deniability invariant checklist (acceptance)
