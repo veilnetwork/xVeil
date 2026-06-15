@@ -258,6 +258,21 @@ class AppL10nRu extends AppL10n {
   String get onboardRepeatPassword => 'Повторите пароль';
 
   @override
+  String get onboardPasswordSubtitle =>
+      'Этот пароль открывает ваше пространство на этом устройстве. Сброса нет.';
+
+  @override
+  String get onboardPasswordTooShort => 'Минимум 6 символов';
+
+  @override
+  String get onboardPasswordMismatch => 'Пароли не совпадают';
+
+  @override
+  String onboardComingSoon(String label) {
+    return '$label — появится в следующей версии';
+  }
+
+  @override
   String get recoveryPhraseHint =>
       'Введите фразу восстановления, слова через пробел';
 

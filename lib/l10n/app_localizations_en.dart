@@ -257,6 +257,21 @@ class AppL10nEn extends AppL10n {
   String get onboardRepeatPassword => 'Repeat password';
 
   @override
+  String get onboardPasswordSubtitle =>
+      'This password unlocks your space on this device. There is no reset.';
+
+  @override
+  String get onboardPasswordTooShort => 'Use at least 6 characters';
+
+  @override
+  String get onboardPasswordMismatch => 'Passwords do not match';
+
+  @override
+  String onboardComingSoon(String label) {
+    return '$label — coming in the next milestone';
+  }
+
+  @override
   String get recoveryPhraseHint =>
       'Enter your recovery phrase, words separated by spaces';
 

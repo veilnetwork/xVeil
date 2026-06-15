@@ -104,7 +104,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
   void _showSoon(BuildContext context, String label) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$label — coming in the next milestone')),
+      SnackBar(content: Text(AppL10n.of(context).onboardComingSoon(label))),
     );
   }
 
@@ -397,13 +397,14 @@ class _PasswordStepState extends State<_PasswordStep> {
   String? _error;
 
   void _submit() {
+    final l = AppL10n.of(context);
     final pw = widget.passwordCtrl.text;
     if (pw.length < 6) {
-      setState(() => _error = 'Use at least 6 characters');
+      setState(() => _error = l.onboardPasswordTooShort);
       return;
     }
     if (pw != widget.confirmCtrl.text) {
-      setState(() => _error = 'Passwords do not match');
+      setState(() => _error = l.onboardPasswordMismatch);
       return;
     }
     setState(() => _error = null);
@@ -419,7 +420,7 @@ class _PasswordStepState extends State<_PasswordStep> {
         Text(l.lockTitle, style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: 8),
         Text(
-          'This password unlocks your space on this device. There is no reset.',
+          l.onboardPasswordSubtitle,
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: 24),
