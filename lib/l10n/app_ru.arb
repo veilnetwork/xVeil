@@ -103,6 +103,7 @@
   "networkStatusError": "Ошибка",
 
   "onboardRepeatPassword": "Повторите пароль",
+  "onboardPasswordTitle": "Придумайте пароль",
   "onboardPasswordSubtitle": "Этот пароль открывает ваше пространство на этом устройстве. Сброса нет.",
   "onboardPasswordTooShort": "Минимум 6 символов",
   "onboardPasswordMismatch": "Пароли не совпадают",

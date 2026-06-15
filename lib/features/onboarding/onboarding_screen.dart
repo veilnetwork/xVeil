@@ -417,7 +417,7 @@ class _PasswordStepState extends State<_PasswordStep> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(l.lockTitle, style: Theme.of(context).textTheme.headlineSmall),
+        Text(l.onboardPasswordTitle, style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: 8),
         Text(
           l.onboardPasswordSubtitle,
