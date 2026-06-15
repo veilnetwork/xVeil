@@ -571,6 +571,30 @@ abstract class AppL10n {
   /// **'Repeat password'**
   String get onboardRepeatPassword;
 
+  /// No description provided for @onboardPasswordSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'This password unlocks your space on this device. There is no reset.'**
+  String get onboardPasswordSubtitle;
+
+  /// No description provided for @onboardPasswordTooShort.
+  ///
+  /// In en, this message translates to:
+  /// **'Use at least 6 characters'**
+  String get onboardPasswordTooShort;
+
+  /// No description provided for @onboardPasswordMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'Passwords do not match'**
+  String get onboardPasswordMismatch;
+
+  /// No description provided for @onboardComingSoon.
+  ///
+  /// In en, this message translates to:
+  /// **'{label} — coming in the next milestone'**
+  String onboardComingSoon(String label);
+
   /// No description provided for @recoveryPhraseHint.
   ///
   /// In en, this message translates to:
