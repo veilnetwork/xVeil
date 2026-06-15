@@ -25,9 +25,13 @@ Uint8List _sk(String key) => Uint8List.fromList(utf8.encode(key));
 /// Backed by a [KvLogStore] obtained from a [SpaceOpener], so the same mapping
 /// runs over the in-memory fake (dev/tests) and the real `HvSpace` (native).
 class HiddenVolumeStorage implements Storage {
-  HiddenVolumeStorage(this._opener);
+  HiddenVolumeStorage(this._opener, {this.keysOpener});
 
   final SpaceOpener _opener;
+
+  /// Opens a child space by its `SpaceKeys` (master mode). Null when this
+  /// handle is not configured for keys-based open (single-identity build).
+  final KeysSpaceOpener? keysOpener;
   KvLogStore? _store;
 
   KvLogStore get _s {
@@ -54,6 +58,19 @@ class HiddenVolumeStorage implements Storage {
     _store = store;
     return true;
   }
+
+  /// Open a child space directly from its [keys] (master mode) — no password.
+  /// Returns false if the keys match no space, or if this handle has no
+  /// keys-opener configured.
+  Future<bool> openWithKeys(Uint8List keys) async {
+    final store = keysOpener?.call(keys);
+    if (store == null) return false;
+    _store = store;
+    return true;
+  }
+
+  @override
+  Uint8List exportSpaceKeys() => _s.exportKeys();
 
   // --- Identity ----------------------------------------------------------
 

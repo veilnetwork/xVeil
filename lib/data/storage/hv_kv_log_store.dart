@@ -61,6 +61,9 @@ class HvKvLogStore implements KvLogStore {
   }
 
   @override
+  Uint8List exportKeys() => _space.spaceKeys();
+
+  @override
   void close() => _space.close();
 }
 
@@ -80,6 +83,20 @@ SpaceOpener hvSpaceOpener(
           ? _createOrOpen(path, password, argon)
           : hv.HvSpace.open(path: path, password: password);
       return HvKvLogStore(space);
+    } on hv.HvException catch (e) {
+      if (e.kind == 'AuthFailed') return null;
+      rethrow;
+    }
+  };
+}
+
+/// Builds a real [KeysSpaceOpener] over the container at [path] — a master
+/// opening one of its children directly from stored `SpaceKeys`, no password.
+/// `AuthFailed` (keys match no space) maps to null, same as the password path.
+KeysSpaceOpener hvKeysSpaceOpener(String path) {
+  return (Uint8List keys) {
+    try {
+      return HvKvLogStore(hv.HvSpace.openWithKeys(path: path, keys: keys));
     } on hv.HvException catch (e) {
       if (e.kind == 'AuthFailed') return null;
       rethrow;
