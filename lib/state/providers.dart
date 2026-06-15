@@ -12,6 +12,7 @@ import '../data/storage/storage.dart';
 import '../data/transport/loopback_transport.dart';
 import '../data/transport/veil_transport.dart';
 import '../data/veil_stack.dart';
+import 'multi_identity_session.dart';
 
 /// --- Infrastructure providers -------------------------------------------
 ///
@@ -23,7 +24,11 @@ final prefsProvider = FutureProvider<SharedPreferences>((ref) {
   return SharedPreferences.getInstance();
 });
 
-final storageProvider = Provider<Storage>((ref) {
+/// The SINGLE-identity storage (one space open at a time) — the default path.
+/// main() overrides this with the real container-backed one; here it is the
+/// in-memory dev/test wiring. In "all identities online" mode the active
+/// identity's storage comes from the session instead (see [storageProvider]).
+final singleSpaceStorageProvider = Provider<Storage>((ref) {
   // Dev/test wiring: the real domain→namespace/log mapping runs over an
   // in-memory space that persists for the session (so lock→unlock keeps
   // data). Swapping to native is just a different SpaceOpener (HvSpace).
@@ -36,6 +41,27 @@ final storageProvider = Provider<Storage>((ref) {
   final storage = HiddenVolumeStorage(opener);
   ref.onDispose(storage.close);
   return storage;
+});
+
+/// The "all identities online" session, set by [AppController] when a master is
+/// unlocked with `keepAllOnline`; null otherwise (single / one-active mode).
+final sessionProvider = StateProvider<MultiIdentitySession?>((ref) => null);
+
+/// In a session, the label of the identity the UI currently shows. Changing it
+/// (a switch) re-points [storageProvider] / [messagingServiceProvider] to that
+/// identity WITHOUT stopping any node — all stay online.
+final activeIdentityProvider = StateProvider<String?>((ref) => null);
+
+/// The storage the UI reads. In an all-online session it is the ACTIVE
+/// identity's hosted view; otherwise the single-space storage (unchanged path).
+final storageProvider = Provider<Storage>((ref) {
+  final session = ref.watch(sessionProvider);
+  final active = ref.watch(activeIdentityProvider);
+  if (session != null && active != null) {
+    final s = session.storageFor(active);
+    if (s != null) return s;
+  }
+  return ref.watch(singleSpaceStorageProvider);
 });
 
 /// Parameters for the in-process deniable boot, set by main() when the
