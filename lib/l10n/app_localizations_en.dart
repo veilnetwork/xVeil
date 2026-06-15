@@ -162,6 +162,38 @@ class AppL10nEn extends AppL10n {
   String get chatFileTooLarge => 'File is too large';
 
   @override
+  String get chatMsgEdit => 'Edit';
+
+  @override
+  String get chatMsgDeleteForEveryone => 'Delete for everyone';
+
+  @override
+  String get chatMsgDeleteForMe => 'Delete for me';
+
+  @override
+  String get chatEditTitle => 'Edit message';
+
+  @override
+  String get chatEditSave => 'Save';
+
+  @override
+  String get chatDeleteTitle => 'Delete message?';
+
+  @override
+  String get chatDeleteForMeBody =>
+      'It is permanently erased from this device.';
+
+  @override
+  String get chatDeleteForEveryoneBody =>
+      'It is erased here and a delete request is sent to the other person — but they may already have seen or copied it.';
+
+  @override
+  String get chatDeleteConfirm => 'Delete';
+
+  @override
+  String get chatEdited => 'edited';
+
+  @override
   String get networkTitle => 'Overlay network';
 
   @override
