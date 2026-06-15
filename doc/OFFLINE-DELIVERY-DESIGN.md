@@ -120,6 +120,58 @@ caveat and ships first.
 The local outbox is safe + locally testable (fake transport, like the consent/
 file tests). Edit/delete ship after the message-store-deletability rework.
 
+## 3d. Sealing — RESOLVED: use veil's high-level onion send (option C)
+
+Investigation conclusion: **xVeil should NOT hand-seal blobs.** veil already does
+it on the routed path:
+
+- **Send:** `sendToOnionService` / `sendAnonymousAuthenticated` address the peer by
+  its Ed25519 IDENTITY (a `.onion`-like handle), seal the payload E2E under the
+  peer's published ML-KEM key (post-quantum, the *right* key), and onion-route it
+  — neither relays nor the rendezvous relay learn our location.
+- **Offline recipient:** `veil-dispatcher/src/delivery.rs` has a built-in
+  **mailbox fallback** — when a routed frame can't reach the (offline) recipient
+  it is deposited (already sealed) at a mailbox relay. So offline delivery is
+  automatic on this path; xVeil does no manual `mailbox.put`.
+- **Anonymous vs normal (your requirement):** the onion path IS the anonymous
+  path; the existing direct `app.send` is the fast non-anonymous path. Keep both
+  behind a per-conversation (or global) mode switch; the offline-capable path is
+  the onion one.
+
+**Remaining concrete gap — RECEIVER side.** `drainMailbox` returns the **raw
+sealed blob** (`MailboxBlobOut.blob`; the daemon does NOT unseal on fetch). So a
+fetched mailbox blob still needs the onion-unseal + delivery into the normal
+inbound app stream. Either (a) confirm/expose a veil daemon path that, on drain,
+onion-unseals fetched blobs and delivers them as the usual `AuthAppDeliver`
+inbound events (preferred — keeps crypto in veil), or (b) a veil "ingest fetched
+blob" helper. This is the one veil-side piece to settle before the receive flow
+works end-to-end; it is NOT app-level crypto.
+
+## 3e. Deniability of rendezvous publish — analysis
+
+Concern: does publishing a rendezvous ad (so an offline peer can reach you) leak
+the hidden-identity model? Analysis:
+
+- `registerOnionService` publishes an **unlinkable, per-period blinded
+  descriptor**. The network / relays / rendezvous relay learn *that some onion
+  service exists* but NOT which identity — only a holder of your invite (who
+  knows your identity key) can resolve it. So a published rendezvous does not
+  reveal *which* identity it belongs to.
+- **Multi-identity:** only the **active** identity publishes (xVeil runs one
+  active identity at a time — see MULTI-IDENTITY-DESIGN.md). So a device with N
+  hidden identities never advertises N descriptors at once; the network can't
+  infer the count or that they share a device.
+- **Coercion:** the rendezvous auth-cookie + publisher state live INSIDE each
+  identity's space, so a coerced unlock of one identity reveals only its
+  rendezvous — consistent with the deniable model.
+- **Residual (only if Phase-3 simultaneous identities lands):** N identities
+  refreshing descriptors in lockstep (same device clock) is a correlation signal.
+  Mitigation then: stagger/jitter per-identity refresh. Not an issue while one
+  active identity publishes.
+
+**Verdict: safe to publish the active identity's rendezvous.** Avoid lockstep
+multi-identity publishing if/when simultaneous identities are added.
+
 ## 4. Open decisions (need the user / careful review)
 
 1. **E2E sealing of the blob — THE crypto question.** Relays can't decrypt, so
