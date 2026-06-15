@@ -63,6 +63,11 @@ abstract interface class Storage {
 
   Future<List<Conversation>> loadConversations();
 
+  /// Mark [conversationId] read up to its latest message, so its unread count
+  /// (the incoming messages since last read, surfaced as [Conversation.unread])
+  /// resets to zero. Called when the user opens the conversation.
+  Future<void> markRead(String conversationId);
+
   Future<List<Message>> loadMessages(String conversationId);
   Future<void> appendMessage(Message message);
 
