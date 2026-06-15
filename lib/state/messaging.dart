@@ -93,6 +93,16 @@ class MessagingService {
     return msgs.any((m) => m.id == id);
   }
 
+  /// True only if [id] is a message we hold from [peer] that THEY sent us
+  /// (incoming). The authorization gate for peer-driven edit/delete: a peer may
+  /// only modify their own messages, never our outgoing ones.
+  Future<bool> _isIncomingFrom(NodeId peer, String id) async {
+    for (final m in await _storage.loadMessages(peer.hex)) {
+      if (m.id == id) return m.direction == MessageDirection.incoming;
+    }
+    return false;
+  }
+
   Future<void> _setStatus(NodeId peer, ContactStatus status) async {
     final existing = await _storage.getContact(peer);
     await _storage.upsertContact(
@@ -153,18 +163,20 @@ class MessagingService {
           await _storage.markMessageStatus(env.id!, MessageStatus.delivered);
         }
       case WireKind.edit:
-        // The peer edited a message they sent us. Apply only if we actually
-        // hold that id from THIS peer (a stranger/peer can't touch other
-        // conversations). Ids are the sender's, so they match our stored copy.
+        // The peer edited a message THEY sent us. Apply only to an INCOMING
+        // message we hold from this peer — a peer must never be able to rewrite
+        // our own outgoing messages (the id travels on the wire, so they know
+        // it; the direction check is the real authorization gate).
         if (existing?.status != ContactStatus.accepted) return;
-        if (env.id != null && await _hasMessage(m.src, env.id!)) {
+        if (env.id != null && await _isIncomingFrom(m.src, env.id!)) {
           await _storage.editMessage(env.id!, env.body);
           await _storage.scrubDeleted();
         }
       case WireKind.del:
-        // The peer unsent a message they sent us — purge + scrub our copy too.
+        // The peer unsent a message THEY sent us — purge + scrub our copy too.
+        // Same authorization gate: only their incoming messages, never ours.
         if (existing?.status != ContactStatus.accepted) return;
-        if (env.id != null && await _hasMessage(m.src, env.id!)) {
+        if (env.id != null && await _isIncomingFrom(m.src, env.id!)) {
           await _storage.deleteMessage(env.id!);
           await _storage.scrubDeleted();
         }
