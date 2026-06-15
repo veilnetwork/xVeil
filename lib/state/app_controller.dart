@@ -84,6 +84,11 @@ class AppController extends Notifier<AppState> {
   /// cleared on lock/start-over. Null in single-identity mode.
   List<RosterEntry>? _pendingRoster;
 
+  /// The MASTER space's own SpaceKeys, cached at unlock so roster edits (e.g.
+  /// toggling an identity's anonymity) can reopen the master by keys without
+  /// re-prompting for the master password. Cleared on lock/start-over.
+  Uint8List? _masterKeys;
+
   /// Label of the identity currently active in a master session (null in
   /// single-identity mode).
   String? _activeLabel;
@@ -149,6 +154,9 @@ class AppController extends Notifier<AppState> {
     final roster = await storage.loadRoster();
     if (roster != null && roster.isNotEmpty) {
       _pendingRoster = roster;
+      // Cache the master's keys so roster edits can reopen it without a
+      // password re-prompt (held in memory like the child keys above).
+      _masterKeys = storage.exportSpaceKeys();
       await storage.close(); // release the single-space lock first
       // Opt-in "all identities online": host every space + run every node at
       // once (needs the real container path). Else the one-active picker.
@@ -286,6 +294,84 @@ class AppController extends Notifier<AppState> {
       if (e.label == label) return e.anonymous;
     }
     return false;
+  }
+
+  /// Whether [label]'s identity is currently set to route anonymously (onion).
+  bool isIdentityAnonymous(String label) {
+    for (final e in _pendingRoster ?? const <RosterEntry>[]) {
+      if (e.label == label) return e.anonymous;
+    }
+    return false;
+  }
+
+  /// Toggle whether [label]'s identity routes anonymously (onion). Master-mode
+  /// only. Persists the change into the master roster (reopened by its cached
+  /// keys — no password re-prompt) and updates the in-memory roster. Anonymity
+  /// is armed at NODE BOOT, so the change takes effect the next time that
+  /// identity's node starts: if it is the ACTIVE identity, we reboot it now
+  /// (one-active) or re-point it (all-online) so it applies immediately; an
+  /// inactive identity picks it up on its next boot. Returns false outside a
+  /// master session or if the master could not be reopened.
+  Future<bool> setIdentityAnonymous(String label, bool anonymous) async {
+    final roster = _pendingRoster;
+    final masterKeys = _masterKeys;
+    if (roster == null || masterKeys == null) return false;
+    if (!roster.any((e) => e.label == label)) return false;
+    // No-op if already in the requested state.
+    if (isIdentityAnonymous(label) == anonymous) return true;
+
+    final wasActive = _activeLabel == label;
+    final hadSession = ref.read(sessionProvider) != null;
+
+    // Release any live session/node so we can open the master directly.
+    await _teardownSession();
+    await _teardownRealStack();
+    await ref.read(storageProvider).close();
+
+    final storage = ref.read(storageProvider);
+    if (!await storage.openWithKeys(masterKeys)) {
+      await _recoverToActive();
+      return false;
+    }
+    // Edit the master's ON-DISK roster (source of truth), then mirror in memory.
+    final onDisk = await storage.loadRoster() ?? roster;
+    final updated = [
+      for (final e in onDisk)
+        if (e.label == label)
+          RosterEntry(label: e.label, spaceKeys: e.spaceKeys, anonymous: anonymous)
+        else
+          e,
+    ];
+    await storage.saveRoster(updated);
+    await storage.close();
+    _pendingRoster = updated;
+
+    // Re-enter so the change takes effect for the active identity.
+    if (hadSession) {
+      // All-online: rebuild the whole session (a node's anonymity is fixed at
+      // its boot, so the toggled identity must re-boot).
+      final boot = ref.read(deniableBootProvider);
+      if (boot?.storePath != null) {
+        try {
+          await _enterAllOnline(updated, boot!);
+          if (wasActive) await switchIdentity(label);
+          return true;
+        } catch (e, st) {
+          debugPrint('xVeil[anon]: all-online re-enter FAILED -> picker: $e\n$st');
+          await _teardownSession();
+          state = state.copyWith(
+            phase: AppPhase.pickingIdentity,
+            identities: [for (final e in updated) e.label],
+          );
+          return true;
+        }
+      }
+    }
+    if (wasActive) {
+      _activeLabel = null;
+      await pickIdentity(label); // reboot the active identity with new anonymity
+    }
+    return true;
   }
 
   /// Add a new identity. On the FIRST add this converts the current single
@@ -537,6 +623,7 @@ class AppController extends Notifier<AppState> {
 
   void _clearMasterSession() {
     _pendingRoster = null; // drop cached child keys
+    _masterKeys = null; // drop cached master keys
     _activeLabel = null;
   }
 
