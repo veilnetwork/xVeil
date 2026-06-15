@@ -406,6 +406,16 @@ class MessagingService {
 
 /// Constructed once and kept alive for the session; starts listening eagerly.
 final messagingServiceProvider = Provider<MessagingService>((ref) {
+  // All-online: use the ACTIVE identity's OWN pipeline from the session, so we
+  // don't spin up a second service on its transport (which would double-process
+  // its inbound). The session owns/disposes it; switching just re-resolves here.
+  final session = ref.watch(sessionProvider);
+  final active = ref.watch(activeIdentityProvider);
+  if (session != null && active != null) {
+    final m = session.messagingFor(active);
+    if (m != null) return m;
+  }
+  // Single / one-active mode: the global service (unchanged path).
   final service = MessagingService(
     ref.watch(veilTransportProvider),
     ref.watch(storageProvider),
