@@ -30,6 +30,13 @@ class AppL10nEn extends AppL10n {
   String get actionUnderstood => 'I understand';
 
   @override
+  String get preparingTitle => 'Setting up your node';
+
+  @override
+  String get preparingBody =>
+      'Provisioning your identity on this device. This can take a little while — please wait.';
+
+  @override
   String get onboardWelcomeTitle => 'Welcome to xVeil';
 
   @override
@@ -164,4 +171,104 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get settingsAbout => 'About';
+
+  @override
+  String get settingsLanguage => 'Language';
+
+  @override
+  String get settingsLockNow => 'Lock now';
+
+  @override
+  String get languageSystem => 'System default';
+
+  @override
+  String get languageRussian => 'Русский';
+
+  @override
+  String get languageEnglish => 'English';
+
+  @override
+  String get chatRequestTitle => 'This contact wants to connect';
+
+  @override
+  String get actionAccept => 'Accept';
+
+  @override
+  String get actionBlock => 'Block';
+
+  @override
+  String get actionOpen => 'Open';
+
+  @override
+  String get inviteAddContact => 'Add a contact';
+
+  @override
+  String get inviteShowToContact => 'Show this to your contact';
+
+  @override
+  String get inviteTooLarge => 'invite too large';
+
+  @override
+  String get inviteCopied => 'Invite copied';
+
+  @override
+  String get inviteCopyMine => 'Copy my invite';
+
+  @override
+  String get invitePasteTheirs => 'Paste their invite';
+
+  @override
+  String get inviteScanTooltip => 'Scan QR (coming soon)';
+
+  @override
+  String get inviteScanComingSoon => 'Camera scanning coming soon';
+
+  @override
+  String get inviteAddButton => 'Add contact';
+
+  @override
+  String get inviteInvalid => 'That is not a valid xVeil invite';
+
+  @override
+  String get networkRouteTitle => 'Route traffic (Proxy / VPN)';
+
+  @override
+  String get networkRouteSub => 'oproxy / ogate — coming soon';
+
+  @override
+  String get networkNodesTitle => 'My nodes';
+
+  @override
+  String get networkNodesSub => 'Add a node over SSH, run ogate/oproxy';
+
+  @override
+  String get networkExtTitle => 'Extensions (Lua)';
+
+  @override
+  String get networkExtSub => 'Load sandboxed add-ons';
+
+  @override
+  String get networkComingLater => 'Coming in a later milestone';
+
+  @override
+  String get networkStatusError => 'Error';
+
+  @override
+  String get onboardRepeatPassword => 'Repeat password';
+
+  @override
+  String get recoveryPhraseHint =>
+      'Enter your recovery phrase, words separated by spaces';
+
+  @override
+  String get demoChatTooltip => 'Demo chat';
+
+  @override
+  String get demoNewChat => 'New chat';
+
+  @override
+  String get demoPeerNodeId => 'Peer node id (hex)';
+
+  @override
+  String get demoChatWith => 'Chat with a demo peer';
 }

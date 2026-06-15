@@ -61,5 +61,44 @@
   "settingsStorage": "Storage & spaces",
   "settingsNetwork": "Network & nodes",
   "settingsAppearance": "Appearance",
-  "settingsAbout": "About"
+  "settingsAbout": "About",
+  "settingsLanguage": "Language",
+  "settingsLockNow": "Lock now",
+
+  "languageSystem": "System default",
+  "languageRussian": "Русский",
+  "languageEnglish": "English",
+
+  "chatRequestTitle": "This contact wants to connect",
+  "actionAccept": "Accept",
+  "actionBlock": "Block",
+  "actionOpen": "Open",
+
+  "inviteAddContact": "Add a contact",
+  "inviteShowToContact": "Show this to your contact",
+  "inviteTooLarge": "invite too large",
+  "inviteCopied": "Invite copied",
+  "inviteCopyMine": "Copy my invite",
+  "invitePasteTheirs": "Paste their invite",
+  "inviteScanTooltip": "Scan QR (coming soon)",
+  "inviteScanComingSoon": "Camera scanning coming soon",
+  "inviteAddButton": "Add contact",
+  "inviteInvalid": "That is not a valid xVeil invite",
+
+  "networkRouteTitle": "Route traffic (Proxy / VPN)",
+  "networkRouteSub": "oproxy / ogate — coming soon",
+  "networkNodesTitle": "My nodes",
+  "networkNodesSub": "Add a node over SSH, run ogate/oproxy",
+  "networkExtTitle": "Extensions (Lua)",
+  "networkExtSub": "Load sandboxed add-ons",
+  "networkComingLater": "Coming in a later milestone",
+  "networkStatusError": "Error",
+
+  "onboardRepeatPassword": "Repeat password",
+  "recoveryPhraseHint": "Enter your recovery phrase, words separated by spaces",
+
+  "demoChatTooltip": "Demo chat",
+  "demoNewChat": "New chat",
+  "demoPeerNodeId": "Peer node id (hex)",
+  "demoChatWith": "Chat with a demo peer"
 }

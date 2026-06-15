@@ -84,9 +84,13 @@ final myInviteProvider = Provider<String?>(
   (ref) => ref.watch(realStackProvider)?.myInvite.toUri(),
 );
 
-/// Live node status, surfaced to the network UI. Seeds with the current
-/// snapshot so the stream provider has data before the first event.
-final nodeStatusProvider = StreamProvider<NodeStatus>((ref) {
+/// Live node status, surfaced to the network UI. Emits the controller's current
+/// snapshot FIRST, then its event stream — so a screen that subscribes after the
+/// node already reached `connected` (e.g. the deniable boot finished before the
+/// network tab was opened) shows the real status instead of being stuck on the
+/// stream's pre-subscription default ("connecting").
+final nodeStatusProvider = StreamProvider<NodeStatus>((ref) async* {
   final node = ref.watch(nodeControllerProvider);
-  return node.status();
+  yield node.current;
+  yield* node.status();
 });
