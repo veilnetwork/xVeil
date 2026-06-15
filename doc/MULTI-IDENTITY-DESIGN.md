@@ -250,9 +250,17 @@ already (rocksdb opt-in), confirm no peer cache / logs leak.
   mining. After this, §2's invariant holds for one identity. Do **not** ship
   multi-identity storage without the node-boot half, or §4's headline leak
   remains.
-- **Phase 2 (master + send-as + decoy):** `open_with_keys` + `SpaceKeys` export
-  FFI; master-space roster; per-identity conversation ownership + send-as picker;
-  pre-built **decoy master** for duress. One active node + fast switch.
+- **Phase 2 (master + send-as + decoy):**
+  - ✅ **`open_with_keys` + `SpaceKeys` export FFI — DONE** (hidden-volume): core
+    `Space::space_keys`, FFI `SpaceHandle::open_with_keys`/`space_keys` (sync +
+    async), typed Dart `HvSpace.openWithKeys`/`spaceKeys`. Round-trip tested
+    (export → keys-only reopen → same data; Malformed/AuthFailed paths) against
+    the native dylib. `SpaceKeys` = 64 opaque bytes (`container_id ‖ aead_root`),
+    sensitive — kept only inside a master space, never logged.
+  - ⏳ Remaining: master-space roster (app layer); per-identity conversation
+    ownership + send-as picker; pre-built **decoy master** for duress; one
+    active node + fast switch. These are xVeil-side and touch the working
+    onboarding/unlock flow — to be built incrementally behind a clean seam.
 - **Phase 3:** simultaneous per-identity nodes, multi-device sync.
 
 ## 9. Deniability invariant checklist (acceptance)
