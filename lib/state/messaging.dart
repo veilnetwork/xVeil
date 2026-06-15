@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/ids.dart';
+import '../data/node/node_controller.dart';
 import '../data/storage/storage.dart';
 import '../data/transport/veil_transport.dart';
 import '../data/transport/wire_envelope.dart';
@@ -62,16 +63,20 @@ class MessagingService {
     if (!_changes.isClosed) _changes.add(null);
   }
 
-  Future<void> _store(
+  /// Persist a message and return its id. [id] lets the receiver reuse the
+  /// SENDER's id (so re-sends dedup) instead of minting a fresh one.
+  Future<String> _store(
     NodeId peer,
     MessageDirection dir,
     String body,
     MessageStatus status, {
     String? fileId,
     String? fileName,
-  }) {
-    return _storage.appendMessage(Message(
-      id: _uuid.v4(),
+    String? id,
+  }) async {
+    final msgId = id ?? _uuid.v4();
+    await _storage.appendMessage(Message(
+      id: msgId,
       conversationId: peer.hex,
       direction: dir,
       body: body,
@@ -80,6 +85,12 @@ class MessagingService {
       fileId: fileId,
       fileName: fileName,
     ));
+    return msgId;
+  }
+
+  Future<bool> _hasMessage(NodeId peer, String id) async {
+    final msgs = await _storage.loadMessages(peer.hex);
+    return msgs.any((m) => m.id == id);
   }
 
   Future<void> _setStatus(NodeId peer, ContactStatus status) async {
@@ -124,8 +135,23 @@ class MessagingService {
       case WireKind.message:
         // Consent gate: only deliver from accepted peers; drop the rest.
         if (existing?.status != ContactStatus.accepted) return;
+        final id = env.id;
+        // Dedup re-sent messages (the sender's local outbox re-sends un-acked
+        // ones): if we already have this id, just re-ack so they stop.
+        if (id != null && await _hasMessage(m.src, id)) {
+          await _transport.send(m.src, WireEnvelope.ack(id).encode());
+          return;
+        }
         await _store(m.src, MessageDirection.incoming, env.body,
-            MessageStatus.delivered);
+            MessageStatus.delivered, id: id);
+        if (id != null) {
+          await _transport.send(m.src, WireEnvelope.ack(id).encode());
+        }
+      case WireKind.ack:
+        // The peer confirms delivery of our message [env.id] — stop re-sending.
+        if (env.id != null) {
+          await _storage.markMessageStatus(env.id!, MessageStatus.delivered);
+        }
       case WireKind.fileMeta:
         if (existing?.status != ContactStatus.accepted) return;
         final meta = parseFileMeta(env.body);
@@ -205,9 +231,32 @@ class MessagingService {
     // Consent gate — only free-message an accepted contact.
     final contact = await _storage.getContact(dst);
     if (contact == null || contact.status != ContactStatus.accepted) return;
-    await _store(dst, MessageDirection.outgoing, trimmed, MessageStatus.sent);
+    final id =
+        await _store(dst, MessageDirection.outgoing, trimmed, MessageStatus.sent);
     _signal();
-    await _transport.send(dst, WireEnvelope.message(trimmed).encode());
+    // Stays `sent` until the peer acks; the local outbox re-sends un-acked ones
+    // on reconnect, so a message written offline goes out when we come back.
+    await _transport.send(dst, WireEnvelope.message(trimmed, id: id).encode());
+  }
+
+  /// Re-send every outgoing text message still awaiting a delivery ack (i.e.
+  /// `sent`, not yet `delivered`) to accepted contacts. Driven on node-connect /
+  /// app-start so messages composed while offline are delivered on reconnect;
+  /// the receiver dedups by id, so re-sending an already-delivered one is safe.
+  Future<void> flushOutbox() async {
+    final convs = await _storage.loadConversations();
+    for (final conv in convs) {
+      if (conv.peer.status != ContactStatus.accepted) continue;
+      final msgs = await _storage.loadMessages(conv.id);
+      for (final m in msgs) {
+        if (m.direction == MessageDirection.outgoing &&
+            m.status == MessageStatus.sent &&
+            !m.isFile) {
+          await _transport.send(
+              conv.peer.nodeId, WireEnvelope.message(m.body, id: m.id).encode());
+        }
+      }
+    }
   }
 
   /// Send a file to [dst] (gated to accepted contacts). Stores a local copy,
@@ -260,6 +309,15 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
     ref.watch(storageProvider),
   );
   service.start();
+  // Flush the local outbox whenever the node (re)connects: messages composed
+  // while offline stay `sent` and go out the moment transport is up again.
+  ref.listen<AsyncValue<NodeStatus>>(nodeStatusProvider, (prev, next) {
+    final was = prev?.valueOrNull?.phase;
+    final now = next.valueOrNull?.phase;
+    if (now == NodePhase.connected && was != NodePhase.connected) {
+      service.flushOutbox();
+    }
+  });
   ref.onDispose(service.dispose);
   return service;
 });
