@@ -41,7 +41,7 @@ Future<List<Override>> _bootstrapOverrides() async {
           ? override
           : '${dir.path}/xveil.store';
       storePath = path;
-      overrides.add(storageProvider.overrideWith((ref) {
+      overrides.add(singleSpaceStorageProvider.overrideWith((ref) {
         // Wire the keys-opener too so a master space can open its children by
         // their stored SpaceKeys (master mode). Additive: the single-identity
         // flow never calls openWithKeys, so its behaviour is unchanged.
