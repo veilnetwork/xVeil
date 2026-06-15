@@ -419,23 +419,6 @@ class AppController extends Notifier<AppState> {
     }
   }
 
-  /// Leave the active identity and go back to the picker (master mode), so the
-  /// user can switch. Stops the node and closes the active space first. No-op in
-  /// single-identity mode.
-  Future<void> returnToPicker() async {
-    // In all-online mode there is no picker (every identity is already up) —
-    // switching is a direct switchIdentity from the (Step D) switcher UI.
-    if (ref.read(sessionProvider) != null) return;
-    if (_pendingRoster == null) return;
-    await _teardownRealStack();
-    await ref.read(storageProvider).close();
-    _activeLabel = null;
-    state = state.copyWith(
-      phase: AppPhase.pickingIdentity,
-      identities: [for (final e in _pendingRoster!) e.label],
-    );
-  }
-
   Future<void> _enterSession(Identity identity) async {
     // Deniable path: now that the space is open, boot the in-process node from
     // the in-space identity (mining it on first run). Best-effort — never block

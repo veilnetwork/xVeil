@@ -44,6 +44,40 @@ class SettingsScreen extends ConsumerWidget {
         .setLocale(choice is Locale ? choice : null);
   }
 
+  /// Bottom-sheet identity switcher (master mode). Tapping an identity calls
+  /// switchIdentity — a fast view re-point in all-online mode, a node swap in
+  /// one-active mode. The active identity is marked and a no-op.
+  Future<void> _switchIdentity(BuildContext context, WidgetRef ref) async {
+    final state = ref.read(appControllerProvider);
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (sheet) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final label in state.identities)
+              ListTile(
+                leading: CircleAvatar(
+                    child: Text(label.characters.first.toUpperCase())),
+                title: Text(label),
+                trailing: label == state.activeIdentity
+                    ? const Icon(Icons.check)
+                    : null,
+                onTap: () {
+                  Navigator.of(sheet).pop();
+                  if (label != state.activeIdentity) {
+                    ref
+                        .read(appControllerProvider.notifier)
+                        .switchIdentity(label);
+                  }
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppL10n.of(context);
@@ -77,8 +111,7 @@ class SettingsScreen extends ConsumerWidget {
               title: Text(l.settingsSwitchIdentity),
               subtitle: master.$2 != null ? Text(master.$2!) : null,
               trailing: const Icon(Icons.chevron_right),
-              onTap: () =>
-                  ref.read(appControllerProvider.notifier).returnToPicker(),
+              onTap: () => _switchIdentity(context, ref),
             ),
           ListTile(
             leading: const Icon(Icons.person_add_alt_1_outlined),
