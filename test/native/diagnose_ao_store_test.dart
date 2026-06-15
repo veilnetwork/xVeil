@@ -20,7 +20,7 @@ void main() {
       print('DIAG: no container at $path');
       return;
     }
-    for (final pw in ['111111', '222222', '000000', 'one', 'two', 'master']) {
+    for (final pw in ['111111', '222222', '333333', '000000']) {
       final s = HiddenVolumeStorage(
         hvSpaceOpener(path, argon: hv.ArgonPreset.heavy),
         keysOpener: hvKeysSpaceOpener(path),
@@ -35,7 +35,26 @@ void main() {
         final id = await s.loadIdentity();
         print('DIAG pw=$pw -> OPENED  roster=${roster?.map((e) => e.label).toList()}'
             '  identity=${id?.displayName ?? '(none)'}');
-        await s.close();
+        // The CRUX: master/all-online opens children by their STORED spaceKeys,
+        // not by password. If those keys are stale (e.g. container_id changed),
+        // openWithKeys fails even though the password still opens the space.
+        if (roster != null) {
+          await s.close();
+          for (final e in roster) {
+            final ks = HiddenVolumeStorage(
+              hvSpaceOpener(path, argon: hv.ArgonPreset.heavy),
+              keysOpener: hvKeysSpaceOpener(path),
+            );
+            final kok = await ks.openWithKeys(e.spaceKeys);
+            final kid = kok ? await ks.loadIdentity() : null;
+            print('  roster["${e.label}"] openWithKeys -> '
+                '${kok ? "OK identity=${kid?.displayName ?? "(none)"}" : "FAILED (stale keys)"}'
+                '  keys=${e.spaceKeys.length}B head=${e.spaceKeys.take(8).toList()}');
+            if (kok) await ks.close();
+          }
+        } else {
+          await s.close();
+        }
       } catch (e) {
         print('DIAG pw=$pw -> EXCEPTION $e');
       }

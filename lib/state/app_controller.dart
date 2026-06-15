@@ -289,14 +289,25 @@ class AppController extends Notifier<AppState> {
 
   /// Add a new identity. On the FIRST add this converts the current single
   /// identity into a master managed by [masterPassword] (the existing identity
-  /// becomes a child labelled [existingLabel]); thereafter it just appends to
-  /// the master. [label]/[password] name the new identity. On success switches
-  /// to the new identity and returns true; returns false on failure — notably if
-  /// [masterPassword] collides with an identity's own password (which would
-  /// corrupt that space), so the UI can ask for a different one.
+  /// becomes a child labelled [existingLabel]); thereafter it APPENDS to the
+  /// EXISTING master — adding to it, never creating a second master. [label]/
+  /// [password] name the new identity. On success switches to the new identity
+  /// and returns true; returns false on failure — notably if [masterPassword]
+  /// collides with an identity's own password (which would corrupt that space),
+  /// or if [label] already names an identity in the master, so the UI can ask
+  /// for a different value.
   ///
-  /// Serialized under the exclusive lock: snapshot keys → close → create child →
-  /// close → open/create master → save roster → close → open the new identity.
+  /// The roster to persist is read from the MASTER'S OWN ON-DISK STATE and the
+  /// new child appended — it is never rebuilt from in-memory session state. An
+  /// earlier version trusted the in-memory `_pendingRoster`; when that was stale
+  /// or null (after an all-online session, or a relaunch), `saveRoster`
+  /// OVERWROTE the master and silently dropped the other identities — a
+  /// lockout/data-loss bug. See test/native/repro_existing_master_add_test.dart.
+  ///
+  /// Serialized under the exclusive lock: tear down any live session (it holds
+  /// the container lock) → snapshot the active identity's keys → open/create the
+  /// master + read its on-disk roster → create the child → append → save roster
+  /// → open the new identity.
   Future<bool> addIdentity({
     required String masterPassword,
     required String label,
@@ -304,30 +315,58 @@ class AppController extends Notifier<AppState> {
     String existingLabel = 'Identity 1',
     bool anonymous = false,
   }) async {
-    final storage = ref.read(storageProvider);
+    // Snapshot the active identity's keys BEFORE any teardown — needed only for
+    // the first conversion, where the active single identity becomes the first
+    // child of the brand-new master.
+    final active = ref.read(storageProvider);
+    Uint8List? currentKeys;
+    try {
+      if (active.isOpen) currentKeys = active.exportSpaceKeys();
+    } catch (_) {
+      // No open active space (e.g. between states) — only matters for the first
+      // conversion, which can't happen without an active identity anyway.
+    }
+
+    // Release EVERYTHING that holds the container: an all-online session keeps
+    // the exclusive lock via its multi-space backing, and the active node keeps
+    // a handle. Without this the direct open() below would hit a locked file (or
+    // the session's no-op opener) and fail. After teardown, storageProvider
+    // resolves to the single-space opener that can open the container directly.
+    await _teardownSession();
     await _teardownRealStack();
+    await active.close();
+    final storage = ref.read(storageProvider);
 
-    // Base roster: the existing master's, or — converting a single identity —
-    // that identity wrapped as the first child (snapshot its keys while open).
-    final roster = <RosterEntry>[
-      if (_pendingRoster != null)
-        ..._pendingRoster!
-      else
-        RosterEntry(label: existingLabel, spaceKeys: storage.exportSpaceKeys()),
-    ];
-    await storage.close();
-
-    // Validate the master FIRST, before creating any child space — so a clash
-    // (the master password actually opens an IDENTITY space: has an identity,
-    // no roster) aborts with no side effects rather than corrupting it.
+    // Open/create the master and decide append-vs-convert from its ON-DISK
+    // state — never from in-memory session state.
     if (!await storage.open(password: masterPassword, createIfMissing: true)) {
       await _recoverToActive();
       return false;
     }
-    final clash =
-        await storage.loadIdentity() != null && await storage.loadRoster() == null;
+    final existingRoster = await storage.loadRoster();
+    final masterHasIdentity = await storage.loadIdentity() != null;
     await storage.close();
-    if (clash) {
+
+    // Clash: the master password opened a real IDENTITY space (has an identity,
+    // no roster). Writing a roster into it would clobber that identity — abort
+    // with no side effects so the UI can ask for a different master password.
+    if (masterHasIdentity && existingRoster == null) {
+      await _recoverToActive();
+      return false;
+    }
+
+    // Base roster: an EXISTING master → its OWN on-disk roster (append to it); a
+    // fresh master → wrap the current single identity as the first child.
+    final base = <RosterEntry>[
+      if (existingRoster != null)
+        ...existingRoster
+      else if (currentKeys != null)
+        RosterEntry(label: existingLabel, spaceKeys: currentKeys),
+    ];
+
+    // Refuse a duplicate label — two roster entries with the same label would
+    // break switching (it resolves an identity by label).
+    if (base.any((e) => e.label == label)) {
       await _recoverToActive();
       return false;
     }
@@ -340,14 +379,17 @@ class AppController extends Notifier<AppState> {
       return false;
     }
     await storage.saveIdentity(generateIdentity(displayName: label));
-    roster.add(RosterEntry(
-      label: label,
-      spaceKeys: storage.exportSpaceKeys(),
-      anonymous: anonymous,
-    ));
+    final roster = <RosterEntry>[
+      ...base,
+      RosterEntry(
+        label: label,
+        spaceKeys: storage.exportSpaceKeys(),
+        anonymous: anonymous,
+      ),
+    ];
     await storage.close();
 
-    // Persist the roster into the (now-existing) master.
+    // Persist the appended roster into the (now-existing) master.
     if (!await storage.open(password: masterPassword)) {
       await _recoverToActive();
       return false;
@@ -355,7 +397,8 @@ class AppController extends Notifier<AppState> {
     await storage.saveRoster(roster);
     await storage.close();
 
-    // Enter the new identity.
+    // Enter the new identity (one-active). If the user has keep-all-online on,
+    // the next unlock brings every identity — including this one — back online.
     _pendingRoster = roster;
     _activeLabel = null;
     await pickIdentity(label);
