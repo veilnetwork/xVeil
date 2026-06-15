@@ -6,6 +6,7 @@ import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/keep_all_online_controller.dart';
 import '../../state/locale_controller.dart';
+import '../../state/providers.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -49,6 +50,20 @@ class SettingsScreen extends ConsumerWidget {
   /// one-active mode. The active identity is marked and a no-op.
   Future<void> _switchIdentity(BuildContext context, WidgetRef ref) async {
     final state = ref.read(appControllerProvider);
+    // All-online: every identity's storage is open, so we can show each one's
+    // unread total — the signal for which identity to switch to.
+    final session = ref.read(sessionProvider);
+    final unread = <String, int>{};
+    if (session != null) {
+      for (final label in state.identities) {
+        final st = session.storageFor(label);
+        if (st != null) {
+          unread[label] = (await st.loadConversations())
+              .fold<int>(0, (sum, c) => sum + c.unread);
+        }
+      }
+    }
+    if (!context.mounted) return;
     await showModalBottomSheet<void>(
       context: context,
       builder: (sheet) => SafeArea(
@@ -62,7 +77,9 @@ class SettingsScreen extends ConsumerWidget {
                 title: Text(label),
                 trailing: label == state.activeIdentity
                     ? const Icon(Icons.check)
-                    : null,
+                    : ((unread[label] ?? 0) > 0
+                        ? Badge(label: Text('${unread[label]}'))
+                        : null),
                 onTap: () {
                   Navigator.of(sheet).pop();
                   if (label != state.activeIdentity) {
