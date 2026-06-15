@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import '../../core/ids.dart';
 import '../../domain/chat.dart';
 import '../../domain/identity.dart';
+import '../../domain/roster.dart';
 import 'file_store.dart';
 import 'kv_log_store.dart';
 import 'storage.dart';
@@ -102,6 +103,32 @@ class HiddenVolumeStorage implements Storage {
   Future<String?> loadNodeConfig() async {
     final raw = _s.get(Ns.settings, _sk('node:config'));
     return raw == null ? null : utf8.decode(raw);
+  }
+
+  // The master roster is a single SETTINGS-namespace KV blob, so it inherits
+  // the space's deniability. Each child's SpaceKeys are base64'd inside it —
+  // sensitive material that lives only in this (master) space.
+  @override
+  Future<void> saveRoster(List<RosterEntry> entries) async {
+    final json = jsonEncode([
+      for (final e in entries)
+        {'l': e.label, 'k': base64.encode(e.spaceKeys)},
+    ]);
+    _s.commit([PutOp(Ns.settings, _sk('master:roster'), _sk(json))]);
+  }
+
+  @override
+  Future<List<RosterEntry>?> loadRoster() async {
+    final raw = _s.get(Ns.settings, _sk('master:roster'));
+    if (raw == null) return null; // plain identity space — not a master
+    final list = jsonDecode(utf8.decode(raw)) as List;
+    return [
+      for (final e in list.cast<Map<String, dynamic>>())
+        RosterEntry(
+          label: e['l'] as String,
+          spaceKeys: base64.decode(e['k'] as String),
+        ),
+    ];
   }
 
   // --- Contacts ----------------------------------------------------------
