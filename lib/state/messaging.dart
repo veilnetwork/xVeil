@@ -18,6 +18,12 @@ const _uuid = Uuid();
 /// Raw bytes per wire chunk. Base64 + JSON wrap keeps the datagram modest.
 const _wireChunkBytes = 6000;
 
+/// Hard ceiling on an inbound file we will buffer in memory before it is
+/// stored. A backstop so a hostile (but accepted) peer cannot exhaust memory
+/// with a giant transfer. Purely a local safety bound — tune to product taste;
+/// it is not a protocol constant and both sides need not agree on it.
+const kMaxIncomingFileBytes = 100 * 1024 * 1024; // 100 MiB
+
 /// In-flight inbound file reassembly state.
 class _Incoming {
   _Incoming({required this.src, required this.name, required this.reasm});
@@ -108,6 +114,10 @@ class MessagingService {
       case WireKind.fileMeta:
         if (existing?.status != ContactStatus.accepted) return;
         final j = jsonDecode(env.body) as Map<String, dynamic>;
+        // Refuse over-budget transfers up front (the declared size is a hint;
+        // the per-chunk guard below enforces it even if the peer lies here).
+        final size = j['size'];
+        if (size is int && size > kMaxIncomingFileBytes) return;
         _inFlight[j['tid'] as String] = _Incoming(
           src: m.src,
           name: j['name'] as String?,
@@ -128,6 +138,12 @@ class MessagingService {
           total: j['total'] as int,
           data: base64.decode(j['d'] as String),
         ));
+        // Enforce the memory budget even if the peer lied about size — abort
+        // and discard the partial transfer rather than buffer unboundedly.
+        if (inc.reasm.bufferedBytes > kMaxIncomingFileBytes) {
+          _inFlight.remove(tid);
+          return;
+        }
         if (!inc.reasm.isComplete) return; // wait for the rest
         await _storage.storeFile(tid, inc.reasm.assemble(), name: inc.name);
         await _store(m.src, MessageDirection.incoming, '📎 ${inc.name ?? 'file'}',
