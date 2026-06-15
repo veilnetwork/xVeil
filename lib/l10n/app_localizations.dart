@@ -139,6 +139,18 @@ abstract class AppL10n {
   /// **'I understand'**
   String get actionUnderstood;
 
+  /// No description provided for @preparingTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Setting up your node'**
+  String get preparingTitle;
+
+  /// No description provided for @preparingBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Provisioning your identity on this device. This can take a little while — please wait.'**
+  String get preparingBody;
+
   /// No description provided for @onboardWelcomeTitle.
   ///
   /// In en, this message translates to:
@@ -390,6 +402,204 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'About'**
   String get settingsAbout;
+
+  /// No description provided for @settingsLanguage.
+  ///
+  /// In en, this message translates to:
+  /// **'Language'**
+  String get settingsLanguage;
+
+  /// No description provided for @settingsLockNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Lock now'**
+  String get settingsLockNow;
+
+  /// No description provided for @languageSystem.
+  ///
+  /// In en, this message translates to:
+  /// **'System default'**
+  String get languageSystem;
+
+  /// No description provided for @languageRussian.
+  ///
+  /// In en, this message translates to:
+  /// **'Русский'**
+  String get languageRussian;
+
+  /// No description provided for @languageEnglish.
+  ///
+  /// In en, this message translates to:
+  /// **'English'**
+  String get languageEnglish;
+
+  /// No description provided for @chatRequestTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'This contact wants to connect'**
+  String get chatRequestTitle;
+
+  /// No description provided for @actionAccept.
+  ///
+  /// In en, this message translates to:
+  /// **'Accept'**
+  String get actionAccept;
+
+  /// No description provided for @actionBlock.
+  ///
+  /// In en, this message translates to:
+  /// **'Block'**
+  String get actionBlock;
+
+  /// No description provided for @actionOpen.
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get actionOpen;
+
+  /// No description provided for @inviteAddContact.
+  ///
+  /// In en, this message translates to:
+  /// **'Add a contact'**
+  String get inviteAddContact;
+
+  /// No description provided for @inviteShowToContact.
+  ///
+  /// In en, this message translates to:
+  /// **'Show this to your contact'**
+  String get inviteShowToContact;
+
+  /// No description provided for @inviteTooLarge.
+  ///
+  /// In en, this message translates to:
+  /// **'invite too large'**
+  String get inviteTooLarge;
+
+  /// No description provided for @inviteCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'Invite copied'**
+  String get inviteCopied;
+
+  /// No description provided for @inviteCopyMine.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy my invite'**
+  String get inviteCopyMine;
+
+  /// No description provided for @invitePasteTheirs.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste their invite'**
+  String get invitePasteTheirs;
+
+  /// No description provided for @inviteScanTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Scan QR (coming soon)'**
+  String get inviteScanTooltip;
+
+  /// No description provided for @inviteScanComingSoon.
+  ///
+  /// In en, this message translates to:
+  /// **'Camera scanning coming soon'**
+  String get inviteScanComingSoon;
+
+  /// No description provided for @inviteAddButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Add contact'**
+  String get inviteAddButton;
+
+  /// No description provided for @inviteInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'That is not a valid xVeil invite'**
+  String get inviteInvalid;
+
+  /// No description provided for @networkRouteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Route traffic (Proxy / VPN)'**
+  String get networkRouteTitle;
+
+  /// No description provided for @networkRouteSub.
+  ///
+  /// In en, this message translates to:
+  /// **'oproxy / ogate — coming soon'**
+  String get networkRouteSub;
+
+  /// No description provided for @networkNodesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'My nodes'**
+  String get networkNodesTitle;
+
+  /// No description provided for @networkNodesSub.
+  ///
+  /// In en, this message translates to:
+  /// **'Add a node over SSH, run ogate/oproxy'**
+  String get networkNodesSub;
+
+  /// No description provided for @networkExtTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Extensions (Lua)'**
+  String get networkExtTitle;
+
+  /// No description provided for @networkExtSub.
+  ///
+  /// In en, this message translates to:
+  /// **'Load sandboxed add-ons'**
+  String get networkExtSub;
+
+  /// No description provided for @networkComingLater.
+  ///
+  /// In en, this message translates to:
+  /// **'Coming in a later milestone'**
+  String get networkComingLater;
+
+  /// No description provided for @networkStatusError.
+  ///
+  /// In en, this message translates to:
+  /// **'Error'**
+  String get networkStatusError;
+
+  /// No description provided for @onboardRepeatPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Repeat password'**
+  String get onboardRepeatPassword;
+
+  /// No description provided for @recoveryPhraseHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter your recovery phrase, words separated by spaces'**
+  String get recoveryPhraseHint;
+
+  /// No description provided for @demoChatTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Demo chat'**
+  String get demoChatTooltip;
+
+  /// No description provided for @demoNewChat.
+  ///
+  /// In en, this message translates to:
+  /// **'New chat'**
+  String get demoNewChat;
+
+  /// No description provided for @demoPeerNodeId.
+  ///
+  /// In en, this message translates to:
+  /// **'Peer node id (hex)'**
+  String get demoPeerNodeId;
+
+  /// No description provided for @demoChatWith.
+  ///
+  /// In en, this message translates to:
+  /// **'Chat with a demo peer'**
+  String get demoChatWith;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../data/transport/bootstrap_invite.dart';
+import '../../l10n/app_localizations.dart';
 
 /// Contact-add UX over veil bootstrap invites. Shows THIS device's invite as a
 /// QR to share, and accepts a peer's invite (pasted; camera scan plugs in
@@ -45,12 +46,13 @@ class _InviteExchangeSheetState extends State<InviteExchangeSheet> {
       setState(() => _error = null);
       widget.onAddContact(invite);
     } on FormatException {
-      setState(() => _error = 'That is not a valid xVeil invite');
+      setState(() => _error = AppL10n.of(context).inviteInvalid);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -64,12 +66,12 @@ class _InviteExchangeSheetState extends State<InviteExchangeSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('Add a contact',
+          Text(l.inviteAddContact,
               style: Theme.of(context).textTheme.titleLarge,
               textAlign: TextAlign.center),
           const SizedBox(height: 16),
           if (widget.myInvite != null) ...[
-            Text('Show this to your contact',
+            Text(l.inviteShowToContact,
                 style: Theme.of(context).textTheme.labelMedium,
                 textAlign: TextAlign.center),
             const SizedBox(height: 12),
@@ -84,10 +86,10 @@ class _InviteExchangeSheetState extends State<InviteExchangeSheet> {
                   data: widget.myInvite!,
                   size: 180,
                   // Errors (e.g. data too long) render inline, never throw.
-                  errorStateBuilder: (_, _) => const SizedBox(
+                  errorStateBuilder: (_, _) => SizedBox(
                     width: 180,
                     height: 180,
-                    child: Center(child: Text('invite too large')),
+                    child: Center(child: Text(l.inviteTooLarge)),
                   ),
                 ),
               ),
@@ -114,17 +116,17 @@ class _InviteExchangeSheetState extends State<InviteExchangeSheet> {
                       ClipboardData(text: widget.myInvite!));
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Invite copied')),
+                      SnackBar(content: Text(l.inviteCopied)),
                     );
                   }
                 },
                 icon: const Icon(Icons.copy, size: 18),
-                label: const Text('Copy my invite'),
+                label: Text(l.inviteCopyMine),
               ),
             ),
             const Divider(height: 32),
           ],
-          Text('Paste their invite',
+          Text(l.invitePasteTheirs,
               style: Theme.of(context).textTheme.labelMedium),
           const SizedBox(height: 8),
           TextField(
@@ -136,9 +138,9 @@ class _InviteExchangeSheetState extends State<InviteExchangeSheet> {
               errorText: _error,
               suffixIcon: IconButton(
                 icon: const Icon(Icons.qr_code_scanner),
-                tooltip: 'Scan QR (coming soon)',
+                tooltip: l.inviteScanTooltip,
                 onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Camera scanning coming soon')),
+                  SnackBar(content: Text(l.inviteScanComingSoon)),
                 ),
               ),
             ),
@@ -147,7 +149,7 @@ class _InviteExchangeSheetState extends State<InviteExchangeSheet> {
           FilledButton(
             onPressed: _add,
             style: FilledButton.styleFrom(backgroundColor: scheme.primary),
-            child: const Text('Add contact'),
+            child: Text(l.inviteAddButton),
           ),
         ],
         ),

@@ -30,6 +30,13 @@ class AppL10nRu extends AppL10n {
   String get actionUnderstood => 'Понятно';
 
   @override
+  String get preparingTitle => 'Настраиваем ваш узел';
+
+  @override
+  String get preparingBody =>
+      'Создаём идентичность на этом устройстве. Это может занять некоторое время — пожалуйста, подождите.';
+
+  @override
   String get onboardWelcomeTitle => 'Добро пожаловать в xVeil';
 
   @override
@@ -165,4 +172,104 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get settingsAbout => 'О приложении';
+
+  @override
+  String get settingsLanguage => 'Язык';
+
+  @override
+  String get settingsLockNow => 'Заблокировать';
+
+  @override
+  String get languageSystem => 'Системный';
+
+  @override
+  String get languageRussian => 'Русский';
+
+  @override
+  String get languageEnglish => 'English';
+
+  @override
+  String get chatRequestTitle => 'Контакт хочет связаться с вами';
+
+  @override
+  String get actionAccept => 'Принять';
+
+  @override
+  String get actionBlock => 'Заблокировать';
+
+  @override
+  String get actionOpen => 'Открыть';
+
+  @override
+  String get inviteAddContact => 'Добавить контакт';
+
+  @override
+  String get inviteShowToContact => 'Покажите это собеседнику';
+
+  @override
+  String get inviteTooLarge => 'инвайт слишком большой';
+
+  @override
+  String get inviteCopied => 'Инвайт скопирован';
+
+  @override
+  String get inviteCopyMine => 'Скопировать мой инвайт';
+
+  @override
+  String get invitePasteTheirs => 'Вставьте инвайт собеседника';
+
+  @override
+  String get inviteScanTooltip => 'Сканировать QR (скоро)';
+
+  @override
+  String get inviteScanComingSoon => 'Сканирование камерой скоро';
+
+  @override
+  String get inviteAddButton => 'Добавить контакт';
+
+  @override
+  String get inviteInvalid => 'Это не похоже на инвайт xVeil';
+
+  @override
+  String get networkRouteTitle => 'Маршрутизация трафика (Proxy / VPN)';
+
+  @override
+  String get networkRouteSub => 'oproxy / ogate — скоро';
+
+  @override
+  String get networkNodesTitle => 'Мои узлы';
+
+  @override
+  String get networkNodesSub => 'Добавить узел по SSH, запустить ogate/oproxy';
+
+  @override
+  String get networkExtTitle => 'Расширения (Lua)';
+
+  @override
+  String get networkExtSub => 'Загрузка изолированных дополнений';
+
+  @override
+  String get networkComingLater => 'Появится в следующих версиях';
+
+  @override
+  String get networkStatusError => 'Ошибка';
+
+  @override
+  String get onboardRepeatPassword => 'Повторите пароль';
+
+  @override
+  String get recoveryPhraseHint =>
+      'Введите фразу восстановления, слова через пробел';
+
+  @override
+  String get demoChatTooltip => 'Демо-чат';
+
+  @override
+  String get demoNewChat => 'Новый чат';
+
+  @override
+  String get demoPeerNodeId => 'Node id собеседника (hex)';
+
+  @override
+  String get demoChatWith => 'Чат с демо-узлом';
 }

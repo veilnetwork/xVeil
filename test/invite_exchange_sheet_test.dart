@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:xveil/data/transport/bootstrap_invite.dart';
 import 'package:xveil/features/contacts/invite_exchange_sheet.dart';
+import 'package:xveil/l10n/app_localizations.dart';
 
 const _inviteA =
     'veil:bootstrap?pk=l/Mxk9sBuZDJh9fAFU/O0a+6vglkoE1bneO0K+OFwgM=&t=tcp://127.0.0.1:9100&a=ed25519&nc=AYX/vg==';
@@ -11,8 +12,11 @@ const _inviteB =
 const _nodeIdB =
     '75cb65f33601923fe0ee3b5ec039eec6a1a9b5fd066d5854892d95e0f55eea79';
 
-Widget _host(Widget child) =>
-    MaterialApp(home: Scaffold(body: SingleChildScrollView(child: child)));
+Widget _host(Widget child) => MaterialApp(
+      localizationsDelegates: AppL10n.localizationsDelegates,
+      supportedLocales: AppL10n.supportedLocales,
+      home: Scaffold(body: SingleChildScrollView(child: child)),
+    );
 
 void main() {
   testWidgets('renders my invite as a QR', (tester) async {
