@@ -655,6 +655,24 @@ abstract class AppL10n {
   /// **'Run every identity\'s node at once so none goes offline when you switch. Less anonymous — an observer may link your identities by their shared device. Mark sensitive identities to route anonymously.'**
   String get settingsKeepAllOnlineHint;
 
+  /// No description provided for @settingsAnonymousRouting.
+  ///
+  /// In en, this message translates to:
+  /// **'Anonymous routing (onion)'**
+  String get settingsAnonymousRouting;
+
+  /// No description provided for @settingsAnonymousEnabledHint.
+  ///
+  /// In en, this message translates to:
+  /// **'now routes over onion — applies on its next start'**
+  String get settingsAnonymousEnabledHint;
+
+  /// No description provided for @settingsAnonymousDisabledHint.
+  ///
+  /// In en, this message translates to:
+  /// **'no longer routes over onion — applies on its next start'**
+  String get settingsAnonymousDisabledHint;
+
   /// No description provided for @settingsDecoyMaster.
   ///
   /// In en, this message translates to:

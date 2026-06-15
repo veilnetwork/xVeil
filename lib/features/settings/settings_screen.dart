@@ -64,32 +64,65 @@ class SettingsScreen extends ConsumerWidget {
       }
     }
     if (!context.mounted) return;
+    final l = AppL10n.of(context);
+    final ctrl = ref.read(appControllerProvider.notifier);
     await showModalBottomSheet<void>(
       context: context,
       builder: (sheet) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final label in state.identities)
-              ListTile(
-                leading: CircleAvatar(
-                    child: Text(label.characters.first.toUpperCase())),
-                title: Text(label),
-                trailing: label == state.activeIdentity
-                    ? const Icon(Icons.check)
-                    : ((unread[label] ?? 0) > 0
-                        ? Badge(label: Text('${unread[label]}'))
-                        : null),
-                onTap: () {
-                  Navigator.of(sheet).pop();
-                  if (label != state.activeIdentity) {
-                    ref
-                        .read(appControllerProvider.notifier)
-                        .switchIdentity(label);
-                  }
-                },
-              ),
-          ],
+        // StatefulBuilder so an in-place anonymity toggle re-renders the row.
+        child: StatefulBuilder(
+          builder: (ctx, setSheetState) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final label in state.identities)
+                ListTile(
+                  leading: CircleAvatar(
+                      child: Text(label.characters.first.toUpperCase())),
+                  title: Text(label),
+                  subtitle: ctrl.isIdentityAnonymous(label)
+                      ? Text(l.settingsAnonymousRouting,
+                          style: TextStyle(
+                              color: Theme.of(ctx).colorScheme.primary))
+                      : null,
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (label == state.activeIdentity)
+                        const Icon(Icons.check)
+                      else if ((unread[label] ?? 0) > 0)
+                        Badge(label: Text('${unread[label]}')),
+                      IconButton(
+                        tooltip: l.settingsAnonymousRouting,
+                        icon: Icon(ctrl.isIdentityAnonymous(label)
+                            ? Icons.shield_moon
+                            : Icons.shield_moon_outlined),
+                        color: ctrl.isIdentityAnonymous(label)
+                            ? Theme.of(ctx).colorScheme.primary
+                            : null,
+                        onPressed: () async {
+                          final next = !ctrl.isIdentityAnonymous(label);
+                          await ctrl.setIdentityAnonymous(label, next);
+                          setSheetState(() {});
+                          if (!ctx.mounted) return;
+                          final hint = next
+                              ? l.settingsAnonymousEnabledHint
+                              : l.settingsAnonymousDisabledHint;
+                          ScaffoldMessenger.of(ctx).showSnackBar(
+                            SnackBar(content: Text('$label — $hint')),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                  onTap: () {
+                    Navigator.of(sheet).pop();
+                    if (label != state.activeIdentity) {
+                      ctrl.switchIdentity(label);
+                    }
+                  },
+                ),
+            ],
+          ),
         ),
       ),
     );
