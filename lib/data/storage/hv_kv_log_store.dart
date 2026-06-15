@@ -1,6 +1,4 @@
-import 'dart:io';
-import 'dart:typed_data';
-
+import 'package:flutter/foundation.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 
 import 'kv_log_store.dart';
@@ -107,31 +105,35 @@ KeysSpaceOpener hvKeysSpaceOpener(String path) {
 }
 
 /// Resolve a space for a "create identity" request:
-/// - no container yet → bootstrap a fresh one with its first space;
 /// - container already on disk → add a **new parallel, deniable space** (a new
 ///   identity hidden in the same file), unless this password already maps to a
-///   space, in which case adopt that one.
+///   space, in which case adopt that one;
+/// - no container yet → bootstrap a fresh one with its first space.
 ///
-/// A container on disk is NEVER re-created (that would risk clobbering an
-/// existing — possibly hidden — space); `add_space` opens it and bootstraps an
-/// additional space alongside the others.
+/// **Never relies on `File.existsSync`.** An earlier version chose
+/// create-vs-add-space from a filesystem stat; when that stat reported "absent"
+/// for a container that actually existed (e.g. a `/tmp` symlink path or a
+/// not-yet-flushed create), it took the `HvSpace.create` branch and
+/// **bootstrapped a fresh container, clobbering the existing spaces** — a
+/// catastrophic data-loss bug (only the last-created identity survived). Instead
+/// we try the non-destructive `add_space` FIRST and only `create` when that
+/// fails because there is genuinely no container at `path`. A container on disk
+/// is thus NEVER re-created.
 hv.HvSpace _createOrOpen(String path, Uint8List password, hv.ArgonPreset argon) {
-  if (!File(path).existsSync()) {
-    try {
-      return hv.HvSpace.create(path: path, password: password, argon: argon);
-    } on hv.HvException catch (e) {
-      // TOCTOU: the file appeared between the existence check and create.
-      // Fall through to add a space into the now-existing container.
-      if (e.kind != 'Io' && e.kind != 'SpaceAlreadyExists') rethrow;
-    }
-  }
   try {
     return hv.HvSpace.addSpace(path: path, password: password);
   } on hv.HvException catch (e) {
-    // This password already opens a space here — adopt it instead of adding a
-    // duplicate (open-by-password would otherwise be ambiguous).
+    // This password already opens a space here — adopt it (open-by-password
+    // would otherwise be ambiguous).
     if (e.kind == 'SpaceAlreadyExists') {
       return hv.HvSpace.open(path: path, password: password);
+    }
+    // No usable container at `path` (missing / not a hidden-volume file) — the
+    // only case where bootstrapping a fresh one is correct.
+    if (e.kind == 'Io' || e.kind == 'Malformed') {
+      debugPrint('xVeil[storage]: bootstrapping FRESH container at $path'
+          ' (add_space failed: ${e.kind}) — expected ONLY on first run');
+      return hv.HvSpace.create(path: path, password: password, argon: argon);
     }
     rethrow;
   }
