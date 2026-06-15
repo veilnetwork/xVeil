@@ -243,6 +243,38 @@ already (rocksdb opt-in), confirm no peer cache / logs leak.
    with plausible chats; it never references the real master/identities (§2, §5).
 5. **Username/PoW + node keypair** live inside each identity's space.
 
+## 7b. Phase 3 — simultaneous nodes (all identities online), status
+
+User chose **path B = multispace in the hidden-volume core**. Built + tested:
+
+- **hidden-volume core `MultiSpace`** — host N spaces of one container open at
+  once under the single exclusive lock; `Space::from_state`/`into_state` seam +
+  `MultiSpace::with_space` binds one space to the file per op (writes serialize
+  in-core). `MultiSpaceHandle` FFI + `HvMultiSpace` Dart binding.
+- **xVeil storage** — `MultiSpaceBacking` + `MultiSpaceKvLogStore` (N
+  `KvLogStore` views over one backing); `HiddenVolumeStorage.fromStore`.
+- **Per-identity anonymous routing** — `RosterEntry.anonymous` →
+  `composeConfig` appends `[anonymity] onion_service` (location-anonymous, can't
+  be correlated). Opt-in per identity (switch in Add-identity).
+- **`MultiIdentitySession`** (lib/state) — boots N nodes (own port + runtime
+  dir) AND wires a `MessagingService` per identity (transport + storage), so
+  every identity receives + persists concurrently. `IdentityNode` abstraction
+  makes it unit-testable (a message to one identity's transport lands in ITS
+  storage, not another's).
+- **Opt-in setting** `keepAllOnline` (default OFF, anonymity-safe) + container
+  path threaded into `DeniableBootConfig.storePath`.
+
+**REMAINING (the invasive finish — do with care + native verification):** wire
+the session into `AppController`: on master unlock + `keepAllOnline` + storePath,
+open `HvMultiSpaceBacking(storePath)` → `bootAll(roster)`; make the UI's data
+source the ACTIVE identity — conversations/messages/contacts/messaging providers
+must read the active identity's storage + its session `MessagingService` (not the
+global one, which would double-process the active transport), and `switchIdentity`
+repoints them with NO node teardown (all stay online); `realStackProvider` →
+active stack (drives transport/invite/status); `lock` → `session.disposeAll()`.
+This is a provider-graph change touching the verified unlock/switch flow — best
+done after a native run confirms the engine (concurrent identities receiving).
+
 ## 8. Phasing
 
 - **Phase 1 (closes the leak — single identity, fully deniable):** `add_space`
