@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../features/chat/chat_screen.dart';
 import '../features/home/home_shell.dart';
 import '../features/identity/add_identity_screen.dart';
+import '../features/identity/decoy_master_screen.dart';
 import '../features/identity/identity_picker_screen.dart';
 import '../features/lock/lock_screen.dart';
 import '../features/onboarding/onboarding_screen.dart';
@@ -75,6 +76,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/add-identity',
         builder: (_, _) => const AddIdentityScreen(),
+      ),
+      GoRoute(
+        path: '/decoy-master',
+        builder: (_, _) => const DecoyMasterScreen(),
       ),
       GoRoute(
         path: '/chat/:peerHex',
