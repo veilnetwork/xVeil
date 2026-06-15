@@ -625,6 +625,18 @@ abstract class AppL10n {
   /// **'Hide this identity\'s network activity through veil\'s overlay so it can\'t be linked to your other identities. Slower.'**
   String get addIdentityAnonymousHint;
 
+  /// No description provided for @settingsKeepAllOnline.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep all identities online'**
+  String get settingsKeepAllOnline;
+
+  /// No description provided for @settingsKeepAllOnlineHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Run every identity\'s node at once so none goes offline when you switch. Less anonymous — an observer may link your identities by their shared device. Mark sensitive identities to route anonymously.'**
+  String get settingsKeepAllOnlineHint;
+
   /// No description provided for @settingsDecoyMaster.
   ///
   /// In en, this message translates to:
