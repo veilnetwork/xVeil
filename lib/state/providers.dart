@@ -38,10 +38,29 @@ final storageProvider = Provider<Storage>((ref) {
   return storage;
 });
 
-/// The real veil stack, when running. Null by default (loopback mode); main()
-/// overrides it with a started [RealVeilStack] only when the opt-in env flags
-/// are set, so the default startup path is completely unchanged.
-final realStackProvider = Provider<RealVeilStack?>((ref) => null);
+/// Parameters for the in-process deniable boot, set by main() when the
+/// node-embedded dylib is loaded. Null disables it (loopback / legacy paths).
+class DeniableBootConfig {
+  const DeniableBootConfig({required this.runtimeDir, this.listenPort = 9000});
+
+  /// Directory for the ephemeral, identity-free node sockets (admin + app IPC).
+  final String runtimeDir;
+
+  /// This instance's listener port (give two instances on one host distinct
+  /// ports so they don't collide).
+  final int listenPort;
+}
+
+/// Present (non-null) when the app should boot the node in-process from the
+/// in-space identity post-unlock. main() overrides it only when the embedded
+/// FFI is available; otherwise the default startup path is unchanged.
+final deniableBootProvider = Provider<DeniableBootConfig?>((ref) => null);
+
+/// The real veil stack, when running. Null until built: main() overrides the
+/// initial value for the legacy env-config path, or [AppController] sets it
+/// post-unlock for the deniable path. The node/transport/invite providers below
+/// rebuild when it changes.
+final realStackProvider = StateProvider<RealVeilStack?>((ref) => null);
 
 final nodeControllerProvider = Provider<NodeController>((ref) {
   final stack = ref.watch(realStackProvider);
