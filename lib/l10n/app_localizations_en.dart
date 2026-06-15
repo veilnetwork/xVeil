@@ -138,6 +138,30 @@ class AppL10nEn extends AppL10n {
   String get chatSend => 'Send';
 
   @override
+  String get chatRequestSent => 'Request sent — waiting for approval';
+
+  @override
+  String get chatBlockedContact => 'You blocked this contact';
+
+  @override
+  String get chatRequestHint => 'Write a connection request…';
+
+  @override
+  String get chatAttachTooltip => 'Attach a file';
+
+  @override
+  String get chatFileSave => 'Save';
+
+  @override
+  String get chatFileSaved => 'File saved';
+
+  @override
+  String get chatFileSaveFailed => 'Couldn\'t save the file';
+
+  @override
+  String get chatFileTooLarge => 'File is too large';
+
+  @override
   String get networkTitle => 'Overlay network';
 
   @override
