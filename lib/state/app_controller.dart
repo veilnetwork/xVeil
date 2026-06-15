@@ -320,7 +320,7 @@ class AppController extends Notifier<AppState> {
     // No-op if already in the requested state.
     if (isIdentityAnonymous(label) == anonymous) return true;
 
-    final wasActive = _activeLabel == label;
+    final prevActive = _activeLabel;
     final hadSession = ref.read(sessionProvider) != null;
 
     // Release any live session/node so we can open the master directly.
@@ -346,15 +346,17 @@ class AppController extends Notifier<AppState> {
     await storage.close();
     _pendingRoster = updated;
 
-    // Re-enter so the change takes effect for the active identity.
+    // Re-enter so the change takes effect (a node's anonymity is fixed at its
+    // boot, so editing the roster requires the node to re-boot under it).
     if (hadSession) {
-      // All-online: rebuild the whole session (a node's anonymity is fixed at
-      // its boot, so the toggled identity must re-boot).
+      // All-online: editing the master needed the shared lock, so the session
+      // was torn down — rebuild it (every node re-boots, including the toggled
+      // one) and restore the previously-active view.
       final boot = ref.read(deniableBootProvider);
       if (boot?.storePath != null) {
         try {
           await _enterAllOnline(updated, boot!);
-          if (wasActive) await switchIdentity(label);
+          if (prevActive != null) await switchIdentity(prevActive);
           return true;
         } catch (e, st) {
           debugPrint('xVeil[anon]: all-online re-enter FAILED -> picker: $e\n$st');
@@ -367,9 +369,12 @@ class AppController extends Notifier<AppState> {
         }
       }
     }
-    if (wasActive) {
+    // One-active: reboot whichever identity was active so the live node picks up
+    // the change (if the toggled identity is the active one, that's the point;
+    // if not, the active identity just re-boots unchanged).
+    if (prevActive != null) {
       _activeLabel = null;
-      await pickIdentity(label); // reboot the active identity with new anonymity
+      await pickIdentity(prevActive);
     }
     return true;
   }
@@ -482,6 +487,9 @@ class AppController extends Notifier<AppState> {
       return false;
     }
     await storage.saveRoster(roster);
+    // Cache the master's keys so a later roster edit (e.g. toggling anonymity)
+    // works without re-unlocking — same as the unlock path does.
+    _masterKeys = storage.exportSpaceKeys();
     await storage.close();
 
     // Enter the new identity (one-active). If the user has keep-all-online on,
