@@ -167,6 +167,102 @@ void main() {
     expect(ctrl.activeIdentity, 'bob');
   });
 
+  test('addIdentity converts a single identity into a master and switches',
+      () async {
+    SharedPreferences.setMockInitialValues({'onboarded': true});
+    final container = FakeHvContainer();
+    final solo = container.storage();
+    await solo.open(password: 'solopw', createIfMissing: true);
+    await solo.saveIdentity(AppController.generateIdentity(displayName: 'Solo'));
+    await solo.close();
+
+    final app = container.storage();
+    final c = ProviderContainer(
+        overrides: [storageProvider.overrideWith((ref) => app)]);
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+    await ctrl.unlock('solopw');
+    expect(c.read(appControllerProvider).isMaster, isFalse);
+
+    final ok = await ctrl.addIdentity(
+      masterPassword: 'masterpw',
+      label: 'Work',
+      password: 'workpw',
+      existingLabel: 'Personal',
+    );
+    expect(ok, isTrue);
+    final s = c.read(appControllerProvider);
+    expect(s.phase, AppPhase.ready);
+    expect(s.isMaster, isTrue);
+    expect(s.identities, containsAll(['Personal', 'Work']));
+    expect(ctrl.activeIdentity, 'Work');
+    expect(s.identity!.displayName, 'Work');
+
+    // The original identity is preserved as the 'Personal' child.
+    await ctrl.switchIdentity('Personal');
+    expect(c.read(appControllerProvider).identity!.displayName, 'Solo');
+  });
+
+  test('addIdentity appends to an existing master', () async {
+    SharedPreferences.setMockInitialValues({'onboarded': true});
+    final container = FakeHvContainer();
+    final alice = container.storage();
+    await alice.open(password: 'pw-alice', createIfMissing: true);
+    await alice.saveIdentity(AppController.generateIdentity(displayName: 'Alice'));
+    final aliceKeys = alice.exportSpaceKeys();
+    await alice.close();
+    final master = container.storage();
+    await master.open(password: 'masterpw', createIfMissing: true);
+    await master.saveRoster([RosterEntry(label: 'alice', spaceKeys: aliceKeys)]);
+    await master.close();
+
+    final app = container.storage();
+    final c = ProviderContainer(
+        overrides: [storageProvider.overrideWith((ref) => app)]);
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+    await ctrl.unlock('masterpw');
+    await ctrl.pickIdentity('alice');
+
+    final ok = await ctrl.addIdentity(
+        masterPassword: 'masterpw', label: 'work', password: 'pw-work');
+    expect(ok, isTrue);
+    final s = c.read(appControllerProvider);
+    expect(s.identities, containsAll(['alice', 'work']));
+    expect(ctrl.activeIdentity, 'work');
+  });
+
+  test('addIdentity fails (no corruption) if the master password collides '
+      'with an identity', () async {
+    SharedPreferences.setMockInitialValues({'onboarded': true});
+    final container = FakeHvContainer();
+    final solo = container.storage();
+    await solo.open(password: 'solopw', createIfMissing: true);
+    await solo.saveIdentity(AppController.generateIdentity(displayName: 'Solo'));
+    await solo.close();
+
+    final app = container.storage();
+    final c = ProviderContainer(
+        overrides: [storageProvider.overrideWith((ref) => app)]);
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+    await ctrl.unlock('solopw');
+
+    // Master password == the existing identity's own password → clash.
+    final ok = await ctrl.addIdentity(
+        masterPassword: 'solopw', label: 'Work', password: 'workpw');
+    expect(ok, isFalse);
+
+    // The original identity is intact — re-unlock still opens single Solo.
+    await ctrl.unlock('solopw');
+    final s = c.read(appControllerProvider);
+    expect(s.isMaster, isFalse);
+    expect(s.identity!.displayName, 'Solo');
+  });
+
   test('a single-identity space unlocks straight to ready (no picker)',
       () async {
     SharedPreferences.setMockInitialValues({'onboarded': true});

@@ -213,6 +213,90 @@ class AppController extends Notifier<AppState> {
   /// The identity currently active in a master session, or null in single mode.
   String? get activeIdentity => _activeLabel;
 
+  /// Add a new identity. On the FIRST add this converts the current single
+  /// identity into a master managed by [masterPassword] (the existing identity
+  /// becomes a child labelled [existingLabel]); thereafter it just appends to
+  /// the master. [label]/[password] name the new identity. On success switches
+  /// to the new identity and returns true; returns false on failure — notably if
+  /// [masterPassword] collides with an identity's own password (which would
+  /// corrupt that space), so the UI can ask for a different one.
+  ///
+  /// Serialized under the exclusive lock: snapshot keys → close → create child →
+  /// close → open/create master → save roster → close → open the new identity.
+  Future<bool> addIdentity({
+    required String masterPassword,
+    required String label,
+    required String password,
+    String existingLabel = 'Identity 1',
+  }) async {
+    final storage = ref.read(storageProvider);
+    await _teardownRealStack();
+
+    // Base roster: the existing master's, or — converting a single identity —
+    // that identity wrapped as the first child (snapshot its keys while open).
+    final roster = <RosterEntry>[
+      if (_pendingRoster != null)
+        ..._pendingRoster!
+      else
+        RosterEntry(label: existingLabel, spaceKeys: storage.exportSpaceKeys()),
+    ];
+    await storage.close();
+
+    // Validate the master FIRST, before creating any child space — so a clash
+    // (the master password actually opens an IDENTITY space: has an identity,
+    // no roster) aborts with no side effects rather than corrupting it.
+    if (!await storage.open(password: masterPassword, createIfMissing: true)) {
+      await _recoverToActive();
+      return false;
+    }
+    final clash =
+        await storage.loadIdentity() != null && await storage.loadRoster() == null;
+    await storage.close();
+    if (clash) {
+      await _recoverToActive();
+      return false;
+    }
+
+    // Create + name the new identity space (its node config is mined lazily on
+    // first boot, like onboarding). Distinct child passwords are assumed (the UI
+    // instructs this; the design can't deniably dedupe passwords).
+    if (!await storage.open(password: password, createIfMissing: true)) {
+      await _recoverToActive();
+      return false;
+    }
+    await storage.saveIdentity(generateIdentity(displayName: label));
+    roster.add(RosterEntry(label: label, spaceKeys: storage.exportSpaceKeys()));
+    await storage.close();
+
+    // Persist the roster into the (now-existing) master.
+    if (!await storage.open(password: masterPassword)) {
+      await _recoverToActive();
+      return false;
+    }
+    await storage.saveRoster(roster);
+    await storage.close();
+
+    // Enter the new identity.
+    _pendingRoster = roster;
+    _activeLabel = null;
+    await pickIdentity(label);
+    return true;
+  }
+
+  /// Reopen whatever identity was active before a failed [addIdentity] so the
+  /// user is not stranded on a closed space.
+  Future<void> _recoverToActive() async {
+    final label = _activeLabel;
+    if (_pendingRoster != null && label != null) {
+      _activeLabel = null;
+      await pickIdentity(label);
+    } else {
+      // Single-identity mode: bounce to the lock screen to re-unlock cleanly.
+      await ref.read(storageProvider).close();
+      state = const AppState(AppPhase.locked, unlockError: true);
+    }
+  }
+
   /// Leave the active identity and go back to the picker (master mode), so the
   /// user can switch. Stops the node and closes the active space first. No-op in
   /// single-identity mode.

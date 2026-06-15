@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
@@ -78,6 +79,12 @@ class SettingsScreen extends ConsumerWidget {
               onTap: () =>
                   ref.read(appControllerProvider.notifier).returnToPicker(),
             ),
+          ListTile(
+            leading: const Icon(Icons.person_add_alt_1_outlined),
+            title: Text(l.settingsAddIdentity),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push('/add-identity'),
+          ),
           ListTile(
             leading: const Icon(Icons.badge_outlined),
             title: Text(l.settingsIdentity),
