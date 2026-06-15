@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
@@ -8,9 +10,21 @@ import '../data/storage/storage.dart';
 import '../data/transport/veil_transport.dart';
 import '../data/transport/wire_envelope.dart';
 import '../domain/chat.dart';
+import '../domain/file_transfer.dart';
 import 'providers.dart';
 
 const _uuid = Uuid();
+
+/// Raw bytes per wire chunk. Base64 + JSON wrap keeps the datagram modest.
+const _wireChunkBytes = 6000;
+
+/// In-flight inbound file reassembly state.
+class _Incoming {
+  _Incoming({required this.src, required this.name, required this.reasm});
+  final NodeId src;
+  final String? name;
+  final FileReassembler reasm;
+}
 
 /// Wires the [VeilTransport] inbound stream into [Storage] and exposes a send
 /// path. Persists every message, then signals [changes] so the read providers
@@ -24,6 +38,7 @@ class MessagingService {
   final Storage _storage;
   final _changes = StreamController<void>.broadcast();
   StreamSubscription<InboundMessage>? _sub;
+  final Map<String, _Incoming> _inFlight = {};
 
   /// Emits whenever stored conversations/messages change.
   Stream<void> get changes => _changes.stream;
@@ -40,8 +55,10 @@ class MessagingService {
     NodeId peer,
     MessageDirection dir,
     String body,
-    MessageStatus status,
-  ) {
+    MessageStatus status, {
+    String? fileId,
+    String? fileName,
+  }) {
     return _storage.appendMessage(Message(
       id: _uuid.v4(),
       conversationId: peer.hex,
@@ -49,6 +66,8 @@ class MessagingService {
       body: body,
       timestamp: DateTime.now(),
       status: status,
+      fileId: fileId,
+      fileName: fileName,
     ));
   }
 
@@ -86,6 +105,32 @@ class MessagingService {
         if (existing?.status != ContactStatus.accepted) return;
         await _store(m.src, MessageDirection.incoming, env.body,
             MessageStatus.delivered);
+      case WireKind.fileMeta:
+        if (existing?.status != ContactStatus.accepted) return;
+        final j = jsonDecode(env.body) as Map<String, dynamic>;
+        _inFlight[j['tid'] as String] = _Incoming(
+          src: m.src,
+          name: j['name'] as String?,
+          reasm: FileReassembler(),
+        );
+        return; // nothing to show until the file completes
+      case WireKind.fileChunk:
+        if (existing?.status != ContactStatus.accepted) return;
+        final j = jsonDecode(env.body) as Map<String, dynamic>;
+        final tid = j['tid'] as String;
+        final inc = _inFlight[tid];
+        if (inc == null) return; // chunk before meta / unknown transfer
+        inc.reasm.add(FileChunk(
+          transferId: tid,
+          index: j['i'] as int,
+          total: j['total'] as int,
+          data: base64.decode(j['d'] as String),
+        ));
+        if (!inc.reasm.isComplete) return; // wait for the rest
+        await _storage.storeFile(tid, inc.reasm.assemble(), name: inc.name);
+        await _store(m.src, MessageDirection.incoming, '📎 ${inc.name ?? 'file'}',
+            MessageStatus.delivered, fileId: tid, fileName: inc.name);
+        _inFlight.remove(tid);
     }
     _signal();
   }
@@ -124,6 +169,48 @@ class MessagingService {
     await _store(dst, MessageDirection.outgoing, trimmed, MessageStatus.sent);
     _signal();
     await _transport.send(dst, WireEnvelope.message(trimmed).encode());
+  }
+
+  /// Send a file to [dst] (gated to accepted contacts). Stores a local copy,
+  /// records an outgoing file message, then streams the bytes as fileMeta +
+  /// fileChunk envelopes.
+  Future<void> sendFile(NodeId dst, Uint8List bytes, String name) async {
+    final contact = await _storage.getContact(dst);
+    if (contact == null || contact.status != ContactStatus.accepted) return;
+
+    final fileId = _uuid.v4();
+    await _storage.storeFile(fileId, bytes, name: name);
+    await _store(dst, MessageDirection.outgoing, '📎 $name', MessageStatus.sent,
+        fileId: fileId, fileName: name);
+    _signal();
+
+    final chunks = chunkBytes(bytes, transferId: fileId, maxChunk: _wireChunkBytes);
+    await _transport.send(
+      dst,
+      WireEnvelope(
+        WireKind.fileMeta,
+        jsonEncode({
+          'tid': fileId,
+          'name': name,
+          'size': bytes.length,
+          'count': chunks.length,
+        }),
+      ).encode(),
+    );
+    for (final c in chunks) {
+      await _transport.send(
+        dst,
+        WireEnvelope(
+          WireKind.fileChunk,
+          jsonEncode({
+            'tid': fileId,
+            'i': c.index,
+            'total': c.total,
+            'd': base64.encode(c.data),
+          }),
+        ).encode(),
+      );
+    }
   }
 
   Future<void> dispose() async {

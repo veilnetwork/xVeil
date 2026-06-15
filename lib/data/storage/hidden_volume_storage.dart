@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import '../../core/ids.dart';
 import '../../domain/chat.dart';
 import '../../domain/identity.dart';
+import 'file_store.dart';
 import 'kv_log_store.dart';
 import 'storage.dart';
 
@@ -178,6 +179,14 @@ class HiddenVolumeStorage implements Storage {
   }
 
   @override
+  Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) async {
+    FileStore(_s).storeFile(fileId, bytes, name: name);
+  }
+
+  @override
+  Future<Uint8List?> loadFile(String fileId) async => FileStore(_s).loadFile(fileId);
+
+  @override
   Future<void> appendMessage(Message message) async {
     final nextId = _nextLogId();
     final payload = jsonEncode({
@@ -187,6 +196,8 @@ class HiddenVolumeStorage implements Storage {
       'b': message.body,
       't': message.timestamp.millisecondsSinceEpoch,
       's': message.status.index,
+      if (message.fileId != null) 'fi': message.fileId,
+      if (message.fileName != null) 'fn': message.fileName,
     });
     _s.commit([
       AppendLogOp(Ns.messageLog, nextId, _sk(payload)),
@@ -212,6 +223,8 @@ class HiddenVolumeStorage implements Storage {
         body: m['b'] as String,
         timestamp: DateTime.fromMillisecondsSinceEpoch(m['t'] as int),
         status: MessageStatus.values[m['s'] as int],
+        fileId: m['fi'] as String?,
+        fileName: m['fn'] as String?,
       );
     });
   }
