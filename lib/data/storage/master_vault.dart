@@ -1,92 +1,71 @@
-import 'dart:convert';
 import 'dart:typed_data';
 
-import 'kv_log_store.dart';
+import '../../domain/roster.dart';
+import 'hidden_volume_storage.dart';
 
-/// A reference to one child space (an Identity's container), held inside a
-/// master vault. The [password] is the child's unlock secret — safe here
-/// because the master space is itself encrypted under the master password.
-class ChildSpaceRef {
-  const ChildSpaceRef({
-    required this.label,
-    required this.containerPath,
-    required this.password,
-  });
+/// Creates a fresh [HiddenVolumeStorage] wired to the same container's password
+/// and keys openers — used by [MasterVault] to open child identity spaces.
+typedef ChildStorageFactory = HiddenVolumeStorage Function();
 
-  final String label;
-  final String containerPath;
-  final Uint8List password;
-
-  Map<String, dynamic> _toJson() => {
-        'label': label,
-        'path': containerPath,
-        'pw': base64.encode(password),
-      };
-
-  static ChildSpaceRef _fromJson(Map<String, dynamic> m) => ChildSpaceRef(
-        label: m['label'] as String,
-        containerPath: m['path'] as String,
-        password: base64.decode(m['pw'] as String),
-      );
-}
-
-/// An optional "master space" that unlocks several child spaces with one
-/// password — the app-layer construct hidden-volume itself does not provide
-/// (each password unlocks exactly one space). There can be zero or many master
-/// vaults; this wraps one already-unlocked master space [KvLogStore].
+/// Orchestrates a **master space**: a roster of child identities, each openable
+/// by its stored `SpaceKeys` without a password. Wraps an already-unlocked
+/// master [HiddenVolumeStorage] (which holds the roster — see
+/// [HiddenVolumeStorage.saveRoster]) plus a [ChildStorageFactory].
 ///
-/// hidden-volume exposes no KV key enumeration, so child labels are tracked in
-/// an explicit index key, updated atomically with each child entry.
+/// Keys-based, NOT password-based: the master stores each child's opaque
+/// `SpaceKeys` (the intended hidden-volume primitive, `open_with_keys`), never
+/// the child's password. References are one-directional master → child: a child
+/// space records nothing about its master(s), so a child shared into a decoy
+/// master reveals nothing about the hidden set (see doc/MULTI-IDENTITY-DESIGN).
 class MasterVault {
-  MasterVault(this._store);
+  MasterVault(this._master, this._makeChild);
 
-  final KvLogStore _store;
+  final HiddenVolumeStorage _master;
+  final ChildStorageFactory _makeChild;
 
-  static const int _ns = Ns.settings;
-  static const String _indexKey = 'mv:index';
-  static String _childKey(String label) => 'mv:child:$label';
+  /// The children this master manages (empty if the roster is empty).
+  Future<List<RosterEntry>> children() async =>
+      await _master.loadRoster() ?? const [];
 
-  Uint8List _k(String s) => Uint8List.fromList(utf8.encode(s));
-
-  List<String> _labels() {
-    final raw = _store.get(_ns, _k(_indexKey));
-    if (raw == null) return [];
-    return (jsonDecode(utf8.decode(raw)) as List).cast<String>();
-  }
-
-  /// Add or replace a child reference (atomic: child entry + index).
-  void addChild(ChildSpaceRef ref) {
-    final labels = _labels();
-    if (!labels.contains(ref.label)) labels.add(ref.label);
-    _store.commit([
-      PutOp(_ns, _k(_childKey(ref.label)),
-          _k(jsonEncode(ref._toJson()))),
-      PutOp(_ns, _k(_indexKey), _k(jsonEncode(labels))),
-    ]);
-  }
-
-  ChildSpaceRef? getChild(String label) {
-    final raw = _store.get(_ns, _k(_childKey(label)));
-    if (raw == null) return null;
-    return ChildSpaceRef._fromJson(
-        jsonDecode(utf8.decode(raw)) as Map<String, dynamic>);
-  }
-
-  List<ChildSpaceRef> listChildren() {
-    final out = <ChildSpaceRef>[];
-    for (final label in _labels()) {
-      final c = getChild(label);
-      if (c != null) out.add(c);
+  /// Create a new child identity space under [password], record it under
+  /// [label] in the master roster, and return the OPEN child storage so the
+  /// caller can provision its identity/node. Throws if the space can't be made.
+  Future<HiddenVolumeStorage> addChild(String label, String password) async {
+    final child = _makeChild();
+    if (!await child.open(password: password, createIfMissing: true)) {
+      throw StateError('could not create child space for "$label"');
     }
-    return out;
+    await _record(label, child.exportSpaceKeys());
+    return child;
   }
 
-  /// Remove a child reference (atomic: delete entry + update index).
-  void removeChild(String label) {
-    final labels = _labels()..remove(label);
-    _store.commit([
-      DeleteOp(_ns, _k(_childKey(label))),
-      PutOp(_ns, _k(_indexKey), _k(jsonEncode(labels))),
-    ]);
+  /// Record an already-open identity [child] as a child of this master — the
+  /// shared-child case (e.g. a real "relatives" identity also added to a decoy
+  /// master so it shows genuine chats under duress). Stores only its keys.
+  Future<void> linkChild(String label, HiddenVolumeStorage child) =>
+      _record(label, child.exportSpaceKeys());
+
+  /// Open a child by its roster entry — keys-based, no password prompt.
+  Future<HiddenVolumeStorage> openChild(RosterEntry entry) async {
+    final child = _makeChild();
+    if (!await child.openWithKeys(entry.spaceKeys)) {
+      throw StateError('child "${entry.label}" keys no longer open a space');
+    }
+    return child;
+  }
+
+  /// Drop a child from the roster. Does NOT delete the child space — it stays
+  /// openable by its own password and by any other master that lists it.
+  Future<void> removeChild(String label) async {
+    final roster = List<RosterEntry>.from(await children())
+      ..removeWhere((e) => e.label == label);
+    await _master.saveRoster(roster);
+  }
+
+  Future<void> _record(String label, Uint8List keys) async {
+    final roster = List<RosterEntry>.from(await children())
+      ..removeWhere((e) => e.label == label) // replace a same-label entry
+      ..add(RosterEntry(label: label, spaceKeys: keys));
+    await _master.saveRoster(roster);
   }
 }
