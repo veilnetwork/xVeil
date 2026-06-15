@@ -304,8 +304,20 @@ abstract class AppL10n {
   /// No description provided for @lockWipeBody.
   ///
   /// In en, this message translates to:
-  /// **'This permanently deletes the container and EVERY identity inside it — including any hidden or decoy ones. This cannot be undone: without the container the data is unrecoverable, even with the right password. Are you absolutely sure?'**
+  /// **'This permanently deletes the container and EVERY identity inside it — including any hidden or decoy ones. This cannot be undone: without the container the data is unrecoverable, even with the right password.'**
   String get lockWipeBody;
+
+  /// No description provided for @lockWipeTypePrompt.
+  ///
+  /// In en, this message translates to:
+  /// **'To confirm permanent deletion, type this phrase exactly:'**
+  String get lockWipeTypePrompt;
+
+  /// No description provided for @lockWipePhrase.
+  ///
+  /// In en, this message translates to:
+  /// **'I understand the consequences'**
+  String get lockWipePhrase;
 
   /// No description provided for @lockWipeConfirm.
   ///

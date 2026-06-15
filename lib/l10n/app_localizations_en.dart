@@ -121,7 +121,14 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get lockWipeBody =>
-      'This permanently deletes the container and EVERY identity inside it — including any hidden or decoy ones. This cannot be undone: without the container the data is unrecoverable, even with the right password. Are you absolutely sure?';
+      'This permanently deletes the container and EVERY identity inside it — including any hidden or decoy ones. This cannot be undone: without the container the data is unrecoverable, even with the right password.';
+
+  @override
+  String get lockWipeTypePrompt =>
+      'To confirm permanent deletion, type this phrase exactly:';
+
+  @override
+  String get lockWipePhrase => 'I understand the consequences';
 
   @override
   String get lockWipeConfirm => 'Delete forever';

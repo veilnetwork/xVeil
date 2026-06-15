@@ -56,4 +56,42 @@ void main() {
     // Still on the lock screen (unlock button present).
     expect(find.text(l.lockUnlock), findsOneWidget);
   });
+
+  testWidgets('Clear all data is gated behind typing the exact phrase',
+      (tester) async {
+    late ProviderContainer container;
+    await tester.pumpWidget(ProviderScope(
+      child: Consumer(builder: (ctx, ref, _) {
+        container = ProviderScope.containerOf(ctx);
+        return const MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: LockScreen(),
+        );
+      }),
+    ));
+    await tester.pumpAndSettle();
+    final l = AppL10n.of(tester.element(find.byType(LockScreen)));
+
+    await tester.tap(find.widgetWithText(TextButton, l.lockWipe));
+    await tester.pumpAndSettle();
+
+    // The destructive confirm button is present but DISABLED until the phrase
+    // is typed (so an accidental double-tap can't wipe anything).
+    final confirm = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, l.lockWipeConfirm));
+    expect(confirm.onPressed, isNull, reason: 'disabled before the phrase');
+
+    final dialogField = find.descendant(
+        of: find.byType(AlertDialog), matching: find.byType(TextField));
+    await tester.enterText(dialogField, l.lockWipePhrase);
+    await tester.pumpAndSettle();
+    final confirmNow = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, l.lockWipeConfirm));
+    expect(confirmNow.onPressed, isNotNull, reason: 'enabled once typed');
+
+    await tester.tap(find.widgetWithText(FilledButton, l.lockWipeConfirm));
+    await tester.pumpAndSettle();
+    expect(container.read(appControllerProvider).phase, AppPhase.onboarding);
+  });
 }
