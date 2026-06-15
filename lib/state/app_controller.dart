@@ -7,6 +7,7 @@ import '../core/ids.dart';
 import '../data/veil_stack.dart';
 import '../domain/identity.dart';
 import '../domain/roster.dart';
+import 'keep_all_online_controller.dart';
 import 'providers.dart';
 
 /// Top-level lifecycle of the app, used by the router to gate screens.
@@ -147,7 +148,14 @@ class AppController extends Notifier<AppState> {
     final roster = await storage.loadRoster();
     if (roster != null && roster.isNotEmpty) {
       _pendingRoster = roster;
-      await storage.close();
+      await storage.close(); // release the single-space lock first
+      // Opt-in "all identities online": host every space + run every node at
+      // once (needs the real container path). Else the one-active picker.
+      final boot = ref.read(deniableBootProvider);
+      if (ref.read(keepAllOnlineProvider) && boot?.storePath != null) {
+        await _enterAllOnline(roster, boot!);
+        return;
+      }
       state = state.copyWith(
         phase: AppPhase.pickingIdentity,
         identities: [for (final e in roster) e.label],
@@ -157,6 +165,45 @@ class AppController extends Notifier<AppState> {
     // Single identity space — unchanged path.
     final identity = await storage.loadIdentity() ?? _placeholderIdentity();
     await _enterSession(identity);
+  }
+
+  /// All-online mode: open the container as one multi-space, boot every
+  /// identity's node + messaging pipeline at once, and show the first identity.
+  /// Switching later just re-points the view — no node goes offline.
+  Future<void> _enterAllOnline(
+      List<RosterEntry> roster, DeniableBootConfig boot) async {
+    state = state.copyWith(phase: AppPhase.preparingNode);
+    final session = ref.read(sessionBuilderProvider)(
+      storePath: boot.storePath!,
+      runtimeDir: boot.runtimeDir,
+      listenPort: boot.listenPort,
+    );
+    await session.bootAll(roster);
+    ref.read(sessionProvider.notifier).state = session;
+    final first = roster.first.label;
+    await _activateOnline(first, [for (final e in roster) e.label]);
+  }
+
+  /// Point the providers (active storage/messaging via [activeIdentityProvider],
+  /// transport/invite via [realStackProvider]) at a hosted identity and surface
+  /// it. Used on entry and on every all-online switch — no teardown.
+  Future<void> _activateOnline(String label, List<String> identities) async {
+    final session = ref.read(sessionProvider)!;
+    _activeLabel = label;
+    ref.read(activeIdentityProvider.notifier).state = label;
+    final stack = session.stackFor(label);
+    ref.read(realStackProvider.notifier).state = stack;
+    final st = session.storageFor(label);
+    final identity =
+        (st != null ? await st.loadIdentity() : null) ?? _placeholderIdentity();
+    final effective = stack != null
+        ? Identity(
+            nodeId: stack.myInvite.nodeId,
+            displayName: identity.displayName,
+            username: identity.username)
+        : identity;
+    state = AppState(AppPhase.ready,
+        identity: effective, identities: identities, activeIdentity: label);
   }
 
   /// Master mode: open the chosen identity (by its stored keys) and enter its
@@ -188,6 +235,14 @@ class AppController extends Notifier<AppState> {
   /// password — the roster is already in memory from unlock. No-op outside a
   /// master session or when already active.
   Future<void> switchIdentity(String label) async {
+    // All-online: every node is already up — just re-point the view, no
+    // teardown/reboot. Fast switch.
+    final session = ref.read(sessionProvider);
+    if (session != null) {
+      if (label == _activeLabel || session.storageFor(label) == null) return;
+      await _activateOnline(label, state.identities);
+      return;
+    }
     if (_pendingRoster == null || label == _activeLabel) return;
     RosterEntry? entry;
     for (final e in _pendingRoster!) {
@@ -368,6 +423,9 @@ class AppController extends Notifier<AppState> {
   /// user can switch. Stops the node and closes the active space first. No-op in
   /// single-identity mode.
   Future<void> returnToPicker() async {
+    // In all-online mode there is no picker (every identity is already up) —
+    // switching is a direct switchIdentity from the (Step D) switcher UI.
+    if (ref.read(sessionProvider) != null) return;
     if (_pendingRoster == null) return;
     await _teardownRealStack();
     await ref.read(storageProvider).close();
@@ -435,6 +493,7 @@ class AppController extends Notifier<AppState> {
   }
 
   Future<void> lock() async {
+    await _teardownSession(); // all-online: stop every node + release the lock
     await _teardownRealStack();
     await ref.read(storageProvider).close();
     _clearMasterSession();
@@ -444,6 +503,16 @@ class AppController extends Notifier<AppState> {
   void _clearMasterSession() {
     _pendingRoster = null; // drop cached child keys
     _activeLabel = null;
+  }
+
+  /// Tear down an all-online session (all nodes + messaging + the shared lock)
+  /// and clear its providers. No-op when there is no session.
+  Future<void> _teardownSession() async {
+    final session = ref.read(sessionProvider);
+    if (session == null) return;
+    ref.read(sessionProvider.notifier).state = null;
+    ref.read(activeIdentityProvider.notifier).state = null;
+    await session.disposeAll();
   }
 
   Future<void> _teardownRealStack() async {
@@ -459,6 +528,7 @@ class AppController extends Notifier<AppState> {
   /// existing container file is left untouched on disk — deniability means we
   /// can't and shouldn't prove it exists; the user simply sets up anew.
   Future<void> startOver() async {
+    await _teardownSession();
     await _teardownRealStack();
     await ref.read(storageProvider).close();
     _clearMasterSession();
