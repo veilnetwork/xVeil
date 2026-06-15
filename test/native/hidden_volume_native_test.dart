@@ -10,6 +10,7 @@ import 'package:xveil/data/storage/hv_native.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/identity.dart';
+import 'package:xveil/domain/roster.dart';
 
 /// End-to-end test against the REAL hidden-volume native library — proves the
 /// storage layer persists to an actual deniable container on disk. Skipped
@@ -104,6 +105,145 @@ void main() {
       // the non-creating open path).
       final stranger = HiddenVolumeStorage(opener());
       expect(await stranger.open(password: 'p3'), isFalse);
+    } finally {
+      dir.deleteSync(recursive: true);
+    }
+  }, skip: skipReason);
+
+  // Deniable erasure end-to-end on a REAL container: deleting a message orphans
+  // its data chunk (a forensic password-holder could otherwise recover it), and
+  // scrub/vacuum reclaims it for good. The in-memory fake can't prove this (its
+  // scrub is a no-op), so this is the test that backs the threat-model claim.
+  test('delete leaves a reclaimable orphan; scrub reclaims it (real container)',
+      () async {
+    final dir = Directory.systemTemp.createTempSync('xveil_hv_scrub_');
+    final path = '${dir.path}/test.store';
+    final conv = NodeId(Uint8List.fromList(List.filled(32, 7))).hex;
+    try {
+      // Build the real space directly so we can also inspect vacuum counts.
+      final space = hv.HvSpace.create(
+          path: path,
+          password: Uint8List.fromList('pw'.codeUnits),
+          argon: hv.ArgonPreset.min);
+      final store = HvKvLogStore(space);
+      final storage =
+          HiddenVolumeStorage(({required password, required create}) => store);
+      await storage.open(password: 'pw', createIfMissing: true);
+
+      await storage.appendMessage(Message(
+        id: 'secret1',
+        conversationId: conv,
+        direction: MessageDirection.incoming,
+        body: 'PLAINTEXT-THAT-MUST-VANISH',
+        timestamp: DateTime(2026, 6, 15),
+      ));
+
+      // Delete tombstones the row + orphans the old chunk, but does NOT scrub.
+      await storage.deleteMessage('secret1');
+      expect(await storage.loadMessages(conv), isEmpty,
+          reason: 'gone from the API immediately');
+
+      // The orphan is still reclaimable on disk — exactly the forensic surface.
+      final reclaimed = space.vacuumDataBatches();
+      expect(reclaimed, greaterThan(0),
+          reason: 'delete must leave an orphan chunk that vacuum can reclaim');
+      // Now nothing left to reclaim, and the container is still consistent.
+      expect(space.vacuumDataBatches(), 0);
+      expect(() => space.verifyIntegrity(), returnsNormally); // no IntegrityFailure
+
+      await storage.close();
+    } finally {
+      dir.deleteSync(recursive: true);
+    }
+  }, skip: skipReason);
+
+  // Deleting a file message purges the blob in the SAME atomic operation; after
+  // scrub the orphaned blob chunks are reclaimed too.
+  test('deleting a file message purges + reclaims the blob (real container)',
+      () async {
+    final dir = Directory.systemTemp.createTempSync('xveil_hv_blob_');
+    final path = '${dir.path}/test.store';
+    final conv = NodeId(Uint8List.fromList(List.filled(32, 8))).hex;
+    try {
+      final space = hv.HvSpace.create(
+          path: path,
+          password: Uint8List.fromList('pw'.codeUnits),
+          argon: hv.ArgonPreset.min);
+      final store = HvKvLogStore(space);
+      final storage =
+          HiddenVolumeStorage(({required password, required create}) => store);
+      await storage.open(password: 'pw', createIfMissing: true);
+
+      await storage.storeFile(
+          'blob1', Uint8List.fromList(List.filled(4000, 42)),
+          name: 'secret.bin');
+      await storage.appendMessage(Message(
+        id: 'fmsg',
+        conversationId: conv,
+        direction: MessageDirection.incoming,
+        body: '📎 secret.bin',
+        timestamp: DateTime(2026, 6, 15),
+        fileId: 'blob1',
+        fileName: 'secret.bin',
+      ));
+      expect(await storage.loadFile('blob1'), isNotNull);
+
+      await storage.deleteMessage('fmsg'); // folds the blob purge in one commit
+      expect(await storage.loadFile('blob1'), isNull, reason: 'blob row gone');
+
+      expect(space.vacuumDataBatches(), greaterThan(0),
+          reason: 'the blob chunks were orphaned and are reclaimable');
+      expect(() => space.verifyIntegrity(), returnsNormally); // no IntegrityFailure
+
+      await storage.close();
+    } finally {
+      dir.deleteSync(recursive: true);
+    }
+  }, skip: skipReason);
+
+  // The master-space FFI (open_with_keys / space_keys) end-to-end through
+  // xVeil's stack on a real container — using the flock-respecting flow: the
+  // real library takes an EXCLUSIVE per-container lock, so only ONE space is
+  // open at a time. (This is why MasterVault's current simultaneous-open model
+  // works against the fake but NOT a real container — see the design note.)
+  test('master roster + openWithKeys, one space open at a time (real container)',
+      () async {
+    final dir = Directory.systemTemp.createTempSync('xveil_hv_master_');
+    final path = '${dir.path}/test.store';
+    HiddenVolumeStorage make() => HiddenVolumeStorage(
+          hvSpaceOpener(path, argon: hv.ArgonPreset.min),
+          keysOpener: hvKeysSpaceOpener(path),
+        );
+    try {
+      // 1. The child space (first space in the container): write + export keys,
+      //    then CLOSE to release the exclusive lock.
+      final child = make();
+      expect(
+          await child.open(password: 'pw-alice', createIfMissing: true), isTrue);
+      await child.putSetting('who', 'alice');
+      final childKeys = child.exportSpaceKeys();
+      await child.close();
+
+      // 2. The master (a parallel space): record the child's keys, then close.
+      final master = make();
+      expect(await master.open(password: 'pw-master', createIfMissing: true),
+          isTrue);
+      await master.saveRoster([RosterEntry(label: 'alice', spaceKeys: childKeys)]);
+      await master.close();
+
+      // 3. Fresh master session: read the roster, CLOSE, then open the child by
+      //    its keys alone — no password, no two-handles-at-once.
+      final m2 = make();
+      expect(await m2.open(password: 'pw-master'), isTrue);
+      final entries = await m2.loadRoster();
+      expect(entries!.map((e) => e.label), ['alice']);
+      final aliceKeys = entries.single.spaceKeys;
+      await m2.close();
+
+      final reopened = make();
+      expect(await reopened.openWithKeys(aliceKeys), isTrue);
+      expect(await reopened.getSetting('who'), 'alice');
+      await reopened.close();
     } finally {
       dir.deleteSync(recursive: true);
     }
