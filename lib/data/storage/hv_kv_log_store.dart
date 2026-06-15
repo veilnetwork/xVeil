@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:hidden_volume/hidden_volume.dart' as hv;
@@ -79,10 +80,20 @@ SpaceOpener hvSpaceOpener(
 }
 
 hv.HvSpace _createOrOpen(String path, Uint8List password, hv.ArgonPreset argon) {
+  // A container already on disk must NEVER be re-created: HvSpace.create
+  // bootstraps a *fresh* file and would either fail (Io: File exists) or, worse,
+  // risk clobbering an existing — possibly hidden — space. So if the file is
+  // there, adopt it by opening with this password. A password that matches no
+  // space surfaces upstream as AuthFailed (→ null), not a crash.
+  if (File(path).existsSync()) {
+    return hv.HvSpace.open(path: path, password: password);
+  }
   try {
     return hv.HvSpace.create(path: path, password: password, argon: argon);
   } on hv.HvException catch (e) {
-    if (e.kind == 'SpaceAlreadyExists') {
+    // Lost a create/create race, or the file appeared between the check above
+    // and here — fall back to opening the now-existing container.
+    if (e.kind == 'SpaceAlreadyExists' || e.kind == 'Io') {
       return hv.HvSpace.open(path: path, password: password);
     }
     rethrow;
