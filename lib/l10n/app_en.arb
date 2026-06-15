@@ -10,7 +10,7 @@
   "actionUnderstood": "I understand",
 
   "preparingTitle": "Setting up your node",
-  "preparingBody": "Provisioning your identity on this device. This can take a few seconds…",
+  "preparingBody": "Provisioning your identity on this device. This can take a little while — please wait.",
 
   "onboardWelcomeTitle": "Welcome to xVeil",
   "onboardWelcomeBody": "A decentralized, censorship-resistant messenger. No phone number. No central server. Your identity and your messages stay with you.",
