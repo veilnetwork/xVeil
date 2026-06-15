@@ -127,6 +127,46 @@ void main() {
     expect(ready.identity!.displayName, 'Alice');
   });
 
+  test('switchIdentity swaps the active identity within a master session',
+      () async {
+    SharedPreferences.setMockInitialValues({'onboarded': true});
+    final container = FakeHvContainer();
+
+    final roster = <RosterEntry>[];
+    for (final (label, pw, name) in [
+      ('alice', 'pw-a', 'Alice'),
+      ('bob', 'pw-b', 'Bob'),
+    ]) {
+      final child = container.storage();
+      await child.open(password: pw, createIfMissing: true);
+      await child.saveIdentity(AppController.generateIdentity(displayName: name));
+      roster.add(RosterEntry(label: label, spaceKeys: child.exportSpaceKeys()));
+      await child.close();
+    }
+    final master = container.storage();
+    await master.open(password: 'masterpw', createIfMissing: true);
+    await master.saveRoster(roster);
+    await master.close();
+
+    final app = container.storage();
+    final c = ProviderContainer(
+        overrides: [storageProvider.overrideWith((ref) => app)]);
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+
+    await ctrl.unlock('masterpw');
+    await ctrl.pickIdentity('alice');
+    expect(c.read(appControllerProvider).identity!.displayName, 'Alice');
+    expect(ctrl.activeIdentity, 'alice');
+
+    await ctrl.switchIdentity('bob');
+    final s = c.read(appControllerProvider);
+    expect(s.phase, AppPhase.ready);
+    expect(s.identity!.displayName, 'Bob');
+    expect(ctrl.activeIdentity, 'bob');
+  });
+
   test('a single-identity space unlocks straight to ready (no picker)',
       () async {
     SharedPreferences.setMockInitialValues({'onboarded': true});

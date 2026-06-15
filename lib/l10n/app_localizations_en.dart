@@ -242,6 +242,9 @@ class AppL10nEn extends AppL10n {
   String get settingsLockNow => 'Lock now';
 
   @override
+  String get settingsSwitchIdentity => 'Switch identity';
+
+  @override
   String get languageSystem => 'System default';
 
   @override

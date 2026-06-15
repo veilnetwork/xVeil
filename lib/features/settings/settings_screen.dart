@@ -47,6 +47,8 @@ class SettingsScreen extends ConsumerWidget {
     final l = AppL10n.of(context);
     final locale = ref.watch(localeProvider);
     final identity = ref.watch(appControllerProvider.select((s) => s.identity));
+    final master = ref.watch(
+        appControllerProvider.select((s) => (s.isMaster, s.activeIdentity)));
     return Scaffold(
       appBar: AppBar(title: Text(l.settingsTitle)),
       body: ListView(
@@ -66,6 +68,15 @@ class SettingsScreen extends ConsumerWidget {
                       style: const TextStyle(fontFeatures: [])),
                 ),
               ),
+            ),
+          if (master.$1)
+            ListTile(
+              leading: const Icon(Icons.switch_account_outlined),
+              title: Text(l.settingsSwitchIdentity),
+              subtitle: master.$2 != null ? Text(master.$2!) : null,
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () =>
+                  ref.read(appControllerProvider.notifier).returnToPicker(),
             ),
           ListTile(
             leading: const Icon(Icons.badge_outlined),
