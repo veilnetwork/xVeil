@@ -46,6 +46,21 @@ void main() {
     expect(fresh.isOpen, isFalse);
   });
 
+  test('node config is stored in the space and survives reopen', () async {
+    expect(await storage.loadNodeConfig(), isNull);
+    const toml = '[Identity]\nprivate_key = "secret"\nnode_id = "abc"\n';
+    await storage.saveNodeConfig(toml);
+    expect(await storage.loadNodeConfig(), toml);
+
+    // It lives in the container, not a file — a fresh handle over the same
+    // backing store still reads it (deniable, no plaintext config.toml).
+    final reopened = HiddenVolumeStorage(
+      ({required Uint8List password, required bool create}) => store,
+    );
+    await reopened.open(password: 'pw');
+    expect(await reopened.loadNodeConfig(), toml);
+  });
+
   test('identity round-trips through the SETTINGS namespace', () async {
     final id = Identity(nodeId: _id(7), displayName: 'Alice', username: 'al');
     await storage.saveIdentity(id);
