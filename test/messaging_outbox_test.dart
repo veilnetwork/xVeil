@@ -132,6 +132,47 @@ void main() {
     expect(edited.edited, isTrue);
   });
 
+  test('editOwnMessage propagates the new text to the recipient', () async {
+    await mA.sendText(b, 'teh meeting is at 5');
+    await _pump();
+    final id = (await aMsg('teh meeting is at 5')).id;
+
+    await mA.editOwnMessage(id, 'the meeting is at 6');
+    await _pump();
+
+    final theirs = (await sB.loadMessages(a.hex)).firstWhere((m) => m.id == id);
+    expect(theirs.body, 'the meeting is at 6');
+    expect(theirs.edited, isTrue);
+    expect((await sB.loadMessages(a.hex)).any((m) => m.body == 'teh meeting is at 5'),
+        isFalse);
+  });
+
+  test('deleteForEveryone unsends from the recipient too', () async {
+    await mA.sendText(b, 'oops wrong chat');
+    await _pump();
+    final id = (await aMsg('oops wrong chat')).id;
+
+    await mA.deleteForEveryone(id);
+    await _pump();
+
+    expect((await sA.loadMessages(b.hex)).any((m) => m.id == id), isFalse);
+    expect((await sB.loadMessages(a.hex)).any((m) => m.id == id), isFalse);
+  });
+
+  test('deleteForEveryone is a no-op on a received message (can only unsend own)',
+      () async {
+    await mA.sendText(b, 'from A');
+    await _pump();
+    final received = (await sB.loadMessages(a.hex)).firstWhere((m) => m.body == 'from A');
+
+    await mB.deleteForEveryone(received.id); // B did not send it
+    await _pump();
+
+    // Nothing removed on either side.
+    expect((await sB.loadMessages(a.hex)).any((m) => m.id == received.id), isTrue);
+    expect((await sA.loadMessages(b.hex)).any((m) => m.body == 'from A'), isTrue);
+  });
+
   test('deleteMessageLocally purges a received message from this device',
       () async {
     await mA.sendText(b, 'sensitive');

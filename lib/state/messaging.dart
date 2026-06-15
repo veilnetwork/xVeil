@@ -152,6 +152,22 @@ class MessagingService {
         if (env.id != null) {
           await _storage.markMessageStatus(env.id!, MessageStatus.delivered);
         }
+      case WireKind.edit:
+        // The peer edited a message they sent us. Apply only if we actually
+        // hold that id from THIS peer (a stranger/peer can't touch other
+        // conversations). Ids are the sender's, so they match our stored copy.
+        if (existing?.status != ContactStatus.accepted) return;
+        if (env.id != null && await _hasMessage(m.src, env.id!)) {
+          await _storage.editMessage(env.id!, env.body);
+          await _storage.scrubDeleted();
+        }
+      case WireKind.del:
+        // The peer unsent a message they sent us — purge + scrub our copy too.
+        if (existing?.status != ContactStatus.accepted) return;
+        if (env.id != null && await _hasMessage(m.src, env.id!)) {
+          await _storage.deleteMessage(env.id!);
+          await _storage.scrubDeleted();
+        }
       case WireKind.fileMeta:
         if (existing?.status != ContactStatus.accepted) return;
         final meta = parseFileMeta(env.body);
@@ -259,10 +275,10 @@ class MessagingService {
     }
   }
 
-  /// Delete a message from THIS device and scrub it from the container so the
-  /// plaintext is no longer recoverable — works for a received message too
-  /// (the highest-value deniability operation: purge what was sent to you).
-  /// Local-only for now; peer propagation is a follow-up.
+  /// Delete a message from THIS device only and scrub it from the container so
+  /// the plaintext is no longer recoverable — works for a received message too
+  /// (the highest-value deniability operation: purge what was sent to you). The
+  /// peer's copy is untouched; use [deleteForEveryone] to also unsend it.
   Future<void> deleteMessageLocally(String messageId) async {
     await _storage.deleteMessage(messageId);
     // Scrub immediately: the whole point is the text is gone NOW, before any
@@ -271,15 +287,42 @@ class MessagingService {
     _signal();
   }
 
-  /// Edit the body of one of OUR sent messages. Replaces the stored text in
-  /// place (the prior text is scrubbed) and marks it edited. Local-only for
-  /// now; peer propagation is a follow-up.
+  /// Delete one of OUR sent messages here AND ask the recipient to delete their
+  /// copy (best-effort: if they are offline the request is simply lost, and we
+  /// can never guarantee they hadn't already copied the text). No-op for a
+  /// received message — you can only unsend your own.
+  Future<void> deleteForEveryone(String messageId) async {
+    final msg = await _find(messageId);
+    if (msg == null || msg.direction != MessageDirection.outgoing) return;
+    await deleteMessageLocally(messageId);
+    await _transport.send(NodeId.fromHex(msg.conversationId),
+        WireEnvelope.del(messageId).encode());
+  }
+
+  /// Edit the body of one of OUR sent messages: replace the stored text in
+  /// place (the prior text is scrubbed), mark it edited, and propagate the new
+  /// text to the recipient (best-effort). No-op for a received message.
   Future<void> editOwnMessage(String messageId, String newBody) async {
     final trimmed = newBody.trim();
     if (trimmed.isEmpty) return;
+    final msg = await _find(messageId);
+    if (msg == null || msg.direction != MessageDirection.outgoing) return;
     await _storage.editMessage(messageId, trimmed);
     await _storage.scrubDeleted();
     _signal();
+    await _transport.send(NodeId.fromHex(msg.conversationId),
+        WireEnvelope.edit(messageId, trimmed).encode());
+  }
+
+  /// Locate a stored message by id across conversations (used before an
+  /// edit/delete needs its conversation / direction). Null if not found.
+  Future<Message?> _find(String messageId) async {
+    for (final c in await _storage.loadConversations()) {
+      for (final m in await _storage.loadMessages(c.id)) {
+        if (m.id == messageId) return m;
+      }
+    }
+    return null;
   }
 
   /// Send a file to [dst] (gated to accepted contacts). Stores a local copy,
