@@ -109,6 +109,39 @@ void main() {
     expect((await sB.loadMessages(a.hex)).where((m) => m.isFile), isEmpty);
   });
 
+  test('concurrent inbound transfers are bounded; extras are rejected',
+      () async {
+    await accept();
+    // Open the maximum number of transfers (meta only, kept incomplete).
+    for (var i = 0; i < kMaxConcurrentIncomingFiles; i++) {
+      await tA.send(
+          b,
+          fileMetaEnvelope(
+                  transferId: 'open$i', name: 'f$i', size: 10, count: 1)
+              .encode());
+    }
+    await _pump();
+    // One more transfer past the cap must be rejected: its lone chunk can't
+    // complete it.
+    await tA.send(b,
+        fileMetaEnvelope(transferId: 'extra', name: 'x', size: 5, count: 1).encode());
+    await tA.send(
+        b,
+        fileChunkEnvelope(transferId: 'extra', index: 0, total: 1, data: _bytes(5))
+            .encode());
+    await _pump();
+    expect(await sB.loadFile('extra'), isNull,
+        reason: 'transfer past the concurrency cap is dropped');
+
+    // An accepted, in-cap transfer still completes (a slot was not stolen).
+    await tA.send(
+        b,
+        fileChunkEnvelope(transferId: 'open0', index: 0, total: 1, data: _bytes(10))
+            .encode());
+    await _pump();
+    expect((await sB.loadFile('open0'))?.length, 10);
+  });
+
   test('a malformed file envelope is dropped without breaking delivery',
       () async {
     await accept();

@@ -23,6 +23,12 @@ const _wireChunkBytes = 6000;
 /// it is not a protocol constant and both sides need not agree on it.
 const kMaxIncomingFileBytes = 100 * 1024 * 1024; // 100 MiB
 
+/// Max simultaneous inbound transfers we will buffer. Without this the
+/// per-transfer [kMaxIncomingFileBytes] cap is not enough: a peer could open
+/// many transfers at once and still exhaust memory. Together they bound the
+/// worst-case buffered total to ~this × [kMaxIncomingFileBytes]. Tunable.
+const kMaxConcurrentIncomingFiles = 8;
+
 /// In-flight inbound file reassembly state.
 class _Incoming {
   _Incoming({required this.src, required this.name, required this.reasm});
@@ -126,6 +132,13 @@ class MessagingService {
         // Refuse over-budget transfers up front (the declared size is a hint;
         // the per-chunk guard below enforces it even if the peer lies here).
         if (meta.size != null && meta.size! > kMaxIncomingFileBytes) return;
+        // Bound concurrent transfers so the per-transfer cap actually bounds
+        // total memory. A re-sent meta for a known transfer is fine (no growth);
+        // a new one is dropped when we are already at capacity.
+        if (!_inFlight.containsKey(meta.transferId) &&
+            _inFlight.length >= kMaxConcurrentIncomingFiles) {
+          return;
+        }
         _inFlight[meta.transferId] = _Incoming(
           src: m.src,
           name: meta.name,
