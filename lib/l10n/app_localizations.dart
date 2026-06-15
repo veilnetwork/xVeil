@@ -337,6 +337,54 @@ abstract class AppL10n {
   /// **'Send'**
   String get chatSend;
 
+  /// No description provided for @chatRequestSent.
+  ///
+  /// In en, this message translates to:
+  /// **'Request sent — waiting for approval'**
+  String get chatRequestSent;
+
+  /// No description provided for @chatBlockedContact.
+  ///
+  /// In en, this message translates to:
+  /// **'You blocked this contact'**
+  String get chatBlockedContact;
+
+  /// No description provided for @chatRequestHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Write a connection request…'**
+  String get chatRequestHint;
+
+  /// No description provided for @chatAttachTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Attach a file'**
+  String get chatAttachTooltip;
+
+  /// No description provided for @chatFileSave.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get chatFileSave;
+
+  /// No description provided for @chatFileSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'File saved'**
+  String get chatFileSaved;
+
+  /// No description provided for @chatFileSaveFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t save the file'**
+  String get chatFileSaveFailed;
+
+  /// No description provided for @chatFileTooLarge.
+  ///
+  /// In en, this message translates to:
+  /// **'File is too large'**
+  String get chatFileTooLarge;
+
   /// No description provided for @networkTitle.
   ///
   /// In en, this message translates to:
