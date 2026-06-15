@@ -7,25 +7,37 @@ import 'dart:typed_data';
 /// - [message]: a normal chat message (body = text).
 /// - [fileMeta]: start of a file transfer (body = JSON {tid,name,size,count}).
 /// - [fileChunk]: one file chunk (body = JSON {tid,i,total,d=base64}).
+/// - [ack]: delivery acknowledgement (id = the acked message's id, body unused).
 ///
 /// New kinds are APPENDED so existing wire indices (0/1/2) are unchanged.
-enum WireKind { request, accept, message, fileMeta, fileChunk }
+enum WireKind { request, accept, message, fileMeta, fileChunk, ack }
 
 /// Typed wrapper over the raw transport payload, so the receiver can tell a
 /// connection request from a chat message (the consent gate). Serialised as
-/// compact JSON `{"t": <kind index>, "b": <body>}`.
+/// compact JSON `{"t": <kind index>, "b": <body>, "i": <message id?>}`.
+///
+/// [id] (when set) is the sender's message id — it travels so the receiver can
+/// **dedup** re-sent messages (the local outbox re-sends un-acked ones) and the
+/// receiver can **ack** by referencing it.
 class WireEnvelope {
-  const WireEnvelope(this.kind, this.body);
+  const WireEnvelope(this.kind, this.body, {this.id});
 
   final WireKind kind;
   final String body;
+  final String? id;
 
-  const WireEnvelope.request(String greeting) : this(WireKind.request, greeting);
+  const WireEnvelope.request(String greeting, {String? id})
+      : this(WireKind.request, greeting, id: id);
   const WireEnvelope.accept() : this(WireKind.accept, '');
-  const WireEnvelope.message(String text) : this(WireKind.message, text);
+  const WireEnvelope.message(String text, {String? id})
+      : this(WireKind.message, text, id: id);
+  const WireEnvelope.ack(String id) : this(WireKind.ack, '', id: id);
 
-  Uint8List encode() =>
-      Uint8List.fromList(utf8.encode(jsonEncode({'t': kind.index, 'b': body})));
+  Uint8List encode() => Uint8List.fromList(utf8.encode(jsonEncode({
+        't': kind.index,
+        'b': body,
+        if (id != null) 'i': id,
+      })));
 
   /// Decode a payload. Anything that isn't a well-formed envelope is treated
   /// as a plain [WireKind.message] (forward/back compatibility).
@@ -40,6 +52,7 @@ class WireEnvelope {
         return WireEnvelope(
           WireKind.values[decoded['t'] as int],
           decoded['b'] as String,
+          id: decoded['i'] is String ? decoded['i'] as String : null,
         );
       }
     } catch (_) {
