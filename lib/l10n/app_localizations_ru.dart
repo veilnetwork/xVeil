@@ -282,6 +282,9 @@ class AppL10nRu extends AppL10n {
   String get onboardRepeatPassword => 'Повторите пароль';
 
   @override
+  String get onboardPasswordTitle => 'Придумайте пароль';
+
+  @override
   String get onboardPasswordSubtitle =>
       'Этот пароль открывает ваше пространство на этом устройстве. Сброса нет.';
 

@@ -281,6 +281,9 @@ class AppL10nEn extends AppL10n {
   String get onboardRepeatPassword => 'Repeat password';
 
   @override
+  String get onboardPasswordTitle => 'Set a password';
+
+  @override
   String get onboardPasswordSubtitle =>
       'This password unlocks your space on this device. There is no reset.';
 
