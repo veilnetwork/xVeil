@@ -73,6 +73,12 @@ abstract interface class KvLogStore {
   /// `vacuum_data_batches`/`compact_known`; a no-op where unsupported.
   void scrub();
 
+  /// This space's opaque `SpaceKeys` (64 bytes — the per-space decryption root),
+  /// for a master roster to store and later reopen the space via a
+  /// [KeysSpaceOpener] without its password. **Sensitive** — keep only inside a
+  /// deniable space, never log. Maps to `HvSpace.spaceKeys`.
+  Uint8List exportKeys();
+
   void close();
 }
 
@@ -83,3 +89,8 @@ typedef SpaceOpener = KvLogStore? Function({
   required Uint8List password,
   required bool create,
 });
+
+/// Opens a space directly from its pre-derived [keys] (64 bytes from
+/// [KvLogStore.exportKeys]) — the master-space path, no password. Returns null
+/// when the keys match no space (`AuthFailed`). Maps to `HvSpace.openWithKeys`.
+typedef KeysSpaceOpener = KvLogStore? Function(Uint8List keys);
