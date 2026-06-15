@@ -17,6 +17,16 @@ typedef ChildStorageFactory = HiddenVolumeStorage Function();
 /// the child's password. References are one-directional master → child: a child
 /// space records nothing about its master(s), so a child shared into a decoy
 /// master reveals nothing about the hidden set (see doc/MULTI-IDENTITY-DESIGN).
+///
+/// ⚠️ EXCLUSIVE-LOCK CONSTRAINT (native): the real hidden-volume container takes
+/// an exclusive per-file flock, so **only one space in a container can be open
+/// at a time**. The current [addChild]/[openChild] open a child while the master
+/// handle is still open — that works against the in-memory fake but raises
+/// `HvException.Busy` on a real container. Before this drives the UI, the orches-
+/// tration must serialize: close the master, open/create the child, then reopen
+/// the master to persist the roster (the "one active identity + fast switch"
+/// model). Tracked for the master-integration work; see the real-container test
+/// `master roster + openWithKeys, one space open at a time`.
 class MasterVault {
   MasterVault(this._master, this._makeChild);
 

@@ -52,20 +52,29 @@ class FileStore {
     return fileId;
   }
 
-  /// Purge a stored file: overwrite each data record with an empty payload so
-  /// the original chunk is orphaned (reclaimed by a later vacuum/scrub for true
-  /// erasure) and drop the metadata key. No-op if the id is unknown.
-  void deleteFile(String fileId) {
+  /// The ops that purge a stored file: overwrite each data record with an empty
+  /// payload so the original chunk is orphaned (reclaimed by a later
+  /// vacuum/scrub for true erasure) and drop the metadata key. Empty if the id
+  /// is unknown. Exposed so a caller can fold these into a LARGER atomic commit
+  /// (e.g. delete a file message + its blob in one commit — no crash window
+  /// where the chat row and the blob disagree).
+  List<KvLogOp> deleteFileOps(String fileId) {
     final raw = _store.get(Ns.settings, _k('file:$fileId'));
-    if (raw == null) return;
+    if (raw == null) return const [];
     final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
     final base = m['base'] as int;
     final count = m['count'] as int;
-    _store.commit([
+    return [
       for (var i = 0; i < count; i++)
         AppendLogOp(Ns.fileChunks, base + i, Uint8List(0)),
       DeleteOp(Ns.settings, _k('file:$fileId')),
-    ]);
+    ];
+  }
+
+  /// Purge a stored file in its own commit. No-op if the id is unknown.
+  void deleteFile(String fileId) {
+    final ops = deleteFileOps(fileId);
+    if (ops.isNotEmpty) _store.commit(ops);
   }
 
   FileMeta? metadata(String fileId) {

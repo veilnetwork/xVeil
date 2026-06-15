@@ -269,6 +269,16 @@ already (rocksdb opt-in), confirm no peer cache / logs leak.
     flow + product UX): detect master after unlock → identity picker;
     per-identity conversation ownership + send-as picker; **decoy master** setup
     for duress; one active node + fast switch.
+  - ⚠️ **Constraint found via real-container test (2026-06-15):** the native
+    container takes an **exclusive per-file flock** — only ONE space per
+    container is open at a time. So the master and a child cannot be open
+    simultaneously; `MasterVault.addChild/openChild` (which do) work against the
+    in-memory fake but raise `HvException.Busy` on a real container. The
+    integration must serialize open/close (close master → open child → reopen
+    master to persist) — which dovetails with the "one active identity + fast
+    switch" decision. The in-memory fake should grow a lock model so unit tests
+    catch this. (Backed by the passing real-container test
+    `master roster + openWithKeys, one space open at a time`.)
 - **Phase 3:** simultaneous per-identity nodes, multi-device sync.
 
 ## 9. Deniability invariant checklist (acceptance)
