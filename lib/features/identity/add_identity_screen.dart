@@ -21,6 +21,7 @@ class _AddIdentityScreenState extends ConsumerState<AddIdentityScreen> {
   final _masterPassword = TextEditingController();
   final _currentName = TextEditingController();
   bool _busy = false;
+  bool _anonymous = false;
   String? _error;
 
   @override
@@ -52,6 +53,7 @@ class _AddIdentityScreenState extends ConsumerState<AddIdentityScreen> {
           existingLabel: converting && _currentName.text.trim().isNotEmpty
               ? _currentName.text.trim()
               : 'Identity 1',
+          anonymous: _anonymous,
         );
     if (!mounted) return;
     if (ok) {
@@ -118,6 +120,14 @@ class _AddIdentityScreenState extends ConsumerState<AddIdentityScreen> {
                 helperMaxLines: 3,
                 border: const OutlineInputBorder(),
               ),
+            ),
+            const SizedBox(height: 8),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _anonymous,
+              onChanged: _busy ? null : (v) => setState(() => _anonymous = v),
+              title: Text(l.addIdentityAnonymous),
+              subtitle: Text(l.addIdentityAnonymousHint),
             ),
             if (_error != null) ...[
               const SizedBox(height: 16),

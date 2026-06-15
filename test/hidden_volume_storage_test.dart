@@ -159,7 +159,9 @@ void main() {
     final entries = [
       RosterEntry(label: 'me', spaceKeys: Uint8List.fromList(List.filled(64, 1))),
       RosterEntry(
-          label: 'relatives', spaceKeys: Uint8List.fromList(List.filled(64, 2))),
+          label: 'relatives',
+          spaceKeys: Uint8List.fromList(List.filled(64, 2)),
+          anonymous: true),
     ];
     await storage.saveRoster(entries);
 
@@ -168,6 +170,9 @@ void main() {
     expect(back!.map((e) => e.label), ['me', 'relatives']);
     expect(back[0].spaceKeys, entries[0].spaceKeys);
     expect(back[1].spaceKeys, entries[1].spaceKeys);
+    // The per-identity anonymous-routing flag round-trips.
+    expect(back[0].anonymous, isFalse);
+    expect(back[1].anonymous, isTrue);
 
     // A fresh handle over the same backing store still reads it (lives in the
     // container, no on-disk index).
