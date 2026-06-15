@@ -52,6 +52,22 @@ class FileStore {
     return fileId;
   }
 
+  /// Purge a stored file: overwrite each data record with an empty payload so
+  /// the original chunk is orphaned (reclaimed by a later vacuum/scrub for true
+  /// erasure) and drop the metadata key. No-op if the id is unknown.
+  void deleteFile(String fileId) {
+    final raw = _store.get(Ns.settings, _k('file:$fileId'));
+    if (raw == null) return;
+    final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
+    final base = m['base'] as int;
+    final count = m['count'] as int;
+    _store.commit([
+      for (var i = 0; i < count; i++)
+        AppendLogOp(Ns.fileChunks, base + i, Uint8List(0)),
+      DeleteOp(Ns.settings, _k('file:$fileId')),
+    ]);
+  }
+
   FileMeta? metadata(String fileId) {
     final raw = _store.get(Ns.settings, _k('file:$fileId'));
     if (raw == null) return null;
