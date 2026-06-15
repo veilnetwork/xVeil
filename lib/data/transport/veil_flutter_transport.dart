@@ -32,6 +32,27 @@ class VeilFlutterTransport implements VeilTransport {
     }
   }
 
+  /// Ask the running node to assemble its own bootstrap-invite URI (from its
+  /// in-memory `[identity]` + listener) over IPC — no config file, no veil-cli.
+  /// This replaces the `veil-cli bootstrap invite` shell-out for the deniable
+  /// boot path.
+  Future<String> createInvite() async {
+    final r = await _client.createBootstrapInvite();
+    if (r.status != CreateBootstrapInviteStatus.ok || r.uri.isEmpty) {
+      throw StateError('create invite failed: ${r.status.name} ${r.detail ?? ''}');
+    }
+    return r.uri;
+  }
+
+  /// Redeem a peer's invite on the running node (adds the bootstrap peer + dials
+  /// it) over IPC — replaces the `veil-cli bootstrap join` shell-out.
+  Future<void> joinInvite(String uri) async {
+    final r = await _client.joinBootstrapUri(uri: uri);
+    if (r.status != JoinBootstrapStatus.ok) {
+      throw StateError('join failed: ${r.status.name} ${r.detail ?? ''}');
+    }
+  }
+
   @override
   Future<NodeId> nodeId() async => NodeId(await _client.nodeId());
 
