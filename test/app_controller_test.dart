@@ -234,6 +234,55 @@ void main() {
     expect(ctrl.activeIdentity, 'work');
   });
 
+  test('addIdentity appends to the master ON-DISK roster even with a stale '
+      'in-memory roster (regression: overwrite/lockout)', () async {
+    SharedPreferences.setMockInitialValues({'onboarded': true});
+    final container = FakeHvContainer();
+    // Two identities already under the master, on disk.
+    final alice = container.storage();
+    await alice.open(password: 'pw-alice', createIfMissing: true);
+    await alice.saveIdentity(AppController.generateIdentity(displayName: 'Alice'));
+    final aliceKeys = alice.exportSpaceKeys();
+    await alice.close();
+    final bob = container.storage();
+    await bob.open(password: 'pw-bob', createIfMissing: true);
+    await bob.saveIdentity(AppController.generateIdentity(displayName: 'Bob'));
+    final bobKeys = bob.exportSpaceKeys();
+    await bob.close();
+    final master = container.storage();
+    await master.open(password: 'masterpw', createIfMissing: true);
+    await master.saveRoster([
+      RosterEntry(label: 'alice', spaceKeys: aliceKeys),
+      RosterEntry(label: 'bob', spaceKeys: bobKeys),
+    ]);
+    await master.close();
+
+    final app = container.storage();
+    final c = ProviderContainer(
+        overrides: [storageProvider.overrideWith((ref) => app)]);
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+
+    // Add 'work' WITHOUT unlocking first — _pendingRoster is null (maximally
+    // stale). The OLD code rebuilt the roster from in-memory state and
+    // OVERWROTE the master, dropping bob (and alice). The fix reads the master's
+    // on-disk [alice, bob] and appends.
+    final ok = await ctrl.addIdentity(
+        masterPassword: 'masterpw', label: 'work', password: 'pw-work');
+    expect(ok, isTrue);
+
+    // Release the now-active 'work' space (it holds the exclusive lock) before
+    // inspecting the master out of band.
+    await ctrl.lock();
+    final check = container.storage();
+    await check.open(password: 'masterpw');
+    final labels = (await check.loadRoster())!.map((e) => e.label).toList();
+    await check.close();
+    expect(labels, containsAll(['alice', 'bob', 'work']));
+    expect(labels.length, 3, reason: 'no identity dropped from the master roster');
+  });
+
   test('addIdentity fails (no corruption) if the master password collides '
       'with an identity', () async {
     SharedPreferences.setMockInitialValues({'onboarded': true});
