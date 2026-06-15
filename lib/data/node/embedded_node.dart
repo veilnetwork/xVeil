@@ -26,6 +26,12 @@ typedef _ConfigInitNative = Pointer<Utf8> Function(
     Uint32, Pointer<Pointer<Utf8>>);
 typedef _ConfigInitDart = Pointer<Utf8> Function(
     int, Pointer<Pointer<Utf8>>);
+typedef _ComposeNative = Pointer<Utf8> Function(
+    Pointer<Uint8>, IntPtr, Pointer<Uint8>, IntPtr, Pointer<Uint8>, IntPtr,
+    Pointer<Uint8>, IntPtr, Pointer<Pointer<Utf8>>);
+typedef _ComposeDart = Pointer<Utf8> Function(
+    Pointer<Uint8>, int, Pointer<Uint8>, int, Pointer<Uint8>, int,
+    Pointer<Uint8>, int, Pointer<Pointer<Utf8>>);
 typedef _ApplyConfigNative = Int32 Function(
     Pointer<Void>, Pointer<Uint8>, IntPtr, Pointer<Pointer<Utf8>>);
 typedef _ApplyConfigDart = int Function(
@@ -66,6 +72,54 @@ class EmbeddedNode {
       freeStr(out);
       return toml;
     } finally {
+      calloc.free(errOut);
+    }
+  }
+
+  /// Compose a full, bootable node config from a stored identity (from
+  /// [mineConfig], loaded out of the deniable container) plus EPHEMERAL,
+  /// per-launch runtime endpoints — a [listenTransport] (e.g.
+  /// `tcp://127.0.0.1:9931`), an [ipcSocket], and an [adminSocket] (filesystem
+  /// paths). None of these are identity-bearing, so they are never stored.
+  static String composeConfig({
+    required String identityToml,
+    required String listenTransport,
+    required String ipcSocket,
+    required String adminSocket,
+    DynamicLibrary? lib,
+  }) {
+    final dl = lib ?? DynamicLibrary.process();
+    final composeFn =
+        dl.lookupFunction<_ComposeNative, _ComposeDart>('veil_config_compose');
+    final freeStr =
+        dl.lookupFunction<_FreeStrNative, _FreeStrDart>('veil_free_string');
+
+    final args = [identityToml, listenTransport, ipcSocket, adminSocket]
+        .map(utf8.encode)
+        .toList();
+    final ptrs = <Pointer<Uint8>>[];
+    final errOut = calloc<Pointer<Utf8>>();
+    try {
+      for (final bytes in args) {
+        final p = calloc<Uint8>(bytes.length);
+        p.asTypedList(bytes.length).setAll(0, bytes);
+        ptrs.add(p);
+      }
+      final out = composeFn(ptrs[0], args[0].length, ptrs[1], args[1].length,
+          ptrs[2], args[2].length, ptrs[3], args[3].length, errOut);
+      if (out == nullptr) {
+        final err = errOut.value;
+        final msg = err == nullptr ? 'unknown error' : err.toDartString();
+        if (err != nullptr) freeStr(err);
+        throw StateError('veil_config_compose failed: $msg');
+      }
+      final toml = out.toDartString();
+      freeStr(out);
+      return toml;
+    } finally {
+      for (final p in ptrs) {
+        calloc.free(p);
+      }
       calloc.free(errOut);
     }
   }
