@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/features/onboarding/recovery_phrase_input.dart';
+import 'package:xveil/l10n/app_localizations.dart';
 
 const _good = 'alpha bravo charlie';
 
-Widget _host(Widget child) =>
-    MaterialApp(home: Scaffold(body: child));
+Widget _host(Widget child) => MaterialApp(
+      localizationsDelegates: AppL10n.localizationsDelegates,
+      supportedLocales: AppL10n.supportedLocales,
+      home: Scaffold(body: child),
+    );
 
 void main() {
   testWidgets('submit disabled until word count AND validator pass',

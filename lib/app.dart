@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'l10n/app_localizations.dart';
 import 'routing/router.dart';
+import 'state/locale_controller.dart';
 import 'theme/app_theme.dart';
 
 class XVeilApp extends ConsumerWidget {
@@ -17,6 +18,8 @@ class XVeilApp extends ConsumerWidget {
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
       themeMode: ThemeMode.dark,
+      // null → follow the system locale; otherwise the user's chosen language.
+      locale: ref.watch(localeProvider),
       localizationsDelegates: AppL10n.localizationsDelegates,
       supportedLocales: AppL10n.supportedLocales,
       routerConfig: router,

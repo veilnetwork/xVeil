@@ -434,7 +434,7 @@ class _PasswordStepState extends State<_PasswordStep> {
         TextField(
           controller: widget.confirmCtrl,
           obscureText: true,
-          decoration: const InputDecoration(labelText: 'Repeat password'),
+          decoration: InputDecoration(labelText: l.onboardRepeatPassword),
           onSubmitted: (_) => _submit(),
         ),
         if (_error != null) ...[

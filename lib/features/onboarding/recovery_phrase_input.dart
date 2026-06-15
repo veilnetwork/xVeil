@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_localizations.dart';
+
 /// Recovery-phrase entry with live validity feedback. The validator is
 /// injected (production passes veil_flutter's `validateBip39Phrase`, which is
 /// FFI; tests pass a fake), so the widget's logic is unit-testable without the
@@ -41,6 +43,7 @@ class _RecoveryPhraseInputState extends State<RecoveryPhraseInput> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -53,8 +56,8 @@ class _RecoveryPhraseInputState extends State<RecoveryPhraseInput> {
           autocorrect: false,
           enableSuggestions: false,
           onChanged: (_) => setState(() {}),
-          decoration: const InputDecoration(
-            hintText: 'Enter your recovery phrase, words separated by spaces',
+          decoration: InputDecoration(
+            hintText: l.recoveryPhraseHint,
           ),
         ),
         const SizedBox(height: 8),

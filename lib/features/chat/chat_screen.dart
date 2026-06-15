@@ -166,6 +166,7 @@ class _RequestActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
     return SafeArea(
       top: false,
       child: Padding(
@@ -173,7 +174,7 @@ class _RequestActions extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('This contact wants to connect',
+            Text(l.chatRequestTitle,
                 style: Theme.of(context).textTheme.bodyMedium),
             const SizedBox(height: 12),
             Row(
@@ -182,7 +183,7 @@ class _RequestActions extends StatelessWidget {
                   child: OutlinedButton.icon(
                     onPressed: onBlock,
                     icon: const Icon(Icons.block, size: 18),
-                    label: const Text('Block'),
+                    label: Text(l.actionBlock),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -190,7 +191,7 @@ class _RequestActions extends StatelessWidget {
                   child: FilledButton.icon(
                     onPressed: onAccept,
                     icon: const Icon(Icons.check, size: 18),
-                    label: const Text('Accept'),
+                    label: Text(l.actionAccept),
                   ),
                 ),
               ],

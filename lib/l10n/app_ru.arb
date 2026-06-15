@@ -61,5 +61,44 @@
   "settingsStorage": "Хранилище и пространства",
   "settingsNetwork": "Сеть и узлы",
   "settingsAppearance": "Оформление",
-  "settingsAbout": "О приложении"
+  "settingsAbout": "О приложении",
+  "settingsLanguage": "Язык",
+  "settingsLockNow": "Заблокировать",
+
+  "languageSystem": "Системный",
+  "languageRussian": "Русский",
+  "languageEnglish": "English",
+
+  "chatRequestTitle": "Контакт хочет связаться с вами",
+  "actionAccept": "Принять",
+  "actionBlock": "Заблокировать",
+  "actionOpen": "Открыть",
+
+  "inviteAddContact": "Добавить контакт",
+  "inviteShowToContact": "Покажите это собеседнику",
+  "inviteTooLarge": "инвайт слишком большой",
+  "inviteCopied": "Инвайт скопирован",
+  "inviteCopyMine": "Скопировать мой инвайт",
+  "invitePasteTheirs": "Вставьте инвайт собеседника",
+  "inviteScanTooltip": "Сканировать QR (скоро)",
+  "inviteScanComingSoon": "Сканирование камерой скоро",
+  "inviteAddButton": "Добавить контакт",
+  "inviteInvalid": "Это не похоже на инвайт xVeil",
+
+  "networkRouteTitle": "Маршрутизация трафика (Proxy / VPN)",
+  "networkRouteSub": "oproxy / ogate — скоро",
+  "networkNodesTitle": "Мои узлы",
+  "networkNodesSub": "Добавить узел по SSH, запустить ogate/oproxy",
+  "networkExtTitle": "Расширения (Lua)",
+  "networkExtSub": "Загрузка изолированных дополнений",
+  "networkComingLater": "Появится в следующих версиях",
+  "networkStatusError": "Ошибка",
+
+  "onboardRepeatPassword": "Повторите пароль",
+  "recoveryPhraseHint": "Введите фразу восстановления, слова через пробел",
+
+  "demoChatTooltip": "Демо-чат",
+  "demoNewChat": "Новый чат",
+  "demoPeerNodeId": "Node id собеседника (hex)",
+  "demoChatWith": "Чат с демо-узлом"
 }
