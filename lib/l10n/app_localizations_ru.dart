@@ -139,6 +139,30 @@ class AppL10nRu extends AppL10n {
   String get chatSend => 'Отправить';
 
   @override
+  String get chatRequestSent => 'Запрос отправлен — ожидание одобрения';
+
+  @override
+  String get chatBlockedContact => 'Вы заблокировали этот контакт';
+
+  @override
+  String get chatRequestHint => 'Напишите запрос на связь…';
+
+  @override
+  String get chatAttachTooltip => 'Прикрепить файл';
+
+  @override
+  String get chatFileSave => 'Сохранить';
+
+  @override
+  String get chatFileSaved => 'Файл сохранён';
+
+  @override
+  String get chatFileSaveFailed => 'Не удалось сохранить файл';
+
+  @override
+  String get chatFileTooLarge => 'Файл слишком большой';
+
+  @override
   String get networkTitle => 'Оверлей-сеть';
 
   @override
