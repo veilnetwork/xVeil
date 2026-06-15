@@ -103,6 +103,7 @@
   "networkStatusError": "Error",
 
   "onboardRepeatPassword": "Repeat password",
+  "onboardPasswordTitle": "Set a password",
   "onboardPasswordSubtitle": "This password unlocks your space on this device. There is no reset.",
   "onboardPasswordTooShort": "Use at least 6 characters",
   "onboardPasswordMismatch": "Passwords do not match",
