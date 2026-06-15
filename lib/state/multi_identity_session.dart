@@ -63,7 +63,10 @@ List<IdentityBootSpec> planIdentityBoots(
         label: roster[i].label,
         spaceId: backing.openSpace(roster[i].spaceKeys),
         runtimeDir: '$runtimeDirBase/${roster[i].label}',
-        listenPort: listenPortBase + i,
+        // Offset by 1 so all-online nodes never reuse [listenPortBase] — the
+        // port a just-stopped one-active node held, whose lingering teardown
+        // would otherwise stall the first identity's bind for ~90s.
+        listenPort: listenPortBase + 1 + i,
         anonymous: roster[i].anonymous,
       ),
   ];
