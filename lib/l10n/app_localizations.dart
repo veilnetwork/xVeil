@@ -541,6 +541,72 @@ abstract class AppL10n {
   /// **'Switch identity'**
   String get settingsSwitchIdentity;
 
+  /// No description provided for @settingsAddIdentity.
+  ///
+  /// In en, this message translates to:
+  /// **'Add identity'**
+  String get settingsAddIdentity;
+
+  /// No description provided for @addIdentityTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Add identity'**
+  String get addIdentityTitle;
+
+  /// No description provided for @addIdentitySubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'A new identity is hidden in the same file. The first time you add one, your current identity and the new one are managed by a master password you set below.'**
+  String get addIdentitySubtitle;
+
+  /// No description provided for @addIdentityCurrentName.
+  ///
+  /// In en, this message translates to:
+  /// **'Name for your current identity'**
+  String get addIdentityCurrentName;
+
+  /// No description provided for @addIdentityNewName.
+  ///
+  /// In en, this message translates to:
+  /// **'New identity name'**
+  String get addIdentityNewName;
+
+  /// No description provided for @addIdentityNewPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'New identity password'**
+  String get addIdentityNewPassword;
+
+  /// No description provided for @addIdentityMasterPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Master password'**
+  String get addIdentityMasterPassword;
+
+  /// No description provided for @addIdentityMasterHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlocks the identity chooser. Must be different from each identity\'s own password.'**
+  String get addIdentityMasterHint;
+
+  /// No description provided for @addIdentityCreate.
+  ///
+  /// In en, this message translates to:
+  /// **'Create'**
+  String get addIdentityCreate;
+
+  /// No description provided for @addIdentityIncomplete.
+  ///
+  /// In en, this message translates to:
+  /// **'Fill in every field.'**
+  String get addIdentityIncomplete;
+
+  /// No description provided for @addIdentityClash.
+  ///
+  /// In en, this message translates to:
+  /// **'That master password is already used by an identity — choose a different one.'**
+  String get addIdentityClash;
+
   /// No description provided for @languageSystem.
   ///
   /// In en, this message translates to:
