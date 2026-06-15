@@ -159,6 +159,23 @@ void main() {
     expect((await sB.loadMessages(a.hex)).any((m) => m.id == id), isFalse);
   });
 
+  test('a peer cannot edit or delete OUR outgoing message (authz by direction)',
+      () async {
+    await mA.sendText(b, 'our statement');
+    await _pump();
+    final id = (await aMsg('our statement')).id;
+
+    // B (an accepted peer) maliciously sends edit + del for A's OWN message id.
+    await tB.send(a, WireEnvelope.edit(id, 'doctored').encode());
+    await tB.send(a, WireEnvelope.del(id).encode());
+    await _pump();
+
+    final ours = await sA.loadMessages(b.hex);
+    expect(ours.any((m) => m.id == id && m.body == 'our statement'), isTrue,
+        reason: 'a peer must not rewrite or destroy our own sent message');
+    expect(ours.any((m) => m.body == 'doctored'), isFalse);
+  });
+
   test('deleteForEveryone is a no-op on a received message (can only unsend own)',
       () async {
     await mA.sendText(b, 'from A');
