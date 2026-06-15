@@ -14,8 +14,25 @@ import 'dart:typed_data';
 /// nothing about the hidden set. Only add genuinely safe-to-reveal children to
 /// a decoy/duress master.
 class RosterEntry {
-  const RosterEntry({required this.label, required this.spaceKeys});
+  const RosterEntry({
+    required this.label,
+    required this.spaceKeys,
+    this.anonymous = false,
+  });
 
   final String label;
   final Uint8List spaceKeys;
+
+  /// Route this identity's node through veil's anonymizing overlay (onion /
+  /// multi-hop) so its network activity is not linkable to the user's other
+  /// identities or main account. Set for identities that must stay unlinkable;
+  /// the default (false) uses direct routing (lower latency).
+  final bool anonymous;
+
+  RosterEntry copyWith({String? label, Uint8List? spaceKeys, bool? anonymous}) =>
+      RosterEntry(
+        label: label ?? this.label,
+        spaceKeys: spaceKeys ?? this.spaceKeys,
+        anonymous: anonymous ?? this.anonymous,
+      );
 }

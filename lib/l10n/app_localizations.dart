@@ -613,6 +613,18 @@ abstract class AppL10n {
   /// **'Setting up your new identity…\nThis can take a few seconds.'**
   String get addIdentityWorking;
 
+  /// No description provided for @addIdentityAnonymous.
+  ///
+  /// In en, this message translates to:
+  /// **'Route anonymously'**
+  String get addIdentityAnonymous;
+
+  /// No description provided for @addIdentityAnonymousHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide this identity\'s network activity through veil\'s overlay so it can\'t be linked to your other identities. Slower.'**
+  String get addIdentityAnonymousHint;
+
   /// No description provided for @settingsDecoyMaster.
   ///
   /// In en, this message translates to:
