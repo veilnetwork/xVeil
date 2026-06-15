@@ -283,6 +283,57 @@ class AppController extends Notifier<AppState> {
     return true;
   }
 
+  /// Create a **decoy (duress) master** under [duressPassword], whose roster
+  /// lists ONLY the chosen existing identities ([includeLabels]). Under coercion
+  /// the user gives the duress password → it opens this decoy, showing a
+  /// believable set while the real master and any sensitive identity stay
+  /// hidden. SHARE ONLY GENUINELY INNOCUOUS IDENTITIES — opening the decoy
+  /// exposes the full content of every identity it lists.
+  ///
+  /// Master-mode only (there must be identities to share). Returns false if the
+  /// duress password collides with an existing identity OR an existing master
+  /// (it must never overwrite either). Does not change the active session.
+  Future<bool> createDecoyMaster({
+    required String duressPassword,
+    required List<String> includeLabels,
+  }) async {
+    final roster = _pendingRoster;
+    if (roster == null) return false; // need a master session to share from
+    final decoy = [
+      for (final e in roster)
+        if (includeLabels.contains(e.label)) e,
+    ];
+    if (decoy.isEmpty) return false;
+
+    // Only one space open at a time: close the active identity, write the decoy
+    // master, then restore the active identity.
+    final activeLabel = _activeLabel;
+    await _teardownRealStack();
+    await ref.read(storageProvider).close();
+
+    final storage = ref.read(storageProvider);
+    var ok = false;
+    if (await storage.open(password: duressPassword, createIfMissing: true)) {
+      // Refuse to write into anything that already exists — a clash means the
+      // password opened a real identity (has an identity) or an existing master
+      // (has a roster); writing the decoy roster would clobber it.
+      final clash = await storage.loadIdentity() != null ||
+          await storage.loadRoster() != null;
+      if (!clash) {
+        await storage.saveRoster(decoy);
+        ok = true;
+      }
+      await storage.close();
+    }
+
+    // Restore the user's active identity.
+    if (activeLabel != null) {
+      _activeLabel = null;
+      await pickIdentity(activeLabel);
+    }
+    return ok;
+  }
+
   /// Reopen whatever identity was active before a failed [addIdentity] so the
   /// user is not stranded on a closed space.
   Future<void> _recoverToActive() async {

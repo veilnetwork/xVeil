@@ -281,6 +281,39 @@ class AppL10nEn extends AppL10n {
       'That master password is already used by an identity — choose a different one.';
 
   @override
+  String get settingsDecoyMaster => 'Set up decoy access';
+
+  @override
+  String get decoyTitle => 'Decoy (duress) access';
+
+  @override
+  String get decoySubtitle =>
+      'A separate password that, under coercion, opens only the identities you tick below. Your real master and every other identity stay hidden.';
+
+  @override
+  String get decoyWarning =>
+      'Anyone you give this password to sees the FULL content of every identity you tick. Include only genuinely safe ones.';
+
+  @override
+  String get decoyPassword => 'Duress password';
+
+  @override
+  String get decoyInclude => 'Identities to show under duress';
+
+  @override
+  String get decoyCreate => 'Create decoy access';
+
+  @override
+  String get decoyCreated => 'Decoy access created.';
+
+  @override
+  String get decoyPickOne => 'Select at least one identity.';
+
+  @override
+  String get decoyClash =>
+      'That password is already in use — choose a different one.';
+
+  @override
   String get languageSystem => 'System default';
 
   @override
