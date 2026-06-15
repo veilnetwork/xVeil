@@ -216,12 +216,38 @@ class HiddenVolumeStorage implements Storage {
   // --- Conversations & messages -----------------------------------------
 
   @override
+  Future<void> markRead(String conversationId) async {
+    var latest = 0;
+    for (final m in _scanLog()) {
+      if (m.conversationId == conversationId) {
+        final ms = m.timestamp.millisecondsSinceEpoch;
+        if (ms > latest) latest = ms;
+      }
+    }
+    _s.commit([PutOp(Ns.settings, _sk('read:$conversationId'), _sk('$latest'))]);
+  }
+
+  /// Millis of the latest message marked read in [conversationId] (0 = never
+  /// read → all incoming count as unread).
+  int _readMarker(String conversationId) {
+    final raw = _s.get(Ns.settings, _sk('read:$conversationId'));
+    return raw == null ? 0 : (int.tryParse(utf8.decode(raw)) ?? 0);
+  }
+
+  @override
   Future<List<Conversation>> loadConversations() async {
     final byConv = <String, Message>{};
+    final unread = <String, int>{};
     for (final entry in _scanLog()) {
       final existing = byConv[entry.conversationId];
       if (existing == null || entry.timestamp.isAfter(existing.timestamp)) {
         byConv[entry.conversationId] = entry;
+      }
+      // Unread = incoming messages newer than the conversation's read marker.
+      if (entry.direction == MessageDirection.incoming &&
+          entry.timestamp.millisecondsSinceEpoch >
+              _readMarker(entry.conversationId)) {
+        unread[entry.conversationId] = (unread[entry.conversationId] ?? 0) + 1;
       }
     }
     // Union of known contacts and any conversation that has messages (a peer
@@ -231,6 +257,7 @@ class HiddenVolumeStorage implements Storage {
         .map((hex) => Conversation(
               peer: _contactFor(NodeId.fromHex(hex)),
               lastMessage: byConv[hex],
+              unread: unread[hex] ?? 0,
             ))
         .toList()
       ..sort((a, b) {

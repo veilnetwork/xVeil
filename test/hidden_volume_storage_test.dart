@@ -149,6 +149,46 @@ void main() {
     expect(carol.lastMessage, isNull);
   });
 
+  test('unread counts incoming messages; markRead resets it', () async {
+    final conv = _id(20).hex;
+    await storage.appendMessage(_msg(
+        conv: conv,
+        dir: MessageDirection.incoming,
+        body: 'one',
+        ts: DateTime(2026, 5, 1, 10)));
+    await storage.appendMessage(_msg(
+        conv: conv,
+        dir: MessageDirection.incoming,
+        body: 'two',
+        ts: DateTime(2026, 5, 1, 11)));
+    // Our own outgoing message never counts as unread.
+    await storage.appendMessage(_msg(
+        conv: conv,
+        dir: MessageDirection.outgoing,
+        body: 'mine',
+        ts: DateTime(2026, 5, 1, 12)));
+
+    expect((await storage.loadConversations())
+        .firstWhere((c) => c.id == conv)
+        .unread, 2);
+
+    // Opening it marks read up to the latest message.
+    await storage.markRead(conv);
+    expect((await storage.loadConversations())
+        .firstWhere((c) => c.id == conv)
+        .unread, 0);
+
+    // A newer incoming bumps unread again.
+    await storage.appendMessage(_msg(
+        conv: conv,
+        dir: MessageDirection.incoming,
+        body: 'three',
+        ts: DateTime(2026, 5, 1, 13)));
+    expect((await storage.loadConversations())
+        .firstWhere((c) => c.id == conv)
+        .unread, 1);
+  });
+
   test('loadRoster is null for a plain identity space (the discriminator)',
       () async {
     expect(await storage.loadRoster(), isNull);

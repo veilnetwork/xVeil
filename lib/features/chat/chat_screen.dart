@@ -26,6 +26,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   late final NodeId _peer = NodeId.fromHex(widget.peerHex);
 
   @override
+  void initState() {
+    super.initState();
+    // Opening the chat clears its unread badge (marks read up to the latest
+    // message). Deferred so the first frame isn't blocked.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        ref.read(messagingServiceProvider).markRead(widget.peerHex);
+      }
+    });
+  }
+
+  @override
   void dispose() {
     _input.dispose();
     _scroll.dispose();
