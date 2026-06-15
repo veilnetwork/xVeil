@@ -28,6 +28,14 @@ Adversary = has the device at rest, full disk image, one coerced password
 A coerced password reveals **only the one space it opens**. Everything else stays
 indistinguishable from padding.
 
+**Duress decoy (master level).** The user pre-configures a *decoy master* space
+with plausible identities and "correct"-looking chats. Under coercion they give
+the **duress password**, which opens the decoy master. Its roster points **only**
+to decoy identity spaces — never to the real master or real identities. So
+coercion yields a believable, complete-looking setup while revealing nothing
+real. This is why the master roster (§3b) is per-master: the decoy master and
+the real master are separate spaces that share no references.
+
 ## 3. Core principle: identity ≡ space
 
 An **identity** is exactly one hidden-volume space. Everything that identifies
@@ -39,9 +47,43 @@ the user lives **inside** that space:
 - username + its PoW claim.
 
 Selecting an identity = unlocking its space with its password. There is **no
-enumerable list of identities** anywhere — that would break deniability. Unlock
-is password-only; a non-matching password is `AuthFailed`, indistinguishable
-from "no such space" (invariant already honoured by the lock screen).
+enumerable list of identities on disk or outside a master space** — that would
+break deniability. Unlock is password-only; a non-matching password is
+`AuthFailed`, indistinguishable from "no such space" (invariant already honoured
+by the lock screen).
+
+## 3b. Two unlock modes: single identity and master
+
+A password can open either kind of space (indistinguishable from outside):
+
+- **Identity password → one identity.** Opens that identity's space directly.
+  The simple, single-identity user never needs a master.
+- **Master password → a roster of identities.** A **master space** is an
+  app-layer space whose contents are a roster: a list of
+  `{label, child SpaceKeys}` entries pointing at identity spaces it manages. The
+  master opens any child via `open_space_with_keys(child_keys)` — no per-child
+  password prompt. From a master session the user can see, switch between, and
+  act as any identity in the roster.
+
+The roster lives **inside** the master space (encrypted, deniable), never on
+disk and never referenced from any other space. A **decoy master** (§2) has a
+roster of decoy identities only. Identity spaces remain openable *directly* by
+their own password too (so the same identity works in single mode and as a
+master's child).
+
+## 3c. Acting as an identity (send-as)
+
+Every **conversation is owned by exactly one local identity** — the node it is
+conducted under — and is stored in that identity's space. Starting a chat
+prompts "as which identity?" (in master mode; trivial in single mode). Messages
+to that conversation always send via the owning identity's veil node, so a
+contact only ever sees the node_id you chose for them. A reply arrives on the
+identity it was addressed to and lands in that identity's space.
+
+Open question (§7): in master mode, do we run **all roster identities' nodes
+simultaneously** (you receive on every identity at once) or **one active node**
+that you switch (only the active identity is online)? Simultaneous is the better
+messenger UX but heavier and more network surface; switching is simpler.
 
 ## 4. On-disk artifact audit — what leaks today
 
@@ -75,13 +117,28 @@ only half-real (this is why "design the whole thing first").
 2. `add_space(path, P2)` → new parallel space in the same file (§6.1).
 3. Mine + store node identity in the new space (as above).
 
-**Unlock**
+**Unlock (either mode — the app can't tell which kind a password opens)**
 1. Enter password → `open_space(password)`. No match → `AuthFailed` → generic
-   "wrong password". (No hint about how many spaces exist.)
-2. Read `node:identity` from the space → boot embedded node from it in memory.
+   "wrong password". (No hint about how many spaces exist, or whether this is an
+   identity or a master.)
+2. Inspect the opened space: identity space → boot its node (read `node:identity`,
+   boot in memory). Master space → load the roster; the user picks an identity to
+   act as, the app opens that child via `open_space_with_keys` and boots its node.
+
+**Create / configure a master**
+1. Under a master session (or at master creation), `add_space(master_password)`
+   creates the master space; its roster starts empty.
+2. Adding an identity to the master: create the identity space (as above) and
+   record its label + `SpaceKeys` in the master roster. The app has the child
+   keys at creation time, so no separate password round-trip is needed.
+3. **Decoy master:** same mechanism with the duress password; populate its roster
+   only with decoy identities holding plausible chats. The app must never write a
+   real child's keys into the decoy roster (enforced by keeping master sessions
+   separate — you build the decoy while *in* the decoy master).
 
 **Lock**
-1. Stop the node, zeroize key material, close the space.
+1. Stop the node(s), zeroize key material (including any cached child SpaceKeys),
+   close the space(s).
 
 ## 6. Required changes, by layer
 
@@ -101,6 +158,15 @@ Then `HvSpace.addSpace(...)` in the Flutter plugin + regen bindings. xVeil
 `_createOrOpen` (create=true): file absent → `create`; file present →
 `add_space`; `SpaceAlreadyExists` → adopt via `open`. Per hidden-volume
 conventions: CHANGELOG `[Unreleased]`, EN↔RU doc actualization, a test.
+
+**Also required for the master model (all backed by existing core):**
+- `open_with_keys(path, SpaceKeys)` — exposes `Container::open_space_with_keys`
+  (mod.rs:469) so a master opens its children without their passwords.
+- A way to **materialize a child's `SpaceKeys`** for the master to store —
+  either export from an open handle or derive from the child password at
+  creation time (`SpaceKeys` = derive.rs:48). These keys are sensitive
+  (per-space decryption root); they live only inside the master space.
+  `SpaceKeys` must cross the FFI as opaque bytes, never logged.
 
 ### 6.2 veil — boot the node without a disk config (the deniability-critical part)
 Today `veil_node_start(config_path)` reads a **file**, and that file holds the
@@ -127,29 +193,37 @@ Also audit: the embedded node must not persist identity-bearing state to disk
   the (new) space.
 - One active identity at a time (see §7).
 
-## 7. Open decisions (recommendations)
+## 7. Decisions (updated per review 2026-06-15)
 
-1. **One active identity at a time** (recommended) vs several simultaneously.
-   Unlock one space → run one node. Simpler, and matches "switch identity =
-   re-unlock". Multi-identity-simultaneous and multi-device are separate, later.
-2. **Distinct password per identity, enforced by the user, not the system.**
-   The model cannot deniably check "does this password already have a space"
-   without trying to open (which is the AuthFailed conflation). If two
-   identities share a password, `open_space` is ambiguous. So the UX must
-   steer toward distinct passwords; the system can't guarantee it without
-   leaking. `add_space` does detect an exact collision (`SpaceAlreadyExists`)
-   and we adopt in that case.
-3. **Decoy / duress (master space)** — phase 2. A "duress password" opens a
-   plausible decoy identity. Out of scope for the first cut.
-4. **Where username/PoW lives** — inside the space with the node identity.
+1. **Both modes supported** (confirmed): single identity *and* a master space
+   that manages several. Plus an explicit **send-as-identity** mechanism: each
+   conversation is owned by one identity; starting a chat picks the identity
+   (§3c).
+2. **Master mode node activation — OPEN.** Run all roster identities'
+   nodes simultaneously (receive on every identity at once, heavier / more
+   network surface) vs one active node you switch (simpler, only the active
+   identity online). *Recommendation:* start with one active node + fast switch,
+   design the data model so simultaneous can be enabled later without a schema
+   change (conversations are already per-identity).
+3. **Distinct password per identity** (confirmed): the model can't deniably
+   dedupe passwords (AuthFailed conflation); UX steers to distinct passwords,
+   `add_space` adopts on exact `SpaceAlreadyExists` collision.
+4. **Decoy / duress is in scope (master level)** (confirmed): a duress password
+   opens a pre-built **decoy master** whose roster holds only decoy identities
+   with plausible chats; it never references the real master/identities (§2, §5).
+5. **Username/PoW + node keypair** live inside each identity's space.
 
 ## 8. Phasing
 
-- **Phase 1 (closes the leak):** `add_space` FFI + storage wiring + node keys
-  in-space + in-memory node boot + in-process mining. After this, the
-  deniability invariant in §2 actually holds. Do not ship multi-identity
-  storage without the node-boot half, or §4's headline leak remains.
-- **Phase 2:** decoy/duress space, multi-device sync, identity switcher UX.
+- **Phase 1 (closes the leak — single identity, fully deniable):** `add_space`
+  FFI + storage wiring + node keypair in-space + in-memory node boot + in-process
+  mining. After this, §2's invariant holds for one identity. Do **not** ship
+  multi-identity storage without the node-boot half, or §4's headline leak
+  remains.
+- **Phase 2 (master + send-as + decoy):** `open_with_keys` + `SpaceKeys` export
+  FFI; master-space roster; per-identity conversation ownership + send-as picker;
+  pre-built **decoy master** for duress. One active node + fast switch.
+- **Phase 3:** simultaneous per-identity nodes, multi-device sync.
 
 ## 9. Deniability invariant checklist (acceptance)
 
@@ -158,5 +232,9 @@ Also audit: the embedded node must not persist identity-bearing state to disk
 - [ ] Count of identities not derivable from the container or any sidecar.
 - [ ] A single coerced password opens exactly one space and reveals nothing
       about the others.
+- [ ] The decoy master's roster references only decoy identities; opening it
+      under duress cannot reach the real master or any real identity.
+- [ ] A master and its child rosters live only inside spaces — no on-disk index,
+      no cross-space reference an adversary could follow.
 - [ ] Node runtime writes nothing identity-bearing to disk.
 - [ ] Lock screen does not distinguish wrong-password from no-space.
