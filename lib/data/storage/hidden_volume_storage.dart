@@ -238,16 +238,19 @@ class HiddenVolumeStorage implements Storage {
   Future<List<Conversation>> loadConversations() async {
     final byConv = <String, Message>{};
     final unread = <String, int>{};
+    final readMarkers = <String, int>{}; // cache: one KV read per conversation
     for (final entry in _scanLog()) {
       final existing = byConv[entry.conversationId];
       if (existing == null || entry.timestamp.isAfter(existing.timestamp)) {
         byConv[entry.conversationId] = entry;
       }
       // Unread = incoming messages newer than the conversation's read marker.
-      if (entry.direction == MessageDirection.incoming &&
-          entry.timestamp.millisecondsSinceEpoch >
-              _readMarker(entry.conversationId)) {
-        unread[entry.conversationId] = (unread[entry.conversationId] ?? 0) + 1;
+      if (entry.direction == MessageDirection.incoming) {
+        final marker = readMarkers[entry.conversationId] ??=
+            _readMarker(entry.conversationId);
+        if (entry.timestamp.millisecondsSinceEpoch > marker) {
+          unread[entry.conversationId] = (unread[entry.conversationId] ?? 0) + 1;
+        }
       }
     }
     // Union of known contacts and any conversation that has messages (a peer
