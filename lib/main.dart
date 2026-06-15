@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'app.dart';
+import 'data/node/embedded_node.dart';
 import 'data/storage/hidden_volume_storage.dart';
 import 'data/storage/hv_kv_log_store.dart';
 import 'data/storage/hv_native.dart';
@@ -51,6 +52,7 @@ Future<List<Override>> _bootstrapOverrides() async {
   final cli = Platform.environment['XVEIL_VEIL_CLI'];
   final config = Platform.environment['XVEIL_VEIL_CONFIG'];
   if (cli != null && cli.isNotEmpty && config != null && config.isNotEmpty) {
+    // Legacy dev path: boot from a pre-made config.toml at launch.
     try {
       if (ensureVeilClientLoaded()) {
         final sock = '${File(config).parent.path}/app.sock';
@@ -63,14 +65,26 @@ Future<List<Override>> _bootstrapOverrides() async {
           appSocketPath: sock,
           embedded: embedded,
         );
-        overrides.add(realStackProvider.overrideWithValue(stack));
-        debugPrint('xVeil[real]: connected, node=${stack.myInvite.nodeId.short}');
+        overrides.add(realStackProvider.overrideWith((ref) => stack));
+        debugPrint('xVeil[real:legacy]: connected, node=${stack.myInvite.nodeId.short}');
       } else {
         debugPrint('xVeil[real]: veil dylib failed to load');
       }
     } catch (e) {
       debugPrint('xVeil[real]: start failed -> loopback: $e');
     }
+  } else if (ensureVeilClientLoaded() && embeddedNodeAvailable()) {
+    // Deniable path: the node boots IN-PROCESS post-unlock from the identity
+    // stored inside the unlocked container (AppController._ensureRealStack),
+    // so nothing identity-bearing is ever written to a config.toml. Each
+    // instance needs its own listener port (XVEIL_LISTEN_PORT) + sockets dir.
+    final runtimeDir = Platform.environment['XVEIL_RUNTIME_DIR'] ??
+        '${Directory.systemTemp.path}/xveil-rt-$pid';
+    final port =
+        int.tryParse(Platform.environment['XVEIL_LISTEN_PORT'] ?? '') ?? 9000;
+    overrides.add(deniableBootProvider.overrideWithValue(
+        DeniableBootConfig(runtimeDir: runtimeDir, listenPort: port)));
+    debugPrint('xVeil[real:deniable]: armed (runtimeDir=$runtimeDir port=$port)');
   }
 
   return overrides;
