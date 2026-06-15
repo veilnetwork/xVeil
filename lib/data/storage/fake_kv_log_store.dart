@@ -14,8 +14,12 @@ String _hexKey(Uint8List key) {
 /// without the native library. Backs the dev/test build and is the harness
 /// for the storage unit tests.
 class FakeKvLogStore implements KvLogStore {
+  FakeKvLogStore({Uint8List? keys})
+      : _keys = keys ?? Uint8List.fromList(List.filled(64, 0));
+
   final Map<int, Map<String, Uint8List>> _kv = {};
   final Map<int, List<KvLogEntry>> _log = {};
+  final Uint8List _keys;
   int _seq = 0;
 
   @override
@@ -80,6 +84,9 @@ class FakeKvLogStore implements KvLogStore {
     // The in-memory fake never persists, so there are no orphaned chunks to
     // reclaim — replaced/tombstoned entries are already gone from [_log].
   }
+
+  @override
+  Uint8List exportKeys() => _keys;
 
   @override
   void close() {}
