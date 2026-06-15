@@ -275,6 +275,18 @@ class MessagingService {
     _signal();
   }
 
+  /// Mark a conversation read (its unread badge resets) and refresh the UI.
+  /// Best-effort — never throw from a screen's open hook (e.g. storage not yet
+  /// open in a test/loopback context).
+  Future<void> markRead(String conversationId) async {
+    try {
+      await _storage.markRead(conversationId);
+      _signal();
+    } catch (_) {
+      // storage locked / unavailable — skip the badge clear.
+    }
+  }
+
   Future<void> sendText(NodeId dst, String text) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
