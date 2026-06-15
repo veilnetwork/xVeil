@@ -59,4 +59,35 @@ void main() {
       dir.deleteSync(recursive: true);
     }
   }, skip: skipReason);
+
+  // Regression: creating over an existing container must not crash with
+  // `Io: File exists`. HvSpace.create only bootstraps a *fresh* file; a second
+  // createIfMissing on the same path adopts the existing space (right password)
+  // or fails closed (wrong password) — never throws, never clobbers.
+  test('createIfMissing over an existing container adopts it, never crashes',
+      () async {
+    final dir = Directory.systemTemp.createTempSync('xveil_hv_recreate_');
+    final path = '${dir.path}/test.store';
+    SpaceOpener opener() => hvSpaceOpener(path, argon: hv.ArgonPreset.min);
+    try {
+      final first = HiddenVolumeStorage(opener());
+      expect(await first.open(password: 'p1', createIfMissing: true), isTrue);
+      await first.putSetting('marker', 'orig');
+      await first.close();
+
+      // Same password + createIfMissing again: the file now exists. Must adopt
+      // the existing space (not raise Io: File exists), preserving its data.
+      final again = HiddenVolumeStorage(opener());
+      expect(await again.open(password: 'p1', createIfMissing: true), isTrue);
+      expect(await again.getSetting('marker'), 'orig');
+      await again.close();
+
+      // A different password + createIfMissing on the existing file must fail
+      // closed (AuthFailed -> false), not crash and not create a parallel space.
+      final other = HiddenVolumeStorage(opener());
+      expect(await other.open(password: 'p2', createIfMissing: true), isFalse);
+    } finally {
+      dir.deleteSync(recursive: true);
+    }
+  }, skip: skipReason);
 }
