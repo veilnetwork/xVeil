@@ -186,20 +186,31 @@ conventions: CHANGELOG `[Unreleased]`, EN↔RU doc actualization, a test.
   `SpaceKeys` must cross the FFI as opaque bytes, never logged.
 
 ### 6.2 veil — boot the node without a disk config (the deniability-critical part)
-Today `veil_node_start(config_path)` reads a **file**, and that file holds the
-plaintext private key. Two FFI additions on the veil side:
+Today `veil_node_start(config_path)` reads a **file**, and `veil-cli config init`
+writes the mined `[Identity]` (Ed25519 `private_key` + `node_id` + PoW `nonce`)
+into that file. Both must change so keys never touch disk.
 
-- **`veil_config_init` (in-process identity mining)** — already flagged
-  security-critical. Mines the Ed25519 identity + ≥24-bit PoW nonce in-process
-  and returns the keypair/params as bytes, so onboarding never shells out and
-  never writes keys to disk. Mobile onboarding needs this anyway.
-- **`veil_node_start_from_config_bytes(bytes)`** (or pass keypair + params
-  directly) — boot the embedded node from an in-memory config assembled from
-  the space's stored keypair. No `config.toml` on disk. Runtime-only values
-  (listener port, ephemeral socket paths) are filled at boot.
+- **`veil_config_init` (in-process identity mining)** — expose what
+  `veil-cli config init` does (keypair via `crypto::generate_keypair`, ≥24-bit
+  PoW nonce mining) as an FFI that **returns** the identity material in memory
+  instead of writing a config file. xVeil stores it in the space's
+  `node:identity` blob. Security-critical; mobile onboarding needs it anyway.
+- **Boot from in-memory identity — two options:**
+  - **(A, no new FFI)** Reuse the existing `veil_node_start_deferred` (boots
+    ephemeral, no config file) + push the real config — assembled in memory from
+    the space's `node:identity` — over the node's **admin IPC** (`apply_config`,
+    already on the backlog). Smallest veil-side change; relies on the deferred +
+    apply path being complete.
+  - **(B, new FFI)** Add `veil_node_start_from_config_bytes(bytes)` that parses
+    an in-memory TOML (no path) and boots directly. Cleaner boot, but the node
+    runtime currently takes a config *path* (`start_thread(Some(path), …)`), so
+    this needs the runtime to accept a parsed `Config` object.
+  *Recommendation:* try (A) first (no new FFI, exercises deferred+apply which we
+  want anyway); fall back to (B) if deferred+apply can't carry the full identity.
 
-Also audit: the embedded node must not persist identity-bearing state to disk
-(DHT is in-memory already; confirm no peer cache / logs leak).
+Also audit: the embedded node must not persist identity-bearing state to disk —
+admin/ipc socket **paths** must be ephemeral and identity-free, DHT is in-memory
+already (rocksdb opt-in), confirm no peer cache / logs leak.
 
 ### 6.3 xVeil — wiring
 - Storage: `node:identity` blob read/write in the space; `_createOrOpen` uses
