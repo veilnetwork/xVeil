@@ -79,21 +79,31 @@ SpaceOpener hvSpaceOpener(
   };
 }
 
+/// Resolve a space for a "create identity" request:
+/// - no container yet → bootstrap a fresh one with its first space;
+/// - container already on disk → add a **new parallel, deniable space** (a new
+///   identity hidden in the same file), unless this password already maps to a
+///   space, in which case adopt that one.
+///
+/// A container on disk is NEVER re-created (that would risk clobbering an
+/// existing — possibly hidden — space); `add_space` opens it and bootstraps an
+/// additional space alongside the others.
 hv.HvSpace _createOrOpen(String path, Uint8List password, hv.ArgonPreset argon) {
-  // A container already on disk must NEVER be re-created: HvSpace.create
-  // bootstraps a *fresh* file and would either fail (Io: File exists) or, worse,
-  // risk clobbering an existing — possibly hidden — space. So if the file is
-  // there, adopt it by opening with this password. A password that matches no
-  // space surfaces upstream as AuthFailed (→ null), not a crash.
-  if (File(path).existsSync()) {
-    return hv.HvSpace.open(path: path, password: password);
+  if (!File(path).existsSync()) {
+    try {
+      return hv.HvSpace.create(path: path, password: password, argon: argon);
+    } on hv.HvException catch (e) {
+      // TOCTOU: the file appeared between the existence check and create.
+      // Fall through to add a space into the now-existing container.
+      if (e.kind != 'Io' && e.kind != 'SpaceAlreadyExists') rethrow;
+    }
   }
   try {
-    return hv.HvSpace.create(path: path, password: password, argon: argon);
+    return hv.HvSpace.addSpace(path: path, password: password);
   } on hv.HvException catch (e) {
-    // Lost a create/create race, or the file appeared between the check above
-    // and here — fall back to opening the now-existing container.
-    if (e.kind == 'SpaceAlreadyExists' || e.kind == 'Io') {
+    // This password already opens a space here — adopt it instead of adding a
+    // duplicate (open-by-password would otherwise be ambiguous).
+    if (e.kind == 'SpaceAlreadyExists') {
       return hv.HvSpace.open(path: path, password: password);
     }
     rethrow;

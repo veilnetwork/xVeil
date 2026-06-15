@@ -60,13 +60,13 @@ void main() {
     }
   }, skip: skipReason);
 
-  // Regression: creating over an existing container must not crash with
-  // `Io: File exists`. HvSpace.create only bootstraps a *fresh* file; a second
-  // createIfMissing on the same path adopts the existing space (right password)
-  // or fails closed (wrong password) — never throws, never clobbers.
-  test('createIfMissing over an existing container adopts it, never crashes',
-      () async {
-    final dir = Directory.systemTemp.createTempSync('xveil_hv_recreate_');
+  // Multi-identity: createIfMissing over an existing container adds a NEW
+  // parallel deniable space (a new identity hidden in the same file) for a new
+  // password, and adopts the existing space for the same password — never
+  // crashes with `Io: File exists`, never clobbers existing data.
+  test('createIfMissing over an existing container: new password adds an '
+      'identity, same password adopts', () async {
+    final dir = Directory.systemTemp.createTempSync('xveil_hv_multi_');
     final path = '${dir.path}/test.store';
     SpaceOpener opener() => hvSpaceOpener(path, argon: hv.ArgonPreset.min);
     try {
@@ -75,17 +75,35 @@ void main() {
       await first.putSetting('marker', 'orig');
       await first.close();
 
-      // Same password + createIfMissing again: the file now exists. Must adopt
-      // the existing space (not raise Io: File exists), preserving its data.
+      // Same password again: adopt the existing space (SpaceAlreadyExists ->
+      // open), preserving its data — not a second copy, not a crash.
       final again = HiddenVolumeStorage(opener());
       expect(await again.open(password: 'p1', createIfMissing: true), isTrue);
       expect(await again.getSetting('marker'), 'orig');
       await again.close();
 
-      // A different password + createIfMissing on the existing file must fail
-      // closed (AuthFailed -> false), not crash and not create a parallel space.
-      final other = HiddenVolumeStorage(opener());
-      expect(await other.open(password: 'p2', createIfMissing: true), isFalse);
+      // A DIFFERENT password adds a new parallel space: a fresh, empty identity
+      // in the same file. It opens successfully and shares nothing with p1.
+      final second = HiddenVolumeStorage(opener());
+      expect(await second.open(password: 'p2', createIfMissing: true), isTrue);
+      expect(await second.getSetting('marker'), isNull, reason: 'fresh space');
+      await second.putSetting('marker', 'second');
+      await second.close();
+
+      // Both identities now coexist, each opening only its own data.
+      final p1 = HiddenVolumeStorage(opener());
+      expect(await p1.open(password: 'p1'), isTrue);
+      expect(await p1.getSetting('marker'), 'orig');
+      await p1.close();
+      final p2 = HiddenVolumeStorage(opener());
+      expect(await p2.open(password: 'p2'), isTrue);
+      expect(await p2.getSetting('marker'), 'second');
+      await p2.close();
+
+      // A never-used password still unlocks nothing (no leak, no auto-create on
+      // the non-creating open path).
+      final stranger = HiddenVolumeStorage(opener());
+      expect(await stranger.open(password: 'p3'), isFalse);
     } finally {
       dir.deleteSync(recursive: true);
     }
