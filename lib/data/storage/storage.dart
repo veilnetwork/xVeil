@@ -24,6 +24,15 @@ abstract interface class Storage {
   Future<void> putSetting(String key, String value);
   Future<String?> getSetting(String key);
 
+  /// Persist this identity's veil node config (TOML from `veil_config_init`,
+  /// carrying the node keypair) INSIDE the deniable space — so the private key
+  /// never lives in a plaintext `config.toml` on disk. Loaded at unlock to boot
+  /// the embedded node via deferred-init + apply-config.
+  Future<void> saveNodeConfig(String configToml);
+
+  /// The stored node config for this identity, or null if none is saved yet.
+  Future<String?> loadNodeConfig();
+
   Future<void> upsertContact(Contact contact);
 
   /// The stored contact for [nodeId], or null if we have no record of them.
