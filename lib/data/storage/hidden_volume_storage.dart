@@ -62,6 +62,7 @@ class HiddenVolumeStorage implements Storage {
   /// Open a child space directly from its [keys] (master mode) — no password.
   /// Returns false if the keys match no space, or if this handle has no
   /// keys-opener configured.
+  @override
   Future<bool> openWithKeys(Uint8List keys) async {
     final store = keysOpener?.call(keys);
     if (store == null) return false;

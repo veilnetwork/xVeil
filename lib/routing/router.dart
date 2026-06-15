@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../features/chat/chat_screen.dart';
 import '../features/home/home_shell.dart';
+import '../features/identity/identity_picker_screen.dart';
 import '../features/lock/lock_screen.dart';
 import '../features/onboarding/onboarding_screen.dart';
 import '../features/preparing/preparing_screen.dart';
@@ -35,6 +36,8 @@ final routerProvider = Provider<GoRouter>((ref) {
           return loc == '/onboarding' ? null : '/onboarding';
         case AppPhase.locked:
           return loc == '/lock' ? null : '/lock';
+        case AppPhase.pickingIdentity:
+          return loc == '/pick-identity' ? null : '/pick-identity';
         case AppPhase.preparingNode:
           return loc == '/preparing' ? null : '/preparing';
         case AppPhase.ready:
@@ -42,6 +45,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           if (loc == '/splash' ||
               loc == '/lock' ||
               loc == '/onboarding' ||
+              loc == '/pick-identity' ||
               loc == '/preparing') {
             return '/home';
           }
@@ -55,6 +59,10 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, _) => const OnboardingScreen(),
       ),
       GoRoute(path: '/lock', builder: (_, _) => const LockScreen()),
+      GoRoute(
+        path: '/pick-identity',
+        builder: (_, _) => const IdentityPickerScreen(),
+      ),
       GoRoute(
         path: '/preparing',
         // No transition: the switch happens right before a brief CPU-bound
