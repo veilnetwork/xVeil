@@ -163,6 +163,38 @@ class AppL10nRu extends AppL10n {
   String get chatFileTooLarge => 'Файл слишком большой';
 
   @override
+  String get chatMsgEdit => 'Изменить';
+
+  @override
+  String get chatMsgDeleteForEveryone => 'Удалить у всех';
+
+  @override
+  String get chatMsgDeleteForMe => 'Удалить у себя';
+
+  @override
+  String get chatEditTitle => 'Изменить сообщение';
+
+  @override
+  String get chatEditSave => 'Сохранить';
+
+  @override
+  String get chatDeleteTitle => 'Удалить сообщение?';
+
+  @override
+  String get chatDeleteForMeBody =>
+      'Оно будет безвозвратно стёрто с этого устройства.';
+
+  @override
+  String get chatDeleteForEveryoneBody =>
+      'Оно стирается здесь, а собеседнику отправляется запрос на удаление — но он мог уже увидеть или скопировать его.';
+
+  @override
+  String get chatDeleteConfirm => 'Удалить';
+
+  @override
+  String get chatEdited => 'изменено';
+
+  @override
   String get networkTitle => 'Оверлей-сеть';
 
   @override
