@@ -38,27 +38,38 @@ class AppState {
     this.identity,
     this.unlockError = false,
     this.identities = const [],
+    this.activeIdentity,
   });
 
   final AppPhase phase;
   final Identity? identity;
   final bool unlockError;
 
-  /// In [AppPhase.pickingIdentity], the labels of the identities the unlocked
-  /// master manages (the picker's options). Empty otherwise.
+  /// The labels of the identities the unlocked master manages — populated
+  /// throughout a master session (the picker's options, and the switcher's).
+  /// Empty in single-identity mode.
   final List<String> identities;
+
+  /// In a master session, the label of the currently active identity; null in
+  /// single-identity mode.
+  final String? activeIdentity;
+
+  /// True when the unlocked space is a master managing several identities.
+  bool get isMaster => identities.isNotEmpty;
 
   AppState copyWith({
     AppPhase? phase,
     Identity? identity,
     bool? unlockError,
     List<String>? identities,
+    String? activeIdentity,
   }) =>
       AppState(
         phase ?? this.phase,
         identity: identity ?? this.identity,
         unlockError: unlockError ?? false,
         identities: identities ?? this.identities,
+        activeIdentity: activeIdentity ?? this.activeIdentity,
       );
 }
 
@@ -66,10 +77,14 @@ const _kOnboardedKey = 'onboarded';
 const _kStorageModeKey = 'storage_mode';
 
 class AppController extends Notifier<AppState> {
-  /// Roster of the master unlocked this session, cached between [unlock] (which
-  /// reads it then releases the master's lock) and [pickIdentity]. Holds child
-  /// SpaceKeys — cleared on lock/start-over. Null in single-identity mode.
+  /// Roster of the master unlocked this session — cached for the whole master
+  /// session so identity switching needs no re-prompt. Holds child SpaceKeys;
+  /// cleared on lock/start-over. Null in single-identity mode.
   List<RosterEntry>? _pendingRoster;
+
+  /// Label of the identity currently active in a master session (null in
+  /// single-identity mode).
+  String? _activeLabel;
 
   @override
   AppState build() {
@@ -162,8 +177,54 @@ class AppController extends Notifier<AppState> {
       state = const AppState(AppPhase.locked, unlockError: true);
       return;
     }
+    _activeLabel = label;
     final identity = await storage.loadIdentity() ?? _placeholderIdentity();
     await _enterSession(identity);
+  }
+
+  /// Switch to another identity in the same master session: stop the current
+  /// node, close the active space (the exclusive lock allows only one open at a
+  /// time), open the chosen child by its cached keys, and boot its node. No
+  /// password — the roster is already in memory from unlock. No-op outside a
+  /// master session or when already active.
+  Future<void> switchIdentity(String label) async {
+    if (_pendingRoster == null || label == _activeLabel) return;
+    RosterEntry? entry;
+    for (final e in _pendingRoster!) {
+      if (e.label == label) {
+        entry = e;
+        break;
+      }
+    }
+    if (entry == null) return;
+    await _teardownRealStack(); // stop the current identity's node
+    await ref.read(storageProvider).close(); // release the lock
+    state = state.copyWith(phase: AppPhase.preparingNode);
+    final storage = ref.read(storageProvider);
+    if (!await storage.openWithKeys(entry.spaceKeys)) {
+      state = const AppState(AppPhase.locked, unlockError: true);
+      return;
+    }
+    _activeLabel = label;
+    final identity = await storage.loadIdentity() ?? _placeholderIdentity();
+    await _enterSession(identity);
+  }
+
+  /// The identity currently active in a master session, or null in single mode.
+  String? get activeIdentity => _activeLabel;
+
+  /// Leave the active identity and go back to the picker (master mode), so the
+  /// user can switch. Stops the node and closes the active space first. No-op in
+  /// single-identity mode.
+  Future<void> returnToPicker() async {
+    if (_pendingRoster == null) return;
+    await _teardownRealStack();
+    await ref.read(storageProvider).close();
+    _activeLabel = null;
+    state = state.copyWith(
+      phase: AppPhase.pickingIdentity,
+      identities: [for (final e in _pendingRoster!) e.label],
+    );
   }
 
   Future<void> _enterSession(Identity identity) async {
@@ -190,7 +251,14 @@ class AppController extends Notifier<AppState> {
             username: identity.username,
           )
         : identity;
-    state = AppState(AppPhase.ready, identity: effective);
+    // Carry the master roster + active identity through the session so the UI
+    // can offer a switcher (empty/null in single-identity mode).
+    state = AppState(
+      AppPhase.ready,
+      identity: effective,
+      identities: [for (final e in _pendingRoster ?? const []) e.label],
+      activeIdentity: _activeLabel,
+    );
   }
 
   /// Build the in-process deniable stack post-unlock (storage is open) when the
@@ -217,8 +285,13 @@ class AppController extends Notifier<AppState> {
   Future<void> lock() async {
     await _teardownRealStack();
     await ref.read(storageProvider).close();
-    _pendingRoster = null; // drop cached child keys
+    _clearMasterSession();
     state = const AppState(AppPhase.locked);
+  }
+
+  void _clearMasterSession() {
+    _pendingRoster = null; // drop cached child keys
+    _activeLabel = null;
   }
 
   Future<void> _teardownRealStack() async {
@@ -236,7 +309,7 @@ class AppController extends Notifier<AppState> {
   Future<void> startOver() async {
     await _teardownRealStack();
     await ref.read(storageProvider).close();
-    _pendingRoster = null;
+    _clearMasterSession();
     final prefs = await ref.read(prefsProvider.future);
     await prefs.remove(_kOnboardedKey);
     await prefs.remove(_kStorageModeKey);
