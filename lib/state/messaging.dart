@@ -259,6 +259,29 @@ class MessagingService {
     }
   }
 
+  /// Delete a message from THIS device and scrub it from the container so the
+  /// plaintext is no longer recoverable — works for a received message too
+  /// (the highest-value deniability operation: purge what was sent to you).
+  /// Local-only for now; peer propagation is a follow-up.
+  Future<void> deleteMessageLocally(String messageId) async {
+    await _storage.deleteMessage(messageId);
+    // Scrub immediately: the whole point is the text is gone NOW, before any
+    // coercion — not merely hidden behind a tombstone.
+    await _storage.scrubDeleted();
+    _signal();
+  }
+
+  /// Edit the body of one of OUR sent messages. Replaces the stored text in
+  /// place (the prior text is scrubbed) and marks it edited. Local-only for
+  /// now; peer propagation is a follow-up.
+  Future<void> editOwnMessage(String messageId, String newBody) async {
+    final trimmed = newBody.trim();
+    if (trimmed.isEmpty) return;
+    await _storage.editMessage(messageId, trimmed);
+    await _storage.scrubDeleted();
+    _signal();
+  }
+
   /// Send a file to [dst] (gated to accepted contacts). Stores a local copy,
   /// records an outgoing file message, then streams the bytes as fileMeta +
   /// fileChunk envelopes.
