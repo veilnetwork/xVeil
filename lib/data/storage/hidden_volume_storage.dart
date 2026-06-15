@@ -312,14 +312,16 @@ class HiddenVolumeStorage implements Storage {
         break;
       }
     }
-    if (fileId != null) FileStore(_s).deleteFile(fileId);
-    // Tombstone the SAME log_id so the body no longer reads back, and drop the
-    // index entry. The original record's chunk is orphaned; scrubDeleted()
-    // reclaims it for forensic erasure.
+    // One atomic commit: tombstone the SAME log_id (so the body no longer reads
+    // back), drop the index entry, AND purge the file blob. Folding the blob
+    // ops in here (rather than a separate FileStore.deleteFile commit) closes
+    // the crash window where the chat row and the blob could disagree. The
+    // orphaned chunks are reclaimed by scrubDeleted() for forensic erasure.
     final tomb = jsonEncode({'op': 'del', 'id': messageId});
     _s.commit([
       AppendLogOp(Ns.messageLog, logId, _sk(tomb)),
       DeleteOp(Ns.settings, _sk('msgidx:$messageId')),
+      if (fileId != null) ...FileStore(_s).deleteFileOps(fileId),
     ]);
   }
 
