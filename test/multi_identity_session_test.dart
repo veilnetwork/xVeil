@@ -48,7 +48,7 @@ void main() {
 
     expect(specs.map((s) => s.label), ['alice', 'work', 'relatives']);
     expect(specs.map((s) => s.spaceId).toSet().length, 3);
-    expect(specs.map((s) => s.listenPort), [9000, 9001, 9002]);
+    expect(specs.map((s) => s.listenPort), [9001, 9002, 9003]);
     expect(specs[1].runtimeDir, '/run/work');
     expect(specs.map((s) => s.anonymous), [false, true, false]);
   });
