@@ -91,6 +91,19 @@ class HiddenVolumeStorage implements Storage {
     return raw == null ? null : utf8.decode(raw);
   }
 
+  // The node config (with the keypair) is just another SETTINGS-namespace KV
+  // entry, so it inherits the space's deniability — no plaintext config file.
+  @override
+  Future<void> saveNodeConfig(String configToml) async {
+    _s.commit([PutOp(Ns.settings, _sk('node:config'), _sk(configToml))]);
+  }
+
+  @override
+  Future<String?> loadNodeConfig() async {
+    final raw = _s.get(Ns.settings, _sk('node:config'));
+    return raw == null ? null : utf8.decode(raw);
+  }
+
   // --- Contacts ----------------------------------------------------------
 
   @override
