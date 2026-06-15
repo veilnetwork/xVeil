@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -6,6 +9,7 @@ import '../../core/ids.dart';
 import '../../domain/chat.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/messaging.dart';
+import '../../state/providers.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key, required this.peerHex});
@@ -49,6 +53,47 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     await ref.read(messagingServiceProvider).blockContact(_peer);
     if (mounted) Navigator.of(context).maybePop();
   }
+
+  /// Pick a file and send it to the peer (consent-gated in the service). Bytes
+  /// are read in full (withData) and bounded by the same cap the receiver
+  /// enforces.
+  Future<void> _attach() async {
+    final l = AppL10n.of(context);
+    final picked = await FilePicker.pickFiles(withData: true);
+    final file = picked?.files.firstOrNull;
+    final bytes = file?.bytes;
+    if (file == null || bytes == null) return; // cancelled / unreadable
+    if (bytes.length > kMaxIncomingFileBytes) {
+      if (mounted) _snack(l.chatFileTooLarge);
+      return;
+    }
+    await ref.read(messagingServiceProvider).sendFile(_peer, bytes, file.name);
+    _scrollToBottom();
+  }
+
+  /// Save a received (or sent) file out of the deniable container to a location
+  /// the user picks.
+  Future<void> _saveFile(Message m) async {
+    final l = AppL10n.of(context);
+    final bytes = await ref.read(storageProvider).loadFile(m.fileId!);
+    if (bytes == null) {
+      if (mounted) _snack(l.chatFileSaveFailed);
+      return;
+    }
+    final path = await FilePicker.saveFile(
+      fileName: m.fileName ?? 'file',
+    );
+    if (path == null) return; // cancelled
+    try {
+      await File(path).writeAsBytes(bytes);
+      if (mounted) _snack(l.chatFileSaved);
+    } catch (_) {
+      if (mounted) _snack(l.chatFileSaveFailed);
+    }
+  }
+
+  void _snack(String msg) => ScaffoldMessenger.of(context)
+      .showSnackBar(SnackBar(content: Text(msg)));
 
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -94,7 +139,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 controller: _scroll,
                 padding: const EdgeInsets.all(12),
                 itemCount: list.length,
-                itemBuilder: (_, i) => _Bubble(message: list[i]),
+                itemBuilder: (_, i) =>
+                    _Bubble(message: list[i], onTapFile: _saveFile),
               ),
             ),
           ),
@@ -107,24 +153,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Widget _bottom(ContactStatus? status, AppL10n l) {
     switch (status) {
       case ContactStatus.pendingOutgoing:
-        return const _Banner(
+        return _Banner(
           icon: Icons.hourglass_top,
-          text: 'Request sent — waiting for approval',
+          text: l.chatRequestSent,
         );
       case ContactStatus.pendingIncoming:
         return _RequestActions(onAccept: _accept, onBlock: _block);
       case ContactStatus.blocked:
-        return const _Banner(icon: Icons.block, text: 'You blocked this contact');
+        return _Banner(icon: Icons.block, text: l.chatBlockedContact);
       case ContactStatus.accepted:
         return _Composer(
           controller: _input,
           hint: l.chatNewMessageHint,
           onSend: () => _submit(status),
+          onAttach: _attach,
         );
       case null:
         return _Composer(
           controller: _input,
-          hint: 'Write a connection request…',
+          hint: l.chatRequestHint,
           onSend: () => _submit(status),
         );
     }
@@ -204,8 +251,9 @@ class _RequestActions extends StatelessWidget {
 }
 
 class _Bubble extends StatelessWidget {
-  const _Bubble({required this.message});
+  const _Bubble({required this.message, this.onTapFile});
   final Message message;
+  final void Function(Message message)? onTapFile;
 
   @override
   Widget build(BuildContext context) {
@@ -232,7 +280,27 @@ class _Bubble extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.end,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(message.body),
+            if (message.isFile)
+              InkWell(
+                onTap: onTapFile == null ? null : () => onTapFile!(message),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.insert_drive_file_outlined,
+                        size: 20, color: scheme.onSurfaceVariant),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(message.fileName ?? message.body,
+                          overflow: TextOverflow.ellipsis),
+                    ),
+                    const SizedBox(width: 8),
+                    Icon(Icons.download_outlined,
+                        size: 16, color: scheme.onSurfaceVariant),
+                  ],
+                ),
+              )
+            else
+              Text(message.body),
             const SizedBox(height: 2),
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -269,19 +337,30 @@ class _Composer extends StatelessWidget {
     required this.controller,
     required this.hint,
     required this.onSend,
+    this.onAttach,
   });
   final TextEditingController controller;
   final String hint;
   final VoidCallback onSend;
 
+  /// When set (accepted contacts only), shows a file-attach button.
+  final VoidCallback? onAttach;
+
   @override
   Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
     return SafeArea(
       top: false,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
         child: Row(
           children: [
+            if (onAttach != null)
+              IconButton(
+                onPressed: onAttach,
+                icon: const Icon(Icons.attach_file),
+                tooltip: l.chatAttachTooltip,
+              ),
             Expanded(
               child: TextField(
                 controller: controller,

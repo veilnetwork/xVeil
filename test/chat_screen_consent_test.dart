@@ -11,10 +11,11 @@ import 'package:xveil/state/messaging.dart';
 
 final _hex = NodeId(Uint8List.fromList(List.filled(32, 2))).hex;
 
-Widget _host(Contact? contact) => ProviderScope(
+Widget _host(Contact? contact, {List<Message> messages = const []}) =>
+    ProviderScope(
       overrides: [
         contactProvider(_hex).overrideWith((ref) => Stream.value(contact)),
-        messagesProvider(_hex).overrideWith((ref) => Stream.value(const [])),
+        messagesProvider(_hex).overrideWith((ref) => Stream.value(messages)),
       ],
       child: MaterialApp(
         localizationsDelegates: AppL10n.localizationsDelegates,
@@ -55,5 +56,30 @@ void main() {
     await tester.pump();
     expect(find.byIcon(Icons.send), findsOneWidget);
     expect(find.text('Write a connection request…'), findsOneWidget);
+  });
+
+  testWidgets('accepted contact can attach a file', (tester) async {
+    await tester.pumpWidget(_host(_c(ContactStatus.accepted)));
+    await tester.pump();
+    expect(find.byIcon(Icons.attach_file), findsOneWidget);
+  });
+
+  testWidgets('a file message renders with its name + a save affordance',
+      (tester) async {
+    final fileMsg = Message(
+      id: 'f1',
+      conversationId: _hex,
+      direction: MessageDirection.incoming,
+      body: '📎 photo.png',
+      timestamp: DateTime(2026, 1, 1),
+      fileId: 'fid',
+      fileName: 'photo.png',
+    );
+    await tester
+        .pumpWidget(_host(_c(ContactStatus.accepted), messages: [fileMsg]));
+    await tester.pump();
+    expect(find.text('photo.png'), findsOneWidget);
+    expect(find.byIcon(Icons.insert_drive_file_outlined), findsOneWidget);
+    expect(find.byIcon(Icons.download_outlined), findsOneWidget);
   });
 }
