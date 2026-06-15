@@ -12,10 +12,15 @@ import 'package:xveil/data/storage/hv_native.dart';
 /// One-off diagnostic: open the user's container with each password and report
 /// what's actually inside. Run with the container at XVEIL_DIAG_STORE.
 void main() {
-  final skip = ensureHiddenVolumeLoaded() ? null : 'no dylib';
-  final path = Platform.environment['XVEIL_DIAG_STORE'] ?? '/tmp/xveil-ao.store';
+  // Explicit opt-in only: this is a hand-run diagnostic against a real
+  // container, not part of the normal suite. Set XVEIL_DIAG_STORE to run it.
+  final envPath = Platform.environment['XVEIL_DIAG_STORE'];
+  final skip = !ensureHiddenVolumeLoaded()
+      ? 'no dylib'
+      : (envPath == null ? 'set XVEIL_DIAG_STORE to run' : null);
 
   test('inspect each password against the real container', () async {
+    final path = envPath!; // non-null here (skipped otherwise)
     if (!File(path).existsSync()) {
       print('DIAG: no container at $path');
       return;
