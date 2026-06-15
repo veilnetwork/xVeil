@@ -10,7 +10,7 @@ import 'veil_node.dart' show veilSocketProbe;
 // C ABI from veilclient-ffi (node-embedded feature):
 //   char     *veil_config_init(uint32_t difficulty, char** err_out);
 //   VeilNode *veil_node_start(const uint8_t*, size_t, char** err_out);
-//   VeilNode *veil_node_start_deferred(const uint8_t*, size_t, char** err_out);
+//   VeilNode *veil_node_start_deferred(const uint8_t*, size_t, bool anonymous, char** err_out);
 //   int       veil_node_apply_config(const VeilNode*, const uint8_t*, size_t, char** err_out);
 //   void      veil_node_stop(VeilNode*);
 //   void      veil_free_string(char*);
@@ -18,6 +18,11 @@ typedef _StartNative = Pointer<Void> Function(
     Pointer<Uint8>, IntPtr, Pointer<Pointer<Utf8>>);
 typedef _StartDart = Pointer<Void> Function(
     Pointer<Uint8>, int, Pointer<Pointer<Utf8>>);
+// Deferred boot carries an extra `bool anonymous` (arms onion at boot).
+typedef _StartDeferredNative = Pointer<Void> Function(
+    Pointer<Uint8>, IntPtr, Bool, Pointer<Pointer<Utf8>>);
+typedef _StartDeferredDart = Pointer<Void> Function(
+    Pointer<Uint8>, int, bool, Pointer<Pointer<Utf8>>);
 typedef _StopNative = Void Function(Pointer<Void>);
 typedef _StopDart = void Function(Pointer<Void>);
 typedef _FreeStrNative = Void Function(Pointer<Utf8>);
@@ -199,10 +204,20 @@ class EmbeddedNode {
   /// ephemeral, identity-free path). It boots under a throwaway identity; call
   /// [applyConfig] with the real config to promote it — so the private key never
   /// touches a config file on disk.
-  static EmbeddedNode startDeferred(String adminSocketPath, {DynamicLibrary? lib}) {
+  ///
+  /// When [anonymous], `[anonymity]` is armed in the stub BOOT config so the
+  /// node is actually onion-reachable once its real identity is applied. This
+  /// must be set here, not via [applyConfig]: veil pins anonymity at boot and a
+  /// later reload does not re-apply it. The published onion descriptor is sealed
+  /// against the live identity, so it resolves to the real identity post-[applyConfig].
+  static EmbeddedNode startDeferred(
+    String adminSocketPath, {
+    bool anonymous = false,
+    DynamicLibrary? lib,
+  }) {
     final dl = lib ?? DynamicLibrary.process();
-    final startFn =
-        dl.lookupFunction<_StartNative, _StartDart>('veil_node_start_deferred');
+    final startFn = dl.lookupFunction<_StartDeferredNative, _StartDeferredDart>(
+        'veil_node_start_deferred');
     final freeStr =
         dl.lookupFunction<_FreeStrNative, _FreeStrDart>('veil_free_string');
 
@@ -211,7 +226,7 @@ class EmbeddedNode {
     final errOut = calloc<Pointer<Utf8>>();
     try {
       sockPtr.asTypedList(bytes.length).setAll(0, bytes);
-      final handle = startFn(sockPtr, bytes.length, errOut);
+      final handle = startFn(sockPtr, bytes.length, anonymous, errOut);
       if (handle == nullptr) {
         final err = errOut.value;
         final msg = err == nullptr ? 'unknown error' : err.toDartString();
