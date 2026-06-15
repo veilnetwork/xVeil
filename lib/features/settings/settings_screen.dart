@@ -101,9 +101,10 @@ class SettingsScreen extends ConsumerWidget {
                             : null,
                         onPressed: () async {
                           final next = !ctrl.isIdentityAnonymous(label);
-                          await ctrl.setIdentityAnonymous(label, next);
+                          final ok =
+                              await ctrl.setIdentityAnonymous(label, next);
                           setSheetState(() {});
-                          if (!ctx.mounted) return;
+                          if (!ctx.mounted || !ok) return;
                           final hint = next
                               ? l.settingsAnonymousEnabledHint
                               : l.settingsAnonymousDisabledHint;
