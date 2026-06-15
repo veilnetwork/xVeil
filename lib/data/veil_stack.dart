@@ -1,6 +1,8 @@
 import 'dart:ffi';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import 'node/embedded_node.dart';
 import 'node/node_controller.dart';
 import 'node/veil_node.dart';
@@ -56,10 +58,12 @@ class RealVeilStack {
     // 1. Load this identity's node config, or mine + store it on first run.
     var identityToml = await storage.loadNodeConfig();
     if (identityToml == null) {
+      debugPrint('xVeil[deniable]: mining node identity (first run)…');
       // Canonical-difficulty PoW — blocking; first run only.
       identityToml = EmbeddedNode.mineConfig(0, lib: lib);
       await storage.saveNodeConfig(identityToml);
     }
+    debugPrint('xVeil[deniable]: identity ready (${identityToml.length} B)');
 
     // 2. Ephemeral, identity-free runtime endpoints.
     await Directory(runtimeDir).create(recursive: true);
@@ -75,6 +79,7 @@ class RealVeilStack {
       adminSocket: adminSock,
       lib: lib,
     );
+    debugPrint('xVeil[deniable]: composed config, booting deferred @ $adminSock');
 
     // 4. Boot deferred, then apply the real config IN MEMORY (no file).
     final controller = EmbeddedNodeController(
@@ -86,9 +91,12 @@ class RealVeilStack {
       },
     );
     await controller.start();
+    debugPrint('xVeil[deniable]: controller phase=${controller.current.phase}'
+        ' msg=${controller.current.message}');
     if (controller.current.phase != NodePhase.connected) {
       throw StateError(
-          'deniable node did not connect: ${controller.current.phase}');
+          'deniable node did not connect: ${controller.current.phase}'
+          ' (${controller.current.message})');
     }
 
     // 5. Connect the transport, then ask the running node for its own invite.
@@ -100,6 +108,7 @@ class RealVeilStack {
       rethrow;
     }
     final invite = BootstrapInvite.parse(await transport.createInvite());
+    debugPrint('xVeil[deniable]: connected + invite ready');
 
     return RealVeilStack._(
       controller: controller,
