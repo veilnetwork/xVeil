@@ -47,6 +47,25 @@ abstract interface class Storage {
   /// ack). Folded over the append-log, so it never mutates history in place.
   Future<void> markMessageStatus(String messageId, MessageStatus status);
 
+  /// Replace the body of message [messageId] with [newBody] (edit of a sent
+  /// message). Re-writes the SAME log record via last-write-wins, so the old
+  /// text no longer reads back; the orphaned ciphertext chunk is reclaimed by a
+  /// later [scrubDeleted] pass. No-op if the id is unknown.
+  Future<void> editMessage(String messageId, String newBody);
+
+  /// Permanently remove message [messageId] (incl. a received one). Tombstones
+  /// the SAME log record so the body no longer reads back, then the prior
+  /// chunk is reclaimed by [scrubDeleted] for true (forensic) erasure. No-op if
+  /// the id is unknown.
+  Future<void> deleteMessage(String messageId);
+
+  /// Reclaim/overwrite chunks orphaned by edits and deletes so the prior
+  /// plaintext is no longer recoverable from the container even by a
+  /// password-holder. Backed by hidden-volume's vacuum/compact; a no-op on the
+  /// in-memory fake (which never persists). MUST be run after edit/delete to
+  /// make erasure deniable rather than merely logical.
+  Future<void> scrubDeleted();
+
   /// Persist a file deniably inside the container under [fileId].
   Future<void> storeFile(String fileId, Uint8List bytes, {String? name});
 

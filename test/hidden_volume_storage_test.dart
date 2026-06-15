@@ -161,4 +161,65 @@ void main() {
     expect(convos.first.peer.nodeId, _id(6)); // has a message
     expect(convos.last.peer.nodeId, _id(5)); // message-less, at the bottom
   });
+
+  test('editMessage replaces the body in place and marks it edited', () async {
+    final conv = _id(7).hex;
+    final m = _msg(
+        conv: conv,
+        dir: MessageDirection.outgoing,
+        body: 'origial',
+        ts: DateTime(2026, 3, 1));
+    await storage.appendMessage(m);
+
+    await storage.editMessage(m.id, 'corrected');
+
+    final msgs = await storage.loadMessages(conv);
+    expect(msgs.length, 1); // no duplicate row — last-write-wins by log_id
+    expect(msgs.single.body, 'corrected');
+    expect(msgs.single.edited, isTrue);
+    // The prior text no longer reads back anywhere in the log.
+    expect(msgs.any((x) => x.body == 'origial'), isFalse);
+  });
+
+  test('deleteMessage removes it entirely (incl. a received message)', () async {
+    final conv = _id(8).hex;
+    final incoming = _msg(
+        conv: conv,
+        dir: MessageDirection.incoming,
+        body: 'received secret',
+        ts: DateTime(2026, 3, 2));
+    final mine = _msg(
+        conv: conv,
+        dir: MessageDirection.outgoing,
+        body: 'keep me',
+        ts: DateTime(2026, 3, 3));
+    await storage.appendMessage(incoming);
+    await storage.appendMessage(mine);
+
+    await storage.deleteMessage(incoming.id);
+
+    final msgs = await storage.loadMessages(conv);
+    expect(msgs.map((m) => m.body), ['keep me']);
+    expect(msgs.any((m) => m.body == 'received secret'), isFalse);
+  });
+
+  test('edit/delete on an unknown id is a no-op', () async {
+    await storage.editMessage('nope', 'x');
+    await storage.deleteMessage('nope');
+    expect(await storage.loadMessages(_id(9).hex), isEmpty);
+  });
+
+  test('a deleted id stays gone after a scrub pass', () async {
+    final conv = _id(10).hex;
+    final m = _msg(
+        conv: conv,
+        dir: MessageDirection.outgoing,
+        body: 'burn after reading',
+        ts: DateTime(2026, 3, 4));
+    await storage.appendMessage(m);
+    await storage.deleteMessage(m.id);
+    await storage.scrubDeleted(); // reclaim orphaned chunks
+
+    expect(await storage.loadMessages(conv), isEmpty);
+  });
 }
