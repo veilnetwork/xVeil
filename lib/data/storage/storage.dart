@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import '../../core/ids.dart';
 import '../../domain/chat.dart';
 import '../../domain/identity.dart';
+import '../../domain/roster.dart';
 
 /// Domain-oriented persistence port.
 ///
@@ -32,6 +33,18 @@ abstract interface class Storage {
 
   /// The stored node config for this identity, or null if none is saved yet.
   Future<String?> loadNodeConfig();
+
+  /// Persist this space's **master roster** — the list of child identities it
+  /// manages (label + each child's opaque `SpaceKeys`). Stored as a KV blob
+  /// inside the space, so it inherits the space's deniability; writing one is
+  /// what makes a space a *master*. The keys are sensitive — they live only
+  /// here, never logged.
+  Future<void> saveRoster(List<RosterEntry> entries);
+
+  /// The roster stored in this space, or null if it is a plain identity space
+  /// (no roster blob). Null-vs-list is the master-vs-identity discriminator the
+  /// app uses after unlock — there is no on-disk flag (deniability).
+  Future<List<RosterEntry>?> loadRoster();
 
   Future<void> upsertContact(Contact contact);
 

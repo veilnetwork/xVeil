@@ -7,6 +7,7 @@ import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/identity.dart';
+import 'package:xveil/domain/roster.dart';
 
 NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
 
@@ -146,6 +147,35 @@ void main() {
     final carol = convos.firstWhere((c) => c.peer.nodeId == _id(5));
     expect(carol.peer.name, 'Carol');
     expect(carol.lastMessage, isNull);
+  });
+
+  test('loadRoster is null for a plain identity space (the discriminator)',
+      () async {
+    expect(await storage.loadRoster(), isNull);
+  });
+
+  test('roster round-trips: labels + opaque SpaceKeys, survives reopen',
+      () async {
+    final entries = [
+      RosterEntry(label: 'me', spaceKeys: Uint8List.fromList(List.filled(64, 1))),
+      RosterEntry(
+          label: 'relatives', spaceKeys: Uint8List.fromList(List.filled(64, 2))),
+    ];
+    await storage.saveRoster(entries);
+
+    final back = await storage.loadRoster();
+    expect(back, isNotNull);
+    expect(back!.map((e) => e.label), ['me', 'relatives']);
+    expect(back[0].spaceKeys, entries[0].spaceKeys);
+    expect(back[1].spaceKeys, entries[1].spaceKeys);
+
+    // A fresh handle over the same backing store still reads it (lives in the
+    // container, no on-disk index).
+    final reopened = HiddenVolumeStorage(
+      ({required Uint8List password, required bool create}) => store,
+    );
+    await reopened.open(password: 'pw');
+    expect((await reopened.loadRoster())!.map((e) => e.label), ['me', 'relatives']);
   });
 
   test('a messaged contact sorts above a message-less one', () async {
