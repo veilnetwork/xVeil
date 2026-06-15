@@ -5,7 +5,11 @@ import 'dart:typed_data';
 /// - [request]: a connection request (body = greeting).
 /// - [accept]: approval of a request (body unused).
 /// - [message]: a normal chat message (body = text).
-enum WireKind { request, accept, message }
+/// - [fileMeta]: start of a file transfer (body = JSON {tid,name,size,count}).
+/// - [fileChunk]: one file chunk (body = JSON {tid,i,total,d=base64}).
+///
+/// New kinds are APPENDED so existing wire indices (0/1/2) are unchanged.
+enum WireKind { request, accept, message, fileMeta, fileChunk }
 
 /// Typed wrapper over the raw transport payload, so the receiver can tell a
 /// connection request from a chat message (the consent gate). Serialised as

@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../../core/ids.dart';
 import '../../domain/chat.dart';
 import '../../domain/identity.dart';
@@ -31,6 +33,12 @@ abstract interface class Storage {
 
   Future<List<Message>> loadMessages(String conversationId);
   Future<void> appendMessage(Message message);
+
+  /// Persist a file deniably inside the container under [fileId].
+  Future<void> storeFile(String fileId, Uint8List bytes, {String? name});
+
+  /// Load a previously stored file, or null if unknown / incomplete.
+  Future<Uint8List?> loadFile(String fileId);
 
   /// Lock the space and zeroize in-memory key material.
   Future<void> close();
