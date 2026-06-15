@@ -4,18 +4,11 @@ import 'dart:typed_data';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 
 import 'kv_log_store.dart';
+import 'multi_space_store.dart';
 
-/// Production [KvLogStore] backed by a real unlocked `HvSpace` from the
-/// hidden-volume plugin. The mapping is 1:1, so the domain storage layer
-/// (HiddenVolumeStorage) is unchanged whether it runs over this or the fake.
-class HvKvLogStore implements KvLogStore {
-  HvKvLogStore(this._space);
-
-  final hv.HvSpace _space;
-
-  @override
-  int commit(List<KvLogOp> ops) {
-    final mapped = ops.map<hv.HvWriteOp>((op) {
+/// Map domain [KvLogOp]s to the plugin's `HvWriteOp`s (1:1). Shared by the
+/// single-space and multi-space backings.
+List<hv.HvWriteOp> _toHvOps(List<KvLogOp> ops) => ops.map<hv.HvWriteOp>((op) {
       return switch (op) {
         PutOp(:final namespace, :final key, :final value) =>
           hv.HvWriteOpPut(namespace: namespace, key: key, value: value),
@@ -26,8 +19,17 @@ class HvKvLogStore implements KvLogStore {
               namespace: namespace, logId: logId, payload: payload),
       };
     }).toList();
-    return _space.commit(mapped);
-  }
+
+/// Production [KvLogStore] backed by a real unlocked `HvSpace` from the
+/// hidden-volume plugin. The mapping is 1:1, so the domain storage layer
+/// (HiddenVolumeStorage) is unchanged whether it runs over this or the fake.
+class HvKvLogStore implements KvLogStore {
+  HvKvLogStore(this._space);
+
+  final hv.HvSpace _space;
+
+  @override
+  int commit(List<KvLogOp> ops) => _space.commit(_toHvOps(ops));
 
   @override
   Uint8List? get(int namespace, Uint8List key) => _space.get(namespace, key);
@@ -133,4 +135,57 @@ hv.HvSpace _createOrOpen(String path, Uint8List password, hv.ArgonPreset argon) 
     }
     rethrow;
   }
+}
+
+/// Production [MultiSpaceBacking] over a native `HvMultiSpace`: hosts several
+/// spaces of one container open at once under a single lock. Build N
+/// [MultiSpaceKvLogStore] views over it (one per identity).
+class HvMultiSpaceBacking implements MultiSpaceBacking {
+  HvMultiSpaceBacking(this._multi);
+
+  final hv.HvMultiSpace _multi;
+
+  /// Open the container at [path] for multi-space hosting (takes its lock).
+  factory HvMultiSpaceBacking.open(String path) =>
+      HvMultiSpaceBacking(hv.HvMultiSpace.open(path: path));
+
+  @override
+  int openSpace(Uint8List keys) => _multi.openSpace(keys);
+
+  @override
+  int commit(int id, List<KvLogOp> ops) => _multi.commit(id, _toHvOps(ops));
+
+  @override
+  Uint8List? get(int id, int namespace, Uint8List key) =>
+      _multi.get(id, namespace, key);
+
+  @override
+  Uint8List? readLog(int id, int namespace, int logId) =>
+      _multi.readLog(id, namespace, logId);
+
+  @override
+  List<KvLogEntry> iterLogRange(
+    int id, {
+    required int namespace,
+    int? start,
+    int? end,
+    required int limit,
+  }) =>
+      _multi
+          .iterLogRange(
+              id: id, namespace: namespace, start: start, end: end, limit: limit)
+          .map((e) => KvLogEntry(e.logId, e.payload))
+          .toList();
+
+  @override
+  int count(int id, int namespace) => _multi.count(id, namespace);
+
+  @override
+  Uint8List exportKeys(int id) => _multi.spaceKeys(id);
+
+  @override
+  void scrub(int id) => _multi.vacuumDataBatches(id);
+
+  @override
+  void close() => _multi.close();
 }
