@@ -43,6 +43,10 @@ abstract interface class Storage {
   Future<List<Message>> loadMessages(String conversationId);
   Future<void> appendMessage(Message message);
 
+  /// Update a stored message's delivery [status] (e.g. `sent → delivered` on an
+  /// ack). Folded over the append-log, so it never mutates history in place.
+  Future<void> markMessageStatus(String messageId, MessageStatus status);
+
   /// Persist a file deniably inside the container under [fileId].
   Future<void> storeFile(String fileId, Uint8List bytes, {String? name});
 
