@@ -64,6 +64,21 @@ constraints are not optional polish — treat a violation as a release blocker.
   chat, not an onion path. Large transfers have correspondingly larger metadata/timing
   surface — revisit before treating file transfer as a high-risk-safe flow.
 
+## Node identity lives inside the container (no plaintext config)
+
+The veil **node identity** (Ed25519 private key, node_id, PoW nonce) is provisioned
+**in-process** (`veil_config_init`) and stored **inside the unlocked deniable container**
+(`Storage.saveNodeConfig`) — never in a plaintext `config.toml`. At unlock the node boots
+deferred-init and the real config is applied **in memory** (`veil_node_start_deferred` →
+`veil_node_apply_config`, `persist:false`); a fixed throwaway stub identity satisfies the
+boot schema until then. So the only persistent identity material on disk is the encrypted
+container. Verified end-to-end (two-instance chat, no config.toml). See
+[`MULTI-IDENTITY-DESIGN.md`](MULTI-IDENTITY-DESIGN.md).
+
+Residual (not the headline leak): deferred-init briefly writes a **throwaway ephemeral
+stub** identity to veil's own temp dir (scrubbed on graceful shutdown; reveals nothing
+about the real identity). Eliminating stub-to-disk is a veil follow-up.
+
 ## Current status
 
 The real adapters are live: data persists to a deniable `hidden-volume` container, and
@@ -73,11 +88,11 @@ above are enforced by these adapters, not retrofitted.
 
 Known gaps to close before any real-user release:
 - Desktop dev runs **unsandboxed** (macOS DEBUG entitlement) to reach local node
-  sockets/dylibs; the release build must keep the sandbox, bundle the dylibs, and keep
-  storage inside the container.
-- Identity is still a local placeholder until the real veil master-phrase derivation is
-  wired (needs the veil-side FFI).
+  sockets/dylibs; the release build must keep the sandbox, bundle the dylibs, add the
+  network (client/server) entitlements, and keep storage inside the container.
+- The 24-word recovery phrase is still a local placeholder; restoring an existing
+  identity from a real veil master-phrase is not wired yet (needs the veil-side FFI).
 - iOS background is short scheduled windows (BGProcessingTask), not a 24/7 relay —
   offline delivery must lean on mailbox/rendezvous + push, not a persistent on-device node.
-- File transfer has no UI yet (picker + rendering); the backend is complete and hardened
-  (see above). Large-file anonymity over the direct send path is unaddressed.
+- Large-file anonymity over the direct send path is unaddressed (file transfer UI + backend
+  are done; the path is the same direct `app.send` as chat).
