@@ -54,9 +54,19 @@ class FileReassembler {
   final Map<int, Uint8List> _chunks = {};
   int? _total;
 
-  /// Register a chunk. Out-of-order and duplicate chunks are fine.
+  /// Register a chunk. Out-of-order and duplicate chunks are fine; malformed
+  /// chunks are ignored so a hostile sender cannot crash reassembly. Rejected:
+  /// a non-positive total, an index outside `[0, total)`, or a total that
+  /// disagrees with one already seen (which could otherwise let [isComplete]
+  /// trip with a missing slot, then null-crash in [assemble]).
   void add(FileChunk chunk) {
-    _total ??= chunk.total;
+    if (chunk.total < 1 || chunk.index < 0 || chunk.index >= chunk.total) return;
+    final total = _total;
+    if (total == null) {
+      _total = chunk.total;
+    } else if (total != chunk.total) {
+      return;
+    }
     _chunks[chunk.index] = chunk.data;
   }
 
