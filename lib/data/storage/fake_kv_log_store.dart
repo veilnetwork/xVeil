@@ -28,7 +28,17 @@ class FakeKvLogStore implements KvLogStore {
         case DeleteOp(:final namespace, :final key):
           _kv[namespace]?.remove(_hexKey(key));
         case AppendLogOp(:final namespace, :final logId, :final payload):
-          (_log[namespace] ??= []).add(KvLogEntry(logId, payload));
+          // Last-write-wins by log_id — faithful to the real core, where
+          // re-appending an existing log_id REPLACES the prior value on read
+          // (the documented edit/delete primitive). A naive append would let
+          // both the old and new record survive and diverge from native.
+          final list = _log[namespace] ??= [];
+          final i = list.indexWhere((e) => e.logId == logId);
+          if (i >= 0) {
+            list[i] = KvLogEntry(logId, payload);
+          } else {
+            list.add(KvLogEntry(logId, payload));
+          }
       }
     }
     return ++_seq;
@@ -64,6 +74,12 @@ class FakeKvLogStore implements KvLogStore {
 
   @override
   int count(int namespace) => _kv[namespace]?.length ?? 0;
+
+  @override
+  void scrub() {
+    // The in-memory fake never persists, so there are no orphaned chunks to
+    // reclaim — replaced/tombstoned entries are already gone from [_log].
+  }
 
   @override
   void close() {}

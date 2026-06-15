@@ -67,6 +67,12 @@ abstract interface class KvLogStore {
 
   int count(int namespace);
 
+  /// Reclaim/overwrite data chunks orphaned by replaced or tombstoned log
+  /// records (the edit/delete path) so the prior plaintext is no longer
+  /// recoverable from the container. Maps to hidden-volume's
+  /// `vacuum_data_batches`/`compact_known`; a no-op where unsupported.
+  void scrub();
+
   void close();
 }
 

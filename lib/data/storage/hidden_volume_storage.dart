@@ -202,26 +202,78 @@ class HiddenVolumeStorage implements Storage {
   @override
   Future<void> appendMessage(Message message) async {
     final nextId = _nextLogId();
-    final payload = jsonEncode({
-      'id': message.id,
-      'c': message.conversationId,
-      'd': message.direction.index,
-      'b': message.body,
-      't': message.timestamp.millisecondsSinceEpoch,
-      's': message.status.index,
-      if (message.fileId != null) 'fi': message.fileId,
-      if (message.fileName != null) 'fn': message.fileName,
-    });
     _s.commit([
-      AppendLogOp(Ns.messageLog, nextId, _sk(payload)),
+      AppendLogOp(Ns.messageLog, nextId, _sk(_encodeMessage(message))),
+      // Map the domain message id -> its log_id so a later edit/delete can
+      // rewrite the SAME record (last-write-wins), the core's edit primitive.
+      PutOp(Ns.settings, _sk('msgidx:${message.id}'), _sk('$nextId')),
       PutOp(Ns.settings, _sk('msg_next_id'), _sk('${nextId + 1}')),
     ]);
   }
+
+  String _encodeMessage(Message m) => jsonEncode({
+        'id': m.id,
+        'c': m.conversationId,
+        'd': m.direction.index,
+        'b': m.body,
+        't': m.timestamp.millisecondsSinceEpoch,
+        's': m.status.index,
+        if (m.edited) 'e': 1,
+        if (m.fileId != null) 'fi': m.fileId,
+        if (m.fileName != null) 'fn': m.fileName,
+      });
 
   int _nextLogId() {
     final raw = _s.get(Ns.settings, _sk('msg_next_id'));
     if (raw == null) return 1;
     return int.tryParse(utf8.decode(raw)) ?? 1;
+  }
+
+  /// The log_id a message was written under, or null if we have no index entry
+  /// (older messages predate the index, or the id is unknown / already deleted).
+  int? _logIdFor(String messageId) {
+    final raw = _s.get(Ns.settings, _sk('msgidx:$messageId'));
+    return raw == null ? null : int.tryParse(utf8.decode(raw));
+  }
+
+  @override
+  Future<void> editMessage(String messageId, String newBody) async {
+    final logId = _logIdFor(messageId);
+    if (logId == null) return;
+    Message? current;
+    for (final m in _scanLog()) {
+      if (m.id == messageId) {
+        current = m;
+        break;
+      }
+    }
+    if (current == null) return;
+    // Rewrite the SAME log_id: last-write-wins replaces the body on read, so
+    // the prior text no longer reads back (its chunk is orphaned for scrub).
+    final edited = current.copyWith(body: newBody, edited: true);
+    _s.commit([AppendLogOp(Ns.messageLog, logId, _sk(_encodeMessage(edited)))]);
+  }
+
+  @override
+  Future<void> deleteMessage(String messageId) async {
+    final logId = _logIdFor(messageId);
+    if (logId == null) return;
+    // Tombstone the SAME log_id so the body no longer reads back, and drop the
+    // index entry. The original record's chunk is orphaned; scrubDeleted()
+    // reclaims it for forensic erasure.
+    final tomb = jsonEncode({'op': 'del', 'id': messageId});
+    _s.commit([
+      AppendLogOp(Ns.messageLog, logId, _sk(tomb)),
+      DeleteOp(Ns.settings, _sk('msgidx:$messageId')),
+    ]);
+  }
+
+  @override
+  Future<void> scrubDeleted() async {
+    // Reclaim chunks orphaned by edit/delete so the prior plaintext is no
+    // longer recoverable from the container. Backed by hidden-volume's
+    // vacuum/compact when the store exposes it; a no-op on the in-memory fake.
+    _s.scrub();
   }
 
   @override
@@ -250,6 +302,14 @@ class HiddenVolumeStorage implements Storage {
         statusOps[m['id'] as String] = MessageStatus.values[m['s'] as int];
         continue;
       }
+      if (m['op'] == 'del') {
+        // Tombstone (deleted message) — the record at this log_id no longer
+        // carries a body. Drop it so it never surfaces.
+        final id = m['id'] as String;
+        byId.remove(id);
+        order.remove(id);
+        continue;
+      }
       final id = m['id'] as String;
       if (!byId.containsKey(id)) order.add(id);
       byId[id] = Message(
@@ -259,6 +319,7 @@ class HiddenVolumeStorage implements Storage {
         body: m['b'] as String,
         timestamp: DateTime.fromMillisecondsSinceEpoch(m['t'] as int),
         status: MessageStatus.values[m['s'] as int],
+        edited: m['e'] == 1,
         fileId: m['fi'] as String?,
         fileName: m['fn'] as String?,
       );

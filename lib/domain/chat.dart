@@ -51,6 +51,7 @@ class Message {
     this.status = MessageStatus.sent,
     this.fileId,
     this.fileName,
+    this.edited = false,
   });
 
   final String id;
@@ -60,6 +61,10 @@ class Message {
   final DateTime timestamp;
   final MessageStatus status;
 
+  /// True once the body has been replaced via an edit. Surfaced in the UI as
+  /// an "edited" marker; never reveals the prior text (which is scrubbed).
+  final bool edited;
+
   /// When set, this message carries a stored file (see Storage.loadFile);
   /// [body] holds a human label and [fileName] the original name.
   final String? fileId;
@@ -67,15 +72,17 @@ class Message {
 
   bool get isFile => fileId != null;
 
-  Message copyWith({MessageStatus? status}) => Message(
+  Message copyWith({MessageStatus? status, String? body, bool? edited}) =>
+      Message(
         id: id,
         conversationId: conversationId,
         direction: direction,
-        body: body,
+        body: body ?? this.body,
         timestamp: timestamp,
         status: status ?? this.status,
         fileId: fileId,
         fileName: fileName,
+        edited: edited ?? this.edited,
       );
 }
 

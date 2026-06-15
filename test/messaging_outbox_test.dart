@@ -70,14 +70,14 @@ void main() {
     await _pump();
   });
 
-  Future<Message> _aMsg(String body) async =>
+  Future<Message> aMsg(String body) async =>
       (await sA.loadMessages(b.hex)).firstWhere((m) => m.body == body);
 
   test('an ack flips the sender message sent -> delivered', () async {
     await mA.sendText(b, 'hello');
     await _pump();
     expect((await sB.loadMessages(a.hex)).map((m) => m.body), contains('hello'));
-    expect((await _aMsg('hello')).status, MessageStatus.delivered);
+    expect((await aMsg('hello')).status, MessageStatus.delivered);
   });
 
   test('message composed offline stays sent, then flush delivers it on reconnect',
@@ -86,7 +86,7 @@ void main() {
     await mA.sendText(b, 'composed offline');
     await _pump();
     // Stored locally as un-acked, never reached B.
-    expect((await _aMsg('composed offline')).status, MessageStatus.sent);
+    expect((await aMsg('composed offline')).status, MessageStatus.sent);
     expect((await sB.loadMessages(a.hex)).any((m) => m.body == 'composed offline'),
         isFalse);
 
@@ -95,13 +95,13 @@ void main() {
     await _pump();
     expect((await sB.loadMessages(a.hex)).any((m) => m.body == 'composed offline'),
         isTrue);
-    expect((await _aMsg('composed offline')).status, MessageStatus.delivered);
+    expect((await aMsg('composed offline')).status, MessageStatus.delivered);
   });
 
   test('re-sending an already-delivered message does not duplicate it', () async {
     await mA.sendText(b, 'hello');
     await _pump();
-    final id = (await _aMsg('hello')).id;
+    final id = (await aMsg('hello')).id;
 
     // Sender's outbox re-sends the same id (e.g. it missed the first ack).
     await tA.send(b, WireEnvelope.message('hello', id: id).encode());
@@ -116,5 +116,35 @@ void main() {
     await _pump();
     // No duplicate appeared on the receiver.
     expect((await sB.loadMessages(a.hex)).where((m) => m.body == 'hello').length, 1);
+  });
+
+  test('editOwnMessage replaces the text and marks it edited', () async {
+    await mA.sendText(b, 'wrong');
+    await _pump();
+    final id = (await aMsg('wrong')).id;
+
+    await mA.editOwnMessage(id, 'right');
+
+    final msgs = await sA.loadMessages(b.hex);
+    expect(msgs.where((m) => m.body == 'wrong'), isEmpty);
+    final edited = msgs.firstWhere((m) => m.id == id);
+    expect(edited.body, 'right');
+    expect(edited.edited, isTrue);
+  });
+
+  test('deleteMessageLocally purges a received message from this device',
+      () async {
+    await mA.sendText(b, 'sensitive');
+    await _pump();
+    final received =
+        (await sB.loadMessages(a.hex)).firstWhere((m) => m.body == 'sensitive');
+
+    await mB.deleteMessageLocally(received.id);
+
+    expect((await sB.loadMessages(a.hex)).any((m) => m.body == 'sensitive'),
+        isFalse);
+    // The sender's own copy is untouched (local-only delete).
+    expect((await sA.loadMessages(b.hex)).any((m) => m.body == 'sensitive'),
+        isTrue);
   });
 }
