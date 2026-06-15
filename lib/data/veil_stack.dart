@@ -105,7 +105,20 @@ class RealVeilStack {
       anonymous: anonymous,
     );
     if (anonymous) {
-      debugPrint('xVeil[deniable]: anonymous routing (onion_service) enabled');
+      // HONESTY GUARD (security-critical for the threat model): anonymous
+      // routing is requested but NOT actually in effect on the deniable path.
+      // veil pins the `[anonymity]` state (incl. the onion descriptor, which is
+      // DERIVED FROM identity_sk — see veil-anonymity blinded_descriptor.rs) at
+      // node boot and never re-applies it on reload (lifecycle.rs
+      // `config.anonymity.reload_ignored`). Our deferred boot starts on a
+      // THROWAWAY stub identity and promotes the real one via apply-config
+      // (= reload), so onion would (a) never re-derive for the real identity and
+      // (b) if forced into the stub config, publish under the stub identity.
+      // Until veil supports re-deriving anonymity on the identity swap, this
+      // node is NOT location-anonymous. Do not let the log imply otherwise.
+      debugPrint('xVeil[deniable]: WARNING anonymous routing requested but NOT '
+          'active — veil pins onion to the boot identity and the deferred path '
+          'swaps identity post-boot; node runs WITHOUT onion (see veil_stack.dart)');
     }
     debugPrint('xVeil[deniable]: composed config, booting deferred @ $adminSock');
 
