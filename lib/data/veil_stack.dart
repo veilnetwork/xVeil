@@ -105,28 +105,25 @@ class RealVeilStack {
       anonymous: anonymous,
     );
     if (anonymous) {
-      // HONESTY GUARD (security-critical for the threat model): anonymous
-      // routing is requested but NOT actually in effect on the deniable path.
-      // veil pins the `[anonymity]` state (incl. the onion descriptor, which is
-      // DERIVED FROM identity_sk — see veil-anonymity blinded_descriptor.rs) at
-      // node boot and never re-applies it on reload (lifecycle.rs
-      // `config.anonymity.reload_ignored`). Our deferred boot starts on a
-      // THROWAWAY stub identity and promotes the real one via apply-config
-      // (= reload), so onion would (a) never re-derive for the real identity and
-      // (b) if forced into the stub config, publish under the stub identity.
-      // Until veil supports re-deriving anonymity on the identity swap, this
-      // node is NOT location-anonymous. Do not let the log imply otherwise.
-      debugPrint('xVeil[deniable]: WARNING anonymous routing requested but NOT '
-          'active — veil pins onion to the boot identity and the deferred path '
-          'swaps identity post-boot; node runs WITHOUT onion (see veil_stack.dart)');
+      // Anonymity must be armed at BOOT (passed to startDeferred below), not via
+      // applyConfig: veil pins `[anonymity]` at node start and a reload does not
+      // re-apply it. The onion descriptor is sealed against the LIVE identity, so
+      // arming the stub anonymous + applying the real identity makes the node
+      // onion-reachable under its real identity (the throwaway stub identity is
+      // never published — publish is periodic, not at boot). See
+      // veil build_stub_config_with_ephemeral_identity / veil_node_start_deferred.
+      debugPrint('xVeil[deniable]: anonymous routing — arming onion at boot '
+          '(resolves to the real identity after apply-config)');
     }
     debugPrint('xVeil[deniable]: composed config, booting deferred @ $adminSock');
 
-    // 4. Boot deferred, then apply the real config IN MEMORY (no file).
+    // 4. Boot deferred (anonymity armed in the stub when requested), then apply
+    // the real config IN MEMORY (no file) to promote the real identity.
     final controller = EmbeddedNodeController(
       appSocketPath: ipcSock,
       starter: () {
-        final node = EmbeddedNode.startDeferred(adminSock, lib: lib);
+        final node =
+            EmbeddedNode.startDeferred(adminSock, anonymous: anonymous, lib: lib);
         node.applyConfig(fullConfig);
         return node;
       },
