@@ -374,6 +374,79 @@ void main() {
     expect(labels, ['alice'], reason: 'roster unchanged, no duplicate added');
   });
 
+  test('unbindIdentity removes it from the master but leaves the space intact',
+      () async {
+    SharedPreferences.setMockInitialValues({'onboarded': true});
+    final container = FakeHvContainer();
+    final alice = container.storage();
+    await alice.open(password: 'pw-alice', createIfMissing: true);
+    await alice.saveIdentity(AppController.generateIdentity(displayName: 'Alice'));
+    final aliceKeys = alice.exportSpaceKeys();
+    await alice.close();
+    final bob = container.storage();
+    await bob.open(password: 'pw-bob', createIfMissing: true);
+    await bob.saveIdentity(AppController.generateIdentity(displayName: 'Bob'));
+    final bobKeys = bob.exportSpaceKeys();
+    await bob.close();
+    final master = container.storage();
+    await master.open(password: 'masterpw', createIfMissing: true);
+    await master.saveRoster([
+      RosterEntry(label: 'alice', spaceKeys: aliceKeys),
+      RosterEntry(label: 'bob', spaceKeys: bobKeys),
+    ]);
+    await master.close();
+
+    final app = container.storage();
+    final c = ProviderContainer(
+        overrides: [storageProvider.overrideWith((ref) => app)]);
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+    await ctrl.unlock('masterpw');
+    await ctrl.pickIdentity('alice');
+
+    expect(await ctrl.unbindIdentity('bob'), isTrue);
+    expect(ctrl.activeIdentity, 'alice'); // bob wasn't active; alice stays
+
+    // Master roster no longer lists bob...
+    await ctrl.lock();
+    final check = container.storage();
+    await check.open(password: 'masterpw');
+    expect((await check.loadRoster())!.map((e) => e.label), ['alice']);
+    await check.close();
+    // ...but bob's SPACE is untouched: still opens by its own password.
+    final bobAgain = container.storage();
+    expect(await bobAgain.open(password: 'pw-bob'), isTrue);
+    expect((await bobAgain.loadIdentity())?.displayName, 'Bob');
+    await bobAgain.close();
+  });
+
+  test('unbindIdentity refuses to unbind the last identity', () async {
+    SharedPreferences.setMockInitialValues({'onboarded': true});
+    final container = FakeHvContainer();
+    final alice = container.storage();
+    await alice.open(password: 'pw-alice', createIfMissing: true);
+    await alice.saveIdentity(AppController.generateIdentity(displayName: 'Alice'));
+    final aliceKeys = alice.exportSpaceKeys();
+    await alice.close();
+    final master = container.storage();
+    await master.open(password: 'masterpw', createIfMissing: true);
+    await master
+        .saveRoster([RosterEntry(label: 'alice', spaceKeys: aliceKeys)]);
+    await master.close();
+
+    final app = container.storage();
+    final c = ProviderContainer(
+        overrides: [storageProvider.overrideWith((ref) => app)]);
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+    await ctrl.unlock('masterpw');
+    await ctrl.pickIdentity('alice');
+
+    expect(await ctrl.unbindIdentity('alice'), isFalse);
+  });
+
   test('setIdentityAnonymous flips an identity flag and persists to the master',
       () async {
     SharedPreferences.setMockInitialValues({'onboarded': true});
