@@ -110,6 +110,38 @@ void main() {
         reason: 'a deleted message must not resurrect on re-delivery');
   });
 
+  test('a duplicate fileMeta does not reset an in-progress transfer', () async {
+    const tid = 'transfer-1';
+    Uint8List meta() =>
+        fileMetaEnvelope(transferId: tid, name: 'f.bin', size: 2, count: 2)
+            .encode();
+    await tA.send(b, meta());
+    await tA.send(
+        b,
+        fileChunkEnvelope(
+                transferId: tid,
+                index: 0,
+                total: 2,
+                data: Uint8List.fromList([10]))
+            .encode());
+    await tA.send(b, meta()); // DUPLICATE meta mid-transfer — must not reset
+    await tA.send(
+        b,
+        fileChunkEnvelope(
+                transferId: tid,
+                index: 1,
+                total: 2,
+                data: Uint8List.fromList([20]))
+            .encode());
+    await _pump();
+    // Both chunks survived the duplicate meta → the transfer completes + stores.
+    expect(
+        (await sB.loadMessages(a.hex))
+            .any((m) => m.isFile && m.fileName == 'f.bin'),
+        isTrue,
+        reason: 'a duplicate meta must not discard already-received chunks');
+  });
+
   test('an ack flips the sender message sent -> delivered', () async {
     await mA.sendText(b, 'hello');
     await _pump();
