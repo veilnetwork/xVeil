@@ -145,8 +145,9 @@ class MultiIdentitySession {
         // would hang the whole unlock. On timeout we skip it (best-effort).
         final node = await _boot(spec, storage).timeout(_bootTimeout);
         _nodes[spec.label] = node;
-        _messaging[spec.label] = MessagingService(node.transport, storage)
-          ..start();
+        _messaging[spec.label] =
+            MessagingService(node.transport, storage, anonymous: spec.anonymous)
+              ..start();
       } catch (_) {
         // Node didn't come up — keep the storage view so the UI shows history;
         // this identity just can't send/receive live until re-booted.

@@ -57,7 +57,20 @@ class VeilFlutterTransport implements VeilTransport {
   Future<NodeId> nodeId() async => NodeId(await _client.nodeId());
 
   @override
-  Future<void> send(NodeId dst, Uint8List payload) {
+  Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) {
+    if (anonymous) {
+      // Onion rendezvous send: the node resolves dst's rendezvous ad, builds a
+      // circuit through relays, and seals an introduce — the recipient and the
+      // network never see this node as the origin. Fail-closed by contract: if
+      // dst publishes no ad this throws (no clearnet fallback that would leak
+      // our location). Proven end to end by test/native/onion_roundtrip_live_test.dart.
+      return _app.sendAnonymousAuthenticated(
+        dstNodeId: dst.bytes,
+        dstAppId: chatAppIdFor(dst),
+        dstEndpointId: veilChatEndpointId,
+        data: payload,
+      );
+    }
     return _app.send(
       dstNodeId: dst.bytes,
       dstAppId: chatAppIdFor(dst),
