@@ -374,6 +374,23 @@ void main() {
     expect((await sA.loadMessages(b.hex)).any((m) => m.body == 'from A'), isTrue);
   });
 
+  test('deleteMessageLocally on your OWN message is delete-for-me, not unsend',
+      () async {
+    await mA.sendText(b, 'oops');
+    await _pump();
+    final id = (await aMsg('oops')).id;
+
+    // A deletes its own message for ITSELF only (not deleteForEveryone).
+    await mA.deleteMessageLocally(id);
+    await _pump();
+
+    // A's copy is gone, but B STILL has it — delete-for-me never propagates
+    // (contrast deleteForEveryone, which unsends the peer copy).
+    expect((await sA.loadMessages(b.hex)).any((m) => m.id == id), isFalse);
+    expect((await sB.loadMessages(a.hex)).any((m) => m.body == 'oops'), isTrue,
+        reason: 'delete-for-me must not unsend the peer copy');
+  });
+
   test('deleteMessageLocally purges a received message from this device',
       () async {
     await mA.sendText(b, 'sensitive');
