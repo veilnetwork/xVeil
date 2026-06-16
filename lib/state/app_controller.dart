@@ -829,6 +829,7 @@ class AppController extends Notifier<AppState> {
         runtimeDir: boot.runtimeDir,
         listenPort: boot.listenPort,
         anonymous: _activeAnonymous(),
+        bootstrapPeers: boot.bootstrapPeers,
       );
       ref.read(realStackProvider.notifier).state = stack;
       debugPrint('xVeil[deniable]: node up, invite=${stack.myInvite.nodeId.short}');
