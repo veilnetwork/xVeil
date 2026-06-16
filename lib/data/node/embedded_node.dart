@@ -149,6 +149,7 @@ class EmbeddedNode {
     DynamicLibrary? lib,
     bool anonymous = false,
     List<BootstrapPeerCfg> bootstrapPeers = const [],
+    String? obfs4PskFile,
   }) {
     return _composeConfigImpl(
       identityToml: identityToml,
@@ -158,7 +159,30 @@ class EmbeddedNode {
       lib: lib,
       anonymous: anonymous,
       bootstrapPeers: bootstrapPeers,
+      obfs4PskFile: obfs4PskFile,
     );
+  }
+
+  /// Append a `[transport]` table pointing at a file holding the deployment-wide
+  /// obfs4 pre-shared key. Networks that pin a shared obfs4 PSK (anti-probe)
+  /// require dialers to present the SAME key — without it the obfs4 handshake
+  /// fails with `obfs4-tcp transport requires obfs4_psk set in TransportContext`.
+  /// Pure helper (no FFI), so it is unit-testable. [pskFilePath] must already
+  /// exist and contain the base64 PSK.
+  static String withObfs4PskFile(String toml, String? pskFilePath) {
+    if (pskFilePath == null || pskFilePath.isEmpty) return toml;
+    if (toml.contains('obfs4_psk_file')) return toml; // already set
+    final line = 'obfs4_psk_file = "$pskFilePath"';
+    // veil_config_compose serializes a full Config, so a `[transport]` table
+    // may already exist; insert the key right under its header (a key-value
+    // before any sub-table is valid TOML). Otherwise append a new table.
+    const marker = '[transport]\n';
+    final idx = toml.indexOf(marker);
+    if (idx >= 0) {
+      final at = idx + marker.length;
+      return '${toml.substring(0, at)}$line\n${toml.substring(at)}';
+    }
+    return '$toml\n[transport]\n$line\n';
   }
 
   /// Append `[[bootstrap_peers]]` tables so the node dials a known network
@@ -200,6 +224,7 @@ class EmbeddedNode {
     DynamicLibrary? lib,
     bool anonymous = false,
     List<BootstrapPeerCfg> bootstrapPeers = const [],
+    String? obfs4PskFile,
   }) {
     final dl = lib ?? _veilLib();
     final composeFn =
@@ -228,7 +253,10 @@ class EmbeddedNode {
       }
       final toml = out.toDartString();
       freeStr(out);
-      return withBootstrapPeers(withAnonymity(toml, anonymous), bootstrapPeers);
+      return withObfs4PskFile(
+        withBootstrapPeers(withAnonymity(toml, anonymous), bootstrapPeers),
+        obfs4PskFile,
+      );
     } finally {
       for (final p in ptrs) {
         calloc.free(p);

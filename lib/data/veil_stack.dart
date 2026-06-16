@@ -69,6 +69,7 @@ class RealVeilStack {
     int listenPort = 9000,
     bool anonymous = false,
     List<BootstrapPeerCfg> bootstrapPeers = const [],
+    String? obfs4Psk,
   }) async {
     // Time each phase so the log pinpoints where a slow boot/switch goes (the
     // boot is mining-free when the identity already exists, so a slow switch is
@@ -107,6 +108,15 @@ class RealVeilStack {
     final adminSock = '$runtimeDir/admin.sock';
     final listen = 'tcp://127.0.0.1:$listenPort';
 
+    // Deployment-wide obfs4 PSK (networks that pin a shared anti-probe key):
+    // drop it in the runtime dir and reference it from the config. Identity-free
+    // and ephemeral, so it lives alongside the sockets (never in the container).
+    String? obfs4PskFile;
+    if (obfs4Psk != null && obfs4Psk.isNotEmpty) {
+      obfs4PskFile = '$runtimeDir/obfs4_psk.b64';
+      await File(obfs4PskFile).writeAsString(obfs4Psk);
+    }
+
     // 3. Compose a full, bootable config (identity + runtime) in memory.
     // INVARIANT: `anonymous` here MUST match the value passed to startDeferred
     // below. veil pins [anonymity] from the STUB boot config; the applied config
@@ -121,6 +131,7 @@ class RealVeilStack {
       lib: lib,
       anonymous: anonymous,
       bootstrapPeers: bootstrapPeers,
+      obfs4PskFile: obfs4PskFile,
     );
     if (bootstrapPeers.isNotEmpty) {
       debugPrint('xVeil[deniable]: dialing ${bootstrapPeers.length} '

@@ -97,6 +97,7 @@ class DeniableBootConfig {
     this.listenPort = 9000,
     this.storePath,
     this.bootstrapPeers = const [],
+    this.obfs4Psk,
   });
 
   /// Directory for the ephemeral, identity-free node sockets (admin + app IPC).
@@ -115,6 +116,11 @@ class DeniableBootConfig {
   /// (seed set / testnet). Empty = rely on the compiled-in BUILTIN_SEEDS.
   /// Loaded by main() from a local, gitignored file (never committed).
   final List<BootstrapPeerCfg> bootstrapPeers;
+
+  /// Base64 deployment-wide obfs4 pre-shared key. Required to dial peers on a
+  /// network that pins a shared obfs4 PSK (e.g. the testnet). Written to a file
+  /// in the runtime dir at boot and referenced via `[transport].obfs4_psk_file`.
+  final String? obfs4Psk;
 }
 
 /// Present (non-null) when the app should boot the node in-process from the
