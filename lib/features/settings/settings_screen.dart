@@ -172,6 +172,13 @@ class SettingsScreen extends ConsumerWidget {
           ),
           if (master.$1)
             ListTile(
+              leading: const Icon(Icons.manage_accounts_outlined),
+              title: Text(l.settingsManageIdentities),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/manage-identities'),
+            ),
+          if (master.$1)
+            ListTile(
               leading: const Icon(Icons.theater_comedy_outlined),
               title: Text(l.settingsDecoyMaster),
               trailing: const Icon(Icons.chevron_right),
