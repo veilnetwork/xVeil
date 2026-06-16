@@ -534,6 +534,14 @@ void main() {
     await real.open(password: 'masterpw');
     expect((await real.loadRoster())!.map((e) => e.label), ['alice', 'bob']);
     await real.close();
+
+    // DURESS PROTECTION (app flow): unlocking with the DURESS password lands on
+    // a picker showing ONLY the decoy identity — the real master and the hidden
+    // identity (alice) never surface. This is the decoy's entire purpose under
+    // coercion, verified through the real unlock/master-detection path.
+    await ctrl.unlock('duresspw');
+    expect(c.read(appControllerProvider).phase, AppPhase.pickingIdentity);
+    expect(c.read(appControllerProvider).identities, ['bob']);
   });
 
   test('createDecoyMaster refuses to overwrite the real master (clash)',
