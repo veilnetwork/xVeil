@@ -142,6 +142,25 @@ void main() {
         reason: 'a duplicate meta must not discard already-received chunks');
   });
 
+  test('an edit for a deleted message does not resurrect it', () async {
+    await mA.sendText(b, 'secret');
+    await _pump();
+    final bMsg =
+        (await sB.loadMessages(a.hex)).firstWhere((m) => m.body == 'secret');
+    await mB.deleteMessageLocally(bMsg.id);
+    expect((await sB.loadMessages(a.hex)).where((m) => m.body == 'secret').length,
+        0);
+
+    // The sender edits the message the recipient deleted — the edit must NOT
+    // bring it back (deniability: deleted stays deleted across every vector).
+    await tA.send(b, WireEnvelope.edit(bMsg.id, 'secret v2').encode());
+    await _pump();
+    expect(
+        (await sB.loadMessages(a.hex)).where((m) => m.body.startsWith('secret')),
+        isEmpty,
+        reason: 'an edit must not resurrect a deleted message');
+  });
+
   test('an ack flips the sender message sent -> delivered', () async {
     await mA.sendText(b, 'hello');
     await _pump();
