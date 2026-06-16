@@ -334,6 +334,11 @@ class AppController extends Notifier<AppState> {
     return false;
   }
 
+  /// Whether the CURRENTLY ACTIVE identity routes anonymously (onion) — for the
+  /// home-screen indicator. Reflects the debug force-flag too. Read at rebuild
+  /// after watching [AppState.activeIdentity] (which changes on identity switch).
+  bool get activeIsAnonymous => _activeAnonymous();
+
   /// Whether [label]'s identity is currently set to route anonymously (onion).
   bool isIdentityAnonymous(String label) {
     for (final e in _pendingRoster ?? const <RosterEntry>[]) {
