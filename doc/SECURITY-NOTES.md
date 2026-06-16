@@ -26,6 +26,13 @@ constraints are not optional polish — treat a violation as a release blocker.
 
 - Prefer the network's anonymous / onion send paths for sensitive flows; surface the
   trade-offs in plain language, not jargon.
+- **Per-identity onion routing is available** (opt-in): an identity marked anonymous boots
+  its node with `[anonymity]` armed (onion_service), so it is reachable over a
+  location-anonymous onion path under its real identity. Set it at Add-identity or toggle it
+  later in the identity switcher. Trade-off (surface it plainly): always-on co-located nodes
+  (the `keepAllOnline` mode) can be correlated by an observer — mark the identities that must
+  stay uncorrelated as anonymous. Caveat: end-to-end onion delivery over a live relay network
+  is not yet verified on a real multi-node run (the local arming is).
 - No central server, no phone number, no analytics, no crash telemetry that leaves the
   device without explicit, informed, opt-in consent.
 
@@ -74,6 +81,13 @@ deferred-init and the real config is applied **in memory** (`veil_node_start_def
 boot schema until then. So the only persistent identity material on disk is the encrypted
 container. Verified end-to-end (two-instance chat, no config.toml). See
 [`MULTI-IDENTITY-DESIGN.md`](MULTI-IDENTITY-DESIGN.md).
+
+Beyond identity, the embedded node also persists **no network-metadata snapshots**: the
+deferred stub and the applied config both set `persist_enabled = false`, so veil writes
+none of its `*_persist_path` files (DHT values, RTT / Vivaldi / gateway tables, peer
+pubkeys, discovered-peer cache) to the working dir. Without this those would leave network
+topology metadata in cleartext OUTSIDE the encrypted container — a deniability leak. The
+node bootstraps from invites + live sessions instead, so it loses nothing it needs.
 
 Residual (not the headline leak): deferred-init briefly writes a **throwaway ephemeral
 stub** identity to veil's own temp dir (scrubbed on graceful shutdown; reveals nothing
