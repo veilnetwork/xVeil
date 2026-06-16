@@ -381,6 +381,16 @@ class HiddenVolumeStorage implements Storage {
   }
 
   @override
+  Future<bool> isMessageDeleted(String messageId) async {
+    for (final e
+        in _s.iterLogRange(namespace: Ns.messageLog, limit: _logScanLimit)) {
+      final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
+      if (m['op'] == 'del' && m['id'] == messageId) return true;
+    }
+    return false;
+  }
+
+  @override
   Future<void> scrubDeleted() async {
     // Reclaim chunks orphaned by edit/delete so the prior plaintext is no
     // longer recoverable from the container. Backed by hidden-volume's

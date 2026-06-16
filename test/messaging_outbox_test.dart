@@ -86,6 +86,30 @@ void main() {
         reason: 'greeting must dedup, not double via the outbox re-send');
   });
 
+  test('a deleted message does not resurrect when the sender re-delivers it',
+      () async {
+    await mA.sendText(b, 'secret');
+    await _pump();
+    final id = (await aMsg('secret')).id; // wire id == stored id
+    expect((await sB.loadMessages(a.hex)).where((m) => m.body == 'secret').length,
+        1);
+
+    // B erases it (deniable delete).
+    final bMsg =
+        (await sB.loadMessages(a.hex)).firstWhere((m) => m.body == 'secret');
+    await mB.deleteMessageLocally(bMsg.id);
+    expect((await sB.loadMessages(a.hex)).where((m) => m.body == 'secret').length,
+        0);
+
+    // The sender re-delivers the SAME id (an outbox retry that raced the
+    // delete). Deniability core: deleted must stay deleted, never resurrect.
+    await tA.send(b, WireEnvelope.message('secret', id: id).encode());
+    await _pump();
+    expect((await sB.loadMessages(a.hex)).where((m) => m.body == 'secret').length,
+        0,
+        reason: 'a deleted message must not resurrect on re-delivery');
+  });
+
   test('an ack flips the sender message sent -> delivered', () async {
     await mA.sendText(b, 'hello');
     await _pump();

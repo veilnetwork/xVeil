@@ -153,10 +153,12 @@ class MessagingService {
         if (existing?.status != ContactStatus.accepted) {
           await _setStatus(m.src, ContactStatus.pendingIncoming);
         }
-        if (env.body.isNotEmpty) {
+        if (env.body.isNotEmpty &&
+            !(env.id != null && await _storage.isMessageDeleted(env.id!))) {
           // Store the greeting under the REQUEST's id so a later outbox re-send
           // of the same greeting (as a WireKind.message) dedups instead of
-          // creating a second copy.
+          // creating a second copy. Skip if we already deleted this id (don't
+          // resurrect, same as the message case).
           await _store(m.src, MessageDirection.incoming, env.body,
               MessageStatus.delivered, id: env.id);
         }
@@ -174,6 +176,12 @@ class MessagingService {
         // Dedup re-sent messages (the sender's local outbox re-sends un-acked
         // ones): if we already have this id, just re-ack so they stop.
         if (id != null && await _hasMessage(m.src, id)) {
+          await _transport.send(m.src, WireEnvelope.ack(id).encode());
+          return;
+        }
+        // Deniability: if we DELETED this message, a re-delivery must NOT
+        // resurrect it. Re-ack so the sender stops re-sending, then drop.
+        if (id != null && await _storage.isMessageDeleted(id)) {
           await _transport.send(m.src, WireEnvelope.ack(id).encode());
           return;
         }
