@@ -466,6 +466,66 @@ class AppController extends Notifier<AppState> {
     return true;
   }
 
+  /// Bind an EXISTING identity (proven by [identityPassword]) into this master
+  /// under [label]. Opens the identity by its own password to read its keys,
+  /// then appends them to the master's roster — so the SAME identity space can
+  /// now be reached from this master too. Returns false if: not in a master
+  /// session; the password opens nothing or opens a MASTER (only a plain
+  /// identity can be bound); [label] is already used here; or that identity is
+  /// already bound (by its keys). The bound space is shared, not copied.
+  Future<bool> bindExistingIdentity({
+    required String identityPassword,
+    required String label,
+  }) async {
+    final roster = _pendingRoster;
+    final masterKeys = _masterKeys;
+    if (roster == null || masterKeys == null) return false;
+    if (roster.any((e) => e.label == label)) return false;
+
+    final prevActive = _activeLabel;
+    final hadSession = ref.read(sessionProvider) != null;
+
+    await _teardownSession();
+    await _teardownRealStack();
+    await ref.read(storageProvider).close();
+
+    final storage = ref.read(storageProvider);
+    // Open the identity by its OWN password (must already exist — no create).
+    if (!await storage.open(password: identityPassword)) {
+      await _recoverToActive();
+      return false;
+    }
+    // Only a PLAIN identity can be bound — a space with a roster is a master.
+    final isPlainIdentity = await storage.loadIdentity() != null &&
+        await storage.loadRoster() == null;
+    final keys = isPlainIdentity ? storage.exportSpaceKeys() : null;
+    await storage.close();
+    if (keys == null) {
+      await _recoverToActive();
+      return false;
+    }
+
+    // Append to the master's ON-DISK roster, re-checking label + keys there.
+    if (!await storage.openWithKeys(masterKeys)) {
+      await _recoverToActive();
+      return false;
+    }
+    final onDisk = await storage.loadRoster() ?? roster;
+    if (onDisk.any((e) =>
+        e.label == label || listEquals(e.spaceKeys, keys))) {
+      await storage.close();
+      await _recoverToActive();
+      return false;
+    }
+    final updated = [...onDisk, RosterEntry(label: label, spaceKeys: keys)];
+    await storage.saveRoster(updated);
+    await storage.close();
+    _pendingRoster = updated;
+
+    await _reEnterAfterRosterEdit(updated, prevActive, hadSession);
+    return true;
+  }
+
   /// Add a new identity. On the FIRST add this converts the current single
   /// identity into a master managed by [masterPassword] (the existing identity
   /// becomes a child labelled [existingLabel]); thereafter it APPENDS to the
