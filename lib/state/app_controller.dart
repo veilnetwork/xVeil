@@ -379,34 +379,90 @@ class AppController extends Notifier<AppState> {
 
     // Re-enter so the change takes effect (a node's anonymity is fixed at its
     // boot, so editing the roster requires the node to re-boot under it).
+    await _reEnterAfterRosterEdit(updated, prevActive, hadSession);
+    return true;
+  }
+
+  /// Re-enter a master session after editing its roster (anonymity toggle,
+  /// bind, unbind, delete). [updated] is the new roster; [target] is the label
+  /// to return to — if it is null or no longer in [updated] (e.g. the active
+  /// identity was just removed), fall back to the picker (one-active) or the
+  /// first identity (all-online). Shared so every roster-edit re-enters
+  /// identically. Caller must already have torn the session/stack down + saved.
+  Future<void> _reEnterAfterRosterEdit(
+      List<RosterEntry> updated, String? target, bool hadSession) async {
+    final valid = target != null && updated.any((e) => e.label == target);
     if (hadSession) {
-      // All-online: editing the master needed the shared lock, so the session
-      // was torn down — rebuild it (every node re-boots, including the toggled
-      // one) and restore the previously-active view.
+      // All-online: rebuild the whole session (every node re-boots), then
+      // restore the view to [target] if it still exists (else the first).
       final boot = ref.read(deniableBootProvider);
       if (boot?.storePath != null) {
         try {
           await _enterAllOnline(updated, boot!);
-          if (prevActive != null) await switchIdentity(prevActive);
-          return true;
+          if (valid) await switchIdentity(target!);
+          return;
         } catch (e, st) {
-          debugPrint('xVeil[anon]: all-online re-enter FAILED -> picker: $e\n$st');
+          debugPrint('xVeil[roster]: all-online re-enter FAILED -> picker: $e\n$st');
           await _teardownSession();
-          state = state.copyWith(
-            phase: AppPhase.pickingIdentity,
-            identities: [for (final e in updated) e.label],
-          );
-          return true;
         }
       }
-    }
-    // One-active: reboot whichever identity was active so the live node picks up
-    // the change (if the toggled identity is the active one, that's the point;
-    // if not, the active identity just re-boots unchanged).
-    if (prevActive != null) {
       _activeLabel = null;
-      await pickIdentity(prevActive);
+      state = state.copyWith(
+        phase: AppPhase.pickingIdentity,
+        identities: [for (final e in updated) e.label],
+      );
+      return;
     }
+    // One-active: re-open [target] (rebooting its node), or show the picker when
+    // it is gone so the user re-selects.
+    if (valid) {
+      _activeLabel = null;
+      await pickIdentity(target!);
+    } else {
+      _activeLabel = null;
+      state = state.copyWith(
+        phase: AppPhase.pickingIdentity,
+        identities: [for (final e in updated) e.label],
+      );
+    }
+  }
+
+  /// Unbind [label] from THIS master — remove it from the master's roster only.
+  /// The identity's space is UNTOUCHED: it still opens by its own password and
+  /// from any other master that lists it. Master-mode only; refuses to unbind
+  /// the last identity (an empty-roster master is indistinguishable from a plain
+  /// identity space at unlock). Returns false on those guards or a reopen fail.
+  Future<bool> unbindIdentity(String label) async {
+    final roster = _pendingRoster;
+    final masterKeys = _masterKeys;
+    if (roster == null || masterKeys == null) return false;
+    if (!roster.any((e) => e.label == label)) return false;
+    if (roster.length <= 1) return false; // keep >= 1 identity in a master
+
+    final prevActive = _activeLabel;
+    final hadSession = ref.read(sessionProvider) != null;
+
+    await _teardownSession();
+    await _teardownRealStack();
+    await ref.read(storageProvider).close();
+
+    final storage = ref.read(storageProvider);
+    if (!await storage.openWithKeys(masterKeys)) {
+      await _recoverToActive();
+      return false;
+    }
+    final onDisk = await storage.loadRoster() ?? roster;
+    final updated = [
+      for (final e in onDisk)
+        if (e.label != label) e,
+    ];
+    await storage.saveRoster(updated);
+    await storage.close();
+    _pendingRoster = updated;
+
+    // If we just unbound the ACTIVE identity it is gone from [updated], so the
+    // helper falls back to the picker; otherwise it restores the active view.
+    await _reEnterAfterRosterEdit(updated, prevActive, hadSession);
     return true;
   }
 
