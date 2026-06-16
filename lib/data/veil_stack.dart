@@ -139,9 +139,16 @@ class RealVeilStack {
     final controller = EmbeddedNodeController(
       appSocketPath: ipcSock,
       starter: () {
+        // Split the two FFI steps so the log distinguishes a slow admin BIND
+        // (startDeferred) from a slow admin CONNECT/apply (applyConfig holds the
+        // ~90s connect-retry — a big number here is the port-bind stall).
+        final ssw = Stopwatch()..start();
         final node =
             EmbeddedNode.startDeferred(adminSock, anonymous: anonymous, lib: lib);
+        final tDeferred = ssw.elapsedMilliseconds;
         node.applyConfig(fullConfig);
+        debugPrint('xVeil[deniable]: startDeferred +${tDeferred}ms, '
+            'applyConfig +${ssw.elapsedMilliseconds - tDeferred}ms');
         return node;
       },
     );
