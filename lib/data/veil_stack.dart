@@ -69,6 +69,16 @@ class RealVeilStack {
     int listenPort = 9000,
     bool anonymous = false,
   }) async {
+    // Time each phase so the log pinpoints where a slow boot/switch goes (the
+    // boot is mining-free when the identity already exists, so a slow switch is
+    // the node bind/connect, not PoW). Zero-cost diagnostic; reads at a glance.
+    final sw = Stopwatch()..start();
+    int lap() {
+      final ms = sw.elapsedMilliseconds;
+      sw.reset();
+      return ms;
+    }
+
     // 1. Load this identity's node config, or mine + store it on first run.
     final String identityToml;
     final existing = await storage.loadNodeConfig();
@@ -87,7 +97,8 @@ class RealVeilStack {
           : EmbeddedNode.mineConfig(0, lib: lib);
       await storage.saveNodeConfig(identityToml);
     }
-    debugPrint('xVeil[deniable]: identity ready (${identityToml.length} B)');
+    debugPrint('xVeil[deniable]: identity ready (${identityToml.length} B) '
+        '[+${lap()}ms config]');
 
     // 2. Ephemeral, identity-free runtime endpoints.
     await Directory(runtimeDir).create(recursive: true);
@@ -120,7 +131,8 @@ class RealVeilStack {
       debugPrint('xVeil[deniable]: anonymous routing — arming onion at boot '
           '(resolves to the real identity after apply-config)');
     }
-    debugPrint('xVeil[deniable]: composed config, booting deferred @ $adminSock');
+    debugPrint('xVeil[deniable]: composed config [+${lap()}ms], '
+        'booting deferred @ $adminSock');
 
     // 4. Boot deferred (anonymity armed in the stub when requested), then apply
     // the real config IN MEMORY (no file) to promote the real identity.
@@ -134,8 +146,11 @@ class RealVeilStack {
       },
     );
     await controller.start();
+    // This lap is the suspect for a slow switch: startDeferred + applyConfig
+    // (admin bind/connect) + the readiness poll. A large value here with a
+    // mining-free identity points at a port-bind stall, not PoW.
     debugPrint('xVeil[deniable]: controller phase=${controller.current.phase}'
-        ' msg=${controller.current.message}');
+        ' msg=${controller.current.message} [+${lap()}ms boot+connect]');
     if (controller.current.phase != NodePhase.connected) {
       throw StateError(
           'deniable node did not connect: ${controller.current.phase}'
