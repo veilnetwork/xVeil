@@ -154,8 +154,11 @@ class MessagingService {
           await _setStatus(m.src, ContactStatus.pendingIncoming);
         }
         if (env.body.isNotEmpty) {
+          // Store the greeting under the REQUEST's id so a later outbox re-send
+          // of the same greeting (as a WireKind.message) dedups instead of
+          // creating a second copy.
           await _store(m.src, MessageDirection.incoming, env.body,
-              MessageStatus.delivered);
+              MessageStatus.delivered, id: env.id);
         }
       case WireKind.accept:
         // Only honour an accept for a request we actually sent.
@@ -255,11 +258,18 @@ class MessagingService {
   Future<void> sendRequest(NodeId dst, String greeting) async {
     final text = greeting.trim();
     await _setStatus(dst, ContactStatus.pendingOutgoing);
+    // Tag the greeting with a stable id shared between our stored copy and the
+    // request on the wire. The greeting is stored `sent`, so the outbox re-sends
+    // it as a WireKind.message after the peer accepts; without a shared id the
+    // recipient (who stored the request body) couldn't dedup it and would show
+    // the greeting twice.
+    final id = _uuid.v4();
     if (text.isNotEmpty) {
-      await _store(dst, MessageDirection.outgoing, text, MessageStatus.sent);
+      await _store(dst, MessageDirection.outgoing, text, MessageStatus.sent,
+          id: id);
     }
     _signal();
-    await _transport.send(dst, WireEnvelope.request(text).encode());
+    await _transport.send(dst, WireEnvelope.request(text, id: id).encode());
   }
 
   /// Approve an incoming request — both sides can now message freely.
