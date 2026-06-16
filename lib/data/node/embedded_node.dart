@@ -14,6 +14,41 @@ import 'veil_node.dart' show veilSocketProbe;
 /// [processLibFor].
 DynamicLibrary _veilLib() => processLibFor('veilclient_ffi');
 
+/// One `[[bootstrap_peers]]` entry — a known node the embedded node dials at
+/// boot to join a network (seed set / testnet). Fields mirror veil's
+/// `BootstrapPeer` (veil-types): [transport] e.g. `obfs4-tcp://host:port`,
+/// [publicKey]/[nonce] base64, [algo] signature algorithm.
+///
+/// NOTE: these point the node at a specific network — treat them as
+/// configuration, NOT secrets, but a testnet set is environment-specific and
+/// must not be hardcoded into committed source (load from a local, gitignored
+/// file via [BootstrapPeerCfg.listFromJson]).
+class BootstrapPeerCfg {
+  const BootstrapPeerCfg({
+    required this.transport,
+    required this.publicKey,
+    required this.nonce,
+    this.algo = 'ed25519',
+  });
+
+  final String transport;
+  final String publicKey;
+  final String nonce;
+  final String algo;
+
+  /// Parse a JSON array of `{transport, public_key, nonce, algo?}` objects
+  /// (the shape mirrors the ansible inventory's `veil_bootstrap_peers`).
+  static List<BootstrapPeerCfg> listFromJson(List<dynamic> json) => [
+        for (final e in json)
+          BootstrapPeerCfg(
+            transport: (e as Map)['transport'] as String,
+            publicKey: e['public_key'] as String,
+            nonce: e['nonce'] as String,
+            algo: (e['algo'] as String?) ?? 'ed25519',
+          ),
+      ];
+}
+
 // C ABI from veilclient-ffi (node-embedded feature):
 //   char     *veil_config_init(uint32_t difficulty, char** err_out);
 //   VeilNode *veil_node_start(const uint8_t*, size_t, char** err_out);
@@ -113,6 +148,7 @@ class EmbeddedNode {
     required String adminSocket,
     DynamicLibrary? lib,
     bool anonymous = false,
+    List<BootstrapPeerCfg> bootstrapPeers = const [],
   }) {
     return _composeConfigImpl(
       identityToml: identityToml,
@@ -121,7 +157,27 @@ class EmbeddedNode {
       adminSocket: adminSocket,
       lib: lib,
       anonymous: anonymous,
+      bootstrapPeers: bootstrapPeers,
     );
+  }
+
+  /// Append `[[bootstrap_peers]]` tables so the node dials a known network
+  /// (a seed set / testnet) at boot — without them an embedded node only sees
+  /// the compiled-in BUILTIN_SEEDS. Pure helper (no FFI) so it is unit-testable.
+  /// Mirrors the on-disk node.toml shape veil renders (top-level tables, NOT
+  /// nested under `[network]`).
+  static String withBootstrapPeers(String toml, List<BootstrapPeerCfg> peers) {
+    if (peers.isEmpty) return toml;
+    final buf = StringBuffer(toml);
+    for (final p in peers) {
+      buf
+        ..write('\n[[bootstrap_peers]]\n')
+        ..write('transport = "${p.transport}"\n')
+        ..write('public_key = "${p.publicKey}"\n')
+        ..write('nonce = "${p.nonce}"\n')
+        ..write('algo = "${p.algo}"\n');
+    }
+    return buf.toString();
   }
 
   /// Append a location-anonymous `[anonymity]` table to a composed [toml] when
@@ -143,6 +199,7 @@ class EmbeddedNode {
     required String adminSocket,
     DynamicLibrary? lib,
     bool anonymous = false,
+    List<BootstrapPeerCfg> bootstrapPeers = const [],
   }) {
     final dl = lib ?? _veilLib();
     final composeFn =
@@ -171,7 +228,7 @@ class EmbeddedNode {
       }
       final toml = out.toDartString();
       freeStr(out);
-      return withAnonymity(toml, anonymous);
+      return withBootstrapPeers(withAnonymity(toml, anonymous), bootstrapPeers);
     } finally {
       for (final p in ptrs) {
         calloc.free(p);
