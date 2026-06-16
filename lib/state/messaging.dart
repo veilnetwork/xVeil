@@ -249,6 +249,11 @@ class MessagingService {
         await _store(m.src, MessageDirection.incoming, '📎 ${inc.name ?? 'file'}',
             MessageStatus.delivered, fileId: frame.transferId, fileName: inc.name);
         _inFlight.remove(frame.transferId);
+        // Ack the completed transfer (keyed by transfer id, which the sender
+        // used as its file message id) so the sender's file message flips
+        // sent -> delivered — the same delivery feedback text messages get.
+        await _transport.send(
+            m.src, WireEnvelope.ack(frame.transferId).encode());
     }
     _signal();
   }
@@ -390,8 +395,11 @@ class MessagingService {
 
     final fileId = _uuid.v4();
     await _storage.storeFile(fileId, bytes, name: name);
+    // Use the transfer id AS the message id so the receiver's completion ack
+    // (keyed by transfer id) flips this message sent -> delivered. The file
+    // wire frames carry only the transfer id, not the message id.
     await _store(dst, MessageDirection.outgoing, '📎 $name', MessageStatus.sent,
-        fileId: fileId, fileName: name);
+        fileId: fileId, fileName: name, id: fileId);
     _signal();
 
     final chunks = chunkBytes(bytes, transferId: fileId, maxChunk: _wireChunkBytes);
