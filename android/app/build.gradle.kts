@@ -1,5 +1,8 @@
 plugins {
     id("com.android.application")
+    // MainActivity is Kotlin and AGP 8.7 does not provide built-in Kotlin, so
+    // the app module must apply the Kotlin plugin explicitly.
+    id("org.jetbrains.kotlin.android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }

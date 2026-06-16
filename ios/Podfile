@@ -1,5 +1,7 @@
-# Uncomment this line to define a global platform for your project
-# platform :ios, '13.0'
+# The veil_flutter + hidden_volume plugins vendor iOS 13 staticlibs/xcframeworks,
+# so pin the global platform to match (else pods default lower and pod install
+# warns / mismatches the Runner's IPHONEOS_DEPLOYMENT_TARGET = 13.0).
+platform :ios, '13.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
