@@ -11,6 +11,8 @@
 
   "preparingTitle": "Setting up your node",
   "preparingBody": "Provisioning your identity on this device. This can take a little while — please wait.",
+  "preparingFirstRunTitle": "Creating this identity",
+  "preparingFirstRunBody": "A one-time setup that can take up to a minute (a proof-of-work that makes the identity hard to forge). It only runs the first time — switching to it later is instant.",
 
   "onboardWelcomeTitle": "Welcome to xVeil",
   "onboardWelcomeBody": "A decentralized, censorship-resistant messenger. No phone number. No central server. Your identity and your messages stay with you.",
