@@ -24,11 +24,18 @@ abstract interface class VeilTransport {
   ///
   /// When [anonymous] is true, the message is routed over an onion rendezvous
   /// circuit that hides the sender's network location (resolving [dst]'s
-  /// rendezvous ad and sealing an introduce). This is FAIL-CLOSED: if the
-  /// anonymous path cannot be built (e.g. [dst] publishes no rendezvous ad), the
-  /// send throws rather than silently falling back to a clearnet send that would
-  /// leak the sender's location — a leak that, for the threat model this app
-  /// serves, must never happen behind the user's back.
+  /// rendezvous ad and sealing an introduce).
+  ///
+  /// The safety guarantee is NO CLEARNET FALLBACK: an anonymous send is *only*
+  /// ever attempted over the onion path — it never quietly degrades to a
+  /// location-revealing clearnet send, a leak that for this threat model must
+  /// never happen behind the user's back. It is NOT synchronously fail-fast:
+  /// the call resolves once the node has accepted the command (the IPC send is
+  /// fire-and-forget), so an onion delivery that can't complete yet (e.g. [dst]
+  /// publishes no ad, or no relay circuit is available) does not throw here —
+  /// the message simply stays undelivered (un-acked) and the outbox retries it
+  /// until a circuit can be built. Failures surface as "not delivered", never
+  /// as a silent clearnet leak.
   Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false});
 
   /// Inbound application payloads addressed to us.
