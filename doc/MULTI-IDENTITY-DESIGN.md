@@ -96,10 +96,11 @@ to that conversation always send via the owning identity's veil node, so a
 contact only ever sees the node_id you chose for them. A reply arrives on the
 identity it was addressed to and lands in that identity's space.
 
-Open question (§7): in master mode, do we run **all roster identities' nodes
-simultaneously** (you receive on every identity at once) or **one active node**
-that you switch (only the active identity is online)? Simultaneous is the better
-messenger UX but heavier and more network surface; switching is simpler.
+Resolved (§7b): BOTH are shipped. Default is **one active node** that you switch
+(simpler, smaller network surface). The opt-in `keepAllOnline` setting runs **all
+roster identities' nodes simultaneously** (you receive on every identity at once,
+instant switch) — heavier and more correlatable, so it's OFF by default and
+sensitive identities can be marked anonymous (onion) to stay uncorrelated.
 
 ## 4. On-disk artifact audit — what leaks today
 
@@ -253,9 +254,24 @@ User chose **path B = multispace in the hidden-volume core**. Built + tested:
   in-core). `MultiSpaceHandle` FFI + `HvMultiSpace` Dart binding.
 - **xVeil storage** — `MultiSpaceBacking` + `MultiSpaceKvLogStore` (N
   `KvLogStore` views over one backing); `HiddenVolumeStorage.fromStore`.
-- **Per-identity anonymous routing** — `RosterEntry.anonymous` →
-  `composeConfig` appends `[anonymity] onion_service` (location-anonymous, can't
-  be correlated). Opt-in per identity (switch in Add-identity).
+- **Per-identity anonymous routing (FUNCTIONAL)** — `RosterEntry.anonymous` →
+  `spec.anonymous` → `startDeniable(anonymous:)` → `startDeferred(anonymous:)`,
+  which arms `[anonymity]` in veil's **stub BOOT config** (`veil_node_start_deferred`
+  gained a `bool anonymous`). This is the load-bearing detail: veil pins
+  `[anonymity]` at node start and a reload does NOT re-apply it, so the earlier
+  approach of appending `[anonymity]` to the *applied* config was a silent no-op.
+  The device x25519 key is `load_or_create` (independent of identity) and the
+  onion descriptor is sealed against the LIVE identity, so a deferred node armed
+  anonymous becomes onion-reachable under its REAL identity once apply-config
+  promotes it. Opt-in per identity — set at Add-identity AND toggleable later for
+  an existing identity (`AppController.setIdentityAnonymous`, onion icon in the
+  switcher); takes effect on that identity's next node boot. Verified at the
+  config + runtime level (`anonymity.onion_service_hops` is `Some` on the
+  anonymous stub); a true network e2e (2nd node resolving the descriptor over a
+  relay) still wants a multi-node harness. NOTE: `composeConfig(anonymous:)` MUST
+  match `startDeferred(anonymous:)` — the applied config's `[anonymity]` is kept
+  consistent with the boot state only to avoid veil's `config.anonymity.
+  reload_ignored` warning, not because it does the arming.
 - **`MultiIdentitySession`** (lib/state) — boots N nodes (own port + runtime
   dir) AND wires a `MessagingService` per identity (transport + storage), so
   every identity receives + persists concurrently. `IdentityNode` abstraction
@@ -264,16 +280,20 @@ User chose **path B = multispace in the hidden-volume core**. Built + tested:
 - **Opt-in setting** `keepAllOnline` (default OFF, anonymity-safe) + container
   path threaded into `DeniableBootConfig.storePath`.
 
-**REMAINING (the invasive finish — do with care + native verification):** wire
-the session into `AppController`: on master unlock + `keepAllOnline` + storePath,
-open `HvMultiSpaceBacking(storePath)` → `bootAll(roster)`; make the UI's data
-source the ACTIVE identity — conversations/messages/contacts/messaging providers
-must read the active identity's storage + its session `MessagingService` (not the
-global one, which would double-process the active transport), and `switchIdentity`
-repoints them with NO node teardown (all stay online); `realStackProvider` →
-active stack (drives transport/invite/status); `lock` → `session.disposeAll()`.
-This is a provider-graph change touching the verified unlock/switch flow — best
-done after a native run confirms the engine (concurrent identities receiving).
+**DONE (the invasive finish — shipped + observed working live):** the session is
+wired into `AppController`: on master unlock + `keepAllOnline` + storePath, it
+opens `HvMultiSpaceBacking(storePath)` → `bootAll(roster)` (`_enterAllOnline`,
+with a try/catch fallback to the one-active picker so a boot failure never strands
+the user); the UI's data source follows the ACTIVE identity —
+conversations/messages/contacts/messaging providers select the active identity's
+session storage + its `MessagingService` via `activeIdentityProvider` (not the
+global one), and `switchIdentity` repoints them with NO node teardown (all stay
+online — instant switch); `realStackProvider` → active stack; `lock` →
+`session.disposeAll()`. Per-identity listen ports are offset (`listenPortBase + 1
++ i`) so the N nodes don't collide and don't reuse a just-freed port. Live log
+showed two distinct nodes/invites up concurrently. Switching in one-active mode
+(keepAllOnline OFF) still reboots the node (a brief "preparing" delay); all-online
+avoids that — see the slow-switch note in the embedded-node memory.
 
 ## 8. Phasing
 
@@ -305,9 +325,18 @@ done after a native run confirms the engine (concurrent identities receiving).
     password, shares only chosen safe identities, clash guard so it can't
     overwrite the real master). Per-identity conversations are inherent (each
     identity = its own space); send-as = the active identity. Screens:
-    IdentityPicker / AddIdentity / DecoyMaster. ~125 tests green; single-identity
-    flow verified unchanged. **Still needs: manual end-to-end run on a real
-    native build** (two instances: create master, switch, decoy under duress).
+    IdentityPicker / AddIdentity / DecoyMaster. Phase 3 (all-online) also shipped
+    (§7b). ~150 tests green; single-identity flow verified unchanged.
+    **CRITICAL FIX (2026-06-16):** `addIdentity` rebuilt the roster from in-memory
+    state and OVERWROTE the master — when that state was stale (after an
+    all-online session or a relaunch) it silently dropped the other identities, a
+    lockout/data-loss bug the user hit. Fixed: read the master's ON-DISK roster
+    and APPEND; tear down the all-online session first (it holds the lock); reject
+    a duplicate label; guard the first-conversion against orphaning the existing
+    identity. Also added: irreversible "Clear all data" wipe (typed-phrase gate)
+    on the lock screen. **Still needs: manual end-to-end run on a real native
+    build** (create master, add identities reusing the master password, switch,
+    decoy under duress; confirm all passwords open).
   - ⚠️ **Constraint found via real-container test (2026-06-15):** the native
     container takes an **exclusive per-file flock** — only ONE space per
     container is open at a time. So the master and a child cannot be open
