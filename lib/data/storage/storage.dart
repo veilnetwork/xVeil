@@ -87,6 +87,12 @@ abstract interface class Storage {
   /// the id is unknown.
   Future<void> deleteMessage(String messageId);
 
+  /// Whether [messageId] was deleted (a tombstone exists for it). Lets the
+  /// messaging layer refuse to RESURRECT a deleted message if the sender
+  /// re-delivers it (deniability: deleted stays deleted). Stays true forever —
+  /// there is no un-delete.
+  Future<bool> isMessageDeleted(String messageId);
+
   /// Reclaim/overwrite chunks orphaned by edits and deletes so the prior
   /// plaintext is no longer recoverable from the container even by a
   /// password-holder. Backed by hidden-volume's vacuum/compact; a no-op on the
