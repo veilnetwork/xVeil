@@ -37,9 +37,30 @@ List<String> nativeLibCandidates(
   return out;
 }
 
-/// dlopen the first existing candidate so the plugin's
-/// `DynamicLibrary.process()` lookups resolve on desktop. Never throws.
+/// Ensures [base]'s symbols are resolvable for the rest of the process.
+///
+/// - iOS: Apple forbids third-party dylibs, so the Rust staticlib is linked
+///   straight INTO the app image by the plugin podspec (`-force_load`). The
+///   symbols already live in the process; there is no file to dlopen, so we
+///   just confirm availability.
+/// - Android: the per-ABI `.so` ships inside the APK's native-lib dir. It is
+///   not auto-loaded, so dlopen it by soname (the dynamic linker resolves it
+///   from the app's lib dir); the plugin bindings then use the same image.
+/// - Desktop (macOS/Linux/Windows): dlopen the first existing candidate path
+///   so the plugin's `DynamicLibrary.process()` lookups resolve. Never throws.
 bool loadNativeLib(String base, {String? envVar, String? devSubdir}) {
+  if (Platform.isIOS) {
+    // Statically linked into the Runner; nothing to load.
+    return true;
+  }
+  if (Platform.isAndroid) {
+    try {
+      DynamicLibrary.open(nativeLibFileName(base)); // lib<base>.so
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
   for (final path in nativeLibCandidates(base, envVar: envVar, devSubdir: devSubdir)) {
     if (!File(path).existsSync()) continue;
     try {
@@ -51,3 +72,13 @@ bool loadNativeLib(String base, {String? envVar, String? devSubdir}) {
   }
   return false;
 }
+
+/// The `DynamicLibrary` to resolve [base]'s symbols against from app-side FFI
+/// (e.g. the embedded-node bindings, which don't go through the plugin's own
+/// loader). On Android `DynamicLibrary.open` returns a handle whose symbols are
+/// NOT placed in the global (`process()`) scope, so callers must use THIS
+/// handle; on iOS/desktop the symbols are process-global. Mirrors how the
+/// plugin bindings pick their handle per platform.
+DynamicLibrary processLibFor(String base) =>
+    Platform.isAndroid ? DynamicLibrary.open(nativeLibFileName(base))
+                       : DynamicLibrary.process();

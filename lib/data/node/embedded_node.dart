@@ -4,8 +4,15 @@ import 'dart:ffi';
 
 import 'package:ffi/ffi.dart';
 
+import '../native_libs.dart' show processLibFor;
 import 'node_controller.dart';
 import 'veil_node.dart' show veilSocketProbe;
+
+/// The handle the embedded-node symbols resolve against. On Android they live
+/// in the dlopen'd `libveilclient_ffi.so` (not the global scope), so we must
+/// use that handle; on iOS/desktop they are process-global. See
+/// [processLibFor].
+DynamicLibrary _veilLib() => processLibFor('veilclient_ffi');
 
 // C ABI from veilclient-ffi (node-embedded feature):
 //   char     *veil_config_init(uint32_t difficulty, char** err_out);
@@ -46,7 +53,7 @@ typedef _ApplyConfigDart = int Function(
 /// built `--features node-embedded`). Lets the app pick the in-process deniable
 /// boot path only when the symbols are actually present.
 bool embeddedNodeAvailable({DynamicLibrary? lib}) {
-  final dl = lib ?? DynamicLibrary.process();
+  final dl = lib ?? _veilLib();
   try {
     dl.lookup<NativeFunction<_ConfigInitNative>>('veil_config_init');
     return true;
@@ -72,7 +79,7 @@ class EmbeddedNode {
   /// [difficulty] is the PoW difficulty in leading zero bits (0 = canonical
   /// default). Mining can take a while — run it off the UI isolate.
   static String mineConfig(int difficulty, {DynamicLibrary? lib}) {
-    final dl = lib ?? DynamicLibrary.process();
+    final dl = lib ?? _veilLib();
     final initFn =
         dl.lookupFunction<_ConfigInitNative, _ConfigInitDart>('veil_config_init');
     final freeStr =
@@ -137,7 +144,7 @@ class EmbeddedNode {
     DynamicLibrary? lib,
     bool anonymous = false,
   }) {
-    final dl = lib ?? DynamicLibrary.process();
+    final dl = lib ?? _veilLib();
     final composeFn =
         dl.lookupFunction<_ComposeNative, _ComposeDart>('veil_config_compose');
     final freeStr =
@@ -176,7 +183,7 @@ class EmbeddedNode {
   /// Start a node from [configPath]. [lib] defaults to the in-process symbols
   /// (the preloaded libveilclient_ffi). Throws if start fails.
   static EmbeddedNode start(String configPath, {DynamicLibrary? lib}) {
-    final dl = lib ?? DynamicLibrary.process();
+    final dl = lib ?? _veilLib();
     final startFn = dl.lookupFunction<_StartNative, _StartDart>('veil_node_start');
     final freeStr =
         dl.lookupFunction<_FreeStrNative, _FreeStrDart>('veil_free_string');
@@ -215,7 +222,7 @@ class EmbeddedNode {
     bool anonymous = false,
     DynamicLibrary? lib,
   }) {
-    final dl = lib ?? DynamicLibrary.process();
+    final dl = lib ?? _veilLib();
     final startFn = dl.lookupFunction<_StartDeferredNative, _StartDeferredDart>(
         'veil_node_start_deferred');
     final freeStr =
