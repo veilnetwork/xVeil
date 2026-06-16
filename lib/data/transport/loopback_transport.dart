@@ -29,7 +29,9 @@ class LoopbackTransport implements VeilTransport {
   Future<NodeId> nodeId() async => _local;
 
   @override
-  Future<void> send(NodeId dst, Uint8List payload) async {
+  Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) async {
+    // The dev loopback never touches the network, so anonymity is a no-op here —
+    // it echoes regardless. The flag only matters for the real transport.
     if (_disposed) return;
     final text = utf8.decode(payload, allowMalformed: true);
     final reply = utf8.encode('↩︎ echo: $text');

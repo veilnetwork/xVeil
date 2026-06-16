@@ -26,7 +26,7 @@ class _NoopTransport implements VeilTransport {
   @override
   Stream<InboundMessage> messages() => _c.stream;
   @override
-  Future<void> send(NodeId dst, Uint8List payload) async {}
+  Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) async {}
   @override
   Future<void> dispose() async => _c.close();
 }
