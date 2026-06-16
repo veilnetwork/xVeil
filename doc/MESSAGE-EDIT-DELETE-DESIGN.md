@@ -40,6 +40,17 @@ stable UUID → `log_id` map:
 - `deleteMessage(id)` — re-append the `log_id` with `{op:'del', id}` and drop the
   index entry. `_scanLog` removes a tombstoned id entirely (no "deleted" stub —
   the existence of the message is itself not advertised).
+
+  **RESURRECTION INVARIANT (deniability-critical).** Because `_scanLog` drops a
+  tombstoned id, `loadMessages`/`_hasMessage` report a deleted message as ABSENT
+  — so a naive inbound handler would RE-STORE it when the sender re-delivers it
+  (an outbox retry racing the delete, the connection greeting that stays
+  un-acked until accept, or a hostile re-send), resurrecting deleted content.
+  `Storage.isMessageDeleted(id)` (tombstone-aware, permanent — scans for
+  `{op:'del',id}`) closes this: the inbound `message`, `request`, and file-
+  completion handlers refuse to store a deleted id and re-ack so the sender
+  stops. "Deleted stays deleted" holds across ALL redelivery vectors (message
+  re-send, edit, file re-delivery) — each guarded + regression-tested.
 - `scrubDeleted()` → `KvLogStore.scrub()` → `HvSpace.vacuumDataBatches()`
   (no-op on the in-memory fake, which never persists). Called immediately after
   every edit/delete so the plaintext is gone *now*, not at some later GC.
@@ -55,19 +66,22 @@ Tests: `hidden_volume_storage_test.dart` (edit-in-place, delete incl. received,
 unknown-id no-op, gone-after-scrub) and `messaging_outbox_test.dart` (service
 edit + received-message purge).
 
-## Follow-ups (not yet done)
+## Follow-ups
 
-1. **Peer propagation.** Editing/deleting a *sent* message should reach the
-   recipient. Add `WireKind.edit` (id + new body) and `WireKind.del` (id); the
-   receiver applies `editMessage` / `deleteMessage` + scrub on their side. Note
-   this is best-effort and the recipient can always have copied the text — UI
-   should not promise the peer's copy is gone.
-2. **UI.** Long-press / context menu on a bubble: Edit (own text bubbles only),
-   Delete (any). Edit opens the composer pre-filled; an "edited" marker renders
-   from `Message.edited`. New l10n keys (RU/EN).
-3. **Scrub cost.** `vacuumDataBatches` rewrites data batches; scrubbing after
-   every single delete may be heavy on large containers. If it bites, batch the
-   scrub (debounce) while keeping the logical tombstone immediate — but never
-   leave the orphan un-scrubbed across an app lifetime.
-4. **File messages.** Deleting a file message should also delete the stored
-   blob (FileStore) + scrub, not just the log row.
+1. ✅ **Peer propagation — DONE.** `WireKind.edit` (id + new body) and
+   `WireKind.del` (id); the receiver applies `editMessage`/`deleteMessage` +
+   scrub, guarded by `_isIncomingFrom` (a peer can only edit/delete messages
+   THEY sent us, never our outgoing ones). Best-effort — the UI warns the peer
+   may already have copied the text. `deleteForEveryone` (own sent) vs
+   `deleteMessageLocally` (any, local-only).
+2. ✅ **UI — DONE.** Long-press sheet on a bubble: own text → Edit / Delete for
+   everyone / Delete for me; received/file → Delete for me. Edit dialog
+   pre-filled; italic "edited" marker from `Message.edited`. RU/EN l10n.
+3. **Scrub cost (still open, perf).** `vacuumDataBatches` rewrites data batches;
+   scrubbing after every delete may be heavy on large containers. If it bites,
+   batch/debounce the scrub while keeping the logical tombstone immediate — but
+   never leave the orphan un-scrubbed across an app lifetime.
+4. ✅ **File messages — DONE.** `deleteMessage` folds `FileStore.deleteFileOps`
+   into the same atomic commit (no crash window where the chat row and blob
+   disagree), then scrubs — the blob's chunks are overwritten + reclaimed, not
+   just the log row.
