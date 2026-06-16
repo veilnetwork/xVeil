@@ -95,13 +95,18 @@ Future<List<Override>> _bootstrapOverrides() async {
     // set is environment-specific, never committed) listing the network's
     // bootstrap peers. Absent ⇒ the node relies on its compiled-in BUILTIN_SEEDS.
     final bootstrapPeers = _loadBootstrapPeers();
+    // XVEIL_OBFS4_PSK: base64 deployment-wide obfs4 key for networks that pin
+    // one (testnet). Without it, dialing obfs4 bootstrap peers fails the
+    // handshake. Treated as config, not a secret — but environment-specific.
+    final obfs4Psk = Platform.environment['XVEIL_OBFS4_PSK'];
     overrides.add(deniableBootProvider.overrideWithValue(DeniableBootConfig(
         runtimeDir: runtimeDir,
         listenPort: port,
         storePath: storePath,
-        bootstrapPeers: bootstrapPeers)));
+        bootstrapPeers: bootstrapPeers,
+        obfs4Psk: (obfs4Psk != null && obfs4Psk.isNotEmpty) ? obfs4Psk : null)));
     debugPrint('xVeil[real:deniable]: armed (runtimeDir=$runtimeDir port=$port '
-        'bootstrapPeers=${bootstrapPeers.length})');
+        'bootstrapPeers=${bootstrapPeers.length} obfs4Psk=${obfs4Psk != null && obfs4Psk.isNotEmpty})');
   }
 
   return overrides;
