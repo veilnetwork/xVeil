@@ -421,6 +421,67 @@ void main() {
     await bobAgain.close();
   });
 
+  test('bindExistingIdentity shares an existing identity space into the master',
+      () async {
+    SharedPreferences.setMockInitialValues({'onboarded': true});
+    final container = FakeHvContainer();
+    final alice = container.storage();
+    await alice.open(password: 'pw-alice', createIfMissing: true);
+    await alice.saveIdentity(AppController.generateIdentity(displayName: 'Alice'));
+    final aliceKeys = alice.exportSpaceKeys();
+    await alice.close();
+    // Carol exists as a standalone identity, not yet in any master.
+    final carol = container.storage();
+    await carol.open(password: 'pw-carol', createIfMissing: true);
+    await carol.saveIdentity(AppController.generateIdentity(displayName: 'Carol'));
+    await carol.close();
+    final master = container.storage();
+    await master.open(password: 'masterpw', createIfMissing: true);
+    await master
+        .saveRoster([RosterEntry(label: 'alice', spaceKeys: aliceKeys)]);
+    await master.close();
+
+    final app = container.storage();
+    final c = ProviderContainer(
+        overrides: [storageProvider.overrideWith((ref) => app)]);
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+    await ctrl.unlock('masterpw');
+    await ctrl.pickIdentity('alice');
+
+    // Wrong password → refused; the master itself → refused; duplicate label → refused.
+    expect(
+        await ctrl.bindExistingIdentity(identityPassword: 'nope', label: 'x'),
+        isFalse);
+    expect(
+        await ctrl.bindExistingIdentity(
+            identityPassword: 'masterpw', label: 'y'),
+        isFalse);
+    expect(
+        await ctrl.bindExistingIdentity(
+            identityPassword: 'pw-carol', label: 'alice'),
+        isFalse);
+
+    // Bind carol by her own password.
+    expect(
+        await ctrl.bindExistingIdentity(
+            identityPassword: 'pw-carol', label: 'carol'),
+        isTrue);
+
+    await ctrl.lock();
+    final check = container.storage();
+    await check.open(password: 'masterpw');
+    expect((await check.loadRoster())!.map((e) => e.label),
+        containsAll(['alice', 'carol']));
+    await check.close();
+    // Carol's own space is untouched (shared, not moved).
+    final carolAgain = container.storage();
+    expect(await carolAgain.open(password: 'pw-carol'), isTrue);
+    expect((await carolAgain.loadIdentity())?.displayName, 'Carol');
+    await carolAgain.close();
+  });
+
   test('unbindIdentity refuses to unbind the last identity', () async {
     SharedPreferences.setMockInitialValues({'onboarded': true});
     final container = FakeHvContainer();
