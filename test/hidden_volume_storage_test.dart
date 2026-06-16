@@ -38,6 +38,26 @@ void main() {
     await storage.open(password: 'pw', createIfMissing: true);
   });
 
+  test('eraseSpace forensically clears the identity, messages, and contacts',
+      () async {
+    await storage.saveIdentity(Identity(nodeId: _id(1), displayName: 'Gone'));
+    await storage.upsertContact(Contact(nodeId: _id(2)));
+    await storage.appendMessage(_msg(
+        conv: _id(2).hex,
+        dir: MessageDirection.incoming,
+        body: 'secret',
+        ts: DateTime(2026, 5, 1)));
+    expect(await storage.loadIdentity(), isNotNull);
+    expect((await storage.loadMessages(_id(2).hex)).isNotEmpty, isTrue);
+
+    await storage.eraseSpace();
+
+    expect(await storage.loadIdentity(), isNull);
+    expect(await storage.loadMessages(_id(2).hex), isEmpty);
+    expect(await storage.getContact(_id(2)), isNull);
+    expect(await storage.loadConversations(), isEmpty);
+  });
+
   test('open returns false for an empty password (auth-fail path)', () async {
     final fresh = HiddenVolumeStorage(
       ({required Uint8List password, required bool create}) =>

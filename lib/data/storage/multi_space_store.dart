@@ -69,6 +69,14 @@ class MultiSpaceKvLogStore implements KvLogStore {
   int count(int namespace) => _backing.count(_id, namespace);
 
   @override
+  int eraseNamespace(int namespace) =>
+      // Deleting an identity tears the all-online session down and erases via
+      // the single-space path (HvKvLogStore), so this multi-space view never
+      // erases. The native multi-space handle also exposes no per-id erase.
+      throw UnsupportedError(
+          'erase a space via the single-space path, not the multi-space view');
+
+  @override
   void scrub() => _backing.scrub(_id);
 
   @override
