@@ -142,6 +142,37 @@ void main() {
         reason: 'a duplicate meta must not discard already-received chunks');
   });
 
+  test('a deleted file does not resurrect when the transfer is re-delivered',
+      () async {
+    const tid = 'file-xfer-1';
+    Future<void> deliver() async {
+      await tA.send(
+          b,
+          fileMetaEnvelope(transferId: tid, name: 'doc.bin', size: 3, count: 1)
+              .encode());
+      await tA.send(
+          b,
+          fileChunkEnvelope(
+                  transferId: tid,
+                  index: 0,
+                  total: 1,
+                  data: Uint8List.fromList([1, 2, 3]))
+              .encode());
+    }
+
+    await deliver();
+    await _pump();
+    final fileMsg = (await sB.loadMessages(a.hex)).firstWhere((m) => m.isFile);
+    await mB.deleteMessageLocally(fileMsg.id);
+    expect((await sB.loadMessages(a.hex)).any((m) => m.isFile), isFalse);
+
+    // Re-deliver the SAME transfer (a hostile re-send) — must stay deleted.
+    await deliver();
+    await _pump();
+    expect((await sB.loadMessages(a.hex)).any((m) => m.isFile), isFalse,
+        reason: 'a deleted file must not resurrect on re-delivery');
+  });
+
   test('an edit for a deleted message does not resurrect it', () async {
     await mA.sendText(b, 'secret');
     await _pump();
