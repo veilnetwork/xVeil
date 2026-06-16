@@ -1,17 +1,24 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../state/app_controller.dart';
 
-/// Shown while the in-process node is provisioned post-unlock (mining the
-/// identity on first run can take a few seconds). The heavy work runs off the
-/// UI isolate, so this screen stays animated and the window no longer "hangs".
-class PreparingScreen extends StatelessWidget {
+/// Shown while the in-process node is provisioned post-unlock. On the FIRST run
+/// of an identity this includes a one-time identity proof-of-work (tens of
+/// seconds) — the message says so explicitly so a switch doesn't read as "always
+/// slow". The heavy work runs off the UI isolate, so this screen stays animated.
+class PreparingScreen extends ConsumerWidget {
   const PreparingScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
+    final firstRun =
+        ref.watch(appControllerProvider.select((s) => s.preparingFirstRun));
+    final title = firstRun ? l10n.preparingFirstRunTitle : l10n.preparingTitle;
+    final body = firstRun ? l10n.preparingFirstRunBody : l10n.preparingBody;
     return Scaffold(
       body: Center(
         child: Padding(
@@ -40,13 +47,13 @@ class PreparingScreen extends StatelessWidget {
               ),
               const SizedBox(height: 28),
               Text(
-                l10n.preparingTitle,
+                title,
                 style: Theme.of(context).textTheme.titleMedium,
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 8),
               Text(
-                l10n.preparingBody,
+                body,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: scheme.onSurfaceVariant,
                     ),
