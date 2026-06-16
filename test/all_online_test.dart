@@ -131,4 +131,71 @@ void main() {
     expect(c.read(appControllerProvider).phase, AppPhase.pickingIdentity);
     expect(c.read(sessionProvider), isNull);
   });
+
+  test('all-online: setIdentityAnonymous toggles a background identity, '
+      'rebuilds the session, restores the active view, persists to master',
+      () async {
+    SharedPreferences.setMockInitialValues(
+        {'onboarded': true, 'keep_all_online': true});
+    final backing = FakeMultiSpaceBacking();
+    Future<void> seed(Uint8List keys, String name) async {
+      final s = HiddenVolumeStorage.fromStore(
+          MultiSpaceKvLogStore(backing, backing.openSpace(keys)));
+      await s.saveIdentity(AppController.generateIdentity(displayName: name));
+    }
+    await seed(_keys(1), 'Alice');
+    await seed(_keys(2), 'Bob');
+
+    final masterContainer = FakeHvContainer();
+    final master = masterContainer.storage();
+    await master.open(password: 'masterpw', createIfMissing: true);
+    await master.saveRoster([
+      RosterEntry(label: 'alice', spaceKeys: _keys(1)),
+      RosterEntry(label: 'bob', spaceKeys: _keys(2)),
+    ]);
+    await master.close();
+
+    // Fresh session over the SAME (persistent) backing on each build — mirrors
+    // production, where each session reopens the container file. Editing the
+    // master roster tears the session down, so the rebuild must work.
+    MultiIdentitySession build() => MultiIdentitySession(backing,
+        runtimeDirBase: '/run',
+        listenPortBase: 9000,
+        boot: (spec, storage) async =>
+            IdentityNode(transport: _NoopTransport(), dispose: () async {}));
+
+    final c = ProviderContainer(overrides: [
+      singleSpaceStorageProvider
+          .overrideWith((ref) => masterContainer.storage()),
+      deniableBootProvider.overrideWithValue(const DeniableBootConfig(
+          runtimeDir: '/run', listenPort: 9000, storePath: '/x')),
+      sessionBuilderProvider.overrideWithValue(
+          ({required storePath, required runtimeDir, required listenPort}) =>
+              build()),
+    ]);
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    c.read(keepAllOnlineProvider);
+    await _settle(c);
+
+    await ctrl.unlock('masterpw');
+    expect(ctrl.activeIdentity, 'alice');
+    expect(ctrl.isIdentityAnonymous('bob'), isFalse);
+
+    // Toggle a BACKGROUND identity (bob) anonymous while alice is active.
+    expect(await ctrl.setIdentityAnonymous('bob', true), isTrue);
+    expect(ctrl.isIdentityAnonymous('bob'), isTrue);
+    // Session rebuilt (all-online restored), previously-active view (alice) kept.
+    expect(c.read(sessionProvider), isNotNull);
+    expect(ctrl.activeIdentity, 'alice');
+
+    // Persisted to the master on disk.
+    await ctrl.lock();
+    final check = masterContainer.storage();
+    await check.open(password: 'masterpw');
+    final bob =
+        (await check.loadRoster())!.firstWhere((e) => e.label == 'bob');
+    await check.close();
+    expect(bob.anonymous, isTrue);
+  });
 }
