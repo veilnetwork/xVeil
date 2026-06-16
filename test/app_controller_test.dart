@@ -316,6 +316,12 @@ void main() {
         masterPassword: 'masterpw', label: 'alice', password: 'pw-other');
     expect(ok, isFalse);
 
+    // A failed add must NOT strand the user: it tears the session down to edit
+    // the master, so on failure it must recover to the previously-active
+    // identity (ready, on alice — not stuck on a closed space or the lock screen).
+    expect(ctrl.activeIdentity, 'alice');
+    expect(c.read(appControllerProvider).phase, AppPhase.ready);
+
     await ctrl.lock();
     final check = container.storage();
     await check.open(password: 'masterpw');
