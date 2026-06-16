@@ -41,11 +41,19 @@ class AppState {
     this.unlockError = false,
     this.identities = const [],
     this.activeIdentity,
+    this.preparingFirstRun = false,
   });
 
   final AppPhase phase;
   final Identity? identity;
   final bool unlockError;
+
+  /// True while [AppPhase.preparingNode] is doing the ONE-TIME identity PoW
+  /// (mining a new identity's node keypair) — so the screen can say "creating
+  /// identity, a one-time setup" instead of the generic "preparing", which
+  /// otherwise reads as if every switch is slow. Transient; reset on the next
+  /// state (like [unlockError]).
+  final bool preparingFirstRun;
 
   /// The labels of the identities the unlocked master manages — populated
   /// throughout a master session (the picker's options, and the switcher's).
@@ -65,6 +73,7 @@ class AppState {
     bool? unlockError,
     List<String>? identities,
     String? activeIdentity,
+    bool? preparingFirstRun,
   }) =>
       AppState(
         phase ?? this.phase,
@@ -72,6 +81,7 @@ class AppState {
         unlockError: unlockError ?? false,
         identities: identities ?? this.identities,
         activeIdentity: activeIdentity ?? this.activeIdentity,
+        preparingFirstRun: preparingFirstRun ?? false,
       );
 }
 
@@ -581,7 +591,12 @@ class AppController extends Notifier<AppState> {
     // it provisions (the mining runs off the UI isolate; see startDeniable).
     if (ref.read(deniableBootProvider) != null &&
         ref.read(realStackProvider) == null) {
-      state = state.copyWith(phase: AppPhase.preparingNode);
+      // First run for THIS identity = no stored node config yet → startDeniable
+      // will mine the identity (the slow, one-time 24-bit PoW). Flag it so the
+      // screen says "creating identity" rather than the generic "preparing".
+      final firstRun = await ref.read(storageProvider).loadNodeConfig() == null;
+      state =
+          state.copyWith(phase: AppPhase.preparingNode, preparingFirstRun: firstRun);
     }
     await _ensureRealStack();
     final stack = ref.read(realStackProvider);
