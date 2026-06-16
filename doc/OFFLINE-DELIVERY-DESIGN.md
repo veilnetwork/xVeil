@@ -76,6 +76,19 @@ a **local outbox** — app-layer, no relay, no crypto:
   send; peer offline → mailbox.put (Phase B). The receiver dedups by message id,
   so re-sending a queued op that secretly already arrived is harmless.
 
+  **"Harmless re-send" is load-bearing and has two hard requirements (both now
+  enforced + tested in `messaging_outbox_test.dart`):** (a) every op MUST carry a
+  STABLE id shared between the sender's stored copy and the wire frame — the
+  connection greeting originally sent a request with no id while storing the
+  greeting as a retriable `sent` message, so the post-accept outbox re-send (as a
+  `WireKind.message`) couldn't dedup and DOUBLED the greeting (fixed 2d2c87c, and
+  completed file transfers are acked so they leave the outbox — 9f8460f); and (b)
+  a re-delivered op whose id was DELETED must NOT resurrect (the receiver reports
+  a tombstoned id as absent, so a naive dedup re-stores it) — guarded by
+  `Storage.isMessageDeleted` across message/edit/file vectors (e3a4854, ac2fc39).
+  An outbox without (a) duplicates and without (b) un-deletes — both fatal for a
+  deniability-first messenger.
+
 Together the local outbox + mailbox cover all four online/offline combinations.
 This piece is safe + locally testable and ships first (no relay, no sealing).
 
