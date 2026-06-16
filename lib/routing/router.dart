@@ -13,6 +13,39 @@ import '../features/preparing/preparing_screen.dart';
 import '../features/splash/splash_screen.dart';
 import '../state/app_controller.dart';
 
+/// The routing SECURITY GATE, as a pure function of (phase, current location):
+/// returns null to stay put, or a path to redirect to. Each pre-`ready` phase
+/// pins navigation to its single screen — so NO screen (home, chat, settings,
+/// add-identity, decoy) is reachable before unlock: when `locked`, every
+/// location except `/lock` redirects to `/lock`, and a deep link into `/chat`
+/// while locked bounces to `/lock`. Extracted so this invariant is unit-testable
+/// without pumping a full router.
+String? redirectForPhase(AppPhase phase, String location) {
+  switch (phase) {
+    case AppPhase.bootstrapping:
+      return location == '/splash' ? null : '/splash';
+    case AppPhase.onboarding:
+      return location == '/onboarding' ? null : '/onboarding';
+    case AppPhase.locked:
+      return location == '/lock' ? null : '/lock';
+    case AppPhase.pickingIdentity:
+      return location == '/pick-identity' ? null : '/pick-identity';
+    case AppPhase.preparingNode:
+      return location == '/preparing' ? null : '/preparing';
+    case AppPhase.ready:
+      // Bounce the gate screens to home; allow everything else (chat, settings,
+      // add-identity, decoy).
+      if (location == '/splash' ||
+          location == '/lock' ||
+          location == '/onboarding' ||
+          location == '/pick-identity' ||
+          location == '/preparing') {
+        return '/home';
+      }
+      return null;
+  }
+}
+
 /// Builds the app router and gates navigation on [AppPhase]. A [ValueNotifier]
 /// bridges Riverpod state changes into go_router's [refreshListenable] so
 /// redirects re-run whenever the phase changes.
@@ -28,32 +61,8 @@ final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: '/splash',
     refreshListenable: refresh,
-    redirect: (context, state) {
-      final phase = ref.read(appControllerProvider).phase;
-      final loc = state.matchedLocation;
-      switch (phase) {
-        case AppPhase.bootstrapping:
-          return loc == '/splash' ? null : '/splash';
-        case AppPhase.onboarding:
-          return loc == '/onboarding' ? null : '/onboarding';
-        case AppPhase.locked:
-          return loc == '/lock' ? null : '/lock';
-        case AppPhase.pickingIdentity:
-          return loc == '/pick-identity' ? null : '/pick-identity';
-        case AppPhase.preparingNode:
-          return loc == '/preparing' ? null : '/preparing';
-        case AppPhase.ready:
-          // Bounce the gate screens to home; allow everything else (chat).
-          if (loc == '/splash' ||
-              loc == '/lock' ||
-              loc == '/onboarding' ||
-              loc == '/pick-identity' ||
-              loc == '/preparing') {
-            return '/home';
-          }
-          return null;
-      }
-    },
+    redirect: (context, state) => redirectForPhase(
+        ref.read(appControllerProvider).phase, state.matchedLocation),
     routes: [
       GoRoute(path: '/splash', builder: (_, _) => const SplashScreen()),
       GoRoute(
