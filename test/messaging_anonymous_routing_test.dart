@@ -48,9 +48,11 @@ void main() {
   late _RecordingTransport tA, tB;
   late HiddenVolumeStorage sA, sB;
 
-  // Sets up A's transport/storage and a plain peer B (so the handshake + acks
-  // complete). The test owns A's MessagingService so it controls A's anonymity.
-  Future<void> wire() async {
+  // Sets up A's transport/storage and a plain peer B, returns B's service so the
+  // test can drive B's acceptance. The test owns A's MessagingService so it
+  // controls A's anonymity. A is built [anonymous] and a mutually-accepted
+  // contact is established so the consent-gated send paths (text, file) all run.
+  Future<MessagingService> wire({required bool aAnonymous}) async {
     a = _id(1);
     b = _id(2);
     tA = _RecordingTransport(a);
@@ -61,30 +63,41 @@ void main() {
     sB = HiddenVolumeStorage(_memOpener());
     await sA.open(password: 'a', createIfMissing: true);
     await sB.open(password: 'b', createIfMissing: true);
-    MessagingService(tB, sB).start();
-  }
-
-  test('an anonymous identity routes EVERY outbound frame anonymously', () async {
-    await wire();
-    final mA = MessagingService(tA, sA, anonymous: true)..start();
-    // Drive the frame types that hit the wire: request, accept (reply), message.
+    final mB = MessagingService(tB, sB)..start();
+    final mA = MessagingService(tA, sA, anonymous: aAnonymous)..start();
+    // Handshake: A requests, B accepts; the accept flips A's contact to accepted
+    // so the consent gate on sendText/sendFile lets them through.
     await mA.sendRequest(b, 'hi');
     await _pump();
+    await mB.acceptContact(a);
+    await _pump();
+    return mA;
+  }
+
+  test('an anonymous identity routes EVERY outbound frame anonymously '
+      '(text AND file)', () async {
+    final mA = await wire(aAnonymous: true);
     await mA.sendText(b, 'meet at noon');
     await _pump();
+    // Multi-chunk file so the fileMeta + several fileChunk frames all run.
+    await mA.sendFile(b, Uint8List.fromList(List.generate(20000, (i) => i & 0xff)),
+        'plan.bin');
+    await _pump();
 
-    expect(tA.sends, isNotEmpty);
-    // Fail-closed: not a single frame may go clearnet from an anonymous identity.
+    // request + message + fileMeta + >=1 fileChunk — prove the paths actually ran.
+    expect(tA.sends.length, greaterThanOrEqualTo(4),
+        reason: 'expected request+text+file frames; got ${tA.sends.length}');
+    // The safety invariant: not a single frame from an anonymous identity may
+    // take the clearnet path — that would leak the sender's network location.
     expect(tA.sends.every((anon) => anon), isTrue,
         reason: 'anonymous identity leaked a clearnet frame: ${tA.sends}');
   });
 
   test('a non-anonymous identity routes clearnet (no onion overhead)', () async {
-    await wire();
-    final mA = MessagingService(tA, sA)..start();
-    await mA.sendRequest(b, 'hi');
-    await _pump();
+    final mA = await wire(aAnonymous: false);
     await mA.sendText(b, 'meet at noon');
+    await _pump();
+    await mA.sendFile(b, Uint8List.fromList(List.filled(5000, 7)), 'plan.bin');
     await _pump();
 
     expect(tA.sends, isNotEmpty);
