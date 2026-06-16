@@ -219,13 +219,15 @@ class MessagingService {
         // Refuse over-budget transfers up front (the declared size is a hint;
         // the per-chunk guard below enforces it even if the peer lies here).
         if (meta.size != null && meta.size! > kMaxIncomingFileBytes) return;
+        // Ignore a duplicate meta for a transfer we are ALREADY tracking —
+        // overwriting it would reset the reassembler and discard chunks already
+        // received (sendFile mints a fresh id per transfer, so the same id never
+        // legitimately restarts).
+        if (_inFlight.containsKey(meta.transferId)) return;
         // Bound concurrent transfers so the per-transfer cap actually bounds
-        // total memory. A re-sent meta for a known transfer is fine (no growth);
-        // a new one is dropped when we are already at capacity.
-        if (!_inFlight.containsKey(meta.transferId) &&
-            _inFlight.length >= kMaxConcurrentIncomingFiles) {
-          return;
-        }
+        // total memory: a new transfer is dropped when we are already at
+        // capacity.
+        if (_inFlight.length >= kMaxConcurrentIncomingFiles) return;
         _inFlight[meta.transferId] = _Incoming(
           src: m.src,
           name: meta.name,
