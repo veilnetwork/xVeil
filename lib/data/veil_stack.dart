@@ -68,6 +68,7 @@ class RealVeilStack {
     DynamicLibrary? lib,
     int listenPort = 9000,
     bool anonymous = false,
+    List<BootstrapPeerCfg> bootstrapPeers = const [],
   }) async {
     // Time each phase so the log pinpoints where a slow boot/switch goes (the
     // boot is mining-free when the identity already exists, so a slow switch is
@@ -119,7 +120,12 @@ class RealVeilStack {
       adminSocket: adminSock,
       lib: lib,
       anonymous: anonymous,
+      bootstrapPeers: bootstrapPeers,
     );
+    if (bootstrapPeers.isNotEmpty) {
+      debugPrint('xVeil[deniable]: dialing ${bootstrapPeers.length} '
+          'bootstrap peer(s) from config');
+    }
     if (anonymous) {
       // Anonymity must be armed at BOOT (passed to startDeferred below), not via
       // applyConfig: veil pins `[anonymity]` at node start and a reload does not

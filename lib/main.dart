@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -90,10 +91,36 @@ Future<List<Override>> _bootstrapOverrides() async {
         '${Directory.systemTemp.path}/xveil-rt-$pid';
     final port =
         int.tryParse(Platform.environment['XVEIL_LISTEN_PORT'] ?? '') ?? 9000;
+    // XVEIL_BOOTSTRAP_PEERS points at a local JSON file (gitignored — a testnet
+    // set is environment-specific, never committed) listing the network's
+    // bootstrap peers. Absent ⇒ the node relies on its compiled-in BUILTIN_SEEDS.
+    final bootstrapPeers = _loadBootstrapPeers();
     overrides.add(deniableBootProvider.overrideWithValue(DeniableBootConfig(
-        runtimeDir: runtimeDir, listenPort: port, storePath: storePath)));
-    debugPrint('xVeil[real:deniable]: armed (runtimeDir=$runtimeDir port=$port)');
+        runtimeDir: runtimeDir,
+        listenPort: port,
+        storePath: storePath,
+        bootstrapPeers: bootstrapPeers)));
+    debugPrint('xVeil[real:deniable]: armed (runtimeDir=$runtimeDir port=$port '
+        'bootstrapPeers=${bootstrapPeers.length})');
   }
 
   return overrides;
+}
+
+/// Load bootstrap peers from the local JSON file named by `XVEIL_BOOTSTRAP_PEERS`
+/// (a list of `{transport, public_key, nonce, algo?}`). Best-effort: a missing
+/// or malformed file degrades to the empty set (compiled-in seeds), never blocks
+/// launch. The file is gitignored — a testnet set must not land in the repo.
+List<BootstrapPeerCfg> _loadBootstrapPeers() {
+  final path = Platform.environment['XVEIL_BOOTSTRAP_PEERS'];
+  if (path == null || path.isEmpty) return const [];
+  try {
+    final raw = File(path).readAsStringSync();
+    final json = jsonDecode(raw);
+    if (json is List) return BootstrapPeerCfg.listFromJson(json);
+    debugPrint('xVeil[bootstrap]: $path is not a JSON array — ignoring');
+  } catch (e) {
+    debugPrint('xVeil[bootstrap]: failed to read $path: $e');
+  }
+  return const [];
 }
