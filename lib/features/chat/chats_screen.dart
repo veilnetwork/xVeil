@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/ids.dart';
 import '../../domain/chat.dart';
 import '../../l10n/app_localizations.dart';
+import '../../state/app_controller.dart';
 import '../../state/messaging.dart';
 import '../../state/providers.dart';
 import '../contacts/invite_exchange_sheet.dart';
@@ -19,9 +20,41 @@ class ChatsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppL10n.of(context);
     final convos = ref.watch(conversationsProvider);
+    // Rebuild on identity switch; the active identity's anonymity then shows in
+    // the app bar so the user can SEE they're on an anonymous (onion) identity.
+    ref.watch(appControllerProvider.select((s) => s.activeIdentity));
+    final anon = ref.read(appControllerProvider.notifier).activeIsAnonymous;
+    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(
-        title: Text(l.navChats),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(l.navChats),
+            if (anon) ...[
+              const SizedBox(width: 8),
+              Icon(Icons.shield_moon, size: 20, color: scheme.primary),
+            ],
+          ],
+        ),
+        bottom: anon
+            ? PreferredSize(
+                preferredSize: const Size.fromHeight(22),
+                child: Container(
+                  width: double.infinity,
+                  color: scheme.primaryContainer,
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Text(
+                    l.settingsAnonymousRouting,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: scheme.onPrimaryContainer,
+                    ),
+                  ),
+                ),
+              )
+            : null,
         actions: [
           // Dev-only affordance (debug builds): start a chat by raw node id or
           // a demo peer. Hidden in release so it can't ship to users.
