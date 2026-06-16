@@ -254,16 +254,23 @@ class MessagingService {
           return;
         }
         if (!inc.reasm.isComplete) return; // wait for the rest
-        await _storage.storeFile(
-            frame.transferId, inc.reasm.assemble(), name: inc.name);
+        final tid = frame.transferId;
+        _inFlight.remove(tid);
+        // Use the transfer id AS the message id (symmetry with the sender), so
+        // a re-delivered transfer dedups and — crucially — a file we DELETED
+        // never resurrects (deniability: deleted stays deleted, same guard the
+        // text path has). Re-ack either way so the sender stops re-sending.
+        if (await _hasMessage(m.src, tid) || await _storage.isMessageDeleted(tid)) {
+          await _transport.send(m.src, WireEnvelope.ack(tid).encode());
+          return;
+        }
+        await _storage.storeFile(tid, inc.reasm.assemble(), name: inc.name);
         await _store(m.src, MessageDirection.incoming, '📎 ${inc.name ?? 'file'}',
-            MessageStatus.delivered, fileId: frame.transferId, fileName: inc.name);
-        _inFlight.remove(frame.transferId);
-        // Ack the completed transfer (keyed by transfer id, which the sender
-        // used as its file message id) so the sender's file message flips
+            MessageStatus.delivered,
+            fileId: tid, fileName: inc.name, id: tid);
+        // Ack the completed transfer so the sender's file message flips
         // sent -> delivered — the same delivery feedback text messages get.
-        await _transport.send(
-            m.src, WireEnvelope.ack(frame.transferId).encode());
+        await _transport.send(m.src, WireEnvelope.ack(tid).encode());
     }
     _signal();
   }
