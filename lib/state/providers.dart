@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../data/node/embedded_node.dart' show BootstrapPeerCfg;
 import '../data/node/fake_node_controller.dart';
 import '../data/node/node_controller.dart';
 import '../data/storage/fake_kv_log_store.dart';
@@ -95,6 +96,7 @@ class DeniableBootConfig {
     required this.runtimeDir,
     this.listenPort = 9000,
     this.storePath,
+    this.bootstrapPeers = const [],
   });
 
   /// Directory for the ephemeral, identity-free node sockets (admin + app IPC).
@@ -108,6 +110,11 @@ class DeniableBootConfig {
   /// branch to open the container as one `HvMultiSpace` (host every identity at
   /// once). Null on the in-memory/loopback path (all-online unavailable).
   final String? storePath;
+
+  /// Bootstrap peers to dial at boot so the node joins a specific network
+  /// (seed set / testnet). Empty = rely on the compiled-in BUILTIN_SEEDS.
+  /// Loaded by main() from a local, gitignored file (never committed).
+  final List<BootstrapPeerCfg> bootstrapPeers;
 }
 
 /// Present (non-null) when the app should boot the node in-process from the
