@@ -73,6 +73,19 @@ void main() {
   Future<Message> aMsg(String body) async =>
       (await sA.loadMessages(b.hex)).firstWhere((m) => m.body == body);
 
+  test('the connection greeting is not duplicated on the recipient by a flush',
+      () async {
+    // setUp already ran A.sendRequest('hi') + B.acceptContact: B holds the
+    // greeting once. The greeting is stored on A as an outgoing `sent` message
+    // (the request flow never acks it), so A's outbox re-sends it as a message.
+    // It must dedup against the copy B stored from the request — not duplicate.
+    expect((await sB.loadMessages(a.hex)).where((m) => m.body == 'hi').length, 1);
+    await mA.flushOutbox();
+    await _pump();
+    expect((await sB.loadMessages(a.hex)).where((m) => m.body == 'hi').length, 1,
+        reason: 'greeting must dedup, not double via the outbox re-send');
+  });
+
   test('an ack flips the sender message sent -> delivered', () async {
     await mA.sendText(b, 'hello');
     await _pump();
