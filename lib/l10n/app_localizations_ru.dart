@@ -37,6 +37,20 @@ class AppL10nRu extends AppL10n {
       'Создаём идентичность на этом устройстве. Это может занять некоторое время — пожалуйста, подождите.';
 
   @override
+  String get preparingFirstRunTitle => 'Создаём личность';
+
+  @override
+  String get preparingFirstRunBody =>
+      'Разовая настройка — может занять до минуты (proof-of-work, чтобы личность нельзя было подделать). Выполняется только при первом запуске; дальнейшие переключения мгновенны.';
+
+  @override
+  String get preparingUnlockTitle => 'Открываем хранилище';
+
+  @override
+  String get preparingUnlockBody =>
+      'Выводим ключ и расшифровываем на этом устройстве — намеренно медленно, чтобы противостоять подбору. Подождите немного.';
+
+  @override
   String get onboardWelcomeTitle => 'Добро пожаловать в xVeil';
 
   @override
@@ -326,6 +340,64 @@ class AppL10nRu extends AppL10n {
   @override
   String get settingsAnonymousDisabledHint =>
       'больше не через onion — применится при следующем запуске';
+
+  @override
+  String get settingsManageIdentities => 'Управление личностями';
+
+  @override
+  String get manageTitle => 'Управление личностями';
+
+  @override
+  String get manageActive => 'активна';
+
+  @override
+  String get manageAnonOn => 'Анонимная маршрутизация';
+
+  @override
+  String get manageAnonOff => 'Выключить анонимность';
+
+  @override
+  String get manageBind => 'Привязать существующую';
+
+  @override
+  String get manageBindHint =>
+      'Добавить уже имеющуюся личность к этому мастеру';
+
+  @override
+  String get manageBindBody =>
+      'Введите собственный пароль личности, чтобы добавить её к этому мастеру. Личность шерится, а не копируется — она остаётся доступной и по своему паролю.';
+
+  @override
+  String get manageBindPassword => 'Пароль личности';
+
+  @override
+  String get manageBindLabel => 'Имя в этом мастере';
+
+  @override
+  String get manageBindError =>
+      'Не удалось привязать — неверный пароль, это мастер, либо такое имя/личность уже здесь.';
+
+  @override
+  String get manageUnbind => 'Отвязать от мастера';
+
+  @override
+  String get manageUnbindBody =>
+      'Убирает личность только из этого мастера. Её пространство НЕ удаляется — она по-прежнему открывается своим паролем и из других мастеров, где числится.';
+
+  @override
+  String get manageUnbindLastError =>
+      'Нельзя отвязать последнюю личность. Удалите её или очистите все данные.';
+
+  @override
+  String get manageDelete => 'Удалить личность';
+
+  @override
+  String get manageDeleteBody =>
+      'Безвозвратно стирает личность — её ключи, контакты, сообщения и файлы вычищаются из контейнера. Действие необратимо.';
+
+  @override
+  String get manageDeleteLastError =>
+      'Нельзя удалить последнюю личность. Используйте «Удалить все данные».';
 
   @override
   String get settingsDecoyMaster => 'Настроить ложный доступ';

@@ -7,6 +7,7 @@ import '../features/home/home_shell.dart';
 import '../features/identity/add_identity_screen.dart';
 import '../features/identity/decoy_master_screen.dart';
 import '../features/identity/identity_picker_screen.dart';
+import '../features/identity/manage_identities_screen.dart';
 import '../features/lock/lock_screen.dart';
 import '../features/onboarding/onboarding_screen.dart';
 import '../features/preparing/preparing_screen.dart';
@@ -31,6 +32,11 @@ String? redirectForPhase(AppPhase phase, String location) {
     case AppPhase.pickingIdentity:
       return location == '/pick-identity' ? null : '/pick-identity';
     case AppPhase.preparingNode:
+      // The "manage identities" screen drives roster ops that re-enter the
+      // session (passing through preparingNode); let it stay put and show its
+      // own busy overlay so the user isn't bounced out mid-operation. It's a
+      // post-unlock screen, so allowing it here doesn't weaken the lock gate.
+      if (location == '/manage-identities') return null;
       return location == '/preparing' ? null : '/preparing';
     case AppPhase.ready:
       // Bounce the gate screens to home; allow everything else (chat, settings,
@@ -89,6 +95,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/decoy-master',
         builder: (_, _) => const DecoyMasterScreen(),
+      ),
+      GoRoute(
+        path: '/manage-identities',
+        builder: (_, _) => const ManageIdentitiesScreen(),
       ),
       GoRoute(
         path: '/chat/:peerHex',

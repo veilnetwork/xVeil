@@ -151,6 +151,30 @@ abstract class AppL10n {
   /// **'Provisioning your identity on this device. This can take a little while — please wait.'**
   String get preparingBody;
 
+  /// No description provided for @preparingFirstRunTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Creating this identity'**
+  String get preparingFirstRunTitle;
+
+  /// No description provided for @preparingFirstRunBody.
+  ///
+  /// In en, this message translates to:
+  /// **'A one-time setup that can take up to a minute (a proof-of-work that makes the identity hard to forge). It only runs the first time — switching to it later is instant.'**
+  String get preparingFirstRunBody;
+
+  /// No description provided for @preparingUnlockTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Opening your container'**
+  String get preparingUnlockTitle;
+
+  /// No description provided for @preparingUnlockBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Deriving your key and decrypting on this device — this is deliberately slow to resist guessing. Please wait a moment.'**
+  String get preparingUnlockBody;
+
   /// No description provided for @onboardWelcomeTitle.
   ///
   /// In en, this message translates to:
@@ -684,6 +708,108 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'no longer routes over onion — applies on its next start'**
   String get settingsAnonymousDisabledHint;
+
+  /// No description provided for @settingsManageIdentities.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage identities'**
+  String get settingsManageIdentities;
+
+  /// No description provided for @manageTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage identities'**
+  String get manageTitle;
+
+  /// No description provided for @manageActive.
+  ///
+  /// In en, this message translates to:
+  /// **'active'**
+  String get manageActive;
+
+  /// No description provided for @manageAnonOn.
+  ///
+  /// In en, this message translates to:
+  /// **'Route anonymously'**
+  String get manageAnonOn;
+
+  /// No description provided for @manageAnonOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop routing anonymously'**
+  String get manageAnonOff;
+
+  /// No description provided for @manageBind.
+  ///
+  /// In en, this message translates to:
+  /// **'Bind existing identity'**
+  String get manageBind;
+
+  /// No description provided for @manageBindHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Add an identity you already have to this master'**
+  String get manageBindHint;
+
+  /// No description provided for @manageBindBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the identity\'s own password to add it to this master. The identity is shared, not copied — it stays reachable by its own password too.'**
+  String get manageBindBody;
+
+  /// No description provided for @manageBindPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Identity password'**
+  String get manageBindPassword;
+
+  /// No description provided for @manageBindLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Name in this master'**
+  String get manageBindLabel;
+
+  /// No description provided for @manageBindError.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t bind — wrong password, it\'s a master, or that name/identity is already here.'**
+  String get manageBindError;
+
+  /// No description provided for @manageUnbind.
+  ///
+  /// In en, this message translates to:
+  /// **'Unbind from this master'**
+  String get manageUnbind;
+
+  /// No description provided for @manageUnbindBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Removes this identity from this master only. Its space is NOT deleted — it still opens by its own password and from any other master that lists it.'**
+  String get manageUnbindBody;
+
+  /// No description provided for @manageUnbindLastError.
+  ///
+  /// In en, this message translates to:
+  /// **'Can\'t unbind the last identity. Delete it, or clear all data, instead.'**
+  String get manageUnbindLastError;
+
+  /// No description provided for @manageDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete identity'**
+  String get manageDelete;
+
+  /// No description provided for @manageDeleteBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Permanently and irreversibly erases this identity — its keys, contacts, messages and files are scrubbed from the container. This cannot be undone.'**
+  String get manageDeleteBody;
+
+  /// No description provided for @manageDeleteLastError.
+  ///
+  /// In en, this message translates to:
+  /// **'Can\'t delete the last identity. Use \'Clear all data\' to remove everything.'**
+  String get manageDeleteLastError;
 
   /// No description provided for @settingsDecoyMaster.
   ///
