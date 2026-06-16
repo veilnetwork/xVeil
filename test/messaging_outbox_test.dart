@@ -73,6 +73,39 @@ void main() {
   Future<Message> aMsg(String body) async =>
       (await sA.loadMessages(b.hex)).firstWhere((m) => m.body == body);
 
+  test('full conversation flow: send -> edit -> delete-for-everyone -> flush '
+      'converges on both sides with no resurrection', () async {
+    // 1. A sends; B receives.
+    await mA.sendText(b, 'meet at noon');
+    await _pump();
+    final id = (await aMsg('meet at noon')).id;
+    expect((await sB.loadMessages(a.hex)).any((m) => m.body == 'meet at noon'),
+        isTrue);
+
+    // 2. A edits its own message; B's copy updates in place (same id).
+    await mA.editOwnMessage(id, 'meet at one');
+    await _pump();
+    expect((await sA.loadMessages(b.hex)).firstWhere((m) => m.id == id).body,
+        'meet at one');
+    final bEdited = (await sB.loadMessages(a.hex)).where((m) => m.id == id);
+    expect(bEdited.length, 1, reason: 'edit replaces, never duplicates');
+    expect(bEdited.first.body, 'meet at one');
+
+    // 3. A deletes it for everyone; it is erased on BOTH sides.
+    await mA.deleteForEveryone(id);
+    await _pump();
+    expect((await sA.loadMessages(b.hex)).any((m) => m.id == id), isFalse);
+    expect((await sB.loadMessages(a.hex)).any((m) => m.id == id), isFalse);
+
+    // 4. An outbox flush after the delete must not resurrect it on either side
+    //    (the message is tombstoned, so it is neither re-sent nor re-stored).
+    await mA.flushOutbox();
+    await _pump();
+    expect((await sA.loadMessages(b.hex)).any((m) => m.id == id), isFalse);
+    expect((await sB.loadMessages(a.hex)).any((m) => m.id == id), isFalse,
+        reason: 'deleted message stays gone across the full flow');
+  });
+
   test('the connection greeting is not duplicated on the recipient by a flush',
       () async {
     // setUp already ran A.sendRequest('hi') + B.acceptContact: B holds the
