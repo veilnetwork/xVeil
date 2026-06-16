@@ -25,14 +25,23 @@ BIN="${VEIL_CLI:-$ROOT/third_party/veil/target/release/veil-cli}"
 NODES="$ROOT/.dev-onion"
 [[ -x "$BIN" ]] || { echo "build veil-cli first (see header)" >&2; exit 1; }
 
+# Identity PoW difficulty. The node REQUIRES >=24 leading zero bits (it rejects
+# a weaker identity at config-validation), so 24 is the floor. ~19s/node to mint
+# — the four nodes are minted in PARALLEL below to keep the wall-clock to one.
+MINT_DIFFICULTY="${VEIL_MINT_DIFFICULTY:-24}"
+
 mk_node() { # <dir> <port>
   local dir="$1" port="$2"
   local cfg="$dir/config.toml"
+  # Provision FRESH every run. Reusing a persisted config leaks stale state
+  # across runs — e.g. a leftover [anonymity] block on the sender turned S into
+  # a relay/receiver, so B sometimes picked the SENDER as its rendezvous relay
+  # and delivery failed non-deterministically. A clean config each run makes the
+  # harness deterministic (the only cost is a fast low-difficulty identity mint).
+  rm -rf "$dir"
   mkdir -p "$dir"
-  if [[ ! -f "$cfg" ]]; then
-    "$BIN" config init "$cfg" >/dev/null 2>&1 || true
-    "$BIN" -c "$cfg" listen add "tcp://127.0.0.1:$port" >/dev/null 2>&1 || true
-  fi
+  "$BIN" config init -f -d "$MINT_DIFFICULTY" "$cfg" >/dev/null 2>&1 || true
+  "$BIN" -c "$cfg" listen add "tcp://127.0.0.1:$port" >/dev/null 2>&1 || true
   # ipc.* ARE whitelisted config-set keys; anonymity.* are NOT, so those are
   # appended as raw TOML below (after bootstrap-join, the last write wins).
   "$BIN" -c "$cfg" config set ipc.enabled true >/dev/null 2>&1 || true
@@ -45,10 +54,12 @@ invite_of() {
 }
 
 echo "==> provisioning R (rendezvous relay) + M (middle relay) + B (anon receiver) + S (sender)…"
-mk_node "$NODES/relay" 9200
-mk_node "$NODES/mid"   9203   # M: a SECOND relay_capable node, the onion middle hop
-mk_node "$NODES/recv"  9201
-mk_node "$NODES/send"  9202   # S: a plain node (the sender ≠ the relay)
+echo "    (minting 4 identities at PoW difficulty $MINT_DIFFICULTY in parallel — ~20s)"
+mk_node "$NODES/relay" 9200 &   # R: rendezvous relay
+mk_node "$NODES/mid"   9203 &   # M: a SECOND relay_capable node, the onion middle hop
+mk_node "$NODES/recv"  9201 &   # B: anonymous receiver
+mk_node "$NODES/send"  9202 &   # S: a plain node (the sender ≠ the relay)
+wait
 
 # Mutual bootstrap join (directional-dedup topology — every node has a listener).
 # select_onion_relay_path forces hop_count>=2, so the circuit is
@@ -66,11 +77,13 @@ for a in "${peers[@]}"; do
   done
 done
 
-# Append [anonymity] LAST (config set has no anonymity keys; node run just parses
-# the TOML). Guard against double-append on re-runs.
-grep -q '^\[anonymity\]' "$NODES/relay/config.toml" || printf '\n[anonymity]\nrelay_capable = true\n' >> "$NODES/relay/config.toml"
-grep -q '^\[anonymity\]' "$NODES/mid/config.toml"   || printf '\n[anonymity]\nrelay_capable = true\n' >> "$NODES/mid/config.toml"
-grep -q '^\[anonymity\]' "$NODES/recv/config.toml"  || printf '\n[anonymity]\nreceive_anonymous = true\nonion_service = true\n' >> "$NODES/recv/config.toml"
+# Append [anonymity] (config set has no anonymity keys; node run just parses the
+# TOML). Configs are freshly minted each run, so a plain append is correct — no
+# stale block to guard against. S deliberately gets NO [anonymity]: it is a plain
+# sender, never a relay or receiver (else B could pick it as its rendezvous relay).
+printf '\n[anonymity]\nrelay_capable = true\n' >> "$NODES/relay/config.toml"
+printf '\n[anonymity]\nrelay_capable = true\n' >> "$NODES/mid/config.toml"
+printf '\n[anonymity]\nreceive_anonymous = true\nonion_service = true\n' >> "$NODES/recv/config.toml"
 
 pkill -f "veil-cli.*node run" 2>/dev/null || true; sleep 1
 # Wipe persisted DHT values between runs. The recipient mints a fresh per-process
