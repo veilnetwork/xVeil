@@ -466,6 +466,60 @@ class AppController extends Notifier<AppState> {
     return true;
   }
 
+  /// PERMANENTLY delete [label]'s identity: forensically erase its space (its
+  /// keypair, contacts, messages, file blobs — [Storage.eraseSpace]) AND remove
+  /// it from this master's roster. Irreversible — distinct from [unbindIdentity],
+  /// which only removes the roster link and leaves the space openable. Refuses
+  /// the last identity (use the lock-screen wipe to remove everything). NOTE: if
+  /// the same identity is bound in OTHER masters, those rosters keep a now-stale
+  /// entry (the space they point at is erased). Returns false on the guards.
+  Future<bool> deleteIdentity(String label) async {
+    final roster = _pendingRoster;
+    final masterKeys = _masterKeys;
+    if (roster == null || masterKeys == null) return false;
+    RosterEntry? entry;
+    for (final e in roster) {
+      if (e.label == label) {
+        entry = e;
+        break;
+      }
+    }
+    if (entry == null) return false;
+    if (roster.length <= 1) return false; // keep >= 1; use wipe for everything
+
+    final prevActive = _activeLabel;
+    final hadSession = ref.read(sessionProvider) != null;
+
+    await _teardownSession();
+    await _teardownRealStack();
+    await ref.read(storageProvider).close();
+
+    final storage = ref.read(storageProvider);
+    // Erase the identity's space (forensic) — open by its stored keys, wipe
+    // every namespace, scrub. If the keys are stale we still drop the roster
+    // entry below so the master view is consistent.
+    if (await storage.openWithKeys(entry.spaceKeys)) {
+      await storage.eraseSpace();
+      await storage.close();
+    }
+
+    if (!await storage.openWithKeys(masterKeys)) {
+      await _recoverToActive();
+      return false;
+    }
+    final onDisk = await storage.loadRoster() ?? roster;
+    final updated = [
+      for (final e in onDisk)
+        if (e.label != label) e,
+    ];
+    await storage.saveRoster(updated);
+    await storage.close();
+    _pendingRoster = updated;
+
+    await _reEnterAfterRosterEdit(updated, prevActive, hadSession);
+    return true;
+  }
+
   /// Bind an EXISTING identity (proven by [identityPassword]) into this master
   /// under [label]. Opens the identity by its own password to read its keys,
   /// then appends them to the master's roster — so the SAME identity space can
