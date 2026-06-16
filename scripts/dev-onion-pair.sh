@@ -38,13 +38,19 @@ invite_of() {
     | grep -oE 'veil:bootstrap\S+' | head -1
 }
 
-echo "==> provisioning R (relay_capable) + B (anonymous receiver)…"
+echo "==> provisioning R (relay_capable) + B (anon receiver) + S (sender)…"
 mk_node "$NODES/relay" 9200
 mk_node "$NODES/recv"  9201
+mk_node "$NODES/send"  9202   # S: a plain node (the sender ≠ the relay)
 
-# Mutual bootstrap join (directional-dedup topology — both have listeners).
+# Mutual bootstrap join (directional-dedup topology — every node has a listener).
+# S peers with BOTH R (to send introduces) and B (DHT reach for B's rendezvous ad).
 "$BIN" -c "$NODES/relay/config.toml" bootstrap join --uri "$(invite_of "$NODES/recv")"  >/dev/null 2>&1 || true
 "$BIN" -c "$NODES/recv/config.toml"  bootstrap join --uri "$(invite_of "$NODES/relay")" >/dev/null 2>&1 || true
+"$BIN" -c "$NODES/send/config.toml"  bootstrap join --uri "$(invite_of "$NODES/relay")" >/dev/null 2>&1 || true
+"$BIN" -c "$NODES/send/config.toml"  bootstrap join --uri "$(invite_of "$NODES/recv")"  >/dev/null 2>&1 || true
+"$BIN" -c "$NODES/relay/config.toml" bootstrap join --uri "$(invite_of "$NODES/send")"  >/dev/null 2>&1 || true
+"$BIN" -c "$NODES/recv/config.toml"  bootstrap join --uri "$(invite_of "$NODES/send")"  >/dev/null 2>&1 || true
 
 # Append [anonymity] LAST (config set has no anonymity keys; node run just parses
 # the TOML). Guard against double-append on re-runs.
@@ -54,6 +60,7 @@ grep -q '^\[anonymity\]' "$NODES/recv/config.toml"  || printf '\n[anonymity]\nre
 pkill -f "veil-cli.*node run" 2>/dev/null || true; sleep 1
 "$BIN" -c "$NODES/relay/config.toml" node run --foreground >"$NODES/relay/node.log" 2>&1 &
 "$BIN" -c "$NODES/recv/config.toml"  node run --foreground >"$NODES/recv/node.log" 2>&1 &
+"$BIN" -c "$NODES/send/config.toml"  node run --foreground >"$NODES/send/node.log" 2>&1 &
 
 echo "==> nodes up; waiting up to 150s for B to register a rendezvous with R…"
 ok=0
@@ -75,4 +82,15 @@ grep -iE "relay_chain|rendezvous|register|relay_directory" "$NODES/relay/node.lo
 echo "=== B (receiver) rendezvous-recipient events ==="
 grep -iE "rendezvous_recipient|registered with|send_failed|no_relay|relay_directory" "$NODES/recv/node.log" 2>/dev/null | tail -12 || true
 echo
-echo "logs: $NODES/{relay,recv}/node.log   stop: pkill -f 'veil-cli.*node run'"
+B_NODE_ID="$(grep -oE 'node_id=[0-9a-f]{64}' "$NODES/recv/node.log" 2>/dev/null | head -1 | cut -d= -f2)"
+DYLIB="$ROOT/third_party/veil/target/release/libveilclient_ffi.dylib"
+echo "=== STAGE 2 — run the sender->B onion round-trip (S sends, R forwards): ==="
+cat <<EOF
+  VEIL_FFI_DYLIB="$DYLIB" \\
+  XVEIL_TEST_SOCK_SENDER="$NODES/send/app.sock" \\
+  XVEIL_TEST_SOCK_RECV="$NODES/recv/app.sock" \\
+  XVEIL_RECV_NODE_ID="$B_NODE_ID" \\
+  flutter test test/native/onion_roundtrip_live_test.dart
+EOF
+echo
+echo "logs: $NODES/{relay,recv,send}/node.log   stop: pkill -f 'veil-cli.*node run'"
