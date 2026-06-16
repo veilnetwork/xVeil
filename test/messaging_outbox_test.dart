@@ -93,6 +93,22 @@ void main() {
     expect((await aMsg('hello')).status, MessageStatus.delivered);
   });
 
+  test('a completed file transfer flips the sender file message to delivered',
+      () async {
+    await mA.sendFile(b, Uint8List.fromList([1, 2, 3, 4, 5]), 'doc.txt');
+    await _pump();
+    // B received + reassembled the file.
+    expect(
+        (await sB.loadMessages(a.hex))
+            .any((m) => m.isFile && m.fileName == 'doc.txt'),
+        isTrue);
+    // A's file message must flip to delivered (B acks on completion), not stay
+    // 'sent' forever like text without an ack.
+    final fileMsg = (await sA.loadMessages(b.hex)).firstWhere((m) => m.isFile);
+    expect(fileMsg.status, MessageStatus.delivered,
+        reason: 'receiver must ack a completed file transfer');
+  });
+
   test('message composed offline stays sent, then flush delivers it on reconnect',
       () async {
     tA.online = false; // A goes offline
