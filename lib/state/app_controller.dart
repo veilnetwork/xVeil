@@ -34,6 +34,11 @@ enum AppPhase {
   ready,
 }
 
+/// Why the [AppPhase.preparingNode] screen is showing — drives its message so a
+/// long wait reads honestly (opening the encrypted container vs the one-time
+/// identity proof-of-work vs a generic node boot) instead of always "preparing".
+enum PreparingReason { node, unlocking, firstRunMining }
+
 class AppState {
   const AppState(
     this.phase, {
@@ -41,19 +46,16 @@ class AppState {
     this.unlockError = false,
     this.identities = const [],
     this.activeIdentity,
-    this.preparingFirstRun = false,
+    this.preparingReason = PreparingReason.node,
   });
 
   final AppPhase phase;
   final Identity? identity;
   final bool unlockError;
 
-  /// True while [AppPhase.preparingNode] is doing the ONE-TIME identity PoW
-  /// (mining a new identity's node keypair) — so the screen can say "creating
-  /// identity, a one-time setup" instead of the generic "preparing", which
-  /// otherwise reads as if every switch is slow. Transient; reset on the next
-  /// state (like [unlockError]).
-  final bool preparingFirstRun;
+  /// Why the preparing screen is up (opening container / first-run mining /
+  /// generic). Transient; reset to [PreparingReason.node] on the next state.
+  final PreparingReason preparingReason;
 
   /// The labels of the identities the unlocked master manages — populated
   /// throughout a master session (the picker's options, and the switcher's).
@@ -73,7 +75,7 @@ class AppState {
     bool? unlockError,
     List<String>? identities,
     String? activeIdentity,
-    bool? preparingFirstRun,
+    PreparingReason? preparingReason,
   }) =>
       AppState(
         phase ?? this.phase,
@@ -81,7 +83,7 @@ class AppState {
         unlockError: unlockError ?? false,
         identities: identities ?? this.identities,
         activeIdentity: activeIdentity ?? this.activeIdentity,
-        preparingFirstRun: preparingFirstRun ?? false,
+        preparingReason: preparingReason ?? PreparingReason.node,
       );
 }
 
@@ -128,7 +130,9 @@ class AppController extends Notifier<AppState> {
     // onboarding window looks frozen on "Done". Only in deniable mode (the
     // loopback/test path is instant, so it would just flash).
     if (ref.read(deniableBootProvider) != null) {
-      state = state.copyWith(phase: AppPhase.preparingNode);
+      state = state.copyWith(
+          phase: AppPhase.preparingNode,
+          preparingReason: PreparingReason.firstRunMining);
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
 
@@ -145,6 +149,19 @@ class AppController extends Notifier<AppState> {
 
   /// Returning user: try to unlock the space with [password].
   Future<void> unlock(String password) async {
+    // Show the loading screen BEFORE the heavy work: opening the real container
+    // runs Argon2 (and, in keep-all-online, boots every node) on this isolate,
+    // which freezes the UI. Switch to the preparing screen and yield a frame so
+    // the "opening your container" message paints before the freeze — otherwise
+    // the unlock button just hangs with no feedback. Only on the real deniable
+    // path (the loopback/test opener is instant, so it would just flash).
+    if (ref.read(deniableBootProvider) != null) {
+      state = state.copyWith(
+          phase: AppPhase.preparingNode,
+          preparingReason: PreparingReason.unlocking);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+
     final storage = ref.read(storageProvider);
     bool ok;
     try {
@@ -155,7 +172,8 @@ class AppController extends Notifier<AppState> {
       ok = false;
     }
     if (!ok) {
-      state = state.copyWith(unlockError: true);
+      // Back to the lock screen with the error (we're on preparingNode now).
+      state = const AppState(AppPhase.locked, unlockError: true);
       return;
     }
     // Master vs identity is decided AFTER unlock by inspecting contents (never
@@ -199,7 +217,10 @@ class AppController extends Notifier<AppState> {
   /// Switching later just re-points the view — no node goes offline.
   Future<void> _enterAllOnline(
       List<RosterEntry> roster, DeniableBootConfig boot) async {
-    state = state.copyWith(phase: AppPhase.preparingNode);
+    // Still part of the unlock from the user's view (opening + booting all).
+    state = state.copyWith(
+        phase: AppPhase.preparingNode,
+        preparingReason: PreparingReason.unlocking);
     final session = ref.read(sessionBuilderProvider)(
       storePath: boot.storePath!,
       runtimeDir: boot.runtimeDir,
@@ -595,8 +616,11 @@ class AppController extends Notifier<AppState> {
       // will mine the identity (the slow, one-time 24-bit PoW). Flag it so the
       // screen says "creating identity" rather than the generic "preparing".
       final firstRun = await ref.read(storageProvider).loadNodeConfig() == null;
-      state =
-          state.copyWith(phase: AppPhase.preparingNode, preparingFirstRun: firstRun);
+      state = state.copyWith(
+        phase: AppPhase.preparingNode,
+        preparingReason:
+            firstRun ? PreparingReason.firstRunMining : PreparingReason.node,
+      );
     }
     await _ensureRealStack();
     final stack = ref.read(realStackProvider);
