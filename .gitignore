@@ -43,6 +43,11 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+/android/build/
+
+# Swift Package Manager state — the plugins don't support SPM, so this is just
+# Xcode noise; CocoaPods is the integration path (Podfile.lock is tracked).
+ios/Runner.xcworkspace/xcshareddata/swiftpm/
 
 # Local dev veil nodes (mined identities, logs, sockets)
 .dev-nodes/
