@@ -34,6 +34,9 @@ void main() {
     expect(redirectForPhase(AppPhase.pickingIdentity, '/pick-identity'), isNull);
     expect(redirectForPhase(AppPhase.preparingNode, '/home'), '/preparing');
     expect(redirectForPhase(AppPhase.preparingNode, '/preparing'), isNull);
+    // Exception: the manage-identities screen stays mounted across the re-enter
+    // its own roster ops trigger (it shows its own busy overlay).
+    expect(redirectForPhase(AppPhase.preparingNode, '/manage-identities'), isNull);
   });
 
   test('ready: gate screens bounce to /home, app screens are allowed', () {

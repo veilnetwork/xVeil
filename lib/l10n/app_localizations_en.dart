@@ -37,6 +37,20 @@ class AppL10nEn extends AppL10n {
       'Provisioning your identity on this device. This can take a little while — please wait.';
 
   @override
+  String get preparingFirstRunTitle => 'Creating this identity';
+
+  @override
+  String get preparingFirstRunBody =>
+      'A one-time setup that can take up to a minute (a proof-of-work that makes the identity hard to forge). It only runs the first time — switching to it later is instant.';
+
+  @override
+  String get preparingUnlockTitle => 'Opening your container';
+
+  @override
+  String get preparingUnlockBody =>
+      'Deriving your key and decrypting on this device — this is deliberately slow to resist guessing. Please wait a moment.';
+
+  @override
   String get onboardWelcomeTitle => 'Welcome to xVeil';
 
   @override
@@ -325,6 +339,64 @@ class AppL10nEn extends AppL10n {
   @override
   String get settingsAnonymousDisabledHint =>
       'no longer routes over onion — applies on its next start';
+
+  @override
+  String get settingsManageIdentities => 'Manage identities';
+
+  @override
+  String get manageTitle => 'Manage identities';
+
+  @override
+  String get manageActive => 'active';
+
+  @override
+  String get manageAnonOn => 'Route anonymously';
+
+  @override
+  String get manageAnonOff => 'Stop routing anonymously';
+
+  @override
+  String get manageBind => 'Bind existing identity';
+
+  @override
+  String get manageBindHint =>
+      'Add an identity you already have to this master';
+
+  @override
+  String get manageBindBody =>
+      'Enter the identity\'s own password to add it to this master. The identity is shared, not copied — it stays reachable by its own password too.';
+
+  @override
+  String get manageBindPassword => 'Identity password';
+
+  @override
+  String get manageBindLabel => 'Name in this master';
+
+  @override
+  String get manageBindError =>
+      'Couldn\'t bind — wrong password, it\'s a master, or that name/identity is already here.';
+
+  @override
+  String get manageUnbind => 'Unbind from this master';
+
+  @override
+  String get manageUnbindBody =>
+      'Removes this identity from this master only. Its space is NOT deleted — it still opens by its own password and from any other master that lists it.';
+
+  @override
+  String get manageUnbindLastError =>
+      'Can\'t unbind the last identity. Delete it, or clear all data, instead.';
+
+  @override
+  String get manageDelete => 'Delete identity';
+
+  @override
+  String get manageDeleteBody =>
+      'Permanently and irreversibly erases this identity — its keys, contacts, messages and files are scrubbed from the container. This cannot be undone.';
+
+  @override
+  String get manageDeleteLastError =>
+      'Can\'t delete the last identity. Use \'Clear all data\' to remove everything.';
 
   @override
   String get settingsDecoyMaster => 'Set up decoy access';

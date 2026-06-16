@@ -399,7 +399,7 @@ class AppController extends Notifier<AppState> {
       if (boot?.storePath != null) {
         try {
           await _enterAllOnline(updated, boot!);
-          if (valid) await switchIdentity(target!);
+          if (valid) await switchIdentity(target);
           return;
         } catch (e, st) {
           debugPrint('xVeil[roster]: all-online re-enter FAILED -> picker: $e\n$st');
@@ -417,7 +417,7 @@ class AppController extends Notifier<AppState> {
     // it is gone so the user re-selects.
     if (valid) {
       _activeLabel = null;
-      await pickIdentity(target!);
+      await pickIdentity(target);
     } else {
       _activeLabel = null;
       state = state.copyWith(
