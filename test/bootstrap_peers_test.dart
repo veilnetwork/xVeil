@@ -59,4 +59,31 @@ void main() {
       expect(out, isNot(contains('[[network.bootstrap_peers]]')));
     });
   });
+
+  group('EmbeddedNode.withObfs4PskFile', () {
+    test('no-op when no PSK path given', () {
+      const toml = 'listen = "x"\n';
+      expect(EmbeddedNode.withObfs4PskFile(toml, null), toml);
+      expect(EmbeddedNode.withObfs4PskFile(toml, ''), toml);
+    });
+
+    test('appends a [transport] table pointing at the PSK file', () {
+      final out = EmbeddedNode.withObfs4PskFile('listen = "x"\n', '/tmp/psk.b64');
+      expect(out, contains('[transport]'));
+      expect(out, contains('obfs4_psk_file = "/tmp/psk.b64"'));
+    });
+
+    test('inserts into an existing [transport] table (no duplicate header)', () {
+      const toml = '[transport]\nfoo = 1\n';
+      final out = EmbeddedNode.withObfs4PskFile(toml, '/tmp/psk.b64');
+      expect('[transport]'.allMatches(out).length, 1);
+      expect(out, contains('obfs4_psk_file = "/tmp/psk.b64"'));
+      expect(out, contains('foo = 1'));
+    });
+
+    test('idempotent when obfs4_psk_file already present', () {
+      const toml = '[transport]\nobfs4_psk_file = "/x"\n';
+      expect(EmbeddedNode.withObfs4PskFile(toml, '/tmp/psk.b64'), toml);
+    });
+  });
 }

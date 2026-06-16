@@ -319,6 +319,13 @@ class AppController extends Notifier<AppState> {
   /// Whether the active identity is configured for anonymous (onion) routing.
   /// False in single-identity mode (no roster) and for non-anonymous children.
   bool _activeAnonymous() {
+    // Test/dev affordance: arm onion routing without master-mode setup (the
+    // per-identity shield toggle only exists in master mode). DEBUG-ONLY and
+    // env-gated, so it cannot affect a release build even if the var is set;
+    // and it can only ADD anonymity, never remove it.
+    if (kDebugMode && Platform.environment['XVEIL_FORCE_ANONYMOUS'] == '1') {
+      return true;
+    }
     final label = _activeLabel;
     if (label == null || _pendingRoster == null) return false;
     for (final e in _pendingRoster!) {
@@ -830,6 +837,7 @@ class AppController extends Notifier<AppState> {
         listenPort: boot.listenPort,
         anonymous: _activeAnonymous(),
         bootstrapPeers: boot.bootstrapPeers,
+        obfs4Psk: boot.obfs4Psk,
       );
       ref.read(realStackProvider.notifier).state = stack;
       debugPrint('xVeil[deniable]: node up, invite=${stack.myInvite.nodeId.short}');
