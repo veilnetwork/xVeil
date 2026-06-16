@@ -84,6 +84,14 @@ class FakeKvLogStore implements KvLogStore {
   int count(int namespace) => _kv[namespace]?.length ?? 0;
 
   @override
+  int eraseNamespace(int namespace) {
+    final n = (_kv[namespace]?.length ?? 0) + (_log[namespace]?.length ?? 0);
+    _kv.remove(namespace);
+    _log.remove(namespace);
+    return n;
+  }
+
+  @override
   void scrub() {
     // The in-memory fake never persists, so there are no orphaned chunks to
     // reclaim — replaced/tombstoned entries are already gone from [_log].

@@ -67,6 +67,12 @@ abstract interface class KvLogStore {
 
   int count(int namespace);
 
+  /// Erase EVERY entry in [namespace] (KV keys or log records). Returns the
+  /// number erased. Used to forensically delete an identity's data; pair with
+  /// [scrub] so the prior plaintext can no longer be recovered. Maps to
+  /// hidden-volume's `Space::erase_namespace`.
+  int eraseNamespace(int namespace);
+
   /// Reclaim/overwrite data chunks orphaned by replaced or tombstoned log
   /// records (the edit/delete path) so the prior plaintext is no longer
   /// recoverable from the container. Maps to hidden-volume's

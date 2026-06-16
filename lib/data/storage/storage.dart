@@ -93,6 +93,12 @@ abstract interface class Storage {
   /// there is no un-delete.
   Future<bool> isMessageDeleted(String messageId);
 
+  /// FORENSICALLY erase this whole space — every namespace (identity, contacts,
+  /// messages, file blobs) — then scrub orphaned chunks, so the deleted
+  /// identity's data can no longer be recovered even by a password-holder.
+  /// Irreversible. The caller must have this space OPEN.
+  Future<void> eraseSpace();
+
   /// Reclaim/overwrite chunks orphaned by edits and deletes so the prior
   /// plaintext is no longer recoverable from the container even by a
   /// password-holder. Backed by hidden-volume's vacuum/compact; a no-op on the

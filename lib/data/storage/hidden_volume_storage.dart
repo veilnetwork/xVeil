@@ -391,6 +391,23 @@ class HiddenVolumeStorage implements Storage {
   }
 
   @override
+  Future<void> eraseSpace() async {
+    // Erase EVERY namespace this app uses, then scrub orphaned chunks — the
+    // identity's data (its keypair, contacts, message log, file blobs) is gone
+    // forensically, not merely unlinked. Irreversible.
+    for (final ns in const [
+      Ns.settings,
+      Ns.contacts,
+      Ns.messageLog,
+      Ns.media,
+      Ns.fileChunks,
+    ]) {
+      _s.eraseNamespace(ns);
+    }
+    _s.scrub();
+  }
+
+  @override
   Future<void> scrubDeleted() async {
     // Reclaim chunks orphaned by edit/delete so the prior plaintext is no
     // longer recoverable from the container. Backed by hidden-volume's
