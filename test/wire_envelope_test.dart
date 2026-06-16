@@ -28,4 +28,38 @@ void main() {
     final out = WireEnvelope.decode(Uint8List.fromList([0xff, 0x00, 0x10]));
     expect(out.kind, WireKind.message);
   });
+
+  test('the id field round-trips (load-bearing for dedup + no-resurrection)', () {
+    expect(WireEnvelope.decode(const WireEnvelope.message('hi', id: 'u-123').encode()).id,
+        'u-123');
+    expect(WireEnvelope.decode(const WireEnvelope.message('hi').encode()).id, isNull);
+    // request carries an id too (the greeting-dedup fix relies on this).
+    expect(WireEnvelope.decode(const WireEnvelope.request('hey', id: 'r-9').encode()).id,
+        'r-9');
+  });
+
+  test('edit and del round-trip with their id', () {
+    final edit = WireEnvelope.decode(const WireEnvelope.edit('m1', 'new body').encode());
+    expect(edit.kind, WireKind.edit);
+    expect(edit.id, 'm1');
+    expect(edit.body, 'new body');
+    final del = WireEnvelope.decode(const WireEnvelope.del('m2').encode());
+    expect(del.kind, WireKind.del);
+    expect(del.id, 'm2');
+  });
+
+  test('a valid-JSON frame with an out-of-range/wrong-typed kind falls back to '
+      'a plain message (no crash, never mis-mapped to a typed kind)', () {
+    for (final body in [
+      '{"t":999,"b":"x"}', // kind index out of range
+      '{"t":-1,"b":"x"}', // negative kind
+      '{"t":"nope","b":"x"}', // kind wrong type
+      '{"b":"missing the kind"}', // no t
+      '{"t":0}', // no b
+    ]) {
+      final out = WireEnvelope.decode(Uint8List.fromList(utf8.encode(body)));
+      expect(out.kind, WireKind.message,
+          reason: 'hostile frame `$body` must not map to a typed kind');
+    }
+  });
 }
