@@ -106,6 +106,22 @@ void main() {
         reason: 'deleted message stays gone across the full flow');
   });
 
+  test('deleting a file message erases its blob, not just the chat row '
+      '(deniability)', () async {
+    await mA.sendFile(b, Uint8List.fromList([9, 8, 7, 6, 5]), 'secret.bin');
+    await _pump();
+    final fileMsg = (await sB.loadMessages(a.hex)).firstWhere((m) => m.isFile);
+    // The attachment blob is present on B.
+    expect(await sB.loadFile(fileMsg.fileId!), isNotNull);
+
+    // B deletes the file message. The blob must be purged too — an attachment
+    // that lingers in the container after the row is gone is a deniability hole.
+    await mB.deleteMessageLocally(fileMsg.id);
+    expect((await sB.loadMessages(a.hex)).any((m) => m.isFile), isFalse);
+    expect(await sB.loadFile(fileMsg.fileId!), isNull,
+        reason: 'the file blob must be erased when its message is deleted');
+  });
+
   test('the connection greeting is not duplicated on the recipient by a flush',
       () async {
     // setUp already ran A.sendRequest('hi') + B.acceptContact: B holds the
