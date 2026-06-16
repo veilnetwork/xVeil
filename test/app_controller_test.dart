@@ -421,6 +421,52 @@ void main() {
     await bobAgain.close();
   });
 
+  test('deleteIdentity erases the space AND drops it from the master', () async {
+    SharedPreferences.setMockInitialValues({'onboarded': true});
+    final container = FakeHvContainer();
+    final alice = container.storage();
+    await alice.open(password: 'pw-alice', createIfMissing: true);
+    await alice.saveIdentity(AppController.generateIdentity(displayName: 'Alice'));
+    final aliceKeys = alice.exportSpaceKeys();
+    await alice.close();
+    final bob = container.storage();
+    await bob.open(password: 'pw-bob', createIfMissing: true);
+    await bob.saveIdentity(AppController.generateIdentity(displayName: 'Bob'));
+    final bobKeys = bob.exportSpaceKeys();
+    await bob.close();
+    final master = container.storage();
+    await master.open(password: 'masterpw', createIfMissing: true);
+    await master.saveRoster([
+      RosterEntry(label: 'alice', spaceKeys: aliceKeys),
+      RosterEntry(label: 'bob', spaceKeys: bobKeys),
+    ]);
+    await master.close();
+
+    final app = container.storage();
+    final c = ProviderContainer(
+        overrides: [storageProvider.overrideWith((ref) => app)]);
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+    await ctrl.unlock('masterpw');
+    await ctrl.pickIdentity('alice');
+
+    expect(await ctrl.deleteIdentity('bob'), isTrue);
+
+    // Roster no longer lists bob...
+    await ctrl.lock();
+    final check = container.storage();
+    await check.open(password: 'masterpw');
+    expect((await check.loadRoster())!.map((e) => e.label), ['alice']);
+    await check.close();
+    // ...and bob's space DATA is erased (unlike unbind — opening finds nothing).
+    final bobGone = container.storage();
+    await bobGone.open(password: 'pw-bob');
+    expect(await bobGone.loadIdentity(), isNull,
+        reason: 'delete must forensically erase the identity, not just unlink');
+    await bobGone.close();
+  });
+
   test('bindExistingIdentity shares an existing identity space into the master',
       () async {
     SharedPreferences.setMockInitialValues({'onboarded': true});
