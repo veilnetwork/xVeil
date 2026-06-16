@@ -178,6 +178,50 @@ void main() {
     expect(ready.identity!.displayName, 'Alice');
   });
 
+  test('lockout-prevention flow: onboard -> add identity -> lock -> EVERY '
+      'password still opens (master picker + each identity directly)', () async {
+    final container = FakeHvContainer();
+    final app = container.storage();
+    final c = ProviderContainer(
+        overrides: [storageProvider.overrideWith((ref) => app)]);
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+
+    // Onboard the first identity (Personal / 111111).
+    await ctrl.completeOnboarding(
+        identity: AppController.generateIdentity(displayName: 'Personal'),
+        password: '111111',
+        mode: StorageMode.hiddenSpace);
+    expect(c.read(appControllerProvider).phase, AppPhase.ready);
+
+    // Add a second identity, converting to a master (master 000000, Work 222222).
+    final ok = await ctrl.addIdentity(
+        masterPassword: '000000',
+        label: 'Work',
+        password: '222222',
+        existingLabel: 'Personal');
+    expect(ok, isTrue);
+
+    // The lockout bug made NONE of the passwords open after an add. Verify all
+    // three still work across a lock cycle.
+    await ctrl.lock();
+    await ctrl.unlock('000000'); // master -> picker with BOTH identities
+    expect(c.read(appControllerProvider).phase, AppPhase.pickingIdentity);
+    expect(c.read(appControllerProvider).identities.toSet(),
+        {'Personal', 'Work'});
+
+    await ctrl.lock();
+    await ctrl.unlock('111111'); // Personal's own password -> opens directly
+    expect(c.read(appControllerProvider).phase, AppPhase.ready,
+        reason: 'the original identity must still open by its own password');
+
+    await ctrl.lock();
+    await ctrl.unlock('222222'); // Work's own password -> opens directly
+    expect(c.read(appControllerProvider).phase, AppPhase.ready,
+        reason: 'the added identity must open by its own password');
+  });
+
   test('switchIdentity swaps the active identity within a master session',
       () async {
     SharedPreferences.setMockInitialValues({'onboarded': true});
