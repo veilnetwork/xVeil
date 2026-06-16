@@ -25,7 +25,7 @@ class _FakeTransport implements VeilTransport {
   @override
   Stream<InboundMessage> messages() => _inbound.stream;
   @override
-  Future<void> send(NodeId dst, Uint8List payload) async {
+  Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) async {
     peer?._inbound.add(InboundMessage(src: _me, payload: payload));
   }
 

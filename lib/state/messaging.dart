@@ -1,6 +1,7 @@
 import 'dart:async';
-import 'dart:typed_data';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
@@ -44,10 +45,22 @@ class _Incoming {
 /// stream, which keeps it testable and avoids invalidating providers from
 /// async stream callbacks.
 class MessagingService {
-  MessagingService(this._transport, this._storage);
+  MessagingService(this._transport, this._storage, {this._anonymous = false});
 
   final VeilTransport _transport;
   final Storage _storage;
+
+  /// Whether this identity routes over the onion rendezvous (sender-location
+  /// hidden). Fixed per identity at boot from its roster `anonymous` flag — an
+  /// anonymous identity sends EVERYTHING (messages, acks, accepts, file frames)
+  /// anonymously, fail-closed, so no single frame leaks its network location.
+  final bool _anonymous;
+
+  /// Single egress point so every outbound frame honours [_anonymous]. The real
+  /// transport routes over an onion circuit when anonymous (throwing rather than
+  /// leaking if it can't); the loopback fake ignores the flag.
+  Future<void> _send(NodeId dst, Uint8List payload) =>
+      _transport.send(dst, payload, anonymous: _anonymous);
   final _changes = StreamController<void>.broadcast();
   StreamSubscription<InboundMessage>? _sub;
   Timer? _retryTimer;
@@ -176,19 +189,19 @@ class MessagingService {
         // Dedup re-sent messages (the sender's local outbox re-sends un-acked
         // ones): if we already have this id, just re-ack so they stop.
         if (id != null && await _hasMessage(m.src, id)) {
-          await _transport.send(m.src, WireEnvelope.ack(id).encode());
+          await _send(m.src, WireEnvelope.ack(id).encode());
           return;
         }
         // Deniability: if we DELETED this message, a re-delivery must NOT
         // resurrect it. Re-ack so the sender stops re-sending, then drop.
         if (id != null && await _storage.isMessageDeleted(id)) {
-          await _transport.send(m.src, WireEnvelope.ack(id).encode());
+          await _send(m.src, WireEnvelope.ack(id).encode());
           return;
         }
         await _store(m.src, MessageDirection.incoming, env.body,
             MessageStatus.delivered, id: id);
         if (id != null) {
-          await _transport.send(m.src, WireEnvelope.ack(id).encode());
+          await _send(m.src, WireEnvelope.ack(id).encode());
         }
       case WireKind.ack:
         // The peer confirms delivery of our message [env.id] — stop re-sending.
@@ -261,7 +274,7 @@ class MessagingService {
         // never resurrects (deniability: deleted stays deleted, same guard the
         // text path has). Re-ack either way so the sender stops re-sending.
         if (await _hasMessage(m.src, tid) || await _storage.isMessageDeleted(tid)) {
-          await _transport.send(m.src, WireEnvelope.ack(tid).encode());
+          await _send(m.src, WireEnvelope.ack(tid).encode());
           return;
         }
         await _storage.storeFile(tid, inc.reasm.assemble(), name: inc.name);
@@ -270,7 +283,7 @@ class MessagingService {
             fileId: tid, fileName: inc.name, id: tid);
         // Ack the completed transfer so the sender's file message flips
         // sent -> delivered — the same delivery feedback text messages get.
-        await _transport.send(m.src, WireEnvelope.ack(tid).encode());
+        await _send(m.src, WireEnvelope.ack(tid).encode());
     }
     _signal();
   }
@@ -291,14 +304,14 @@ class MessagingService {
           id: id);
     }
     _signal();
-    await _transport.send(dst, WireEnvelope.request(text, id: id).encode());
+    await _send(dst, WireEnvelope.request(text, id: id).encode());
   }
 
   /// Approve an incoming request — both sides can now message freely.
   Future<void> acceptContact(NodeId peer) async {
     await _setStatus(peer, ContactStatus.accepted);
     _signal();
-    await _transport.send(peer, const WireEnvelope.accept().encode());
+    await _send(peer, const WireEnvelope.accept().encode());
   }
 
   /// Decline / block an incoming request — their messages are dropped.
@@ -330,7 +343,7 @@ class MessagingService {
     _signal();
     // Stays `sent` until the peer acks; the local outbox re-sends un-acked ones
     // on reconnect, so a message written offline goes out when we come back.
-    await _transport.send(dst, WireEnvelope.message(trimmed, id: id).encode());
+    await _send(dst, WireEnvelope.message(trimmed, id: id).encode());
   }
 
   /// Re-send every outgoing text message still awaiting a delivery ack (i.e.
@@ -346,7 +359,7 @@ class MessagingService {
         if (m.direction == MessageDirection.outgoing &&
             m.status == MessageStatus.sent &&
             !m.isFile) {
-          await _transport.send(
+          await _send(
               conv.peer.nodeId, WireEnvelope.message(m.body, id: m.id).encode());
         }
       }
@@ -373,7 +386,7 @@ class MessagingService {
     final msg = await _find(messageId);
     if (msg == null || msg.direction != MessageDirection.outgoing) return;
     await deleteMessageLocally(messageId);
-    await _transport.send(NodeId.fromHex(msg.conversationId),
+    await _send(NodeId.fromHex(msg.conversationId),
         WireEnvelope.del(messageId).encode());
   }
 
@@ -388,7 +401,7 @@ class MessagingService {
     await _storage.editMessage(messageId, trimmed);
     await _storage.scrubDeleted();
     _signal();
-    await _transport.send(NodeId.fromHex(msg.conversationId),
+    await _send(NodeId.fromHex(msg.conversationId),
         WireEnvelope.edit(messageId, trimmed).encode());
   }
 
@@ -420,7 +433,7 @@ class MessagingService {
     _signal();
 
     final chunks = chunkBytes(bytes, transferId: fileId, maxChunk: _wireChunkBytes);
-    await _transport.send(
+    await _send(
       dst,
       fileMetaEnvelope(
         transferId: fileId,
@@ -430,7 +443,7 @@ class MessagingService {
       ).encode(),
     );
     for (final c in chunks) {
-      await _transport.send(
+      await _send(
         dst,
         fileChunkEnvelope(
           transferId: c.transferId,
@@ -462,10 +475,17 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
     final m = session.messagingFor(active);
     if (m != null) return m;
   }
-  // Single / one-active mode: the global service (unchanged path).
+  // Single / one-active mode: the global service. Single mode has no roster, so
+  // it is non-anonymous EXCEPT under the debug-only, env-gated force-flag (the
+  // same affordance AppController uses for the shield indicator and the testnet
+  // live run) — honour it here too so the force-flag actually routes over the
+  // onion path, not just lights the indicator.
+  final forceAnon = kDebugMode &&
+      Platform.environment['XVEIL_FORCE_ANONYMOUS'] == '1';
   final service = MessagingService(
     ref.watch(veilTransportProvider),
     ref.watch(storageProvider),
+    anonymous: forceAnon,
   );
   service.start();
   // Flush the local outbox whenever the node (re)connects: messages composed
