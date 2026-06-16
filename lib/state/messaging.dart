@@ -53,12 +53,14 @@ class MessagingService {
   /// Whether this identity routes over the onion rendezvous (sender-location
   /// hidden). Fixed per identity at boot from its roster `anonymous` flag — an
   /// anonymous identity sends EVERYTHING (messages, acks, accepts, file frames)
-  /// anonymously, fail-closed, so no single frame leaks its network location.
+  /// anonymously and never over clearnet, so no single frame leaks its network
+  /// location. An undeliverable frame stays un-acked and is retried, never
+  /// degraded to a clearnet send (see [VeilTransport.send]).
   final bool _anonymous;
 
   /// Single egress point so every outbound frame honours [_anonymous]. The real
-  /// transport routes over an onion circuit when anonymous (throwing rather than
-  /// leaking if it can't); the loopback fake ignores the flag.
+  /// transport routes over an onion circuit when anonymous (and never falls back
+  /// to clearnet); the loopback fake ignores the flag.
   Future<void> _send(NodeId dst, Uint8List payload) =>
       _transport.send(dst, payload, anonymous: _anonymous);
   final _changes = StreamController<void>.broadcast();
