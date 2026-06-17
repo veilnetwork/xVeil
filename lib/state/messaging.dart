@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -6,12 +7,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/ids.dart';
+import '../crypto/blake3.dart';
 import '../data/node/node_controller.dart';
 import '../data/storage/storage.dart';
 import '../data/transport/veil_transport.dart';
 import '../data/transport/wire_envelope.dart';
 import '../domain/chat.dart';
 import '../domain/file_transfer.dart';
+import 'mailbox_service.dart';
 import 'providers.dart';
 
 const _uuid = Uuid();
@@ -95,6 +98,26 @@ class MessagingService {
   Timer? _retryTimer;
   bool _flushing = false;
   final Map<String, _Incoming> _inFlight = {};
+
+  /// Offline-delivery side-channel (null until wired by the provider, and null
+  /// for the loopback/test transport). When present, un-acked outgoing messages
+  /// are ALSO deposited at the recipient's mailbox relay so an offline peer
+  /// receives them, and our own mailbox is drained into [deliverInbound].
+  MailboxService? _mailbox;
+
+  /// Message ids already deposited to the mailbox this session — so a message
+  /// is stashed once, not on every 15 s outbox flush. The relay also dedups by
+  /// content id, so this is purely a network-traffic optimisation.
+  final Set<String> _stashed = {};
+
+  /// Attach the offline-delivery [MailboxService] after construction (it is
+  /// built with [deliverInbound] as its drain sink, so it must exist first).
+  void attachMailbox(MailboxService mailbox) => _mailbox = mailbox;
+
+  /// Route a message recovered from our mailbox through the normal inbound
+  /// path — it is a `WireEnvelope`, so [_dispatch] decodes it, applies the
+  /// consent gate, stores it, acks, and dedups by id against any live delivery.
+  Future<void> deliverInbound(InboundMessage m) => _onInbound(m);
 
   /// How often to re-send still-un-acked messages. Covers the case where the
   /// RECIPIENT was offline (e.g. the peer switched to another identity, taking
@@ -399,12 +422,41 @@ class MessagingService {
         if (m.direction == MessageDirection.outgoing &&
             m.status == MessageStatus.sent &&
             !m.isFile) {
-          await _send(
-              conv.peer.nodeId, WireEnvelope.message(m.body, id: m.id).encode());
+          final wire = WireEnvelope.message(m.body, id: m.id).encode();
+          await _send(conv.peer.nodeId, wire);
+          // Also deposit at the recipient's mailbox relay so an OFFLINE peer
+          // receives it (live re-send above only lands if they're online). Once
+          // per message per session; the relay dedups by content id, and the
+          // recipient dedups the recovered envelope by its message id.
+          await _maybeStash(conv.peer.nodeId, m.id, wire);
         }
       }
     }
   }
+
+  /// Best-effort offline deposit of [wire] (the message envelope) for [peer],
+  /// keyed by a stable 32-byte content id derived from the message [id]. No-op
+  /// when there is no mailbox side-channel or we already stashed this message.
+  Future<void> _maybeStash(NodeId peer, String id, Uint8List wire) async {
+    final mailbox = _mailbox;
+    if (mailbox == null || _stashed.contains(id)) return;
+    try {
+      await mailbox.stash(
+        recipient: peer,
+        payload: wire,
+        contentId: _contentIdFor(id),
+      );
+      _stashed.add(id);
+    } catch (_) {
+      // No relay / no route yet — leave it un-stashed so a later flush retries.
+    }
+  }
+
+  /// Stable 32-byte mailbox content id for a message [id] (the relay keys dedup
+  /// + eviction on this). Distinct from the on-wire message id the recipient
+  /// dedups on; this only needs to be deterministic per message.
+  static Uint8List _contentIdFor(String id) =>
+      blake3DeriveKey('veil.mailbox.content_id.v1', utf8.encode(id));
 
   /// Delete a message from THIS device only and scrub it from the container so
   /// the plaintext is no longer recoverable — works for a received message too
