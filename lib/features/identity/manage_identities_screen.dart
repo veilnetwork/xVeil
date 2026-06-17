@@ -103,6 +103,9 @@ class _ManageIdentitiesScreenState
       builder: (ctx) => const _BindDialog(),
     );
     if (result == null) return;
+    // The dialog above is an async gap — bail if this screen was disposed while
+    // it was open, rather than touching a dead BuildContext.
+    if (!mounted) return;
     final l = AppL10n.of(context);
     await _run(
         () => ref.read(appControllerProvider.notifier).bindExistingIdentity(
