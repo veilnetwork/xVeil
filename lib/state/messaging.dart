@@ -622,6 +622,10 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
 /// peer's `public_key` is base64. Malformed entries are skipped. The relay-key
 /// DHT resolve validates each candidate (an entry that isn't relay-capable
 /// simply won't resolve), so a wrong derivation is non-fatal.
+///
+/// Verified live: `BLAKE3(base64(public_key))` reproduces the exact node_ids of
+/// all three testnet bootstrap peers, so this derivation matches veil's
+/// `compute_node_id` and the bootstrap-relay selection addresses real nodes.
 List<NodeId> _mailboxRelayCandidates(List<BootstrapPeerCfg> peers) {
   final out = <NodeId>[];
   for (final p in peers) {
