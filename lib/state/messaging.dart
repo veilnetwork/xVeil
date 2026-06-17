@@ -31,12 +31,30 @@ const kMaxIncomingFileBytes = 100 * 1024 * 1024; // 100 MiB
 /// worst-case buffered total to ~this × [kMaxIncomingFileBytes]. Tunable.
 const kMaxConcurrentIncomingFiles = 8;
 
+/// How long an inbound transfer may sit idle (no new chunk) before a fresh
+/// transfer arriving at capacity may evict it to reclaim its slot. Without this,
+/// an accepted peer that opens [kMaxConcurrentIncomingFiles] transfers and never
+/// finishes them blocks all legitimate transfers until an app restart — an
+/// availability problem (memory stays bounded regardless). Timeout-evict, not
+/// LRU: LRU would let a hostile peer evict a victim's ACTIVE transfer. Tunable.
+const kStaleIncomingFileTimeout = Duration(minutes: 5);
+
 /// In-flight inbound file reassembly state.
 class _Incoming {
-  _Incoming({required this.src, required this.name, required this.reasm});
+  _Incoming({
+    required this.src,
+    required this.name,
+    required this.reasm,
+    required this.lastActivity,
+  });
   final NodeId src;
   final String? name;
   final FileReassembler reasm;
+
+  /// Wall-clock of the most recent meta/chunk for this transfer. Bumped on every
+  /// chunk so an actively-progressing transfer is never seen as stale; only idle
+  /// (stalled/abandoned) transfers are eligible for eviction.
+  DateTime lastActivity;
 }
 
 /// Wires the [VeilTransport] inbound stream into [Storage] and exposes a send
@@ -45,7 +63,16 @@ class _Incoming {
 /// stream, which keeps it testable and avoids invalidating providers from
 /// async stream callbacks.
 class MessagingService {
-  MessagingService(this._transport, this._storage, {this._anonymous = false});
+  MessagingService(
+    this._transport,
+    this._storage, {
+    this._anonymous = false,
+    DateTime Function()? now,
+  }) : _now = now ?? DateTime.now;
+
+  /// Wall-clock source, injectable so stale-transfer eviction is testable
+  /// without real delays. Defaults to [DateTime.now].
+  final DateTime Function() _now;
 
   final VeilTransport _transport;
   final Storage _storage;
@@ -239,14 +266,24 @@ class MessagingService {
         // received (sendFile mints a fresh id per transfer, so the same id never
         // legitimately restarts).
         if (_inFlight.containsKey(meta.transferId)) return;
+        // At capacity: first reclaim slots held by transfers that have gone idle
+        // past the stale timeout, so a stalled/abandoned transfer can't block
+        // legitimate ones until restart. Actively-progressing transfers (a recent
+        // chunk bumped lastActivity) are untouched.
+        if (_inFlight.length >= kMaxConcurrentIncomingFiles) {
+          final cutoff = _now();
+          _inFlight.removeWhere((_, inc) =>
+              cutoff.difference(inc.lastActivity) > kStaleIncomingFileTimeout);
+        }
         // Bound concurrent transfers so the per-transfer cap actually bounds
-        // total memory: a new transfer is dropped when we are already at
-        // capacity.
+        // total memory: a new transfer is dropped when we are STILL at capacity
+        // (i.e. every slot holds a live, non-stale transfer).
         if (_inFlight.length >= kMaxConcurrentIncomingFiles) return;
         _inFlight[meta.transferId] = _Incoming(
           src: m.src,
           name: meta.name,
           reasm: FileReassembler(),
+          lastActivity: _now(),
         );
         return; // nothing to show until the file completes
       case WireKind.fileChunk:
@@ -256,6 +293,7 @@ class MessagingService {
         // Unknown transfer (chunk before meta), or a different peer trying to
         // contribute to someone else's in-flight transfer — drop it.
         if (inc == null || inc.src != m.src) return;
+        inc.lastActivity = _now(); // progress — keep this transfer non-stale
         inc.reasm.add(FileChunk(
           transferId: frame.transferId,
           index: frame.index,
