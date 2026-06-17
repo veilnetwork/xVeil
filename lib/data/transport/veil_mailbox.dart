@@ -136,3 +136,148 @@ class LoopbackMailboxCrypto implements VeilMailboxCrypto {
     );
   }
 }
+
+/// A blob fetched from a mailbox relay: who sent it, its content id (for dedup +
+/// ack), and the sealed bytes.
+class StoredMailboxBlob {
+  const StoredMailboxBlob({
+    required this.senderId,
+    required this.contentId,
+    required this.blob,
+  });
+
+  /// node_id of the sender (used to resolve their document on open).
+  final NodeId senderId;
+
+  /// 32-byte content id — the message uuid, for dedup against live delivery.
+  final Uint8List contentId;
+
+  /// The sealed blob to `open`.
+  final Uint8List blob;
+}
+
+/// Port over the offline-mailbox RELAY transport: deposit a sealed blob for an
+/// offline receiver, fetch our pending blobs, and ack them.
+///
+/// The `authCookie` + the receiver's mailbox addressing are part of the
+/// rendezvous-registration layer (the relay-infrastructure decision — see the
+/// offline-delivery design); the orchestration takes them as inputs so its
+/// logic can be built + tested ([InMemoryMailboxRelay]) ahead of that decision.
+abstract interface class VeilMailboxRelay {
+  /// Deposit [blob] (content id [contentId]) for offline [receiver], from us.
+  Future<void> put({
+    required NodeId receiver,
+    required Uint8List contentId,
+    required NodeId sender,
+    required Uint8List blob,
+  });
+
+  /// Fetch all blobs pending for us ([me]), authenticated by [authCookie].
+  Future<List<StoredMailboxBlob>> fetch({
+    required NodeId me,
+    required Uint8List authCookie,
+  });
+
+  /// Acknowledge (and let the relay drop) the blob [contentId] for [me].
+  Future<void> ack({
+    required NodeId me,
+    required Uint8List contentId,
+    required Uint8List authCookie,
+  });
+}
+
+/// Production adapter over `veil_flutter`'s mailbox put/fetch/ack.
+class VeilFlutterMailboxRelay implements VeilMailboxRelay {
+  VeilFlutterMailboxRelay(this._mailbox);
+
+  final veil.VeilMailbox _mailbox;
+
+  @override
+  Future<void> put({
+    required NodeId receiver,
+    required Uint8List contentId,
+    required NodeId sender,
+    required Uint8List blob,
+  }) async {
+    await _mailbox.put(
+      receiverId: receiver.bytes,
+      contentId: contentId,
+      senderId: sender.bytes,
+      blob: blob,
+    );
+  }
+
+  @override
+  Future<List<StoredMailboxBlob>> fetch({
+    required NodeId me,
+    required Uint8List authCookie,
+  }) async {
+    final raw = await _mailbox.fetch(receiverId: me.bytes, authCookie: authCookie);
+    return raw
+        .map((b) => StoredMailboxBlob(
+              senderId: NodeId(b.senderId),
+              contentId: b.contentId,
+              blob: b.data,
+            ))
+        .toList();
+  }
+
+  @override
+  Future<void> ack({
+    required NodeId me,
+    required Uint8List contentId,
+    required Uint8List authCookie,
+  }) async {
+    await _mailbox.ack(
+      receiverId: me.bytes,
+      contentId: contentId,
+      authCookie: authCookie,
+    );
+  }
+}
+
+/// In-memory relay fake for testing the orchestration without a real relay.
+/// Keyed by receiver hex; `authCookie` is ignored (the real relay verifies it).
+class InMemoryMailboxRelay implements VeilMailboxRelay {
+  final Map<String, List<StoredMailboxBlob>> _store = {};
+
+  @override
+  Future<void> put({
+    required NodeId receiver,
+    required Uint8List contentId,
+    required NodeId sender,
+    required Uint8List blob,
+  }) async {
+    (_store[receiver.hex] ??= []).add(StoredMailboxBlob(
+      senderId: sender,
+      contentId: contentId,
+      blob: blob,
+    ));
+  }
+
+  @override
+  Future<List<StoredMailboxBlob>> fetch({
+    required NodeId me,
+    required Uint8List authCookie,
+  }) async =>
+      List.unmodifiable(_store[me.hex] ?? const []);
+
+  @override
+  Future<void> ack({
+    required NodeId me,
+    required Uint8List contentId,
+    required Uint8List authCookie,
+  }) async {
+    _store[me.hex]?.removeWhere(
+      (b) => _bytesEqual(b.contentId, contentId),
+    );
+  }
+}
+
+bool _bytesEqual(Uint8List a, Uint8List b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
