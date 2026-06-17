@@ -43,8 +43,12 @@ mk_node() { # <dir> <port>
   # seal target). Not a `config set` key — appended as raw TOML (like mailbox).
   # require_capability_token=false — STEP 2a tests deposit+store, not the
   # anti-spam gate.
+  # default_hop_count=1 keeps the dev-mesh usable: a local 4-node mesh can't
+  # reliably build the ≥2-hop anonymous circuits the default would need (the
+  # multi-hop-anonymity caveat). hop=1 is direct — proves the mechanism; path
+  # anonymity is a testnet concern.
   grep -q '^\[anonymity\]' "$cfg" || \
-    printf '\n[anonymity]\nrelay_capable = true\n' >> "$cfg"
+    printf '\n[anonymity]\nrelay_capable = true\ndefault_hop_count = 1\n' >> "$cfg"
   grep -q '^\[mailbox\]' "$cfg" || \
     printf '\n[mailbox]\nenabled = true\nrequire_capability_token = false\n' >> "$cfg"
 }
@@ -93,6 +97,7 @@ cat <<EOF
   VEIL_FFI_DYLIB="$DYLIB" \\
   XVEIL_TEST_SOCK_SENDER="$NODES/send/app.sock" \\
   XVEIL_TEST_SOCK_RELAY="$NODES/recv/app.sock" \\
+  XVEIL_SEND_NODE_ID="$S_ID" \\
   XVEIL_RELAY_NODE_ID="$B_ID" \\
   XVEIL_RELAY_LOG="$NODES/recv/node.log" \\
   flutter test test/native/mailbox_put_remote_live_test.dart
