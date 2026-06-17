@@ -64,11 +64,17 @@ class MailboxService {
   /// Whether we have successfully advertised a mailbox relay this session.
   bool get isRegistered => _registered;
 
-  /// Advertise [relay] as our mailbox host and begin draining. Safe to call
-  /// again (e.g. after a reconnect) — registration is re-attempted if it has not
-  /// yet succeeded, and the drain timer is only armed once.
-  Future<void> start({required NodeId relay}) async {
-    await _register(relay);
+  /// Advertise an always-on mailbox host (the first of [relays] whose relay-key
+  /// record resolves) and begin draining. Safe to call again (e.g. after a
+  /// reconnect): registration is re-attempted until one candidate sticks, and
+  /// the drain timer is only armed once. Candidates that aren't relay-capable
+  /// (no resolvable relay-key record) are simply skipped — the resolve itself
+  /// validates the choice, so a wrong/derived node_id is non-fatal.
+  Future<void> start({required List<NodeId> relays}) async {
+    for (final relay in relays) {
+      if (_registered) break;
+      await _register(relay);
+    }
     _drainTimer ??= Timer.periodic(_drainInterval, (_) => _drainTick());
     unawaited(_drainTick()); // don't wait a full interval for the first drain
   }
