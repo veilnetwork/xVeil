@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
@@ -60,38 +61,49 @@ void main() {
 
       // S binds a reply endpoint and listens for the FETCH reply. The relay's
       // reply is TERMINAL (carries no further reply block), so it surfaces as a
-      // plain inbound message (replyId == 0) on this endpoint — take the first.
+      // plain inbound message on this endpoint.
       app = await clientS.bind(
         namespace: 'xveil',
         name: 'mailbox-fetch',
         endpointId: replyEndpointId,
       );
-      final replyFuture = app.messages().first;
+      final re=Completer<IncomingMessage>();
+      final sub = app.messages().listen((m) {
+        if (!re.isCompleted) re.complete(m);
+      });
 
-      // Fire the authenticated-with-reply FETCH at B's mailbox FETCH endpoint.
-      // Retry: the authenticated circuit may still be forming after boot.
+      // Send the authenticated-with-reply FETCH at the relay's mailbox FETCH
+      // endpoint, RETRYING until the reply arrives — the first attempts may
+      // precede the sender's ad-resolution / circuit build (onion path).
+      final bId = _hex(bIdHex!);
+      var attempts = 0;
+      var sendsOk = 0;
       Object? lastErr;
-      var sent = false;
-      for (var i = 0; i < 10 && !sent; i++) {
+      while (!re.isCompleted && attempts < 30) {
         try {
           await app.sendAnonymousAuthenticatedWithReply(
-            dstNodeId: _hex(bIdHex!),
+            dstNodeId: bId,
             dstAppId: mailboxAppId,
             dstEndpointId: mailboxFetchEndpointId,
             replyEndpointId: replyEndpointId,
             data: Uint8List(0), // body unused — identity is the request
           );
-          sent = true;
+          sendsOk++;
         } catch (e) {
           lastErr = e;
-          await Future<void>.delayed(const Duration(seconds: 2));
         }
+        attempts++;
+        await Future.any([
+          re.future,
+          Future<void>.delayed(const Duration(seconds: 2)),
+        ]);
       }
-      print('[fetch] S sent authenticated FETCH: ${sent ? "ok" : "FAILED ($lastErr)"}');
-      expect(sent, isTrue, reason: 'could not send the FETCH request: $lastErr');
-
-      // Await the reply (the relay's MailboxFetchResp).
-      final reply = await replyFuture.timeout(const Duration(seconds: 30));
+      print('[fetch] FETCH attempts=$attempts sendsOk=$sendsOk '
+          'received=${re.isCompleted} lastErr=$lastErr');
+      expect(re.isCompleted, isTrue,
+          reason: 'no FETCH reply over onion; sendsOk=$sendsOk lastErr=$lastErr');
+      final reply = await re.future;
+      await sub.cancel();
       print('[fetch] S got reply: replyId=${reply.replyId}, ${reply.data.length} bytes');
 
       final got = _firstBlobOfFetchResp(reply.data);
