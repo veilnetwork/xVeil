@@ -4,7 +4,11 @@ import 'dart:typed_data';
 import 'package:veil_flutter/veil_flutter.dart';
 
 import '../../core/ids.dart';
+import '../../state/mailbox_orchestrator.dart';
+import '../../state/mailbox_service.dart';
 import 'veil_addressing.dart';
+import 'veil_mailbox.dart';
+import 'veil_mailbox_network.dart';
 import 'veil_transport.dart';
 
 /// Production [VeilTransport] over veil_flutter. Binds the shared `xveil/inbox`
@@ -55,6 +59,48 @@ class VeilFlutterTransport implements VeilTransport {
 
   @override
   Future<NodeId> nodeId() async => NodeId(await _client.nodeId());
+
+  /// Endpoints (distinct from the chat inbox at [veilChatEndpointId] = 0) the
+  /// offline-mailbox path binds on this same client: a PUT source app (carries a
+  /// non-spoofable src_app_id for anonymous deposits) and a FETCH reply app
+  /// (the relay answers our drains over its one-time reply path here).
+  static const _mailboxSrcEndpointId = 10;
+  static const _mailboxReplyEndpointId = 11;
+
+  /// Build the offline-delivery [MailboxService] over this node's client:
+  /// binds the PUT-source + FETCH-reply endpoints, wires the network-path
+  /// [VeilNetworkMailboxRelay] + node-side [VeilFlutterMailboxCrypto] into a
+  /// [MailboxOrchestrator], and hands drained messages to [deliver] (the
+  /// messaging layer routes + dedups them). Caller drives [MailboxService.start]
+  /// with the relay to advertise.
+  Future<MailboxService> buildMailboxService({
+    required void Function(InboundMessage) deliver,
+  }) async {
+    final src = await _client.bind(
+      namespace: veilChatNamespace,
+      name: 'mailbox-src',
+      endpointId: _mailboxSrcEndpointId,
+    );
+    final reply = await _client.bind(
+      namespace: veilChatNamespace,
+      name: 'mailbox-reply',
+      endpointId: _mailboxReplyEndpointId,
+    );
+    final relay = VeilNetworkMailboxRelay(
+      client: _client,
+      fetchApp: reply,
+      srcAppId: src.appId,
+      replyEndpointId: _mailboxReplyEndpointId,
+    );
+    final crypto = VeilFlutterMailboxCrypto(_client.mailbox);
+    final me = NodeId(await _client.nodeId());
+    return MailboxService(
+      client: _client,
+      me: me,
+      orchestrator: MailboxOrchestrator(crypto, relay),
+      deliver: deliver,
+    );
+  }
 
   @override
   Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) {
