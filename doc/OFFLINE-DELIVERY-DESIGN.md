@@ -243,3 +243,55 @@ multi-identity publishing if/when simultaneous identities are added.
 Recommended next step once you're back: settle decision #1 (seal) and stand up a
 test relay; I implement Phase A immediately (it's safe/additive) and then B with
 your live verification.
+
+## 7. Implementation status — 2026-06-17 (autonomous session)
+
+The hard, security-critical crypto core is now **built, tested, and dormant**
+(nothing wires it into a live path yet). What remains needs your decisions and a
+live relay, not more solo coding.
+
+### Built (veil submodule, dormant, unsigned — pending re-sign)
+- `mlkem_fanout::{encode,decode}_fanout_blob` (commit `071de73`) — versioned,
+  length-prefixed, bounds-checked wire format for a sealed fan-out blob. 9
+  adversarial tests (truncation at every offset, forged lengths, over-cap count,
+  trailing bytes, wrong version) + a crypto round-trip that still decrypts.
+- `veil-identity::mailbox_seal::{seal,open}_mailbox_blob` (commit `410f6d6`) —
+  the seal/open core. `seal` = sign_auth_deliver → cap-check → fanout_encrypt →
+  encode_fanout_blob; `open` = decode → fanout_decrypt_one (under our dk_seed) →
+  decode auth → **verify_auth_deliver**. 4 tests, incl. a round-trip validated
+  against veil's *real* verifier (not self-consistent) and fail-closed cases
+  (wrong sender doc, wrong instance, tampered blob).
+
+This supersedes decision #1 in §6 for the **confidentiality + sender-auth**
+mechanism: it reuses existing reviewed primitives (no new crypto). It still
+wants a `/code-review ultra` pass before it goes live.
+
+### The decision that now blocks the runtime wiring: crypto layer A vs B
+veil has two E2E options; the mailbox must pick one:
+- **A — `mlkem_fanout`** (what the core above is built on): multi-recipient /
+  multi-device (one cert per device, blob carries N envelopes). The design's
+  original choice.
+- **B — `veil_e2e::encrypt` + `PeerMlKemCache`**: single-recipient EK, but it
+  *reuses the peer-key cache and resolver the node already runs* for direct E2E.
+  Simpler and more consistent with live code; would mean re-basing the core on
+  `veil_e2e` (and adding an `E2eEnvelope` serializer, which doesn't exist yet).
+
+Pick A or B. With **A**, the core is done. With **B**, I re-base the core first.
+
+### Remaining steps (supervised — need a live node to validate)
+1. Runtime async method: resolve recipient's ML-KEM cert/EK + sender's
+   IdentityDocument over the DHT, supply the internal `mlkem_dk_seed`/sovereign,
+   call seal/open. **Cannot be unit-tested in isolation** (needs DHT/a node) and
+   handles sensitive keys — hence supervised. Note: for layer A there is no
+   production MlKemKeyCert *resolver* yet (fan-out has only had unit tests), so
+   that path is new work; layer B reuses `PeerMlKemCache`.
+2. `veilclient-ffi` async wrapper → regen `veil_ffi.h` → `veil_flutter` Dart
+   binding.
+3. xVeil app layer: a `VeilMailbox` port + loopback fake; on no-ack-after-N +
+   peer-offline → seal + `mailbox.put`; on connect → `fetch` → `open` → deliver →
+   `ack`; dedup by contentId (= message uuid). This is Phase A/C from §5.
+
+### Key-handling invariant for whoever wires this
+`mlkem_dk_seed` (and the sovereign signing key) **must stay inside the runtime** —
+never logged, never returned across the FFI boundary. `open` takes the seed by
+reference and the recovered plaintext is held in a `Zeroizing` buffer.
