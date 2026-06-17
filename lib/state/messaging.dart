@@ -8,8 +8,10 @@ import 'package:uuid/uuid.dart';
 
 import '../core/ids.dart';
 import '../crypto/blake3.dart';
+import '../data/node/embedded_node.dart' show BootstrapPeerCfg;
 import '../data/node/node_controller.dart';
 import '../data/storage/storage.dart';
+import '../data/transport/veil_flutter_transport.dart';
 import '../data/transport/veil_transport.dart';
 import '../data/transport/wire_envelope.dart';
 import '../domain/chat.dart';
@@ -574,24 +576,63 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
   // onion path, not just lights the indicator.
   final forceAnon = kDebugMode &&
       Platform.environment['XVEIL_FORCE_ANONYMOUS'] == '1';
+  final transport = ref.watch(veilTransportProvider);
   final service = MessagingService(
-    ref.watch(veilTransportProvider),
+    transport,
     ref.watch(storageProvider),
     anonymous: forceAnon,
   );
   service.start();
+
+  // Offline delivery: over the real veil transport, advertise a mailbox relay
+  // (a configured bootstrap peer) and drain our mailbox into the inbound path.
+  // Best-effort + inert on the loopback transport or when no bootstrap peers
+  // are configured — live delivery is unaffected if this never registers.
+  final relays = _mailboxRelayCandidates(
+      ref.read(deniableBootProvider)?.bootstrapPeers ?? const []);
+  MailboxService? mailbox;
+  if (transport is VeilFlutterTransport && relays.isNotEmpty) {
+    transport.buildMailboxService(deliver: service.deliverInbound).then((m) {
+      mailbox = m;
+      service.attachMailbox(m);
+      ref.onDispose(m.dispose);
+      unawaited(m.start(relays: relays));
+    }).catchError((_) {
+      // Mailbox unavailable (IPC/bind hiccup) — offline delivery just stays off.
+    });
+  }
+
   // Flush the local outbox whenever the node (re)connects: messages composed
-  // while offline stay `sent` and go out the moment transport is up again.
+  // while offline stay `sent` and go out the moment transport is up again. Also
+  // (re)attempt mailbox registration — the DHT resolve needs the node connected.
   ref.listen<AsyncValue<NodeStatus>>(nodeStatusProvider, (prev, next) {
     final was = prev?.valueOrNull?.phase;
     final now = next.valueOrNull?.phase;
     if (now == NodePhase.connected && was != NodePhase.connected) {
       service.flushOutbox();
+      unawaited(mailbox?.start(relays: relays) ?? Future.value());
     }
   });
   ref.onDispose(service.dispose);
   return service;
 });
+
+/// Candidate mailbox-relay node_ids derived from configured bootstrap peers: a
+/// node_id is `BLAKE3(identity_pubkey)` (veil `compute_node_id`) and a bootstrap
+/// peer's `public_key` is base64. Malformed entries are skipped. The relay-key
+/// DHT resolve validates each candidate (an entry that isn't relay-capable
+/// simply won't resolve), so a wrong derivation is non-fatal.
+List<NodeId> _mailboxRelayCandidates(List<BootstrapPeerCfg> peers) {
+  final out = <NodeId>[];
+  for (final p in peers) {
+    try {
+      out.add(NodeId(blake3Hash(base64.decode(p.publicKey))));
+    } catch (_) {
+      // Malformed public_key — skip this candidate.
+    }
+  }
+  return out;
+}
 
 /// Conversations, re-loaded on first build and whenever the service signals a
 /// change. StreamProvider yields the same AsyncValue the UI already consumes.
