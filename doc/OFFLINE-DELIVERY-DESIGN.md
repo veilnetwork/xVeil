@@ -295,3 +295,38 @@ Pick A or B. With **A**, the core is done. With **B**, I re-base the core first.
 `mlkem_dk_seed` (and the sovereign signing key) **must stay inside the runtime** —
 never logged, never returned across the FFI boundary. `open` takes the seed by
 reference and the recovered plaintext is held in a `Zeroizing` buffer.
+
+## 8. Implementation status — 2026-06-17, part 2 (layer A green-lit, Rust layer built)
+
+Layer **A (mlkem_fanout)** was chosen. The entire **Rust runtime layer** is now
+built, compiling, and tested (dormant — nothing calls it):
+
+- `mlkem_resolver::fetch_verified_cert` + `fetch_verified_document` (veil
+  `e33db77`, `901b7fe`) — expose the full `VerifiedMlkemCert` and the verified
+  sender `IdentityDocument` from the existing DHT walk (the EK-only surface and
+  `resolve_identity_verified`'s `ValidatedIdentity` summary couldn't supply
+  them). Behaviour-preserving; resolver tests green.
+- `NodeRuntime::{seal_offline_blob, open_offline_blob}` (veil `901b7fe`,
+  `offline_seal` module) — compose the resolution + internal keys (`dk_seed`,
+  sovereign — never leave the runtime) with the `mailbox_seal` core. Compiles;
+  236 node-runtime tests green; clippy clean.
+
+**Unvalidated**: the DHT resolution can't run in an in-process unit test, so the
+live behaviour needs an integration test on a real node + `/code-review ultra`.
+
+### Remaining (supervised) — the exposure + app layer
+1. **IPC command + handler**: the app talks to its embedded node over IPC (the
+   FFI is client-side, like `send_anonymous_authenticated`'s IPC flag), so seal/
+   open need a new IPC request/response: client sends seal(recipient,app,endpoint,
+   data) → node runs `seal_offline_blob` → returns blob; and open(blob,sender,
+   cert_version) → node runs `open_offline_blob`. This is an IPC-protocol
+   addition (veil-proto + veil-ipc handler), not just an FFI shim.
+2. **veilclient client methods → veilclient-ffi wrappers → regen `veil_ffi.h` →
+   veil_flutter Dart binding.**
+3. **xVeil app**: a `VeilMailbox` port + loopback fake; outbox no-ack-after-N +
+   peer-offline → seal + `mailbox.put`; on connect → `fetch` → open → deliver →
+   ack; dedup by contentId (= message uuid).
+
+### Open item to settle in the supervised pass
+`open_offline_blob` takes `our_cert_version` as a parameter — wire it to the
+runtime's own published-cert state instead (the version whose `dk_seed` we hold).
