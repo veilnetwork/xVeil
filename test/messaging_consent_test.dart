@@ -7,6 +7,7 @@ import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
+import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/state/messaging.dart';
 
@@ -107,6 +108,70 @@ void main() {
     await _pump();
     expect((await sB.loadMessages(a.hex)).any((m) => m.body == 'after block'),
         isFalse);
+  });
+
+  test('pre-consent intro spam is capped, keeping the most recent', () async {
+    // A hostile peer mints a FRESH id per request so the dedup-by-id path does
+    // not collapse them. Without the cap these pile up unbounded before B ever
+    // accepts; with it, B holds at most kMaxPreConsentIntros (the most recent).
+    const total = kMaxPreConsentIntros + 4;
+    for (var i = 0; i < total; i++) {
+      // distinct ids => not an overwrite; the _pump spaces timestamps by ms so
+      // eviction order (oldest-first) is deterministic.
+      await tA.send(b, WireEnvelope.request('intro $i', id: 'req-$i').encode());
+      await _pump();
+    }
+
+    final msgs = await sB.loadMessages(a.hex);
+    expect(msgs.length, kMaxPreConsentIntros,
+        reason: 'pre-consent intros must be bounded to the cap');
+    final bodies = msgs.map((m) => m.body).toSet();
+    for (var i = 0; i < total; i++) {
+      final survived = i >= total - kMaxPreConsentIntros; // most recent N kept
+      expect(bodies.contains('intro $i'), survived,
+          reason: 'intro $i ${survived ? "must survive" : "must be evicted"}');
+    }
+    // The peer is still pending — the cap is anti-spam, not a consent change.
+    expect((await sB.getContact(a))!.status, ContactStatus.pendingIncoming);
+  });
+
+  test('a same-id re-request overwrites in place and does not consume the cap',
+      () async {
+    // Re-sending the SAME request id (e.g. an outbox retry) must overwrite, not
+    // accumulate, and must never evict — so a legit single intro is preserved.
+    for (var i = 0; i < 3; i++) {
+      await tA.send(b, WireEnvelope.request('intro v$i', id: 'same').encode());
+      await _pump();
+    }
+    final msgs = await sB.loadMessages(a.hex);
+    expect(msgs.length, 1, reason: 'same id => one stored copy');
+    expect(msgs.single.body, 'intro v2', reason: 'last write wins');
+  });
+
+  test('a re-request never evicts an accepted peer\'s real conversation',
+      () async {
+    // Guard: the cap counts incoming messages, which for an accepted peer
+    // includes real chat. A later re-request must NOT evict that history.
+    await mA.sendRequest(b, 'hi');
+    await _pump();
+    await mB.acceptContact(a);
+    await _pump();
+    for (var i = 0; i < kMaxPreConsentIntros + 3; i++) {
+      await mA.sendText(b, 'msg $i');
+      await _pump();
+    }
+    final before = (await sB.loadMessages(a.hex)).length;
+    expect(before, greaterThan(kMaxPreConsentIntros));
+
+    // A reconnects and re-sends a request (some clients do on resume).
+    await tA.send(b, WireEnvelope.request('re-hi', id: 'rereq').encode());
+    await _pump();
+
+    final after = await sB.loadMessages(a.hex);
+    expect(after.length, greaterThanOrEqualTo(before),
+        reason: 'an accepted peer\'s history is never evicted by a re-request');
+    expect(after.any((m) => m.body == 'msg 0'), isTrue,
+        reason: 'the oldest real message must survive');
   });
 }
 
