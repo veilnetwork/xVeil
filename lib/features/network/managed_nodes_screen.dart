@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../data/node/managed_node.dart';
+import '../../data/node/node_probe.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/managed_nodes_controller.dart';
 import '../../state/proxy_routing_controller.dart';
@@ -117,6 +118,8 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
   late final TextEditingController _user;
   String? _labelError;
   String? _nodeIdError;
+  bool _probing = false;
+  ProbeResult? _probeResult;
 
   @override
   void initState() {
@@ -167,6 +170,23 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
   Future<void> _remove() async {
     await ref.read(managedNodesProvider.notifier).remove(widget.existing!.id);
     if (mounted) Navigator.of(context).pop();
+  }
+
+  Future<void> _checkReachable() async {
+    final host = _host.text.trim();
+    if (host.isEmpty) return;
+    final port = int.tryParse(_port.text.trim()) ?? 22;
+    setState(() {
+      _probing = true;
+      _probeResult = null;
+    });
+    final result = await probeTcp(host, port);
+    if (mounted) {
+      setState(() {
+        _probing = false;
+        _probeResult = result;
+      });
+    }
   }
 
   void _useAsExit() {
@@ -231,6 +251,7 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
             const SizedBox(height: 12),
             TextField(
               controller: _host,
+              onChanged: (_) => setState(() => _probeResult = null),
               decoration: InputDecoration(
                 labelText: l.nodeSshHostLabel,
                 border: const OutlineInputBorder(),
@@ -266,6 +287,42 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
                 ),
               ],
             ),
+            const SizedBox(height: 8),
+            // Reachability probe — a dependency-free TCP connect to host:port.
+            if (_host.text.trim().isNotEmpty)
+              Row(
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: _probing ? null : _checkReachable,
+                    icon: _probing
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.wifi_find),
+                    label: Text(_probing ? l.nodeChecking : l.nodeCheckReachable),
+                  ),
+                  const SizedBox(width: 12),
+                  if (_probeResult != null)
+                    Row(
+                      children: [
+                        Icon(
+                          _probeResult == ProbeResult.reachable
+                              ? Icons.check_circle
+                              : Icons.cancel,
+                          size: 18,
+                          color: _probeResult == ProbeResult.reachable
+                              ? Colors.green
+                              : Theme.of(context).colorScheme.error,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(_probeResult == ProbeResult.reachable
+                            ? l.nodeReachable
+                            : l.nodeUnreachable),
+                      ],
+                    ),
+                ],
+              ),
             const SizedBox(height: 8),
             // Provisioning over SSH is the next layer — flagged, not faked.
             Padding(
