@@ -42,13 +42,14 @@ invite_of() {
   "$BIN" -c "$1/config.toml" bootstrap invite 2>/dev/null | grep -oE 'veil:bootstrap\S+' | head -1
 }
 
-echo "==> provisioning R(relay+mailbox) + F(fetcher) + M1 + M2 (mint @ $MINT_DIFFICULTY, sequential ~80s)…"
+echo "==> provisioning R(relay+mailbox) + F(fetcher) + S(sender) + M1 + M2 (mint @ $MINT_DIFFICULTY, sequential ~100s)…"
 mk_node "$NODES/relay" 9210
 mk_node "$NODES/fetch" 9211
+mk_node "$NODES/send"  9214
 mk_node "$NODES/mid1"  9212
 mk_node "$NODES/mid2"  9213
 
-peers=(relay fetch mid1 mid2)
+peers=(relay fetch send mid1 mid2)
 for a in "${peers[@]}"; do
   for b in "${peers[@]}"; do
     [[ "$a" == "$b" ]] && continue
@@ -63,6 +64,10 @@ printf '\n[anonymity]\nreceive_anonymous = true\nonion_service = true\n' >> "$NO
 printf '\n[mailbox]\nenabled = true\nrequire_capability_token = false\n' >> "$NODES/relay/config.toml"
 # F: plain receive-anonymous fetcher.
 printf '\n[anonymity]\nreceive_anonymous = true\nonion_service = true\n' >> "$NODES/fetch/config.toml"
+# S: a DISTINCT sender that deposits into F's mailbox at R over the onion. Same
+# onion-origination capability as F (so it can build the sender-anonymous PUT
+# circuit and warm its relay-directory entries); never the deposit target.
+printf '\n[anonymity]\nreceive_anonymous = true\nonion_service = true\n' >> "$NODES/send/config.toml"
 # M1/M2: the rendezvous + onion-middle relays.
 printf '\n[anonymity]\nrelay_capable = true\n' >> "$NODES/mid1/config.toml"
 printf '\n[anonymity]\nrelay_capable = true\n' >> "$NODES/mid2/config.toml"
@@ -85,10 +90,14 @@ for _ in $(seq 1 150); do
 done
 [[ "$ok" == 1 ]] && echo "✅ R and F both registered a rendezvous relay" \
                  || echo "⚠️  not both registered within 150s (test may still retry)"
+grep -qs "registered with rendezvous relay" "$NODES/send/node.log" \
+  && echo "✅ S(sender) also registered" \
+  || echo "ℹ️  S not yet registered (the deposit test retries the stash)"
 
 R_ID="$(grep -oE 'node_id=[0-9a-f]{64}' "$NODES/relay/node.log" | head -1 | cut -d= -f2)"
 F_ID="$(grep -oE 'node_id=[0-9a-f]{64}' "$NODES/fetch/node.log" | head -1 | cut -d= -f2)"
-echo "R(relay)=${R_ID:0:8}  F(fetcher)=${F_ID:0:8}  + mid1 mid2"
+S_ID="$(grep -oE 'node_id=[0-9a-f]{64}' "$NODES/send/node.log" | head -1 | cut -d= -f2)"
+echo "R(relay)=${R_ID:0:8}  F(fetcher)=${F_ID:0:8}  S(sender)=${S_ID:0:8}  + mid1 mid2"
 
 DYLIB="$ROOT/third_party/veil/target/release/libveilclient_ffi.dylib"
 echo
@@ -100,6 +109,18 @@ cat <<EOF
   XVEIL_SEND_NODE_ID="$F_ID" \\
   XVEIL_RELAY_NODE_ID="$R_ID" \\
   flutter test test/native/mailbox_fetch_live_test.dart
+EOF
+echo
+echo "=== STEP 2d — S deposits for OFFLINE F at R cross-node, then F drains it: ==="
+cat <<EOF
+  VEIL_FFI_DYLIB="$DYLIB" \\
+  XVEIL_TEST_SOCK_SENDER="$NODES/send/app.sock" \\
+  XVEIL_TEST_SOCK_FETCH="$NODES/fetch/app.sock" \\
+  XVEIL_TEST_SOCK_RELAY="$NODES/relay/app.sock" \\
+  XVEIL_SEND_NODE_ID="$S_ID" \\
+  XVEIL_FETCH_NODE_ID="$F_ID" \\
+  XVEIL_RELAY_NODE_ID="$R_ID" \\
+  flutter test test/native/mailbox_deposit_xnode_live_test.dart
 EOF
 echo
 echo "logs: $NODES/*/node.log   stop: pkill -f 'veil-cli.*node run'"
