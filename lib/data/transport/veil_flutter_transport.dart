@@ -134,6 +134,12 @@ class VeilFlutterTransport implements VeilTransport {
       );
 
   @override
+  Stream<int> sessionCount() => _client
+      .events()
+      .where((e) => e.kind == VeilEventKind.sessionsChanged)
+      .map((e) => e.sessionCount ?? 0);
+
+  @override
   Future<void> dispose() async {
     await _app.close();
     await _client.close();

@@ -46,6 +46,9 @@ class LoopbackTransport implements VeilTransport {
   Stream<InboundMessage> messages() => _inbound.stream;
 
   @override
+  Stream<int> sessionCount() => Stream.value(0); // loopback has no real peers
+
+  @override
   Future<void> dispose() async {
     _disposed = true;
     for (final t in _pending) {

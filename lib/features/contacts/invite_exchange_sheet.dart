@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -124,6 +126,33 @@ class _InviteExchangeSheetState extends State<InviteExchangeSheet> {
                 label: Text(l.inviteCopyMine),
               ),
             ),
+            // Identity details — your node_id (what others address you by; it is
+            // the BLAKE3 of the public key the invite already encodes), plus the
+            // raw public key / nonce / algorithm, readable + copyable.
+            Builder(builder: (context) {
+              BootstrapInvite? id;
+              try {
+                id = BootstrapInvite.parse(widget.myInvite!);
+              } catch (_) {}
+              if (id == null) return const SizedBox.shrink();
+              return Theme(
+                data: Theme.of(context)
+                    .copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: const EdgeInsets.only(bottom: 8),
+                  title: Text(l.identityDetails,
+                      style: Theme.of(context).textTheme.labelLarge),
+                  children: [
+                    _idRow(context, 'node_id', id.nodeId.hex),
+                    _idRow(context, l.identityPublicKey,
+                        base64.encode(id.publicKey)),
+                    _idRow(context, 'nonce', base64.encode(id.nonce)),
+                    _idRow(context, l.identityAlgo, id.algo),
+                  ],
+                ),
+              );
+            }),
             const Divider(height: 32),
           ],
           Text(l.invitePasteTheirs,
@@ -153,6 +182,47 @@ class _InviteExchangeSheetState extends State<InviteExchangeSheet> {
           ),
         ],
         ),
+      ),
+    );
+  }
+
+  /// One labelled, monospace, copyable identity field (node_id / key / nonce).
+  Widget _idRow(BuildContext context, String label, String value) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label,
+              style: Theme.of(context)
+                  .textTheme
+                  .labelSmall
+                  ?.copyWith(color: scheme.outline)),
+          Row(
+            children: [
+              Expanded(
+                child: SelectableText(
+                  value,
+                  style:
+                      const TextStyle(fontFamily: 'monospace', fontSize: 11),
+                ),
+              ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.copy, size: 16),
+                onPressed: () async {
+                  await Clipboard.setData(ClipboardData(text: value));
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(AppL10n.of(context).inviteCopied)),
+                    );
+                  }
+                },
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
