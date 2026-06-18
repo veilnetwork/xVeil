@@ -103,6 +103,47 @@ void main() {
           throwsA(isA<FormatException>()));
     });
   });
+
+  group('chunkMailboxPut', () {
+    final content = Uint8List.fromList(List.filled(32, 0x2C));
+
+    test('splits a large payload and reassembles to the original', () {
+      // A 1000-byte payload → ceil(1000/240) = 5 chunks.
+      final payload =
+          Uint8List.fromList(List.generate(1000, (i) => (i * 7 + 1) & 0xff));
+      final chunks = chunkMailboxPut(content, payload);
+      expect(chunks.length, (1000 + 239) ~/ 240);
+
+      final reassembled = BytesBuilder();
+      for (var i = 0; i < chunks.length; i++) {
+        final c = chunks[i];
+        expect(c.sublist(0, 32), content, reason: 'content_id in every chunk');
+        final bd = ByteData.sublistView(c, 32, 36);
+        expect(bd.getUint16(0, Endian.big), i, reason: 'chunk_index');
+        expect(bd.getUint16(2, Endian.big), chunks.length, reason: 'chunk_total');
+        final data = c.sublist(36);
+        expect(data.length, lessThanOrEqualTo(kMailboxPutChunkDataBytes));
+        reassembled.add(data);
+      }
+      expect(reassembled.toBytes(), payload,
+          reason: 'concatenated chunk_data must equal the original payload');
+    });
+
+    test('a payload smaller than one chunk yields a single chunk', () {
+      final small = Uint8List.fromList([1, 2, 3, 4, 5]);
+      final chunks = chunkMailboxPut(content, small);
+      expect(chunks.length, 1);
+      expect(chunks.single.sublist(36), small);
+      final bd = ByteData.sublistView(chunks.single, 32, 36);
+      expect(bd.getUint16(2, Endian.big), 1); // chunk_total == 1
+    });
+
+    test('an exact multiple of the chunk size has no trailing empty chunk', () {
+      final exact = Uint8List(kMailboxPutChunkDataBytes * 3);
+      final chunks = chunkMailboxPut(content, exact);
+      expect(chunks.length, 3);
+    });
+  });
 }
 
 /// Build a `MailboxFetchRespPayload` wire buffer: count(u16 BE) + entries.
