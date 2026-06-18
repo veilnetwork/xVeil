@@ -35,7 +35,10 @@ void main() {
     ));
 
     await tester.enterText(find.byType(TextField), _inviteB);
-    await tester.tap(find.widgetWithText(FilledButton, 'Add contact'));
+    final addBtn = find.widgetWithText(FilledButton, 'Add contact');
+    await tester.ensureVisible(addBtn);
+    await tester.pumpAndSettle();
+    await tester.tap(addBtn);
     await tester.pump();
 
     expect(added, isNotNull);
@@ -49,7 +52,10 @@ void main() {
     ));
 
     await tester.enterText(find.byType(TextField), 'not-an-invite');
-    await tester.tap(find.widgetWithText(FilledButton, 'Add contact'));
+    final addBtn = find.widgetWithText(FilledButton, 'Add contact');
+    await tester.ensureVisible(addBtn);
+    await tester.pumpAndSettle();
+    await tester.tap(addBtn);
     await tester.pump();
 
     expect(calls, 0);

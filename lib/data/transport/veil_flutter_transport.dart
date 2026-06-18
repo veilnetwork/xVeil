@@ -140,6 +140,32 @@ class VeilFlutterTransport implements VeilTransport {
       .map((e) => e.sessionCount ?? 0);
 
   @override
+  Future<List<PeerInfo>> peers() async {
+    final raw = await _client.peers();
+    return raw
+        .map((p) => PeerInfo(
+              nodeId: NodeId(p.nodeId),
+              state: _mapState(p.state),
+              direction: _mapDir(p.direction),
+              transport: p.transport,
+            ))
+        .toList(growable: false);
+  }
+
+  static PeerState _mapState(VeilPeerState s) => switch (s) {
+        VeilPeerState.connecting => PeerState.connecting,
+        VeilPeerState.active => PeerState.active,
+        VeilPeerState.closed => PeerState.closed,
+        VeilPeerState.unknown => PeerState.unknown,
+      };
+
+  static PeerDirection _mapDir(VeilPeerDirection d) => switch (d) {
+        VeilPeerDirection.inbound => PeerDirection.inbound,
+        VeilPeerDirection.outbound => PeerDirection.outbound,
+        VeilPeerDirection.unknown => PeerDirection.unknown,
+      };
+
+  @override
   Future<void> dispose() async {
     await _app.close();
     await _client.close();

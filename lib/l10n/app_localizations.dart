@@ -1039,6 +1039,156 @@ abstract class AppL10n {
   /// **'Error'**
   String get networkStatusError;
 
+  /// No description provided for @peersTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Connected peers'**
+  String get peersTitle;
+
+  /// No description provided for @peersSectionActive.
+  ///
+  /// In en, this message translates to:
+  /// **'Active'**
+  String get peersSectionActive;
+
+  /// No description provided for @peersSectionInactive.
+  ///
+  /// In en, this message translates to:
+  /// **'Inactive'**
+  String get peersSectionInactive;
+
+  /// No description provided for @peersEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No peers yet'**
+  String get peersEmpty;
+
+  /// No description provided for @peersEmptyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'When your node connects to others, they appear here.'**
+  String get peersEmptyHint;
+
+  /// No description provided for @peerActiveNow.
+  ///
+  /// In en, this message translates to:
+  /// **'active now'**
+  String get peerActiveNow;
+
+  /// No description provided for @peerNeverSeen.
+  ///
+  /// In en, this message translates to:
+  /// **'not yet connected'**
+  String get peerNeverSeen;
+
+  /// No description provided for @peerLastSeenLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'last active'**
+  String get peerLastSeenLabel;
+
+  /// No description provided for @peerDetailsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Peer details'**
+  String get peerDetailsTitle;
+
+  /// No description provided for @peerFieldNodeId.
+  ///
+  /// In en, this message translates to:
+  /// **'node_id'**
+  String get peerFieldNodeId;
+
+  /// No description provided for @peerFieldTransport.
+  ///
+  /// In en, this message translates to:
+  /// **'transport'**
+  String get peerFieldTransport;
+
+  /// No description provided for @peerFieldState.
+  ///
+  /// In en, this message translates to:
+  /// **'state'**
+  String get peerFieldState;
+
+  /// No description provided for @peerFieldDirection.
+  ///
+  /// In en, this message translates to:
+  /// **'direction'**
+  String get peerFieldDirection;
+
+  /// No description provided for @peerFieldLastSeen.
+  ///
+  /// In en, this message translates to:
+  /// **'last active (seen by this device)'**
+  String get peerFieldLastSeen;
+
+  /// No description provided for @peerStateActive.
+  ///
+  /// In en, this message translates to:
+  /// **'Active'**
+  String get peerStateActive;
+
+  /// No description provided for @peerStateConnecting.
+  ///
+  /// In en, this message translates to:
+  /// **'Connecting'**
+  String get peerStateConnecting;
+
+  /// No description provided for @peerStateClosed.
+  ///
+  /// In en, this message translates to:
+  /// **'Disconnected'**
+  String get peerStateClosed;
+
+  /// No description provided for @peerStateUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Unknown'**
+  String get peerStateUnknown;
+
+  /// No description provided for @peerDirInbound.
+  ///
+  /// In en, this message translates to:
+  /// **'Inbound'**
+  String get peerDirInbound;
+
+  /// No description provided for @peerDirOutbound.
+  ///
+  /// In en, this message translates to:
+  /// **'Outbound'**
+  String get peerDirOutbound;
+
+  /// No description provided for @peerDirUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Unknown'**
+  String get peerDirUnknown;
+
+  /// No description provided for @timeJustNow.
+  ///
+  /// In en, this message translates to:
+  /// **'just now'**
+  String get timeJustNow;
+
+  /// No description provided for @timeMinutesAgo.
+  ///
+  /// In en, this message translates to:
+  /// **'{n}m ago'**
+  String timeMinutesAgo(int n);
+
+  /// No description provided for @timeHoursAgo.
+  ///
+  /// In en, this message translates to:
+  /// **'{n}h ago'**
+  String timeHoursAgo(int n);
+
+  /// No description provided for @timeDaysAgo.
+  ///
+  /// In en, this message translates to:
+  /// **'{n}d ago'**
+  String timeDaysAgo(int n);
+
   /// No description provided for @onboardRepeatPassword.
   ///
   /// In en, this message translates to:

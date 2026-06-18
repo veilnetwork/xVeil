@@ -9,6 +9,48 @@ class InboundMessage {
   final Uint8List payload;
 }
 
+/// Session state of a peer, mapped from veil's wire bytes. [active] = a live
+/// session right now; [connecting] = handshaking; [closed] = was connected and
+/// has dropped; [unknown] = state byte not recognised.
+enum PeerState { connecting, active, closed, unknown }
+
+/// Which side opened the session.
+enum PeerDirection { inbound, outbound, unknown }
+
+/// One peer the node knows about — a point-in-time snapshot from the transport.
+/// veil reports no timestamp, so [lastSeen] is stamped by the app the moment it
+/// observed this peer (honest "last seen BY THIS DEVICE", not a node clock).
+class PeerInfo {
+  const PeerInfo({
+    required this.nodeId,
+    required this.state,
+    required this.direction,
+    required this.transport,
+    this.lastSeen,
+  });
+
+  final NodeId nodeId;
+  final PeerState state;
+  final PeerDirection direction;
+
+  /// Transport URI the session uses (e.g. `obfs4-tcp://…`, `tcp://…`). May be
+  /// empty if the node didn't report one.
+  final String transport;
+
+  /// When this device last observed the peer active. Null until first seen.
+  final DateTime? lastSeen;
+
+  bool get isActive => state == PeerState.active;
+
+  PeerInfo copyWith({PeerState? state, DateTime? lastSeen}) => PeerInfo(
+        nodeId: nodeId,
+        state: state ?? this.state,
+        direction: direction,
+        transport: transport,
+        lastSeen: lastSeen ?? this.lastSeen,
+      );
+}
+
 /// Port over the veil overlay network's messaging surface.
 ///
 /// The real adapter wraps `veil_flutter`'s `VeilClient`/`AppHandle`
@@ -45,6 +87,11 @@ abstract interface class VeilTransport {
   /// emits the current value and every change. Surfaced as the real peer count
   /// in the network UI (never a fabricated number).
   Stream<int> sessionCount();
+
+  /// Point-in-time snapshot of the node's peer sessions (node_id, state,
+  /// direction, transport). Empty for transports that don't track peers (the
+  /// loopback fake). No timestamps — callers stamp "last seen" themselves.
+  Future<List<PeerInfo>> peers();
 
   Future<void> dispose();
 }

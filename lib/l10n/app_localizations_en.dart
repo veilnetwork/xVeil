@@ -516,6 +516,88 @@ class AppL10nEn extends AppL10n {
   String get networkStatusError => 'Error';
 
   @override
+  String get peersTitle => 'Connected peers';
+
+  @override
+  String get peersSectionActive => 'Active';
+
+  @override
+  String get peersSectionInactive => 'Inactive';
+
+  @override
+  String get peersEmpty => 'No peers yet';
+
+  @override
+  String get peersEmptyHint =>
+      'When your node connects to others, they appear here.';
+
+  @override
+  String get peerActiveNow => 'active now';
+
+  @override
+  String get peerNeverSeen => 'not yet connected';
+
+  @override
+  String get peerLastSeenLabel => 'last active';
+
+  @override
+  String get peerDetailsTitle => 'Peer details';
+
+  @override
+  String get peerFieldNodeId => 'node_id';
+
+  @override
+  String get peerFieldTransport => 'transport';
+
+  @override
+  String get peerFieldState => 'state';
+
+  @override
+  String get peerFieldDirection => 'direction';
+
+  @override
+  String get peerFieldLastSeen => 'last active (seen by this device)';
+
+  @override
+  String get peerStateActive => 'Active';
+
+  @override
+  String get peerStateConnecting => 'Connecting';
+
+  @override
+  String get peerStateClosed => 'Disconnected';
+
+  @override
+  String get peerStateUnknown => 'Unknown';
+
+  @override
+  String get peerDirInbound => 'Inbound';
+
+  @override
+  String get peerDirOutbound => 'Outbound';
+
+  @override
+  String get peerDirUnknown => 'Unknown';
+
+  @override
+  String get timeJustNow => 'just now';
+
+  @override
+  String timeMinutesAgo(int n) {
+    return '${n}m ago';
+  }
+
+  @override
+  String timeHoursAgo(int n) {
+    return '${n}h ago';
+  }
+
+  @override
+  String timeDaysAgo(int n) {
+    return '${n}d ago';
+  }
+
+  @override
   String get onboardRepeatPassword => 'Repeat password';
 
   @override
