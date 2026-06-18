@@ -13,6 +13,17 @@ import '../data/transport/veil_addressing.dart';
 import '../data/transport/veil_transport.dart';
 import 'mailbox_orchestrator.dart';
 
+/// The deposit surface [MessagingService] uses for offline delivery — sealing a
+/// message for an offline [recipient] at their advertised relay. Extracted as an
+/// interface so the messaging layer can be tested without a live [VeilClient].
+abstract interface class MailboxSink {
+  Future<void> stash({
+    required NodeId recipient,
+    required Uint8List payload,
+    required Uint8List contentId,
+  });
+}
+
 /// Runs the offline-delivery side of messaging alongside [MessagingService]:
 ///
 ///  * **register** — advertise an always-on relay as THIS node's mailbox host
@@ -30,7 +41,7 @@ import 'mailbox_orchestrator.dart';
 /// POLICY for choosing an always-on [mailbox]-capable relay (a connected relay
 /// peer, a configured set, or a daemon auto-selection) is a separate decision;
 /// resolving its KEM key by node_id is the part veil now provides.
-class MailboxService {
+class MailboxService implements MailboxSink {
   MailboxService({
     required VeilClient client,
     required NodeId me,
