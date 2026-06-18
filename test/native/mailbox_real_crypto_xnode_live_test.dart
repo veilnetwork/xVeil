@@ -63,7 +63,7 @@ void main() {
   const replyEndpointId = 7;
 
   test('S deposits for offline F with REAL crypto; F drains + verifies sender',
-      timeout: const Timeout(Duration(seconds: 300)), () async {
+      timeout: const Timeout(Duration(seconds: 420)), () async {
     DynamicLibrary.open(dylib!);
     final sId = NodeId(_hex(sIdHex!));
     final fId = NodeId(_hex(fIdHex!));
@@ -146,11 +146,14 @@ void main() {
         srcAppId: fSrc.appId,
         replyEndpointId: replyEndpointId,
         putHopCount: 1,
+        // A real (KB-sized) blob's FETCH reply is fragmented over the onion
+        // reply circuit, so it lands slower than a tiny one — give it room.
+        fetchTimeout: const Duration(seconds: 30),
       );
       final orchF = MailboxOrchestrator(VeilFlutterMailboxCrypto(clientF.mailbox), relayF);
 
       List<DrainedMessage> drained = const [];
-      for (var i = 0; i < 30 && drained.isEmpty; i++) {
+      for (var i = 0; i < 8 && drained.isEmpty; i++) {
         drained = await orchF.drain(
           me: fId,
           authCookie: Uint8List(0),
