@@ -121,6 +121,9 @@ flutter:
 
   assets:
     - assets/icon/app_icon.png
+    # Deployment network material (obfs4 PSK). The PSK file itself is gitignored;
+    # the dir always holds README.md so clean clones still build.
+    - assets/prod/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
