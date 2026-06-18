@@ -115,7 +115,7 @@ class MessagingService {
   /// for the loopback/test transport). When present, un-acked outgoing messages
   /// are ALSO deposited at the recipient's mailbox relay so an offline peer
   /// receives them, and our own mailbox is drained into [deliverInbound].
-  MailboxService? _mailbox;
+  MailboxSink? _mailbox;
 
   /// Message ids already deposited to the mailbox this session — so a message
   /// is stashed once, not on every 15 s outbox flush. The relay also dedups by
@@ -124,7 +124,7 @@ class MessagingService {
 
   /// Attach the offline-delivery [MailboxService] after construction (it is
   /// built with [deliverInbound] as its drain sink, so it must exist first).
-  void attachMailbox(MailboxService mailbox) => _mailbox = mailbox;
+  void attachMailbox(MailboxSink mailbox) => _mailbox = mailbox;
 
   /// Route a message recovered from our mailbox through the normal inbound
   /// path — it is a `WireEnvelope`, so [_dispatch] decodes it, applies the
@@ -411,14 +411,26 @@ class MessagingService {
           id: id);
     }
     _signal();
-    await _send(dst, WireEnvelope.request(text, id: id).encode());
+    final wire = WireEnvelope.request(text, id: id).encode();
+    await _send(dst, wire);
+    // Also deposit the request at the recipient's mailbox relay so a NAT'd /
+    // offline peer receives it. The live send above only lands if they're
+    // directly reachable — which for two nodes behind NAT they never are, so
+    // WITHOUT this first contact could never be established. (flushOutbox only
+    // re-stashes ACCEPTED contacts, so the request must stash itself here.)
+    await _maybeStash(dst, id, wire);
   }
 
   /// Approve an incoming request — both sides can now message freely.
   Future<void> acceptContact(NodeId peer) async {
     await _setStatus(peer, ContactStatus.accepted);
     _signal();
-    await _send(peer, const WireEnvelope.accept().encode());
+    final wire = const WireEnvelope.accept().encode();
+    await _send(peer, wire);
+    // The requester is likely NAT'd too — deposit the accept at their mailbox
+    // so they learn they were accepted (and can start free-messaging) even if
+    // they aren't directly reachable. Stable id keys relay dedup per peer.
+    await _maybeStash(peer, 'accept:${peer.hex}', wire);
   }
 
   /// Decline / block an incoming request — their messages are dropped.
@@ -450,7 +462,12 @@ class MessagingService {
     _signal();
     // Stays `sent` until the peer acks; the local outbox re-sends un-acked ones
     // on reconnect, so a message written offline goes out when we come back.
-    await _send(dst, WireEnvelope.message(trimmed, id: id).encode());
+    final wire = WireEnvelope.message(trimmed, id: id).encode();
+    await _send(dst, wire);
+    // Deposit at the peer's mailbox immediately too, so an accepted contact who
+    // is offline RIGHT NOW receives it without waiting for our next reconnect
+    // flush (flushOutbox only fires on our own connect, which may not recur).
+    await _maybeStash(dst, id, wire);
   }
 
   /// Re-send every outgoing text message still awaiting a delivery ack (i.e.
