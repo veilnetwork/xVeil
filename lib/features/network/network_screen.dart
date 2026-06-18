@@ -37,6 +37,9 @@ class NetworkScreen extends ConsumerWidget {
           ));
       }
     });
+    // Real peer count from the live transport (not the controller's snapshot,
+    // which only carries phase). 0 until a real node is up.
+    final peers = ref.watch(sessionCountProvider).asData?.value ?? 0;
     return Scaffold(
       appBar: AppBar(title: Text(l.networkTitle)),
       body: ListView(
@@ -49,7 +52,7 @@ class NetworkScreen extends ConsumerWidget {
             error: (e, _) =>
                 _StatusCard(phase: NodePhase.error, peers: 0, message: '$e'),
             data: (s) => _StatusCard(
-                phase: s.phase, peers: s.peerCount, message: s.message),
+                phase: s.phase, peers: peers, message: s.message),
           ),
           const Divider(),
           // Secondary controls — proxy/VPN + node management land here in later
