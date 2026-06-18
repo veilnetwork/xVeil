@@ -8,7 +8,7 @@ NodeId _id(int s) => NodeId(Uint8List.fromList(List.filled(32, s)));
 
 void main() {
   test('LoopbackMailboxCrypto round-trips seal -> open', () async {
-    final m = LoopbackMailboxCrypto();
+    final m = LoopbackMailboxCrypto(senderForOpen: _id(1));
     final appId = Uint8List.fromList(List.filled(32, 0xAB));
     final data = Uint8List.fromList([1, 2, 3, 4, 5, 9, 9, 9]);
 
@@ -18,8 +18,9 @@ void main() {
       endpointId: 0x01020304,
       data: data,
     );
-    final opened = await m.open(blob: blob, sender: _id(1), ourCertVersion: 7);
+    final opened = await m.open(blob: blob, ourCertVersion: 7);
 
+    expect(opened.verifiedSender, _id(1));
     expect(opened.appId, appId);
     expect(opened.endpointId, 0x01020304);
     expect(opened.data, data);
@@ -34,7 +35,7 @@ void main() {
       endpointId: 0,
       data: Uint8List(0),
     );
-    final opened = await m.open(blob: blob, sender: _id(1), ourCertVersion: 1);
+    final opened = await m.open(blob: blob, ourCertVersion: 1);
     expect(opened.data, isEmpty);
     expect(opened.appId, appId);
   });
@@ -42,7 +43,7 @@ void main() {
   test('LoopbackMailboxCrypto rejects a truncated blob', () async {
     final m = LoopbackMailboxCrypto();
     expect(
-      () => m.open(blob: Uint8List(10), sender: _id(1), ourCertVersion: 1),
+      () => m.open(blob: Uint8List(10), ourCertVersion: 1),
       throwsA(isA<FormatException>()),
     );
   });

@@ -59,16 +59,18 @@ void main() {
       print('[mailbox] seal: ${blob == null ? "FAILED ($lastSealError)" : "${blob.length} bytes"}');
       expect(blob, isNotNull, reason: 'S could not seal for B: $lastSealError');
 
-      // B opens (sender = S, our current cert version = 1 for a fresh node).
+      // B opens — the sender (S) is recovered from the blob's sidecar, not
+      // supplied. our current cert version = 1 for a fresh node.
       final opened = await clientB.mailbox.open(
         blob: blob!,
-        sender: sId,
         ourCertVersion: 1,
       );
-      print('[mailbox] B opened: endpoint=${opened.endpointId} data="${utf8.decode(opened.data)}"');
+      print('[mailbox] B opened: sender=${opened.senderNodeId.sublist(0, 4)} '
+          'endpoint=${opened.endpointId} data="${utf8.decode(opened.data)}"');
       expect(opened.data, data);
       expect(opened.appId, appId);
       expect(opened.endpointId, endpointId);
+      expect(opened.senderNodeId, sId, reason: 'recovered sender must equal S');
       print('[mailbox] seal/open round-trip OK');
     } finally {
       await clientS.close();
