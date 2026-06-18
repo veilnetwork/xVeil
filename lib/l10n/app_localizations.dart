@@ -1147,6 +1147,132 @@ abstract class AppL10n {
   /// **'Add a node over SSH, run ogate/oproxy'**
   String get networkNodesSub;
 
+  /// No description provided for @networkNodesSubCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} nodes'**
+  String networkNodesSubCount(int count);
+
+  /// No description provided for @nodesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'My nodes'**
+  String get nodesTitle;
+
+  /// No description provided for @nodesEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No nodes yet'**
+  String get nodesEmpty;
+
+  /// No description provided for @nodesEmptyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Add a server you run as an exit / relay — then route your traffic through it from “Route traffic”.'**
+  String get nodesEmptyHint;
+
+  /// No description provided for @nodesAdd.
+  ///
+  /// In en, this message translates to:
+  /// **'Add node'**
+  String get nodesAdd;
+
+  /// No description provided for @nodeEdit.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit node'**
+  String get nodeEdit;
+
+  /// No description provided for @nodeLabelLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Label'**
+  String get nodeLabelLabel;
+
+  /// No description provided for @nodeLabelRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a label'**
+  String get nodeLabelRequired;
+
+  /// No description provided for @nodeIdLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Node id (64-hex)'**
+  String get nodeIdLabel;
+
+  /// No description provided for @nodeIdHintText.
+  ///
+  /// In en, this message translates to:
+  /// **'The node\'s veil id — lets you route your traffic through it.'**
+  String get nodeIdHintText;
+
+  /// No description provided for @nodeIdInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Must be a 64-character hex node id'**
+  String get nodeIdInvalid;
+
+  /// No description provided for @nodeSshHostLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'SSH host (optional)'**
+  String get nodeSshHostLabel;
+
+  /// No description provided for @nodeSshPortLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'SSH port'**
+  String get nodeSshPortLabel;
+
+  /// No description provided for @nodeSshUserLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'SSH user (optional)'**
+  String get nodeSshUserLabel;
+
+  /// No description provided for @actionSave.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get actionSave;
+
+  /// No description provided for @nodeRemove.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove node'**
+  String get nodeRemove;
+
+  /// No description provided for @nodeRemoveConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove this node from your list? The remote server is not touched.'**
+  String get nodeRemoveConfirm;
+
+  /// No description provided for @nodeUseAsExit.
+  ///
+  /// In en, this message translates to:
+  /// **'Use as routing exit'**
+  String get nodeUseAsExit;
+
+  /// No description provided for @nodeUseAsExitDone.
+  ///
+  /// In en, this message translates to:
+  /// **'Set as your SOCKS5 routing exit'**
+  String get nodeUseAsExitDone;
+
+  /// No description provided for @nodeNeedsNodeId.
+  ///
+  /// In en, this message translates to:
+  /// **'Add the node id to route through this node'**
+  String get nodeNeedsNodeId;
+
+  /// No description provided for @nodeProvisionSoon.
+  ///
+  /// In en, this message translates to:
+  /// **'Remote install / start over SSH — coming soon'**
+  String get nodeProvisionSoon;
+
   /// No description provided for @networkExtTitle.
   ///
   /// In en, this message translates to:
