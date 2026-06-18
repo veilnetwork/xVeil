@@ -516,6 +516,89 @@ class AppL10nRu extends AppL10n {
   String get networkStatusError => 'Ошибка';
 
   @override
+  String get peersTitle => 'Подключённые узлы';
+
+  @override
+  String get peersSectionActive => 'Активные';
+
+  @override
+  String get peersSectionInactive => 'Неактивные';
+
+  @override
+  String get peersEmpty => 'Пока нет узлов';
+
+  @override
+  String get peersEmptyHint =>
+      'Когда ваш узел подключится к другим, они появятся здесь.';
+
+  @override
+  String get peerActiveNow => 'активен сейчас';
+
+  @override
+  String get peerNeverSeen => 'ещё не подключался';
+
+  @override
+  String get peerLastSeenLabel => 'был активен';
+
+  @override
+  String get peerDetailsTitle => 'Сведения об узле';
+
+  @override
+  String get peerFieldNodeId => 'node_id';
+
+  @override
+  String get peerFieldTransport => 'транспорт';
+
+  @override
+  String get peerFieldState => 'состояние';
+
+  @override
+  String get peerFieldDirection => 'направление';
+
+  @override
+  String get peerFieldLastSeen =>
+      'последняя активность (по данным этого устройства)';
+
+  @override
+  String get peerStateActive => 'Активен';
+
+  @override
+  String get peerStateConnecting => 'Подключается';
+
+  @override
+  String get peerStateClosed => 'Отключён';
+
+  @override
+  String get peerStateUnknown => 'Неизвестно';
+
+  @override
+  String get peerDirInbound => 'Входящее';
+
+  @override
+  String get peerDirOutbound => 'Исходящее';
+
+  @override
+  String get peerDirUnknown => 'Неизвестно';
+
+  @override
+  String get timeJustNow => 'только что';
+
+  @override
+  String timeMinutesAgo(int n) {
+    return '$n мин назад';
+  }
+
+  @override
+  String timeHoursAgo(int n) {
+    return '$n ч назад';
+  }
+
+  @override
+  String timeDaysAgo(int n) {
+    return '$n дн назад';
+  }
+
+  @override
   String get onboardRepeatPassword => 'Повторите пароль';
 
   @override

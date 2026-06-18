@@ -6,9 +6,13 @@ import 'package:xveil/features/network/network_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/providers.dart';
 
-Widget _host(NodeStatus status) => ProviderScope(
+Widget _host(NodeStatus status, {int? sessions}) => ProviderScope(
       overrides: [
         nodeStatusProvider.overrideWith((ref) => Stream.value(status)),
+        // The card reads the real peer count from sessionCountProvider (not the
+        // status snapshot), so the test drives it explicitly.
+        if (sessions != null)
+          sessionCountProvider.overrideWith((ref) => Stream.value(sessions)),
       ],
       child: MaterialApp(
         localizationsDelegates: AppL10n.localizationsDelegates,
@@ -19,8 +23,9 @@ Widget _host(NodeStatus status) => ProviderScope(
 
 void main() {
   testWidgets('shows Connected + peer count when connected', (tester) async {
-    await tester.pumpWidget(
-        _host(const NodeStatus(phase: NodePhase.connected, peerCount: 3)));
+    await tester.pumpWidget(_host(
+        const NodeStatus(phase: NodePhase.connected, peerCount: 3),
+        sessions: 3));
     await tester.pump();
 
     final l = AppL10n.of(tester.element(find.byType(NetworkScreen)));

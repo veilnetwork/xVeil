@@ -28,6 +28,10 @@ class _NoopTransport implements VeilTransport {
   @override
   Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) async {}
   @override
+  Stream<int> sessionCount() => Stream.value(0);
+  @override
+  Future<List<PeerInfo>> peers() async => const [];
+  @override
   Future<void> dispose() async => _c.close();
 }
 

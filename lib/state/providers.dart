@@ -190,3 +190,66 @@ final sessionCountProvider = StreamProvider<int>((ref) {
   if (stack == null) return Stream<int>.value(0);
   return stack.transport.sessionCount();
 });
+
+/// Live, deduplicated view of the node's peers for the network "peers" screen.
+///
+/// veil reports a point-in-time snapshot with NO timestamps, so this provider
+/// adds the missing "last seen" honestly: it polls [VeilTransport.peers] and,
+/// each time it observes a peer ACTIVE, stamps `lastSeen = now` (meaning "last
+/// seen BY THIS DEVICE since the node started" — never a fabricated node
+/// clock). Peers that drop out of a later snapshot are kept, marked closed,
+/// with their last stamp preserved — so the user can still see when an
+/// inactive peer was last connected. Empty (and never polls) in dev/loopback.
+final peersProvider = StreamProvider<List<PeerInfo>>((ref) async* {
+  final stack = ref.watch(realStackProvider);
+  if (stack == null) {
+    yield const [];
+    return;
+  }
+  final transport = stack.transport;
+  // Union of every peer observed this node-lifetime, keyed by node_id hex.
+  final tracked = <String, PeerInfo>{};
+
+  List<PeerInfo> merge(List<PeerInfo> snap) {
+    final now = DateTime.now();
+    final seenNow = <String>{};
+    for (final p in snap) {
+      final key = p.nodeId.hex;
+      seenNow.add(key);
+      final prev = tracked[key];
+      // Stamp last-seen only while active; otherwise carry the prior stamp.
+      tracked[key] =
+          p.copyWith(lastSeen: p.isActive ? now : prev?.lastSeen);
+    }
+    // Peers absent from this snapshot: keep them, but mark closed.
+    for (final key in tracked.keys.toList()) {
+      if (!seenNow.contains(key) && tracked[key]!.state != PeerState.closed) {
+        tracked[key] = tracked[key]!.copyWith(state: PeerState.closed);
+      }
+    }
+    final list = tracked.values.toList()
+      ..sort((a, b) {
+        if (a.isActive != b.isActive) return a.isActive ? -1 : 1;
+        final at = a.lastSeen, bt = b.lastSeen;
+        if (at == null && bt == null) return 0;
+        if (at == null) return 1;
+        if (bt == null) return -1;
+        return bt.compareTo(at);
+      });
+    return list;
+  }
+
+  // Poll every few seconds: catches connecting→active transitions that don't
+  // change the session COUNT (so wouldn't fire a sessionsChanged event), at a
+  // negligible cost (one FFI call returning ≤256 entries).
+  while (true) {
+    List<PeerInfo> snap;
+    try {
+      snap = await transport.peers();
+    } catch (_) {
+      snap = const [];
+    }
+    yield merge(snap);
+    await Future<void>.delayed(const Duration(seconds: 4));
+  }
+});
