@@ -178,6 +178,8 @@
   "routeSocks5Title": "Route my traffic (SOCKS5)",
   "routeSocks5Hint": "Bind a local SOCKS5 proxy and tunnel its traffic through veil to an exit node. Point a browser or system proxy at it to evade censorship and hide your location.",
   "routeListenLabel": "Local SOCKS5 address",
+  "routeListenHint": "Loopback only (e.g. 127.0.0.1:1080) — keeps the proxy private to this device.",
+  "routeListenInvalid": "Use a loopback host:port, e.g. 127.0.0.1:1080",
   "routeExitNodeLabel": "Exit node id (64-hex)",
   "routeExitNodeHint": "node_id of an exit you trust — e.g. one of your own nodes from “My nodes”.",
   "routeExitNodeInvalid": "Must be a 64-character hex node id",

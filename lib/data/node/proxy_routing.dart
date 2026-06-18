@@ -40,13 +40,16 @@ class ProxyRouting {
   /// a public exit must refuse RFC1918 / metadata endpoints (SSRF guard).
   final bool exitAllowPrivate;
 
-  /// Whether the SOCKS5 client role is fully configured (enabled + a valid
-  /// 64-hex exit). A SOCKS5 toggle without an exit is inert in veil, so the UI
-  /// treats it as not-yet-active.
+  /// Whether the SOCKS5 client role is fully configured: enabled, a valid
+  /// 64-hex exit, AND a safe loopback listen address. This is also the gate
+  /// [EmbeddedNode.withProxy] uses before interpolating [socks5Listen] into the
+  /// node's TOML — so an invalid/injection-bearing listen is never emitted
+  /// (fail-closed). A SOCKS5 toggle missing any of these is inert in veil.
   bool get socks5Active =>
       socks5Enabled &&
       exitNodeId != null &&
-      _isHex64(exitNodeId!);
+      _isHex64(exitNodeId!) &&
+      isValidListen(socks5Listen);
 
   /// Whether anything routing-related is on (drives the config injection + the
   /// network-screen "active" badge).
@@ -54,6 +57,23 @@ class ProxyRouting {
 
   static bool _isHex64(String s) =>
       s.length == 64 && RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(s);
+
+  /// A SOCKS5 listen address is valid only as `host:port` where the host is
+  /// LOOPBACK and the port is 1–65535. Two reasons, both security:
+  ///  * it forbids TOML-breaking characters (`" \n \r \\`), so the value can be
+  ///    interpolated into the node config without injection;
+  ///  * it forbids non-loopback hosts (e.g. `0.0.0.0`), so the proxy can't be
+  ///    accidentally exposed as an OPEN proxy on the LAN/internet.
+  static bool isValidListen(String listen) {
+    if (listen.contains(RegExp(r'["\n\r\\\t]'))) return false;
+    final i = listen.lastIndexOf(':');
+    if (i <= 0 || i >= listen.length - 1) return false;
+    final host = listen.substring(0, i);
+    final port = int.tryParse(listen.substring(i + 1));
+    if (port == null || port < 1 || port > 65535) return false;
+    const loopback = {'127.0.0.1', 'localhost', '::1', '[::1]'};
+    return loopback.contains(host);
+  }
 
   ProxyRouting copyWith({
     bool? socks5Enabled,

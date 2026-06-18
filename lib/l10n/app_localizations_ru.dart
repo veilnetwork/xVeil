@@ -532,6 +532,14 @@ class AppL10nRu extends AppL10n {
   String get routeListenLabel => 'Локальный адрес SOCKS5';
 
   @override
+  String get routeListenHint =>
+      'Только loopback (например 127.0.0.1:1080) — прокси остаётся приватным для этого устройства.';
+
+  @override
+  String get routeListenInvalid =>
+      'Укажите loopback host:port, например 127.0.0.1:1080';
+
+  @override
   String get routeExitNodeLabel => 'Node id выходного узла (64-hex)';
 
   @override
