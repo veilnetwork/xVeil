@@ -647,6 +647,18 @@ class AppL10nRu extends AppL10n {
   String get nodeProvisionSoon => 'Удалённая установка / запуск по SSH — скоро';
 
   @override
+  String get nodeCheckReachable => 'Проверить доступность';
+
+  @override
+  String get nodeChecking => 'Проверяем…';
+
+  @override
+  String get nodeReachable => 'Доступен';
+
+  @override
+  String get nodeUnreachable => 'Недоступен';
+
+  @override
   String get networkExtTitle => 'Расширения (Lua)';
 
   @override
