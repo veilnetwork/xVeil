@@ -56,6 +56,52 @@ Uint8List encodeMailboxPut({
   return b.toBytes();
 }
 
+/// Max `chunk_data` bytes per PUT chunk — MUST match veil-proto
+/// `MAILBOX_PUT_CHUNK_DATA_BYTES`. A deposit travels as a sender-anonymous onion
+/// message capped at one 512-byte cell, so a real (KB-sized) `MailboxPutPayload`
+/// is split across N chunks; the relay reassembles by `content_id` before
+/// storing. (The FETCH reply path already fragments, so only PUT needs this.)
+const int kMailboxPutChunkDataBytes = 240;
+
+/// Encode one `MailboxPutChunkPayload` (veil-proto `ipc.rs`):
+///   content_id(32) | chunk_index(u16 BE) | chunk_total(u16 BE) | chunk_data
+Uint8List encodeMailboxPutChunk({
+  required Uint8List contentId,
+  required int chunkIndex,
+  required int chunkTotal,
+  required Uint8List chunkData,
+}) {
+  assert(contentId.length == 32);
+  final b = BytesBuilder(copy: false);
+  b.add(contentId);
+  final hdr = ByteData(4)
+    ..setUint16(0, chunkIndex, Endian.big)
+    ..setUint16(2, chunkTotal, Endian.big);
+  b.add(hdr.buffer.asUint8List());
+  b.add(chunkData);
+  return b.toBytes();
+}
+
+/// Split an encoded `MailboxPutPayload` into PUT chunks of ≤
+/// [kMailboxPutChunkDataBytes], each keyed by [contentId] for relay reassembly.
+List<Uint8List> chunkMailboxPut(Uint8List contentId, Uint8List payload) {
+  final total =
+      (payload.length + kMailboxPutChunkDataBytes - 1) ~/ kMailboxPutChunkDataBytes;
+  return [
+    for (var i = 0; i < total; i++)
+      encodeMailboxPutChunk(
+        contentId: contentId,
+        chunkIndex: i,
+        chunkTotal: total,
+        chunkData: Uint8List.sublistView(
+          payload,
+          i * kMailboxPutChunkDataBytes,
+          ((i + 1) * kMailboxPutChunkDataBytes).clamp(0, payload.length),
+        ),
+      ),
+  ];
+}
+
 /// Decode a `MailboxFetchRespPayload` (veil-proto `ipc.rs`) from a FETCH reply:
 ///   count(u16 BE) | [ sender_id(32) | content_id(32) | deposited_at(u64 BE)
 ///                      | blob_len(u32 BE) | blob ] * count
@@ -174,22 +220,29 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
       contentId: contentId,
       blob: blob,
     );
-    // Fan out to every usable replica; succeed if AT LEAST ONE deposit is
-    // handed to a circuit (K-replica redundancy). Throw only if all fail, so
-    // the caller's outbox retries the whole stash on its next tick.
+    // The PUT exceeds the single-cell anonymous-send budget, so split it into
+    // chunks the relay reassembles by content_id. Each chunk is its own
+    // sender-anonymous send (the onion transport is untouched).
+    final chunks = chunkMailboxPut(contentId, payload);
+    // Fan out to every usable replica; a replica "succeeds" only when ALL its
+    // chunks were handed to circuits (a partial set is stale-evicted relay-side).
+    // Succeed overall if AT LEAST ONE replica took the full set (K-replica
+    // redundancy). Throw only if all fail, so the caller's outbox retries.
     Object? lastErr;
     var anyOk = false;
     for (final r in usable) {
       try {
-        await _client.sendAnonymousDirect(
-          targetNodeId: r.relayNodeId,
-          targetX25519Pk: Uint8List.fromList(r.rendezvousKemPk),
-          targetAppId: kMailboxAppId,
-          targetEndpointId: kMailboxPutEndpointId,
-          srcAppId: _srcAppId,
-          data: payload,
-          hopCount: _putHopCount,
-        );
+        for (final chunk in chunks) {
+          await _client.sendAnonymousDirect(
+            targetNodeId: r.relayNodeId,
+            targetX25519Pk: Uint8List.fromList(r.rendezvousKemPk),
+            targetAppId: kMailboxAppId,
+            targetEndpointId: kMailboxPutEndpointId,
+            srcAppId: _srcAppId,
+            data: chunk,
+            hopCount: _putHopCount,
+          );
+        }
         anyOk = true;
       } catch (e) {
         lastErr = e;
