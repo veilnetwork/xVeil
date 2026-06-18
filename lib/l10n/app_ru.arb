@@ -207,6 +207,17 @@
   "timeDaysAgo": "{n} дн назад",
   "@timeDaysAgo": { "placeholders": { "n": { "type": "int" } } },
 
+  "peersShareAction": "Поделиться узлами входа",
+  "peersShareTitle": "Поделиться узлами входа",
+  "peersShareSubtitle": "Выберите узлы, чтобы дать другу рабочие точки входа в сеть — пригодится, если у него заблокированы узлы по умолчанию. Передаются ТОЛЬКО эти узлы, а не ваша личность.",
+  "peersShareNone": "Нет известных узлов входа, которыми можно поделиться",
+  "peersShareSelectOne": "Выберите хотя бы один узел",
+  "peersShareGenerate": "Сформировать ссылку",
+  "peersShareScanHint": "Пусть собеседник отсканирует это или откроет ссылку в xVeil",
+  "peerActiveBadge": "активен",
+  "peersImported": "Добавлено узлов входа: {n}",
+  "@peersImported": { "placeholders": { "n": { "type": "int" } } },
+
   "onboardRepeatPassword": "Повторите пароль",
   "onboardPasswordTitle": "Придумайте пароль",
   "onboardPasswordSubtitle": "Этот пароль открывает ваше пространство на этом устройстве. Сброса нет.",

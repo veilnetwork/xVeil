@@ -613,6 +613,37 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
+  String get peersShareAction => 'Share entry nodes';
+
+  @override
+  String get peersShareTitle => 'Share entry nodes';
+
+  @override
+  String get peersShareSubtitle =>
+      'Pick nodes to give a friend working entry points to the network — useful if the default seeds are blocked where they are. This shares ONLY these nodes, never your identity.';
+
+  @override
+  String get peersShareNone => 'No known entry nodes to share';
+
+  @override
+  String get peersShareSelectOne => 'Select at least one node';
+
+  @override
+  String get peersShareGenerate => 'Generate link';
+
+  @override
+  String get peersShareScanHint =>
+      'Have your friend scan this or open the link in xVeil';
+
+  @override
+  String get peerActiveBadge => 'active';
+
+  @override
+  String peersImported(int n) {
+    return 'Added $n entry nodes';
+  }
+
+  @override
   String get onboardRepeatPassword => 'Repeat password';
 
   @override

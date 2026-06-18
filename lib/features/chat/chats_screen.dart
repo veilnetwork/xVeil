@@ -117,6 +117,25 @@ class ChatsScreen extends ConsumerWidget {
           if (sheetCtx.mounted) Navigator.of(sheetCtx).pop();
           if (context.mounted) context.push('/chat/${invite.nodeId.hex}');
         },
+        onImportPeers: (peers) async {
+          // A `veil:peers?` entry-node share: add each as a bootstrap peer (it
+          // carries a real transport, so addContact dials it) — NO contact, NO
+          // chat. Failures (already known) must not block the rest.
+          final stack = ref.read(realStackProvider);
+          var added = 0;
+          for (final p in peers) {
+            try {
+              await stack?.addContact(p);
+              added++;
+            } catch (_) {}
+          }
+          if (sheetCtx.mounted) Navigator.of(sheetCtx).pop();
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(AppL10n.of(context).peersImported(added))),
+            );
+          }
+        },
       ),
     );
   }

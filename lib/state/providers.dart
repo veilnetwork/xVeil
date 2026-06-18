@@ -1,7 +1,11 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../data/transport/bootstrap_invite.dart';
 
 import '../data/node/embedded_node.dart' show BootstrapPeerCfg;
 import '../data/node/fake_node_controller.dart';
@@ -169,6 +173,34 @@ final veilTransportProvider = Provider<VeilTransport>((ref) {
 final myInviteProvider = Provider<String?>(
   (ref) => ref.watch(realStackProvider)?.myInvite.toUri(),
 );
+
+/// The network's bootstrap entry nodes (the public seed descriptors bundled at
+/// `assets/prod/seeds.json`, mirroring veil's compiled-in builtin_seeds). These
+/// carry full dialable descriptors (transport + pk + nonce) — unlike the live
+/// peer list, which has no keys — so they're the honest source for the
+/// "share entry nodes" feature. Empty in a clean clone (asset absent).
+final seedEntriesProvider = FutureProvider<List<BootstrapInvite>>((ref) async {
+  try {
+    final raw = await rootBundle.loadString('assets/prod/seeds.json');
+    final json = jsonDecode(raw);
+    if (json is! List) return const [];
+    return [
+      for (final e in json)
+        if (e is Map &&
+            e['transport'] is String &&
+            e['public_key'] is String &&
+            e['nonce'] is String)
+          BootstrapInvite(
+            publicKey: base64.decode(e['public_key'] as String),
+            transport: e['transport'] as String,
+            nonce: base64.decode(e['nonce'] as String),
+            algo: (e['algo'] as String?) ?? 'ed25519',
+          ),
+    ];
+  } catch (_) {
+    return const [];
+  }
+});
 
 /// Live node status, surfaced to the network UI. Emits the controller's current
 /// snapshot FIRST, then its event stream — so a screen that subscribes after the

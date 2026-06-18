@@ -614,6 +614,38 @@ class AppL10nRu extends AppL10n {
   }
 
   @override
+  String get peersShareAction => 'Поделиться узлами входа';
+
+  @override
+  String get peersShareTitle => 'Поделиться узлами входа';
+
+  @override
+  String get peersShareSubtitle =>
+      'Выберите узлы, чтобы дать другу рабочие точки входа в сеть — пригодится, если у него заблокированы узлы по умолчанию. Передаются ТОЛЬКО эти узлы, а не ваша личность.';
+
+  @override
+  String get peersShareNone =>
+      'Нет известных узлов входа, которыми можно поделиться';
+
+  @override
+  String get peersShareSelectOne => 'Выберите хотя бы один узел';
+
+  @override
+  String get peersShareGenerate => 'Сформировать ссылку';
+
+  @override
+  String get peersShareScanHint =>
+      'Пусть собеседник отсканирует это или откроет ссылку в xVeil';
+
+  @override
+  String get peerActiveBadge => 'активен';
+
+  @override
+  String peersImported(int n) {
+    return 'Добавлено узлов входа: $n';
+  }
+
+  @override
   String get onboardRepeatPassword => 'Повторите пароль';
 
   @override

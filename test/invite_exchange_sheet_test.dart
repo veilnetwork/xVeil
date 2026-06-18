@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:xveil/data/transport/bootstrap_invite.dart';
+import 'package:xveil/data/transport/peers_invite.dart';
 import 'package:xveil/features/contacts/invite_exchange_sheet.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 
@@ -69,5 +70,34 @@ void main() {
     ));
     expect(find.byType(QrImageView), findsNothing);
     expect(find.text('Paste their invite'), findsOneWidget);
+  });
+
+  testWidgets('a veil:peers share routes to onImportPeers, not onAddContact',
+      (tester) async {
+    List<BootstrapInvite>? imported;
+    var contactCalls = 0;
+    // Two-entry peers-share built from the known invites' fields.
+    final a = BootstrapInvite.parse(_inviteA);
+    final b = BootstrapInvite.parse(_inviteB);
+    final shareUri = SharedPeers([a, b]).toUri();
+
+    await tester.pumpWidget(_host(
+      InviteExchangeSheet(
+        myInvite: _inviteA,
+        onAddContact: (_) => contactCalls++,
+        onImportPeers: (p) => imported = p,
+      ),
+    ));
+
+    await tester.enterText(find.byType(TextField), shareUri);
+    final addBtn = find.widgetWithText(FilledButton, 'Add contact');
+    await tester.ensureVisible(addBtn);
+    await tester.pumpAndSettle();
+    await tester.tap(addBtn);
+    await tester.pump();
+
+    expect(contactCalls, 0);
+    expect(imported, isNotNull);
+    expect(imported!.length, 2);
   });
 }
