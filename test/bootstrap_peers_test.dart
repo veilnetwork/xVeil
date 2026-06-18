@@ -58,6 +58,28 @@ void main() {
       // Not nested under [network] — veil flattens these at the root.
       expect(out, isNot(contains('[[network.bootstrap_peers]]')));
     });
+
+    test('skips an entry that would break/inject the TOML (fail-closed)', () {
+      const toml = 'listen = "x"\n';
+      final out = EmbeddedNode.withBootstrapPeers(toml, const [
+        // Injection attempt: a quote+newline in transport breaking out of the
+        // string. Must be skipped entirely.
+        BootstrapPeerCfg(
+          transport: 'tcp://1.2.3.4:5556"\n[evil]\nx = 1',
+          publicKey: 'PK=',
+          nonce: 'N=',
+        ),
+        // A good entry alongside it still renders.
+        BootstrapPeerCfg(
+          transport: 'obfs4-tcp://10.0.0.9:5556',
+          publicKey: 'GOOD=',
+          nonce: 'N9=',
+        ),
+      ]);
+      expect(out, isNot(contains('[evil]')));
+      expect('[[bootstrap_peers]]'.allMatches(out).length, 1);
+      expect(out, contains('transport = "obfs4-tcp://10.0.0.9:5556"'));
+    });
   });
 
   group('EmbeddedNode.withObfs4PskFile', () {
