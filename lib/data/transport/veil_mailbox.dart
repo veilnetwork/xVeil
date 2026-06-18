@@ -146,7 +146,12 @@ class StoredMailboxBlob {
     required this.blob,
   });
 
-  /// node_id of the sender (used to resolve their document on open).
+  /// Relay-supplied sender node_id hint, used to resolve their document on open.
+  /// ⚠️ UNTRUSTED + relay-overridable: it is `0` for an anonymous network
+  /// deposit (the real sender is sealed in [blob]). `open` cryptographically
+  /// verifies the blob was sealed by this id, so a non-zero value that opens is
+  /// sound — but never attribute from this hint alone, and note the anonymous
+  /// path (id=0) cannot currently be opened (the sealed-sender gap).
   final NodeId senderId;
 
   /// 32-byte content id — the message uuid, for dedup against live delivery.
