@@ -577,6 +577,75 @@ class AppL10nEn extends AppL10n {
   String get networkNodesSub => 'Add a node over SSH, run ogate/oproxy';
 
   @override
+  String networkNodesSubCount(int count) {
+    return '$count nodes';
+  }
+
+  @override
+  String get nodesTitle => 'My nodes';
+
+  @override
+  String get nodesEmpty => 'No nodes yet';
+
+  @override
+  String get nodesEmptyHint =>
+      'Add a server you run as an exit / relay — then route your traffic through it from “Route traffic”.';
+
+  @override
+  String get nodesAdd => 'Add node';
+
+  @override
+  String get nodeEdit => 'Edit node';
+
+  @override
+  String get nodeLabelLabel => 'Label';
+
+  @override
+  String get nodeLabelRequired => 'Enter a label';
+
+  @override
+  String get nodeIdLabel => 'Node id (64-hex)';
+
+  @override
+  String get nodeIdHintText =>
+      'The node\'s veil id — lets you route your traffic through it.';
+
+  @override
+  String get nodeIdInvalid => 'Must be a 64-character hex node id';
+
+  @override
+  String get nodeSshHostLabel => 'SSH host (optional)';
+
+  @override
+  String get nodeSshPortLabel => 'SSH port';
+
+  @override
+  String get nodeSshUserLabel => 'SSH user (optional)';
+
+  @override
+  String get actionSave => 'Save';
+
+  @override
+  String get nodeRemove => 'Remove node';
+
+  @override
+  String get nodeRemoveConfirm =>
+      'Remove this node from your list? The remote server is not touched.';
+
+  @override
+  String get nodeUseAsExit => 'Use as routing exit';
+
+  @override
+  String get nodeUseAsExitDone => 'Set as your SOCKS5 routing exit';
+
+  @override
+  String get nodeNeedsNodeId => 'Add the node id to route through this node';
+
+  @override
+  String get nodeProvisionSoon =>
+      'Remote install / start over SSH — coming soon';
+
+  @override
   String get networkExtTitle => 'Extensions (Lua)';
 
   @override

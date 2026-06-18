@@ -578,6 +578,75 @@ class AppL10nRu extends AppL10n {
   String get networkNodesSub => 'Добавить узел по SSH, запустить ogate/oproxy';
 
   @override
+  String networkNodesSubCount(int count) {
+    return 'Узлов: $count';
+  }
+
+  @override
+  String get nodesTitle => 'Мои узлы';
+
+  @override
+  String get nodesEmpty => 'Пока нет узлов';
+
+  @override
+  String get nodesEmptyHint =>
+      'Добавьте сервер, который держите как выходной узел / реле — и пускайте через него трафик из «Маршрутизация трафика».';
+
+  @override
+  String get nodesAdd => 'Добавить узел';
+
+  @override
+  String get nodeEdit => 'Изменить узел';
+
+  @override
+  String get nodeLabelLabel => 'Название';
+
+  @override
+  String get nodeLabelRequired => 'Введите название';
+
+  @override
+  String get nodeIdLabel => 'Node id (64-hex)';
+
+  @override
+  String get nodeIdHintText =>
+      'veil-id узла — чтобы маршрутизировать через него ваш трафик.';
+
+  @override
+  String get nodeIdInvalid => 'Нужен node id из 64 hex-символов';
+
+  @override
+  String get nodeSshHostLabel => 'SSH-хост (необязательно)';
+
+  @override
+  String get nodeSshPortLabel => 'SSH-порт';
+
+  @override
+  String get nodeSshUserLabel => 'SSH-пользователь (необязательно)';
+
+  @override
+  String get actionSave => 'Сохранить';
+
+  @override
+  String get nodeRemove => 'Удалить узел';
+
+  @override
+  String get nodeRemoveConfirm =>
+      'Убрать узел из списка? Сам сервер не затрагивается.';
+
+  @override
+  String get nodeUseAsExit => 'Использовать как выходной узел';
+
+  @override
+  String get nodeUseAsExitDone => 'Назначен выходным узлом SOCKS5';
+
+  @override
+  String get nodeNeedsNodeId =>
+      'Добавьте node id, чтобы маршрутизировать через этот узел';
+
+  @override
+  String get nodeProvisionSoon => 'Удалённая установка / запуск по SSH — скоро';
+
+  @override
   String get networkExtTitle => 'Расширения (Lua)';
 
   @override
