@@ -532,6 +532,14 @@ class AppL10nEn extends AppL10n {
   String get routeListenLabel => 'Local SOCKS5 address';
 
   @override
+  String get routeListenHint =>
+      'Loopback only (e.g. 127.0.0.1:1080) — keeps the proxy private to this device.';
+
+  @override
+  String get routeListenInvalid =>
+      'Use a loopback host:port, e.g. 127.0.0.1:1080';
+
+  @override
   String get routeExitNodeLabel => 'Exit node id (64-hex)';
 
   @override

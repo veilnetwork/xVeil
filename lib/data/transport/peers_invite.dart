@@ -41,16 +41,28 @@ class SharedPeers {
       if (e is! Map) continue;
       final pk = e['pk'], t = e['t'], nc = e['nc'];
       if (pk is! String || t is! String || nc is! String) continue;
-      out.add(BootstrapInvite(
-        publicKey: base64.decode(pk),
-        transport: t,
-        nonce: base64.decode(nc),
-        algo: (e['a'] as String?) ?? 'ed25519',
-      ));
+      // Defense-in-depth: a scanned share is attacker-controlled and its
+      // transport is handed to the node's bootstrap-join over IPC. Require a
+      // structural `scheme://rest` URI with no whitespace/control/quote chars,
+      // and skip (don't fail the whole share on) any malformed base64 entry.
+      if (!_validTransport(t)) continue;
+      try {
+        out.add(BootstrapInvite(
+          publicKey: base64.decode(pk),
+          transport: t,
+          nonce: base64.decode(nc),
+          algo: (e['a'] as String?) ?? 'ed25519',
+        ));
+      } catch (_) {
+        continue;
+      }
     }
     if (out.isEmpty) throw const FormatException('peers share has no entries');
     return SharedPeers(out);
   }
+
+  static bool _validTransport(String t) =>
+      RegExp(r'^[a-z0-9.+-]+://[^\s\x00-\x1f"\\]+$').hasMatch(t);
 
   String toUri() {
     final arr = [
