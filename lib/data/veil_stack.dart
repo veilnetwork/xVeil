@@ -193,8 +193,19 @@ class RealVeilStack {
       await controller.stop();
       rethrow;
     }
-    final invite = BootstrapInvite.parse(await transport.createInvite());
-    debugPrint('xVeil[deniable]: connected + invite ready');
+    // IDENTITY-ONLY invite: the deniable node always binds its listener on
+    // loopback (`tcp://127.0.0.1:$listenPort`), so its direct-dial address is
+    // never reachable by a contact. Strip it — peers reach this node by node_id
+    // over the rendezvous network, not by dialing an address. (Sharing real
+    // bootstrap peers is a separate, opt-in action; never the loopback.)
+    final veilInvite = BootstrapInvite.parse(await transport.createInvite());
+    final invite = BootstrapInvite(
+      publicKey: veilInvite.publicKey,
+      nonce: veilInvite.nonce,
+      algo: veilInvite.algo,
+      transport: null,
+    );
+    debugPrint('xVeil[deniable]: connected + identity-only invite ready');
 
     return RealVeilStack._(
       controller: controller,
@@ -253,6 +264,11 @@ class RealVeilStack {
   /// ours.) Uses the node's own IPC on the deniable path, `veil-cli` on the
   /// legacy file path.
   Future<void> addContact(BootstrapInvite peer) {
+    // IDENTITY-ONLY invite (no transport): there is nothing to dial — the
+    // contact is reached by node_id over rendezvous, and the chat is keyed by
+    // node_id. A `bootstrap join` here would add a useless (or loopback)
+    // bootstrap peer. Only redeem invites that actually carry a dialable peer.
+    if (peer.transport == null) return Future.value();
     final ft = _flutterTransport;
     if (ft != null) return ft.joinInvite(peer.toUri());
     return veilBootstrapJoin(
