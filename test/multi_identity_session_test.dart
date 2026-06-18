@@ -53,8 +53,22 @@ void main() {
     expect(specs.map((s) => s.label), ['alice', 'work', 'relatives']);
     expect(specs.map((s) => s.spaceId).toSet().length, 3);
     expect(specs.map((s) => s.listenPort), [9001, 9002, 9003]);
-    expect(specs[1].runtimeDir, '/run/work');
     expect(specs.map((s) => s.anonymous), [false, true, false]);
+
+    // DENIABILITY: the runtime dir must be under the base but must NOT contain
+    // the human-readable label (a device seized while running would otherwise
+    // read identity names off the filesystem). Each is an opaque, distinct,
+    // stable hash.
+    for (final s in specs) {
+      expect(s.runtimeDir, startsWith('/run/'));
+      expect(s.runtimeDir, isNot(contains(s.label)));
+      expect(s.runtimeDir.split('/').last, matches(r'^[0-9a-f]{16}$'));
+    }
+    expect(specs.map((s) => s.runtimeDir).toSet().length, 3); // distinct
+    // Stable: same label → same opaque dir across calls.
+    final again = planIdentityBoots([_e('work', 2)], backing,
+        runtimeDirBase: '/run', listenPortBase: 9000);
+    expect(again.single.runtimeDir, specs[1].runtimeDir);
   });
 
   test('bootAll hosts every identity storage even when a node boot fails',

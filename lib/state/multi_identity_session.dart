@@ -3,7 +3,10 @@
 // ignore_for_file: prefer_initializing_formals
 
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
+import '../crypto/blake3.dart';
 import '../data/storage/hidden_volume_storage.dart';
 import '../data/storage/multi_space_store.dart';
 import '../data/storage/storage.dart';
@@ -62,7 +65,12 @@ List<IdentityBootSpec> planIdentityBoots(
       IdentityBootSpec(
         label: roster[i].label,
         spaceId: backing.openSpace(roster[i].spaceKeys),
-        runtimeDir: '$runtimeDirBase/${roster[i].label}',
+        // Deniability: the runtime dir name must NOT be the human-readable
+        // label — a device seized while running would otherwise read identity
+        // names straight off the filesystem. Use a one-way hash of the label
+        // (opaque, stable, non-reversible). The dir itself is deleted on
+        // teardown ([RealVeilStack.dispose]), so nothing survives at rest.
+        runtimeDir: '$runtimeDirBase/${_opaqueDir(roster[i].label)}',
         // Offset by 1 so all-online nodes never reuse [listenPortBase] — the
         // port a just-stopped one-active node held, whose lingering teardown
         // would otherwise stall the first identity's bind for ~90s.
@@ -70,6 +78,18 @@ List<IdentityBootSpec> planIdentityBoots(
         anonymous: roster[i].anonymous,
       ),
   ];
+}
+
+/// A short, one-way, opaque directory name for an identity [label] — a BLAKE3
+/// hash truncated to 16 hex chars. Never the label itself, so a running node's
+/// runtime dir leaks no identity name.
+String _opaqueDir(String label) {
+  final h = blake3Hash(Uint8List.fromList(utf8.encode('veil.rt.dir:$label')));
+  final sb = StringBuffer();
+  for (final b in h.take(8)) {
+    sb.write(b.toRadixString(16).padLeft(2, '0'));
+  }
+  return sb.toString();
 }
 
 /// Boots an [IdentityNode] from [storage] for one [spec] — defaults to the real
