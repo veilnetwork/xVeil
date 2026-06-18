@@ -14,12 +14,9 @@ class DrainedMessage {
     required this.data,
   });
 
-  /// Claimed sender. ⚠️ Currently sourced from the relay-supplied wire
-  /// `StoredMailboxBlob.senderId`, which is UNTRUSTED (all-zero on the anonymous
-  /// network path) — NOT the crypto-verified sender. Attribution from this is
-  /// unreliable until veil's `open` recovers + returns the verified
-  /// `sender_node_id` from the sealed blob (the open sealed-sender gap). Do not
-  /// treat as authenticated.
+  /// Verified sender — recovered from the blob's sidecar and confirmed by the
+  /// auth-deliver signature inside `open` (NOT the relay-supplied wire hint).
+  /// Safe to attribute the message to this identity.
   final NodeId sender;
 
   /// Content id (= message uuid) of the delivered blob.
@@ -97,7 +94,6 @@ class MailboxOrchestrator {
       try {
         opened = await _crypto.open(
           blob: b.blob,
-          sender: b.senderId,
           ourCertVersion: ourCertVersion,
         );
       } catch (_) {
@@ -107,13 +103,11 @@ class MailboxOrchestrator {
         continue;
       }
       delivered.add(DrainedMessage(
-        // ⚠️ UNTRUSTED: the relay-supplied wire hint (0 on the anonymous network
-        // path), not the crypto-verified sender. `open` verifies the blob WAS
-        // sealed by `b.senderId` (so a non-zero value that opens is sound), but
-        // an anonymous deposit carries 0 and currently fails to open entirely —
-        // see the sealed-sender gap. Replace with opened.verifiedSender once
-        // veil's open recovers + returns it.
-        sender: b.senderId,
+        // The CRYPTO-VERIFIED sender, recovered from the blob's sidecar and
+        // confirmed by the auth-deliver signature — NOT the relay-supplied wire
+        // hint (which is 0 on the anonymous path). This is the trustworthy
+        // attribution for the message.
+        sender: opened.verifiedSender,
         contentId: b.contentId,
         appId: opened.appId,
         endpointId: opened.endpointId,

@@ -18,7 +18,9 @@ void main() {
 
   setUp(() {
     relay = InMemoryMailboxRelay();
-    orch = MailboxOrchestrator(LoopbackMailboxCrypto(), relay);
+    // The loopback crypto reports `peer` as the verified sender (the real node
+    // recovers it from the blob's sidecar; here every stash is from `peer`).
+    orch = MailboxOrchestrator(LoopbackMailboxCrypto(senderForOpen: peer), relay);
   });
 
   Future<bool> never(Uint8List _) async => false;

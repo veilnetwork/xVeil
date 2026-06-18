@@ -4,14 +4,20 @@ import 'package:veil_flutter/veil_flutter.dart' as veil;
 
 import '../../core/ids.dart';
 
-/// Result of opening a sealed offline-mailbox blob: the verified destination
-/// routing target + plaintext.
+/// Result of opening a sealed offline-mailbox blob: the verified sender +
+/// destination routing target + plaintext.
 class OpenedMailboxMessage {
   const OpenedMailboxMessage({
+    required this.verifiedSender,
     required this.appId,
     required this.endpointId,
     required this.data,
   });
+
+  /// Verified sender — recovered from the blob's sidecar and confirmed by the
+  /// auth-deliver signature (NOT the relay-supplied wire hint). This is the
+  /// trustworthy attribution source for an offline-delivered message.
+  final NodeId verifiedSender;
 
   /// Verified destination app id (32 bytes).
   final Uint8List appId;
@@ -44,11 +50,12 @@ abstract interface class VeilMailboxCrypto {
     required Uint8List data,
   });
 
-  /// Open + verify a fetched [blob] claimed to be from [sender], decrypting
-  /// under our current cert version [ourCertVersion].
+  /// Open + verify a fetched [blob], decrypting under our current cert version
+  /// [ourCertVersion]. The sender is RECOVERED from the blob's sidecar (the
+  /// anonymous deposit carries no usable wire sender) and surfaced, crypto-
+  /// verified, as [OpenedMailboxMessage.verifiedSender].
   Future<OpenedMailboxMessage> open({
     required Uint8List blob,
-    required NodeId sender,
     required int ourCertVersion,
   });
 }
@@ -78,15 +85,14 @@ class VeilFlutterMailboxCrypto implements VeilMailboxCrypto {
   @override
   Future<OpenedMailboxMessage> open({
     required Uint8List blob,
-    required NodeId sender,
     required int ourCertVersion,
   }) async {
     final r = await _mailbox.open(
       blob: blob,
-      sender: sender.bytes,
       ourCertVersion: ourCertVersion,
     );
     return OpenedMailboxMessage(
+      verifiedSender: NodeId(r.senderNodeId),
       appId: r.appId,
       endpointId: r.endpointId,
       data: r.data,
@@ -95,10 +101,19 @@ class VeilFlutterMailboxCrypto implements VeilMailboxCrypto {
 }
 
 /// In-memory fake that round-trips seal↔open WITHOUT any crypto, so the offline
-/// orchestration can be unit-tested without a live node. The blob just frames
-/// `(appId, endpointId, data)`; `recipient` / `sender` / `ourCertVersion` are
-/// ignored (the real adapter binds + verifies them). NEVER use in production.
+/// orchestration can be unit-tested without a live node. The blob frames
+/// `(sender, appId, endpointId, data)` — [seal] has no sender input (the real
+/// node binds its own identity), so the sender to round-trip is taken from
+/// [senderForOpen] (default all-zero). `recipient` / `ourCertVersion` are ignored
+/// (the real adapter binds + verifies them). NEVER use in production.
 class LoopbackMailboxCrypto implements VeilMailboxCrypto {
+  // ignore: prefer_initializing_formals
+  LoopbackMailboxCrypto({NodeId? senderForOpen}) : _senderForOpen = senderForOpen;
+
+  /// The verified-sender stand-in [open] reports — lets a unit test exercise the
+  /// orchestrator's attribution path without real crypto. Null ⇒ all-zero.
+  final NodeId? _senderForOpen;
+
   @override
   Future<Uint8List> seal({
     required NodeId recipient,
@@ -120,7 +135,6 @@ class LoopbackMailboxCrypto implements VeilMailboxCrypto {
   @override
   Future<OpenedMailboxMessage> open({
     required Uint8List blob,
-    required NodeId sender,
     required int ourCertVersion,
   }) async {
     if (blob.length < 36) {
@@ -130,6 +144,7 @@ class LoopbackMailboxCrypto implements VeilMailboxCrypto {
     final endpointId = ByteData.sublistView(blob, 32, 36).getUint32(0);
     final data = Uint8List.fromList(blob.sublist(36));
     return OpenedMailboxMessage(
+      verifiedSender: _senderForOpen ?? NodeId(Uint8List(32)),
       appId: appId,
       endpointId: endpointId,
       data: data,
@@ -146,12 +161,11 @@ class StoredMailboxBlob {
     required this.blob,
   });
 
-  /// Relay-supplied sender node_id hint, used to resolve their document on open.
-  /// ⚠️ UNTRUSTED + relay-overridable: it is `0` for an anonymous network
-  /// deposit (the real sender is sealed in [blob]). `open` cryptographically
-  /// verifies the blob was sealed by this id, so a non-zero value that opens is
-  /// sound — but never attribute from this hint alone, and note the anonymous
-  /// path (id=0) cannot currently be opened (the sealed-sender gap).
+  /// Relay-supplied sender node_id hint. ⚠️ UNTRUSTED + relay-overridable: it is
+  /// `0` for an anonymous network deposit. NOT used for attribution — `open`
+  /// recovers the real sender from the blob's sidecar and returns it crypto-
+  /// verified ([OpenedMailboxMessage.verifiedSender]). Kept only for the local
+  /// IPC relay path / diagnostics; never attribute a message from this hint.
   final NodeId senderId;
 
   /// 32-byte content id — the message uuid, for dedup against live delivery.
