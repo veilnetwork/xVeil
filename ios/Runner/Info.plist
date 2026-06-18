@@ -66,5 +66,7 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>xVeil uses the camera only to scan a contact's invite QR code. Nothing is recorded or sent.</string>
 </dict>
 </plist>

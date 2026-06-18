@@ -480,10 +480,25 @@ class AppL10nRu extends AppL10n {
   String get invitePasteTheirs => 'Вставьте инвайт собеседника';
 
   @override
-  String get inviteScanTooltip => 'Сканировать QR (скоро)';
+  String get inviteScanTooltip => 'Сканировать QR камерой';
 
   @override
   String get inviteScanComingSoon => 'Сканирование камерой скоро';
+
+  @override
+  String get scanTitle => 'Сканировать инвайт';
+
+  @override
+  String get scanHint => 'Наведите камеру на QR-код инвайта собеседника';
+
+  @override
+  String get scanUnavailable => 'Камера недоступна — вставьте инвайт вручную';
+
+  @override
+  String get scanNotInvite => 'Этот QR не является инвайтом xVeil';
+
+  @override
+  String get scanTorch => 'Подсветка';
 
   @override
   String get inviteAddButton => 'Добавить контакт';
