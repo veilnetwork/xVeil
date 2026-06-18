@@ -943,6 +943,24 @@ abstract class AppL10n {
   /// **'Copy my invite'**
   String get inviteCopyMine;
 
+  /// No description provided for @identityDetails.
+  ///
+  /// In en, this message translates to:
+  /// **'Identity details'**
+  String get identityDetails;
+
+  /// No description provided for @identityPublicKey.
+  ///
+  /// In en, this message translates to:
+  /// **'public key'**
+  String get identityPublicKey;
+
+  /// No description provided for @identityAlgo.
+  ///
+  /// In en, this message translates to:
+  /// **'algorithm'**
+  String get identityAlgo;
+
   /// No description provided for @invitePasteTheirs.
   ///
   /// In en, this message translates to:

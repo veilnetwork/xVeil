@@ -468,6 +468,15 @@ class AppL10nRu extends AppL10n {
   String get inviteCopyMine => 'Скопировать мой инвайт';
 
   @override
+  String get identityDetails => 'Детали личности';
+
+  @override
+  String get identityPublicKey => 'публичный ключ';
+
+  @override
+  String get identityAlgo => 'алгоритм';
+
+  @override
   String get invitePasteTheirs => 'Вставьте инвайт собеседника';
 
   @override

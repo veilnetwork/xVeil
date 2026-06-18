@@ -468,6 +468,15 @@ class AppL10nEn extends AppL10n {
   String get inviteCopyMine => 'Copy my invite';
 
   @override
+  String get identityDetails => 'Identity details';
+
+  @override
+  String get identityPublicKey => 'public key';
+
+  @override
+  String get identityAlgo => 'algorithm';
+
+  @override
   String get invitePasteTheirs => 'Paste their invite';
 
   @override
