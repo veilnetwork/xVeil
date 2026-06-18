@@ -197,6 +197,17 @@ class EmbeddedNode {
     if (peers.isEmpty) return toml;
     final buf = StringBuffer(toml);
     for (final p in peers) {
+      // Defense-in-depth: never interpolate a value that could break out of the
+      // TOML string (quote / newline / backslash) — skip a malformed entry
+      // rather than emit a corrupt or injected config. transport must be a
+      // structural scheme://rest URI; the rest must be plain base64-ish tokens.
+      if (!_tomlSafe(p.transport) ||
+          !_tomlSafe(p.publicKey) ||
+          !_tomlSafe(p.nonce) ||
+          !_tomlSafe(p.algo) ||
+          !RegExp(r'^[a-z0-9.+-]+://[^\s\x00-\x1f"\\]+$').hasMatch(p.transport)) {
+        continue;
+      }
       buf
         ..write('\n[[bootstrap_peers]]\n')
         ..write('transport = "${p.transport}"\n')
@@ -206,6 +217,10 @@ class EmbeddedNode {
     }
     return buf.toString();
   }
+
+  /// True when [s] carries no TOML-string-breaking characters, so it is safe to
+  /// interpolate inside `key = "..."`.
+  static bool _tomlSafe(String s) => !s.contains(RegExp(r'["\n\r\\\t]'));
 
   /// Append a location-anonymous `[anonymity]` table to a composed [toml] when
   /// [anonymous] — register at a rendezvous relay over an onion circuit
