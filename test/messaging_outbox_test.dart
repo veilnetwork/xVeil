@@ -34,6 +34,10 @@ class _FakeTransport implements VeilTransport {
   }
 
   @override
+  Stream<int> sessionCount() => Stream.value(0);
+  @override
+  Future<List<PeerInfo>> peers() async => const [];
+  @override
   Future<void> dispose() async => _inbound.close();
 }
 
