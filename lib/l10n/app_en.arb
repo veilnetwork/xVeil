@@ -207,6 +207,17 @@
   "timeDaysAgo": "{n}d ago",
   "@timeDaysAgo": { "placeholders": { "n": { "type": "int" } } },
 
+  "peersShareAction": "Share entry nodes",
+  "peersShareTitle": "Share entry nodes",
+  "peersShareSubtitle": "Pick nodes to give a friend working entry points to the network — useful if the default seeds are blocked where they are. This shares ONLY these nodes, never your identity.",
+  "peersShareNone": "No known entry nodes to share",
+  "peersShareSelectOne": "Select at least one node",
+  "peersShareGenerate": "Generate link",
+  "peersShareScanHint": "Have your friend scan this or open the link in xVeil",
+  "peerActiveBadge": "active",
+  "peersImported": "Added {n} entry nodes",
+  "@peersImported": { "placeholders": { "n": { "type": "int" } } },
+
   "onboardRepeatPassword": "Repeat password",
   "onboardPasswordTitle": "Set a password",
   "onboardPasswordSubtitle": "This password unlocks your space on this device. There is no reset.",

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../data/transport/bootstrap_invite.dart';
+import '../../data/transport/peers_invite.dart';
 import '../../l10n/app_localizations.dart';
 import 'qr_scan_screen.dart';
 
@@ -21,12 +22,18 @@ class InviteExchangeSheet extends StatefulWidget {
     super.key,
     required this.myInvite,
     required this.onAddContact,
+    this.onImportPeers,
   });
 
   /// This device's `veil:bootstrap?…` URI, or null while the node is starting.
   final String? myInvite;
 
   final void Function(BootstrapInvite invite) onAddContact;
+
+  /// Optional: handle a pasted/scanned `veil:peers?…` entry-node share — adds
+  /// the bootstrap peers WITHOUT creating a contact. Null ⇒ the sheet treats a
+  /// peers-share as an invalid invite (the contact-only callers).
+  final void Function(List<BootstrapInvite> peers)? onImportPeers;
 
   @override
   State<InviteExchangeSheet> createState() => _InviteExchangeSheetState();
@@ -44,6 +51,19 @@ class _InviteExchangeSheetState extends State<InviteExchangeSheet> {
 
   void _add() {
     final text = _paste.text.trim();
+    // A peers-share (entry nodes, no identity) is a distinct token — import it
+    // as bootstrap peers when the caller supports that, never as a contact.
+    if (SharedPeers.looksLikeSharedPeers(text) && widget.onImportPeers != null) {
+      try {
+        final shared = SharedPeers.parse(text);
+        setState(() => _error = null);
+        widget.onImportPeers!(shared.peers);
+        return;
+      } on FormatException {
+        setState(() => _error = AppL10n.of(context).inviteInvalid);
+        return;
+      }
+    }
     try {
       final invite = BootstrapInvite.parse(text);
       setState(() => _error = null);
