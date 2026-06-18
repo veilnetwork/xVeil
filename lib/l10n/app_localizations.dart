@@ -1273,6 +1273,30 @@ abstract class AppL10n {
   /// **'Remote install / start over SSH — coming soon'**
   String get nodeProvisionSoon;
 
+  /// No description provided for @nodeCheckReachable.
+  ///
+  /// In en, this message translates to:
+  /// **'Check reachability'**
+  String get nodeCheckReachable;
+
+  /// No description provided for @nodeChecking.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking…'**
+  String get nodeChecking;
+
+  /// No description provided for @nodeReachable.
+  ///
+  /// In en, this message translates to:
+  /// **'Reachable'**
+  String get nodeReachable;
+
+  /// No description provided for @nodeUnreachable.
+  ///
+  /// In en, this message translates to:
+  /// **'Unreachable'**
+  String get nodeUnreachable;
+
   /// No description provided for @networkExtTitle.
   ///
   /// In en, this message translates to:

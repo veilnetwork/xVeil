@@ -646,6 +646,18 @@ class AppL10nEn extends AppL10n {
       'Remote install / start over SSH — coming soon';
 
   @override
+  String get nodeCheckReachable => 'Check reachability';
+
+  @override
+  String get nodeChecking => 'Checking…';
+
+  @override
+  String get nodeReachable => 'Reachable';
+
+  @override
+  String get nodeUnreachable => 'Unreachable';
+
+  @override
   String get networkExtTitle => 'Extensions (Lua)';
 
   @override
