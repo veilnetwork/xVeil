@@ -44,6 +44,16 @@ const kMaxConcurrentIncomingFiles = 8;
 /// LRU: LRU would let a hostile peer evict a victim's ACTIVE transfer. Tunable.
 const kStaleIncomingFileTimeout = Duration(minutes: 5);
 
+/// Max pre-consent intro messages we retain from a single not-yet-accepted
+/// peer. Each [WireKind.request] carries an optional greeting we store so the
+/// consent prompt can show it; a literal re-send dedups by id, but a hostile
+/// peer minting a FRESH id per request could otherwise pile up unbounded
+/// intros on the victim's device before they ever accept. We keep the most
+/// recent [kMaxPreConsentIntros] and evict the oldest — bounding storage while
+/// still surfacing a peer's latest introduction. The consent decision is about
+/// the peer, not the text, so a small cap loses nothing. Tunable.
+const kMaxPreConsentIntros = 5;
+
 /// In-flight inbound file reassembly state.
 class _Incoming {
   _Incoming({
@@ -182,6 +192,33 @@ class MessagingService {
     return msgs.any((m) => m.id == id);
   }
 
+  /// Bound the number of pre-consent intro messages held from a single
+  /// not-yet-accepted [peer] (anti-spam). Each [WireKind.request] greeting is
+  /// stored so the consent prompt can show it; before acceptance the only
+  /// incoming messages from a peer ARE these intros (real messages are gated on
+  /// `accepted`), so capping incoming-count == capping intros. We evict the
+  /// oldest so that, after storing the new intro [newId], we retain at most
+  /// [kMaxPreConsentIntros]. No-op for an accepted peer (we must never evict a
+  /// real conversation) or a same-id re-send (it overwrites in place, not a new
+  /// intro). Evicted bodies are scrubbed so they leave no recoverable trace.
+  Future<void> _capPreConsentIntros(NodeId peer, String? newId) async {
+    final contact = await _storage.getContact(peer);
+    if (contact?.status == ContactStatus.accepted) return;
+    final msgs = await _storage.loadMessages(peer.hex);
+    if (newId != null && msgs.any((m) => m.id == newId)) return; // overwrite
+    final intros = msgs
+        .where((m) => m.direction == MessageDirection.incoming)
+        .toList()
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    // Make room for the one we're about to add: keep at most cap-1 of the old.
+    final evict = intros.length - (kMaxPreConsentIntros - 1);
+    if (evict <= 0) return;
+    for (var i = 0; i < evict; i++) {
+      await _storage.deleteMessage(intros[i].id);
+    }
+    await _storage.scrubDeleted();
+  }
+
   /// True only if [id] is a message we hold from [peer] that THEY sent us
   /// (incoming). The authorization gate for peer-driven edit/delete: a peer may
   /// only modify their own messages, never our outgoing ones.
@@ -222,6 +259,11 @@ class MessagingService {
         }
         if (env.body.isNotEmpty &&
             !(env.id != null && await _storage.isMessageDeleted(env.id!))) {
+          // Bound pre-consent intros: a hostile peer minting a fresh id per
+          // request would otherwise pile up unbounded greetings before we ever
+          // accept. Evict the oldest down to the cap, keeping the most recent.
+          // Only when this is a NEW id (a same-id re-send overwrites in place).
+          await _capPreConsentIntros(m.src, env.id);
           // Store the greeting under the REQUEST's id so a later outbox re-send
           // of the same greeting (as a WireKind.message) dedups instead of
           // creating a second copy. Skip if we already deleted this id (don't
