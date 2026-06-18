@@ -96,7 +96,18 @@ Future<List<Override>> _bootstrapOverrides() async {
     // XVEIL_BOOTSTRAP_PEERS points at a local JSON file (gitignored — a testnet
     // set is environment-specific, never committed) listing the network's
     // bootstrap peers. Absent ⇒ the node relies on its compiled-in BUILTIN_SEEDS.
-    final bootstrapPeers = _loadBootstrapPeers();
+    // Bootstrap peers serve two roles: DHT entry points AND mailbox-relay
+    // candidates (the receiver advertises one in its rendezvous ad so senders
+    // can reach it by node_id behind NAT). The env-file path is for desktop
+    // testnets; when it's empty — ALWAYS on a packaged mobile build — fall back
+    // to the bundled production seeds. Without this the mobile node has NO relay
+    // candidate, never registers a rendezvous publisher, and is unreachable by
+    // node_id. (These mirror veil's compiled-in builtin_seeds, so DHT bootstrap
+    // is unchanged — this only makes them available to Dart as relay options.)
+    var bootstrapPeers = _loadBootstrapPeers();
+    if (bootstrapPeers.isEmpty) {
+      bootstrapPeers = await _loadBundledSeeds();
+    }
     // XVEIL_OBFS4_PSK: base64 deployment-wide obfs4 key for networks that pin
     // one (testnet/production). Without it, dialing obfs4 bootstrap peers fails
     // the handshake. Treated as config, not a secret — but environment-specific.
@@ -159,6 +170,21 @@ List<BootstrapPeerCfg> _loadBootstrapPeers() {
     debugPrint('xVeil[bootstrap]: $path is not a JSON array — ignoring');
   } catch (e) {
     debugPrint('xVeil[bootstrap]: failed to read $path: $e');
+  }
+  return const [];
+}
+
+/// Load the bundled production seed descriptors (`assets/prod/seeds.json`,
+/// public — mirrors veil's builtin_seeds). The mobile fallback when no
+/// environment bootstrap file is set, so the node has concrete mailbox-relay
+/// candidates and can publish a rendezvous ad. Absent (clean clone) ⇒ empty.
+Future<List<BootstrapPeerCfg>> _loadBundledSeeds() async {
+  try {
+    final raw = await rootBundle.loadString('assets/prod/seeds.json');
+    final json = jsonDecode(raw);
+    if (json is List) return BootstrapPeerCfg.listFromJson(json);
+  } catch (_) {
+    // Asset not bundled (clean clone) — degrade to the compiled-in seeds.
   }
   return const [];
 }
