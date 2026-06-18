@@ -480,10 +480,25 @@ class AppL10nEn extends AppL10n {
   String get invitePasteTheirs => 'Paste their invite';
 
   @override
-  String get inviteScanTooltip => 'Scan QR (coming soon)';
+  String get inviteScanTooltip => 'Scan QR with camera';
 
   @override
   String get inviteScanComingSoon => 'Camera scanning coming soon';
+
+  @override
+  String get scanTitle => 'Scan invite';
+
+  @override
+  String get scanHint => 'Point the camera at a contact\'s invite QR code';
+
+  @override
+  String get scanUnavailable => 'Camera unavailable — paste the invite instead';
+
+  @override
+  String get scanNotInvite => 'That QR is not an xVeil invite';
+
+  @override
+  String get scanTorch => 'Torch';
 
   @override
   String get inviteAddButton => 'Add contact';

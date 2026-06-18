@@ -6,6 +6,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../data/transport/bootstrap_invite.dart';
 import '../../l10n/app_localizations.dart';
+import 'qr_scan_screen.dart';
 
 /// Contact-add UX over veil bootstrap invites. Shows THIS device's invite as a
 /// QR to share, and accepts a peer's invite (pasted; camera scan plugs in
@@ -50,6 +51,17 @@ class _InviteExchangeSheetState extends State<InviteExchangeSheet> {
     } on FormatException {
       setState(() => _error = AppL10n.of(context).inviteInvalid);
     }
+  }
+
+  Future<void> _scan() async {
+    final uri = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => const QrScanScreen()),
+    );
+    if (uri == null || !mounted) return;
+    // Drop the scanned URI into the paste field (so it's visible/editable) then
+    // run the same validation+add path as a manual paste.
+    _paste.text = uri;
+    _add();
   }
 
   @override
@@ -168,9 +180,7 @@ class _InviteExchangeSheetState extends State<InviteExchangeSheet> {
               suffixIcon: IconButton(
                 icon: const Icon(Icons.qr_code_scanner),
                 tooltip: l.inviteScanTooltip,
-                onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(l.inviteScanComingSoon)),
-                ),
+                onPressed: _scan,
               ),
             ),
           ),
