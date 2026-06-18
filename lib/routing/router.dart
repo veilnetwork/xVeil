@@ -9,6 +9,7 @@ import '../features/identity/decoy_master_screen.dart';
 import '../features/identity/identity_picker_screen.dart';
 import '../features/identity/manage_identities_screen.dart';
 import '../features/lock/lock_screen.dart';
+import '../features/network/managed_nodes_screen.dart';
 import '../features/network/peers_screen.dart';
 import '../features/network/proxy_routing_screen.dart';
 import '../features/onboarding/onboarding_screen.dart';
@@ -109,6 +110,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: '/peers', builder: (_, _) => const PeersScreen()),
       GoRoute(path: '/route', builder: (_, _) => const ProxyRoutingScreen()),
+      GoRoute(path: '/nodes', builder: (_, _) => const ManagedNodesScreen()),
     ],
   );
 });
