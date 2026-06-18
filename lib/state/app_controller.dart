@@ -10,6 +10,7 @@ import '../data/veil_stack.dart';
 import '../domain/identity.dart';
 import '../domain/roster.dart';
 import 'keep_all_online_controller.dart';
+import 'proxy_routing_controller.dart';
 import 'providers.dart';
 
 /// Top-level lifecycle of the app, used by the router to gate screens.
@@ -844,6 +845,7 @@ class AppController extends Notifier<AppState> {
         anonymous: _activeAnonymous(),
         bootstrapPeers: boot.bootstrapPeers,
         obfs4Psk: boot.obfs4Psk,
+        proxy: ref.read(proxyRoutingProvider),
       );
       ref.read(realStackProvider.notifier).state = stack;
       // Real node is up — clear any pending boot status so the UI follows the
