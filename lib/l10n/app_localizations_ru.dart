@@ -513,6 +513,65 @@ class AppL10nRu extends AppL10n {
   String get networkRouteSub => 'oproxy / ogate — скоро';
 
   @override
+  String get networkRouteSubActive => 'Маршрутизация включена';
+
+  @override
+  String get networkRouteSubIdle => 'Пустить трафик через veil';
+
+  @override
+  String get routeTitle => 'Маршрутизация трафика';
+
+  @override
+  String get routeSocks5Title => 'Маршрутизировать мой трафик (SOCKS5)';
+
+  @override
+  String get routeSocks5Hint =>
+      'Поднять локальный SOCKS5-прокси и пустить его трафик через veil на выходной узел. Направьте на него браузер или системный прокси, чтобы обходить цензуру и скрывать своё местоположение.';
+
+  @override
+  String get routeListenLabel => 'Локальный адрес SOCKS5';
+
+  @override
+  String get routeExitNodeLabel => 'Node id выходного узла (64-hex)';
+
+  @override
+  String get routeExitNodeHint =>
+      'node_id выходного узла, которому вы доверяете — например, ваш собственный узел из «Мои узлы».';
+
+  @override
+  String get routeExitNodeInvalid => 'Нужен node id из 64 hex-символов';
+
+  @override
+  String get routeNeedExit =>
+      'Укажите node id выходного узла для маршрутизации';
+
+  @override
+  String routeProxyAddress(String addr) {
+    return 'Направьте приложения / браузер на $addr';
+  }
+
+  @override
+  String get routeServeTitle => 'Быть выходным узлом';
+
+  @override
+  String get routeServeHint =>
+      'Разрешить другим узлам выходить в интернет через этот узел. Больше выходных узлов — устойчивее сеть к цензуре, но трафик будет выглядеть исходящим с этого устройства.';
+
+  @override
+  String get routeAllowPrivate => 'Разрешить приватные сети (продвинутое)';
+
+  @override
+  String get routeAllowPrivateHint =>
+      'Позволить выходному узлу обращаться к loopback / RFC1918 / link-local адресам. На публичном выходном узле держите ВЫКЛ — иначе открывается доступ к внутренним сервисам и облачным metadata-эндпоинтам.';
+
+  @override
+  String get routeAppliesNextStart =>
+      'Изменения применятся при следующем запуске узла.';
+
+  @override
+  String get routeRestartNode => 'Перезапустить узел сейчас';
+
+  @override
   String get networkNodesTitle => 'Мои узлы';
 
   @override

@@ -513,6 +513,64 @@ class AppL10nEn extends AppL10n {
   String get networkRouteSub => 'oproxy / ogate — coming soon';
 
   @override
+  String get networkRouteSubActive => 'Routing active';
+
+  @override
+  String get networkRouteSubIdle => 'Route your traffic through veil';
+
+  @override
+  String get routeTitle => 'Route traffic';
+
+  @override
+  String get routeSocks5Title => 'Route my traffic (SOCKS5)';
+
+  @override
+  String get routeSocks5Hint =>
+      'Bind a local SOCKS5 proxy and tunnel its traffic through veil to an exit node. Point a browser or system proxy at it to evade censorship and hide your location.';
+
+  @override
+  String get routeListenLabel => 'Local SOCKS5 address';
+
+  @override
+  String get routeExitNodeLabel => 'Exit node id (64-hex)';
+
+  @override
+  String get routeExitNodeHint =>
+      'node_id of an exit you trust — e.g. one of your own nodes from “My nodes”.';
+
+  @override
+  String get routeExitNodeInvalid => 'Must be a 64-character hex node id';
+
+  @override
+  String get routeNeedExit => 'Set an exit node id to route through';
+
+  @override
+  String routeProxyAddress(String addr) {
+    return 'Point your apps / browser at $addr';
+  }
+
+  @override
+  String get routeServeTitle => 'Be an exit node';
+
+  @override
+  String get routeServeHint =>
+      'Let other peers route their traffic out to the internet through this node. More exits make the network more censorship-resistant — but traffic will appear to originate from this device.';
+
+  @override
+  String get routeAllowPrivate => 'Allow private networks (advanced)';
+
+  @override
+  String get routeAllowPrivateHint =>
+      'Let the exit reach loopback / RFC1918 / link-local addresses. Leave OFF on any public exit — it prevents reaching internal services and cloud metadata endpoints.';
+
+  @override
+  String get routeAppliesNextStart =>
+      'Changes apply the next time the node starts.';
+
+  @override
+  String get routeRestartNode => 'Restart node to apply now';
+
+  @override
   String get networkNodesTitle => 'My nodes';
 
   @override

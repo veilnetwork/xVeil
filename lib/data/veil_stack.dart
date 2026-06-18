@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'native_libs.dart' show processLibFor;
 import 'node/embedded_node.dart';
 import 'node/node_controller.dart';
+import 'node/proxy_routing.dart';
 import 'node/veil_node.dart';
 import 'storage/storage.dart';
 import 'transport/bootstrap_invite.dart';
@@ -74,6 +75,7 @@ class RealVeilStack {
     bool anonymous = false,
     List<BootstrapPeerCfg> bootstrapPeers = const [],
     String? obfs4Psk,
+    ProxyRouting proxy = ProxyRouting.disabled,
   }) async {
     // Time each phase so the log pinpoints where a slow boot/switch goes (the
     // boot is mining-free when the identity already exists, so a slow switch is
@@ -136,7 +138,15 @@ class RealVeilStack {
       anonymous: anonymous,
       bootstrapPeers: bootstrapPeers,
       obfs4PskFile: obfs4PskFile,
+      proxy: proxy,
     );
+    if (proxy.isActive) {
+      // Proxy services spawn from the APPLIED config (spawn_all_services runs on
+      // apply-config reload too), so unlike [anonymity] this needs no stub
+      // boot-arming — the composed config above carries the [proxy.*] sections.
+      debugPrint('xVeil[deniable]: traffic routing — socks5=${proxy.socks5Active} '
+          'exit=${proxy.exitEnabled}');
+    }
     if (bootstrapPeers.isNotEmpty) {
       debugPrint('xVeil[deniable]: dialing ${bootstrapPeers.length} '
           'bootstrap peer(s) from config');
