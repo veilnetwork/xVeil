@@ -970,7 +970,7 @@ abstract class AppL10n {
   /// No description provided for @inviteScanTooltip.
   ///
   /// In en, this message translates to:
-  /// **'Scan QR (coming soon)'**
+  /// **'Scan QR with camera'**
   String get inviteScanTooltip;
 
   /// No description provided for @inviteScanComingSoon.
@@ -978,6 +978,36 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Camera scanning coming soon'**
   String get inviteScanComingSoon;
+
+  /// No description provided for @scanTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Scan invite'**
+  String get scanTitle;
+
+  /// No description provided for @scanHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Point the camera at a contact\'s invite QR code'**
+  String get scanHint;
+
+  /// No description provided for @scanUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Camera unavailable — paste the invite instead'**
+  String get scanUnavailable;
+
+  /// No description provided for @scanNotInvite.
+  ///
+  /// In en, this message translates to:
+  /// **'That QR is not an xVeil invite'**
+  String get scanNotInvite;
+
+  /// No description provided for @scanTorch.
+  ///
+  /// In en, this message translates to:
+  /// **'Torch'**
+  String get scanTorch;
 
   /// No description provided for @inviteAddButton.
   ///

@@ -53,6 +53,10 @@ dependencies:
   shared_preferences: ^2.3.3
   # QR rendering for the bootstrap-invite contact-exchange flow.
   qr_flutter: ^4.1.0
+  # Camera QR scanning for redeeming a contact's invite. Pinned to the same
+  # version veil_flutter already pulls in (transitively) to avoid a resolver
+  # conflict.
+  mobile_scanner: ^5.2.3
   # Direct dart:ffi helpers (Utf8/calloc) for the embedded-node binding.
   ffi: ^2.1.0
 
