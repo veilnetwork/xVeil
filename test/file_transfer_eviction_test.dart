@@ -35,6 +35,10 @@ class _FakeTransport implements VeilTransport {
   Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) async =>
       peer?._inbound.add(InboundMessage(src: _me, payload: payload));
   @override
+  Stream<int> sessionCount() => Stream.value(0);
+  @override
+  Future<List<PeerInfo>> peers() async => const [];
+  @override
   Future<void> dispose() async => _inbound.close();
 }
 

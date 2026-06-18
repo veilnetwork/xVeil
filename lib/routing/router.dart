@@ -9,6 +9,7 @@ import '../features/identity/decoy_master_screen.dart';
 import '../features/identity/identity_picker_screen.dart';
 import '../features/identity/manage_identities_screen.dart';
 import '../features/lock/lock_screen.dart';
+import '../features/network/peers_screen.dart';
 import '../features/onboarding/onboarding_screen.dart';
 import '../features/preparing/preparing_screen.dart';
 import '../features/splash/splash_screen.dart';
@@ -105,6 +106,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, state) =>
             ChatScreen(peerHex: state.pathParameters['peerHex']!),
       ),
+      GoRoute(path: '/peers', builder: (_, _) => const PeersScreen()),
     ],
   );
 });

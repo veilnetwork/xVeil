@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../data/node/node_controller.dart';
 import '../../l10n/app_localizations.dart';
@@ -112,29 +113,39 @@ class _StatusCard extends ConsumerWidget {
     final sub = phase == NodePhase.connected
         ? l.networkPeers(peers)
         : ((message != null && message!.isNotEmpty) ? message! : '—');
+    // The peer count drills into the per-peer list. Only meaningful with a real
+    // node up (connected) — disabled otherwise, so the dev/loopback "0" isn't a
+    // dead tap into an empty screen.
+    final tappable = phase == NodePhase.connected;
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Row(
-            children: [
-              Icon(icon, color: color, size: 36),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(label, style: Theme.of(context).textTheme.titleLarge),
-                    const SizedBox(height: 4),
-                    Text(
-                      sub,
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  ],
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: tappable ? () => context.push('/peers') : null,
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              children: [
+                Icon(icon, color: color, size: 36),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(label,
+                          style: Theme.of(context).textTheme.titleLarge),
+                      const SizedBox(height: 4),
+                      Text(
+                        sub,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+                if (tappable) const Icon(Icons.chevron_right),
+              ],
+            ),
           ),
         ),
       ),
