@@ -745,6 +745,12 @@ class AppController extends Notifier<AppState> {
         if (includeLabels.contains(e.label)) e,
     ];
     if (decoy.isEmpty) return false;
+    // FAIL-CLOSED: never write a decoy roster that references an identity the
+    // user did not explicitly include — under duress, one leaked real identity
+    // is catastrophic. If the filter is ever widened (roster-model change), bail
+    // rather than create a decoy that exposes a hidden identity.
+    final included = includeLabels.toSet();
+    if (!decoy.every((e) => included.contains(e.label))) return false;
 
     // Only one space open at a time: close the active identity, write the decoy
     // master, then restore the active identity.
@@ -867,6 +873,7 @@ class AppController extends Notifier<AppState> {
   Future<void> lock() async {
     await _teardownSession(); // all-online: stop every node + release the lock
     await _teardownRealStack();
+    await _cleanRuntimeBase();
     await ref.read(storageProvider).close();
     _clearMasterSession();
     state = const AppState(AppPhase.locked);
@@ -896,6 +903,19 @@ class AppController extends Notifier<AppState> {
     }
   }
 
+  /// Deniability: remove the ephemeral runtime-dir BASE (the parent that holds
+  /// each identity's sockets + the public obfs4 PSK). Each stack already deletes
+  /// its own subdir on dispose; this clears the now-empty base and any straggler
+  /// so NO trace that nodes ran is left in temp after lock/wipe. Best-effort.
+  Future<void> _cleanRuntimeBase() async {
+    final base = ref.read(deniableBootProvider)?.runtimeDir;
+    if (base == null) return;
+    try {
+      final d = Directory(base);
+      if (d.existsSync()) await d.delete(recursive: true);
+    } catch (_) {/* leftover sockets are not worth failing teardown on */}
+  }
+
   /// Escape hatch from the lock screen: forget the onboarded flag and return to
   /// onboarding (e.g. forgotten password, or a moved/missing container). The
   /// existing container file is left untouched on disk — deniability means we
@@ -903,6 +923,7 @@ class AppController extends Notifier<AppState> {
   Future<void> startOver() async {
     await _teardownSession();
     await _teardownRealStack();
+    await _cleanRuntimeBase();
     await ref.read(storageProvider).close();
     _clearMasterSession();
     final prefs = await ref.read(prefsProvider.future);
@@ -922,6 +943,7 @@ class AppController extends Notifier<AppState> {
   Future<void> wipeContainers() async {
     await _teardownSession();
     await _teardownRealStack();
+    await _cleanRuntimeBase();
     await ref.read(storageProvider).close();
     _clearMasterSession();
 
