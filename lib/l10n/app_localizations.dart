@@ -1033,6 +1033,108 @@ abstract class AppL10n {
   /// **'oproxy / ogate — coming soon'**
   String get networkRouteSub;
 
+  /// No description provided for @networkRouteSubActive.
+  ///
+  /// In en, this message translates to:
+  /// **'Routing active'**
+  String get networkRouteSubActive;
+
+  /// No description provided for @networkRouteSubIdle.
+  ///
+  /// In en, this message translates to:
+  /// **'Route your traffic through veil'**
+  String get networkRouteSubIdle;
+
+  /// No description provided for @routeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Route traffic'**
+  String get routeTitle;
+
+  /// No description provided for @routeSocks5Title.
+  ///
+  /// In en, this message translates to:
+  /// **'Route my traffic (SOCKS5)'**
+  String get routeSocks5Title;
+
+  /// No description provided for @routeSocks5Hint.
+  ///
+  /// In en, this message translates to:
+  /// **'Bind a local SOCKS5 proxy and tunnel its traffic through veil to an exit node. Point a browser or system proxy at it to evade censorship and hide your location.'**
+  String get routeSocks5Hint;
+
+  /// No description provided for @routeListenLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Local SOCKS5 address'**
+  String get routeListenLabel;
+
+  /// No description provided for @routeExitNodeLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Exit node id (64-hex)'**
+  String get routeExitNodeLabel;
+
+  /// No description provided for @routeExitNodeHint.
+  ///
+  /// In en, this message translates to:
+  /// **'node_id of an exit you trust — e.g. one of your own nodes from “My nodes”.'**
+  String get routeExitNodeHint;
+
+  /// No description provided for @routeExitNodeInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Must be a 64-character hex node id'**
+  String get routeExitNodeInvalid;
+
+  /// No description provided for @routeNeedExit.
+  ///
+  /// In en, this message translates to:
+  /// **'Set an exit node id to route through'**
+  String get routeNeedExit;
+
+  /// No description provided for @routeProxyAddress.
+  ///
+  /// In en, this message translates to:
+  /// **'Point your apps / browser at {addr}'**
+  String routeProxyAddress(String addr);
+
+  /// No description provided for @routeServeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Be an exit node'**
+  String get routeServeTitle;
+
+  /// No description provided for @routeServeHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Let other peers route their traffic out to the internet through this node. More exits make the network more censorship-resistant — but traffic will appear to originate from this device.'**
+  String get routeServeHint;
+
+  /// No description provided for @routeAllowPrivate.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow private networks (advanced)'**
+  String get routeAllowPrivate;
+
+  /// No description provided for @routeAllowPrivateHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Let the exit reach loopback / RFC1918 / link-local addresses. Leave OFF on any public exit — it prevents reaching internal services and cloud metadata endpoints.'**
+  String get routeAllowPrivateHint;
+
+  /// No description provided for @routeAppliesNextStart.
+  ///
+  /// In en, this message translates to:
+  /// **'Changes apply the next time the node starts.'**
+  String get routeAppliesNextStart;
+
+  /// No description provided for @routeRestartNode.
+  ///
+  /// In en, this message translates to:
+  /// **'Restart node to apply now'**
+  String get routeRestartNode;
+
   /// No description provided for @networkNodesTitle.
   ///
   /// In en, this message translates to:
