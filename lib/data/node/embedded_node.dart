@@ -6,6 +6,7 @@ import 'package:ffi/ffi.dart';
 
 import '../native_libs.dart' show processLibFor;
 import 'node_controller.dart';
+import 'proxy_routing.dart';
 import 'veil_node.dart' show veilSocketProbe;
 
 /// The handle the embedded-node symbols resolve against. On Android they live
@@ -150,6 +151,7 @@ class EmbeddedNode {
     bool anonymous = false,
     List<BootstrapPeerCfg> bootstrapPeers = const [],
     String? obfs4PskFile,
+    ProxyRouting proxy = ProxyRouting.disabled,
   }) {
     return _composeConfigImpl(
       identityToml: identityToml,
@@ -160,6 +162,7 @@ class EmbeddedNode {
       anonymous: anonymous,
       bootstrapPeers: bootstrapPeers,
       obfs4PskFile: obfs4PskFile,
+      proxy: proxy,
     );
   }
 
@@ -216,6 +219,31 @@ class EmbeddedNode {
     return '$toml\n[anonymity]\nreceive_anonymous = true\nonion_service = true\n';
   }
 
+  /// Append `[proxy.socks5]` / `[proxy.exit]` tables for traffic routing. The
+  /// node runtime spawns these as services on boot AND re-spawns them on
+  /// apply-config reload, so toggling routing needs no native rebuild — just a
+  /// re-applied config carrying (or omitting) these sections. Pure helper (no
+  /// FFI), so it is unit-testable. A SOCKS5 client role is only emitted with a
+  /// valid exit ([ProxyRouting.socks5Active]); veil skips an exit-less SOCKS5.
+  static String withProxy(String toml, ProxyRouting proxy) {
+    if (!proxy.isActive || toml.contains('[proxy.')) return toml;
+    final buf = StringBuffer(toml);
+    if (proxy.socks5Active) {
+      buf
+        ..write('\n[proxy.socks5]\n')
+        ..write('enabled = true\n')
+        ..write('listen = "${proxy.socks5Listen}"\n')
+        ..write('exit_node_id = "${proxy.exitNodeId}"\n');
+    }
+    if (proxy.exitEnabled) {
+      buf
+        ..write('\n[proxy.exit]\n')
+        ..write('enabled = true\n')
+        ..write('allow_private = ${proxy.exitAllowPrivate}\n');
+    }
+    return buf.toString();
+  }
+
   static String _composeConfigImpl({
     required String identityToml,
     required String listenTransport,
@@ -225,6 +253,7 @@ class EmbeddedNode {
     bool anonymous = false,
     List<BootstrapPeerCfg> bootstrapPeers = const [],
     String? obfs4PskFile,
+    ProxyRouting proxy = ProxyRouting.disabled,
   }) {
     final dl = lib ?? _veilLib();
     final composeFn =
@@ -254,7 +283,10 @@ class EmbeddedNode {
       final toml = out.toDartString();
       freeStr(out);
       return withObfs4PskFile(
-        withBootstrapPeers(withAnonymity(toml, anonymous), bootstrapPeers),
+        withProxy(
+          withBootstrapPeers(withAnonymity(toml, anonymous), bootstrapPeers),
+          proxy,
+        ),
         obfs4PskFile,
       );
     } finally {
