@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -96,9 +97,12 @@ Future<List<Override>> _bootstrapOverrides() async {
     // bootstrap peers. Absent ⇒ the node relies on its compiled-in BUILTIN_SEEDS.
     final bootstrapPeers = _loadBootstrapPeers();
     // XVEIL_OBFS4_PSK: base64 deployment-wide obfs4 key for networks that pin
-    // one (testnet). Without it, dialing obfs4 bootstrap peers fails the
-    // handshake. Treated as config, not a secret — but environment-specific.
-    final obfs4Psk = Platform.environment['XVEIL_OBFS4_PSK'];
+    // one (testnet/production). Without it, dialing obfs4 bootstrap peers fails
+    // the handshake. Treated as config, not a secret — but environment-specific.
+    // On mobile there is no env var, so fall back to the bundled deployment PSK
+    // asset (gitignored; present in production builds, absent in clean clones).
+    final obfs4Psk =
+        Platform.environment['XVEIL_OBFS4_PSK'] ?? await _loadBundledObfs4Psk();
     overrides.add(deniableBootProvider.overrideWithValue(DeniableBootConfig(
         runtimeDir: runtimeDir,
         listenPort: port,
@@ -110,6 +114,20 @@ Future<List<Override>> _bootstrapOverrides() async {
   }
 
   return overrides;
+}
+
+/// Load the deployment-wide obfs4 PSK bundled at `assets/prod/obfs4_psk.b64`
+/// (gitignored — present in production builds, absent in clean clones). Returns
+/// null when the asset is missing/empty, so the node simply has no PSK (the
+/// graceful-degradation path) rather than blocking launch. This is the mobile
+/// equivalent of the desktop `XVEIL_OBFS4_PSK` env var.
+Future<String?> _loadBundledObfs4Psk() async {
+  try {
+    final raw = (await rootBundle.loadString('assets/prod/obfs4_psk.b64')).trim();
+    return raw.isEmpty ? null : raw;
+  } catch (_) {
+    return null; // asset not bundled (clean clone) — degrade gracefully
+  }
 }
 
 /// Load bootstrap peers from the local JSON file named by `XVEIL_BOOTSTRAP_PEERS`

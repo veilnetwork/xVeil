@@ -60,3 +60,4 @@ ios/Runner.xcworkspace/xcshareddata/swiftpm/
 /.dev-mailbox/
 /.dev-mailbox-mesh/
 /.dev-mailbox-onion/
+/assets/prod/obfs4_psk.b64
