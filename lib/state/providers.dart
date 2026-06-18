@@ -134,9 +134,23 @@ final deniableBootProvider = Provider<DeniableBootConfig?>((ref) => null);
 /// rebuild when it changes.
 final realStackProvider = StateProvider<RealVeilStack?>((ref) => null);
 
+/// HONEST boot status of the REAL node, when a real node is expected (a packaged
+/// build / armed deniable boot) but the stack isn't up yet. Non-null ⇒ the UI
+/// must show THIS (e.g. `starting`, or `error`/`offline` with a message) rather
+/// than the in-memory demo node — so the app never fabricates a "connected"
+/// state. main() seeds it (`starting`/`error`) and [AppController] updates it
+/// when the in-process boot fails. Null ⇒ no real node expected (pure dev/UI
+/// build) ⇒ the demo `FakeNodeController` is used.
+final nodeBootStateProvider = StateProvider<NodeStatus?>((ref) => null);
+
 final nodeControllerProvider = Provider<NodeController>((ref) {
   final stack = ref.watch(realStackProvider);
   if (stack != null) return stack.controller; // owned/disposed by the stack
+  // Real node expected but not up: surface the honest boot status — NEVER the
+  // demo node's fabricated peer count.
+  final boot = ref.watch(nodeBootStateProvider);
+  if (boot != null) return StaticNodeController(boot);
+  // No real node expected (dev/UI/test build) — the in-memory demo node.
   final node = FakeNodeController();
   ref.onDispose(node.stop);
   return node;

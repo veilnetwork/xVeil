@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'app.dart';
 import 'data/node/embedded_node.dart';
+import 'data/node/node_controller.dart';
 import 'data/storage/hidden_volume_storage.dart';
 import 'data/storage/hv_kv_log_store.dart';
 import 'data/storage/hv_native.dart';
@@ -109,8 +110,22 @@ Future<List<Override>> _bootstrapOverrides() async {
         storePath: storePath,
         bootstrapPeers: bootstrapPeers,
         obfs4Psk: (obfs4Psk != null && obfs4Psk.isNotEmpty) ? obfs4Psk : null)));
+    // Real node expected: show an honest "connecting…" until it's up (or an
+    // error if the in-process boot fails) — never the demo node's fake count.
+    overrides.add(nodeBootStateProvider
+        .overrideWith((ref) => const NodeStatus(phase: NodePhase.starting)));
     debugPrint('xVeil[real:deniable]: armed (runtimeDir=$runtimeDir port=$port '
         'bootstrapPeers=${bootstrapPeers.length} obfs4Psk=${obfs4Psk != null && obfs4Psk.isNotEmpty})');
+  } else if (Platform.isAndroid || Platform.isIOS) {
+    // A packaged mobile build ALWAYS ships the in-process node, so reaching here
+    // means the native library failed to load / lacks the embedded-node FFI.
+    // Surface that honestly instead of silently showing the demo node.
+    overrides.add(nodeBootStateProvider.overrideWith((ref) => const NodeStatus(
+          phase: NodePhase.error,
+          message: 'embedded node unavailable (native library failed to load)',
+        )));
+    debugPrint('xVeil[real]: embedded node unavailable on mobile '
+        '(veilLoaded=${ensureVeilClientLoaded()} embedded=${embeddedNodeAvailable()})');
   }
 
   return overrides;
