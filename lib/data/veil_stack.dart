@@ -48,9 +48,11 @@ class RealVeilStack {
     String? veilCliPath,
     String? configPath,
     VeilFlutterTransport? nodeIpc,
+    String? runtimeDir,
   })  : _cli = veilCliPath,
         _config = configPath,
-        _flutterTransport = nodeIpc;
+        _flutterTransport = nodeIpc,
+        _runtimeDir = runtimeDir;
 
   final NodeController controller;
   final VeilTransport transport;
@@ -61,6 +63,9 @@ class RealVeilStack {
   final String? _config;
   // ...the deniable path uses the node's own IPC instead.
   final VeilFlutterTransport? _flutterTransport;
+  // The ephemeral runtime dir (sockets + public PSK). Deleted on dispose so it
+  // leaves NO at-rest artifact — see [dispose].
+  final String? _runtimeDir;
 
   /// Production boot: identity comes from the unlocked [storage] (mined +
   /// stored on first run), the node boots in-process via deferred-init and has
@@ -222,6 +227,7 @@ class RealVeilStack {
       transport: transport,
       myInvite: invite,
       nodeIpc: transport,
+      runtimeDir: runtimeDir,
     );
   }
 
@@ -291,5 +297,18 @@ class RealVeilStack {
   Future<void> dispose() async {
     await transport.dispose();
     await controller.stop();
+    // Deniability: the runtime dir (sockets + the public obfs4 PSK) is named
+    // per-identity and would otherwise persist in temp after teardown — a
+    // plaintext side-channel revealing that identities ran (and, before the
+    // opaque-naming fix, which ones). Remove it now that the node is stopped.
+    final dir = _runtimeDir;
+    if (dir != null) {
+      try {
+        final d = Directory(dir);
+        if (d.existsSync()) await d.delete(recursive: true);
+      } catch (_) {
+        // Best-effort — a leftover empty socket dir is not worth failing on.
+      }
+    }
   }
 }
