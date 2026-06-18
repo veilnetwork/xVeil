@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/ids.dart';
+import '../data/node/node_controller.dart';
 import '../data/veil_stack.dart';
 import '../domain/identity.dart';
 import '../domain/roster.dart';
@@ -845,11 +846,19 @@ class AppController extends Notifier<AppState> {
         obfs4Psk: boot.obfs4Psk,
       );
       ref.read(realStackProvider.notifier).state = stack;
+      // Real node is up — clear any pending boot status so the UI follows the
+      // real controller's live state, not a stale "connecting…".
+      ref.read(nodeBootStateProvider.notifier).state = null;
       debugPrint('xVeil[deniable]: node up, invite=${stack.myInvite.nodeId.short}');
     } catch (e, st) {
-      // Stay on loopback — a node-boot failure must not trap the user — but
-      // surface WHY so we can fix it (the stack trace points at the failing step).
-      debugPrint('xVeil[deniable]: boot FAILED -> loopback: $e\n$st');
+      // A node-boot failure must not trap the user — but it must NOT be hidden
+      // behind a fake "connected" either: surface it honestly (the network
+      // screen shows this state + a non-blocking notice) and in the log.
+      ref.read(nodeBootStateProvider.notifier).state = NodeStatus(
+        phase: NodePhase.error,
+        message: 'node failed to start: $e',
+      );
+      debugPrint('xVeil[deniable]: boot FAILED: $e\n$st');
     }
   }
 

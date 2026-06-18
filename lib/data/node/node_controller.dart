@@ -38,3 +38,23 @@ abstract interface class NodeController {
 
   NodeStatus get current;
 }
+
+/// A controller that just reports one fixed [NodeStatus] and does nothing else.
+/// Used to surface the HONEST real-node boot state in the UI (`starting` /
+/// `error` with a message) when the real stack is expected but not up yet —
+/// instead of silently swapping in the in-memory demo node, which would show a
+/// fabricated "connected / N peers" the user must never be misled by.
+class StaticNodeController implements NodeController {
+  StaticNodeController(this._current);
+  final NodeStatus _current;
+  @override
+  NodeStatus get current => _current;
+  @override
+  Stream<NodeStatus> status() => const Stream.empty();
+  @override
+  Future<void> start() async {}
+  @override
+  Future<void> setEconomyMode(bool economy) async {}
+  @override
+  Future<void> stop() async {}
+}
