@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../data/node/node_controller.dart';
 import '../../l10n/app_localizations.dart';
+import '../../state/managed_nodes_controller.dart';
 import '../../state/providers.dart';
 import '../../state/proxy_routing_controller.dart';
 
@@ -74,13 +75,19 @@ class NetworkScreen extends ConsumerWidget {
               onTap: () => context.push('/route'),
             );
           }),
-          ListTile(
-            leading: const Icon(Icons.dns_outlined),
-            title: Text(l.networkNodesTitle),
-            subtitle: Text(l.networkNodesSub),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _soon(context),
-          ),
+          Consumer(builder: (context, ref, _) {
+            final count =
+                ref.watch(managedNodesProvider).asData?.value.length ?? 0;
+            return ListTile(
+              leading: const Icon(Icons.dns_outlined),
+              title: Text(l.networkNodesTitle),
+              subtitle: Text(count > 0
+                  ? l.networkNodesSubCount(count)
+                  : l.networkNodesSub),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/nodes'),
+            );
+          }),
           ListTile(
             leading: const Icon(Icons.extension_outlined),
             title: Text(l.networkExtTitle),
