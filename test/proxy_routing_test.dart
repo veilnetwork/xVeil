@@ -70,6 +70,32 @@ void main() {
       expect(EmbeddedNode.withProxy(base, cfg), base);
     });
 
+    test('a TOML-injecting or non-loopback listen is rejected (fail-closed)',
+        () {
+      // Quote/newline break-out attempt — must NOT reach the config.
+      const inject = ProxyRouting(
+        socks5Enabled: true,
+        exitNodeId: _exit,
+        socks5Listen: '127.0.0.1:1080"\nallow = true',
+      );
+      expect(inject.socks5Active, isFalse);
+      expect(EmbeddedNode.withProxy(base, inject), isNot(contains('allow = true')));
+      expect(EmbeddedNode.withProxy(base, inject), isNot(contains('[proxy.socks5]')));
+
+      // Non-loopback bind (open-proxy footgun) — rejected.
+      const open = ProxyRouting(
+        socks5Enabled: true, exitNodeId: _exit, socks5Listen: '0.0.0.0:1080');
+      expect(open.socks5Active, isFalse);
+      expect(EmbeddedNode.withProxy(base, open), isNot(contains('[proxy.socks5]')));
+
+      // A normal loopback listen is fine.
+      expect(ProxyRouting.isValidListen('127.0.0.1:1080'), isTrue);
+      expect(ProxyRouting.isValidListen('localhost:9050'), isTrue);
+      expect(ProxyRouting.isValidListen('8.8.8.8:53'), isFalse);
+      expect(ProxyRouting.isValidListen('127.0.0.1:0'), isFalse);
+      expect(ProxyRouting.isValidListen('127.0.0.1:99999'), isFalse);
+    });
+
     test('exit role injects [proxy.exit] with allow_private', () {
       const cfg = ProxyRouting(exitEnabled: true, exitAllowPrivate: false);
       final out = EmbeddedNode.withProxy(base, cfg);
