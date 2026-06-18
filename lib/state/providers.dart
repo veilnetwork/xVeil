@@ -180,3 +180,13 @@ final nodeStatusProvider = StreamProvider<NodeStatus>((ref) async* {
   yield node.current;
   yield* node.status();
 });
+
+/// Live count of the node's connected peers (active overlay sessions), from the
+/// REAL transport — the genuine number shown in the network UI. Null/0 until a
+/// real node is up (the demo loopback reports 0). Driven by the node's
+/// `sessionsChanged` events, so it tracks connects/disconnects in real time.
+final sessionCountProvider = StreamProvider<int>((ref) {
+  final stack = ref.watch(realStackProvider);
+  if (stack == null) return Stream<int>.value(0);
+  return stack.transport.sessionCount();
+});

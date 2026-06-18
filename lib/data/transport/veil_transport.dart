@@ -41,5 +41,10 @@ abstract interface class VeilTransport {
   /// Inbound application payloads addressed to us.
   Stream<InboundMessage> messages();
 
+  /// Live count of the node's active overlay sessions (its connected peers) —
+  /// emits the current value and every change. Surfaced as the real peer count
+  /// in the network UI (never a fabricated number).
+  Stream<int> sessionCount();
+
   Future<void> dispose();
 }
