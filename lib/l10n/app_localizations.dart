@@ -1219,6 +1219,60 @@ abstract class AppL10n {
   /// **'{n}d ago'**
   String timeDaysAgo(int n);
 
+  /// No description provided for @peersShareAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Share entry nodes'**
+  String get peersShareAction;
+
+  /// No description provided for @peersShareTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Share entry nodes'**
+  String get peersShareTitle;
+
+  /// No description provided for @peersShareSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Pick nodes to give a friend working entry points to the network — useful if the default seeds are blocked where they are. This shares ONLY these nodes, never your identity.'**
+  String get peersShareSubtitle;
+
+  /// No description provided for @peersShareNone.
+  ///
+  /// In en, this message translates to:
+  /// **'No known entry nodes to share'**
+  String get peersShareNone;
+
+  /// No description provided for @peersShareSelectOne.
+  ///
+  /// In en, this message translates to:
+  /// **'Select at least one node'**
+  String get peersShareSelectOne;
+
+  /// No description provided for @peersShareGenerate.
+  ///
+  /// In en, this message translates to:
+  /// **'Generate link'**
+  String get peersShareGenerate;
+
+  /// No description provided for @peersShareScanHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Have your friend scan this or open the link in xVeil'**
+  String get peersShareScanHint;
+
+  /// No description provided for @peerActiveBadge.
+  ///
+  /// In en, this message translates to:
+  /// **'active'**
+  String get peerActiveBadge;
+
+  /// No description provided for @peersImported.
+  ///
+  /// In en, this message translates to:
+  /// **'Added {n} entry nodes'**
+  String peersImported(int n);
+
   /// No description provided for @onboardRepeatPassword.
   ///
   /// In en, this message translates to:

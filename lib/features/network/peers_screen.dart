@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/transport/veil_transport.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/providers.dart';
+import 'share_peers_sheet.dart';
 
 /// The peers detail screen, reached by tapping the peer count on the network
 /// tab. Lists the node's peers split into Active / Inactive, each with a
@@ -22,7 +23,21 @@ class PeersScreen extends ConsumerWidget {
     final l = AppL10n.of(context);
     final peersAsync = ref.watch(peersProvider);
     return Scaffold(
-      appBar: AppBar(title: Text(l.peersTitle)),
+      appBar: AppBar(
+        title: Text(l.peersTitle),
+        actions: [
+          IconButton(
+            tooltip: l.peersShareAction,
+            icon: const Icon(Icons.ios_share),
+            onPressed: () => showModalBottomSheet<void>(
+              context: context,
+              showDragHandle: true,
+              isScrollControlled: true,
+              builder: (_) => const SharePeersSheet(),
+            ),
+          ),
+        ],
+      ),
       body: peersAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => _Empty(message: '$e'),
