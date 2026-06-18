@@ -4,6 +4,7 @@ import 'dart:isolate';
 
 import 'package:flutter/foundation.dart';
 
+import 'native_libs.dart' show processLibFor;
 import 'node/embedded_node.dart';
 import 'node/node_controller.dart';
 import 'node/veil_node.dart';
@@ -12,15 +13,18 @@ import 'transport/bootstrap_invite.dart';
 import 'transport/veil_flutter_transport.dart';
 import 'transport/veil_transport.dart';
 
-/// Mine a node identity in a worker isolate. Opens the veil dylib from
-/// `VEIL_FFI_DYLIB` (falling back to the process symbols) so the FFI resolves
-/// independently of how the parent isolate loaded it. Top-level so it is a
-/// valid `Isolate.run` entry point.
+/// Mine a node identity in a worker isolate. Re-opens the veil dylib INSIDE the
+/// isolate (the parent's load is not guaranteed visible across isolates): from
+/// `VEIL_FFI_DYLIB` when set (desktop/tests), else [processLibFor] — which on
+/// Android `dlopen`s `libveilclient_ffi.so` by name (its symbols are LOCAL to
+/// that handle, NOT in the global `DynamicLibrary.process()` table, so a
+/// process() lookup of `veil_config_init` fails with "undefined symbol").
+/// Top-level so it is a valid `Isolate.run` entry point.
 String _mineConfigInIsolate() {
   final path = Platform.environment['VEIL_FFI_DYLIB'];
   final lib = (path != null && path.isNotEmpty && File(path).existsSync())
       ? DynamicLibrary.open(path)
-      : DynamicLibrary.process();
+      : processLibFor('veilclient_ffi');
   return EmbeddedNode.mineConfig(0, lib: lib);
 }
 
