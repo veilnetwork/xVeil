@@ -44,6 +44,7 @@ class _ProxyRoutingScreenState extends ConsumerState<ProxyRoutingScreen> {
     final scheme = Theme.of(context).colorScheme;
     final exitText = _exitId.text.trim();
     final exitInvalid = exitText.isNotEmpty && !_isHex64(exitText);
+    final listenInvalid = !ProxyRouting.isValidListen(_listen.text.trim());
 
     return Scaffold(
       appBar: AppBar(title: Text(l.routeTitle)),
@@ -65,11 +66,15 @@ class _ProxyRoutingScreenState extends ConsumerState<ProxyRoutingScreen> {
                 controller: _listen,
                 decoration: InputDecoration(
                   labelText: l.routeListenLabel,
+                  helperText: l.routeListenHint,
+                  errorText: listenInvalid ? l.routeListenInvalid : null,
                   border: const OutlineInputBorder(),
                   isDense: true,
                 ),
-                onChanged: (v) =>
-                    _save(cfg.copyWith(socks5Listen: v.trim())),
+                onChanged: (v) {
+                  setState(() {}); // refresh validation + status line
+                  _save(cfg.copyWith(socks5Listen: v.trim()));
+                },
               ),
             ),
             Padding(

@@ -1069,6 +1069,18 @@ abstract class AppL10n {
   /// **'Local SOCKS5 address'**
   String get routeListenLabel;
 
+  /// No description provided for @routeListenHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Loopback only (e.g. 127.0.0.1:1080) — keeps the proxy private to this device.'**
+  String get routeListenHint;
+
+  /// No description provided for @routeListenInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Use a loopback host:port, e.g. 127.0.0.1:1080'**
+  String get routeListenInvalid;
+
   /// No description provided for @routeExitNodeLabel.
   ///
   /// In en, this message translates to:

@@ -46,6 +46,28 @@ void main() {
     expect(SharedPeers.looksLikeSharedPeers(invite), isFalse);
   });
 
+  test('skips entries with a malformed / injecting transport', () {
+    // Build a payload by hand with one good entry and bad transports.
+    String enc(List<Map<String, String>> arr) =>
+        'veil:peers?p=${base64Url.encode(utf8.encode(jsonEncode(arr)))}';
+    final good = {
+      'pk': base64.encode(_peer('tcp://1.2.3.4:9000', 1).publicKey),
+      't': 'tcp://1.2.3.4:9000',
+      'nc': base64.encode(_peer('x', 1).nonce),
+      'a': 'ed25519',
+    };
+    final bad = {
+      ...good,
+      't': 'tcp://1.2.3.4:9000"\n[evil]', // injection chars
+    };
+    // Only the good entry survives.
+    final parsed = SharedPeers.parse(enc([good, bad]));
+    expect(parsed.peers.length, 1);
+    expect(parsed.peers.single.transport, 'tcp://1.2.3.4:9000');
+    // A share with ONLY bad transports has no entries → rejected.
+    expect(() => SharedPeers.parse(enc([bad])), throwsFormatException);
+  });
+
   test('rejects malformed peers payloads', () {
     expect(() => SharedPeers.parse('veil:peers?'), throwsFormatException);
     expect(() => SharedPeers.parse('veil:peers?p='), throwsFormatException);
