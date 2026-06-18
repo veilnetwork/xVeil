@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../data/node/node_controller.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/providers.dart';
+import '../../state/proxy_routing_controller.dart';
 
 class NetworkScreen extends ConsumerWidget {
   const NetworkScreen({super.key});
@@ -58,13 +59,21 @@ class NetworkScreen extends ConsumerWidget {
           const Divider(),
           // Secondary controls — proxy/VPN + node management land here in later
           // milestones, behind their own ports (oproxy/ogate, SSH provisioning).
-          ListTile(
-            leading: const Icon(Icons.vpn_lock_outlined),
-            title: Text(l.networkRouteTitle),
-            subtitle: Text(l.networkRouteSub),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _soon(context),
-          ),
+          Consumer(builder: (context, ref, _) {
+            final routing = ref.watch(proxyRoutingProvider);
+            return ListTile(
+              leading: Icon(Icons.vpn_lock_outlined,
+                  color: routing.isActive
+                      ? Theme.of(context).colorScheme.primary
+                      : null),
+              title: Text(l.networkRouteTitle),
+              subtitle: Text(routing.isActive
+                  ? l.networkRouteSubActive
+                  : l.networkRouteSubIdle),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/route'),
+            );
+          }),
           ListTile(
             leading: const Icon(Icons.dns_outlined),
             title: Text(l.networkNodesTitle),
