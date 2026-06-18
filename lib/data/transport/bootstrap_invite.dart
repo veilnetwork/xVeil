@@ -13,7 +13,7 @@ import '../../crypto/blake3.dart';
 class BootstrapInvite {
   BootstrapInvite({
     required this.publicKey,
-    required this.transport,
+    this.transport,
     required this.nonce,
     this.algo = 'ed25519',
   });
@@ -21,8 +21,14 @@ class BootstrapInvite {
   /// Signing public key (32 bytes for ed25519).
   final Uint8List publicKey;
 
-  /// Transport URI to reach the node, e.g. `tcp://1.2.3.4:9000`.
-  final String transport;
+  /// Direct-dial transport URI to reach the node, e.g. `tcp://1.2.3.4:9000`.
+  /// NULL for an IDENTITY-ONLY invite: a node that isn't directly reachable
+  /// (e.g. a phone behind NAT, whose only listener is loopback) shares just its
+  /// identity (public_key/nonce → node_id) and is reached over the rendezvous
+  /// network by node_id — NOT by dialing an address. Including a loopback `t=`
+  /// here would be worse than useless (the redeemer would try to dial
+  /// `127.0.0.1` on THEIR device).
+  final String? transport;
 
   /// Proof-of-work nonce bytes.
   final Uint8List nonce;
@@ -50,14 +56,14 @@ class BootstrapInvite {
       params[part.substring(0, i)] = part.substring(i + 1);
     }
     final pk = params['pk'];
-    final t = params['t'];
+    final t = params['t']; // optional — absent ⇒ identity-only invite
     final nc = params['nc'];
-    if (pk == null || t == null || nc == null) {
-      throw const FormatException('invite missing pk/t/nc');
+    if (pk == null || nc == null) {
+      throw const FormatException('invite missing pk/nc');
     }
     return BootstrapInvite(
       publicKey: base64.decode(pk),
-      transport: t,
+      transport: (t != null && t.isNotEmpty) ? t : null,
       nonce: base64.decode(nc),
       algo: params['a'] ?? 'ed25519',
     );
@@ -65,7 +71,7 @@ class BootstrapInvite {
 
   String toUri() => '$_scheme'
       'pk=${base64.encode(publicKey)}'
-      '&t=$transport'
+      '${(transport != null && transport!.isNotEmpty) ? '&t=$transport' : ''}'
       '&a=$algo'
       '&nc=${base64.encode(nonce)}';
 }
