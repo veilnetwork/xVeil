@@ -1,9 +1,12 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../data/node/node_controller.dart';
 import '../../l10n/app_localizations.dart';
+import '../../state/background_node_controller.dart';
 import '../../state/managed_nodes_controller.dart';
 import '../../state/providers.dart';
 import '../../state/proxy_routing_controller.dart';
@@ -75,6 +78,22 @@ class NetworkScreen extends ConsumerWidget {
               onTap: () => context.push('/route'),
             );
           }),
+          // Background operation — Android only (a foreground service keeps the
+          // node, proxy and delivery alive when backgrounded). Opt-in: it shows
+          // a persistent notification, so it's off by default for deniability.
+          if (Platform.isAndroid)
+            Consumer(builder: (context, ref, _) {
+              final on = ref.watch(backgroundNodeProvider);
+              return SwitchListTile(
+                secondary: const Icon(Icons.battery_charging_full_outlined),
+                title: Text(l.networkBackgroundTitle),
+                subtitle: Text(l.networkBackgroundHint),
+                isThreeLine: true,
+                value: on,
+                onChanged: (v) =>
+                    ref.read(backgroundNodeProvider.notifier).set(v),
+              );
+            }),
           Consumer(builder: (context, ref, _) {
             final count =
                 ref.watch(managedNodesProvider).asData?.value.length ?? 0;

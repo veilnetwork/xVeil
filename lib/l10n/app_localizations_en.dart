@@ -678,6 +678,13 @@ class AppL10nEn extends AppL10n {
   String get networkStatusError => 'Error';
 
   @override
+  String get networkBackgroundTitle => 'Keep running in background';
+
+  @override
+  String get networkBackgroundHint =>
+      'Android only. Keeps the node — your proxy and incoming-message delivery — alive after you switch away from the app. Requires a persistent notification (so it\'s visible the app is running) and uses more battery.';
+
+  @override
   String get peersTitle => 'Connected peers';
 
   @override

@@ -9,6 +9,7 @@ import '../data/node/node_controller.dart';
 import '../data/veil_stack.dart';
 import '../domain/identity.dart';
 import '../domain/roster.dart';
+import 'background_node_controller.dart';
 import 'keep_all_online_controller.dart';
 import 'proxy_routing_controller.dart';
 import 'providers.dart';
@@ -229,6 +230,7 @@ class AppController extends Notifier<AppState> {
       listenPort: boot.listenPort,
     );
     await session.bootAll(roster);
+    await ref.read(backgroundNodeProvider.notifier).applyIfNodeUp(nodeUp: true);
     ref.read(sessionProvider.notifier).state = session;
     final first = roster.first.label;
     await _activateOnline(first, [for (final e in roster) e.label]);
@@ -857,6 +859,10 @@ class AppController extends Notifier<AppState> {
       // Real node is up — clear any pending boot status so the UI follows the
       // real controller's live state, not a stale "connecting…".
       ref.read(nodeBootStateProvider.notifier).state = null;
+      // Keep the node alive when backgrounded if the user opted in (Android FGS).
+      await ref
+          .read(backgroundNodeProvider.notifier)
+          .applyIfNodeUp(nodeUp: true);
       debugPrint('xVeil[deniable]: node up, invite=${stack.myInvite.nodeId.short}');
     } catch (e, st) {
       // A node-boot failure must not trap the user — but it must NOT be hidden
@@ -873,6 +879,7 @@ class AppController extends Notifier<AppState> {
   Future<void> lock() async {
     await _teardownSession(); // all-online: stop every node + release the lock
     await _teardownRealStack();
+    await _stopBackgroundService();
     await _cleanRuntimeBase();
     await ref.read(storageProvider).close();
     _clearMasterSession();
@@ -907,6 +914,12 @@ class AppController extends Notifier<AppState> {
   /// each identity's sockets + the public obfs4 PSK). Each stack already deletes
   /// its own subdir on dispose; this clears the now-empty base and any straggler
   /// so NO trace that nodes ran is left in temp after lock/wipe. Best-effort.
+  /// Stop the background foreground service on teardown — no node is running
+  /// once locked, so nothing should keep the process (or its notification) alive.
+  Future<void> _stopBackgroundService() async {
+    await ref.read(backgroundNodeProvider.notifier).applyIfNodeUp(nodeUp: false);
+  }
+
   Future<void> _cleanRuntimeBase() async {
     final base = ref.read(deniableBootProvider)?.runtimeDir;
     if (base == null) return;
@@ -923,6 +936,7 @@ class AppController extends Notifier<AppState> {
   Future<void> startOver() async {
     await _teardownSession();
     await _teardownRealStack();
+    await _stopBackgroundService();
     await _cleanRuntimeBase();
     await ref.read(storageProvider).close();
     _clearMasterSession();
@@ -943,6 +957,7 @@ class AppController extends Notifier<AppState> {
   Future<void> wipeContainers() async {
     await _teardownSession();
     await _teardownRealStack();
+    await _stopBackgroundService();
     await _cleanRuntimeBase();
     await ref.read(storageProvider).close();
     _clearMasterSession();
