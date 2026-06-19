@@ -57,6 +57,9 @@ dependencies:
   # version veil_flutter already pulls in (transitively) to avoid a resolver
   # conflict.
   mobile_scanner: ^5.2.3
+  # Pure-Dart SSH client for "My nodes" — connect to a server you run and
+  # provision/check a veil node over SSH (no native code).
+  dartssh2: ^2.9.0
   # Direct dart:ffi helpers (Utf8/calloc) for the embedded-node binding.
   ffi: ^2.1.0
 
