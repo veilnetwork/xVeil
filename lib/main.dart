@@ -89,8 +89,23 @@ Future<List<Override>> _bootstrapOverrides() async {
     // stored inside the unlocked container (AppController._ensureRealStack),
     // so nothing identity-bearing is ever written to a config.toml. Each
     // instance needs its own listener port (XVEIL_LISTEN_PORT) + sockets dir.
+    // Runtime sockets dir (admin/ipc unix sockets + the public PSK). On mobile,
+    // Directory.systemTemp is the app's code_cache, where some devices' SELinux
+    // policy DENIES creating unix socket files (`sock_file create`) — the
+    // embedded node then can't bind its admin socket and apply-config fails with
+    // ENOENT (observed on a MediaTek Android 11). The app's PRIMARY data dir
+    // (getApplicationSupportDirectory — where the container already lives,
+    // proven writable) is where apps are expected to place unix sockets. Desktop
+    // keeps systemTemp (/tmp): short paths that stay under the ~104-char
+    // unix-socket path limit (the app-support dir there is long).
+    final String runtimeBase;
+    if (Platform.isAndroid || Platform.isIOS) {
+      runtimeBase = (await getApplicationSupportDirectory()).path;
+    } else {
+      runtimeBase = Directory.systemTemp.path;
+    }
     final runtimeDir = Platform.environment['XVEIL_RUNTIME_DIR'] ??
-        '${Directory.systemTemp.path}/xveil-rt-$pid';
+        '$runtimeBase/xveil-rt-$pid';
     final port =
         int.tryParse(Platform.environment['XVEIL_LISTEN_PORT'] ?? '') ?? 9000;
     // XVEIL_BOOTSTRAP_PEERS points at a local JSON file (gitignored — a testnet
