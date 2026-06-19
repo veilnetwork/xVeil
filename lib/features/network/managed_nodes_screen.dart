@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import '../../data/node/managed_node.dart';
 import '../../data/node/node_probe.dart';
 import '../../l10n/app_localizations.dart';
+import 'ssh_check_dialog.dart';
 import '../../state/managed_nodes_controller.dart';
 import '../../state/proxy_routing_controller.dart';
 
@@ -278,6 +279,7 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
                   flex: 3,
                   child: TextField(
                     controller: _user,
+                    onChanged: (_) => setState(() {}),
                     decoration: InputDecoration(
                       labelText: l.nodeSshUserLabel,
                       border: const OutlineInputBorder(),
@@ -322,6 +324,24 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
                       ],
                     ),
                 ],
+              ),
+            // SSH connect & check — needs a user. Opens a one-shot auth dialog;
+            // credentials are never stored.
+            if (_host.text.trim().isNotEmpty && _user.text.trim().isNotEmpty)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () => showDialog<void>(
+                    context: context,
+                    builder: (_) => SshCheckDialog(
+                      host: _host.text.trim(),
+                      port: int.tryParse(_port.text.trim()) ?? 22,
+                      user: _user.text.trim(),
+                    ),
+                  ),
+                  icon: const Icon(Icons.terminal, size: 18),
+                  label: Text(l.nodeSshConnect),
+                ),
               ),
             const SizedBox(height: 8),
             // Provisioning over SSH is the next layer — flagged, not faked.
