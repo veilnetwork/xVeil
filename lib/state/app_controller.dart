@@ -323,19 +323,19 @@ class AppController extends Notifier<AppState> {
   /// Whether the active identity is configured for anonymous (onion) routing.
   /// False in single-identity mode (no roster) and for non-anonymous children.
   bool _activeAnonymous() {
-    // Test/dev affordance: arm onion routing without master-mode setup (the
-    // per-identity shield toggle only exists in master mode). DEBUG-ONLY and
-    // env-gated, so it cannot affect a release build even if the var is set;
-    // and it can only ADD anonymity, never remove it.
-    if (kDebugMode && Platform.environment['XVEIL_FORCE_ANONYMOUS'] == '1') {
-      return true;
-    }
+    // Anonymity-FIRST default: a single identity boots over the onion rendezvous
+    // (receive_anonymous + onion_service), so it can RECEIVE an onion introduce
+    // and is reachable by node_id without revealing its location. Paired with
+    // anonymous sends (see messagingServiceProvider), this gives live,
+    // NAT-traversing delivery over the held mesh sessions instead of the 30s
+    // mailbox poll. In MASTER mode each identity's own `anonymous` flag governs
+    // it (so a specific identity can be opted out per the roster).
     final label = _activeLabel;
-    if (label == null || _pendingRoster == null) return false;
+    if (label == null || _pendingRoster == null) return true; // single-identity
     for (final e in _pendingRoster!) {
       if (e.label == label) return e.anonymous;
     }
-    return false;
+    return true;
   }
 
   /// Whether the CURRENTLY ACTIVE identity routes anonymously (onion) — for the
