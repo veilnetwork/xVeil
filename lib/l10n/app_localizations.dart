@@ -1333,6 +1333,18 @@ abstract class AppL10n {
   /// **'Error'**
   String get networkStatusError;
 
+  /// No description provided for @networkBackgroundTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep running in background'**
+  String get networkBackgroundTitle;
+
+  /// No description provided for @networkBackgroundHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Android only. Keeps the node — your proxy and incoming-message delivery — alive after you switch away from the app. Requires a persistent notification (so it\'s visible the app is running) and uses more battery.'**
+  String get networkBackgroundHint;
+
   /// No description provided for @peersTitle.
   ///
   /// In en, this message translates to:
