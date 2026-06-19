@@ -654,6 +654,48 @@ class AppL10nEn extends AppL10n {
       'Remote install / start over SSH — coming soon';
 
   @override
+  String get nodeSshConnect => 'Connect over SSH';
+
+  @override
+  String sshDialogTitle(String host) {
+    return 'SSH to $host';
+  }
+
+  @override
+  String get sshUsePassword => 'Password';
+
+  @override
+  String get sshUseKey => 'Private key';
+
+  @override
+  String get sshPasswordLabel => 'Password';
+
+  @override
+  String get sshKeyLabel => 'Private key (PEM)';
+
+  @override
+  String get sshKeyPassphraseLabel => 'Key passphrase (optional)';
+
+  @override
+  String get sshCredsNotSaved => 'Used once for this connection — never saved.';
+
+  @override
+  String get sshConnectRun => 'Connect & check';
+
+  @override
+  String get sshConnecting => 'Connecting…';
+
+  @override
+  String sshDone(String code) {
+    return 'Done (exit $code)';
+  }
+
+  @override
+  String sshError(String err) {
+    return 'Failed: $err';
+  }
+
+  @override
   String get nodeCheckReachable => 'Check reachability';
 
   @override
