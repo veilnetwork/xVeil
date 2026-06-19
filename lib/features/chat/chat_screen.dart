@@ -66,6 +66,37 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (mounted) Navigator.of(context).maybePop();
   }
 
+  Future<void> _resend() async {
+    await ref.read(messagingServiceProvider).resendRequest(_peer);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppL10n.of(context).chatRequestSent)),
+      );
+    }
+  }
+
+  Future<void> _cancel() async {
+    final l = AppL10n.of(context);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l.chatRequestCancelTitle),
+        content: Text(l.chatRequestCancelBody),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text(l.actionBack)),
+          FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text(l.chatRequestCancel)),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await ref.read(messagingServiceProvider).cancelRequest(_peer);
+    if (mounted) Navigator.of(context).maybePop();
+  }
+
   /// Pick a file and send it to the peer (consent-gated in the service). Bytes
   /// are read in full (withData) and bounded by the same cap the receiver
   /// enforces.
@@ -273,9 +304,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Widget _bottom(ContactStatus? status, AppL10n l) {
     switch (status) {
       case ContactStatus.pendingOutgoing:
-        return _Banner(
-          icon: Icons.hourglass_top,
+        return _PendingOutgoingActions(
           text: l.chatRequestSent,
+          resendLabel: l.chatRequestResend,
+          cancelLabel: l.chatRequestCancel,
+          onResend: _resend,
+          onCancel: _cancel,
         );
       case ContactStatus.pendingIncoming:
         return _RequestActions(onAccept: _accept, onBlock: _block);
@@ -359,6 +393,72 @@ class _RequestActions extends StatelessWidget {
                     onPressed: onAccept,
                     icon: const Icon(Icons.check, size: 18),
                     label: Text(l.actionAccept),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Bottom bar for a sent-but-not-yet-accepted request: the "waiting" line plus
+/// Resend / Cancel actions (so a request that didn't land can be retried or
+/// retracted without minting a new identity).
+class _PendingOutgoingActions extends StatelessWidget {
+  const _PendingOutgoingActions({
+    required this.text,
+    required this.resendLabel,
+    required this.cancelLabel,
+    required this.onResend,
+    required this.onCancel,
+  });
+  final String text;
+  final String resendLabel;
+  final String cancelLabel;
+  final VoidCallback onResend;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.hourglass_top,
+                    size: 18, color: scheme.onSurfaceVariant),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(text,
+                      style: TextStyle(color: scheme.onSurfaceVariant)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onCancel,
+                    icon: const Icon(Icons.close, size: 18),
+                    label: Text(cancelLabel),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: onResend,
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: Text(resendLabel),
                   ),
                 ),
               ],

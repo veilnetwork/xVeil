@@ -391,6 +391,23 @@ class HiddenVolumeStorage implements Storage {
   }
 
   @override
+  Future<void> removeConversation(NodeId peer) async {
+    // Tombstone every message in the conversation (forensic, like deleteMessage)
+    // …
+    for (final m in await loadMessages(peer.hex)) {
+      await deleteMessage(m.id);
+    }
+    // …then drop the contact record + its chat-list index entry in one commit.
+    final index = _contactIndex()..remove(peer.hex);
+    _s.commit([
+      DeleteOp(Ns.contacts, peer.bytes),
+      PutOp(Ns.settings, _sk('contacts:index'), _sk(jsonEncode(index))),
+    ]);
+    // Reclaim the orphaned chunks so the retracted request is truly gone.
+    await scrubDeleted();
+  }
+
+  @override
   Future<void> eraseSpace() async {
     // Erase EVERY namespace this app uses, then scrub orphaned chunks — the
     // identity's data (its keypair, contacts, message log, file blobs) is gone

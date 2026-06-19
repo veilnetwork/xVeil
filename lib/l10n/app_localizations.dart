@@ -397,6 +397,30 @@ abstract class AppL10n {
   /// **'Request sent — waiting for approval'**
   String get chatRequestSent;
 
+  /// No description provided for @chatRequestResend.
+  ///
+  /// In en, this message translates to:
+  /// **'Send again'**
+  String get chatRequestResend;
+
+  /// No description provided for @chatRequestCancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get chatRequestCancel;
+
+  /// No description provided for @chatRequestCancelTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel request?'**
+  String get chatRequestCancelTitle;
+
+  /// No description provided for @chatRequestCancelBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Removes this request and conversation from your device. If it already reached them, they may have seen it.'**
+  String get chatRequestCancelBody;
+
   /// No description provided for @chatBlockedContact.
   ///
   /// In en, this message translates to:
