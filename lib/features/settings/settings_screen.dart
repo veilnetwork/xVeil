@@ -156,24 +156,32 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               ),
             ),
-          // Single-identity anonymity toggle (master mode toggles per-identity
-          // in the switcher / manage screen instead). Reboots the node under the
-          // new routing; the home banner + node id refresh when it returns.
-          if (!master.$1)
-            SwitchListTile(
+          // Anonymity toggle for the ACTIVE identity — the SAME control in single
+          // and master modes (in master it routes the change to the active
+          // identity). Reboots the node under the new routing; the home banner +
+          // node id refresh when it returns.
+          Builder(builder: (_) {
+            final ctrl = ref.read(appControllerProvider.notifier);
+            final isMaster = master.$1;
+            final active = master.$2;
+            final anon = isMaster
+                ? (active != null && ctrl.isIdentityAnonymous(active))
+                : ctrl.singleIdentityAnonymous;
+            return SwitchListTile(
               secondary: const Icon(Icons.shield_moon_outlined),
               title: Text(l.settingsAnonymousRouting),
-              subtitle: Text(
-                  ref.read(appControllerProvider.notifier).singleIdentityAnonymous
-                      ? l.settingsAnonymousEnabledHint
-                      : l.settingsAnonymousDisabledHint),
+              subtitle: Text(anon
+                  ? l.settingsAnonymousEnabledHint
+                  : l.settingsAnonymousDisabledHint),
               isThreeLine: true,
-              value:
-                  ref.read(appControllerProvider.notifier).singleIdentityAnonymous,
-              onChanged: (v) => ref
-                  .read(appControllerProvider.notifier)
-                  .setSingleIdentityAnonymous(v),
-            ),
+              value: anon,
+              onChanged: (isMaster && active == null)
+                  ? null
+                  : (v) => isMaster
+                      ? ctrl.setIdentityAnonymous(active!, v)
+                      : ctrl.setSingleIdentityAnonymous(v),
+            );
+          }),
           if (master.$1)
             ListTile(
               leading: const Icon(Icons.switch_account_outlined),
