@@ -30,25 +30,41 @@ class _LockScreenState extends ConsumerState<LockScreen> {
 
   Future<void> _startOver() async {
     final l = AppL10n.of(context);
-    final confirmed = await showDialog<bool>(
+    final choice = await showDialog<_StartOverChoice>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(l.lockStartOver),
         content: Text(l.lockStartOverBody),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
+            onPressed: () => Navigator.of(ctx).pop(_StartOverChoice.cancel),
             child: Text(l.actionCancel),
           ),
+          // Surface the irreversible delete right here: "start over" keeps the
+          // container (deniability), so a user who actually wants a clean slate
+          // would otherwise never find the corner-tucked wipe.
+          TextButton(
+            style: TextButton.styleFrom(
+                foregroundColor: Theme.of(ctx).colorScheme.error),
+            onPressed: () => Navigator.of(ctx).pop(_StartOverChoice.delete),
+            child: Text(l.lockWipe),
+          ),
           FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
+            onPressed: () => Navigator.of(ctx).pop(_StartOverChoice.keep),
             child: Text(l.lockStartOver),
           ),
         ],
       ),
     );
-    if (confirmed == true) {
-      await ref.read(appControllerProvider.notifier).startOver();
+    if (!mounted) return;
+    switch (choice) {
+      case _StartOverChoice.keep:
+        await ref.read(appControllerProvider.notifier).startOver();
+      case _StartOverChoice.delete:
+        await _wipe(); // phrase-gated irreversible delete
+      case _StartOverChoice.cancel:
+      case null:
+        break;
     }
   }
 
@@ -135,6 +151,10 @@ class _LockScreenState extends ConsumerState<LockScreen> {
     );
   }
 }
+
+/// Outcome of the "start over" dialog: keep the container (deniable reset),
+/// delete it for good (routes to the phrase-gated wipe), or back out.
+enum _StartOverChoice { keep, delete, cancel }
 
 /// Irreversible-wipe confirmation gated behind typing an exact phrase, so an
 /// accidental double-tap can't destroy the container. Owns its own controller
