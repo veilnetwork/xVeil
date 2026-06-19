@@ -650,8 +650,41 @@ class AppL10nEn extends AppL10n {
   String get nodeNeedsNodeId => 'Add the node id to route through this node';
 
   @override
-  String get nodeProvisionSoon =>
-      'Remote install / start over SSH — coming soon';
+  String get nodeProvision => 'Provision veil node over SSH';
+
+  @override
+  String get provisionTitle => 'Provision over SSH';
+
+  @override
+  String get provisionReleaseUrl => 'veil-cli release URL';
+
+  @override
+  String get provisionReleaseHint =>
+      'Direct link to a veil-cli binary for the server\'s arch (a GitHub release asset).';
+
+  @override
+  String get provisionRunExit => 'Run as an exit (route my traffic through it)';
+
+  @override
+  String get provisionScriptLabel =>
+      'Runs on the server as root — review before running:';
+
+  @override
+  String get provisionPskMissing =>
+      'Deployment PSK isn\'t bundled in this build, so the node can\'t join the network. Provisioning is unavailable.';
+
+  @override
+  String get provisionRun => 'Run over SSH';
+
+  @override
+  String get provisionRunning =>
+      'Provisioning… (mining the identity can take a while)';
+
+  @override
+  String get provisionNeedUrl => 'Enter an https release URL';
+
+  @override
+  String get provisionSavedNodeId => 'Saved the node id reported by the server';
 
   @override
   String get nodeSshConnect => 'Connect over SSH';
