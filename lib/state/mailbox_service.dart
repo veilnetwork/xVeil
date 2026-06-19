@@ -72,6 +72,11 @@ class MailboxService implements MailboxSink {
   Timer? _drainTimer;
   bool _draining = false;
   bool _registered = false;
+  // Set once the underlying veil handle is permanently closed (the node rebooted
+  // out from under this service). Retrying is futile on a dead handle, so we stop
+  // the timer instead of busy-looping; a fresh stack rebuild starts a NEW mailbox
+  // on the live transport (see messagingServiceProvider).
+  bool _handleDead = false;
   // Relay candidates kept so the periodic tick can KEEP retrying registration
   // until one resolves (a relay's published key can appear minutes after we
   // first look — e.g. a just-restarted relay), not just during start()'s window.
@@ -87,6 +92,7 @@ class MailboxService implements MailboxSink {
   /// (no resolvable relay-key record) are simply skipped — the resolve itself
   /// validates the choice, so a wrong/derived node_id is non-fatal.
   Future<void> start({required List<NodeId> relays}) async {
+    if (_handleDead) return; // this service is bound to a dead handle; no-op
     _relays = relays;
     debugPrint('xVeil[mailbox]: start — ${relays.length} relay candidate(s), '
         'me=${_me.short}, alreadyRegistered=$_registered');
@@ -140,6 +146,16 @@ class MailboxService implements MailboxSink {
           '${relay.short} (me=${_me.short} reachable by node_id now)');
     } catch (e) {
       debugPrint('xVeil[mailbox]: register @ ${relay.short} FAILED: $e');
+      // A closed handle never recovers on this transport — stop the retry loop
+      // so we don't spam every drain tick. The provider rebuilds a fresh mailbox
+      // when the stack comes back up.
+      if (e.toString().contains('handle already closed')) {
+        _handleDead = true;
+        _drainTimer?.cancel();
+        _drainTimer = null;
+        debugPrint('xVeil[mailbox]: handle dead — stopping retries until a fresh '
+            'stack rebuilds this service');
+      }
     }
   }
 
@@ -163,7 +179,7 @@ class MailboxService implements MailboxSink {
   }
 
   Future<void> _drainTick() async {
-    if (_draining) return;
+    if (_draining || _handleDead) return;
     _draining = true;
     try {
       // Keep trying to advertise a mailbox relay until one resolves — a relay's
