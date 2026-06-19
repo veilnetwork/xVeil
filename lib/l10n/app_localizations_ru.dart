@@ -652,7 +652,42 @@ class AppL10nRu extends AppL10n {
       'Добавьте node id, чтобы маршрутизировать через этот узел';
 
   @override
-  String get nodeProvisionSoon => 'Удалённая установка / запуск по SSH — скоро';
+  String get nodeProvision => 'Развернуть узел veil по SSH';
+
+  @override
+  String get provisionTitle => 'Развёртывание по SSH';
+
+  @override
+  String get provisionReleaseUrl => 'URL релиза veil-cli';
+
+  @override
+  String get provisionReleaseHint =>
+      'Прямая ссылка на бинарь veil-cli для архитектуры сервера (ассет GitHub-релиза).';
+
+  @override
+  String get provisionRunExit =>
+      'Запустить как выходной узел (маршрутизировать через него)';
+
+  @override
+  String get provisionScriptLabel =>
+      'Выполнится на сервере под root — проверьте перед запуском:';
+
+  @override
+  String get provisionPskMissing =>
+      'PSK развёртывания не вшит в эту сборку — узел не сможет войти в сеть. Развёртывание недоступно.';
+
+  @override
+  String get provisionRun => 'Выполнить по SSH';
+
+  @override
+  String get provisionRunning =>
+      'Развёртывание… (майнинг личности может занять время)';
+
+  @override
+  String get provisionNeedUrl => 'Укажите https-ссылку на релиз';
+
+  @override
+  String get provisionSavedNodeId => 'node id, сообщённый сервером, сохранён';
 
   @override
   String get nodeSshConnect => 'Подключиться по SSH';
