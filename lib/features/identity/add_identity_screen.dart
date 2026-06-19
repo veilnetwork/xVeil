@@ -21,10 +21,9 @@ class _AddIdentityScreenState extends ConsumerState<AddIdentityScreen> {
   final _masterPassword = TextEditingController();
   final _currentName = TextEditingController();
   bool _busy = false;
-  // Anonymity-FIRST default, consistent with a single identity's runtime default
-  // (see AppController._activeAnonymous): new identities route over onion unless
-  // the user deliberately opts out.
-  bool _anonymous = true;
+  // Default OFF, matching a single identity's default (direct routing, no onion
+  // overhead). The user opts INTO anonymity per-identity when they want it.
+  bool _anonymous = false;
   String? _error;
 
   @override
