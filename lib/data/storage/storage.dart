@@ -93,6 +93,12 @@ abstract interface class Storage {
   /// there is no un-delete.
   Future<bool> isMessageDeleted(String messageId);
 
+  /// Remove a whole conversation with [peer]: forensically delete its messages,
+  /// drop the contact record + its chat-list index entry, and scrub. Used to
+  /// CANCEL a pending request (retract it locally) — afterwards the peer is
+  /// unknown again, so a fresh request can be sent. Irreversible.
+  Future<void> removeConversation(NodeId peer);
+
   /// FORENSICALLY erase this whole space — every namespace (identity, contacts,
   /// messages, file blobs) — then scrub orphaned chunks, so the deleted
   /// identity's data can no longer be recovered even by a password-holder.

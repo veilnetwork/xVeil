@@ -421,6 +421,39 @@ class MessagingService {
     await _maybeStash(dst, id, wire);
   }
 
+  /// Re-send a pending outgoing request that hasn't been accepted yet (e.g. it
+  /// didn't reach the peer because a relay was momentarily unresolvable). Re-uses
+  /// the original greeting + id (so the peer dedups), re-sends live AND forces a
+  /// fresh mailbox deposit. No-op unless the contact is still pendingOutgoing.
+  Future<void> resendRequest(NodeId dst) async {
+    final contact = await _storage.getContact(dst);
+    if (contact?.status != ContactStatus.pendingOutgoing) return;
+    String? body;
+    String? id;
+    for (final m in await _storage.loadMessages(dst.hex)) {
+      if (m.direction == MessageDirection.outgoing) {
+        body = m.body;
+        id = m.id;
+        break;
+      }
+    }
+    id ??= _uuid.v4();
+    final wire = WireEnvelope.request(body ?? '', id: id).encode();
+    await _send(dst, wire);
+    _stashed.remove(id); // allow the deposit to happen again
+    await _maybeStash(dst, id, wire);
+    _signal();
+  }
+
+  /// Cancel (retract) a pending outgoing request: remove the conversation +
+  /// contact locally so the peer is unknown again and a fresh request can be
+  /// sent later. The peer can't be un-notified (if it already arrived they may
+  /// have seen it), but our side is cleaned up.
+  Future<void> cancelRequest(NodeId peer) async {
+    await _storage.removeConversation(peer);
+    _signal();
+  }
+
   /// Approve an incoming request — both sides can now message freely.
   Future<void> acceptContact(NodeId peer) async {
     await _setStatus(peer, ContactStatus.accepted);

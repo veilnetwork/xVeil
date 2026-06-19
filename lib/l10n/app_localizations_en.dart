@@ -172,6 +172,19 @@ class AppL10nEn extends AppL10n {
   String get chatRequestSent => 'Request sent — waiting for approval';
 
   @override
+  String get chatRequestResend => 'Send again';
+
+  @override
+  String get chatRequestCancel => 'Cancel';
+
+  @override
+  String get chatRequestCancelTitle => 'Cancel request?';
+
+  @override
+  String get chatRequestCancelBody =>
+      'Removes this request and conversation from your device. If it already reached them, they may have seen it.';
+
+  @override
   String get chatBlockedContact => 'You blocked this contact';
 
   @override
