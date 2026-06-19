@@ -173,6 +173,19 @@ class AppL10nRu extends AppL10n {
   String get chatRequestSent => 'Запрос отправлен — ожидание одобрения';
 
   @override
+  String get chatRequestResend => 'Отправить снова';
+
+  @override
+  String get chatRequestCancel => 'Отменить';
+
+  @override
+  String get chatRequestCancelTitle => 'Отменить запрос?';
+
+  @override
+  String get chatRequestCancelBody =>
+      'Удаляет этот запрос и переписку с вашего устройства. Если он уже дошёл, собеседник мог его увидеть.';
+
+  @override
   String get chatBlockedContact => 'Вы заблокировали этот контакт';
 
   @override
