@@ -72,6 +72,10 @@ class MailboxService implements MailboxSink {
   Timer? _drainTimer;
   bool _draining = false;
   bool _registered = false;
+  // Relay candidates kept so the periodic tick can KEEP retrying registration
+  // until one resolves (a relay's published key can appear minutes after we
+  // first look — e.g. a just-restarted relay), not just during start()'s window.
+  List<NodeId> _relays = const [];
 
   /// Whether we have successfully advertised a mailbox relay this session.
   bool get isRegistered => _registered;
@@ -83,27 +87,34 @@ class MailboxService implements MailboxSink {
   /// (no resolvable relay-key record) are simply skipped — the resolve itself
   /// validates the choice, so a wrong/derived node_id is non-fatal.
   Future<void> start({required List<NodeId> relays}) async {
+    _relays = relays;
     debugPrint('xVeil[mailbox]: start — ${relays.length} relay candidate(s), '
         'me=${_me.short}, alreadyRegistered=$_registered');
     // Resolving a relay's KEM key is a DHT FIND_VALUE; right after the node
     // connects its routing table is barely warm, so the first attempt often
-    // returns null even though the relay DOES advertise an entry. Retry with a
-    // backoff (≈0,4,8,16,30,30,30s ⇒ ~2 min) until one relay registers — the
-    // node stays connected, so the reconnect-driven retry never fires. Idempotent
-    // and best-effort: stops as soon as one relay sticks.
-    const backoffSecs = [0, 4, 8, 16, 30, 30, 30];
+    // returns null even though the relay DOES advertise an entry. A quick
+    // backoff (≈0,4,8,16s) catches the warm-up case fast; thereafter the
+    // periodic drain tick KEEPS retrying registration (see [_drainTick]) until a
+    // relay resolves — so a relay whose key only appears later (e.g. a restarted
+    // seed) is still picked up. Idempotent; stops as soon as one sticks.
+    const backoffSecs = [0, 4, 8, 16];
     for (var attempt = 0; attempt < backoffSecs.length && !_registered; attempt++) {
       if (backoffSecs[attempt] > 0) {
         await Future<void>.delayed(Duration(seconds: backoffSecs[attempt]));
       }
-      for (final relay in relays) {
-        if (_registered) break;
-        await _register(relay);
-      }
+      await _tryRegister();
     }
     debugPrint('xVeil[mailbox]: start done — registered=$_registered');
     _drainTimer ??= Timer.periodic(_drainInterval, (_) => _drainTick());
     unawaited(_drainTick()); // don't wait a full interval for the first drain
+  }
+
+  /// One pass over the relay candidates, registering at the first that resolves.
+  Future<void> _tryRegister() async {
+    for (final relay in _relays) {
+      if (_registered) break;
+      await _register(relay);
+    }
   }
 
   Future<void> _register(NodeId relay) async {
@@ -155,6 +166,13 @@ class MailboxService implements MailboxSink {
     if (_draining) return;
     _draining = true;
     try {
+      // Keep trying to advertise a mailbox relay until one resolves — a relay's
+      // published key can appear well after we first connect, so this persistent
+      // retry (every drain interval) is what makes us reachable by node_id once
+      // a relay is actually resolvable.
+      if (!_registered && _relays.isNotEmpty) {
+        await _tryRegister();
+      }
       final recovered = await _orchestrator.drain(
         me: _me,
         authCookie: Uint8List(0), // ignored on the network path
