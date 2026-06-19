@@ -253,10 +253,20 @@ class MessagingService {
 
     switch (env.kind) {
       case WireKind.request:
-        // Don't downgrade an already-accepted contact who re-requests.
-        if (existing?.status != ContactStatus.accepted) {
-          await _setStatus(m.src, ContactStatus.pendingIncoming);
+        // Self-healing accept: a peer who re-sends a request is one who never
+        // saw our accept (it was lost — e.g. their rendezvous ad wasn't
+        // resolvable when we first accepted). Re-send + re-stash the accept so
+        // the consent handshake completes on their resend, instead of stranding
+        // them on "waiting" forever. (Accepts, unlike requests, aren't in the
+        // outbox, so without this a lost accept is never retried.)
+        if (existing?.status == ContactStatus.accepted) {
+          final accept = const WireEnvelope.accept().encode();
+          await _send(m.src, accept);
+          _stashed.remove('accept:${m.src.hex}'); // force a fresh deposit
+          await _maybeStash(m.src, 'accept:${m.src.hex}', accept);
+          return;
         }
+        await _setStatus(m.src, ContactStatus.pendingIncoming);
         if (env.body.isNotEmpty &&
             !(env.id != null && await _storage.isMessageDeleted(env.id!))) {
           // Bound pre-consent intros: a hostile peer minting a fresh id per
