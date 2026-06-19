@@ -655,6 +655,49 @@ class AppL10nRu extends AppL10n {
   String get nodeProvisionSoon => 'Удалённая установка / запуск по SSH — скоро';
 
   @override
+  String get nodeSshConnect => 'Подключиться по SSH';
+
+  @override
+  String sshDialogTitle(String host) {
+    return 'SSH к $host';
+  }
+
+  @override
+  String get sshUsePassword => 'Пароль';
+
+  @override
+  String get sshUseKey => 'Приватный ключ';
+
+  @override
+  String get sshPasswordLabel => 'Пароль';
+
+  @override
+  String get sshKeyLabel => 'Приватный ключ (PEM)';
+
+  @override
+  String get sshKeyPassphraseLabel => 'Пароль ключа (необязательно)';
+
+  @override
+  String get sshCredsNotSaved =>
+      'Используется один раз для этого подключения — не сохраняется.';
+
+  @override
+  String get sshConnectRun => 'Подключиться и проверить';
+
+  @override
+  String get sshConnecting => 'Подключение…';
+
+  @override
+  String sshDone(String code) {
+    return 'Готово (код $code)';
+  }
+
+  @override
+  String sshError(String err) {
+    return 'Ошибка: $err';
+  }
+
+  @override
   String get nodeCheckReachable => 'Проверить доступность';
 
   @override
