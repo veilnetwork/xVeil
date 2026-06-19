@@ -55,9 +55,22 @@ Future<List<Override>> _bootstrapOverrides() async {
         ref.onDispose(storage.close);
         return storage;
       }));
+    } else {
+      // SAFETY: the native hidden-volume library did not load, so the app is
+      // about to run on the IN-MEMORY FAKE store — every password opens the same
+      // space, with NO encryption and NO deniability. That must never pass
+      // silently in a deniable messenger. On desktop this usually means the
+      // dylibs weren't bundled into the .app (see scripts/bundle-macos-dylibs.sh).
+      debugPrint('xVeil[storage]: ************************************************');
+      debugPrint('xVeil[storage]: FATAL: hidden-volume native lib NOT loaded — '
+          'falling back to the IN-MEMORY FAKE store. Passwords are MEANINGLESS, '
+          'data is NOT encrypted and is lost on exit. DO NOT trust this build.');
+      debugPrint('xVeil[storage]: ************************************************');
     }
-  } catch (_) {
-    // Stay on the in-memory store.
+  } catch (e) {
+    // Stay on the in-memory store — but make the degradation visible.
+    debugPrint('xVeil[storage]: FATAL: secure storage init threw -> IN-MEMORY '
+        'FAKE store (no encryption/deniability): $e');
   }
 
   final cli = Platform.environment['XVEIL_VEIL_CLI'];

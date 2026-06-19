@@ -679,7 +679,12 @@ class AppController extends Notifier<AppState> {
       if (existingRoster != null)
         ...existingRoster
       else if (currentKeys != null)
-        RosterEntry(label: existingLabel, spaceKeys: currentKeys),
+        // A single identity runs anonymity-FIRST (see [_activeAnonymous]); wrap
+        // it as the first child with anonymous:true so converting to a master
+        // doesn't silently DROP its onion routing (the bug where the "anonymous
+        // routing" banner vanished the moment a second identity was added).
+        RosterEntry(
+            label: existingLabel, spaceKeys: currentKeys, anonymous: true),
     ];
 
     // Refuse a duplicate label — two roster entries with the same label would
