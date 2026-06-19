@@ -21,6 +21,8 @@ class _RecordingTransport implements VeilTransport {
   Future<NodeId> nodeId() async => _me;
   @override
   Stream<InboundMessage> messages() => _inbound.stream;
+  void inject(NodeId src, Uint8List payload) =>
+      _inbound.add(InboundMessage(src: src, payload: payload));
   @override
   Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) async {
     sent.add((dst, WireEnvelope.decode(payload)));
@@ -67,6 +69,18 @@ void main() {
     expect(resent.single.$1, b);
     expect(resent.single.$2.body, 'hi there');
     expect(resent.single.$2.id, id); // same id so the peer dedups
+  });
+
+  test('an already-accepted peer re-requesting gets the accept re-sent', () async {
+    // b requests us, we accept.
+    tA.inject(b, const WireEnvelope.request('hi', id: 'r1').encode());
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await mA.acceptContact(b);
+    tA.sent.clear();
+    // b re-requests (they never saw our accept). We must re-send it.
+    tA.inject(b, const WireEnvelope.request('hi', id: 'r1').encode());
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(tA.sent.any((s) => s.$1 == b && s.$2.kind == WireKind.accept), isTrue);
   });
 
   test('cancelRequest removes the contact + conversation', () async {
