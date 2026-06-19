@@ -679,6 +679,13 @@ class AppL10nRu extends AppL10n {
   String get networkStatusError => 'Ошибка';
 
   @override
+  String get networkBackgroundTitle => 'Работать в фоне';
+
+  @override
+  String get networkBackgroundHint =>
+      'Только Android. Держит узел — ваш прокси и доставку входящих сообщений — активным после выхода из приложения. Требует постоянного уведомления (видно, что приложение работает) и расходует больше батареи.';
+
+  @override
   String get peersTitle => 'Подключённые узлы';
 
   @override
