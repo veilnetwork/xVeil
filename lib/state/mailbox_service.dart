@@ -6,6 +6,7 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:veil_flutter/veil_flutter.dart';
 
 import '../core/ids.dart';
@@ -82,10 +83,25 @@ class MailboxService implements MailboxSink {
   /// (no resolvable relay-key record) are simply skipped — the resolve itself
   /// validates the choice, so a wrong/derived node_id is non-fatal.
   Future<void> start({required List<NodeId> relays}) async {
-    for (final relay in relays) {
-      if (_registered) break;
-      await _register(relay);
+    debugPrint('xVeil[mailbox]: start — ${relays.length} relay candidate(s), '
+        'me=${_me.short}, alreadyRegistered=$_registered');
+    // Resolving a relay's KEM key is a DHT FIND_VALUE; right after the node
+    // connects its routing table is barely warm, so the first attempt often
+    // returns null even though the relay DOES advertise an entry. Retry with a
+    // backoff (≈0,4,8,16,30,30,30s ⇒ ~2 min) until one relay registers — the
+    // node stays connected, so the reconnect-driven retry never fires. Idempotent
+    // and best-effort: stops as soon as one relay sticks.
+    const backoffSecs = [0, 4, 8, 16, 30, 30, 30];
+    for (var attempt = 0; attempt < backoffSecs.length && !_registered; attempt++) {
+      if (backoffSecs[attempt] > 0) {
+        await Future<void>.delayed(Duration(seconds: backoffSecs[attempt]));
+      }
+      for (final relay in relays) {
+        if (_registered) break;
+        await _register(relay);
+      }
     }
+    debugPrint('xVeil[mailbox]: start done — registered=$_registered');
     _drainTimer ??= Timer.periodic(_drainInterval, (_) => _drainTick());
     unawaited(_drainTick()); // don't wait a full interval for the first drain
   }
@@ -97,6 +113,8 @@ class MailboxService implements MailboxSink {
       if (kem == null) {
         // The relay advertises no resolvable relay-key record yet — a later
         // start()/reconnect retries.
+        debugPrint('xVeil[mailbox]: relay ${relay.short} — KEM key NOT resolved '
+            '(no relay-dir entry); skipping');
         return;
       }
       await _client.registerRendezvousPublisher(
@@ -107,8 +125,10 @@ class MailboxService implements MailboxSink {
         relayKemPk: kem,
       );
       _registered = true;
-    } catch (_) {
-      // Transient (relay unresolved / IPC hiccup) — retried on the next start().
+      debugPrint('xVeil[mailbox]: REGISTERED rendezvous publisher @ relay '
+          '${relay.short} (me=${_me.short} reachable by node_id now)');
+    } catch (e) {
+      debugPrint('xVeil[mailbox]: register @ ${relay.short} FAILED: $e');
     }
   }
 

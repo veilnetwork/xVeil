@@ -649,6 +649,8 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
   // are configured — live delivery is unaffected if this never registers.
   final relays = _mailboxRelayCandidates(
       ref.read(deniableBootProvider)?.bootstrapPeers ?? const []);
+  debugPrint('xVeil[mailbox]: setup — transport=${transport.runtimeType} '
+      'relays=${relays.length}');
   MailboxService? mailbox;
   if (transport is VeilFlutterTransport && relays.isNotEmpty) {
     transport.buildMailboxService(deliver: service.deliverInbound).then((m) {
@@ -656,9 +658,12 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
       service.attachMailbox(m);
       ref.onDispose(m.dispose);
       unawaited(m.start(relays: relays));
-    }).catchError((_) {
-      // Mailbox unavailable (IPC/bind hiccup) — offline delivery just stays off.
+    }).catchError((e) {
+      debugPrint('xVeil[mailbox]: build/start FAILED: $e');
     });
+  } else {
+    debugPrint('xVeil[mailbox]: NOT started '
+        '(transport=${transport.runtimeType}, relays=${relays.length})');
   }
 
   // Flush the local outbox whenever the node (re)connects: messages composed
