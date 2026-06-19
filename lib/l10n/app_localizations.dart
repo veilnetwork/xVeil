@@ -1285,6 +1285,78 @@ abstract class AppL10n {
   /// **'Remote install / start over SSH — coming soon'**
   String get nodeProvisionSoon;
 
+  /// No description provided for @nodeSshConnect.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect over SSH'**
+  String get nodeSshConnect;
+
+  /// No description provided for @sshDialogTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'SSH to {host}'**
+  String sshDialogTitle(String host);
+
+  /// No description provided for @sshUsePassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Password'**
+  String get sshUsePassword;
+
+  /// No description provided for @sshUseKey.
+  ///
+  /// In en, this message translates to:
+  /// **'Private key'**
+  String get sshUseKey;
+
+  /// No description provided for @sshPasswordLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Password'**
+  String get sshPasswordLabel;
+
+  /// No description provided for @sshKeyLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Private key (PEM)'**
+  String get sshKeyLabel;
+
+  /// No description provided for @sshKeyPassphraseLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Key passphrase (optional)'**
+  String get sshKeyPassphraseLabel;
+
+  /// No description provided for @sshCredsNotSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'Used once for this connection — never saved.'**
+  String get sshCredsNotSaved;
+
+  /// No description provided for @sshConnectRun.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect & check'**
+  String get sshConnectRun;
+
+  /// No description provided for @sshConnecting.
+  ///
+  /// In en, this message translates to:
+  /// **'Connecting…'**
+  String get sshConnecting;
+
+  /// No description provided for @sshDone.
+  ///
+  /// In en, this message translates to:
+  /// **'Done (exit {code})'**
+  String sshDone(String code);
+
+  /// No description provided for @sshError.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed: {err}'**
+  String sshError(String err);
+
   /// No description provided for @nodeCheckReachable.
   ///
   /// In en, this message translates to:
