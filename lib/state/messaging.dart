@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -671,18 +670,18 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
     final m = session.messagingFor(active);
     if (m != null) return m;
   }
-  // Single / one-active mode: the global service. Single mode has no roster, so
-  // it is non-anonymous EXCEPT under the debug-only, env-gated force-flag (the
-  // same affordance AppController uses for the shield indicator and the testnet
-  // live run) — honour it here too so the force-flag actually routes over the
-  // onion path, not just lights the indicator.
-  final forceAnon = kDebugMode &&
-      Platform.environment['XVEIL_FORCE_ANONYMOUS'] == '1';
+  // Anonymity-first: route sends over the LIVE onion-rendezvous path by default.
+  // This resolves the recipient's rendezvous ad and delivers through their relay
+  // over the already-held mesh sessions — so a NAT'd peer who is ONLINE gets the
+  // message in ~seconds (no 30s mailbox poll), AND the sender's location stays
+  // private. The mailbox deposit below remains the fallback for an OFFLINE peer.
+  // (Pairs with the node booting anonymous — see AppController._activeAnonymous —
+  // so it can receive the introduce.) The loopback fake ignores the flag.
   final transport = ref.watch(veilTransportProvider);
   final service = MessagingService(
     transport,
     ref.watch(storageProvider),
-    anonymous: forceAnon,
+    anonymous: true,
   );
   service.start();
 
