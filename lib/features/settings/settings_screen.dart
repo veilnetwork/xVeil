@@ -156,6 +156,24 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               ),
             ),
+          // Single-identity anonymity toggle (master mode toggles per-identity
+          // in the switcher / manage screen instead). Reboots the node under the
+          // new routing; the home banner + node id refresh when it returns.
+          if (!master.$1)
+            SwitchListTile(
+              secondary: const Icon(Icons.shield_moon_outlined),
+              title: Text(l.settingsAnonymousRouting),
+              subtitle: Text(
+                  ref.read(appControllerProvider.notifier).singleIdentityAnonymous
+                      ? l.settingsAnonymousEnabledHint
+                      : l.settingsAnonymousDisabledHint),
+              isThreeLine: true,
+              value:
+                  ref.read(appControllerProvider.notifier).singleIdentityAnonymous,
+              onChanged: (v) => ref
+                  .read(appControllerProvider.notifier)
+                  .setSingleIdentityAnonymous(v),
+            ),
           if (master.$1)
             ListTile(
               leading: const Icon(Icons.switch_account_outlined),

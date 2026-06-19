@@ -108,6 +108,16 @@ class AppController extends Notifier<AppState> {
   /// single-identity mode).
   String? _activeLabel;
 
+  /// A SINGLE (non-master) identity's anonymity preference, persisted per-space
+  /// under the `anonymous` setting and loaded at session entry. Defaults to
+  /// FALSE: a plain identity routes directly (no onion overhead) unless the user
+  /// turns anonymity on. In master mode the per-identity roster flag governs
+  /// instead (see [_activeAnonymous]).
+  bool _singleAnonymous = false;
+
+  /// Storage key for [_singleAnonymous].
+  static const _kAnonymousSetting = 'anonymous';
+
   @override
   AppState build() {
     _bootstrap();
@@ -323,19 +333,19 @@ class AppController extends Notifier<AppState> {
   /// Whether the active identity is configured for anonymous (onion) routing.
   /// False in single-identity mode (no roster) and for non-anonymous children.
   bool _activeAnonymous() {
-    // Anonymity-FIRST default: a single identity boots over the onion rendezvous
-    // (receive_anonymous + onion_service), so it can RECEIVE an onion introduce
-    // and is reachable by node_id without revealing its location. Paired with
-    // anonymous sends (see messagingServiceProvider), this gives live,
-    // NAT-traversing delivery over the held mesh sessions instead of the 30s
-    // mailbox poll. In MASTER mode each identity's own `anonymous` flag governs
-    // it (so a specific identity can be opted out per the roster).
+    // A SINGLE identity follows its persisted [_singleAnonymous] preference
+    // (default OFF: direct routing, no onion overhead). Turning it on boots the
+    // node over the onion rendezvous (receive_anonymous + onion_service) so it
+    // can RECEIVE an onion introduce and is reachable by node_id without
+    // revealing its location — paired with anonymous sends for live,
+    // NAT-traversing delivery instead of the 30s mailbox poll. In MASTER mode
+    // each identity's own roster `anonymous` flag governs instead.
     final label = _activeLabel;
-    if (label == null || _pendingRoster == null) return true; // single-identity
+    if (label == null || _pendingRoster == null) return _singleAnonymous;
     for (final e in _pendingRoster!) {
       if (e.label == label) return e.anonymous;
     }
-    return true;
+    return _singleAnonymous;
   }
 
   /// Whether the CURRENTLY ACTIVE identity routes anonymously (onion) — for the
@@ -349,6 +359,33 @@ class AppController extends Notifier<AppState> {
       if (e.label == label) return e.anonymous;
     }
     return false;
+  }
+
+  /// Whether the current SINGLE (non-master) identity routes anonymously — for
+  /// the single-mode settings toggle. Meaningless in master mode (use the
+  /// per-identity [isIdentityAnonymous] there).
+  bool get singleIdentityAnonymous => _singleAnonymous;
+
+  /// Toggle anonymity for a SINGLE (non-master) identity: persist the preference
+  /// into the open space and reboot the node under it (anonymity is fixed at
+  /// boot). No-op in master mode (that path is [setIdentityAnonymous]) or when
+  /// the space isn't open. Returns false on those guards.
+  Future<bool> setSingleIdentityAnonymous(bool anonymous) async {
+    if (_pendingRoster != null) return false; // master mode has its own path
+    final storage = ref.read(storageProvider);
+    if (!storage.isOpen) return false;
+    if (_singleAnonymous == anonymous) return true;
+
+    await storage.putSetting(_kAnonymousSetting, anonymous ? 'true' : 'false');
+    _singleAnonymous = anonymous;
+
+    // Reboot the node so the new routing takes effect. The space stays open
+    // (teardown only stops the node); _enterSession re-reads the setting and
+    // boots with the new anonymity, then refreshes the home state + node id.
+    await _teardownRealStack();
+    final identity = await storage.loadIdentity() ?? _placeholderIdentity();
+    await _enterSession(identity);
+    return true;
   }
 
   /// Toggle whether [label]'s identity routes anonymously (onion). Master-mode
@@ -679,12 +716,14 @@ class AppController extends Notifier<AppState> {
       if (existingRoster != null)
         ...existingRoster
       else if (currentKeys != null)
-        // A single identity runs anonymity-FIRST (see [_activeAnonymous]); wrap
-        // it as the first child with anonymous:true so converting to a master
-        // doesn't silently DROP its onion routing (the bug where the "anonymous
-        // routing" banner vanished the moment a second identity was added).
+        // Preserve the single identity's CURRENT anonymity when wrapping it as
+        // the first child, so converting to a master never silently flips its
+        // routing (the bug where the "anonymous routing" banner appeared/vanished
+        // on convert). Mirrors the per-space [_singleAnonymous] preference.
         RosterEntry(
-            label: existingLabel, spaceKeys: currentKeys, anonymous: true),
+            label: existingLabel,
+            spaceKeys: currentKeys,
+            anonymous: _singleAnonymous),
     ];
 
     // Refuse a duplicate label — two roster entries with the same label would
@@ -803,6 +842,13 @@ class AppController extends Notifier<AppState> {
   }
 
   Future<void> _enterSession(Identity identity) async {
+    // Single-identity mode: load this space's persisted anonymity preference
+    // BEFORE booting the node, since anonymity is fixed at boot. Master mode
+    // reads the roster flag instead, so skip (the roster is authoritative).
+    if (_pendingRoster == null) {
+      final v = await ref.read(storageProvider).getSetting(_kAnonymousSetting);
+      _singleAnonymous = v == 'true';
+    }
     // Deniable path: now that the space is open, boot the in-process node from
     // the in-space identity (mining it on first run). Best-effort — never block
     // entering the session if the node fails. Show a "setting up" screen while
