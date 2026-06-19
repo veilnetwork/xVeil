@@ -694,8 +694,21 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
   debugPrint('xVeil[mailbox]: setup — transport=${transport.runtimeType} '
       'relays=${relays.length}');
   MailboxService? mailbox;
+  // The provider rebuilds whenever the real stack changes (node reboot, identity
+  // create/switch tears down then re-boots — TWO rapid rebuilds). buildMailboxService
+  // is async, so its `.then` can resolve AFTER this provider was already disposed.
+  // If we attached then, the orphaned mailbox's retry timer would run forever on
+  // a dead veil handle ("handle already closed" spam). Track disposal and drop a
+  // late-arriving mailbox instead of leaking it.
+  var providerDisposed = false;
+  ref.onDispose(() => providerDisposed = true);
   if (transport is VeilFlutterTransport && relays.isNotEmpty) {
     transport.buildMailboxService(deliver: service.deliverInbound).then((m) {
+      if (providerDisposed) {
+        // This stack/transport is already gone — don't start a timer on it.
+        unawaited(m.dispose());
+        return;
+      }
       mailbox = m;
       service.attachMailbox(m);
       ref.onDispose(m.dispose);
