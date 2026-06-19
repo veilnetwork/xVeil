@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import '../../data/node/managed_node.dart';
 import '../../data/node/node_probe.dart';
 import '../../l10n/app_localizations.dart';
+import 'node_provision_screen.dart';
 import 'ssh_check_dialog.dart';
 import '../../state/managed_nodes_controller.dart';
 import '../../state/proxy_routing_controller.dart';
@@ -344,21 +345,28 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
                 ),
               ),
             const SizedBox(height: 8),
-            // Provisioning over SSH is the next layer — flagged, not faked.
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(
-                children: [
-                  Icon(Icons.info_outline,
-                      size: 16, color: Theme.of(context).colorScheme.outline),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(l.nodeProvisionSoon,
-                        style: Theme.of(context).textTheme.bodySmall),
-                  ),
-                ],
+            // Provision a veil node over SSH — only for a SAVED node with SSH
+            // details (so the reported node id can be stored back onto it).
+            if (isEdit &&
+                _host.text.trim().isNotEmpty &&
+                _user.text.trim().isNotEmpty)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () {
+                    final node = widget.existing!.copyWith(
+                      sshHost: _host.text.trim(),
+                      sshPort: int.tryParse(_port.text.trim()) ?? 22,
+                      sshUser: _user.text.trim(),
+                    );
+                    Navigator.of(context).push(MaterialPageRoute<void>(
+                      builder: (_) => NodeProvisionScreen(node: node),
+                    ));
+                  },
+                  icon: const Icon(Icons.rocket_launch, size: 18),
+                  label: Text(l.nodeProvision),
+                ),
               ),
-            ),
             const SizedBox(height: 8),
             if (canExit)
               OutlinedButton.icon(

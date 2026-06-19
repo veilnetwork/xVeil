@@ -1279,11 +1279,71 @@ abstract class AppL10n {
   /// **'Add the node id to route through this node'**
   String get nodeNeedsNodeId;
 
-  /// No description provided for @nodeProvisionSoon.
+  /// No description provided for @nodeProvision.
   ///
   /// In en, this message translates to:
-  /// **'Remote install / start over SSH — coming soon'**
-  String get nodeProvisionSoon;
+  /// **'Provision veil node over SSH'**
+  String get nodeProvision;
+
+  /// No description provided for @provisionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Provision over SSH'**
+  String get provisionTitle;
+
+  /// No description provided for @provisionReleaseUrl.
+  ///
+  /// In en, this message translates to:
+  /// **'veil-cli release URL'**
+  String get provisionReleaseUrl;
+
+  /// No description provided for @provisionReleaseHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Direct link to a veil-cli binary for the server\'s arch (a GitHub release asset).'**
+  String get provisionReleaseHint;
+
+  /// No description provided for @provisionRunExit.
+  ///
+  /// In en, this message translates to:
+  /// **'Run as an exit (route my traffic through it)'**
+  String get provisionRunExit;
+
+  /// No description provided for @provisionScriptLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Runs on the server as root — review before running:'**
+  String get provisionScriptLabel;
+
+  /// No description provided for @provisionPskMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'Deployment PSK isn\'t bundled in this build, so the node can\'t join the network. Provisioning is unavailable.'**
+  String get provisionPskMissing;
+
+  /// No description provided for @provisionRun.
+  ///
+  /// In en, this message translates to:
+  /// **'Run over SSH'**
+  String get provisionRun;
+
+  /// No description provided for @provisionRunning.
+  ///
+  /// In en, this message translates to:
+  /// **'Provisioning… (mining the identity can take a while)'**
+  String get provisionRunning;
+
+  /// No description provided for @provisionNeedUrl.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter an https release URL'**
+  String get provisionNeedUrl;
+
+  /// No description provided for @provisionSavedNodeId.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved the node id reported by the server'**
+  String get provisionSavedNodeId;
 
   /// No description provided for @nodeSshConnect.
   ///
