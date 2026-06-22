@@ -22,17 +22,24 @@ enum WireKind { request, accept, message, fileMeta, fileChunk, ack, edit, del }
 /// **dedup** re-sent messages (the local outbox re-sends un-acked ones) and the
 /// receiver can **ack** by referencing it.
 class WireEnvelope {
-  const WireEnvelope(this.kind, this.body, {this.id});
+  const WireEnvelope(this.kind, this.body, {this.id, this.sentAtMs});
 
   final WireKind kind;
   final String body;
   final String? id;
 
-  const WireEnvelope.request(String greeting, {String? id})
-      : this(WireKind.request, greeting, id: id);
+  /// The SENDER's send time (Unix ms). Travels so the receiver orders messages
+  /// by when they were SENT, not when they happened to arrive — the live /
+  /// mailbox / outbox-retry paths deliver with variable latency + reordering, so
+  /// receive-order display scrambles a conversation. Null from older senders →
+  /// the receiver falls back to its receive time.
+  final int? sentAtMs;
+
+  const WireEnvelope.request(String greeting, {String? id, int? sentAtMs})
+      : this(WireKind.request, greeting, id: id, sentAtMs: sentAtMs);
   const WireEnvelope.accept() : this(WireKind.accept, '');
-  const WireEnvelope.message(String text, {String? id})
-      : this(WireKind.message, text, id: id);
+  const WireEnvelope.message(String text, {String? id, int? sentAtMs})
+      : this(WireKind.message, text, id: id, sentAtMs: sentAtMs);
   const WireEnvelope.ack(String id) : this(WireKind.ack, '', id: id);
   const WireEnvelope.edit(String id, String newText)
       : this(WireKind.edit, newText, id: id);
@@ -42,6 +49,7 @@ class WireEnvelope {
         't': kind.index,
         'b': body,
         if (id != null) 'i': id,
+        if (sentAtMs != null) 's': sentAtMs,
       })));
 
   /// Decode a payload. Anything that isn't a well-formed envelope is treated
@@ -58,6 +66,7 @@ class WireEnvelope {
           WireKind.values[decoded['t'] as int],
           decoded['b'] as String,
           id: decoded['i'] is String ? decoded['i'] as String : null,
+          sentAtMs: decoded['s'] is int ? decoded['s'] as int : null,
         );
       }
     } catch (_) {
