@@ -234,6 +234,19 @@ class EmbeddedNode {
     return '$toml\n[anonymity]\nreceive_anonymous = true\nonion_service = true\n';
   }
 
+  /// Append a `[session]` table with a TIGHT keepalive so the node's mesh
+  /// session to its relays survives mobile NAT / Android socket reaping. The
+  /// default keepalive is 30 s; on a phone the obfs4 TCP connection to the seeds
+  /// gets reset ("Connection reset by peer") well before that, the routing table
+  /// never warms, and `lookup_relay_x25519` (mailbox registration) times out — so
+  /// the node can't register and becomes unreachable after a restart. 15 s keeps
+  /// the mapping fresh; idle_timeout MUST stay > keepalive_interval. Pure helper
+  /// (no FFI), unit-testable.
+  static String withSessionKeepalive(String toml) {
+    if (toml.contains('[session]')) return toml;
+    return '$toml\n[session]\nkeepalive_interval_secs = 15\nidle_timeout_secs = 45\n';
+  }
+
   /// Append `[proxy.socks5]` / `[proxy.exit]` tables for traffic routing. The
   /// node runtime spawns these as services on boot AND re-spawns them on
   /// apply-config reload, so toggling routing needs no native rebuild — just a
@@ -297,13 +310,13 @@ class EmbeddedNode {
       }
       final toml = out.toDartString();
       freeStr(out);
-      return withObfs4PskFile(
+      return withSessionKeepalive(withObfs4PskFile(
         withProxy(
           withBootstrapPeers(withAnonymity(toml, anonymous), bootstrapPeers),
           proxy,
         ),
         obfs4PskFile,
-      );
+      ));
     } finally {
       for (final p in ptrs) {
         calloc.free(p);
