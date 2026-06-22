@@ -10,6 +10,7 @@ import 'package:flutter/foundation.dart';
 import 'package:veil_flutter/veil_flutter.dart';
 
 import '../core/ids.dart';
+import '../data/transport/relay_key_cache.dart';
 import '../data/transport/veil_addressing.dart';
 import '../data/transport/veil_transport.dart';
 import 'mailbox_orchestrator.dart';
@@ -48,12 +49,14 @@ class MailboxService implements MailboxSink {
     required NodeId me,
     required MailboxOrchestrator orchestrator,
     required void Function(InboundMessage) deliver,
+    RelayKeyCache? relayKeyCache,
     int ourCertVersion = 0,
     Duration drainInterval = const Duration(seconds: 30),
   })  : _client = client,
         _me = me,
         _orchestrator = orchestrator,
         _deliver = deliver,
+        _relayKeyCache = relayKeyCache,
         _ourCertVersion = ourCertVersion,
         _drainInterval = drainInterval;
 
@@ -61,6 +64,10 @@ class MailboxService implements MailboxSink {
   final NodeId _me;
   final MailboxOrchestrator _orchestrator;
   final void Function(InboundMessage) _deliver;
+  // Persisted last-known-good relay KEM keys. A fresh resolve is always
+  // preferred; this only rescues registration through a transient resolve
+  // failure so we don't go unreachable. Null on the loopback/dev path.
+  final RelayKeyCache? _relayKeyCache;
   final int _ourCertVersion;
   final Duration _drainInterval;
 
@@ -130,15 +137,24 @@ class MailboxService implements MailboxSink {
 
   Future<void> _register(NodeId relay) async {
     if (_registered) return;
+    // Prefer a FRESH, verified resolve — now a one-hop fast path straight to the
+    // connected relay (see veil's connected-peer resolver), so it succeeds even
+    // on a cold routing table right after a restart. Only if that genuinely
+    // fails do we fall back to a cached last-known-good key, so a transient DHT
+    // hiccup doesn't leave us unreachable. We never cache a miss; only a fresh
+    // key is written back, and a cached key that then fails to register is
+    // evicted (it may be stale).
+    var kem = await _client.lookupRelayX25519(relay.bytes);
+    final fromFresh = kem != null;
+    kem ??= await _relayKeyCache?.get(relay);
+    if (kem == null) {
+      // No fresh resolve and no usable cached key — a later start()/reconnect
+      // retries.
+      debugPrint('xVeil[mailbox]: relay ${relay.short} — KEM key NOT resolved '
+          '(no relay-dir entry, no cached key); skipping');
+      return;
+    }
     try {
-      final kem = await _client.lookupRelayX25519(relay.bytes);
-      if (kem == null) {
-        // The relay advertises no resolvable relay-key record yet — a later
-        // start()/reconnect retries.
-        debugPrint('xVeil[mailbox]: relay ${relay.short} — KEM key NOT resolved '
-            '(no relay-dir entry); skipping');
-        return;
-      }
       await _client.registerRendezvousPublisher(
         rendezvousNodeId: relay.bytes,
         authCookie: _cookie,
@@ -148,10 +164,20 @@ class MailboxService implements MailboxSink {
       );
       _registered = true;
       _registeredRelay = relay; // drain fetches straight from here (no DHT re-resolve)
+      if (fromFresh) {
+        // Persist the freshly-verified key for a future cold start.
+        unawaited(_relayKeyCache?.put(relay, kem) ?? Future.value());
+      }
       debugPrint('xVeil[mailbox]: REGISTERED rendezvous publisher @ relay '
-          '${relay.short} (me=${_me.short} reachable by node_id now)');
+          '${relay.short} (me=${_me.short} reachable by node_id now; '
+          'key=${fromFresh ? "fresh" : "cached"})');
     } catch (e) {
       debugPrint('xVeil[mailbox]: register @ ${relay.short} FAILED: $e');
+      if (!fromFresh) {
+        // We registered with a cached key and it failed — it may be stale; drop
+        // it so the next tick resolves fresh instead of reusing a bad key.
+        unawaited(_relayKeyCache?.evict(relay) ?? Future.value());
+      }
       // A closed handle never recovers on this transport — stop the retry loop
       // so we don't spam every drain tick. The provider rebuilds a fresh mailbox
       // when the stack comes back up.

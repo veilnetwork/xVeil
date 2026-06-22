@@ -6,6 +6,7 @@ import 'package:veil_flutter/veil_flutter.dart';
 import '../../core/ids.dart';
 import '../../state/mailbox_orchestrator.dart';
 import '../../state/mailbox_service.dart';
+import 'relay_key_cache.dart';
 import 'veil_addressing.dart';
 import 'veil_mailbox.dart';
 import 'veil_mailbox_network.dart';
@@ -75,6 +76,7 @@ class VeilFlutterTransport implements VeilTransport {
   /// with the relay to advertise.
   Future<MailboxService> buildMailboxService({
     required void Function(InboundMessage) deliver,
+    RelayKeyCache? relayKeyCache,
   }) async {
     final src = await _client.bind(
       namespace: veilChatNamespace,
@@ -99,6 +101,7 @@ class VeilFlutterTransport implements VeilTransport {
       me: me,
       orchestrator: MailboxOrchestrator(crypto, relay),
       deliver: deliver,
+      relayKeyCache: relayKeyCache,
     );
   }
 

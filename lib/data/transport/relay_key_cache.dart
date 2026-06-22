@@ -1,0 +1,121 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import '../../core/ids.dart';
+import '../storage/storage.dart';
+
+/// A small persisted cache of verified relay X25519 KEM keys, keyed by relay
+/// node-id. It lets the mailbox keep advertising a last-known-good relay key
+/// through a transient resolve failure (relay briefly unreachable / cold
+/// routing table) instead of going unreachable — but only as a FALLBACK: a
+/// fresh, verified resolve is always preferred, so a current relay key never
+/// loses to a cached one.
+///
+/// A relay KEM key is a PUBLIC, network-published value (it lives on the DHT
+/// for anyone to fetch), so caching it leaks nothing about the holder — and the
+/// store-backed implementation keeps it INSIDE the deniable space, erased on
+/// space teardown, so it carries no deniability cost.
+abstract interface class RelayKeyCache {
+  /// The cached key for [relay] if present and unexpired, else null.
+  Future<Uint8List?> get(NodeId relay);
+
+  /// Store a freshly-resolved, verified 32-byte [key] for [relay].
+  Future<void> put(NodeId relay, Uint8List key);
+
+  /// Drop any cached key for [relay] (e.g. it failed when we tried to register
+  /// with it, so it may be stale).
+  Future<void> evict(NodeId relay);
+}
+
+/// [RelayKeyCache] over the active deniable space's settings KV. Stored as a
+/// setting `mailbox.relaykey.v1.<relayHex> = <keyBase64>.<expiryUnixMs>`, so it
+/// inherits the space's encryption + deniable teardown with no new namespace,
+/// FFI, or wiring. Best-effort: every operation swallows storage errors (a miss
+/// just means "resolve fresh").
+class StorageRelayKeyCache implements RelayKeyCache {
+  StorageRelayKeyCache(this._storage, {Duration ttl = const Duration(days: 7)})
+      : _ttlMs = ttl.inMilliseconds;
+
+  final Storage _storage;
+  final int _ttlMs;
+
+  static const _prefix = 'mailbox.relaykey.v1.';
+  String _settingKey(NodeId relay) => '$_prefix${relay.hex}';
+
+  @override
+  Future<Uint8List?> get(NodeId relay) async {
+    try {
+      final raw = await _storage.getSetting(_settingKey(relay));
+      if (raw == null || raw.isEmpty) return null;
+      final dot = raw.lastIndexOf('.');
+      if (dot <= 0) return null;
+      final expiry = int.tryParse(raw.substring(dot + 1));
+      if (expiry == null ||
+          DateTime.now().millisecondsSinceEpoch >= expiry) {
+        return null; // expired (or malformed) → resolve fresh
+      }
+      final key = base64.decode(raw.substring(0, dot));
+      return key.length == 32 ? Uint8List.fromList(key) : null;
+    } catch (_) {
+      return null; // best-effort: any decode/storage error is just a miss
+    }
+  }
+
+  @override
+  Future<void> put(NodeId relay, Uint8List key) async {
+    if (key.length != 32) return;
+    try {
+      final expiry = DateTime.now().millisecondsSinceEpoch + _ttlMs;
+      await _storage.putSetting(
+        _settingKey(relay),
+        '${base64.encode(key)}.$expiry',
+      );
+    } catch (_) {
+      // best-effort — a failed write just means we resolve fresh next time
+    }
+  }
+
+  @override
+  Future<void> evict(NodeId relay) async {
+    try {
+      // The Storage port has no delete-setting; an empty value reads back as a
+      // miss (get() returns null), which is the eviction semantics we need.
+      await _storage.putSetting(_settingKey(relay), '');
+    } catch (_) {
+      // best-effort
+    }
+  }
+}
+
+/// Process-lifetime [RelayKeyCache] for tests and the loopback/dev path (where
+/// there is no deniable space to persist into). Holds keys + expiries in a map.
+class InMemoryRelayKeyCache implements RelayKeyCache {
+  InMemoryRelayKeyCache({Duration ttl = const Duration(days: 7)})
+      : _ttlMs = ttl.inMilliseconds;
+
+  final int _ttlMs;
+  final Map<String, ({Uint8List key, int expiry})> _entries = {};
+
+  @override
+  Future<Uint8List?> get(NodeId relay) async {
+    final e = _entries[relay.hex];
+    if (e == null) return null;
+    if (DateTime.now().millisecondsSinceEpoch >= e.expiry) {
+      _entries.remove(relay.hex);
+      return null;
+    }
+    return e.key;
+  }
+
+  @override
+  Future<void> put(NodeId relay, Uint8List key) async {
+    if (key.length != 32) return;
+    _entries[relay.hex] = (
+      key: Uint8List.fromList(key),
+      expiry: DateTime.now().millisecondsSinceEpoch + _ttlMs,
+    );
+  }
+
+  @override
+  Future<void> evict(NodeId relay) async => _entries.remove(relay.hex);
+}
