@@ -82,6 +82,11 @@ class MailboxService implements MailboxSink {
   // first look — e.g. a just-restarted relay), not just during start()'s window.
   List<NodeId> _relays = const [];
 
+  // The relay we actually REGISTERED a mailbox publisher with. The drain fetches
+  // straight from here instead of re-resolving our own rendezvous ad over the
+  // DHT each poll (that lookup times out on mobile and stranded pending mail).
+  NodeId? _registeredRelay;
+
   /// Whether we have successfully advertised a mailbox relay this session.
   bool get isRegistered => _registered;
 
@@ -142,6 +147,7 @@ class MailboxService implements MailboxSink {
         relayKemPk: kem,
       );
       _registered = true;
+      _registeredRelay = relay; // drain fetches straight from here (no DHT re-resolve)
       debugPrint('xVeil[mailbox]: REGISTERED rendezvous publisher @ relay '
           '${relay.short} (me=${_me.short} reachable by node_id now)');
     } catch (e) {
@@ -193,6 +199,9 @@ class MailboxService implements MailboxSink {
         me: _me,
         authCookie: Uint8List(0), // ignored on the network path
         ourCertVersion: _ourCertVersion,
+        // Fetch straight from the relay we registered with (if any) — skips the
+        // flaky DHT self-ad resolve that was stranding mail on mobile.
+        knownRelays: _registeredRelay != null ? [_registeredRelay!] : const [],
         // Dedup is enforced downstream by the messaging layer (it stores by the
         // same content id), so we re-deliver everything the relay returns and
         // let that gate duplicates — keeps this layer storage-free.
