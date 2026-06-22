@@ -3,7 +3,6 @@
 // libraries), so an explicit initializer list is required.
 // ignore_for_file: prefer_initializing_formals
 import 'dart:async';
-import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
@@ -74,7 +73,18 @@ class MailboxService implements MailboxSink {
   /// 16-byte rendezvous auth-cookie for our published mailbox ad. The NETWORK
   /// FETCH path authorizes by our cryptographic identity (NOT this cookie — see
   /// the no-cookie finding), so this is just the rendezvous-registration token.
-  final Uint8List _cookie = _randomBytes(16);
+  ///
+  /// DETERMINISTIC per identity (was random per instance). A random cookie made
+  /// every rebuilt MailboxService register a NEW (relay, cookie) rendezvous
+  /// publisher, so the node accumulated several publisher entries at DISTINCT ad
+  /// slots, each with a different cookie. A sender resolving slot 0 then used a
+  /// cookie that no longer matched our *current* session-backed subscriber
+  /// registration, so the relay dropped its introduce (`cookie_unknown`) and
+  /// reverse-direction (incoming) delivery silently failed. Deriving the cookie
+  /// from our node_id makes it stable across instances + restarts → exactly one
+  /// publisher entry, one slot, one cookie everywhere. The node_id is public
+  /// (it IS the ad's key), so this leaks nothing.
+  late final Uint8List _cookie = _deriveCookie(_me);
 
   Timer? _drainTimer;
   bool _draining = false;
@@ -248,12 +258,16 @@ class MailboxService implements MailboxSink {
     _drainTimer = null;
   }
 
-  static Uint8List _randomBytes(int n) {
-    final r = Random.secure();
-    final b = Uint8List(n);
-    for (var i = 0; i < n; i++) {
-      b[i] = r.nextInt(256);
+  /// Stable per-identity rendezvous cookie: the two halves of the 32-byte
+  /// node_id XOR-folded to 16 bytes. Deterministic (same across instances /
+  /// restarts), uniformly distributed (node_id is a BLAKE3 hash), and reveals
+  /// nothing the public ad doesn't already (the ad is keyed by node_id).
+  static Uint8List _deriveCookie(NodeId me) {
+    final id = me.bytes;
+    final c = Uint8List(16);
+    for (var i = 0; i < 16; i++) {
+      c[i] = id[i] ^ id[i + 16];
     }
-    return b;
+    return c;
   }
 }
