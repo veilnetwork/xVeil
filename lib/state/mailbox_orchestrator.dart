@@ -82,8 +82,10 @@ class MailboxOrchestrator {
     required Uint8List authCookie,
     required int ourCertVersion,
     required Future<bool> Function(Uint8List contentId) alreadyHave,
+    List<NodeId> knownRelays = const [],
   }) async {
-    final blobs = await _relay.fetch(me: me, authCookie: authCookie);
+    final blobs =
+        await _relay.fetch(me: me, authCookie: authCookie, knownRelays: knownRelays);
     final delivered = <DrainedMessage>[];
     for (final b in blobs) {
       if (await alreadyHave(b.contentId)) {
