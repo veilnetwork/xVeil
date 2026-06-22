@@ -260,44 +260,59 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
   Future<List<StoredMailboxBlob>> fetch({
     required NodeId me,
     required Uint8List authCookie, // ignored — verified identity is the auth
+    List<NodeId> knownRelays = const [],
   }) async {
-    // Resolving our own mailbox ad over the DHT can transiently time out
-    // (LookupRendezvousReplicasResp); treat that as "nothing this round" so the
-    // caller's periodic drain retries rather than surfacing a transient error.
-    final List<veil.RendezvousReplica> replicas;
-    try {
-      replicas = await _client.mailbox.lookupRendezvousReplicas(me.bytes);
-    } catch (_) {
-      return const [];
+    // Prefer the relay(s) we already REGISTERED with: we know them, so go
+    // STRAIGHT to them instead of re-resolving our own rendezvous ad over the
+    // DHT every poll. That DHT lookup transiently times out (especially on
+    // mobile / right after a relay restart) and was silently stranding pending
+    // mail — the deposit sits at the relay but the drain fetched nothing.
+    List<Uint8List> relayIds;
+    if (knownRelays.isNotEmpty) {
+      relayIds = knownRelays.map((r) => r.bytes).toList();
+      debugPrint('xVeil[drain]: fetch via ${relayIds.length} KNOWN relay(s) '
+          '(skip DHT self-resolve)');
+    } else {
+      // Cold path (not yet registered): resolve our own ad to find a relay.
+      final List<veil.RendezvousReplica> replicas;
+      try {
+        replicas = await _client.mailbox.lookupRendezvousReplicas(me.bytes);
+      } catch (e) {
+        debugPrint('xVeil[drain]: own-ad DHT resolve FAILED: $e');
+        return const [];
+      }
+      if (replicas.isEmpty) {
+        debugPrint('xVeil[drain]: own-ad resolved 0 replicas — nothing to fetch');
+        return const [];
+      }
+      relayIds = replicas.map((r) => r.relayNodeId).toList();
     }
-    if (replicas.isEmpty) {
-      // We have not (yet) advertised a mailbox relay we can fetch from.
-      return const [];
-    }
-    // Try our published relays in order until one answers within the window. A
-    // send that throws (circuit not yet formed) or a relay that doesn't answer
-    // in time falls through to the next replica; if none answer we return empty
-    // and the caller retries on its next drain tick.
-    for (final r in replicas) {
+    // Try each relay until one answers within the window.
+    for (final relayId in relayIds) {
       final completer = Completer<veil.IncomingMessage>();
       final sub = _fetchApp.messages().listen((m) {
         if (!completer.isCompleted) completer.complete(m);
       });
       try {
         await _fetchApp.sendAnonymousAuthenticatedWithReply(
-          dstNodeId: r.relayNodeId,
+          dstNodeId: relayId,
           dstAppId: kMailboxAppId,
           dstEndpointId: kMailboxFetchEndpointId,
           replyEndpointId: _replyEndpointId,
           data: Uint8List(0),
         );
         final reply = await completer.future.timeout(_fetchTimeout);
-        return decodeMailboxFetchResp(reply.data);
+        final blobs = decodeMailboxFetchResp(reply.data);
+        debugPrint('xVeil[drain]: fetched ${blobs.length} blob(s) from relay '
+            '${NodeId(relayId).short}');
+        return blobs;
       } on FormatException {
         // A malformed reply IS a real fault (not a transient) — surface it.
         rethrow;
-      } catch (_) {
-        // Transient (send threw / no reply in window) — try the next replica.
+      } catch (e) {
+        // Transient (send threw / no reply in window) — try the next relay.
+        debugPrint('xVeil[drain]: relay ${NodeId(relayId).short} no reply '
+            '($e) — trying next');
         continue;
       } finally {
         await sub.cancel();
