@@ -138,7 +138,11 @@ class MessagingService {
   /// that identity's node down) — our node-connect flush only fires on OUR
   /// reconnect, so without this a message to a temporarily-offline peer would
   /// never be retried. Bounded: a message stops being re-sent once acked.
-  static const _retryInterval = Duration(seconds: 15);
+  // Re-send un-acked messages this often. Kept short so a live send that was
+  // dropped (circuit not ready) is retried in a few seconds rather than feeling
+  // stuck. Re-sends are cheap (dedup by id receiver-side; the deposit is skipped
+  // once stashed), so a tight interval mainly buys lower delivery latency.
+  static const _retryInterval = Duration(seconds: 5);
 
   /// Emits whenever stored conversations/messages change.
   Stream<void> get changes => _changes.stream;
@@ -174,6 +178,7 @@ class MessagingService {
     String? fileId,
     String? fileName,
     String? id,
+    DateTime? timestamp,
   }) async {
     final msgId = id ?? _uuid.v4();
     await _storage.appendMessage(Message(
@@ -181,12 +186,26 @@ class MessagingService {
       conversationId: peer.hex,
       direction: dir,
       body: body,
-      timestamp: DateTime.now(),
+      // Incoming messages carry the SENDER's send time (env.sentAtMs) so the
+      // conversation orders by send-order, not the scrambled arrival order.
+      timestamp: timestamp ?? DateTime.now(),
       status: status,
       fileId: fileId,
       fileName: fileName,
     ));
     return msgId;
+  }
+
+  /// The sender's send time off the wire as a DateTime, or null (older sender
+  /// without `sentAtMs` → caller falls back to receive time). Clamped to "not in
+  /// the future" so a sender with a fast clock can't float its messages to the
+  /// bottom of everyone's conversation forever.
+  DateTime? _wireSentAt(WireEnvelope env) {
+    final ms = env.sentAtMs;
+    if (ms == null) return null;
+    final now = DateTime.now();
+    final t = DateTime.fromMillisecondsSinceEpoch(ms);
+    return t.isAfter(now) ? now : t;
   }
 
   Future<bool> _hasMessage(NodeId peer, String id) async {
@@ -284,7 +303,7 @@ class MessagingService {
           // creating a second copy. Skip if we already deleted this id (don't
           // resurrect, same as the message case).
           await _store(m.src, MessageDirection.incoming, env.body,
-              MessageStatus.delivered, id: env.id);
+              MessageStatus.delivered, id: env.id, timestamp: _wireSentAt(env));
         }
       case WireKind.accept:
         // Only honour an accept for a request we actually sent.
@@ -310,7 +329,7 @@ class MessagingService {
           return;
         }
         await _store(m.src, MessageDirection.incoming, env.body,
-            MessageStatus.delivered, id: id);
+            MessageStatus.delivered, id: id, timestamp: _wireSentAt(env));
         if (id != null) {
           await _send(m.src, WireEnvelope.ack(id).encode());
         }
@@ -421,12 +440,15 @@ class MessagingService {
     // recipient (who stored the request body) couldn't dedup it and would show
     // the greeting twice.
     final id = _uuid.v4();
+    final sentAt = DateTime.now();
     if (text.isNotEmpty) {
       await _store(dst, MessageDirection.outgoing, text, MessageStatus.sent,
-          id: id);
+          id: id, timestamp: sentAt);
     }
     _signal();
-    final wire = WireEnvelope.request(text, id: id).encode();
+    final wire = WireEnvelope.request(text,
+            id: id, sentAtMs: sentAt.millisecondsSinceEpoch)
+        .encode();
     await _send(dst, wire);
     // Also deposit the request at the recipient's mailbox relay so a NAT'd /
     // offline peer receives it. The live send above only lands if they're
@@ -505,17 +527,23 @@ class MessagingService {
     // Consent gate — only free-message an accepted contact.
     final contact = await _storage.getContact(dst);
     if (contact == null || contact.status != ContactStatus.accepted) return;
-    final id =
-        await _store(dst, MessageDirection.outgoing, trimmed, MessageStatus.sent);
+    // One send time, used for BOTH our stored copy and the wire `sentAtMs`, so
+    // both ends order this message identically.
+    final sentAt = DateTime.now();
+    final id = await _store(dst, MessageDirection.outgoing, trimmed,
+        MessageStatus.sent, timestamp: sentAt);
     _signal();
     // Stays `sent` until the peer acks; the local outbox re-sends un-acked ones
     // on reconnect, so a message written offline goes out when we come back.
-    final wire = WireEnvelope.message(trimmed, id: id).encode();
+    final wire = WireEnvelope.message(trimmed,
+            id: id, sentAtMs: sentAt.millisecondsSinceEpoch)
+        .encode();
     await _send(dst, wire);
-    // Deposit at the peer's mailbox immediately too, so an accepted contact who
-    // is offline RIGHT NOW receives it without waiting for our next reconnect
-    // flush (flushOutbox only fires on our own connect, which may not recur).
-    await _maybeStash(dst, id, wire);
+    // Deposit at the peer's mailbox as a BACKGROUND fallback (don't await): the
+    // seal+put is a slow onion round-trip, and blocking the send on it made every
+    // message feel laggy even when the live path delivers instantly. If the peer
+    // is offline the deposit (or the outbox retry) still gets there.
+    unawaited(_maybeStash(dst, id, wire));
   }
 
   /// Re-send every outgoing text message still awaiting a delivery ack (i.e.
@@ -531,7 +559,11 @@ class MessagingService {
         if (m.direction == MessageDirection.outgoing &&
             m.status == MessageStatus.sent &&
             !m.isFile) {
-          final wire = WireEnvelope.message(m.body, id: m.id).encode();
+          // Re-send with the ORIGINAL send time so a retried message keeps its
+          // place in the conversation instead of jumping to "now".
+          final wire = WireEnvelope.message(m.body,
+                  id: m.id, sentAtMs: m.timestamp.millisecondsSinceEpoch)
+              .encode();
           await _send(conv.peer.nodeId, wire);
           // Also deposit at the recipient's mailbox relay so an OFFLINE peer
           // receives it (live re-send above only lands if they're online). Once
