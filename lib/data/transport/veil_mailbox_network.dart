@@ -6,6 +6,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:veil_flutter/veil_flutter.dart' as veil;
 
 import '../../core/ids.dart';
@@ -210,6 +211,8 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
         .where((r) => r.rendezvousKemPk.length == 32)
         .take(_putReplicaFanout)
         .toList();
+    debugPrint('xVeil[stash-put]: dst=${receiver.hex.substring(0, 8)} '
+        'replicas_resolved=${replicas.length} usable(KEM)=${usable.length}');
     if (usable.isEmpty) {
       throw StateError(
           'no rendezvous replica with a usable KEM key for ${receiver.hex} — '
