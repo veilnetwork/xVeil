@@ -102,8 +102,11 @@ class MessagingService {
   /// Single egress point so every outbound frame honours [_anonymous]. The real
   /// transport routes over an onion circuit when anonymous (and never falls back
   /// to clearnet); the loopback fake ignores the flag.
-  Future<void> _send(NodeId dst, Uint8List payload) =>
-      _transport.send(dst, payload, anonymous: _anonymous);
+  Future<void> _send(NodeId dst, Uint8List payload) {
+    debugPrint('xVeil[send]: live send dst=${dst.short} anonymous=$_anonymous '
+        'bytes=${payload.length} transport=${_transport.runtimeType}');
+    return _transport.send(dst, payload, anonymous: _anonymous);
+  }
   final _changes = StreamController<void>.broadcast();
   StreamSubscription<InboundMessage>? _sub;
   Timer? _retryTimer;
@@ -236,12 +239,15 @@ class MessagingService {
   }
 
   Future<void> _onInbound(InboundMessage m) async {
+    debugPrint('xVeil[recv]: INBOUND from=${m.src.short} bytes=${m.payload.length}');
     try {
       await _dispatch(m);
-    } catch (_) {
+    } catch (e) {
       // A hostile or corrupt datagram (malformed JSON, missing/ill-typed
       // fields, bad base64) must never throw out of the stream listener and
-      // disrupt delivery for everyone else — drop it silently.
+      // disrupt delivery for everyone else — drop it silently. LOG it so a
+      // legit message that fails to parse/store isn't invisibly dropped.
+      debugPrint('xVeil[recv]: dispatch FAILED from=${m.src.short}: $e');
     }
   }
 
@@ -542,7 +548,15 @@ class MessagingService {
   /// when there is no mailbox side-channel or we already stashed this message.
   Future<void> _maybeStash(NodeId peer, String id, Uint8List wire) async {
     final mailbox = _mailbox;
-    if (mailbox == null || _stashed.contains(id)) return;
+    if (mailbox == null) {
+      debugPrint('xVeil[send]: stash SKIP dst=${peer.short} id=$id '
+          '— NO mailbox (transport not VeilFlutter or no relays)');
+      return;
+    }
+    if (_stashed.contains(id)) {
+      debugPrint('xVeil[send]: stash SKIP dst=${peer.short} id=$id — already stashed');
+      return;
+    }
     try {
       await mailbox.stash(
         recipient: peer,
@@ -550,8 +564,13 @@ class MessagingService {
         contentId: _contentIdFor(id),
       );
       _stashed.add(id);
-    } catch (_) {
+      debugPrint('xVeil[send]: stash OK dst=${peer.short} id=$id '
+          '(deposited at recipient relay)');
+    } catch (e, st) {
       // No relay / no route yet — leave it un-stashed so a later flush retries.
+      // LOG the real reason: this is the offline-delivery path, and a swallowed
+      // failure here is invisible "message never arrived".
+      debugPrint('xVeil[send]: stash FAILED dst=${peer.short} id=$id: $e\n$st');
     }
   }
 
