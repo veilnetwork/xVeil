@@ -10,6 +10,7 @@ import '../crypto/blake3.dart';
 import '../data/node/embedded_node.dart' show BootstrapPeerCfg;
 import '../data/node/node_controller.dart';
 import '../data/storage/storage.dart';
+import '../data/transport/relay_key_cache.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../data/transport/veil_transport.dart';
 import '../data/transport/wire_envelope.dart';
@@ -729,9 +730,10 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
   // (Pairs with the node booting anonymous — see AppController._activeAnonymous —
   // so it can receive the introduce.) The loopback fake ignores the flag.
   final transport = ref.watch(veilTransportProvider);
+  final storage = ref.watch(storageProvider);
   final service = MessagingService(
     transport,
-    ref.watch(storageProvider),
+    storage,
     anonymous: true,
   );
   service.start();
@@ -754,7 +756,16 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
   var providerDisposed = false;
   ref.onDispose(() => providerDisposed = true);
   if (transport is VeilFlutterTransport && relays.isNotEmpty) {
-    transport.buildMailboxService(deliver: service.deliverInbound).then((m) {
+    // Persist verified relay keys INSIDE the active deniable space so a cold
+    // restart can stay reachable through a transient resolve failure (the fresh
+    // one-hop resolve is still preferred — see MailboxService._register).
+    final relayKeyCache = StorageRelayKeyCache(storage);
+    transport
+        .buildMailboxService(
+      deliver: service.deliverInbound,
+      relayKeyCache: relayKeyCache,
+    )
+        .then((m) {
       if (providerDisposed) {
         // This stack/transport is already gone — don't start a timer on it.
         unawaited(m.dispose());
