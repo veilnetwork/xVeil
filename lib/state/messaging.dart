@@ -121,7 +121,7 @@ class MessagingService {
   MailboxSink? _mailbox;
 
   /// Message ids already deposited to the mailbox this session — so a message
-  /// is stashed once, not on every 15 s outbox flush. The relay also dedups by
+  /// is stashed once, not on every outbox flush. The relay also dedups by
   /// content id, so this is purely a network-traffic optimisation.
   final Set<String> _stashed = {};
 
@@ -143,7 +143,7 @@ class MessagingService {
   // dropped (circuit not ready) is retried in a few seconds rather than feeling
   // stuck. Re-sends are cheap (dedup by id receiver-side; the deposit is skipped
   // once stashed), so a tight interval mainly buys lower delivery latency.
-  static const _retryInterval = Duration(seconds: 5);
+  static const _retryInterval = Duration(seconds: 3);
 
   /// Emits whenever stored conversations/messages change.
   Stream<void> get changes => _changes.stream;
@@ -567,10 +567,10 @@ class MessagingService {
               .encode();
           await _send(conv.peer.nodeId, wire);
           // Also deposit at the recipient's mailbox relay so an OFFLINE peer
-          // receives it (live re-send above only lands if they're online). Once
-          // per message per session; the relay dedups by content id, and the
-          // recipient dedups the recovered envelope by its message id.
-          await _maybeStash(conv.peer.nodeId, m.id, wire);
+          // receives it (live re-send above only lands if they're online). Keep
+          // this in the background: sealing/PUT can take a full anonymous
+          // round-trip, and should not block later live retries in this pass.
+          unawaited(_maybeStash(conv.peer.nodeId, m.id, wire));
         }
       }
     }
