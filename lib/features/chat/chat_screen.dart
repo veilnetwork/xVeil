@@ -55,7 +55,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // No contact yet / not accepted — the first message is the request.
       await svc.sendRequest(_peer, text);
     }
-    _scrollToBottom();
+    _scrollToBottom(force: true);
   }
 
   Future<void> _accept() =>
@@ -111,7 +111,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return;
     }
     await ref.read(messagingServiceProvider).sendFile(_peer, bytes, file.name);
-    _scrollToBottom();
+    _scrollToBottom(force: true);
   }
 
   /// Save a received (or sent) file out of the deniable container to a location
@@ -243,15 +243,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
-  void _scrollToBottom() {
+  void _scrollToBottom({bool force = false}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scroll.hasClients) {
-        _scroll.animateTo(
-          _scroll.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-        );
-      }
+      if (!_scroll.hasClients) return;
+      final pos = _scroll.position;
+      // Don't yank the view to the end on every inbound/status change (the
+      // "jumps to the end" jank the user hit): only stick to the bottom when
+      // already near it. Own sends pass force:true so the message is shown.
+      if (!force && pos.maxScrollExtent - pos.pixels > 300) return;
+      _scroll.animateTo(
+        pos.maxScrollExtent,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
     });
   }
 
