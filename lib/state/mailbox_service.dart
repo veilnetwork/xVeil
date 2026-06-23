@@ -115,7 +115,13 @@ class MailboxService implements MailboxSink {
   /// validates the choice, so a wrong/derived node_id is non-fatal.
   Future<void> start({required List<NodeId> relays}) async {
     if (_handleDead) return; // this service is bound to a dead handle; no-op
-    _relays = relays;
+    // Order candidates by Kademlia XOR distance to our own node_id so we
+    // deterministically prefer the SAME relay across restarts AND converge with
+    // veil's built-in receiver task (pick_rendezvous_relay_deterministic uses the
+    // identical metric). Both then advertise ONE stable relay per identity
+    // instead of drifting "first that resolved" picks that strand stale ad slots
+    // at relays we no longer drain — which a sender resolves into a black hole.
+    _relays = relaysByXorDistance(_me, relays);
     debugPrint('xVeil[mailbox]: start — ${relays.length} relay candidate(s), '
         'me=${_me.short}, alreadyRegistered=$_registered');
     // Resolving a relay's KEM key is a DHT FIND_VALUE; right after the node
@@ -270,4 +276,29 @@ class MailboxService implements MailboxSink {
     }
     return c;
   }
+}
+
+/// Sort [relays] by Kademlia XOR distance to [me]'s node_id (closest first),
+/// returning a new list (input untouched). Deterministic and stable across
+/// restarts, and IDENTICAL to veil's `pick_rendezvous_relay_deterministic`
+/// metric — so the app's mailbox publisher and the node's built-in receiver
+/// converge on the SAME rendezvous relay per identity, collapsing the multiple
+/// drifting ad slots that previously black-holed incoming delivery. Ties (which
+/// require two distinct node_ids with equal distance — impossible for real
+/// 32-byte ids) resolve to stable input order.
+@visibleForTesting
+List<NodeId> relaysByXorDistance(NodeId me, List<NodeId> relays) {
+  final anchor = me.bytes;
+  final sorted = [...relays];
+  sorted.sort((a, b) {
+    final ab = a.bytes;
+    final bb = b.bytes;
+    for (var i = 0; i < 32; i++) {
+      final da = ab[i] ^ anchor[i];
+      final db = bb[i] ^ anchor[i];
+      if (da != db) return da - db;
+    }
+    return 0;
+  });
+  return sorted;
 }
