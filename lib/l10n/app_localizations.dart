@@ -733,6 +733,24 @@ abstract class AppL10n {
   /// **'no longer routes over onion — applies on its next start'**
   String get settingsAnonymousDisabledHint;
 
+  /// No description provided for @settingsLazyMining.
+  ///
+  /// In en, this message translates to:
+  /// **'Lazy mining (raise trust)'**
+  String get settingsLazyMining;
+
+  /// No description provided for @settingsLazyMiningEnabledHint.
+  ///
+  /// In en, this message translates to:
+  /// **'grinds extra anti-sybil difficulty in the background — uses CPU; applies on its next start'**
+  String get settingsLazyMiningEnabledHint;
+
+  /// No description provided for @settingsLazyMiningDisabledHint.
+  ///
+  /// In en, this message translates to:
+  /// **'off — no background difficulty grind (recommended); applies on its next start'**
+  String get settingsLazyMiningDisabledHint;
+
   /// No description provided for @settingsManageIdentities.
   ///
   /// In en, this message translates to:

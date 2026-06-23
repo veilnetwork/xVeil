@@ -149,6 +149,7 @@ class EmbeddedNode {
     required String adminSocket,
     DynamicLibrary? lib,
     bool anonymous = false,
+    bool lazyMining = false,
     List<BootstrapPeerCfg> bootstrapPeers = const [],
     String? obfs4PskFile,
     ProxyRouting proxy = ProxyRouting.disabled,
@@ -160,6 +161,7 @@ class EmbeddedNode {
       adminSocket: adminSocket,
       lib: lib,
       anonymous: anonymous,
+      lazyMining: lazyMining,
       bootstrapPeers: bootstrapPeers,
       obfs4PskFile: obfs4PskFile,
       proxy: proxy,
@@ -234,6 +236,37 @@ class EmbeddedNode {
     return '$toml\n[anonymity]\nreceive_anonymous = true\nonion_service = true\n';
   }
 
+  /// Force the `[Identity]` lazy-mining preference, OVERRIDING whatever the
+  /// stored identity baked in. Lazy mining is a CPU-heavy BACKGROUND grind
+  /// (raising the identity's anti-sybil difficulty via repeated PoW) that the
+  /// node does NOT need to function; it competes with the latency-critical async
+  /// runtime on mobile, and identities minted before the cap fix target an
+  /// UNREACHABLE difficulty 64 — grinding a core forever, starving IPC (→ 12s FFI
+  /// timeouts + UI hangs). Default OFF; the user opts IN via settings.
+  ///
+  /// Strips any persisted `lazy_mining` / `max_lazy_difficulty` and re-applies:
+  /// disabled ⇒ absent ⇒ deserialises to `lazy_mining = false`; enabled ⇒
+  /// `lazy_mining = true` with a REACHABLE cap (32, not 64) so the miner finishes
+  /// and returns to idle. Pure helper (no FFI), so it is unit-testable.
+  static String withLazyMining(String toml, bool enabled) {
+    final stripped = toml
+        .split('\n')
+        .where((l) {
+          final t = l.trimLeft();
+          return !t.startsWith('lazy_mining') &&
+              !t.startsWith('max_lazy_difficulty');
+        })
+        .join('\n');
+    if (!enabled) return stripped;
+    // Opt-in: insert under the identity table with a reachable cap. If no
+    // identity header is found (shouldn't happen for a real config) the string
+    // is returned unchanged, leaving lazy mining OFF — the safe default.
+    return stripped.replaceFirstMapped(
+      RegExp(r'\[identity\]\n', caseSensitive: false),
+      (m) => '${m[0]}lazy_mining = true\nmax_lazy_difficulty = 32\n',
+    );
+  }
+
   /// Append a `[session]` table with a TIGHT keepalive so the node's mesh
   /// session to its relays survives mobile NAT / Android socket reaping. The
   /// default keepalive is 30 s; on a phone the obfs4 TCP connection to the seeds
@@ -279,6 +312,7 @@ class EmbeddedNode {
     required String adminSocket,
     DynamicLibrary? lib,
     bool anonymous = false,
+    bool lazyMining = false,
     List<BootstrapPeerCfg> bootstrapPeers = const [],
     String? obfs4PskFile,
     ProxyRouting proxy = ProxyRouting.disabled,
@@ -312,7 +346,10 @@ class EmbeddedNode {
       freeStr(out);
       return withSessionKeepalive(withObfs4PskFile(
         withProxy(
-          withBootstrapPeers(withAnonymity(toml, anonymous), bootstrapPeers),
+          withBootstrapPeers(
+            withLazyMining(withAnonymity(toml, anonymous), lazyMining),
+            bootstrapPeers,
+          ),
           proxy,
         ),
         obfs4PskFile,

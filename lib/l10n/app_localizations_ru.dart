@@ -355,6 +355,17 @@ class AppL10nRu extends AppL10n {
       'больше не через onion — применится при следующем запуске';
 
   @override
+  String get settingsLazyMining => 'Ленивый майнинг (поднять доверие)';
+
+  @override
+  String get settingsLazyMiningEnabledHint =>
+      'в фоне намайнивает дополнительную анти-сибил сложность — нагружает CPU; применится при следующем запуске';
+
+  @override
+  String get settingsLazyMiningDisabledHint =>
+      'выключен — без фонового майнинга сложности (рекомендуется); применится при следующем запуске';
+
+  @override
   String get settingsManageIdentities => 'Управление личностями';
 
   @override
