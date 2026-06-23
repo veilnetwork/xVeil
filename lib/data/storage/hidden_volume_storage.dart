@@ -351,6 +351,10 @@ class HiddenVolumeStorage implements Storage {
     // the prior text no longer reads back (its chunk is orphaned for scrub).
     final edited = current.copyWith(body: newBody, edited: true);
     _s.commit([AppendLogOp(Ns.messageLog, logId, _sk(_encodeMessage(edited)))]);
+    // Edit rewrites an EXISTING log_id (last-write-wins) and does NOT bump the
+    // next-id, so the next-id-keyed scan cache would otherwise show the stale
+    // body — invalidate it explicitly.
+    _scanCache = null;
   }
 
   @override
@@ -378,6 +382,10 @@ class HiddenVolumeStorage implements Storage {
       DeleteOp(Ns.settings, _sk('msgidx:$messageId')),
       if (fileId != null) ...FileStore(_s).deleteFileOps(fileId),
     ]);
+    // Tombstone rewrites an EXISTING log_id without bumping the next-id, so the
+    // next-id-keyed scan cache must be invalidated or the deleted message would
+    // keep surfacing (a deniability hole).
+    _scanCache = null;
   }
 
   @override
@@ -448,7 +456,22 @@ class HiddenVolumeStorage implements Storage {
 
   /// Scan the log, building messages and folding status OPs onto them. Base
   /// rows carry the message; `{op:'status'}` rows update an existing id.
+  // Memoised reduction of the message log, keyed by the log's next-id. Scanning
+  // the log DECRYPTS + parses every record, which the chat view used to redo on
+  // EVERY reload (each `changes` tick) — a freeze while scrolling a large
+  // conversation. The log is append-only, so the next-id changes iff a record
+  // was added (send / receive / status flip / edit / delete); while it is
+  // unchanged (e.g. the user is just scrolling), every caller reuses this cache
+  // instead of re-decrypting. Safe by construction: any mutation bumps the
+  // next-id and forces a full re-scan, so the cache can never go stale or drop a
+  // message. Wiped on close().
+  List<Message>? _scanCache;
+  int _scanCacheNextId = -1;
+
   Iterable<Message> _scanLog() {
+    final nextId = _nextLogId();
+    final cached = _scanCache;
+    if (cached != null && _scanCacheNextId == nextId) return cached;
     final order = <String>[];
     final byId = <String, Message>{};
     final statusOps = <String, MessageStatus>{};
@@ -480,16 +503,23 @@ class HiddenVolumeStorage implements Storage {
         fileName: m['fn'] as String?,
       );
     }
-    return order.map((id) {
-      final msg = byId[id]!;
-      final s = statusOps[id];
-      return s != null ? msg.copyWith(status: s) : msg;
-    });
+    final result = order
+        .map((id) {
+          final msg = byId[id]!;
+          final s = statusOps[id];
+          return s != null ? msg.copyWith(status: s) : msg;
+        })
+        .toList(growable: false);
+    _scanCache = result;
+    _scanCacheNextId = nextId;
+    return result;
   }
 
   @override
   Future<void> close() async {
     _store?.close();
     _store = null;
+    _scanCache = null;
+    _scanCacheNextId = -1;
   }
 }
