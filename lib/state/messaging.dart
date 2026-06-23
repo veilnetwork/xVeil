@@ -948,10 +948,60 @@ final messagesProvider =
   final service = ref.watch(messagingServiceProvider);
   final storage = ref.watch(storageProvider);
   yield await storage.loadMessages(conversationId);
-  await for (final _ in service.changes) {
+  // Each `changes` tick re-loads + DECRYPTS the whole conversation from the
+  // container and rebuilds the ListView (+ auto-scroll). A burst of state
+  // signals (sends, inbound re-sends, status flips) therefore thrashed the UI
+  // isolate into a visible freeze. Coalesce bursts: reload at most ~5x/s
+  // (trailing edge), so the latest state still renders within ~200ms but a
+  // flurry collapses into ONE decrypt+rebuild.
+  await for (final _
+      in service.changes.auditTrailing(const Duration(milliseconds: 200))) {
     yield await storage.loadMessages(conversationId);
   }
 });
+
+extension _AuditTrailing<T> on Stream<T> {
+  /// Trailing-edge throttle: collapses a burst of events into a single
+  /// downstream event carrying the LATEST value, emitted at most once per
+  /// [window]. Quiet periods pass through with at most [window] added latency;
+  /// no event is emitted for an idle window.
+  Stream<T> auditTrailing(Duration window) {
+    StreamController<T>? controller;
+    StreamSubscription<T>? sub;
+    Timer? timer;
+    late T latest;
+    var has = false;
+    controller = StreamController<T>(
+      onListen: () {
+        sub = listen(
+          (e) {
+            latest = e;
+            has = true;
+            timer ??= Timer(window, () {
+              timer = null;
+              if (has) {
+                has = false;
+                controller!.add(latest);
+              }
+            });
+          },
+          onError: (Object err, StackTrace st) => controller!.addError(err, st),
+          onDone: () {
+            timer?.cancel();
+            controller!.close();
+          },
+        );
+      },
+      onCancel: () {
+        timer?.cancel();
+        final s = sub;
+        sub = null;
+        return s?.cancel();
+      },
+    );
+    return controller.stream;
+  }
+}
 
 /// The stored contact (with relationship status) for a peer, refreshed on
 /// every change. Null until we have a record of them.
