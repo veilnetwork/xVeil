@@ -50,7 +50,7 @@ class MailboxService implements MailboxSink {
     required void Function(InboundMessage) deliver,
     RelayKeyCache? relayKeyCache,
     int ourCertVersion = 0,
-    Duration drainInterval = const Duration(seconds: 30),
+    Duration drainInterval = const Duration(seconds: 10),
   })  : _client = client,
         _me = me,
         _orchestrator = orchestrator,
