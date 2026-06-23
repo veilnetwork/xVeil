@@ -43,6 +43,15 @@ class LoopbackTransport implements VeilTransport {
   }
 
   @override
+  Future<void> sendWithReply(NodeId dst, Uint8List payload) =>
+      send(dst, payload, anonymous: true); // loopback ignores the reply block
+
+  @override
+  Future<void> sendReply(int replyId, Uint8List payload) async {
+    // Loopback never surfaces a non-zero replyId, so this is never reached.
+  }
+
+  @override
   Stream<InboundMessage> messages() => _inbound.stream;
 
   @override

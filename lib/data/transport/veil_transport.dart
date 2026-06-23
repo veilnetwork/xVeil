@@ -4,9 +4,21 @@ import '../../core/ids.dart';
 
 /// A message received from a peer over the overlay network.
 class InboundMessage {
-  const InboundMessage({required this.src, required this.payload});
+  const InboundMessage({
+    required this.src,
+    required this.payload,
+    this.replyId = 0,
+  });
   final NodeId src;
   final Uint8List payload;
+
+  /// Opaque, TTL-bounded handle to a one-time anonymous reply path the SENDER
+  /// embedded with this message (non-zero only when they used [sendWithReply]).
+  /// Answering via [VeilTransport.sendReply] routes back over the sender's
+  /// already-built rendezvous circuit — no fresh resolve + circuit-build, no
+  /// public ad either side — so a delivery ACK returns in ~half the round-trip.
+  /// 0 = not repliable (fall back to a normal anonymous [VeilTransport.send]).
+  final int replyId;
 }
 
 /// Session state of a peer, mapped from veil's wire bytes. [active] = a live
@@ -79,6 +91,23 @@ abstract interface class VeilTransport {
   /// until a circuit can be built. Failures surface as "not delivered", never
   /// as a silent clearnet leak.
   Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false});
+
+  /// Like an anonymous [send], but attach a one-time reply block so the
+  /// recipient can answer over THIS sender's already-built rendezvous circuit
+  /// (the answer surfaces as a non-zero [InboundMessage.replyId]). Use for
+  /// messages that expect a fast confirmation (e.g. a delivery ACK) — it costs
+  /// the sender one extra reply-circuit build but saves the responder a full
+  /// resolve + circuit-build, halving the perceived round-trip. Same no-clearnet
+  /// -fallback + fire-and-forget semantics as [send]. Anonymity is unchanged:
+  /// the reply block is the SAME one-shot onion-return mechanism, not a reused
+  /// circuit, so messages stay mutually unlinkable.
+  Future<void> sendWithReply(NodeId dst, Uint8List payload);
+
+  /// Answer a message that carried a non-zero [InboundMessage.replyId], routing
+  /// back over the sender's embedded one-time reply circuit (no DHT resolve, no
+  /// fresh circuit, no public ad either side). [replyId] is TTL-bounded by the
+  /// node; an expired one fails like any undeliverable anonymous send.
+  Future<void> sendReply(int replyId, Uint8List payload);
 
   /// Inbound application payloads addressed to us.
   Stream<InboundMessage> messages();
