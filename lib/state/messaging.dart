@@ -103,10 +103,33 @@ class MessagingService {
   /// Single egress point so every outbound frame honours [_anonymous]. The real
   /// transport routes over an onion circuit when anonymous (and never falls back
   /// to clearnet); the loopback fake ignores the flag.
-  Future<void> _send(NodeId dst, Uint8List payload) {
+  /// Live-send [payload] to [dst]. [wantReply] (only meaningful when anonymous)
+  /// attaches a one-time reply block so the recipient can ACK over THIS send's
+  /// circuit (surfacing as a non-zero [InboundMessage.replyId]) instead of doing
+  /// a full resolve + circuit-build of its own — used for chat messages so the
+  /// delivery-ACK round-trip is ~halved. Anonymity is unchanged (one-shot block,
+  /// not a reused circuit).
+  Future<void> _send(NodeId dst, Uint8List payload, {bool wantReply = false}) {
     debugPrint('xVeil[send]: live send dst=${dst.short} anonymous=$_anonymous '
-        'bytes=${payload.length} transport=${_transport.runtimeType}');
+        'wantReply=$wantReply bytes=${payload.length} '
+        'transport=${_transport.runtimeType}');
+    if (_anonymous && wantReply) {
+      return _transport.sendWithReply(dst, payload);
+    }
     return _transport.send(dst, payload, anonymous: _anonymous);
+  }
+
+  /// Send a delivery ACK for [id] back to the sender of inbound [m]. When [m]
+  /// carried a one-time reply path ([InboundMessage.replyId] != 0, set because
+  /// the sender used `wantReply`), route the ACK over it — no fresh resolve +
+  /// circuit-build — which is the latency win that flips the sender's message to
+  /// "delivered" fast. Falls back to a normal anonymous send otherwise.
+  Future<void> _ackTo(InboundMessage m, String id) {
+    final ack = WireEnvelope.ack(id).encode();
+    if (m.replyId != 0) {
+      return _transport.sendReply(m.replyId, ack);
+    }
+    return _send(m.src, ack);
   }
   final _changes = StreamController<void>.broadcast();
   StreamSubscription<InboundMessage>? _sub;
@@ -320,19 +343,19 @@ class MessagingService {
         // Dedup re-sent messages (the sender's local outbox re-sends un-acked
         // ones): if we already have this id, just re-ack so they stop.
         if (id != null && await _hasMessage(m.src, id)) {
-          await _send(m.src, WireEnvelope.ack(id).encode());
+          await _ackTo(m, id);
           return;
         }
         // Deniability: if we DELETED this message, a re-delivery must NOT
         // resurrect it. Re-ack so the sender stops re-sending, then drop.
         if (id != null && await _storage.isMessageDeleted(id)) {
-          await _send(m.src, WireEnvelope.ack(id).encode());
+          await _ackTo(m, id);
           return;
         }
         await _store(m.src, MessageDirection.incoming, env.body,
             MessageStatus.delivered, id: id, timestamp: _wireSentAt(env));
         if (id != null) {
-          await _send(m.src, WireEnvelope.ack(id).encode());
+          await _ackTo(m, id);
         }
       case WireKind.ack:
         // The peer confirms delivery of our message [env.id] — stop re-sending.
@@ -416,7 +439,7 @@ class MessagingService {
         // never resurrects (deniability: deleted stays deleted, same guard the
         // text path has). Re-ack either way so the sender stops re-sending.
         if (await _hasMessage(m.src, tid) || await _storage.isMessageDeleted(tid)) {
-          await _send(m.src, WireEnvelope.ack(tid).encode());
+          await _ackTo(m, tid);
           return;
         }
         await _storage.storeFile(tid, inc.reasm.assemble(), name: inc.name);
@@ -425,7 +448,7 @@ class MessagingService {
             fileId: tid, fileName: inc.name, id: tid);
         // Ack the completed transfer so the sender's file message flips
         // sent -> delivered — the same delivery feedback text messages get.
-        await _send(m.src, WireEnvelope.ack(tid).encode());
+        await _ackTo(m, tid);
     }
     _signal();
   }
@@ -539,7 +562,10 @@ class MessagingService {
     final wire = WireEnvelope.message(trimmed,
             id: id, sentAtMs: sentAt.millisecondsSinceEpoch)
         .encode();
-    await _send(dst, wire);
+    // wantReply: embed a one-time reply path so the peer's delivery-ACK comes
+    // back over THIS circuit (fast), flipping us to "delivered" without a full
+    // resolve+circuit-build round-trip on their side.
+    await _send(dst, wire, wantReply: true);
     // Deposit at the peer's mailbox as a BACKGROUND fallback (don't await): the
     // seal+put is a slow onion round-trip, and blocking the send on it made every
     // message feel laggy even when the live path delivers instantly. If the peer
@@ -565,7 +591,7 @@ class MessagingService {
           final wire = WireEnvelope.message(m.body,
                   id: m.id, sentAtMs: m.timestamp.millisecondsSinceEpoch)
               .encode();
-          await _send(conv.peer.nodeId, wire);
+          await _send(conv.peer.nodeId, wire, wantReply: true);
           // Also deposit at the recipient's mailbox relay so an OFFLINE peer
           // receives it (live re-send above only lands if they're online). Keep
           // this in the background: sealing/PUT can take a full anonymous
