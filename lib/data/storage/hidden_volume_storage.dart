@@ -74,6 +74,7 @@ class HiddenVolumeStorage implements Storage {
     // its exclusive flock, so the NEXT open of that container fails with `Busy`.
     _store?.close();
     _store = store;
+    _invalidateScanCache(); // adopting a different space — drop the old fold
     return true;
   }
 
@@ -86,6 +87,7 @@ class HiddenVolumeStorage implements Storage {
     if (store == null) return false;
     _store?.close();
     _store = store;
+    _invalidateScanCache(); // adopting a different space — drop the old fold
     return true;
   }
 
@@ -354,7 +356,7 @@ class HiddenVolumeStorage implements Storage {
     // Edit rewrites an EXISTING log_id (last-write-wins) and does NOT bump the
     // next-id, so the next-id-keyed scan cache would otherwise show the stale
     // body — invalidate it explicitly.
-    _scanCache = null;
+    _invalidateScanCache();
   }
 
   @override
@@ -385,7 +387,7 @@ class HiddenVolumeStorage implements Storage {
     // Tombstone rewrites an EXISTING log_id without bumping the next-id, so the
     // next-id-keyed scan cache must be invalidated or the deleted message would
     // keep surfacing (a deniability hole).
-    _scanCache = null;
+    _invalidateScanCache();
   }
 
   @override
@@ -430,6 +432,9 @@ class HiddenVolumeStorage implements Storage {
       _s.eraseNamespace(ns);
     }
     _s.scrub();
+    // The message log is gone — drop the in-memory fold or a later loadMessages
+    // would resurrect the erased conversation from cache.
+    _invalidateScanCache();
   }
 
   @override
@@ -438,6 +443,9 @@ class HiddenVolumeStorage implements Storage {
     // longer recoverable from the container. Backed by hidden-volume's
     // vacuum/compact when the store exposes it; a no-op on the in-memory fake.
     _s.scrub();
+    // Defensive: if the vacuum ever compacts/renumbers the log, the fold's
+    // log-id watermark would be stale — force a clean rebuild next read.
+    _invalidateScanCache();
   }
 
   @override
@@ -456,42 +464,60 @@ class HiddenVolumeStorage implements Storage {
 
   /// Scan the log, building messages and folding status OPs onto them. Base
   /// rows carry the message; `{op:'status'}` rows update an existing id.
-  // Memoised reduction of the message log, keyed by the log's next-id. Scanning
-  // the log DECRYPTS + parses every record, which the chat view used to redo on
-  // EVERY reload (each `changes` tick) — a freeze while scrolling a large
-  // conversation. The log is append-only, so the next-id changes iff a record
-  // was added (send / receive / status flip / edit / delete); while it is
-  // unchanged (e.g. the user is just scrolling), every caller reuses this cache
-  // instead of re-decrypting. Safe by construction: any mutation bumps the
-  // next-id and forces a full re-scan, so the cache can never go stale or drop a
-  // message. Wiped on close().
-  List<Message>? _scanCache;
-  int _scanCacheNextId = -1;
+  // INCREMENTAL reduction of the append-only message log. The full scan DECRYPTS
+  // every record, and `iterLogRange` is a SYNCHRONOUS FFI, so re-running it on
+  // every `changes` tick blocked the UI isolate — a freeze on a large
+  // conversation, worst during active delivery (every send / receive / status
+  // flip churns the log). We keep the reduced state and fold only the records
+  // appended SINCE the last scan (ids are sequential), so a reload during active
+  // delivery reads 1-2 new records instead of hundreds.
+  //
+  // Correctness: append + status are NEW records (bump the next-id) so the
+  // forward fold sees them. Edit/delete REWRITE an existing log_id (no new id,
+  // no next-id bump) so they bypass the forward fold — they call
+  // [_invalidateScanCache] for a full rebuild. The `del` arm below only fires
+  // during such a full rebuild (start == null reads the tombstones). Wiped on
+  // close().
+  final List<String> _scanOrder = [];
+  final Map<String, Message> _scanById = {};
+  final Map<String, MessageStatus> _scanStatusOps = {};
+  int _scanFoldedUpTo = 0; // next log_id not yet folded into the state above
+  List<Message>? _scanResult; // materialised; valid while _scanFoldedUpTo == nextId
+
+  void _invalidateScanCache() {
+    _scanOrder.clear();
+    _scanById.clear();
+    _scanStatusOps.clear();
+    _scanFoldedUpTo = 0;
+    _scanResult = null;
+  }
 
   Iterable<Message> _scanLog() {
     final nextId = _nextLogId();
-    final cached = _scanCache;
-    if (cached != null && _scanCacheNextId == nextId) return cached;
-    final order = <String>[];
-    final byId = <String, Message>{};
-    final statusOps = <String, MessageStatus>{};
-    for (final e in _s.iterLogRange(namespace: Ns.messageLog, limit: _logScanLimit)) {
+    final cached = _scanResult;
+    if (cached != null && _scanFoldedUpTo == nextId) return cached;
+    // Fold only records appended since the last fold. Re-read ONE record of
+    // overlap (start = foldedUpTo - 1) so we don't depend on the range's
+    // inclusive/exclusive boundary — re-applying a record is idempotent.
+    final start = _scanFoldedUpTo == 0 ? null : _scanFoldedUpTo - 1;
+    for (final e
+        in _s.iterLogRange(namespace: Ns.messageLog, start: start, limit: _logScanLimit)) {
       final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
       if (m['op'] == 'status') {
-        statusOps[m['id'] as String] = MessageStatus.values[m['s'] as int];
+        _scanStatusOps[m['id'] as String] = MessageStatus.values[m['s'] as int];
         continue;
       }
       if (m['op'] == 'del') {
         // Tombstone (deleted message) — the record at this log_id no longer
         // carries a body. Drop it so it never surfaces.
         final id = m['id'] as String;
-        byId.remove(id);
-        order.remove(id);
+        _scanById.remove(id);
+        _scanOrder.remove(id);
         continue;
       }
       final id = m['id'] as String;
-      if (!byId.containsKey(id)) order.add(id);
-      byId[id] = Message(
+      if (!_scanById.containsKey(id)) _scanOrder.add(id);
+      _scanById[id] = Message(
         id: id,
         conversationId: m['c'] as String,
         direction: MessageDirection.values[m['d'] as int],
@@ -503,15 +529,15 @@ class HiddenVolumeStorage implements Storage {
         fileName: m['fn'] as String?,
       );
     }
-    final result = order
+    _scanFoldedUpTo = nextId;
+    final result = _scanOrder
         .map((id) {
-          final msg = byId[id]!;
-          final s = statusOps[id];
+          final msg = _scanById[id]!;
+          final s = _scanStatusOps[id];
           return s != null ? msg.copyWith(status: s) : msg;
         })
         .toList(growable: false);
-    _scanCache = result;
-    _scanCacheNextId = nextId;
+    _scanResult = result;
     return result;
   }
 
@@ -519,7 +545,6 @@ class HiddenVolumeStorage implements Storage {
   Future<void> close() async {
     _store?.close();
     _store = null;
-    _scanCache = null;
-    _scanCacheNextId = -1;
+    _invalidateScanCache();
   }
 }
