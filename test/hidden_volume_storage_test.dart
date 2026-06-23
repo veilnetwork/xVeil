@@ -58,6 +58,47 @@ void main() {
     expect(await storage.loadConversations(), isEmpty);
   });
 
+  test('incremental log fold matches a full scan across appends + status reads',
+      () async {
+    final a = _id(1).hex; // conversation A (interleaved with B in the log)
+    final b = _id(2).hex;
+    for (var i = 0; i < 5; i++) {
+      await storage.appendMessage(_msg(
+          conv: i.isEven ? a : b,
+          dir: MessageDirection.outgoing,
+          body: 'm$i',
+          ts: DateTime(2026, 5, 1, 0, i)));
+    }
+    // Initial fold.
+    expect((await storage.loadMessages(a)).map((m) => m.body),
+        ['m0', 'm2', 'm4']);
+    // A status flip + a new append → exercised as INCREMENTAL folds (the read
+    // above already advanced the watermark).
+    final m0Id = (await storage.loadMessages(a)).first.id;
+    await storage.markMessageStatus(m0Id, MessageStatus.delivered);
+    await storage.appendMessage(_msg(
+        conv: a,
+        dir: MessageDirection.outgoing,
+        body: 'm5',
+        ts: DateTime(2026, 5, 1, 0, 5)));
+    final after = await storage.loadMessages(a);
+    expect(after.map((m) => m.body), ['m0', 'm2', 'm4', 'm5']);
+    expect(after.firstWhere((m) => m.body == 'm0').status,
+        MessageStatus.delivered);
+    // Ground truth: a SECOND handle over the same store has a cold cache, so its
+    // first read is a full scan. The incremental fold must agree byte-for-byte.
+    final fresh = HiddenVolumeStorage(
+      ({required Uint8List password, required bool create}) =>
+          password.isEmpty ? null : store,
+    );
+    await fresh.open(password: 'pw');
+    final truth = await fresh.loadMessages(a);
+    expect(
+      after.map((m) => '${m.body}:${m.status.index}').toList(),
+      truth.map((m) => '${m.body}:${m.status.index}').toList(),
+    );
+  });
+
   test('open returns false for an empty password (auth-fail path)', () async {
     final fresh = HiddenVolumeStorage(
       ({required Uint8List password, required bool create}) =>
