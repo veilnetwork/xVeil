@@ -161,10 +161,22 @@ class VeilFlutterTransport implements VeilTransport {
       );
 
   @override
-  Stream<int> sessionCount() => _client
-      .events()
-      .where((e) => e.kind == VeilEventKind.sessionsChanged)
-      .map((e) => e.sessionCount ?? 0);
+  Stream<int> sessionCount() async* {
+    // The events stream only emits on a CHANGE, so a UI subscribing AFTER the
+    // node's sessions came up showed 0 until the next change ("0 nodes" while
+    // actually connected). Seed with the current active-peer count first — now
+    // that peers() runs off-isolate this no longer blocks the UI — then follow
+    // live changes.
+    try {
+      yield (await peers()).where((p) => p.isActive).length;
+    } catch (_) {
+      // ignore — fall through to the live stream
+    }
+    yield* _client
+        .events()
+        .where((e) => e.kind == VeilEventKind.sessionsChanged)
+        .map((e) => e.sessionCount ?? 0);
+  }
 
   @override
   Future<List<PeerInfo>> peers() async {
