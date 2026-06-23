@@ -182,6 +182,25 @@ class SettingsScreen extends ConsumerWidget {
                       : ctrl.setSingleIdentityAnonymous(v),
             );
           }),
+          // Lazy-mining toggle — single-identity mode only. Default OFF (opt-in):
+          // raising this identity's anti-sybil difficulty is a CPU-heavy
+          // background grind that competes with the node's runtime, so it's gated
+          // behind a setting. Reboots the node under the new preference.
+          if (!master.$1)
+            Builder(builder: (_) {
+              final ctrl = ref.read(appControllerProvider.notifier);
+              final on = ctrl.activeLazyMining;
+              return SwitchListTile(
+                secondary: const Icon(Icons.memory_outlined),
+                title: Text(l.settingsLazyMining),
+                subtitle: Text(on
+                    ? l.settingsLazyMiningEnabledHint
+                    : l.settingsLazyMiningDisabledHint),
+                isThreeLine: true,
+                value: on,
+                onChanged: (v) => ctrl.setSingleLazyMining(v),
+              );
+            }),
           if (master.$1)
             ListTile(
               leading: const Icon(Icons.switch_account_outlined),

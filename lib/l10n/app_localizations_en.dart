@@ -354,6 +354,17 @@ class AppL10nEn extends AppL10n {
       'no longer routes over onion — applies on its next start';
 
   @override
+  String get settingsLazyMining => 'Lazy mining (raise trust)';
+
+  @override
+  String get settingsLazyMiningEnabledHint =>
+      'grinds extra anti-sybil difficulty in the background — uses CPU; applies on its next start';
+
+  @override
+  String get settingsLazyMiningDisabledHint =>
+      'off — no background difficulty grind (recommended); applies on its next start';
+
+  @override
   String get settingsManageIdentities => 'Manage identities';
 
   @override
