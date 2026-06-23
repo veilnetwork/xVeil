@@ -173,6 +173,18 @@ class MessagingService {
   final Map<String, DateTime> _stashFailedAt = {};
   static const _stashRetryBackoff = Duration(seconds: 30);
 
+  /// Per-message live-resend backoff. The outbox flush fires every
+  /// [_retryInterval] (3s), but re-sending EVERY un-acked message on EVERY tick
+  /// is a storm when delivery is lossy (observed 789 re-sends in one session,
+  /// each a full onion send + an FFI hop that, in bulk, starved the UI isolate
+  /// into a freeze). Instead each message backs off exponentially after its
+  /// first re-send: 3s, 6s, 12s, 24s, capped at [_maxRetryBackoff]. The first
+  /// send (sendText) and the first re-send are unchanged, so a transient loss
+  /// still recovers in seconds; only a persistently-undeliverable message stops
+  /// hammering. Cleared when the message is acked (delivered).
+  final Map<String, ({int count, DateTime nextAt})> _retryBackoff = {};
+  static const _maxRetryBackoff = Duration(seconds: 24);
+
   /// Attach the offline-delivery [MailboxService] after construction (it is
   /// built with [deliverInbound] as its drain sink, so it must exist first).
   void attachMailbox(MailboxSink mailbox) => _mailbox = mailbox;
@@ -394,6 +406,7 @@ class MessagingService {
           // get the full perceived round-trip. id + time only.
           debugPrint('xVeil[timeline]: delivered id=${env.id} '
               't=${DateTime.now().millisecondsSinceEpoch}');
+          _retryBackoff.remove(env.id); // stop backing off a delivered message
           await _storage.markMessageStatus(env.id!, MessageStatus.delivered);
         }
       case WireKind.edit:
@@ -624,6 +637,19 @@ class MessagingService {
         if (m.direction == MessageDirection.outgoing &&
             m.status == MessageStatus.sent &&
             !m.isFile) {
+          // Exponential per-message backoff: skip this flush if the message is
+          // still within its backoff window (delivery is lossy, so re-sending
+          // every un-acked message every 3s is a storm). First re-send fires
+          // immediately (no entry yet); each subsequent one doubles 3->6->12->24
+          // capped, so a persistent loss stops hammering the UI/onion path.
+          final now = DateTime.now();
+          final bo = _retryBackoff[m.id];
+          if (bo != null && now.isBefore(bo.nextAt)) continue;
+          final count = (bo?.count ?? 0) + 1;
+          final delayMs = (_retryInterval.inMilliseconds * (1 << (count - 1)))
+              .clamp(0, _maxRetryBackoff.inMilliseconds);
+          _retryBackoff[m.id] =
+              (count: count, nextAt: now.add(Duration(milliseconds: delayMs)));
           // Re-send with the ORIGINAL send time so a retried message keeps its
           // place in the conversation instead of jumping to "now".
           final wire = WireEnvelope.message(m.body,
