@@ -9,6 +9,7 @@ import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/state/mailbox_service.dart';
 import 'package:xveil/state/messaging.dart';
 
 NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
@@ -39,6 +40,25 @@ class _FakeTransport implements VeilTransport {
   Future<List<PeerInfo>> peers() async => const [];
   @override
   Future<void> dispose() async => _inbound.close();
+}
+
+class _BlockingMailboxSink implements MailboxSink {
+  final _release = Completer<void>();
+  int calls = 0;
+
+  @override
+  Future<void> stash({
+    required NodeId recipient,
+    required Uint8List payload,
+    required Uint8List contentId,
+  }) {
+    calls++;
+    return _release.future;
+  }
+
+  void release() {
+    if (!_release.isCompleted) _release.complete();
+  }
 }
 
 SpaceOpener _memOpener() {
@@ -284,6 +304,21 @@ void main() {
     expect((await sB.loadMessages(a.hex)).any((m) => m.body == 'composed offline'),
         isTrue);
     expect((await aMsg('composed offline')).status, MessageStatus.delivered);
+  });
+
+  test('flush keeps live retries moving while mailbox stash is slow', () async {
+    final mailbox = _BlockingMailboxSink();
+    addTearDown(mailbox.release);
+    mA.attachMailbox(mailbox);
+
+    tA.online = false;
+    await mA.sendText(b, 'queued behind mailbox');
+    await _pump();
+    expect((await aMsg('queued behind mailbox')).status, MessageStatus.sent);
+
+    await mA.flushOutbox().timeout(const Duration(milliseconds: 100));
+    expect(mailbox.calls, greaterThanOrEqualTo(2),
+        reason: 'sendText and flush should both start a deposit attempt');
   });
 
   test('re-sending an already-delivered message does not duplicate it', () async {
