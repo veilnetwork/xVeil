@@ -252,13 +252,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       final pos = _scroll.position;
       // Don't yank the view to the end on every inbound/status change (the
       // "jumps to the end" jank the user hit): only stick to the bottom when
-      // already near it. Own sends pass force:true so the message is shown.
+      // already near it. Own sends + chat-open pass force:true.
       if (!force && pos.maxScrollExtent - pos.pixels > 300) return;
-      _scroll.animateTo(
-        pos.maxScrollExtent,
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOut,
-      );
+      if (force) {
+        // Instant on open/own-send so it reliably lands at the last message
+        // even before the list's extent has fully settled.
+        _scroll.jumpTo(pos.maxScrollExtent);
+      } else {
+        _scroll.animateTo(
+          pos.maxScrollExtent,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
+      }
     });
   }
 
@@ -268,9 +274,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final messages = ref.watch(messagesProvider(widget.peerHex));
     final status = ref.watch(contactProvider(widget.peerHex)).value?.status;
     ref.listen(messagesProvider(widget.peerHex), (_, _) => _scrollToBottom());
-    // On first build (chat just opened) land at the bottom regardless of
-    // position; the listen above keeps it there only when already near it.
-    if (!_didInitialScroll) {
+    // Land at the latest message on the FIRST build that actually has messages
+    // (not the initial empty/loading frame — scrolling then lands nowhere and
+    // the async-loaded list later stays stuck at the top, the bug the user hit).
+    // The listen above keeps it at the bottom afterwards only when already near.
+    if (!_didInitialScroll && (messages.value?.isNotEmpty ?? false)) {
       _didInitialScroll = true;
       _scrollToBottom(force: true);
     }
