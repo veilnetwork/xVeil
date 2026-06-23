@@ -133,7 +133,12 @@ class MessagingService {
   /// a dead reply path. First receipt → fast reply path; repeat → reliable path.
   Future<void> _ackTo(InboundMessage m, String id, {bool direct = false}) {
     final ack = WireEnvelope.ack(id).encode();
-    if (!direct && m.replyId != 0) {
+    final viaReply = !direct && m.replyId != 0;
+    // [timeline] which ACK path we took (reply = fast one-time circuit; direct =
+    // durable resolve+circuit). id + path enum only — no body/keys.
+    debugPrint('xVeil[timeline]: ack id=$id via=${viaReply ? 'reply' : 'direct'} '
+        't=${DateTime.now().millisecondsSinceEpoch}');
+    if (viaReply) {
       return _transport.sendReply(m.replyId, ack);
     }
     return _send(m.src, ack);
@@ -154,6 +159,19 @@ class MessagingService {
   /// is stashed once, not on every outbox flush. The relay also dedups by
   /// content id, so this is purely a network-traffic optimisation.
   final Set<String> _stashed = {};
+
+  /// When a stash of a given id last FAILED. A failed deposit is never added to
+  /// [_stashed] (so a later flush retries it — correct for offline delivery),
+  /// but EACH `mailbox.stash` spawns a worker isolate that does a DHT relay-key
+  /// resolve + ML-KEM seal and blocks ~12s when the relay can't be resolved. The
+  /// 3s outbox flush therefore re-spawned a seal isolate every tick for every
+  /// not-yet-deliverable message — a self-inflicted isolate/CPU storm competing
+  /// with live onion delivery (observed: 140 "stash FAILED" in one session). We
+  /// back off re-attempts of a FAILED id by [_stashRetryBackoff]; the deposit is
+  /// never dropped (it still retries, just not every 3s), so offline delivery is
+  /// unaffected.
+  final Map<String, DateTime> _stashFailedAt = {};
+  static const _stashRetryBackoff = Duration(seconds: 30);
 
   /// Attach the offline-delivery [MailboxService] after construction (it is
   /// built with [deliverInbound] as its drain sink, so it must exist first).
@@ -347,6 +365,11 @@ class MessagingService {
         // Consent gate: only deliver from accepted peers; drop the rest.
         if (existing?.status != ContactStatus.accepted) return;
         final id = env.id;
+        // [timeline] inbound receipt: id + whether it carried a reply path. id +
+        // replyId only (no body) — lets us separate receive-latency from the ACK
+        // round-trip when reading a session's logs.
+        debugPrint('xVeil[timeline]: recv id=$id replyId=${m.replyId} '
+            't=${DateTime.now().millisecondsSinceEpoch}');
         // Dedup re-sent messages (the sender's local outbox re-sends un-acked
         // ones): if we already have this id, just re-ack so they stop.
         if (id != null && await _hasMessage(m.src, id)) {
@@ -367,6 +390,10 @@ class MessagingService {
       case WireKind.ack:
         // The peer confirms delivery of our message [env.id] — stop re-sending.
         if (env.id != null) {
+          // [timeline] sender-side "delivered" moment — pair with the send t0 to
+          // get the full perceived round-trip. id + time only.
+          debugPrint('xVeil[timeline]: delivered id=${env.id} '
+              't=${DateTime.now().millisecondsSinceEpoch}');
           await _storage.markMessageStatus(env.id!, MessageStatus.delivered);
         }
       case WireKind.edit:
@@ -572,6 +599,10 @@ class MessagingService {
     // wantReply: embed a one-time reply path so the peer's delivery-ACK comes
     // back over THIS circuit (fast), flipping us to "delivered" without a full
     // resolve+circuit-build round-trip on their side.
+    // [timeline] id + send-time only (random uuid + ms clock — no body/keys), so
+    // receive-latency vs ACK-latency can be measured per message from the logs.
+    debugPrint('xVeil[timeline]: send id=$id '
+        't0=${sentAt.millisecondsSinceEpoch} wantReply=true');
     await _send(dst, wire, wantReply: true);
     // Deposit at the peer's mailbox as a BACKGROUND fallback (don't await): the
     // seal+put is a slow onion round-trip, and blocking the send on it made every
@@ -605,6 +636,10 @@ class MessagingService {
           // ACKs over the durable resolve+circuit path — reliable, and it stops
           // the retry once it lands. This keeps the fast-ACK chance (first send)
           // without the per-retry circuit storm.
+          // [timeline] one line per re-send so a session's retry count per id is
+          // countable (a high count = the ACK round-trip is lagging). id only.
+          debugPrint('xVeil[timeline]: retry id=${m.id} '
+              't=${DateTime.now().millisecondsSinceEpoch}');
           await _send(conv.peer.nodeId, wire);
           // Also deposit at the recipient's mailbox relay so an OFFLINE peer
           // receives it (live re-send above only lands if they're online). Keep
@@ -630,6 +665,15 @@ class MessagingService {
       debugPrint('xVeil[send]: stash SKIP dst=${peer.short} id=$id — already stashed');
       return;
     }
+    // Back off re-attempts of a recently-FAILED id: a failed seal isolate blocks
+    // ~12s and the 3s flush would otherwise re-spawn one every tick. The deposit
+    // is NOT dropped — it just waits [_stashRetryBackoff] before the next try, so
+    // a genuinely-offline peer still gets it (eventually), without the storm.
+    final failedAt = _stashFailedAt[id];
+    if (failedAt != null &&
+        DateTime.now().difference(failedAt) < _stashRetryBackoff) {
+      return; // still in backoff — skip this flush, retry on a later one
+    }
     try {
       await mailbox.stash(
         recipient: peer,
@@ -637,13 +681,16 @@ class MessagingService {
         contentId: _contentIdFor(id),
       );
       _stashed.add(id);
+      _stashFailedAt.remove(id);
       debugPrint('xVeil[send]: stash OK dst=${peer.short} id=$id '
           '(deposited at recipient relay)');
     } catch (e, st) {
-      // No relay / no route yet — leave it un-stashed so a later flush retries.
-      // LOG the real reason: this is the offline-delivery path, and a swallowed
-      // failure here is invisible "message never arrived".
-      debugPrint('xVeil[send]: stash FAILED dst=${peer.short} id=$id: $e\n$st');
+      // No relay / no route yet — leave it un-stashed so a later flush retries
+      // (after the backoff). LOG the real reason: this is the offline-delivery
+      // path, and a swallowed failure here is invisible "message never arrived".
+      _stashFailedAt[id] = DateTime.now();
+      debugPrint('xVeil[send]: stash FAILED dst=${peer.short} id=$id '
+          '(backoff ${_stashRetryBackoff.inSeconds}s): $e\n$st');
     }
   }
 
