@@ -22,6 +22,9 @@ class ChatScreen extends ConsumerStatefulWidget {
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _input = TextEditingController();
   final _scroll = ScrollController();
+  // The chat must OPEN at the latest message; after that we only auto-stick to
+  // the bottom when already near it (so reading history isn't yanked down).
+  bool _didInitialScroll = false;
 
   late final NodeId _peer = NodeId.fromHex(widget.peerHex);
 
@@ -265,6 +268,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final messages = ref.watch(messagesProvider(widget.peerHex));
     final status = ref.watch(contactProvider(widget.peerHex)).value?.status;
     ref.listen(messagesProvider(widget.peerHex), (_, _) => _scrollToBottom());
+    // On first build (chat just opened) land at the bottom regardless of
+    // position; the listen above keeps it there only when already near it.
+    if (!_didInitialScroll) {
+      _didInitialScroll = true;
+      _scrollToBottom(force: true);
+    }
 
     return Scaffold(
       appBar: AppBar(
