@@ -177,7 +177,11 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     required int replyEndpointId,
     int putHopCount = 1,
     int putReplicaFanout = 3,
-    Duration fetchTimeout = const Duration(seconds: 12),
+    // 12s let a relay that never answers FETCH (e.g. one that doesn't serve the
+    // mailbox path) stall a full 12s every drain — on a shared IPC that
+    // periodically froze the UI. 5s fails fast; a relay that genuinely has mail
+    // answers well inside it.
+    Duration fetchTimeout = const Duration(seconds: 5),
   })  : _client = client,
         _fetchApp = fetchApp,
         _srcAppId = srcAppId,

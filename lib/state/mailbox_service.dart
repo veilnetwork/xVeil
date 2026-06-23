@@ -88,6 +88,12 @@ class MailboxService implements MailboxSink {
 
   Timer? _drainTimer;
   bool _draining = false;
+  // Back off draining a relay that keeps returning nothing (e.g. one that never
+  // answers FETCH): its per-drain timeout periodically stalled the shared IPC
+  // and froze the UI. After an empty/failed drain we skip the next 2^streak
+  // ticks (capped ~32 = a few minutes) so a relay that recovers is still retried.
+  int _emptyDrainStreak = 0;
+  int _drainSkips = 0;
   bool _registered = false;
   // Set once the underlying veil handle is permanently closed (the node rebooted
   // out from under this service). Retrying is futile on a dead handle, so we stop
@@ -228,7 +234,12 @@ class MailboxService implements MailboxSink {
 
   Future<void> _drainTick() async {
     if (_draining || _handleDead) return;
+    if (_drainSkips > 0) {
+      _drainSkips--;
+      return; // in backoff after empty/failed drains — don't stall the IPC
+    }
     _draining = true;
+    var gotMail = false;
     try {
       // Keep trying to advertise a mailbox relay until one resolves — a relay's
       // published key can appear well after we first connect, so this persistent
@@ -249,13 +260,21 @@ class MailboxService implements MailboxSink {
         // let that gate duplicates — keeps this layer storage-free.
         alreadyHave: (_) async => false,
       );
+      gotMail = recovered.isNotEmpty;
       for (final m in recovered) {
         _deliver(InboundMessage(src: m.sender, payload: m.data));
       }
     } catch (_) {
-      // Transient drain failure (DHT lookup / circuit not ready) — next tick.
+      // Transient drain failure (DHT lookup / circuit not ready) — back off.
     } finally {
       _draining = false;
+      if (gotMail) {
+        _emptyDrainStreak = 0;
+        _drainSkips = 0;
+      } else {
+        _emptyDrainStreak++;
+        _drainSkips = 1 << _emptyDrainStreak.clamp(1, 5); // 2,4,8,16,32 ticks
+      }
     }
   }
 

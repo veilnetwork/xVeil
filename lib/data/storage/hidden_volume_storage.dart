@@ -500,8 +500,13 @@ class HiddenVolumeStorage implements Storage {
     // overlap (start = foldedUpTo - 1) so we don't depend on the range's
     // inclusive/exclusive boundary — re-applying a record is idempotent.
     final start = _scanFoldedUpTo == 0 ? null : _scanFoldedUpTo - 1;
+    // [timeline] this read is a SYNCHRONOUS FFI on the UI isolate; time it so a
+    // freeze can be attributed to the initial full scan vs anything else.
+    final scanT0 = DateTime.now();
+    var scanned = 0;
     for (final e
         in _s.iterLogRange(namespace: Ns.messageLog, start: start, limit: _logScanLimit)) {
+      scanned++;
       final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
       if (m['op'] == 'status') {
         _scanStatusOps[m['id'] as String] = MessageStatus.values[m['s'] as int];
@@ -538,6 +543,12 @@ class HiddenVolumeStorage implements Storage {
         })
         .toList(growable: false);
     _scanResult = result;
+    final ms = DateTime.now().difference(scanT0).inMilliseconds;
+    if (ms > 50) {
+      // ignore: avoid_print
+      print('xVeil[scan]: ${start == null ? 'FULL' : 'incr'} fold scanned=$scanned '
+          'total=${result.length} took=${ms}ms (UI-isolate sync FFI)');
+    }
     return result;
   }
 
