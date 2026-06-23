@@ -124,9 +124,16 @@ class MessagingService {
   /// the sender used `wantReply`), route the ACK over it — no fresh resolve +
   /// circuit-build — which is the latency win that flips the sender's message to
   /// "delivered" fast. Falls back to a normal anonymous send otherwise.
-  Future<void> _ackTo(InboundMessage m, String id) {
+  ///
+  /// [direct] forces the reliable full anonymous send even when a reply path is
+  /// available. We set it on RE-receipts of an already-seen message: a repeat
+  /// means our previous (reply-path) ACK never reached the sender — the one-time
+  /// reply circuit can silently die on a NAT'd/mobile peer — so the second time
+  /// we ACK over the durable resolve+circuit path instead of looping forever on
+  /// a dead reply path. First receipt → fast reply path; repeat → reliable path.
+  Future<void> _ackTo(InboundMessage m, String id, {bool direct = false}) {
     final ack = WireEnvelope.ack(id).encode();
-    if (m.replyId != 0) {
+    if (!direct && m.replyId != 0) {
       return _transport.sendReply(m.replyId, ack);
     }
     return _send(m.src, ack);
@@ -343,13 +350,13 @@ class MessagingService {
         // Dedup re-sent messages (the sender's local outbox re-sends un-acked
         // ones): if we already have this id, just re-ack so they stop.
         if (id != null && await _hasMessage(m.src, id)) {
-          await _ackTo(m, id);
+          await _ackTo(m, id, direct: true);
           return;
         }
         // Deniability: if we DELETED this message, a re-delivery must NOT
         // resurrect it. Re-ack so the sender stops re-sending, then drop.
         if (id != null && await _storage.isMessageDeleted(id)) {
-          await _ackTo(m, id);
+          await _ackTo(m, id, direct: true);
           return;
         }
         await _store(m.src, MessageDirection.incoming, env.body,
@@ -439,7 +446,7 @@ class MessagingService {
         // never resurrects (deniability: deleted stays deleted, same guard the
         // text path has). Re-ack either way so the sender stops re-sending.
         if (await _hasMessage(m.src, tid) || await _storage.isMessageDeleted(tid)) {
-          await _ackTo(m, tid);
+          await _ackTo(m, tid, direct: true);
           return;
         }
         await _storage.storeFile(tid, inc.reasm.assemble(), name: inc.name);
@@ -591,7 +598,14 @@ class MessagingService {
           final wire = WireEnvelope.message(m.body,
                   id: m.id, sentAtMs: m.timestamp.millisecondsSinceEpoch)
               .encode();
-          await _send(conv.peer.nodeId, wire, wantReply: true);
+          // Re-sends do NOT request a reply: the first send already attached one
+          // (sendText), and building a fresh one-time reply circuit on EVERY 3s
+          // retry was the dominant circuit-build load (the reply path can't be
+          // reused anyway). A plain re-send arrives with replyId==0, so the peer
+          // ACKs over the durable resolve+circuit path — reliable, and it stops
+          // the retry once it lands. This keeps the fast-ACK chance (first send)
+          // without the per-retry circuit storm.
+          await _send(conv.peer.nodeId, wire);
           // Also deposit at the recipient's mailbox relay so an OFFLINE peer
           // receives it (live re-send above only lands if they're online). Keep
           // this in the background: sealing/PUT can take a full anonymous
