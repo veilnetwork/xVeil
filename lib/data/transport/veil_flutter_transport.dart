@@ -132,8 +132,32 @@ class VeilFlutterTransport implements VeilTransport {
   }
 
   @override
+  Future<void> sendWithReply(NodeId dst, Uint8List payload) {
+    // Anonymous send that attaches a one-time reply block routed back to OUR
+    // chat endpoint — the recipient answers (the delivery ACK) over the circuit
+    // we already built, surfacing as a non-zero IncomingMessage.replyId, instead
+    // of resolving + building a fresh circuit to us. No clearnet fallback (same
+    // as the anonymous `send`); the reply block is one-shot, so unlinkable.
+    return _app.sendAnonymousAuthenticatedWithReply(
+      dstNodeId: dst.bytes,
+      dstAppId: chatAppIdFor(dst),
+      dstEndpointId: veilChatEndpointId,
+      replyEndpointId: veilChatEndpointId,
+      data: payload,
+    );
+  }
+
+  @override
+  Future<void> sendReply(int replyId, Uint8List payload) =>
+      _app.sendReply(replyId: replyId, data: payload);
+
+  @override
   Stream<InboundMessage> messages() => _app.messages().map(
-        (m) => InboundMessage(src: NodeId(m.srcNodeId), payload: m.data),
+        (m) => InboundMessage(
+          src: NodeId(m.srcNodeId),
+          payload: m.data,
+          replyId: m.replyId,
+        ),
       );
 
   @override

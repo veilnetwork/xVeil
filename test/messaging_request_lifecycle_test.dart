@@ -21,6 +21,12 @@ class _RecordingTransport implements VeilTransport {
   Future<NodeId> nodeId() async => _me;
   @override
   Stream<InboundMessage> messages() => _inbound.stream;
+
+  @override
+  Future<void> sendWithReply(NodeId dst, Uint8List payload) =>
+      send(dst, payload, anonymous: true);
+  @override
+  Future<void> sendReply(int replyId, Uint8List payload) async {}
   void inject(NodeId src, Uint8List payload) =>
       _inbound.add(InboundMessage(src: src, payload: payload));
   @override
