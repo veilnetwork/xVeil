@@ -118,6 +118,17 @@ class AppController extends Notifier<AppState> {
   /// Storage key for [_singleAnonymous].
   static const _kAnonymousSetting = 'anonymous';
 
+  /// A SINGLE (non-master) identity's lazy-mining preference, persisted per-space
+  /// under the `lazy_mining` setting and loaded at session entry. Defaults to
+  /// FALSE: lazy mining is a CPU-heavy background PoW grind that raises the
+  /// identity's anti-sybil difficulty but is NOT needed to use the node and
+  /// competes with the latency-critical runtime (it starved IPC → app hangs).
+  /// Opt-in only. Like anonymity, it is fixed at node boot, so toggling reboots.
+  bool _singleLazyMining = false;
+
+  /// Storage key for [_singleLazyMining].
+  static const _kLazyMiningSetting = 'lazy_mining';
+
   @override
   AppState build() {
     _bootstrap();
@@ -382,6 +393,32 @@ class AppController extends Notifier<AppState> {
     // Reboot the node so the new routing takes effect. The space stays open
     // (teardown only stops the node); _enterSession re-reads the setting and
     // boots with the new anonymity, then refreshes the home state + node id.
+    await _teardownRealStack();
+    final identity = await storage.loadIdentity() ?? _placeholderIdentity();
+    await _enterSession(identity);
+    return true;
+  }
+
+  /// Whether the ACTIVE single identity is opted into lazy mining (UI reads this
+  /// for the settings toggle). Always false in master mode (no roster field).
+  bool get activeLazyMining => _singleLazyMining;
+
+  /// Toggle lazy mining for a SINGLE (non-master) identity: persist the
+  /// preference into the open space and reboot the node under it (lazy mining is
+  /// fixed at boot, like anonymity). No-op in master mode or when the space isn't
+  /// open. Returns false on those guards. Default OFF — enabling it raises the
+  /// identity's anti-sybil difficulty at the cost of a CPU-heavy background grind.
+  Future<bool> setSingleLazyMining(bool enabled) async {
+    if (_pendingRoster != null) return false; // master mode unsupported for now
+    final storage = ref.read(storageProvider);
+    if (!storage.isOpen) return false;
+    if (_singleLazyMining == enabled) return true;
+
+    await storage.putSetting(_kLazyMiningSetting, enabled ? 'true' : 'false');
+    _singleLazyMining = enabled;
+
+    // Reboot so the [Identity].lazy_mining change takes effect (_enterSession
+    // re-reads the setting and composes the boot config with it).
     await _teardownRealStack();
     final identity = await storage.loadIdentity() ?? _placeholderIdentity();
     await _enterSession(identity);
@@ -846,8 +883,12 @@ class AppController extends Notifier<AppState> {
     // BEFORE booting the node, since anonymity is fixed at boot. Master mode
     // reads the roster flag instead, so skip (the roster is authoritative).
     if (_pendingRoster == null) {
-      final v = await ref.read(storageProvider).getSetting(_kAnonymousSetting);
+      final storage = ref.read(storageProvider);
+      final v = await storage.getSetting(_kAnonymousSetting);
       _singleAnonymous = v == 'true';
+      // Lazy mining is also fixed at boot; default OFF (opt-in).
+      _singleLazyMining =
+          (await storage.getSetting(_kLazyMiningSetting)) == 'true';
     }
     // Deniable path: now that the space is open, boot the in-process node from
     // the in-space identity (mining it on first run). Best-effort — never block
@@ -902,6 +943,7 @@ class AppController extends Notifier<AppState> {
         runtimeDir: boot.runtimeDir,
         listenPort: boot.listenPort,
         anonymous: _activeAnonymous(),
+        lazyMining: _singleLazyMining,
         // Deliberately DON'T inject `[[bootstrap_peers]]` into the node config:
         // the node dials the same nodes from its compiled-in BUILTIN_SEEDS (the
         // proven-connecting path), and injecting explicit peers made
