@@ -12,9 +12,9 @@ import '../data/node/fake_node_controller.dart';
 import '../data/node/node_controller.dart';
 import '../data/storage/fake_kv_log_store.dart';
 import '../data/storage/hidden_volume_storage.dart';
-import '../data/storage/hv_kv_log_store.dart';
 import '../data/storage/kv_log_store.dart';
 import '../data/storage/storage.dart';
+import '../data/storage/worker_multi_space.dart';
 import '../data/transport/loopback_transport.dart';
 import '../data/transport/veil_transport.dart';
 import '../data/veil_stack.dart';
@@ -64,7 +64,10 @@ MultiIdentitySession _realSessionBuilder({
   required int listenPort,
 }) =>
     MultiIdentitySession(
-      HvMultiSpaceBacking.open(storePath),
+      // Off-isolate: the shared multi-space container is owned by a worker
+      // isolate (lazy-spawned on the first openSpace), so every always-online
+      // identity's get/commit/scan runs off the UI thread.
+      WorkerMultiSpaceBacking(storePath),
       runtimeDirBase: runtimeDir,
       listenPortBase: listenPort,
     );

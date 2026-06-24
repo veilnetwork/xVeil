@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/data/storage/multi_space_store.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
@@ -48,9 +49,10 @@ class _FakeTransport implements VeilTransport {
 }
 
 void main() {
-  test('planIdentityBoots assigns a distinct space/dir/port per identity', () {
-    final backing = FakeMultiSpaceBacking();
-    final specs = planIdentityBoots(
+  test('planIdentityBoots assigns a distinct space/dir/port per identity',
+      () async {
+    final backing = SyncWrappedAsyncMultiSpaceBacking(FakeMultiSpaceBacking());
+    final specs = await planIdentityBoots(
         [_e('alice', 1), _e('work', 2, anonymous: true), _e('relatives', 3)],
         backing,
         runtimeDirBase: '/run',
@@ -72,14 +74,15 @@ void main() {
     }
     expect(specs.map((s) => s.runtimeDir).toSet().length, 3); // distinct
     // Stable: same label → same opaque dir across calls.
-    final again = planIdentityBoots([_e('work', 2)], backing,
+    final again = await planIdentityBoots([_e('work', 2)], backing,
         runtimeDirBase: '/run', listenPortBase: 9000);
     expect(again.single.runtimeDir, specs[1].runtimeDir);
   });
 
   test('bootAll hosts every identity storage even when a node boot fails',
       () async {
-    final session = MultiIdentitySession(FakeMultiSpaceBacking(),
+    final session = MultiIdentitySession(
+        SyncWrappedAsyncMultiSpaceBacking(FakeMultiSpaceBacking()),
         runtimeDirBase: '/run',
         listenPortBase: 9000,
         boot: (spec, storage) async => throw StateError('no node in test'));
@@ -97,7 +100,8 @@ void main() {
   test('each identity receives into its OWN storage (concurrent pipelines)',
       () async {
     final transports = <String, _FakeTransport>{};
-    final session = MultiIdentitySession(FakeMultiSpaceBacking(),
+    final session = MultiIdentitySession(
+        SyncWrappedAsyncMultiSpaceBacking(FakeMultiSpaceBacking()),
         runtimeDirBase: '/run', listenPortBase: 9000,
         boot: (spec, storage) async {
       final t = _FakeTransport(_nid(spec.spaceId + 100));
