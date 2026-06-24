@@ -11,6 +11,7 @@ import 'package:veil_flutter/veil_flutter.dart';
 import '../core/ids.dart';
 import '../data/transport/relay_key_cache.dart';
 import '../data/transport/veil_addressing.dart';
+import '../data/transport/veil_mailbox_network.dart' show MailboxDrainUnreachable;
 import '../data/transport/veil_transport.dart';
 import 'mailbox_orchestrator.dart';
 
@@ -94,6 +95,11 @@ class MailboxService implements MailboxSink {
   // ticks (capped ~32 = a few minutes) so a relay that recovers is still retried.
   int _emptyDrainStreak = 0;
   int _drainSkips = 0;
+  // Fixed, low back-off after an UNREACHABLE drain (no relay answered). Unlike a
+  // confirmed-empty inbox this does not escalate: we don't know whether mail is
+  // waiting, so we keep polling within seconds (here: skip one tick ≈ one extra
+  // drain interval between attempts) rather than the exponential idle back-off.
+  static const int _failureBackoffSkips = 1;
   bool _registered = false;
   // Set once the underlying veil handle is permanently closed (the node rebooted
   // out from under this service). Retrying is futile on a dead handle, so we stop
@@ -240,6 +246,7 @@ class MailboxService implements MailboxSink {
     }
     _draining = true;
     var gotMail = false;
+    var unreachable = false;
     try {
       // Keep trying to advertise a mailbox relay until one resolves — a relay's
       // published key can appear well after we first connect, so this persistent
@@ -264,14 +271,33 @@ class MailboxService implements MailboxSink {
       for (final m in recovered) {
         _deliver(InboundMessage(src: m.sender, payload: m.data));
       }
+    } on MailboxDrainUnreachable {
+      // Every known relay failed to ANSWER (vs. a relay answering "empty"). We
+      // do NOT know the mailbox is empty, so this must NOT inflate the idle
+      // back-off — that conflation let a single transient (DHT self-resolve /
+      // reply-circuit hiccup) suppress draining for minutes while a sender kept
+      // depositing. Retry at a bounded, near-cadence interval instead.
+      unreachable = true;
     } catch (_) {
-      // Transient drain failure (DHT lookup / circuit not ready) — back off.
+      // Other unexpected drain fault — treat like an unreachable transient (keep
+      // polling), never like a confirmed-empty inbox.
+      unreachable = true;
     } finally {
       _draining = false;
       if (gotMail) {
+        // Mail delivered — clear all back-off and re-poll promptly (more may be
+        // queued at the relay).
         _emptyDrainStreak = 0;
         _drainSkips = 0;
+      } else if (unreachable) {
+        // Transient: bounded retry. Don't touch the idle streak (a relay never
+        // confirmed empty), and cap the skip low so pending mail is stranded for
+        // seconds, not minutes — while still spacing the (up to fetch-timeout)
+        // IPC sends enough not to stall the UI every tick.
+        _drainSkips = _failureBackoffSkips;
       } else {
+        // A relay authoritatively answered with an empty mailbox — genuinely
+        // idle, so the exponential back-off is appropriate here.
         _emptyDrainStreak++;
         _drainSkips = 1 << _emptyDrainStreak.clamp(1, 5); // 2,4,8,16,32 ticks
       }
