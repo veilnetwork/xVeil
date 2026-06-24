@@ -4,8 +4,16 @@ import 'package:xveil/data/node/embedded_node.dart';
 void main() {
   const base = '[[listen]]\nid = "0x00000001"\ntransport = "tcp://127.0.0.1:9000"\n';
 
-  test('withAnonymity(false) leaves the config unchanged', () {
-    expect(EmbeddedNode.withAnonymity(base, false), base);
+  test('withAnonymity(false) enables receive_anonymous (reachability) but NOT onion',
+      () {
+    // receive_anonymous = plain rendezvous RECEIVE = reachability (always on so
+    // a NAT'd non-anon node can be reached). onion_service = location anonymity
+    // (off unless anonymous).
+    final out = EmbeddedNode.withAnonymity(base, false);
+    expect(out, startsWith(base));
+    expect(out, contains('[anonymity]'));
+    expect(out, contains('receive_anonymous = true'));
+    expect(out, isNot(contains('onion_service')));
   });
 
   test('withAnonymity(true) appends a location-anonymous [anonymity] table', () {
