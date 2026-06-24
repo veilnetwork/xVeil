@@ -37,14 +37,14 @@ void main() {
       final personal = single();
       expect(await personal.open(password: 'one', createIfMissing: true), isTrue);
       await personal.saveIdentity(Identity(nodeId: nid(1), displayName: 'Personal'));
-      final kPersonal = personal.exportSpaceKeys();
+      final kPersonal = await personal.exportSpaceKeys();
       await personal.close();
 
       // 2. The second identity (addIdentity creates it under its own password).
       final work = single();
       expect(await work.open(password: 'two', createIfMissing: true), isTrue);
       await work.saveIdentity(Identity(nodeId: nid(2), displayName: 'Work'));
-      final kWork = work.exportSpaceKeys();
+      final kWork = await work.exportSpaceKeys();
       await work.close();
 
       // 3. The master space holds the roster (created by add_space under

@@ -361,3 +361,29 @@ AsyncSpaceOpener workerSpaceOpener(String path) {
   return ({required Uint8List password, required bool create}) =>
       WorkerKvLogStore.open(path: path, password: password, create: create);
 }
+
+/// Async analogue of [KeysSpaceOpener] — opens a space directly from its
+/// pre-derived 64-byte `SpaceKeys` (master mode), off the UI isolate.
+typedef AsyncKeysSpaceOpener = Future<AsyncKvLogStore?> Function(Uint8List keys);
+
+/// Lifts a synchronous [SpaceOpener] to an [AsyncSpaceOpener] by running it
+/// INLINE (no worker) and wrapping the result in a [SyncWrappedAsyncKvLogStore].
+/// For the in-memory fake (nothing to offload) and any path not yet given its
+/// own worker.
+AsyncSpaceOpener syncWrappedSpaceOpener(SpaceOpener inner) {
+  return ({required Uint8List password, required bool create}) async {
+    final s = inner(password: password, create: create);
+    return s == null ? null : SyncWrappedAsyncKvLogStore(s);
+  };
+}
+
+/// Lifts a synchronous [KeysSpaceOpener] to an [AsyncKeysSpaceOpener] the same
+/// way (inline + sync-wrapped). The master/keys path is not yet offloaded to a
+/// worker; this keeps it compiling against the async surface with no behaviour
+/// change.
+AsyncKeysSpaceOpener syncWrappedKeysOpener(KeysSpaceOpener inner) {
+  return (Uint8List keys) async {
+    final s = inner(keys);
+    return s == null ? null : SyncWrappedAsyncKvLogStore(s);
+  };
+}
