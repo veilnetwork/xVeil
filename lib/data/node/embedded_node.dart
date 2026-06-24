@@ -224,16 +224,19 @@ class EmbeddedNode {
   /// interpolate inside `key = "..."`.
   static bool _tomlSafe(String s) => !s.contains(RegExp(r'["\n\r\\\t]'));
 
-  /// Append a location-anonymous `[anonymity]` table to a composed [toml] when
-  /// [anonymous] — register at a rendezvous relay over an onion circuit
-  /// (Tor-hidden-service-style) so peers/relays never learn this identity's IP,
-  /// so it can't be correlated to the user's other identities. The defaults are
-  /// off + skipped in the rendered config, so appending a new table is safe
-  /// (`onion_service` implies the `receive_anonymous` lifecycle). Pure helper —
-  /// no FFI — so it is unit-testable.
+  /// Append the `[anonymity]` table to a composed [toml]. `receive_anonymous`
+  /// (plain rendezvous RECEIVE = REACHABILITY: register a subscriber at a relay
+  /// so a NAT'd node can be reached by its node_id at all — NOT anonymity, the
+  /// relay already learns our node_id from the ad we publish) is ALWAYS on. When
+  /// [anonymous], it ADDITIONALLY enables `onion_service` (location anonymity:
+  /// register over an onion circuit so peers/relays never learn this identity's
+  /// IP, so it can't be correlated to the user's other identities). Mirrors the
+  /// veil stub boot config so the applied-config reload doesn't warn
+  /// `anonymity.reload_ignored`. Pure helper — no FFI — so it is unit-testable.
   static String withAnonymity(String toml, bool anonymous) {
-    if (!anonymous || toml.contains('[anonymity]')) return toml;
-    return '$toml\n[anonymity]\nreceive_anonymous = true\nonion_service = true\n';
+    if (toml.contains('[anonymity]')) return toml;
+    final onion = anonymous ? 'onion_service = true\n' : '';
+    return '$toml\n[anonymity]\nreceive_anonymous = true\n$onion';
   }
 
   /// Force the `[Identity]` lazy-mining preference, OVERRIDING whatever the
