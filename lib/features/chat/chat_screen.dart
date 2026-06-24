@@ -247,23 +247,41 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   void _scrollToBottom({bool force = false}) {
+    if (force) {
+      // Chat-open / own-send: land at the last message. A SINGLE post-frame
+      // jumpTo lands short (near the TOP) because the message list is loaded
+      // async (off-isolate storage) + has variable-height items, so the
+      // ListView's maxScrollExtent is still GROWING for a few frames after the
+      // first build with messages. Re-jump each frame while the extent keeps
+      // growing (bounded) so we reliably end up at the true bottom.
+      _stickToBottomAcrossFrames();
+      return;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scroll.hasClients) return;
       final pos = _scroll.position;
       // Don't yank the view to the end on every inbound/status change (the
-      // "jumps to the end" jank the user hit): only stick to the bottom when
-      // already near it. Own sends + chat-open pass force:true.
-      if (!force && pos.maxScrollExtent - pos.pixels > 300) return;
-      if (force) {
-        // Instant on open/own-send so it reliably lands at the last message
-        // even before the list's extent has fully settled.
-        _scroll.jumpTo(pos.maxScrollExtent);
-      } else {
-        _scroll.animateTo(
-          pos.maxScrollExtent,
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-        );
+      // "jumps to the end" jank): only stick to the bottom when already near it.
+      if (pos.maxScrollExtent - pos.pixels > 300) return;
+      _scroll.animateTo(
+        pos.maxScrollExtent,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
+    });
+  }
+
+  /// Jump to the bottom once per frame while the scroll extent is still
+  /// GROWING (the async-loaded, variable-height list lays out over several
+  /// frames) — bounded to [framesLeft] frames so it can't loop. Stops as soon
+  /// as the extent stabilises, so we reliably land at the true last message.
+  void _stickToBottomAcrossFrames([int framesLeft = 10, double lastExtent = -1]) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scroll.hasClients) return;
+      final max = _scroll.position.maxScrollExtent;
+      _scroll.jumpTo(max);
+      if (framesLeft > 0 && max > lastExtent) {
+        _stickToBottomAcrossFrames(framesLeft - 1, max);
       }
     });
   }
@@ -274,14 +292,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final messages = ref.watch(messagesProvider(widget.peerHex));
     final status = ref.watch(contactProvider(widget.peerHex)).value?.status;
     ref.listen(messagesProvider(widget.peerHex), (_, _) => _scrollToBottom());
-    // Land at the latest message on the FIRST build that actually has messages
-    // (not the initial empty/loading frame — scrolling then lands nowhere and
-    // the async-loaded list later stays stuck at the top, the bug the user hit).
-    // The listen above keeps it at the bottom afterwards only when already near.
-    if (!_didInitialScroll && (messages.value?.isNotEmpty ?? false)) {
-      _didInitialScroll = true;
-      _scrollToBottom(force: true);
-    }
 
     return Scaffold(
       appBar: AppBar(
@@ -304,16 +314,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             child: messages.when(
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) => Center(child: Text('$e')),
-              data: (list) => ListView.builder(
-                controller: _scroll,
-                padding: const EdgeInsets.all(12),
-                itemCount: list.length,
-                itemBuilder: (_, i) => _Bubble(
-                  message: list[i],
-                  onTapFile: _saveFile,
-                  onLongPress: _showMessageActions,
-                ),
-              ),
+              data: (list) {
+                // Land at the last message on open. Fire HERE (the data
+                // builder, so the ListView is actually mounted) and only ONCE
+                // per screen mount — NOT at the top of build, where a
+                // lock+reopen reload still exposes the stale previous `.value`
+                // while the spinner shows, which set the flag before the list
+                // existed and left it stuck at the top.
+                if (!_didInitialScroll && list.isNotEmpty) {
+                  _didInitialScroll = true;
+                  _scrollToBottom(force: true);
+                }
+                return ListView.builder(
+                  controller: _scroll,
+                  padding: const EdgeInsets.all(12),
+                  itemCount: list.length,
+                  itemBuilder: (_, i) => _Bubble(
+                    message: list[i],
+                    onTapFile: _saveFile,
+                    onLongPress: _showMessageActions,
+                  ),
+                );
+              },
             ),
           ),
           _bottom(status, l),
