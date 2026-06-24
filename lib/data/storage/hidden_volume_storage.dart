@@ -61,6 +61,15 @@ class HiddenVolumeStorage implements Storage {
         keysOpener = null,
         _store = SyncWrappedAsyncKvLogStore(store);
 
+  /// Wrap an ALREADY-OPEN [AsyncKvLogStore] view — e.g. an
+  /// [AsyncMultiSpaceKvLogStore] over a worker-backed multi-space backing, so
+  /// the all-online path is off-isolate too (Phase 2). [open]/[openWithKeys]
+  /// are not used; [close] is a no-op for a shared backing.
+  HiddenVolumeStorage.fromAsyncStore(AsyncKvLogStore store)
+      : _opener = _noOpener,
+        keysOpener = null,
+        _store = store;
+
   final AsyncSpaceOpener _opener;
 
   /// Opens a child space by its `SpaceKeys` (master mode). Null when this
