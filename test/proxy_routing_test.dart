@@ -122,4 +122,30 @@ void main() {
       expect(twice, once);
     });
   });
+
+  group('EmbeddedNode.withTransportRotation', () {
+    const base = '[global]\nruntime_flavor = "multi_thread"\n';
+
+    test('injects [transport.rotation] with a 6-12h window', () {
+      final out = EmbeddedNode.withTransportRotation(base);
+      expect(out, contains('[transport.rotation]'));
+      // 6h floor / 12h ceiling: rotations rarer than any delivery window so the
+      // recipient's rendezvous session (and its relay subscriber) survives.
+      expect(out, contains('min_lifetime_secs = 21600'));
+      expect(out, contains('max_lifetime_secs = 43200'));
+    });
+
+    test('window is valid (>= 60 floor, max >= min)', () {
+      // veil rejects positive lifetimes < 60 and max < min; guard the constants.
+      const min = 21600, max = 43200;
+      expect(min, greaterThanOrEqualTo(60));
+      expect(max, greaterThanOrEqualTo(min));
+    });
+
+    test('is idempotent — never double-injects', () {
+      final once = EmbeddedNode.withTransportRotation(base);
+      final twice = EmbeddedNode.withTransportRotation(once);
+      expect(twice, once);
+    });
+  });
 }

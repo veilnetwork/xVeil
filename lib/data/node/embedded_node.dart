@@ -284,6 +284,23 @@ class EmbeddedNode {
     return '$toml\n[session]\nkeepalive_interval_secs = 10\nidle_timeout_secs = 45\n';
   }
 
+  /// Append `[transport.rotation]` to stretch the connection-rotation window to
+  /// 6-12 h. veil's default rotates the transport every 30-60 min (DPI flow-
+  /// duration jitter), which gracefully CLOSES the recipient's OVL1 session to
+  /// its rendezvous relay; the relay drops the session-backed rendezvous
+  /// subscriber on that close, so a sender's live introduce in the re-register
+  /// gap black-holes (`cookie_unknown`) and delivery falls back to the slower
+  /// ~14 s mailbox-drain path. A 6-12 h window makes rotations rarer than any
+  /// delivery window while keeping SOME flow-duration jitter (preferred over a
+  /// full `-1` disable). Either device can receive, so it is set unconditionally.
+  /// Hot-reload re-applies it (`set_session_rotation_range`) — no native rebuild.
+  /// Pure helper (no FFI), unit-testable.
+  static String withTransportRotation(String toml) {
+    if (toml.contains('[transport.rotation]')) return toml;
+    return '$toml\n[transport.rotation]\n'
+        'min_lifetime_secs = 21600\nmax_lifetime_secs = 43200\n';
+  }
+
   /// Append `[proxy.socks5]` / `[proxy.exit]` tables for traffic routing. The
   /// node runtime spawns these as services on boot AND re-spawns them on
   /// apply-config reload, so toggling routing needs no native rebuild — just a
@@ -348,7 +365,7 @@ class EmbeddedNode {
       }
       final toml = out.toDartString();
       freeStr(out);
-      return withSessionKeepalive(withObfs4PskFile(
+      return withTransportRotation(withSessionKeepalive(withObfs4PskFile(
         withProxy(
           withBootstrapPeers(
             withLazyMining(withAnonymity(toml, anonymous), lazyMining),
@@ -357,7 +374,7 @@ class EmbeddedNode {
           proxy,
         ),
         obfs4PskFile,
-      ));
+      )));
     } finally {
       for (final p in ptrs) {
         calloc.free(p);
