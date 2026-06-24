@@ -19,6 +19,11 @@ class _BlackholeTransport implements VeilTransport {
   _BlackholeTransport(this._me);
   final NodeId _me;
   final _inbound = StreamController<InboundMessage>.broadcast();
+
+  /// Push an inbound frame as if it arrived over the wire (the live path goes
+  /// nowhere, so this is how a test simulates receiving from a NAT'd peer).
+  void inject(InboundMessage m) => _inbound.add(m);
+
   @override
   Future<NodeId> nodeId() async => _me;
   @override
@@ -62,6 +67,7 @@ void main() {
   late NodeId a, b;
   late HiddenVolumeStorage sA;
   late MessagingService mA;
+  late _BlackholeTransport tA;
   late _RecordingSink sink;
 
   setUp(() async {
@@ -69,7 +75,8 @@ void main() {
     b = _id(2);
     sA = HiddenVolumeStorage(_memOpener());
     await sA.open(password: 'a', createIfMissing: true);
-    mA = MessagingService(_BlackholeTransport(a), sA)..start();
+    tA = _BlackholeTransport(a);
+    mA = MessagingService(tA, sA)..start();
     sink = _RecordingSink();
     mA.attachMailbox(sink);
   });
@@ -104,5 +111,47 @@ void main() {
           env.kind == WireKind.message &&
           env.body == 'first real message';
     }), isTrue);
+  });
+
+  test('a durable ACK is deposited at the sender mailbox so a NAT-d sender '
+      'stops re-sending', () async {
+    await mA.acceptContact(b); // b accepted on a's side
+    sink.stashed.clear();
+    // b's message arrives with no live reply path (replyId 0) — exactly the
+    // NAT'd case where a live-send ack can't get back. a must ACK durably AND
+    // deposit it at b's mailbox so the ack reaches b over the rendezvous push,
+    // flipping b's message to delivered and ending the re-send storm.
+    final wire = WireEnvelope.message('ping',
+            id: 'm1', sentAtMs: DateTime.now().millisecondsSinceEpoch)
+        .encode();
+    tA.inject(InboundMessage(src: b, payload: wire));
+    await pumpEventQueue();
+    expect(
+      sink.stashed.any((s) {
+        final env = WireEnvelope.decode(s.$2);
+        return s.$1 == b && env.kind == WireKind.ack && env.id == 'm1';
+      }),
+      isTrue,
+      reason: 'durable ack for m1 should be deposited at b\'s mailbox',
+    );
+  });
+
+  test('a fast-path (reply-circuit) ACK is NOT deposited — no needless traffic',
+      () async {
+    await mA.acceptContact(b);
+    sink.stashed.clear();
+    // A first receipt that carries a live reply path (replyId != 0) acks over
+    // that circuit; depositing would be wasted relay traffic. Only the durable
+    // path (re-receipt / no reply path) deposits.
+    final wire = WireEnvelope.message('ping',
+            id: 'm2', sentAtMs: DateTime.now().millisecondsSinceEpoch)
+        .encode();
+    tA.inject(InboundMessage(src: b, payload: wire, replyId: 42));
+    await pumpEventQueue();
+    expect(
+      sink.stashed.any((s) => WireEnvelope.decode(s.$2).kind == WireKind.ack),
+      isFalse,
+      reason: 'an ack sent over a live reply circuit must not also be stashed',
+    );
   });
 }
