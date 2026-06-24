@@ -76,7 +76,7 @@ void main() {
     await master.close();
 
     // A session over the shared backing with a no-node fake boot.
-    final session = MultiIdentitySession(backing,
+    final session = MultiIdentitySession(SyncWrappedAsyncMultiSpaceBacking(backing),
         runtimeDirBase: '/run', listenPortBase: 9000,
         boot: (spec, storage) async =>
             IdentityNode(transport: _NoopTransport(), dispose: () async {}));
@@ -168,7 +168,7 @@ void main() {
     // Fresh session over the SAME (persistent) backing on each build — mirrors
     // production, where each session reopens the container file. Editing the
     // master roster tears the session down, so the rebuild must work.
-    MultiIdentitySession build() => MultiIdentitySession(backing,
+    MultiIdentitySession build() => MultiIdentitySession(SyncWrappedAsyncMultiSpaceBacking(backing),
         runtimeDirBase: '/run',
         listenPortBase: 9000,
         boot: (spec, storage) async =>

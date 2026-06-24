@@ -54,30 +54,31 @@ class IdentityNode {
 /// identity's space (hosting it) and assign it a distinct runtime dir + listen
 /// port (offset by index) so N nodes can run at once on one host. Pure aside
 /// from `backing.openSpace`, so it is unit-testable with a fake backing.
-List<IdentityBootSpec> planIdentityBoots(
+Future<List<IdentityBootSpec>> planIdentityBoots(
   List<RosterEntry> roster,
-  MultiSpaceBacking backing, {
+  AsyncMultiSpaceBacking backing, {
   required String runtimeDirBase,
   required int listenPortBase,
-}) {
-  return [
-    for (var i = 0; i < roster.length; i++)
-      IdentityBootSpec(
-        label: roster[i].label,
-        spaceId: backing.openSpace(roster[i].spaceKeys),
-        // Deniability: the runtime dir name must NOT be the human-readable
-        // label — a device seized while running would otherwise read identity
-        // names straight off the filesystem. Use a one-way hash of the label
-        // (opaque, stable, non-reversible). The dir itself is deleted on
-        // teardown ([RealVeilStack.dispose]), so nothing survives at rest.
-        runtimeDir: '$runtimeDirBase/${_opaqueDir(roster[i].label)}',
-        // Offset by 1 so all-online nodes never reuse [listenPortBase] — the
-        // port a just-stopped one-active node held, whose lingering teardown
-        // would otherwise stall the first identity's bind for ~90s.
-        listenPort: listenPortBase + 1 + i,
-        anonymous: roster[i].anonymous,
-      ),
-  ];
+}) async {
+  final out = <IdentityBootSpec>[];
+  for (var i = 0; i < roster.length; i++) {
+    out.add(IdentityBootSpec(
+      label: roster[i].label,
+      spaceId: await backing.openSpace(roster[i].spaceKeys),
+      // Deniability: the runtime dir name must NOT be the human-readable
+      // label — a device seized while running would otherwise read identity
+      // names straight off the filesystem. Use a one-way hash of the label
+      // (opaque, stable, non-reversible). The dir itself is deleted on
+      // teardown ([RealVeilStack.dispose]), so nothing survives at rest.
+      runtimeDir: '$runtimeDirBase/${_opaqueDir(roster[i].label)}',
+      // Offset by 1 so all-online nodes never reuse [listenPortBase] — the
+      // port a just-stopped one-active node held, whose lingering teardown
+      // would otherwise stall the first identity's bind for ~90s.
+      listenPort: listenPortBase + 1 + i,
+      anonymous: roster[i].anonymous,
+    ));
+  }
+  return out;
 }
 
 /// A short, one-way, opaque directory name for an identity [label] — a BLAKE3
@@ -129,7 +130,7 @@ class MultiIdentitySession {
         _listenPortBase = listenPortBase,
         _boot = boot;
 
-  final MultiSpaceBacking _backing;
+  final AsyncMultiSpaceBacking _backing;
   final String _runtimeDirBase;
   final int _listenPortBase;
   final IdentityNodeBoot _boot;
@@ -153,14 +154,13 @@ class MultiIdentitySession {
   /// concurrently. Best-effort per identity: a boot failure logs and skips that
   /// identity's node/messaging but keeps its storage view hosted.
   Future<void> bootAll(List<RosterEntry> roster) async {
-    final specs = planIdentityBoots(roster, _backing,
+    final specs = await planIdentityBoots(roster, _backing,
         runtimeDirBase: _runtimeDirBase, listenPortBase: _listenPortBase);
     for (final spec in specs) {
-      // Phase-2 TODO: a multi-space WORKER backing would offload these too; for
-      // now `fromStore` sync-wraps the shared multi-space view (runs inline on
-      // the UI isolate, as before — no regression).
-      final storage = HiddenVolumeStorage.fromStore(
-          MultiSpaceKvLogStore(_backing, spec.spaceId));
+      // Each identity's storage view routes its ops to the shared backing's
+      // worker isolate (off the UI thread) via AsyncMultiSpaceKvLogStore.
+      final storage = HiddenVolumeStorage.fromAsyncStore(
+          AsyncMultiSpaceKvLogStore(_backing, spec.spaceId));
       _storages[spec.label] = storage;
       try {
         // Bound the boot: a node that can't bind its port (e.g. one just freed
@@ -189,6 +189,6 @@ class MultiIdentitySession {
     _messaging.clear();
     _nodes.clear();
     _storages.clear();
-    _backing.close();
+    await _backing.close();
   }
 }
