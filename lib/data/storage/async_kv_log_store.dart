@@ -355,11 +355,38 @@ typedef AsyncSpaceOpener = Future<AsyncKvLogStore?> Function({
   required bool create,
 });
 
+/// Once the worker isolate is proven unable to open a space (e.g. a spawned
+/// isolate that can't load the native lib — observed on Android), stop spawning
+/// it for the rest of the process and open INLINE instead. Process-global so a
+/// single failure flips every space to the safe path.
+bool _workerOpenUsable = true;
+
 /// Builds an [AsyncSpaceOpener] over the hidden-volume container at [path] whose
 /// open + every operation run on a worker isolate (UI thread never blocks).
+///
+/// SELF-HEALING: if the worker itself fails to open (a THROW from
+/// [WorkerKvLogStore.open] — a genuine wrong-password/no-space comes back as
+/// `null`, NOT a throw), fall back to opening the space INLINE on the calling
+/// isolate, where the native lib was already loaded at startup
+/// (`ensureHiddenVolumeLoaded`). Off-isolate is forfeited for the rest of the
+/// run, but the user can still UNLOCK — critical: a worker that can't load the
+/// lib otherwise surfaces as "wrong password" and locks the user out.
 AsyncSpaceOpener workerSpaceOpener(String path) {
-  return ({required Uint8List password, required bool create}) =>
-      WorkerKvLogStore.open(path: path, password: password, create: create);
+  return ({required Uint8List password, required bool create}) async {
+    if (_workerOpenUsable) {
+      try {
+        return await WorkerKvLogStore.open(
+            path: path, password: password, create: create);
+      } on hv.HvException catch (e) {
+        _workerOpenUsable = false;
+        // ignore: avoid_print
+        print('xVeil[storage]: worker open FAILED (${e.kind}: ${e.message}) — '
+            'falling back to INLINE storage (off-isolate disabled this run)');
+      }
+    }
+    final inline = hvSpaceOpener(path)(password: password, create: create);
+    return inline == null ? null : SyncWrappedAsyncKvLogStore(inline);
+  };
 }
 
 /// Async analogue of [KeysSpaceOpener] — opens a space directly from its

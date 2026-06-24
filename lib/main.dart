@@ -46,15 +46,23 @@ Future<List<Override>> _bootstrapOverrides() async {
           : '${dir.path}/xveil.store';
       storePath = path;
       overrides.add(singleSpaceStorageProvider.overrideWith((ref) {
-        // OFF-ISOLATE: the single-identity password path opens + serves on a
-        // dedicated worker isolate (workerSpaceOpener) so every get/commit/scan
-        // runs off the UI thread. The keys-opener (master-mode openWithKeys) is
-        // not yet worker-backed, so it is sync-wrapped (inline) for now — the
-        // single-identity flow never calls openWithKeys, so this is unchanged.
-        final storage = HiddenVolumeStorage.async(
-          workerSpaceOpener(path),
-          keysOpener: syncWrappedKeysOpener(hvKeysSpaceOpener(path)),
-        );
+        // OFF-ISOLATE (DESKTOP only): open + serve on a dedicated worker isolate
+        // so the hidden-volume FFI never blocks the UI thread (fixes the
+        // desktop freeze). On MOBILE the worker is NOT used: a spawned isolate
+        // there could not open the container ("wrong password" lockout — the
+        // native lib doesn't resolve in a non-main isolate on Android), so
+        // mobile uses the proven INLINE path (identical to pre-off-isolate).
+        // The keys-opener (master openWithKeys) stays inline either way.
+        final mobile = Platform.isAndroid || Platform.isIOS;
+        final storage = mobile
+            ? HiddenVolumeStorage(
+                hvSpaceOpener(path),
+                keysOpener: hvKeysSpaceOpener(path),
+              )
+            : HiddenVolumeStorage.async(
+                workerSpaceOpener(path),
+                keysOpener: syncWrappedKeysOpener(hvKeysSpaceOpener(path)),
+              );
         ref.onDispose(storage.close);
         return storage;
       }));
