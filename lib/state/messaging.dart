@@ -16,6 +16,7 @@ import '../data/transport/veil_transport.dart';
 import '../data/transport/wire_envelope.dart';
 import '../domain/chat.dart';
 import '../domain/file_transfer.dart';
+import 'app_controller.dart';
 import 'mailbox_service.dart';
 import 'providers.dart';
 
@@ -835,19 +836,23 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
     final m = session.messagingFor(active);
     if (m != null) return m;
   }
-  // Anonymity-first: route sends over the LIVE onion-rendezvous path by default.
-  // This resolves the recipient's rendezvous ad and delivers through their relay
-  // over the already-held mesh sessions — so a NAT'd peer who is ONLINE gets the
-  // message in ~seconds (no 30s mailbox poll), AND the sender's location stays
-  // private. The mailbox deposit below remains the fallback for an OFFLINE peer.
-  // (Pairs with the node booting anonymous — see AppController._activeAnonymous —
-  // so it can receive the introduce.) The loopback fake ignores the flag.
+  // The send anonymity MUST match the value the node booted with
+  // (AppController._activeAnonymous): an anonymous send needs the node's onion
+  // service armed, and a non-anonymous send goes clearnet/direct. Hardcoding
+  // `true` here (the old anonymity-first default) ignored the user's per-space
+  // anonymity toggle — so disabling anonymity had NO effect on send, and the
+  // forced-anonymous send had no onion path on a node that booted non-anon, so
+  // it never delivered. Track the live setting instead. The loopback fake
+  // ignores the flag.
+  final anonymous = ref.read(appControllerProvider.notifier).activeIsAnonymous;
   final transport = ref.watch(veilTransportProvider);
   final storage = ref.watch(storageProvider);
+  debugPrint('xVeil[messaging]: fallback service (no session pipeline) '
+      'anonymous=$anonymous');
   final service = MessagingService(
     transport,
     storage,
-    anonymous: true,
+    anonymous: anonymous,
   );
   service.start();
 
