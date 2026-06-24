@@ -5,6 +5,7 @@ import '../../core/ids.dart';
 import '../../domain/chat.dart';
 import '../../domain/identity.dart';
 import '../../domain/roster.dart';
+import 'async_kv_log_store.dart';
 import 'file_store.dart';
 import 'kv_log_store.dart';
 import 'storage.dart';
@@ -18,7 +19,9 @@ Uint8List _sk(String key) => Uint8List.fromList(utf8.encode(key));
 
 /// Opener for [HiddenVolumeStorage.fromStore], where the store is already open
 /// and [HiddenVolumeStorage.open] is never called.
-KvLogStore? _noOpener({required Uint8List password, required bool create}) => null;
+Future<AsyncKvLogStore?> _noOpener(
+        {required Uint8List password, required bool create}) async =>
+    null;
 
 /// Domain [Storage] mapped onto a single hidden-volume space:
 /// - SETTINGS (KV): identity blob, app settings, the message-log counter
@@ -26,29 +29,46 @@ KvLogStore? _noOpener({required Uint8List password, required bool create}) => nu
 /// - MESSAGE_LOG (append-log): every message, payload tagged with its
 ///   conversation id so a single log serves all conversations
 ///
-/// Backed by a [KvLogStore] obtained from a [SpaceOpener], so the same mapping
-/// runs over the in-memory fake (dev/tests) and the real `HvSpace` (native).
+/// Backed by an [AsyncKvLogStore] obtained from an [AsyncSpaceOpener], so the
+/// same mapping runs over the in-memory fake (dev/tests, sync-wrapped) and the
+/// real `HvSpace` — the latter on a dedicated WORKER ISOLATE so every
+/// `get`/`commit`/`iterLogRange` runs OFF the UI isolate (no freeze / Android
+/// ANR). The public API is unchanged: it was already `Future`-returning and
+/// callers already `await`.
 class HiddenVolumeStorage implements Storage {
-  HiddenVolumeStorage(this._opener, {this.keysOpener});
+  /// Default (SYNC opener) — the in-memory fake, tests, and any path not yet
+  /// given its own worker. The sync opener is lifted to async (run INLINE on
+  /// the calling isolate) internally, so behaviour is unchanged; only the
+  /// [HiddenVolumeStorage.async] path actually moves work off the UI isolate.
+  HiddenVolumeStorage(SpaceOpener opener, {KeysSpaceOpener? keysOpener})
+      : _opener = syncWrappedSpaceOpener(opener),
+        keysOpener =
+            keysOpener == null ? null : syncWrappedKeysOpener(keysOpener);
 
-  /// Wrap an ALREADY-OPEN [KvLogStore] (e.g. one [MultiSpaceKvLogStore] view of
-  /// a shared multi-space backing). Used in "all identities online" mode where
-  /// every identity's space is already hosted; [open]/[openWithKeys] are not
-  /// used. [close] tears down the view (a no-op for a shared backing — the owner
-  /// closes the backing once).
+  /// OFF-ISOLATE: the opener — and every op it serves — runs on a dedicated
+  /// WORKER isolate (UI thread never blocks on the hidden-volume FFI). The
+  /// production single-identity path (main.dart wires `workerSpaceOpener`).
+  HiddenVolumeStorage.async(this._opener, {this.keysOpener});
+
+  /// Wrap an ALREADY-OPEN [KvLogStore] (e.g. one multi-space view of a shared
+  /// backing). Used in "all identities online" mode where every identity's
+  /// space is already hosted; [open]/[openWithKeys] are not used. The view is
+  /// sync-wrapped (the shared multi-space backing isn't worker-backed yet —
+  /// Phase 2). [close] tears down the view (a no-op for a shared backing — the
+  /// owner closes the backing once).
   HiddenVolumeStorage.fromStore(KvLogStore store)
       : _opener = _noOpener,
         keysOpener = null,
-        _store = store;
+        _store = SyncWrappedAsyncKvLogStore(store);
 
-  final SpaceOpener _opener;
+  final AsyncSpaceOpener _opener;
 
   /// Opens a child space by its `SpaceKeys` (master mode). Null when this
   /// handle is not configured for keys-based open (single-identity build).
-  final KeysSpaceOpener? keysOpener;
-  KvLogStore? _store;
+  final AsyncKeysSpaceOpener? keysOpener;
+  AsyncKvLogStore? _store;
 
-  KvLogStore get _s {
+  AsyncKvLogStore get _as {
     final s = _store;
     if (s == null) {
       throw StateError('storage is locked — call open() first');
@@ -64,7 +84,7 @@ class HiddenVolumeStorage implements Storage {
     required String password,
     bool createIfMissing = false,
   }) async {
-    final store = _opener(
+    final store = await _opener(
       password: Uint8List.fromList(utf8.encode(password)),
       create: createIfMissing,
     );
@@ -72,9 +92,9 @@ class HiddenVolumeStorage implements Storage {
     // Close any previously-open space before adopting the new one. Without this
     // a re-open (e.g. switching identities) would leak the old handle and keep
     // its exclusive flock, so the NEXT open of that container fails with `Busy`.
-    _store?.close();
+    await _store?.close();
     _store = store;
-    _invalidateScanCache(); // adopting a different space — drop the old fold
+    await _invalidateScanCache(); // adopting a different space — drop the old fold
     return true;
   }
 
@@ -83,16 +103,16 @@ class HiddenVolumeStorage implements Storage {
   /// keys-opener configured.
   @override
   Future<bool> openWithKeys(Uint8List keys) async {
-    final store = keysOpener?.call(keys);
+    final store = await keysOpener?.call(keys);
     if (store == null) return false;
-    _store?.close();
+    await _store?.close();
     _store = store;
-    _invalidateScanCache(); // adopting a different space — drop the old fold
+    await _invalidateScanCache(); // adopting a different space — drop the old fold
     return true;
   }
 
   @override
-  Uint8List exportSpaceKeys() => _s.exportKeys();
+  Future<Uint8List> exportSpaceKeys() => _as.exportKeys();
 
   // --- Identity ----------------------------------------------------------
 
@@ -103,12 +123,12 @@ class HiddenVolumeStorage implements Storage {
       'dn': identity.displayName,
       'u': identity.username,
     });
-    _s.commit([PutOp(Ns.settings, _sk('identity'), _sk(json))]);
+    await _as.commit([PutOp(Ns.settings, _sk('identity'), _sk(json))]);
   }
 
   @override
   Future<Identity?> loadIdentity() async {
-    final raw = _s.get(Ns.settings, _sk('identity'));
+    final raw = await _as.get(Ns.settings, _sk('identity'));
     if (raw == null) return null;
     final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
     return Identity(
@@ -122,12 +142,12 @@ class HiddenVolumeStorage implements Storage {
 
   @override
   Future<void> putSetting(String key, String value) async {
-    _s.commit([PutOp(Ns.settings, _sk('set:$key'), _sk(value))]);
+    await _as.commit([PutOp(Ns.settings, _sk('set:$key'), _sk(value))]);
   }
 
   @override
   Future<String?> getSetting(String key) async {
-    final raw = _s.get(Ns.settings, _sk('set:$key'));
+    final raw = await _as.get(Ns.settings, _sk('set:$key'));
     return raw == null ? null : utf8.decode(raw);
   }
 
@@ -135,12 +155,12 @@ class HiddenVolumeStorage implements Storage {
   // entry, so it inherits the space's deniability — no plaintext config file.
   @override
   Future<void> saveNodeConfig(String configToml) async {
-    _s.commit([PutOp(Ns.settings, _sk('node:config'), _sk(configToml))]);
+    await _as.commit([PutOp(Ns.settings, _sk('node:config'), _sk(configToml))]);
   }
 
   @override
   Future<String?> loadNodeConfig() async {
-    final raw = _s.get(Ns.settings, _sk('node:config'));
+    final raw = await _as.get(Ns.settings, _sk('node:config'));
     return raw == null ? null : utf8.decode(raw);
   }
 
@@ -157,12 +177,12 @@ class HiddenVolumeStorage implements Storage {
           if (e.anonymous) 'a': 1,
         },
     ]);
-    _s.commit([PutOp(Ns.settings, _sk('master:roster'), _sk(json))]);
+    await _as.commit([PutOp(Ns.settings, _sk('master:roster'), _sk(json))]);
   }
 
   @override
   Future<List<RosterEntry>?> loadRoster() async {
-    final raw = _s.get(Ns.settings, _sk('master:roster'));
+    final raw = await _as.get(Ns.settings, _sk('master:roster'));
     if (raw == null) return null; // plain identity space — not a master
     final list = jsonDecode(utf8.decode(raw)) as List;
     return [
@@ -186,28 +206,28 @@ class HiddenVolumeStorage implements Storage {
     });
     // Maintain a contacts index (hidden-volume has no KV key enumeration) so
     // the chat list can show contacts that have no messages yet.
-    final index = _contactIndex();
+    final index = await _contactIndex();
     if (!index.contains(contact.nodeId.hex)) index.add(contact.nodeId.hex);
-    _s.commit([
+    await _as.commit([
       PutOp(Ns.contacts, contact.nodeId.bytes, _sk(json)),
       PutOp(Ns.settings, _sk('contacts:index'), _sk(jsonEncode(index))),
     ]);
   }
 
-  List<String> _contactIndex() {
-    final raw = _s.get(Ns.settings, _sk('contacts:index'));
+  Future<List<String>> _contactIndex() async {
+    final raw = await _as.get(Ns.settings, _sk('contacts:index'));
     if (raw == null) return [];
     return (jsonDecode(utf8.decode(raw)) as List).cast<String>();
   }
 
   @override
   Future<Contact?> getContact(NodeId nodeId) async {
-    if (_s.get(Ns.contacts, nodeId.bytes) == null) return null;
+    if (await _as.get(Ns.contacts, nodeId.bytes) == null) return null;
     return _contactFor(nodeId);
   }
 
-  Contact _contactFor(NodeId id) {
-    final raw = _s.get(Ns.contacts, id.bytes);
+  Future<Contact> _contactFor(NodeId id) async {
+    final raw = await _as.get(Ns.contacts, id.bytes);
     if (raw == null) return Contact(nodeId: id);
     final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
     final s = m['s'] as int?;
@@ -225,19 +245,20 @@ class HiddenVolumeStorage implements Storage {
   @override
   Future<void> markRead(String conversationId) async {
     var latest = 0;
-    for (final m in _scanLog()) {
+    for (final m in await _scanLog()) {
       if (m.conversationId == conversationId) {
         final ms = m.timestamp.millisecondsSinceEpoch;
         if (ms > latest) latest = ms;
       }
     }
-    _s.commit([PutOp(Ns.settings, _sk('read:$conversationId'), _sk('$latest'))]);
+    await _as
+        .commit([PutOp(Ns.settings, _sk('read:$conversationId'), _sk('$latest'))]);
   }
 
   /// Millis of the latest message marked read in [conversationId] (0 = never
   /// read → all incoming count as unread).
-  int _readMarker(String conversationId) {
-    final raw = _s.get(Ns.settings, _sk('read:$conversationId'));
+  Future<int> _readMarker(String conversationId) async {
+    final raw = await _as.get(Ns.settings, _sk('read:$conversationId'));
     return raw == null ? 0 : (int.tryParse(utf8.decode(raw)) ?? 0);
   }
 
@@ -246,7 +267,7 @@ class HiddenVolumeStorage implements Storage {
     final byConv = <String, Message>{};
     final unread = <String, int>{};
     final readMarkers = <String, int>{}; // cache: one KV read per conversation
-    for (final entry in _scanLog()) {
+    for (final entry in await _scanLog()) {
       final existing = byConv[entry.conversationId];
       if (existing == null || entry.timestamp.isAfter(existing.timestamp)) {
         byConv[entry.conversationId] = entry;
@@ -254,7 +275,7 @@ class HiddenVolumeStorage implements Storage {
       // Unread = incoming messages newer than the conversation's read marker.
       if (entry.direction == MessageDirection.incoming) {
         final marker = readMarkers[entry.conversationId] ??=
-            _readMarker(entry.conversationId);
+            await _readMarker(entry.conversationId);
         if (entry.timestamp.millisecondsSinceEpoch > marker) {
           unread[entry.conversationId] = (unread[entry.conversationId] ?? 0) + 1;
         }
@@ -262,48 +283,48 @@ class HiddenVolumeStorage implements Storage {
     }
     // Union of known contacts and any conversation that has messages (a peer
     // we received from is auto-added, but include log-only ids defensively).
-    final ids = <String>{..._contactIndex(), ...byConv.keys};
-    final out = ids
-        .map((hex) => Conversation(
-              peer: _contactFor(NodeId.fromHex(hex)),
-              lastMessage: byConv[hex],
-              unread: unread[hex] ?? 0,
-            ))
-        .toList()
-      ..sort((a, b) {
-        final at = a.lastMessage?.timestamp;
-        final bt = b.lastMessage?.timestamp;
-        // Conversations with messages first (newest), message-less by name.
-        if (at == null && bt == null) {
-          return a.peer.label.compareTo(b.peer.label);
-        }
-        if (at == null) return 1;
-        if (bt == null) return -1;
-        return bt.compareTo(at);
-      });
+    final ids = <String>{...await _contactIndex(), ...byConv.keys};
+    final out = <Conversation>[];
+    for (final hex in ids) {
+      out.add(Conversation(
+        peer: await _contactFor(NodeId.fromHex(hex)),
+        lastMessage: byConv[hex],
+        unread: unread[hex] ?? 0,
+      ));
+    }
+    out.sort((a, b) {
+      final at = a.lastMessage?.timestamp;
+      final bt = b.lastMessage?.timestamp;
+      // Conversations with messages first (newest), message-less by name.
+      if (at == null && bt == null) {
+        return a.peer.label.compareTo(b.peer.label);
+      }
+      if (at == null) return 1;
+      if (bt == null) return -1;
+      return bt.compareTo(at);
+    });
     return out;
   }
 
   @override
   Future<List<Message>> loadMessages(String conversationId) async {
-    return _scanLog()
-        .where((m) => m.conversationId == conversationId)
-        .toList()
+    final all = await _scanLog();
+    return all.where((m) => m.conversationId == conversationId).toList()
       ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
   }
 
   @override
   Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) async {
-    FileStore(_s).storeFile(fileId, bytes, name: name);
+    await AsyncFileStore(_as).storeFile(fileId, bytes, name: name);
   }
 
   @override
-  Future<Uint8List?> loadFile(String fileId) async => FileStore(_s).loadFile(fileId);
+  Future<Uint8List?> loadFile(String fileId) => AsyncFileStore(_as).loadFile(fileId);
 
   @override
   Future<void> appendMessage(Message message) async {
-    final nextId = _nextLogId();
-    _s.commit([
+    final nextId = await _nextLogId();
+    await _as.commit([
       AppendLogOp(Ns.messageLog, nextId, _sk(_encodeMessage(message))),
       // Map the domain message id -> its log_id so a later edit/delete can
       // rewrite the SAME record (last-write-wins), the core's edit primitive.
@@ -324,25 +345,25 @@ class HiddenVolumeStorage implements Storage {
         if (m.fileName != null) 'fn': m.fileName,
       });
 
-  int _nextLogId() {
-    final raw = _s.get(Ns.settings, _sk('msg_next_id'));
+  Future<int> _nextLogId() async {
+    final raw = await _as.get(Ns.settings, _sk('msg_next_id'));
     if (raw == null) return 1;
     return int.tryParse(utf8.decode(raw)) ?? 1;
   }
 
   /// The log_id a message was written under, or null if we have no index entry
   /// (older messages predate the index, or the id is unknown / already deleted).
-  int? _logIdFor(String messageId) {
-    final raw = _s.get(Ns.settings, _sk('msgidx:$messageId'));
+  Future<int?> _logIdFor(String messageId) async {
+    final raw = await _as.get(Ns.settings, _sk('msgidx:$messageId'));
     return raw == null ? null : int.tryParse(utf8.decode(raw));
   }
 
   @override
   Future<void> editMessage(String messageId, String newBody) async {
-    final logId = _logIdFor(messageId);
+    final logId = await _logIdFor(messageId);
     if (logId == null) return;
     Message? current;
-    for (final m in _scanLog()) {
+    for (final m in await _scanLog()) {
       if (m.id == messageId) {
         current = m;
         break;
@@ -352,22 +373,23 @@ class HiddenVolumeStorage implements Storage {
     // Rewrite the SAME log_id: last-write-wins replaces the body on read, so
     // the prior text no longer reads back (its chunk is orphaned for scrub).
     final edited = current.copyWith(body: newBody, edited: true);
-    _s.commit([AppendLogOp(Ns.messageLog, logId, _sk(_encodeMessage(edited)))]);
+    await _as
+        .commit([AppendLogOp(Ns.messageLog, logId, _sk(_encodeMessage(edited)))]);
     // Edit rewrites an EXISTING log_id (last-write-wins) and does NOT bump the
     // next-id, so the next-id-keyed scan cache would otherwise show the stale
     // body — invalidate it explicitly.
-    _invalidateScanCache();
+    await _invalidateScanCache();
   }
 
   @override
   Future<void> deleteMessage(String messageId) async {
-    final logId = _logIdFor(messageId);
+    final logId = await _logIdFor(messageId);
     if (logId == null) return;
     // If it is a file message, purge the stored blob too — otherwise the
     // attachment lingers in the container after the row is gone (a deniability
     // hole). Look it up before we tombstone the row.
     String? fileId;
-    for (final m in _scanLog()) {
+    for (final m in await _scanLog()) {
       if (m.id == messageId) {
         fileId = m.fileId;
         break;
@@ -379,21 +401,21 @@ class HiddenVolumeStorage implements Storage {
     // the crash window where the chat row and the blob could disagree. The
     // orphaned chunks are reclaimed by scrubDeleted() for forensic erasure.
     final tomb = jsonEncode({'op': 'del', 'id': messageId});
-    _s.commit([
+    await _as.commit([
       AppendLogOp(Ns.messageLog, logId, _sk(tomb)),
       DeleteOp(Ns.settings, _sk('msgidx:$messageId')),
-      if (fileId != null) ...FileStore(_s).deleteFileOps(fileId),
+      if (fileId != null) ...await AsyncFileStore(_as).deleteFileOps(fileId),
     ]);
     // Tombstone rewrites an EXISTING log_id without bumping the next-id, so the
     // next-id-keyed scan cache must be invalidated or the deleted message would
     // keep surfacing (a deniability hole).
-    _invalidateScanCache();
+    await _invalidateScanCache();
   }
 
   @override
   Future<bool> isMessageDeleted(String messageId) async {
     for (final e
-        in _s.iterLogRange(namespace: Ns.messageLog, limit: _logScanLimit)) {
+        in await _as.iterLogRange(namespace: Ns.messageLog, limit: _logScanLimit)) {
       final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
       if (m['op'] == 'del' && m['id'] == messageId) return true;
     }
@@ -408,8 +430,9 @@ class HiddenVolumeStorage implements Storage {
       await deleteMessage(m.id);
     }
     // …then drop the contact record + its chat-list index entry in one commit.
-    final index = _contactIndex()..remove(peer.hex);
-    _s.commit([
+    final index = await _contactIndex();
+    index.remove(peer.hex);
+    await _as.commit([
       DeleteOp(Ns.contacts, peer.bytes),
       PutOp(Ns.settings, _sk('contacts:index'), _sk(jsonEncode(index))),
     ]);
@@ -429,12 +452,12 @@ class HiddenVolumeStorage implements Storage {
       Ns.media,
       Ns.fileChunks,
     ]) {
-      _s.eraseNamespace(ns);
+      await _as.eraseNamespace(ns);
     }
-    _s.scrub();
+    await _as.scrub();
     // The message log is gone — drop the in-memory fold or a later loadMessages
     // would resurrect the erased conversation from cache.
-    _invalidateScanCache();
+    await _invalidateScanCache();
   }
 
   @override
@@ -442,10 +465,10 @@ class HiddenVolumeStorage implements Storage {
     // Reclaim chunks orphaned by edit/delete so the prior plaintext is no
     // longer recoverable from the container. Backed by hidden-volume's
     // vacuum/compact when the store exposes it; a no-op on the in-memory fake.
-    _s.scrub();
+    await _as.scrub();
     // Defensive: if the vacuum ever compacts/renumbers the log, the fold's
     // log-id watermark would be stale — force a clean rebuild next read.
-    _invalidateScanCache();
+    await _invalidateScanCache();
   }
 
   @override
@@ -453,10 +476,10 @@ class HiddenVolumeStorage implements Storage {
     // Append-only log can't mutate a row, so record a status OP that [_scanLog]
     // folds onto the message (latest wins). Drives the outbox: an ack flips a
     // message to `delivered` so it is no longer re-sent.
-    final nextId = _nextLogId();
+    final nextId = await _nextLogId();
     final payload =
         jsonEncode({'op': 'status', 'id': messageId, 's': status.index});
-    _s.commit([
+    await _as.commit([
       AppendLogOp(Ns.messageLog, nextId, _sk(payload)),
       PutOp(Ns.settings, _sk('msg_next_id'), _sk('${nextId + 1}')),
     ]);
@@ -465,12 +488,11 @@ class HiddenVolumeStorage implements Storage {
   /// Scan the log, building messages and folding status OPs onto them. Base
   /// rows carry the message; `{op:'status'}` rows update an existing id.
   // INCREMENTAL reduction of the append-only message log. The full scan DECRYPTS
-  // every record, and `iterLogRange` is a SYNCHRONOUS FFI, so re-running it on
-  // every `changes` tick blocked the UI isolate — a freeze on a large
-  // conversation, worst during active delivery (every send / receive / status
-  // flip churns the log). We keep the reduced state and fold only the records
-  // appended SINCE the last scan (ids are sequential), so a reload during active
-  // delivery reads 1-2 new records instead of hundreds.
+  // every record, and `iterLogRange` is FFI, so re-running it on every `changes`
+  // tick used to block the UI isolate — now it runs on the worker isolate, but
+  // we STILL keep the reduced state and fold only the records appended SINCE the
+  // last scan (ids are sequential), so a reload during active delivery reads
+  // 1-2 new records instead of hundreds.
   //
   // Correctness: append + status are NEW records (bump the next-id) so the
   // forward fold sees them. Edit/delete REWRITE an existing log_id (no new id,
@@ -478,13 +500,25 @@ class HiddenVolumeStorage implements Storage {
   // [_invalidateScanCache] for a full rebuild. The `del` arm below only fires
   // during such a full rebuild (start == null reads the tombstones). Wiped on
   // close().
+  //
+  // Concurrency: now that the fold awaits the worker, two scans (or a scan and
+  // an invalidate) could interleave on the shared fold state. [_serialized]
+  // runs scan + invalidate through ONE async gate so they never overlap.
   final List<String> _scanOrder = [];
   final Map<String, Message> _scanById = {};
   final Map<String, MessageStatus> _scanStatusOps = {};
   int _scanFoldedUpTo = 0; // next log_id not yet folded into the state above
   List<Message>? _scanResult; // materialised; valid while _scanFoldedUpTo == nextId
 
-  void _invalidateScanCache() {
+  // Single-flight gate serializing all scan-cache access (scan + invalidate).
+  Future<void> _scanGate = Future<void>.value();
+  Future<T> _serialized<T>(Future<T> Function() body) {
+    final result = _scanGate.then((_) => body());
+    _scanGate = result.then((_) {}, onError: (_) {});
+    return result;
+  }
+
+  void _clearScanState() {
     _scanOrder.clear();
     _scanById.clear();
     _scanStatusOps.clear();
@@ -492,20 +526,23 @@ class HiddenVolumeStorage implements Storage {
     _scanResult = null;
   }
 
-  Iterable<Message> _scanLog() {
-    final nextId = _nextLogId();
+  Future<void> _invalidateScanCache() => _serialized(() async => _clearScanState());
+
+  Future<List<Message>> _scanLog() => _serialized(_scanLogCritical);
+
+  Future<List<Message>> _scanLogCritical() async {
+    final nextId = await _nextLogId();
     final cached = _scanResult;
     if (cached != null && _scanFoldedUpTo == nextId) return cached;
     // Fold only records appended since the last fold. Re-read ONE record of
     // overlap (start = foldedUpTo - 1) so we don't depend on the range's
     // inclusive/exclusive boundary — re-applying a record is idempotent.
     final start = _scanFoldedUpTo == 0 ? null : _scanFoldedUpTo - 1;
-    // [timeline] this read is a SYNCHRONOUS FFI on the UI isolate; time it so a
-    // freeze can be attributed to the initial full scan vs anything else.
     final scanT0 = DateTime.now();
     var scanned = 0;
-    for (final e
-        in _s.iterLogRange(namespace: Ns.messageLog, start: start, limit: _logScanLimit)) {
+    final entries = await _as
+        .iterLogRange(namespace: Ns.messageLog, start: start, limit: _logScanLimit);
+    for (final e in entries) {
       scanned++;
       final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
       if (m['op'] == 'status') {
@@ -547,15 +584,15 @@ class HiddenVolumeStorage implements Storage {
     if (ms > 50) {
       // ignore: avoid_print
       print('xVeil[scan]: ${start == null ? 'FULL' : 'incr'} fold scanned=$scanned '
-          'total=${result.length} took=${ms}ms (UI-isolate sync FFI)');
+          'total=${result.length} took=${ms}ms (worker isolate)');
     }
     return result;
   }
 
   @override
   Future<void> close() async {
-    _store?.close();
+    await _store?.close();
     _store = null;
-    _invalidateScanCache();
+    await _invalidateScanCache();
   }
 }

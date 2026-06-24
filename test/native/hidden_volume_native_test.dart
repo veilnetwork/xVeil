@@ -221,7 +221,7 @@ void main() {
       expect(
           await child.open(password: 'pw-alice', createIfMissing: true), isTrue);
       await child.putSetting('who', 'alice');
-      final childKeys = child.exportSpaceKeys();
+      final childKeys = await child.exportSpaceKeys();
       await child.close();
 
       // 2. The master (a parallel space): record the child's keys, then close.

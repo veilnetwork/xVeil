@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import '../../domain/file_transfer.dart';
+import 'async_kv_log_store.dart';
 import 'kv_log_store.dart';
 
 /// Deniable at-rest storage for files (received attachments, sent media) inside
@@ -111,4 +112,79 @@ class FileMeta {
   final String fileId;
   final String? name;
   final int size;
+}
+
+/// Off-UI-isolate twin of [FileStore] over an [AsyncKvLogStore]. Same on-disk
+/// layout and ops; every store call is awaited so the blocking FFI runs on the
+/// worker isolate. Used by [HiddenVolumeStorage] once its backing store is
+/// async — the sync [FileStore] stays for the in-memory fake + unit tests.
+class AsyncFileStore {
+  AsyncFileStore(this._store);
+
+  final AsyncKvLogStore _store;
+
+  static const int _maxRecord = 8000;
+
+  Uint8List _k(String s) => Uint8List.fromList(utf8.encode(s));
+
+  Future<int> _nextLogId() async {
+    final raw = await _store.get(Ns.settings, _k('file_next_log'));
+    return raw == null ? 1 : (int.tryParse(utf8.decode(raw)) ?? 1);
+  }
+
+  /// Persist [bytes] under [fileId]; returns [fileId]. Atomic (all chunks +
+  /// metadata + counter in one commit).
+  Future<String> storeFile(String fileId, Uint8List bytes, {String? name}) async {
+    final base = await _nextLogId();
+    final chunks = chunkBytes(bytes, transferId: fileId, maxChunk: _maxRecord);
+    final ops = <KvLogOp>[
+      for (var i = 0; i < chunks.length; i++)
+        AppendLogOp(Ns.fileChunks, base + i, chunks[i].data),
+      PutOp(
+        Ns.settings,
+        _k('file:$fileId'),
+        _k(jsonEncode({
+          'name': name,
+          'size': bytes.length,
+          'base': base,
+          'count': chunks.length,
+        })),
+      ),
+      PutOp(Ns.settings, _k('file_next_log'), _k('${base + chunks.length}')),
+    ];
+    await _store.commit(ops);
+    return fileId;
+  }
+
+  /// The ops that purge a stored file (see [FileStore.deleteFileOps]). Reads the
+  /// metadata to find the chunk range; empty if the id is unknown. Exposed so a
+  /// caller can fold these into a LARGER atomic commit.
+  Future<List<KvLogOp>> deleteFileOps(String fileId) async {
+    final raw = await _store.get(Ns.settings, _k('file:$fileId'));
+    if (raw == null) return const [];
+    final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
+    final base = m['base'] as int;
+    final count = m['count'] as int;
+    return [
+      for (var i = 0; i < count; i++)
+        AppendLogOp(Ns.fileChunks, base + i, Uint8List(0)),
+      DeleteOp(Ns.settings, _k('file:$fileId')),
+    ];
+  }
+
+  /// Reassemble the stored file, or null if unknown / a chunk is missing.
+  Future<Uint8List?> loadFile(String fileId) async {
+    final raw = await _store.get(Ns.settings, _k('file:$fileId'));
+    if (raw == null) return null;
+    final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
+    final base = m['base'] as int;
+    final count = m['count'] as int;
+    final out = BytesBuilder(copy: false);
+    for (var i = 0; i < count; i++) {
+      final chunk = await _store.readLog(Ns.fileChunks, base + i);
+      if (chunk == null) return null;
+      out.add(chunk);
+    }
+    return out.toBytes();
+  }
 }

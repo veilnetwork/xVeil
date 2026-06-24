@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'app.dart';
 import 'data/node/embedded_node.dart';
 import 'data/node/node_controller.dart';
+import 'data/storage/async_kv_log_store.dart';
 import 'data/storage/hidden_volume_storage.dart';
 import 'data/storage/hv_kv_log_store.dart';
 import 'data/storage/hv_native.dart';
@@ -45,12 +46,14 @@ Future<List<Override>> _bootstrapOverrides() async {
           : '${dir.path}/xveil.store';
       storePath = path;
       overrides.add(singleSpaceStorageProvider.overrideWith((ref) {
-        // Wire the keys-opener too so a master space can open its children by
-        // their stored SpaceKeys (master mode). Additive: the single-identity
-        // flow never calls openWithKeys, so its behaviour is unchanged.
-        final storage = HiddenVolumeStorage(
-          hvSpaceOpener(path),
-          keysOpener: hvKeysSpaceOpener(path),
+        // OFF-ISOLATE: the single-identity password path opens + serves on a
+        // dedicated worker isolate (workerSpaceOpener) so every get/commit/scan
+        // runs off the UI thread. The keys-opener (master-mode openWithKeys) is
+        // not yet worker-backed, so it is sync-wrapped (inline) for now — the
+        // single-identity flow never calls openWithKeys, so this is unchanged.
+        final storage = HiddenVolumeStorage.async(
+          workerSpaceOpener(path),
+          keysOpener: syncWrappedKeysOpener(hvKeysSpaceOpener(path)),
         );
         ref.onDispose(storage.close);
         return storage;

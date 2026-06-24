@@ -151,7 +151,7 @@ void main() {
     final child = container.storage();
     await child.open(password: 'childpw', createIfMissing: true);
     await child.saveIdentity(aliceId);
-    final aliceKeys = child.exportSpaceKeys();
+    final aliceKeys = await child.exportSpaceKeys();
     await child.close();
 
     final master = container.storage();
@@ -235,7 +235,7 @@ void main() {
       final child = container.storage();
       await child.open(password: pw, createIfMissing: true);
       await child.saveIdentity(AppController.generateIdentity(displayName: name));
-      roster.add(RosterEntry(label: label, spaceKeys: child.exportSpaceKeys()));
+      roster.add(RosterEntry(label: label, spaceKeys: await child.exportSpaceKeys()));
       await child.close();
     }
     final master = container.storage();
@@ -305,7 +305,7 @@ void main() {
     final alice = container.storage();
     await alice.open(password: 'pw-alice', createIfMissing: true);
     await alice.saveIdentity(AppController.generateIdentity(displayName: 'Alice'));
-    final aliceKeys = alice.exportSpaceKeys();
+    final aliceKeys = await alice.exportSpaceKeys();
     await alice.close();
     final master = container.storage();
     await master.open(password: 'masterpw', createIfMissing: true);
@@ -336,7 +336,7 @@ void main() {
     final alice = container.storage();
     await alice.open(password: 'pw-alice', createIfMissing: true);
     await alice.saveIdentity(AppController.generateIdentity(displayName: 'Alice'));
-    final aliceKeys = alice.exportSpaceKeys();
+    final aliceKeys = await alice.exportSpaceKeys();
     await alice.close();
     final master = container.storage();
     await master.open(password: 'masterpw', createIfMissing: true);
@@ -381,12 +381,12 @@ void main() {
     final alice = container.storage();
     await alice.open(password: 'pw-alice', createIfMissing: true);
     await alice.saveIdentity(AppController.generateIdentity(displayName: 'Alice'));
-    final aliceKeys = alice.exportSpaceKeys();
+    final aliceKeys = await alice.exportSpaceKeys();
     await alice.close();
     final bob = container.storage();
     await bob.open(password: 'pw-bob', createIfMissing: true);
     await bob.saveIdentity(AppController.generateIdentity(displayName: 'Bob'));
-    final bobKeys = bob.exportSpaceKeys();
+    final bobKeys = await bob.exportSpaceKeys();
     await bob.close();
     final master = container.storage();
     await master.open(password: 'masterpw', createIfMissing: true);
@@ -427,12 +427,12 @@ void main() {
     final alice = container.storage();
     await alice.open(password: 'pw-alice', createIfMissing: true);
     await alice.saveIdentity(AppController.generateIdentity(displayName: 'Alice'));
-    final aliceKeys = alice.exportSpaceKeys();
+    final aliceKeys = await alice.exportSpaceKeys();
     await alice.close();
     final bob = container.storage();
     await bob.open(password: 'pw-bob', createIfMissing: true);
     await bob.saveIdentity(AppController.generateIdentity(displayName: 'Bob'));
-    final bobKeys = bob.exportSpaceKeys();
+    final bobKeys = await bob.exportSpaceKeys();
     await bob.close();
     final master = container.storage();
     await master.open(password: 'masterpw', createIfMissing: true);
@@ -474,7 +474,7 @@ void main() {
     final alice = container.storage();
     await alice.open(password: 'pw-alice', createIfMissing: true);
     await alice.saveIdentity(AppController.generateIdentity(displayName: 'Alice'));
-    final aliceKeys = alice.exportSpaceKeys();
+    final aliceKeys = await alice.exportSpaceKeys();
     await alice.close();
     // Carol exists as a standalone identity, not yet in any master.
     final carol = container.storage();
@@ -534,7 +534,7 @@ void main() {
     final alice = container.storage();
     await alice.open(password: 'pw-alice', createIfMissing: true);
     await alice.saveIdentity(AppController.generateIdentity(displayName: 'Alice'));
-    final aliceKeys = alice.exportSpaceKeys();
+    final aliceKeys = await alice.exportSpaceKeys();
     await alice.close();
     final master = container.storage();
     await master.open(password: 'masterpw', createIfMissing: true);
@@ -561,7 +561,7 @@ void main() {
     final alice = container.storage();
     await alice.open(password: 'pw-alice', createIfMissing: true);
     await alice.saveIdentity(AppController.generateIdentity(displayName: 'Alice'));
-    final aliceKeys = alice.exportSpaceKeys();
+    final aliceKeys = await alice.exportSpaceKeys();
     await alice.close();
     final master = container.storage();
     await master.open(password: 'masterpw', createIfMissing: true);
@@ -602,12 +602,12 @@ void main() {
     final alice = container.storage();
     await alice.open(password: 'pw-alice', createIfMissing: true);
     await alice.saveIdentity(AppController.generateIdentity(displayName: 'Alice'));
-    final aliceKeys = alice.exportSpaceKeys();
+    final aliceKeys = await alice.exportSpaceKeys();
     await alice.close();
     final bob = container.storage();
     await bob.open(password: 'pw-bob', createIfMissing: true);
     await bob.saveIdentity(AppController.generateIdentity(displayName: 'Bob'));
-    final bobKeys = bob.exportSpaceKeys();
+    final bobKeys = await bob.exportSpaceKeys();
     await bob.close();
     final master = container.storage();
     await master.open(password: 'masterpw', createIfMissing: true);
@@ -681,7 +681,7 @@ void main() {
       final ch = container.storage();
       await ch.open(password: pw, createIfMissing: true);
       await ch.saveIdentity(AppController.generateIdentity(displayName: label));
-      roster.add(RosterEntry(label: label, spaceKeys: ch.exportSpaceKeys()));
+      roster.add(RosterEntry(label: label, spaceKeys: await ch.exportSpaceKeys()));
       await ch.close();
     }
     final m = container.storage();
@@ -733,7 +733,7 @@ void main() {
       final ch = container.storage();
       await ch.open(password: pw, createIfMissing: true);
       await ch.saveIdentity(AppController.generateIdentity(displayName: label));
-      roster.add(RosterEntry(label: label, spaceKeys: ch.exportSpaceKeys()));
+      roster.add(RosterEntry(label: label, spaceKeys: await ch.exportSpaceKeys()));
       await ch.close();
     }
     final m = container.storage();
