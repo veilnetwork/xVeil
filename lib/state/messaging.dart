@@ -132,7 +132,7 @@ class MessagingService {
   /// reply circuit can silently die on a NAT'd/mobile peer — so the second time
   /// we ACK over the durable resolve+circuit path instead of looping forever on
   /// a dead reply path. First receipt → fast reply path; repeat → reliable path.
-  Future<void> _ackTo(InboundMessage m, String id, {bool direct = false}) {
+  Future<void> _ackTo(InboundMessage m, String id, {bool direct = false}) async {
     final ack = WireEnvelope.ack(id).encode();
     final viaReply = !direct && m.replyId != 0;
     // [timeline] which ACK path we took (reply = fast one-time circuit; direct =
@@ -140,9 +140,25 @@ class MessagingService {
     debugPrint('xVeil[timeline]: ack id=$id via=${viaReply ? 'reply' : 'direct'} '
         't=${DateTime.now().millisecondsSinceEpoch}');
     if (viaReply) {
-      return _transport.sendReply(m.replyId, ack);
+      // Fast path: ride the sender's one-time reply circuit. Lowest latency, but
+      // the circuit can silently die on a NAT'd/mobile sender — covered by the
+      // durable path below on any re-receipt.
+      await _transport.sendReply(m.replyId, ack);
+      return;
     }
-    return _send(m.src, ack);
+    // Durable path. A live send reaches the sender ONLY over a direct session, so
+    // a NAT'd/offline sender never sees the ack and re-sends the message forever
+    // — the observed delivery "storm" (hundreds of duplicate INBOUNDs that the
+    // receiver dedups but the sender keeps generating because nothing flips the
+    // message to "delivered"). The MESSAGE itself reaches a NAT'd peer only
+    // because it is DEPOSITED at their mailbox and pushed over rendezvous; the
+    // ack was missing that leg. Deposit the ack at the sender's mailbox too so it
+    // rides the same push. Deduped per id via the '_stashed' set (at most one
+    // deposit per message), and fire-and-forget so the seal/PUT round-trip never
+    // stalls the receive path — the live send above still covers the online case
+    // at lower latency.
+    await _send(m.src, ack);
+    unawaited(_maybeStash(m.src, 'ack:$id', ack));
   }
   final _changes = StreamController<void>.broadcast();
   StreamSubscription<InboundMessage>? _sub;
