@@ -31,7 +31,7 @@ void main() {
       await s0.open(password: '111111', createIfMissing: true);
       await s0.saveIdentity(Identity(nodeId: nid(1), displayName: 'Personal'));
       await s0.saveNodeConfig('[Identity]\nfake = "config"\n');
-      final kPersonal = s0.exportSpaceKeys();
+      final kPersonal = await s0.exportSpaceKeys();
       await s0.close();
 
       // --- addIdentity(master=000000, new=Work/222222) — exact sequence. ---
@@ -49,7 +49,7 @@ void main() {
       // create the new child
       expect(await storage.open(password: '222222', createIfMissing: true), isTrue);
       await storage.saveIdentity(Identity(nodeId: nid(2), displayName: 'Work'));
-      roster.add(RosterEntry(label: 'Work', spaceKeys: storage.exportSpaceKeys()));
+      roster.add(RosterEntry(label: 'Work', spaceKeys: await storage.exportSpaceKeys()));
       await storage.close();
       // persist the roster into the master
       expect(await storage.open(password: '000000'), isTrue);

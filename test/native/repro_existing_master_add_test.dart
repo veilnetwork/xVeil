@@ -32,7 +32,7 @@ void main() {
     final s0 = single(path);
     await s0.open(password: '111111', createIfMissing: true);
     await s0.saveIdentity(Identity(nodeId: nid(1), displayName: 'Personal'));
-    final kPersonal = s0.exportSpaceKeys();
+    final kPersonal = await s0.exportSpaceKeys();
     await s0.close();
 
     // First add (convert to master 000000, new identity Work/222222).
@@ -44,7 +44,7 @@ void main() {
     await st.close();
     await st.open(password: '222222', createIfMissing: true); // create Work
     await st.saveIdentity(Identity(nodeId: nid(2), displayName: 'Work'));
-    roster.add(RosterEntry(label: 'Work', spaceKeys: st.exportSpaceKeys()));
+    roster.add(RosterEntry(label: 'Work', spaceKeys: await st.exportSpaceKeys()));
     await st.close();
     await st.open(password: '000000'); // master
     await st.saveRoster(roster);
@@ -70,7 +70,7 @@ void main() {
       await st.open(password: '333333', createIfMissing: true);
       await st.saveIdentity(Identity(nodeId: nid(3), displayName: 'Anon'));
       staleBase
-          .add(RosterEntry(label: 'Anon', spaceKeys: st.exportSpaceKeys()));
+          .add(RosterEntry(label: 'Anon', spaceKeys: await st.exportSpaceKeys()));
       await st.close();
       await st.open(password: '000000');
       await st.saveRoster(staleBase); // OVERWRITES [Personal, Work] !
@@ -105,7 +105,7 @@ void main() {
       await st.saveIdentity(Identity(nodeId: nid(3), displayName: 'Anon'));
       final withAnon = [
         ...base,
-        RosterEntry(label: 'Anon', spaceKeys: st.exportSpaceKeys()),
+        RosterEntry(label: 'Anon', spaceKeys: await st.exportSpaceKeys()),
       ];
       await st.close();
       await st.open(password: '000000');
