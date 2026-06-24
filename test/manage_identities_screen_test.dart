@@ -34,7 +34,7 @@ void main() {
       final ch = container.storage();
       await ch.open(password: pw, createIfMissing: true);
       await ch.saveIdentity(AppController.generateIdentity(displayName: label));
-      roster.add(RosterEntry(label: label, spaceKeys: ch.exportSpaceKeys()));
+      roster.add(RosterEntry(label: label, spaceKeys: await ch.exportSpaceKeys()));
       await ch.close();
     }
     final master = container.storage();

@@ -156,6 +156,9 @@ class MultiIdentitySession {
     final specs = planIdentityBoots(roster, _backing,
         runtimeDirBase: _runtimeDirBase, listenPortBase: _listenPortBase);
     for (final spec in specs) {
+      // Phase-2 TODO: a multi-space WORKER backing would offload these too; for
+      // now `fromStore` sync-wraps the shared multi-space view (runs inline on
+      // the UI isolate, as before — no regression).
       final storage = HiddenVolumeStorage.fromStore(
           MultiSpaceKvLogStore(_backing, spec.spaceId));
       _storages[spec.label] = storage;

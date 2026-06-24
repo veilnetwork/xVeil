@@ -14,7 +14,7 @@ void main() {
     final child = c.storage();
     await child.open(password: 'childpw', createIfMissing: true);
     await child.putSetting('who', 'carol');
-    final childKeys = child.exportSpaceKeys();
+    final childKeys = await child.exportSpaceKeys();
     expect(childKeys.length, 64);
     await child.close(); // release the lock before reopening
 

@@ -60,7 +60,7 @@ class IdentityManager {
     Uint8List keys;
     try {
       if (setup != null) await setup(child);
-      keys = child.exportSpaceKeys();
+      keys = await child.exportSpaceKeys();
     } finally {
       await child.close();
     }

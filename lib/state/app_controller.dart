@@ -208,7 +208,7 @@ class AppController extends Notifier<AppState> {
       _pendingRoster = roster;
       // Cache the master's keys so roster edits can reopen it without a
       // password re-prompt (held in memory like the child keys above).
-      _masterKeys = storage.exportSpaceKeys();
+      _masterKeys = await storage.exportSpaceKeys();
       await storage.close(); // release the single-space lock first
       // Opt-in "all identities online": host every space + run every node at
       // once (needs the real container path). Else the one-active picker.
@@ -642,7 +642,7 @@ class AppController extends Notifier<AppState> {
     // Only a PLAIN identity can be bound — a space with a roster is a master.
     final isPlainIdentity = await storage.loadIdentity() != null &&
         await storage.loadRoster() == null;
-    final keys = isPlainIdentity ? storage.exportSpaceKeys() : null;
+    final keys = isPlainIdentity ? await storage.exportSpaceKeys() : null;
     await storage.close();
     if (keys == null) {
       await _recoverToActive();
@@ -704,7 +704,7 @@ class AppController extends Notifier<AppState> {
     final active = ref.read(storageProvider);
     Uint8List? currentKeys;
     try {
-      if (active.isOpen) currentKeys = active.exportSpaceKeys();
+      if (active.isOpen) currentKeys = await active.exportSpaceKeys();
     } catch (_) {
       // No open active space (e.g. between states) — only matters for the first
       // conversion, which can't happen without an active identity anyway.
@@ -782,7 +782,7 @@ class AppController extends Notifier<AppState> {
       ...base,
       RosterEntry(
         label: label,
-        spaceKeys: storage.exportSpaceKeys(),
+        spaceKeys: await storage.exportSpaceKeys(),
         anonymous: anonymous,
       ),
     ];
@@ -796,7 +796,7 @@ class AppController extends Notifier<AppState> {
     await storage.saveRoster(roster);
     // Cache the master's keys so a later roster edit (e.g. toggling anonymity)
     // works without re-unlocking — same as the unlock path does.
-    _masterKeys = storage.exportSpaceKeys();
+    _masterKeys = await storage.exportSpaceKeys();
     await storage.close();
 
     // Enter the new identity (one-active). If the user has keep-all-online on,

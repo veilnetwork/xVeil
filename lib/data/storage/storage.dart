@@ -26,8 +26,10 @@ abstract interface class Storage {
 
   /// Export this open space's opaque `SpaceKeys` (64 bytes) so a master roster
   /// can store it and later reopen this space without a password. **Sensitive**
-  /// — never log; lives only inside a master space.
-  Uint8List exportSpaceKeys();
+  /// — never log; lives only inside a master space. Async because the backing
+  /// store now runs off the UI isolate (worker), so the keys cross an isolate
+  /// boundary.
+  Future<Uint8List> exportSpaceKeys();
 
   Future<void> saveIdentity(Identity identity);
   Future<Identity?> loadIdentity();
