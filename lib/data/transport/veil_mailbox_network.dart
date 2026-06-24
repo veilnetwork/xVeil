@@ -169,6 +169,26 @@ List<StoredMailboxBlob> decodeMailboxFetchResp(Uint8List data) {
 /// The receiver must have registered a rendezvous publisher advertising its
 /// relay (+ that relay's KEM key) BEFORE either side can address it — that
 /// startup wiring lives outside this transport.
+/// Thrown by [VeilNetworkMailboxRelay.fetch] when EVERY known relay was tried
+/// but none answered (send threw / no reply in the window). Distinct from a
+/// relay answering with an empty mailbox: an unreachable drain leaves the
+/// receiver UNCERTAIN whether mail is waiting, so the drain loop must keep
+/// polling at a bounded cadence rather than treat it as an idle/empty inbox and
+/// back off exponentially (which strands pending mail at the relay for minutes).
+class MailboxDrainUnreachable implements Exception {
+  MailboxDrainUnreachable(this.relaysTried, this.lastError);
+
+  /// How many relays were attempted before giving up this round.
+  final int relaysTried;
+
+  /// The last underlying send/timeout error (for diagnostics).
+  final Object? lastError;
+
+  @override
+  String toString() =>
+      'MailboxDrainUnreachable($relaysTried relay(s) tried, last: $lastError)';
+}
+
 class VeilNetworkMailboxRelay implements VeilMailboxRelay {
   VeilNetworkMailboxRelay({
     required veil.VeilClient client,
@@ -292,7 +312,10 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
       relayIds = replicas.map((r) => r.relayNodeId).toList();
     }
     // Try each relay until one answers within the window.
+    Object? lastErr;
+    var anyAttempted = false;
     for (final relayId in relayIds) {
+      anyAttempted = true;
       final completer = Completer<veil.IncomingMessage>();
       final sub = _fetchApp.messages().listen((m) {
         if (!completer.isCompleted) completer.complete(m);
@@ -309,12 +332,14 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
         final blobs = decodeMailboxFetchResp(reply.data);
         debugPrint('xVeil[drain]: fetched ${blobs.length} blob(s) from relay '
             '${NodeId(relayId).short}');
+        // A relay ANSWERED (even with an empty mailbox) — authoritative, done.
         return blobs;
       } on FormatException {
         // A malformed reply IS a real fault (not a transient) — surface it.
         rethrow;
       } catch (e) {
         // Transient (send threw / no reply in window) — try the next relay.
+        lastErr = e;
         debugPrint('xVeil[drain]: relay ${NodeId(relayId).short} no reply '
             '($e) — trying next');
         continue;
@@ -322,6 +347,18 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
         await sub.cancel();
       }
     }
+    // Reaching here means NO relay ANSWERED (a real answer returns above). That
+    // is fundamentally different from "the mailbox is empty": we don't actually
+    // know whether mail is waiting, only that every relay we tried failed to
+    // reply. Surface it as an error so the drain loop retries at a bounded
+    // cadence instead of mistaking it for an idle/empty mailbox and entering the
+    // long exponential back-off — which would strand pending mail at the relay
+    // for minutes after a single transient (DHT self-resolve / circuit hiccup).
+    if (anyAttempted) {
+      throw MailboxDrainUnreachable(relayIds.length, lastErr);
+    }
+    // No relay to even try (not yet registered, own-ad resolved nothing) — that
+    // genuinely is "nothing to fetch", so report empty and let the caller idle.
     return const [];
   }
 
