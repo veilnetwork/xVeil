@@ -41,6 +41,11 @@ class BootstrapInvite {
 
   static const _scheme = 'veil:bootstrap?';
 
+  /// A scanned/pasted invite is normally a few hundred chars (one key + nonce +
+  /// a transport URI). Cap the input so a hostile QR/paste cannot hand us a
+  /// multi-megabyte string to base64-decode into a huge allocation.
+  static const _maxUriChars = 4 * 1024;
+
   /// Parse a scanned/pasted invite. veil emits the base64 fields RAW (not
   /// percent-encoded), so split manually to preserve `+ / =` and the `://`
   /// inside the transport URI.
@@ -48,6 +53,9 @@ class BootstrapInvite {
     final trimmed = uri.trim();
     if (!trimmed.startsWith(_scheme)) {
       throw const FormatException('not a veil bootstrap invite');
+    }
+    if (trimmed.length > _maxUriChars) {
+      throw const FormatException('bootstrap invite too large');
     }
     final params = <String, String>{};
     for (final part in trimmed.substring(_scheme.length).split('&')) {
