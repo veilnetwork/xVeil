@@ -2,7 +2,6 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 
-import 'package:flutter/foundation.dart';
 
 import 'native_libs.dart' show processLibFor;
 import 'node/embedded_node.dart';
@@ -13,6 +12,7 @@ import 'storage/storage.dart';
 import 'transport/bootstrap_invite.dart';
 import 'transport/veil_flutter_transport.dart';
 import 'transport/veil_transport.dart';
+import 'package:xveil/core/log.dart';
 
 /// Mine a node identity in a worker isolate. Re-opens the veil dylib INSIDE the
 /// isolate (the parent's load is not guaranteed visible across isolates): from
@@ -99,7 +99,7 @@ class RealVeilStack {
     if (existing != null) {
       identityToml = existing;
     } else {
-      debugPrint('xVeil[deniable]: mining node identity (first run)…');
+      devLog(() => 'xVeil[deniable]: mining node identity (first run)…');
       // Canonical-difficulty PoW is CPU-heavy. Run it on a separate isolate so
       // the UI thread stays responsive (the "setting up" screen animates). The
       // worker isolate re-opens the dylib itself (from VEIL_FFI_DYLIB) rather
@@ -111,7 +111,7 @@ class RealVeilStack {
           : EmbeddedNode.mineConfig(0, lib: lib);
       await storage.saveNodeConfig(identityToml);
     }
-    debugPrint('xVeil[deniable]: identity ready (${identityToml.length} B) '
+    devLog(() => 'xVeil[deniable]: identity ready (${identityToml.length} B) '
         '[+${lap()}ms config]');
 
     // 2. Ephemeral, identity-free runtime endpoints.
@@ -151,11 +151,11 @@ class RealVeilStack {
       // Proxy services spawn from the APPLIED config (spawn_all_services runs on
       // apply-config reload too), so unlike [anonymity] this needs no stub
       // boot-arming — the composed config above carries the [proxy.*] sections.
-      debugPrint('xVeil[deniable]: traffic routing — socks5=${proxy.socks5Active} '
+      devLog(() => 'xVeil[deniable]: traffic routing — socks5=${proxy.socks5Active} '
           'exit=${proxy.exitEnabled}');
     }
     if (bootstrapPeers.isNotEmpty) {
-      debugPrint('xVeil[deniable]: dialing ${bootstrapPeers.length} '
+      devLog(() => 'xVeil[deniable]: dialing ${bootstrapPeers.length} '
           'bootstrap peer(s) from config');
     }
     if (anonymous) {
@@ -166,10 +166,10 @@ class RealVeilStack {
       // onion-reachable under its real identity (the throwaway stub identity is
       // never published — publish is periodic, not at boot). See
       // veil build_stub_config_with_ephemeral_identity / veil_node_start_deferred.
-      debugPrint('xVeil[deniable]: anonymous routing — arming onion at boot '
+      devLog(() => 'xVeil[deniable]: anonymous routing — arming onion at boot '
           '(resolves to the real identity after apply-config)');
     }
-    debugPrint('xVeil[deniable]: composed config [+${lap()}ms], '
+    devLog(() => 'xVeil[deniable]: composed config [+${lap()}ms], '
         'booting deferred @ $adminSock');
 
     // 4. Boot deferred (anonymity armed in the stub when requested), then apply
@@ -185,7 +185,7 @@ class RealVeilStack {
             EmbeddedNode.startDeferred(adminSock, anonymous: anonymous, lib: lib);
         final tDeferred = ssw.elapsedMilliseconds;
         node.applyConfig(fullConfig);
-        debugPrint('xVeil[deniable]: startDeferred +${tDeferred}ms, '
+        devLog(() => 'xVeil[deniable]: startDeferred +${tDeferred}ms, '
             'applyConfig +${ssw.elapsedMilliseconds - tDeferred}ms');
         return node;
       },
@@ -194,7 +194,7 @@ class RealVeilStack {
     // This lap is the suspect for a slow switch: startDeferred + applyConfig
     // (admin bind/connect) + the readiness poll. A large value here with a
     // mining-free identity points at a port-bind stall, not PoW.
-    debugPrint('xVeil[deniable]: controller phase=${controller.current.phase}'
+    devLog(() => 'xVeil[deniable]: controller phase=${controller.current.phase}'
         ' msg=${controller.current.message} [+${lap()}ms boot+connect]');
     if (controller.current.phase != NodePhase.connected) {
       throw StateError(
@@ -222,7 +222,7 @@ class RealVeilStack {
       algo: veilInvite.algo,
       transport: null,
     );
-    debugPrint('xVeil[deniable]: connected + identity-only invite ready');
+    devLog(() => 'xVeil[deniable]: connected + identity-only invite ready');
 
     return RealVeilStack._(
       controller: controller,

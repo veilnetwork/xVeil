@@ -6,12 +6,12 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:veil_flutter/veil_flutter.dart' as veil;
 
 import '../../core/ids.dart';
 import 'relay_key_cache.dart';
 import 'veil_mailbox.dart';
+import 'package:xveil/core/log.dart';
 
 /// BLAKE3("veil.mailbox.v1") — the well-known mailbox built-in app id
 /// (veil `veil_mailbox::MAILBOX_APP_ID`). Senders deposit at
@@ -244,7 +244,7 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
         .where((r) => r.rendezvousKemPk.length == 32)
         .take(_putReplicaFanout)
         .toList();
-    debugPrint('xVeil[stash-put]: dst=${receiver.hex.substring(0, 8)} '
+    devLog(() => 'xVeil[stash-put]: dst=${receiver.hex.substring(0, 8)} '
         'replicas_resolved=${replicas.length} usable(KEM)=${usable.length}');
     if (usable.isEmpty) {
       throw StateError(
@@ -311,7 +311,7 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     final Map<String, Uint8List> kemByRelay = {};
     if (knownRelays.isNotEmpty) {
       relayIds = knownRelays.map((r) => r.bytes).toList();
-      debugPrint('xVeil[drain]: fetch via ${relayIds.length} KNOWN relay(s) '
+      devLog(() => 'xVeil[drain]: fetch via ${relayIds.length} KNOWN relay(s) '
           '(skip DHT self-resolve)');
     } else {
       // Cold path (not yet registered): resolve our own ad to find a relay.
@@ -319,11 +319,11 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
       try {
         replicas = await _client.mailbox.lookupRendezvousReplicas(me.bytes);
       } catch (e) {
-        debugPrint('xVeil[drain]: own-ad DHT resolve FAILED: $e');
+        devLog(() => 'xVeil[drain]: own-ad DHT resolve FAILED: $e');
         return const [];
       }
       if (replicas.isEmpty) {
-        debugPrint('xVeil[drain]: own-ad resolved 0 replicas — nothing to fetch');
+        devLog(() => 'xVeil[drain]: own-ad resolved 0 replicas — nothing to fetch');
         return const [];
       }
       relayIds = replicas.map((r) => r.relayNodeId).toList();
@@ -359,7 +359,7 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
         }
       }
       final viaKeyGiven = relayKemPk != null && relayKemPk.length == 32;
-      debugPrint('xVeil[drain]: relay ${NodeId(relayId).short} fetch via '
+      devLog(() => 'xVeil[drain]: relay ${NodeId(relayId).short} fetch via '
           '${viaKeyGiven ? "DIRECT(key-given)" : "self-resolve(fallback)"}');
       try {
         if (viaKeyGiven) {
@@ -384,7 +384,7 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
         }
         final reply = await completer.future.timeout(_fetchTimeout);
         final blobs = decodeMailboxFetchResp(reply.data);
-        debugPrint('xVeil[drain]: fetched ${blobs.length} blob(s) from relay '
+        devLog(() => 'xVeil[drain]: fetched ${blobs.length} blob(s) from relay '
             '${NodeId(relayId).short}');
         // A relay ANSWERED (even with an empty mailbox) — authoritative, done.
         return blobs;
@@ -402,7 +402,7 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
         // drain never recovered. Registration re-resolves fresh if the relay ever
         // genuinely rotates.
         lastErr = e;
-        debugPrint('xVeil[drain]: relay ${NodeId(relayId).short} no reply '
+        devLog(() => 'xVeil[drain]: relay ${NodeId(relayId).short} no reply '
             '($e) — trying next');
         continue;
       } finally {

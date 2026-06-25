@@ -13,6 +13,7 @@ import 'background_node_controller.dart';
 import 'keep_all_online_controller.dart';
 import 'proxy_routing_controller.dart';
 import 'providers.dart';
+import 'package:xveil/core/log.dart';
 
 /// Top-level lifecycle of the app, used by the router to gate screens.
 enum AppPhase {
@@ -221,7 +222,7 @@ class AppController extends Notifier<AppState> {
           // All-online boot failed — never strand the user on a stuck unlock.
           // Tear down any half-built session and fall back to the one-active
           // picker (which is known-good). Surface WHY so we can fix it.
-          debugPrint('xVeil[all-online]: boot FAILED -> picker: $e\n$st');
+          devLog(() => 'xVeil[all-online]: boot FAILED -> picker: $e\n$st');
           await _teardownSession();
         }
       }
@@ -492,7 +493,7 @@ class AppController extends Notifier<AppState> {
           if (valid) await switchIdentity(target);
           return;
         } catch (e, st) {
-          debugPrint('xVeil[roster]: all-online re-enter FAILED -> picker: $e\n$st');
+          devLog(() => 'xVeil[roster]: all-online re-enter FAILED -> picker: $e\n$st');
           await _teardownSession();
         }
       }
@@ -964,7 +965,7 @@ class AppController extends Notifier<AppState> {
       await ref
           .read(backgroundNodeProvider.notifier)
           .applyIfNodeUp(nodeUp: true);
-      debugPrint('xVeil[deniable]: node up, invite=${stack.myInvite.nodeId.short}');
+      devLog(() => 'xVeil[deniable]: node up, invite=${stack.myInvite.nodeId.short}');
     } catch (e, st) {
       // A node-boot failure must not trap the user — but it must NOT be hidden
       // behind a fake "connected" either: surface it honestly (the network
@@ -973,7 +974,7 @@ class AppController extends Notifier<AppState> {
         phase: NodePhase.error,
         message: 'node failed to start: $e',
       );
-      debugPrint('xVeil[deniable]: boot FAILED: $e\n$st');
+      devLog(() => 'xVeil[deniable]: boot FAILED: $e\n$st');
     }
   }
 
@@ -1071,7 +1072,7 @@ class AppController extends Notifier<AppState> {
         final f = File(path);
         if (await f.exists()) await f.delete();
       } catch (e) {
-        debugPrint('xVeil[wipe]: failed to delete container at $path: $e');
+        devLog(() => 'xVeil[wipe]: failed to delete container at $path: $e');
       }
     }
 

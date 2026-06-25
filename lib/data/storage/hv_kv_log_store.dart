@@ -3,6 +3,7 @@ import 'package:hidden_volume/hidden_volume.dart' as hv;
 
 import 'kv_log_store.dart';
 import 'multi_space_store.dart';
+import 'package:xveil/core/log.dart';
 
 /// Map domain [KvLogOp]s to the plugin's `HvWriteOp`s (1:1). Shared by the
 /// single-space and multi-space backings.
@@ -134,7 +135,7 @@ hv.HvSpace _createOrOpen(String path, Uint8List password, hv.ArgonPreset argon) 
     // No usable container at `path` (missing / not a hidden-volume file) — the
     // only case where bootstrapping a fresh one is correct.
     if (e.kind == 'Io' || e.kind == 'Malformed') {
-      debugPrint('xVeil[storage]: bootstrapping FRESH container at $path'
+      devLog(() => 'xVeil[storage]: bootstrapping FRESH container at $path'
           ' (add_space failed: ${e.kind}) — expected ONLY on first run');
       return hv.HvSpace.create(path: path, password: password, argon: argon);
     }
