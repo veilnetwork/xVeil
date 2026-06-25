@@ -169,6 +169,25 @@ class AppL10nEn extends AppL10n {
   String get chatSend => 'Send';
 
   @override
+  String get notificationNewMessage => 'New message';
+
+  @override
+  String get notificationsTitle => 'Notifications';
+
+  @override
+  String get notificationsEnabled => 'Show notifications';
+
+  @override
+  String get notificationsPreview => 'Message preview';
+
+  @override
+  String get notificationsPreviewHidden =>
+      'Hidden (“new message”, no sender or text)';
+
+  @override
+  String get notificationsPreviewFull => 'Full (sender and text)';
+
+  @override
   String get chatRequestSent => 'Request sent — waiting for approval';
 
   @override

@@ -156,6 +156,39 @@ void main() {
     );
   });
 
+  test('a new incoming message emits on the incoming stream (notifications)',
+      () async {
+    await mA.acceptContact(b);
+    final got = <IncomingNotice>[];
+    final sub = mA.incoming.listen(got.add);
+    final wire = WireEnvelope.message('hey there',
+            id: 'n1', sentAtMs: DateTime.now().millisecondsSinceEpoch)
+        .encode();
+    tA.inject(InboundMessage(src: b, payload: wire));
+    await pumpEventQueue();
+    await sub.cancel();
+    expect(got.length, 1);
+    expect(got.single.from, b);
+    expect(got.single.preview, 'hey there');
+    expect(got.single.isFile, isFalse);
+  });
+
+  test('a re-delivered (deduped) message does NOT re-emit', () async {
+    await mA.acceptContact(b);
+    final wire = WireEnvelope.message('once',
+            id: 'n2', sentAtMs: DateTime.now().millisecondsSinceEpoch)
+        .encode();
+    tA.inject(InboundMessage(src: b, payload: wire));
+    await pumpEventQueue();
+    // Now subscribe and re-inject the SAME id — dedup must suppress the emit.
+    final got = <IncomingNotice>[];
+    final sub = mA.incoming.listen(got.add);
+    tA.inject(InboundMessage(src: b, payload: wire));
+    await pumpEventQueue();
+    await sub.cancel();
+    expect(got, isEmpty, reason: 'a re-delivery must not re-notify');
+  });
+
   test('an ACK from a non-accepted peer cannot flip our message status', () async {
     await mA.acceptContact(b);
     await mA.sendText(b, 'hello');

@@ -78,6 +78,7 @@ dependencies:
   veil_flutter:
     path: third_party/veil/flutter/veil_flutter
   file_picker: ^11.0.2
+  flutter_local_notifications: ^18.0.1
 
 dev_dependencies:
   flutter_test:
