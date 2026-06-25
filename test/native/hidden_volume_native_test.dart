@@ -139,7 +139,7 @@ void main() {
       ));
 
       // Delete tombstones the row + orphans the old chunk, but does NOT scrub.
-      await storage.deleteMessage('secret1');
+      await storage.deleteMessage(conv, 'secret1');
       expect(await storage.loadMessages(conv), isEmpty,
           reason: 'gone from the API immediately');
 
@@ -188,7 +188,7 @@ void main() {
       ));
       expect(await storage.loadFile('blob1'), isNotNull);
 
-      await storage.deleteMessage('fmsg'); // folds the blob purge in one commit
+      await storage.deleteMessage(conv, 'fmsg'); // folds the blob purge in one commit
       expect(await storage.loadFile('blob1'), isNull, reason: 'blob row gone');
 
       expect(space.vacuumDataBatches(), greaterThan(0),
