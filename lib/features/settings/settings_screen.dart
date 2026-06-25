@@ -18,6 +18,96 @@ class SettingsScreen extends ConsumerWidget {
         _ => l.languageSystem,
       };
 
+  static String _fmtBytes(int b) {
+    if (b >= 1 << 30) return '${(b / (1 << 30)).toStringAsFixed(1)} GB';
+    if (b >= 1 << 20) return '${(b / (1 << 20)).toStringAsFixed(1)} MB';
+    if (b >= 1 << 10) return '${(b / (1 << 10)).toStringAsFixed(0)} KB';
+    return '$b B';
+  }
+
+  /// Storage maintenance: show the container size and (single-identity only)
+  /// offer compaction to reclaim the log-structured store's dead padding.
+  Future<void> _openStorage(
+      BuildContext context, WidgetRef ref, AppL10n l) async {
+    final ctrl = ref.read(appControllerProvider.notifier);
+    final size = await ctrl.containerSizeBytes();
+    if (!context.mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (sheet) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.sd_storage_outlined),
+              title: Text(l.settingsStorage),
+              subtitle:
+                  Text(size == null ? '—' : _fmtBytes(size)),
+            ),
+            if (ctrl.canCompactStorage)
+              ListTile(
+                leading: const Icon(Icons.compress),
+                title: Text(l.settingsStorageCompact),
+                subtitle: Text(l.settingsStorageCompactBody),
+                onTap: () {
+                  Navigator.of(sheet).pop();
+                  _compact(context, ref, l);
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _compact(
+      BuildContext context, WidgetRef ref, AppL10n l) async {
+    final pw = await _promptPassword(context, l);
+    if (pw == null || pw.isEmpty) return;
+    if (!context.mounted) return;
+    // Capture the ROOT messenger BEFORE the await — compactStorage tears the
+    // session down and re-opens (navigating away), so the settings context may
+    // be unmounted by the time the result is ready.
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final r = await ref.read(appControllerProvider.notifier).compactStorage(pw);
+      messenger.showSnackBar(SnackBar(
+        content: Text(
+            '${l.settingsStorageCompactDone}: ${_fmtBytes(r.before)} → ${_fmtBytes(r.after)}'),
+      ));
+    } catch (_) {
+      messenger.showSnackBar(
+          SnackBar(content: Text(l.settingsStorageCompactFailed)));
+    }
+  }
+
+  Future<String?> _promptPassword(BuildContext context, AppL10n l) async {
+    final ctl = TextEditingController();
+    final pw = await showDialog<String>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: Text(l.settingsStorageCompact),
+        content: TextField(
+          controller: ctl,
+          obscureText: true,
+          autofocus: true,
+          decoration: InputDecoration(labelText: l.settingsStoragePasswordHint),
+          onSubmitted: (v) => Navigator.of(d).pop(v),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(d).pop(),
+              child: Text(l.actionCancel)),
+          FilledButton(
+              onPressed: () => Navigator.of(d).pop(ctl.text),
+              child: Text(l.settingsStorageCompact)),
+        ],
+      ),
+    );
+    ctl.dispose();
+    return pw;
+  }
+
   Future<void> _pickPreview(
       BuildContext context, WidgetRef ref, AppL10n l) async {
     final current = ref.read(notificationSettingsProvider).preview;
@@ -297,6 +387,7 @@ class SettingsScreen extends ConsumerWidget {
             leading: const Icon(Icons.lock_outline),
             title: Text(l.settingsStorage),
             trailing: const Icon(Icons.chevron_right),
+            onTap: () => _openStorage(context, ref, l),
           ),
           ListTile(
             leading: const Icon(Icons.hub_outlined),
