@@ -51,10 +51,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   void deactivate() {
     // Leaving the chat: clear the active-conversation marker (only if it still
-    // points at us — a freshly-opened chat may have already claimed it). Done in
-    // deactivate, not dispose, so we don't mutate a provider during teardown.
-    final notifier = ref.read(activeConversationProvider.notifier);
-    if (notifier.state == widget.peerHex) notifier.state = null;
+    // points at us — a freshly-opened chat may have already claimed it). It has
+    // a listener (the notification binder), so writing it synchronously here
+    // trips Riverpod's "modify a provider during a widget life-cycle" guard.
+    // Defer to a microtask via the captured container (which outlives us).
+    final container = ProviderScope.containerOf(context, listen: false);
+    final peer = widget.peerHex;
+    Future.microtask(() {
+      final n = container.read(activeConversationProvider.notifier);
+      if (n.state == peer) n.state = null;
+    });
     super.deactivate();
   }
 
