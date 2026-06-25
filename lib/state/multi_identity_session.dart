@@ -7,6 +7,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import '../crypto/blake3.dart';
+import '../data/node/embedded_node.dart' show BootstrapPeerCfg;
+import '../data/node/proxy_routing.dart';
 import '../data/storage/hidden_volume_storage.dart';
 import '../data/storage/multi_space_store.dart';
 import '../data/storage/storage.dart';
@@ -25,6 +27,9 @@ class IdentityBootSpec {
     required this.runtimeDir,
     required this.listenPort,
     required this.anonymous,
+    this.obfs4Psk,
+    this.lazyMining = false,
+    this.proxy = ProxyRouting.disabled,
   });
 
   final String label;
@@ -32,6 +37,14 @@ class IdentityBootSpec {
   final String runtimeDir;
   final int listenPort;
   final bool anonymous;
+
+  /// Session-wide node config the all-online boot must apply per identity, in
+  /// lockstep with the single-identity path — without these an always-online
+  /// node booted with NO obfs4 PSK (so it could not join the obfs4-protected
+  /// production network), no lazy-mining setting, and no traffic routing.
+  final String? obfs4Psk;
+  final bool lazyMining;
+  final ProxyRouting proxy;
 }
 
 /// A booted identity node: its overlay [transport] (drives that identity's
@@ -59,12 +72,18 @@ Future<List<IdentityBootSpec>> planIdentityBoots(
   AsyncMultiSpaceBacking backing, {
   required String runtimeDirBase,
   required int listenPortBase,
+  String? obfs4Psk,
+  bool lazyMining = false,
+  ProxyRouting proxy = ProxyRouting.disabled,
 }) async {
   final out = <IdentityBootSpec>[];
   for (var i = 0; i < roster.length; i++) {
     out.add(IdentityBootSpec(
       label: roster[i].label,
       spaceId: await backing.openSpace(roster[i].spaceKeys),
+      obfs4Psk: obfs4Psk,
+      lazyMining: lazyMining,
+      proxy: proxy,
       // Deniability: the runtime dir name must NOT be the human-readable
       // label — a device seized while running would otherwise read identity
       // names straight off the filesystem. Use a one-way hash of the label
@@ -104,6 +123,13 @@ Future<IdentityNode> _realBoot(IdentityBootSpec spec, Storage storage) async {
     runtimeDir: spec.runtimeDir,
     listenPort: spec.listenPort,
     anonymous: spec.anonymous,
+    lazyMining: spec.lazyMining,
+    // Same rationale as the single-identity path: don't inject explicit
+    // [[bootstrap_peers]] into the node config (it ENOENT-failed on Android);
+    // the seeds are used as mailbox-relay candidates via messaging.dart instead.
+    bootstrapPeers: const <BootstrapPeerCfg>[],
+    obfs4Psk: spec.obfs4Psk,
+    proxy: spec.proxy,
   );
   return IdentityNode(
       transport: stack.transport, stack: stack, dispose: stack.dispose);
@@ -125,14 +151,27 @@ class MultiIdentitySession {
     this._backing, {
     required String runtimeDirBase,
     required int listenPortBase,
+    String? obfs4Psk,
+    bool lazyMining = false,
+    ProxyRouting proxy = ProxyRouting.disabled,
     IdentityNodeBoot boot = _realBoot,
   })  : _runtimeDirBase = runtimeDirBase,
         _listenPortBase = listenPortBase,
+        _obfs4Psk = obfs4Psk,
+        _lazyMining = lazyMining,
+        _proxy = proxy,
         _boot = boot;
 
   final AsyncMultiSpaceBacking _backing;
   final String _runtimeDirBase;
   final int _listenPortBase;
+
+  /// Session-wide node config applied to every always-online node, kept in
+  /// lockstep with the single-identity boot (obfs4 PSK to join the network,
+  /// lazy-mining setting, traffic routing).
+  final String? _obfs4Psk;
+  final bool _lazyMining;
+  final ProxyRouting _proxy;
   final IdentityNodeBoot _boot;
 
   /// Per-identity node-boot ceiling (mining a fresh identity can take a few
@@ -155,7 +194,11 @@ class MultiIdentitySession {
   /// identity's node/messaging but keeps its storage view hosted.
   Future<void> bootAll(List<RosterEntry> roster) async {
     final specs = await planIdentityBoots(roster, _backing,
-        runtimeDirBase: _runtimeDirBase, listenPortBase: _listenPortBase);
+        runtimeDirBase: _runtimeDirBase,
+        listenPortBase: _listenPortBase,
+        obfs4Psk: _obfs4Psk,
+        lazyMining: _lazyMining,
+        proxy: _proxy);
     for (final spec in specs) {
       // Each identity's storage view routes its ops to the shared backing's
       // worker isolate (off the UI thread) via AsyncMultiSpaceKvLogStore.

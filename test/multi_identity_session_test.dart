@@ -79,6 +79,22 @@ void main() {
     expect(again.single.runtimeDir, specs[1].runtimeDir);
   });
 
+  test('planIdentityBoots stamps the session network/routing config onto '
+      'every spec (ALLONLINE)', () async {
+    final backing = SyncWrappedAsyncMultiSpaceBacking(FakeMultiSpaceBacking());
+    final specs = await planIdentityBoots(
+        [_e('alice', 1), _e('work', 2)], backing,
+        runtimeDirBase: '/run',
+        listenPortBase: 9000,
+        obfs4Psk: 'PSKVALUE',
+        lazyMining: true);
+    // Without this the all-online nodes booted with no obfs4 PSK (could not join
+    // the network), no lazy-mining, and no routing — out of step with the
+    // single-identity path.
+    expect(specs.every((s) => s.obfs4Psk == 'PSKVALUE'), isTrue);
+    expect(specs.every((s) => s.lazyMining), isTrue);
+  });
+
   test('bootAll hosts every identity storage even when a node boot fails',
       () async {
     final session = MultiIdentitySession(

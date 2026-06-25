@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/data/node/proxy_routing.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/multi_space_store.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
@@ -86,7 +87,14 @@ void main() {
       deniableBootProvider.overrideWithValue(const DeniableBootConfig(
           runtimeDir: '/run', listenPort: 9000, storePath: '/x')),
       sessionBuilderProvider.overrideWithValue(
-          ({required storePath, required runtimeDir, required listenPort}) =>
+          ({
+            required storePath,
+            required runtimeDir,
+            required listenPort,
+            obfs4Psk,
+            lazyMining = false,
+            proxy = ProxyRouting.disabled,
+          }) =>
               session),
     ]);
     addTearDown(c.dispose);
@@ -180,7 +188,14 @@ void main() {
       deniableBootProvider.overrideWithValue(const DeniableBootConfig(
           runtimeDir: '/run', listenPort: 9000, storePath: '/x')),
       sessionBuilderProvider.overrideWithValue(
-          ({required storePath, required runtimeDir, required listenPort}) =>
+          ({
+            required storePath,
+            required runtimeDir,
+            required listenPort,
+            obfs4Psk,
+            lazyMining = false,
+            proxy = ProxyRouting.disabled,
+          }) =>
               build()),
     ]);
     addTearDown(c.dispose);
