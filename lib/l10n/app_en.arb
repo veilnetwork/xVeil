@@ -78,6 +78,8 @@
   "chatMsgEdit": "Edit",
   "chatMsgDeleteForEveryone": "Delete for everyone",
   "chatMsgDeleteForMe": "Delete for me",
+  "chatMsgCopy": "Copy text",
+  "chatMsgCopied": "Copied",
   "chatEditTitle": "Edit message",
   "chatEditSave": "Save",
   "chatDeleteTitle": "Delete message?",
