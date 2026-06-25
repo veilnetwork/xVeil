@@ -529,6 +529,24 @@ abstract class AppL10n {
   /// **'Copied'**
   String get chatMsgCopied;
 
+  /// No description provided for @chatListDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete chat'**
+  String get chatListDelete;
+
+  /// No description provided for @chatDeleteChatTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete this chat?'**
+  String get chatDeleteChatTitle;
+
+  /// No description provided for @chatDeleteChatBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The conversation and all its messages are erased from this device. The other person is not notified.'**
+  String get chatDeleteChatBody;
+
   /// No description provided for @chatEditTitle.
   ///
   /// In en, this message translates to:
