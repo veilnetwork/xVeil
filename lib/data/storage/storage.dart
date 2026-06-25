@@ -77,23 +77,29 @@ abstract interface class Storage {
   /// ack). Folded over the append-log, so it never mutates history in place.
   Future<void> markMessageStatus(String messageId, MessageStatus status);
 
-  /// Replace the body of message [messageId] with [newBody] (edit of a sent
-  /// message). Re-writes the SAME log record via last-write-wins, so the old
-  /// text no longer reads back; the orphaned ciphertext chunk is reclaimed by a
-  /// later [scrubDeleted] pass. No-op if the id is unknown.
-  Future<void> editMessage(String messageId, String newBody);
+  /// Replace the body of message [messageId] in conversation [conversationId]
+  /// with [newBody] (edit of a sent message). Re-writes the SAME log record via
+  /// last-write-wins, so the old text no longer reads back; the orphaned
+  /// ciphertext chunk is reclaimed by a later [scrubDeleted] pass. No-op if the
+  /// id is unknown IN THAT CONVERSATION. The id is scoped by [conversationId]
+  /// because an edit can be driven by a peer's wire envelope whose claimed id is
+  /// attacker-chosen — resolving on the bare id would let a peer rewrite a
+  /// message in someone else's chat.
+  Future<void> editMessage(
+      String conversationId, String messageId, String newBody);
 
-  /// Permanently remove message [messageId] (incl. a received one). Tombstones
-  /// the SAME log record so the body no longer reads back, then the prior
-  /// chunk is reclaimed by [scrubDeleted] for true (forensic) erasure. No-op if
-  /// the id is unknown.
-  Future<void> deleteMessage(String messageId);
+  /// Permanently remove message [messageId] in conversation [conversationId]
+  /// (incl. a received one). Tombstones the SAME log record so the body no
+  /// longer reads back, then the prior chunk is reclaimed by [scrubDeleted] for
+  /// true (forensic) erasure. No-op if the id is unknown IN THAT CONVERSATION
+  /// (scoped for the same reason as [editMessage]).
+  Future<void> deleteMessage(String conversationId, String messageId);
 
-  /// Whether [messageId] was deleted (a tombstone exists for it). Lets the
-  /// messaging layer refuse to RESURRECT a deleted message if the sender
-  /// re-delivers it (deniability: deleted stays deleted). Stays true forever —
-  /// there is no un-delete.
-  Future<bool> isMessageDeleted(String messageId);
+  /// Whether [messageId] in conversation [conversationId] was deleted (a
+  /// tombstone exists for it). Lets the messaging layer refuse to RESURRECT a
+  /// deleted message if the sender re-delivers it (deniability: deleted stays
+  /// deleted). Stays true forever — there is no un-delete.
+  Future<bool> isMessageDeleted(String conversationId, String messageId);
 
   /// Remove a whole conversation with [peer]: forensically delete its messages,
   /// drop the contact record + its chat-list index entry, and scrub. Used to

@@ -307,7 +307,7 @@ void main() {
         ts: DateTime(2026, 3, 1));
     await storage.appendMessage(m);
 
-    await storage.editMessage(m.id, 'corrected');
+    await storage.editMessage(conv, m.id, 'corrected');
 
     final msgs = await storage.loadMessages(conv);
     expect(msgs.length, 1); // no duplicate row — last-write-wins by log_id
@@ -332,7 +332,7 @@ void main() {
     await storage.appendMessage(incoming);
     await storage.appendMessage(mine);
 
-    await storage.deleteMessage(incoming.id);
+    await storage.deleteMessage(conv, incoming.id);
 
     final msgs = await storage.loadMessages(conv);
     expect(msgs.map((m) => m.body), ['keep me']);
@@ -340,8 +340,8 @@ void main() {
   });
 
   test('edit/delete on an unknown id is a no-op', () async {
-    await storage.editMessage('nope', 'x');
-    await storage.deleteMessage('nope');
+    await storage.editMessage(_id(9).hex, 'nope', 'x');
+    await storage.deleteMessage(_id(9).hex, 'nope');
     expect(await storage.loadMessages(_id(9).hex), isEmpty);
   });
 
@@ -361,7 +361,7 @@ void main() {
     await storage.appendMessage(m);
     expect(await storage.loadFile('blob1'), isNotNull);
 
-    await storage.deleteMessage('filemsg');
+    await storage.deleteMessage(conv, 'filemsg');
     await storage.scrubDeleted();
 
     expect(await storage.loadMessages(conv), isEmpty);
@@ -378,7 +378,7 @@ void main() {
     await storage.appendMessage(m);
     await storage.markMessageStatus(m.id, MessageStatus.delivered);
 
-    await storage.editMessage(m.id, 'v2');
+    await storage.editMessage(conv, m.id, 'v2');
 
     final msg = (await storage.loadMessages(conv)).single;
     expect(msg.body, 'v2');
@@ -396,7 +396,7 @@ void main() {
         body: 'hello',
         ts: DateTime(2026, 4, 2));
     await storage.appendMessage(m);
-    await storage.editMessage(m.id, 'hello (fixed)');
+    await storage.editMessage(conv, m.id, 'hello (fixed)');
     await storage.markMessageStatus(m.id, MessageStatus.delivered);
 
     final msg = (await storage.loadMessages(conv)).single;
@@ -414,8 +414,8 @@ void main() {
         ts: DateTime(2026, 4, 3));
     await storage.appendMessage(m);
 
-    await storage.deleteMessage(m.id);
-    await storage.deleteMessage(m.id); // index already cleared → no-op
+    await storage.deleteMessage(conv, m.id);
+    await storage.deleteMessage(conv, m.id); // already tombstoned → no-op
 
     expect(await storage.loadMessages(conv), isEmpty);
   });
@@ -428,9 +428,9 @@ void main() {
         body: 'secret',
         ts: DateTime(2026, 4, 4));
     await storage.appendMessage(m);
-    await storage.deleteMessage(m.id);
+    await storage.deleteMessage(conv, m.id);
 
-    await storage.editMessage(m.id, 'resurrected?');
+    await storage.editMessage(conv, m.id, 'resurrected?');
 
     expect(await storage.loadMessages(conv), isEmpty);
   });
@@ -443,9 +443,45 @@ void main() {
         body: 'burn after reading',
         ts: DateTime(2026, 3, 4));
     await storage.appendMessage(m);
-    await storage.deleteMessage(m.id);
+    await storage.deleteMessage(conv, m.id);
     await storage.scrubDeleted(); // reclaim orphaned chunks
 
     expect(await storage.loadMessages(conv), isEmpty);
+  });
+
+  test(
+      'edit/delete are conversation-scoped: naming a foreign conversation '
+      'cannot touch another chat\'s message (MSGID-GLOBAL)', () async {
+    // Victim's message lives in conversation A. An attacker controls a DIFFERENT
+    // conversation B and (somehow) learns the victim message's id — historically
+    // the index keyed on the bare id, so a del/edit driven by B's wire envelope
+    // rewrote A's message. With per-conversation scoping, B naming A's id is a
+    // pure no-op against A.
+    final convA = _id(20).hex;
+    final convB = _id(21).hex;
+    final victim = Message(
+      id: 'shared-id',
+      conversationId: convA,
+      direction: MessageDirection.incoming,
+      body: 'private to A',
+      timestamp: DateTime(2026, 5, 1),
+    );
+    await storage.appendMessage(victim);
+
+    // Attacker in conversation B tries to erase / rewrite A's id.
+    await storage.deleteMessage(convB, 'shared-id');
+    await storage.editMessage(convB, 'shared-id', 'tampered by B');
+    expect(await storage.isMessageDeleted(convB, 'shared-id'), isFalse,
+        reason: 'B must not see A\'s message as deleted');
+
+    // A's message is untouched.
+    final inA = (await storage.loadMessages(convA)).single;
+    expect(inA.body, 'private to A');
+    expect(inA.edited, isFalse);
+
+    // The legitimate owner (conversation A) CAN delete it.
+    await storage.deleteMessage(convA, 'shared-id');
+    expect(await storage.loadMessages(convA), isEmpty);
+    expect(await storage.isMessageDeleted(convA, 'shared-id'), isTrue);
   });
 }
