@@ -39,6 +39,15 @@ class StorageRelayKeyCache implements RelayKeyCache {
   final Storage _storage;
   final int _ttlMs;
 
+  /// In-memory shadow of the last value we PERSISTED per relay, so a stable
+  /// relay key re-resolved every drain/register cycle does not re-commit. Each
+  /// settings write is its own log commit padded to a full bucket, so a
+  /// resolve storm was a real source of container bloat. We persist only when
+  /// the key actually changes, or when the stored entry is past half its TTL
+  /// (a cheap refresh). Process-local: on a fresh launch the first put writes
+  /// once, then re-puts of the same key are no-ops until the refresh point.
+  final Map<String, ({String key64, int expiry})> _shadow = {};
+
   static const _prefix = 'mailbox.relaykey.v1.';
   String _settingKey(NodeId relay) => '$_prefix${relay.hex}';
 
@@ -64,12 +73,17 @@ class StorageRelayKeyCache implements RelayKeyCache {
   @override
   Future<void> put(NodeId relay, Uint8List key) async {
     if (key.length != 32) return;
+    final key64 = base64.encode(key);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    // Skip the persist when the SAME key is already stored with more than half
+    // its TTL left — this is what collapses a re-resolve storm to ~one write
+    // per relay per half-TTL instead of one commit per resolve.
+    final s = _shadow[relay.hex];
+    if (s != null && s.key64 == key64 && (s.expiry - now) > _ttlMs ~/ 2) return;
+    final expiry = now + _ttlMs;
+    _shadow[relay.hex] = (key64: key64, expiry: expiry);
     try {
-      final expiry = DateTime.now().millisecondsSinceEpoch + _ttlMs;
-      await _storage.putSetting(
-        _settingKey(relay),
-        '${base64.encode(key)}.$expiry',
-      );
+      await _storage.putSetting(_settingKey(relay), '$key64.$expiry');
     } catch (_) {
       // best-effort — a failed write just means we resolve fresh next time
     }
@@ -77,6 +91,7 @@ class StorageRelayKeyCache implements RelayKeyCache {
 
   @override
   Future<void> evict(NodeId relay) async {
+    _shadow.remove(relay.hex);
     try {
       // The Storage port has no delete-setting; an empty value reads back as a
       // miss (get() returns null), which is the eviction semantics we need.
