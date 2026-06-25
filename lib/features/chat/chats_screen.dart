@@ -179,12 +179,60 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-class _ConversationTile extends StatelessWidget {
+class _ConversationTile extends ConsumerWidget {
   const _ConversationTile({required this.conversation});
   final Conversation conversation;
 
+  /// Long-press (touch) / right-click (desktop) → chat actions. Currently just
+  /// delete — the entry point for chat management; without it there is no way to
+  /// remove a chat (e.g. a dead/old "ghost" identity) from the list.
+  void _showActions(BuildContext context, WidgetRef ref) {
+    final l = AppL10n.of(context);
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheet) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: Text(l.chatListDelete),
+              onTap: () {
+                Navigator.of(sheet).pop();
+                _confirmDelete(context, ref);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
+    final l = AppL10n.of(context);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text(l.chatDeleteChatTitle),
+        content: Text(l.chatDeleteChatBody),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(dialog).pop(false),
+              child: Text(l.actionCancel)),
+          FilledButton(
+              onPressed: () => Navigator.of(dialog).pop(true),
+              child: Text(l.chatDeleteConfirm)),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await ref
+        .read(messagingServiceProvider)
+        .deleteConversation(conversation.peer.nodeId);
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final last = conversation.lastMessage;
     final status = conversation.peer.status;
@@ -196,22 +244,26 @@ class _ConversationTile extends StatelessWidget {
       ContactStatus.accepted => (null, null),
     };
 
-    return ListTile(
-      leading: CircleAvatar(
-        child: Text(conversation.peer.label.characters.first.toUpperCase()),
+    return GestureDetector(
+      onSecondaryTap: () => _showActions(context, ref),
+      child: ListTile(
+        leading: CircleAvatar(
+          child: Text(conversation.peer.label.characters.first.toUpperCase()),
+        ),
+        title: Text(conversation.peer.label),
+        subtitle: hint != null
+            ? Text(hint, style: TextStyle(color: hintColor))
+            : (last == null
+                ? null
+                : Text(last.body, maxLines: 1, overflow: TextOverflow.ellipsis)),
+        trailing: status == ContactStatus.pendingIncoming
+            ? Icon(Icons.fiber_new, color: scheme.primary)
+            : (conversation.unread > 0
+                ? Badge(label: Text('${conversation.unread}'))
+                : null),
+        onTap: () => context.push('/chat/${conversation.peer.nodeId.hex}'),
+        onLongPress: () => _showActions(context, ref),
       ),
-      title: Text(conversation.peer.label),
-      subtitle: hint != null
-          ? Text(hint, style: TextStyle(color: hintColor))
-          : (last == null
-              ? null
-              : Text(last.body, maxLines: 1, overflow: TextOverflow.ellipsis)),
-      trailing: status == ContactStatus.pendingIncoming
-          ? Icon(Icons.fiber_new, color: scheme.primary)
-          : (conversation.unread > 0
-              ? Badge(label: Text('${conversation.unread}'))
-              : null),
-      onTap: () => context.push('/chat/${conversation.peer.nodeId.hex}'),
     );
   }
 }
