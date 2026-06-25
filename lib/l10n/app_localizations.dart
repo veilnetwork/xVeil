@@ -649,6 +649,36 @@ abstract class AppL10n {
   /// **'Storage & spaces'**
   String get settingsStorage;
 
+  /// No description provided for @settingsStorageCompact.
+  ///
+  /// In en, this message translates to:
+  /// **'Compact storage'**
+  String get settingsStorageCompact;
+
+  /// No description provided for @settingsStorageCompactBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Reclaim unused space — the app re-opens.'**
+  String get settingsStorageCompactBody;
+
+  /// No description provided for @settingsStorageCompactDone.
+  ///
+  /// In en, this message translates to:
+  /// **'Reclaimed'**
+  String get settingsStorageCompactDone;
+
+  /// No description provided for @settingsStorageCompactFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t compact storage'**
+  String get settingsStorageCompactFailed;
+
+  /// No description provided for @settingsStoragePasswordHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Your password'**
+  String get settingsStoragePasswordHint;
+
   /// No description provided for @settingsNetwork.
   ///
   /// In en, this message translates to:

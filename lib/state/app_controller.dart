@@ -1,8 +1,12 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hidden_volume/hidden_volume.dart' as hv;
+
+import '../data/native_libs.dart';
 
 import '../core/ids.dart';
 import '../data/node/node_controller.dart';
@@ -235,6 +239,67 @@ class AppController extends Notifier<AppState> {
     // Single identity space — unchanged path.
     final identity = await storage.loadIdentity() ?? _placeholderIdentity();
     await _enterSession(identity);
+  }
+
+  /// Current on-disk size of the deniable container in bytes, or null on the
+  /// loopback/test path (no real container) — for the storage-maintenance UI.
+  Future<int?> containerSizeBytes() async {
+    final path = ref.read(deniableBootProvider)?.storePath;
+    if (path == null) return null;
+    try {
+      return await File(path).length();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Whether storage compaction is available: only for a SINGLE identity.
+  /// `compact_known` keeps ONLY the space whose password is supplied and DROPS
+  /// every other (decoy) space, so it must never run on a master/multi-identity
+  /// container with just one password. `_masterKeys` is set only when a roster
+  /// was found, so its absence means a lone space.
+  bool get canCompactStorage =>
+      _masterKeys == null && ref.read(deniableBootProvider)?.storePath != null;
+
+  /// Compact the deniable container in place to reclaim dead padding (the
+  /// log-structured store never shrinks on its own; only a repack does). The
+  /// node + open store hold a `LOCK_EX`, so we tear the session down, compact
+  /// off-isolate, then re-open via [unlock]. Reopened even on failure (the
+  /// rewrite is atomic — the container is untouched on error), so the user is
+  /// never stranded locked out. Returns the on-disk size before/after in bytes.
+  Future<({int before, int after})> compactStorage(String password) async {
+    if (!canCompactStorage) {
+      throw StateError('compaction is single-identity only');
+    }
+    final path = ref.read(deniableBootProvider)!.storePath!;
+    final before = await File(path).length();
+    state = state.copyWith(
+        phase: AppPhase.preparingNode, preparingReason: PreparingReason.unlocking);
+    await _teardownSession();
+    await _teardownRealStack();
+    await ref.read(storageProvider).close(); // release the LOCK_EX
+    try {
+      await hv.compactKnownAsync(
+        path,
+        [Uint8List.fromList(utf8.encode(password))],
+        dylibPath: _hvDylibPath(),
+      );
+    } finally {
+      await unlock(password); // always reopen
+    }
+    final after = await File(path).length();
+    return (before: before, after: after);
+  }
+
+  /// Path the compaction worker isolate dlopens the hidden-volume native lib
+  /// from (a fresh isolate doesn't inherit the main isolate's loaded image). By
+  /// soname on Android; the first existing bundle candidate on desktop.
+  String? _hvDylibPath() {
+    if (Platform.isAndroid) return nativeLibFileName('hidden_volume_ffi');
+    for (final p in nativeLibCandidates('hidden_volume_ffi')) {
+      if (File(p).existsSync()) return p;
+    }
+    return null;
   }
 
   /// All-online mode: open the container as one multi-space, boot every

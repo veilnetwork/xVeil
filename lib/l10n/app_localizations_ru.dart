@@ -307,6 +307,22 @@ class AppL10nRu extends AppL10n {
   String get settingsStorage => 'Хранилище и пространства';
 
   @override
+  String get settingsStorageCompact => 'Сжать хранилище';
+
+  @override
+  String get settingsStorageCompactBody =>
+      'Освободить неиспользуемое место — приложение переоткроется.';
+
+  @override
+  String get settingsStorageCompactDone => 'Освобождено';
+
+  @override
+  String get settingsStorageCompactFailed => 'Не удалось сжать хранилище';
+
+  @override
+  String get settingsStoragePasswordHint => 'Ваш пароль';
+
+  @override
   String get settingsNetwork => 'Сеть и узлы';
 
   @override
