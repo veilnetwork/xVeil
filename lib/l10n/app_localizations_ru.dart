@@ -170,6 +170,25 @@ class AppL10nRu extends AppL10n {
   String get chatSend => 'Отправить';
 
   @override
+  String get notificationNewMessage => 'Новое сообщение';
+
+  @override
+  String get notificationsTitle => 'Уведомления';
+
+  @override
+  String get notificationsEnabled => 'Показывать уведомления';
+
+  @override
+  String get notificationsPreview => 'Превью сообщения';
+
+  @override
+  String get notificationsPreviewHidden =>
+      'Скрытое («новое сообщение», без отправителя и текста)';
+
+  @override
+  String get notificationsPreviewFull => 'Полное (отправитель и текст)';
+
+  @override
   String get chatRequestSent => 'Запрос отправлен — ожидание одобрения';
 
   @override

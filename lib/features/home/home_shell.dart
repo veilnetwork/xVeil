@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../chat/chats_screen.dart';
+import '../chat/notification_binder.dart';
 import '../network/network_screen.dart';
 import '../settings/settings_screen.dart';
 
@@ -20,7 +21,10 @@ class _HomeShellState extends State<HomeShell> {
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
-    return Scaffold(
+    // Alive for the whole authenticated session (stays mounted under pushed
+    // chat routes), so OS notifications fire whenever a message arrives.
+    return NotificationBinder(
+        child: Scaffold(
       body: IndexedStack(
         index: _index,
         children: const [
@@ -50,6 +54,6 @@ class _HomeShellState extends State<HomeShell> {
           ),
         ],
       ),
-    );
+    ));
   }
 }

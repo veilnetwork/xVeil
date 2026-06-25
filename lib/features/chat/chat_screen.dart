@@ -9,6 +9,7 @@ import '../../core/ids.dart';
 import '../../domain/chat.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/messaging.dart';
+import '../../state/notifications.dart';
 import '../../state/providers.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
@@ -40,8 +41,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         ref.read(messagingServiceProvider).markRead(widget.peerHex);
+        // Mark this chat as the one on screen so the notification layer
+        // suppresses alerts for it while it's open + foreground.
+        ref.read(activeConversationProvider.notifier).state = widget.peerHex;
       }
     });
+  }
+
+  @override
+  void deactivate() {
+    // Leaving the chat: clear the active-conversation marker (only if it still
+    // points at us — a freshly-opened chat may have already claimed it). Done in
+    // deactivate, not dispose, so we don't mutate a provider during teardown.
+    final notifier = ref.read(activeConversationProvider.notifier);
+    if (notifier.state == widget.peerHex) notifier.state = null;
+    super.deactivate();
   }
 
   @override

@@ -391,6 +391,42 @@ abstract class AppL10n {
   /// **'Send'**
   String get chatSend;
 
+  /// No description provided for @notificationNewMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'New message'**
+  String get notificationNewMessage;
+
+  /// No description provided for @notificationsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Notifications'**
+  String get notificationsTitle;
+
+  /// No description provided for @notificationsEnabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Show notifications'**
+  String get notificationsEnabled;
+
+  /// No description provided for @notificationsPreview.
+  ///
+  /// In en, this message translates to:
+  /// **'Message preview'**
+  String get notificationsPreview;
+
+  /// No description provided for @notificationsPreviewHidden.
+  ///
+  /// In en, this message translates to:
+  /// **'Hidden (“new message”, no sender or text)'**
+  String get notificationsPreviewHidden;
+
+  /// No description provided for @notificationsPreviewFull.
+  ///
+  /// In en, this message translates to:
+  /// **'Full (sender and text)'**
+  String get notificationsPreviewFull;
+
   /// No description provided for @chatRequestSent.
   ///
   /// In en, this message translates to:
