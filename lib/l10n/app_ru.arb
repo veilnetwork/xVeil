@@ -161,6 +161,7 @@
   "inviteShowToContact": "Покажите это собеседнику",
   "inviteTooLarge": "инвайт слишком большой",
   "inviteCopied": "Инвайт скопирован",
+  "inviteIsSelf": "Это ваш собственный инвайт — нельзя добавить себя.",
   "inviteCopyMine": "Скопировать мой инвайт",
   "identityDetails": "Детали личности",
   "identityPublicKey": "публичный ключ",

@@ -489,6 +489,10 @@ class AppL10nEn extends AppL10n {
   String get inviteCopied => 'Invite copied';
 
   @override
+  String get inviteIsSelf =>
+      'That\'s your own invite — you can\'t add yourself.';
+
+  @override
   String get inviteCopyMine => 'Copy my invite';
 
   @override
