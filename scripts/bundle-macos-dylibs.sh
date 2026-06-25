@@ -42,3 +42,15 @@ mkdir -p "$APP/Contents/Frameworks"
 cp -f "$HV" "$VC" "$APP/Contents/Frameworks/"
 echo "bundled into $APP/Contents/Frameworks:"
 ls -la "$APP/Contents/Frameworks/" | grep -E 'hidden_volume|veilclient'
+
+# Swapping a dylib invalidates the .app's code-signature seal (its CodeResources
+# still references the OLD dylib hash), so a strict launch — `flutter run`, or
+# Gatekeeper — SIGKILLs the process on dlopen with EXC_BAD_ACCESS / "Code
+# Signature Invalid". Re-sign the whole bundle ad-hoc so the seal matches the
+# freshly-copied dylibs. Without this the app crashes the moment it loads the
+# native store.
+echo "re-signing $APP (ad-hoc, deep) after the dylib swap…"
+codesign --force --deep --sign - "$APP"
+codesign --verify --deep "$APP" \
+  && echo "codesign OK — bundle seal matches the new dylibs" \
+  || { echo "ERROR: codesign verify failed after re-sign" >&2; exit 1; }
