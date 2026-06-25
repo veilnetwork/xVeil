@@ -445,19 +445,34 @@ class HiddenVolumeStorage implements Storage {
 
   @override
   Future<void> removeConversation(NodeId peer) async {
-    // Tombstone every message in the conversation (forensic, like deleteMessage)
-    // …
+    // Tombstone every message (+ purge its file blob), then drop the contact
+    // record + chat-list index entry — all in ONE commit. This loop used to call
+    // deleteMessage() per message, i.e. one commit per message; with 1 MiB of
+    // padding per commit a 100-message chat ballooned the container by ~100 MiB
+    // on a single delete. Coalescing to a single commit is the high-leverage cut
+    // for storage bloat here. The per-message tombstone bytes are byte-identical
+    // to deleteMessage, so deniable-delete / isMessageDeleted semantics are
+    // unchanged — only the commit boundary moves.
+    final ops = <KvLogOp>[];
     for (final m in await loadMessages(peer.hex)) {
-      await deleteMessage(peer.hex, m.id);
+      final hit = await _liveEntryFor(peer.hex, m.id);
+      if (hit == null) continue;
+      ops.add(AppendLogOp(Ns.messageLog, hit.logId,
+          _sk(jsonEncode({'op': 'del', 'id': m.id, 'c': peer.hex}))));
+      final fileId = hit.message.fileId;
+      if (fileId != null) {
+        ops.addAll(await AsyncFileStore(_as).deleteFileOps(fileId));
+      }
     }
-    // …then drop the contact record + its chat-list index entry in one commit.
     final index = await _contactIndex();
     index.remove(peer.hex);
-    await _as.commit([
-      DeleteOp(Ns.contacts, peer.bytes),
-      PutOp(Ns.settings, _sk('contacts:index'), _sk(jsonEncode(index))),
-    ]);
-    // Reclaim the orphaned chunks so the retracted request is truly gone.
+    ops.add(DeleteOp(Ns.contacts, peer.bytes));
+    ops.add(PutOp(Ns.settings, _sk('contacts:index'), _sk(jsonEncode(index))));
+    await _as.commit(ops);
+    // Whole conversation is gone — scrub the orphaned chunks for forensic erasure
+    // and drop the warm fold (scrubDeleted invalidates it) so a later read can't
+    // resurrect a tombstoned row; the tombstones are durable in the log, so
+    // isMessageDeleted still answers true after the rebuild.
     await scrubDeleted();
   }
 
