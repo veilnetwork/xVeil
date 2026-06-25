@@ -14,6 +14,7 @@ class SshCheckDialog extends StatefulWidget {
     required this.port,
     required this.user,
     this.expectedHostFingerprint,
+    this.onHostKeyObserved,
   });
 
   final String host;
@@ -25,6 +26,12 @@ class SshCheckDialog extends StatefulWidget {
   /// would otherwise capture the SSH password typed here). When null it is a
   /// first-contact check: the observed key is shown so the user can verify it.
   final String? expectedHostFingerprint;
+
+  /// Fires once with the server's observed `SHA256:…` fingerprint after a
+  /// successful connect, so the caller can pin it trust-on-first-use (the check
+  /// dialog is the natural first-contact action — without this only the
+  /// provision path ever established a pin).
+  final void Function(String fingerprint)? onHostKeyObserved;
 
   @override
   State<SshCheckDialog> createState() => _SshCheckDialogState();
@@ -74,6 +81,11 @@ class _SshCheckDialogState extends State<SshCheckDialog> {
         command: _statusCmd,
         expectedHostFingerprint: widget.expectedHostFingerprint,
       );
+      // Pin trust-on-first-use: surface the observed key to the caller so a
+      // check (not just a provision) establishes the pin for later connects.
+      if (r.hostFingerprint.isNotEmpty) {
+        widget.onHostKeyObserved?.call(r.hostFingerprint);
+      }
       if (mounted) {
         setState(() {
           _output = '${r.stdout}${r.stderr.isNotEmpty ? '\n${r.stderr}' : ''}'

@@ -157,16 +157,63 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
     if (_labelError != null || _nodeIdError != null) return;
 
     final host = _host.text.trim();
+    final port = int.tryParse(_port.text.trim()) ?? 22;
+    final user = _user.text.trim().isEmpty ? null : _user.text.trim();
+    final sshHost = host.isEmpty ? null : host;
+
+    // Carry the pinned SSH host key across an edit — but ONLY when the SSH
+    // endpoint is unchanged. Rebuilding the node from the form (the old code)
+    // dropped sshHostFingerprint, silently downgrading a pinned node back to
+    // trust-on-first-use on the next connect (a MITM could then re-pin itself).
+    // Read the CURRENT persisted node, not the possibly-stale widget.existing
+    // (a connect-and-check may have just pinned it). Editing host/port/user
+    // points at a different server, so the old pin must NOT carry over.
+    final existingId = widget.existing?.id;
+    String? pin;
+    if (existingId != null) {
+      final nodes =
+          ref.read(managedNodesProvider).valueOrNull ?? const <ManagedNode>[];
+      for (final n in nodes) {
+        if (n.id == existingId) {
+          if (n.sshHost == sshHost && n.sshPort == port && n.sshUser == user) {
+            pin = n.sshHostFingerprint;
+          }
+          break;
+        }
+      }
+    }
+
     final node = ManagedNode(
-      id: widget.existing?.id ?? const Uuid().v4(),
+      id: existingId ?? const Uuid().v4(),
       label: label,
       nodeId: nodeId.isEmpty ? null : nodeId,
-      sshHost: host.isEmpty ? null : host,
-      sshPort: int.tryParse(_port.text.trim()) ?? 22,
-      sshUser: _user.text.trim().isEmpty ? null : _user.text.trim(),
+      sshHost: sshHost,
+      sshPort: port,
+      sshUser: user,
+      sshHostFingerprint: pin,
     );
     ref.read(managedNodesProvider.notifier).upsert(node);
     Navigator.of(context).pop();
+  }
+
+  /// TOFU-pin the host key the connect-and-check dialog observed onto the SAVED
+  /// node — only when it has no pin yet and the checked endpoint still matches
+  /// the saved one (the form wasn't edited away from it). A CHANGED key never
+  /// reaches here: sshRun throws on a pin mismatch before this fires.
+  Future<void> _maybePinCheckedHost(String fingerprint) async {
+    final ex = widget.existing;
+    if (ex == null || ex.sshHostFingerprint != null || fingerprint.isEmpty) {
+      return;
+    }
+    final host = _host.text.trim();
+    if (ex.sshHost != (host.isEmpty ? null : host) ||
+        ex.sshPort != (int.tryParse(_port.text.trim()) ?? 22) ||
+        ex.sshUser != (_user.text.trim().isEmpty ? null : _user.text.trim())) {
+      return; // endpoint edited since save — don't pin onto a mismatched node
+    }
+    await ref
+        .read(managedNodesProvider.notifier)
+        .upsert(ex.copyWith(sshHostFingerprint: fingerprint));
   }
 
   Future<void> _remove() async {
@@ -340,6 +387,7 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
                       user: _user.text.trim(),
                       expectedHostFingerprint:
                           widget.existing?.sshHostFingerprint,
+                      onHostKeyObserved: _maybePinCheckedHost,
                     ),
                   ),
                   icon: const Icon(Icons.terminal, size: 18),
