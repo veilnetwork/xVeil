@@ -9,6 +9,7 @@ import 'async_kv_log_store.dart';
 import 'file_store.dart';
 import 'kv_log_store.dart';
 import 'storage.dart';
+import 'package:xveil/core/log.dart';
 
 /// Reasonable upper bound for a single log scan. hidden-volume's log is the
 /// source of truth for messages; conversations are derived by scanning it
@@ -615,8 +616,7 @@ class HiddenVolumeStorage implements Storage {
     _scanResult = result;
     final ms = DateTime.now().difference(scanT0).inMilliseconds;
     if (ms > 50) {
-      // ignore: avoid_print
-      print('xVeil[scan]: ${start == null ? 'FULL' : 'incr'} fold scanned=$scanned '
+      devLog(() => 'xVeil[scan]: ${start == null ? 'FULL' : 'incr'} fold scanned=$scanned '
           'total=${result.length} took=${ms}ms (worker isolate)');
     }
     return result;

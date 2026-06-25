@@ -16,6 +16,7 @@ import 'data/storage/hv_native.dart';
 import 'data/transport/veil_native.dart';
 import 'data/veil_stack.dart';
 import 'state/providers.dart';
+import 'package:xveil/core/log.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -72,15 +73,15 @@ Future<List<Override>> _bootstrapOverrides() async {
       // space, with NO encryption and NO deniability. That must never pass
       // silently in a deniable messenger. On desktop this usually means the
       // dylibs weren't bundled into the .app (see scripts/bundle-macos-dylibs.sh).
-      debugPrint('xVeil[storage]: ************************************************');
-      debugPrint('xVeil[storage]: FATAL: hidden-volume native lib NOT loaded — '
+      devLog(() => 'xVeil[storage]: ************************************************');
+      devLog(() => 'xVeil[storage]: FATAL: hidden-volume native lib NOT loaded — '
           'falling back to the IN-MEMORY FAKE store. Passwords are MEANINGLESS, '
           'data is NOT encrypted and is lost on exit. DO NOT trust this build.');
-      debugPrint('xVeil[storage]: ************************************************');
+      devLog(() => 'xVeil[storage]: ************************************************');
     }
   } catch (e) {
     // Stay on the in-memory store — but make the degradation visible.
-    debugPrint('xVeil[storage]: FATAL: secure storage init threw -> IN-MEMORY '
+    devLog(() => 'xVeil[storage]: FATAL: secure storage init threw -> IN-MEMORY '
         'FAKE store (no encryption/deniability): $e');
   }
 
@@ -101,12 +102,12 @@ Future<List<Override>> _bootstrapOverrides() async {
           embedded: embedded,
         );
         overrides.add(realStackProvider.overrideWith((ref) => stack));
-        debugPrint('xVeil[real:legacy]: connected, node=${stack.myInvite.nodeId.short}');
+        devLog(() => 'xVeil[real:legacy]: connected, node=${stack.myInvite.nodeId.short}');
       } else {
-        debugPrint('xVeil[real]: veil dylib failed to load');
+        devLog(() => 'xVeil[real]: veil dylib failed to load');
       }
     } catch (e) {
-      debugPrint('xVeil[real]: start failed -> loopback: $e');
+      devLog(() => 'xVeil[real]: start failed -> loopback: $e');
     }
   } else if (ensureVeilClientLoaded() && embeddedNodeAvailable()) {
     // Deniable path: the node boots IN-PROCESS post-unlock from the identity
@@ -164,7 +165,7 @@ Future<List<Override>> _bootstrapOverrides() async {
     // error if the in-process boot fails) — never the demo node's fake count.
     overrides.add(nodeBootStateProvider
         .overrideWith((ref) => const NodeStatus(phase: NodePhase.starting)));
-    debugPrint('xVeil[real:deniable]: armed (runtimeDir=$runtimeDir port=$port '
+    devLog(() => 'xVeil[real:deniable]: armed (runtimeDir=$runtimeDir port=$port '
         'bootstrapPeers=${bootstrapPeers.length} obfs4Psk=${obfs4Psk != null && obfs4Psk.isNotEmpty})');
   } else if (Platform.isAndroid || Platform.isIOS) {
     // A packaged mobile build ALWAYS ships the in-process node, so reaching here
@@ -174,7 +175,7 @@ Future<List<Override>> _bootstrapOverrides() async {
           phase: NodePhase.error,
           message: 'embedded node unavailable (native library failed to load)',
         )));
-    debugPrint('xVeil[real]: embedded node unavailable on mobile '
+    devLog(() => 'xVeil[real]: embedded node unavailable on mobile '
         '(veilLoaded=${ensureVeilClientLoaded()} embedded=${embeddedNodeAvailable()})');
   }
 
@@ -206,9 +207,9 @@ List<BootstrapPeerCfg> _loadBootstrapPeers() {
     final raw = File(path).readAsStringSync();
     final json = jsonDecode(raw);
     if (json is List) return BootstrapPeerCfg.listFromJson(json);
-    debugPrint('xVeil[bootstrap]: $path is not a JSON array — ignoring');
+    devLog(() => 'xVeil[bootstrap]: $path is not a JSON array — ignoring');
   } catch (e) {
-    debugPrint('xVeil[bootstrap]: failed to read $path: $e');
+    devLog(() => 'xVeil[bootstrap]: failed to read $path: $e');
   }
   return const [];
 }
