@@ -10,6 +10,7 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:veil_flutter/veil_flutter.dart' as veil;
 
 import '../../core/ids.dart';
+import 'relay_key_cache.dart';
 import 'veil_mailbox.dart';
 
 /// BLAKE3("veil.mailbox.v1") — the well-known mailbox built-in app id
@@ -202,13 +203,20 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     // periodically froze the UI. 5s fails fast; a relay that genuinely has mail
     // answers well inside it.
     Duration fetchTimeout = const Duration(seconds: 5),
+    // Last-known-good relay KEM keys, keyed by relay node_id. When present, the
+    // FETCH goes STRAIGHT to the relay with its known key (no flaky self-resolve
+    // that returns NoRendezvous); absent → fall back to the self-resolving send.
+    // Null on the loopback/dev path. The key is PUBLIC, so caching/passing it
+    // leaks nothing.
+    RelayKeyCache? relayKeyCache,
   })  : _client = client,
         _fetchApp = fetchApp,
         _srcAppId = srcAppId,
         _replyEndpointId = replyEndpointId,
         _putHopCount = putHopCount,
         _putReplicaFanout = putReplicaFanout,
-        _fetchTimeout = fetchTimeout {
+        _fetchTimeout = fetchTimeout,
+        _relayKeyCache = relayKeyCache {
     if (_srcAppId.length != 32) {
       throw ArgumentError('srcAppId must be 32 bytes, got ${_srcAppId.length}');
     }
@@ -221,6 +229,7 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
   final int _putHopCount;
   final int _putReplicaFanout;
   final Duration _fetchTimeout;
+  final RelayKeyCache? _relayKeyCache;
 
   @override
   Future<void> put({
@@ -292,6 +301,14 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     // mobile / right after a relay restart) and was silently stranding pending
     // mail — the deposit sits at the relay but the drain fetched nothing.
     List<Uint8List> relayIds;
+    // relay node_id (hex) -> its rendezvous KEM pk, when we already hold it. The
+    // KEM key lets the FETCH go STRAIGHT to the relay (key-given authenticated
+    // send) instead of self-resolving the relay as a rendezvous recipient — which
+    // ALWAYS fails (a relay publishes no RendezvousAd → NoRendezvous). Sourced
+    // from our own resolved replicas (the SAME field the deposit uses) and/or the
+    // relay-key cache. The key is a public, network-published value, so holding it
+    // leaks nothing.
+    final Map<String, Uint8List> kemByRelay = {};
     if (knownRelays.isNotEmpty) {
       relayIds = knownRelays.map((r) => r.bytes).toList();
       debugPrint('xVeil[drain]: fetch via ${relayIds.length} KNOWN relay(s) '
@@ -310,6 +327,15 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
         return const [];
       }
       relayIds = replicas.map((r) => r.relayNodeId).toList();
+      // Capture each replica's KEM key — this is exactly what makes the deposit
+      // reliable, so reuse it for the fetch instead of depending on the cache
+      // having been warmed by a prior registration.
+      for (final r in replicas) {
+        if (r.rendezvousKemPk.length == 32) {
+          kemByRelay[NodeId(r.relayNodeId).hex] =
+              Uint8List.fromList(r.rendezvousKemPk);
+        }
+      }
     }
     // Try each relay until one answers within the window.
     Object? lastErr;
@@ -320,14 +346,42 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
       final sub = _fetchApp.messages().listen((m) {
         if (!completer.isCompleted) completer.complete(m);
       });
+      // Prefer the relay's KNOWN KEM key (no flaky self-resolve): the resolved
+      // replica carries it (deposit-equivalent), else the relay-key cache. The
+      // key is a public, network-published value, so holding it leaks nothing —
+      // it just lets the onion route straight to the relay.
+      Uint8List? relayKemPk = kemByRelay[NodeId(relayId).hex];
+      if (relayKemPk == null) {
+        try {
+          relayKemPk = await _relayKeyCache?.get(NodeId(relayId));
+        } catch (_) {
+          relayKemPk = null; // cache is best-effort; a miss → self-resolve below
+        }
+      }
+      final viaKeyGiven = relayKemPk != null && relayKemPk.length == 32;
+      debugPrint('xVeil[drain]: relay ${NodeId(relayId).short} fetch via '
+          '${viaKeyGiven ? "DIRECT(key-given)" : "self-resolve(fallback)"}');
       try {
-        await _fetchApp.sendAnonymousAuthenticatedWithReply(
-          dstNodeId: relayId,
-          dstAppId: kMailboxAppId,
-          dstEndpointId: kMailboxFetchEndpointId,
-          replyEndpointId: _replyEndpointId,
-          data: Uint8List(0),
-        );
+        if (viaKeyGiven) {
+          // KEM-key-given mailbox FETCH: straight to (relayId, relayKemPk).
+          await _fetchApp.sendAnonymousAuthenticatedDirectWithReply(
+            dstNodeId: relayId,
+            dstX25519Pk: relayKemPk,
+            dstAppId: kMailboxAppId,
+            dstEndpointId: kMailboxFetchEndpointId,
+            replyEndpointId: _replyEndpointId,
+            data: Uint8List(0),
+          );
+        } else {
+          // No known key — fall back to the self-resolving authenticated send.
+          await _fetchApp.sendAnonymousAuthenticatedWithReply(
+            dstNodeId: relayId,
+            dstAppId: kMailboxAppId,
+            dstEndpointId: kMailboxFetchEndpointId,
+            replyEndpointId: _replyEndpointId,
+            data: Uint8List(0),
+          );
+        }
         final reply = await completer.future.timeout(_fetchTimeout);
         final blobs = decodeMailboxFetchResp(reply.data);
         debugPrint('xVeil[drain]: fetched ${blobs.length} blob(s) from relay '
@@ -342,6 +396,16 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
         lastErr = e;
         debugPrint('xVeil[drain]: relay ${NodeId(relayId).short} no reply '
             '($e) — trying next');
+        // If we sent with a cached key and it didn't answer, the key may be
+        // stale (relay rotated its KEM key) — evict it so the next attempt
+        // re-resolves fresh instead of repeatedly routing to a dead key.
+        if (relayKemPk != null) {
+          try {
+            await _relayKeyCache?.evict(NodeId(relayId));
+          } catch (_) {
+            // best-effort
+          }
+        }
         continue;
       } finally {
         await sub.cancel();

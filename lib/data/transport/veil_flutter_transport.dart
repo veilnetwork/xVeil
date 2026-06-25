@@ -93,6 +93,10 @@ class VeilFlutterTransport implements VeilTransport {
       fetchApp: reply,
       srcAppId: src.appId,
       replyEndpointId: _mailboxReplyEndpointId,
+      // The KEM-key-given FETCH: when this relay's published KEM key is cached
+      // (populated at registration), the drain routes straight to it instead of
+      // the flaky rendezvous-ad self-resolve. Best-effort; absent → self-resolve.
+      relayKeyCache: relayKeyCache,
     );
     final crypto = VeilFlutterMailboxCrypto(_client.mailbox);
     final me = NodeId(await _client.nodeId());
