@@ -18,6 +18,15 @@ class SharedPeers {
 
   static const _scheme = 'veil:peers?';
 
+  /// Bound a scanned/pasted share: QR capacity is a few KB and a legitimate
+  /// share is a short list, so cap the raw token well above that. Stops a
+  /// hostile QR/paste from forcing a multi-megabyte base64 + JSON decode.
+  static const _maxUriChars = 16 * 1024;
+
+  /// Cap how many peers we ingest from one share, so a hostile (but
+  /// under-the-size-limit) token can't enqueue an unbounded bootstrap list.
+  static const _maxPeers = 64;
+
   static bool looksLikeSharedPeers(String uri) =>
       uri.trim().startsWith(_scheme);
 
@@ -25,6 +34,9 @@ class SharedPeers {
     final trimmed = uri.trim();
     if (!trimmed.startsWith(_scheme)) {
       throw const FormatException('not a veil peers share');
+    }
+    if (trimmed.length > _maxUriChars) {
+      throw const FormatException('peers share too large');
     }
     final body = trimmed.substring(_scheme.length);
     final i = body.indexOf('='); // the `p=` separator (first '=')
@@ -38,6 +50,7 @@ class SharedPeers {
     }
     final out = <BootstrapInvite>[];
     for (final e in decoded) {
+      if (out.length >= _maxPeers) break; // bound a hostile share's peer count
       if (e is! Map) continue;
       final pk = e['pk'], t = e['t'], nc = e['nc'];
       if (pk is! String || t is! String || nc is! String) continue;

@@ -97,4 +97,29 @@ void main() {
     expect(r.total, 2);
     expect(r.isComplete, isFalse);
   });
+
+  test('a chunk count above the cap is rejected (memory-DoS guard)', () {
+    final r = FileReassembler(maxChunks: 4);
+    // A hostile sender declares a huge chunk count to balloon the chunk map
+    // while staying under the byte budget — rejected outright, nothing stored.
+    r.add(FileChunk(transferId: 't', index: 0, total: 1 << 30, data: _bytes(1)));
+    expect(r.received, 0);
+    expect(r.total, isNull, reason: 'an over-cap total never even sets _total');
+    // A total exactly at the cap is allowed.
+    for (var i = 0; i < 4; i++) {
+      r.add(FileChunk(transferId: 't', index: i, total: 4, data: _bytes(10)));
+    }
+    expect(r.isComplete, isTrue);
+    expect(r.received, 4);
+  });
+
+  test('the default cap matches kMaxIncomingFileChunks', () {
+    final r = FileReassembler();
+    r.add(FileChunk(
+        transferId: 't',
+        index: 0,
+        total: kMaxIncomingFileChunks + 1,
+        data: _bytes(1)));
+    expect(r.received, 0, reason: 'one past the default cap is rejected');
+  });
 }
