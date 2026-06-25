@@ -6,7 +6,14 @@
     <application
         android:label="xveil"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false">
+        <!-- Deniability: never let the encrypted container or any app data leave
+             the device. allowBackup=false disables cloud + `adb backup` on every
+             API level; data_extraction_rules additionally excludes the Android-12+
+             device-to-device transfer path (which allowBackup alone does not). -->
         <activity
             android:name=".MainActivity"
             android:exported="true"

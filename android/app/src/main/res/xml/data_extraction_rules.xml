@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Deniability hardening (API 31+). allowBackup="false" already disables cloud
+  and `adb` backup on every API level, but the Android-12+ device-to-device
+  transfer path is governed separately by these rules. Exclude EVERY data
+  domain from both cloud-backup and device-transfer so the encrypted container,
+  shared prefs, databases and any external files never leave the device.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </device-transfer>
+</data-extraction-rules>
