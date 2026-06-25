@@ -35,6 +35,22 @@ void main() {
       expect(back[1].sshPort, 22);
     });
 
+    test('round-trips the pinned SSH host fingerprint', () {
+      const fp = 'SHA256:abc123def456+/Pinned0HostKeyFingerprintValue';
+      final nodes = [
+        const ManagedNode(
+            id: '1',
+            label: 'vps',
+            sshHost: 'a.b',
+            sshUser: 'u',
+            sshHostFingerprint: fp),
+      ];
+      final back = ManagedNode.decodeList(ManagedNode.encodeList(nodes));
+      expect(back.single.sshHostFingerprint, fp);
+      // copyWith preserves it unless explicitly overridden.
+      expect(back.single.copyWith(label: 'x').sshHostFingerprint, fp);
+    });
+
     test('decode tolerates junk', () {
       expect(ManagedNode.decodeList(null), isEmpty);
       expect(ManagedNode.decodeList('not json'), isEmpty);

@@ -687,6 +687,13 @@ class AppL10nEn extends AppL10n {
       'Direct link to a veil-cli binary for the server\'s arch (a GitHub release asset).';
 
   @override
+  String get provisionSha256 => 'veil-cli SHA-256';
+
+  @override
+  String get provisionSha256Hint =>
+      'Required. The 64-hex SHA-256 published with that binary. Installation aborts on the server if the download does not match — this is what stops a tampered binary from running as root.';
+
+  @override
   String get provisionRunExit => 'Run as an exit (route my traffic through it)';
 
   @override

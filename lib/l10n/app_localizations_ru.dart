@@ -689,6 +689,13 @@ class AppL10nRu extends AppL10n {
       'Прямая ссылка на бинарь veil-cli для архитектуры сервера (ассет GitHub-релиза).';
 
   @override
+  String get provisionSha256 => 'SHA-256 для veil-cli';
+
+  @override
+  String get provisionSha256Hint =>
+      'Обязательно. 64-символьный hex SHA-256, опубликованный вместе с бинарём. Установка на сервере прерывается, если загрузка не совпадает — именно это не даёт подменённому бинарю выполниться от root.';
+
+  @override
   String get provisionRunExit =>
       'Запустить как выходной узел (маршрутизировать через него)';
 

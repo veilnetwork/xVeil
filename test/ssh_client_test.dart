@@ -14,9 +14,20 @@ void main() {
   });
 
   test('SshResult.ok reflects the exit code', () {
-    expect(const SshResult(stdout: '', stderr: '', exitCode: 0).ok, isTrue);
-    expect(const SshResult(stdout: '', stderr: 'x', exitCode: 1).ok, isFalse);
-    expect(const SshResult(stdout: '', stderr: '', exitCode: null).ok, isFalse);
+    expect(
+        const SshResult(stdout: '', stderr: '', exitCode: 0, hostFingerprint: '')
+            .ok,
+        isTrue);
+    expect(
+        const SshResult(
+                stdout: '', stderr: 'x', exitCode: 1, hostFingerprint: '')
+            .ok,
+        isFalse);
+    expect(
+        const SshResult(
+                stdout: '', stderr: '', exitCode: null, hostFingerprint: '')
+            .ok,
+        isFalse);
   });
 
   test('sshRun throws a typed SshException on an unreachable host', () async {

@@ -227,6 +227,8 @@
   "provisionTitle": "Provision over SSH",
   "provisionReleaseUrl": "veil-cli release URL",
   "provisionReleaseHint": "Direct link to a veil-cli binary for the server's arch (a GitHub release asset).",
+  "provisionSha256": "veil-cli SHA-256",
+  "provisionSha256Hint": "Required. The 64-hex SHA-256 published with that binary. Installation aborts on the server if the download does not match — this is what stops a tampered binary from running as root.",
   "provisionRunExit": "Run as an exit (route my traffic through it)",
   "provisionScriptLabel": "Runs on the server as root — review before running:",
   "provisionPskMissing": "Deployment PSK isn't bundled in this build, so the node can't join the network. Provisioning is unavailable.",
