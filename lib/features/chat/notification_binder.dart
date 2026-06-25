@@ -14,6 +14,13 @@ import '../../state/providers.dart';
 ///
 /// Suppresses an alert for the conversation already on screen while the app is
 /// foreground; re-subscribes when the active identity's service changes.
+///
+/// All provider interaction is deferred to a post-frame callback + done via
+/// [WidgetRef.listenManual] — NEVER during build or initState directly. Reading
+/// `messagingServiceProvider` (which watches `activeIdentityProvider`) inline
+/// would register a listener mid-build, so the controller's identity-activation
+/// write during the unlock→home cascade tripped Riverpod's "modify a provider
+/// while the widget tree was building" guard.
 class NotificationBinder extends ConsumerStatefulWidget {
   const NotificationBinder({super.key, required this.child});
   final Widget child;
@@ -24,14 +31,24 @@ class NotificationBinder extends ConsumerStatefulWidget {
 
 class _NotificationBinderState extends ConsumerState<NotificationBinder> {
   StreamSubscription<IncomingNotice>? _sub;
+  ProviderSubscription<MessagingService>? _serviceListener;
 
   @override
   void initState() {
     super.initState();
-    // Ensure the OS backend is initialized + permission asked once.
-    final svc = ref.read(notificationServiceProvider);
-    unawaited(svc.requestPermission());
-    _subscribe(ref.read(messagingServiceProvider));
+    // Defer until after the first frame so the unlock→home provider cascade has
+    // fully settled before we attach any listener.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(ref.read(notificationServiceProvider).requestPermission());
+      _subscribe(ref.read(messagingServiceProvider));
+      // Re-subscribe when the active identity's service changes (manual listen,
+      // NOT in build).
+      _serviceListener = ref.listenManual<MessagingService>(
+        messagingServiceProvider,
+        (_, next) => _subscribe(next),
+      );
+    });
   }
 
   void _subscribe(MessagingService service) {
@@ -44,8 +61,8 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder> {
     final settings = ref.read(notificationSettingsProvider);
     if (!settings.enabled) return;
     // Don't alert for the chat the user is looking at (only when foreground).
-    final foreground = WidgetsBinding.instance.lifecycleState ==
-        AppLifecycleState.resumed;
+    final foreground =
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
     if (foreground && ref.read(activeConversationProvider) == notice.from.hex) {
       return;
     }
@@ -77,14 +94,11 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder> {
 
   @override
   void dispose() {
+    _serviceListener?.close();
     _sub?.cancel();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) {
-    // Re-subscribe when the active identity's messaging service changes.
-    ref.listen(messagingServiceProvider, (_, next) => _subscribe(next));
-    return widget.child;
-  }
+  Widget build(BuildContext context) => widget.child;
 }
