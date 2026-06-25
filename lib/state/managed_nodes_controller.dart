@@ -22,15 +22,22 @@ class ManagedNodesController extends AsyncNotifier<List<ManagedNode>> {
   }
 
   Future<void> _persist(List<ManagedNode> nodes) async {
-    state = AsyncData(nodes);
+    state = AsyncData(nodes); // UI reflects the change immediately
+    final json = ManagedNode.encodeList(nodes);
+    if (json == _lastPersisted) return; // unchanged → skip a redundant commit
+    _lastPersisted = json;
     try {
-      await ref
-          .read(storageProvider)
-          .putSetting(_kManagedNodesKey, ManagedNode.encodeList(nodes));
+      await ref.read(storageProvider).putSetting(_kManagedNodesKey, json);
     } catch (_) {
       // Best-effort; in-memory state still reflects the change this session.
+      _lastPersisted = null; // write failed — don't suppress the next attempt
     }
   }
+
+  /// The last JSON we actually persisted, so a no-op upsert (e.g. a status probe
+  /// re-reporting an unchanged node) does not re-commit — each settings write is
+  /// its own padded log commit, so redundant writes are pure container bloat.
+  String? _lastPersisted;
 
   /// Add a new node, or replace the existing one with the same id.
   Future<void> upsert(ManagedNode node) async {
