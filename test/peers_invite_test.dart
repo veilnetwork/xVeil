@@ -77,4 +77,19 @@ void main() {
     expect(() => SharedPeers.parse('veil:peers?p=$emptyList'),
         throwsFormatException);
   });
+
+  test('rejects an over-large share BEFORE decoding (memory-DoS guard)', () {
+    // 32 KiB of payload — past the 16 KiB cap — is refused without decoding it.
+    final huge = 'veil:peers?p=${'A' * (32 * 1024)}';
+    expect(() => SharedPeers.parse(huge), throwsFormatException);
+  });
+
+  test('caps the number of ingested peers from one share', () {
+    // 80 valid peers (short transports, so the whole token stays under the
+    // 16 KiB size cap) — only the first 64 are ingested.
+    final many = [for (var i = 0; i < 80; i++) _peer('tcp://a.b:1', i)];
+    final uri = SharedPeers(many).toUri();
+    expect(uri.length, lessThan(16 * 1024)); // the size guard must NOT trip here
+    expect(SharedPeers.parse(uri).peers.length, 64);
+  });
 }

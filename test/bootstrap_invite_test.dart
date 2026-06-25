@@ -36,4 +36,11 @@ void main() {
     expect(() => BootstrapInvite.parse('veil:bootstrap?pk=AA=='),
         throwsFormatException);
   });
+
+  test('rejects an over-large invite before decoding (memory-DoS guard)', () {
+    // A multi-KiB pk field (past the 4 KiB cap) is refused without ever
+    // base64-decoding it into a large allocation.
+    final huge = 'veil:bootstrap?pk=${'A' * (8 * 1024)}&nc=AYX/vg==';
+    expect(() => BootstrapInvite.parse(huge), throwsFormatException);
+  });
 }
