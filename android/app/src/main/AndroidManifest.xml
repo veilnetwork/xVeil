@@ -3,6 +3,8 @@
          the app still installs on camera-less devices (paste remains). -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- Local notifications for incoming messages (Android 13+ runtime grant). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <application
         android:label="xveil"
         android:name="${applicationName}"
