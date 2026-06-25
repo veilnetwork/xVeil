@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/format.dart';
@@ -58,8 +59,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final container = ProviderScope.containerOf(context, listen: false);
     final peer = widget.peerHex;
     Future.microtask(() {
-      final n = container.read(activeConversationProvider.notifier);
-      if (n.state == peer) n.state = null;
+      // Best-effort marker cleanup. If the whole ProviderScope was torn down
+      // before this runs (app shutdown, or a test ending), the container is
+      // disposed and there is nothing left to clear — swallow that.
+      try {
+        final n = container.read(activeConversationProvider.notifier);
+        if (n.state == peer) n.state = null;
+      } catch (_) {}
     });
     super.deactivate();
   }
@@ -182,6 +188,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (!m.isFile)
+              ListTile(
+                leading: const Icon(Icons.copy_outlined),
+                title: Text(l.chatMsgCopy),
+                onTap: () {
+                  Navigator.of(sheet).pop();
+                  _copyMessage(m);
+                },
+              ),
             if (own && !m.isFile)
               ListTile(
                 leading: const Icon(Icons.edit_outlined),
@@ -211,6 +226,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  /// Copy a text message's body to the clipboard. Local-only — nothing leaves
+  /// the device, so it carries no anonymity/deniability cost (the user already
+  /// holds the plaintext).
+  Future<void> _copyMessage(Message m) async {
+    final l = AppL10n.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    await Clipboard.setData(ClipboardData(text: m.body));
+    if (!mounted) return;
+    messenger.showSnackBar(
+      SnackBar(content: Text(l.chatMsgCopied), duration: const Duration(seconds: 1)),
     );
   }
 
@@ -558,7 +586,12 @@ class _Bubble extends StatelessWidget {
     return Align(
       alignment: outgoing ? Alignment.centerRight : Alignment.centerLeft,
       child: GestureDetector(
+        // Long-press (touch) AND secondary-tap (desktop right-click) both open
+        // the message actions — without the latter the menu is unreachable on
+        // desktop, where there is no long-press.
         onLongPress:
+            onLongPress == null ? null : () => onLongPress!(message),
+        onSecondaryTap:
             onLongPress == null ? null : () => onLongPress!(message),
         child: Container(
         margin: const EdgeInsets.symmetric(vertical: 4),

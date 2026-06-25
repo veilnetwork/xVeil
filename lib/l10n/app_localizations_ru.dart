@@ -235,6 +235,12 @@ class AppL10nRu extends AppL10n {
   String get chatMsgDeleteForMe => 'Удалить у себя';
 
   @override
+  String get chatMsgCopy => 'Копировать текст';
+
+  @override
+  String get chatMsgCopied => 'Скопировано';
+
+  @override
   String get chatEditTitle => 'Изменить сообщение';
 
   @override
