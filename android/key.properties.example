@@ -1,0 +1,13 @@
+# Release-signing template. Copy to android/key.properties (gitignored) and fill
+# in your own keystore. WITHOUT this file a release build is debug-signed and is
+# NOT distributable.
+#
+# Generate a keystore (keep the .jks OUT of the repo — *.jks is gitignored):
+#   keytool -genkey -v -keystore ~/xveil-release.jks \
+#     -keyalg RSA -keysize 4096 -validity 10000 -alias xveil
+#
+# Then point storeFile at it (absolute path, or relative to android/app/).
+storePassword=CHANGE_ME
+keyPassword=CHANGE_ME
+keyAlias=xveil
+storeFile=/absolute/path/to/xveil-release.jks
