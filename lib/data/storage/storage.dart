@@ -73,9 +73,14 @@ abstract interface class Storage {
   Future<List<Message>> loadMessages(String conversationId);
   Future<void> appendMessage(Message message);
 
-  /// Update a stored message's delivery [status] (e.g. `sent → delivered` on an
-  /// ack). Folded over the append-log, so it never mutates history in place.
-  Future<void> markMessageStatus(String messageId, MessageStatus status);
+  /// Update the delivery [status] of message [messageId] in conversation
+  /// [conversationId] (e.g. `sent → delivered` on an ack). Folded over the
+  /// append-log, so it never mutates history in place. Scoped by conversation
+  /// for the same reason as [editMessage]: an ack is driven by a peer's wire
+  /// envelope whose claimed id is attacker-chosen, so a status op only applies
+  /// to a message that actually lives in that peer's conversation.
+  Future<void> markMessageStatus(
+      String conversationId, String messageId, MessageStatus status);
 
   /// Replace the body of message [messageId] in conversation [conversationId]
   /// with [newBody] (edit of a sent message). Re-writes the SAME log record via

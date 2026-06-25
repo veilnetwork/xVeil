@@ -436,6 +436,12 @@ class MessagingService {
           await _ackTo(m, id);
         }
       case WireKind.ack:
+        // Consent gate, like every other inbound arm: only an accepted contact
+        // can flip our message state. Without this any non-blocked peer could
+        // ack an arbitrary (guessed) id to forge a "delivered" mark and cancel
+        // our retry backoff in any conversation. A legit ack only comes from a
+        // peer we already accepted (we send messages — hence acks — only to them).
+        if (existing?.status != ContactStatus.accepted) return;
         // The peer confirms delivery of our message [env.id] — stop re-sending.
         if (env.id != null) {
           // [timeline] sender-side "delivered" moment — pair with the send t0 to
@@ -443,7 +449,10 @@ class MessagingService {
           devLog(() => 'xVeil[timeline]: delivered id=${env.id} '
               't=${DateTime.now().millisecondsSinceEpoch}');
           _retryBackoff.remove(env.id); // stop backing off a delivered message
-          await _storage.markMessageStatus(env.id!, MessageStatus.delivered);
+          // Scope by the sender's conversation (m.src.hex) so the status can
+          // only land on a message that lives in THIS peer's chat.
+          await _storage.markMessageStatus(
+              m.src.hex, env.id!, MessageStatus.delivered);
         }
       case WireKind.edit:
         // The peer edited a message THEY sent us. Apply only to an INCOMING
