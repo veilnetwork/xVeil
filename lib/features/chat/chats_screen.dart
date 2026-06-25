@@ -107,6 +107,18 @@ class ChatsScreen extends ConsumerWidget {
       builder: (sheetCtx) => InviteExchangeSheet(
         myInvite: ref.read(myInviteProvider),
         onAddContact: (invite) async {
+          // Guard: redeeming your OWN invite would silently open a nonsensical
+          // self-chat. Tell the user instead of pretending it worked.
+          final me = ref.read(appControllerProvider).identity?.nodeId;
+          if (me != null && invite.nodeId == me) {
+            if (sheetCtx.mounted) Navigator.of(sheetCtx).pop();
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(AppL10n.of(context).inviteIsSelf)),
+              );
+            }
+            return;
+          }
           // In real mode, redeem the invite so our node can dial the peer
           // (a redeem failure, e.g. already known, must not block the flow).
           try {

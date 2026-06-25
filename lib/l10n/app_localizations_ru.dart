@@ -489,6 +489,10 @@ class AppL10nRu extends AppL10n {
   String get inviteCopied => 'Инвайт скопирован';
 
   @override
+  String get inviteIsSelf =>
+      'Это ваш собственный инвайт — нельзя добавить себя.';
+
+  @override
   String get inviteCopyMine => 'Скопировать мой инвайт';
 
   @override

@@ -979,6 +979,12 @@ abstract class AppL10n {
   /// **'Invite copied'**
   String get inviteCopied;
 
+  /// No description provided for @inviteIsSelf.
+  ///
+  /// In en, this message translates to:
+  /// **'That\'s your own invite — you can\'t add yourself.'**
+  String get inviteIsSelf;
+
   /// No description provided for @inviteCopyMine.
   ///
   /// In en, this message translates to:

@@ -30,6 +30,20 @@ void main() {
     }
   });
 
+  test('round-trips a large (>8 MiB) multi-thousand-chunk transfer', () {
+    // A real wire transfer chunks at ~6 KB; an 8 MiB+ file is ~1.4k chunks.
+    // Exercise that the chunker + reassembler scale and stay well under the
+    // memory-DoS chunk cap, with a non-multiple size so the last chunk is short.
+    const size = 8 * 1024 * 1024 + 123;
+    const wireChunk = 6000;
+    final data = _bytes(size);
+    final chunks = chunkBytes(data, transferId: 'big', maxChunk: wireChunk);
+    expect(chunks.length, (size / wireChunk).ceil());
+    expect(chunks.length, lessThan(kMaxIncomingFileChunks),
+        reason: 'a legitimate large transfer stays under the chunk cap');
+    expect(_reassemble(chunks), data);
+  });
+
   test('chunk count is correct', () {
     expect(chunkBytes(_bytes(0), transferId: 't', maxChunk: 100).length, 1);
     expect(chunkBytes(_bytes(100), transferId: 't', maxChunk: 100).length, 1);
