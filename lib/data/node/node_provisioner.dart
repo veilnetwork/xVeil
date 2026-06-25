@@ -96,6 +96,11 @@ WantedBy=multi-user.target''';
 /// binary/unit/PSK each run but only MINES a fresh identity when none exists, so
 /// re-running never rotates the node's id.
 String buildProvisionScript(NodeProvisionConfig c) {
+  // Trim the URL too (like psk/sha): isValid validates the TRIMMED url, so
+  // interpolating the raw value would let a trailing/leading whitespace diverge
+  // from what was validated. Whitespace can't break the single-quoted curl line,
+  // but keep the script self-consistent with the validation.
+  final url = c.releaseUrl.trim();
   final psk = c.obfs4PskB64.trim();
   final sha = c.expectedSha256.trim().toLowerCase();
   final exitLine = c.runExit
@@ -110,7 +115,7 @@ sudo mkdir -p /var/lib/veil /var/log/veil
 sudo chown veil:veil /var/lib/veil /var/log/veil
 
 # 1. veil-cli from the GitHub release — VERIFY checksum before trusting it
-curl -fsSL '${c.releaseUrl}' -o /tmp/veil-cli
+curl -fsSL '$url' -o /tmp/veil-cli
 # Fail closed: if the downloaded binary does not match the published SHA-256,
 # sha256sum -c exits non-zero and `set -e` aborts BEFORE we install/run it as
 # root. This is what stops a tampered release / hijacked URL from becoming RCE.
