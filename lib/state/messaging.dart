@@ -336,7 +336,24 @@ class MessagingService {
     );
   }
 
-  Future<void> _onInbound(InboundMessage m) async {
+  /// Serializes inbound handling. The stream listener ([start]) does NOT await
+  /// our async handler, and [deliverInbound] (mailbox drain) feeds the SAME
+  /// path, so without this two frames interleave at their `await` points. That
+  /// let concurrent pre-consent intros each read the stored count below the cap
+  /// in [_capPreConsentIntros] and both store — busting [kMaxPreConsentIntros]
+  /// (an unbounded-greeting hole on a victim's device) — and more generally
+  /// raced the consent gate / id-dedup check-then-act sequences. We process at
+  /// most one frame at a time. [_handleInbound] is fully try/catch-guarded so
+  /// the chained future never rejects and the queue can't be poisoned.
+  Future<void> _inboundChain = Future<void>.value();
+
+  Future<void> _onInbound(InboundMessage m) {
+    final next = _inboundChain.then((_) => _handleInbound(m));
+    _inboundChain = next;
+    return next;
+  }
+
+  Future<void> _handleInbound(InboundMessage m) async {
     devLog(() => 'xVeil[recv]: INBOUND from=${m.src.short} bytes=${m.payload.length}');
     try {
       await _dispatch(m);
