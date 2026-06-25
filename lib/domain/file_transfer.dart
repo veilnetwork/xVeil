@@ -48,20 +48,41 @@ List<FileChunk> chunkBytes(
   ];
 }
 
+/// Hard ceiling on the declared chunk COUNT of an inbound transfer. The byte
+/// budget enforced elsewhere ([FileReassembler.bufferedBytes]) bounds the
+/// reassembled DATA, but NOT the per-chunk bookkeeping: a hostile sender could
+/// declare (or stream) millions of tiny chunks and stay under the byte cap while
+/// the chunk map's per-entry overhead (key + slice object) exhausts memory. This
+/// caps the map's entry count. A legitimate 100 MiB transfer at ~6 KB/chunk is
+/// ≈ 17.5k chunks, so 65 536 is comfortable headroom yet bounds the worst case.
+const kMaxIncomingFileChunks = 1 << 16;
+
 /// Collects [FileChunk]s (in any order, dedup-safe) and reassembles the
 /// original bytes once every chunk has arrived.
 class FileReassembler {
+  FileReassembler({this.maxChunks = kMaxIncomingFileChunks});
+
+  /// Upper bound on the declared [FileChunk.total] / number of buffered chunks.
+  /// A transfer declaring more is rejected outright (memory-DoS guard).
+  final int maxChunks;
+
   final Map<int, Uint8List> _chunks = {};
   int? _total;
   int _bytes = 0;
 
   /// Register a chunk. Out-of-order and duplicate chunks are fine; malformed
   /// chunks are ignored so a hostile sender cannot crash reassembly. Rejected:
-  /// a non-positive total, an index outside `[0, total)`, or a total that
-  /// disagrees with one already seen (which could otherwise let [isComplete]
-  /// trip with a missing slot, then null-crash in [assemble]).
+  /// a non-positive total, a total above [maxChunks] (memory-DoS guard), an
+  /// index outside `[0, total)`, or a total that disagrees with one already seen
+  /// (which could otherwise let [isComplete] trip with a missing slot, then
+  /// null-crash in [assemble]).
   void add(FileChunk chunk) {
-    if (chunk.total < 1 || chunk.index < 0 || chunk.index >= chunk.total) return;
+    if (chunk.total < 1 ||
+        chunk.total > maxChunks ||
+        chunk.index < 0 ||
+        chunk.index >= chunk.total) {
+      return;
+    }
     final total = _total;
     if (total == null) {
       _total = chunk.total;
