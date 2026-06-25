@@ -405,6 +405,39 @@ void main() {
     expect(msg.status, MessageStatus.delivered);
   });
 
+  test('two conversations with the SAME message id both survive the scan '
+      '(MSGID-GLOBAL scan-collision)', () async {
+    final convA = _id(40).hex;
+    final convB = _id(41).hex;
+    // A hostile peer in B reuses an id that also names a message in A. Keying the
+    // scan by the bare id would let B's message overwrite A's in the fold.
+    await storage.appendMessage(Message(
+      id: 'dup',
+      conversationId: convA,
+      direction: MessageDirection.incoming,
+      body: 'A original',
+      timestamp: DateTime(2026, 6, 1),
+    ));
+    await storage.appendMessage(Message(
+      id: 'dup',
+      conversationId: convB,
+      direction: MessageDirection.incoming,
+      body: 'B impostor',
+      timestamp: DateTime(2026, 6, 2),
+    ));
+
+    final inA = await storage.loadMessages(convA);
+    final inB = await storage.loadMessages(convB);
+    expect(inA.map((m) => m.body), ['A original'],
+        reason: "A's message must not be erased by B's same-id message");
+    expect(inB.map((m) => m.body), ['B impostor']);
+
+    // Deleting B's copy leaves A's intact (delete is conversation-scoped).
+    await storage.deleteMessage(convB, 'dup');
+    expect((await storage.loadMessages(convA)).map((m) => m.body), ['A original']);
+    expect(await storage.loadMessages(convB), isEmpty);
+  });
+
   test('a status op is conversation-scoped: a foreign conversation cannot flip '
       'another chat\'s message status', () async {
     final convA = _id(30).hex;

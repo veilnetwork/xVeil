@@ -535,10 +535,17 @@ class MessagingService {
           await _ackTo(m, tid, direct: true);
           return;
         }
-        await _storage.storeFile(tid, inc.reasm.assemble(), name: inc.name);
+        // Store the blob under a LOCALLY-minted id, NOT the sender-chosen
+        // transferId: storeFile keys the blob globally (file:<id>) and overwrites,
+        // so reusing the wire tid would let a colliding id from another
+        // conversation clobber that chat's blob. The message id stays `tid` (its
+        // dedup + deleted-resurrect guards are already conversation-scoped); only
+        // the blob's storage key is decoupled.
+        final localFileId = _uuid.v4();
+        await _storage.storeFile(localFileId, inc.reasm.assemble(), name: inc.name);
         await _store(m.src, MessageDirection.incoming, '📎 ${inc.name ?? 'file'}',
             MessageStatus.delivered,
-            fileId: tid, fileName: inc.name, id: tid);
+            fileId: localFileId, fileName: inc.name, id: tid);
         // Ack the completed transfer so the sender's file message flips
         // sent -> delivered — the same delivery feedback text messages get.
         await _ackTo(m, tid);
