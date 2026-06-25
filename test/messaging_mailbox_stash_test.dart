@@ -154,4 +154,27 @@ void main() {
       reason: 'an ack sent over a live reply circuit must not also be stashed',
     );
   });
+
+  test('concurrent pre-consent intros cannot race past the cap', () async {
+    // A hostile peer mints a FRESH id per request and fires many AT ONCE. The
+    // inbound handler is async and the stream does not await it, so without
+    // serialization the per-request capPreConsentIntros (read count -> evict ->
+    // store) interleaves: every concurrent frame reads the count below the cap
+    // and stores, busting kMaxPreConsentIntros. Fire 40 without awaiting between
+    // them, then drain — the stored intros from this unaccepted peer must never
+    // exceed the cap.
+    const burst = 40;
+    final futures = <Future<void>>[];
+    for (var i = 0; i < burst; i++) {
+      final wire = WireEnvelope.request('greeting #$i', id: 'req-$i').encode();
+      futures.add(mA.deliverInbound(InboundMessage(src: b, payload: wire)));
+    }
+    await Future.wait(futures);
+    await pumpEventQueue();
+
+    final stored = await sA.loadMessages(b.hex);
+    expect(stored.length, lessThanOrEqualTo(kMaxPreConsentIntros),
+        reason: 'serialized handling must hold the pre-consent cap under a '
+            'concurrent burst (got ${stored.length})');
+  });
 }
