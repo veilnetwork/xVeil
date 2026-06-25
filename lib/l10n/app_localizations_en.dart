@@ -234,6 +234,12 @@ class AppL10nEn extends AppL10n {
   String get chatMsgDeleteForMe => 'Delete for me';
 
   @override
+  String get chatMsgCopy => 'Copy text';
+
+  @override
+  String get chatMsgCopied => 'Copied';
+
+  @override
   String get chatEditTitle => 'Edit message';
 
   @override

@@ -517,6 +517,18 @@ abstract class AppL10n {
   /// **'Delete for me'**
   String get chatMsgDeleteForMe;
 
+  /// No description provided for @chatMsgCopy.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy text'**
+  String get chatMsgCopy;
+
+  /// No description provided for @chatMsgCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'Copied'**
+  String get chatMsgCopied;
+
   /// No description provided for @chatEditTitle.
   ///
   /// In en, this message translates to:
