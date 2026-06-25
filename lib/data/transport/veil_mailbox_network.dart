@@ -393,19 +393,17 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
         rethrow;
       } catch (e) {
         // Transient (send threw / no reply in window) — try the next relay.
+        // Do NOT evict the relay's KEM key here: a fetch timeout is a TRANSPORT
+        // hiccup (session churn, a busy relay, a lost onion cell), NOT evidence
+        // the key is stale — and an always-on relay's key is long-lived
+        // (identity-derived, not rotated). Evicting on a transient dropped the
+        // valid key after a single timeout and stranded the drain on the
+        // self-resolving fallback (which can't resolve a relay's own ad), so the
+        // drain never recovered. Registration re-resolves fresh if the relay ever
+        // genuinely rotates.
         lastErr = e;
         debugPrint('xVeil[drain]: relay ${NodeId(relayId).short} no reply '
             '($e) — trying next');
-        // If we sent with a cached key and it didn't answer, the key may be
-        // stale (relay rotated its KEM key) — evict it so the next attempt
-        // re-resolves fresh instead of repeatedly routing to a dead key.
-        if (relayKemPk != null) {
-          try {
-            await _relayKeyCache?.evict(NodeId(relayId));
-          } catch (_) {
-            // best-effort
-          }
-        }
         continue;
       } finally {
         await sub.cancel();
