@@ -7,6 +7,7 @@ import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'hv_kv_log_store.dart';
 import 'hv_native.dart';
 import 'kv_log_store.dart';
+import 'package:xveil/core/log.dart';
 
 /// Async, OFF-UI-isolate facade over a single unlocked hidden-volume space.
 ///
@@ -379,8 +380,7 @@ AsyncSpaceOpener workerSpaceOpener(String path) {
             path: path, password: password, create: create);
       } on hv.HvException catch (e) {
         _workerOpenUsable = false;
-        // ignore: avoid_print
-        print('xVeil[storage]: worker open FAILED (${e.kind}: ${e.message}) — '
+        devLog(() => 'xVeil[storage]: worker open FAILED (${e.kind}: ${e.message}) — '
             'falling back to INLINE storage (off-isolate disabled this run)');
       }
     }
