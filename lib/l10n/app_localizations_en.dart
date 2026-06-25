@@ -306,6 +306,22 @@ class AppL10nEn extends AppL10n {
   String get settingsStorage => 'Storage & spaces';
 
   @override
+  String get settingsStorageCompact => 'Compact storage';
+
+  @override
+  String get settingsStorageCompactBody =>
+      'Reclaim unused space — the app re-opens.';
+
+  @override
+  String get settingsStorageCompactDone => 'Reclaimed';
+
+  @override
+  String get settingsStorageCompactFailed => 'Couldn\'t compact storage';
+
+  @override
+  String get settingsStoragePasswordHint => 'Your password';
+
+  @override
   String get settingsNetwork => 'Network & nodes';
 
   @override
