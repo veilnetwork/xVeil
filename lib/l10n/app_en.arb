@@ -161,6 +161,7 @@
   "inviteShowToContact": "Show this to your contact",
   "inviteTooLarge": "invite too large",
   "inviteCopied": "Invite copied",
+  "inviteIsSelf": "That's your own invite — you can't add yourself.",
   "inviteCopyMine": "Copy my invite",
   "identityDetails": "Identity details",
   "identityPublicKey": "public key",
