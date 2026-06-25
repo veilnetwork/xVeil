@@ -5,10 +5,18 @@
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
 	<!-- Lets file_picker read attachments / write files the user explicitly
-	     chooses. NOTE: a release build still needs the network entitlements
-	     (client/server) for the node + bundled dylibs — tracked as part of
-	     release hardening (see doc/SECURITY-NOTES.md). -->
+	     chooses. -->
 	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+	<!-- The embedded P2P node opens outbound circuits (client) and accepts
+	     inbound rendezvous/relay connections (server). Without BOTH, a sandboxed
+	     release build cannot do any network I/O and the node is dead on launch.
+	     Library validation stays ON (no disable-library-validation here): the
+	     bundled native dylibs are code-signed, so release keeps signing integrity
+	     rather than weakening it the way the dev build does. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<key>com.apple.security.network.server</key>
 	<true/>
 </dict>
 </plist>
