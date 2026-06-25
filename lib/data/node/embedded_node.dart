@@ -457,6 +457,14 @@ class EmbeddedNode {
   /// (e.g. the bytes from [mineConfig], loaded from the deniable container) over
   /// its admin socket, in memory. Throws if the apply fails.
   void applyConfig(String configToml) {
+    // Use-after-free guard: stop() frees the native handle (veil_node_stop does
+    // Box::from_raw), so a call ordered after stop() would dereference freed
+    // memory. Mirror stop()'s _stopped check and fail loudly instead of touching
+    // _handle. Closes the realistic same-isolate post-stop UAF; a true
+    // cross-isolate stop-vs-in-flight race still needs native refcounting.
+    if (_stopped) {
+      throw StateError('applyConfig called after stop() — node handle is freed');
+    }
     final applyFn = _dl
         .lookupFunction<_ApplyConfigNative, _ApplyConfigDart>('veil_node_apply_config');
     final freeStr =
