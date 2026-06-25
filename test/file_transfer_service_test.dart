@@ -140,16 +140,18 @@ void main() {
         fileChunkEnvelope(transferId: 'extra', index: 0, total: 1, data: _bytes(5))
             .encode());
     await _pump();
-    expect(await sB.loadFile('extra'), isNull,
-        reason: 'transfer past the concurrency cap is dropped');
+    expect((await sB.loadMessages(a.hex)).where((m) => m.id == 'extra'), isEmpty,
+        reason: 'transfer past the concurrency cap is dropped (no file message)');
 
-    // An accepted, in-cap transfer still completes (a slot was not stolen).
+    // An accepted, in-cap transfer still completes (a slot was not stolen). The
+    // blob is keyed by a LOCAL id now, so load it via the message's fileId.
     await tA.send(
         b,
         fileChunkEnvelope(transferId: 'open0', index: 0, total: 1, data: _bytes(10))
             .encode());
     await _pump();
-    expect((await sB.loadFile('open0'))?.length, 10);
+    final done = (await sB.loadMessages(a.hex)).firstWhere((m) => m.id == 'open0');
+    expect((await sB.loadFile(done.fileId!))?.length, 10);
   });
 
   test('a malformed file envelope is dropped without breaking delivery',
@@ -215,7 +217,47 @@ void main() {
               .encode());
     }
     await _pump();
-    expect(await sB.loadFile('shared'), isNull,
+    // C couldn't complete A's transfer, so no file message (hence no blob) at
+    // all — asserted on the message, since the blob is no longer keyed by tid.
+    expect((await sB.loadMessages(a.hex)).where((m) => m.isFile), isEmpty,
         reason: "C's chunks must not complete A's transfer");
+  });
+
+  test('a colliding transferId in another conversation cannot clobber a blob',
+      () async {
+    await accept(); // a accepted by b
+    final c = _id(7);
+    final tC = _FakeTransport(c)..peer = tB;
+    addTearDown(tC.dispose);
+    await sB.upsertContact(Contact(nodeId: c, status: ContactStatus.accepted));
+
+    final dataA = _bytes(10);
+    final dataC = Uint8List.fromList(List.filled(10, 0xCC));
+    // A completes a 1-chunk file under tid 'collide'.
+    await tA.send(b,
+        fileMetaEnvelope(transferId: 'collide', name: 'a.bin', size: 10, count: 1)
+            .encode());
+    await tA.send(
+        b,
+        fileChunkEnvelope(transferId: 'collide', index: 0, total: 1, data: dataA)
+            .encode());
+    await _pump();
+    // C completes a DIFFERENT file under the SAME tid in ITS conversation.
+    await tC.send(b,
+        fileMetaEnvelope(transferId: 'collide', name: 'c.bin', size: 10, count: 1)
+            .encode());
+    await tC.send(
+        b,
+        fileChunkEnvelope(transferId: 'collide', index: 0, total: 1, data: dataC)
+            .encode());
+    await _pump();
+
+    final msgA = (await sB.loadMessages(a.hex)).firstWhere((m) => m.isFile);
+    final msgC = (await sB.loadMessages(c.hex)).firstWhere((m) => m.isFile);
+    // Distinct local blob ids — C's transfer did NOT overwrite A's blob.
+    expect(msgA.fileId, isNot(msgC.fileId));
+    expect(await sB.loadFile(msgA.fileId!), dataA,
+        reason: "A's blob must survive a same-tid transfer in another chat");
+    expect(await sB.loadFile(msgC.fileId!), dataC);
   });
 }

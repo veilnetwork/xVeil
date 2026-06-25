@@ -541,12 +541,18 @@ class HiddenVolumeStorage implements Storage {
   // Concurrency: now that the fold awaits the worker, two scans (or a scan and
   // an invalidate) could interleave on the shared fold state. [_serialized]
   // runs scan + invalidate through ONE async gate so they never overlap.
-  final List<String> _scanOrder = [];
-  final Map<String, Message> _scanById = {};
-  // id -> (latest status, the conversation the status op named). `conv` is null
-  // only for legacy pre-scoping ops; the apply step requires it to match the
-  // message's conversation so a status can't cross conversations.
-  final Map<String, ({MessageStatus status, String? conv})> _scanStatusOps = {};
+  // Keyed by a COMPOSITE (conversationId, message-id) — two conversations may
+  // legitimately, or from a hostile peer DELIBERATELY, carry the same message id
+  // (incoming ids are sender-chosen: a request id, a file transfer id). Keying
+  // by the bare id would let the later one overwrite the earlier in the fold, so
+  // one conversation's message could erase/replace another's. The composite key
+  // keeps them distinct.
+  final List<String> _scanOrder = []; // composite keys, in arrival order
+  final Map<String, Message> _scanById = {}; // composite key -> message
+  // Composite key -> latest delivery status (status ops carry their conversation).
+  final Map<String, MessageStatus> _scanStatusOps = {};
+  // Legacy (pre-scoping) status ops had no conversation; applied by bare id.
+  final Map<String, MessageStatus> _scanStatusLegacy = {};
   int _scanFoldedUpTo = 0; // next log_id not yet folded into the state above
   List<Message>? _scanResult; // materialised; valid while _scanFoldedUpTo == nextId
 
@@ -558,10 +564,16 @@ class HiddenVolumeStorage implements Storage {
     return result;
   }
 
+  /// Composite key for the scan maps: a conversation + a message id. Uses a NUL
+  /// separator (never present in a hex node id or a uuid) so distinct (conv, id)
+  /// pairs never alias.
+  static String _msgKey(String conv, String id) => '$conv $id';
+
   void _clearScanState() {
     _scanOrder.clear();
     _scanById.clear();
     _scanStatusOps.clear();
+    _scanStatusLegacy.clear();
     _scanFoldedUpTo = 0;
     _scanResult = null;
   }
@@ -586,25 +598,43 @@ class HiddenVolumeStorage implements Storage {
       scanned++;
       final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
       if (m['op'] == 'status') {
-        _scanStatusOps[m['id'] as String] = (
-          status: MessageStatus.values[m['s'] as int],
-          conv: m['c'] as String?,
-        );
+        final id = m['id'] as String;
+        final c = m['c'] as String?;
+        final s = MessageStatus.values[m['s'] as int];
+        if (c != null) {
+          _scanStatusOps[_msgKey(c, id)] = s;
+        } else {
+          _scanStatusLegacy[id] = s; // pre-scoping op — applied by bare id
+        }
         continue;
       }
       if (m['op'] == 'del') {
         // Tombstone (deleted message) — the record at this log_id no longer
         // carries a body. Drop it so it never surfaces.
         final id = m['id'] as String;
-        _scanById.remove(id);
-        _scanOrder.remove(id);
+        final c = m['c'] as String?;
+        if (c != null) {
+          final k = _msgKey(c, id);
+          _scanById.remove(k);
+          _scanOrder.remove(k);
+        } else {
+          // Legacy tombstone (no conversation) — drop every message with this id
+          // (the old delete-by-id behavior), so a pre-fix delete still applies.
+          _scanOrder.removeWhere((k) {
+            final hit = _scanById[k]?.id == id;
+            if (hit) _scanById.remove(k);
+            return hit;
+          });
+        }
         continue;
       }
       final id = m['id'] as String;
-      if (!_scanById.containsKey(id)) _scanOrder.add(id);
-      _scanById[id] = Message(
+      final c = m['c'] as String;
+      final k = _msgKey(c, id);
+      if (!_scanById.containsKey(k)) _scanOrder.add(k);
+      _scanById[k] = Message(
         id: id,
-        conversationId: m['c'] as String,
+        conversationId: c,
         direction: MessageDirection.values[m['d'] as int],
         body: m['b'] as String,
         timestamp: DateTime.fromMillisecondsSinceEpoch(m['t'] as int),
@@ -616,14 +646,12 @@ class HiddenVolumeStorage implements Storage {
     }
     _scanFoldedUpTo = nextId;
     final result = _scanOrder
-        .map((id) {
-          final msg = _scanById[id]!;
-          final op = _scanStatusOps[id];
-          // Apply the status only when the op named THIS message's conversation
-          // (legacy ops have no conv → apply by id as before). A status op a peer
-          // aimed at a guessed id in another conversation is ignored.
-          final apply = op != null && (op.conv == null || op.conv == msg.conversationId);
-          return apply ? msg.copyWith(status: op!.status) : msg;
+        .map((k) {
+          final msg = _scanById[k]!;
+          // Status by composite (conversation-scoped) key; fall back to a legacy
+          // by-id op for messages whose status predates conversation scoping.
+          final s = _scanStatusOps[k] ?? _scanStatusLegacy[msg.id];
+          return s != null ? msg.copyWith(status: s) : msg;
         })
         .toList(growable: false);
     _scanResult = result;
