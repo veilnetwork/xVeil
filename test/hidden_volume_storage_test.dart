@@ -75,7 +75,7 @@ void main() {
     // A status flip + a new append → exercised as INCREMENTAL folds (the read
     // above already advanced the watermark).
     final m0Id = (await storage.loadMessages(a)).first.id;
-    await storage.markMessageStatus(m0Id, MessageStatus.delivered);
+    await storage.markMessageStatus(a, m0Id, MessageStatus.delivered);
     await storage.appendMessage(_msg(
         conv: a,
         dir: MessageDirection.outgoing,
@@ -376,7 +376,7 @@ void main() {
         body: 'v1',
         ts: DateTime(2026, 4, 1));
     await storage.appendMessage(m);
-    await storage.markMessageStatus(m.id, MessageStatus.delivered);
+    await storage.markMessageStatus(conv, m.id, MessageStatus.delivered);
 
     await storage.editMessage(conv, m.id, 'v2');
 
@@ -397,12 +397,35 @@ void main() {
         ts: DateTime(2026, 4, 2));
     await storage.appendMessage(m);
     await storage.editMessage(conv, m.id, 'hello (fixed)');
-    await storage.markMessageStatus(m.id, MessageStatus.delivered);
+    await storage.markMessageStatus(conv, m.id, MessageStatus.delivered);
 
     final msg = (await storage.loadMessages(conv)).single;
     expect(msg.body, 'hello (fixed)');
     expect(msg.edited, isTrue);
     expect(msg.status, MessageStatus.delivered);
+  });
+
+  test('a status op is conversation-scoped: a foreign conversation cannot flip '
+      'another chat\'s message status', () async {
+    final convA = _id(30).hex;
+    final convB = _id(31).hex;
+    final m = Message(
+      id: 'shared-status-id',
+      conversationId: convA,
+      direction: MessageDirection.outgoing,
+      body: 'to A',
+      timestamp: DateTime(2026, 5, 2),
+      status: MessageStatus.sent,
+    );
+    await storage.appendMessage(m);
+    // An attacker in conversation B names A's id. The op must NOT apply.
+    await storage.markMessageStatus(convB, 'shared-status-id', MessageStatus.delivered);
+    expect((await storage.loadMessages(convA)).single.status, MessageStatus.sent,
+        reason: 'a status from another conversation must not apply');
+    // The owning conversation CAN flip it.
+    await storage.markMessageStatus(convA, 'shared-status-id', MessageStatus.delivered);
+    expect((await storage.loadMessages(convA)).single.status,
+        MessageStatus.delivered);
   });
 
   test('deleting the same message twice is idempotent', () async {
