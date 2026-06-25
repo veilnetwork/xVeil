@@ -21,6 +21,10 @@ class ChatScreen extends ConsumerStatefulWidget {
 
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _input = TextEditingController();
+  // Keep the composer focused across sends — TextInputAction.send drops focus by
+  // default (most visible on desktop: the caret leaves the field and the user has
+  // to click back in before typing the next message).
+  final _inputFocus = FocusNode();
   final _scroll = ScrollController();
   // The chat must OPEN at the latest message; after that we only auto-stick to
   // the bottom when already near it (so reading history isn't yanked down).
@@ -43,6 +47,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   void dispose() {
     _input.dispose();
+    _inputFocus.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -51,6 +56,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final text = _input.text;
     if (text.trim().isEmpty) return;
     _input.clear();
+    // Re-grab focus immediately (before the async send) so typing the next
+    // message never requires clicking back into the field.
+    _inputFocus.requestFocus();
     final svc = ref.read(messagingServiceProvider);
     if (status == ContactStatus.accepted) {
       await svc.sendText(_peer, text);
@@ -59,6 +67,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       await svc.sendRequest(_peer, text);
     }
     _scrollToBottom(force: true);
+    if (mounted) _inputFocus.requestFocus(); // and again after the await settles
   }
 
   Future<void> _accept() =>
@@ -361,6 +370,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       case ContactStatus.accepted:
         return _Composer(
           controller: _input,
+          focusNode: _inputFocus,
           hint: l.chatNewMessageHint,
           onSend: () => _submit(status),
           onAttach: _attach,
@@ -368,6 +378,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       case null:
         return _Composer(
           controller: _input,
+          focusNode: _inputFocus,
           hint: l.chatRequestHint,
           onSend: () => _submit(status),
         );
@@ -614,11 +625,13 @@ class _Bubble extends StatelessWidget {
 class _Composer extends StatelessWidget {
   const _Composer({
     required this.controller,
+    required this.focusNode,
     required this.hint,
     required this.onSend,
     this.onAttach,
   });
   final TextEditingController controller;
+  final FocusNode focusNode;
   final String hint;
   final VoidCallback onSend;
 
@@ -643,6 +656,7 @@ class _Composer extends StatelessWidget {
             Expanded(
               child: TextField(
                 controller: controller,
+                focusNode: focusNode,
                 minLines: 1,
                 maxLines: 5,
                 textInputAction: TextInputAction.send,
