@@ -77,6 +77,18 @@ class HvKvLogStore implements KvLogStore {
 /// raises `SpaceAlreadyExists`). `AuthFailed` — which deliberately conflates
 /// wrong-password and no-such-space — maps to null so the lock screen cannot
 /// leak the difference.
+/// Pad future commits to 256 KiB buckets instead of the 1 MiB header default —
+/// a RUNTIME override (in-memory `set_padding_policy`, no write), applied on
+/// every open so it also governs existing containers without a format change.
+/// 4x less per-commit padding bloat; deniability-safe (identical uniform-random
+/// garbage chunks). Best-effort: a failure here must never block opening.
+hv.HvSpace _withLightPadding(hv.HvSpace space) {
+  try {
+    space.setPaddingPolicy(hv.PaddingPreset.bucket256KiB);
+  } catch (_) {}
+  return space;
+}
+
 SpaceOpener hvSpaceOpener(
   String path, {
   hv.ArgonPreset argon = hv.ArgonPreset.heavy,
@@ -86,7 +98,7 @@ SpaceOpener hvSpaceOpener(
       final space = create
           ? _createOrOpen(path, password, argon)
           : hv.HvSpace.open(path: path, password: password);
-      return HvKvLogStore(space);
+      return HvKvLogStore(_withLightPadding(space));
     } on hv.HvException catch (e) {
       if (e.kind == 'AuthFailed') return null;
       rethrow;
@@ -100,7 +112,8 @@ SpaceOpener hvSpaceOpener(
 KeysSpaceOpener hvKeysSpaceOpener(String path) {
   return (Uint8List keys) {
     try {
-      return HvKvLogStore(hv.HvSpace.openWithKeys(path: path, keys: keys));
+      return HvKvLogStore(
+          _withLightPadding(hv.HvSpace.openWithKeys(path: path, keys: keys)));
     } on hv.HvException catch (e) {
       if (e.kind == 'AuthFailed') return null;
       rethrow;
