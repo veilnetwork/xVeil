@@ -405,6 +405,25 @@ void main() {
     expect(msg.status, MessageStatus.delivered);
   });
 
+  test('a fold-warming lookup (isMessageDeleted) does not stale-cache '
+      'loadMessages (scan-throughput cache invariant)', () async {
+    final conv = _id(33).hex;
+    // isMessageDeleted / a dedup check runs the shared incremental fold; a later
+    // loadMessages must observe the SAME up-to-date state, not a stale list cached
+    // before the message was folded in.
+    expect(await storage.isMessageDeleted(conv, 'x'), isFalse); // warms an empty fold
+    expect(await storage.loadMessages(conv), isEmpty);
+    await storage.appendMessage(_msg(
+        conv: conv,
+        dir: MessageDirection.incoming,
+        body: 'arrived',
+        ts: DateTime(2026, 7, 1)));
+    // Warm the fold via the lookup FIRST (advances the fold watermark)...
+    expect(await storage.isMessageDeleted(conv, 'x'), isFalse);
+    // ...then loadMessages must still see the new message (not a stale cache).
+    expect((await storage.loadMessages(conv)).map((m) => m.body), ['arrived']);
+  });
+
   test('two conversations with the SAME message id both survive the scan '
       '(MSGID-GLOBAL scan-collision)', () async {
     final convA = _id(40).hex;

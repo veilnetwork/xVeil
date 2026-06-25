@@ -369,35 +369,15 @@ class HiddenVolumeStorage implements Storage {
   /// conversationId is server-authenticated (it is the sender's node id), so a
   /// peer can only ever name records inside its own conversation.
   Future<({int logId, Message message})?> _liveEntryFor(
-      String conversationId, String messageId) async {
-    ({int logId, Message message})? hit;
-    final entries = await _as
-        .iterLogRange(namespace: Ns.messageLog, limit: _logScanLimit);
-    for (final e in entries) {
-      final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
-      final op = m['op'];
-      if (op == 'del' || op == 'status') continue;
-      if (m['id'] != messageId || m['c'] != conversationId) continue;
-      // Keep scanning to the LAST match: an edit reuses the same log_id, so the
-      // newest record (latest body / edited flag) wins regardless of whether the
-      // iterator yields one entry per log_id or every physical append.
-      hit = (
-        logId: e.logId,
-        message: Message(
-          id: messageId,
-          conversationId: conversationId,
-          direction: MessageDirection.values[m['d'] as int],
-          body: m['b'] as String,
-          timestamp: DateTime.fromMillisecondsSinceEpoch(m['t'] as int),
-          status: MessageStatus.values[m['s'] as int],
-          edited: m['e'] == 1,
-          fileId: m['fi'] as String?,
-          fileName: m['fn'] as String?,
-        ),
-      );
-    }
-    return hit;
-  }
+          String conversationId, String messageId) =>
+      _serialized(() async {
+        await _foldCritical(); // warm, incremental — not a fresh full-log scan
+        final k = _msgKey(conversationId, messageId);
+        final msg = _scanById[k];
+        final logId = _scanLogIds[k];
+        if (msg == null || logId == null) return null;
+        return (logId: logId, message: msg);
+      });
 
   @override
   Future<void> editMessage(
@@ -409,10 +389,14 @@ class HiddenVolumeStorage implements Storage {
     final edited = hit.message.copyWith(body: newBody, edited: true);
     await _as.commit(
         [AppendLogOp(Ns.messageLog, hit.logId, _sk(_encodeMessage(edited)))]);
-    // Edit rewrites an EXISTING log_id (last-write-wins) and does NOT bump the
-    // next-id, so the next-id-keyed scan cache would otherwise show the stale
-    // body — invalidate it explicitly.
-    await _invalidateScanCache();
+    // The rewrite reuses an EXISTING log_id and does NOT bump the next-id, so the
+    // incremental fold won't re-read it. Patch the warm fold in place (O(1)) for
+    // exactly this one message instead of dropping the whole cache and forcing a
+    // full re-decrypt on the next read.
+    await _patchCache(() {
+      final at = _msgKey(conversationId, messageId);
+      if (_scanById.containsKey(at)) _scanById[at] = edited;
+    });
   }
 
   @override
@@ -435,26 +419,29 @@ class HiddenVolumeStorage implements Storage {
       AppendLogOp(Ns.messageLog, hit.logId, _sk(tomb)),
       if (fileId != null) ...await AsyncFileStore(_as).deleteFileOps(fileId),
     ]);
-    // Tombstone rewrites an EXISTING log_id without bumping the next-id, so the
-    // next-id-keyed scan cache must be invalidated or the deleted message would
-    // keep surfacing (a deniability hole).
-    await _invalidateScanCache();
+    // The tombstone reuses an EXISTING log_id without bumping the next-id, so the
+    // incremental fold won't re-read it. Patch the warm fold: drop the message
+    // and record it as deleted (so it never resurfaces — a deniability hole — and
+    // isMessageDeleted answers true) without dropping the whole cache.
+    await _patchCache(() {
+      final k = _msgKey(conversationId, messageId);
+      _scanById.remove(k);
+      _scanOrder.remove(k);
+      _scanLogIds.remove(k);
+      _scanDeletedKeys.add(k);
+    });
   }
 
   @override
-  Future<bool> isMessageDeleted(String conversationId, String messageId) async {
-    for (final e
-        in await _as.iterLogRange(namespace: Ns.messageLog, limit: _logScanLimit)) {
-      final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
-      if (m['op'] != 'del' || m['id'] != messageId) continue;
-      // New tombstones are conversation-scoped; a legacy tombstone (no 'c')
-      // predates the fix and is matched on id alone so a pre-fix delete is
-      // still honored and the message never resurrects.
-      final c = m['c'];
-      if (c == null || c == conversationId) return true;
-    }
-    return false;
-  }
+  Future<bool> isMessageDeleted(String conversationId, String messageId) =>
+      _serialized(() async {
+        await _foldCritical(); // warm fold — O(1) lookup, not a fresh full scan
+        // New tombstones are conversation-scoped; a legacy tombstone (no 'c')
+        // matched on id alone so a pre-fix delete is still honored and the
+        // message never resurrects.
+        return _scanDeletedKeys.contains(_msgKey(conversationId, messageId)) ||
+            _scanDeletedLegacyIds.contains(messageId);
+      });
 
   @override
   Future<void> removeConversation(NodeId peer) async {
@@ -549,6 +536,13 @@ class HiddenVolumeStorage implements Storage {
   // keeps them distinct.
   final List<String> _scanOrder = []; // composite keys, in arrival order
   final Map<String, Message> _scanById = {}; // composite key -> message
+  // Composite key -> the log_id the live message was written under, so edit/
+  // delete can rewrite the SAME record without an independent full scan.
+  final Map<String, int> _scanLogIds = {};
+  // Composite keys (and legacy bare ids) that have been tombstoned — lets
+  // isMessageDeleted answer in O(1) off the warm fold instead of re-scanning.
+  final Set<String> _scanDeletedKeys = {};
+  final Set<String> _scanDeletedLegacyIds = {};
   // Composite key -> latest delivery status (status ops carry their conversation).
   final Map<String, MessageStatus> _scanStatusOps = {};
   // Legacy (pre-scoping) status ops had no conversation; applied by bare id.
@@ -564,14 +558,18 @@ class HiddenVolumeStorage implements Storage {
     return result;
   }
 
-  /// Composite key for the scan maps: a conversation + a message id. Uses a NUL
-  /// separator (never present in a hex node id or a uuid) so distinct (conv, id)
-  /// pairs never alias.
-  static String _msgKey(String conv, String id) => '$conv $id';
+  /// Composite key for the scan maps: a conversation + a message id, joined by
+  /// the Unit Separator (U+001F). `conv` is a server-authenticated 64-hex node id
+  /// containing no separator, so even a hostile peer-chosen `id` (which sits
+  /// AFTER the separator) cannot forge a key in another conversation.
+  static String _msgKey(String conv, String id) => '$conv\u001f$id';
 
   void _clearScanState() {
     _scanOrder.clear();
     _scanById.clear();
+    _scanLogIds.clear();
+    _scanDeletedKeys.clear();
+    _scanDeletedLegacyIds.clear();
     _scanStatusOps.clear();
     _scanStatusLegacy.clear();
     _scanFoldedUpTo = 0;
@@ -580,15 +578,59 @@ class HiddenVolumeStorage implements Storage {
 
   Future<void> _invalidateScanCache() => _serialized(() async => _clearScanState());
 
+  /// Surgically mutate the warm fold state (under the serial gate) for ONE
+  /// message, then drop only the materialised list so the next read re-projects
+  /// from the patched fold — instead of [_invalidateScanCache]'s full reset,
+  /// which forces a whole-log re-decrypt. For edit/delete, which rewrite an
+  /// existing log_id WITHOUT bumping the next-id (so the incremental fold can't
+  /// pick the change up on its own). If the fold is cold the mutate is a no-op
+  /// and the next scan folds from disk — still correct.
+  Future<void> _patchCache(void Function() mutate) => _serialized(() async {
+        mutate();
+        _scanResult = null;
+      });
+
   Future<List<Message>> _scanLog() => _serialized(_scanLogCritical);
 
   Future<List<Message>> _scanLogCritical() async {
     final nextId = await _nextLogId();
     final cached = _scanResult;
     if (cached != null && _scanFoldedUpTo == nextId) return cached;
-    // Fold only records appended since the last fold. Re-read ONE record of
-    // overlap (start = foldedUpTo - 1) so we don't depend on the range's
-    // inclusive/exclusive boundary — re-applying a record is idempotent.
+    await _foldCritical();
+    // Materialise from the (now-current) fold state, applying delivery status.
+    final result = _scanOrder
+        .map((k) {
+          final msg = _scanById[k]!;
+          // Status by composite (conversation-scoped) key; fall back to a legacy
+          // by-id op for messages whose status predates conversation scoping.
+          final s = _scanStatusOps[k] ?? _scanStatusLegacy[msg.id];
+          return s != null ? msg.copyWith(status: s) : msg;
+        })
+        .toList(growable: false);
+    _scanResult = result;
+    return result;
+  }
+
+  /// Bring the fold state (_scanById / _scanOrder / _scanLogIds / deleted sets /
+  /// status maps) up to date with the on-disk log, folding ONLY records appended
+  /// since the last fold; a no-op when already current. So a message append,
+  /// every dedup [isMessageDeleted], and every edit/delete [_liveEntryFor] reuse
+  /// ONE warm fold instead of each re-decrypting the whole log — without this an
+  /// accepted peer flooding edit/del frames re-ran a full-log decrypt per frame
+  /// and could stall delivery for every conversation. Caller MUST hold
+  /// [_serialized].
+  Future<void> _foldCritical() async {
+    final nextId = await _nextLogId();
+    if (_scanFoldedUpTo == nextId) return; // fold state already current
+    // The fold state is about to change, so the materialised list is now stale.
+    // Drop it here (not only in _scanLogCritical) because a NON-materialising
+    // caller (isMessageDeleted / _liveEntryFor) advances the fold too — without
+    // this, a later loadMessages would see _scanFoldedUpTo == nextId next to a
+    // stale _scanResult and return the OLD list.
+    _scanResult = null;
+    // Re-read ONE record of overlap (start = foldedUpTo - 1) so we don't depend
+    // on the range's inclusive/exclusive boundary — re-applying a record is
+    // idempotent under the composite-key maps.
     final start = _scanFoldedUpTo == 0 ? null : _scanFoldedUpTo - 1;
     final scanT0 = DateTime.now();
     var scanned = 0;
@@ -610,21 +652,27 @@ class HiddenVolumeStorage implements Storage {
       }
       if (m['op'] == 'del') {
         // Tombstone (deleted message) — the record at this log_id no longer
-        // carries a body. Drop it so it never surfaces.
+        // carries a body. Drop it so it never surfaces; remember it as deleted.
         final id = m['id'] as String;
         final c = m['c'] as String?;
         if (c != null) {
           final k = _msgKey(c, id);
           _scanById.remove(k);
           _scanOrder.remove(k);
+          _scanLogIds.remove(k);
+          _scanDeletedKeys.add(k);
         } else {
           // Legacy tombstone (no conversation) — drop every message with this id
           // (the old delete-by-id behavior), so a pre-fix delete still applies.
           _scanOrder.removeWhere((k) {
             final hit = _scanById[k]?.id == id;
-            if (hit) _scanById.remove(k);
+            if (hit) {
+              _scanById.remove(k);
+              _scanLogIds.remove(k);
+            }
             return hit;
           });
+          _scanDeletedLegacyIds.add(id);
         }
         continue;
       }
@@ -643,24 +691,15 @@ class HiddenVolumeStorage implements Storage {
         fileId: m['fi'] as String?,
         fileName: m['fn'] as String?,
       );
+      _scanLogIds[k] = e.logId;
+      _scanDeletedKeys.remove(k); // a live record supersedes an earlier tombstone
     }
     _scanFoldedUpTo = nextId;
-    final result = _scanOrder
-        .map((k) {
-          final msg = _scanById[k]!;
-          // Status by composite (conversation-scoped) key; fall back to a legacy
-          // by-id op for messages whose status predates conversation scoping.
-          final s = _scanStatusOps[k] ?? _scanStatusLegacy[msg.id];
-          return s != null ? msg.copyWith(status: s) : msg;
-        })
-        .toList(growable: false);
-    _scanResult = result;
     final ms = DateTime.now().difference(scanT0).inMilliseconds;
     if (ms > 50) {
       devLog(() => 'xVeil[scan]: ${start == null ? 'FULL' : 'incr'} fold scanned=$scanned '
-          'total=${result.length} took=${ms}ms (worker isolate)');
+          'total=${_scanById.length} took=${ms}ms (worker isolate)');
     }
-    return result;
   }
 
   @override
