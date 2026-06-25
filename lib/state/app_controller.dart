@@ -250,6 +250,13 @@ class AppController extends Notifier<AppState> {
       storePath: boot.storePath!,
       runtimeDir: boot.runtimeDir,
       listenPort: boot.listenPort,
+      // Boot every always-online node with the SAME network/routing config the
+      // single-identity path uses — otherwise these nodes start with no obfs4
+      // PSK (cannot join the production network), no lazy-mining setting, and no
+      // traffic routing.
+      obfs4Psk: boot.obfs4Psk,
+      lazyMining: _singleLazyMining,
+      proxy: ref.read(proxyRoutingProvider),
     );
     await session.bootAll(roster);
     await ref.read(backgroundNodeProvider.notifier).applyIfNodeUp(nodeUp: true);

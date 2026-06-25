@@ -10,6 +10,7 @@ import '../data/transport/bootstrap_invite.dart';
 import '../data/node/embedded_node.dart' show BootstrapPeerCfg;
 import '../data/node/fake_node_controller.dart';
 import '../data/node/node_controller.dart';
+import '../data/node/proxy_routing.dart';
 import '../data/storage/fake_kv_log_store.dart';
 import '../data/storage/hidden_volume_storage.dart';
 import '../data/storage/kv_log_store.dart';
@@ -56,12 +57,18 @@ typedef SessionBuilder = MultiIdentitySession Function({
   required String storePath,
   required String runtimeDir,
   required int listenPort,
+  String? obfs4Psk,
+  bool lazyMining,
+  ProxyRouting proxy,
 });
 
 MultiIdentitySession _realSessionBuilder({
   required String storePath,
   required String runtimeDir,
   required int listenPort,
+  String? obfs4Psk,
+  bool lazyMining = false,
+  ProxyRouting proxy = ProxyRouting.disabled,
 }) =>
     MultiIdentitySession(
       // Off-isolate: the shared multi-space container is owned by a worker
@@ -70,6 +77,11 @@ MultiIdentitySession _realSessionBuilder({
       WorkerMultiSpaceBacking(storePath),
       runtimeDirBase: runtimeDir,
       listenPortBase: listenPort,
+      // Lockstep with the single-identity boot so always-online nodes join the
+      // same (obfs4-protected) network and honour the same mining/routing config.
+      obfs4Psk: obfs4Psk,
+      lazyMining: lazyMining,
+      proxy: proxy,
     );
 
 final sessionBuilderProvider =
