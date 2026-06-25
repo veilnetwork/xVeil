@@ -37,11 +37,30 @@ class NodeProvisionConfig {
   final bool runExit;
 
   static final _sha256Re = RegExp(r'^[0-9a-fA-F]{64}$');
+  // Conservative URL allowlist: the release URL is interpolated into a shell
+  // command that runs as root via sudo, so it must NOT contain a single quote
+  // (quote-breakout) or any shell metacharacter. A real GitHub-release asset URL
+  // uses only this set. The checksum gate protects the binary's CONTENTS but not
+  // the URL string, so this is what closes the inject-via-URL root-RCE.
+  static final _safeUrlRe = RegExp(r'^https://[A-Za-z0-9._~:/?#@%=+,-]+$');
+  // obfs4 PSK is written into a `<<'PSK_EOF'` heredoc; valid base64 has no
+  // newline and (crucially) no underscore, so it can neither break the heredoc
+  // delimiter nor inject lines.
+  static final _b64Re = RegExp(r'^[A-Za-z0-9+/]+={0,2}$');
+
+  static bool _isSafeHttpsUrl(String s) {
+    final u = Uri.tryParse(s);
+    return u != null && u.scheme == 'https' && u.host.isNotEmpty &&
+        _safeUrlRe.hasMatch(s);
+  }
+
+  static bool _isBase64(String s) =>
+      s.isNotEmpty && s.length % 4 == 0 && _b64Re.hasMatch(s);
 
   bool get isValid =>
-      releaseUrl.startsWith('https://') &&
+      _isSafeHttpsUrl(releaseUrl.trim()) &&
       _sha256Re.hasMatch(expectedSha256.trim()) &&
-      obfs4PskB64.trim().isNotEmpty &&
+      _isBase64(obfs4PskB64.trim()) &&
       listenPort >= 1 &&
       listenPort <= 65535;
 }
