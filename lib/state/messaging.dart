@@ -313,7 +313,7 @@ class MessagingService {
     final evict = intros.length - (kMaxPreConsentIntros - 1);
     if (evict <= 0) return;
     for (var i = 0; i < evict; i++) {
-      await _storage.deleteMessage(intros[i].id);
+      await _storage.deleteMessage(peer.hex, intros[i].id);
     }
     await _storage.scrubDeleted();
   }
@@ -370,7 +370,8 @@ class MessagingService {
         }
         await _setStatus(m.src, ContactStatus.pendingIncoming);
         if (env.body.isNotEmpty &&
-            !(env.id != null && await _storage.isMessageDeleted(env.id!))) {
+            !(env.id != null &&
+                await _storage.isMessageDeleted(m.src.hex, env.id!))) {
           // Bound pre-consent intros: a hostile peer minting a fresh id per
           // request would otherwise pile up unbounded greetings before we ever
           // accept. Evict the oldest down to the cap, keeping the most recent.
@@ -407,7 +408,7 @@ class MessagingService {
         }
         // Deniability: if we DELETED this message, a re-delivery must NOT
         // resurrect it. Re-ack so the sender stops re-sending, then drop.
-        if (id != null && await _storage.isMessageDeleted(id)) {
+        if (id != null && await _storage.isMessageDeleted(m.src.hex, id)) {
           await _ackTo(m, id, direct: true);
           return;
         }
@@ -433,7 +434,7 @@ class MessagingService {
         // it; the direction check is the real authorization gate).
         if (existing?.status != ContactStatus.accepted) return;
         if (env.id != null && await _isIncomingFrom(m.src, env.id!)) {
-          await _storage.editMessage(env.id!, env.body);
+          await _storage.editMessage(m.src.hex, env.id!, env.body);
           await _storage.scrubDeleted();
         }
       case WireKind.del:
@@ -441,7 +442,7 @@ class MessagingService {
         // Same authorization gate: only their incoming messages, never ours.
         if (existing?.status != ContactStatus.accepted) return;
         if (env.id != null && await _isIncomingFrom(m.src, env.id!)) {
-          await _storage.deleteMessage(env.id!);
+          await _storage.deleteMessage(m.src.hex, env.id!);
           await _storage.scrubDeleted();
         }
       case WireKind.fileMeta:
@@ -502,7 +503,8 @@ class MessagingService {
         // a re-delivered transfer dedups and — crucially — a file we DELETED
         // never resurrects (deniability: deleted stays deleted, same guard the
         // text path has). Re-ack either way so the sender stops re-sending.
-        if (await _hasMessage(m.src, tid) || await _storage.isMessageDeleted(tid)) {
+        if (await _hasMessage(m.src, tid) ||
+            await _storage.isMessageDeleted(m.src.hex, tid)) {
           await _ackTo(m, tid, direct: true);
           return;
         }
@@ -748,7 +750,12 @@ class MessagingService {
   /// (the highest-value deniability operation: purge what was sent to you). The
   /// peer's copy is untouched; use [deleteForEveryone] to also unsend it.
   Future<void> deleteMessageLocally(String messageId) async {
-    await _storage.deleteMessage(messageId);
+    // Resolve the owning conversation: deleteMessage is conversation-scoped (a
+    // bare id never resolves across chats), and a local delete can target a
+    // received message too, so look it up rather than assume our own peer.
+    final msg = await _find(messageId);
+    if (msg == null) return;
+    await _storage.deleteMessage(msg.conversationId, messageId);
     // Scrub immediately: the whole point is the text is gone NOW, before any
     // coercion — not merely hidden behind a tombstone.
     await _storage.scrubDeleted();
@@ -775,7 +782,7 @@ class MessagingService {
     if (trimmed.isEmpty) return;
     final msg = await _find(messageId);
     if (msg == null || msg.direction != MessageDirection.outgoing) return;
-    await _storage.editMessage(messageId, trimmed);
+    await _storage.editMessage(msg.conversationId, messageId, trimmed);
     await _storage.scrubDeleted();
     _signal();
     await _send(NodeId.fromHex(msg.conversationId),
