@@ -335,9 +335,6 @@ class HiddenVolumeStorage implements Storage {
     final nextId = await _nextLogId();
     await _as.commit([
       AppendLogOp(Ns.messageLog, nextId, _sk(_encodeMessage(message))),
-      // Map the domain message id -> its log_id so a later edit/delete can
-      // rewrite the SAME record (last-write-wins), the core's edit primitive.
-      PutOp(Ns.settings, _sk('msgidx:${message.id}'), _sk('$nextId')),
       PutOp(Ns.settings, _sk('msg_next_id'), _sk('${nextId + 1}')),
     ]);
   }
@@ -360,30 +357,57 @@ class HiddenVolumeStorage implements Storage {
     return int.tryParse(utf8.decode(raw)) ?? 1;
   }
 
-  /// The log_id a message was written under, or null if we have no index entry
-  /// (older messages predate the index, or the id is unknown / already deleted).
-  Future<int?> _logIdFor(String messageId) async {
-    final raw = await _as.get(Ns.settings, _sk('msgidx:$messageId'));
-    return raw == null ? null : int.tryParse(utf8.decode(raw));
+  /// Resolve the log_id (and decoded body) of a LIVE message in a SPECIFIC
+  /// conversation by scanning the message log, scoped by BOTH `conversationId`
+  /// and `messageId`. Returns null when no such live message exists (unknown
+  /// id, already deleted, beyond the scan window) — OR when the id resolves to a
+  /// message in a DIFFERENT conversation. That scoping is the security boundary:
+  /// edit/delete are driven by a wire envelope whose claimed id is attacker-
+  /// chosen, so resolving on the id alone (the old global `msgidx:<id>` index)
+  /// let a peer rewrite/erase a message belonging to someone else's chat. The
+  /// conversationId is server-authenticated (it is the sender's node id), so a
+  /// peer can only ever name records inside its own conversation.
+  Future<({int logId, Message message})?> _liveEntryFor(
+      String conversationId, String messageId) async {
+    ({int logId, Message message})? hit;
+    final entries = await _as
+        .iterLogRange(namespace: Ns.messageLog, limit: _logScanLimit);
+    for (final e in entries) {
+      final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
+      final op = m['op'];
+      if (op == 'del' || op == 'status') continue;
+      if (m['id'] != messageId || m['c'] != conversationId) continue;
+      // Keep scanning to the LAST match: an edit reuses the same log_id, so the
+      // newest record (latest body / edited flag) wins regardless of whether the
+      // iterator yields one entry per log_id or every physical append.
+      hit = (
+        logId: e.logId,
+        message: Message(
+          id: messageId,
+          conversationId: conversationId,
+          direction: MessageDirection.values[m['d'] as int],
+          body: m['b'] as String,
+          timestamp: DateTime.fromMillisecondsSinceEpoch(m['t'] as int),
+          status: MessageStatus.values[m['s'] as int],
+          edited: m['e'] == 1,
+          fileId: m['fi'] as String?,
+          fileName: m['fn'] as String?,
+        ),
+      );
+    }
+    return hit;
   }
 
   @override
-  Future<void> editMessage(String messageId, String newBody) async {
-    final logId = await _logIdFor(messageId);
-    if (logId == null) return;
-    Message? current;
-    for (final m in await _scanLog()) {
-      if (m.id == messageId) {
-        current = m;
-        break;
-      }
-    }
-    if (current == null) return;
+  Future<void> editMessage(
+      String conversationId, String messageId, String newBody) async {
+    final hit = await _liveEntryFor(conversationId, messageId);
+    if (hit == null) return;
     // Rewrite the SAME log_id: last-write-wins replaces the body on read, so
     // the prior text no longer reads back (its chunk is orphaned for scrub).
-    final edited = current.copyWith(body: newBody, edited: true);
-    await _as
-        .commit([AppendLogOp(Ns.messageLog, logId, _sk(_encodeMessage(edited)))]);
+    final edited = hit.message.copyWith(body: newBody, edited: true);
+    await _as.commit(
+        [AppendLogOp(Ns.messageLog, hit.logId, _sk(_encodeMessage(edited)))]);
     // Edit rewrites an EXISTING log_id (last-write-wins) and does NOT bump the
     // next-id, so the next-id-keyed scan cache would otherwise show the stale
     // body — invalidate it explicitly.
@@ -391,28 +415,23 @@ class HiddenVolumeStorage implements Storage {
   }
 
   @override
-  Future<void> deleteMessage(String messageId) async {
-    final logId = await _logIdFor(messageId);
-    if (logId == null) return;
+  Future<void> deleteMessage(String conversationId, String messageId) async {
+    final hit = await _liveEntryFor(conversationId, messageId);
+    if (hit == null) return;
     // If it is a file message, purge the stored blob too — otherwise the
     // attachment lingers in the container after the row is gone (a deniability
-    // hole). Look it up before we tombstone the row.
-    String? fileId;
-    for (final m in await _scanLog()) {
-      if (m.id == messageId) {
-        fileId = m.fileId;
-        break;
-      }
-    }
+    // hole). The blob id rides along on the resolved record.
+    final fileId = hit.message.fileId;
     // One atomic commit: tombstone the SAME log_id (so the body no longer reads
-    // back), drop the index entry, AND purge the file blob. Folding the blob
-    // ops in here (rather than a separate FileStore.deleteFile commit) closes
-    // the crash window where the chat row and the blob could disagree. The
-    // orphaned chunks are reclaimed by scrubDeleted() for forensic erasure.
-    final tomb = jsonEncode({'op': 'del', 'id': messageId});
+    // back) AND purge the file blob. Folding the blob ops in here (rather than a
+    // separate FileStore.deleteFile commit) closes the crash window where the
+    // chat row and the blob could disagree. The orphaned chunks are reclaimed by
+    // scrubDeleted() for forensic erasure. The tombstone carries the
+    // conversation id so isMessageDeleted stays conversation-scoped too.
+    final tomb =
+        jsonEncode({'op': 'del', 'id': messageId, 'c': conversationId});
     await _as.commit([
-      AppendLogOp(Ns.messageLog, logId, _sk(tomb)),
-      DeleteOp(Ns.settings, _sk('msgidx:$messageId')),
+      AppendLogOp(Ns.messageLog, hit.logId, _sk(tomb)),
       if (fileId != null) ...await AsyncFileStore(_as).deleteFileOps(fileId),
     ]);
     // Tombstone rewrites an EXISTING log_id without bumping the next-id, so the
@@ -422,11 +441,16 @@ class HiddenVolumeStorage implements Storage {
   }
 
   @override
-  Future<bool> isMessageDeleted(String messageId) async {
+  Future<bool> isMessageDeleted(String conversationId, String messageId) async {
     for (final e
         in await _as.iterLogRange(namespace: Ns.messageLog, limit: _logScanLimit)) {
       final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
-      if (m['op'] == 'del' && m['id'] == messageId) return true;
+      if (m['op'] != 'del' || m['id'] != messageId) continue;
+      // New tombstones are conversation-scoped; a legacy tombstone (no 'c')
+      // predates the fix and is matched on id alone so a pre-fix delete is
+      // still honored and the message never resurrects.
+      final c = m['c'];
+      if (c == null || c == conversationId) return true;
     }
     return false;
   }
@@ -436,7 +460,7 @@ class HiddenVolumeStorage implements Storage {
     // Tombstone every message in the conversation (forensic, like deleteMessage)
     // …
     for (final m in await loadMessages(peer.hex)) {
-      await deleteMessage(m.id);
+      await deleteMessage(peer.hex, m.id);
     }
     // …then drop the contact record + its chat-list index entry in one commit.
     final index = await _contactIndex();
