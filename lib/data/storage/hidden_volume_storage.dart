@@ -506,13 +506,16 @@ class HiddenVolumeStorage implements Storage {
   }
 
   @override
-  Future<void> markMessageStatus(String messageId, MessageStatus status) async {
+  Future<void> markMessageStatus(
+      String conversationId, String messageId, MessageStatus status) async {
     // Append-only log can't mutate a row, so record a status OP that [_scanLog]
     // folds onto the message (latest wins). Drives the outbox: an ack flips a
-    // message to `delivered` so it is no longer re-sent.
+    // message to `delivered` so it is no longer re-sent. The op carries the
+    // conversation id so the fold can refuse to apply a status meant for one
+    // conversation onto a same-id message in another (a peer-reachable path).
     final nextId = await _nextLogId();
-    final payload =
-        jsonEncode({'op': 'status', 'id': messageId, 's': status.index});
+    final payload = jsonEncode(
+        {'op': 'status', 'id': messageId, 'c': conversationId, 's': status.index});
     await _as.commit([
       AppendLogOp(Ns.messageLog, nextId, _sk(payload)),
       PutOp(Ns.settings, _sk('msg_next_id'), _sk('${nextId + 1}')),
@@ -540,7 +543,10 @@ class HiddenVolumeStorage implements Storage {
   // runs scan + invalidate through ONE async gate so they never overlap.
   final List<String> _scanOrder = [];
   final Map<String, Message> _scanById = {};
-  final Map<String, MessageStatus> _scanStatusOps = {};
+  // id -> (latest status, the conversation the status op named). `conv` is null
+  // only for legacy pre-scoping ops; the apply step requires it to match the
+  // message's conversation so a status can't cross conversations.
+  final Map<String, ({MessageStatus status, String? conv})> _scanStatusOps = {};
   int _scanFoldedUpTo = 0; // next log_id not yet folded into the state above
   List<Message>? _scanResult; // materialised; valid while _scanFoldedUpTo == nextId
 
@@ -580,7 +586,10 @@ class HiddenVolumeStorage implements Storage {
       scanned++;
       final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
       if (m['op'] == 'status') {
-        _scanStatusOps[m['id'] as String] = MessageStatus.values[m['s'] as int];
+        _scanStatusOps[m['id'] as String] = (
+          status: MessageStatus.values[m['s'] as int],
+          conv: m['c'] as String?,
+        );
         continue;
       }
       if (m['op'] == 'del') {
@@ -609,8 +618,12 @@ class HiddenVolumeStorage implements Storage {
     final result = _scanOrder
         .map((id) {
           final msg = _scanById[id]!;
-          final s = _scanStatusOps[id];
-          return s != null ? msg.copyWith(status: s) : msg;
+          final op = _scanStatusOps[id];
+          // Apply the status only when the op named THIS message's conversation
+          // (legacy ops have no conv → apply by id as before). A status op a peer
+          // aimed at a guessed id in another conversation is ignored.
+          final apply = op != null && (op.conv == null || op.conv == msg.conversationId);
+          return apply ? msg.copyWith(status: op!.status) : msg;
         })
         .toList(growable: false);
     _scanResult = result;

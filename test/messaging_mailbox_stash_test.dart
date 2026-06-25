@@ -8,6 +8,7 @@ import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
+import 'package:xveil/domain/chat.dart' show MessageStatus;
 import 'package:xveil/state/mailbox_service.dart';
 import 'package:xveil/state/messaging.dart';
 
@@ -153,6 +154,32 @@ void main() {
       isFalse,
       reason: 'an ack sent over a live reply circuit must not also be stashed',
     );
+  });
+
+  test('an ACK from a non-accepted peer cannot flip our message status', () async {
+    await mA.acceptContact(b);
+    await mA.sendText(b, 'hello');
+    await pumpEventQueue();
+    final sent = (await sA.loadMessages(b.hex)).firstWhere((m) => m.body == 'hello');
+    expect(sent.status, isNot(MessageStatus.delivered));
+
+    // A stranger c (no contact, not accepted) acks our message id. The consent
+    // gate must drop it — otherwise any peer could forge a delivered mark.
+    final c = _id(9);
+    final ack = WireEnvelope.ack(sent.id).encode();
+    tA.inject(InboundMessage(src: c, payload: ack));
+    await pumpEventQueue();
+    expect(
+        (await sA.loadMessages(b.hex)).firstWhere((m) => m.id == sent.id).status,
+        isNot(MessageStatus.delivered),
+        reason: 'an unaccepted peer must not flip our delivery state');
+
+    // The real (accepted) peer b CAN ack it.
+    tA.inject(InboundMessage(src: b, payload: ack));
+    await pumpEventQueue();
+    expect(
+        (await sA.loadMessages(b.hex)).firstWhere((m) => m.id == sent.id).status,
+        MessageStatus.delivered);
   });
 
   test('concurrent pre-consent intros cannot race past the cap', () async {
