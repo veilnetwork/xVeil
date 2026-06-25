@@ -1345,6 +1345,18 @@ abstract class AppL10n {
   /// **'Direct link to a veil-cli binary for the server\'s arch (a GitHub release asset).'**
   String get provisionReleaseHint;
 
+  /// No description provided for @provisionSha256.
+  ///
+  /// In en, this message translates to:
+  /// **'veil-cli SHA-256'**
+  String get provisionSha256;
+
+  /// No description provided for @provisionSha256Hint.
+  ///
+  /// In en, this message translates to:
+  /// **'Required. The 64-hex SHA-256 published with that binary. Installation aborts on the server if the download does not match — this is what stops a tampered binary from running as root.'**
+  String get provisionSha256Hint;
+
   /// No description provided for @provisionRunExit.
   ///
   /// In en, this message translates to:

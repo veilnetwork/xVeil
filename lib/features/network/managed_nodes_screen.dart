@@ -338,6 +338,8 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
                       host: _host.text.trim(),
                       port: int.tryParse(_port.text.trim()) ?? 22,
                       user: _user.text.trim(),
+                      expectedHostFingerprint:
+                          widget.existing?.sshHostFingerprint,
                     ),
                   ),
                   icon: const Icon(Icons.terminal, size: 18),

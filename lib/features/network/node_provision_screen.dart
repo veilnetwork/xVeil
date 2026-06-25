@@ -25,6 +25,7 @@ class NodeProvisionScreen extends ConsumerStatefulWidget {
 
 class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
   final _releaseUrl = TextEditingController();
+  final _sha256 = TextEditingController();
   final _password = TextEditingController();
   final _key = TextEditingController();
   final _passphrase = TextEditingController();
@@ -59,7 +60,7 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
 
   @override
   void dispose() {
-    for (final c in [_releaseUrl, _password, _key, _passphrase]) {
+    for (final c in [_releaseUrl, _sha256, _password, _key, _passphrase]) {
       c.dispose();
     }
     super.dispose();
@@ -70,6 +71,7 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
     if (psk == null) return null;
     return NodeProvisionConfig(
       releaseUrl: _releaseUrl.text.trim(),
+      expectedSha256: _sha256.text.trim(),
       obfs4PskB64: psk,
       runExit: _runExit,
     );
@@ -98,13 +100,21 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
         user: widget.node.sshUser!,
         auth: auth,
         command: buildProvisionScript(cfg),
+        // Pin the host key: enforce it if we already saved one (reject a MITM),
+        // capture it trust-on-first-use otherwise. A mismatch throws below.
+        expectedHostFingerprint: widget.node.sshHostFingerprint,
         // Mining the identity (PoW) on first run can take minutes.
         timeout: const Duration(minutes: 6),
       );
+      final fpLine = r.hostFingerprint.isNotEmpty
+          ? '\nhost key: ${r.hostFingerprint}'
+          : '';
       final combined =
           '${r.stdout}${r.stderr.isNotEmpty ? '\n${r.stderr}' : ''}';
-      if (mounted) setState(() => _output = '$combined\n(exit ${r.exitCode})');
-      await _maybeSaveNodeId(combined);
+      if (mounted) {
+        setState(() => _output = '$combined\n(exit ${r.exitCode})$fpLine');
+      }
+      await _persistAfterRun(fingerprint: r.hostFingerprint, output: combined);
     } on SshException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } finally {
@@ -112,16 +122,31 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
     }
   }
 
-  /// Parse a `NODE_ID: <64-hex>` line from the server output and offer to save
-  /// it onto the managed node (so it can be picked as a routing exit).
-  Future<void> _maybeSaveNodeId(String output) async {
+  /// One upsert after a successful run: pin the server's host-key fingerprint
+  /// trust-on-first-use (only if not already pinned — a CHANGED key never gets
+  /// here, [sshRun] throws on a pin mismatch) AND save a freshly-reported node
+  /// id. Combined into a single derive-from-[widget.node] upsert so the two
+  /// updates can't clobber each other.
+  Future<void> _persistAfterRun({
+    required String fingerprint,
+    required String output,
+  }) async {
+    var node = widget.node;
+    var changed = false;
+    if (fingerprint.isNotEmpty && node.sshHostFingerprint == null) {
+      node = node.copyWith(sshHostFingerprint: fingerprint);
+      changed = true;
+    }
     final m = RegExp(r'NODE_ID:\s*([0-9a-fA-F]{64})').firstMatch(output);
-    if (m == null) return;
-    final id = m.group(1)!.toLowerCase();
-    await ref
-        .read(managedNodesProvider.notifier)
-        .upsert(widget.node.copyWith(nodeId: id));
-    if (mounted) {
+    final savedId = m != null;
+    if (savedId) {
+      node = node.copyWith(nodeId: m.group(1)!.toLowerCase());
+      changed = true;
+    }
+    if (changed) {
+      await ref.read(managedNodesProvider.notifier).upsert(node);
+    }
+    if (savedId && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(AppL10n.of(context).provisionSavedNodeId)),
       );
@@ -160,6 +185,18 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
               labelText: l.provisionReleaseUrl,
               helperText: l.provisionReleaseHint,
               helperMaxLines: 3,
+              border: const OutlineInputBorder(),
+              isDense: true,
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _sha256,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              labelText: l.provisionSha256,
+              helperText: l.provisionSha256Hint,
+              helperMaxLines: 4,
               border: const OutlineInputBorder(),
               isDense: true,
             ),
