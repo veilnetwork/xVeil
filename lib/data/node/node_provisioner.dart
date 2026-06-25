@@ -9,6 +9,7 @@
 class NodeProvisionConfig {
   const NodeProvisionConfig({
     required this.releaseUrl,
+    required this.expectedSha256,
     required this.obfs4PskB64,
     this.listenPort = 5556,
     this.runExit = true,
@@ -17,6 +18,13 @@ class NodeProvisionConfig {
   /// Direct URL to a `veil-cli` binary for the server's arch (a GitHub release
   /// asset, e.g. `…/veil-cli-x86_64-unknown-linux-musl`).
   final String releaseUrl;
+
+  /// REQUIRED SHA-256 (64 hex) of the exact binary at [releaseUrl]. The script
+  /// verifies the download against it BEFORE installing + running it as root, so
+  /// a tampered release asset, a hijacked URL, or a TLS-stripping proxy cannot
+  /// turn provisioning into root RCE on the user's server. Published alongside
+  /// the release; the user pastes it in.
+  final String expectedSha256;
 
   /// The deployment-wide obfs4 PSK (base64) the node needs to join the network —
   /// the same value the app bundles at `assets/prod/obfs4_psk.b64`.
@@ -28,8 +36,11 @@ class NodeProvisionConfig {
   /// Enable the exit proxy so you can route your traffic through this node.
   final bool runExit;
 
+  static final _sha256Re = RegExp(r'^[0-9a-fA-F]{64}$');
+
   bool get isValid =>
       releaseUrl.startsWith('https://') &&
+      _sha256Re.hasMatch(expectedSha256.trim()) &&
       obfs4PskB64.trim().isNotEmpty &&
       listenPort >= 1 &&
       listenPort <= 65535;
@@ -67,6 +78,7 @@ WantedBy=multi-user.target''';
 /// re-running never rotates the node's id.
 String buildProvisionScript(NodeProvisionConfig c) {
   final psk = c.obfs4PskB64.trim();
+  final sha = c.expectedSha256.trim().toLowerCase();
   final exitLine = c.runExit
       ? "sudo /usr/local/bin/veil-cli -c /tmp/node.toml config set proxy.exit.enabled true"
       : "# exit proxy disabled";
@@ -78,8 +90,12 @@ id veil >/dev/null 2>&1 || sudo useradd -r -s /usr/sbin/nologin -d /var/lib/veil
 sudo mkdir -p /var/lib/veil /var/log/veil
 sudo chown veil:veil /var/lib/veil /var/log/veil
 
-# 1. veil-cli from the GitHub release
+# 1. veil-cli from the GitHub release — VERIFY checksum before trusting it
 curl -fsSL '${c.releaseUrl}' -o /tmp/veil-cli
+# Fail closed: if the downloaded binary does not match the published SHA-256,
+# sha256sum -c exits non-zero and `set -e` aborts BEFORE we install/run it as
+# root. This is what stops a tampered release / hijacked URL from becoming RCE.
+echo '$sha  /tmp/veil-cli' | sha256sum -c -
 sudo install -o root -g root -m 0755 /tmp/veil-cli /usr/local/bin/veil-cli
 
 # 2. deployment obfs4 PSK

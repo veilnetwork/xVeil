@@ -18,6 +18,7 @@ class ManagedNode {
     this.sshHost,
     this.sshPort = 22,
     this.sshUser,
+    this.sshHostFingerprint,
   });
 
   /// Local stable id (uuid) — identifies the entry across edits.
@@ -34,6 +35,12 @@ class ManagedNode {
   final int sshPort;
   final String? sshUser;
 
+  /// Pinned `SHA256:…` SSH host-key fingerprint, captured trust-on-first-use on
+  /// the first successful connect. Once set, every later [sshRun] verifies the
+  /// server still presents it — a changed key is refused as a possible MITM
+  /// (which would otherwise capture the SSH password / run as root).
+  final String? sshHostFingerprint;
+
   bool get hasNodeId => nodeId != null && _isHex64(nodeId!);
   bool get hasSsh => sshHost != null && sshHost!.isNotEmpty;
 
@@ -47,6 +54,7 @@ class ManagedNode {
     String? sshHost,
     int? sshPort,
     String? sshUser,
+    String? sshHostFingerprint,
   }) =>
       ManagedNode(
         id: id,
@@ -55,6 +63,7 @@ class ManagedNode {
         sshHost: sshHost ?? this.sshHost,
         sshPort: sshPort ?? this.sshPort,
         sshUser: sshUser ?? this.sshUser,
+        sshHostFingerprint: sshHostFingerprint ?? this.sshHostFingerprint,
       );
 
   Map<String, dynamic> toJson() => {
@@ -64,6 +73,8 @@ class ManagedNode {
         if (sshHost != null) 'sshHost': sshHost,
         'sshPort': sshPort,
         if (sshUser != null) 'sshUser': sshUser,
+        if (sshHostFingerprint != null)
+          'sshHostFingerprint': sshHostFingerprint,
       };
 
   factory ManagedNode.fromJson(Map<String, dynamic> j) => ManagedNode(
@@ -73,6 +84,7 @@ class ManagedNode {
         sshHost: j['sshHost'] as String?,
         sshPort: (j['sshPort'] as num?)?.toInt() ?? 22,
         sshUser: j['sshUser'] as String?,
+        sshHostFingerprint: j['sshHostFingerprint'] as String?,
       );
 
   /// Encode/decode a whole registry to/from the single JSON string persisted
