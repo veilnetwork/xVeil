@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../core/ids.dart';
+import '../core/log.dart';
 import '../data/transport/veil_mailbox.dart';
 
 /// A message recovered by [MailboxOrchestrator.drain]: the verified sender +
@@ -98,9 +99,16 @@ class MailboxOrchestrator {
           blob: b.blob,
           ourCertVersion: ourCertVersion,
         );
-      } catch (_) {
-        // Unverifiable / corrupt / forged blob — ack so it doesn't wedge the
-        // inbox, and move on.
+      } catch (e) {
+        // Open failed — unverifiable / corrupt / forged / stale-identity blob.
+        // The exception text already carries the native status discriminant
+        // (`PeerUnresolved` = sender/recipient identity document unresolvable
+        // from the DHT; `Failed` = AEAD / signature / decrypt mismatch). A
+        // swallowed open is an invisible "message never arrived" — so LOG it
+        // (the single fact needed to tell a reachability gap from a key gap),
+        // then ack so one bad blob can't wedge the inbox, and move on.
+        devLog(() => 'xVeil[drain]: OPEN FAILED contentId=${_shortHex(b.contentId)} '
+            'senderHint=${b.senderId.short} — $e');
         await _ack(me, b.contentId, authCookie);
         continue;
       }
@@ -122,4 +130,16 @@ class MailboxOrchestrator {
 
   Future<void> _ack(NodeId me, Uint8List contentId, Uint8List authCookie) =>
       _relay.ack(me: me, contentId: contentId, authCookie: authCookie);
+}
+
+/// Compact hex of a content id's first bytes — enough to correlate a failed
+/// open with its `fetched N blob(s)` line in the drain log without dumping the
+/// whole id.
+String _shortHex(Uint8List bytes) {
+  final n = bytes.length < 6 ? bytes.length : 6;
+  final sb = StringBuffer();
+  for (var i = 0; i < n; i++) {
+    sb.write(bytes[i].toRadixString(16).padLeft(2, '0'));
+  }
+  return sb.toString();
 }
