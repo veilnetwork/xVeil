@@ -13,11 +13,18 @@ class SshCheckDialog extends StatefulWidget {
     required this.host,
     required this.port,
     required this.user,
+    this.expectedHostFingerprint,
   });
 
   final String host;
   final int port;
   final String user;
+
+  /// Pinned `SHA256:…` host key, if this node already has one. When set the
+  /// check refuses a server presenting a different key (possible MITM — which
+  /// would otherwise capture the SSH password typed here). When null it is a
+  /// first-contact check: the observed key is shown so the user can verify it.
+  final String? expectedHostFingerprint;
 
   @override
   State<SshCheckDialog> createState() => _SshCheckDialogState();
@@ -65,11 +72,13 @@ class _SshCheckDialogState extends State<SshCheckDialog> {
         user: widget.user,
         auth: auth,
         command: _statusCmd,
+        expectedHostFingerprint: widget.expectedHostFingerprint,
       );
       if (mounted) {
         setState(() {
           _output = '${r.stdout}${r.stderr.isNotEmpty ? '\n${r.stderr}' : ''}'
-              '\n(exit ${r.exitCode})';
+              '\n(exit ${r.exitCode})'
+              '${r.hostFingerprint.isNotEmpty ? '\nhost key: ${r.hostFingerprint}' : ''}';
         });
       }
     } on SshException catch (e) {
