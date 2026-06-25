@@ -240,6 +240,16 @@ class AppL10nEn extends AppL10n {
   String get chatMsgCopied => 'Copied';
 
   @override
+  String get chatListDelete => 'Delete chat';
+
+  @override
+  String get chatDeleteChatTitle => 'Delete this chat?';
+
+  @override
+  String get chatDeleteChatBody =>
+      'The conversation and all its messages are erased from this device. The other person is not notified.';
+
+  @override
   String get chatEditTitle => 'Edit message';
 
   @override

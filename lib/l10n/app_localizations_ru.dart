@@ -241,6 +241,16 @@ class AppL10nRu extends AppL10n {
   String get chatMsgCopied => 'Скопировано';
 
   @override
+  String get chatListDelete => 'Удалить чат';
+
+  @override
+  String get chatDeleteChatTitle => 'Удалить этот чат?';
+
+  @override
+  String get chatDeleteChatBody =>
+      'Переписка и все сообщения удаляются с этого устройства. Собеседник не уведомляется.';
+
+  @override
   String get chatEditTitle => 'Изменить сообщение';
 
   @override

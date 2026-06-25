@@ -216,6 +216,23 @@ class MessagingService {
   final Map<String, ({int count, DateTime nextAt})> _retryBackoff = {};
   static const _maxRetryBackoff = Duration(seconds: 24);
 
+  /// Message ids we've seen a DELIVERED ack for this session. A peer's mailbox
+  /// drain re-acks every cycle until its relay blob ages out, so duplicate acks
+  /// arrive in a storm; this makes the ack handler idempotent (mark + log once)
+  /// and lets the outbox flush cancel a re-send synchronously on the first ack,
+  /// before the durable status write resolves. Durable `MessageStatus.delivered`
+  /// remains the source of truth across restart — this is only an early-cancel.
+  final Set<String> _delivered = {};
+
+  /// Per-PEER escalating backoff for a contact whose mailbox seal keeps failing
+  /// `PeerUnresolved` (a dead/old identity — e.g. a peer that re-provisioned).
+  /// Without it the 3s flush re-sends to such a ghost forever. Escalates
+  /// 30s→1m→…→30m (cap); cleared on any successful stash for the peer, and reset
+  /// on restart (a fresh resolve attempt) — it NEVER permanently drops, so if the
+  /// identity resolves again delivery resumes.
+  final Map<String, ({int count, DateTime nextAt})> _peerUnresolvedBackoff = {};
+  static const _peerUnresolvedCap = Duration(minutes: 30);
+
   /// Attach the offline-delivery [MailboxService] after construction (it is
   /// built with [deliverInbound] as its drain sink, so it must exist first).
   void attachMailbox(MailboxSink mailbox) => _mailbox = mailbox;
@@ -468,16 +485,23 @@ class MessagingService {
         // peer we already accepted (we send messages — hence acks — only to them).
         if (existing?.status != ContactStatus.accepted) return;
         // The peer confirms delivery of our message [env.id] — stop re-sending.
-        if (env.id != null) {
-          // [timeline] sender-side "delivered" moment — pair with the send t0 to
-          // get the full perceived round-trip. id + time only.
-          devLog(() => 'xVeil[timeline]: delivered id=${env.id} '
-              't=${DateTime.now().millisecondsSinceEpoch}');
-          _retryBackoff.remove(env.id); // stop backing off a delivered message
-          // Scope by the sender's conversation (m.src.hex) so the status can
-          // only land on a message that lives in THIS peer's chat.
-          await _storage.markMessageStatus(
-              m.src.hex, env.id!, MessageStatus.delivered);
+        final ackId = env.id;
+        if (ackId != null) {
+          _retryBackoff.remove(ackId); // stop backing off a delivered message
+          // Idempotent: the peer's drain re-acks every cycle until its relay
+          // blob ages out, so duplicate acks arrive in a storm. Mark delivered +
+          // log + write storage only ONCE per id — re-doing it on every dup was
+          // hammering the store (the user-visible "storage opens slowly").
+          if (_delivered.add(ackId)) {
+            // [timeline] sender-side "delivered" moment — pair with the send t0
+            // to get the full perceived round-trip. id + time only.
+            devLog(() => 'xVeil[timeline]: delivered id=$ackId '
+                't=${DateTime.now().millisecondsSinceEpoch}');
+            // Scope by the sender's conversation (m.src.hex) so the status can
+            // only land on a message that lives in THIS peer's chat.
+            await _storage.markMessageStatus(
+                m.src.hex, ackId, MessageStatus.delivered);
+          }
         }
       case WireKind.edit:
         // The peer edited a message THEY sent us. Apply only to an INCOMING
@@ -659,6 +683,17 @@ class MessagingService {
     _signal();
   }
 
+  /// Delete the whole conversation with [peer] from THIS device: removes the
+  /// contact + every message from the encrypted store and drops the peer's
+  /// in-memory send state so the outbox stops re-sending to it (this is how a
+  /// user clears a dead/old "ghost" identity that can no longer be reached).
+  /// Local-only — the peer is not notified.
+  Future<void> deleteConversation(NodeId peer) async {
+    await _storage.removeConversation(peer);
+    _peerUnresolvedBackoff.remove(peer.hex);
+    _signal();
+  }
+
   /// Mark a conversation read (its unread badge resets) and refresh the UI.
   /// Best-effort — never throw from a screen's open hook (e.g. storage not yet
   /// open in a test/loopback context).
@@ -711,10 +746,20 @@ class MessagingService {
     final convs = await _storage.loadConversations();
     for (final conv in convs) {
       if (conv.peer.status != ContactStatus.accepted) continue;
+      // Ghost give-up: a contact whose mailbox seal keeps failing
+      // `PeerUnresolved` (a dead/old identity) is backed off per-peer, so we stop
+      // re-sending to it every 3s forever. Escalating + non-permanent — the next
+      // allowed tick retries, so a peer that resolves again still gets delivered.
+      final pb = _peerUnresolvedBackoff[conv.peer.nodeId.hex];
+      if (pb != null && DateTime.now().isBefore(pb.nextAt)) continue;
       final msgs = await _storage.loadMessages(conv.id);
       for (final m in msgs) {
         if (m.direction == MessageDirection.outgoing &&
             m.status == MessageStatus.sent &&
+            // Synchronous early-cancel: the durable status flips to `delivered`
+            // a moment later (async write), so without this the next flush could
+            // re-send a just-acked message in that window.
+            !_delivered.contains(m.id) &&
             !m.isFile) {
           // Exponential per-message backoff: skip this flush if the message is
           // still within its backoff window (delivery is lossy, so re-sending
@@ -787,6 +832,7 @@ class MessagingService {
       );
       _stashed.add(id);
       _stashFailedAt.remove(id);
+      _peerUnresolvedBackoff.remove(peer.hex); // peer resolves again — un-ghost it
       devLog(() => 'xVeil[send]: stash OK dst=${peer.short} id=$id '
           '(deposited at recipient relay)');
     } catch (e, st) {
@@ -794,6 +840,18 @@ class MessagingService {
       // (after the backoff). LOG the real reason: this is the offline-delivery
       // path, and a swallowed failure here is invisible "message never arrived".
       _stashFailedAt[id] = DateTime.now();
+      // A persistent `PeerUnresolved` means the recipient identity can't be
+      // resolved at all (a dead/old identity — the ghost). Escalate a PER-PEER
+      // backoff so the flush stops hammering it every 3s; cleared on any later
+      // success, reset on restart — never a permanent drop.
+      if (e.toString().contains('PeerUnresolved')) {
+        final pb = _peerUnresolvedBackoff[peer.hex];
+        final count = (pb?.count ?? 0) + 1;
+        final secs = (30 * (1 << (count - 1)))
+            .clamp(30, _peerUnresolvedCap.inSeconds);
+        _peerUnresolvedBackoff[peer.hex] =
+            (count: count, nextAt: DateTime.now().add(Duration(seconds: secs)));
+      }
       devLog(() => 'xVeil[send]: stash FAILED dst=${peer.short} id=$id '
           '(backoff ${_stashRetryBackoff.inSeconds}s): $e\n$st');
     }
