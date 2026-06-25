@@ -19,6 +19,7 @@ import '../domain/file_transfer.dart';
 import 'app_controller.dart';
 import 'mailbox_service.dart';
 import 'providers.dart';
+import 'package:xveil/core/log.dart';
 
 const _uuid = Uuid();
 
@@ -111,7 +112,7 @@ class MessagingService {
   /// delivery-ACK round-trip is ~halved. Anonymity is unchanged (one-shot block,
   /// not a reused circuit).
   Future<void> _send(NodeId dst, Uint8List payload, {bool wantReply = false}) {
-    debugPrint('xVeil[send]: live send dst=${dst.short} anonymous=$_anonymous '
+    devLog(() => 'xVeil[send]: live send dst=${dst.short} anonymous=$_anonymous '
         'wantReply=$wantReply bytes=${payload.length} '
         'transport=${_transport.runtimeType}');
     if (_anonymous && wantReply) {
@@ -137,7 +138,7 @@ class MessagingService {
     final viaReply = !direct && m.replyId != 0;
     // [timeline] which ACK path we took (reply = fast one-time circuit; direct =
     // durable resolve+circuit). id + path enum only — no body/keys.
-    debugPrint('xVeil[timeline]: ack id=$id via=${viaReply ? 'reply' : 'direct'} '
+    devLog(() => 'xVeil[timeline]: ack id=$id via=${viaReply ? 'reply' : 'direct'} '
         't=${DateTime.now().millisecondsSinceEpoch}');
     if (viaReply) {
       // Fast path: ride the sender's one-time reply circuit. Lowest latency, but
@@ -336,7 +337,7 @@ class MessagingService {
   }
 
   Future<void> _onInbound(InboundMessage m) async {
-    debugPrint('xVeil[recv]: INBOUND from=${m.src.short} bytes=${m.payload.length}');
+    devLog(() => 'xVeil[recv]: INBOUND from=${m.src.short} bytes=${m.payload.length}');
     try {
       await _dispatch(m);
     } catch (e) {
@@ -344,7 +345,7 @@ class MessagingService {
       // fields, bad base64) must never throw out of the stream listener and
       // disrupt delivery for everyone else — drop it silently. LOG it so a
       // legit message that fails to parse/store isn't invisibly dropped.
-      debugPrint('xVeil[recv]: dispatch FAILED from=${m.src.short}: $e');
+      devLog(() => 'xVeil[recv]: dispatch FAILED from=${m.src.short}: $e');
     }
   }
 
@@ -398,7 +399,7 @@ class MessagingService {
         // [timeline] inbound receipt: id + whether it carried a reply path. id +
         // replyId only (no body) — lets us separate receive-latency from the ACK
         // round-trip when reading a session's logs.
-        debugPrint('xVeil[timeline]: recv id=$id replyId=${m.replyId} '
+        devLog(() => 'xVeil[timeline]: recv id=$id replyId=${m.replyId} '
             't=${DateTime.now().millisecondsSinceEpoch}');
         // Dedup re-sent messages (the sender's local outbox re-sends un-acked
         // ones): if we already have this id, just re-ack so they stop.
@@ -422,7 +423,7 @@ class MessagingService {
         if (env.id != null) {
           // [timeline] sender-side "delivered" moment — pair with the send t0 to
           // get the full perceived round-trip. id + time only.
-          debugPrint('xVeil[timeline]: delivered id=${env.id} '
+          devLog(() => 'xVeil[timeline]: delivered id=${env.id} '
               't=${DateTime.now().millisecondsSinceEpoch}');
           _retryBackoff.remove(env.id); // stop backing off a delivered message
           await _storage.markMessageStatus(env.id!, MessageStatus.delivered);
@@ -633,7 +634,7 @@ class MessagingService {
     // resolve+circuit-build round-trip on their side.
     // [timeline] id + send-time only (random uuid + ms clock — no body/keys), so
     // receive-latency vs ACK-latency can be measured per message from the logs.
-    debugPrint('xVeil[timeline]: send id=$id '
+    devLog(() => 'xVeil[timeline]: send id=$id '
         't0=${sentAt.millisecondsSinceEpoch} wantReply=true');
     await _send(dst, wire, wantReply: true);
     // Deposit at the peer's mailbox as a BACKGROUND fallback (don't await): the
@@ -683,7 +684,7 @@ class MessagingService {
           // without the per-retry circuit storm.
           // [timeline] one line per re-send so a session's retry count per id is
           // countable (a high count = the ACK round-trip is lagging). id only.
-          debugPrint('xVeil[timeline]: retry id=${m.id} '
+          devLog(() => 'xVeil[timeline]: retry id=${m.id} '
               't=${DateTime.now().millisecondsSinceEpoch}');
           await _send(conv.peer.nodeId, wire);
           // Also deposit at the recipient's mailbox relay so an OFFLINE peer
@@ -702,12 +703,12 @@ class MessagingService {
   Future<void> _maybeStash(NodeId peer, String id, Uint8List wire) async {
     final mailbox = _mailbox;
     if (mailbox == null) {
-      debugPrint('xVeil[send]: stash SKIP dst=${peer.short} id=$id '
+      devLog(() => 'xVeil[send]: stash SKIP dst=${peer.short} id=$id '
           '— NO mailbox (transport not VeilFlutter or no relays)');
       return;
     }
     if (_stashed.contains(id)) {
-      debugPrint('xVeil[send]: stash SKIP dst=${peer.short} id=$id — already stashed');
+      devLog(() => 'xVeil[send]: stash SKIP dst=${peer.short} id=$id — already stashed');
       return;
     }
     // Back off re-attempts of a recently-FAILED id: a failed seal isolate blocks
@@ -727,14 +728,14 @@ class MessagingService {
       );
       _stashed.add(id);
       _stashFailedAt.remove(id);
-      debugPrint('xVeil[send]: stash OK dst=${peer.short} id=$id '
+      devLog(() => 'xVeil[send]: stash OK dst=${peer.short} id=$id '
           '(deposited at recipient relay)');
     } catch (e, st) {
       // No relay / no route yet — leave it un-stashed so a later flush retries
       // (after the backoff). LOG the real reason: this is the offline-delivery
       // path, and a swallowed failure here is invisible "message never arrived".
       _stashFailedAt[id] = DateTime.now();
-      debugPrint('xVeil[send]: stash FAILED dst=${peer.short} id=$id '
+      devLog(() => 'xVeil[send]: stash FAILED dst=${peer.short} id=$id '
           '(backoff ${_stashRetryBackoff.inSeconds}s): $e\n$st');
     }
   }
@@ -870,7 +871,7 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
   final anonymous = ref.read(appControllerProvider.notifier).activeIsAnonymous;
   final transport = ref.watch(veilTransportProvider);
   final storage = ref.watch(storageProvider);
-  debugPrint('xVeil[messaging]: fallback service (no session pipeline) '
+  devLog(() => 'xVeil[messaging]: fallback service (no session pipeline) '
       'anonymous=$anonymous');
   final service = MessagingService(
     transport,
@@ -885,7 +886,7 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
   // are configured — live delivery is unaffected if this never registers.
   final relays = _mailboxRelayCandidates(
       ref.read(deniableBootProvider)?.bootstrapPeers ?? const []);
-  debugPrint('xVeil[mailbox]: setup — transport=${transport.runtimeType} '
+  devLog(() => 'xVeil[mailbox]: setup — transport=${transport.runtimeType} '
       'relays=${relays.length}');
   MailboxService? mailbox;
   // The provider rebuilds whenever the real stack changes (node reboot, identity
@@ -917,10 +918,10 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
       ref.onDispose(m.dispose);
       unawaited(m.start(relays: relays));
     }).catchError((e) {
-      debugPrint('xVeil[mailbox]: build/start FAILED: $e');
+      devLog(() => 'xVeil[mailbox]: build/start FAILED: $e');
     });
   } else {
-    debugPrint('xVeil[mailbox]: NOT started '
+    devLog(() => 'xVeil[mailbox]: NOT started '
         '(transport=${transport.runtimeType}, relays=${relays.length})');
   }
 

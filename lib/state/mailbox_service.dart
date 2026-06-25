@@ -14,6 +14,7 @@ import '../data/transport/veil_addressing.dart';
 import '../data/transport/veil_mailbox_network.dart' show MailboxDrainUnreachable;
 import '../data/transport/veil_transport.dart';
 import 'mailbox_orchestrator.dart';
+import 'package:xveil/core/log.dart';
 
 /// The deposit surface [MessagingService] uses for offline delivery — sealing a
 /// message for an offline [recipient] at their advertised relay. Extracted as an
@@ -134,7 +135,7 @@ class MailboxService implements MailboxSink {
     // instead of drifting "first that resolved" picks that strand stale ad slots
     // at relays we no longer drain — which a sender resolves into a black hole.
     _relays = relaysByXorDistance(_me, relays);
-    debugPrint('xVeil[mailbox]: start — ${relays.length} relay candidate(s), '
+    devLog(() => 'xVeil[mailbox]: start — ${relays.length} relay candidate(s), '
         'me=${_me.short}, alreadyRegistered=$_registered');
     // Resolving a relay's KEM key is a DHT FIND_VALUE; right after the node
     // connects its routing table is barely warm, so the first attempt often
@@ -150,7 +151,7 @@ class MailboxService implements MailboxSink {
       }
       await _tryRegister();
     }
-    debugPrint('xVeil[mailbox]: start done — registered=$_registered');
+    devLog(() => 'xVeil[mailbox]: start done — registered=$_registered');
     _drainTimer ??= Timer.periodic(_drainInterval, (_) => _drainTick());
     unawaited(_drainTick()); // don't wait a full interval for the first drain
   }
@@ -178,7 +179,7 @@ class MailboxService implements MailboxSink {
     if (kem == null) {
       // No fresh resolve and no usable cached key — a later start()/reconnect
       // retries.
-      debugPrint('xVeil[mailbox]: relay ${relay.short} — KEM key NOT resolved '
+      devLog(() => 'xVeil[mailbox]: relay ${relay.short} — KEM key NOT resolved '
           '(no relay-dir entry, no cached key); skipping');
       return;
     }
@@ -196,11 +197,11 @@ class MailboxService implements MailboxSink {
         // Persist the freshly-verified key for a future cold start.
         unawaited(_relayKeyCache?.put(relay, kem) ?? Future.value());
       }
-      debugPrint('xVeil[mailbox]: REGISTERED rendezvous publisher @ relay '
+      devLog(() => 'xVeil[mailbox]: REGISTERED rendezvous publisher @ relay '
           '${relay.short} (me=${_me.short} reachable by node_id now; '
           'key=${fromFresh ? "fresh" : "cached"})');
     } catch (e) {
-      debugPrint('xVeil[mailbox]: register @ ${relay.short} FAILED: $e');
+      devLog(() => 'xVeil[mailbox]: register @ ${relay.short} FAILED: $e');
       if (!fromFresh) {
         // We registered with a cached key and it failed — it may be stale; drop
         // it so the next tick resolves fresh instead of reusing a bad key.
@@ -213,7 +214,7 @@ class MailboxService implements MailboxSink {
         _handleDead = true;
         _drainTimer?.cancel();
         _drainTimer = null;
-        debugPrint('xVeil[mailbox]: handle dead — stopping retries until a fresh '
+        devLog(() => 'xVeil[mailbox]: handle dead — stopping retries until a fresh '
             'stack rebuilds this service');
       }
     }
