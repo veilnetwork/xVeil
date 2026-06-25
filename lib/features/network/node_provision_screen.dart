@@ -167,9 +167,10 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
       );
     }
     final cfg = _config;
-    final script = (cfg != null && _releaseUrl.text.trim().isNotEmpty)
-        ? buildProvisionScript(cfg)
-        : null;
+    // Only render (and later run) the script once the config is fully valid —
+    // a partial/invalid URL or checksum must never be interpolated into a
+    // root-sudo script, not even in the copyable preview.
+    final script = (cfg != null && cfg.isValid) ? buildProvisionScript(cfg) : null;
     return Scaffold(
       appBar: AppBar(title: Text(l.provisionTitle)),
       body: ListView(
