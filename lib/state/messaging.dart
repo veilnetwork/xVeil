@@ -74,6 +74,17 @@ class _Incoming {
   DateTime lastActivity;
 }
 
+/// A genuinely-new incoming message, emitted on [MessagingService.incoming] for
+/// the notification layer (NOT re-deliveries — those are deduped before this
+/// fires). Carries only what a notification needs; the privacy decision (show
+/// the text/sender or not) is made above, not here.
+class IncomingNotice {
+  const IncomingNotice({required this.from, required this.preview, required this.isFile});
+  final NodeId from;
+  final String preview;
+  final bool isFile;
+}
+
 /// Wires the [VeilTransport] inbound stream into [Storage] and exposes a send
 /// path. Persists every message, then signals [changes] so the read providers
 /// refresh. Intentionally Riverpod-free (no Ref) — it owns a plain broadcast
@@ -162,6 +173,8 @@ class MessagingService {
     unawaited(_maybeStash(m.src, 'ack:$id', ack));
   }
   final _changes = StreamController<void>.broadcast();
+  // Genuinely-new incoming messages (post-dedup), for the notification layer.
+  final _incoming = StreamController<IncomingNotice>.broadcast();
   StreamSubscription<InboundMessage>? _sub;
   Timer? _retryTimer;
   bool _flushing = false;
@@ -226,6 +239,11 @@ class MessagingService {
   /// Emits whenever stored conversations/messages change.
   Stream<void> get changes => _changes.stream;
 
+  /// Fires once per genuinely-new incoming message (after the consent gate +
+  /// dedup), so the notification layer can alert without re-alerting on a
+  /// re-delivery. The active identity's service is the one observed.
+  Stream<IncomingNotice> get incoming => _incoming.stream;
+
   void start() {
     _sub ??= _transport.messages().listen(_onInbound);
     _retryTimer ??= Timer.periodic(_retryInterval, (_) => _retryFlush());
@@ -245,6 +263,12 @@ class MessagingService {
 
   void _signal() {
     if (!_changes.isClosed) _changes.add(null);
+  }
+
+  void _emitIncoming(NodeId from, String preview, {required bool isFile}) {
+    if (!_incoming.isClosed) {
+      _incoming.add(IncomingNotice(from: from, preview: preview, isFile: isFile));
+    }
   }
 
   /// Persist a message and return its id. [id] lets the receiver reuse the
@@ -432,6 +456,7 @@ class MessagingService {
         }
         await _store(m.src, MessageDirection.incoming, env.body,
             MessageStatus.delivered, id: id, timestamp: _wireSentAt(env));
+        _emitIncoming(m.src, env.body, isFile: false);
         if (id != null) {
           await _ackTo(m, id);
         }
@@ -546,6 +571,7 @@ class MessagingService {
         await _store(m.src, MessageDirection.incoming, '📎 ${inc.name ?? 'file'}',
             MessageStatus.delivered,
             fileId: localFileId, fileName: inc.name, id: tid);
+        _emitIncoming(m.src, '📎 ${inc.name ?? 'file'}', isFile: true);
         // Ack the completed transfer so the sender's file message flips
         // sent -> delivered — the same delivery feedback text messages get.
         await _ackTo(m, tid);
@@ -879,6 +905,7 @@ class MessagingService {
     await _sub?.cancel();
     _sub = null;
     await _changes.close();
+    await _incoming.close();
   }
 }
 

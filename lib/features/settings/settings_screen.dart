@@ -6,6 +6,7 @@ import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/keep_all_online_controller.dart';
 import '../../state/locale_controller.dart';
+import '../../state/notifications.dart';
 import '../../state/providers.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -16,6 +17,30 @@ class SettingsScreen extends ConsumerWidget {
         'en' => l.languageEnglish,
         _ => l.languageSystem,
       };
+
+  Future<void> _pickPreview(
+      BuildContext context, WidgetRef ref, AppL10n l) async {
+    final current = ref.read(notificationSettingsProvider).preview;
+    final choice = await showDialog<NotificationPreview>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: Text(l.notificationsPreview),
+        children: [
+          for (final entry in <(NotificationPreview, String)>[
+            (NotificationPreview.hidden, l.notificationsPreviewHidden),
+            (NotificationPreview.full, l.notificationsPreviewFull),
+          ])
+            ListTile(
+              title: Text(entry.$2),
+              trailing: current == entry.$1 ? const Icon(Icons.check) : null,
+              onTap: () => Navigator.of(context).pop(entry.$1),
+            ),
+        ],
+      ),
+    );
+    if (choice == null) return;
+    await ref.read(notificationSettingsProvider.notifier).setPreview(choice);
+  }
 
   Future<void> _pickLanguage(
       BuildContext context, WidgetRef ref, AppL10n l) async {
@@ -239,6 +264,30 @@ class SettingsScreen extends ConsumerWidget {
               onChanged: (v) =>
                   ref.read(keepAllOnlineProvider.notifier).set(v),
             ),
+          // Notifications: a deniability messenger defaults to HIDDEN previews
+          // (no sender/text on the lock screen); the preview level is its own row.
+          Builder(builder: (_) {
+            final ns = ref.watch(notificationSettingsProvider);
+            return Column(children: [
+              SwitchListTile(
+                secondary: const Icon(Icons.notifications_outlined),
+                title: Text(l.notificationsEnabled),
+                value: ns.enabled,
+                onChanged: (v) =>
+                    ref.read(notificationSettingsProvider.notifier).setEnabled(v),
+              ),
+              if (ns.enabled)
+                ListTile(
+                  leading: const Icon(Icons.visibility_off_outlined),
+                  title: Text(l.notificationsPreview),
+                  subtitle: Text(ns.preview == NotificationPreview.full
+                      ? l.notificationsPreviewFull
+                      : l.notificationsPreviewHidden),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => _pickPreview(context, ref, l),
+                ),
+            ]);
+          }),
           ListTile(
             leading: const Icon(Icons.badge_outlined),
             title: Text(l.settingsIdentity),
