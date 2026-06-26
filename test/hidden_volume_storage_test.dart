@@ -182,6 +182,42 @@ void main() {
   );
 
   test(
+    'edit retains every version as history; the fold shows the latest',
+    () async {
+      final c = _id(8).hex;
+      await storage.appendMessage(
+        Message(
+          id: 'h1',
+          conversationId: c,
+          direction: MessageDirection.outgoing,
+          body: 'v1',
+          timestamp: DateTime(2026, 6, 1, 0, 0),
+          author: 'ME',
+        ),
+      );
+      await storage.editMessage(c, 'h1', 'v2');
+      await storage.editMessage(c, 'h1', 'v3');
+
+      // Display (fold) shows only the latest, flagged edited.
+      final current = (await storage.loadMessages(c)).single;
+      expect(current.body, 'v3');
+      expect(current.edited, isTrue);
+
+      // History retains every version, oldest-first, with the original flagged.
+      final hist = await storage.loadMessageHistory(c, 'h1');
+      expect(hist.map((v) => v.body).toList(), ['v1', 'v2', 'v3']);
+      expect(hist.first.isOriginal, isTrue);
+      expect(hist[1].isOriginal, isFalse);
+      expect(hist.last.isOriginal, isFalse);
+      expect(hist.every((v) => v.author == 'ME'), isTrue);
+
+      // A deleted message exposes no history.
+      await storage.deleteMessage(c, 'h1');
+      expect(await storage.loadMessageHistory(c, 'h1'), isEmpty);
+    },
+  );
+
+  test(
     'loadMessages limit returns the most-recent window, oldest-first',
     () async {
       final c = _id(3).hex;
