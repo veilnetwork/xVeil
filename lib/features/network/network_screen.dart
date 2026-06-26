@@ -104,20 +104,31 @@ class NetworkScreen extends ConsumerWidget {
                       }
                     },
                   ),
-                  // Proactive nudge when it's ON but the OS would still suspend
-                  // us (battery-optimised) — tap to fix without toggling off/on.
+                  // While ON, always surface the background-permission help: a
+                  // RED warning if the app is still battery-optimised (the OS
+                  // will suspend us), otherwise an info nudge — because the
+                  // per-OEM "Autostart" knob (MIUI/HyperOS/OneUI) is NOT visible
+                  // to any Android API, so we can't know if it's set. Tap → the
+                  // dialog (battery exemption + a deep-link to app settings).
                   if (on)
                     FutureBuilder<bool>(
                       future: VeilBackground.isIgnoringBatteryOptimizations(),
                       builder: (ctx, snap) {
-                        if (snap.data != false) return const SizedBox.shrink();
+                        final exempt = snap.data ?? true;
                         return ListTile(
-                          leading: Icon(Icons.warning_amber_rounded,
-                              color: Theme.of(ctx).colorScheme.error),
+                          leading: Icon(
+                            exempt
+                                ? Icons.info_outline
+                                : Icons.warning_amber_rounded,
+                            color: exempt
+                                ? null
+                                : Theme.of(ctx).colorScheme.error,
+                          ),
                           title: Text(l.networkBackgroundAllowTitle),
                           subtitle: Text(l.networkBackgroundAllowBody),
                           isThreeLine: true,
-                          onTap: () => _promptBackgroundPermission(ctx, l),
+                          onTap: () =>
+                              _promptBackgroundPermission(ctx, l, force: true),
                         );
                       },
                     ),
@@ -223,8 +234,12 @@ class _StatusCard extends ConsumerWidget {
 /// background (Doze + aggressive OEMs suspend it otherwise). No-op if already
 /// granted. Also offers the app-settings deep-link, where MIUI/HyperOS/OneUI hide
 /// the per-app "Autostart" knob a foreground service still needs.
-Future<void> _promptBackgroundPermission(BuildContext context, AppL10n l) async {
-  if (await VeilBackground.isIgnoringBatteryOptimizations()) return;
+Future<void> _promptBackgroundPermission(BuildContext context, AppL10n l,
+    {bool force = false}) async {
+  // From the toggle we only nag when the exemption is missing; from the help
+  // tile ([force]) we always show it — the dialog also deep-links to the OEM
+  // "Autostart" screen, which no API can confirm is set.
+  if (!force && await VeilBackground.isIgnoringBatteryOptimizations()) return;
   if (!context.mounted) return;
   await showDialog<void>(
     context: context,
