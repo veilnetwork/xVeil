@@ -117,28 +117,22 @@ class MailboxService implements MailboxSink {
   // DHT each poll (that lookup times out on mobile and stranded pending mail).
   NodeId? _registeredRelay;
 
-  // Other relays our OWN rendezvous ad still advertises beyond [_registeredRelay]
-  // — stale slots from prior sessions, and the node's built-in receiver task's
-  // relay (it picks from connected peers, a different set than our seed list, so
-  // it can name a DIFFERENT relay). A SENDER resolves the freshest KEM-bearing ad
-  // and may deposit to one of THESE, not the single relay we registered at this
-  // session — which black-holed offline delivery. So the drain fetches the UNION.
-  // Refreshed periodically ([_selfResolveEveryTicks]); the registered relay is
-  // ALWAYS drained regardless, so this can only ADD coverage, never remove it.
-  List<NodeId> _advertisedRelays = const [];
   // Candidate relays whose KEM key we have successfully resolved + cached, so the
-  // drain can fetch them DIRECT. Only these are added to the drain union — a
-  // candidate without a known key would otherwise burn a 5s fetch timeout per
-  // tick on the (always-failing) relay self-resolve fallback.
+  // drain can fetch them DIRECT. A SENDER may deposit offline mail at ANY relay
+  // our ad advertises — the built-in receiver task (picks from connected peers, a
+  // different set than our seed list) and stale prior-session slots all draw from
+  // the same connected-relay pool, so draining every warmed candidate collects a
+  // deposit even when it landed on a relay other than [_registeredRelay]. Only
+  // warmed candidates are drained — one without a known key would burn a 5s fetch
+  // timeout on the (always-failing) relay self-resolve fallback.
   final Set<String> _warmedRelays = {};
   // Bounds the eager warm-retry loop so a permanently-unresolvable candidate (a
   // down seed) doesn't trigger a resolve every tick forever. ~2 min at 10s.
   int _warmAttempts = 0;
   static const int _maxWarmAttempts = 12;
-  int _selfResolveCountdown = 0;
-  // ~1 min between own-ad self-resolves at the default 10s drain interval. The
-  // resolve is a DHT walk (too costly every tick), but stale-relay drift is slow.
-  static const int _selfResolveEveryTicks = 6;
+  // Rotates through the unwarmed candidates so a down one doesn't starve warming
+  // of the others (we warm only ONE per tick to keep the UI isolate responsive).
+  int _warmCursor = 0;
 
   /// Whether we have successfully advertised a mailbox relay this session.
   bool get isRegistered => _registered;
@@ -283,66 +277,33 @@ class MailboxService implements MailboxSink {
     );
   }
 
-  /// Resolve + cache the KEM key of EVERY candidate relay so the drain can fetch
-  /// each one DIRECT (key-given). [lookupRelayX25519] is a one-hop relay-dir
-  /// query to a connected relay (NOT the recursive DHT walk that a node's own-ad
-  /// self-resolve needs), so it succeeds on mobile where self-resolve returns 0.
-  /// Best-effort: a candidate whose key won't resolve is just skipped by fetch().
-  Future<void> _warmCandidateKeys() async {
+  /// Resolve + cache the KEM key of ONE not-yet-warmed candidate relay so the
+  /// drain can fetch it DIRECT (key-given). [lookupRelayX25519] is a one-hop
+  /// relay-dir query to a connected relay (NOT a recursive DHT walk), but we still
+  /// do at most ONE per drain tick to keep the UI isolate responsive (warming all
+  /// candidates + the 8s own-ad self-resolve in a single tick caused ANRs). Over a
+  /// few ticks every candidate gets warmed; the registered relay drains meanwhile.
+  Future<void> _warmNextCandidate() async {
     final cache = _relayKeyCache;
     if (cache == null) return;
-    for (final relay in _relays) {
-      if (_warmedRelays.contains(relay.hex)) continue; // already have its key
-      try {
-        final kem = await _client.lookupRelayX25519(relay.bytes);
-        if (kem != null && kem.length == 32) {
-          await cache.put(relay, kem);
-          if (_warmedRelays.add(relay.hex)) {
-            // A NEWLY-warmed relay just entered the drain union — drain promptly
-            // to check it instead of waiting out the escalated empty-drain
-            // back-off we accrued while only the registered relay's dead blobs
-            // came back.
-            _drainSkips = 0;
-            _emptyDrainStreak = 0;
-          }
-        }
-      } catch (_) {
-        // best-effort — fetch() falls back / skips a relay without a known key
-      }
-    }
-  }
-
-  /// Resolve our OWN rendezvous ad to discover EVERY relay it advertises (not
-  /// just the one we registered at this session), and cache each relay's public
-  /// KEM key so the drain can fetch it key-given DIRECT. Best-effort + bounded: a
-  /// failure leaves the prior set intact, and the registered relay is drained
-  /// regardless — so this can only ADD drain coverage, never remove it. NOTE: on
-  /// mobile this typically returns 0 (a node can't resolve its own ad over the
-  /// DHT) — [_warmCandidateKeys] + draining all candidates is the reliable path;
-  /// this just adds any relay OUTSIDE the candidate pool when it does resolve.
-  Future<void> _refreshAdvertisedRelays() async {
+    final unwarmed =
+        _relays.where((r) => !_warmedRelays.contains(r.hex)).toList();
+    if (unwarmed.isEmpty) return;
+    final relay = unwarmed[_warmCursor++ % unwarmed.length];
     try {
-      final replicas = await _client.mailbox
-          .lookupRendezvousReplicas(_me.bytes)
-          .timeout(const Duration(seconds: 8));
-      final relays = <NodeId>[];
-      for (final r in replicas) {
-        final relay = NodeId(Uint8List.fromList(r.relayNodeId));
-        relays.add(relay);
-        if (r.rendezvousKemPk.length == 32) {
-          unawaited(_relayKeyCache?.put(
-                relay,
-                Uint8List.fromList(r.rendezvousKemPk),
-              ) ??
-              Future.value());
+      final kem = await _client.lookupRelayX25519(relay.bytes);
+      if (kem != null && kem.length == 32) {
+        await cache.put(relay, kem);
+        if (_warmedRelays.add(relay.hex)) {
+          // A NEWLY-warmed relay just entered the drain union — drain promptly to
+          // check it instead of waiting out the escalated empty-drain back-off
+          // accrued while only the registered relay's dead blobs came back.
+          _drainSkips = 0;
+          _emptyDrainStreak = 0;
         }
       }
-      _advertisedRelays = relays;
-      devLog(() => 'xVeil[mailbox]: advertised relays=${relays.length} '
-          '(${relays.map((r) => r.short).join(",")})');
-    } catch (e) {
-      // Keep the prior set; the registered relay still drains every tick.
-      devLog(() => 'xVeil[mailbox]: self-resolve advertised relays failed: $e');
+    } catch (_) {
+      // best-effort — fetch() skips a relay without a known key
     }
   }
 
@@ -358,7 +319,7 @@ class MailboxService implements MailboxSink {
         _warmedRelays.length < _relays.length &&
         _warmAttempts < _maxWarmAttempts) {
       _warmAttempts++;
-      await _warmCandidateKeys();
+      await _warmNextCandidate();
     }
     if (_drainSkips > 0) {
       _drainSkips--;
@@ -375,28 +336,14 @@ class MailboxService implements MailboxSink {
       if (!_registered && _relays.isNotEmpty) {
         await _tryRegister();
       }
-      // Periodically warm the KEM key of EVERY candidate relay (so we can fetch
-      // each one DIRECT) and, as a desktop-only bonus, self-resolve our own ad.
-      // The drain below covers the UNION of all candidate relays — the deposit
-      // lands on whichever relay our freshest KEM ad named, and on this network
-      // that is ALWAYS one of the bundled candidates (the node's built-in
-      // receiver task and any stale prior-session slot also pick from the same
-      // connected-relay pool). Draining them all collects it even though a node
-      // CANNOT resolve its OWN rendezvous ad over the DHT on mobile (the
-      // self-resolve returns 0 — which is why only draining _registeredRelay
-      // black-holed offline mail deposited to a different advertised relay).
-      if (_registered) {
-        if (_selfResolveCountdown <= 0) {
-          await _refreshAdvertisedRelays();
-          _selfResolveCountdown = _selfResolveEveryTicks;
-        } else {
-          _selfResolveCountdown--;
-        }
-      }
-      // Deduped union: the relay we registered at + ALL candidate relays (the
-      // deposit almost certainly hit one of them) + any relay our own ad still
-      // advertises (self-resolve bonus). A deposit to ANY of them is collected,
-      // closing the deposit-relay != drain-relay black hole. Empty only before
+      // Deduped union: the relay we registered at + the candidate relays whose
+      // KEM key we have warmed. The deposit lands on whichever relay our freshest
+      // KEM ad named, and on this network that is ALWAYS one of the bundled
+      // candidates (the node's built-in receiver task and any stale prior-session
+      // slot also pick from the same connected-relay pool). Draining them all
+      // collects it — this closes the deposit-relay != drain-relay black hole
+      // WITHOUT the own-ad DHT self-resolve (which returns 0 on mobile anyway and
+      // blocked the UI isolate ~8s per refresh -> ANR). Empty only before
       // registration, where fetch() falls back to its own-ad self-resolve.
       final drainSet = <String, NodeId>{};
       if (_registeredRelay != null) {
@@ -404,9 +351,6 @@ class MailboxService implements MailboxSink {
       }
       for (final r in _relays) {
         if (_warmedRelays.contains(r.hex)) drainSet[r.hex] = r;
-      }
-      for (final r in _advertisedRelays) {
-        drainSet[r.hex] = r;
       }
       final recovered = await _orchestrator.drain(
         me: _me,
