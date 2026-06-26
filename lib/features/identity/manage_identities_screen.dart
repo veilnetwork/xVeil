@@ -24,12 +24,21 @@ class _ManageIdentitiesScreenState
   Future<void> _run(Future<bool> Function() op, String failMessage) async {
     if (_busy) return;
     setState(() => _busy = true);
-    final ok = await op();
+    bool ok = false;
+    try {
+      ok = await op();
+    } catch (_) {
+      // The controller recovers the session on a throw; here we just guarantee
+      // the full-screen busy overlay is cleared (a swallowed throw would
+      // otherwise skip the setState below and wedge the screen permanently).
+      ok = false;
+    }
     if (!mounted) return; // re-enter may have routed us to the picker
     setState(() => _busy = false);
     if (!ok) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(failMessage)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(failMessage)));
     }
   }
 
@@ -42,25 +51,31 @@ class _ManageIdentitiesScreenState
   Future<void> _unbind(String label) async {
     final l = AppL10n.of(context);
     final ok = await _confirm(
-        title: l.manageUnbind,
-        body: l.manageUnbindBody,
-        confirm: l.manageUnbind,
-        destructive: false);
+      title: l.manageUnbind,
+      body: l.manageUnbindBody,
+      confirm: l.manageUnbind,
+      destructive: false,
+    );
     if (ok != true) return;
-    await _run(() => ref.read(appControllerProvider.notifier).unbindIdentity(label),
-        l.manageUnbindLastError);
+    await _run(
+      () => ref.read(appControllerProvider.notifier).unbindIdentity(label),
+      l.manageUnbindLastError,
+    );
   }
 
   Future<void> _delete(String label) async {
     final l = AppL10n.of(context);
     final ok = await _confirm(
-        title: l.manageDelete,
-        body: l.manageDeleteBody,
-        confirm: l.manageDelete,
-        destructive: true);
+      title: l.manageDelete,
+      body: l.manageDeleteBody,
+      confirm: l.manageDelete,
+      destructive: true,
+    );
     if (ok != true) return;
-    await _run(() => ref.read(appControllerProvider.notifier).deleteIdentity(label),
-        l.manageDeleteLastError);
+    await _run(
+      () => ref.read(appControllerProvider.notifier).deleteIdentity(label),
+      l.manageDeleteLastError,
+    );
   }
 
   Future<bool?> _confirm({
@@ -81,13 +96,15 @@ class _ManageIdentitiesScreenState
         content: Text(body),
         actions: [
           TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: Text(l.actionCancel)),
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(l.actionCancel),
+          ),
           FilledButton(
             style: destructive
                 ? FilledButton.styleFrom(
                     backgroundColor: scheme.error,
-                    foregroundColor: scheme.onError)
+                    foregroundColor: scheme.onError,
+                  )
                 : null,
             onPressed: () => Navigator.of(ctx).pop(true),
             child: Text(confirm),
@@ -108,9 +125,14 @@ class _ManageIdentitiesScreenState
     if (!mounted) return;
     final l = AppL10n.of(context);
     await _run(
-        () => ref.read(appControllerProvider.notifier).bindExistingIdentity(
-            identityPassword: result.password, label: result.label),
-        l.manageBindError);
+      () => ref
+          .read(appControllerProvider.notifier)
+          .bindExistingIdentity(
+            identityPassword: result.password,
+            label: result.label,
+          ),
+      l.manageBindError,
+    );
   }
 
   @override
@@ -118,8 +140,9 @@ class _ManageIdentitiesScreenState
     final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
     final ctrl = ref.read(appControllerProvider.notifier);
-    final (identities, active) = ref.watch(appControllerProvider
-        .select((s) => (s.identities, s.activeIdentity)));
+    final (identities, active) = ref.watch(
+      appControllerProvider.select((s) => (s.identities, s.activeIdentity)),
+    );
 
     return Scaffold(
       appBar: AppBar(title: Text(l.manageTitle)),
@@ -130,19 +153,24 @@ class _ManageIdentitiesScreenState
               for (final label in identities)
                 ListTile(
                   leading: CircleAvatar(
-                      child: Text(label.characters.first.toUpperCase())),
+                    child: Text(label.characters.first.toUpperCase()),
+                  ),
                   title: Text(label),
                   subtitle: Row(
                     children: [
                       if (label == active)
                         Padding(
                           padding: const EdgeInsets.only(right: 8),
-                          child: Text(l.manageActive,
-                              style: TextStyle(color: scheme.primary)),
+                          child: Text(
+                            l.manageActive,
+                            style: TextStyle(color: scheme.primary),
+                          ),
                         ),
                       if (ctrl.isIdentityAnonymous(label))
-                        Text(l.settingsAnonymousRouting,
-                            style: TextStyle(color: scheme.primary)),
+                        Text(
+                          l.settingsAnonymousRouting,
+                          style: TextStyle(color: scheme.primary),
+                        ),
                     ],
                   ),
                   trailing: PopupMenuButton<String>(
@@ -154,15 +182,24 @@ class _ManageIdentitiesScreenState
                     },
                     itemBuilder: (_) => [
                       PopupMenuItem(
-                          value: 'anon',
-                          child: Text(ctrl.isIdentityAnonymous(label)
+                        value: 'anon',
+                        child: Text(
+                          ctrl.isIdentityAnonymous(label)
                               ? l.manageAnonOff
-                              : l.manageAnonOn)),
-                      PopupMenuItem(value: 'unbind', child: Text(l.manageUnbind)),
+                              : l.manageAnonOn,
+                        ),
+                      ),
                       PopupMenuItem(
-                          value: 'delete',
-                          child: Text(l.manageDelete,
-                              style: TextStyle(color: scheme.error))),
+                        value: 'unbind',
+                        child: Text(l.manageUnbind),
+                      ),
+                      PopupMenuItem(
+                        value: 'delete',
+                        child: Text(
+                          l.manageDelete,
+                          style: TextStyle(color: scheme.error),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -222,22 +259,25 @@ class _BindDialogState extends State<_BindDialog> {
             obscureText: true,
             autofocus: true,
             decoration: InputDecoration(
-                labelText: l.manageBindPassword,
-                border: const OutlineInputBorder()),
+              labelText: l.manageBindPassword,
+              border: const OutlineInputBorder(),
+            ),
           ),
           const SizedBox(height: 12),
           TextField(
             controller: _label,
             decoration: InputDecoration(
-                labelText: l.manageBindLabel,
-                border: const OutlineInputBorder()),
+              labelText: l.manageBindLabel,
+              border: const OutlineInputBorder(),
+            ),
           ),
         ],
       ),
       actions: [
         TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(l.actionCancel)),
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(l.actionCancel),
+        ),
         FilledButton(
           onPressed: () {
             final pw = _password.text;
