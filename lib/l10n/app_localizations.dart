@@ -595,6 +595,18 @@ abstract class AppL10n {
   /// **'edited'**
   String get chatEdited;
 
+  /// No description provided for @chatMenuRename.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename'**
+  String get chatMenuRename;
+
+  /// No description provided for @chatRenameTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Local name'**
+  String get chatRenameTitle;
+
   /// No description provided for @chatMenuUnblock.
   ///
   /// In en, this message translates to:

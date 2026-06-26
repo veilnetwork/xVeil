@@ -314,6 +314,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   ) async {
     final svc = ref.read(messagingServiceProvider);
     switch (action) {
+      case _ChatMenuAction.rename:
+        await _renameContact();
       case _ChatMenuAction.block:
         await svc.blockContact(_peer);
       case _ChatMenuAction.unblock:
@@ -323,6 +325,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       case _ChatMenuAction.delete:
         await _deleteConversation();
     }
+  }
+
+  /// Set or clear a LOCAL alias for this contact. Blank input clears it (falls
+  /// back to the short node id). Never leaves the device.
+  Future<void> _renameContact() async {
+    final l = AppL10n.of(context);
+    final current = ref.read(contactProvider(widget.peerHex)).value?.name ?? '';
+    final newName = await showDialog<String>(
+      context: context,
+      builder: (_) => _EditMessageDialog(
+        initial: current,
+        title: l.chatRenameTitle,
+        saveLabel: l.actionSave,
+        cancelLabel: l.actionCancel,
+      ),
+    );
+    if (newName == null) return; // cancelled
+    if (!mounted) return;
+    await ref.read(messagingServiceProvider).setContactName(_peer, newName);
   }
 
   /// Wipe this conversation's messages but keep the contact — the chat stays in
@@ -496,7 +517,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final l = AppL10n.of(context);
     final messages = ref.watch(messagesProvider(widget.peerHex));
     final window = ref.watch(chatWindowProvider(widget.peerHex));
-    final status = ref.watch(contactProvider(widget.peerHex)).value?.status;
+    final contact = ref.watch(contactProvider(widget.peerHex)).value;
+    final status = contact?.status;
+    // Show the local alias when set, else the short node id (Contact.label).
+    final title = contact?.label ?? _peer.short;
     ref.listen(messagesProvider(widget.peerHex), (_, _) => _scrollToBottom());
 
     return Scaffold(
@@ -505,16 +529,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           children: [
             CircleAvatar(
               radius: 16,
-              child: Text(_peer.short.characters.first.toUpperCase()),
+              child: Text(title.characters.first.toUpperCase()),
             ),
             const SizedBox(width: 12),
-            Expanded(child: Text(_peer.short, overflow: TextOverflow.ellipsis)),
+            Expanded(child: Text(title, overflow: TextOverflow.ellipsis)),
           ],
         ),
         actions: [
           PopupMenuButton<_ChatMenuAction>(
             onSelected: (a) => _onMenuAction(a, status),
             itemBuilder: (_) => [
+              PopupMenuItem(
+                value: _ChatMenuAction.rename,
+                child: Text(l.chatMenuRename),
+              ),
               // Block an accepted contact (their messages get dropped) or lift
               // an existing block — local-only, the peer is never told either way.
               if (status == ContactStatus.blocked)
@@ -774,7 +802,7 @@ class _PendingOutgoingActions extends StatelessWidget {
 }
 
 /// Chat AppBar overflow actions. Local-only — none of these touch the wire.
-enum _ChatMenuAction { block, unblock, clear, delete }
+enum _ChatMenuAction { rename, block, unblock, clear, delete }
 
 /// One `label: value` line in the message-info sheet. The value is selectable
 /// so the user can copy a message id / filename.
