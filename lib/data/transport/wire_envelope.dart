@@ -10,9 +10,30 @@ import 'dart:typed_data';
 /// - [ack]: delivery acknowledgement (id = the acked message's id, body unused).
 /// - [edit]: edit of a previously-sent message (id = its id, body = new text).
 /// - [del]: deletion of a previously-sent message (id = its id, body unused).
+/// - [sync]: an event-log gap-fill beacon (body = JSON {hw,holes,ep}) — what the
+///   sender holds per author, so the peer re-ships anything missing (§15, 3c).
+/// - [voidSeq]: an inert seq placeholder (seq set, no id/body) advancing the
+///   peer's high-water past a deleted/superseded slot so gap-fill never stalls
+///   (R-VOID, §12.1 — id-less, no oracle).
+/// - [unknown]: a DECODE-ONLY sentinel for a structured (v:2) frame from a NEWER
+///   build whose kind this build doesn't know — the dispatcher drops it instead
+///   of rendering it as chat text (RULE WC). NEVER encoded onto the wire.
 ///
-/// New kinds are APPENDED so existing wire indices (0/1/2) are unchanged.
-enum WireKind { request, accept, message, fileMeta, fileChunk, ack, edit, del }
+/// New kinds are APPENDED so existing wire indices (0..7) are unchanged; [sync]
+/// onward carry a `v:2` structural marker (RULE WC). [unknown] stays LAST.
+enum WireKind {
+  request,
+  accept,
+  message,
+  fileMeta,
+  fileChunk,
+  ack,
+  edit,
+  del,
+  sync,
+  voidSeq,
+  unknown,
+}
 
 /// Typed wrapper over the raw transport payload, so the receiver can tell a
 /// connection request from a chat message (the consent gate). Serialised as
@@ -55,31 +76,58 @@ class WireEnvelope {
   const WireEnvelope.del(String id, {int? seq})
       : this(WireKind.del, '', id: id, seq: seq);
 
+  /// Event-log gap-fill beacon (§15, 3c): [body] is the JSON sync summary
+  /// `{hw:{author:hw}, holes:{author:[[lo,hi]]}, ep:epoch}`.
+  const WireEnvelope.sync(String body) : this(WireKind.sync, body);
+
+  /// Inert seq placeholder (R-VOID): advances the peer's high-water past a
+  /// deleted/superseded slot at [seq] with NO id/body (§12.1 — no oracle).
+  const WireEnvelope.voidSeq(int seq) : this(WireKind.voidSeq, '', seq: seq);
+
+  /// The decode-only sentinel for a structured (v:2) frame whose kind this build
+  /// does not know — the dispatcher drops it (RULE WC).
+  static const unknown = WireEnvelope(WireKind.unknown, '');
+
+  /// Frames from [WireKind.sync] onward carry a `v:2` structural marker so an
+  /// un-upgraded decoder DROPS them (RULE WC) instead of mis-rendering as chat.
+  bool get _isV2 => kind.index >= WireKind.sync.index;
+
   Uint8List encode() => Uint8List.fromList(utf8.encode(jsonEncode({
         't': kind.index,
         'b': body,
         if (id != null) 'i': id,
         if (sentAtMs != null) 's': sentAtMs,
         if (seq != null) 'q': seq,
+        if (_isV2) 'v': 2,
       })));
 
-  /// Decode a payload. Anything that isn't a well-formed envelope is treated
-  /// as a plain [WireKind.message] (forward/back compatibility).
+  /// Decode a payload. A well-formed frame whose `t` this build KNOWS decodes to
+  /// that kind. A structured `v:2` frame from a NEWER build (a `t` out of range,
+  /// or the [WireKind.unknown] sentinel index) decodes to [unknown] so the
+  /// dispatcher drops it — it is NEVER mis-rendered as chat text (RULE WC). Any
+  /// other unrecognised payload (legacy, non-JSON) falls back to a plain
+  /// [WireKind.message] (forward/back compatibility, unchanged).
   static WireEnvelope decode(Uint8List bytes) {
     try {
       final decoded = jsonDecode(utf8.decode(bytes));
-      if (decoded is Map &&
-          decoded['t'] is int &&
-          decoded['b'] is String &&
-          (decoded['t'] as int) >= 0 &&
-          (decoded['t'] as int) < WireKind.values.length) {
-        return WireEnvelope(
-          WireKind.values[decoded['t'] as int],
-          decoded['b'] as String,
-          id: decoded['i'] is String ? decoded['i'] as String : null,
-          sentAtMs: decoded['s'] is int ? decoded['s'] as int : null,
-          seq: decoded['q'] is int ? decoded['q'] as int : null,
-        );
+      if (decoded is Map && decoded['t'] is int && decoded['b'] is String) {
+        final t = decoded['t'] as int;
+        // A known, real kind (never the unknown sentinel itself) — decode it.
+        if (t >= 0 &&
+            t < WireKind.values.length &&
+            WireKind.values[t] != WireKind.unknown) {
+          return WireEnvelope(
+            WireKind.values[t],
+            decoded['b'] as String,
+            id: decoded['i'] is String ? decoded['i'] as String : null,
+            sentAtMs: decoded['s'] is int ? decoded['s'] as int : null,
+            seq: decoded['q'] is int ? decoded['q'] as int : null,
+          );
+        }
+        // Out of this build's range. A structured v:2 frame (a kind a newer build
+        // added) MUST be dropped, never shown as chat (RULE WC); a non-v2 unknown
+        // t is legacy garble → fall through to the plain-message fallback.
+        if (decoded['v'] == 2) return unknown;
       }
     } catch (_) {
       // fall through to plain-message fallback
