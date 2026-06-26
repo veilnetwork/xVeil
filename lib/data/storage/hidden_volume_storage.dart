@@ -495,16 +495,14 @@ class HiddenVolumeStorage implements Storage {
             _scanDeletedLegacyIds.contains(messageId);
       });
 
-  @override
-  Future<void> removeConversation(NodeId peer) async {
-    // Tombstone every message (+ purge its file blob), then drop the contact
-    // record + chat-list index entry — all in ONE commit. This loop used to call
-    // deleteMessage() per message, i.e. one commit per message; with 1 MiB of
-    // padding per commit a 100-message chat ballooned the container by ~100 MiB
-    // on a single delete. Coalescing to a single commit is the high-leverage cut
-    // for storage bloat here. The per-message tombstone bytes are byte-identical
-    // to deleteMessage, so deniable-delete / isMessageDeleted semantics are
-    // unchanged — only the commit boundary moves.
+  /// Tombstone every message of [peer]'s conversation (+ purge file blobs) as a
+  /// list of ops for ONE commit. Shared by [removeConversation] and
+  /// [clearMessages]; the only difference is whether the caller ALSO drops the
+  /// contact record. Coalescing to a single commit is the high-leverage cut for
+  /// storage bloat (one 1 MiB-padded commit, not one per message). The
+  /// per-message tombstone bytes are byte-identical to [deleteMessage], so
+  /// deniable-delete / isMessageDeleted semantics are unchanged.
+  Future<List<KvLogOp>> _tombstoneAllOps(NodeId peer) async {
     final ops = <KvLogOp>[];
     for (final m in await loadMessages(peer.hex)) {
       final hit = await _liveEntryFor(peer.hex, m.id);
@@ -521,6 +519,12 @@ class HiddenVolumeStorage implements Storage {
         ops.addAll(await AsyncFileStore(_as).deleteFileOps(fileId));
       }
     }
+    return ops;
+  }
+
+  @override
+  Future<void> removeConversation(NodeId peer) async {
+    final ops = await _tombstoneAllOps(peer);
     final index = await _contactIndex();
     index.remove(peer.hex);
     ops.add(DeleteOp(Ns.contacts, peer.bytes));
@@ -530,6 +534,16 @@ class HiddenVolumeStorage implements Storage {
     // and drop the warm fold (scrubDeleted invalidates it) so a later read can't
     // resurrect a tombstoned row; the tombstones are durable in the log, so
     // isMessageDeleted still answers true after the rebuild.
+    await scrubDeleted();
+  }
+
+  @override
+  Future<void> clearMessages(NodeId peer) async {
+    // Same per-message tombstone+scrub as removeConversation, but the contact
+    // record and chat-list index entry stay — the conversation remains (empty).
+    final ops = await _tombstoneAllOps(peer);
+    if (ops.isEmpty) return; // nothing stored — keep the chat untouched
+    await _as.commit(ops);
     await scrubDeleted();
   }
 
