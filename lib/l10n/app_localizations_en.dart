@@ -172,6 +172,12 @@ class AppL10nEn extends AppL10n {
   String get notificationNewMessage => 'New message';
 
   @override
+  String get notificationReply => 'Reply';
+
+  @override
+  String get notificationReplyHint => 'Message…';
+
+  @override
   String get notificationsTitle => 'Notifications';
 
   @override

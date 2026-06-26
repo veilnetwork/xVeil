@@ -1,7 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/ids.dart';
+import '../core/log.dart';
 import '../data/notifications/notification_service.dart';
 import '../routing/router.dart';
+import 'messaging.dart';
 import 'providers.dart';
 
 /// How much of an incoming message a notification reveals. Default is
@@ -107,11 +112,26 @@ final activeConversationProvider = StateProvider<String?>((ref) => null);
 final notificationServiceProvider = Provider<NotificationService>((ref) {
   final svc = NotificationService();
   // Fire-and-forget init; show() is a no-op until it completes.
-  svc.init(onTap: (payload) {
-    if (payload != null && payload.isNotEmpty) {
-      ref.read(routerProvider).go('/chat/$payload');
-    }
-  });
+  svc.init(
+    onTap: (payload) {
+      if (payload != null && payload.isNotEmpty) {
+        ref.read(routerProvider).go('/chat/$payload');
+      }
+    },
+    onReply: (payload, text) {
+      // Deliver an inline (notification) reply through the active identity's
+      // node. Reachable only while the app / keep-alive service is running (the
+      // unlocked container lives in this isolate). Sends from the ACTIVE
+      // identity — the common single-identity case; a reply to a notification
+      // from a since-switched identity would go from the wrong one.
+      try {
+        final peer = NodeId.fromHex(payload);
+        unawaited(ref.read(messagingServiceProvider).sendText(peer, text));
+      } catch (e) {
+        devLog(() => 'xVeil[notify]: inline reply failed: $e');
+      }
+    },
+  );
   ref.onDispose(svc.cancelAll);
   return svc;
 });

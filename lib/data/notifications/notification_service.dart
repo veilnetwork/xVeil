@@ -26,10 +26,20 @@ class NotificationService {
   static const _channelId = 'xveil_messages';
   static const _channelName = 'Messages';
 
-  /// Initialize the plugin and wire the tap handler. [onTap] receives the
-  /// notification's payload (a conversation id) so the app can open that chat.
+  /// Action id for the inline (RemoteInput) reply button on a message alert.
+  static const replyActionId = 'xveil_reply';
+
+  /// Initialize the plugin and wire the response handlers. [onTap] receives the
+  /// notification's payload (a conversation id) so the app can open that chat;
+  /// [onReply] receives (payload, text) when the user replies inline from the
+  /// notification (Android RemoteInput) — routed only while the app process is
+  /// ALIVE (foreground, or background with the keep-alive service), which is the
+  /// only state in which the deniable node can actually send the reply.
   /// Idempotent + fail-safe — a failure here must never block app startup.
-  Future<void> init({required void Function(String? payload) onTap}) async {
+  Future<void> init({
+    required void Function(String? payload) onTap,
+    void Function(String payload, String text)? onReply,
+  }) async {
     if (_ready || !_supported) return;
     try {
       // The Android launcher icon doubles as the notification icon.
@@ -45,7 +55,21 @@ class NotificationService {
       await _plugin.initialize(
         const InitializationSettings(
             android: android, iOS: darwin, macOS: darwin, linux: linux),
-        onDidReceiveNotificationResponse: (resp) => onTap(resp.payload),
+        onDidReceiveNotificationResponse: (resp) {
+          // An inline reply (RemoteInput) carries the typed text in `input` under
+          // our reply action id; anything else is a plain tap → open the chat.
+          if (resp.actionId == replyActionId) {
+            final text = resp.input?.trim() ?? '';
+            final payload = resp.payload;
+            if (text.isNotEmpty && payload != null && payload.isNotEmpty) {
+              onReply?.call(payload, text);
+            }
+            return;
+          }
+          onTap(resp.payload);
+        },
+        onDidReceiveBackgroundNotificationResponse:
+            _notificationBackgroundHandler,
       );
       _ready = true;
     } catch (e) {
@@ -86,29 +110,50 @@ class NotificationService {
   }
 
   /// Post a notification. [id] is the OS notification id — reuse the same id per
-  /// conversation so a chat's notifications collapse instead of stacking.
+  /// conversation so a chat's notifications collapse instead of stacking. When
+  /// [replyLabel] is non-null an inline reply action (Android RemoteInput) is
+  /// attached — the typed text comes back through `onReply` (see [init]). Only
+  /// offer it when the sender is visible (full preview), so the user knows whom
+  /// they are answering.
   Future<void> show({
     required int id,
     required String title,
     required String body,
     String? payload,
+    String? replyLabel,
+    String? replyHint,
   }) async {
     if (!_ready) return;
     try {
+      final actions = (replyLabel != null && Platform.isAndroid)
+          ? <AndroidNotificationAction>[
+              AndroidNotificationAction(
+                replyActionId,
+                replyLabel,
+                inputs: <AndroidNotificationActionInput>[
+                  AndroidNotificationActionInput(label: replyHint),
+                ],
+                // Send inline without opening the app; dismiss the alert after.
+                showsUserInterface: false,
+                cancelNotification: true,
+              ),
+            ]
+          : null;
       await _plugin.show(
         id,
         title,
         body,
-        const NotificationDetails(
+        NotificationDetails(
           android: AndroidNotificationDetails(
             _channelId,
             _channelName,
             importance: Importance.high,
             priority: Priority.high,
+            actions: actions,
           ),
-          iOS: DarwinNotificationDetails(),
-          macOS: DarwinNotificationDetails(),
-          linux: LinuxNotificationDetails(),
+          iOS: const DarwinNotificationDetails(),
+          macOS: const DarwinNotificationDetails(),
+          linux: const LinuxNotificationDetails(),
         ),
         payload: payload,
       );
@@ -128,3 +173,11 @@ class NotificationService {
   @visibleForTesting
   bool get isReady => _ready;
 }
+
+/// Fires in a SEPARATE isolate when a notification action is tapped while the app
+/// PROCESS is dead. We cannot deliver a reply from here — the deniable container
+/// is locked and the embedded node lives in the main isolate — so this is a
+/// deliberate no-op (inline reply only works while the app / keep-alive service
+/// is running). Registered so the plugin doesn't drop the background callback.
+@pragma('vm:entry-point')
+void _notificationBackgroundHandler(NotificationResponse response) {}

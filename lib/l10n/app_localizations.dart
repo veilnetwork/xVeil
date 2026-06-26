@@ -397,6 +397,18 @@ abstract class AppL10n {
   /// **'New message'**
   String get notificationNewMessage;
 
+  /// No description provided for @notificationReply.
+  ///
+  /// In en, this message translates to:
+  /// **'Reply'**
+  String get notificationReply;
+
+  /// No description provided for @notificationReplyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Message…'**
+  String get notificationReplyHint;
+
   /// No description provided for @notificationsTitle.
   ///
   /// In en, this message translates to:
