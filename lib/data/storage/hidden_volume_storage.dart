@@ -229,6 +229,7 @@ class HiddenVolumeStorage implements Storage {
       'n': contact.nodeId.hex,
       'name': contact.name,
       's': contact.status.index,
+      if (contact.muted) 'm': true,
     });
     // Maintain a contacts index (hidden-volume has no KV key enumeration) so
     // the chat list can show contacts that have no messages yet.
@@ -263,6 +264,7 @@ class HiddenVolumeStorage implements Storage {
       status: s != null && s >= 0 && s < ContactStatus.values.length
           ? ContactStatus.values[s]
           : ContactStatus.accepted,
+      muted: m['m'] as bool? ?? false,
     );
   }
 

@@ -163,6 +163,31 @@ void main() {
     expect((await sA.getContact(b))!.label, b.short);
   });
 
+  test('muting a contact persists, survives a rename, and is local-only',
+      () async {
+    await mA.sendRequest(b, 'hi');
+    await _pump();
+    await mB.acceptContact(a);
+    await _pump();
+
+    expect((await sA.getContact(b))!.muted, isFalse); // default
+    await mA.setContactMuted(b, true);
+    expect((await sA.getContact(b))!.muted, isTrue);
+
+    // A later rename must preserve the mute flag (setContactName rebuilds the
+    // record directly, so it has to carry muted across).
+    await mA.setContactName(b, 'B');
+    final c = await sA.getContact(b);
+    expect(c!.muted, isTrue);
+    expect(c.name, 'B');
+
+    await mA.setContactMuted(b, false);
+    expect((await sA.getContact(b))!.muted, isFalse);
+
+    // B never sees A's mute — it is purely local.
+    expect((await sB.getContact(a))?.muted ?? false, isFalse);
+  });
+
   test('pre-consent intro spam is capped, keeping the most recent', () async {
     // A hostile peer mints a FRESH id per request so the dedup-by-id path does
     // not collapse them. Without the cap these pile up unbounded before B ever

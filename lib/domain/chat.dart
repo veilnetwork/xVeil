@@ -14,21 +14,30 @@ class Contact {
     required this.nodeId,
     this.name,
     this.status = ContactStatus.accepted,
+    this.muted = false,
   });
 
   final NodeId nodeId;
   final String? name;
   final ContactStatus status;
 
+  /// Local notification-mute for this conversation. Stored in the encrypted
+  /// contact record (never on the wire) — a per-peer flag is low-sensitivity but
+  /// still belongs in the deniable store, not plaintext prefs (a muted-peer list
+  /// would otherwise leak the contact set on a seized device).
+  final bool muted;
+
   String get label => name ?? nodeId.short;
 
   /// Free messaging is only allowed once the relationship is accepted.
   bool get canMessage => status == ContactStatus.accepted;
 
-  Contact copyWith({String? name, ContactStatus? status}) => Contact(
+  Contact copyWith({String? name, ContactStatus? status, bool? muted}) =>
+      Contact(
         nodeId: nodeId,
         name: name ?? this.name,
         status: status ?? this.status,
+        muted: muted ?? this.muted,
       );
 }
 

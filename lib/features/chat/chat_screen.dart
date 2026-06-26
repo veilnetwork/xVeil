@@ -316,6 +316,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     switch (action) {
       case _ChatMenuAction.rename:
         await _renameContact();
+      case _ChatMenuAction.mute:
+        await svc.setContactMuted(_peer, true);
+      case _ChatMenuAction.unmute:
+        await svc.setContactMuted(_peer, false);
       case _ChatMenuAction.block:
         await svc.blockContact(_peer);
       case _ChatMenuAction.unblock:
@@ -543,6 +547,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 value: _ChatMenuAction.rename,
                 child: Text(l.chatMenuRename),
               ),
+              // Mute/unmute local notifications for this conversation.
+              if (contact?.muted ?? false)
+                PopupMenuItem(
+                  value: _ChatMenuAction.unmute,
+                  child: Text(l.chatMenuUnmute),
+                )
+              else
+                PopupMenuItem(
+                  value: _ChatMenuAction.mute,
+                  child: Text(l.chatMenuMute),
+                ),
               // Block an accepted contact (their messages get dropped) or lift
               // an existing block — local-only, the peer is never told either way.
               if (status == ContactStatus.blocked)
@@ -802,7 +817,7 @@ class _PendingOutgoingActions extends StatelessWidget {
 }
 
 /// Chat AppBar overflow actions. Local-only — none of these touch the wire.
-enum _ChatMenuAction { rename, block, unblock, clear, delete }
+enum _ChatMenuAction { rename, mute, unmute, block, unblock, clear, delete }
 
 /// One `label: value` line in the message-info sheet. The value is selectable
 /// so the user can copy a message id / filename.

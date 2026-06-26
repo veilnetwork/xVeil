@@ -607,6 +607,18 @@ abstract class AppL10n {
   /// **'Local name'**
   String get chatRenameTitle;
 
+  /// No description provided for @chatMenuMute.
+  ///
+  /// In en, this message translates to:
+  /// **'Mute notifications'**
+  String get chatMenuMute;
+
+  /// No description provided for @chatMenuUnmute.
+  ///
+  /// In en, this message translates to:
+  /// **'Unmute notifications'**
+  String get chatMenuUnmute;
+
   /// No description provided for @chatMenuUnblock.
   ///
   /// In en, this message translates to:

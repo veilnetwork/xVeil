@@ -860,8 +860,20 @@ class MessagingService {
         nodeId: existing.nodeId,
         name: (trimmed == null || trimmed.isEmpty) ? null : trimmed,
         status: existing.status,
+        muted: existing.muted,
       ),
     );
+    _signal();
+  }
+
+  /// Mute (or unmute) notifications for [peer]'s conversation. Local-only — the
+  /// flag lives in the encrypted contact record and is never sent. The
+  /// notification layer reads it to suppress alerts; messages still arrive and
+  /// store as normal. No-op if we hold no contact for the peer.
+  Future<void> setContactMuted(NodeId peer, bool muted) async {
+    final existing = await _storage.getContact(peer);
+    if (existing == null) return;
+    await _storage.upsertContact(existing.copyWith(muted: muted));
     _signal();
   }
 
