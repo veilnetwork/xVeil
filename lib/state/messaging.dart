@@ -74,6 +74,26 @@ class _Incoming {
   DateTime lastActivity;
 }
 
+/// Max edit/delete ops we hold waiting for their target message to arrive (see
+/// [MessagingService._pendingOps]). Bounds memory against an accepted peer that
+/// spams ops for message ids we never receive; the cap evicts oldest-first. A
+/// real conversation has at most a handful of in-flight out-of-order ops, so a
+/// modest cap loses nothing legitimate. Tunable.
+const kMaxPendingOps = 512;
+
+/// A peer's edit/delete of one of THEIR messages that drained before the message
+/// itself. Buffered until the target stores, then replayed. A delete is terminal
+/// (a later edit can't revive a message the peer unsent), so [isDelete] wins over
+/// a buffered edit for the same id.
+class _PendingOp {
+  _PendingOp.edit(String this.body) : isDelete = false;
+  _PendingOp.delete() : isDelete = true, body = null;
+  final bool isDelete;
+
+  /// The replacement text for an edit; null for a delete.
+  final String? body;
+}
+
 /// A genuinely-new incoming message, emitted on [MessagingService.incoming] for
 /// the notification layer (NOT re-deliveries — those are deduped before this
 /// fires). Carries only what a notification needs; the privacy decision (show
@@ -194,6 +214,20 @@ class MessagingService {
   Timer? _retryTimer;
   bool _flushing = false;
   final Map<String, _Incoming> _inFlight = {};
+
+  /// Edit/delete ops that arrived BEFORE the message they target. Mailbox blobs
+  /// have no delivery order, so when a peer sends a message and then edits (or
+  /// unsends) it while we are offline, both deposits drain on reconnect in
+  /// arbitrary order — the edit/del can come first. Without this the op would be
+  /// dropped (its target isn't stored yet), so the offline edit/delete never
+  /// lands. Keyed by `<peerHex>|<messageId>`; replayed when the message stores.
+  ///
+  /// In-memory + bounded ([kMaxPendingOps]): nothing about a pending op touches
+  /// disk (no metadata at rest), and a hostile accepted peer can't grow it
+  /// without bound. Lost on restart — durable cross-session op ordering is the
+  /// event-log's job (doc/EVENT-LOG-SYNC-DESIGN.md §15), this is the tactical
+  /// fix for the common same-session drain.
+  final Map<String, _PendingOp> _pendingOps = {};
 
   /// Offline-delivery side-channel (null until wired by the provider, and null
   /// for the loopback/test transport). When present, un-acked outgoing messages
@@ -388,6 +422,23 @@ class MessagingService {
     return false;
   }
 
+  String _opKey(NodeId peer, String id) => '${peer.hex}|$id';
+
+  /// Hold [op] until [peer]'s message [id] arrives (it drained out of order).
+  /// Delete is terminal: once a delete is buffered, a later edit for the same id
+  /// is ignored. Insertion-ordered + bounded — evict the oldest when full so a
+  /// peer flooding ops for ids we never receive can't grow this without bound.
+  void _bufferPendingOp(NodeId peer, String id, _PendingOp op) {
+    final key = _opKey(peer, id);
+    final existing = _pendingOps[key];
+    if (existing != null && existing.isDelete) return; // delete already wins
+    if (!_pendingOps.containsKey(key) &&
+        _pendingOps.length >= kMaxPendingOps) {
+      _pendingOps.remove(_pendingOps.keys.first); // evict oldest insertion
+    }
+    _pendingOps[key] = op;
+  }
+
   Future<void> _setStatus(NodeId peer, ContactStatus status) async {
     final existing = await _storage.getContact(peer);
     await _storage.upsertContact(
@@ -501,15 +552,40 @@ class MessagingService {
           await _ackTo(m, id, direct: true);
           return;
         }
+        // The peer's edit/delete of this message may have DRAINED FIRST (mailbox
+        // blobs are unordered): when they sent then edited/unsent it while we
+        // were offline, both deposits arrive on reconnect in arbitrary order.
+        final pending = id == null ? null : _pendingOps.remove(_opKey(m.src, id));
+        if (pending != null && pending.isDelete) {
+          // Honor the unsend: store then tombstone so the message never shows AND
+          // a later re-delivery is refused (isMessageDeleted above) — deniable
+          // erasure, not a transient hide. No notification for an unsent message.
+          await _store(
+            m.src,
+            MessageDirection.incoming,
+            env.body,
+            MessageStatus.delivered,
+            id: id,
+            timestamp: _wireSentAt(env),
+          );
+          await _storage.deleteMessage(m.src.hex, id!);
+          await _storage.scrubDeleted();
+          await _ackTo(m, id, direct: true);
+          return;
+        }
+        // Apply a buffered edit by storing the edited body directly, so the
+        // latest text shows on first paint (no flash of the superseded text, and
+        // the original body never hits the container — nothing to scrub).
+        final body = pending?.body ?? env.body;
         await _store(
           m.src,
           MessageDirection.incoming,
-          env.body,
+          body,
           MessageStatus.delivered,
           id: id,
           timestamp: _wireSentAt(env),
         );
-        _emitIncoming(m.src, env.body, isFile: false);
+        _emitIncoming(m.src, body, isFile: false);
         if (id != null) {
           await _ackTo(m, id);
         }
@@ -551,17 +627,30 @@ class MessagingService {
         // our own outgoing messages (the id travels on the wire, so they know
         // it; the direction check is the real authorization gate).
         if (existing?.status != ContactStatus.accepted) return;
-        if (env.id != null && await _isIncomingFrom(m.src, env.id!)) {
-          await _storage.editMessage(m.src.hex, env.id!, env.body);
+        final editId = env.id;
+        if (editId == null) break;
+        if (await _isIncomingFrom(m.src, editId)) {
+          await _storage.editMessage(m.src.hex, editId, env.body);
           await _storage.scrubDeleted();
+        } else if (!await _hasMessage(m.src, editId)) {
+          // Target not arrived yet (offline send+edit drains out of order) —
+          // buffer and replay when the message stores. NOT buffered when the id
+          // IS present but outgoing (our own message): a peer can't edit ours.
+          _bufferPendingOp(m.src, editId, _PendingOp.edit(env.body));
         }
       case WireKind.del:
         // The peer unsent a message THEY sent us — purge + scrub our copy too.
         // Same authorization gate: only their incoming messages, never ours.
         if (existing?.status != ContactStatus.accepted) return;
-        if (env.id != null && await _isIncomingFrom(m.src, env.id!)) {
-          await _storage.deleteMessage(m.src.hex, env.id!);
+        final delId = env.id;
+        if (delId == null) break;
+        if (await _isIncomingFrom(m.src, delId)) {
+          await _storage.deleteMessage(m.src.hex, delId);
           await _storage.scrubDeleted();
+        } else if (!await _hasMessage(m.src, delId)) {
+          // Same out-of-order case as edit: hold the unsend until the message
+          // arrives, then the message arm tombstones it instead of resurrecting.
+          _bufferPendingOp(m.src, delId, _PendingOp.delete());
         }
       case WireKind.fileMeta:
         if (existing?.status != ContactStatus.accepted) return;
