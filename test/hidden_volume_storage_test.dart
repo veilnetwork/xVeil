@@ -931,4 +931,146 @@ void main() {
     expect(await storage.loadMessages(convA), isEmpty);
     expect(await storage.isMessageDeleted(convA, 'shared-id'), isTrue);
   });
+
+  // Event-log gap detection (doc/EVENT-LOG-IMPL-PLAN.md "Sync + gap-fill",
+  // step 3b): conversationSync derives, per author, the contiguous high-water
+  // (the ack) and the named holes (re-request ranges) from the durable
+  // (author, seq) the log rows carry. Posts, edits, voids, and delete
+  // tombstones each consume a seq, so all must keep their slot for the
+  // high-water to advance (R4).
+  group('conversationSync (event-log high-water + holes)', () {
+    final conv = _id(7).hex;
+    final authorA = _id(20).hex;
+    final authorB = _id(21).hex;
+
+    // A wire-delivered event keeps the SENDER's (author, seq) verbatim — storage
+    // stores them as-is and does NOT bump its local counter. This mirrors how the
+    // fold lands an incoming event under the sender's seq, letting us script an
+    // exact per-author seq set.
+    Message ev(String author, int seq) => Message(
+          id: '$author#$seq',
+          conversationId: conv,
+          direction: MessageDirection.incoming,
+          body: 'm$seq',
+          timestamp: DateTime(2026, 6, seq.clamp(1, 28)),
+          author: author,
+          seq: seq,
+        );
+
+    Message outgoing(String id, DateTime ts) => Message(
+          id: id,
+          conversationId: conv,
+          direction: MessageDirection.outgoing,
+          body: id,
+          timestamp: ts,
+        );
+
+    test('a gap-free stream reports the full high-water and no holes', () async {
+      for (final s in [1, 2, 3]) {
+        await storage.appendMessage(ev(authorA, s));
+      }
+      final sync = await storage.conversationSync(conv);
+      expect(sync.highWater[authorA], 3);
+      expect(sync.holes[authorA], isNull);
+    });
+
+    test('an interior gap stalls high-water and is named as a hole', () async {
+      for (final s in [1, 2, 4]) {
+        await storage.appendMessage(ev(authorA, s));
+      }
+      final sync = await storage.conversationSync(conv);
+      expect(sync.highWater[authorA], 2, reason: 'stalls before the missing 3');
+      expect(sync.holes[authorA], [(3, 3)]);
+    });
+
+    test('a missing seq 1 yields high-water 0 (reconcile-from-zero)', () async {
+      for (final s in [2, 3]) {
+        await storage.appendMessage(ev(authorA, s));
+      }
+      final sync = await storage.conversationSync(conv);
+      expect(sync.highWater[authorA], 0);
+      expect(sync.holes[authorA], [(1, 1)]);
+    });
+
+    test('a multi-seq gap coalesces into one [lo, hi] range', () async {
+      for (final s in [1, 5]) {
+        await storage.appendMessage(ev(authorA, s));
+      }
+      final sync = await storage.conversationSync(conv);
+      expect(sync.highWater[authorA], 1);
+      expect(sync.holes[authorA], [(2, 4)]);
+    });
+
+    test('multiple gaps surface as separate ranges', () async {
+      for (final s in [1, 3, 6]) {
+        await storage.appendMessage(ev(authorA, s));
+      }
+      final sync = await storage.conversationSync(conv);
+      expect(sync.highWater[authorA], 1);
+      expect(sync.holes[authorA], [(2, 2), (4, 5)]);
+    });
+
+    test('two authors keep independent high-water streams', () async {
+      await storage.appendMessage(ev(authorA, 1));
+      await storage.appendMessage(ev(authorA, 2));
+      await storage.appendMessage(ev(authorB, 1));
+      await storage.appendMessage(ev(authorB, 3));
+      final sync = await storage.conversationSync(conv);
+      expect(sync.highWater[authorA], 2);
+      expect(sync.holes[authorA], isNull);
+      expect(sync.highWater[authorB], 1);
+      expect(sync.holes[authorB], [(2, 2)]);
+    });
+
+    test('an empty/unknown conversation yields empty maps', () async {
+      final sync = await storage.conversationSync(_id(99).hex);
+      expect(sync.highWater, isEmpty);
+      expect(sync.holes, isEmpty);
+    });
+
+    test('a locally-allocated post + its edit both advance the high-water',
+        () async {
+      // author=null → storage allocates author=conv, seq 1 (post) then 2 (edit).
+      final post = await storage.appendMessage(outgoing('p1', DateTime(2026, 6, 1)));
+      expect(post.seq, 1);
+      await storage.editMessage(conv, 'p1', 'hi (edited)');
+      final sync = await storage.conversationSync(conv);
+      expect(sync.highWater[conv], 2, reason: 'post seq 1 + edit seq 2');
+      expect(sync.holes[conv], isNull);
+    });
+
+    test('a deleted message KEEPS its seq slot so high-water does not stall (R4)',
+        () async {
+      final stored = [
+        for (var i = 0; i < 3; i++)
+          await storage.appendMessage(outgoing('d$i', DateTime(2026, 6, i + 1))),
+      ];
+      expect((await storage.conversationSync(conv)).highWater[conv], 3,
+          reason: 'sanity: gap-free 1..3');
+      // Delete the MIDDLE message (seq 2): without the R4 slot-preservation its
+      // seq would vanish and high-water would regress to 1 with a hole at 2.
+      final middle = stored.firstWhere((m) => m.seq == 2);
+      await storage.deleteMessage(conv, middle.id);
+      final sync = await storage.conversationSync(conv);
+      expect(sync.highWater[conv], 3,
+          reason: 'the tombstone keeps the seq slot — high-water must not regress');
+      expect(sync.holes[conv], isNull);
+    });
+
+    test('deleting an EDITED message keeps both the post and edit seq slots',
+        () async {
+      final post = await storage.appendMessage(outgoing('e1', DateTime(2026, 6, 1)));
+      expect(post.seq, 1);
+      await storage.editMessage(conv, 'e1', 'edited'); // consumes seq 2
+      // A later post at seq 3 so a dropped edit seq would show as an interior
+      // hole (2), not merely a shorter tail.
+      final later = await storage.appendMessage(outgoing('e2', DateTime(2026, 6, 3)));
+      expect(later.seq, 3);
+      await storage.deleteMessage(conv, 'e1'); // tombstones post (1), voids edit (2)
+      final sync = await storage.conversationSync(conv);
+      expect(sync.highWater[conv], 3,
+          reason: 'post (1, tombstone) + edit (2, void) + post (3) all retained');
+      expect(sync.holes[conv], isNull);
+    });
+  });
 }
