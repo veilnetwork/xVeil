@@ -25,6 +25,16 @@ abstract interface class RelayKeyCache {
   /// Drop any cached key for [relay] (e.g. it failed when we tried to register
   /// with it, so it may be stale).
   Future<void> evict(NodeId relay);
+
+  /// The relay we last successfully registered a mailbox publisher at, so a
+  /// later session re-picks the SAME relay FIRST instead of drifting to another
+  /// resolvable candidate — cross-session drift leaves a stale ad slot at the old
+  /// relay that a sender can still deposit to. Null if never set. The relay
+  /// node-id is a PUBLIC value, so persisting it leaks nothing.
+  Future<NodeId?> getPreferredRelay();
+
+  /// Remember [relay] as the preferred mailbox relay for future sessions.
+  Future<void> setPreferredRelay(NodeId relay);
 }
 
 /// [RelayKeyCache] over the active deniable space's settings KV. Stored as a
@@ -48,7 +58,13 @@ class StorageRelayKeyCache implements RelayKeyCache {
   /// once, then re-puts of the same key are no-ops until the refresh point.
   final Map<String, ({String key64, int expiry})> _shadow = {};
 
+  /// In-memory shadow of the persisted preferred relay so a re-register of the
+  /// SAME relay every session doesn't re-commit (settings writes are padded log
+  /// commits — a source of bloat).
+  String? _preferredShadow;
+
   static const _prefix = 'mailbox.relaykey.v1.';
+  static const _preferredKey = 'mailbox.preferredrelay.v1';
   String _settingKey(NodeId relay) => '$_prefix${relay.hex}';
 
   @override
@@ -100,6 +116,28 @@ class StorageRelayKeyCache implements RelayKeyCache {
       // best-effort
     }
   }
+
+  @override
+  Future<NodeId?> getPreferredRelay() async {
+    try {
+      final raw = await _storage.getSetting(_preferredKey);
+      if (raw == null || raw.length != 64) return null;
+      return NodeId.fromHex(raw);
+    } catch (_) {
+      return null; // best-effort: malformed/missing → no preference
+    }
+  }
+
+  @override
+  Future<void> setPreferredRelay(NodeId relay) async {
+    if (_preferredShadow == relay.hex) return; // unchanged — skip the commit
+    _preferredShadow = relay.hex;
+    try {
+      await _storage.putSetting(_preferredKey, relay.hex);
+    } catch (_) {
+      // best-effort — a failed write just means no preference next launch
+    }
+  }
 }
 
 /// Process-lifetime [RelayKeyCache] for tests and the loopback/dev path (where
@@ -110,6 +148,7 @@ class InMemoryRelayKeyCache implements RelayKeyCache {
 
   final int _ttlMs;
   final Map<String, ({Uint8List key, int expiry})> _entries = {};
+  NodeId? _preferred;
 
   @override
   Future<Uint8List?> get(NodeId relay) async {
@@ -133,4 +172,10 @@ class InMemoryRelayKeyCache implements RelayKeyCache {
 
   @override
   Future<void> evict(NodeId relay) async => _entries.remove(relay.hex);
+
+  @override
+  Future<NodeId?> getPreferredRelay() async => _preferred;
+
+  @override
+  Future<void> setPreferredRelay(NodeId relay) async => _preferred = relay;
 }
