@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../../core/ids.dart';
 import '../../domain/chat.dart';
+import '../../domain/event.dart';
 import '../../domain/identity.dart';
 import '../../domain/roster.dart';
 
@@ -84,6 +85,16 @@ abstract interface class Storage {
   /// the sender's; otherwise storage allocates the next gap-free one). The
   /// sender reads the returned seq to put it on the wire.
   Future<Message> appendMessage(Message message);
+
+  /// The event-log sync state of [conversationId] (§15, RULE HW / RULE NH): per
+  /// author seen in the local log, the contiguous high-water and the named holes
+  /// (see [ConversationSync]). Derived from the durable (author, seq) the records
+  /// carry — every post, edit, void, and delete tombstone consumes a seq, so a
+  /// deleted message keeps its slot (R4) and high-water advances past it rather
+  /// than stalling on a permanent gap. The sync layer advertises high-water as
+  /// an ack + "ship me anything newer" and names holes for targeted re-request,
+  /// so gap-fill self-heals the log over a best-effort transport.
+  Future<ConversationSync> conversationSync(String conversationId);
 
   /// Update the delivery [status] of message [messageId] in conversation
   /// [conversationId] (e.g. `sent → delivered` on an ack). Folded over the
