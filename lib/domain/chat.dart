@@ -72,6 +72,8 @@ class Message {
     this.fileId,
     this.fileName,
     this.edited = false,
+    this.author,
+    this.seq,
   });
 
   final String id;
@@ -90,6 +92,15 @@ class Message {
   final String? fileId;
   final String? fileName;
 
+  /// Event-log fields (doc/EVENT-LOG-SYNC-DESIGN.md §15). [author] is the node-id
+  /// hex of the message's originator, bound from the authenticated sender on
+  /// receive (R1) — NOT inferred from [direction]. [seq] is the per-(conversation,
+  /// author) gap-free Lamport counter (R4/R5/R10) used for the deterministic
+  /// cross-device fold + stable display order. Null on legacy rows written before
+  /// the event-log foundation (they fold in the reserved legacy conv-slot).
+  final String? author;
+  final int? seq;
+
   bool get isFile => fileId != null;
 
   Message copyWith({MessageStatus? status, String? body, bool? edited}) =>
@@ -103,6 +114,8 @@ class Message {
         fileId: fileId,
         fileName: fileName,
         edited: edited ?? this.edited,
+        author: author,
+        seq: seq,
       );
 }
 
