@@ -97,6 +97,13 @@
   "retention30": "Через 1 месяц",
   "retention90": "Через 3 месяца",
   "retention365": "Через 1 год",
+  "retentionCustom": "Произвольно…",
+  "retentionCustomN": "Произвольно ({days} дн.)",
+  "@retentionCustomN": {
+    "placeholders": { "days": { "type": "int" } }
+  },
+  "retentionCustomTitle": "Удалять через (дней)",
+  "retentionDaysSuffix": "дн.",
   "retentionApplied": "Старые сообщения будут удалены",
   "chatMenuRename": "Переименовать",
   "chatRenameTitle": "Локальное имя",

@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/format.dart';
 import '../../core/ids.dart';
+import 'chat_actions.dart';
 import '../../domain/chat.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/messaging.dart';
@@ -351,45 +352,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
-  /// Pick this conversation's auto-delete window. Applying a window prunes
-  /// anything already past it (by ORIGINAL post time). Default is unlimited.
+  /// Pick this conversation's auto-delete window (presets + custom days) — shared
+  /// with the chats-list management sheet so both offer the same picker.
   Future<void> _pickRetention() async {
-    final l = AppL10n.of(context);
     final current = ref.read(contactProvider(widget.peerHex)).value?.retentionDays;
-    final options = <(String, int?)>[
-      (l.retentionUnlimited, null),
-      (l.retention7, 7),
-      (l.retention30, 30),
-      (l.retention90, 90),
-      (l.retention365, 365),
-    ];
-    final picked = await showDialog<(String, int?)>(
-      context: context,
-      builder: (dialog) => SimpleDialog(
-        title: Text(l.chatMenuRetention),
-        children: [
-          for (final o in options)
-            SimpleDialogOption(
-              onPressed: () => Navigator.of(dialog).pop(o),
-              child: Row(
-                children: [
-                  Icon(
-                    o.$2 == current
-                        ? Icons.radio_button_checked
-                        : Icons.radio_button_off,
-                    size: 18,
-                  ),
-                  const SizedBox(width: 12),
-                  Text(o.$1),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-    if (picked == null || !mounted) return;
-    await ref.read(messagingServiceProvider).setContactRetention(_peer, picked.$2);
-    if (mounted && picked.$2 != null) _snack(l.retentionApplied);
+    await pickRetention(context, ref, _peer, current);
   }
 
   /// Set or clear a LOCAL alias for this contact. Blank input clears it (falls
