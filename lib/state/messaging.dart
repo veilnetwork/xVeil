@@ -861,6 +861,7 @@ class MessagingService {
         name: (trimmed == null || trimmed.isEmpty) ? null : trimmed,
         status: existing.status,
         muted: existing.muted,
+        pinned: existing.pinned,
       ),
     );
     _signal();
@@ -874,6 +875,15 @@ class MessagingService {
     final existing = await _storage.getContact(peer);
     if (existing == null) return;
     await _storage.upsertContact(existing.copyWith(muted: muted));
+    _signal();
+  }
+
+  /// Pin (or unpin) [peer]'s conversation to the top of the chat list.
+  /// Local-only, stored in the encrypted contact record. No-op if unknown.
+  Future<void> setContactPinned(NodeId peer, bool pinned) async {
+    final existing = await _storage.getContact(peer);
+    if (existing == null) return;
+    await _storage.upsertContact(existing.copyWith(pinned: pinned));
     _signal();
   }
 
