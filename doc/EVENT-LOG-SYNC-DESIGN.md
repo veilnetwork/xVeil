@@ -6,8 +6,10 @@
 > contain claims later proven WRONG (e.g. "the substrate already does this" §3 —
 > false; "(ts,author,seq) is a sound total order" §4.1 — false; the §5/§6
 > deposit/sync sketch — superseded by §12.2/§12.4). **Do not implement from
-> §1–§11 directly.** Per §13 the design is **NOT yet buildable**: it is blocked
-> on substrate primitives that do not exist in hidden-volume + veil-mailbox.
+> §1–§11 directly.** **§14 is the FINAL authoritative status** — a verification
+> audit found §13.2's "substrate-blocked" verdict **OVERSTATED**: B1 (veil) is not
+> a blocker, B2/B3 are far smaller than §13 claimed, and the scoped option-2 needs
+> **zero** substrate work. Read §14 first.
 
 Status: **DESIGN — blocked on substrate (see §13).** Would supersede the
 imperative edit/delete/ack/reconnect mechanism once buildable. Implement only
@@ -720,3 +722,97 @@ exist. The honest options:
 Recommendation: **option 2** unless full multi-device CRDT recovery is a hard
 requirement — it captures most of the value without the two-repo substrate
 rewrites, and B1–B3 can be added later if/when option 1 is justified.
+
+---
+
+## 14. Verification audit — §13.2 blockers were OVERSTATED (FINAL authoritative)
+
+After §13, a **verification pass audited the §13 auditors** against the real
+veil-mailbox + hidden-volume code (plus an independent external audit). It
+**confirmed the raw facts** (mailbox `put_classified` is first-write-wins on
+`(receiver, content_id)` — veil-mailbox `lib.rs:731`; `Namespace` is a `u8` —
+`index.rs:58`; `compact_known` is unsafe in multi-identity — `app_controller.dart`
+`canCompactStorage`) but found §13.2's **conclusions overstated**. Corrected,
+code-grounded reality:
+
+### 14.1 B1 (veil relay) — NOT a blocker; no veil change needed
+
+- The relay does **not** need an overwrite/replace primitive. §12.2's "one blob
+  per author, overwritten each round" is **one** way to bound relay state, not a
+  requirement. The needed semantics — a later round supersedes the prior in-flight
+  blob — is **already achievable on the existing API**: deposit each round under a
+  **fresh opaque content-id** and ack / let-TTL-drop the superseded one (TTL =
+  `DEFAULT_TTL_SECS` 7d, `prune_expired`; ack at `lib.rs:989`). This is **exactly
+  the put-new/ack-old pattern `edit:`/`del:` already use** (`messaging.dart:900`).
+- `content_id` is **not** a random uuid (the §13.2 premise) — it is a
+  deterministic domain-separated `blake3DeriveKey('veil.mailbox.content_id.v1', id)`
+  (`messaging.dart:863`); distinct `edit:`/`del:` prefixes already give per-event
+  ids. So **R12 (per-event content-id) is already shipped** for the imperative
+  path — zero substrate work. A keyed-BLAKE3 per-deposit id stays unlinkable (no
+  cleartext correspondent handle, no high-water leak).
+- **Action:** drop B1 from the plan. §12.2 should be re-specced as
+  "fresh-content-id-per-round + ack/TTL", not "overwrite". The single-blob-per-
+  author CRDT optimization is a *defer-able nicety*, not a prerequisite.
+
+### 14.2 B2 (hidden-volume namespace + log-id) — reframed, much smaller
+
+- **"~250 conversations EVER / no recycling" is FALSE.** A namespace byte is
+  **recyclable**: an emptied namespace is omitted from the next Commit's roots
+  (`space/commit.rs:243`) and the byte is free to reuse (proven by
+  `tests/erase_namespace.rs` `write_after_erase_recreates_namespace`). Inv-W1
+  forbids reusing a physical **slot index**, not a namespace byte. Real cap =
+  **~95 LIVE namespaces at once** (the active root set must fit one Commit chunk,
+  `MAX_NAMESPACES_PER_TX`), which recycles — not a lifetime ceiling.
+- **Per-conversation seq (R10) is FREE:** keep the single `MESSAGE_LOG` namespace
+  and put a **conversation-id prefix in the u64 log-id** — existing-API usage rule,
+  zero substrate change. (But this does **not** raise the IndexFull ceiling.)
+- **The ~15K-log-id IndexFull cap is real and is per-namespace-TOTAL** (one log-id
+  per message in one flat B+ tree; `space/commit.rs:208`, `index.rs:404`). The
+  prefix does **not** relieve it. Cheapest relief, in order: (1) **per-conversation
+  namespace** (≤~95 live, recyclable — fine for the vast majority of users); (2)
+  the already-noted **3-level index** (`R-LOG-INDEX-3L`, `index.rs:23-26`) to raise
+  the per-namespace cap if truly unlimited chats are needed. Either is a *bounded*
+  hidden-volume change, not a wall.
+- **eraseSpace deniability fix** (dynamic namespaces 6..N must be erased on wipe):
+  enumerate via the **existing `list_namespaces()` FFI** instead of the hard-coded
+  5-namespace list — a small FFI/Dart plumb, **no format change**.
+
+### 14.3 B3 (scrub-vs-batch) — a USAGE RULE, not a missing primitive
+
+- "One editable record per `DataBatch`" is the **default of today's per-op model**:
+  every `appendMessage`/`editMessage`/`deleteMessage` is its own commit → its own
+  singleton batch (`hidden_volume_storage.dart:357,416,448`; FFI one-`begin_tx`-
+  per-commit). `append_log_isolated` is **unnecessary** — append+commit already
+  give it.
+- Inv-W1 "in-place rewrite forbidden" is **overstated**: vacuum's scrub-to-random
+  **is** an in-place byte overwrite of an orphan slot (an explicit FS carve-out,
+  `vacuum.rs:87`). A format-gated per-space scrub+repack is **permitted** by Inv-W1
+  (the narrow ban is a *second* overwrite with new live data).
+- The FS hole exists **only** in the event-log's BATCHED paths (R13 N-events/round,
+  bulk recovery, the existing coalesced `removeConversation`), **not** in today's
+  per-op model. **Rule:** keep editable events one-record-per-commit; apply bulk
+  recovery one-per-commit too (accept the per-commit padding — already cut 4× to
+  256 KiB buckets). + R6's regression test.
+
+### 14.4 Corrected decision (records the user's choice)
+
+- **Option 2 (reliable edit/delete + offline reconcile on the existing substrate)
+  needs ZERO substrate work** — today's per-op model is already FS-safe, the relay
+  already does distinct-content-id offline deposits (shipped: the `edit:`/`del:`
+  mailbox fix), and per-conversation seq is a free log-id prefix. Pure xVeil Dart.
+- **Option 1 (full event-log) — the user's choice — is MUCH smaller than §13
+  implied:** **no veil work** (B1 dropped); hidden-volume reduces to (a) the small
+  `eraseSpace`/`list_namespaces` fix, (b) **one bounded choice for IndexFull**
+  (per-conversation namespaces, ≤~95 live, OR the `R-LOG-INDEX-3L` index change),
+  (c) a usage rule (one-record-per-commit for editable events) + R6's test; then
+  the 4th protocol pass (§13.3) + the §13.4 gaps (files, high-water-as-ack,
+  named-hole cooldown, WireKind normative decode rule) + the Dart build.
+- **Sequencing (option 1, corrected):** start in **hidden-volume** — (1)
+  `eraseSpace`→`list_namespaces` deniability fix (smallest, independently
+  shippable), (2) decide IndexFull relief (per-conversation namespace vs 3-level
+  index) and build it, both with the established HV pre-tag gate; **no veil
+  session needed**; then the 4th protocol pass; then the xVeil Dart event-log.
+
+**Net:** the substrate is a *bounded* hidden-volume effort plus protocol work —
+not the two-repo wall §13 described. The verification pass paid for itself by
+stopping a needless veil project and a wrong "permanent ~250-chat cap" panic.

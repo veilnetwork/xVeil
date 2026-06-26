@@ -88,8 +88,9 @@ class Message {
 
 /// A 1:1 conversation. (Group chats are a later milestone.)
 ///
-/// Identified by the peer node id hex so it is stable across restarts and
-/// directly maps to a hidden-volume MESSAGE_LOG namespace partition.
+/// Identified by the peer node id hex so it is stable across restarts; it tags
+/// entries in the SINGLE shared MESSAGE_LOG append-log (NOT a per-conversation
+/// namespace partition — see doc/EVENT-LOG-SYNC-DESIGN.md §14.2).
 class Conversation {
   const Conversation({
     required this.peer,
