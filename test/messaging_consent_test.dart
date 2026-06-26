@@ -120,6 +120,27 @@ void main() {
         isFalse);
   });
 
+  test('unblocking restores delivery', () async {
+    await mA.sendRequest(b, 'hi');
+    await _pump();
+    await mB.acceptContact(a);
+    await _pump();
+    await mB.blockContact(a);
+    await mA.sendText(b, 'while blocked');
+    await _pump();
+    expect((await sB.loadMessages(a.hex)).any((m) => m.body == 'while blocked'),
+        isFalse);
+
+    // Lift the block — the contact is accepted again and new messages deliver.
+    await mB.unblockContact(a);
+    expect((await sB.getContact(a))!.status, ContactStatus.accepted);
+    await mA.sendText(b, 'after unblock');
+    await _pump();
+    expect((await sB.loadMessages(a.hex)).any((m) => m.body == 'after unblock'),
+        isTrue,
+        reason: 'unblock restores accepted status so messages flow again');
+  });
+
   test('pre-consent intro spam is capped, keeping the most recent', () async {
     // A hostile peer mints a FRESH id per request so the dedup-by-id path does
     // not collapse them. Without the cap these pile up unbounded before B ever
