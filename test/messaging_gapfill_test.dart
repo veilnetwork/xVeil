@@ -185,6 +185,34 @@ void main() {
     expect(bodies, isNot(contains('gone')));
   });
 
+  test('a file lost on the live path self-heals via gap-fill (filePost)',
+      () async {
+    await mA.sendText(b, 'hi'); // seq 1 — so the file is seq 2 in the stream
+    await _settle();
+
+    tA.drop = true;
+    final bytes = Uint8List.fromList(List.generate(5000, (i) => i % 256));
+    await mA.sendFile(b, bytes, 'photo.bin');
+    await _settle();
+    expect((await sB.loadMessages(a.hex)).where((m) => m.isFile), isEmpty,
+        reason: 'the file frames were dropped — B has no file yet');
+
+    // Reconnect: B beacons hw=1; A re-ships the file (meta seq 2 + chunks).
+    tA.drop = false;
+    await mB.reconcileOnConnect();
+    await _settle();
+
+    final files =
+        (await sB.loadMessages(a.hex)).where((m) => m.isFile).toList();
+    expect(files, hasLength(1), reason: 'gap-fill re-shipped the file');
+    expect(files.single.seq, 2, reason: 'folded under the sender filePost seq');
+    expect(await sB.loadFile(files.single.fileId!), bytes,
+        reason: 'the blob bytes round-tripped');
+    final sync = await sB.conversationSync(a.hex);
+    expect(sync.highWater[a.hex], 2);
+    expect(sync.holes[a.hex], isNull);
+  });
+
   test('a peer that LOST its message data re-syncs from zero on reconnect '
       '(Case-A wipe recovery via the beacon)', () async {
     await mA.sendText(b, 'm1');
