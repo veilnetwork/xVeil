@@ -63,6 +63,30 @@ Map<String, dynamic> encodeEventBody(LogEvent e) => {
       'ts': e.ts,
     };
 
+/// Local sync state for ONE conversation (event-log §15, RULE HW / RULE NH) —
+/// the basis for gap-fill. For each author seen in the local log:
+///
+/// * [highWater] — the CONTIGUOUS high-water: the largest N such that every seq
+///   in `1..N` is present locally (0 when even seq 1 is missing). This is the
+///   ack ("I hold every event up to N from this author") AND the gap query ("ship
+///   me everything newer than N").
+/// * [holes] — the named missing seq ranges `[lo, hi]` strictly BELOW the highest
+///   seq observed for that author (an interior gap that high-water alone can't
+///   express). These are the targeted re-request ranges (RULE NH).
+///
+/// Posts, edits, voids, AND delete tombstones each consume a seq from their
+/// author's per-(conversation, author) counter, so all four count toward the
+/// stream — a gap-free prefix requires every one of them present, which is why a
+/// deletion must keep its seq slot (R4) rather than vanish. An author with a
+/// gap-free prefix and no interior gap has no entry in [holes]. Authors are
+/// omitted from both maps when they have contributed no seq-bearing event
+/// (e.g. a legacy pre-event-log conversation), which the sync layer treats as
+/// "unknown / fall back to the legacy path" (R17).
+typedef ConversationSync = ({
+  Map<String, int> highWater,
+  Map<String, List<(int lo, int hi)>> holes,
+});
+
 /// Decode a wire/JSON body to a [LogEvent], or null if malformed (a hostile or
 /// corrupt frame must never throw out of the dispatch path — the caller drops a
 /// null). Validates the kind index range and the required scalar types.

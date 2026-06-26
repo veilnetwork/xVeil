@@ -437,6 +437,67 @@ class HiddenVolumeStorage implements Storage {
     return raw == null ? 1 : (int.tryParse(utf8.decode(raw)) ?? 1);
   }
 
+  @override
+  Future<ConversationSync> conversationSync(String conversationId) =>
+      _serialized(() => _conversationSyncCritical(conversationId));
+
+  /// Build the per-author high-water + holes for one conversation from a raw log
+  /// scan (event-log §15, RULE HW / RULE NH). For each author we collect the SET
+  /// of seqs that author has consumed in this conversation — every post, edit,
+  /// void, and (seq-bearing) delete tombstone counts, because they all draw from
+  /// the one per-(conv, author) counter, so a gap-free prefix needs all of them.
+  /// From the set we derive the contiguous high-water (the ack) and the interior
+  /// holes below the highest seq (the named re-request ranges). Caller holds
+  /// [_serialized]; this is an independent raw scan (it does NOT consult the
+  /// composite-keyed fold), so a deleted-but-still-tombstoned seq still counts.
+  Future<ConversationSync> _conversationSyncCritical(String conv) async {
+    final seqsByAuthor = <String, Set<int>>{};
+    final entries = await _as.iterLogRange(
+      namespace: Ns.messageLog,
+      limit: _logScanLimit,
+    );
+    for (final e in entries) {
+      final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
+      if (m['c'] != conv) continue;
+      // A status op carries no (author, seq) and consumes no seq — skip it. Every
+      // other row (post / edit / void / seq-bearing del tombstone) carries au+sq.
+      if (m['op'] == 'status') continue;
+      final au = m['au'];
+      final sq = m['sq'];
+      // A legacy pre-event-log row (or a tombstone of one) has no au/sq → it
+      // contributes no high-water for its author (R17 mixed-pair degrade).
+      if (au is! String || sq is! int || sq <= 0) continue;
+      (seqsByAuthor[au] ??= <int>{}).add(sq);
+    }
+    final highWater = <String, int>{};
+    final holes = <String, List<(int, int)>>{};
+    seqsByAuthor.forEach((author, seqs) {
+      // Contiguous high-water: the longest gap-free prefix 1..hw.
+      var hw = 0;
+      while (seqs.contains(hw + 1)) {
+        hw++;
+      }
+      highWater[author] = hw;
+      // Interior holes: the missing seqs strictly between the high-water and the
+      // highest observed seq, coalesced into ranges. (Nothing above max is a
+      // "hole" — those unseen seqs are covered by the high-water "ship me newer"
+      // query, not a named re-request.)
+      final max = seqs.reduce((a, b) => a > b ? a : b);
+      final ranges = <(int, int)>[];
+      int? lo;
+      for (var s = hw + 1; s <= max; s++) {
+        if (!seqs.contains(s)) {
+          lo ??= s;
+        } else if (lo != null) {
+          ranges.add((lo, s - 1));
+          lo = null;
+        }
+      }
+      if (ranges.isNotEmpty) holes[author] = ranges;
+    });
+    return (highWater: highWater, holes: holes);
+  }
+
   String _encodeMessage(Message m) => jsonEncode({
     'id': m.id,
     'c': m.conversationId,
@@ -600,6 +661,16 @@ class HiddenVolumeStorage implements Storage {
       'op': 'del',
       'id': messageId,
       'c': conversationId,
+      // Carry the deleted post's (author, seq) into the tombstone so the
+      // per-(conv, author) seq stream stays GAP-FREE (event-log R4): this row
+      // rewrites the post's own log_id, so without this its seq would vanish and
+      // conversationSync would see a permanent hole at it — stalling high-water
+      // forever. The tombstone keeps the seq SLOT (a local body-less void) while
+      // the id stays LOCAL-only for born-delete suppression (§12.1, never on the
+      // recovery wire). Author/seq are already-known/inherent (R11), so this
+      // leaks nothing beyond the documented seq-count exposure.
+      if (hit.message.author != null) 'au': hit.message.author,
+      if (hit.message.seq != null) 'sq': hit.message.seq,
     });
     // An EDITED message has retained edit rows holding its old plaintext — void
     // them too so the delete is forensic, not just the current text. Skipped for
@@ -662,6 +733,13 @@ class HiddenVolumeStorage implements Storage {
           'c': conv,
           'tg': m['tg'],
           'id': m['id'],
+          // The void IS the seq-preserving placeholder (R-VOID): carry the
+          // voided edit's (author, seq) so its slot survives the reclaim and the
+          // contiguous high-water (conversationSync) advances past it instead of
+          // stalling on a phantom hole (R4). Body-less either way → the scrub
+          // still erases the orphaned plaintext.
+          if (m['au'] is String) 'au': m['au'],
+          if (m['sq'] is int) 'sq': m['sq'],
         })),
       ));
     }
@@ -683,7 +761,15 @@ class HiddenVolumeStorage implements Storage {
         AppendLogOp(
           Ns.messageLog,
           hit.logId,
-          _sk(jsonEncode({'op': 'del', 'id': m.id, 'c': peer.hex})),
+          // Preserve (author, seq) so the seq slot survives the tombstone (R4) —
+          // same gap-free rule as deleteMessage.
+          _sk(jsonEncode({
+            'op': 'del',
+            'id': m.id,
+            'c': peer.hex,
+            if (hit.message.author != null) 'au': hit.message.author,
+            if (hit.message.seq != null) 'sq': hit.message.seq,
+          })),
         ),
       );
       final fileId = hit.message.fileId;
@@ -743,6 +829,9 @@ class HiddenVolumeStorage implements Storage {
             'c': peer.hex,
             'tg': m['tg'],
             'id': m['id'],
+            // Keep the voided edit's seq slot (R4 / R-VOID) — see _voidEditRowsOps.
+            if (m['au'] is String) 'au': m['au'],
+            if (m['sq'] is int) 'sq': m['sq'],
           })),
         ));
       } else if (old.contains(m['id']) &&
@@ -752,7 +841,14 @@ class HiddenVolumeStorage implements Storage {
         ops.add(AppendLogOp(
           Ns.messageLog,
           e.logId,
-          _sk(jsonEncode({'op': 'del', 'id': m['id'], 'c': peer.hex})),
+          // Preserve (author, seq) so the seq slot survives the tombstone (R4).
+          _sk(jsonEncode({
+            'op': 'del',
+            'id': m['id'],
+            'c': peer.hex,
+            if (m['au'] is String) 'au': m['au'],
+            if (m['sq'] is int) 'sq': m['sq'],
+          })),
         ));
         final fileId = m['fi'] as String?;
         if (fileId != null) {
