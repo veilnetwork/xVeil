@@ -79,7 +79,11 @@ class _Incoming {
 /// fires). Carries only what a notification needs; the privacy decision (show
 /// the text/sender or not) is made above, not here.
 class IncomingNotice {
-  const IncomingNotice({required this.from, required this.preview, required this.isFile});
+  const IncomingNotice({
+    required this.from,
+    required this.preview,
+    required this.isFile,
+  });
   final NodeId from;
   final String preview;
   final bool isFile;
@@ -123,9 +127,12 @@ class MessagingService {
   /// delivery-ACK round-trip is ~halved. Anonymity is unchanged (one-shot block,
   /// not a reused circuit).
   Future<void> _send(NodeId dst, Uint8List payload, {bool wantReply = false}) {
-    devLog(() => 'xVeil[send]: live send dst=${dst.short} anonymous=$_anonymous '
-        'wantReply=$wantReply bytes=${payload.length} '
-        'transport=${_transport.runtimeType}');
+    devLog(
+      () =>
+          'xVeil[send]: live send dst=${dst.short} anonymous=$_anonymous '
+          'wantReply=$wantReply bytes=${payload.length} '
+          'transport=${_transport.runtimeType}',
+    );
     if (_anonymous && wantReply) {
       return _transport.sendWithReply(dst, payload);
     }
@@ -144,13 +151,20 @@ class MessagingService {
   /// reply circuit can silently die on a NAT'd/mobile peer — so the second time
   /// we ACK over the durable resolve+circuit path instead of looping forever on
   /// a dead reply path. First receipt → fast reply path; repeat → reliable path.
-  Future<void> _ackTo(InboundMessage m, String id, {bool direct = false}) async {
+  Future<void> _ackTo(
+    InboundMessage m,
+    String id, {
+    bool direct = false,
+  }) async {
     final ack = WireEnvelope.ack(id).encode();
     final viaReply = !direct && m.replyId != 0;
     // [timeline] which ACK path we took (reply = fast one-time circuit; direct =
     // durable resolve+circuit). id + path enum only — no body/keys.
-    devLog(() => 'xVeil[timeline]: ack id=$id via=${viaReply ? 'reply' : 'direct'} '
-        't=${DateTime.now().millisecondsSinceEpoch}');
+    devLog(
+      () =>
+          'xVeil[timeline]: ack id=$id via=${viaReply ? 'reply' : 'direct'} '
+          't=${DateTime.now().millisecondsSinceEpoch}',
+    );
     if (viaReply) {
       // Fast path: ride the sender's one-time reply circuit. Lowest latency, but
       // the circuit can silently die on a NAT'd/mobile sender — covered by the
@@ -172,6 +186,7 @@ class MessagingService {
     await _send(m.src, ack);
     unawaited(_maybeStash(m.src, 'ack:$id', ack));
   }
+
   final _changes = StreamController<void>.broadcast();
   // Genuinely-new incoming messages (post-dedup), for the notification layer.
   final _incoming = StreamController<IncomingNotice>.broadcast();
@@ -284,7 +299,9 @@ class MessagingService {
 
   void _emitIncoming(NodeId from, String preview, {required bool isFile}) {
     if (!_incoming.isClosed) {
-      _incoming.add(IncomingNotice(from: from, preview: preview, isFile: isFile));
+      _incoming.add(
+        IncomingNotice(from: from, preview: preview, isFile: isFile),
+      );
     }
   }
 
@@ -301,18 +318,20 @@ class MessagingService {
     DateTime? timestamp,
   }) async {
     final msgId = id ?? _uuid.v4();
-    await _storage.appendMessage(Message(
-      id: msgId,
-      conversationId: peer.hex,
-      direction: dir,
-      body: body,
-      // Incoming messages carry the SENDER's send time (env.sentAtMs) so the
-      // conversation orders by send-order, not the scrambled arrival order.
-      timestamp: timestamp ?? DateTime.now(),
-      status: status,
-      fileId: fileId,
-      fileName: fileName,
-    ));
+    await _storage.appendMessage(
+      Message(
+        id: msgId,
+        conversationId: peer.hex,
+        direction: dir,
+        body: body,
+        // Incoming messages carry the SENDER's send time (env.sentAtMs) so the
+        // conversation orders by send-order, not the scrambled arrival order.
+        timestamp: timestamp ?? DateTime.now(),
+        status: status,
+        fileId: fileId,
+        fileName: fileName,
+      ),
+    );
     return msgId;
   }
 
@@ -347,10 +366,9 @@ class MessagingService {
     if (contact?.status == ContactStatus.accepted) return;
     final msgs = await _storage.loadMessages(peer.hex);
     if (newId != null && msgs.any((m) => m.id == newId)) return; // overwrite
-    final intros = msgs
-        .where((m) => m.direction == MessageDirection.incoming)
-        .toList()
-      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    final intros =
+        msgs.where((m) => m.direction == MessageDirection.incoming).toList()
+          ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
     // Make room for the one we're about to add: keep at most cap-1 of the old.
     final evict = intros.length - (kMaxPreConsentIntros - 1);
     if (evict <= 0) return;
@@ -395,7 +413,10 @@ class MessagingService {
   }
 
   Future<void> _handleInbound(InboundMessage m) async {
-    devLog(() => 'xVeil[recv]: INBOUND from=${m.src.short} bytes=${m.payload.length}');
+    devLog(
+      () =>
+          'xVeil[recv]: INBOUND from=${m.src.short} bytes=${m.payload.length}',
+    );
     try {
       await _dispatch(m);
     } catch (e) {
@@ -440,8 +461,14 @@ class MessagingService {
           // of the same greeting (as a WireKind.message) dedups instead of
           // creating a second copy. Skip if we already deleted this id (don't
           // resurrect, same as the message case).
-          await _store(m.src, MessageDirection.incoming, env.body,
-              MessageStatus.delivered, id: env.id, timestamp: _wireSentAt(env));
+          await _store(
+            m.src,
+            MessageDirection.incoming,
+            env.body,
+            MessageStatus.delivered,
+            id: env.id,
+            timestamp: _wireSentAt(env),
+          );
         }
       case WireKind.accept:
         // Only honour an accept for a request we actually sent.
@@ -457,8 +484,11 @@ class MessagingService {
         // [timeline] inbound receipt: id + whether it carried a reply path. id +
         // replyId only (no body) — lets us separate receive-latency from the ACK
         // round-trip when reading a session's logs.
-        devLog(() => 'xVeil[timeline]: recv id=$id replyId=${m.replyId} '
-            't=${DateTime.now().millisecondsSinceEpoch}');
+        devLog(
+          () =>
+              'xVeil[timeline]: recv id=$id replyId=${m.replyId} '
+              't=${DateTime.now().millisecondsSinceEpoch}',
+        );
         // Dedup re-sent messages (the sender's local outbox re-sends un-acked
         // ones): if we already have this id, just re-ack so they stop.
         if (id != null && await _hasMessage(m.src, id)) {
@@ -471,8 +501,14 @@ class MessagingService {
           await _ackTo(m, id, direct: true);
           return;
         }
-        await _store(m.src, MessageDirection.incoming, env.body,
-            MessageStatus.delivered, id: id, timestamp: _wireSentAt(env));
+        await _store(
+          m.src,
+          MessageDirection.incoming,
+          env.body,
+          MessageStatus.delivered,
+          id: id,
+          timestamp: _wireSentAt(env),
+        );
         _emitIncoming(m.src, env.body, isFile: false);
         if (id != null) {
           await _ackTo(m, id);
@@ -495,12 +531,18 @@ class MessagingService {
           if (_delivered.add(ackId)) {
             // [timeline] sender-side "delivered" moment — pair with the send t0
             // to get the full perceived round-trip. id + time only.
-            devLog(() => 'xVeil[timeline]: delivered id=$ackId '
-                't=${DateTime.now().millisecondsSinceEpoch}');
+            devLog(
+              () =>
+                  'xVeil[timeline]: delivered id=$ackId '
+                  't=${DateTime.now().millisecondsSinceEpoch}',
+            );
             // Scope by the sender's conversation (m.src.hex) so the status can
             // only land on a message that lives in THIS peer's chat.
             await _storage.markMessageStatus(
-                m.src.hex, ackId, MessageStatus.delivered);
+              m.src.hex,
+              ackId,
+              MessageStatus.delivered,
+            );
           }
         }
       case WireKind.edit:
@@ -538,8 +580,10 @@ class MessagingService {
         // chunk bumped lastActivity) are untouched.
         if (_inFlight.length >= kMaxConcurrentIncomingFiles) {
           final cutoff = _now();
-          _inFlight.removeWhere((_, inc) =>
-              cutoff.difference(inc.lastActivity) > kStaleIncomingFileTimeout);
+          _inFlight.removeWhere(
+            (_, inc) =>
+                cutoff.difference(inc.lastActivity) > kStaleIncomingFileTimeout,
+          );
         }
         // Bound concurrent transfers so the per-transfer cap actually bounds
         // total memory: a new transfer is dropped when we are STILL at capacity
@@ -560,12 +604,14 @@ class MessagingService {
         // contribute to someone else's in-flight transfer — drop it.
         if (inc == null || inc.src != m.src) return;
         inc.lastActivity = _now(); // progress — keep this transfer non-stale
-        inc.reasm.add(FileChunk(
-          transferId: frame.transferId,
-          index: frame.index,
-          total: frame.total,
-          data: frame.data,
-        ));
+        inc.reasm.add(
+          FileChunk(
+            transferId: frame.transferId,
+            index: frame.index,
+            total: frame.total,
+            data: frame.data,
+          ),
+        );
         // Enforce the memory budget even if the peer lied about size — abort
         // and discard the partial transfer rather than buffer unboundedly.
         if (inc.reasm.bufferedBytes > kMaxIncomingFileBytes) {
@@ -591,10 +637,20 @@ class MessagingService {
         // dedup + deleted-resurrect guards are already conversation-scoped); only
         // the blob's storage key is decoupled.
         final localFileId = _uuid.v4();
-        await _storage.storeFile(localFileId, inc.reasm.assemble(), name: inc.name);
-        await _store(m.src, MessageDirection.incoming, '📎 ${inc.name ?? 'file'}',
-            MessageStatus.delivered,
-            fileId: localFileId, fileName: inc.name, id: tid);
+        await _storage.storeFile(
+          localFileId,
+          inc.reasm.assemble(),
+          name: inc.name,
+        );
+        await _store(
+          m.src,
+          MessageDirection.incoming,
+          '📎 ${inc.name ?? 'file'}',
+          MessageStatus.delivered,
+          fileId: localFileId,
+          fileName: inc.name,
+          id: tid,
+        );
         _emitIncoming(m.src, '📎 ${inc.name ?? 'file'}', isFile: true);
         // Ack the completed transfer so the sender's file message flips
         // sent -> delivered — the same delivery feedback text messages get.
@@ -616,13 +672,21 @@ class MessagingService {
     final id = _uuid.v4();
     final sentAt = DateTime.now();
     if (text.isNotEmpty) {
-      await _store(dst, MessageDirection.outgoing, text, MessageStatus.sent,
-          id: id, timestamp: sentAt);
+      await _store(
+        dst,
+        MessageDirection.outgoing,
+        text,
+        MessageStatus.sent,
+        id: id,
+        timestamp: sentAt,
+      );
     }
     _signal();
-    final wire = WireEnvelope.request(text,
-            id: id, sentAtMs: sentAt.millisecondsSinceEpoch)
-        .encode();
+    final wire = WireEnvelope.request(
+      text,
+      id: id,
+      sentAtMs: sentAt.millisecondsSinceEpoch,
+    ).encode();
     await _send(dst, wire);
     // Also deposit the request at the recipient's mailbox relay so a NAT'd /
     // offline peer receives it. The live send above only lands if they're
@@ -715,21 +779,31 @@ class MessagingService {
     // One send time, used for BOTH our stored copy and the wire `sentAtMs`, so
     // both ends order this message identically.
     final sentAt = DateTime.now();
-    final id = await _store(dst, MessageDirection.outgoing, trimmed,
-        MessageStatus.sent, timestamp: sentAt);
+    final id = await _store(
+      dst,
+      MessageDirection.outgoing,
+      trimmed,
+      MessageStatus.sent,
+      timestamp: sentAt,
+    );
     _signal();
     // Stays `sent` until the peer acks; the local outbox re-sends un-acked ones
     // on reconnect, so a message written offline goes out when we come back.
-    final wire = WireEnvelope.message(trimmed,
-            id: id, sentAtMs: sentAt.millisecondsSinceEpoch)
-        .encode();
+    final wire = WireEnvelope.message(
+      trimmed,
+      id: id,
+      sentAtMs: sentAt.millisecondsSinceEpoch,
+    ).encode();
     // wantReply: embed a one-time reply path so the peer's delivery-ACK comes
     // back over THIS circuit (fast), flipping us to "delivered" without a full
     // resolve+circuit-build round-trip on their side.
     // [timeline] id + send-time only (random uuid + ms clock — no body/keys), so
     // receive-latency vs ACK-latency can be measured per message from the logs.
-    devLog(() => 'xVeil[timeline]: send id=$id '
-        't0=${sentAt.millisecondsSinceEpoch} wantReply=true');
+    devLog(
+      () =>
+          'xVeil[timeline]: send id=$id '
+          't0=${sentAt.millisecondsSinceEpoch} wantReply=true',
+    );
     await _send(dst, wire, wantReply: true);
     // Deposit at the peer's mailbox as a BACKGROUND fallback (don't await): the
     // seal+put is a slow onion round-trip, and blocking the send on it made every
@@ -772,13 +846,17 @@ class MessagingService {
           final count = (bo?.count ?? 0) + 1;
           final delayMs = (_retryInterval.inMilliseconds * (1 << (count - 1)))
               .clamp(0, _maxRetryBackoff.inMilliseconds);
-          _retryBackoff[m.id] =
-              (count: count, nextAt: now.add(Duration(milliseconds: delayMs)));
+          _retryBackoff[m.id] = (
+            count: count,
+            nextAt: now.add(Duration(milliseconds: delayMs)),
+          );
           // Re-send with the ORIGINAL send time so a retried message keeps its
           // place in the conversation instead of jumping to "now".
-          final wire = WireEnvelope.message(m.body,
-                  id: m.id, sentAtMs: m.timestamp.millisecondsSinceEpoch)
-              .encode();
+          final wire = WireEnvelope.message(
+            m.body,
+            id: m.id,
+            sentAtMs: m.timestamp.millisecondsSinceEpoch,
+          ).encode();
           // Re-sends do NOT request a reply: the first send already attached one
           // (sendText), and building a fresh one-time reply circuit on EVERY 3s
           // retry was the dominant circuit-build load (the reply path can't be
@@ -788,8 +866,11 @@ class MessagingService {
           // without the per-retry circuit storm.
           // [timeline] one line per re-send so a session's retry count per id is
           // countable (a high count = the ACK round-trip is lagging). id only.
-          devLog(() => 'xVeil[timeline]: retry id=${m.id} '
-              't=${DateTime.now().millisecondsSinceEpoch}');
+          devLog(
+            () =>
+                'xVeil[timeline]: retry id=${m.id} '
+                't=${DateTime.now().millisecondsSinceEpoch}',
+          );
           await _send(conv.peer.nodeId, wire);
           // Also deposit at the recipient's mailbox relay so an OFFLINE peer
           // receives it (live re-send above only lands if they're online). Keep
@@ -807,12 +888,18 @@ class MessagingService {
   Future<void> _maybeStash(NodeId peer, String id, Uint8List wire) async {
     final mailbox = _mailbox;
     if (mailbox == null) {
-      devLog(() => 'xVeil[send]: stash SKIP dst=${peer.short} id=$id '
-          '— NO mailbox (transport not VeilFlutter or no relays)');
+      devLog(
+        () =>
+            'xVeil[send]: stash SKIP dst=${peer.short} id=$id '
+            '— NO mailbox (transport not VeilFlutter or no relays)',
+      );
       return;
     }
     if (_stashed.contains(id)) {
-      devLog(() => 'xVeil[send]: stash SKIP dst=${peer.short} id=$id — already stashed');
+      devLog(
+        () =>
+            'xVeil[send]: stash SKIP dst=${peer.short} id=$id — already stashed',
+      );
       return;
     }
     // Back off re-attempts of a recently-FAILED id: a failed seal isolate blocks
@@ -832,9 +919,14 @@ class MessagingService {
       );
       _stashed.add(id);
       _stashFailedAt.remove(id);
-      _peerUnresolvedBackoff.remove(peer.hex); // peer resolves again — un-ghost it
-      devLog(() => 'xVeil[send]: stash OK dst=${peer.short} id=$id '
-          '(deposited at recipient relay)');
+      _peerUnresolvedBackoff.remove(
+        peer.hex,
+      ); // peer resolves again — un-ghost it
+      devLog(
+        () =>
+            'xVeil[send]: stash OK dst=${peer.short} id=$id '
+            '(deposited at recipient relay)',
+      );
     } catch (e, st) {
       // No relay / no route yet — leave it un-stashed so a later flush retries
       // (after the backoff). LOG the real reason: this is the offline-delivery
@@ -847,13 +939,20 @@ class MessagingService {
       if (e.toString().contains('PeerUnresolved')) {
         final pb = _peerUnresolvedBackoff[peer.hex];
         final count = (pb?.count ?? 0) + 1;
-        final secs = (30 * (1 << (count - 1)))
-            .clamp(30, _peerUnresolvedCap.inSeconds);
-        _peerUnresolvedBackoff[peer.hex] =
-            (count: count, nextAt: DateTime.now().add(Duration(seconds: secs)));
+        final secs = (30 * (1 << (count - 1))).clamp(
+          30,
+          _peerUnresolvedCap.inSeconds,
+        );
+        _peerUnresolvedBackoff[peer.hex] = (
+          count: count,
+          nextAt: DateTime.now().add(Duration(seconds: secs)),
+        );
       }
-      devLog(() => 'xVeil[send]: stash FAILED dst=${peer.short} id=$id '
-          '(backoff ${_stashRetryBackoff.inSeconds}s): $e\n$st');
+      devLog(
+        () =>
+            'xVeil[send]: stash FAILED dst=${peer.short} id=$id '
+            '(backoff ${_stashRetryBackoff.inSeconds}s): $e\n$st',
+      );
     }
   }
 
@@ -950,11 +1049,22 @@ class MessagingService {
     // Use the transfer id AS the message id so the receiver's completion ack
     // (keyed by transfer id) flips this message sent -> delivered. The file
     // wire frames carry only the transfer id, not the message id.
-    await _store(dst, MessageDirection.outgoing, '📎 $name', MessageStatus.sent,
-        fileId: fileId, fileName: name, id: fileId);
+    await _store(
+      dst,
+      MessageDirection.outgoing,
+      '📎 $name',
+      MessageStatus.sent,
+      fileId: fileId,
+      fileName: name,
+      id: fileId,
+    );
     _signal();
 
-    final chunks = chunkBytes(bytes, transferId: fileId, maxChunk: _wireChunkBytes);
+    final chunks = chunkBytes(
+      bytes,
+      transferId: fileId,
+      maxChunk: _wireChunkBytes,
+    );
     await _send(
       dst,
       fileMetaEnvelope(
@@ -1009,13 +1119,12 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
   final anonymous = ref.read(appControllerProvider.notifier).activeIsAnonymous;
   final transport = ref.watch(veilTransportProvider);
   final storage = ref.watch(storageProvider);
-  devLog(() => 'xVeil[messaging]: fallback service (no session pipeline) '
-      'anonymous=$anonymous');
-  final service = MessagingService(
-    transport,
-    storage,
-    anonymous: anonymous,
+  devLog(
+    () =>
+        'xVeil[messaging]: fallback service (no session pipeline) '
+        'anonymous=$anonymous',
   );
+  final service = MessagingService(transport, storage, anonymous: anonymous);
   service.start();
 
   // Offline delivery: over the real veil transport, advertise a mailbox relay
@@ -1023,9 +1132,13 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
   // Best-effort + inert on the loopback transport or when no bootstrap peers
   // are configured — live delivery is unaffected if this never registers.
   final relays = _mailboxRelayCandidates(
-      ref.read(deniableBootProvider)?.bootstrapPeers ?? const []);
-  devLog(() => 'xVeil[mailbox]: setup — transport=${transport.runtimeType} '
-      'relays=${relays.length}');
+    ref.read(deniableBootProvider)?.bootstrapPeers ?? const [],
+  );
+  devLog(
+    () =>
+        'xVeil[mailbox]: setup — transport=${transport.runtimeType} '
+        'relays=${relays.length}',
+  );
   MailboxService? mailbox;
   // The provider rebuilds whenever the real stack changes (node reboot, identity
   // create/switch tears down then re-boots — TWO rapid rebuilds). buildMailboxService
@@ -1042,25 +1155,29 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
     final relayKeyCache = StorageRelayKeyCache(storage);
     transport
         .buildMailboxService(
-      deliver: service.deliverInbound,
-      relayKeyCache: relayKeyCache,
-    )
+          deliver: service.deliverInbound,
+          relayKeyCache: relayKeyCache,
+        )
         .then((m) {
-      if (providerDisposed) {
-        // This stack/transport is already gone — don't start a timer on it.
-        unawaited(m.dispose());
-        return;
-      }
-      mailbox = m;
-      service.attachMailbox(m);
-      ref.onDispose(m.dispose);
-      unawaited(m.start(relays: relays));
-    }).catchError((e) {
-      devLog(() => 'xVeil[mailbox]: build/start FAILED: $e');
-    });
+          if (providerDisposed) {
+            // This stack/transport is already gone — don't start a timer on it.
+            unawaited(m.dispose());
+            return;
+          }
+          mailbox = m;
+          service.attachMailbox(m);
+          ref.onDispose(m.dispose);
+          unawaited(m.start(relays: relays));
+        })
+        .catchError((e) {
+          devLog(() => 'xVeil[mailbox]: build/start FAILED: $e');
+        });
   } else {
-    devLog(() => 'xVeil[mailbox]: NOT started '
-        '(transport=${transport.runtimeType}, relays=${relays.length})');
+    devLog(
+      () =>
+          'xVeil[mailbox]: NOT started '
+          '(transport=${transport.runtimeType}, relays=${relays.length})',
+    );
   }
 
   // Flush the local outbox whenever the node (re)connects: messages composed
@@ -1110,20 +1227,43 @@ final conversationsProvider = StreamProvider<List<Conversation>>((ref) async* {
   }
 });
 
-final messagesProvider =
-    StreamProvider.family<List<Message>, String>((ref, conversationId) async* {
+/// Chat pagination: the number of newest messages a chat loads initially and
+/// the step "load earlier" grows the visible window by. (A per-chat setting can
+/// override this later — the user asked for it to be configurable; a const is
+/// the v1.)
+const int kInitialMessageWindow = 100;
+const int kMessageWindowStep = 100;
+
+/// The current visible window (a newest-N count) for a chat, grown by the chat
+/// screen's "load earlier" action. `autoDispose` so it resets to
+/// [kInitialMessageWindow] each time the chat is (re)opened — reopening lands on
+/// the latest page, not a previously-expanded one. Reading it inside
+/// [messagesProvider] makes the window reactive: growing it re-yields a larger
+/// tail without re-subscribing the changes stream by hand.
+final chatWindowProvider = StateProvider.autoDispose.family<int, String>(
+  (ref, _) => kInitialMessageWindow,
+);
+
+final messagesProvider = StreamProvider.autoDispose.family<List<Message>, String>((
+  ref,
+  conversationId,
+) async* {
   final service = ref.watch(messagingServiceProvider);
   final storage = ref.watch(storageProvider);
-  yield await storage.loadMessages(conversationId);
-  // Each `changes` tick re-loads + DECRYPTS the whole conversation from the
+  // Load only the newest `window` messages, not the whole conversation — bounds
+  // the decrypt + the ListView build to the page the user actually sees.
+  final window = ref.watch(chatWindowProvider(conversationId));
+  yield await storage.loadMessages(conversationId, limit: window);
+  // Each `changes` tick re-loads + DECRYPTS the conversation window from the
   // container and rebuilds the ListView (+ auto-scroll). A burst of state
   // signals (sends, inbound re-sends, status flips) therefore thrashed the UI
   // isolate into a visible freeze. Coalesce bursts: reload at most ~5x/s
   // (trailing edge), so the latest state still renders within ~200ms but a
   // flurry collapses into ONE decrypt+rebuild.
-  await for (final _
-      in service.changes.auditTrailing(const Duration(milliseconds: 200))) {
-    yield await storage.loadMessages(conversationId);
+  await for (final _ in service.changes.auditTrailing(
+    const Duration(milliseconds: 200),
+  )) {
+    yield await storage.loadMessages(conversationId, limit: window);
   }
 });
 
@@ -1172,8 +1312,10 @@ extension _AuditTrailing<T> on Stream<T> {
 
 /// The stored contact (with relationship status) for a peer, refreshed on
 /// every change. Null until we have a record of them.
-final contactProvider =
-    StreamProvider.family<Contact?, String>((ref, peerHex) async* {
+final contactProvider = StreamProvider.family<Contact?, String>((
+  ref,
+  peerHex,
+) async* {
   final service = ref.watch(messagingServiceProvider);
   final storage = ref.watch(storageProvider);
   final id = NodeId.fromHex(peerHex);
