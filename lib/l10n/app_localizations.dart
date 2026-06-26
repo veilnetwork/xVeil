@@ -631,6 +631,30 @@ abstract class AppL10n {
   /// **'After 1 year'**
   String get retention365;
 
+  /// No description provided for @retentionCustom.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom…'**
+  String get retentionCustom;
+
+  /// No description provided for @retentionCustomN.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom ({days} days)'**
+  String retentionCustomN(int days);
+
+  /// No description provided for @retentionCustomTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete after (days)'**
+  String get retentionCustomTitle;
+
+  /// No description provided for @retentionDaysSuffix.
+  ///
+  /// In en, this message translates to:
+  /// **'days'**
+  String get retentionDaysSuffix;
+
   /// No description provided for @retentionApplied.
   ///
   /// In en, this message translates to:
