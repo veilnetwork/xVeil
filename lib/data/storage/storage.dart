@@ -108,19 +108,45 @@ abstract interface class Storage {
     MessageStatus status,
   );
 
-  /// Replace the body of message [messageId] in conversation [conversationId]
-  /// with [newBody] (edit of a sent message). Re-writes the SAME log record via
-  /// last-write-wins, so the old text no longer reads back; the orphaned
-  /// ciphertext chunk is reclaimed by a later [scrubDeleted] pass. No-op if the
-  /// id is unknown IN THAT CONVERSATION. The id is scoped by [conversationId]
-  /// because an edit can be driven by a peer's wire envelope whose claimed id is
-  /// attacker-chosen — resolving on the bare id would let a peer rewrite a
-  /// message in someone else's chat.
-  Future<void> editMessage(
+  /// Append a new edit event for message [messageId] in conversation
+  /// [conversationId] with [newBody]; the fold collapses to the latest text and
+  /// the prior versions stay as history until a scrub reclaims them. Scoped by
+  /// [conversationId] because an edit can be driven by a peer's wire envelope
+  /// whose claimed id is attacker-chosen — resolving on the bare id would let a
+  /// peer rewrite a message in someone else's chat.
+  ///
+  /// Returns the per-(conv, author) seq the edit event was written under (so the
+  /// caller can put it on the wire for the peer to fold under the SAME identity,
+  /// §15 R4/R5), or null if the id is unknown in that conversation (a no-op).
+  /// Pass [seq] when FOLDING a wire-delivered edit (keep the editor's seq, do not
+  /// allocate); omit it for a locally-originated edit (allocate the next seq).
+  Future<int?> editMessage(
     String conversationId,
     String messageId,
-    String newBody,
-  );
+    String newBody, {
+    int? seq,
+  });
+
+  /// The forward log events authored by [author] in [conversationId] with seq
+  /// strictly greater than [fromSeq], oldest-first, capped at [limit] (the
+  /// gap-fill re-ship batch, §15 step 3c). Each is a [LogEvent]: a live post/edit
+  /// carries its body; a deleted/superseded slot surfaces as an inert
+  /// [EventKind.void_] (seq only, no id/body — §12.1) so the peer can advance its
+  /// high-water past it without resurrecting anything. Drives the receiver-named
+  /// gap-fill: ship the peer every event it is missing above its high-water.
+  Future<List<LogEvent>> loadEventsSince(
+    String conversationId,
+    String author,
+    int fromSeq, {
+    int limit,
+  });
+
+  /// Record an inert void at (author=[author], [seq]) in [conversationId] (a
+  /// gap-fill [WireKind.voidSeq] from the peer): occupies the seq slot so the
+  /// per-author high-water advances past a deleted/superseded event the peer
+  /// never delivered, without resurrecting any message (renders nothing).
+  /// Idempotent — a slot already present is a no-op.
+  Future<void> applyRemoteVoid(String conversationId, String author, int seq);
 
   /// The edit history of message [messageId] in [conversationId], oldest-first:
   /// the original post followed by each retained edit, with per-version
