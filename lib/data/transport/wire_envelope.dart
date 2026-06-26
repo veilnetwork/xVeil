@@ -137,7 +137,16 @@ class WireEnvelope {
 }
 
 /// Parsed body of a [WireKind.fileMeta] frame: the start of a file transfer.
-typedef FileMetaFrame = ({String transferId, String? name, int? size, int? count});
+/// [seq] is the SENDER's event seq for the file message (filePost, §15) — it
+/// travels so the receiver folds the file under the same (author, seq) and
+/// gap-fill can detect/heal a missing file. Null from an older sender.
+typedef FileMetaFrame = ({
+  String transferId,
+  String? name,
+  int? size,
+  int? count,
+  int? seq,
+});
 
 /// Parsed body of a [WireKind.fileChunk] frame: one piece of a transfer.
 typedef FileChunkFrame = ({String transferId, int index, int total, Uint8List data});
@@ -152,6 +161,7 @@ WireEnvelope fileMetaEnvelope({
   String? name,
   int? size,
   int? count,
+  int? seq,
 }) =>
     WireEnvelope(
       WireKind.fileMeta,
@@ -160,6 +170,7 @@ WireEnvelope fileMetaEnvelope({
         'name': ?name,
         'size': ?size,
         'count': ?count,
+        'seq': ?seq,
       }),
     );
 
@@ -170,6 +181,7 @@ FileMetaFrame parseFileMeta(String body) {
     name: j['name'] as String?,
     size: j['size'] is int ? j['size'] as int : null,
     count: j['count'] is int ? j['count'] as int : null,
+    seq: j['seq'] is int ? j['seq'] as int : null,
   );
 }
 
