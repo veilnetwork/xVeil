@@ -139,13 +139,18 @@ class WireEnvelope {
 /// Parsed body of a [WireKind.fileMeta] frame: the start of a file transfer.
 /// [seq] is the SENDER's event seq for the file message (filePost, §15) — it
 /// travels so the receiver folds the file under the same (author, seq) and
-/// gap-fill can detect/heal a missing file. Null from an older sender.
+/// gap-fill can detect/heal a missing file. [sentAtMs] is the file message's
+/// send-time, carried so it folds under the SENDER's time (like a text message's
+/// `s`) — otherwise the receiver would stamp its receive time and the convergent
+/// (effective_ts, author, seq) display order would diverge across devices. Both
+/// null from an older sender.
 typedef FileMetaFrame = ({
   String transferId,
   String? name,
   int? size,
   int? count,
   int? seq,
+  int? sentAtMs,
 });
 
 /// Parsed body of a [WireKind.fileChunk] frame: one piece of a transfer.
@@ -162,6 +167,7 @@ WireEnvelope fileMetaEnvelope({
   int? size,
   int? count,
   int? seq,
+  int? sentAtMs,
 }) =>
     WireEnvelope(
       WireKind.fileMeta,
@@ -171,6 +177,7 @@ WireEnvelope fileMetaEnvelope({
         'size': ?size,
         'count': ?count,
         'seq': ?seq,
+        's': ?sentAtMs,
       }),
     );
 
@@ -182,6 +189,7 @@ FileMetaFrame parseFileMeta(String body) {
     size: j['size'] is int ? j['size'] as int : null,
     count: j['count'] is int ? j['count'] as int : null,
     seq: j['seq'] is int ? j['seq'] as int : null,
+    sentAtMs: j['s'] is int ? j['s'] as int : null,
   );
 }
 

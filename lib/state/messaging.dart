@@ -65,6 +65,7 @@ class _Incoming {
     required this.reasm,
     required this.lastActivity,
     this.seq,
+    this.sentAtMs,
   });
   final NodeId src;
   final String? name;
@@ -75,6 +76,12 @@ class _Incoming {
   /// the log convergent and letting gap-fill heal a missing file. Null from an
   /// older sender → the receiver allocates a local seq (legacy, off-convergence).
   final int? seq;
+
+  /// The SENDER's send-time (ms) for this file, carried on the meta so the
+  /// completed file message folds under the sender's time — keeping the
+  /// (effective_ts, author, seq) display order convergent. Null from an older
+  /// sender → the receiver falls back to its receive time.
+  final int? sentAtMs;
 
   /// Wall-clock of the most recent meta/chunk for this transfer. Bumped on every
   /// chunk so an actively-progressing transfer is never seen as stale; only idle
@@ -425,16 +432,23 @@ class MessagingService {
   }
 
   /// The sender's send time off the wire as a DateTime, or null (older sender
-  /// without `sentAtMs` → caller falls back to receive time). Clamped to "not in
-  /// the future" so a sender with a fast clock can't float its messages to the
-  /// bottom of everyone's conversation forever.
-  DateTime? _wireSentAt(WireEnvelope env) {
-    final ms = env.sentAtMs;
-    if (ms == null) return null;
-    final now = DateTime.now();
-    final t = DateTime.fromMillisecondsSinceEpoch(ms);
-    return t.isAfter(now) ? now : t;
-  }
+  /// without `sentAtMs` → caller falls back to receive time).
+  ///
+  /// Stored VERBATIM (no receiver-side clamp) so it is byte-identical on both
+  /// devices — the basis for the convergent (effective_ts, author, seq) display
+  /// order. The old future-clamp made the value receiver-dependent (it used the
+  /// receiver's local now), which silently diverged the cross-author interleave
+  /// across devices. It also never addressed the real skew concern (R9: a peer
+  /// stamping ts=0 to float ABOVE my messages) — that is handled deterministically
+  /// by the author-monotone effective_ts FLOOR in loadMessages. A future-stamped
+  /// message now simply sorts to the bottom (convergently) on both devices — and
+  /// since the floor carries that author's later messages down with it, a fast
+  /// clock only buries the SENDER's own stream, never floats it above others.
+  DateTime? _wireSentAt(WireEnvelope env) => _wireSentAtMs(env.sentAtMs);
+
+  /// [DateTime] for a wire send-time in ms (the file-meta path has no envelope).
+  DateTime? _wireSentAtMs(int? ms) =>
+      ms == null ? null : DateTime.fromMillisecondsSinceEpoch(ms);
 
   Future<bool> _hasMessage(NodeId peer, String id) async {
     final msgs = await _storage.loadMessages(peer.hex);
@@ -769,6 +783,7 @@ class MessagingService {
           reasm: FileReassembler(),
           lastActivity: _now(),
           seq: meta.seq, // the sender's filePost seq (null from an older sender)
+          sentAtMs: meta.sentAtMs, // the sender's send-time (convergent order)
         );
         return; // nothing to show until the file completes
       case WireKind.fileChunk:
@@ -825,10 +840,12 @@ class MessagingService {
           fileId: localFileId,
           fileName: inc.name,
           id: tid,
-          // Fold the file under the SENDER's filePost seq (R4) so the (author,
-          // seq) is identical on both devices and gap-fill can heal a missing
-          // file. Null from an older sender → storage allocates locally.
+          // Fold the file under the SENDER's filePost seq + send-time (R4) so the
+          // (author, seq) AND the convergent display time are identical on both
+          // devices, and gap-fill can heal a missing file. Null from an older
+          // sender → storage allocates a seq / falls back to receive time.
           seq: inc.seq,
+          timestamp: _wireSentAtMs(inc.sentAtMs),
         );
         _emitIncoming(m.src, '📎 ${inc.name ?? 'file'}', isFile: true);
         // Ack the completed transfer so the sender's file message flips
@@ -1140,12 +1157,15 @@ class MessagingService {
             count: count,
             nextAt: now.add(Duration(milliseconds: delayMs)),
           );
-          // Re-send with the ORIGINAL send time so a retried message keeps its
-          // place in the conversation instead of jumping to "now".
+          // Re-send with the ORIGINAL send time AND seq so a message recovered
+          // via the outbox retry (not gap-fill) folds under OUR (author, seq) on
+          // the peer — without the seq it would land under a divergent locally-
+          // allocated seq, breaking convergence for the common retry path.
           final wire = WireEnvelope.message(
             m.body,
             id: m.id,
             sentAtMs: m.timestamp.millisecondsSinceEpoch,
+            seq: m.seq,
           ).encode();
           // Re-sends do NOT request a reply: the first send already attached one
           // (sendText), and building a fresh one-time reply circuit on EVERY 3s
@@ -1261,14 +1281,19 @@ class MessagingService {
           case EventKind.post:
           case EventKind.filePost:
             final stored = byId[ev.id];
-            if (stored != null && stored.isFile && stored.fileId != null) {
-              // Re-ship a FILE as a file (meta + chunks). Capped per round:
-              // re-sending a whole blob is costly (no chunk-level resume in v1),
-              // so we heal at most _syncFileReshipCap files/round and the rest
-              // heal on later rounds as the high-water advances.
+            final isFile =
+                ev.kind == EventKind.filePost || (stored?.isFile ?? false);
+            if (isFile) {
+              // A file event: re-ship the BLOB (meta + chunks), never the caption
+              // text — so a filePost whose row/blob is gone heals as a void on a
+              // later round instead of leaking '📎 name' as a plain message.
+              if (stored == null || stored.fileId == null) continue;
+              // Capped per round: re-sending a whole blob is costly (no
+              // chunk-level resume in v1), so heal at most _syncFileReshipCap
+              // files/round; the rest heal on later rounds as high-water advances.
               if (filesReshipped >= _syncFileReshipCap) continue;
               final bytes = await _storage.loadFile(stored.fileId!);
-              if (bytes == null) continue; // blob gone — nothing to re-ship
+              if (bytes == null) continue; // blob gone — heal as a void later
               filesReshipped++;
               await _sendFileFrames(
                 peer,
@@ -1276,6 +1301,7 @@ class MessagingService {
                 stored.fileName,
                 bytes,
                 ev.seq,
+                ev.ts, // keep the file's ORIGINAL send-time
               );
               continue;
             }
@@ -1486,18 +1512,27 @@ class MessagingService {
       id: fileId,
     );
     _signal();
-    await _sendFileFrames(dst, fileId, name, bytes, stored.seq);
+    await _sendFileFrames(
+      dst,
+      fileId,
+      name,
+      bytes,
+      stored.seq,
+      stored.timestamp.millisecondsSinceEpoch,
+    );
   }
 
-  /// Stream a file's wire frames (one fileMeta carrying [seq] + the fileChunks)
-  /// to [peer]. Shared by [sendFile] and the gap-fill re-ship so the frame format
-  /// (and the seq on the meta) has one source of truth.
+  /// Stream a file's wire frames (one fileMeta carrying [seq] + [sentAtMs] + the
+  /// fileChunks) to [peer]. Shared by [sendFile] and the gap-fill re-ship so the
+  /// frame format (and the seq/send-time on the meta) has one source of truth. A
+  /// re-shipped file keeps its ORIGINAL send-time, not a fresh one.
   Future<void> _sendFileFrames(
     NodeId peer,
     String transferId,
     String? name,
     Uint8List bytes,
     int? seq,
+    int? sentAtMs,
   ) async {
     final chunks = chunkBytes(
       bytes,
@@ -1512,6 +1547,7 @@ class MessagingService {
         size: bytes.length,
         count: chunks.length,
         seq: seq,
+        sentAtMs: sentAtMs,
       ).encode(),
     );
     for (final c in chunks) {
