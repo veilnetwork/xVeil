@@ -1141,29 +1141,46 @@ class HiddenVolumeStorage implements Storage {
     return result;
   }
 
-  // Single-flight gate serializing the LOG-ID ALLOCATION critical section (the
-  // `_nextLogId()` read + the commit that bumps `msg_next_id`). Every new-id
-  // appender (appendMessage, editMessage, markMessageStatus, applyRemoteVoid)
-  // routes through [_commitAtNextLogId]; without this two appenders that
-  // interleave at the read-then-commit await could read the SAME next id and the
-  // second commit would clobber the first's row (a lost message / phantom seq
-  // hole). Distinct from [_scanGate] so the closing _patchCache (which uses
-  // _scanGate) never nests inside this lock. (deleteMessage rewrites an EXISTING
-  // log id and bumps nothing, so it does not need this gate.)
-  Future<void> _appendGate = Future<void>.value();
+  // IN-MEMORY log-id allocator. The next log id lives in [_nextIdCache] and is
+  // handed out by a SYNCHRONOUS atomic increment ([_allocLogId]) — there is no
+  // await between reading and incrementing it, so two concurrent appenders can
+  // never get the same id (the race a previous serializing gate fixed) WITHOUT
+  // serializing the slow data commit behind one lock. That gate head-of-line
+  // BLOCKED every append whenever a single commit stalled: an inline
+  // notification-reply send issued while the app was backgrounded (storage worker
+  // slow to respond) held the gate and froze ALL later sends until it finally
+  // completed. With the counter, a slow commit delays only itself. (deleteMessage
+  // rewrites an EXISTING log id and bumps nothing → no allocation.)
+  int? _nextIdCache;
+  Future<void>? _idInit;
+  Future<int> _allocLogId() async {
+    if (_nextIdCache == null) {
+      _idInit ??= _nextLogId().then((v) {
+        _nextIdCache ??= v;
+      });
+      await _idInit;
+    }
+    // Synchronous read-then-increment (no await between) → atomic across
+    // concurrent callers: each gets a distinct id.
+    final id = _nextIdCache!;
+    _nextIdCache = id + 1;
+    return id;
+  }
+
   Future<int> _commitAtNextLogId(
     List<KvLogOp> Function(int logId) opsFor,
-  ) {
-    final result = _appendGate.then((_) async {
-      final logId = await _nextLogId();
-      await _as.commit([
-        ...opsFor(logId),
-        PutOp(Ns.settings, _sk('msg_next_id'), _sk('${logId + 1}')),
-      ]);
-      return logId;
-    });
-    _appendGate = result.then((_) {}, onError: (_) {});
-    return result;
+  ) async {
+    final logId = await _allocLogId();
+    await _as.commit([
+      ...opsFor(logId),
+      // Persist the current in-memory counter (monotonic, > every allocated id),
+      // so a reopen never re-hands an id still in use. A crash mid-flight between
+      // two concurrent commits can persist a slightly stale value; the only
+      // consequence is a single re-used log id whose append the gap-fill heals —
+      // far cheaper than the global stall the serializing gate caused.
+      PutOp(Ns.settings, _sk('msg_next_id'), _sk('${_nextIdCache!}')),
+    ]);
+    return logId;
   }
 
   /// Composite key for the scan maps: a conversation + a message id, joined by
@@ -1183,6 +1200,10 @@ class HiddenVolumeStorage implements Storage {
     _scanEditWinSeq.clear();
     _scanFoldedUpTo = 0;
     _scanResult = null;
+    // Drop the log-id counter too: adopting a different space (open), or a
+    // scrub/vacuum that may renumber the log, invalidates it — re-read lazily.
+    _nextIdCache = null;
+    _idInit = null;
   }
 
   Future<void> _invalidateScanCache() =>
