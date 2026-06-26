@@ -607,6 +607,18 @@ abstract class AppL10n {
   /// **'Local name'**
   String get chatRenameTitle;
 
+  /// No description provided for @chatMenuPin.
+  ///
+  /// In en, this message translates to:
+  /// **'Pin to top'**
+  String get chatMenuPin;
+
+  /// No description provided for @chatMenuUnpin.
+  ///
+  /// In en, this message translates to:
+  /// **'Unpin'**
+  String get chatMenuUnpin;
+
   /// No description provided for @chatMenuMute.
   ///
   /// In en, this message translates to:

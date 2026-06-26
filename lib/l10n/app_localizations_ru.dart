@@ -283,6 +283,12 @@ class AppL10nRu extends AppL10n {
   String get chatRenameTitle => 'Локальное имя';
 
   @override
+  String get chatMenuPin => 'Закрепить сверху';
+
+  @override
+  String get chatMenuUnpin => 'Открепить';
+
+  @override
   String get chatMenuMute => 'Отключить уведомления';
 
   @override

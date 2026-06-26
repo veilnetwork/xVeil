@@ -230,6 +230,7 @@ class HiddenVolumeStorage implements Storage {
       'name': contact.name,
       's': contact.status.index,
       if (contact.muted) 'm': true,
+      if (contact.pinned) 'p': true,
     });
     // Maintain a contacts index (hidden-volume has no KV key enumeration) so
     // the chat list can show contacts that have no messages yet.
@@ -265,6 +266,7 @@ class HiddenVolumeStorage implements Storage {
           ? ContactStatus.values[s]
           : ContactStatus.accepted,
       muted: m['m'] as bool? ?? false,
+      pinned: m['p'] as bool? ?? false,
     );
   }
 
@@ -326,6 +328,9 @@ class HiddenVolumeStorage implements Storage {
       );
     }
     out.sort((a, b) {
+      // Pinned conversations always sort above unpinned ones; within each group
+      // the existing recency / name ordering applies.
+      if (a.peer.pinned != b.peer.pinned) return a.peer.pinned ? -1 : 1;
       final at = a.lastMessage?.timestamp;
       final bt = b.lastMessage?.timestamp;
       // Conversations with messages first (newest), message-less by name.
