@@ -489,20 +489,94 @@ class HiddenVolumeStorage implements Storage {
   ) async {
     final hit = await _liveEntryFor(conversationId, messageId);
     if (hit == null) return;
-    // Rewrite the SAME log_id: last-write-wins replaces the body on read, so
-    // the prior text no longer reads back (its chunk is orphaned for scrub).
-    final edited = hit.message.copyWith(body: newBody, edited: true);
+    // EVENT-LOG edit (§15, "keep history + clear button" mode): append a NEW
+    // k:edit row at a fresh seq instead of rewriting the post in place. The
+    // original post row + every prior edit row are RETAINED so the edit history
+    // reads back (loadMessageHistory); the fold collapses them to the current
+    // text. The author is the post's own (edits are authorised upstream to the
+    // post author — R16), and the seq is the next gap-free value for that author
+    // in this conversation. NOT scrubbed here — superseded bodies are reclaimed
+    // by the explicit clear-history scrub / panic erase, not silently on edit.
+    final author = hit.message.author ?? conversationId;
+    final seq = await _nextConvSeq(conversationId, author);
+    final logId = await _nextLogId();
     await _as.commit([
-      AppendLogOp(Ns.messageLog, hit.logId, _sk(_encodeMessage(edited))),
+      AppendLogOp(
+        Ns.messageLog,
+        logId,
+        _sk(jsonEncode({
+          'k': EventKind.edit.index,
+          'id': '$messageId~e$seq', // synthetic edit-event id (unique)
+          'c': conversationId,
+          'tg': messageId,
+          'au': author,
+          'sq': seq,
+          'b': newBody,
+          't': DateTime.now().millisecondsSinceEpoch,
+        })),
+      ),
+      PutOp(Ns.settings, _sk('msg_next_id'), _sk('${logId + 1}')),
+      PutOp(
+        Ns.settings,
+        _sk('conv_seq:$conversationId:$author'),
+        _sk('${seq + 1}'),
+      ),
     ]);
-    // The rewrite reuses an EXISTING log_id and does NOT bump the next-id, so the
-    // incremental fold won't re-read it. Patch the warm fold in place (O(1)) for
-    // exactly this one message instead of dropping the whole cache and forcing a
-    // full re-decrypt on the next read.
-    await _patchCache(() {
-      final at = _msgKey(conversationId, messageId);
-      if (_scanById.containsKey(at)) _scanById[at] = edited;
+    // The new row bumps next-id, so the next incremental fold reads + applies it
+    // (the k:edit arm). Drop only the materialised result so loadMessages
+    // re-folds; keep the rest of the warm fold.
+    await _patchCache(() {});
+  }
+
+  @override
+  Future<List<MessageVersion>> loadMessageHistory(
+    String conversationId,
+    String messageId,
+  ) async {
+    // Deleted = gone: no history to surface.
+    if (await isMessageDeleted(conversationId, messageId)) return const [];
+    // Raw scan (NOT the collapsing fold): collect the original post row plus
+    // every retained k:edit row targeting this message, oldest-first. O(log) for
+    // one message's on-demand history — acceptable; the prefix range scan would
+    // bound it once the §15.4 layout lands.
+    final entries = await _as.iterLogRange(
+      namespace: Ns.messageLog,
+      limit: _logScanLimit,
+    );
+    final versions = <MessageVersion>[];
+    for (final e in entries) {
+      final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
+      if (m['c'] != conversationId) continue;
+      if (m['op'] == 'status' || m['op'] == 'del') continue; // side-channel rows
+      final k = m['k'] as int?;
+      MessageVersion? v;
+      if (k == EventKind.edit.index && m['tg'] == messageId) {
+        v = MessageVersion(
+          body: m['b'] as String? ?? '',
+          timestamp: DateTime.fromMillisecondsSinceEpoch(m['t'] as int? ?? 0),
+          isOriginal: false,
+          author: m['au'] as String?,
+          seq: m['sq'] as int?,
+        );
+      } else if (m['id'] == messageId &&
+          (k == null ||
+              k == EventKind.post.index ||
+              k == EventKind.filePost.index)) {
+        v = MessageVersion(
+          body: m['b'] as String? ?? '',
+          timestamp: DateTime.fromMillisecondsSinceEpoch(m['t'] as int? ?? 0),
+          isOriginal: true,
+          author: m['au'] as String?,
+          seq: m['sq'] as int?,
+        );
+      }
+      if (v != null) versions.add(v);
+    }
+    versions.sort((a, b) {
+      final t = a.timestamp.compareTo(b.timestamp);
+      return t != 0 ? t : (a.seq ?? 0).compareTo(b.seq ?? 0);
     });
+    return versions;
   }
 
   @override
@@ -697,6 +771,11 @@ class HiddenVolumeStorage implements Storage {
   final Map<String, MessageStatus> _scanStatusOps = {};
   // Legacy (pre-scoping) status ops had no conversation; applied by bare id.
   final Map<String, MessageStatus> _scanStatusLegacy = {};
+  // Composite key -> the winning (highest) edit seq applied to that post, so the
+  // fold honours a strictly-newer edit only (R5): deterministic last-writer-wins
+  // with NO old body kept in state (superseded bodies live only in the log rows,
+  // surfaced by loadMessageHistory until a clear-history scrub reclaims them).
+  final Map<String, int> _scanEditWinSeq = {};
   int _scanFoldedUpTo = 0; // next log_id not yet folded into the state above
   List<Message>?
   _scanResult; // materialised; valid while _scanFoldedUpTo == nextId
@@ -723,6 +802,7 @@ class HiddenVolumeStorage implements Storage {
     _scanDeletedLegacyIds.clear();
     _scanStatusOps.clear();
     _scanStatusLegacy.clear();
+    _scanEditWinSeq.clear();
     _scanFoldedUpTo = 0;
     _scanResult = null;
   }
@@ -829,6 +909,34 @@ class HiddenVolumeStorage implements Storage {
           });
           _scanDeletedLegacyIds.add(id);
         }
+        continue;
+      }
+      // Event-log EDIT row (k:edit, §15): replace the body of an existing post
+      // by the SAME author (R16), keeping a strictly-newer edit only (R5). The
+      // original/ superseded bodies stay in their own log rows for the edit
+      // history; the FOLD STATE holds only the current text. A delete tombstone
+      // already removed the post -> the edit finds no target and is dropped.
+      if (m['k'] == EventKind.edit.index && m['tg'] != null) {
+        final c = m['c'] as String;
+        final target = m['tg'] as String;
+        final tk = _msgKey(c, target);
+        final post = _scanById[tk];
+        if (post != null) {
+          final editAuthor = m['au'] as String?;
+          final editSeq = m['sq'] as int?;
+          final authorOk = post.author == null ||
+              editAuthor == null ||
+              post.author == editAuthor;
+          final win = _scanEditWinSeq[tk];
+          final newer = editSeq == null || win == null || editSeq > win;
+          if (authorOk && newer) {
+            _scanById[tk] =
+                post.copyWith(body: m['b'] as String? ?? post.body, edited: true);
+            if (editSeq != null) _scanEditWinSeq[tk] = editSeq;
+          }
+        }
+        // Target not folded yet (out-of-order in the log) — drop; the messaging
+        // layer's pending-ops buffer handles edit-before-message on delivery.
         continue;
       }
       final id = m['id'] as String;

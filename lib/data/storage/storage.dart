@@ -106,6 +106,17 @@ abstract interface class Storage {
     String newBody,
   );
 
+  /// The edit history of message [messageId] in [conversationId], oldest-first:
+  /// the original post followed by each retained edit, with per-version
+  /// metadata (author, seq, time). Empty if the message is unknown / deleted. In
+  /// the "keep history" model the superseded versions live in the log until a
+  /// clear-history scrub or retention pass reclaims them, so this returns just
+  /// the current version when nothing prior was retained.
+  Future<List<MessageVersion>> loadMessageHistory(
+    String conversationId,
+    String messageId,
+  );
+
   /// Permanently remove message [messageId] in conversation [conversationId]
   /// (incl. a received one). Tombstones the SAME log record so the body no
   /// longer reads back, then the prior chunk is reclaimed by [scrubDeleted] for
