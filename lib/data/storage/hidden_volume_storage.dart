@@ -344,7 +344,17 @@ class HiddenVolumeStorage implements Storage {
   }) async {
     final all = await _scanLog();
     final sorted = all.where((m) => m.conversationId == conversationId).toList()
-      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      // DETERMINISTIC, cross-device-stable order (EVENT-LOG-SYNC-DESIGN.md §15.1
+      // R-ORDER, display layer): primary by send time, tiebroken by the message
+      // id. Dart's List.sort is NOT stable, so without a tiebreak two messages
+      // sharing a millisecond timestamp ordered arbitrarily — and differently on
+      // two devices. The id travels on the wire (same on both ends), so
+      // (timestamp, id) is identical everywhere. (When the durable per-author
+      // seq lands, it supersedes id as the tiebreak.)
+      ..sort((a, b) {
+        final t = a.timestamp.compareTo(b.timestamp);
+        return t != 0 ? t : a.id.compareTo(b.id);
+      });
     // Pagination tail: return only the most-recent [limit]. NOTE: the underlying
     // _scanLog() is still O(whole log) — the per-conversation prefix range scan
     // that makes this O(window) is the deferred storage-foundation step
