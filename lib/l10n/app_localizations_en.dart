@@ -276,6 +276,48 @@ class AppL10nEn extends AppL10n {
   String get chatEdited => 'edited';
 
   @override
+  String get chatMenuUnblock => 'Unblock';
+
+  @override
+  String get chatMenuDeleteConversation => 'Delete conversation';
+
+  @override
+  String get chatMsgInfo => 'Message info';
+
+  @override
+  String get msgInfoId => 'ID';
+
+  @override
+  String get msgInfoTime => 'Time';
+
+  @override
+  String get msgInfoDirection => 'Direction';
+
+  @override
+  String get msgInfoStatus => 'Status';
+
+  @override
+  String get msgInfoFile => 'File';
+
+  @override
+  String get dirIncoming => 'Received';
+
+  @override
+  String get dirOutgoing => 'Sent';
+
+  @override
+  String get msgStatusSending => 'Sending…';
+
+  @override
+  String get msgStatusSent => 'Sent';
+
+  @override
+  String get msgStatusDelivered => 'Delivered';
+
+  @override
+  String get msgStatusFailed => 'Failed';
+
+  @override
   String get identityPickerTitle => 'Choose an identity';
 
   @override
