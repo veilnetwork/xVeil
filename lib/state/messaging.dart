@@ -836,6 +836,15 @@ class MessagingService {
     _signal();
   }
 
+  /// Lift a block — the peer becomes an accepted contact again so their
+  /// messages are delivered (and we can message them). Local-only: the peer is
+  /// never told they were blocked or unblocked (no presence/relationship
+  /// oracle). A still-buffered re-send from them will flow on its next arrival.
+  Future<void> unblockContact(NodeId peer) async {
+    await _setStatus(peer, ContactStatus.accepted);
+    _signal();
+  }
+
   /// Delete the whole conversation with [peer] from THIS device: removes the
   /// contact + every message from the encrypted store and drops the peer's
   /// in-memory send state so the outbox stops re-sending to it (this is how a

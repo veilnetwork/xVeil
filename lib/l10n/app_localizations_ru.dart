@@ -277,6 +277,48 @@ class AppL10nRu extends AppL10n {
   String get chatEdited => 'изменено';
 
   @override
+  String get chatMenuUnblock => 'Разблокировать';
+
+  @override
+  String get chatMenuDeleteConversation => 'Удалить переписку';
+
+  @override
+  String get chatMsgInfo => 'Сведения о сообщении';
+
+  @override
+  String get msgInfoId => 'Идентификатор';
+
+  @override
+  String get msgInfoTime => 'Время';
+
+  @override
+  String get msgInfoDirection => 'Направление';
+
+  @override
+  String get msgInfoStatus => 'Статус';
+
+  @override
+  String get msgInfoFile => 'Файл';
+
+  @override
+  String get dirIncoming => 'Получено';
+
+  @override
+  String get dirOutgoing => 'Отправлено';
+
+  @override
+  String get msgStatusSending => 'Отправляется…';
+
+  @override
+  String get msgStatusSent => 'Отправлено';
+
+  @override
+  String get msgStatusDelivered => 'Доставлено';
+
+  @override
+  String get msgStatusFailed => 'Не доставлено';
+
+  @override
   String get identityPickerTitle => 'Выберите личность';
 
   @override

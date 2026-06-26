@@ -225,6 +225,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 _deleteMessage(m, forEveryone: false);
               },
             ),
+            ListTile(
+              leading: const Icon(Icons.info_outline),
+              title: Text(l.chatMsgInfo),
+              onTap: () {
+                Navigator.of(sheet).pop();
+                _showMessageInfo(m);
+              },
+            ),
           ],
         ),
       ),
@@ -299,6 +307,86 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       await svc.deleteMessageLocally(m.id);
     }
   }
+
+  Future<void> _onMenuAction(
+    _ChatMenuAction action,
+    ContactStatus? status,
+  ) async {
+    final svc = ref.read(messagingServiceProvider);
+    switch (action) {
+      case _ChatMenuAction.block:
+        await svc.blockContact(_peer);
+      case _ChatMenuAction.unblock:
+        await svc.unblockContact(_peer);
+      case _ChatMenuAction.delete:
+        await _deleteConversation();
+    }
+  }
+
+  /// Erase this whole conversation (messages + contact) from THIS device. The
+  /// peer is not notified — a local, deniable wipe. After it, [_peer] is unknown
+  /// again, so we pop back to the chat list.
+  Future<void> _deleteConversation() async {
+    final l = AppL10n.of(context);
+    final navigator = Navigator.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text(l.chatDeleteChatTitle),
+        content: Text(l.chatDeleteChatBody),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialog).pop(false),
+            child: Text(l.actionCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialog).pop(true),
+            child: Text(l.chatDeleteConfirm),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await ref.read(messagingServiceProvider).deleteConversation(_peer);
+    if (!mounted) return;
+    navigator.pop(); // leave the now-empty conversation
+  }
+
+  /// Local, read-only detail sheet for one message: id, direction, time, and
+  /// (for an outgoing message) its delivery status. Nothing leaves the device.
+  void _showMessageInfo(Message m) {
+    final l = AppL10n.of(context);
+    final own = m.direction == MessageDirection.outgoing;
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheet) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(l.chatMsgInfo, style: Theme.of(sheet).textTheme.titleMedium),
+              const SizedBox(height: 16),
+              _InfoRow(label: l.msgInfoDirection, value: own ? l.dirOutgoing : l.dirIncoming),
+              _InfoRow(label: l.msgInfoTime, value: formatDateTime(m.timestamp.toLocal())),
+              if (own) _InfoRow(label: l.msgInfoStatus, value: _statusLabel(l, m.status)),
+              if (m.isFile && m.fileName != null)
+                _InfoRow(label: l.msgInfoFile, value: m.fileName!),
+              _InfoRow(label: l.msgInfoId, value: m.id),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _statusLabel(AppL10n l, MessageStatus s) => switch (s) {
+        MessageStatus.sending => l.msgStatusSending,
+        MessageStatus.sent => l.msgStatusSent,
+        MessageStatus.delivered => l.msgStatusDelivered,
+        MessageStatus.failed => l.msgStatusFailed,
+      };
 
   void _scrollToBottom({bool force = false}) {
     if (force) {
@@ -396,6 +484,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             Expanded(child: Text(_peer.short, overflow: TextOverflow.ellipsis)),
           ],
         ),
+        actions: [
+          PopupMenuButton<_ChatMenuAction>(
+            onSelected: (a) => _onMenuAction(a, status),
+            itemBuilder: (_) => [
+              // Block an accepted contact (their messages get dropped) or lift
+              // an existing block — local-only, the peer is never told either way.
+              if (status == ContactStatus.blocked)
+                PopupMenuItem(
+                  value: _ChatMenuAction.unblock,
+                  child: Text(l.chatMenuUnblock),
+                )
+              else
+                PopupMenuItem(
+                  value: _ChatMenuAction.block,
+                  child: Text(l.actionBlock),
+                ),
+              PopupMenuItem(
+                value: _ChatMenuAction.delete,
+                child: Text(l.chatMenuDeleteConversation),
+              ),
+            ],
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -626,6 +737,41 @@ class _PendingOutgoingActions extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Chat AppBar overflow actions. Local-only — none of these touch the wire.
+enum _ChatMenuAction { block, unblock, delete }
+
+/// One `label: value` line in the message-info sheet. The value is selectable
+/// so the user can copy a message id / filename.
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 96,
+            child: Text(
+              label,
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: SelectableText(value)),
+        ],
       ),
     );
   }
