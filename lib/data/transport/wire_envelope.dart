@@ -22,7 +22,8 @@ enum WireKind { request, accept, message, fileMeta, fileChunk, ack, edit, del }
 /// **dedup** re-sent messages (the local outbox re-sends un-acked ones) and the
 /// receiver can **ack** by referencing it.
 class WireEnvelope {
-  const WireEnvelope(this.kind, this.body, {this.id, this.sentAtMs});
+  const WireEnvelope(this.kind, this.body,
+      {this.id, this.sentAtMs, this.seq});
 
   final WireKind kind;
   final String body;
@@ -35,21 +36,31 @@ class WireEnvelope {
   /// the receiver falls back to its receive time.
   final int? sentAtMs;
 
+  /// The SENDER's per-(conversation, author) event seq for this message/edit
+  /// (event-log §15, R4). Travels so the receiver folds the event under the
+  /// SAME (author, seq) the sender used — making the log convergent across
+  /// devices and letting the receiver detect gaps (a missing seq) for gap-fill.
+  /// Null from an older sender → the receiver allocates one locally (no gap
+  /// detection for that peer until it upgrades).
+  final int? seq;
+
   const WireEnvelope.request(String greeting, {String? id, int? sentAtMs})
       : this(WireKind.request, greeting, id: id, sentAtMs: sentAtMs);
   const WireEnvelope.accept() : this(WireKind.accept, '');
-  const WireEnvelope.message(String text, {String? id, int? sentAtMs})
-      : this(WireKind.message, text, id: id, sentAtMs: sentAtMs);
+  const WireEnvelope.message(String text, {String? id, int? sentAtMs, int? seq})
+      : this(WireKind.message, text, id: id, sentAtMs: sentAtMs, seq: seq);
   const WireEnvelope.ack(String id) : this(WireKind.ack, '', id: id);
-  const WireEnvelope.edit(String id, String newText)
-      : this(WireKind.edit, newText, id: id);
-  const WireEnvelope.del(String id) : this(WireKind.del, '', id: id);
+  const WireEnvelope.edit(String id, String newText, {int? seq})
+      : this(WireKind.edit, newText, id: id, seq: seq);
+  const WireEnvelope.del(String id, {int? seq})
+      : this(WireKind.del, '', id: id, seq: seq);
 
   Uint8List encode() => Uint8List.fromList(utf8.encode(jsonEncode({
         't': kind.index,
         'b': body,
         if (id != null) 'i': id,
         if (sentAtMs != null) 's': sentAtMs,
+        if (seq != null) 'q': seq,
       })));
 
   /// Decode a payload. Anything that isn't a well-formed envelope is treated
@@ -67,6 +78,7 @@ class WireEnvelope {
           decoded['b'] as String,
           id: decoded['i'] is String ? decoded['i'] as String : null,
           sentAtMs: decoded['s'] is int ? decoded['s'] as int : null,
+          seq: decoded['q'] is int ? decoded['q'] as int : null,
         );
       }
     } catch (_) {
