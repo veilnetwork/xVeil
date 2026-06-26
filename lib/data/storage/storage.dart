@@ -136,6 +136,15 @@ abstract interface class Storage {
   /// unknown again, so a fresh request can be sent. Irreversible.
   Future<void> removeConversation(NodeId peer);
 
+  /// Forensically delete every message of [peer]'s conversation whose ORIGINAL
+  /// post time is older than [retentionDays] days (edits do NOT refresh the
+  /// clock — the original send time governs, so a year-old message edited
+  /// yesterday is still pruned under a 3-month policy). Tombstones the posts,
+  /// reclaims their file blobs AND voids their retained edit rows, then scrubs —
+  /// so no superseded plaintext survives. No-op when [retentionDays] <= 0
+  /// (unlimited). Returns how many messages were pruned. Local-only.
+  Future<int> pruneConversation(NodeId peer, int retentionDays);
+
   /// Erase every message of the conversation with [peer] (incl. file blobs) but
   /// KEEP the contact + chat-list entry — the chat stays, emptied. Tombstones +
   /// scrubs exactly like [removeConversation], so cleared messages are

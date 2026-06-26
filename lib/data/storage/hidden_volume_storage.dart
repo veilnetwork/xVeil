@@ -232,6 +232,7 @@ class HiddenVolumeStorage implements Storage {
       's': contact.status.index,
       if (contact.muted) 'm': true,
       if (contact.pinned) 'p': true,
+      if (contact.retentionDays != null) 'rd': contact.retentionDays,
     });
     // Maintain a contacts index (hidden-volume has no KV key enumeration) so
     // the chat list can show contacts that have no messages yet.
@@ -268,6 +269,7 @@ class HiddenVolumeStorage implements Storage {
           : ContactStatus.accepted,
       muted: m['m'] as bool? ?? false,
       pinned: m['p'] as bool? ?? false,
+      retentionDays: m['rd'] as int?,
     );
   }
 
@@ -669,6 +671,62 @@ class HiddenVolumeStorage implements Storage {
   }
 
   @override
+  Future<int> pruneConversation(NodeId peer, int retentionDays) async {
+    if (retentionDays <= 0) return 0; // unlimited — never auto-delete
+    final cutoff = DateTime.now().subtract(Duration(days: retentionDays));
+    // Old messages by ORIGINAL post time (the fold keeps the post's original
+    // timestamp; edits are separate rows and never refresh it).
+    final old = <String>{
+      for (final m in await loadMessages(peer.hex))
+        if (m.timestamp.isBefore(cutoff)) m.id,
+    };
+    if (old.isEmpty) return 0;
+    // ONE raw scan: tombstone each old post (+ purge its file), and void-rewrite
+    // each retained edit row of an old post (orphaning its body chunk) so the
+    // scrub reclaims ALL of its plaintext — not just the current version.
+    final entries = await _as.iterLogRange(
+      namespace: Ns.messageLog,
+      limit: _logScanLimit,
+    );
+    final ops = <KvLogOp>[];
+    for (final e in entries) {
+      final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
+      if (m['c'] != peer.hex) continue;
+      if (m['op'] == 'status' || m['op'] == 'del') continue;
+      final k = m['k'] as int?;
+      if (k == EventKind.edit.index && old.contains(m['tg'])) {
+        ops.add(AppendLogOp(
+          Ns.messageLog,
+          e.logId,
+          _sk(jsonEncode({
+            'k': EventKind.void_.index,
+            'c': peer.hex,
+            'tg': m['tg'],
+            'id': m['id'],
+          })),
+        ));
+      } else if (old.contains(m['id']) &&
+          (k == null ||
+              k == EventKind.post.index ||
+              k == EventKind.filePost.index)) {
+        ops.add(AppendLogOp(
+          Ns.messageLog,
+          e.logId,
+          _sk(jsonEncode({'op': 'del', 'id': m['id'], 'c': peer.hex})),
+        ));
+        final fileId = m['fi'] as String?;
+        if (fileId != null) {
+          ops.addAll(await AsyncFileStore(_as).deleteFileOps(fileId));
+        }
+      }
+    }
+    if (ops.isEmpty) return 0;
+    await _as.commit(ops);
+    await scrubDeleted();
+    return old.length;
+  }
+
+  @override
   Future<void> clearMessages(NodeId peer) async {
     // Same per-message tombstone+scrub as removeConversation, but the contact
     // record and chat-list index entry stay — the conversation remains (empty).
@@ -911,6 +969,10 @@ class HiddenVolumeStorage implements Storage {
         }
         continue;
       }
+      // Event-log VOID row (k:void_, §15 R-VOID): an inert placeholder occupying a
+      // seq whose content was reclaimed (a retention/clear-history scrub rewrote a
+      // superseded edit row to a body-less void). No effect on the fold state.
+      if (m['k'] == EventKind.void_.index) continue;
       // Event-log EDIT row (k:edit, §15): replace the body of an existing post
       // by the SAME author (R16), keeping a strictly-newer edit only (R5). The
       // original/ superseded bodies stay in their own log rows for the edit
