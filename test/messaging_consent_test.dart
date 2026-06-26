@@ -141,6 +141,28 @@ void main() {
         reason: 'unblock restores accepted status so messages flow again');
   });
 
+  test('a local contact alias is set, trimmed, cleared — never sent on the wire',
+      () async {
+    await mA.sendRequest(b, 'hi');
+    await _pump();
+    await mB.acceptContact(a);
+    await _pump();
+
+    // A names B locally; the alias is trimmed and becomes the display label.
+    await mA.setContactName(b, '  Alice  ');
+    expect((await sA.getContact(b))!.name, 'Alice');
+    expect((await sA.getContact(b))!.label, 'Alice');
+
+    // B never learns the alias — it is local-only, nothing went on the wire.
+    await _pump();
+    expect((await sB.getContact(a))?.name, isNull);
+
+    // Blank input clears it back to the node-id label.
+    await mA.setContactName(b, '   ');
+    expect((await sA.getContact(b))!.name, isNull);
+    expect((await sA.getContact(b))!.label, b.short);
+  });
+
   test('pre-consent intro spam is capped, keeping the most recent', () async {
     // A hostile peer mints a FRESH id per request so the dedup-by-id path does
     // not collapse them. Without the cap these pile up unbounded before B ever

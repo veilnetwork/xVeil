@@ -91,6 +91,8 @@
   "chatDeleteForEveryoneBody": "Оно стирается здесь, а собеседнику отправляется запрос на удаление — но он мог уже увидеть или скопировать его.",
   "chatDeleteConfirm": "Удалить",
   "chatEdited": "изменено",
+  "chatMenuRename": "Переименовать",
+  "chatRenameTitle": "Локальное имя",
   "chatMenuUnblock": "Разблокировать",
   "chatMenuClearHistory": "Очистить историю",
   "chatMenuDeleteConversation": "Удалить переписку",
