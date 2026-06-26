@@ -338,10 +338,22 @@ class HiddenVolumeStorage implements Storage {
   }
 
   @override
-  Future<List<Message>> loadMessages(String conversationId) async {
+  Future<List<Message>> loadMessages(
+    String conversationId, {
+    int? limit,
+  }) async {
     final all = await _scanLog();
-    return all.where((m) => m.conversationId == conversationId).toList()
+    final sorted = all.where((m) => m.conversationId == conversationId).toList()
       ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    // Pagination tail: return only the most-recent [limit]. NOTE: the underlying
+    // _scanLog() is still O(whole log) — the per-conversation prefix range scan
+    // that makes this O(window) is the deferred storage-foundation step
+    // (EVENT-LOG-SYNC-DESIGN.md §15.4). For now this bounds the UI render +
+    // the decrypt-to-Message work to the window, which is the visible win.
+    if (limit != null && limit > 0 && sorted.length > limit) {
+      return sorted.sublist(sorted.length - limit);
+    }
+    return sorted;
   }
 
   @override
