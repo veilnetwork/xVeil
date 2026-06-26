@@ -250,7 +250,26 @@ class _ConversationTile extends ConsumerWidget {
         leading: CircleAvatar(
           child: Text(conversation.peer.label.characters.first.toUpperCase()),
         ),
-        title: Text(conversation.peer.label),
+        title: Row(
+          children: [
+            if (conversation.peer.pinned)
+              Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: Icon(Icons.push_pin,
+                    size: 14, color: scheme.onSurfaceVariant),
+              ),
+            Flexible(
+              child: Text(conversation.peer.label,
+                  overflow: TextOverflow.ellipsis),
+            ),
+            if (conversation.peer.muted)
+              Padding(
+                padding: const EdgeInsets.only(left: 4),
+                child: Icon(Icons.notifications_off,
+                    size: 14, color: scheme.onSurfaceVariant),
+              ),
+          ],
+        ),
         subtitle: hint != null
             ? Text(hint, style: TextStyle(color: hintColor))
             : (last == null

@@ -93,6 +93,8 @@
   "chatEdited": "edited",
   "chatMenuRename": "Rename",
   "chatRenameTitle": "Local name",
+  "chatMenuPin": "Pin to top",
+  "chatMenuUnpin": "Unpin",
   "chatMenuMute": "Mute notifications",
   "chatMenuUnmute": "Unmute notifications",
   "chatMenuUnblock": "Unblock",

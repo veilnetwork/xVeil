@@ -15,6 +15,7 @@ class Contact {
     this.name,
     this.status = ContactStatus.accepted,
     this.muted = false,
+    this.pinned = false,
   });
 
   final NodeId nodeId;
@@ -27,17 +28,27 @@ class Contact {
   /// would otherwise leak the contact set on a seized device).
   final bool muted;
 
+  /// Local pin — pinned conversations sort to the top of the list. Encrypted
+  /// + local-only, same rationale as [muted].
+  final bool pinned;
+
   String get label => name ?? nodeId.short;
 
   /// Free messaging is only allowed once the relationship is accepted.
   bool get canMessage => status == ContactStatus.accepted;
 
-  Contact copyWith({String? name, ContactStatus? status, bool? muted}) =>
+  Contact copyWith({
+    String? name,
+    ContactStatus? status,
+    bool? muted,
+    bool? pinned,
+  }) =>
       Contact(
         nodeId: nodeId,
         name: name ?? this.name,
         status: status ?? this.status,
         muted: muted ?? this.muted,
+        pinned: pinned ?? this.pinned,
       );
 }
 
