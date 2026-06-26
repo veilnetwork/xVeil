@@ -986,3 +986,103 @@ identity also lost → new `node_id` → unrecoverable by protocol → manual re
 shown honestly. The mailbox is the durable carrier (deposits wait for retention).
 Optional `chatClosed` (intentional delete → "peer can re-invite") is opt-in,
 default-OFF (deniable).
+
+---
+
+## 16. Media + storage tiering (DESIGN — extends §15.2; on-disk tiers need a deniability review before code)
+
+Planned: files / images / video / stickers / emoji, plus a user setting to keep
+**heavy** blobs **outside** the encrypted volume (optionally encrypted on disk).
+The on-disk option is a **deniability trade-off** and must be designed, not just
+flagged — §16.3 is load-bearing.
+
+### 16.1 Media kinds (unify under the §15.2 `filePost`)
+
+One `filePost` event with a `mediaKind` and a descriptor body; bytes stay
+out-of-band (§15.2 plane 2):
+
+- **emoji** — Unicode text; renders inline in a normal text `post`. No storage
+  change. (Emoji *reactions* to a message are a future event kind, post-v1.)
+- **sticker** — a reference to a **reusable asset** `sticker:<pack>:<id>`, NOT a
+  per-message blob. The asset is cached once locally (small, in-volume) and
+  dedup'd across all uses; a sticker message is tiny on the wire. Packs are
+  bundled or fetched-and-cached.
+- **image** — full blob + an always-**in-volume thumbnail** (small, e.g. ≤64 KB,
+  for instant deniable preview); descriptor carries `{w,h,mime,thumbRef,blobRef}`.
+- **video** — like image (poster-frame thumbnail in-volume) + `durationMs`.
+- **file** — generic blob, no thumbnail (mime-type icon).
+
+Descriptor: `{name, size, mime, mediaKind, w?, h?, durationMs?, thumbRef?,
+blobRef, blobTier}`. The **thumbnail is always in-volume** (deniable preview,
+scrubbable); only the **full blob** is tiered (§16.2).
+
+### 16.2 Storage tiers for the full blob
+
+Per file, the full blob lands in one of three tiers, chosen by the LOCAL policy
+(sender's tier ≠ receiver's tier — each device stores per its own setting; the
+wire carries only the descriptor + bytes):
+
+1. **In-volume (DEFAULT — fully deniable).** Blob in the hidden-volume container
+   (`Ns.fileChunks`), scrubbable on delete, hidden by lock + decoy/duress. Cost:
+   container bloat + ~15K-log-id pressure (§14.2) + large-blob perf in the
+   log-structured store.
+2. **On-disk, ENCRYPTED (opt-in).** Blob AEAD-encrypted under a **per-file key**
+   and written to the plain app-data filesystem, NOT the container. The container
+   holds only the descriptor + the per-file key (tiny → no volume bloat, no
+   IndexFull pressure). Confidentiality preserved; **deniability degraded** (§16.3).
+3. **On-disk, PLAINTEXT (separate opt-in — most compatible, least private).** Blob
+   written unencrypted (max perf, OS "open in app" integration). NO
+   confidentiality, NO deniability. Explicit opt-in + warning; for genuinely
+   innocuous media only.
+
+**Routing setting:** a size threshold (e.g. "blobs > N MB go to disk") + the two
+tier toggles (on-disk-encrypted, on-disk-plaintext). **Default = everything
+in-volume.** The user opts into on-disk for heavy media to avoid bloat/perf/cap.
+
+### 16.3 Deniability analysis (load-bearing — the on-disk tiers trade deniability)
+
+- **Default stays fully deniable.** No behavior change unless the user opts in.
+- **On-disk ENCRYPTED — confidential but existence-revealing.** A forensic
+  adversary on a seized device sees the **existence, size, and count** of
+  encrypted blobs on plain disk → "this device holds hidden encrypted data" — a
+  signal you **cannot deny**, and one a **decoy/duress unlock does not hide**
+  (on-disk files live outside any space, so a duress unlock of a decoy reveals
+  them). The *content* is safe (AEAD under a per-file key derived from the real
+  space key, so a decoy/duress space cannot decrypt it), but the *fact* leaks.
+  **⇒ explicit opt-in + a blunt warning** ("files kept outside the encrypted
+  container are visible on this device even when locked or under duress").
+- **Forward-secrecy on delete WITHOUT reliable disk erase (elegant).** Keep the
+  per-file key **in-volume**; on delete, **scrub the key** (the existing
+  forensic-erase). The on-disk ciphertext then becomes cryptographically inert —
+  **unrecoverable even if the raw disk bytes survive** (SSD wear-levelling /
+  journaling FS make secure-erase unreliable, so we do not depend on it). Disk
+  file unlink is best-effort hygiene on top.
+- **On-disk PLAINTEXT** has no protection — recoverable by disk forensics even
+  after delete; for innocuous media the user explicitly accepts that.
+- **Capacity bonus:** moving heavy blobs out of the volume **relieves the ~15K
+  IndexFull pressure** (§14.2) — an on-disk blob costs one in-volume metadata
+  entry, not a chunk run. So the on-disk tier is also a lever for the deferred
+  capacity story.
+
+### 16.4 Delete / scrub per tier
+
+- **In-volume:** existing scrub (forensic erase of the blob's `DataBatch` set; §15.2).
+- **On-disk encrypted:** scrub the in-volume **key** (makes the ciphertext inert)
+  + best-effort `File.delete`. A re-streamed/re-delivered copy hits the
+  `isMessageDeleted` guard (no resurrection), and the key is gone, so it cannot be
+  decrypted even if re-written.
+- **On-disk plaintext:** best-effort `File.delete` + overwrite; warn it is
+  forensically recoverable.
+
+### 16.5 v1 vs deferred + the gate
+
+- **v1 (existing substrate, default deniable):** the §15.2 `filePost` model +
+  in-volume blobs (+ in-volume thumbnails for image/video). Stickers as cached
+  asset refs. Emoji free. This needs **no** tiering.
+- **Deferred (opt-in, AFTER a focused deniability review):** the on-disk
+  encrypted + plaintext tiers + the routing setting + the per-file-key scrub.
+  **Gate:** the on-disk tiers must pass a deniability review (the existence/size
+  leak, the decoy/duress interaction, the key-scrub forward-secrecy claim, the
+  cross-space key isolation) before implementation — same discipline as the
+  event-log itself. The threat-model boundary (T2' multi-snapshot, T3 coercion)
+  changes the moment a blob leaves the container.
