@@ -11,10 +11,13 @@
 > a blocker, B2/B3 are far smaller than §13 claimed, and the scoped option-2 needs
 > **zero** substrate work. Read §14 first.
 
-Status: **DESIGN — blocked on substrate (see §13).** Would supersede the
-imperative edit/delete/ack/reconnect mechanism once buildable. Implement only
-after the §13 substrate prerequisites are decided + built, in a dedicated
-session.
+Status: **DESIGN — BUILDABLE (see §14 substrate + §15 protocol spec).** Decision
+(user, 2026-06-26): **Option 1 — full event-log.** Per §14 there is **no veil
+work** and the substrate change is a *bounded* hidden-volume effort (deferrable
+to scale); per §15 the protocol resolutions are settled and the v1 builds on the
+**existing substrate**. Would supersede the imperative
+edit/delete/ack/reconnect mechanism. Implement in a dedicated session per §15.6.
+(The earlier "blocked on substrate" framing of §13 was corrected by §14.)
 
 Related: `MESSAGE-EDIT-DELETE-DESIGN.md`, `OFFLINE-DELIVERY-DESIGN.md`,
 and the agreed recovery-handshake note (memory `recovery-handshake-design`),
@@ -816,3 +819,170 @@ code-grounded reality:
 **Net:** the substrate is a *bounded* hidden-volume effort plus protocol work —
 not the two-repo wall §13 described. The verification pass paid for itself by
 stopping a needless veil project and a wrong "permanent ~250-chat cap" panic.
+
+---
+
+## 15. Buildable protocol spec — pass-4 resolutions (FINAL, with §14)
+
+A fourth pass RESOLVED the §13.3 contradictions in light of §14, designed the
+missing files model, and closed the §13.4 gaps; an external audit confirmed the
+remaining doc-consistency items. §15 is the implementation contract: §14
+(substrate) + §15 (protocol) supersede §1–§13. **It builds on the EXISTING
+substrate;** the only deferred substrate item is IndexFull relief (§15.5).
+
+### 15.0 Decision record (single, authoritative)
+
+**Option 1 (full event-log) is chosen.** No veil work. Hidden-volume change is a
+bounded, deferrable IndexFull relief. The v1 below is **pure xVeil-Dart on the
+existing substrate** (+ one hidden-volume scrub regression test). This record
+supersedes §13.5's "recommend option 2" and §11/§12's "must-have" framings.
+**"Zero substrate" ≠ "zero work":** the Dart event-log (durable per-record
+`(author,seq)`, the fold, sync/gap-fill, the recovery handshake, files) is real
+implementation — today's `edit`/`del` are still fire-and-forget and not in the
+`flushOutbox` retry loop (`messaging.dart:887,908,745`); the event-log replaces
+that with the unified §15.3 loop.
+
+### 15.1 Protocol resolutions (the §13.3 items, now decided)
+
+- **R-DEP (no-overwrite deposit — DISSOLVES §12.2 vs §12.5).** Every deposit — a
+  contiguous round OR a named-hole repair — is its own opaque blob under its own
+  fresh content-id (`_contentIdFor(tag)`, `messaging.dart:863`; tag = a round
+  nonce, or `hole:<author>:<lo>-<hi>:<epoch>`). Nothing is overwritten, so a
+  subset hole-blob never clobbers a tail-blob. Receiver dedups/applies the INNER
+  `(author,seq)` key on drain; a blob is acked or TTL-dropped once its seq range
+  is covered. Relay-state is bounded by a *deposit-cadence* policy (cap distinct
+  in-flight ids per `(recipient,author,epoch)` + jitter — reuse `_stashed` /
+  `_stashRetryBackoff` / `_peerUnresolvedBackoff`), NOT by overwrite. **Already
+  the shipped pattern for `edit:`/`del:`** → zero veil change.
+- **R-ORDER (§12.6 — two layers).** (1) FOLD/APPLY is purely seq/causal and
+  **ts-free** (R5 value-fold; an edit/delete applies iff the target exists and
+  `target.author == event.author`, R16). (2) DISPLAY sorts by `(effective_ts,
+  author, seq)` with a **stable** sort, where `effective_ts(e) =
+  max(future_clamp(e.ts_raw), running_max_ts_of_e.author_over_APPLIED_events_with_seq<e.seq)`
+  — an author-monotone floor that is a function of the **applied event subset**,
+  identical on two devices holding the same subset. Reject R9's receive-time
+  floor. **Documented invariant:** *display order converges on event-set
+  convergence; transient divergence is bounded to the gap window and self-heals.*
+  Fix `loadMessages`'s non-stable `List.sort` (`hidden_volume_storage.dart:344`)
+  to the `(author,seq)`-tiebroken stable sort (needs the durable `(author,seq)`).
+- **R-VOID (§12.1 void-vs-hole — one line).** An inert void `(author,seq,kind=void)`
+  on the wire **advances the contiguous high-water like any applied event** = it
+  is SATISFIED, never recorded as a missing seq, never a named hole. A named hole
+  is only an ABSENT seq below the high-water. (An out-of-order void buffers in the
+  bounded R7 gap buffer and applies when contiguous.)
+- **R-RECOVER2 (§12.4 both-sides-wiped).** Route through the **explicit
+  authenticated recovery trigger** (the absorbed recovery-handshake — §15-inlined
+  below; do NOT collapse it into a bare sync): either side, on un-acked-past-
+  threshold or wanting to reach a non-accepted peer, sends an authenticated
+  `reconnect`; the receiver disambiguates by its own state; both-wiped → both
+  re-introduce as `pendingIncoming`, both re-accept, then both replay from zero.
+  Forged-drop-to-zero is bounded by R1 (authenticated `m.src`) + backoff +
+  `kMaxPreConsentIntros`.
+- **R-SCRUB2 (§12.3 — restated).** Scrub-safety is governed by *whether a record
+  is ever editable/deletable*, not by the write path: **any ever-editable event is
+  committed one-record-per-`DataBatch` (one per-op commit) on EVERY path — live,
+  edit, delete, AND recovery replay.** That is the existing per-op default
+  (`hidden_volume_storage.dart:357,416,448`); accept the per-commit padding (cut
+  4× to 256 KiB). Historical, no-longer-editable posts (outside an "editable
+  window" — define as last-N or last-T) may be dense. + the R6 regression test.
+
+### 15.2 Files / attachments model (the gap every prior pass missed)
+
+- **A file message is ONE `filePost` event** (a new appended `WireKind`) whose
+  body is the descriptor `{name,size,count,blobKind}` (the shape
+  `fileMetaEnvelope` already serialises, `wire_envelope.dart:90`); its id is the
+  existing file-message id. **Chunks are NEVER events.**
+- **Two planes.** PLANE 1 (seq): only the `filePost` participates in
+  seq/gap-fill/high-water (idempotent on `(author,seq)`), exactly like a text
+  post. PLANE 2 (bytes): chunks stay out-of-band over the existing
+  `fileMeta`/`fileChunk` + `FileReassembler` (`messaging.dart:524`,
+  `file_transfer.dart:92`), dedup by `transferId`+index. v1 blob gap-fill =
+  sender re-streams an un-acked file on reconnect (covers the real pain;
+  wiped-peer-wants-old-file is a documented deferral).
+- **Edit / delete / void of a file.** Edit = caption/text-body only (bytes are
+  immutable). Delete/void MUST atomically tombstone the `MESSAGE_LOG` row AND
+  **purge the blob + every `Ns.fileChunks` record** (scrub). FS holds on the
+  existing substrate because **each file's chunks are committed in a single
+  commit → its own isolated `DataBatch` set** (`file_store.dart:34`), so a delete
+  cleanly orphans+scrubs them. A re-delivered/re-streamed transfer of a DELETED
+  file must hit the `isMessageDeleted` guard (no resurrection).
+
+### 15.3 §13.4 gaps — normative rules
+
+- **RULE HW (high-water = ack + gap cursor).** A `sync` carries per-author
+  contiguous-applied high-waters. **Anti-forgery:** clamp a peer's claimed
+  high-water *about my author-stream* to `my_highest_emitted_seq` (a peer can't
+  ack a seq it was never owed). Delivery/read state (`MessageStatus`) is derived
+  **only** from a contiguous, monotone, clamped high-water — never from a raw
+  claimed value. R8's value-clamp is NOT the knob (it kills Case-A recovery, §12.4);
+  HW is an anti-forgery clamp, not a recovery suppressor. Legacy per-id `ack`
+  keeps working in a mixed-pair window.
+- **RULE NH (named-hole governor — supersedes §12.5's bare exemption).** A
+  named-hole repair is exempt from the *coarse* per-peer reconcile rate-limiter
+  (so a legit gap repairs promptly) but governed by a **per-hole** governor: a
+  monotonic sync-epoch/nonce per round + an `answeredHole[(peer,author,range)]`
+  ledger → the responder answers a given hole **once per epoch** (dedup +
+  cooldown), so a broken/hostile accepted peer can't storm. A replayed void is
+  SATISFIED (R-VOID), never re-requested as a hole.
+- **RULE WC (WireKind compat — defense-in-depth, BOTH required).** (1) CAPABILITY
+  GATE: an `event`/`sync` frame is emitted **only** to a peer pinned event-capable
+  per the §12.8 per-`(contact,acceptance-epoch)` pin (set only via an authenticated
+  re-accept advert). (2) STRUCTURAL MARKER: event/sync frames carry a marker (a
+  reserved `v:2` key on the `{t,b}` envelope) so the legacy decoder — which today
+  falls back to plain `message` on an unknown `t` (`wire_envelope.dart:55`) — can
+  **detect-and-drop** rather than mis-render them as a chat message. **Regression
+  test:** an un-upgraded decoder fed an event/sync frame yields *no rendered
+  message* (drop), never a JSON blob shown as text.
+
+### 15.4 Per-conversation seq layout (the external audit's underspec)
+
+Per-conversation seq (R10) on the single `MESSAGE_LOG` namespace via a **u64
+log-id prefix**: `log_id = (conv_slot << S) | conv_seq`, where `conv_slot` is a
+per-conversation index assigned on first message (a small KV `conv_slot` map in
+SETTINGS) and `conv_seq` is the per-conversation monotonic counter. This gives
+(a) per-conversation seq for the protocol, and (b) a contiguous **prefix range
+scan** per conversation (`[conv_slot<<S, (conv_slot+1)<<S)`) — which **also
+serves message pagination** (load latest N of one chat without a full log scan).
+It does **NOT** relieve IndexFull (still per-namespace-total — §14.2). Pin: the
+bit split `S` (e.g. 40 low bits = 1T msgs/conv, 24 high = 16M convs), the
+migration from today's global `msg_next_id` (`hidden_volume_storage.dart:357`)
+(re-key new messages; legacy messages keep a reserved `conv_slot=0` legacy range),
+and that `loadMessages` becomes a prefix range scan.
+
+### 15.5 v1 must-have (existing substrate) vs deferred
+
+**v1 (pure Dart + 1 HV test, existing substrate):** R1 (author=m.src), R2
+(consent), R5 + R-ORDER fold, durable `(author,seq)` via §15.4 prefix, R-DEP
+deposit, RULE HW, R-VOID, R-SCRUB2 (per-op commit) + R6 test, RULE NH, RULE WC,
+§15.2 files, R-RECOVER2 + the inlined recovery handshake, §12.8 epoch pin.
+**Deferred (bounded HV, at scale):** IndexFull relief (per-conversation namespace
+≤~95 live, OR R-LOG-INDEX-3L) + the `eraseSpace`→`list_namespaces` fix (only once
+dynamic namespaces exist).
+
+### 15.6 Build order
+
+1. **Storage foundation:** durable per-record `(author,seq)` + §15.4 prefix layout
+   + the stable `(author,seq)` sort + the R6 one-record-per-batch scrub test.
+   (This also unlocks message **pagination** as a side effect — do it first.)
+2. **Fold + apply** (R5/R-ORDER/R-VOID/R16) over the durable records.
+3. **Sync/gap-fill loop** (R-DEP/RULE HW/RULE NH) replacing `flushOutbox`+`ack`+
+   per-op stash; **RULE WC** capability gate + structural marker first so no frame
+   ever reaches an un-upgraded peer.
+4. **Files** (§15.2) and **recovery** (R-RECOVER2 + inlined handshake + §12.8 pin).
+5. **Deferred:** IndexFull relief when a real user nears the cap.
+
+### 15.7 Recovery handshake (inlined — was an external memory ref)
+
+The absorbed recovery-handshake (previously only in an agent memory note, not the
+repo — external audit #5): Case-A = chat data lost but identity (node keypair)
+survives → `node_id` stable → peer can still reach you. New authenticated
+`reconnect` (greeting-like, "we were connected"), sent when a message stays
+un-acked past ~2 min, **bounded** (~5–6 tries over ~1–2 h, then "not delivered" +
+manual retry — not forever). Receiver disambiguates by its own state: blocked →
+silent drop (no oracle); unknown/pending → surface as `pendingIncoming` "wants to
+reconnect" under `kMaxPreConsentIntros`; already-accepted → re-ack. Offline-vs-
+wiped is indistinguishable from outside (good — no presence oracle). Case-B =
+identity also lost → new `node_id` → unrecoverable by protocol → manual re-invite,
+shown honestly. The mailbox is the durable carrier (deposits wait for retention).
+Optional `chatClosed` (intentional delete → "peer can re-invite") is opt-in,
+default-OFF (deniable).
