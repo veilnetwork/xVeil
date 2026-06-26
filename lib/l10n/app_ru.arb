@@ -323,6 +323,11 @@
   "networkStatusError": "Ошибка",
   "networkBackgroundTitle": "Работать в фоне",
   "networkBackgroundHint": "Только Android. Держит узел — ваш прокси и доставку входящих сообщений — активным после выхода из приложения. Требует постоянного уведомления (видно, что приложение работает) и расходует больше батареи.",
+  "networkBackgroundAllowTitle": "Разрешить работу в фоне",
+  "networkBackgroundAllowBody": "Чтобы сообщения приходили, пока xVeil в фоне, разреши работу без ограничений батареи. На некоторых телефонах (например Xiaomi, Samsung) нужно ДОПОЛНИТЕЛЬНО включить «Автозапуск» / снять ограничения батареи в настройках приложения.",
+  "networkBackgroundAllowGrant": "Разрешить",
+  "networkBackgroundOpenSettings": "Настройки приложения",
+  "networkBackgroundLater": "Позже",
 
   "peersTitle": "Подключённые узлы",
   "peersSectionActive": "Активные",

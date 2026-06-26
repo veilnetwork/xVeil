@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 
 import '../../data/node/node_controller.dart';
 import '../../l10n/app_localizations.dart';
@@ -84,14 +85,43 @@ class NetworkScreen extends ConsumerWidget {
           if (Platform.isAndroid)
             Consumer(builder: (context, ref, _) {
               final on = ref.watch(backgroundNodeProvider);
-              return SwitchListTile(
-                secondary: const Icon(Icons.battery_charging_full_outlined),
-                title: Text(l.networkBackgroundTitle),
-                subtitle: Text(l.networkBackgroundHint),
-                isThreeLine: true,
-                value: on,
-                onChanged: (v) =>
-                    ref.read(backgroundNodeProvider.notifier).set(v),
+              return Column(
+                children: [
+                  SwitchListTile(
+                    secondary:
+                        const Icon(Icons.battery_charging_full_outlined),
+                    title: Text(l.networkBackgroundTitle),
+                    subtitle: Text(l.networkBackgroundHint),
+                    isThreeLine: true,
+                    value: on,
+                    onChanged: (v) async {
+                      await ref.read(backgroundNodeProvider.notifier).set(v);
+                      // Turning it ON: a foreground service alone is NOT enough
+                      // on Doze + aggressive OEMs — prompt for the battery
+                      // exemption the first time it isn't already granted.
+                      if (v && context.mounted) {
+                        await _promptBackgroundPermission(context, l);
+                      }
+                    },
+                  ),
+                  // Proactive nudge when it's ON but the OS would still suspend
+                  // us (battery-optimised) — tap to fix without toggling off/on.
+                  if (on)
+                    FutureBuilder<bool>(
+                      future: VeilBackground.isIgnoringBatteryOptimizations(),
+                      builder: (ctx, snap) {
+                        if (snap.data != false) return const SizedBox.shrink();
+                        return ListTile(
+                          leading: Icon(Icons.warning_amber_rounded,
+                              color: Theme.of(ctx).colorScheme.error),
+                          title: Text(l.networkBackgroundAllowTitle),
+                          subtitle: Text(l.networkBackgroundAllowBody),
+                          isThreeLine: true,
+                          onTap: () => _promptBackgroundPermission(ctx, l),
+                        );
+                      },
+                    ),
+                ],
               );
             }),
           Consumer(builder: (context, ref, _) {
@@ -186,4 +216,41 @@ class _StatusCard extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// Prompt the user to exempt the app from battery optimisation, so the keep-alive
+/// foreground service is actually allowed to keep the node receiving in the
+/// background (Doze + aggressive OEMs suspend it otherwise). No-op if already
+/// granted. Also offers the app-settings deep-link, where MIUI/HyperOS/OneUI hide
+/// the per-app "Autostart" knob a foreground service still needs.
+Future<void> _promptBackgroundPermission(BuildContext context, AppL10n l) async {
+  if (await VeilBackground.isIgnoringBatteryOptimizations()) return;
+  if (!context.mounted) return;
+  await showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(l.networkBackgroundAllowTitle),
+      content: Text(l.networkBackgroundAllowBody),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx),
+          child: Text(l.networkBackgroundLater),
+        ),
+        TextButton(
+          onPressed: () {
+            Navigator.pop(ctx);
+            VeilBackground.openBackgroundSettings();
+          },
+          child: Text(l.networkBackgroundOpenSettings),
+        ),
+        FilledButton(
+          onPressed: () {
+            Navigator.pop(ctx);
+            VeilBackground.requestIgnoreBatteryOptimizations();
+          },
+          child: Text(l.networkBackgroundAllowGrant),
+        ),
+      ],
+    ),
+  );
 }

@@ -1885,6 +1885,36 @@ abstract class AppL10n {
   /// **'Android only. Keeps the node — your proxy and incoming-message delivery — alive after you switch away from the app. Requires a persistent notification (so it\'s visible the app is running) and uses more battery.'**
   String get networkBackgroundHint;
 
+  /// No description provided for @networkBackgroundAllowTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow background work'**
+  String get networkBackgroundAllowTitle;
+
+  /// No description provided for @networkBackgroundAllowBody.
+  ///
+  /// In en, this message translates to:
+  /// **'For messages to arrive while xVeil is in the background, allow it to run without battery restrictions. On some phones (e.g. Xiaomi, Samsung) you must ALSO enable “Autostart” / remove battery limits in the app\'s settings.'**
+  String get networkBackgroundAllowBody;
+
+  /// No description provided for @networkBackgroundAllowGrant.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow'**
+  String get networkBackgroundAllowGrant;
+
+  /// No description provided for @networkBackgroundOpenSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'App settings'**
+  String get networkBackgroundOpenSettings;
+
+  /// No description provided for @networkBackgroundLater.
+  ///
+  /// In en, this message translates to:
+  /// **'Later'**
+  String get networkBackgroundLater;
+
   /// No description provided for @peersTitle.
   ///
   /// In en, this message translates to:
