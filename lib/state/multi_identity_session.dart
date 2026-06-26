@@ -78,24 +78,26 @@ Future<List<IdentityBootSpec>> planIdentityBoots(
 }) async {
   final out = <IdentityBootSpec>[];
   for (var i = 0; i < roster.length; i++) {
-    out.add(IdentityBootSpec(
-      label: roster[i].label,
-      spaceId: await backing.openSpace(roster[i].spaceKeys),
-      obfs4Psk: obfs4Psk,
-      lazyMining: lazyMining,
-      proxy: proxy,
-      // Deniability: the runtime dir name must NOT be the human-readable
-      // label — a device seized while running would otherwise read identity
-      // names straight off the filesystem. Use a one-way hash of the label
-      // (opaque, stable, non-reversible). The dir itself is deleted on
-      // teardown ([RealVeilStack.dispose]), so nothing survives at rest.
-      runtimeDir: '$runtimeDirBase/${_opaqueDir(roster[i].label)}',
-      // Offset by 1 so all-online nodes never reuse [listenPortBase] — the
-      // port a just-stopped one-active node held, whose lingering teardown
-      // would otherwise stall the first identity's bind for ~90s.
-      listenPort: listenPortBase + 1 + i,
-      anonymous: roster[i].anonymous,
-    ));
+    out.add(
+      IdentityBootSpec(
+        label: roster[i].label,
+        spaceId: await backing.openSpace(roster[i].spaceKeys),
+        obfs4Psk: obfs4Psk,
+        lazyMining: lazyMining,
+        proxy: proxy,
+        // Deniability: the runtime dir name must NOT be the human-readable
+        // label — a device seized while running would otherwise read identity
+        // names straight off the filesystem. Use a one-way hash of the label
+        // (opaque, stable, non-reversible). The dir itself is deleted on
+        // teardown ([RealVeilStack.dispose]), so nothing survives at rest.
+        runtimeDir: '$runtimeDirBase/${_opaqueDir(roster[i].label)}',
+        // Offset by 1 so all-online nodes never reuse [listenPortBase] — the
+        // port a just-stopped one-active node held, whose lingering teardown
+        // would otherwise stall the first identity's bind for ~90s.
+        listenPort: listenPortBase + 1 + i,
+        anonymous: roster[i].anonymous,
+      ),
+    );
   }
   return out;
 }
@@ -114,8 +116,8 @@ String _opaqueDir(String label) {
 
 /// Boots an [IdentityNode] from [storage] for one [spec] — defaults to the real
 /// deniable boot; injectable so the orchestration can be tested without a node.
-typedef IdentityNodeBoot = Future<IdentityNode> Function(
-    IdentityBootSpec spec, Storage storage);
+typedef IdentityNodeBoot =
+    Future<IdentityNode> Function(IdentityBootSpec spec, Storage storage);
 
 Future<IdentityNode> _realBoot(IdentityBootSpec spec, Storage storage) async {
   final stack = await RealVeilStack.startDeniable(
@@ -132,7 +134,10 @@ Future<IdentityNode> _realBoot(IdentityBootSpec spec, Storage storage) async {
     proxy: spec.proxy,
   );
   return IdentityNode(
-      transport: stack.transport, stack: stack, dispose: stack.dispose);
+    transport: stack.transport,
+    stack: stack,
+    dispose: stack.dispose,
+  );
 }
 
 /// Runs ALL of a master's identities at once. Every identity's space is hosted
@@ -155,12 +160,12 @@ class MultiIdentitySession {
     bool lazyMining = false,
     ProxyRouting proxy = ProxyRouting.disabled,
     IdentityNodeBoot boot = _realBoot,
-  })  : _runtimeDirBase = runtimeDirBase,
-        _listenPortBase = listenPortBase,
-        _obfs4Psk = obfs4Psk,
-        _lazyMining = lazyMining,
-        _proxy = proxy,
-        _boot = boot;
+  }) : _runtimeDirBase = runtimeDirBase,
+       _listenPortBase = listenPortBase,
+       _obfs4Psk = obfs4Psk,
+       _lazyMining = lazyMining,
+       _proxy = proxy,
+       _boot = boot;
 
   final AsyncMultiSpaceBacking _backing;
   final String _runtimeDirBase;
@@ -193,17 +198,21 @@ class MultiIdentitySession {
   /// concurrently. Best-effort per identity: a boot failure logs and skips that
   /// identity's node/messaging but keeps its storage view hosted.
   Future<void> bootAll(List<RosterEntry> roster) async {
-    final specs = await planIdentityBoots(roster, _backing,
-        runtimeDirBase: _runtimeDirBase,
-        listenPortBase: _listenPortBase,
-        obfs4Psk: _obfs4Psk,
-        lazyMining: _lazyMining,
-        proxy: _proxy);
+    final specs = await planIdentityBoots(
+      roster,
+      _backing,
+      runtimeDirBase: _runtimeDirBase,
+      listenPortBase: _listenPortBase,
+      obfs4Psk: _obfs4Psk,
+      lazyMining: _lazyMining,
+      proxy: _proxy,
+    );
     for (final spec in specs) {
       // Each identity's storage view routes its ops to the shared backing's
       // worker isolate (off the UI thread) via AsyncMultiSpaceKvLogStore.
       final storage = HiddenVolumeStorage.fromAsyncStore(
-          AsyncMultiSpaceKvLogStore(_backing, spec.spaceId));
+        AsyncMultiSpaceKvLogStore(_backing, spec.spaceId),
+      );
       _storages[spec.label] = storage;
       try {
         // Bound the boot: a node that can't bind its port (e.g. one just freed
@@ -211,9 +220,11 @@ class MultiIdentitySession {
         // would hang the whole unlock. On timeout we skip it (best-effort).
         final node = await _boot(spec, storage).timeout(_bootTimeout);
         _nodes[spec.label] = node;
-        _messaging[spec.label] =
-            MessagingService(node.transport, storage, anonymous: spec.anonymous)
-              ..start();
+        _messaging[spec.label] = MessagingService(
+          node.transport,
+          storage,
+          anonymous: spec.anonymous,
+        )..start();
       } catch (_) {
         // Node didn't come up — keep the storage view so the UI shows history;
         // this identity just can't send/receive live until re-booted.
@@ -222,16 +233,36 @@ class MultiIdentitySession {
   }
 
   /// Tear down all messaging pipelines and nodes, then release the shared lock.
+  ///
+  /// Best-effort and lock-release-unconditional (mirrors [bootAll]'s guarded
+  /// loop): if one per-element teardown faults (an FFI close on an already-freed
+  /// handle, a native stop panic), the remaining elements still dispose, the
+  /// maps still clear, and — critically — `_backing.close()` still runs to
+  /// release the shared container LOCK_EX. Without this guard a single throwing
+  /// dispose aborted the whole chain, left the lock held, and wedged the next
+  /// unlock.
   Future<void> disposeAll() async {
     for (final m in _messaging.values) {
-      await m.dispose();
+      try {
+        await m.dispose();
+      } catch (_) {
+        /* keep tearing down */
+      }
     }
     for (final n in _nodes.values) {
-      await n.dispose();
+      try {
+        await n.dispose();
+      } catch (_) {
+        /* keep tearing down */
+      }
     }
     _messaging.clear();
     _nodes.clear();
     _storages.clear();
-    await _backing.close();
+    try {
+      await _backing.close();
+    } catch (_) {
+      /* lock release is best-effort */
+    }
   }
 }

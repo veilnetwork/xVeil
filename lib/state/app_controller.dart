@@ -84,15 +84,14 @@ class AppState {
     List<String>? identities,
     String? activeIdentity,
     PreparingReason? preparingReason,
-  }) =>
-      AppState(
-        phase ?? this.phase,
-        identity: identity ?? this.identity,
-        unlockError: unlockError ?? false,
-        identities: identities ?? this.identities,
-        activeIdentity: activeIdentity ?? this.activeIdentity,
-        preparingReason: preparingReason ?? PreparingReason.node,
-      );
+  }) => AppState(
+    phase ?? this.phase,
+    identity: identity ?? this.identity,
+    unlockError: unlockError ?? false,
+    identities: identities ?? this.identities,
+    activeIdentity: activeIdentity ?? this.activeIdentity,
+    preparingReason: preparingReason ?? PreparingReason.node,
+  );
 }
 
 const _kOnboardedKey = 'onboarded';
@@ -160,8 +159,9 @@ class AppController extends Notifier<AppState> {
     // loopback/test path is instant, so it would just flash).
     if (ref.read(deniableBootProvider) != null) {
       state = state.copyWith(
-          phase: AppPhase.preparingNode,
-          preparingReason: PreparingReason.firstRunMining);
+        phase: AppPhase.preparingNode,
+        preparingReason: PreparingReason.firstRunMining,
+      );
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
 
@@ -186,8 +186,9 @@ class AppController extends Notifier<AppState> {
     // path (the loopback/test opener is instant, so it would just flash).
     if (ref.read(deniableBootProvider) != null) {
       state = state.copyWith(
-          phase: AppPhase.preparingNode,
-          preparingReason: PreparingReason.unlocking);
+        phase: AppPhase.preparingNode,
+        preparingReason: PreparingReason.unlocking,
+      );
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
 
@@ -208,37 +209,52 @@ class AppController extends Notifier<AppState> {
     // Master vs identity is decided AFTER unlock by inspecting contents (never
     // from disk — deniability). A roster ⇒ master: read it, then release the
     // exclusive lock (only one space open at a time) and let the user pick.
-    final roster = await storage.loadRoster();
-    if (roster != null && roster.isNotEmpty) {
-      _pendingRoster = roster;
-      // Cache the master's keys so roster edits can reopen it without a
-      // password re-prompt (held in memory like the child keys above).
-      _masterKeys = await storage.exportSpaceKeys();
-      await storage.close(); // release the single-space lock first
-      // Opt-in "all identities online": host every space + run every node at
-      // once (needs the real container path). Else the one-active picker.
-      final boot = ref.read(deniableBootProvider);
-      if (ref.read(keepAllOnlineProvider) && boot?.storePath != null) {
-        try {
-          await _enterAllOnline(roster, boot!);
-          return;
-        } catch (e, st) {
-          // All-online boot failed — never strand the user on a stuck unlock.
-          // Tear down any half-built session and fall back to the one-active
-          // picker (which is known-good). Surface WHY so we can fix it.
-          devLog(() => 'xVeil[all-online]: boot FAILED -> picker: $e\n$st');
-          await _teardownSession();
+    //
+    // Wrap the whole post-open classification so a throwing FFI op
+    // (exportSpaceKeys, _enterSession's node-config read) can't leave the
+    // unlock spinner frozen with the container half-open — bounce back to the
+    // lock screen so the user retries cleanly.
+    try {
+      final roster = await storage.loadRoster();
+      if (roster != null && roster.isNotEmpty) {
+        _pendingRoster = roster;
+        // Cache the master's keys so roster edits can reopen it without a
+        // password re-prompt (held in memory like the child keys above).
+        _masterKeys = await storage.exportSpaceKeys();
+        await storage.close(); // release the single-space lock first
+        // Opt-in "all identities online": host every space + run every node at
+        // once (needs the real container path). Else the one-active picker.
+        final boot = ref.read(deniableBootProvider);
+        if (ref.read(keepAllOnlineProvider) && boot?.storePath != null) {
+          try {
+            await _enterAllOnline(roster, boot!);
+            return;
+          } catch (e, st) {
+            // All-online boot failed — never strand the user on a stuck
+            // unlock. Tear down any half-built session and fall back to the
+            // one-active picker (known-good). Surface WHY so we can fix it.
+            devLog(() => 'xVeil[all-online]: boot FAILED -> picker: $e\n$st');
+            await _teardownSession();
+          }
         }
+        state = state.copyWith(
+          phase: AppPhase.pickingIdentity,
+          identities: [for (final e in roster) e.label],
+        );
+        return;
       }
-      state = state.copyWith(
-        phase: AppPhase.pickingIdentity,
-        identities: [for (final e in roster) e.label],
+      // Single identity space — unchanged path.
+      final identity = await storage.loadIdentity() ?? _placeholderIdentity();
+      await _enterSession(identity);
+    } catch (e) {
+      devLog(
+        () => 'xVeil[unlock]: post-open classification failed -> lock: $e',
       );
-      return;
+      try {
+        await ref.read(storageProvider).close();
+      } catch (_) {}
+      state = const AppState(AppPhase.locked, unlockError: true);
     }
-    // Single identity space — unchanged path.
-    final identity = await storage.loadIdentity() ?? _placeholderIdentity();
-    await _enterSession(identity);
   }
 
   /// Current on-disk size of the deniable container in bytes, or null on the
@@ -274,16 +290,16 @@ class AppController extends Notifier<AppState> {
     final path = ref.read(deniableBootProvider)!.storePath!;
     final before = await File(path).length();
     state = state.copyWith(
-        phase: AppPhase.preparingNode, preparingReason: PreparingReason.unlocking);
+      phase: AppPhase.preparingNode,
+      preparingReason: PreparingReason.unlocking,
+    );
     await _teardownSession();
     await _teardownRealStack();
     await ref.read(storageProvider).close(); // release the LOCK_EX
     try {
-      await hv.compactKnownAsync(
-        path,
-        [Uint8List.fromList(utf8.encode(password))],
-        dylibPath: _hvDylibPath(),
-      );
+      await hv.compactKnownAsync(path, [
+        Uint8List.fromList(utf8.encode(password)),
+      ], dylibPath: _hvDylibPath());
     } finally {
       await unlock(password); // always reopen
     }
@@ -306,11 +322,14 @@ class AppController extends Notifier<AppState> {
   /// identity's node + messaging pipeline at once, and show the first identity.
   /// Switching later just re-points the view — no node goes offline.
   Future<void> _enterAllOnline(
-      List<RosterEntry> roster, DeniableBootConfig boot) async {
+    List<RosterEntry> roster,
+    DeniableBootConfig boot,
+  ) async {
     // Still part of the unlock from the user's view (opening + booting all).
     state = state.copyWith(
-        phase: AppPhase.preparingNode,
-        preparingReason: PreparingReason.unlocking);
+      phase: AppPhase.preparingNode,
+      preparingReason: PreparingReason.unlocking,
+    );
     final session = ref.read(sessionBuilderProvider)(
       storePath: boot.storePath!,
       runtimeDir: boot.runtimeDir,
@@ -346,10 +365,15 @@ class AppController extends Notifier<AppState> {
         ? Identity(
             nodeId: stack.myInvite.nodeId,
             displayName: identity.displayName,
-            username: identity.username)
+            username: identity.username,
+          )
         : identity;
-    state = AppState(AppPhase.ready,
-        identity: effective, identities: identities, activeIdentity: label);
+    state = AppState(
+      AppPhase.ready,
+      identity: effective,
+      identities: identities,
+      activeIdentity: label,
+    );
   }
 
   /// Master mode: open the chosen identity (by its stored keys) and enter its
@@ -401,14 +425,26 @@ class AppController extends Notifier<AppState> {
     await _teardownRealStack(); // stop the current identity's node
     await ref.read(storageProvider).close(); // release the lock
     state = state.copyWith(phase: AppPhase.preparingNode);
-    final storage = ref.read(storageProvider);
-    if (!await storage.openWithKeys(entry.spaceKeys)) {
+    try {
+      final storage = ref.read(storageProvider);
+      if (!await storage.openWithKeys(entry.spaceKeys)) {
+        state = const AppState(AppPhase.locked, unlockError: true);
+        return;
+      }
+      _activeLabel = label;
+      final identity = await storage.loadIdentity() ?? _placeholderIdentity();
+      await _enterSession(identity);
+    } catch (e) {
+      // A throw here (FFI fault on close/open, corrupt identity blob) after the
+      // session was torn down would leave the UI wedged on the preparing
+      // screen. Bounce to the lock screen so the user re-unlocks into a clean
+      // session instead of a half-torn-down dead end.
+      devLog(() => 'xVeil[identity]: switchIdentity failed -> lock: $e');
+      try {
+        await ref.read(storageProvider).close();
+      } catch (_) {}
       state = const AppState(AppPhase.locked, unlockError: true);
-      return;
     }
-    _activeLabel = label;
-    final identity = await storage.loadIdentity() ?? _placeholderIdentity();
-    await _enterSession(identity);
   }
 
   /// The identity currently active in a master session, or null in single mode.
@@ -522,28 +558,43 @@ class AppController extends Notifier<AppState> {
     await _teardownRealStack();
     await ref.read(storageProvider).close();
 
-    final storage = ref.read(storageProvider);
-    if (!await storage.openWithKeys(masterKeys)) {
+    try {
+      final storage = ref.read(storageProvider);
+      if (!await storage.openWithKeys(masterKeys)) {
+        await _recoverToActive();
+        return false;
+      }
+      // Edit the master's ON-DISK roster (source of truth), then mirror it.
+      final onDisk = await storage.loadRoster() ?? roster;
+      final updated = [
+        for (final e in onDisk)
+          if (e.label == label)
+            RosterEntry(
+              label: e.label,
+              spaceKeys: e.spaceKeys,
+              anonymous: anonymous,
+            )
+          else
+            e,
+      ];
+      await storage.saveRoster(updated);
+      await storage.close();
+      _pendingRoster = updated;
+
+      // Re-enter so the change takes effect (a node's anonymity is fixed at
+      // its boot, so editing the roster requires the node to re-boot under it).
+      await _reEnterAfterRosterEdit(updated, prevActive, hadSession);
+      return true;
+    } catch (e) {
+      // A throwing FFI op (loadRoster on a corrupt blob, saveRoster HvException)
+      // after teardown must not strand the app session-less: recover to the
+      // active identity (picker) or the lock screen.
+      devLog(
+        () => 'xVeil[identity]: setIdentityAnonymous failed -> recover: $e',
+      );
       await _recoverToActive();
       return false;
     }
-    // Edit the master's ON-DISK roster (source of truth), then mirror in memory.
-    final onDisk = await storage.loadRoster() ?? roster;
-    final updated = [
-      for (final e in onDisk)
-        if (e.label == label)
-          RosterEntry(label: e.label, spaceKeys: e.spaceKeys, anonymous: anonymous)
-        else
-          e,
-    ];
-    await storage.saveRoster(updated);
-    await storage.close();
-    _pendingRoster = updated;
-
-    // Re-enter so the change takes effect (a node's anonymity is fixed at its
-    // boot, so editing the roster requires the node to re-boot under it).
-    await _reEnterAfterRosterEdit(updated, prevActive, hadSession);
-    return true;
   }
 
   /// Re-enter a master session after editing its roster (anonymity toggle,
@@ -553,7 +604,10 @@ class AppController extends Notifier<AppState> {
   /// first identity (all-online). Shared so every roster-edit re-enters
   /// identically. Caller must already have torn the session/stack down + saved.
   Future<void> _reEnterAfterRosterEdit(
-      List<RosterEntry> updated, String? target, bool hadSession) async {
+    List<RosterEntry> updated,
+    String? target,
+    bool hadSession,
+  ) async {
     final valid = target != null && updated.any((e) => e.label == target);
     if (hadSession) {
       // All-online: rebuild the whole session (every node re-boots), then
@@ -565,7 +619,10 @@ class AppController extends Notifier<AppState> {
           if (valid) await switchIdentity(target);
           return;
         } catch (e, st) {
-          devLog(() => 'xVeil[roster]: all-online re-enter FAILED -> picker: $e\n$st');
+          devLog(
+            () =>
+                'xVeil[roster]: all-online re-enter FAILED -> picker: $e\n$st',
+          );
           await _teardownSession();
         }
       }
@@ -609,24 +666,30 @@ class AppController extends Notifier<AppState> {
     await _teardownRealStack();
     await ref.read(storageProvider).close();
 
-    final storage = ref.read(storageProvider);
-    if (!await storage.openWithKeys(masterKeys)) {
+    try {
+      final storage = ref.read(storageProvider);
+      if (!await storage.openWithKeys(masterKeys)) {
+        await _recoverToActive();
+        return false;
+      }
+      final onDisk = await storage.loadRoster() ?? roster;
+      final updated = [
+        for (final e in onDisk)
+          if (e.label != label) e,
+      ];
+      await storage.saveRoster(updated);
+      await storage.close();
+      _pendingRoster = updated;
+
+      // If we just unbound the ACTIVE identity it is gone from [updated], so
+      // the helper falls back to the picker; otherwise restores the view.
+      await _reEnterAfterRosterEdit(updated, prevActive, hadSession);
+      return true;
+    } catch (e) {
+      devLog(() => 'xVeil[identity]: unbindIdentity failed -> recover: $e');
       await _recoverToActive();
       return false;
     }
-    final onDisk = await storage.loadRoster() ?? roster;
-    final updated = [
-      for (final e in onDisk)
-        if (e.label != label) e,
-    ];
-    await storage.saveRoster(updated);
-    await storage.close();
-    _pendingRoster = updated;
-
-    // If we just unbound the ACTIVE identity it is gone from [updated], so the
-    // helper falls back to the picker; otherwise it restores the active view.
-    await _reEnterAfterRosterEdit(updated, prevActive, hadSession);
-    return true;
   }
 
   /// PERMANENTLY delete [label]'s identity: forensically erase its space (its
@@ -657,30 +720,38 @@ class AppController extends Notifier<AppState> {
     await _teardownRealStack();
     await ref.read(storageProvider).close();
 
-    final storage = ref.read(storageProvider);
-    // Erase the identity's space (forensic) — open by its stored keys, wipe
-    // every namespace, scrub. If the keys are stale we still drop the roster
-    // entry below so the master view is consistent.
-    if (await storage.openWithKeys(entry.spaceKeys)) {
-      await storage.eraseSpace();
-      await storage.close();
-    }
+    try {
+      final storage = ref.read(storageProvider);
+      // Erase the identity's space (forensic) — open by its stored keys, wipe
+      // every namespace, scrub. If the keys are stale we still drop the roster
+      // entry below so the master view is consistent.
+      if (await storage.openWithKeys(entry.spaceKeys)) {
+        await storage.eraseSpace();
+        await storage.close();
+      }
 
-    if (!await storage.openWithKeys(masterKeys)) {
+      if (!await storage.openWithKeys(masterKeys)) {
+        await _recoverToActive();
+        return false;
+      }
+      final onDisk = await storage.loadRoster() ?? roster;
+      final updated = [
+        for (final e in onDisk)
+          if (e.label != label) e,
+      ];
+      await storage.saveRoster(updated);
+      await storage.close();
+      _pendingRoster = updated;
+
+      await _reEnterAfterRosterEdit(updated, prevActive, hadSession);
+      return true;
+    } catch (e) {
+      // A mid-erase / mid-save FFI throw must still re-enter a usable session
+      // instead of stranding the user behind the manage-screen busy overlay.
+      devLog(() => 'xVeil[identity]: deleteIdentity failed -> recover: $e');
       await _recoverToActive();
       return false;
     }
-    final onDisk = await storage.loadRoster() ?? roster;
-    final updated = [
-      for (final e in onDisk)
-        if (e.label != label) e,
-    ];
-    await storage.saveRoster(updated);
-    await storage.close();
-    _pendingRoster = updated;
-
-    await _reEnterAfterRosterEdit(updated, prevActive, hadSession);
-    return true;
   }
 
   /// Bind an EXISTING identity (proven by [identityPassword]) into this master
@@ -706,41 +777,51 @@ class AppController extends Notifier<AppState> {
     await _teardownRealStack();
     await ref.read(storageProvider).close();
 
-    final storage = ref.read(storageProvider);
-    // Open the identity by its OWN password (must already exist — no create).
-    if (!await storage.open(password: identityPassword)) {
-      await _recoverToActive();
-      return false;
-    }
-    // Only a PLAIN identity can be bound — a space with a roster is a master.
-    final isPlainIdentity = await storage.loadIdentity() != null &&
-        await storage.loadRoster() == null;
-    final keys = isPlainIdentity ? await storage.exportSpaceKeys() : null;
-    await storage.close();
-    if (keys == null) {
-      await _recoverToActive();
-      return false;
-    }
-
-    // Append to the master's ON-DISK roster, re-checking label + keys there.
-    if (!await storage.openWithKeys(masterKeys)) {
-      await _recoverToActive();
-      return false;
-    }
-    final onDisk = await storage.loadRoster() ?? roster;
-    if (onDisk.any((e) =>
-        e.label == label || listEquals(e.spaceKeys, keys))) {
+    try {
+      final storage = ref.read(storageProvider);
+      // Open the identity by its OWN password (must already exist — no create).
+      if (!await storage.open(password: identityPassword)) {
+        await _recoverToActive();
+        return false;
+      }
+      // Only a PLAIN identity can be bound — a roster-bearing space is a master.
+      final isPlainIdentity =
+          await storage.loadIdentity() != null &&
+          await storage.loadRoster() == null;
+      final keys = isPlainIdentity ? await storage.exportSpaceKeys() : null;
       await storage.close();
+      if (keys == null) {
+        await _recoverToActive();
+        return false;
+      }
+
+      // Append to the master's ON-DISK roster, re-checking label + keys there.
+      if (!await storage.openWithKeys(masterKeys)) {
+        await _recoverToActive();
+        return false;
+      }
+      final onDisk = await storage.loadRoster() ?? roster;
+      if (onDisk.any(
+        (e) => e.label == label || listEquals(e.spaceKeys, keys),
+      )) {
+        await storage.close();
+        await _recoverToActive();
+        return false;
+      }
+      final updated = [...onDisk, RosterEntry(label: label, spaceKeys: keys)];
+      await storage.saveRoster(updated);
+      await storage.close();
+      _pendingRoster = updated;
+
+      await _reEnterAfterRosterEdit(updated, prevActive, hadSession);
+      return true;
+    } catch (e) {
+      devLog(
+        () => 'xVeil[identity]: bindExistingIdentity failed -> recover: $e',
+      );
       await _recoverToActive();
       return false;
     }
-    final updated = [...onDisk, RosterEntry(label: label, spaceKeys: keys)];
-    await storage.saveRoster(updated);
-    await storage.close();
-    _pendingRoster = updated;
-
-    await _reEnterAfterRosterEdit(updated, prevActive, hadSession);
-    return true;
   }
 
   /// Add a new identity. On the FIRST add this converts the current single
@@ -791,93 +872,103 @@ class AppController extends Notifier<AppState> {
     await _teardownSession();
     await _teardownRealStack();
     await active.close();
-    final storage = ref.read(storageProvider);
+    try {
+      final storage = ref.read(storageProvider);
 
-    // Open/create the master and decide append-vs-convert from its ON-DISK
-    // state — never from in-memory session state.
-    if (!await storage.open(password: masterPassword, createIfMissing: true)) {
-      await _recoverToActive();
-      return false;
-    }
-    final existingRoster = await storage.loadRoster();
-    final masterHasIdentity = await storage.loadIdentity() != null;
-    await storage.close();
+      // Open/create the master and decide append-vs-convert from its ON-DISK
+      // state — never from in-memory session state.
+      if (!await storage.open(
+        password: masterPassword,
+        createIfMissing: true,
+      )) {
+        await _recoverToActive();
+        return false;
+      }
+      final existingRoster = await storage.loadRoster();
+      final masterHasIdentity = await storage.loadIdentity() != null;
+      await storage.close();
 
-    // Clash: the master password opened a real IDENTITY space (has an identity,
-    // no roster). Writing a roster into it would clobber that identity — abort
-    // with no side effects so the UI can ask for a different master password.
-    if (masterHasIdentity && existingRoster == null) {
-      await _recoverToActive();
-      return false;
-    }
+      // Clash: the master password opened a real IDENTITY space (has an identity,
+      // no roster). Writing a roster into it would clobber that identity — abort
+      // with no side effects so the UI can ask for a different master password.
+      if (masterHasIdentity && existingRoster == null) {
+        await _recoverToActive();
+        return false;
+      }
 
-    // First conversion (no existing master roster) needs the current identity's
-    // keys to wrap it as the first child. Without them (the active space wasn't
-    // open when we started) we'd write a roster of ONLY the new identity and
-    // ORPHAN the existing one — abort instead of losing it.
-    if (existingRoster == null && currentKeys == null) {
-      await _recoverToActive();
-      return false;
-    }
+      // First conversion (no existing master roster) needs the current identity's
+      // keys to wrap it as the first child. Without them (the active space wasn't
+      // open when we started) we'd write a roster of ONLY the new identity and
+      // ORPHAN the existing one — abort instead of losing it.
+      if (existingRoster == null && currentKeys == null) {
+        await _recoverToActive();
+        return false;
+      }
 
-    // Base roster: an EXISTING master → its OWN on-disk roster (append to it); a
-    // fresh master → wrap the current single identity as the first child.
-    final base = <RosterEntry>[
-      if (existingRoster != null)
-        ...existingRoster
-      else if (currentKeys != null)
-        // Preserve the single identity's CURRENT anonymity when wrapping it as
-        // the first child, so converting to a master never silently flips its
-        // routing (the bug where the "anonymous routing" banner appeared/vanished
-        // on convert). Mirrors the per-space [_singleAnonymous] preference.
-        RosterEntry(
+      // Base roster: an EXISTING master → its OWN on-disk roster (append to it); a
+      // fresh master → wrap the current single identity as the first child.
+      final base = <RosterEntry>[
+        if (existingRoster != null)
+          ...existingRoster
+        else if (currentKeys != null)
+          // Preserve the single identity's CURRENT anonymity when wrapping it as
+          // the first child, so converting to a master never silently flips its
+          // routing (the bug where the "anonymous routing" banner appeared/vanished
+          // on convert). Mirrors the per-space [_singleAnonymous] preference.
+          RosterEntry(
             label: existingLabel,
             spaceKeys: currentKeys,
-            anonymous: _singleAnonymous),
-    ];
+            anonymous: _singleAnonymous,
+          ),
+      ];
 
-    // Refuse a duplicate label — two roster entries with the same label would
-    // break switching (it resolves an identity by label).
-    if (base.any((e) => e.label == label)) {
+      // Refuse a duplicate label — two roster entries with the same label would
+      // break switching (it resolves an identity by label).
+      if (base.any((e) => e.label == label)) {
+        await _recoverToActive();
+        return false;
+      }
+
+      // Create + name the new identity space (its node config is mined lazily on
+      // first boot, like onboarding). Distinct child passwords are assumed (the UI
+      // instructs this; the design can't deniably dedupe passwords).
+      if (!await storage.open(password: password, createIfMissing: true)) {
+        await _recoverToActive();
+        return false;
+      }
+      await storage.saveIdentity(generateIdentity(displayName: label));
+      final roster = <RosterEntry>[
+        ...base,
+        RosterEntry(
+          label: label,
+          spaceKeys: await storage.exportSpaceKeys(),
+          anonymous: anonymous,
+        ),
+      ];
+      await storage.close();
+
+      // Persist the appended roster into the (now-existing) master.
+      if (!await storage.open(password: masterPassword)) {
+        await _recoverToActive();
+        return false;
+      }
+      await storage.saveRoster(roster);
+      // Cache the master's keys so a later roster edit (e.g. toggling anonymity)
+      // works without re-unlocking — same as the unlock path does.
+      _masterKeys = await storage.exportSpaceKeys();
+      await storage.close();
+
+      // Enter the new identity (one-active). If the user has keep-all-online on,
+      // the next unlock brings every identity — including this one — back online.
+      _pendingRoster = roster;
+      _activeLabel = null;
+      await pickIdentity(label);
+      return true;
+    } catch (e) {
+      devLog(() => 'xVeil[identity]: addIdentity failed -> recover: $e');
       await _recoverToActive();
       return false;
     }
-
-    // Create + name the new identity space (its node config is mined lazily on
-    // first boot, like onboarding). Distinct child passwords are assumed (the UI
-    // instructs this; the design can't deniably dedupe passwords).
-    if (!await storage.open(password: password, createIfMissing: true)) {
-      await _recoverToActive();
-      return false;
-    }
-    await storage.saveIdentity(generateIdentity(displayName: label));
-    final roster = <RosterEntry>[
-      ...base,
-      RosterEntry(
-        label: label,
-        spaceKeys: await storage.exportSpaceKeys(),
-        anonymous: anonymous,
-      ),
-    ];
-    await storage.close();
-
-    // Persist the appended roster into the (now-existing) master.
-    if (!await storage.open(password: masterPassword)) {
-      await _recoverToActive();
-      return false;
-    }
-    await storage.saveRoster(roster);
-    // Cache the master's keys so a later roster edit (e.g. toggling anonymity)
-    // works without re-unlocking — same as the unlock path does.
-    _masterKeys = await storage.exportSpaceKeys();
-    await storage.close();
-
-    // Enter the new identity (one-active). If the user has keep-all-online on,
-    // the next unlock brings every identity — including this one — back online.
-    _pendingRoster = roster;
-    _activeLabel = null;
-    await pickIdentity(label);
-    return true;
   }
 
   /// Create a **decoy (duress) master** under [duressPassword], whose roster
@@ -914,25 +1005,41 @@ class AppController extends Notifier<AppState> {
     await _teardownRealStack();
     await ref.read(storageProvider).close();
 
-    final storage = ref.read(storageProvider);
     var ok = false;
-    if (await storage.open(password: duressPassword, createIfMissing: true)) {
-      // Refuse to write into anything that already exists — a clash means the
-      // password opened a real identity (has an identity) or an existing master
-      // (has a roster); writing the decoy roster would clobber it.
-      final clash = await storage.loadIdentity() != null ||
-          await storage.loadRoster() != null;
-      if (!clash) {
-        await storage.saveRoster(decoy);
-        ok = true;
+    try {
+      final storage = ref.read(storageProvider);
+      if (await storage.open(password: duressPassword, createIfMissing: true)) {
+        // Refuse to write into anything that already exists — a clash means the
+        // password opened a real identity (has an identity) or an existing
+        // master (has a roster); the decoy roster would clobber it.
+        final clash =
+            await storage.loadIdentity() != null ||
+            await storage.loadRoster() != null;
+        if (!clash) {
+          await storage.saveRoster(decoy);
+          ok = true;
+        }
+        await storage.close();
       }
-      await storage.close();
+    } catch (e) {
+      devLog(() => 'xVeil[identity]: createDecoyMaster write failed: $e');
+      ok = false;
     }
 
-    // Restore the user's active identity.
-    if (activeLabel != null) {
-      _activeLabel = null;
-      await pickIdentity(activeLabel);
+    // Restore the user's active identity — ALWAYS, even if the decoy write
+    // threw, so a fault never leaves the user session-less behind a closed
+    // container.
+    try {
+      if (activeLabel != null) {
+        _activeLabel = null;
+        await pickIdentity(activeLabel);
+      }
+    } catch (e) {
+      devLog(
+        () =>
+            'xVeil[identity]: createDecoyMaster restore failed -> recover: $e',
+      );
+      await _recoverToActive();
     }
     return ok;
   }
@@ -975,8 +1082,9 @@ class AppController extends Notifier<AppState> {
       final firstRun = await ref.read(storageProvider).loadNodeConfig() == null;
       state = state.copyWith(
         phase: AppPhase.preparingNode,
-        preparingReason:
-            firstRun ? PreparingReason.firstRunMining : PreparingReason.node,
+        preparingReason: firstRun
+            ? PreparingReason.firstRunMining
+            : PreparingReason.node,
       );
     }
     await _ensureRealStack();
@@ -1037,7 +1145,9 @@ class AppController extends Notifier<AppState> {
       await ref
           .read(backgroundNodeProvider.notifier)
           .applyIfNodeUp(nodeUp: true);
-      devLog(() => 'xVeil[deniable]: node up, invite=${stack.myInvite.nodeId.short}');
+      devLog(
+        () => 'xVeil[deniable]: node up, invite=${stack.myInvite.nodeId.short}',
+      );
     } catch (e, st) {
       // A node-boot failure must not trap the user — but it must NOT be hidden
       // behind a fake "connected" either: surface it honestly (the network
@@ -1091,7 +1201,9 @@ class AppController extends Notifier<AppState> {
   /// Stop the background foreground service on teardown — no node is running
   /// once locked, so nothing should keep the process (or its notification) alive.
   Future<void> _stopBackgroundService() async {
-    await ref.read(backgroundNodeProvider.notifier).applyIfNodeUp(nodeUp: false);
+    await ref
+        .read(backgroundNodeProvider.notifier)
+        .applyIfNodeUp(nodeUp: false);
   }
 
   Future<void> _cleanRuntimeBase() async {
@@ -1100,7 +1212,9 @@ class AppController extends Notifier<AppState> {
     try {
       final d = Directory(base);
       if (d.existsSync()) await d.delete(recursive: true);
-    } catch (_) {/* leftover sockets are not worth failing teardown on */}
+    } catch (_) {
+      /* leftover sockets are not worth failing teardown on */
+    }
   }
 
   /// Escape hatch from the lock screen: forget the onboarded flag and return to
@@ -1169,5 +1283,6 @@ class AppController extends Notifier<AppState> {
   Identity _placeholderIdentity() => generateIdentity();
 }
 
-final appControllerProvider =
-    NotifierProvider<AppController, AppState>(AppController.new);
+final appControllerProvider = NotifierProvider<AppController, AppState>(
+  AppController.new,
+);
