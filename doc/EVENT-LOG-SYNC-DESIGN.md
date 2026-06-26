@@ -1039,6 +1039,16 @@ wire carries only the descriptor + bytes):
 tier toggles (on-disk-encrypted, on-disk-plaintext). **Default = everything
 in-volume.** The user opts into on-disk for heavy media to avoid bloat/perf/cap.
 
+**The policy is PER-IDENTITY, never global (§16.3-PI — load-bearing).** It is
+stored in each identity's own space (`SETTINGS`), so a decoy/duress identity can
+be "all in-volume" while another opts into on-disk, and unlocking one identity
+reveals nothing about another's storage behaviour. On-disk blobs live under a
+**per-identity, opaquely-named directory** (a hash of the space key, NEVER the
+identity label) — exactly the fix the network layer already applied to runtime
+dirs (label-named dirs leaked identity count+names → opaque hash names). A
+global setting, or label-named on-disk dirs, would be a cross-identity
+correlation + identity-count signal — the very leak this avoids.
+
 ### 16.3 Deniability analysis (load-bearing — the on-disk tiers trade deniability)
 
 - **Default stays fully deniable.** No behavior change unless the user opts in.
