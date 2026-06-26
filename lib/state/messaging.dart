@@ -887,9 +887,19 @@ class MessagingService {
   Future<void> deleteForEveryone(String messageId) async {
     final msg = await _find(messageId);
     if (msg == null || msg.direction != MessageDirection.outgoing) return;
+    final dst = NodeId.fromHex(msg.conversationId);
     await deleteMessageLocally(messageId);
-    await _send(NodeId.fromHex(msg.conversationId),
-        WireEnvelope.del(messageId).encode());
+    final wire = WireEnvelope.del(messageId).encode();
+    await _send(dst, wire);
+    // Offline fallback (mirrors sendText): the live _send above only lands if
+    // the peer is ONLINE — without this an unsend made while they are offline
+    // is lost. Deposit it at the peer's mailbox relay so they purge their copy
+    // on their next drain. Distinct stash id ('del:') so the relay does not
+    // dedup it against the original message's deposit; cleared first so it
+    // re-attempts a fresh deposit if a prior try is still recorded.
+    final stashId = 'del:$messageId';
+    _stashed.remove(stashId);
+    unawaited(_maybeStash(dst, stashId, wire));
   }
 
   /// Edit the body of one of OUR sent messages: replace the stored text in
@@ -903,8 +913,18 @@ class MessagingService {
     await _storage.editMessage(msg.conversationId, messageId, trimmed);
     await _storage.scrubDeleted();
     _signal();
-    await _send(NodeId.fromHex(msg.conversationId),
-        WireEnvelope.edit(messageId, trimmed).encode());
+    final dst = NodeId.fromHex(msg.conversationId);
+    final wire = WireEnvelope.edit(messageId, trimmed).encode();
+    await _send(dst, wire);
+    // Offline fallback (mirrors sendText): the live _send above only lands if
+    // the peer is ONLINE — without this an edit made while they are offline is
+    // lost. Deposit it at the peer's mailbox relay so they apply the new text
+    // on their next drain. Distinct stash id ('edit:') so the relay does not
+    // dedup it against the original message's deposit; cleared first so a
+    // re-edit of the same message re-attempts a fresh deposit.
+    final stashId = 'edit:$messageId';
+    _stashed.remove(stashId);
+    unawaited(_maybeStash(dst, stashId, wire));
   }
 
   /// Locate a stored message by id across conversations (used before an
