@@ -78,7 +78,12 @@ abstract interface class Storage {
   /// [limit] returns the whole conversation (used by the internal
   /// find/dedup/flush paths that need every message).
   Future<List<Message>> loadMessages(String conversationId, {int? limit});
-  Future<void> appendMessage(Message message);
+
+  /// Persist [message] and return it AS STORED — with its event-log (author,
+  /// seq) filled in (the caller passes seq for a wire-delivered event to keep
+  /// the sender's; otherwise storage allocates the next gap-free one). The
+  /// sender reads the returned seq to put it on the wire.
+  Future<Message> appendMessage(Message message);
 
   /// Update the delivery [status] of message [messageId] in conversation
   /// [conversationId] (e.g. `sent → delivered` on an ack). Folded over the

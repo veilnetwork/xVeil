@@ -348,7 +348,7 @@ class MessagingService {
   Future<String> _selfHex() async =>
       _selfHexCache ??= (await _transport.nodeId()).hex;
 
-  Future<String> _store(
+  Future<Message> _store(
     NodeId peer,
     MessageDirection dir,
     String body,
@@ -357,9 +357,10 @@ class MessagingService {
     String? fileName,
     String? id,
     DateTime? timestamp,
+    int? seq,
   }) async {
     final msgId = id ?? _uuid.v4();
-    await _storage.appendMessage(
+    return _storage.appendMessage(
       Message(
         id: msgId,
         conversationId: peer.hex,
@@ -374,14 +375,16 @@ class MessagingService {
         // Event-log author (R1): the message originator's node id, bound to the
         // AUTHENTICATED side — our own for an outgoing message, the peer (the
         // server-authenticated conversation id) for an incoming one. Never
-        // inferred from an in-band wire field. The seq is allocated by storage
-        // for now (the wire-carried sender seq lands with the sync step).
+        // inferred from an in-band wire field.
         author: dir == MessageDirection.outgoing
             ? await _selfHex()
             : peer.hex,
+        // The SENDER's seq when this is a wire-delivered incoming event (keeps
+        // the log convergent, R4); null for our own outgoing message → storage
+        // allocates the next gap-free value, which the caller puts on the wire.
+        seq: seq,
       ),
     );
-    return msgId;
   }
 
   /// The sender's send time off the wire as a DateTime, or null (older sender
@@ -599,6 +602,10 @@ class MessagingService {
           MessageStatus.delivered,
           id: id,
           timestamp: _wireSentAt(env),
+          // Fold under the SENDER's seq (R4) so the (author, seq) is identical on
+          // both devices — the basis for gap detection. Null from an older sender
+          // → storage allocates locally (no cross-device convergence for them).
+          seq: env.seq,
         );
         _emitIncoming(m.src, body, isFile: false);
         if (id != null) {
@@ -984,20 +991,24 @@ class MessagingService {
     // One send time, used for BOTH our stored copy and the wire `sentAtMs`, so
     // both ends order this message identically.
     final sentAt = DateTime.now();
-    final id = await _store(
+    final stored = await _store(
       dst,
       MessageDirection.outgoing,
       trimmed,
       MessageStatus.sent,
       timestamp: sentAt,
     );
+    final id = stored.id;
     _signal();
     // Stays `sent` until the peer acks; the local outbox re-sends un-acked ones
-    // on reconnect, so a message written offline goes out when we come back.
+    // on reconnect, so a message written offline goes out when we come back. The
+    // event seq travels so the peer folds it under OUR (author, seq) and can spot
+    // a gap for gap-fill.
     final wire = WireEnvelope.message(
       trimmed,
       id: id,
       sentAtMs: sentAt.millisecondsSinceEpoch,
+      seq: stored.seq,
     ).encode();
     // wantReply: embed a one-time reply path so the peer's delivery-ACK comes
     // back over THIS circuit (fast), flipping us to "delivered" without a full

@@ -108,6 +108,32 @@ void main() {
     expect(await sB.loadMessages(a.hex), isEmpty);
   });
 
+  test('a message carries its seq; both devices fold under the same (author,seq)',
+      () async {
+    await mA.sendRequest(b, 'hi');
+    await _pump();
+    await mB.acceptContact(a);
+    await _pump();
+    await mA.sendText(b, 'one');
+    await _pump();
+    await mA.sendText(b, 'two');
+    await _pump();
+
+    final aMsgs = {for (final m in await sA.loadMessages(b.hex)) m.body: m};
+    final bMsgs = {for (final m in await sB.loadMessages(a.hex)) m.body: m};
+    // The sender's (author, seq) travels on the wire, so the receiver stores the
+    // SAME identity — the basis for a convergent log + gap detection.
+    for (final body in ['one', 'two']) {
+      expect(bMsgs[body]!.author, aMsgs[body]!.author,
+          reason: 'author identical on both devices ($body)');
+      expect(bMsgs[body]!.seq, aMsgs[body]!.seq,
+          reason: 'seq identical on both devices ($body)');
+    }
+    // Author is A's own node id on both sides (R1 — not inferred from direction).
+    expect(aMsgs['one']!.author, a.hex);
+    expect(bMsgs['one']!.author, a.hex);
+  });
+
   test('blocking drops subsequent messages', () async {
     await mA.sendRequest(b, 'hi');
     await _pump();
