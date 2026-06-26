@@ -394,9 +394,17 @@ class HiddenVolumeStorage implements Storage {
     // conversation peer for a bare incoming row). The seq is the message's own
     // when it carries one (a wire-delivered event keeps the SENDER's seq, R4),
     // else we allocate the next gap-free per-(conv,author) value locally.
+    //
+    // FILE messages stay OFF the event seq stream in v1 (filePost convergence is
+    // a deferred step): the file wire frames carry no seq, so the receiver would
+    // allocate a LOCAL one that diverges from the sender's — colliding with /
+    // holing the text stream and corrupting gap-fill. A null seq excludes the
+    // blob from conversationSync / loadEventsSince; files keep their existing
+    // live + ack + transfer-id-dedup delivery, unchanged.
     final author = message.author ?? message.conversationId;
-    final seq =
-        message.seq ?? await _nextConvSeq(message.conversationId, author);
+    final seq = message.fileId != null
+        ? message.seq
+        : (message.seq ?? await _nextConvSeq(message.conversationId, author));
     final stored = (message.author == author && message.seq == seq)
         ? message
         : Message(
@@ -416,10 +424,10 @@ class HiddenVolumeStorage implements Storage {
     await _as.commit([
       AppendLogOp(Ns.messageLog, nextId, _sk(_encodeMessage(stored))),
       PutOp(Ns.settings, _sk('msg_next_id'), _sk('${nextId + 1}')),
-      // Advance the per-(conv,author) seq cursor ONLY when we allocated it (a
-      // wire event with its own seq must not bump our local counter — the two
-      // streams are independent and reconciled by the fold/sync, not here).
-      if (message.seq == null)
+      // Advance the per-(conv,author) seq cursor ONLY when we actually ALLOCATED
+      // one (a wire event with its own seq, or a seq-less file, must not bump our
+      // local counter — those streams are reconciled by the fold/sync, not here).
+      if (message.seq == null && seq != null)
         PutOp(
           Ns.settings,
           _sk('conv_seq:${message.conversationId}:$author'),
@@ -498,6 +506,125 @@ class HiddenVolumeStorage implements Storage {
     return (highWater: highWater, holes: holes);
   }
 
+  @override
+  Future<List<LogEvent>> loadEventsSince(
+    String conversationId,
+    String author,
+    int fromSeq, {
+    int limit = 200,
+  }) =>
+      _serialized(
+        () => _loadEventsSinceCritical(conversationId, author, fromSeq, limit),
+      );
+
+  /// Raw-scan the conversation log for forward events authored by [author] with
+  /// seq > [fromSeq] (the gap-fill re-ship batch, §15 3c). A live post/edit
+  /// surfaces with its body; a deleted slot (op:'del' tombstone) or a superseded
+  /// edit (k:void_) surfaces as an inert [EventKind.void_] with NO id/body
+  /// (§12.1) — the peer advances its high-water past it without resurrecting the
+  /// content. Oldest-first (so a post precedes its edits on re-ship), capped.
+  Future<List<LogEvent>> _loadEventsSinceCritical(
+    String conv,
+    String author,
+    int fromSeq,
+    int limit,
+  ) async {
+    final entries = await _as.iterLogRange(
+      namespace: Ns.messageLog,
+      limit: _logScanLimit,
+    );
+    final events = <LogEvent>[];
+    for (final e in entries) {
+      final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
+      if (m['c'] != conv || m['op'] == 'status') continue;
+      final au = m['au'];
+      final sq = m['sq'];
+      if (au != author || sq is! int || sq <= fromSeq) continue;
+      final ts = m['t'] is int ? m['t'] as int : 0;
+      if (m['op'] == 'del' || m['k'] == EventKind.void_.index) {
+        // A deleted / superseded slot → an inert void on the wire (no id/body).
+        events.add((
+          kind: EventKind.void_,
+          author: author,
+          seq: sq,
+          id: '',
+          target: null,
+          body: null,
+          ts: ts,
+        ));
+      } else if (m['k'] == EventKind.edit.index) {
+        events.add((
+          kind: EventKind.edit,
+          author: author,
+          seq: sq,
+          id: m['id'] as String? ?? '',
+          target: m['tg'] as String?,
+          body: m['b'] as String?,
+          ts: ts,
+        ));
+      } else {
+        final k = m['k'] as int?;
+        events.add((
+          kind: k == EventKind.filePost.index
+              ? EventKind.filePost
+              : EventKind.post,
+          author: author,
+          seq: sq,
+          id: m['id'] as String? ?? '',
+          target: null,
+          body: m['b'] as String?,
+          ts: ts,
+        ));
+      }
+    }
+    events.sort((a, b) => a.seq.compareTo(b.seq));
+    return events.length > limit ? events.sublist(0, limit) : events;
+  }
+
+  @override
+  Future<void> applyRemoteVoid(String conversationId, String author, int seq) =>
+      _serialized(() => _applyRemoteVoidCritical(conversationId, author, seq));
+
+  Future<void> _applyRemoteVoidCritical(
+    String conv,
+    String author,
+    int seq,
+  ) async {
+    // Idempotent: if any row already occupies this (author, seq) slot — a post,
+    // edit, void, or tombstone — the high-water already accounts for it, so a
+    // duplicate void would only bloat the log. Skip it.
+    final entries = await _as.iterLogRange(
+      namespace: Ns.messageLog,
+      limit: _logScanLimit,
+    );
+    for (final e in entries) {
+      final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
+      if (m['c'] == conv &&
+          m['au'] == author &&
+          m['sq'] == seq &&
+          m['op'] != 'status') {
+        return; // slot present — nothing to do
+      }
+    }
+    final logId = await _nextLogId();
+    await _as.commit([
+      AppendLogOp(
+        Ns.messageLog,
+        logId,
+        // An inert void slot: no id/tg/body (§12.1) — the fold renders nothing,
+        // conversationSync counts (au, sq) so the per-author high-water advances.
+        _sk(jsonEncode({
+          'k': EventKind.void_.index,
+          'c': conv,
+          'au': author,
+          'sq': seq,
+        })),
+      ),
+      PutOp(Ns.settings, _sk('msg_next_id'), _sk('${logId + 1}')),
+    ]);
+    await _patchCache(() {});
+  }
+
   String _encodeMessage(Message m) => jsonEncode({
     'id': m.id,
     'c': m.conversationId,
@@ -546,23 +673,30 @@ class HiddenVolumeStorage implements Storage {
   });
 
   @override
-  Future<void> editMessage(
+  Future<int?> editMessage(
     String conversationId,
     String messageId,
-    String newBody,
-  ) async {
+    String newBody, {
+    int? seq,
+  }) async {
     final hit = await _liveEntryFor(conversationId, messageId);
-    if (hit == null) return;
+    if (hit == null) return null;
     // EVENT-LOG edit (§15, "keep history + clear button" mode): append a NEW
     // k:edit row at a fresh seq instead of rewriting the post in place. The
     // original post row + every prior edit row are RETAINED so the edit history
     // reads back (loadMessageHistory); the fold collapses them to the current
     // text. The author is the post's own (edits are authorised upstream to the
-    // post author — R16), and the seq is the next gap-free value for that author
-    // in this conversation. NOT scrubbed here — superseded bodies are reclaimed
-    // by the explicit clear-history scrub / panic erase, not silently on edit.
+    // post author — R16). NOT scrubbed here — superseded bodies are reclaimed by
+    // the explicit clear-history scrub / panic erase, not silently on edit.
     final author = hit.message.author ?? conversationId;
-    final seq = await _nextConvSeq(conversationId, author);
+    // The edit's seq. A WIRE-DELIVERED edit carries the EDITOR's own seq (passed
+    // in) — fold it under that, exactly as appendMessage keeps a wire post's seq,
+    // so the (author, seq) is identical on both devices (R4/R5) and we do NOT
+    // fabricate a local seq for an author whose stream is remote-allocated (which
+    // would inject a phantom gap into conversationSync). A LOCAL edit (seq null)
+    // allocates the next gap-free value for the editing author and bumps that
+    // author's cursor.
+    final editSeq = seq ?? await _nextConvSeq(conversationId, author);
     final logId = await _nextLogId();
     await _as.commit([
       AppendLogOp(
@@ -570,26 +704,30 @@ class HiddenVolumeStorage implements Storage {
         logId,
         _sk(jsonEncode({
           'k': EventKind.edit.index,
-          'id': '$messageId~e$seq', // synthetic edit-event id (unique)
+          'id': '$messageId~e$editSeq', // synthetic edit-event id (unique)
           'c': conversationId,
           'tg': messageId,
           'au': author,
-          'sq': seq,
+          'sq': editSeq,
           'b': newBody,
           't': DateTime.now().millisecondsSinceEpoch,
         })),
       ),
       PutOp(Ns.settings, _sk('msg_next_id'), _sk('${logId + 1}')),
-      PutOp(
-        Ns.settings,
-        _sk('conv_seq:$conversationId:$author'),
-        _sk('${seq + 1}'),
-      ),
+      // Advance the per-(conv, author) cursor ONLY for a locally-allocated edit
+      // (seq == null); a wire edit keeps the editor's seq, like appendMessage.
+      if (seq == null)
+        PutOp(
+          Ns.settings,
+          _sk('conv_seq:$conversationId:$author'),
+          _sk('${editSeq + 1}'),
+        ),
     ]);
     // The new row bumps next-id, so the next incremental fold reads + applies it
     // (the k:edit arm). Drop only the materialised result so loadMessages
     // re-folds; keep the rest of the warm fold.
     await _patchCache(() {});
+    return editSeq;
   }
 
   @override

@@ -62,4 +62,60 @@ void main() {
           reason: 'hostile frame `$body` must not map to a typed kind');
     }
   });
+
+  // Event-log 3c wire additions.
+
+  test('edit and del carry the event seq (gap-fill / convergence)', () {
+    final edit = WireEnvelope.decode(
+        const WireEnvelope.edit('m1', 'new body', seq: 7).encode());
+    expect(edit.kind, WireKind.edit);
+    expect(edit.id, 'm1');
+    expect(edit.seq, 7);
+    final del =
+        WireEnvelope.decode(const WireEnvelope.del('m2', seq: 9).encode());
+    expect(del.kind, WireKind.del);
+    expect(del.seq, 9);
+  });
+
+  test('a sync beacon round-trips its body (and carries the v:2 marker)', () {
+    final raw = const WireEnvelope.sync('{"hw":{"a":3}}').encode();
+    final out = WireEnvelope.decode(raw);
+    expect(out.kind, WireKind.sync);
+    expect(out.body, '{"hw":{"a":3}}');
+    // v:2 is present on the wire so an un-upgraded decoder drops it (RULE WC).
+    expect((jsonDecode(utf8.decode(raw)) as Map)['v'], 2);
+  });
+
+  test('a voidSeq frame round-trips its seq with no id/body', () {
+    final out = WireEnvelope.decode(const WireEnvelope.voidSeq(5).encode());
+    expect(out.kind, WireKind.voidSeq);
+    expect(out.seq, 5);
+    expect(out.id, isNull);
+    expect(out.body, isEmpty);
+  });
+
+  test('RULE WC: a structured v:2 frame whose kind this build does not know '
+      'decodes to the DROP sentinel — never rendered as chat text', () {
+    // A future build's kind (out of this build's range) carried as a v:2 frame.
+    final future = Uint8List.fromList(
+        utf8.encode('{"t":99,"b":"{\\"hw\\":{}}","v":2}'));
+    final out = WireEnvelope.decode(future);
+    expect(out.kind, WireKind.unknown,
+        reason: 'a v:2 frame from a newer build must be dropped, not shown');
+    expect(out.kind, isNot(WireKind.message));
+  });
+
+  test('a NON-v2 out-of-range frame still falls back to a plain message '
+      '(legacy compatibility unchanged)', () {
+    final legacy = Uint8List.fromList(utf8.encode('{"t":99,"b":"hi"}'));
+    expect(WireEnvelope.decode(legacy).kind, WireKind.message);
+  });
+
+  test('the unknown sentinel index is never decoded to a real kind', () {
+    // Even WITHOUT a v marker, the unknown sentinel's own index must not map to
+    // a usable kind — it falls back to a plain message (it is decode-only).
+    final raw =
+        Uint8List.fromList(utf8.encode('{"t":${WireKind.unknown.index},"b":"x"}'));
+    expect(WireEnvelope.decode(raw).kind, WireKind.message);
+  });
 }
