@@ -279,7 +279,20 @@ class AppL10nEn extends AppL10n {
   String get chatMenuUnblock => 'Unblock';
 
   @override
+  String get chatMenuClearHistory => 'Clear history';
+
+  @override
   String get chatMenuDeleteConversation => 'Delete conversation';
+
+  @override
+  String get chatClearHistoryTitle => 'Clear history?';
+
+  @override
+  String get chatClearHistoryBody =>
+      'Every message in this chat is erased from this device. The contact stays, so you can keep messaging. The other person is not notified.';
+
+  @override
+  String get chatClearHistoryConfirm => 'Clear';
 
   @override
   String get chatMsgInfo => 'Message info';

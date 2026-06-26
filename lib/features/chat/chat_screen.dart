@@ -318,9 +318,36 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         await svc.blockContact(_peer);
       case _ChatMenuAction.unblock:
         await svc.unblockContact(_peer);
+      case _ChatMenuAction.clear:
+        await _clearHistory();
       case _ChatMenuAction.delete:
         await _deleteConversation();
     }
+  }
+
+  /// Wipe this conversation's messages but keep the contact — the chat stays in
+  /// the list, emptied. Forensic erase (the peer is not notified).
+  Future<void> _clearHistory() async {
+    final l = AppL10n.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text(l.chatClearHistoryTitle),
+        content: Text(l.chatClearHistoryBody),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialog).pop(false),
+            child: Text(l.actionCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialog).pop(true),
+            child: Text(l.chatClearHistoryConfirm),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await ref.read(messagingServiceProvider).clearConversation(_peer);
   }
 
   /// Erase this whole conversation (messages + contact) from THIS device. The
@@ -500,6 +527,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   value: _ChatMenuAction.block,
                   child: Text(l.actionBlock),
                 ),
+              PopupMenuItem(
+                value: _ChatMenuAction.clear,
+                child: Text(l.chatMenuClearHistory),
+              ),
               PopupMenuItem(
                 value: _ChatMenuAction.delete,
                 child: Text(l.chatMenuDeleteConversation),
@@ -743,7 +774,7 @@ class _PendingOutgoingActions extends StatelessWidget {
 }
 
 /// Chat AppBar overflow actions. Local-only — none of these touch the wire.
-enum _ChatMenuAction { block, unblock, delete }
+enum _ChatMenuAction { block, unblock, clear, delete }
 
 /// One `label: value` line in the message-info sheet. The value is selectable
 /// so the user can copy a message id / filename.

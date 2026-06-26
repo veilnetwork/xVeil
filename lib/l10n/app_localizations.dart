@@ -601,11 +601,35 @@ abstract class AppL10n {
   /// **'Unblock'**
   String get chatMenuUnblock;
 
+  /// No description provided for @chatMenuClearHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear history'**
+  String get chatMenuClearHistory;
+
   /// No description provided for @chatMenuDeleteConversation.
   ///
   /// In en, this message translates to:
   /// **'Delete conversation'**
   String get chatMenuDeleteConversation;
+
+  /// No description provided for @chatClearHistoryTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear history?'**
+  String get chatClearHistoryTitle;
+
+  /// No description provided for @chatClearHistoryBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Every message in this chat is erased from this device. The contact stays, so you can keep messaging. The other person is not notified.'**
+  String get chatClearHistoryBody;
+
+  /// No description provided for @chatClearHistoryConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear'**
+  String get chatClearHistoryConfirm;
 
   /// No description provided for @chatMsgInfo.
   ///
