@@ -106,6 +106,28 @@ void main() {
   );
 
   test(
+    'same-timestamp messages sort deterministically by id (cross-device-stable)',
+    () async {
+      final c = _id(4).hex;
+      final ts = DateTime(2026, 7, 1, 12);
+      // Append OUT of id order, identical timestamp. id = '<body>-<ms>', so
+      // 'aaa-..' < 'zzz-..' — the (timestamp, id) order must be 'aaa' then 'zzz'
+      // regardless of insertion/scan order (Dart List.sort is not stable, so a
+      // bare-timestamp sort would be arbitrary here).
+      await storage.appendMessage(
+        _msg(conv: c, dir: MessageDirection.outgoing, body: 'zzz', ts: ts),
+      );
+      await storage.appendMessage(
+        _msg(conv: c, dir: MessageDirection.incoming, body: 'aaa', ts: ts),
+      );
+      expect((await storage.loadMessages(c)).map((m) => m.body), [
+        'aaa',
+        'zzz',
+      ]);
+    },
+  );
+
+  test(
     'incremental log fold matches a full scan across appends + status reads',
     () async {
       final a = _id(1).hex; // conversation A (interleaved with B in the log)
