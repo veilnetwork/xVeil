@@ -125,6 +125,13 @@ abstract interface class Storage {
   /// unknown again, so a fresh request can be sent. Irreversible.
   Future<void> removeConversation(NodeId peer);
 
+  /// Erase every message of the conversation with [peer] (incl. file blobs) but
+  /// KEEP the contact + chat-list entry — the chat stays, emptied. Tombstones +
+  /// scrubs exactly like [removeConversation], so cleared messages are
+  /// forensically gone and cannot resurrect if the peer re-delivers them.
+  /// Local-only; the peer is not notified. Irreversible.
+  Future<void> clearMessages(NodeId peer);
+
   /// FORENSICALLY erase this whole space — every namespace (identity, contacts,
   /// messages, file blobs) — then scrub orphaned chunks, so the deleted
   /// identity's data can no longer be recovered even by a password-holder.

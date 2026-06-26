@@ -856,6 +856,16 @@ class MessagingService {
     _signal();
   }
 
+  /// Clear the message HISTORY of [peer]'s conversation but keep the contact —
+  /// the chat stays in the list, emptied. Forensic (tombstone + scrub), so a
+  /// re-delivery can't resurrect the cleared messages. Local-only — the peer is
+  /// not told. Also forget any deposited-once markers for those ids so a future
+  /// edit/del with a recycled id can still be deposited.
+  Future<void> clearConversation(NodeId peer) async {
+    await _storage.clearMessages(peer);
+    _signal();
+  }
+
   /// Mark a conversation read (its unread badge resets) and refresh the UI.
   /// Best-effort — never throw from a screen's open hook (e.g. storage not yet
   /// open in a test/loopback context).

@@ -280,7 +280,20 @@ class AppL10nRu extends AppL10n {
   String get chatMenuUnblock => 'Разблокировать';
 
   @override
+  String get chatMenuClearHistory => 'Очистить историю';
+
+  @override
   String get chatMenuDeleteConversation => 'Удалить переписку';
+
+  @override
+  String get chatClearHistoryTitle => 'Очистить историю?';
+
+  @override
+  String get chatClearHistoryBody =>
+      'Все сообщения этого чата будут стёрты с этого устройства. Контакт останется, переписку можно продолжить. Собеседник не будет уведомлён.';
+
+  @override
+  String get chatClearHistoryConfirm => 'Очистить';
 
   @override
   String get chatMsgInfo => 'Сведения о сообщении';
