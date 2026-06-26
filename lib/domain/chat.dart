@@ -16,6 +16,7 @@ class Contact {
     this.status = ContactStatus.accepted,
     this.muted = false,
     this.pinned = false,
+    this.retentionDays,
   });
 
   final NodeId nodeId;
@@ -32,6 +33,13 @@ class Contact {
   /// + local-only, same rationale as [muted].
   final bool pinned;
 
+  /// Per-conversation message-retention window in DAYS, or null for unlimited
+  /// (the default — never auto-delete). When set, a compaction pass forensically
+  /// deletes messages whose ORIGINAL post time is older than this many days
+  /// (edits do not refresh the clock — the original send time governs). Encrypted
+  /// + local-only, same store rationale as [muted].
+  final int? retentionDays;
+
   String get label => name ?? nodeId.short;
 
   /// Free messaging is only allowed once the relationship is accepted.
@@ -42,6 +50,7 @@ class Contact {
     ContactStatus? status,
     bool? muted,
     bool? pinned,
+    int? retentionDays,
   }) =>
       Contact(
         nodeId: nodeId,
@@ -49,6 +58,7 @@ class Contact {
         status: status ?? this.status,
         muted: muted ?? this.muted,
         pinned: pinned ?? this.pinned,
+        retentionDays: retentionDays ?? this.retentionDays,
       );
 }
 

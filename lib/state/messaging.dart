@@ -902,6 +902,42 @@ class MessagingService {
     _signal();
   }
 
+  /// Set [peer]'s message-retention window in DAYS (null/<=0 = unlimited, the
+  /// default). Persisted in the encrypted contact record, then applied
+  /// immediately (prunes anything already past the window). Local-only; built
+  /// directly so null actually CLEARS the policy (copyWith's `?? old` can't).
+  Future<void> setContactRetention(NodeId peer, int? days) async {
+    final existing = await _storage.getContact(peer);
+    if (existing == null) return;
+    final window = (days == null || days <= 0) ? null : days;
+    await _storage.upsertContact(
+      Contact(
+        nodeId: existing.nodeId,
+        name: existing.name,
+        status: existing.status,
+        muted: existing.muted,
+        pinned: existing.pinned,
+        retentionDays: window,
+      ),
+    );
+    _signal();
+    if (window != null) {
+      await _storage.pruneConversation(peer, window);
+      _signal();
+    }
+  }
+
+  /// Apply [peer]'s retention policy now (called when a chat is opened, so an
+  /// expired message disappears even without a periodic sweep). No-op when the
+  /// conversation has no retention window.
+  Future<void> pruneConversation(NodeId peer) async {
+    final c = await _storage.getContact(peer);
+    final days = c?.retentionDays;
+    if (days == null || days <= 0) return;
+    final pruned = await _storage.pruneConversation(peer, days);
+    if (pruned > 0) _signal();
+  }
+
   /// Delete the whole conversation with [peer] from THIS device: removes the
   /// contact + every message from the encrypted store and drops the peer's
   /// in-memory send state so the outbox stops re-sending to it (this is how a
