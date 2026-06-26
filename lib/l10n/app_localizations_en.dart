@@ -975,6 +975,22 @@ class AppL10nEn extends AppL10n {
       'Android only. Keeps the node — your proxy and incoming-message delivery — alive after you switch away from the app. Requires a persistent notification (so it\'s visible the app is running) and uses more battery.';
 
   @override
+  String get networkBackgroundAllowTitle => 'Allow background work';
+
+  @override
+  String get networkBackgroundAllowBody =>
+      'For messages to arrive while xVeil is in the background, allow it to run without battery restrictions. On some phones (e.g. Xiaomi, Samsung) you must ALSO enable “Autostart” / remove battery limits in the app\'s settings.';
+
+  @override
+  String get networkBackgroundAllowGrant => 'Allow';
+
+  @override
+  String get networkBackgroundOpenSettings => 'App settings';
+
+  @override
+  String get networkBackgroundLater => 'Later';
+
+  @override
   String get peersTitle => 'Connected peers';
 
   @override

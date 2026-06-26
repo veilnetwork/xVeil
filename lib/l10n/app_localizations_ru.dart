@@ -979,6 +979,22 @@ class AppL10nRu extends AppL10n {
       'Только Android. Держит узел — ваш прокси и доставку входящих сообщений — активным после выхода из приложения. Требует постоянного уведомления (видно, что приложение работает) и расходует больше батареи.';
 
   @override
+  String get networkBackgroundAllowTitle => 'Разрешить работу в фоне';
+
+  @override
+  String get networkBackgroundAllowBody =>
+      'Чтобы сообщения приходили, пока xVeil в фоне, разреши работу без ограничений батареи. На некоторых телефонах (например Xiaomi, Samsung) нужно ДОПОЛНИТЕЛЬНО включить «Автозапуск» / снять ограничения батареи в настройках приложения.';
+
+  @override
+  String get networkBackgroundAllowGrant => 'Разрешить';
+
+  @override
+  String get networkBackgroundOpenSettings => 'Настройки приложения';
+
+  @override
+  String get networkBackgroundLater => 'Позже';
+
+  @override
   String get peersTitle => 'Подключённые узлы';
 
   @override

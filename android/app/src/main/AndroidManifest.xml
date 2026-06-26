@@ -5,6 +5,12 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- Local notifications for incoming messages (Android 13+ runtime grant). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Battery-optimisation exemption: lets the keep-alive foreground service
+         actually keep the node receiving in the background (Doze + aggressive
+         OEMs suspend the process otherwise). Requested only when the user opts
+         into "keep node in background" — never at startup. -->
+    <uses-permission
+        android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <application
         android:label="xveil"
         android:name="${applicationName}"
