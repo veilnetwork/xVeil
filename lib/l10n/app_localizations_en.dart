@@ -282,6 +282,12 @@ class AppL10nEn extends AppL10n {
   String get chatRenameTitle => 'Local name';
 
   @override
+  String get chatMenuMute => 'Mute notifications';
+
+  @override
+  String get chatMenuUnmute => 'Unmute notifications';
+
+  @override
   String get chatMenuUnblock => 'Unblock';
 
   @override

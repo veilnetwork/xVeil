@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../domain/chat.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/messaging.dart';
 import '../../state/notifications.dart';
@@ -66,6 +67,15 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder> {
     if (foreground && ref.read(activeConversationProvider) == notice.from.hex) {
       return;
     }
+    // Read the sender's contact once: a muted conversation shows NO alert at
+    // all (the message still arrives + stores), and the same record supplies the
+    // display name in full-preview mode.
+    Contact? contact;
+    try {
+      contact = await ref.read(storageProvider).getContact(notice.from);
+    } catch (_) {}
+    if (!mounted) return;
+    if (contact?.muted ?? false) return;
     final l = AppL10n.of(context);
     final String title;
     final String body;
@@ -73,10 +83,8 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder> {
       // Prefer the contact's saved name; fall back to a short id (never the
       // full node id on a notification).
       String name = notice.from.short;
-      try {
-        final c = await ref.read(storageProvider).getContact(notice.from);
-        if (c?.name != null && c!.name!.trim().isNotEmpty) name = c.name!.trim();
-      } catch (_) {}
+      final cn = contact?.name?.trim();
+      if (cn != null && cn.isNotEmpty) name = cn;
       title = name;
       body = notice.preview;
     } else {

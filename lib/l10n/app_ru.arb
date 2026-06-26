@@ -93,6 +93,8 @@
   "chatEdited": "изменено",
   "chatMenuRename": "Переименовать",
   "chatRenameTitle": "Локальное имя",
+  "chatMenuMute": "Отключить уведомления",
+  "chatMenuUnmute": "Включить уведомления",
   "chatMenuUnblock": "Разблокировать",
   "chatMenuClearHistory": "Очистить историю",
   "chatMenuDeleteConversation": "Удалить переписку",
