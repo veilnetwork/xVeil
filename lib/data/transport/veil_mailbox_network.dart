@@ -337,9 +337,18 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
         }
       }
     }
-    // Try each relay until one answers within the window.
+    // Drain the UNION across every known relay. Offline mail can land on ANY
+    // relay our rendezvous ad advertises — a stale slot from a prior session, the
+    // node's built-in receiver task's relay, or simply a relay the SENDER
+    // resolved that differs from the one relay we registered+drained. We used to
+    // fetch only the FIRST relay that answered and return, stranding deposits made
+    // to the others (the exact desktop->phone offline-edit black hole). Now we
+    // fetch each known relay, dedup blobs by content_id, and return the union.
     Object? lastErr;
     var anyAttempted = false;
+    var anyAnswered = false;
+    final seen = <String>{};
+    final aggregated = <StoredMailboxBlob>[];
     for (final relayId in relayIds) {
       anyAttempted = true;
       final completer = Completer<veil.IncomingMessage>();
@@ -384,10 +393,20 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
         }
         final reply = await completer.future.timeout(_fetchTimeout);
         final blobs = decodeMailboxFetchResp(reply.data);
-        devLog(() => 'xVeil[drain]: fetched ${blobs.length} blob(s) from relay '
-            '${NodeId(relayId).short}');
-        // A relay ANSWERED (even with an empty mailbox) — authoritative, done.
-        return blobs;
+        anyAnswered = true;
+        // Union by content_id: the deposit fans out to several replicas, so the
+        // SAME blob can sit on more than one relay — keep the first copy only.
+        var fresh = 0;
+        for (final b in blobs) {
+          if (seen.add(String.fromCharCodes(b.contentId))) {
+            aggregated.add(b);
+            fresh++;
+          }
+        }
+        devLog(() => 'xVeil[drain]: fetched ${blobs.length} blob(s) ($fresh new) '
+            'from relay ${NodeId(relayId).short}');
+        // Do NOT stop here — keep going so a deposit to a DIFFERENT advertised
+        // relay is still collected this drain.
       } on FormatException {
         // A malformed reply IS a real fault (not a transient) — surface it.
         rethrow;
@@ -409,13 +428,16 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
         await sub.cancel();
       }
     }
-    // Reaching here means NO relay ANSWERED (a real answer returns above). That
-    // is fundamentally different from "the mailbox is empty": we don't actually
-    // know whether mail is waiting, only that every relay we tried failed to
-    // reply. Surface it as an error so the drain loop retries at a bounded
-    // cadence instead of mistaking it for an idle/empty mailbox and entering the
-    // long exponential back-off — which would strand pending mail at the relay
-    // for minutes after a single transient (DHT self-resolve / circuit hiccup).
+    // At least one relay ANSWERED (even if every answer was an empty mailbox) —
+    // the union is authoritative for this drain.
+    if (anyAnswered) return aggregated;
+    // Reaching here means NO relay ANSWERED. That is fundamentally different from
+    // "the mailbox is empty": we don't actually know whether mail is waiting,
+    // only that every relay we tried failed to reply. Surface it as an error so
+    // the drain loop retries at a bounded cadence instead of mistaking it for an
+    // idle/empty mailbox and entering the long exponential back-off — which would
+    // strand pending mail at the relay for minutes after a single transient (DHT
+    // self-resolve / circuit hiccup).
     if (anyAttempted) {
       throw MailboxDrainUnreachable(relayIds.length, lastErr);
     }
