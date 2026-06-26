@@ -595,6 +595,90 @@ abstract class AppL10n {
   /// **'edited'**
   String get chatEdited;
 
+  /// No description provided for @chatMenuUnblock.
+  ///
+  /// In en, this message translates to:
+  /// **'Unblock'**
+  String get chatMenuUnblock;
+
+  /// No description provided for @chatMenuDeleteConversation.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete conversation'**
+  String get chatMenuDeleteConversation;
+
+  /// No description provided for @chatMsgInfo.
+  ///
+  /// In en, this message translates to:
+  /// **'Message info'**
+  String get chatMsgInfo;
+
+  /// No description provided for @msgInfoId.
+  ///
+  /// In en, this message translates to:
+  /// **'ID'**
+  String get msgInfoId;
+
+  /// No description provided for @msgInfoTime.
+  ///
+  /// In en, this message translates to:
+  /// **'Time'**
+  String get msgInfoTime;
+
+  /// No description provided for @msgInfoDirection.
+  ///
+  /// In en, this message translates to:
+  /// **'Direction'**
+  String get msgInfoDirection;
+
+  /// No description provided for @msgInfoStatus.
+  ///
+  /// In en, this message translates to:
+  /// **'Status'**
+  String get msgInfoStatus;
+
+  /// No description provided for @msgInfoFile.
+  ///
+  /// In en, this message translates to:
+  /// **'File'**
+  String get msgInfoFile;
+
+  /// No description provided for @dirIncoming.
+  ///
+  /// In en, this message translates to:
+  /// **'Received'**
+  String get dirIncoming;
+
+  /// No description provided for @dirOutgoing.
+  ///
+  /// In en, this message translates to:
+  /// **'Sent'**
+  String get dirOutgoing;
+
+  /// No description provided for @msgStatusSending.
+  ///
+  /// In en, this message translates to:
+  /// **'Sending…'**
+  String get msgStatusSending;
+
+  /// No description provided for @msgStatusSent.
+  ///
+  /// In en, this message translates to:
+  /// **'Sent'**
+  String get msgStatusSent;
+
+  /// No description provided for @msgStatusDelivered.
+  ///
+  /// In en, this message translates to:
+  /// **'Delivered'**
+  String get msgStatusDelivered;
+
+  /// No description provided for @msgStatusFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed'**
+  String get msgStatusFailed;
+
   /// No description provided for @identityPickerTitle.
   ///
   /// In en, this message translates to:
