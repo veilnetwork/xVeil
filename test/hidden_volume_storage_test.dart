@@ -63,6 +63,41 @@ void main() {
   );
 
   test(
+    'a pinned conversation sorts above more-recent unpinned ones',
+    () async {
+      // Two contacts: _id(2) has the newer message, _id(3) is pinned but older.
+      await storage.upsertContact(Contact(nodeId: _id(2)));
+      await storage.upsertContact(Contact(nodeId: _id(3), pinned: true));
+      await storage.appendMessage(
+        _msg(
+          conv: _id(3).hex,
+          dir: MessageDirection.incoming,
+          body: 'older-pinned',
+          ts: DateTime(2026, 5, 1),
+        ),
+      );
+      await storage.appendMessage(
+        _msg(
+          conv: _id(2).hex,
+          dir: MessageDirection.incoming,
+          body: 'newer-unpinned',
+          ts: DateTime(2026, 5, 9),
+        ),
+      );
+
+      final convs = await storage.loadConversations();
+      expect(convs.first.peer.nodeId, _id(3),
+          reason: 'the pinned conversation must lead despite its older message');
+      expect(convs.first.peer.pinned, isTrue);
+
+      // Unpinning restores recency order (newer conversation leads).
+      await storage.upsertContact(Contact(nodeId: _id(3), pinned: false));
+      final after = await storage.loadConversations();
+      expect(after.first.peer.nodeId, _id(2));
+    },
+  );
+
+  test(
     'clearMessages erases history but KEEPS the contact and chat-list entry',
     () async {
       await storage.upsertContact(

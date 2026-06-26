@@ -316,6 +316,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     switch (action) {
       case _ChatMenuAction.rename:
         await _renameContact();
+      case _ChatMenuAction.pin:
+        await svc.setContactPinned(_peer, true);
+      case _ChatMenuAction.unpin:
+        await svc.setContactPinned(_peer, false);
       case _ChatMenuAction.mute:
         await svc.setContactMuted(_peer, true);
       case _ChatMenuAction.unmute:
@@ -547,6 +551,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 value: _ChatMenuAction.rename,
                 child: Text(l.chatMenuRename),
               ),
+              // Pin/unpin this conversation to the top of the chat list.
+              if (contact?.pinned ?? false)
+                PopupMenuItem(
+                  value: _ChatMenuAction.unpin,
+                  child: Text(l.chatMenuUnpin),
+                )
+              else
+                PopupMenuItem(
+                  value: _ChatMenuAction.pin,
+                  child: Text(l.chatMenuPin),
+                ),
               // Mute/unmute local notifications for this conversation.
               if (contact?.muted ?? false)
                 PopupMenuItem(
@@ -817,7 +832,17 @@ class _PendingOutgoingActions extends StatelessWidget {
 }
 
 /// Chat AppBar overflow actions. Local-only — none of these touch the wire.
-enum _ChatMenuAction { rename, mute, unmute, block, unblock, clear, delete }
+enum _ChatMenuAction {
+  rename,
+  pin,
+  unpin,
+  mute,
+  unmute,
+  block,
+  unblock,
+  clear,
+  delete,
+}
 
 /// One `label: value` line in the message-info sheet. The value is selectable
 /// so the user can copy a message id / filename.
