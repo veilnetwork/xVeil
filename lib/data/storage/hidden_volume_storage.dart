@@ -388,7 +388,7 @@ class HiddenVolumeStorage implements Storage {
       AsyncFileStore(_as).loadFile(fileId);
 
   @override
-  Future<void> appendMessage(Message message) async {
+  Future<Message> appendMessage(Message message) async {
     // Bind (author, seq): the author is the message originator (set by the
     // messaging layer from the authenticated sender — R1; defaults to the
     // conversation peer for a bare incoming row). The seq is the message's own
@@ -426,6 +426,7 @@ class HiddenVolumeStorage implements Storage {
           _sk('${seq + 1}'),
         ),
     ]);
+    return stored;
   }
 
   /// Next gap-free per-(conversation, author) sequence number (§15.4, R4/R10).
