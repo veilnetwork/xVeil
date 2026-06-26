@@ -12,7 +12,8 @@ import '../../state/providers.dart';
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
-  String _languageLabel(AppL10n l, Locale? locale) => switch (locale?.languageCode) {
+  String _languageLabel(AppL10n l, Locale? locale) =>
+      switch (locale?.languageCode) {
         'ru' => l.languageRussian,
         'en' => l.languageEnglish,
         _ => l.languageSystem,
@@ -28,7 +29,10 @@ class SettingsScreen extends ConsumerWidget {
   /// Storage maintenance: show the container size and (single-identity only)
   /// offer compaction to reclaim the log-structured store's dead padding.
   Future<void> _openStorage(
-      BuildContext context, WidgetRef ref, AppL10n l) async {
+    BuildContext context,
+    WidgetRef ref,
+    AppL10n l,
+  ) async {
     final ctrl = ref.read(appControllerProvider.notifier);
     final size = await ctrl.containerSizeBytes();
     if (!context.mounted) return;
@@ -41,8 +45,7 @@ class SettingsScreen extends ConsumerWidget {
             ListTile(
               leading: const Icon(Icons.sd_storage_outlined),
               title: Text(l.settingsStorage),
-              subtitle:
-                  Text(size == null ? '—' : _fmtBytes(size)),
+              subtitle: Text(size == null ? '—' : _fmtBytes(size)),
             ),
             if (ctrl.canCompactStorage)
               ListTile(
@@ -60,8 +63,7 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _compact(
-      BuildContext context, WidgetRef ref, AppL10n l) async {
+  Future<void> _compact(BuildContext context, WidgetRef ref, AppL10n l) async {
     final pw = await _promptPassword(context, l);
     if (pw == null || pw.isEmpty) return;
     if (!context.mounted) return;
@@ -70,14 +72,20 @@ class SettingsScreen extends ConsumerWidget {
     // be unmounted by the time the result is ready.
     final messenger = ScaffoldMessenger.of(context);
     try {
-      final r = await ref.read(appControllerProvider.notifier).compactStorage(pw);
-      messenger.showSnackBar(SnackBar(
-        content: Text(
-            '${l.settingsStorageCompactDone}: ${_fmtBytes(r.before)} → ${_fmtBytes(r.after)}'),
-      ));
+      final r = await ref
+          .read(appControllerProvider.notifier)
+          .compactStorage(pw);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            '${l.settingsStorageCompactDone}: ${_fmtBytes(r.before)} → ${_fmtBytes(r.after)}',
+          ),
+        ),
+      );
     } catch (_) {
       messenger.showSnackBar(
-          SnackBar(content: Text(l.settingsStorageCompactFailed)));
+        SnackBar(content: Text(l.settingsStorageCompactFailed)),
+      );
     }
   }
 
@@ -103,7 +111,10 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   Future<void> _pickPreview(
-      BuildContext context, WidgetRef ref, AppL10n l) async {
+    BuildContext context,
+    WidgetRef ref,
+    AppL10n l,
+  ) async {
     final current = ref.read(notificationSettingsProvider).preview;
     final choice = await showDialog<NotificationPreview>(
       context: context,
@@ -127,7 +138,10 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   Future<void> _pickLanguage(
-      BuildContext context, WidgetRef ref, AppL10n l) async {
+    BuildContext context,
+    WidgetRef ref,
+    AppL10n l,
+  ) async {
     final current = ref.read(localeProvider) ?? #system;
     final choice = await showDialog<Object?>(
       context: context,
@@ -141,8 +155,7 @@ class SettingsScreen extends ConsumerWidget {
           ])
             ListTile(
               title: Text(entry.$2),
-              trailing:
-                  current == entry.$1 ? const Icon(Icons.check) : null,
+              trailing: current == entry.$1 ? const Icon(Icons.check) : null,
               onTap: () => Navigator.of(context).pop(entry.$1),
             ),
         ],
@@ -167,8 +180,10 @@ class SettingsScreen extends ConsumerWidget {
       for (final label in state.identities) {
         final st = session.storageFor(label);
         if (st != null) {
-          unread[label] = (await st.loadConversations())
-              .fold<int>(0, (sum, c) => sum + c.unread);
+          unread[label] = (await st.loadConversations()).fold<int>(
+            0,
+            (sum, c) => sum + c.unread,
+          );
         }
       }
     }
@@ -186,12 +201,16 @@ class SettingsScreen extends ConsumerWidget {
               for (final label in state.identities)
                 ListTile(
                   leading: CircleAvatar(
-                      child: Text(label.characters.first.toUpperCase())),
+                    child: Text(label.characters.first.toUpperCase()),
+                  ),
                   title: Text(label),
                   subtitle: ctrl.isIdentityAnonymous(label)
-                      ? Text(l.settingsAnonymousRouting,
+                      ? Text(
+                          l.settingsAnonymousRouting,
                           style: TextStyle(
-                              color: Theme.of(ctx).colorScheme.primary))
+                            color: Theme.of(ctx).colorScheme.primary,
+                          ),
+                        )
                       : null,
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -202,18 +221,30 @@ class SettingsScreen extends ConsumerWidget {
                         Badge(label: Text('${unread[label]}')),
                       IconButton(
                         tooltip: l.settingsAnonymousRouting,
-                        icon: Icon(ctrl.isIdentityAnonymous(label)
-                            ? Icons.shield_moon
-                            : Icons.shield_moon_outlined),
+                        icon: Icon(
+                          ctrl.isIdentityAnonymous(label)
+                              ? Icons.shield_moon
+                              : Icons.shield_moon_outlined,
+                        ),
                         color: ctrl.isIdentityAnonymous(label)
                             ? Theme.of(ctx).colorScheme.primary
                             : null,
                         onPressed: () async {
                           final next = !ctrl.isIdentityAnonymous(label);
-                          final ok =
-                              await ctrl.setIdentityAnonymous(label, next);
+                          bool ok = false;
+                          try {
+                            ok = await ctrl.setIdentityAnonymous(label, next);
+                          } catch (_) {
+                            ok = false;
+                          }
+                          // The toggle reboots the node → flips to the
+                          // preparing route → tears this modal sheet down.
+                          // Guard mounted BEFORE touching setSheetState (a
+                          // disposed StateSetter throws the _dependents red
+                          // screen — same class as the password-dialog fix).
+                          if (!ctx.mounted) return;
                           setSheetState(() {});
-                          if (!ctx.mounted || !ok) return;
+                          if (!ok) return;
                           final hint = next
                               ? l.settingsAnonymousEnabledHint
                               : l.settingsAnonymousDisabledHint;
@@ -244,7 +275,8 @@ class SettingsScreen extends ConsumerWidget {
     final locale = ref.watch(localeProvider);
     final identity = ref.watch(appControllerProvider.select((s) => s.identity));
     final master = ref.watch(
-        appControllerProvider.select((s) => (s.isMaster, s.activeIdentity)));
+      appControllerProvider.select((s) => (s.isMaster, s.activeIdentity)),
+    );
     return Scaffold(
       appBar: AppBar(title: Text(l.settingsTitle)),
       body: ListView(
@@ -258,10 +290,15 @@ class SettingsScreen extends ConsumerWidget {
                     radius: 26,
                     child: Icon(Icons.person_outline),
                   ),
-                  title: Text(identity.displayName ?? identity.username ??
-                      'Node ${identity.nodeId.short}'),
-                  subtitle: Text(identity.nodeId.short,
-                      style: const TextStyle(fontFeatures: [])),
+                  title: Text(
+                    identity.displayName ??
+                        identity.username ??
+                        'Node ${identity.nodeId.short}',
+                  ),
+                  subtitle: Text(
+                    identity.nodeId.short,
+                    style: const TextStyle(fontFeatures: []),
+                  ),
                 ),
               ),
             ),
@@ -269,47 +306,55 @@ class SettingsScreen extends ConsumerWidget {
           // and master modes (in master it routes the change to the active
           // identity). Reboots the node under the new routing; the home banner +
           // node id refresh when it returns.
-          Builder(builder: (_) {
-            final ctrl = ref.read(appControllerProvider.notifier);
-            final isMaster = master.$1;
-            final active = master.$2;
-            final anon = isMaster
-                ? (active != null && ctrl.isIdentityAnonymous(active))
-                : ctrl.singleIdentityAnonymous;
-            return SwitchListTile(
-              secondary: const Icon(Icons.shield_moon_outlined),
-              title: Text(l.settingsAnonymousRouting),
-              subtitle: Text(anon
-                  ? l.settingsAnonymousEnabledHint
-                  : l.settingsAnonymousDisabledHint),
-              isThreeLine: true,
-              value: anon,
-              onChanged: (isMaster && active == null)
-                  ? null
-                  : (v) => isMaster
-                      ? ctrl.setIdentityAnonymous(active!, v)
-                      : ctrl.setSingleIdentityAnonymous(v),
-            );
-          }),
+          Builder(
+            builder: (_) {
+              final ctrl = ref.read(appControllerProvider.notifier);
+              final isMaster = master.$1;
+              final active = master.$2;
+              final anon = isMaster
+                  ? (active != null && ctrl.isIdentityAnonymous(active))
+                  : ctrl.singleIdentityAnonymous;
+              return SwitchListTile(
+                secondary: const Icon(Icons.shield_moon_outlined),
+                title: Text(l.settingsAnonymousRouting),
+                subtitle: Text(
+                  anon
+                      ? l.settingsAnonymousEnabledHint
+                      : l.settingsAnonymousDisabledHint,
+                ),
+                isThreeLine: true,
+                value: anon,
+                onChanged: (isMaster && active == null)
+                    ? null
+                    : (v) => isMaster
+                          ? ctrl.setIdentityAnonymous(active!, v)
+                          : ctrl.setSingleIdentityAnonymous(v),
+              );
+            },
+          ),
           // Lazy-mining toggle — single-identity mode only. Default OFF (opt-in):
           // raising this identity's anti-sybil difficulty is a CPU-heavy
           // background grind that competes with the node's runtime, so it's gated
           // behind a setting. Reboots the node under the new preference.
           if (!master.$1)
-            Builder(builder: (_) {
-              final ctrl = ref.read(appControllerProvider.notifier);
-              final on = ctrl.activeLazyMining;
-              return SwitchListTile(
-                secondary: const Icon(Icons.memory_outlined),
-                title: Text(l.settingsLazyMining),
-                subtitle: Text(on
-                    ? l.settingsLazyMiningEnabledHint
-                    : l.settingsLazyMiningDisabledHint),
-                isThreeLine: true,
-                value: on,
-                onChanged: (v) => ctrl.setSingleLazyMining(v),
-              );
-            }),
+            Builder(
+              builder: (_) {
+                final ctrl = ref.read(appControllerProvider.notifier);
+                final on = ctrl.activeLazyMining;
+                return SwitchListTile(
+                  secondary: const Icon(Icons.memory_outlined),
+                  title: Text(l.settingsLazyMining),
+                  subtitle: Text(
+                    on
+                        ? l.settingsLazyMiningEnabledHint
+                        : l.settingsLazyMiningDisabledHint,
+                  ),
+                  isThreeLine: true,
+                  value: on,
+                  onChanged: (v) => ctrl.setSingleLazyMining(v),
+                );
+              },
+            ),
           if (master.$1)
             ListTile(
               leading: const Icon(Icons.switch_account_outlined),
@@ -345,33 +390,39 @@ class SettingsScreen extends ConsumerWidget {
               subtitle: Text(l.settingsKeepAllOnlineHint),
               isThreeLine: true,
               value: ref.watch(keepAllOnlineProvider),
-              onChanged: (v) =>
-                  ref.read(keepAllOnlineProvider.notifier).set(v),
+              onChanged: (v) => ref.read(keepAllOnlineProvider.notifier).set(v),
             ),
           // Notifications: a deniability messenger defaults to HIDDEN previews
           // (no sender/text on the lock screen); the preview level is its own row.
-          Builder(builder: (_) {
-            final ns = ref.watch(notificationSettingsProvider);
-            return Column(children: [
-              SwitchListTile(
-                secondary: const Icon(Icons.notifications_outlined),
-                title: Text(l.notificationsEnabled),
-                value: ns.enabled,
-                onChanged: (v) =>
-                    ref.read(notificationSettingsProvider.notifier).setEnabled(v),
-              ),
-              if (ns.enabled)
-                ListTile(
-                  leading: const Icon(Icons.visibility_off_outlined),
-                  title: Text(l.notificationsPreview),
-                  subtitle: Text(ns.preview == NotificationPreview.full
-                      ? l.notificationsPreviewFull
-                      : l.notificationsPreviewHidden),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => _pickPreview(context, ref, l),
-                ),
-            ]);
-          }),
+          Builder(
+            builder: (_) {
+              final ns = ref.watch(notificationSettingsProvider);
+              return Column(
+                children: [
+                  SwitchListTile(
+                    secondary: const Icon(Icons.notifications_outlined),
+                    title: Text(l.notificationsEnabled),
+                    value: ns.enabled,
+                    onChanged: (v) => ref
+                        .read(notificationSettingsProvider.notifier)
+                        .setEnabled(v),
+                  ),
+                  if (ns.enabled)
+                    ListTile(
+                      leading: const Icon(Icons.visibility_off_outlined),
+                      title: Text(l.notificationsPreview),
+                      subtitle: Text(
+                        ns.preview == NotificationPreview.full
+                            ? l.notificationsPreviewFull
+                            : l.notificationsPreviewHidden,
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => _pickPreview(context, ref, l),
+                    ),
+                ],
+              );
+            },
+          ),
           ListTile(
             leading: const Icon(Icons.badge_outlined),
             title: Text(l.settingsIdentity),
@@ -407,10 +458,14 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const Divider(),
           ListTile(
-            leading: Icon(Icons.lock,
-                color: Theme.of(context).colorScheme.error),
-            title: Text(l.settingsLockNow,
-                style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            leading: Icon(
+              Icons.lock,
+              color: Theme.of(context).colorScheme.error,
+            ),
+            title: Text(
+              l.settingsLockNow,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
             onTap: () => ref.read(appControllerProvider.notifier).lock(),
           ),
         ],
@@ -465,11 +520,13 @@ class _CompactPasswordDialogState extends State<_CompactPasswordDialog> {
       ),
       actions: [
         TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(widget.cancelLabel)),
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(widget.cancelLabel),
+        ),
         FilledButton(
-            onPressed: () => Navigator.of(context).pop(_ctl.text),
-            child: Text(widget.confirmLabel)),
+          onPressed: () => Navigator.of(context).pop(_ctl.text),
+          child: Text(widget.confirmLabel),
+        ),
       ],
     );
   }
