@@ -600,9 +600,16 @@ class HiddenVolumeStorage implements Storage {
       'id': messageId,
       'c': conversationId,
     });
+    // An EDITED message has retained edit rows holding its old plaintext — void
+    // them too so the delete is forensic, not just the current text. Skipped for
+    // an unedited message (no edit rows) to avoid a needless full-log scan.
+    final editVoids = hit.message.edited
+        ? await _voidEditRowsOps(conversationId, targets: {messageId})
+        : const <KvLogOp>[];
     await _as.commit([
       AppendLogOp(Ns.messageLog, hit.logId, _sk(tomb)),
       if (fileId != null) ...await AsyncFileStore(_as).deleteFileOps(fileId),
+      ...editVoids,
     ]);
     // The tombstone reuses an EXISTING log_id without bumping the next-id, so the
     // incremental fold won't re-read it. Patch the warm fold: drop the message
@@ -628,13 +635,44 @@ class HiddenVolumeStorage implements Storage {
             _scanDeletedLegacyIds.contains(messageId);
       });
 
-  /// Tombstone every message of [peer]'s conversation (+ purge file blobs) as a
-  /// list of ops for ONE commit. Shared by [removeConversation] and
-  /// [clearMessages]; the only difference is whether the caller ALSO drops the
-  /// contact record. Coalescing to a single commit is the high-leverage cut for
-  /// storage bloat (one 1 MiB-padded commit, not one per message). The
-  /// per-message tombstone bytes are byte-identical to [deleteMessage], so
-  /// deniable-delete / isMessageDeleted semantics are unchanged.
+  /// Void-rewrite (reclaim) the retained k:edit rows of [conv]: when [targets]
+  /// is null, every edit row in the conversation; otherwise only edits of those
+  /// message ids. Each rewrite replaces the edit row with a body-less void at the
+  /// SAME log_id, orphaning the superseded-text chunk so a following scrub
+  /// forensically erases it — without this, deleting/clearing an EDITED message
+  /// would leave its old plaintext on disk (a deniability hole introduced by
+  /// keeping edit history). Returns ops to fold into the caller's commit.
+  Future<List<KvLogOp>> _voidEditRowsOps(String conv, {Set<String>? targets}) async {
+    final entries = await _as.iterLogRange(
+      namespace: Ns.messageLog,
+      limit: _logScanLimit,
+    );
+    final ops = <KvLogOp>[];
+    for (final e in entries) {
+      final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
+      if (m['c'] != conv) continue;
+      if (m['k'] != EventKind.edit.index) continue;
+      if (targets != null && !targets.contains(m['tg'])) continue;
+      ops.add(AppendLogOp(
+        Ns.messageLog,
+        e.logId,
+        _sk(jsonEncode({
+          'k': EventKind.void_.index,
+          'c': conv,
+          'tg': m['tg'],
+          'id': m['id'],
+        })),
+      ));
+    }
+    return ops;
+  }
+
+  /// Tombstone every message of [peer]'s conversation (+ purge file blobs and
+  /// void every retained edit row) as a list of ops for ONE commit. Shared by
+  /// [removeConversation] and [clearMessages]; the only difference is whether the
+  /// caller ALSO drops the contact record. Coalescing to a single commit is the
+  /// high-leverage cut for storage bloat. Voiding the edit rows ensures no
+  /// superseded edit plaintext survives a clear (forensic, with the scrub).
   Future<List<KvLogOp>> _tombstoneAllOps(NodeId peer) async {
     final ops = <KvLogOp>[];
     for (final m in await loadMessages(peer.hex)) {
@@ -652,6 +690,7 @@ class HiddenVolumeStorage implements Storage {
         ops.addAll(await AsyncFileStore(_as).deleteFileOps(fileId));
       }
     }
+    ops.addAll(await _voidEditRowsOps(peer.hex)); // all edit rows in the conv
     return ops;
   }
 
