@@ -64,10 +64,17 @@ class _Incoming {
     required this.name,
     required this.reasm,
     required this.lastActivity,
+    this.seq,
   });
   final NodeId src;
   final String? name;
   final FileReassembler reasm;
+
+  /// The SENDER's event seq for this file (filePost, §15), carried on the meta
+  /// so the completed file message folds under the same (author, seq) — keeping
+  /// the log convergent and letting gap-fill heal a missing file. Null from an
+  /// older sender → the receiver allocates a local seq (legacy, off-convergence).
+  final int? seq;
 
   /// Wall-clock of the most recent meta/chunk for this transfer. Bumped on every
   /// chunk so an actively-progressing transfer is never seen as stale; only idle
@@ -298,6 +305,9 @@ class MessagingService {
   static const _syncSendInterval = Duration(seconds: 20);
   static const _syncActInterval = Duration(seconds: 5);
   static const _syncReshipCap = 100;
+  // Whole-blob re-sends are costly (no chunk-level resume in v1), so cap how many
+  // files one gap-fill round re-ships; the rest heal on later rounds.
+  static const _syncFileReshipCap = 2;
 
   /// Attach the offline-delivery [MailboxService] after construction (it is
   /// built with [deliverInbound] as its drain sink, so it must exist first).
@@ -758,6 +768,7 @@ class MessagingService {
           name: meta.name,
           reasm: FileReassembler(),
           lastActivity: _now(),
+          seq: meta.seq, // the sender's filePost seq (null from an older sender)
         );
         return; // nothing to show until the file completes
       case WireKind.fileChunk:
@@ -814,6 +825,10 @@ class MessagingService {
           fileId: localFileId,
           fileName: inc.name,
           id: tid,
+          // Fold the file under the SENDER's filePost seq (R4) so the (author,
+          // seq) is identical on both devices and gap-fill can heal a missing
+          // file. Null from an older sender → storage allocates locally.
+          seq: inc.seq,
         );
         _emitIncoming(m.src, '📎 ${inc.name ?? 'file'}', isFile: true);
         // Ack the completed transfer so the sender's file message flips
@@ -1235,32 +1250,55 @@ class MessagingService {
         () => 'xVeil[sync]: <- ${peer.short} peerHw(me)=$peerHw '
             'reship=${events.length}',
       );
+      // Resolve ids → Messages once, so a file post can re-ship its BLOB (not
+      // just the caption text). A file message is a post with a fileId.
+      final byId = {
+        for (final mm in await _storage.loadMessages(peer.hex)) mm.id: mm,
+      };
+      var filesReshipped = 0;
       for (final ev in events) {
-        Uint8List? wire;
         switch (ev.kind) {
           case EventKind.post:
           case EventKind.filePost:
-            // Files are off the seq stream (no seq) so they never reach here; a
-            // post re-ships as a plain message under its original (id, seq, ts).
-            wire = WireEnvelope.message(
-              ev.body ?? '',
-              id: ev.id,
-              sentAtMs: ev.ts,
-              seq: ev.seq,
-            ).encode();
+            final stored = byId[ev.id];
+            if (stored != null && stored.isFile && stored.fileId != null) {
+              // Re-ship a FILE as a file (meta + chunks). Capped per round:
+              // re-sending a whole blob is costly (no chunk-level resume in v1),
+              // so we heal at most _syncFileReshipCap files/round and the rest
+              // heal on later rounds as the high-water advances.
+              if (filesReshipped >= _syncFileReshipCap) continue;
+              final bytes = await _storage.loadFile(stored.fileId!);
+              if (bytes == null) continue; // blob gone — nothing to re-ship
+              filesReshipped++;
+              await _sendFileFrames(
+                peer,
+                ev.id,
+                stored.fileName,
+                bytes,
+                ev.seq,
+              );
+              continue;
+            }
+            await _send(
+              peer,
+              WireEnvelope.message(
+                ev.body ?? '',
+                id: ev.id,
+                sentAtMs: ev.ts,
+                seq: ev.seq,
+              ).encode(),
+            );
           case EventKind.edit:
             if (ev.target == null) continue;
-            wire = WireEnvelope.edit(
-              ev.target!,
-              ev.body ?? '',
-              seq: ev.seq,
-            ).encode();
+            await _send(
+              peer,
+              WireEnvelope.edit(ev.target!, ev.body ?? '', seq: ev.seq).encode(),
+            );
           case EventKind.void_:
-            wire = WireEnvelope.voidSeq(ev.seq).encode();
+            await _send(peer, WireEnvelope.voidSeq(ev.seq).encode());
           case EventKind.delete:
             continue; // not a stored event kind on this path
         }
-        await _send(peer, wire);
       }
     }
     // Beacon back so the peer re-ships what WE are missing (throttled).
@@ -1426,8 +1464,9 @@ class MessagingService {
   }
 
   /// Send a file to [dst] (gated to accepted contacts). Stores a local copy,
-  /// records an outgoing file message, then streams the bytes as fileMeta +
-  /// fileChunk envelopes.
+  /// records an outgoing file message (filePost, on the seq stream), then streams
+  /// the bytes as fileMeta + fileChunk envelopes — the meta carrying the file's
+  /// event seq so the receiver folds it convergently and gap-fill can heal it.
   Future<void> sendFile(NodeId dst, Uint8List bytes, String name) async {
     final contact = await _storage.getContact(dst);
     if (contact == null || contact.status != ContactStatus.accepted) return;
@@ -1437,7 +1476,7 @@ class MessagingService {
     // Use the transfer id AS the message id so the receiver's completion ack
     // (keyed by transfer id) flips this message sent -> delivered. The file
     // wire frames carry only the transfer id, not the message id.
-    await _store(
+    final stored = await _store(
       dst,
       MessageDirection.outgoing,
       '📎 $name',
@@ -1447,24 +1486,37 @@ class MessagingService {
       id: fileId,
     );
     _signal();
+    await _sendFileFrames(dst, fileId, name, bytes, stored.seq);
+  }
 
+  /// Stream a file's wire frames (one fileMeta carrying [seq] + the fileChunks)
+  /// to [peer]. Shared by [sendFile] and the gap-fill re-ship so the frame format
+  /// (and the seq on the meta) has one source of truth.
+  Future<void> _sendFileFrames(
+    NodeId peer,
+    String transferId,
+    String? name,
+    Uint8List bytes,
+    int? seq,
+  ) async {
     final chunks = chunkBytes(
       bytes,
-      transferId: fileId,
+      transferId: transferId,
       maxChunk: _wireChunkBytes,
     );
     await _send(
-      dst,
+      peer,
       fileMetaEnvelope(
-        transferId: fileId,
+        transferId: transferId,
         name: name,
         size: bytes.length,
         count: chunks.length,
+        seq: seq,
       ).encode(),
     );
     for (final c in chunks) {
       await _send(
-        dst,
+        peer,
         fileChunkEnvelope(
           transferId: c.transferId,
           index: c.index,
