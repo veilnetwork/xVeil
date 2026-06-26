@@ -93,7 +93,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       await svc.sendRequest(_peer, text);
     }
     _scrollToBottom(force: true);
-    if (mounted) _inputFocus.requestFocus(); // and again after the await settles
+    if (mounted) {
+      _inputFocus.requestFocus(); // and again after the await settles
+    }
   }
 
   Future<void> _accept() =>
@@ -122,11 +124,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         content: Text(l.chatRequestCancelBody),
         actions: [
           TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: Text(l.actionBack)),
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(l.actionBack),
+          ),
           FilledButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: Text(l.chatRequestCancel)),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(l.chatRequestCancel),
+          ),
         ],
       ),
     );
@@ -161,9 +165,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (mounted) _snack(l.chatFileSaveFailed);
       return;
     }
-    final path = await FilePicker.saveFile(
-      fileName: m.fileName ?? 'file',
-    );
+    final path = await FilePicker.saveFile(fileName: m.fileName ?? 'file');
     if (path == null) return; // cancelled
     try {
       await File(path).writeAsBytes(bytes);
@@ -173,8 +175,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
-  void _snack(String msg) => ScaffoldMessenger.of(context)
-      .showSnackBar(SnackBar(content: Text(msg)));
+  void _snack(String msg) =>
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
 
   /// Long-press menu on a message bubble. Own (outgoing) text messages can be
   /// edited or unsent for everyone; any message can be deleted from this device
@@ -238,38 +240,33 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     await Clipboard.setData(ClipboardData(text: m.body));
     if (!mounted) return;
     messenger.showSnackBar(
-      SnackBar(content: Text(l.chatMsgCopied), duration: const Duration(seconds: 1)),
+      SnackBar(
+        content: Text(l.chatMsgCopied),
+        duration: const Duration(seconds: 1),
+      ),
     );
   }
 
   Future<void> _editMessage(Message m) async {
     final l = AppL10n.of(context);
-    final controller = TextEditingController(text: m.body);
+    // The dialog owns its TextEditingController via a StatefulWidget so it is
+    // disposed in State.dispose() (after the close transition), not inline
+    // right after showDialog returns. Inline disposal races the exit animation:
+    // a teardown-driven rebuild (compaction / identity-switch / lock) can
+    // rebuild the still-animating TextField against a disposed controller —
+    // the "used after being disposed" + _dependents.isEmpty red screen.
     final newText = await showDialog<String>(
       context: context,
-      builder: (dialog) => AlertDialog(
-        title: Text(l.chatEditTitle),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLines: null,
-          textInputAction: TextInputAction.done,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialog).pop(),
-            child: Text(l.actionCancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialog).pop(controller.text),
-            child: Text(l.chatEditSave),
-          ),
-        ],
+      builder: (_) => _EditMessageDialog(
+        initial: m.body,
+        title: l.chatEditTitle,
+        saveLabel: l.chatEditSave,
+        cancelLabel: l.actionCancel,
       ),
     );
-    controller.dispose();
     final trimmed = newText?.trim();
     if (trimmed == null || trimmed.isEmpty || trimmed == m.body) return;
+    if (!mounted) return; // teardown may have unmounted us during the dialog
     await ref.read(messagingServiceProvider).editOwnMessage(m.id, trimmed);
   }
 
@@ -279,9 +276,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       context: context,
       builder: (dialog) => AlertDialog(
         title: Text(l.chatDeleteTitle),
-        content: Text(forEveryone
-            ? l.chatDeleteForEveryoneBody
-            : l.chatDeleteForMeBody),
+        content: Text(
+          forEveryone ? l.chatDeleteForEveryoneBody : l.chatDeleteForMeBody,
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialog).pop(false),
@@ -332,7 +329,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// GROWING (the async-loaded, variable-height list lays out over several
   /// frames) — bounded to [framesLeft] frames so it can't loop. Stops as soon
   /// as the extent stabilises, so we reliably land at the true last message.
-  void _stickToBottomAcrossFrames([int framesLeft = 10, double lastExtent = -1]) {
+  void _stickToBottomAcrossFrames([
+    int framesLeft = 10,
+    double lastExtent = -1,
+  ]) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scroll.hasClients) return;
       final max = _scroll.position.maxScrollExtent;
@@ -359,9 +359,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               child: Text(_peer.short.characters.first.toUpperCase()),
             ),
             const SizedBox(width: 12),
-            Expanded(
-              child: Text(_peer.short, overflow: TextOverflow.ellipsis),
-            ),
+            Expanded(child: Text(_peer.short, overflow: TextOverflow.ellipsis)),
           ],
         ),
       ),
@@ -452,8 +450,10 @@ class _Banner extends StatelessWidget {
             Icon(icon, size: 18, color: scheme.onSurfaceVariant),
             const SizedBox(width: 8),
             Flexible(
-              child: Text(text,
-                  style: TextStyle(color: scheme.onSurfaceVariant)),
+              child: Text(
+                text,
+                style: TextStyle(color: scheme.onSurfaceVariant),
+              ),
             ),
           ],
         ),
@@ -477,8 +477,10 @@ class _RequestActions extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(l.chatRequestTitle,
-                style: Theme.of(context).textTheme.bodyMedium),
+            Text(
+              l.chatRequestTitle,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
             const SizedBox(height: 12),
             Row(
               children: [
@@ -536,12 +538,17 @@ class _PendingOutgoingActions extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.hourglass_top,
-                    size: 18, color: scheme.onSurfaceVariant),
+                Icon(
+                  Icons.hourglass_top,
+                  size: 18,
+                  color: scheme.onSurfaceVariant,
+                ),
                 const SizedBox(width: 8),
                 Flexible(
-                  child: Text(text,
-                      style: TextStyle(color: scheme.onSurfaceVariant)),
+                  child: Text(
+                    text,
+                    style: TextStyle(color: scheme.onSurfaceVariant),
+                  ),
                 ),
               ],
             ),
@@ -589,90 +596,103 @@ class _Bubble extends StatelessWidget {
         // Long-press (touch) AND secondary-tap (desktop right-click) both open
         // the message actions — without the latter the menu is unreachable on
         // desktop, where there is no long-press.
-        onLongPress:
-            onLongPress == null ? null : () => onLongPress!(message),
-        onSecondaryTap:
-            onLongPress == null ? null : () => onLongPress!(message),
+        onLongPress: onLongPress == null ? null : () => onLongPress!(message),
+        onSecondaryTap: onLongPress == null
+            ? null
+            : () => onLongPress!(message),
         child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.75,
-        ),
-        decoration: BoxDecoration(
-          color: outgoing ? scheme.primaryContainer : scheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16),
-            topRight: const Radius.circular(16),
-            bottomLeft: Radius.circular(outgoing ? 16 : 4),
-            bottomRight: Radius.circular(outgoing ? 4 : 16),
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width * 0.75,
           ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (message.isFile)
-              InkWell(
-                onTap: onTapFile == null ? null : () => onTapFile!(message),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.insert_drive_file_outlined,
-                        size: 20, color: scheme.onSurfaceVariant),
-                    const SizedBox(width: 8),
-                    Flexible(
-                      child: Text(message.fileName ?? message.body,
-                          overflow: TextOverflow.ellipsis),
-                    ),
-                    const SizedBox(width: 8),
-                    Icon(Icons.download_outlined,
-                        size: 16, color: scheme.onSurfaceVariant),
-                  ],
-                ),
-              )
-            else
-              Text(message.body),
-            const SizedBox(height: 2),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (message.edited) ...[
-                  Text(
-                    l.chatEdited,
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                          fontStyle: FontStyle.italic,
-                        ),
-                  ),
-                  const SizedBox(width: 4),
-                ],
-                Text(
-                  formatHhmm(message.timestamp),
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          decoration: BoxDecoration(
+            color: outgoing
+                ? scheme.primaryContainer
+                : scheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.only(
+              topLeft: const Radius.circular(16),
+              topRight: const Radius.circular(16),
+              bottomLeft: Radius.circular(outgoing ? 16 : 4),
+              bottomRight: Radius.circular(outgoing ? 4 : 16),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (message.isFile)
+                InkWell(
+                  onTap: onTapFile == null ? null : () => onTapFile!(message),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.insert_drive_file_outlined,
+                        size: 20,
                         color: scheme.onSurfaceVariant,
                       ),
-                ),
-                if (outgoing) ...[
-                  const SizedBox(width: 4),
-                  Icon(_statusIcon(message.status),
-                      size: 13, color: scheme.onSurfaceVariant),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          message.fileName ?? message.body,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Icon(
+                        Icons.download_outlined,
+                        size: 16,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ],
+                  ),
+                )
+              else
+                Text(message.body),
+              const SizedBox(height: 2),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (message.edited) ...[
+                    Text(
+                      l.chatEdited,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                  ],
+                  Text(
+                    formatHhmm(message.timestamp),
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                  if (outgoing) ...[
+                    const SizedBox(width: 4),
+                    Icon(
+                      _statusIcon(message.status),
+                      size: 13,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ],
                 ],
-              ],
-            ),
-          ],
+              ),
+            ],
+          ),
         ),
-      ),
       ),
     );
   }
 
   static IconData _statusIcon(MessageStatus s) => switch (s) {
-        MessageStatus.sending => Icons.schedule,
-        MessageStatus.sent => Icons.check,
-        MessageStatus.delivered => Icons.done_all,
-        MessageStatus.failed => Icons.error_outline,
-      };
+    MessageStatus.sending => Icons.schedule,
+    MessageStatus.sent => Icons.check,
+    MessageStatus.delivered => Icons.done_all,
+    MessageStatus.failed => Icons.error_outline,
+  };
 }
 
 class _Composer extends StatelessWidget {
@@ -718,13 +738,66 @@ class _Composer extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            IconButton.filled(
-              onPressed: onSend,
-              icon: const Icon(Icons.send),
-            ),
+            IconButton.filled(onPressed: onSend, icon: const Icon(Icons.send)),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Edit-message dialog. A `StatefulWidget` so its [TextEditingController] is
+/// disposed in [State.dispose] — which runs only once the dialog route is
+/// fully removed (after the close transition), avoiding the disposed-controller
+/// red screen when a teardown event forces a rebuild mid-animation.
+class _EditMessageDialog extends StatefulWidget {
+  const _EditMessageDialog({
+    required this.initial,
+    required this.title,
+    required this.saveLabel,
+    required this.cancelLabel,
+  });
+
+  final String initial;
+  final String title;
+  final String saveLabel;
+  final String cancelLabel;
+
+  @override
+  State<_EditMessageDialog> createState() => _EditMessageDialogState();
+}
+
+class _EditMessageDialogState extends State<_EditMessageDialog> {
+  late final TextEditingController _ctl = TextEditingController(
+    text: widget.initial,
+  );
+
+  @override
+  void dispose() {
+    _ctl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: _ctl,
+        autofocus: true,
+        maxLines: null,
+        textInputAction: TextInputAction.done,
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(widget.cancelLabel),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_ctl.text),
+          child: Text(widget.saveLabel),
+        ),
+      ],
     );
   }
 }

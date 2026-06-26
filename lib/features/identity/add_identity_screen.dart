@@ -48,15 +48,24 @@ class _AddIdentityScreenState extends ConsumerState<AddIdentityScreen> {
       _busy = true;
       _error = null;
     });
-    final ok = await ref.read(appControllerProvider.notifier).addIdentity(
-          masterPassword: _masterPassword.text,
-          label: _newName.text.trim(),
-          password: _newPassword.text,
-          existingLabel: converting && _currentName.text.trim().isNotEmpty
-              ? _currentName.text.trim()
-              : 'Identity 1',
-          anonymous: _anonymous,
-        );
+    bool ok = false;
+    try {
+      ok = await ref
+          .read(appControllerProvider.notifier)
+          .addIdentity(
+            masterPassword: _masterPassword.text,
+            label: _newName.text.trim(),
+            password: _newPassword.text,
+            existingLabel: converting && _currentName.text.trim().isNotEmpty
+                ? _currentName.text.trim()
+                : 'Identity 1',
+            anonymous: _anonymous,
+          );
+    } catch (_) {
+      // Never leave the form stuck on the busy spinner if the FFI op throws —
+      // surface it as a clash/failure so the user can retry.
+      ok = false;
+    }
     if (!mounted) return;
     if (ok) {
       // Now in the new identity's session — go home (the phase is already
@@ -81,67 +90,75 @@ class _AddIdentityScreenState extends ConsumerState<AddIdentityScreen> {
         children: [
           SafeArea(
             child: ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            Text(l.addIdentitySubtitle,
-                style: Theme.of(context).textTheme.bodyMedium),
-            const SizedBox(height: 20),
-            if (converting) ...[
-              TextField(
-                controller: _currentName,
-                decoration: InputDecoration(
-                  labelText: l.addIdentityCurrentName,
-                  border: const OutlineInputBorder(),
+              padding: const EdgeInsets.all(20),
+              children: [
+                Text(
+                  l.addIdentitySubtitle,
+                  style: Theme.of(context).textTheme.bodyMedium,
                 ),
-              ),
-              const SizedBox(height: 16),
-            ],
-            TextField(
-              controller: _newName,
-              decoration: InputDecoration(
-                labelText: l.addIdentityNewName,
-                border: const OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _newPassword,
-              obscureText: true,
-              decoration: InputDecoration(
-                labelText: l.addIdentityNewPassword,
-                border: const OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _masterPassword,
-              obscureText: true,
-              decoration: InputDecoration(
-                labelText: l.addIdentityMasterPassword,
-                helperText: l.addIdentityMasterHint,
-                helperMaxLines: 3,
-                border: const OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 8),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              value: _anonymous,
-              onChanged: _busy ? null : (v) => setState(() => _anonymous = v),
-              title: Text(l.addIdentityAnonymous),
-              subtitle: Text(l.addIdentityAnonymousHint),
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: 16),
-              Text(_error!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error)),
-            ],
-            const SizedBox(height: 24),
-            FilledButton(
-              onPressed: _busy ? null : () => _submit(converting),
-              child: Text(l.addIdentityCreate),
-            ),
-          ],
+                const SizedBox(height: 20),
+                if (converting) ...[
+                  TextField(
+                    controller: _currentName,
+                    decoration: InputDecoration(
+                      labelText: l.addIdentityCurrentName,
+                      border: const OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                TextField(
+                  controller: _newName,
+                  decoration: InputDecoration(
+                    labelText: l.addIdentityNewName,
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _newPassword,
+                  obscureText: true,
+                  decoration: InputDecoration(
+                    labelText: l.addIdentityNewPassword,
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _masterPassword,
+                  obscureText: true,
+                  decoration: InputDecoration(
+                    labelText: l.addIdentityMasterPassword,
+                    helperText: l.addIdentityMasterHint,
+                    helperMaxLines: 3,
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: _anonymous,
+                  onChanged: _busy
+                      ? null
+                      : (v) => setState(() => _anonymous = v),
+                  title: Text(l.addIdentityAnonymous),
+                  subtitle: Text(l.addIdentityAnonymousHint),
+                ),
+                if (_error != null) ...[
+                  const SizedBox(height: 16),
+                  Text(
+                    _error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 24),
+                FilledButton(
+                  onPressed: _busy ? null : () => _submit(converting),
+                  child: Text(l.addIdentityCreate),
+                ),
+              ],
             ),
           ),
           // Argon2 container opens block the platform thread for a moment; show
@@ -159,7 +176,10 @@ class _AddIdentityScreenState extends ConsumerState<AddIdentityScreen> {
                         children: [
                           const CircularProgressIndicator(),
                           const SizedBox(height: 16),
-                          Text(l.addIdentityWorking, textAlign: TextAlign.center),
+                          Text(
+                            l.addIdentityWorking,
+                            textAlign: TextAlign.center,
+                          ),
                         ],
                       ),
                     ),

@@ -42,14 +42,23 @@ class _DecoyMasterScreenState extends ConsumerState<DecoyMasterScreen> {
       _busy = true;
       _error = null;
     });
-    final ok = await ref.read(appControllerProvider.notifier).createDecoyMaster(
-          duressPassword: _password.text,
-          includeLabels: _selected.toList(),
-        );
+    bool ok = false;
+    try {
+      ok = await ref
+          .read(appControllerProvider.notifier)
+          .createDecoyMaster(
+            duressPassword: _password.text,
+            includeLabels: _selected.toList(),
+          );
+    } catch (_) {
+      // Never wedge the form on the busy spinner if the FFI op throws.
+      ok = false;
+    }
     if (!mounted) return;
     if (ok) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(l.decoyCreated)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.decoyCreated)));
       Navigator.of(context).maybePop();
     } else {
       setState(() {
@@ -71,8 +80,10 @@ class _DecoyMasterScreenState extends ConsumerState<DecoyMasterScreen> {
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
-            Text(l.decoySubtitle,
-                style: Theme.of(context).textTheme.bodyMedium),
+            Text(
+              l.decoySubtitle,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
             const SizedBox(height: 16),
             Card(
               color: scheme.errorContainer,
@@ -81,12 +92,16 @@ class _DecoyMasterScreenState extends ConsumerState<DecoyMasterScreen> {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.warning_amber_outlined,
-                        color: scheme.onErrorContainer),
+                    Icon(
+                      Icons.warning_amber_outlined,
+                      color: scheme.onErrorContainer,
+                    ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: Text(l.decoyWarning,
-                          style: TextStyle(color: scheme.onErrorContainer)),
+                      child: Text(
+                        l.decoyWarning,
+                        style: TextStyle(color: scheme.onErrorContainer),
+                      ),
                     ),
                   ],
                 ),
@@ -102,8 +117,7 @@ class _DecoyMasterScreenState extends ConsumerState<DecoyMasterScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            Text(l.decoyInclude,
-                style: Theme.of(context).textTheme.labelLarge),
+            Text(l.decoyInclude, style: Theme.of(context).textTheme.labelLarge),
             for (final label in identities)
               CheckboxListTile(
                 value: _selected.contains(label),
@@ -111,12 +125,12 @@ class _DecoyMasterScreenState extends ConsumerState<DecoyMasterScreen> {
                 onChanged: _busy
                     ? null
                     : (v) => setState(() {
-                          if (v == true) {
-                            _selected.add(label);
-                          } else {
-                            _selected.remove(label);
-                          }
-                        }),
+                        if (v == true) {
+                          _selected.add(label);
+                        } else {
+                          _selected.remove(label);
+                        }
+                      }),
               ),
             if (_error != null) ...[
               const SizedBox(height: 12),
@@ -129,7 +143,8 @@ class _DecoyMasterScreenState extends ConsumerState<DecoyMasterScreen> {
                   ? const SizedBox(
                       height: 18,
                       width: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2))
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
                   : Text(l.decoyCreate),
             ),
           ],
