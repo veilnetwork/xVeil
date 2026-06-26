@@ -155,6 +155,69 @@ void main() {
     expect(sync.holes[a.hex], isNull);
   });
 
+  test('a delete of a NEVER-DELIVERED message heals via a void — high-water '
+      'advances, the message never resurrects', () async {
+    await mA.sendText(b, 'keep'); // seq 1 — B gets it
+    await _settle();
+
+    // 'gone' (seq 2) is lost on the wire, then A unsends it before B ever saw it.
+    tA.drop = true;
+    await mA.sendText(b, 'gone');
+    await _settle();
+    final goneId = (await sA.loadMessages(b.hex))
+        .firstWhere((m) => m.body == 'gone')
+        .id;
+    await mA.deleteForEveryone(goneId); // tombstones seq 2 on A (del wire dropped)
+    await _settle();
+
+    // Reconnect: B beacons hw=1; A re-ships the deleted slot as an inert void(2).
+    tA.drop = false;
+    await mB.reconcileOnConnect();
+    await _settle();
+
+    // B advanced its high-water past the deleted slot (no permanent stall)...
+    final sync = await sB.conversationSync(a.hex);
+    expect(sync.highWater[a.hex], 2);
+    expect(sync.holes[a.hex], isNull);
+    // ...and the deleted message never materialised on B (no resurrection).
+    final bodies = (await sB.loadMessages(a.hex)).map((m) => m.body);
+    expect(bodies, contains('keep'));
+    expect(bodies, isNot(contains('gone')));
+  });
+
+  test('a peer that LOST its message data re-syncs from zero on reconnect '
+      '(Case-A wipe recovery via the beacon)', () async {
+    await mA.sendText(b, 'm1');
+    await mA.sendText(b, 'm2');
+    await mA.sendText(b, 'm3');
+    await _settle();
+    expect((await sB.loadMessages(a.hex)).length, greaterThanOrEqualTo(3));
+
+    // B reinstalls: a fresh, EMPTY space that re-adds A as an accepted contact
+    // (the relationship survives a wipe; only the message log is gone). A still
+    // holds B accepted with the full log.
+    await mB.dispose();
+    final tB2 = _LossyTransport(b);
+    tA.peer = tB2;
+    tB2.peer = tA;
+    final sB2 = HiddenVolumeStorage(_memOpener());
+    await sB2.open(password: 'b2', createIfMissing: true);
+    await sB2.upsertContact(
+      Contact(nodeId: a, status: ContactStatus.accepted),
+    );
+    final mB2 = MessagingService(tB2, sB2)..start();
+    addTearDown(mB2.dispose);
+
+    // Reconnect: B2 beacons hw[A]={} (it holds nothing) → A re-ships everything.
+    await mB2.reconcileOnConnect();
+    await _settle();
+
+    final recovered =
+        (await sB2.loadMessages(a.hex)).map((m) => m.body).toSet();
+    expect(recovered, containsAll(['m1', 'm2', 'm3']),
+        reason: 'the wiped peer recovered the whole conversation from the log');
+  });
+
   test('gap-fill is bidirectional from a single reconnect (beacon-back)',
       () async {
     // Both sides send while the OTHER direction is dropped, so each is missing
