@@ -323,6 +323,11 @@
   "networkStatusError": "Error",
   "networkBackgroundTitle": "Keep running in background",
   "networkBackgroundHint": "Android only. Keeps the node — your proxy and incoming-message delivery — alive after you switch away from the app. Requires a persistent notification (so it's visible the app is running) and uses more battery.",
+  "networkBackgroundAllowTitle": "Allow background work",
+  "networkBackgroundAllowBody": "For messages to arrive while xVeil is in the background, allow it to run without battery restrictions. On some phones (e.g. Xiaomi, Samsung) you must ALSO enable “Autostart” / remove battery limits in the app's settings.",
+  "networkBackgroundAllowGrant": "Allow",
+  "networkBackgroundOpenSettings": "App settings",
+  "networkBackgroundLater": "Later",
 
   "peersTitle": "Connected peers",
   "peersSectionActive": "Active",
