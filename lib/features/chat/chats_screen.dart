@@ -10,6 +10,7 @@ import '../../domain/chat.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/messaging.dart';
+import 'chat_actions.dart';
 import '../../state/providers.dart';
 import '../contacts/invite_exchange_sheet.dart';
 
@@ -183,52 +184,12 @@ class _ConversationTile extends ConsumerWidget {
   const _ConversationTile({required this.conversation});
   final Conversation conversation;
 
-  /// Long-press (touch) / right-click (desktop) → chat actions. Currently just
-  /// delete — the entry point for chat management; without it there is no way to
-  /// remove a chat (e.g. a dead/old "ghost" identity) from the list.
+  /// Long-press (touch) / right-click (desktop) → the SHARED conversation
+  /// management sheet (rename / pin / mute / auto-delete / block / clear /
+  /// delete) — the same actions as the in-chat menu, now reachable from the
+  /// chats list. No onDeleted callback: the list just refreshes after a delete.
   void _showActions(BuildContext context, WidgetRef ref) {
-    final l = AppL10n.of(context);
-    showModalBottomSheet<void>(
-      context: context,
-      builder: (sheet) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.delete_outline),
-              title: Text(l.chatListDelete),
-              onTap: () {
-                Navigator.of(sheet).pop();
-                _confirmDelete(context, ref);
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
-    final l = AppL10n.of(context);
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (dialog) => AlertDialog(
-        title: Text(l.chatDeleteChatTitle),
-        content: Text(l.chatDeleteChatBody),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.of(dialog).pop(false),
-              child: Text(l.actionCancel)),
-          FilledButton(
-              onPressed: () => Navigator.of(dialog).pop(true),
-              child: Text(l.chatDeleteConfirm)),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    await ref
-        .read(messagingServiceProvider)
-        .deleteConversation(conversation.peer.nodeId);
+    showConversationActions(context, ref, conversation.peer);
   }
 
   @override

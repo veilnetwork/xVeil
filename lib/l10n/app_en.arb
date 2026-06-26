@@ -97,6 +97,13 @@
   "retention30": "After 1 month",
   "retention90": "After 3 months",
   "retention365": "After 1 year",
+  "retentionCustom": "Custom…",
+  "retentionCustomN": "Custom ({days} days)",
+  "@retentionCustomN": {
+    "placeholders": { "days": { "type": "int" } }
+  },
+  "retentionCustomTitle": "Delete after (days)",
+  "retentionDaysSuffix": "days",
   "retentionApplied": "Older messages will be deleted",
   "chatMenuRename": "Rename",
   "chatRenameTitle": "Local name",

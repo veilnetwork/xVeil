@@ -295,6 +295,20 @@ class AppL10nRu extends AppL10n {
   String get retention365 => 'Через 1 год';
 
   @override
+  String get retentionCustom => 'Произвольно…';
+
+  @override
+  String retentionCustomN(int days) {
+    return 'Произвольно ($days дн.)';
+  }
+
+  @override
+  String get retentionCustomTitle => 'Удалять через (дней)';
+
+  @override
+  String get retentionDaysSuffix => 'дн.';
+
+  @override
   String get retentionApplied => 'Старые сообщения будут удалены';
 
   @override
