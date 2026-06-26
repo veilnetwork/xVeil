@@ -294,6 +294,20 @@ class AppL10nEn extends AppL10n {
   String get retention365 => 'After 1 year';
 
   @override
+  String get retentionCustom => 'Custom…';
+
+  @override
+  String retentionCustomN(int days) {
+    return 'Custom ($days days)';
+  }
+
+  @override
+  String get retentionCustomTitle => 'Delete after (days)';
+
+  @override
+  String get retentionDaysSuffix => 'days';
+
+  @override
   String get retentionApplied => 'Older messages will be deleted';
 
   @override
