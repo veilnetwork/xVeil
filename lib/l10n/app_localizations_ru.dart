@@ -173,6 +173,12 @@ class AppL10nRu extends AppL10n {
   String get notificationNewMessage => 'Новое сообщение';
 
   @override
+  String get notificationReply => 'Ответить';
+
+  @override
+  String get notificationReplyHint => 'Сообщение…';
+
+  @override
   String get notificationsTitle => 'Уведомления';
 
   @override

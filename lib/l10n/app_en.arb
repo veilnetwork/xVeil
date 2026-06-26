@@ -58,6 +58,8 @@
   "chatNewMessageHint": "Message",
   "chatSend": "Send",
   "notificationNewMessage": "New message",
+  "notificationReply": "Reply",
+  "notificationReplyHint": "Message…",
   "notificationsTitle": "Notifications",
   "notificationsEnabled": "Show notifications",
   "notificationsPreview": "Message preview",
