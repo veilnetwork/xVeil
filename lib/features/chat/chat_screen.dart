@@ -42,6 +42,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         ref.read(messagingServiceProvider).markRead(widget.peerHex);
+        // Apply this chat's retention policy on open, so an expired message
+        // disappears even without a periodic sweep (no-op when unlimited).
+        ref
+            .read(messagingServiceProvider)
+            .pruneConversation(NodeId.fromHex(widget.peerHex));
         // Mark this chat as the one on screen so the notification layer
         // suppresses alerts for it while it's open + foreground.
         ref.read(activeConversationProvider.notifier).state = widget.peerHex;
@@ -225,6 +230,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 _deleteMessage(m, forEveryone: false);
               },
             ),
+            if (m.edited && !m.isFile)
+              ListTile(
+                leading: const Icon(Icons.history),
+                title: Text(l.chatMsgHistory),
+                onTap: () {
+                  Navigator.of(sheet).pop();
+                  _showMessageHistory(m);
+                },
+              ),
             ListTile(
               leading: const Icon(Icons.info_outline),
               title: Text(l.chatMsgInfo),
@@ -324,6 +338,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         await svc.setContactMuted(_peer, true);
       case _ChatMenuAction.unmute:
         await svc.setContactMuted(_peer, false);
+      case _ChatMenuAction.retention:
+        await _pickRetention();
       case _ChatMenuAction.block:
         await svc.blockContact(_peer);
       case _ChatMenuAction.unblock:
@@ -333,6 +349,47 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       case _ChatMenuAction.delete:
         await _deleteConversation();
     }
+  }
+
+  /// Pick this conversation's auto-delete window. Applying a window prunes
+  /// anything already past it (by ORIGINAL post time). Default is unlimited.
+  Future<void> _pickRetention() async {
+    final l = AppL10n.of(context);
+    final current = ref.read(contactProvider(widget.peerHex)).value?.retentionDays;
+    final options = <(String, int?)>[
+      (l.retentionUnlimited, null),
+      (l.retention7, 7),
+      (l.retention30, 30),
+      (l.retention90, 90),
+      (l.retention365, 365),
+    ];
+    final picked = await showDialog<(String, int?)>(
+      context: context,
+      builder: (dialog) => SimpleDialog(
+        title: Text(l.chatMenuRetention),
+        children: [
+          for (final o in options)
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(dialog).pop(o),
+              child: Row(
+                children: [
+                  Icon(
+                    o.$2 == current
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_off,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 12),
+                  Text(o.$1),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+    if (picked == null || !mounted) return;
+    await ref.read(messagingServiceProvider).setContactRetention(_peer, picked.$2);
+    if (mounted && picked.$2 != null) _snack(l.retentionApplied);
   }
 
   /// Set or clear a LOCAL alias for this contact. Blank input clears it (falls
@@ -443,6 +500,62 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         MessageStatus.delivered => l.msgStatusDelivered,
         MessageStatus.failed => l.msgStatusFailed,
       };
+
+  /// Read-only edit-history sheet: every retained version of [m], oldest-first,
+  /// each labelled original/edited with its time. Local — nothing leaves the
+  /// device; the versions are scrubbed by clear-history / retention / panic.
+  Future<void> _showMessageHistory(Message m) async {
+    final l = AppL10n.of(context);
+    final theme = Theme.of(context);
+    final versions =
+        await ref.read(storageProvider).loadMessageHistory(widget.peerHex, m.id);
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheet) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(l.chatMsgHistory, style: theme.textTheme.titleMedium),
+              const SizedBox(height: 12),
+              if (versions.isEmpty)
+                Text(l.chatHistoryEmpty)
+              else
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      for (final v in versions)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '${v.isOriginal ? l.chatHistoryOriginal : l.chatHistoryEdited}'
+                                ' · ${formatDateTime(v.timestamp.toLocal())}',
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              SelectableText(v.body),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   void _scrollToBottom({bool force = false}) {
     if (force) {
@@ -573,6 +686,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   value: _ChatMenuAction.mute,
                   child: Text(l.chatMenuMute),
                 ),
+              PopupMenuItem(
+                value: _ChatMenuAction.retention,
+                child: Text(l.chatMenuRetention),
+              ),
               // Block an accepted contact (their messages get dropped) or lift
               // an existing block — local-only, the peer is never told either way.
               if (status == ContactStatus.blocked)
@@ -838,6 +955,7 @@ enum _ChatMenuAction {
   unpin,
   mute,
   unmute,
+  retention,
   block,
   unblock,
   clear,
