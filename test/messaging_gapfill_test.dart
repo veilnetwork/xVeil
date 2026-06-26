@@ -7,6 +7,7 @@ import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
+import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/state/messaging.dart';
 
@@ -38,6 +39,11 @@ class _LossyTransport implements VeilTransport {
     if (drop) return; // live datagram lost
     peer?._inbound.add(InboundMessage(src: _me, payload: payload));
   }
+
+  /// Inject an inbound frame as if it arrived over the wire from [from] (used to
+  /// craft a hand-built envelope the normal send path can't produce).
+  void inject(NodeId from, Uint8List payload) =>
+      _inbound.add(InboundMessage(src: from, payload: payload));
 
   @override
   Stream<int> sessionCount() => Stream.value(0);
@@ -208,9 +214,34 @@ void main() {
     expect(files.single.seq, 2, reason: 'folded under the sender filePost seq');
     expect(await sB.loadFile(files.single.fileId!), bytes,
         reason: 'the blob bytes round-tripped');
+    // The file folded under the SENDER's send-time, not B's receive time — so the
+    // convergent (effective_ts, author, seq) order is identical on both devices.
+    final aFile =
+        (await sA.loadMessages(b.hex)).firstWhere((m) => m.isFile);
+    expect(files.single.timestamp, aFile.timestamp,
+        reason: 'file display time converges to the sender send-time');
     final sync = await sB.conversationSync(a.hex);
     expect(sync.highWater[a.hex], 2);
     expect(sync.holes[a.hex], isNull);
+  });
+
+  test('an incoming message stores the SENDER send-time verbatim — no '
+      'receiver-clock clamp (convergent display order)', () async {
+    // Craft a message from A stamped FAR in the future; the receiver must store
+    // that exact time (the old code clamped it to the receiver now → divergence).
+    const future = 4102444800000; // 2100-01-01
+    final wire = const WireEnvelope.message(
+      'from the future',
+      id: 'fut-1',
+      sentAtMs: future,
+      seq: 1,
+    ).encode();
+    tB.inject(a, wire); // arrives at B (mB listens on tB) as if A sent it
+    await _settle();
+    final m =
+        (await sB.loadMessages(a.hex)).firstWhere((x) => x.id == 'fut-1');
+    expect(m.timestamp.millisecondsSinceEpoch, future,
+        reason: 'stored verbatim, not clamped to the receiver clock');
   });
 
   test('a peer that LOST its message data re-syncs from zero on reconnect '

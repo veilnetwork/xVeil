@@ -442,10 +442,8 @@ class HiddenVolumeStorage implements Storage {
             author: author,
             seq: seq,
           );
-    final nextId = await _nextLogId();
-    await _as.commit([
-      AppendLogOp(Ns.messageLog, nextId, _sk(_encodeMessage(stored))),
-      PutOp(Ns.settings, _sk('msg_next_id'), _sk('${nextId + 1}')),
+    await _commitAtNextLogId((logId) => [
+      AppendLogOp(Ns.messageLog, logId, _sk(_encodeMessage(stored))),
       // Advance the per-(conv,author) seq cursor ONLY when we ALLOCATED it (a
       // wire event with its own seq must not bump our local counter — the two
       // streams are independent and reconciled by the fold/sync, not here).
@@ -631,8 +629,7 @@ class HiddenVolumeStorage implements Storage {
         return; // slot present — nothing to do
       }
     }
-    final logId = await _nextLogId();
-    await _as.commit([
+    await _commitAtNextLogId((logId) => [
       AppendLogOp(
         Ns.messageLog,
         logId,
@@ -645,7 +642,6 @@ class HiddenVolumeStorage implements Storage {
           'sq': seq,
         })),
       ),
-      PutOp(Ns.settings, _sk('msg_next_id'), _sk('${logId + 1}')),
     ]);
     await _patchCache(() {});
   }
@@ -659,7 +655,11 @@ class HiddenVolumeStorage implements Storage {
     // when present so legacy rows + the in-memory fake stay readable.
     if (m.author != null) 'au': m.author,
     if (m.seq != null) 'sq': m.seq,
-    'k': EventKind.post.index,
+    // A file message is a filePost event (its body is the descriptor, the blob
+    // travels out-of-band); a text message is a post. The fold treats both as a
+    // post-class row, but loadEventsSince surfaces the right kind so the gap-fill
+    // re-ship and any kind-aware consumer agree with the wire.
+    'k': (m.fileId != null ? EventKind.filePost : EventKind.post).index,
     'd': m.direction.index,
     'b': m.body,
     't': m.timestamp.millisecondsSinceEpoch,
@@ -722,8 +722,7 @@ class HiddenVolumeStorage implements Storage {
     // allocates the next gap-free value for the editing author and bumps that
     // author's cursor.
     final editSeq = seq ?? await _nextConvSeq(conversationId, author);
-    final logId = await _nextLogId();
-    await _as.commit([
+    await _commitAtNextLogId((logId) => [
       AppendLogOp(
         Ns.messageLog,
         logId,
@@ -738,7 +737,6 @@ class HiddenVolumeStorage implements Storage {
           't': DateTime.now().millisecondsSinceEpoch,
         })),
       ),
-      PutOp(Ns.settings, _sk('msg_next_id'), _sk('${logId + 1}')),
       // Advance the per-(conv, author) cursor ONLY for a locally-allocated edit
       // (seq == null); a wire edit keeps the editor's seq, like appendMessage.
       if (seq == null)
@@ -1077,16 +1075,14 @@ class HiddenVolumeStorage implements Storage {
     // message to `delivered` so it is no longer re-sent. The op carries the
     // conversation id so the fold can refuse to apply a status meant for one
     // conversation onto a same-id message in another (a peer-reachable path).
-    final nextId = await _nextLogId();
     final payload = jsonEncode({
       'op': 'status',
       'id': messageId,
       'c': conversationId,
       's': status.index,
     });
-    await _as.commit([
-      AppendLogOp(Ns.messageLog, nextId, _sk(payload)),
-      PutOp(Ns.settings, _sk('msg_next_id'), _sk('${nextId + 1}')),
+    await _commitAtNextLogId((logId) => [
+      AppendLogOp(Ns.messageLog, logId, _sk(payload)),
     ]);
   }
 
@@ -1142,6 +1138,31 @@ class HiddenVolumeStorage implements Storage {
   Future<T> _serialized<T>(Future<T> Function() body) {
     final result = _scanGate.then((_) => body());
     _scanGate = result.then((_) {}, onError: (_) {});
+    return result;
+  }
+
+  // Single-flight gate serializing the LOG-ID ALLOCATION critical section (the
+  // `_nextLogId()` read + the commit that bumps `msg_next_id`). Every new-id
+  // appender (appendMessage, editMessage, markMessageStatus, applyRemoteVoid)
+  // routes through [_commitAtNextLogId]; without this two appenders that
+  // interleave at the read-then-commit await could read the SAME next id and the
+  // second commit would clobber the first's row (a lost message / phantom seq
+  // hole). Distinct from [_scanGate] so the closing _patchCache (which uses
+  // _scanGate) never nests inside this lock. (deleteMessage rewrites an EXISTING
+  // log id and bumps nothing, so it does not need this gate.)
+  Future<void> _appendGate = Future<void>.value();
+  Future<int> _commitAtNextLogId(
+    List<KvLogOp> Function(int logId) opsFor,
+  ) {
+    final result = _appendGate.then((_) async {
+      final logId = await _nextLogId();
+      await _as.commit([
+        ...opsFor(logId),
+        PutOp(Ns.settings, _sk('msg_next_id'), _sk('${logId + 1}')),
+      ]);
+      return logId;
+    });
+    _appendGate = result.then((_) {}, onError: (_) {});
     return result;
   }
 

@@ -86,6 +86,27 @@ void main() {
     expect((jsonDecode(utf8.decode(raw)) as Map)['v'], 2);
   });
 
+  test('fileMeta round-trips the filePost seq + send-time (convergence)', () {
+    final raw = fileMetaEnvelope(
+      transferId: 't1',
+      name: 'photo.bin',
+      size: 5000,
+      count: 1,
+      seq: 7,
+      sentAtMs: 1782490000000,
+    ).encode();
+    final f = parseFileMeta(WireEnvelope.decode(raw).body);
+    expect(f.transferId, 't1');
+    expect(f.name, 'photo.bin');
+    expect(f.seq, 7);
+    expect(f.sentAtMs, 1782490000000);
+    // An older sender omits both → null (the receiver allocates seq / receive ts).
+    final legacy = parseFileMeta(
+        fileMetaEnvelope(transferId: 't2', name: 'x', size: 1, count: 1).body);
+    expect(legacy.seq, isNull);
+    expect(legacy.sentAtMs, isNull);
+  });
+
   test('a voidSeq frame round-trips its seq with no id/body', () {
     final out = WireEnvelope.decode(const WireEnvelope.voidSeq(5).encode());
     expect(out.kind, WireKind.voidSeq);
