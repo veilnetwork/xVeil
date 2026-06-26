@@ -157,7 +157,8 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     final l = AppL10n.of(context);
     final String title;
     final String body;
-    if (settings.preview == NotificationPreview.full) {
+    final full = settings.preview == NotificationPreview.full;
+    if (full) {
       // Prefer the contact's saved name; fall back to a short id (never the full
       // node id on a notification).
       final cn = name?.trim();
@@ -173,6 +174,11 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
           title: title,
           body: body,
           payload: convHex, // tap → open this chat
+          // Offer inline reply ONLY when the sender is visible (full preview) —
+          // replying to an anonymous "new message" would be confusing, and it
+          // keeps the hidden-preview lock-screen surface minimal.
+          replyLabel: full ? l.notificationReply : null,
+          replyHint: full ? l.notificationReplyHint : null,
         );
   }
 
