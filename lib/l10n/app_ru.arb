@@ -58,6 +58,8 @@
   "chatNewMessageHint": "Сообщение",
   "chatSend": "Отправить",
   "notificationNewMessage": "Новое сообщение",
+  "notificationReply": "Ответить",
+  "notificationReplyHint": "Сообщение…",
   "notificationsTitle": "Уведомления",
   "notificationsEnabled": "Показывать уведомления",
   "notificationsPreview": "Превью сообщения",
