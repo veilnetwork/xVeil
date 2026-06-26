@@ -10,11 +10,21 @@ import '../../state/notifications.dart';
 import '../../state/providers.dart';
 
 /// Bridges the active messaging service's [MessagingService.incoming] stream to
-/// OS notifications, applying the privacy policy. A widget (not a bare provider)
-/// so it has a [BuildContext] for localized, preview-respecting strings.
+/// OS notifications, applying the privacy + lifecycle policy. A widget (not a
+/// bare provider) so it has a [BuildContext] for localized, preview-respecting
+/// strings, and a [WidgetsBindingObserver] for the app's foreground/background
+/// transitions. Re-subscribes when the active identity's service changes.
 ///
-/// Suppresses an alert for the conversation already on screen while the app is
-/// foreground; re-subscribes when the active identity's service changes.
+/// Lifecycle policy ([shouldAlertIncoming] / [shouldAlertOnMinimize]):
+/// * FOREGROUND — never pop a notification (the message shows in-app; over the
+///   open chat a popup would be pure noise). What arrived for OTHER chats
+///   surfaces when you minimize.
+/// * BACKGROUND — alert in real time, per message (this only fires at all when
+///   the node is kept alive in the background — see BackgroundNodeController;
+///   otherwise the process is suspended and no message is received here).
+/// * ON MINIMIZE — alert for every conversation that still has unread (except
+///   the one you were just reading), so nothing is missed.
+/// * ON RESUME — clear the posted notifications (the unread is visible in-app).
 ///
 /// All provider interaction is deferred to a post-frame callback + done via
 /// [WidgetRef.listenManual] — NEVER during build or initState directly. Reading
@@ -30,13 +40,20 @@ class NotificationBinder extends ConsumerStatefulWidget {
   ConsumerState<NotificationBinder> createState() => _NotificationBinderState();
 }
 
-class _NotificationBinderState extends ConsumerState<NotificationBinder> {
+class _NotificationBinderState extends ConsumerState<NotificationBinder>
+    with WidgetsBindingObserver {
   StreamSubscription<IncomingNotice>? _sub;
   ProviderSubscription<MessagingService>? _serviceListener;
+
+  bool get _foreground =>
+      WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed ||
+      // Null only at the very first frame — treat as foreground (suppress).
+      WidgetsBinding.instance.lifecycleState == null;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Defer until after the first frame so the unlock→home provider cascade has
     // fully settled before we attach any listener.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -57,51 +74,111 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder> {
     _sub = service.incoming.listen(_onIncoming);
   }
 
+  /// A message just arrived. Alert in real time ONLY when backgrounded; a
+  /// foreground app shows it in-app and surfaces the rest on minimize.
   Future<void> _onIncoming(IncomingNotice notice) async {
     if (!mounted) return;
     final settings = ref.read(notificationSettingsProvider);
-    if (!settings.enabled) return;
-    // Don't alert for the chat the user is looking at (only when foreground).
-    final foreground =
-        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
-    if (foreground && ref.read(activeConversationProvider) == notice.from.hex) {
-      return;
-    }
-    // Read the sender's contact once: a muted conversation shows NO alert at
-    // all (the message still arrives + stores), and the same record supplies the
-    // display name in full-preview mode.
     Contact? contact;
     try {
       contact = await ref.read(storageProvider).getContact(notice.from);
     } catch (_) {}
     if (!mounted) return;
-    if (contact?.muted ?? false) return;
+    if (!shouldAlertIncoming(
+      enabled: settings.enabled,
+      muted: contact?.muted ?? false,
+      foreground: _foreground,
+    )) {
+      return;
+    }
+    await _show(
+      convHex: notice.from.hex,
+      name: contact?.name,
+      shortId: notice.from.short,
+      preview: notice.preview,
+      settings: settings,
+    );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Back in the app — the unread is visible in-app; clear posted alerts.
+      unawaited(ref.read(notificationServiceProvider).cancelAll());
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      // Minimized — surface every conversation that still has unread (so a
+      // message that arrived while the app was open isn't silently missed).
+      unawaited(_flushUnread());
+    }
+  }
+
+  Future<void> _flushUnread() async {
+    if (!mounted) return;
+    final settings = ref.read(notificationSettingsProvider);
+    if (!settings.enabled) return;
+    final active = ref.read(activeConversationProvider);
+    List<Conversation> convs;
+    try {
+      convs = await ref.read(storageProvider).loadConversations();
+    } catch (_) {
+      return;
+    }
+    if (!mounted) return;
+    for (final c in convs) {
+      if (!shouldAlertOnMinimize(
+        enabled: settings.enabled,
+        unread: c.unread,
+        muted: c.peer.muted,
+        isActive: c.id == active,
+      )) {
+        continue;
+      }
+      await _show(
+        convHex: c.id,
+        name: c.peer.name,
+        shortId: c.peer.nodeId.short,
+        preview: c.lastMessage?.body ?? '',
+        settings: settings,
+      );
+    }
+  }
+
+  /// Post one notification for a conversation. Same OS id per conversation, so a
+  /// chat's alerts collapse instead of stacking. Honours the hidden/full preview.
+  Future<void> _show({
+    required String convHex,
+    required String? name,
+    required String shortId,
+    required String preview,
+    required NotificationSettings settings,
+  }) async {
+    if (!mounted) return;
     final l = AppL10n.of(context);
     final String title;
     final String body;
     if (settings.preview == NotificationPreview.full) {
-      // Prefer the contact's saved name; fall back to a short id (never the
-      // full node id on a notification).
-      String name = notice.from.short;
-      final cn = contact?.name?.trim();
-      if (cn != null && cn.isNotEmpty) name = cn;
-      title = name;
-      body = notice.preview;
+      // Prefer the contact's saved name; fall back to a short id (never the full
+      // node id on a notification).
+      final cn = name?.trim();
+      title = (cn != null && cn.isNotEmpty) ? cn : shortId;
+      body = preview;
     } else {
       // Hidden: no sender, no text — just that something arrived.
       title = 'xVeil';
       body = l.notificationNewMessage;
     }
     await ref.read(notificationServiceProvider).show(
-          id: notice.from.hex.hashCode & 0x7fffffff,
+          id: convHex.hashCode & 0x7fffffff,
           title: title,
           body: body,
-          payload: notice.from.hex, // tap → open this chat
+          payload: convHex, // tap → open this chat
         );
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _serviceListener?.close();
     _sub?.cancel();
     super.dispose();

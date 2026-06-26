@@ -9,6 +9,31 @@ import 'providers.dart';
 /// lock screen anyone nearby (or a shoulder-surfer / a seized device) can read.
 enum NotificationPreview { hidden, full }
 
+/// Whether to alert in REAL TIME for a freshly-arrived message. We only pop a
+/// notification while the app is BACKGROUNDED — a foreground app shows the
+/// message in-app, so a popup over it (or over the very chat you're reading)
+/// would be noise. What was missed while foreground surfaces on minimize via
+/// [shouldAlertOnMinimize]. (Real-time background delivery needs the node kept
+/// alive in the background — see BackgroundNodeController.)
+bool shouldAlertIncoming({
+  required bool enabled,
+  required bool muted,
+  required bool foreground,
+}) =>
+    enabled && !muted && !foreground;
+
+/// Whether, as the app goes to the background, to alert for a conversation —
+/// it has unread, isn't muted, and isn't the chat currently open (the one on
+/// screen is being read, so it never alerts). This is what makes "minimize the
+/// app while a chat has unread → a notification appears" work.
+bool shouldAlertOnMinimize({
+  required bool enabled,
+  required int unread,
+  required bool muted,
+  required bool isActive,
+}) =>
+    enabled && unread > 0 && !muted && !isActive;
+
 const _kEnabledKey = 'notifications_enabled';
 const _kPreviewKey = 'notifications_preview';
 
