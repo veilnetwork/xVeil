@@ -91,6 +91,8 @@
   "chatDeleteForEveryoneBody": "It is erased here and a delete request is sent to the other person — but they may already have seen or copied it.",
   "chatDeleteConfirm": "Delete",
   "chatEdited": "edited",
+  "chatMenuRename": "Rename",
+  "chatRenameTitle": "Local name",
   "chatMenuUnblock": "Unblock",
   "chatMenuClearHistory": "Clear history",
   "chatMenuDeleteConversation": "Delete conversation",

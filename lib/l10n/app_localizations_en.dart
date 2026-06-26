@@ -276,6 +276,12 @@ class AppL10nEn extends AppL10n {
   String get chatEdited => 'edited';
 
   @override
+  String get chatMenuRename => 'Rename';
+
+  @override
+  String get chatRenameTitle => 'Local name';
+
+  @override
   String get chatMenuUnblock => 'Unblock';
 
   @override

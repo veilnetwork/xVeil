@@ -845,6 +845,26 @@ class MessagingService {
     _signal();
   }
 
+  /// Set (or clear, when [name] is null/blank) a LOCAL display alias for [peer].
+  /// Lives only in the encrypted contact record on this device — never sent on
+  /// the wire, so it leaks nothing and is purely a readability aid over the raw
+  /// node id. No-op if we hold no contact for the peer. Built directly (not via
+  /// copyWith) so a blank name actually CLEARS the alias (copyWith's `?? old`
+  /// can only set, never unset).
+  Future<void> setContactName(NodeId peer, String? name) async {
+    final existing = await _storage.getContact(peer);
+    if (existing == null) return;
+    final trimmed = name?.trim();
+    await _storage.upsertContact(
+      Contact(
+        nodeId: existing.nodeId,
+        name: (trimmed == null || trimmed.isEmpty) ? null : trimmed,
+        status: existing.status,
+      ),
+    );
+    _signal();
+  }
+
   /// Delete the whole conversation with [peer] from THIS device: removes the
   /// contact + every message from the encrypted store and drops the peer's
   /// in-memory send state so the outbox stops re-sending to it (this is how a
