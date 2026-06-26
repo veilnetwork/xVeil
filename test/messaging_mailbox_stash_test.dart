@@ -215,6 +215,78 @@ void main() {
         MessageStatus.delivered);
   });
 
+  test('an edit that drains BEFORE its message still applies (out-of-order)',
+      () async {
+    await mA.acceptContact(b);
+    // The peer sent a message then edited it while we were offline. On reconnect
+    // the mailbox blobs drain in arbitrary order — here the EDIT arrives first.
+    // Without buffering, the edit would be dropped (its target isn't stored yet)
+    // and the offline edit would silently never land.
+    final edit = WireEnvelope.edit('x1', 'corrected text').encode();
+    tA.inject(InboundMessage(src: b, payload: edit));
+    await pumpEventQueue();
+    // Nothing to edit yet — the op is buffered, not applied, and no ghost shows.
+    expect((await sA.loadMessages(b.hex)).where((m) => m.id == 'x1'), isEmpty);
+
+    // Now the original message arrives — the buffered edit must apply.
+    final msg = WireEnvelope.message('original text',
+            id: 'x1', sentAtMs: DateTime.now().millisecondsSinceEpoch)
+        .encode();
+    tA.inject(InboundMessage(src: b, payload: msg));
+    await pumpEventQueue();
+    final stored = (await sA.loadMessages(b.hex)).firstWhere((m) => m.id == 'x1');
+    expect(stored.body, 'corrected text',
+        reason: 'the buffered edit must apply once its target message arrives');
+  });
+
+  test('a delete that drains BEFORE its message tombstones it (no resurrect)',
+      () async {
+    await mA.acceptContact(b);
+    // The peer unsent a message while we were offline; its DEL blob drains
+    // first. The message must end up unsent — order-independent deniable erase.
+    final del = WireEnvelope.del('x2').encode();
+    tA.inject(InboundMessage(src: b, payload: del));
+    await pumpEventQueue();
+
+    // The original arrives after the unsend — it must NOT surface.
+    final msg = WireEnvelope.message('secret',
+            id: 'x2', sentAtMs: DateTime.now().millisecondsSinceEpoch)
+        .encode();
+    tA.inject(InboundMessage(src: b, payload: msg));
+    await pumpEventQueue();
+    expect(await sA.isMessageDeleted(b.hex, 'x2'), isTrue,
+        reason: 'a pre-message delete must leave a durable tombstone');
+    expect((await sA.loadMessages(b.hex)).where((m) => m.body == 'secret'),
+        isEmpty,
+        reason: 'the unsent message must not surface even arriving after del');
+
+    // A re-delivery must stay refused (deleted stays deleted).
+    tA.inject(InboundMessage(src: b, payload: msg));
+    await pumpEventQueue();
+    expect((await sA.loadMessages(b.hex)).where((m) => m.body == 'secret'),
+        isEmpty,
+        reason: 're-delivery must not resurrect an unsent message');
+  });
+
+  test('a delete buffered before an edit wins (unsend is terminal)', () async {
+    await mA.acceptContact(b);
+    // Both a delete and a later edit drain before the message. The delete is
+    // terminal: the message must stay unsent, not reappear with the edited text.
+    tA.inject(InboundMessage(src: b, payload: WireEnvelope.del('x3').encode()));
+    tA.inject(
+        InboundMessage(src: b, payload: WireEnvelope.edit('x3', 'revived?').encode()));
+    await pumpEventQueue();
+    final msg = WireEnvelope.message('original',
+            id: 'x3', sentAtMs: DateTime.now().millisecondsSinceEpoch)
+        .encode();
+    tA.inject(InboundMessage(src: b, payload: msg));
+    await pumpEventQueue();
+    expect(await sA.isMessageDeleted(b.hex, 'x3'), isTrue);
+    expect((await sA.loadMessages(b.hex)).where((m) => m.id == 'x3' && m.body.isNotEmpty),
+        isEmpty,
+        reason: 'a buffered delete must win over a later buffered edit');
+  });
+
   test('concurrent pre-consent intros cannot race past the cap', () async {
     // A hostile peer mints a FRESH id per request and fires many AT ONCE. The
     // inbound handler is async and the stream does not await it, so without
