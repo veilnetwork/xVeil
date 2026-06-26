@@ -595,6 +595,48 @@ abstract class AppL10n {
   /// **'edited'**
   String get chatEdited;
 
+  /// No description provided for @chatMenuRetention.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto-delete'**
+  String get chatMenuRetention;
+
+  /// No description provided for @retentionUnlimited.
+  ///
+  /// In en, this message translates to:
+  /// **'Never'**
+  String get retentionUnlimited;
+
+  /// No description provided for @retention7.
+  ///
+  /// In en, this message translates to:
+  /// **'After 1 week'**
+  String get retention7;
+
+  /// No description provided for @retention30.
+  ///
+  /// In en, this message translates to:
+  /// **'After 1 month'**
+  String get retention30;
+
+  /// No description provided for @retention90.
+  ///
+  /// In en, this message translates to:
+  /// **'After 3 months'**
+  String get retention90;
+
+  /// No description provided for @retention365.
+  ///
+  /// In en, this message translates to:
+  /// **'After 1 year'**
+  String get retention365;
+
+  /// No description provided for @retentionApplied.
+  ///
+  /// In en, this message translates to:
+  /// **'Older messages will be deleted'**
+  String get retentionApplied;
+
   /// No description provided for @chatMenuRename.
   ///
   /// In en, this message translates to:
@@ -672,6 +714,30 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Message info'**
   String get chatMsgInfo;
+
+  /// No description provided for @chatMsgHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit history'**
+  String get chatMsgHistory;
+
+  /// No description provided for @chatHistoryEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No earlier versions'**
+  String get chatHistoryEmpty;
+
+  /// No description provided for @chatHistoryOriginal.
+  ///
+  /// In en, this message translates to:
+  /// **'Original'**
+  String get chatHistoryOriginal;
+
+  /// No description provided for @chatHistoryEdited.
+  ///
+  /// In en, this message translates to:
+  /// **'Edited'**
+  String get chatHistoryEdited;
 
   /// No description provided for @msgInfoId.
   ///
