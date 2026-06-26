@@ -420,16 +420,13 @@ class HiddenVolumeStorage implements Storage {
     // when it carries one (a wire-delivered event keeps the SENDER's seq, R4),
     // else we allocate the next gap-free per-(conv,author) value locally.
     //
-    // FILE messages stay OFF the event seq stream in v1 (filePost convergence is
-    // a deferred step): the file wire frames carry no seq, so the receiver would
-    // allocate a LOCAL one that diverges from the sender's — colliding with /
-    // holing the text stream and corrupting gap-fill. A null seq excludes the
-    // blob from conversationSync / loadEventsSince; files keep their existing
-    // live + ack + transfer-id-dedup delivery, unchanged.
+    // FILE messages (filePost, §15) ARE on the seq stream: fileMeta carries the
+    // sender's seq, so the receiver folds the file under the same (author, seq)
+    // and gap-fill detects/heals a missing file like any other event. The
+    // allocation rule is uniform (a wire seq is kept; a local one is allocated).
     final author = message.author ?? message.conversationId;
-    final seq = message.fileId != null
-        ? message.seq
-        : (message.seq ?? await _nextConvSeq(message.conversationId, author));
+    final seq =
+        message.seq ?? await _nextConvSeq(message.conversationId, author);
     final stored = (message.author == author && message.seq == seq)
         ? message
         : Message(
@@ -449,10 +446,10 @@ class HiddenVolumeStorage implements Storage {
     await _as.commit([
       AppendLogOp(Ns.messageLog, nextId, _sk(_encodeMessage(stored))),
       PutOp(Ns.settings, _sk('msg_next_id'), _sk('${nextId + 1}')),
-      // Advance the per-(conv,author) seq cursor ONLY when we actually ALLOCATED
-      // one (a wire event with its own seq, or a seq-less file, must not bump our
-      // local counter — those streams are reconciled by the fold/sync, not here).
-      if (message.seq == null && seq != null)
+      // Advance the per-(conv,author) seq cursor ONLY when we ALLOCATED it (a
+      // wire event with its own seq must not bump our local counter — the two
+      // streams are independent and reconciled by the fold/sync, not here).
+      if (message.seq == null)
         PutOp(
           Ns.settings,
           _sk('conv_seq:${message.conversationId}:$author'),
