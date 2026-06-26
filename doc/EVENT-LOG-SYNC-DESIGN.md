@@ -433,5 +433,154 @@ binding (R1), strict consent gating of replay (R2), bounded buffers (R7),
 monotonic/rate-limited sync (R8), receive-window ts (R9), per-conversation seq
 (R10), per-event content-ids + per-round sealed deposits (R12/R13), and
 unit-compaction with seq continuity (R14–R16). Implement in a dedicated session
-**after** message pagination, treating R1–R6 as the must-haves (the others are
-hardening that can land incrementally behind the R3 capability pin).
+**after** message pagination. **See §12 — a second review pass found §11
+internally contradictory; §12 supersedes the conflicting parts and is the
+authoritative model.**
+
+---
+
+## 12. Second-pass review — coherent re-resolution (SUPERSEDES conflicting §11)
+
+A second adversarial pass (2026-06-26) checked whether R1–R20 actually close the
+findings **and are mutually consistent**. Verdict (4/4 lenses): **not
+implementable as written** — the §11 hardening introduced ~5 real contradictions
+between normative rules, all confirmed against the store/messaging code. The core
+event-log direction stands; the rules below replace the conflicting ones. Where
+§12 and §11 disagree, **§12 wins**. R1, R5 (value-fold), R16, R17, R19 stand.
+
+### 12.1 Deleted/compacted seq slot — ONE inert placeholder (resolves R4 vs R14 vs R15)
+
+R4 (durable id-bearing tombstone slot), R14 (deleted replays *nothing*), and R15
+(seq must stay gap-free) were three mutually exclusive answers, and R15's
+"signed compacted-seq set" option is itself an activity oracle. **Resolution —
+one observable, one artifact:**
+
+- A consumed-but-superseded seq (delete, collapsed edit chain, compaction)
+  replays on the recovery wire as an **inert placeholder** `(author, seq,
+  kind=void)` — **no id, no body, no action semantics**. Gap-free (gap-fill
+  advances) **and** indistinguishable between {deleted, edited-away, compacted}
+  → no oracle, no deleted id on the wire. This is the single primitive; **R15's
+  signed-set option is dropped**.
+- **R14 narrowed:** the body + intermediate-edit *semantics* never replay, but
+  the seq slot does (as a void). Drop R14's "never learns it existed" (a
+  consumed slot is observable — already implied by the R11 seq-ceiling leak).
+- **R4 becomes a LOCAL-fold rule only:** id-bearing tombstones live in the local
+  store for born-delete suppression (R16) and are **forbidden on the recovery
+  wire** (closes the "recovery leaks deleted ids to the recovered device" hole).
+- Invariant test: recover a peer whose counterpart deleted X → assert X's id
+  **never** appears in the recovered peer's `MESSAGE_LOG`.
+
+### 12.2 Relay deposit — outer round-object + inner per-event key (resolves R12 vs R13)
+
+- **Outer (relay):** one sealed blob per `(sender, recipient, author)`, content-id
+  `H(recipient ‖ author ‖ covered_high_water)`; each round **overwrites** the
+  prior blob (a later round is a monotone-superset of the unacked tail) → the
+  relay holds **one in-flight blob per author** = "one deposit ≈ one cycle" (R13)
+  **and** dedupable/bounded (R12). No overlapping un-evictable blobs.
+- **Inner (receiver):** per-event idempotency key `(author, seq)` applied
+  **inside** the sealed payload on drain. R12 = inner key; R13 = outer keying.
+
+### 12.3 Scrub vs batching — R6 wins store-side, no `compact_known` on the live path (resolves R6 vs R13 vs R18/R20)
+
+`vacuum_data_batches` scrubs a `DataBatch` only when **none** of its packed
+log-ids stay referenced; R13/R18 batching defeats it. R6's `compact_known`
+fallback is **unusable live**: it is container-wide, exclusive-lock, **keeps only
+the supplied-password space and DROPS every decoy/duress space** (a duress break)
+and can't run with a handle open. **Resolution:**
+
+- **Strike R6's `compact_known` fallback.** Sole live-path guarantee: **one
+  editable record per `DataBatch`** (a `append_log_isolated` store primitive, or
+  one commit per editable post). The R13 round is one sealed *relay* blob but is
+  applied **store-side as N isolated commits**.
+- **`compact_known`** is reserved for the single-identity, all-handles-closed
+  Storage→Compact UI (its existing gate).
+- **Extend R6 to the repack path:** Stage-3 `compact_known` re-coalesces pages
+  into shared batches → reopens the hole *after* a user compacts. The messenger
+  repack must keep editable records one-per-batch (or add a **per-space
+  repack-in-place** primitive — `vacuum` can't, `compact_known` is too
+  heavy/destructive mid-session).
+- **Recovery replay** (bulk) is applied as **one dense multi-record commit** (no
+  bloat); historical messages outside the editable window need not be
+  one-per-batch; on the first edit/delete touching a dense historical batch,
+  repack just that batch. Resolves the R6-vs-storage-bloat tension.
+- R6's prescribed regression test (edit one record in a **multi-record** batch →
+  orphan chunk gone) **does not exist and would fail today** → a **ship gate**.
+
+### 12.4 Recovery vs anti-amplification — rate-limit + epoch, not value-clamp (resolves R8 vs R2/§7)
+
+R8's "an accepted contact's zeroed high-water is already satisfied" **silently
+kills Case-A recovery** (a wiped-but-identity-surviving peer is *still accepted*
+on our side → ships nothing → deadlock). **Resolution:**
+
+- Anti-amplification via **rate-limit** (one replay pass per per-peer backoff
+  window; reuse `_peerUnresolvedBackoff`) + a monotonic **sync-epoch/nonce per
+  round**, **not** a high-water value clamp.
+- A high-water **dropping to zero / below a previously-acked floor** from an
+  accepted contact is a **WIPE SIGNAL** → a distinguished **authenticated**
+  recovery trigger (a recovery flag on `sync`, or a retained `WireKind.reconnect`
+  — do **not** collapse reconnect into a bare sync). The one sanctioned
+  exception to "already satisfied", gated by: (a) authenticated `m.src` == the
+  accepted contact (R1); (b) **R2 re-consent** (wiped peer re-enters as
+  `pendingIncoming`, user re-accepts, *then* replay); (c) one replay per backoff
+  window; (d) capped to the non-compacted log.
+- **§7 corrected:** a bare `sync{you:0}` from a contact we hold no longer
+  "replays the entire log".
+
+### 12.5 Gap repair — named holes exempt from the clamp (resolves R7 vs R8)
+
+Advertise **two** numbers per author — the contiguous high-water **and** an
+explicit set of known holes (`have 1–3 & 5–7, missing 4`). The peer ships
+**named holes directly** (idempotent, bounded); a named-hole re-request is
+**exempt** from the rate-limiter (targeted repair, not a flap). Without this,
+R7's soft gap-skip + R8 = permanent silent divergence about a skipped seq.
+
+### 12.6 Timeline order — author-monotone ts from the event set (resolves the R9 cross-device hole)
+
+R9's flooring to **per-device receive-time** makes the same event get a different
+`effective_ts` on each device → honest devices show different orders.
+**Resolution:** `ts` = the author's clamped send time (identical on both
+devices). Defend the `ts=0` attack **structurally**: floor a peer's `ts` to
+**that peer's own previous max ts** (monotone-per-author, a function of the event
+set alone → both devices compute it identically). Keep `_wireSentAt`'s
+future-clamp. Order = `(effective_ts, author, seq)`, **stable** sort. An attacker
+can then only mis-order **its own** events (the real §10.8 intent).
+
+### 12.7 Log-id ceiling — per-conversation namespaces (resolves the new ~15K-cap hole)
+
+A single shared `MESSAGE_LOG` namespace for **all** conversations + R4's
+never-dropped tombstones hits hidden-volume's **~15K-log_id-per-namespace cap**
+(`Error::IndexFull`) → **all** sends fail globally for a heavy user, and deleting
+a chat *adds* tombstone slots. **Resolution (mandatory):** partition the event
+log **one hidden-volume Log-namespace per conversation** (R10's per-conversation
+seq is the natural partition; the store's own note recommends it). Seq, gap-fill,
+placeholders, and the cap are all **per-conversation**; a per-conversation
+repack/roll-over triggers off `SpaceStats.utilization_ratio`. Bounds R4
+tombstones per chat and strengthens R10 isolation.
+
+### 12.8 Capability pin — per acceptance-epoch (resolves the new R3 reinstall hole)
+
+A permanent TOFU pin can't handle a Case-A wipe (the wiped peer's pin is gone) or
+a reinstall. **Resolution:** the pin is per-**(contact, acceptance-epoch)**, reset
+**only** on an **authenticated re-accept** that carries the capability advert
+inside the authenticated accept (R1 + §9). A downgrade **not** accompanied by a
+full re-accept stays "anomalous → ignore" (R3's attack resistance kept); a genuine
+re-accept is the sanctioned reset.
+
+### 12.9 Build order (corrects §11.10)
+
+The fold/sync/compaction/recovery rules are **mutually dependent → ship as ONE
+atomic unit** (they can't land incrementally on a record without durable
+`(author, seq)`). Independently-shippable first: **R1 (author binding), R2
+(consent gating), R3/§12.8 (capability pin), R6/§12.3 (scrub guarantee + its
+regression test).** Then the atomic convergence+recovery feature: §12.1–12.2,
+§12.4–12.7, R5/R10/R16/R17/R19.
+
+### 12.10 Net (post-second-pass)
+
+The store + protocol changes are **larger than first scoped**: per-conversation
+Log-namespaces, durable per-record `(author, seq)`, inert void placeholders,
+isolated-batch scrub (+ a per-space repack primitive), two-layer relay dedup, and
+an authenticated recovery trigger. Two adversarial passes have replaced every
+first-draft hand-wave with a concrete, mutually-consistent constraint — the point
+of reviewing the design before the code. A short third pass to confirm §12's own
+consistency is cheap insurance before implementation begins.
