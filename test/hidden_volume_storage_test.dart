@@ -63,6 +63,50 @@ void main() {
   );
 
   test(
+    'clearMessages erases history but KEEPS the contact and chat-list entry',
+    () async {
+      await storage.upsertContact(
+        Contact(nodeId: _id(2), status: ContactStatus.accepted),
+      );
+      await storage.appendMessage(
+        _msg(
+          conv: _id(2).hex,
+          dir: MessageDirection.incoming,
+          body: 'one',
+          ts: DateTime(2026, 5, 1),
+        ),
+      );
+      await storage.appendMessage(
+        _msg(
+          conv: _id(2).hex,
+          dir: MessageDirection.outgoing,
+          body: 'two',
+          ts: DateTime(2026, 5, 2),
+        ),
+      );
+      expect((await storage.loadMessages(_id(2).hex)).length, 2);
+
+      await storage.clearMessages(_id(2));
+
+      // Messages gone, contact + conversation kept (chat stays, emptied).
+      expect(await storage.loadMessages(_id(2).hex), isEmpty);
+      final contact = await storage.getContact(_id(2));
+      expect(contact, isNotNull);
+      expect(contact!.status, ContactStatus.accepted);
+      expect((await storage.loadConversations()).length, 1);
+
+      // Cleared messages must not resurrect on a re-delivery (deniable erase).
+      expect(
+        await storage.isMessageDeleted(
+          _id(2).hex,
+          'one-${DateTime(2026, 5, 1).millisecondsSinceEpoch}',
+        ),
+        isTrue,
+      );
+    },
+  );
+
+  test(
     'loadMessages limit returns the most-recent window, oldest-first',
     () async {
       final c = _id(3).hex;
