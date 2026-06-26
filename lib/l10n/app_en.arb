@@ -93,6 +93,8 @@
   "chatEdited": "edited",
   "chatMenuRename": "Rename",
   "chatRenameTitle": "Local name",
+  "chatMenuMute": "Mute notifications",
+  "chatMenuUnmute": "Unmute notifications",
   "chatMenuUnblock": "Unblock",
   "chatMenuClearHistory": "Clear history",
   "chatMenuDeleteConversation": "Delete conversation",
