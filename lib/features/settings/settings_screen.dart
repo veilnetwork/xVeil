@@ -81,31 +81,25 @@ class SettingsScreen extends ConsumerWidget {
     }
   }
 
-  Future<String?> _promptPassword(BuildContext context, AppL10n l) async {
-    final ctl = TextEditingController();
-    final pw = await showDialog<String>(
+  Future<String?> _promptPassword(BuildContext context, AppL10n l) {
+    // The dialog content is a StatefulWidget so its TextEditingController
+    // is disposed in State.dispose() — which runs only when the route is
+    // fully removed (AFTER the close transition completes). Disposing the
+    // controller inline right after `showDialog` returns (the previous
+    // approach) races the exit animation: the heavy teardown+reopen that
+    // compaction triggers can rebuild the still-animating TextField
+    // against the just-disposed controller, throwing "TextEditingController
+    // used after being disposed" (and a cascading framework
+    // `_dependents.isEmpty` assertion) — the transient red screen.
+    return showDialog<String>(
       context: context,
-      builder: (d) => AlertDialog(
-        title: Text(l.settingsStorageCompact),
-        content: TextField(
-          controller: ctl,
-          obscureText: true,
-          autofocus: true,
-          decoration: InputDecoration(labelText: l.settingsStoragePasswordHint),
-          onSubmitted: (v) => Navigator.of(d).pop(v),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.of(d).pop(),
-              child: Text(l.actionCancel)),
-          FilledButton(
-              onPressed: () => Navigator.of(d).pop(ctl.text),
-              child: Text(l.settingsStorageCompact)),
-        ],
+      builder: (d) => _CompactPasswordDialog(
+        title: l.settingsStorageCompact,
+        hint: l.settingsStoragePasswordHint,
+        confirmLabel: l.settingsStorageCompact,
+        cancelLabel: l.actionCancel,
       ),
     );
-    ctl.dispose();
-    return pw;
   }
 
   Future<void> _pickPreview(
@@ -421,6 +415,62 @@ class SettingsScreen extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Password-entry dialog for storage compaction. A `StatefulWidget` so its
+/// [TextEditingController] is owned by the element and disposed in
+/// [State.dispose] — which runs only once the dialog route is fully removed
+/// (after the close transition). This avoids the "TextEditingController used
+/// after being disposed" / `_dependents.isEmpty` red screen that an
+/// inline-disposed controller hits when the caller (compaction) tears the
+/// widget tree down while the dialog is still animating out.
+class _CompactPasswordDialog extends StatefulWidget {
+  const _CompactPasswordDialog({
+    required this.title,
+    required this.hint,
+    required this.confirmLabel,
+    required this.cancelLabel,
+  });
+
+  final String title;
+  final String hint;
+  final String confirmLabel;
+  final String cancelLabel;
+
+  @override
+  State<_CompactPasswordDialog> createState() => _CompactPasswordDialogState();
+}
+
+class _CompactPasswordDialogState extends State<_CompactPasswordDialog> {
+  final _ctl = TextEditingController();
+
+  @override
+  void dispose() {
+    _ctl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: _ctl,
+        obscureText: true,
+        autofocus: true,
+        decoration: InputDecoration(labelText: widget.hint),
+        onSubmitted: (v) => Navigator.of(context).pop(v),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(widget.cancelLabel)),
+        FilledButton(
+            onPressed: () => Navigator.of(context).pop(_ctl.text),
+            child: Text(widget.confirmLabel)),
+      ],
     );
   }
 }
