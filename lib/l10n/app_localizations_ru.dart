@@ -277,6 +277,27 @@ class AppL10nRu extends AppL10n {
   String get chatEdited => 'изменено';
 
   @override
+  String get chatMenuRetention => 'Автоудаление';
+
+  @override
+  String get retentionUnlimited => 'Никогда';
+
+  @override
+  String get retention7 => 'Через 1 неделю';
+
+  @override
+  String get retention30 => 'Через 1 месяц';
+
+  @override
+  String get retention90 => 'Через 3 месяца';
+
+  @override
+  String get retention365 => 'Через 1 год';
+
+  @override
+  String get retentionApplied => 'Старые сообщения будут удалены';
+
+  @override
   String get chatMenuRename => 'Переименовать';
 
   @override
@@ -315,6 +336,18 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get chatMsgInfo => 'Сведения о сообщении';
+
+  @override
+  String get chatMsgHistory => 'История изменений';
+
+  @override
+  String get chatHistoryEmpty => 'Прежних версий нет';
+
+  @override
+  String get chatHistoryOriginal => 'Оригинал';
+
+  @override
+  String get chatHistoryEdited => 'Изменено';
 
   @override
   String get msgInfoId => 'Идентификатор';
