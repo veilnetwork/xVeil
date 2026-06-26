@@ -931,11 +931,15 @@ class MessagingService {
   /// expired message disappears even without a periodic sweep). No-op when the
   /// conversation has no retention window.
   Future<void> pruneConversation(NodeId peer) async {
-    final c = await _storage.getContact(peer);
-    final days = c?.retentionDays;
-    if (days == null || days <= 0) return;
-    final pruned = await _storage.pruneConversation(peer, days);
-    if (pruned > 0) _signal();
+    try {
+      final c = await _storage.getContact(peer);
+      final days = c?.retentionDays;
+      if (days == null || days <= 0) return;
+      final pruned = await _storage.pruneConversation(peer, days);
+      if (pruned > 0) _signal();
+    } catch (_) {
+      // Best-effort on open (like markRead): storage locked/unavailable → skip.
+    }
   }
 
   /// Delete the whole conversation with [peer] from THIS device: removes the

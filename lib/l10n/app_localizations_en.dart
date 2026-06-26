@@ -276,6 +276,27 @@ class AppL10nEn extends AppL10n {
   String get chatEdited => 'edited';
 
   @override
+  String get chatMenuRetention => 'Auto-delete';
+
+  @override
+  String get retentionUnlimited => 'Never';
+
+  @override
+  String get retention7 => 'After 1 week';
+
+  @override
+  String get retention30 => 'After 1 month';
+
+  @override
+  String get retention90 => 'After 3 months';
+
+  @override
+  String get retention365 => 'After 1 year';
+
+  @override
+  String get retentionApplied => 'Older messages will be deleted';
+
+  @override
   String get chatMenuRename => 'Rename';
 
   @override
@@ -314,6 +335,18 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get chatMsgInfo => 'Message info';
+
+  @override
+  String get chatMsgHistory => 'Edit history';
+
+  @override
+  String get chatHistoryEmpty => 'No earlier versions';
+
+  @override
+  String get chatHistoryOriginal => 'Original';
+
+  @override
+  String get chatHistoryEdited => 'Edited';
 
   @override
   String get msgInfoId => 'ID';
