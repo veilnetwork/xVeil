@@ -218,6 +218,50 @@ void main() {
   );
 
   test(
+    'pruneConversation deletes by ORIGINAL post time even if edited recently',
+    () async {
+      final c = _id(9).hex;
+      final now = DateTime.now();
+      // Posted 200 days ago, then edited "now" — the recent edit must NOT save it.
+      await storage.appendMessage(
+        Message(
+          id: 'old',
+          conversationId: c,
+          direction: MessageDirection.outgoing,
+          body: 'old-v1',
+          timestamp: now.subtract(const Duration(days: 200)),
+          author: 'ME',
+        ),
+      );
+      await storage.editMessage(c, 'old', 'old-v2');
+      await storage.appendMessage(
+        Message(
+          id: 'recent',
+          conversationId: c,
+          direction: MessageDirection.outgoing,
+          body: 'recent',
+          timestamp: now.subtract(const Duration(days: 5)),
+          author: 'ME',
+        ),
+      );
+      expect((await storage.loadMessages(c)).length, 2);
+
+      final pruned = await storage.pruneConversation(NodeId.fromHex(c), 90);
+      expect(pruned, 1); // only the 200-day-old one, despite the recent edit
+
+      final left = await storage.loadMessages(c);
+      expect(left.single.id, 'recent');
+      expect(await storage.isMessageDeleted(c, 'old'), isTrue);
+      // Its retained edit history is scrubbed too (forensic).
+      expect(await storage.loadMessageHistory(c, 'old'), isEmpty);
+
+      // Unlimited (<=0) is a no-op.
+      expect(await storage.pruneConversation(NodeId.fromHex(c), 0), 0);
+      expect((await storage.loadMessages(c)).length, 1);
+    },
+  );
+
+  test(
     'loadMessages limit returns the most-recent window, oldest-first',
     () async {
       final c = _id(3).hex;
