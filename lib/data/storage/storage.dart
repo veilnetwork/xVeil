@@ -9,9 +9,11 @@ import '../../domain/roster.dart';
 ///
 /// The production adapter is backed by `hidden-volume`: a [open] call unlocks
 /// one space with the user's password; identity/settings map to KV
-/// namespaces (SETTINGS, CONTACTS) and messages to a per-conversation
-/// MESSAGE_LOG append-log. Keeping the port domain-shaped (not KV-shaped)
-/// means the UI never sees namespace bytes or commit sequencing.
+/// namespaces (SETTINGS, CONTACTS) and ALL conversations' messages go into a
+/// SINGLE shared MESSAGE_LOG append-log, each entry tagged with its
+/// conversation id (there is NO per-conversation namespace today — see
+/// doc/EVENT-LOG-SYNC-DESIGN.md §14.2). Keeping the port domain-shaped (not
+/// KV-shaped) means the UI never sees namespace bytes or commit sequencing.
 abstract interface class Storage {
   /// Unlock (or create on first run) the user's space with [password].
   /// Returns false if the password does not unlock any space.
