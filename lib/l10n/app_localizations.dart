@@ -529,6 +529,12 @@ abstract class AppL10n {
   /// **'Copied'**
   String get chatMsgCopied;
 
+  /// No description provided for @chatLoadEarlier.
+  ///
+  /// In en, this message translates to:
+  /// **'Load earlier messages'**
+  String get chatLoadEarlier;
+
   /// No description provided for @chatListDelete.
   ///
   /// In en, this message translates to:

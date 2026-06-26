@@ -80,6 +80,7 @@
   "chatMsgDeleteForMe": "Delete for me",
   "chatMsgCopy": "Copy text",
   "chatMsgCopied": "Copied",
+  "chatLoadEarlier": "Load earlier messages",
   "chatListDelete": "Delete chat",
   "chatDeleteChatTitle": "Delete this chat?",
   "chatDeleteChatBody": "The conversation and all its messages are erased from this device. The other person is not notified.",

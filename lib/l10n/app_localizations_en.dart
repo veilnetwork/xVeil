@@ -240,6 +240,9 @@ class AppL10nEn extends AppL10n {
   String get chatMsgCopied => 'Copied';
 
   @override
+  String get chatLoadEarlier => 'Load earlier messages';
+
+  @override
   String get chatListDelete => 'Delete chat';
 
   @override

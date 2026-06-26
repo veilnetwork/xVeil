@@ -72,7 +72,12 @@ abstract interface class Storage {
   /// resets to zero. Called when the user opens the conversation.
   Future<void> markRead(String conversationId);
 
-  Future<List<Message>> loadMessages(String conversationId);
+  /// All messages of [conversationId], oldest-first. When [limit] is set,
+  /// return only the most-recent [limit] (the tail) — the read side of chat
+  /// pagination ("load the latest N, fetch earlier on demand"). Omitting
+  /// [limit] returns the whole conversation (used by the internal
+  /// find/dedup/flush paths that need every message).
+  Future<List<Message>> loadMessages(String conversationId, {int? limit});
   Future<void> appendMessage(Message message);
 
   /// Update the delivery [status] of message [messageId] in conversation
@@ -82,7 +87,10 @@ abstract interface class Storage {
   /// envelope whose claimed id is attacker-chosen, so a status op only applies
   /// to a message that actually lives in that peer's conversation.
   Future<void> markMessageStatus(
-      String conversationId, String messageId, MessageStatus status);
+    String conversationId,
+    String messageId,
+    MessageStatus status,
+  );
 
   /// Replace the body of message [messageId] in conversation [conversationId]
   /// with [newBody] (edit of a sent message). Re-writes the SAME log record via
@@ -93,7 +101,10 @@ abstract interface class Storage {
   /// attacker-chosen — resolving on the bare id would let a peer rewrite a
   /// message in someone else's chat.
   Future<void> editMessage(
-      String conversationId, String messageId, String newBody);
+    String conversationId,
+    String messageId,
+    String newBody,
+  );
 
   /// Permanently remove message [messageId] in conversation [conversationId]
   /// (incl. a received one). Tombstones the SAME log record so the body no

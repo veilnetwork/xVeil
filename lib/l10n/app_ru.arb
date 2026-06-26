@@ -80,6 +80,7 @@
   "chatMsgDeleteForMe": "Удалить у себя",
   "chatMsgCopy": "Копировать текст",
   "chatMsgCopied": "Скопировано",
+  "chatLoadEarlier": "Загрузить ранние сообщения",
   "chatListDelete": "Удалить чат",
   "chatDeleteChatTitle": "Удалить этот чат?",
   "chatDeleteChatBody": "Переписка и все сообщения удаляются с этого устройства. Собеседник не уведомляется.",

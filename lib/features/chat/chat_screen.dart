@@ -343,10 +343,44 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     });
   }
 
+  /// Grow the visible window so the next-older page of messages loads. The
+  /// newest messages stay pinned to the bottom, so keeping the user's
+  /// distance-FROM-BOTTOM constant across the (top-prepended) rebuild leaves the
+  /// same messages under their eyes instead of jumping them down by the height
+  /// of the newly-loaded batch.
+  void _loadEarlier() {
+    final fromBottom = _scroll.hasClients
+        ? _scroll.position.maxScrollExtent - _scroll.position.pixels
+        : null;
+    ref.read(chatWindowProvider(widget.peerHex).notifier).state +=
+        kMessageWindowStep;
+    if (fromBottom != null) _restoreFromBottom(fromBottom);
+  }
+
+  /// After the larger window lays out (older items prepended above), restore the
+  /// same distance-from-bottom. Re-applied across a bounded number of frames
+  /// because the async, off-isolate, variable-height list grows its scroll
+  /// extent over several frames (same pattern as [_stickToBottomAcrossFrames]).
+  void _restoreFromBottom(
+    double fromBottom, [
+    int framesLeft = 30,
+    double lastExtent = -1,
+  ]) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scroll.hasClients) return;
+      final max = _scroll.position.maxScrollExtent;
+      _scroll.jumpTo((max - fromBottom).clamp(0.0, max));
+      if (framesLeft > 0 && max > lastExtent) {
+        _restoreFromBottom(fromBottom, framesLeft - 1, max);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final messages = ref.watch(messagesProvider(widget.peerHex));
+    final window = ref.watch(chatWindowProvider(widget.peerHex));
     final status = ref.watch(contactProvider(widget.peerHex)).value?.status;
     ref.listen(messagesProvider(widget.peerHex), (_, _) => _scrollToBottom());
 
@@ -380,15 +414,33 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   _didInitialScroll = true;
                   _scrollToBottom(force: true);
                 }
+                // A full page came back ⇒ older messages likely exist ⇒ offer
+                // "load earlier" as the first item. (Heuristic: if fewer than a
+                // full window returned, this is the whole conversation.)
+                final hasMore = list.length >= window;
                 return ListView.builder(
                   controller: _scroll,
                   padding: const EdgeInsets.all(12),
-                  itemCount: list.length,
-                  itemBuilder: (_, i) => _Bubble(
-                    message: list[i],
-                    onTapFile: _saveFile,
-                    onLongPress: _showMessageActions,
-                  ),
+                  itemCount: list.length + (hasMore ? 1 : 0),
+                  itemBuilder: (_, i) {
+                    if (hasMore && i == 0) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: TextButton.icon(
+                            icon: const Icon(Icons.history, size: 18),
+                            label: Text(l.chatLoadEarlier),
+                            onPressed: _loadEarlier,
+                          ),
+                        ),
+                      );
+                    }
+                    return _Bubble(
+                      message: list[hasMore ? i - 1 : i],
+                      onTapFile: _saveFile,
+                      onLongPress: _showMessageActions,
+                    );
+                  },
                 );
               },
             ),
