@@ -119,6 +119,35 @@ class Message {
       );
 }
 
+/// One version of a message in its edit history (event-log §15): the original
+/// post and each subsequent edit, with metadata. Surfaced by
+/// [Storage.loadMessageHistory] for the "view edit history" UI. Held only until
+/// a clear-history scrub / retention pass reclaims the superseded rows.
+class MessageVersion {
+  const MessageVersion({
+    required this.body,
+    required this.timestamp,
+    required this.isOriginal,
+    this.author,
+    this.seq,
+  });
+
+  /// The text of this version.
+  final String body;
+
+  /// When this version was written (the post's send time, or the edit's time).
+  final DateTime timestamp;
+
+  /// True for the original post, false for an edit.
+  final bool isOriginal;
+
+  /// Node-id hex of the author of this version (R1).
+  final String? author;
+
+  /// The version's per-(conv,author) seq.
+  final int? seq;
+}
+
 /// A 1:1 conversation. (Group chats are a later milestone.)
 ///
 /// Identified by the peer node id hex so it is stable across restarts; it tags
