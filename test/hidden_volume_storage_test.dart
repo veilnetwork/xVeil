@@ -305,14 +305,16 @@ void main() {
   );
 
   test(
-    'same-timestamp messages sort deterministically by id (cross-device-stable)',
+    'same-timestamp messages sort by the convergent (author, seq), not id',
     () async {
       final c = _id(4).hex;
       final ts = DateTime(2026, 7, 1, 12);
-      // Append OUT of id order, identical timestamp. id = '<body>-<ms>', so
-      // 'aaa-..' < 'zzz-..' — the (timestamp, id) order must be 'aaa' then 'zzz'
-      // regardless of insertion/scan order (Dart List.sort is not stable, so a
-      // bare-timestamp sort would be arbitrary here).
+      // Identical timestamp, same author (both default to the conv). The display
+      // order is now the CONVERGENT (author, seq) — i.e. causal insertion order
+      // (seq 1 then 2) — NOT the id. 'zzz' was appended first, so it leads even
+      // though its id ('zzz-..') sorts after 'aaa-..'. Because (author, seq)
+      // travels on the wire and is identical on both devices, this order is
+      // cross-device-stable (the id was only ever a proxy for that).
       await storage.appendMessage(
         _msg(conv: c, dir: MessageDirection.outgoing, body: 'zzz', ts: ts),
       );
@@ -320,9 +322,58 @@ void main() {
         _msg(conv: c, dir: MessageDirection.incoming, body: 'aaa', ts: ts),
       );
       expect((await storage.loadMessages(c)).map((m) => m.body), [
-        'aaa',
         'zzz',
+        'aaa',
       ]);
+    },
+  );
+
+  test(
+    'display order floors each author monotonically by seq — a past-skewed ts '
+    'cannot reorder a later same-author message before an earlier one',
+    () async {
+      final c = _id(5).hex;
+      final author = _id(30).hex; // a peer author with wire-carried (author, seq)
+      Message ev(int seq, String body, DateTime ts) => Message(
+            id: 'm$seq',
+            conversationId: c,
+            direction: MessageDirection.incoming,
+            body: body,
+            timestamp: ts,
+            author: author,
+            seq: seq,
+          );
+      // seq 2 carries an EARLIER (skewed-into-the-past) timestamp than seq 1.
+      // A bare-timestamp sort would float it ABOVE seq 1; the author-monotone
+      // floor keeps causal (seq) order: 1 then 2.
+      await storage.appendMessage(ev(1, 'first', DateTime(2026, 7, 1, 12, 0)));
+      await storage.appendMessage(ev(2, 'second', DateTime(2020, 1, 1)));
+      expect((await storage.loadMessages(c)).map((m) => m.body),
+          ['first', 'second']);
+    },
+  );
+
+  test(
+    'honest timestamps from two authors still interleave by time',
+    () async {
+      final c = _id(6).hex;
+      final me = _id(31).hex;
+      final them = _id(32).hex;
+      Message ev(String who, int seq, String body, DateTime ts) => Message(
+            id: '$who$seq',
+            conversationId: c,
+            direction: MessageDirection.incoming,
+            body: body,
+            timestamp: ts,
+            author: who,
+            seq: seq,
+          );
+      // Two authors, interleaved honest times — the floor leaves honest order be.
+      await storage.appendMessage(ev(me, 1, 'a@10:00', DateTime(2026, 7, 1, 10)));
+      await storage.appendMessage(ev(them, 1, 'b@10:05', DateTime(2026, 7, 1, 10, 5)));
+      await storage.appendMessage(ev(me, 2, 'a@10:10', DateTime(2026, 7, 1, 10, 10)));
+      expect((await storage.loadMessages(c)).map((m) => m.body),
+          ['a@10:00', 'b@10:05', 'a@10:10']);
     },
   );
 

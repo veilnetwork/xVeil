@@ -353,20 +353,45 @@ class HiddenVolumeStorage implements Storage {
     int? limit,
   }) async {
     final all = await _scanLog();
-    final sorted = all.where((m) => m.conversationId == conversationId).toList()
-      // DETERMINISTIC, cross-device-stable order (EVENT-LOG-SYNC-DESIGN.md §15.1
-      // R-ORDER, display layer): primary by send time, tiebroken by the message
-      // id. Dart's List.sort is NOT stable, so without a tiebreak two messages
-      // sharing a millisecond timestamp ordered arbitrarily — and differently on
-      // two devices. The id travels on the wire (same on both ends), so
-      // (timestamp, id) is identical everywhere. NOTE: the records now carry the
-      // durable (author, seq); the tiebreak SWITCHES to (author, seq) once the
-      // seq is wire-carried (sync step) and thus cross-device-identical — until
-      // then an incoming seq is locally allocated, so id remains the stable key.
-      ..sort((a, b) {
-        final t = a.timestamp.compareTo(b.timestamp);
-        return t != 0 ? t : a.id.compareTo(b.id);
-      });
+    final sorted = all.where((m) => m.conversationId == conversationId).toList();
+    // DETERMINISTIC, cross-device-stable display order (EVENT-LOG-SYNC-DESIGN.md
+    // §15.1 R-ORDER): sort by (effective_ts, author, seq), id as the final
+    // tiebreak. Now that (author, seq) travels on the wire and is identical on
+    // both devices (3a/3c), it is the convergent key — NOT receive order.
+    //
+    // effective_ts is an AUTHOR-MONOTONE FLOOR over each author's own seq order:
+    // a message's display time is its own ts raised to never fall below an
+    // earlier (lower-seq) message from the SAME author. This is a pure function
+    // of the converged event set (identical on both devices), so a peer stamping
+    // a skewed/zero ts cannot float its message out of its causal place — yet
+    // honest timestamps still interleave two authors naturally. Messages off the
+    // seq stream (legacy / files) fall back to their raw ts and sort by id.
+    final byAuthor = <String, List<Message>>{};
+    for (final m in sorted) {
+      if (m.author != null && m.seq != null) {
+        (byAuthor[m.author!] ??= <Message>[]).add(m);
+      }
+    }
+    final effTs = <String, int>{}; // message id -> effective ts (ms)
+    for (final stream in byAuthor.values) {
+      stream.sort((a, b) => a.seq!.compareTo(b.seq!));
+      var runningMax = 0;
+      for (final m in stream) {
+        final raw = m.timestamp.millisecondsSinceEpoch;
+        final eff = raw > runningMax ? raw : runningMax;
+        effTs[m.id] = eff;
+        runningMax = eff;
+      }
+    }
+    int effOf(Message m) => effTs[m.id] ?? m.timestamp.millisecondsSinceEpoch;
+    sorted.sort((a, b) {
+      final t = effOf(a).compareTo(effOf(b));
+      if (t != 0) return t;
+      final au = (a.author ?? '').compareTo(b.author ?? '');
+      if (au != 0) return au;
+      final s = (a.seq ?? 0).compareTo(b.seq ?? 0);
+      return s != 0 ? s : a.id.compareTo(b.id);
+    });
     // Pagination tail: return only the most-recent [limit]. NOTE: the underlying
     // _scanLog() is still O(whole log) — the per-conversation prefix range scan
     // that makes this O(window) is the deferred storage-foundation step
@@ -582,14 +607,17 @@ class HiddenVolumeStorage implements Storage {
   }
 
   @override
-  Future<void> applyRemoteVoid(String conversationId, String author, int seq) =>
-      _serialized(() => _applyRemoteVoidCritical(conversationId, author, seq));
-
-  Future<void> _applyRemoteVoidCritical(
-    String conv,
+  Future<void> applyRemoteVoid(
+    String conversationId,
     String author,
     int seq,
   ) async {
+    // NOT wrapped in _serialized: the raw idempotency scan reads the store
+    // directly (like loadMessageHistory / _voidEditRowsOps) and the only gated
+    // step is the closing _patchCache — wrapping the whole method would nest
+    // _serialized inside _serialized (via _patchCache) and DEADLOCK the gate.
+    // This mirrors editMessage/deleteMessage: commit, then _patchCache.
+    //
     // Idempotent: if any row already occupies this (author, seq) slot — a post,
     // edit, void, or tombstone — the high-water already accounts for it, so a
     // duplicate void would only bloat the log. Skip it.
@@ -599,7 +627,7 @@ class HiddenVolumeStorage implements Storage {
     );
     for (final e in entries) {
       final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
-      if (m['c'] == conv &&
+      if (m['c'] == conversationId &&
           m['au'] == author &&
           m['sq'] == seq &&
           m['op'] != 'status') {
@@ -615,7 +643,7 @@ class HiddenVolumeStorage implements Storage {
         // conversationSync counts (au, sq) so the per-author high-water advances.
         _sk(jsonEncode({
           'k': EventKind.void_.index,
-          'c': conv,
+          'c': conversationId,
           'au': author,
           'sq': seq,
         })),
