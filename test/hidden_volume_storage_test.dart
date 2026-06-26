@@ -142,6 +142,46 @@ void main() {
   );
 
   test(
+    'appended rows carry (author, seq) with independent per-author gap-free seq',
+    () async {
+      final c = _id(7).hex;
+      // A bare row (no author) defaults its author to the conversation peer and
+      // is assigned the next per-(conv,author) seq.
+      await storage.appendMessage(
+        Message(
+          id: 'p0',
+          conversationId: c,
+          direction: MessageDirection.incoming,
+          body: 'p0',
+          timestamp: DateTime(2026, 6, 1, 0, 0),
+        ),
+      );
+      // Two explicit authors in the SAME conversation get INDEPENDENT, gap-free
+      // streams (event-log §15.4 R4/R10).
+      Message ev(String id, String author, DateTime ts) => Message(
+            id: id,
+            conversationId: c,
+            direction: MessageDirection.outgoing,
+            body: id,
+            timestamp: ts,
+            author: author,
+          );
+      await storage.appendMessage(ev('a1', 'AAAA', DateTime(2026, 6, 1, 0, 1)));
+      await storage.appendMessage(ev('b1', 'BBBB', DateTime(2026, 6, 1, 0, 2)));
+      await storage.appendMessage(ev('a2', 'AAAA', DateTime(2026, 6, 1, 0, 3)));
+
+      final msgs = {for (final m in await storage.loadMessages(c)) m.id: m};
+      expect(msgs['p0']!.author, c); // defaulted to the peer
+      expect(msgs['p0']!.seq, 1); // first in (c, c)
+      expect(msgs['a1']!.author, 'AAAA');
+      expect(msgs['a1']!.seq, 1); // first in (c, AAAA)
+      expect(msgs['a2']!.seq, 2); // second in (c, AAAA) — gap-free
+      expect(msgs['b1']!.author, 'BBBB');
+      expect(msgs['b1']!.seq, 1); // first in (c, BBBB) — independent stream
+    },
+  );
+
+  test(
     'loadMessages limit returns the most-recent window, oldest-first',
     () async {
       final c = _id(3).hex;

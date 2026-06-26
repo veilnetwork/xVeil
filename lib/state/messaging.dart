@@ -341,6 +341,13 @@ class MessagingService {
 
   /// Persist a message and return its id. [id] lets the receiver reuse the
   /// SENDER's id (so re-sends dedup) instead of minting a fresh one.
+  /// Our own node-id hex, cached after the first resolve — the event-log author
+  /// of every OUTGOING message (R1). The transport exposes it only async, so we
+  /// memoise it rather than awaiting a round-trip on every store.
+  String? _selfHexCache;
+  Future<String> _selfHex() async =>
+      _selfHexCache ??= (await _transport.nodeId()).hex;
+
   Future<String> _store(
     NodeId peer,
     MessageDirection dir,
@@ -364,6 +371,14 @@ class MessagingService {
         status: status,
         fileId: fileId,
         fileName: fileName,
+        // Event-log author (R1): the message originator's node id, bound to the
+        // AUTHENTICATED side — our own for an outgoing message, the peer (the
+        // server-authenticated conversation id) for an incoming one. Never
+        // inferred from an in-band wire field. The seq is allocated by storage
+        // for now (the wire-carried sender seq lands with the sync step).
+        author: dir == MessageDirection.outgoing
+            ? await _selfHex()
+            : peer.hex,
       ),
     );
     return msgId;

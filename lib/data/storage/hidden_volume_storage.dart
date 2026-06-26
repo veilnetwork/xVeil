@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import '../../core/ids.dart';
 import '../../domain/chat.dart';
+import '../../domain/event.dart';
 import '../../domain/identity.dart';
 import '../../domain/roster.dart';
 import 'async_kv_log_store.dart';
@@ -356,8 +357,10 @@ class HiddenVolumeStorage implements Storage {
       // id. Dart's List.sort is NOT stable, so without a tiebreak two messages
       // sharing a millisecond timestamp ordered arbitrarily — and differently on
       // two devices. The id travels on the wire (same on both ends), so
-      // (timestamp, id) is identical everywhere. (When the durable per-author
-      // seq lands, it supersedes id as the tiebreak.)
+      // (timestamp, id) is identical everywhere. NOTE: the records now carry the
+      // durable (author, seq); the tiebreak SWITCHES to (author, seq) once the
+      // seq is wire-carried (sync step) and thus cross-device-identical — until
+      // then an incoming seq is locally allocated, so id remains the stable key.
       ..sort((a, b) {
         final t = a.timestamp.compareTo(b.timestamp);
         return t != 0 ? t : a.id.compareTo(b.id);
@@ -384,16 +387,63 @@ class HiddenVolumeStorage implements Storage {
 
   @override
   Future<void> appendMessage(Message message) async {
+    // Bind (author, seq): the author is the message originator (set by the
+    // messaging layer from the authenticated sender — R1; defaults to the
+    // conversation peer for a bare incoming row). The seq is the message's own
+    // when it carries one (a wire-delivered event keeps the SENDER's seq, R4),
+    // else we allocate the next gap-free per-(conv,author) value locally.
+    final author = message.author ?? message.conversationId;
+    final seq =
+        message.seq ?? await _nextConvSeq(message.conversationId, author);
+    final stored = (message.author == author && message.seq == seq)
+        ? message
+        : Message(
+            id: message.id,
+            conversationId: message.conversationId,
+            direction: message.direction,
+            body: message.body,
+            timestamp: message.timestamp,
+            status: message.status,
+            edited: message.edited,
+            fileId: message.fileId,
+            fileName: message.fileName,
+            author: author,
+            seq: seq,
+          );
     final nextId = await _nextLogId();
     await _as.commit([
-      AppendLogOp(Ns.messageLog, nextId, _sk(_encodeMessage(message))),
+      AppendLogOp(Ns.messageLog, nextId, _sk(_encodeMessage(stored))),
       PutOp(Ns.settings, _sk('msg_next_id'), _sk('${nextId + 1}')),
+      // Advance the per-(conv,author) seq cursor ONLY when we allocated it (a
+      // wire event with its own seq must not bump our local counter — the two
+      // streams are independent and reconciled by the fold/sync, not here).
+      if (message.seq == null)
+        PutOp(
+          Ns.settings,
+          _sk('conv_seq:${message.conversationId}:$author'),
+          _sk('${seq + 1}'),
+        ),
     ]);
+  }
+
+  /// Next gap-free per-(conversation, author) sequence number (§15.4, R4/R10).
+  /// 1-based; advanced by [appendMessage] only when it ALLOCATES (locally
+  /// originated or a bare incoming row), never for a wire event carrying its own.
+  Future<int> _nextConvSeq(String convHex, String authorHex) async {
+    final raw = await _as.get(Ns.settings, _sk('conv_seq:$convHex:$authorHex'));
+    return raw == null ? 1 : (int.tryParse(utf8.decode(raw)) ?? 1);
   }
 
   String _encodeMessage(Message m) => jsonEncode({
     'id': m.id,
     'c': m.conversationId,
+    // Event-log fields (§15): author + per-(conv,author) seq + event kind. The
+    // main message row is a `post`; edits/deletes still ride the op:'status'/'del'
+    // side-channel for now (edit/delete-as-events is a later step). Written only
+    // when present so legacy rows + the in-memory fake stay readable.
+    if (m.author != null) 'au': m.author,
+    if (m.seq != null) 'sq': m.seq,
+    'k': EventKind.post.index,
     'd': m.direction.index,
     'b': m.body,
     't': m.timestamp.millisecondsSinceEpoch,
@@ -795,6 +845,8 @@ class HiddenVolumeStorage implements Storage {
         edited: m['e'] == 1,
         fileId: m['fi'] as String?,
         fileName: m['fn'] as String?,
+        author: m['au'] as String?,
+        seq: m['sq'] as int?,
       );
       _scanLogIds[k] = e.logId;
       _scanDeletedKeys.remove(
