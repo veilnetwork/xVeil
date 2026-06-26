@@ -1,8 +1,18 @@
 # Event-log conversation sync — design
 
-Status: **DESIGN (pre-implementation).** Supersedes the imperative
-edit/delete/ack/reconnect mechanism once implemented. Implement in a
-dedicated session after this design passes adversarial review.
+> ⚠️ **READING ORDER / NORMATIVITY.** This doc grew through three adversarial
+> review passes. **§13 is the current authoritative status; §12 supersedes §11;
+> §11 supersedes the §1–§10 narrative.** §1–§10 are the first-draft model and
+> contain claims later proven WRONG (e.g. "the substrate already does this" §3 —
+> false; "(ts,author,seq) is a sound total order" §4.1 — false; the §5/§6
+> deposit/sync sketch — superseded by §12.2/§12.4). **Do not implement from
+> §1–§11 directly.** Per §13 the design is **NOT yet buildable**: it is blocked
+> on substrate primitives that do not exist in hidden-volume + veil-mailbox.
+
+Status: **DESIGN — blocked on substrate (see §13).** Would supersede the
+imperative edit/delete/ack/reconnect mechanism once buildable. Implement only
+after the §13 substrate prerequisites are decided + built, in a dedicated
+session.
 
 Related: `MESSAGE-EDIT-DELETE-DESIGN.md`, `OFFLINE-DELIVERY-DESIGN.md`,
 and the agreed recovery-handshake note (memory `recovery-handshake-design`),
@@ -584,3 +594,129 @@ an authenticated recovery trigger. Two adversarial passes have replaced every
 first-draft hand-wave with a concrete, mutually-consistent constraint — the point
 of reviewing the design before the code. A short third pass to confirm §12's own
 consistency is cheap insurance before implementation begins.
+
+---
+
+## 13. Third pass + external audit — STATUS: blocked on substrate (authoritative)
+
+A third adversarial pass (against the real hidden-volume + veil-mailbox internals)
+plus an independent external audit converged on the same conclusion: **§12 is more
+coherent than §11 but is NOT a buildable spec.** The remaining blockers are no
+longer protocol logic — they are **substrate primitives that do not exist**, so a
+fourth protocol-resolution pass cannot fix them. This is the design's key finding:
+**the event log is a substrate-first, multi-repo (hidden-volume + veil + xVeil)
+effort, larger than a Dart-layer feature.**
+
+### 13.1 What is clean and survives
+
+`§12.1` (one inert void placeholder — modulo the void-vs-hole disambiguation in
+§13.3), `§12.4` (recovery = rate-limit + epoch + authenticated wipe-signal +
+R2 re-consent — modulo two edge cases), `§12.8` (capability pin per
+acceptance-epoch), `§12.9` (build order), and `R1` (author bound to `m.src`),
+`R2` (consent gating), `R5` (seq-gated LWW value-fold). These are sound.
+
+### 13.2 SUBSTRATE PREREQUISITES (the real blockers — must be built first)
+
+- **B1 — relay overwrite / sealed content-id (veil).** §12.2's "one in-flight
+  blob per author, overwritten each round" is **unimplementable**: `veil-mailbox
+  put_classified` is **first-write-wins** (same `(receiver, content_id)` →
+  `Duplicate` no-op) — there is **no overwrite/replace**. And `content_id` is
+  **cleartext to the relay** (`receiver_id|content_id|sender_id|blob`), so a
+  stable per-`(recipient,author)` key (needed for overwrite) is a linkable
+  per-correspondent handle today's random-uuid content-id denies, and a
+  `covered_high_water`-derived key leaks sync progress (low-entropy → brute-force).
+  **Need:** a relay replace/supersede primitive AND/OR an opaque, unlinkable,
+  per-deposit content-id — a veil change, before §12.2/§12.4 deposit semantics
+  can exist.
+- **B2 — per-conversation log partition WITHOUT the namespace byte (hidden-volume).**
+  §12.7 ("one Log-namespace per conversation") is **infeasible**: `Namespace` is a
+  **`u8`** (≤256 ids ever, ~250 after the system namespaces), with **no recycling**
+  (Inv-W1 forbids in-place reuse; `compact_known` is barred multi-identity), so it
+  caps a user at **~250 conversations *ever* per identity**; and the full active
+  root set must fit one Commit chunk → **`MAX_NAMESPACES_PER_TX ≈ 95`** live
+  namespaces → sends fail globally past ~95 chats — a **smaller** cap than the
+  ~15K-log_id one §12.7 set out to fix. Also `eraseSpace` forensically erases a
+  **hard-coded 5-namespace list**, so dynamic namespaces 6..N **survive a wipe**
+  (deniability break). **Need:** partition the **`u64` log-id space** per
+  conversation inside the *existing* `MESSAGE_LOG` namespace (e.g. a
+  conversation-id prefix in the log-id), not the namespace byte — and a
+  per-conversation IndexFull/roll-over story — OR widen `Namespace` + make
+  `eraseSpace` enumerate dynamically. A hidden-volume change either way.
+- **B3 — decoy-preserving per-space batch repack (hidden-volume).** §12.3's
+  `append_log_isolated` and `per-space repack-in-place` **do not exist**, and
+  in-place rewrite is **forbidden by Inv-W1**; the only real mechanisms are
+  `vacuum` (scrubs only *unreferenced* chunks — can't re-split a still-live dense
+  batch) and `compact_known` (container-wide, exclusive-lock, **DROPS every
+  decoy/duress space** — a duress break, correctly barred on the live path per
+  `app_controller.canCompactStorage`). So the forward-secrecy scrub guarantee is
+  **relocated onto unbuilt code, not closed**. **Need:** either commit every
+  editable post one-record-per-`DataBatch` (accept the commit/padding cost +
+  reconcile with the storage-bloat work) OR a new format-gated, decoy-preserving,
+  per-space batch-repack primitive in hidden-volume. + R6's prescribed regression
+  test (edit one record in a multi-record batch → orphan chunk gone) as a gate.
+
+### 13.3 Remaining protocol contradictions (need a 4th pass AFTER B1–B3 are decided)
+
+- **§12.2 vs §12.5** — overwrite-per-author blob vs named-hole **subset** repair (a
+  subset clobbers the tail); resolution direction: named-hole/recovery deposits get
+  **distinct content-ids** (additional blobs, never an overwrite of the tail) —
+  but this depends on B1's chosen relay semantics.
+- **§12.3 internal** — "one editable record per batch" vs "bulk recovery as one
+  dense commit": dense recovery puts editable posts in shared batches → the FS hole
+  reopens in the recovered-history window. Resolution depends on B3.
+- **§12.6 vs §12.5/§12.1** — author-monotone `ts` is a function of the **locally-held
+  subset**, not the event set, so honest devices diverge on display order *during a
+  gap window* (converges once the gap repairs). Acceptable IF documented as
+  "order converges on convergence"; the §4.1 fold must be **purely seq/causal**,
+  `ts` **display-only** (the external audit's fold-vs-display point).
+- **§12.1 void-vs-hole** — the recovering peer must treat a replayed void at seq N as
+  **satisfied**, never a hole to re-request (else permanent re-request). One line.
+- **§12.4 edges** — forged drop-to-zero re-consent annoyance (R1-bound, backoff-
+  throttled; low); **both-sides-wiped** deadlock (after re-consent neither holds the
+  other accepted — needs a defined mutual-reconnect path).
+
+### 13.4 Gaps the passes + external audit surfaced (in-scope for the redesign)
+
+- **Files/attachments are entirely absent from the model** — the event model is
+  `post/edit/delete` with a `body`, but the wire has `fileMeta`/`fileChunk` and
+  `Message` has `fileId`/`fileName`. How a file message is an event, how chunks
+  sync, and what `scrub`/`void` mean for an attachment are **unspecified**.
+- **`high-water`-as-delivery-ack ambiguity** — §5/§6 use `sync` as both ack and gap
+  query; after §12 it is unclear whether R7's clamp to `my_highest_emitted_seq`
+  is still normative. A peer can falsely "ack" a high-water → eternal hole or
+  wrong delivered-state. Pin the rule.
+- **Named-hole rate-limit (external High)** — §12.5's "exempt from the rate-limiter"
+  is itself a replay/seal amplifier; needs per-hole dedup + cooldown +
+  "already-answered-in-epoch-N".
+- **Doc hygiene** — strike/annotate the superseded §1–§10 claims inline (banner
+  added at the top); the code comments already mis-state "per-conversation
+  MESSAGE_LOG" (`storage.dart`, `chat.dart`) though the adapter uses a single
+  `Ns.messageLog` — fix the comments so nobody assumes B2 is done.
+- **WireKind compat test** — the old decoder falls back to plain `message` on an
+  unknown `t`; add a test that an un-upgraded peer never renders a JSON event/sync
+  frame as a normal message under any capability-negotiation failure.
+
+### 13.5 Meta-verdict and the decision this forces
+
+Three internal passes + one external audit have **converged**: the protocol logic
+is now well-understood, but it sits on substrate that **cannot host it as-is**
+(B1–B3). Further protocol-only passes have hit diminishing returns — they keep
+discovering that the next resolution needs a store/relay primitive that doesn't
+exist. The honest options:
+
+1. **Substrate-first full build.** Land B1 (veil relay), B2+B3 (hidden-volume)
+   as their own reviewed efforts, THEN a 4th protocol pass on §13.3, THEN the
+   xVeil Dart implementation. Largest; truest to the full event-log + recovery.
+2. **Scope down to "reliable edit/delete + offline reconcile" on the EXISTING
+   substrate.** Keep today's per-message model; add a durable edit/delete outbox
+   (retry like text), idempotent receiver apply, and a bounded reconcile — **no
+   per-conversation namespaces, no CRDT recovery, no relay overwrite**. Delivers
+   the user's actual pain (the edit/delete-offline bug, already tactically fixed)
+   + divergence repair, for a fraction of B1–B3. Recovery (#9) stays the simpler
+   bounded `reconnect` from the recovery-handshake note.
+3. **Park it.** Ship the feature-list items (pagination, metadata, chat-mgmt) on
+   the current model; revisit the event log when the substrate work is justified.
+
+Recommendation: **option 2** unless full multi-device CRDT recovery is a hard
+requirement — it captures most of the value without the two-repo substrate
+rewrites, and B1–B3 can be added later if/when option 1 is justified.
