@@ -204,6 +204,17 @@ void main() {
             pieceRequestEnvelope(contentId: 'c1', indices: null).encode())
         .body);
     expect(all.indices, isNull);
+    expect(all.bitmaps, isNull);
+
+    // chunk-granular: per-piece missing-chunk bitmaps round-trip.
+    final bmReq = parsePieceRequest(WireEnvelope.decode(pieceRequestEnvelope(
+      contentId: 'c1',
+      bitmaps: {2: Uint8List.fromList([0x05]), 7: Uint8List.fromList([0xff, 0x01])},
+    ).encode()).body);
+    expect(bmReq.contentId, 'c1');
+    expect(bmReq.bitmaps!.keys.toSet(), {2, 7});
+    expect(bmReq.bitmaps![2], [0x05]);
+    expect(bmReq.bitmaps![7], [0xff, 0x01]);
 
     // pieceChunk: (piece, chunk) coordinates + data.
     final pc = parsePieceChunk(WireEnvelope.decode(pieceChunkEnvelope(

@@ -149,8 +149,10 @@ class MessagingService {
     this._anonymous = false,
     DateTime Function()? now,
     Duration contentReRequestInterval = const Duration(seconds: 20),
+    Duration contentPacing = const Duration(milliseconds: 20),
   })  : _now = now ?? DateTime.now,
-        _contentReRequestInterval = contentReRequestInterval;
+        _contentReRequestInterval = contentReRequestInterval,
+        _contentPacing = contentPacing;
 
   /// Wall-clock source, injectable so stale-transfer eviction is testable
   /// without real delays. Defaults to [DateTime.now].
@@ -1866,12 +1868,24 @@ class MessagingService {
   Timer? _contentTimer;
   /// Re-request cadence for still-missing pieces (injectable for tests).
   final Duration _contentReRequestInterval;
-  static const _contentChunkBytes = 4000; // wire chunk per piece (fits 6144 cap)
-  // Per-chunk pacing. A relay SHEDS forwarded traffic once its load > ~78%
-  // (veil-dispatcher delivery.rs check_relay_preconditions), so blasting chunks
-  // congests the relay and ~all are dropped. Pace well under that — ~12/s of
-  // ~5 KB frames ≈ 60 KB/s, which a relay forwards without congesting.
-  static const _contentPacing = Duration(milliseconds: 80);
+  // Wire chunk per piece. SMALL on purpose: over the onion path a chunk is a
+  // single auth_deliver message that fragments into ceil(size/≈150 B) cells which
+  // must ALL arrive (no per-cell ARQ), so per-chunk delivery is (1-p^redundancy)^F.
+  // At 4000 B (~27 cells) and ~50% cell loss that was ~2% — pieces never
+  // completed. 512 B (~6 cells) lifts per-chunk delivery enough that a piece's
+  // chunks ACCUMULATE across chunk-granular re-request rounds and converge.
+  static const _contentChunkBytes = 512;
+  // Per-chunk pacing: feed the local onion circuit builder steadily without
+  // overflowing the per-session TX queue (a too-fast burst trips the silent
+  // tx_queue drop — now logged as `LIMIT tx_queue`). Many small chunks, so keep
+  // it short; tune against the tx_queue / delivery logs. Injectable so tests
+  // (which deliver instantly) don't wait real-time per chunk.
+  final Duration _contentPacing;
+  /// How many not-yet-verified pieces a single re-request covers. Bounds the
+  /// re-request size (each piece adds a ceil(chunkCount/8)-byte bitmap) so the
+  /// re-request itself stays small enough to survive the lossy path, and focuses
+  /// serving on a few pieces at a time so they complete sooner.
+  static const _reRequestPieceWindow = 4;
   /// Files larger than this go via the content layer (hash-verified pieces over
   /// the NAT-traversing datagram path) instead of the per-chunk fileMeta push.
   static const _contentThreshold = 1024 * 1024; // 1 MiB
@@ -1892,10 +1906,13 @@ class MessagingService {
   Future<String> sendContent(NodeId dst, Uint8List bytes, String name) async {
     final contact = await _storage.getContact(dst);
     if (contact == null || contact.status != ContactStatus.accepted) {
-      return ContentManifest.fromBytes(name, bytes).contentId;
+      return ContentManifest.fromBytes(name, bytes,
+              chunkBytes: _contentChunkBytes)
+          .contentId;
     }
     final manifest = ContentManifest.fromBytes(name, bytes,
-        pieceSize: _adaptivePieceSize(bytes.length));
+        pieceSize: _adaptivePieceSize(bytes.length),
+        chunkBytes: _contentChunkBytes);
     _serving[manifest.contentId] = (manifest: manifest, bytes: bytes);
     _ensureContentTimer();
     await _send(dst,
@@ -1948,26 +1965,57 @@ class MessagingService {
           '${req.contentId.substring(0, 12)} <- ${peer.short} (ignored)');
       return; // not serving this content
     }
-    final indices = req.indices ??
-        [for (var i = 0; i < served.manifest.pieceCount; i++) i];
-    devLog(() => 'xVeil[content]: pieceRequest ${req.contentId.substring(0, 12)} '
-        '(${indices.length}/${served.manifest.pieceCount} pieces) <- ${peer.short} '
-        '-> serving');
-    unawaited(_servePieces(peer, served.manifest, served.bytes, indices));
+    final m = served.manifest;
+    // gaps: pieceIndex → chunk indices to serve (null ⇒ every chunk of the piece).
+    final Map<int, List<int>?> gaps;
+    final bm = req.bitmaps;
+    if (bm != null && bm.isNotEmpty) {
+      gaps = {
+        for (final e in bm.entries)
+          if (e.key >= 0 && e.key < m.pieceCount)
+            e.key: _chunksFromBitmap(m, e.key, e.value),
+      };
+      final total = gaps.values.fold<int>(0, (a, b) => a + (b?.length ?? 0));
+      devLog(() => 'xVeil[content]: pieceRequest ${req.contentId.substring(0, 12)} '
+          'CHUNK-granular ($total chunks over ${gaps.length} pieces) '
+          '<- ${peer.short} -> serving');
+    } else {
+      final indices = req.indices ?? [for (var i = 0; i < m.pieceCount; i++) i];
+      gaps = {for (final p in indices) p: null};
+      devLog(() => 'xVeil[content]: pieceRequest ${req.contentId.substring(0, 12)} '
+          '(${indices.length}/${m.pieceCount} whole pieces) <- ${peer.short} '
+          '-> serving');
+    }
+    unawaited(_serveChunks(peer, m, served.bytes, gaps));
   }
 
-  Future<void> _servePieces(
-      NodeId peer, ContentManifest m, Uint8List bytes, List<int> indices) async {
-    for (final p in indices) {
+  /// Decode a missing-chunk bitmap into the chunk indices it marks for piece [p].
+  List<int> _chunksFromBitmap(ContentManifest m, int p, Uint8List bm) {
+    final cc = m.chunkCount(p);
+    return [
+      for (var c = 0; c < cc; c++)
+        if ((c >> 3) < bm.length && (bm[c >> 3] & (1 << (c & 7))) != 0) c,
+    ];
+  }
+
+  /// Serve [gaps] (pieceIndex → chunk indices, null ⇒ all chunks of the piece)
+  /// of content [m] from [bytes], one wire chunk at a time paced by
+  /// [_contentPacing]. Chunk coordinates are derived from the manifest's
+  /// [ContentManifest.chunkBytes] so they match the receiver's expectation.
+  Future<void> _serveChunks(NodeId peer, ContentManifest m, Uint8List bytes,
+      Map<int, List<int>?> gaps) async {
+    for (final entry in gaps.entries) {
+      final p = entry.key;
       if (p < 0 || p >= m.pieceCount) continue;
       final pstart = p * m.pieceSize;
       final plen = m.pieceLength(p);
-      final n = (plen + _contentChunkBytes - 1) ~/ _contentChunkBytes;
-      for (var c = 0; c < n; c++) {
-        final cstart = pstart + c * _contentChunkBytes;
-        final cend = (c * _contentChunkBytes + _contentChunkBytes <= plen)
-            ? cstart + _contentChunkBytes
-            : pstart + plen;
+      final cb = m.chunkBytes;
+      final n = m.chunkCount(p);
+      final chunks = entry.value ?? [for (var c = 0; c < n; c++) c];
+      for (final c in chunks) {
+        if (c < 0 || c >= n) continue;
+        final cstart = pstart + c * cb;
+        final cend = (c * cb + cb <= plen) ? cstart + cb : pstart + plen;
         await _send(
           peer,
           pieceChunkEnvelope(
@@ -2053,16 +2101,23 @@ class MessagingService {
       return;
     }
     for (final fetch in _fetching.values) {
-      final missing = fetch.xfer.missingPieces();
-      if (missing.isEmpty) continue;
+      // Window the re-request to a few unverified pieces and ask for only their
+      // MISSING chunks (bitmaps) — so each round re-sends just the gaps, and the
+      // request itself stays small enough to survive the lossy path.
+      final pieces = fetch.xfer.nextUnverifiedPieces(_reRequestPieceWindow);
+      if (pieces.isEmpty) continue;
+      final bitmaps = {
+        for (final p in pieces) p: fetch.xfer.missingChunkBitmap(p),
+      };
+      final remaining = fetch.xfer.missingPieces().length;
       devLog(() => 'xVeil[content]: re-request '
-          '${fetch.manifest.contentId.substring(0, 12)} — '
-          '${missing.length}/${fetch.manifest.pieceCount} pieces still missing '
+          '${fetch.manifest.contentId.substring(0, 12)} — chunk-granular over '
+          'pieces $pieces ($remaining/${fetch.manifest.pieceCount} unverified) '
           '-> ${fetch.peer.short}');
       unawaited(_send(
           fetch.peer,
           pieceRequestEnvelope(
-                  contentId: fetch.manifest.contentId, indices: missing)
+                  contentId: fetch.manifest.contentId, bitmaps: bitmaps)
               .encode()));
     }
   }

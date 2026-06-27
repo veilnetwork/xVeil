@@ -75,8 +75,12 @@ void main() {
     await sB.open(password: 'b', createIfMissing: true);
     // Short re-request cadence so the drop-recovery test doesn't wait seconds.
     const fast = Duration(milliseconds: 120);
-    mA = MessagingService(tA, sA, contentReRequestInterval: fast)..start();
-    mB = MessagingService(tB, sB, contentReRequestInterval: fast)..start();
+    mA = MessagingService(tA, sA,
+        contentReRequestInterval: fast, contentPacing: Duration.zero)
+      ..start();
+    mB = MessagingService(tB, sB,
+        contentReRequestInterval: fast, contentPacing: Duration.zero)
+      ..start();
     await sA.upsertContact(Contact(nodeId: b, status: ContactStatus.accepted));
     await sB.upsertContact(Contact(nodeId: a, status: ContactStatus.accepted));
   });
