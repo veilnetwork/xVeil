@@ -48,6 +48,7 @@ enum WireKind {
   fileQuery,
   fileNack,
   reconnect,
+  fileStream,
   unknown,
 }
 
@@ -198,6 +199,30 @@ WireEnvelope fileMetaEnvelope({
         'name': ?name,
         'size': ?size,
         'count': ?count,
+        'seq': ?seq,
+        's': ?sentAtMs,
+      }),
+    );
+
+/// Start of a STREAMED (large, > the small-file threshold) file transfer. Same
+/// body shape as [fileMetaEnvelope] (parse with [parseFileMeta]; `count` is
+/// absent — a stream is not pre-chunked) but the blob arrives over a reliable,
+/// flow-controlled veil STREAM (no burst loss) and is persisted in the external
+/// encrypted blob store, NOT the deniable container. The receiver, on this
+/// frame, accepts the inbound stream keyed by [transferId].
+WireEnvelope fileStreamEnvelope({
+  required String transferId,
+  String? name,
+  int? size,
+  int? seq,
+  int? sentAtMs,
+}) =>
+    WireEnvelope(
+      WireKind.fileStream,
+      jsonEncode({
+        'tid': transferId,
+        'name': ?name,
+        'size': ?size,
         'seq': ?seq,
         's': ?sentAtMs,
       }),

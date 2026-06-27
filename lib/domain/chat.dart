@@ -81,6 +81,7 @@ class Message {
     this.status = MessageStatus.sent,
     this.fileId,
     this.fileName,
+    this.fileExternal = false,
     this.edited = false,
     this.author,
     this.seq,
@@ -101,6 +102,12 @@ class Message {
   /// [body] holds a human label and [fileName] the original name.
   final String? fileId;
   final String? fileName;
+
+  /// True for a LARGE file whose blob lives in the external encrypted blob store
+  /// (ExternalBlobStore[fileId]) instead of the in-container FileStore — sent /
+  /// received over a reliable veil stream. False (default) = small file in the
+  /// deniable container. Drives which store loadFile / delete / gap-fill touch.
+  final bool fileExternal;
 
   /// Event-log fields (doc/EVENT-LOG-SYNC-DESIGN.md §15). [author] is the node-id
   /// hex of the message's originator, bound from the authenticated sender on
@@ -123,6 +130,7 @@ class Message {
         status: status ?? this.status,
         fileId: fileId,
         fileName: fileName,
+        fileExternal: fileExternal,
         edited: edited ?? this.edited,
         author: author,
         seq: seq,
