@@ -316,7 +316,11 @@ class MessagingService {
   /// Resumable-file re-ship (§15 3c): answer a peer's [WireKind.fileNack] for a
   /// given (peer, transfer) at most once per [_fileNackInterval] (a flood can't
   /// drive a blob re-read + chunk re-send storm), and cap the chunks one NACK
-  /// answers — the rest heal on the next round.
+  /// answers — the rest heal on the next round. The map is bounded: entries are
+  /// written only AFTER the NACK resolves to a real outgoing file in THIS peer's
+  /// conversation (a fresh-tid flood inserts nothing), inert entries (older than
+  /// the interval) are evicted on each call, and it is cleared on reconnect — so
+  /// it stays O(active transfers), never O(every tid ever seen).
   final Map<String, DateTime> _lastFileNackAt = {};
   static const _fileNackInterval = Duration(seconds: 3);
   static const _fileNackChunkCap = 256;
@@ -324,14 +328,18 @@ class MessagingService {
   /// Bounded reconnect (recovery handshake, §15.7). When a message stays un-acked
   /// past [_reconnectThreshold] the peer may have wiped its chat data + forgotten
   /// us (so our sends hit its consent gate and drop). We send a
-  /// [WireKind.reconnect] re-intro at most every [_reconnectInterval], and after
-  /// [_maxReconnectTries] give up — the stuck messages flip to
-  /// [MessageStatus.failed] ("not delivered") and stop retrying forever. Reset
-  /// when the peer acks (reachable) or a NEW message is sent (fresh attempt).
-  final Map<String, ({int count, DateTime nextAt})> _reconnectBackoff = {};
+  /// [WireKind.reconnect] re-intro at most every [_reconnectInterval] (throttled
+  /// per peer via [_lastReconnectAt]). Give-up is PER MESSAGE, anchored to the
+  /// message's OWN age: once a message stays un-acked past [_reconnectGiveUpAge]
+  /// it flips to [MessageStatus.failed] ("not delivered"). This is deliberately
+  /// NOT a shared per-peer counter — a chatty conversation to a dead peer would
+  /// keep resetting such a counter and an old undelivered message would never
+  /// terminate. The send throttle resets only when the peer acks (reachable);
+  /// a later gap-fill beacon can still heal a failed message if the peer returns.
+  final Map<String, DateTime> _lastReconnectAt = {};
   static const _reconnectThreshold = Duration(minutes: 2);
   static const _reconnectInterval = Duration(minutes: 15);
-  static const _maxReconnectTries = 6;
+  static const _reconnectGiveUpAge = Duration(minutes: 90);
 
   /// Attach the offline-delivery [MailboxService] after construction (it is
   /// built with [deliverInbound] as its drain sink, so it must exist first).
@@ -385,6 +393,7 @@ class MessagingService {
   Future<void> reconcileOnConnect() async {
     _lastSyncSentAt.clear();
     _lastSyncActedAt.clear();
+    _lastFileNackAt.clear(); // bound the throttle map across reconnects
     await flushOutbox();
   }
 
@@ -700,8 +709,8 @@ class MessagingService {
         final ackId = env.id;
         if (ackId != null) {
           _retryBackoff.remove(ackId); // stop backing off a delivered message
-          // The peer is reachable + still holds us — reset any reconnect attempt.
-          _reconnectBackoff.remove(m.src.hex);
+          // The peer is reachable + still holds us — reset the reconnect throttle.
+          _lastReconnectAt.remove(m.src.hex);
           // Idempotent: the peer's drain re-acks every cycle until its relay
           // blob ages out, so duplicate acks arrive in a storm. Mark delivered +
           // log + write storage only ONCE per id — re-doing it on every dup was
@@ -1126,12 +1135,9 @@ class MessagingService {
     // Consent gate — only free-message an accepted contact.
     final contact = await _storage.getContact(dst);
     if (contact == null || contact.status != ContactStatus.accepted) return;
-    // A fresh message → give the peer a fresh reconnect cycle (don't let a new
-    // send inherit a maxed-out backoff and get marked failed prematurely).
-    _reconnectBackoff.remove(dst.hex);
     // One send time, used for BOTH our stored copy and the wire `sentAtMs`, so
     // both ends order this message identically. From the service clock ([_now])
-    // so the reconnect age check (and tests) share one timeline.
+    // so the per-message reconnect give-up age (and tests) share one timeline.
     final sentAt = _now();
     final stored = await _store(
       dst,
@@ -1256,37 +1262,42 @@ class MessagingService {
   /// Bounded reconnect handshake (§15.7) for one peer. [msgs] is that peer's
   /// conversation. If a message has stayed un-acked past [_reconnectThreshold],
   /// the peer may have wiped its chat data and forgotten us — send a re-intro
-  /// ([WireKind.reconnect]) so it can re-accept; BOUNDED to [_maxReconnectTries]
-  /// every [_reconnectInterval]. After the bound, the stuck messages flip to
-  /// [MessageStatus.failed] ("not delivered") so they stop retrying forever (the
-  /// gap-fill can still heal them later if the peer returns). Nothing stuck →
-  /// reset. (Offline-vs-wiped is indistinguishable — no presence oracle; an
-  /// online accepted peer just re-acks the reconnect, harmless.)
+  /// ([WireKind.reconnect]) so it can re-accept; throttled per peer to one every
+  /// [_reconnectInterval]. Give-up is PER MESSAGE: a message un-acked past
+  /// [_reconnectGiveUpAge] flips to [MessageStatus.failed] ("not delivered") so
+  /// it stops retrying — anchored to the message's OWN age, NOT a shared counter
+  /// (a steady drip of new sends to a dead peer must not keep an old undelivered
+  /// message alive forever). A later gap-fill beacon can still heal it if the
+  /// peer returns. (Offline-vs-wiped is indistinguishable — no presence oracle;
+  /// an online accepted peer just re-acks the reconnect, harmless.)
   Future<void> _maybeReconnect(NodeId peer, List<Message> msgs) async {
     final now = _now();
-    final stuck = [
-      for (final m in msgs)
-        if (m.direction == MessageDirection.outgoing &&
-            m.status == MessageStatus.sent &&
-            !_delivered.contains(m.id) &&
-            now.difference(m.timestamp) > _reconnectThreshold)
-          m,
-    ];
-    if (stuck.isEmpty) {
-      _reconnectBackoff.remove(peer.hex); // delivering fine → reset
-      return;
-    }
-    final rb = _reconnectBackoff[peer.hex];
-    if ((rb?.count ?? 0) >= _maxReconnectTries) {
-      // Give up: terminal "not delivered". Stops the outbox retry (status no
-      // longer `sent`); a later gap-fill beacon can still recover it.
-      for (final m in stuck) {
-        await _storage.markMessageStatus(peer.hex, m.id, MessageStatus.failed);
+    var failedAny = false;
+    var anyTrying = false; // a stuck message still within the give-up window
+    for (final m in msgs) {
+      if (m.direction != MessageDirection.outgoing ||
+          m.status != MessageStatus.sent ||
+          _delivered.contains(m.id) ||
+          now.difference(m.timestamp) <= _reconnectThreshold) {
+        continue;
       }
-      _signal();
+      if (now.difference(m.timestamp) > _reconnectGiveUpAge) {
+        // Terminal "not delivered" for THIS message. Stops the outbox retry
+        // (status no longer `sent`); a later gap-fill beacon can still recover it.
+        await _storage.markMessageStatus(peer.hex, m.id, MessageStatus.failed);
+        failedAny = true;
+      } else {
+        anyTrying = true;
+      }
+    }
+    if (failedAny) _signal();
+    if (!anyTrying) {
+      _lastReconnectAt.remove(peer.hex); // nothing left to re-intro → reset
       return;
     }
-    if (rb != null && now.isBefore(rb.nextAt)) return; // within the interval
+    final last = _lastReconnectAt[peer.hex];
+    if (last != null && now.difference(last) < _reconnectInterval) return;
+    _lastReconnectAt[peer.hex] = now;
     // Re-intro with an empty greeting — the contact only needs to surface as a
     // pending intro on a peer that forgot us; the user accepting heals delivery.
     final wire = const WireEnvelope.reconnect('').encode();
@@ -1294,12 +1305,7 @@ class MessagingService {
     final id = 'reconnect:${peer.hex}';
     _stashed.remove(id); // allow a fresh deposit each attempt
     unawaited(_maybeStash(peer, id, wire));
-    _reconnectBackoff[peer.hex] = (
-      count: (rb?.count ?? 0) + 1,
-      nextAt: now.add(_reconnectInterval),
-    );
-    devLog(() => 'xVeil[reconnect]: -> ${peer.short} '
-        'try=${(rb?.count ?? 0) + 1}/$_maxReconnectTries');
+    devLog(() => 'xVeil[reconnect]: -> ${peer.short}');
   }
 
   /// Send an event-log gap-fill beacon ([WireKind.sync]) to [peer] over the LIVE
@@ -1615,6 +1621,9 @@ class MessagingService {
       fileId: fileId,
       fileName: name,
       id: fileId,
+      // Stamp from the service clock (like sendText) so the per-message reconnect
+      // give-up age sees a consistent timeline for file messages too.
+      timestamp: _now(),
     );
     _signal();
     await _sendFileFrames(
@@ -1714,25 +1723,36 @@ class MessagingService {
   }
 
   /// Re-send the chunks a peer's [WireKind.fileNack] asked for ([missing] == null
-  /// → all) of a file WE sent. Rate-limited per (peer, transfer) + chunk-capped so
-  /// a NACK flood can't drive a blob-reread / chunk re-send storm.
+  /// → all) of a file WE sent THEM. Rate-limited per (peer, transfer) + chunk-
+  /// capped so a NACK flood can't drive a blob-reread / chunk re-send storm.
   Future<void> _handleFileNack(
     NodeId peer,
     String transferId,
     List<int>? missing,
   ) async {
-    final key = '${peer.hex}:$transferId';
+    // Resolve the file message WITHIN this peer's conversation — the transfer id
+    // is attacker-chosen on the wire, so a GLOBAL lookup would let an accepted
+    // peer pull ANOTHER conversation's file blob by naming its id (a cross-
+    // conversation leak). Same conversation-scoped boundary as _hasMessage.
+    Message? msg;
+    for (final m in await _storage.loadMessages(peer.hex)) {
+      if (m.id == transferId &&
+          m.direction == MessageDirection.outgoing &&
+          m.fileId != null) {
+        msg = m;
+        break;
+      }
+    }
+    if (msg == null) return; // not a file WE sent THIS peer → ignore (no leak)
+    // Rate-limit AFTER the ownership check, so a fresh-tid flood neither re-sends
+    // a blob nor grows the throttle map. Evict inert entries (older than the
+    // interval) so the map stays O(active transfers), not O(every tid ever).
     final now = DateTime.now();
+    _lastFileNackAt.removeWhere((_, v) => now.difference(v) > _fileNackInterval);
+    final key = '${peer.hex}:$transferId';
     final last = _lastFileNackAt[key];
     if (last != null && now.difference(last) < _fileNackInterval) return;
     _lastFileNackAt[key] = now;
-    // The transfer id IS our outgoing file message's id; resolve its blob.
-    final msg = await _find(transferId);
-    if (msg == null ||
-        msg.direction != MessageDirection.outgoing ||
-        msg.fileId == null) {
-      return;
-    }
     final bytes = await _storage.loadFile(msg.fileId!);
     if (bytes == null) return;
     final want = missing?.toSet();
