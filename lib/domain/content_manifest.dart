@@ -24,6 +24,7 @@ class ContentManifest {
     required this.pieceSize,
     required this.pieceHashes,
     required this.contentId,
+    this.chunkBytes = defaultChunkBytes,
   });
 
   /// Original file name (authenticated — folded into [contentId]).
@@ -42,9 +43,24 @@ class ContentManifest {
   /// authenticating address. Recompute via [computeContentId] to verify.
   final String contentId;
 
+  /// The WIRE chunk size: a piece is transferred as `chunkCount(piece)` chunks
+  /// of this many bytes (the last chunk of a piece may be shorter). NOT folded
+  /// into [contentId] — it's a transport hint, so the same file keeps one id
+  /// regardless of chunking (swarm/dedup), and a tampered value only fails the
+  /// transfer (pieces stay hash-verified). The receiver derives each piece's
+  /// chunk count from it, so it can re-request specific MISSING chunks from the
+  /// first round (without first receiving any chunk of the piece).
+  final int chunkBytes;
+
   /// Default piece size: 256 KiB — keeps the manifest small (a 256 MiB file is
   /// 1024 × 32 B = 32 KiB of hashes) while bounding per-piece re-request cost.
   static const int defaultPieceSize = 256 * 1024;
+
+  /// Default wire chunk size. Small on purpose: over a lossy onion path a chunk
+  /// fragments into ceil(chunk/≈150 B) cells that must ALL arrive (no per-cell
+  /// ARQ), so fewer cells per chunk ⇒ far higher per-chunk delivery odds, which
+  /// is what lets a piece's chunks accumulate across re-request rounds.
+  static const int defaultChunkBytes = 256;
 
   int get pieceCount => pieceHashes.length;
 
@@ -55,13 +71,21 @@ class ContentManifest {
     return (end <= size ? pieceSize : size - start);
   }
 
+  /// Number of wire chunks piece [index] is split into.
+  int chunkCount(int index) {
+    final plen = pieceLength(index);
+    return plen == 0 ? 0 : (plen + chunkBytes - 1) ~/ chunkBytes;
+  }
+
   /// Build a manifest from a file's full bytes.
   factory ContentManifest.fromBytes(
     String name,
     Uint8List bytes, {
     int pieceSize = defaultPieceSize,
+    int chunkBytes = defaultChunkBytes,
   }) {
     if (pieceSize <= 0) throw ArgumentError.value(pieceSize, 'pieceSize', '> 0');
+    if (chunkBytes <= 0) throw ArgumentError.value(chunkBytes, 'chunkBytes', '> 0');
     final count = bytes.isEmpty ? 0 : (bytes.length + pieceSize - 1) ~/ pieceSize;
     final hashes = <Uint8List>[
       for (var i = 0; i < count; i++)
@@ -79,6 +103,7 @@ class ContentManifest {
       pieceSize: pieceSize,
       pieceHashes: hashes,
       contentId: id,
+      chunkBytes: chunkBytes,
     );
   }
 
@@ -149,6 +174,7 @@ class ContentManifest {
         'name': name,
         'size': size,
         'ps': pieceSize,
+        'cb': chunkBytes,
         'ph': _hex(_concatHashes(pieceHashes)),
       };
 
@@ -161,6 +187,11 @@ class ContentManifest {
       final name = j['name'] as String;
       final size = j['size'] as int;
       final ps = j['ps'] as int;
+      // chunkBytes is a transport hint (not in contentId); tolerate an older
+      // sender that omits it by falling back to the default. Reject a nonsense
+      // value so chunk indexing can't divide by zero.
+      final cb = (j['cb'] as int?) ?? defaultChunkBytes;
+      if (cb <= 0) return null;
       final blob = _unhex(j['ph'] as String);
       if (blob.length % 32 != 0) return null;
       final hashes = <Uint8List>[
@@ -168,7 +199,12 @@ class ContentManifest {
           Uint8List.sublistView(blob, i, i + 32),
       ];
       final m = ContentManifest(
-          name: name, size: size, pieceSize: ps, pieceHashes: hashes, contentId: id);
+          name: name,
+          size: size,
+          pieceSize: ps,
+          pieceHashes: hashes,
+          contentId: id,
+          chunkBytes: cb);
       return m.isSelfConsistent ? m : null;
     } catch (_) {
       return null;
