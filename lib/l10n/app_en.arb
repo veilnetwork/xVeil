@@ -77,6 +77,7 @@
   "chatFileSaved": "File saved",
   "chatFileSaveFailed": "Couldn't save the file",
   "chatFileTooLarge": "File is too large",
+  "chatFileUnreadable": "Couldn't read the file",
   "chatMsgEdit": "Edit",
   "chatMsgDeleteForEveryone": "Delete for everyone",
   "chatMsgDeleteForMe": "Delete for me",
