@@ -148,7 +148,7 @@ class MessagingService {
     this._storage, {
     this._anonymous = false,
     DateTime Function()? now,
-    Duration contentReRequestInterval = const Duration(seconds: 5),
+    Duration contentReRequestInterval = const Duration(seconds: 20),
   })  : _now = now ?? DateTime.now,
         _contentReRequestInterval = contentReRequestInterval;
 
@@ -1867,7 +1867,11 @@ class MessagingService {
   /// Re-request cadence for still-missing pieces (injectable for tests).
   final Duration _contentReRequestInterval;
   static const _contentChunkBytes = 4000; // wire chunk per piece (fits 6144 cap)
-  static const _contentPacing = Duration(milliseconds: 4); // per-chunk anti-burst
+  // Per-chunk pacing. A relay SHEDS forwarded traffic once its load > ~78%
+  // (veil-dispatcher delivery.rs check_relay_preconditions), so blasting chunks
+  // congests the relay and ~all are dropped. Pace well under that — ~12/s of
+  // ~5 KB frames ≈ 60 KB/s, which a relay forwards without congesting.
+  static const _contentPacing = Duration(milliseconds: 80);
   /// Files larger than this go via the content layer (hash-verified pieces over
   /// the NAT-traversing datagram path) instead of the per-chunk fileMeta push.
   static const _contentThreshold = 1024 * 1024; // 1 MiB
