@@ -312,9 +312,14 @@ class MessagingService {
   static const _syncSendInterval = Duration(seconds: 20);
   static const _syncActInterval = Duration(seconds: 5);
   static const _syncReshipCap = 100;
-  // Whole-blob re-sends are costly (no chunk-level resume in v1), so cap how many
-  // files one gap-fill round re-ships; the rest heal on later rounds.
-  static const _syncFileReshipCap = 2;
+
+  /// Resumable-file re-ship (§15 3c): answer a peer's [WireKind.fileNack] for a
+  /// given (peer, transfer) at most once per [_fileNackInterval] (a flood can't
+  /// drive a blob re-read + chunk re-send storm), and cap the chunks one NACK
+  /// answers — the rest heal on the next round.
+  final Map<String, DateTime> _lastFileNackAt = {};
+  static const _fileNackInterval = Duration(seconds: 3);
+  static const _fileNackChunkCap = 256;
 
   /// Attach the offline-delivery [MailboxService] after construction (it is
   /// built with [deliverInbound] as its drain sink, so it must exist first).
@@ -746,6 +751,22 @@ class MessagingService {
         if (vseq != null) {
           await _storage.applyRemoteVoid(m.src.hex, m.src.hex, vseq);
         }
+        return;
+      case WireKind.fileQuery:
+        // A gap-fill probe for a file (§15 3c, resumable): the peer still holds
+        // file <tid> and asks what we're missing. Reply with a fileNack naming
+        // the gaps (or "all" if we hold no chunk yet). The peer then re-sends only
+        // those chunks, instead of re-pushing the whole blob each round.
+        if (existing?.status != ContactStatus.accepted) return;
+        await _handleFileQuery(m, parseFileMeta(env.body));
+        return;
+      case WireKind.fileNack:
+        // The receiver lists the chunks it still needs of a file WE sent
+        // (null = all). Re-send only those, rate-limited per (peer, transfer) so
+        // a NACK flood can't drive a re-send storm.
+        if (existing?.status != ContactStatus.accepted) return;
+        final nack = parseFileNack(env.body);
+        await _handleFileNack(m.src, nack.transferId, nack.missing);
         return;
       case WireKind.unknown:
         // A structured (v:2) frame from a NEWER build whose kind we don't know —
@@ -1275,7 +1296,6 @@ class MessagingService {
       final byId = {
         for (final mm in await _storage.loadMessages(peer.hex)) mm.id: mm,
       };
-      var filesReshipped = 0;
       for (final ev in events) {
         switch (ev.kind) {
           case EventKind.post:
@@ -1284,24 +1304,20 @@ class MessagingService {
             final isFile =
                 ev.kind == EventKind.filePost || (stored?.isFile ?? false);
             if (isFile) {
-              // A file event: re-ship the BLOB (meta + chunks), never the caption
-              // text — so a filePost whose row/blob is gone heals as a void on a
-              // later round instead of leaking '📎 name' as a plain message.
+              // A file event: send a CHEAP probe (no blob load), never the caption
+              // text. The receiver replies with a fileNack listing the chunks it
+              // lacks and we re-send only those (resumable) — instead of pushing
+              // the whole blob every round. A filePost whose row/blob is gone is
+              // simply not probed (it heals as a void later).
               if (stored == null || stored.fileId == null) continue;
-              // Capped per round: re-sending a whole blob is costly (no
-              // chunk-level resume in v1), so heal at most _syncFileReshipCap
-              // files/round; the rest heal on later rounds as high-water advances.
-              if (filesReshipped >= _syncFileReshipCap) continue;
-              final bytes = await _storage.loadFile(stored.fileId!);
-              if (bytes == null) continue; // blob gone — heal as a void later
-              filesReshipped++;
-              await _sendFileFrames(
+              await _send(
                 peer,
-                ev.id,
-                stored.fileName,
-                bytes,
-                ev.seq,
-                ev.ts, // keep the file's ORIGINAL send-time
+                fileQueryEnvelope(
+                  transferId: ev.id,
+                  name: stored.fileName,
+                  seq: ev.seq,
+                  sentAtMs: ev.ts, // keep the file's ORIGINAL send-time
+                ).encode(),
               );
               continue;
             }
@@ -1560,6 +1576,91 @@ class MessagingService {
           data: c.data,
         ).encode(),
       );
+    }
+  }
+
+  /// Respond to a gap-fill file PROBE (§15 3c, resumable): tell the sender which
+  /// chunks of [meta].transferId we still need (or `null` = all, when we hold no
+  /// chunk yet). We register an in-flight slot carrying the sender's seq/send-time
+  /// so the completed file folds convergently when the re-sent chunks arrive.
+  Future<void> _handleFileQuery(InboundMessage m, FileMetaFrame meta) async {
+    final tid = meta.transferId;
+    // Already complete (we hold the message) or deleted → nothing to request; a
+    // deleted file must NOT be resurrected, so we stay silent.
+    if (await _hasMessage(m.src, tid) ||
+        await _storage.isMessageDeleted(m.src.hex, tid)) {
+      return;
+    }
+    var inc = _inFlight[tid];
+    if (inc == null) {
+      // Same capacity discipline as the fileMeta arm: reclaim stale slots first,
+      // then refuse a NEW transfer only when still at capacity.
+      if (_inFlight.length >= kMaxConcurrentIncomingFiles) {
+        final cutoff = _now();
+        _inFlight.removeWhere((_, x) =>
+            cutoff.difference(x.lastActivity) > kStaleIncomingFileTimeout);
+      }
+      if (_inFlight.length >= kMaxConcurrentIncomingFiles) return;
+      inc = _Incoming(
+        src: m.src,
+        name: meta.name,
+        reasm: FileReassembler(),
+        lastActivity: _now(),
+        seq: meta.seq,
+        sentAtMs: meta.sentAtMs,
+      );
+      _inFlight[tid] = inc;
+    } else if (inc.src != m.src) {
+      return; // someone else can't probe another peer's in-flight transfer
+    }
+    // What we're missing. Until a chunk has set the total we hold NONE, so ask
+    // for everything (null) — the sender knows its own chunk count.
+    final total = inc.reasm.total;
+    final missing =
+        total == null ? null : inc.reasm.missingIndices(total);
+    await _send(
+      m.src,
+      fileNackEnvelope(transferId: tid, missing: missing).encode(),
+    );
+  }
+
+  /// Re-send the chunks a peer's [WireKind.fileNack] asked for ([missing] == null
+  /// → all) of a file WE sent. Rate-limited per (peer, transfer) + chunk-capped so
+  /// a NACK flood can't drive a blob-reread / chunk re-send storm.
+  Future<void> _handleFileNack(
+    NodeId peer,
+    String transferId,
+    List<int>? missing,
+  ) async {
+    final key = '${peer.hex}:$transferId';
+    final now = DateTime.now();
+    final last = _lastFileNackAt[key];
+    if (last != null && now.difference(last) < _fileNackInterval) return;
+    _lastFileNackAt[key] = now;
+    // The transfer id IS our outgoing file message's id; resolve its blob.
+    final msg = await _find(transferId);
+    if (msg == null ||
+        msg.direction != MessageDirection.outgoing ||
+        msg.fileId == null) {
+      return;
+    }
+    final bytes = await _storage.loadFile(msg.fileId!);
+    if (bytes == null) return;
+    final want = missing?.toSet();
+    final chunks = chunkBytes(bytes, transferId: transferId, maxChunk: _wireChunkBytes);
+    var sent = 0;
+    for (final c in chunks) {
+      if (want != null && !want.contains(c.index)) continue;
+      await _send(
+        peer,
+        fileChunkEnvelope(
+          transferId: c.transferId,
+          index: c.index,
+          total: c.total,
+          data: c.data,
+        ).encode(),
+      );
+      if (++sent >= _fileNackChunkCap) break; // rest heal on the next round
     }
   }
 
