@@ -321,6 +321,18 @@ class MessagingService {
   static const _fileNackInterval = Duration(seconds: 3);
   static const _fileNackChunkCap = 256;
 
+  /// Bounded reconnect (recovery handshake, §15.7). When a message stays un-acked
+  /// past [_reconnectThreshold] the peer may have wiped its chat data + forgotten
+  /// us (so our sends hit its consent gate and drop). We send a
+  /// [WireKind.reconnect] re-intro at most every [_reconnectInterval], and after
+  /// [_maxReconnectTries] give up — the stuck messages flip to
+  /// [MessageStatus.failed] ("not delivered") and stop retrying forever. Reset
+  /// when the peer acks (reachable) or a NEW message is sent (fresh attempt).
+  final Map<String, ({int count, DateTime nextAt})> _reconnectBackoff = {};
+  static const _reconnectThreshold = Duration(minutes: 2);
+  static const _reconnectInterval = Duration(minutes: 15);
+  static const _maxReconnectTries = 6;
+
   /// Attach the offline-delivery [MailboxService] after construction (it is
   /// built with [deliverInbound] as its drain sink, so it must exist first).
   void attachMailbox(MailboxSink mailbox) => _mailbox = mailbox;
@@ -520,6 +532,50 @@ class MessagingService {
     );
   }
 
+  /// Shared handling for a [WireKind.request] AND a [WireKind.reconnect] — both
+  /// (re-)establish consent. [status] is the sender's CURRENT contact status.
+  ///
+  /// * accepted — they re-sent because they never saw our accept (a lost accept,
+  ///   or THEY wiped + re-intro'd and we still hold them): re-send + re-stash the
+  ///   accept so the handshake completes, instead of stranding either side.
+  /// * unknown / pending — surface as a pendingIncoming intro (the greeting),
+  ///   bounded by [kMaxPreConsentIntros]; the user accepting heals delivery.
+  /// (blocked is dropped before dispatch — no "you're blocked" oracle. The sender
+  /// emits reconnect unconditionally after a no-ack threshold, so this path can't
+  /// tell whether the peer was merely offline or actually wiped — by design.)
+  Future<void> _handleRequestOrReconnect(
+    InboundMessage m,
+    WireEnvelope env,
+    ContactStatus? status,
+  ) async {
+    if (status == ContactStatus.accepted) {
+      final accept = const WireEnvelope.accept().encode();
+      await _send(m.src, accept);
+      _stashed.remove('accept:${m.src.hex}'); // force a fresh deposit
+      await _maybeStash(m.src, 'accept:${m.src.hex}', accept);
+      return;
+    }
+    await _setStatus(m.src, ContactStatus.pendingIncoming);
+    if (env.body.isNotEmpty &&
+        !(env.id != null &&
+            await _storage.isMessageDeleted(m.src.hex, env.id!))) {
+      // Bound pre-consent intros: a hostile peer minting a fresh id per
+      // request/reconnect would otherwise pile up unbounded greetings before we
+      // ever accept. Evict the oldest down to the cap, keeping the most recent.
+      await _capPreConsentIntros(m.src, env.id);
+      // Store the greeting under its id so a later outbox re-send of the same
+      // greeting (as a WireKind.message) dedups instead of creating a second copy.
+      await _store(
+        m.src,
+        MessageDirection.incoming,
+        env.body,
+        MessageStatus.delivered,
+        id: env.id,
+        timestamp: _wireSentAt(env),
+      );
+    }
+  }
+
   /// Serializes inbound handling. The stream listener ([start]) does NOT await
   /// our async handler, and [deliverInbound] (mailbox drain) feeds the SAME
   /// path, so without this two frames interleave at their `await` points. That
@@ -560,41 +616,7 @@ class MessagingService {
 
     switch (env.kind) {
       case WireKind.request:
-        // Self-healing accept: a peer who re-sends a request is one who never
-        // saw our accept (it was lost — e.g. their rendezvous ad wasn't
-        // resolvable when we first accepted). Re-send + re-stash the accept so
-        // the consent handshake completes on their resend, instead of stranding
-        // them on "waiting" forever. (Accepts, unlike requests, aren't in the
-        // outbox, so without this a lost accept is never retried.)
-        if (existing?.status == ContactStatus.accepted) {
-          final accept = const WireEnvelope.accept().encode();
-          await _send(m.src, accept);
-          _stashed.remove('accept:${m.src.hex}'); // force a fresh deposit
-          await _maybeStash(m.src, 'accept:${m.src.hex}', accept);
-          return;
-        }
-        await _setStatus(m.src, ContactStatus.pendingIncoming);
-        if (env.body.isNotEmpty &&
-            !(env.id != null &&
-                await _storage.isMessageDeleted(m.src.hex, env.id!))) {
-          // Bound pre-consent intros: a hostile peer minting a fresh id per
-          // request would otherwise pile up unbounded greetings before we ever
-          // accept. Evict the oldest down to the cap, keeping the most recent.
-          // Only when this is a NEW id (a same-id re-send overwrites in place).
-          await _capPreConsentIntros(m.src, env.id);
-          // Store the greeting under the REQUEST's id so a later outbox re-send
-          // of the same greeting (as a WireKind.message) dedups instead of
-          // creating a second copy. Skip if we already deleted this id (don't
-          // resurrect, same as the message case).
-          await _store(
-            m.src,
-            MessageDirection.incoming,
-            env.body,
-            MessageStatus.delivered,
-            id: env.id,
-            timestamp: _wireSentAt(env),
-          );
-        }
+        await _handleRequestOrReconnect(m, env, existing?.status);
       case WireKind.accept:
         // Only honour an accept for a request we actually sent.
         if (existing?.status == ContactStatus.pendingOutgoing) {
@@ -678,6 +700,8 @@ class MessagingService {
         final ackId = env.id;
         if (ackId != null) {
           _retryBackoff.remove(ackId); // stop backing off a delivered message
+          // The peer is reachable + still holds us — reset any reconnect attempt.
+          _reconnectBackoff.remove(m.src.hex);
           // Idempotent: the peer's drain re-acks every cycle until its relay
           // blob ages out, so duplicate acks arrive in a storm. Mark delivered +
           // log + write storage only ONCE per id — re-doing it on every dup was
@@ -768,6 +792,14 @@ class MessagingService {
         final nack = parseFileNack(env.body);
         await _handleFileNack(m.src, nack.transferId, nack.missing);
         return;
+      case WireKind.reconnect:
+        // "We were connected — re-establish." Treated exactly like a request: a
+        // peer who wiped its chat data (Case-A) no longer holds us, so our normal
+        // messages/beacons hit its consent gate and drop; this re-intros us so it
+        // can re-accept. Disambiguated by OUR state in _handleRequestOrReconnect
+        // (accepted→re-ack; unknown/pending→pending intro; blocked→already
+        // dropped). Falls through to _signal() so the pending surfaces in the UI.
+        await _handleRequestOrReconnect(m, env, existing?.status);
       case WireKind.unknown:
         // A structured (v:2) frame from a NEWER build whose kind we don't know —
         // the decoder already mapped it to this drop sentinel (RULE WC). Ignore.
@@ -1094,9 +1126,13 @@ class MessagingService {
     // Consent gate — only free-message an accepted contact.
     final contact = await _storage.getContact(dst);
     if (contact == null || contact.status != ContactStatus.accepted) return;
+    // A fresh message → give the peer a fresh reconnect cycle (don't let a new
+    // send inherit a maxed-out backoff and get marked failed prematurely).
+    _reconnectBackoff.remove(dst.hex);
     // One send time, used for BOTH our stored copy and the wire `sentAtMs`, so
-    // both ends order this message identically.
-    final sentAt = DateTime.now();
+    // both ends order this message identically. From the service clock ([_now])
+    // so the reconnect age check (and tests) share one timeline.
+    final sentAt = _now();
     final stored = await _store(
       dst,
       MessageDirection.outgoing,
@@ -1148,13 +1184,17 @@ class MessagingService {
       // of the mailbox backoff below. The first tick after a (re)connect fires
       // immediately (no throttle entry yet), so reconnect triggers reconciliation.
       unawaited(_sendSyncTo(conv.peer.nodeId));
+      final msgs = await _storage.loadMessages(conv.id);
+      // Bounded reconnect + terminal "not delivered" (§15.7). Runs BEFORE the
+      // resolve-backoff `continue` below so even a never-resolving peer's messages
+      // eventually terminate at failed instead of retrying forever.
+      await _maybeReconnect(conv.peer.nodeId, msgs);
       // Ghost give-up: a contact whose mailbox seal keeps failing
       // `PeerUnresolved` (a dead/old identity) is backed off per-peer, so we stop
       // re-sending to it every 3s forever. Escalating + non-permanent — the next
       // allowed tick retries, so a peer that resolves again still gets delivered.
       final pb = _peerUnresolvedBackoff[conv.peer.nodeId.hex];
       if (pb != null && DateTime.now().isBefore(pb.nextAt)) continue;
-      final msgs = await _storage.loadMessages(conv.id);
       for (final m in msgs) {
         if (m.direction == MessageDirection.outgoing &&
             m.status == MessageStatus.sent &&
@@ -1211,6 +1251,55 @@ class MessagingService {
         }
       }
     }
+  }
+
+  /// Bounded reconnect handshake (§15.7) for one peer. [msgs] is that peer's
+  /// conversation. If a message has stayed un-acked past [_reconnectThreshold],
+  /// the peer may have wiped its chat data and forgotten us — send a re-intro
+  /// ([WireKind.reconnect]) so it can re-accept; BOUNDED to [_maxReconnectTries]
+  /// every [_reconnectInterval]. After the bound, the stuck messages flip to
+  /// [MessageStatus.failed] ("not delivered") so they stop retrying forever (the
+  /// gap-fill can still heal them later if the peer returns). Nothing stuck →
+  /// reset. (Offline-vs-wiped is indistinguishable — no presence oracle; an
+  /// online accepted peer just re-acks the reconnect, harmless.)
+  Future<void> _maybeReconnect(NodeId peer, List<Message> msgs) async {
+    final now = _now();
+    final stuck = [
+      for (final m in msgs)
+        if (m.direction == MessageDirection.outgoing &&
+            m.status == MessageStatus.sent &&
+            !_delivered.contains(m.id) &&
+            now.difference(m.timestamp) > _reconnectThreshold)
+          m,
+    ];
+    if (stuck.isEmpty) {
+      _reconnectBackoff.remove(peer.hex); // delivering fine → reset
+      return;
+    }
+    final rb = _reconnectBackoff[peer.hex];
+    if ((rb?.count ?? 0) >= _maxReconnectTries) {
+      // Give up: terminal "not delivered". Stops the outbox retry (status no
+      // longer `sent`); a later gap-fill beacon can still recover it.
+      for (final m in stuck) {
+        await _storage.markMessageStatus(peer.hex, m.id, MessageStatus.failed);
+      }
+      _signal();
+      return;
+    }
+    if (rb != null && now.isBefore(rb.nextAt)) return; // within the interval
+    // Re-intro with an empty greeting — the contact only needs to surface as a
+    // pending intro on a peer that forgot us; the user accepting heals delivery.
+    final wire = const WireEnvelope.reconnect('').encode();
+    await _send(peer, wire);
+    final id = 'reconnect:${peer.hex}';
+    _stashed.remove(id); // allow a fresh deposit each attempt
+    unawaited(_maybeStash(peer, id, wire));
+    _reconnectBackoff[peer.hex] = (
+      count: (rb?.count ?? 0) + 1,
+      nextAt: now.add(_reconnectInterval),
+    );
+    devLog(() => 'xVeil[reconnect]: -> ${peer.short} '
+        'try=${(rb?.count ?? 0) + 1}/$_maxReconnectTries');
   }
 
   /// Send an event-log gap-fill beacon ([WireKind.sync]) to [peer] over the LIVE
