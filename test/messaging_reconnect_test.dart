@@ -117,9 +117,9 @@ void main() {
     final id = (await sA.loadMessages(b.hex)).single.id;
     expect((await sA.loadMessages(b.hex)).single.status, MessageStatus.sent);
 
-    // Drive the bounded reconnect: each flush past the interval is one attempt;
-    // after the cap the message terminates at failed. (7 = 6 attempts + the
-    // give-up flush.)
+    // Drive the bounded reconnect: each flush past the interval re-intros; once
+    // THIS message's own age passes the give-up window (90min) it terminates at
+    // failed. 8 × 16min = 128min comfortably exceeds it.
     for (var i = 0; i < 8; i++) {
       clock = clock.add(const Duration(minutes: 16));
       await mA.flushOutbox();
@@ -127,7 +127,41 @@ void main() {
     }
 
     expect((await sA.loadMessages(b.hex)).single.status, MessageStatus.failed,
-        reason: 'gave up after the bounded reconnect → not delivered');
+        reason: 'gave up after the per-message bound → not delivered');
+  });
+
+  test('a steady drip of NEW sends to a dead peer does NOT keep an old '
+      'undelivered message alive forever (give-up is per-message age)', () async {
+    final a = _id(1), b = _id(2);
+    var clock = DateTime(2026, 1, 1, 12);
+    final tA = _Link(a);
+    final sA = HiddenVolumeStorage(_memOpener());
+    await sA.open(password: 'a', createIfMissing: true);
+    await sA.upsertContact(Contact(nodeId: b, status: ContactStatus.accepted));
+    final mA = MessagingService(tA, sA, now: () => clock)..start();
+    addTearDown(mA.dispose);
+    tA.drop = true; // B never acks
+
+    await mA.sendText(b, 'the FIRST message (must eventually fail)');
+    await _settle();
+    final firstId = (await sA.loadMessages(b.hex)).single.id;
+
+    // Keep sending fresh messages every 16 min — under a shared per-peer counter
+    // this would reset the budget forever and `firstId` would never terminate.
+    for (var i = 0; i < 8; i++) {
+      clock = clock.add(const Duration(minutes: 16));
+      await mA.sendText(b, 'drip $i');
+      await mA.flushOutbox();
+      await _settle();
+    }
+
+    final msgs = await sA.loadMessages(b.hex);
+    final first = msgs.firstWhere((m) => m.id == firstId);
+    expect(first.status, MessageStatus.failed,
+        reason: 'the old message gave up on its OWN age despite newer sends');
+    // A just-sent message is still within its own window → not falsely failed.
+    expect(msgs.last.status, MessageStatus.sent,
+        reason: 'a fresh send is not dragged down by the old failure');
   });
 
   test('an ack before the bound resets the reconnect cycle (no false failure)',
