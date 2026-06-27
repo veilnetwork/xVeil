@@ -16,13 +16,14 @@ set -euo pipefail
 
 PROFILE="${1:-debug}"
 case "$PROFILE" in
-  debug) APP_SUBDIR="Debug" ;;
-  release) APP_SUBDIR="Release" ;;
+  debug) APP_SUBDIR="Debug"; ENTITLEMENTS="DebugProfile.entitlements" ;;
+  release) APP_SUBDIR="Release"; ENTITLEMENTS="Release.entitlements" ;;
   *) echo "usage: $0 [debug|release]" >&2; exit 2 ;;
 esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP="$ROOT/build/macos/Build/Products/$APP_SUBDIR/xveil.app"
+ENT="$ROOT/macos/Runner/$ENTITLEMENTS"
 [ -d "$APP" ] || { echo "no .app at $APP — build first" >&2; exit 1; }
 
 HV="$ROOT/third_party/hidden-volume/target/$PROFILE/libhidden_volume_ffi.dylib"
@@ -49,8 +50,11 @@ ls -la "$APP/Contents/Frameworks/" | grep -E 'hidden_volume|veilclient'
 # Signature Invalid". Re-sign the whole bundle ad-hoc so the seal matches the
 # freshly-copied dylibs. Without this the app crashes the moment it loads the
 # native store.
-echo "re-signing $APP (ad-hoc, deep) after the dylib swap…"
-codesign --force --deep --sign - "$APP"
+# Re-attach the SAME entitlements flutter applied at build time — a plain
+# `--force` ad-hoc re-sign STRIPS the entitlements blob, which makes the
+# file_picker plugin throw ENTITLEMENT_NOT_FOUND (the paperclip silently failed).
+echo "re-signing $APP (ad-hoc, deep, entitlements=$ENTITLEMENTS) after the dylib swap…"
+codesign --force --deep --sign - --entitlements "$ENT" "$APP"
 codesign --verify --deep "$APP" \
   && echo "codesign OK — bundle seal matches the new dylibs" \
   || { echo "ERROR: codesign verify failed after re-sign" >&2; exit 1; }
