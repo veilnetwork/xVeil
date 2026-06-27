@@ -133,8 +133,15 @@ class NotificationService {
                 inputs: <AndroidNotificationActionInput>[
                   AndroidNotificationActionInput(label: replyHint),
                 ],
-                // Send inline without opening the app; dismiss the alert after.
-                showsUserInterface: false,
+                // MUST bring the app to the foreground (showsUserInterface:true).
+                // A deniable app keeps its unlocked container + the node in the
+                // MAIN isolate; with showsUserInterface:false a reply tapped while
+                // backgrounded is delivered to a separate BACKGROUND isolate that
+                // cannot reach either, so the reply is silently lost (the spinner
+                // just hangs). Foregrounding routes the response to the main-
+                // isolate handler ([onDidReceiveNotificationResponse]) where the
+                // send actually works.
+                showsUserInterface: true,
                 cancelNotification: true,
               ),
             ]
