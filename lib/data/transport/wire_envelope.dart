@@ -22,6 +22,12 @@ import 'dart:typed_data';
 /// - [fileNack]: the receiver's reply to a probe/transfer (body = JSON
 ///   {tid, m:[missing indices]}); `m` ABSENT means "send me everything" (a
 ///   receiver that holds no chunk yet, so it can't name them).
+/// - [reconnect]: "we were connected — please re-establish" (body = greeting).
+///   Sent when a message stays un-acked past a threshold (the peer may have
+///   wiped its chat data and forgotten us, so our messages hit its consent gate
+///   and drop). The receiver disambiguates by its OWN state — accepted → re-ack;
+///   unknown/pending → surface as a pending re-intro; blocked → drop silently.
+///   Offline-vs-wiped is deliberately indistinguishable (no presence oracle).
 /// - [unknown]: a DECODE-ONLY sentinel for a structured (v:2) frame from a NEWER
 ///   build whose kind this build doesn't know — the dispatcher drops it instead
 ///   of rendering it as chat text (RULE WC). NEVER encoded onto the wire.
@@ -41,6 +47,7 @@ enum WireKind {
   voidSeq,
   fileQuery,
   fileNack,
+  reconnect,
   unknown,
 }
 
@@ -92,6 +99,12 @@ class WireEnvelope {
   /// Inert seq placeholder (R-VOID): advances the peer's high-water past a
   /// deleted/superseded slot at [seq] with NO id/body (§12.1 — no oracle).
   const WireEnvelope.voidSeq(int seq) : this(WireKind.voidSeq, '', seq: seq);
+
+  /// "We were connected — please re-establish" (body = optional greeting). Sent
+  /// when a message stays un-acked past a threshold; the receiver re-intros it if
+  /// it no longer holds us as a contact (recovery handshake, §15.7).
+  const WireEnvelope.reconnect(String greeting)
+      : this(WireKind.reconnect, greeting);
 
   /// The decode-only sentinel for a structured (v:2) frame whose kind this build
   /// does not know — the dispatcher drops it (RULE WC).
