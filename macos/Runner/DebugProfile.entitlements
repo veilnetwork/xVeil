@@ -18,5 +18,12 @@
 	<true/>
 	<key>com.apple.security.network.server</key>
 	<true/>
+	<!-- Required by the file_picker macOS plugin (NSOpenPanel/NSSavePanel): it
+	     errors with PlatformException(ENTITLEMENT_NOT_FOUND) unless a
+	     files.user-selected entitlement is present — EVEN with the sandbox off.
+	     Without it, tapping the paperclip threw and nothing happened. Release
+	     already has this key. -->
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
 </dict>
 </plist>
