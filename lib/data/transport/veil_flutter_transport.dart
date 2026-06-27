@@ -155,6 +155,24 @@ class VeilFlutterTransport implements VeilTransport {
   Future<void> sendReply(int replyId, Uint8List payload) =>
       _app.sendReply(replyId: replyId, data: payload);
 
+  /// Open a reliable, flow-controlled byte-stream to [dst]'s chat endpoint — the
+  /// transport for any-size file transfer (Stage 6). Same app_id/endpoint as a
+  /// message, so it lands on the peer's bound chat endpoint accept queue.
+  Future<VeilStream> openStream(NodeId dst) => _app.openStream(
+        dstNodeId: dst.bytes,
+        dstAppId: chatAppIdFor(dst),
+        dstEndpointId: veilChatEndpointId,
+      );
+
+  /// Accept the next inbound stream a peer opened to our chat endpoint, or null
+  /// on [timeout] (so a server loop polls). The receive side of file streaming.
+  Future<({VeilStream stream, NodeId src})?> acceptStream(
+      {Duration timeout = const Duration(seconds: 2)}) async {
+    final r = await _app.acceptStream(timeout: timeout);
+    if (r == null) return null;
+    return (stream: r.stream, src: NodeId(r.srcNodeId));
+  }
+
   @override
   Stream<InboundMessage> messages() => _app.messages().map(
         (m) => InboundMessage(
