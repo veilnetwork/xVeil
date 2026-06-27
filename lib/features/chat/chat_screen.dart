@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/format.dart';
 import '../../core/ids.dart';
+import '../../core/log.dart';
 import 'chat_actions.dart';
 import '../../domain/chat.dart';
 import '../../l10n/app_localizations.dart';
@@ -150,15 +151,37 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// enforces.
   Future<void> _attach() async {
     final l = AppL10n.of(context);
-    final picked = await FilePicker.pickFiles(withData: true);
+    // Do NOT force `withData: true`. On Android the picker then tries to load
+    // the whole file into a Uint8List up-front, which returns `bytes == null`
+    // for large files / SAF content URIs (and risks OOM). Take the cached path
+    // and read it ourselves; fall back to `bytes` for platforms with no path
+    // (web). The old code did `if (bytes == null) return` SILENTLY — the file
+    // just never attached with no feedback ("перестал прикрепляться").
+    final picked = await FilePicker.pickFiles();
     final file = picked?.files.firstOrNull;
-    final bytes = file?.bytes;
-    if (file == null || bytes == null) return; // cancelled / unreadable
-    if (bytes.length > kMaxIncomingFileBytes) {
+    if (file == null) return; // cancelled
+    Uint8List? bytes = file.bytes;
+    if (bytes == null && file.path != null) {
+      try {
+        bytes = await File(file.path!).readAsBytes();
+      } catch (e) {
+        devLog(() => 'xVeil[attach]: read failed ${file.name} '
+            'path=${file.path}: $e');
+      }
+    }
+    if (bytes == null) {
+      devLog(() => 'xVeil[attach]: ${file.name} UNREADABLE '
+          '(path=${file.path}, size=${file.size}) — no bytes, nothing sent');
+      if (mounted) _snack(l.chatFileUnreadable);
+      return;
+    }
+    final data = bytes; // promoted non-null for the closures below
+    devLog(() => 'xVeil[attach]: ${file.name} size=${data.length} -> sendFile');
+    if (data.length > kMaxIncomingFileBytes) {
       if (mounted) _snack(l.chatFileTooLarge);
       return;
     }
-    await ref.read(messagingServiceProvider).sendFile(_peer, bytes, file.name);
+    await ref.read(messagingServiceProvider).sendFile(_peer, data, file.name);
     _scrollToBottom(force: true);
   }
 

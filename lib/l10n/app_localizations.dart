@@ -511,6 +511,12 @@ abstract class AppL10n {
   /// **'File is too large'**
   String get chatFileTooLarge;
 
+  /// No description provided for @chatFileUnreadable.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t read the file'**
+  String get chatFileUnreadable;
+
   /// No description provided for @chatMsgEdit.
   ///
   /// In en, this message translates to:
