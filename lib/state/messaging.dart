@@ -830,6 +830,14 @@ class MessagingService {
         devLog(() => 'xVeil[recv]: fileStream announce '
             '${parseFileMeta(env.body).transferId} — receive not yet wired');
         return;
+      case WireKind.contentManifest:
+      case WireKind.pieceRequest:
+      case WireKind.pieceChunk:
+        // Content layer (decentralized, hash-verified piece transfer). The
+        // advertise→request→serve→verify→reassemble state machine is wired in the
+        // next sub-stage; consent-gated, dropped here for now.
+        if (existing?.status != ContactStatus.accepted) return;
+        return;
       case WireKind.unknown:
         // A structured (v:2) frame from a NEWER build whose kind we don't know —
         // the decoder already mapped it to this drop sentinel (RULE WC). Ignore.
