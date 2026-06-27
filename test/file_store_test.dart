@@ -10,6 +10,10 @@ Uint8List _bytes(int n) {
   return Uint8List.fromList(List.generate(n, (_) => r.nextInt(256)));
 }
 
+/// Deterministic, fast (no per-byte RNG) — for the multi-MiB cases.
+Uint8List _patterned(int n) =>
+    Uint8List.fromList(List.generate(n, (i) => (i * 31 + 7) % 256));
+
 void main() {
   late FileStore store;
   setUp(() => store = FileStore(FakeKvLogStore()));
@@ -39,5 +43,30 @@ void main() {
   test('unknown file id returns null', () {
     expect(store.loadFile('nope'), isNull);
     expect(store.metadata('nope'), isNull);
+  });
+
+  test('stores + reloads a multi-MiB file (chunks split across many commits)',
+      () {
+    // ~3 MB ⇒ ~375 store-records. A single commit caps at ~1 MiB / 1024 records,
+    // so before the multi-commit fix this overflowed one batch and the real
+    // store threw PayloadTooLarge ("payload exceeds chunk capacity"). The blob
+    // must round-trip identically once reassembled from every commit.
+    final data = _patterned(3 * 1000 * 1000);
+    store.storeFile('big', data, name: 'video.bin');
+    expect(store.loadFile('big'), data);
+    expect(store.metadata('big')!.size, data.length);
+  });
+
+  test('rejects a file over the storage cap; a file exactly at the cap is fine',
+      () {
+    // The cap is the atomic-delete ceiling (≤1024 records × 8 KiB): a stored file
+    // must be deletable in one commit so a deleted blob can't linger half-scrubbed.
+    final tooBig = Uint8List(kMaxStoredFileBytes + 1);
+    expect(() => store.storeFile('huge', tooBig),
+        throwsA(isA<ArgumentError>()),
+        reason: 'over-cap blob is rejected up-front, not stored');
+    final atCap = Uint8List(kMaxStoredFileBytes);
+    store.storeFile('atcap', atCap);
+    expect(store.loadFile('atcap')!.length, kMaxStoredFileBytes);
   });
 }
