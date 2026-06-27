@@ -119,14 +119,16 @@ final notificationServiceProvider = Provider<NotificationService>((ref) {
       }
     },
     onReply: (payload, text) {
-      // Deliver an inline (notification) reply through the active identity's
-      // node. Reachable only while the app / keep-alive service is running (the
-      // unlocked container lives in this isolate). Sends from the ACTIVE
-      // identity — the common single-identity case; a reply to a notification
-      // from a since-switched identity would go from the wrong one.
+      // A notification reply (showsUserInterface:true) foregrounds the app and
+      // lands here on the MAIN isolate, where the unlocked container + the node
+      // live, so the send actually works. Open the chat too, so the user sees
+      // their just-sent message. Sends from the ACTIVE identity (the common
+      // single-identity case; a reply from a since-switched identity would go
+      // from the wrong one).
       try {
         final peer = NodeId.fromHex(payload);
         unawaited(ref.read(messagingServiceProvider).sendText(peer, text));
+        ref.read(routerProvider).go('/chat/$payload');
       } catch (e) {
         devLog(() => 'xVeil[notify]: inline reply failed: $e');
       }
