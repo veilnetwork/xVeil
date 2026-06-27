@@ -751,6 +751,26 @@ void main() {
     expect(await storage.loadFile('blob1'), isNull); // blob gone, not just row
   });
 
+  test('concurrent file stores do not collide (serialized log-id allocation)',
+      () async {
+    // Sending a file while an inbound one completes drives two storeFile calls at
+    // once. Each reads file_next_log, appends its chunks across several commits,
+    // then bumps the counter LAST — without the file gate they would read the
+    // same base and write colliding chunk log-ids, corrupting both blobs. Fire
+    // several multi-chunk stores at once and assert every blob round-trips.
+    final blobs = {
+      for (var i = 0; i < 6; i++)
+        'f$i': Uint8List.fromList(
+            List.generate(20000, (j) => (i * 97 + j) % 256)),
+    };
+    await Future.wait(
+        [for (final e in blobs.entries) storage.storeFile(e.key, e.value)]);
+    for (final e in blobs.entries) {
+      expect(await storage.loadFile(e.key), e.value,
+          reason: '${e.key} survived concurrent stores intact');
+    }
+  });
+
   test('editing a delivered message preserves its delivery status', () async {
     final conv = _id(12).hex;
     final m = _msg(

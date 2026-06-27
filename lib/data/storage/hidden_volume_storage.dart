@@ -404,9 +404,11 @@ class HiddenVolumeStorage implements Storage {
   }
 
   @override
-  Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) async {
-    await AsyncFileStore(_as).storeFile(fileId, bytes, name: name);
-  }
+  Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) =>
+      // Serialize against other stores so the multi-commit read-base/bump-last
+      // sequence can't interleave and collide chunk log-ids (see [_fileGate]).
+      _fileSerialized(
+          () => AsyncFileStore(_as).storeFile(fileId, bytes, name: name));
 
   @override
   Future<Uint8List?> loadFile(String fileId) =>
@@ -1138,6 +1140,19 @@ class HiddenVolumeStorage implements Storage {
   Future<T> _serialized<T>(Future<T> Function() body) {
     final result = _scanGate.then((_) => body());
     _scanGate = result.then((_) {}, onError: (_) {});
+    return result;
+  }
+
+  // Single-flight gate serializing file-blob stores. storeFile reads the
+  // file_next_log counter from the store, appends the chunks across SEVERAL
+  // commits, then bumps the counter LAST — so two concurrent stores (e.g. the
+  // user sending a file while an inbound one completes) could otherwise read the
+  // same base and write colliding chunk log-ids, corrupting both blobs. Kept
+  // SEPARATE from _scanGate so a multi-MiB store never blocks message scans.
+  Future<void> _fileGate = Future<void>.value();
+  Future<T> _fileSerialized<T>(Future<T> Function() body) {
+    final result = _fileGate.then((_) => body());
+    _fileGate = result.then((_) {}, onError: (_) {});
     return result;
   }
 
