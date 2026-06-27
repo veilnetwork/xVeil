@@ -135,6 +135,14 @@ void main() {
     expect(all.missing, isNull);
   });
 
+  test('a reconnect frame round-trips its greeting (+ v:2 marker)', () {
+    final raw = const WireEnvelope.reconnect('we were connected').encode();
+    final out = WireEnvelope.decode(raw);
+    expect(out.kind, WireKind.reconnect);
+    expect(out.body, 'we were connected');
+    expect((jsonDecode(utf8.decode(raw)) as Map)['v'], 2);
+  });
+
   test('a voidSeq frame round-trips its seq with no id/body', () {
     final out = WireEnvelope.decode(const WireEnvelope.voidSeq(5).encode());
     expect(out.kind, WireKind.voidSeq);
