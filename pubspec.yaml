@@ -48,6 +48,9 @@ dependencies:
   path_provider: ^2.1.5
   # Stable ids for local-only entities.
   uuid: ^4.5.1
+  # SHA-256 for content-addressing (piece + manifest hashes). The bundled
+  # blake3.dart is single-chunk (<=1 KiB) only — it can't hash multi-KiB pieces.
+  crypto: ^3.0.7
   # Non-sensitive UI prefs ONLY (theme, locale). Never secrets — those live
   # in the hidden-volume container. See doc/SECURITY-NOTES.md.
   shared_preferences: ^2.3.3
