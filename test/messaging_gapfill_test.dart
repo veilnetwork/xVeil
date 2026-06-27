@@ -22,6 +22,10 @@ class _LossyTransport implements VeilTransport {
   final _inbound = StreamController<InboundMessage>.broadcast();
   _LossyTransport? peer;
   bool drop = false;
+  // Drop fileChunk frames whose index is in this set (simulate selective chunk
+  // loss). Count fileChunk frames actually delivered (resumable-resend assert).
+  Set<int> dropChunks = {};
+  int chunkSends = 0;
 
   @override
   Future<NodeId> nodeId() async => _me;
@@ -37,6 +41,12 @@ class _LossyTransport implements VeilTransport {
   Future<void> send(NodeId dst, Uint8List payload,
       {bool anonymous = false}) async {
     if (drop) return; // live datagram lost
+    final env = WireEnvelope.decode(payload);
+    if (env.kind == WireKind.fileChunk) {
+      final frame = parseFileChunk(env.body);
+      if (dropChunks.contains(frame.index)) return; // selective chunk loss
+      chunkSends++;
+    }
     peer?._inbound.add(InboundMessage(src: _me, payload: payload));
   }
 
@@ -223,6 +233,34 @@ void main() {
     final sync = await sB.conversationSync(a.hex);
     expect(sync.highWater[a.hex], 2);
     expect(sync.holes[a.hex], isNull);
+  });
+
+  test('a PARTIALLY-received file resumes — only the MISSING chunks re-send',
+      () async {
+    await mA.sendText(b, 'hi'); // seq 1
+    await _settle();
+    // ~3 chunks at 6000 B/chunk. Drop ONLY chunk index 1 on the first push, so
+    // B holds chunks 0 and 2 but the transfer is incomplete.
+    final bytes = Uint8List.fromList(List.generate(13000, (i) => (i * 7) % 256));
+    tA.dropChunks = {1};
+    await mA.sendFile(b, bytes, 'big.bin');
+    await _settle();
+    expect((await sB.loadMessages(a.hex)).where((m) => m.isFile), isEmpty,
+        reason: 'one chunk dropped — transfer incomplete, no file message yet');
+
+    // Reconnect: B beacons → A probes (fileQuery) → B NACKs [1] → A re-sends ONLY
+    // chunk 1 (resumable), NOT the whole blob.
+    tA.dropChunks = {};
+    tA.chunkSends = 0;
+    await mB.reconcileOnConnect();
+    await _settle();
+
+    final files = (await sB.loadMessages(a.hex)).where((m) => m.isFile).toList();
+    expect(files, hasLength(1), reason: 'the file completed');
+    expect(await sB.loadFile(files.single.fileId!), bytes,
+        reason: 'blob bytes round-trip');
+    expect(tA.chunkSends, 1,
+        reason: 'resumable: only the missing chunk re-sent, not all 3');
   });
 
   test('an incoming message stores the SENDER send-time verbatim — no '
