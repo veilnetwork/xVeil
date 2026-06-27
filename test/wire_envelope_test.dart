@@ -158,6 +158,26 @@ void main() {
     expect(all.missing, isNull);
   });
 
+  test('a fileStream frame round-trips (meta-shaped, no count; carries v:2)', () {
+    final raw = fileStreamEnvelope(
+      transferId: 'big-1',
+      name: 'movie.mp4',
+      size: 50000000,
+      seq: 8,
+      sentAtMs: 1782490000000,
+    ).encode();
+    final out = WireEnvelope.decode(raw);
+    expect(out.kind, WireKind.fileStream);
+    final f = parseFileMeta(out.body); // reuses the meta body shape
+    expect(f.transferId, 'big-1');
+    expect(f.name, 'movie.mp4');
+    expect(f.size, 50000000);
+    expect(f.count, isNull, reason: 'a stream is not pre-chunked');
+    expect(f.seq, 8);
+    expect((jsonDecode(utf8.decode(raw)) as Map)['v'], 2,
+        reason: 'large-file frame drops on un-upgraded builds (RULE WC)');
+  });
+
   test('a reconnect frame round-trips its greeting (+ v:2 marker)', () {
     final raw = const WireEnvelope.reconnect('we were connected').encode();
     final out = WireEnvelope.decode(raw);

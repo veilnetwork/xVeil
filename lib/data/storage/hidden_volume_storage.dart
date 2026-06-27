@@ -669,6 +669,7 @@ class HiddenVolumeStorage implements Storage {
     if (m.edited) 'e': 1,
     if (m.fileId != null) 'fi': m.fileId,
     if (m.fileName != null) 'fn': m.fileName,
+    if (m.fileExternal) 'fx': 1, // blob in the external store, not in-container
   });
 
   Future<int> _nextLogId() async {
@@ -1371,6 +1372,7 @@ class HiddenVolumeStorage implements Storage {
         edited: m['e'] == 1,
         fileId: m['fi'] as String?,
         fileName: m['fn'] as String?,
+        fileExternal: m['fx'] == 1,
         author: m['au'] as String?,
         seq: m['sq'] as int?,
       );
