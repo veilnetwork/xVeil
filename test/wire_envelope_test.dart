@@ -186,6 +186,49 @@ void main() {
     expect((jsonDecode(utf8.decode(raw)) as Map)['v'], 2);
   });
 
+  test('content-layer frames round-trip (manifest / pieceRequest / pieceChunk)',
+      () {
+    // contentManifest carries the manifest JSON verbatim.
+    final cm = WireEnvelope.decode(
+        contentManifestEnvelope('{"id":"abc","name":"x"}').encode());
+    expect(cm.kind, WireKind.contentManifest);
+    expect(cm.body, '{"id":"abc","name":"x"}');
+
+    // pieceRequest: specific indices, and "all" (absent).
+    final some = parsePieceRequest(WireEnvelope.decode(
+            pieceRequestEnvelope(contentId: 'c1', indices: [2, 5]).encode())
+        .body);
+    expect(some.contentId, 'c1');
+    expect(some.indices, [2, 5]);
+    final all = parsePieceRequest(WireEnvelope.decode(
+            pieceRequestEnvelope(contentId: 'c1', indices: null).encode())
+        .body);
+    expect(all.indices, isNull);
+
+    // pieceChunk: (piece, chunk) coordinates + data.
+    final pc = parsePieceChunk(WireEnvelope.decode(pieceChunkEnvelope(
+      contentId: 'c1',
+      pieceIndex: 3,
+      chunkIndex: 7,
+      chunkCount: 64,
+      data: Uint8List.fromList([1, 2, 3, 4]),
+    ).encode()).body);
+    expect(pc.contentId, 'c1');
+    expect(pc.pieceIndex, 3);
+    expect(pc.chunkIndex, 7);
+    expect(pc.chunkCount, 64);
+    expect(pc.data, [1, 2, 3, 4]);
+    // All three carry v:2 → un-upgraded builds drop them (RULE WC).
+    for (final e in [
+      contentManifestEnvelope('{}'),
+      pieceRequestEnvelope(contentId: 'c', indices: null),
+      pieceChunkEnvelope(
+          contentId: 'c', pieceIndex: 0, chunkIndex: 0, chunkCount: 1, data: Uint8List(1)),
+    ]) {
+      expect((jsonDecode(utf8.decode(e.encode())) as Map)['v'], 2);
+    }
+  });
+
   test('a voidSeq frame round-trips its seq with no id/body', () {
     final out = WireEnvelope.decode(const WireEnvelope.voidSeq(5).encode());
     expect(out.kind, WireKind.voidSeq);

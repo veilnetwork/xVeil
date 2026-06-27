@@ -49,6 +49,9 @@ enum WireKind {
   fileNack,
   reconnect,
   fileStream,
+  contentManifest,
+  pieceRequest,
+  pieceChunk,
   unknown,
 }
 
@@ -237,6 +240,78 @@ FileMetaFrame parseFileMeta(String body) {
     count: j['count'] is int ? j['count'] as int : null,
     seq: j['seq'] is int ? j['seq'] as int : null,
     sentAtMs: j['s'] is int ? j['s'] as int : null,
+  );
+}
+
+// ── Content layer (decentralized, hash-verified file transfer §CONTENT) ──────
+
+/// Advertise a content manifest (the "torrent file"). [manifestJson] is
+/// [ContentManifest.toJson]'d — it carries the self-authenticating contentId, so
+/// the receiver verifies it on arrival and then requests pieces. Sized to fit
+/// one datagram (adaptive piece size keeps the manifest small).
+WireEnvelope contentManifestEnvelope(String manifestJson) =>
+    WireEnvelope(WireKind.contentManifest, manifestJson);
+
+/// Request pieces of a content the receiver lacks: body `{cid, idx:[indices]}`;
+/// `idx` ABSENT means "all pieces". Re-sent for the pieces still missing/failed.
+typedef PieceRequestFrame = ({String contentId, List<int>? indices});
+
+WireEnvelope pieceRequestEnvelope({
+  required String contentId,
+  required List<int>? indices,
+}) =>
+    WireEnvelope(
+      WireKind.pieceRequest,
+      jsonEncode({'cid': contentId, if (indices != null) 'idx': indices}),
+    );
+
+PieceRequestFrame parsePieceRequest(String body) {
+  final j = jsonDecode(body) as Map<String, dynamic>;
+  final idx = j['idx'];
+  return (
+    contentId: j['cid'] as String,
+    indices: idx is List ? idx.whereType<int>().toList() : null,
+  );
+}
+
+/// One wire chunk of one PIECE: body `{cid, p:pieceIdx, c:chunkIdx, n:chunkCount,
+/// d:base64}`. A piece is split into chunks small enough to fit the auth_deliver
+/// cap; the receiver reassembles a piece from its chunks, then verifies the
+/// piece against the manifest hash and re-requests on failure.
+typedef PieceChunkFrame = ({
+  String contentId,
+  int pieceIndex,
+  int chunkIndex,
+  int chunkCount,
+  Uint8List data,
+});
+
+WireEnvelope pieceChunkEnvelope({
+  required String contentId,
+  required int pieceIndex,
+  required int chunkIndex,
+  required int chunkCount,
+  required Uint8List data,
+}) =>
+    WireEnvelope(
+      WireKind.pieceChunk,
+      jsonEncode({
+        'cid': contentId,
+        'p': pieceIndex,
+        'c': chunkIndex,
+        'n': chunkCount,
+        'd': base64.encode(data),
+      }),
+    );
+
+PieceChunkFrame parsePieceChunk(String body) {
+  final j = jsonDecode(body) as Map<String, dynamic>;
+  return (
+    contentId: j['cid'] as String,
+    pieceIndex: j['p'] as int,
+    chunkIndex: j['c'] as int,
+    chunkCount: j['n'] as int,
+    data: base64.decode(j['d'] as String),
   );
 }
 
