@@ -1658,6 +1658,12 @@ class MessagingService {
   Future<void> sendFile(NodeId dst, Uint8List bytes, String name) async {
     final contact = await _storage.getContact(dst);
     if (contact == null || contact.status != ContactStatus.accepted) return;
+    // Large files take the content layer (hash-verified pieces over datagrams —
+    // the path that actually crosses NAT) instead of the per-chunk fileMeta push.
+    if (bytes.length > _contentThreshold) {
+      await _sendAsContent(dst, bytes, name);
+      return;
+    }
     // Backstop the storage ceiling: the UI pre-checks the same bound and shows a
     // friendly error, but a direct caller must not drive storeFile past its
     // atomic-delete cap (which throws). Drop silently here — the UI owns the UX.
@@ -1862,6 +1868,9 @@ class MessagingService {
   final Duration _contentReRequestInterval;
   static const _contentChunkBytes = 4000; // wire chunk per piece (fits 6144 cap)
   static const _contentPacing = Duration(milliseconds: 4); // per-chunk anti-burst
+  /// Files larger than this go via the content layer (hash-verified pieces over
+  /// the NAT-traversing datagram path) instead of the per-chunk fileMeta push.
+  static const _contentThreshold = 1024 * 1024; // 1 MiB
 
   /// Piece size that keeps the manifest inside one datagram (≤ ~70 pieces — the
   /// hex piece-hash list dominates the manifest JSON).
@@ -1875,9 +1884,12 @@ class MessagingService {
 
   /// Offer [bytes] as a content transfer to [dst]: build the manifest, serve it,
   /// advertise it. The receiver pulls the pieces it lacks (verified by hash).
-  Future<void> sendContent(NodeId dst, Uint8List bytes, String name) async {
+  /// Returns the contentId (used as the chat file-message id, content-addressed).
+  Future<String> sendContent(NodeId dst, Uint8List bytes, String name) async {
     final contact = await _storage.getContact(dst);
-    if (contact == null || contact.status != ContactStatus.accepted) return;
+    if (contact == null || contact.status != ContactStatus.accepted) {
+      return ContentManifest.fromBytes(name, bytes).contentId;
+    }
     final manifest = ContentManifest.fromBytes(name, bytes,
         pieceSize: _adaptivePieceSize(bytes.length));
     _serving[manifest.contentId] = (manifest: manifest, bytes: bytes);
@@ -1886,6 +1898,23 @@ class MessagingService {
         contentManifestEnvelope(jsonEncode(manifest.toJson())).encode());
     devLog(() => 'xVeil[content]: advertise ${manifest.contentId.substring(0, 12)} '
         '(${manifest.pieceCount} pieces) -> ${dst.short}');
+    return manifest.contentId;
+  }
+
+  /// Send a LARGE file via the content layer, recorded as an outgoing file
+  /// message keyed by its contentId (content-addressed → idempotent re-send).
+  Future<void> _sendAsContent(NodeId dst, Uint8List bytes, String name) async {
+    final cid = await sendContent(dst, bytes, name);
+    if (await _hasMessage(dst, cid)) return; // already sent this exact content
+    final fileId = _uuid.v4();
+    try {
+      await _storage.storeFile(fileId, bytes, name: name);
+    } catch (e) {
+      devLog(() => 'xVeil[content]: local store failed for $name: $e');
+    }
+    await _store(dst, MessageDirection.outgoing, '📎 $name', MessageStatus.sent,
+        fileId: fileId, fileName: name, id: cid, timestamp: _now());
+    _signal();
   }
 
   Future<void> _onContentManifest(NodeId peer, String body) async {
@@ -1950,10 +1979,34 @@ class MessagingService {
     _fetching.remove(f.contentId);
     devLog(() => 'xVeil[content]: COMPLETE ${f.contentId.substring(0, 12)} '
         '(${bytes.length}B) verified');
+    await _persistReceivedContent(fetch.peer, f.contentId, fetch.name, bytes);
     if (!_contentReceived.isClosed) {
       _contentReceived
           .add((contentId: f.contentId, name: fetch.name, bytes: bytes));
     }
+  }
+
+  /// Persist a completed content transfer + surface it as an incoming file
+  /// message (id == contentId, so a re-delivery dedups + a deleted content
+  /// never resurrects). v1 stores in-container (≤ the atomic-delete cap); the
+  /// external encrypted store for truly large blobs is the next step.
+  Future<void> _persistReceivedContent(
+      NodeId peer, String contentId, String name, Uint8List bytes) async {
+    if (await _hasMessage(peer, contentId) ||
+        await _storage.isMessageDeleted(peer.hex, contentId)) {
+      return; // already have it / deliberately deleted
+    }
+    final fileId = _uuid.v4();
+    try {
+      await _storage.storeFile(fileId, bytes, name: name);
+    } catch (e) {
+      devLog(() => 'xVeil[content]: recv store failed for $name: $e');
+      return; // (over the in-container cap — external store handles big blobs)
+    }
+    await _store(peer, MessageDirection.incoming, '📎 $name',
+        MessageStatus.delivered,
+        fileId: fileId, fileName: name, id: contentId, timestamp: _now());
+    _emitIncoming(peer, '📎 $name', isFile: true);
   }
 
   void _ensureContentTimer() {
