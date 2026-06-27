@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -201,12 +202,14 @@ void main() {
     }
   }, skip: skipReason);
 
-  // A multi-MiB file on a REAL container. storeFile splits the blob across many
-  // commits because one commit (DataBatch) caps at ~1 MiB / 1024 records — a
-  // single-commit store threw HvException.PayloadTooLarge ("payload exceeds
-  // chunk capacity") for anything over ~1 MB, which is exactly what silently
-  // broke attaching a phone photo. The blob must round-trip + verify clean.
-  test('stores + reloads a multi-MiB file on a real container (multi-commit)',
+  // A multi-MiB INCOMPRESSIBLE file on a REAL container — the case a phone photo
+  // hits. Each ~4 KiB container chunk holds one ≤3800-byte record; an 8 KiB
+  // record (the old chunk size) could NOT be placed in a 4 KiB chunk even after
+  // the store's auto-split (which can't divide below one record) → it threw
+  // HvException.PayloadTooLarge. CRITICAL: the data must be RANDOM — compressible
+  // data zstd-crushes under PAYLOAD_CAP and hides the bug (an earlier patterned
+  // test passed falsely).
+  test('stores + reloads a multi-MiB INCOMPRESSIBLE file on a real container',
       () async {
     final dir = Directory.systemTemp.createTempSync('xveil_hv_bigfile_');
     final path = '${dir.path}/test.store';
@@ -220,12 +223,17 @@ void main() {
           HiddenVolumeStorage(({required password, required create}) => store);
       await storage.open(password: 'pw', createIfMissing: true);
 
-      // ~3 MiB — comfortably over the old ~1 MB single-commit ceiling.
+      // ~3 MiB of RANDOM bytes (incompressible, like a JPEG) — ~790 records.
+      final rnd = Random(1234);
       final data =
-          Uint8List.fromList(List.generate(3000000, (i) => (i * 7 + 3) % 256));
-      await storage.storeFile('big', data, name: 'photo.bin');
+          Uint8List.fromList(List.generate(3000000, (_) => rnd.nextInt(256)));
+      final sw = Stopwatch()..start();
+      await storage.storeFile('big', data, name: 'photo.jpg');
+      sw.stop();
+      // ignore: avoid_print
+      print('storeFile 3MB incompressible: ${sw.elapsedMilliseconds}ms');
       expect(await storage.loadFile('big'), data,
-          reason: 'multi-commit blob reassembles byte-for-byte');
+          reason: 'blob reassembles byte-for-byte');
       expect(() => space.verifyIntegrity(), returnsNormally);
 
       await storage.close();
