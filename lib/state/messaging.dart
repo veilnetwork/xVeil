@@ -820,6 +820,16 @@ class MessagingService {
         // (accepted→re-ack; unknown/pending→pending intro; blocked→already
         // dropped). Falls through to _signal() so the pending surfaces in the UI.
         await _handleRequestOrReconnect(m, env, existing?.status);
+      case WireKind.fileStream:
+        // Large-file STREAM transfer announcement (any-size feature). The blob
+        // arrives over a reliable veil stream into the external encrypted store;
+        // the receive accept-loop + size-routed send are wired in a later stage.
+        // Until then drop it gracefully — the sender's gap-fill re-announces, so
+        // no message is lost once the receive path lands.
+        if (existing?.status != ContactStatus.accepted) return;
+        devLog(() => 'xVeil[recv]: fileStream announce '
+            '${parseFileMeta(env.body).transferId} — receive not yet wired');
+        return;
       case WireKind.unknown:
         // A structured (v:2) frame from a NEWER build whose kind we don't know —
         // the decoder already mapped it to this drop sentinel (RULE WC). Ignore.
