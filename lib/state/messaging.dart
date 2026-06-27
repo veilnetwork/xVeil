@@ -16,6 +16,8 @@ import '../data/transport/veil_flutter_transport.dart';
 import '../data/transport/veil_transport.dart';
 import '../data/transport/wire_envelope.dart';
 import '../domain/chat.dart';
+import '../domain/content_manifest.dart';
+import '../domain/content_transfer.dart';
 import '../domain/event.dart';
 import '../domain/file_transfer.dart';
 import 'app_controller.dart';
@@ -146,7 +148,9 @@ class MessagingService {
     this._storage, {
     this._anonymous = false,
     DateTime Function()? now,
-  }) : _now = now ?? DateTime.now;
+    Duration contentReRequestInterval = const Duration(seconds: 5),
+  })  : _now = now ?? DateTime.now,
+        _contentReRequestInterval = contentReRequestInterval;
 
   /// Wall-clock source, injectable so stale-transfer eviction is testable
   /// without real delays. Defaults to [DateTime.now].
@@ -831,12 +835,22 @@ class MessagingService {
             '${parseFileMeta(env.body).transferId} — receive not yet wired');
         return;
       case WireKind.contentManifest:
-      case WireKind.pieceRequest:
-      case WireKind.pieceChunk:
-        // Content layer (decentralized, hash-verified piece transfer). The
-        // advertise→request→serve→verify→reassemble state machine is wired in the
-        // next sub-stage; consent-gated, dropped here for now.
+        // A peer advertises a content manifest (the "torrent"): verify it,
+        // register a transfer, request the pieces we lack.
         if (existing?.status != ContactStatus.accepted) return;
+        await _onContentManifest(m.src, env.body);
+        return;
+      case WireKind.pieceRequest:
+        // A peer asks for pieces of content we serve — send the requested
+        // pieces as chunks (paced).
+        if (existing?.status != ContactStatus.accepted) return;
+        _onPieceRequest(m.src, parsePieceRequest(env.body));
+        return;
+      case WireKind.pieceChunk:
+        // One chunk of one piece: buffer + verify-on-complete; finish the
+        // transfer when every piece is verified.
+        if (existing?.status != ContactStatus.accepted) return;
+        await _onPieceChunk(parsePieceChunk(env.body));
         return;
       case WireKind.unknown:
         // A structured (v:2) frame from a NEWER build whose kind we don't know —
@@ -1817,13 +1831,163 @@ class MessagingService {
     }
   }
 
+  // ── Content layer: decentralized, hash-verified piece transfer (Stage 2) ────
+  // Sender: advertise a manifest, then serve requested pieces as paced chunks.
+  // Receiver: verify the manifest, request missing pieces, verify each piece on
+  // arrival, reassemble + verify the WHOLE, then surface it. Order/loss-tolerant.
+
+  /// Content we SERVE (manifest + source bytes), by contentId. (v1 holds the
+  /// source in memory; serving from the on-disk blob store is a later step.)
+  final Map<String, ({ContentManifest manifest, Uint8List bytes})> _serving = {};
+
+  /// Content we are FETCHING: the verified manifest + the reassembler + the peer.
+  final Map<
+      String,
+      ({
+        ContentManifest manifest,
+        ContentTransfer xfer,
+        NodeId peer,
+        String name
+      })> _fetching = {};
+
+  /// Fires when a content transfer completes + verifies. The integration layer
+  /// persists the bytes + surfaces a chat message (wired in a later stage).
+  final _contentReceived = StreamController<
+      ({String contentId, String name, Uint8List bytes})>.broadcast();
+  Stream<({String contentId, String name, Uint8List bytes})> get contentReceived =>
+      _contentReceived.stream;
+
+  Timer? _contentTimer;
+  /// Re-request cadence for still-missing pieces (injectable for tests).
+  final Duration _contentReRequestInterval;
+  static const _contentChunkBytes = 4000; // wire chunk per piece (fits 6144 cap)
+  static const _contentPacing = Duration(milliseconds: 4); // per-chunk anti-burst
+
+  /// Piece size that keeps the manifest inside one datagram (≤ ~70 pieces — the
+  /// hex piece-hash list dominates the manifest JSON).
+  static int _adaptivePieceSize(int size) {
+    const maxPieces = 70;
+    final needed = (size + maxPieces - 1) ~/ maxPieces;
+    return needed > ContentManifest.defaultPieceSize
+        ? needed
+        : ContentManifest.defaultPieceSize;
+  }
+
+  /// Offer [bytes] as a content transfer to [dst]: build the manifest, serve it,
+  /// advertise it. The receiver pulls the pieces it lacks (verified by hash).
+  Future<void> sendContent(NodeId dst, Uint8List bytes, String name) async {
+    final contact = await _storage.getContact(dst);
+    if (contact == null || contact.status != ContactStatus.accepted) return;
+    final manifest = ContentManifest.fromBytes(name, bytes,
+        pieceSize: _adaptivePieceSize(bytes.length));
+    _serving[manifest.contentId] = (manifest: manifest, bytes: bytes);
+    _ensureContentTimer();
+    await _send(dst,
+        contentManifestEnvelope(jsonEncode(manifest.toJson())).encode());
+    devLog(() => 'xVeil[content]: advertise ${manifest.contentId.substring(0, 12)} '
+        '(${manifest.pieceCount} pieces) -> ${dst.short}');
+  }
+
+  Future<void> _onContentManifest(NodeId peer, String body) async {
+    final m = ContentManifest.fromJson(jsonDecode(body) as Map<String, dynamic>);
+    if (m == null) return; // malformed / not self-consistent → untrusted, drop
+    if (_fetching.containsKey(m.contentId)) return; // already fetching
+    _fetching[m.contentId] =
+        (manifest: m, xfer: ContentTransfer(m), peer: peer, name: m.name);
+    _ensureContentTimer();
+    devLog(() => 'xVeil[content]: manifest ${m.contentId.substring(0, 12)} '
+        '(${m.pieceCount} pieces) <- ${peer.short}; requesting all');
+    await _send(
+        peer, pieceRequestEnvelope(contentId: m.contentId, indices: null).encode());
+  }
+
+  void _onPieceRequest(NodeId peer, PieceRequestFrame req) {
+    final served = _serving[req.contentId];
+    if (served == null) return; // not serving this content
+    final indices = req.indices ??
+        [for (var i = 0; i < served.manifest.pieceCount; i++) i];
+    unawaited(_servePieces(peer, served.manifest, served.bytes, indices));
+  }
+
+  Future<void> _servePieces(
+      NodeId peer, ContentManifest m, Uint8List bytes, List<int> indices) async {
+    for (final p in indices) {
+      if (p < 0 || p >= m.pieceCount) continue;
+      final pstart = p * m.pieceSize;
+      final plen = m.pieceLength(p);
+      final n = (plen + _contentChunkBytes - 1) ~/ _contentChunkBytes;
+      for (var c = 0; c < n; c++) {
+        final cstart = pstart + c * _contentChunkBytes;
+        final cend = (c * _contentChunkBytes + _contentChunkBytes <= plen)
+            ? cstart + _contentChunkBytes
+            : pstart + plen;
+        await _send(
+          peer,
+          pieceChunkEnvelope(
+            contentId: m.contentId,
+            pieceIndex: p,
+            chunkIndex: c,
+            chunkCount: n,
+            data: Uint8List.sublistView(bytes, cstart, cend),
+          ).encode(),
+        );
+        await Future<void>.delayed(_contentPacing); // anti-burst pacing
+      }
+    }
+  }
+
+  Future<void> _onPieceChunk(PieceChunkFrame f) async {
+    final fetch = _fetching[f.contentId];
+    if (fetch == null) return; // not fetching this content
+    fetch.xfer.addChunk(f.pieceIndex, f.chunkIndex, f.chunkCount, f.data);
+    if (!fetch.xfer.isComplete) return;
+    Uint8List bytes;
+    try {
+      bytes = fetch.xfer.assemble(); // re-verifies the WHOLE
+    } catch (_) {
+      return; // leave it pending — re-request will refill any bad piece
+    }
+    _fetching.remove(f.contentId);
+    devLog(() => 'xVeil[content]: COMPLETE ${f.contentId.substring(0, 12)} '
+        '(${bytes.length}B) verified');
+    if (!_contentReceived.isClosed) {
+      _contentReceived
+          .add((contentId: f.contentId, name: fetch.name, bytes: bytes));
+    }
+  }
+
+  void _ensureContentTimer() {
+    _contentTimer ??=
+        Timer.periodic(_contentReRequestInterval, (_) => _contentReRequest());
+  }
+
+  void _contentReRequest() {
+    if (_fetching.isEmpty) {
+      _contentTimer?.cancel();
+      _contentTimer = null;
+      return;
+    }
+    for (final fetch in _fetching.values) {
+      final missing = fetch.xfer.missingPieces();
+      if (missing.isEmpty) continue;
+      unawaited(_send(
+          fetch.peer,
+          pieceRequestEnvelope(
+                  contentId: fetch.manifest.contentId, indices: missing)
+              .encode()));
+    }
+  }
+
   Future<void> dispose() async {
     _retryTimer?.cancel();
     _retryTimer = null;
+    _contentTimer?.cancel();
+    _contentTimer = null;
     await _sub?.cancel();
     _sub = null;
     await _changes.close();
     await _incoming.close();
+    await _contentReceived.close();
   }
 }
 
