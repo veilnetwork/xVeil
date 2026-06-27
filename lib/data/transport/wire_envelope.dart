@@ -252,25 +252,53 @@ FileMetaFrame parseFileMeta(String body) {
 WireEnvelope contentManifestEnvelope(String manifestJson) =>
     WireEnvelope(WireKind.contentManifest, manifestJson);
 
-/// Request pieces of a content the receiver lacks: body `{cid, idx:[indices]}`;
-/// `idx` ABSENT means "all pieces". Re-sent for the pieces still missing/failed.
-typedef PieceRequestFrame = ({String contentId, List<int>? indices});
+/// Request content the receiver lacks. Two granularities, both optional:
+///   `idx:[pieces]`  — whole pieces (absent ⇒ "all pieces"); used for the FIRST
+///                     request and as a coarse fallback.
+///   `bm:{p:base64}` — per-piece MISSING-CHUNK bitmaps; the sender serves only
+///                     the chunks whose bit is set. This is the chunk-granular
+///                     re-request that lets a transfer converge over a lossy path
+///                     (each round re-sends only the gaps, not whole pieces).
+/// When `bm` is present it takes precedence; `idx` is ignored for those pieces.
+typedef PieceRequestFrame = ({
+  String contentId,
+  List<int>? indices,
+  Map<int, Uint8List>? bitmaps,
+});
 
 WireEnvelope pieceRequestEnvelope({
   required String contentId,
-  required List<int>? indices,
+  List<int>? indices,
+  Map<int, Uint8List>? bitmaps,
 }) =>
     WireEnvelope(
       WireKind.pieceRequest,
-      jsonEncode({'cid': contentId, if (indices != null) 'idx': indices}),
+      jsonEncode({
+        'cid': contentId,
+        if (indices != null) 'idx': indices,
+        if (bitmaps != null && bitmaps.isNotEmpty)
+          'bm': {
+            for (final e in bitmaps.entries) e.key.toString(): base64.encode(e.value),
+          },
+      }),
     );
 
 PieceRequestFrame parsePieceRequest(String body) {
   final j = jsonDecode(body) as Map<String, dynamic>;
   final idx = j['idx'];
+  final bm = j['bm'];
+  Map<int, Uint8List>? bitmaps;
+  if (bm is Map) {
+    bitmaps = {
+      for (final e in bm.entries)
+        if (e.value is String && int.tryParse('${e.key}') != null)
+          int.parse('${e.key}'): base64.decode(e.value as String),
+    };
+  }
   return (
     contentId: j['cid'] as String,
     indices: idx is List ? idx.whereType<int>().toList() : null,
+    bitmaps: bitmaps,
   );
 }
 
