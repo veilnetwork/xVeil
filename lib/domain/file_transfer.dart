@@ -98,6 +98,12 @@ class FileReassembler {
   int get received => _chunks.length;
   int? get total => _total;
 
+  /// The chunk indices in `[0, count)` not yet received — the resumable-transfer
+  /// re-request set (a gap-fill [WireKind.fileNack]). [count] is the declared
+  /// total (from a chunk's `total` or the transfer meta).
+  List<int> missingIndices(int count) =>
+      [for (var i = 0; i < count; i++) if (!_chunks.containsKey(i)) i];
+
   /// Bytes currently buffered (after dedup) — lets a caller abort a transfer
   /// that grows past a memory budget before it completes.
   int get bufferedBytes => _bytes;
