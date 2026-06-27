@@ -1923,22 +1923,36 @@ class MessagingService {
 
   Future<void> _onContentManifest(NodeId peer, String body) async {
     final m = ContentManifest.fromJson(jsonDecode(body) as Map<String, dynamic>);
-    if (m == null) return; // malformed / not self-consistent → untrusted, drop
-    if (_fetching.containsKey(m.contentId)) return; // already fetching
+    if (m == null) {
+      devLog(() => 'xVeil[content]: manifest DROPPED (malformed) <- ${peer.short}');
+      return; // malformed / not self-consistent → untrusted, drop
+    }
+    if (_fetching.containsKey(m.contentId)) {
+      devLog(() => 'xVeil[content]: manifest ${m.contentId.substring(0, 12)} '
+          'dup (already fetching) <- ${peer.short}');
+      return; // already fetching
+    }
     _fetching[m.contentId] =
         (manifest: m, xfer: ContentTransfer(m), peer: peer, name: m.name);
     _ensureContentTimer();
     devLog(() => 'xVeil[content]: manifest ${m.contentId.substring(0, 12)} '
-        '(${m.pieceCount} pieces) <- ${peer.short}; requesting all');
+        '(${m.pieceCount} pieces, "${m.name}") <- ${peer.short}; requesting all');
     await _send(
         peer, pieceRequestEnvelope(contentId: m.contentId, indices: null).encode());
   }
 
   void _onPieceRequest(NodeId peer, PieceRequestFrame req) {
     final served = _serving[req.contentId];
-    if (served == null) return; // not serving this content
+    if (served == null) {
+      devLog(() => 'xVeil[content]: pieceRequest for UNSERVED '
+          '${req.contentId.substring(0, 12)} <- ${peer.short} (ignored)');
+      return; // not serving this content
+    }
     final indices = req.indices ??
         [for (var i = 0; i < served.manifest.pieceCount; i++) i];
+    devLog(() => 'xVeil[content]: pieceRequest ${req.contentId.substring(0, 12)} '
+        '(${indices.length}/${served.manifest.pieceCount} pieces) <- ${peer.short} '
+        '-> serving');
     unawaited(_servePieces(peer, served.manifest, served.bytes, indices));
   }
 
@@ -1971,8 +1985,22 @@ class MessagingService {
 
   Future<void> _onPieceChunk(PieceChunkFrame f) async {
     final fetch = _fetching[f.contentId];
-    if (fetch == null) return; // not fetching this content
-    fetch.xfer.addChunk(f.pieceIndex, f.chunkIndex, f.chunkCount, f.data);
+    if (fetch == null) {
+      // The manifest never arrived (or this content was already completed/
+      // deleted): we hold no reassembler, so the chunk is dropped. A burst of
+      // these means a LOST MANIFEST — the receiver can't reassemble or
+      // re-request without it.
+      devLog(() => 'xVeil[content]: pieceChunk DROPPED — no manifest/fetch for '
+          '${f.contentId.substring(0, 12)} (p${f.pieceIndex} c${f.chunkIndex})');
+      return; // not fetching this content
+    }
+    final done = fetch.xfer.addChunk(
+        f.pieceIndex, f.chunkIndex, f.chunkCount, f.data);
+    if (done) {
+      devLog(() => 'xVeil[content]: piece ${f.pieceIndex} VERIFIED for '
+          '${f.contentId.substring(0, 12)} '
+          '(${fetch.xfer.verifiedCount}/${fetch.xfer.pieceCount})');
+    }
     if (!fetch.xfer.isComplete) return;
     Uint8List bytes;
     try {
@@ -2027,6 +2055,10 @@ class MessagingService {
     for (final fetch in _fetching.values) {
       final missing = fetch.xfer.missingPieces();
       if (missing.isEmpty) continue;
+      devLog(() => 'xVeil[content]: re-request '
+          '${fetch.manifest.contentId.substring(0, 12)} — '
+          '${missing.length}/${fetch.manifest.pieceCount} pieces still missing '
+          '-> ${fetch.peer.short}');
       unawaited(_send(
           fetch.peer,
           pieceRequestEnvelope(
