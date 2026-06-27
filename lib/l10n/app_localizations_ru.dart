@@ -232,6 +232,9 @@ class AppL10nRu extends AppL10n {
   String get chatFileTooLarge => 'Файл слишком большой';
 
   @override
+  String get chatFileUnreadable => 'Не удалось прочитать файл';
+
+  @override
   String get chatMsgEdit => 'Изменить';
 
   @override
