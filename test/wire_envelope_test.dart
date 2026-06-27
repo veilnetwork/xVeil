@@ -107,6 +107,34 @@ void main() {
     expect(legacy.sentAtMs, isNull);
   });
 
+  test('fileQuery round-trips (probe body parses as a meta; carries v:2)', () {
+    final raw = fileQueryEnvelope(
+      transferId: 't9',
+      name: 'doc.pdf',
+      seq: 4,
+      sentAtMs: 1782490000000,
+    ).encode();
+    final out = WireEnvelope.decode(raw);
+    expect(out.kind, WireKind.fileQuery);
+    final f = parseFileMeta(out.body); // a probe reuses the meta body shape
+    expect(f.transferId, 't9');
+    expect(f.name, 'doc.pdf');
+    expect(f.seq, 4);
+    expect(f.sentAtMs, 1782490000000);
+    expect((jsonDecode(utf8.decode(raw)) as Map)['v'], 2);
+  });
+
+  test('fileNack round-trips missing indices; absent m means "all"', () {
+    final some = parseFileNack(
+        WireEnvelope.decode(fileNackEnvelope(transferId: 't9', missing: [1, 4, 7]).encode()).body);
+    expect(some.transferId, 't9');
+    expect(some.missing, [1, 4, 7]);
+    // null missing → "send me everything".
+    final all = parseFileNack(
+        WireEnvelope.decode(fileNackEnvelope(transferId: 't9', missing: null).encode()).body);
+    expect(all.missing, isNull);
+  });
+
   test('a voidSeq frame round-trips its seq with no id/body', () {
     final out = WireEnvelope.decode(const WireEnvelope.voidSeq(5).encode());
     expect(out.kind, WireKind.voidSeq);

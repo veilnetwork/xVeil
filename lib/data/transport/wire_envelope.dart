@@ -15,6 +15,13 @@ import 'dart:typed_data';
 /// - [voidSeq]: an inert seq placeholder (seq set, no id/body) advancing the
 ///   peer's high-water past a deleted/superseded slot so gap-fill never stalls
 ///   (R-VOID, §12.1 — id-less, no oracle).
+/// - [fileQuery]: a gap-fill RE-SHIP PROBE for a file (body = the fileMeta JSON,
+///   no chunks) — "I still hold file <tid>, tell me what you're missing." The
+///   receiver answers with [fileNack]; the sender then re-sends only those chunks
+///   (resumable, instead of re-pushing the whole blob each round).
+/// - [fileNack]: the receiver's reply to a probe/transfer (body = JSON
+///   {tid, m:[missing indices]}); `m` ABSENT means "send me everything" (a
+///   receiver that holds no chunk yet, so it can't name them).
 /// - [unknown]: a DECODE-ONLY sentinel for a structured (v:2) frame from a NEWER
 ///   build whose kind this build doesn't know — the dispatcher drops it instead
 ///   of rendering it as chat text (RULE WC). NEVER encoded onto the wire.
@@ -32,6 +39,8 @@ enum WireKind {
   del,
   sync,
   voidSeq,
+  fileQuery,
+  fileNack,
   unknown,
 }
 
@@ -190,6 +199,53 @@ FileMetaFrame parseFileMeta(String body) {
     count: j['count'] is int ? j['count'] as int : null,
     seq: j['seq'] is int ? j['seq'] as int : null,
     sentAtMs: j['s'] is int ? j['s'] as int : null,
+  );
+}
+
+/// A gap-fill RE-SHIP PROBE for a file (§15 3c, resumable). Same body shape as
+/// [fileMetaEnvelope] (so the receiver parses it with [parseFileMeta]) but with
+/// NO chunks following — carries the seq + send-time so the receiver can fold the
+/// completed file convergently. The receiver replies with [fileNackEnvelope].
+WireEnvelope fileQueryEnvelope({
+  required String transferId,
+  String? name,
+  int? seq,
+  int? sentAtMs,
+}) =>
+    WireEnvelope(
+      WireKind.fileQuery,
+      jsonEncode({
+        'tid': transferId,
+        'name': ?name,
+        'seq': ?seq,
+        's': ?sentAtMs,
+      }),
+    );
+
+/// Parsed body of a [WireKind.fileNack]: which chunks of [transferId] the
+/// receiver still needs. [missing] == null means "send me ALL of them" — a
+/// receiver that holds no chunk yet (so cannot enumerate the gaps).
+typedef FileNackFrame = ({String transferId, List<int>? missing});
+
+/// The receiver's reply listing the chunks it still needs (or null = all).
+WireEnvelope fileNackEnvelope({
+  required String transferId,
+  required List<int>? missing,
+}) =>
+    WireEnvelope(
+      WireKind.fileNack,
+      jsonEncode({
+        'tid': transferId,
+        if (missing != null) 'm': missing,
+      }),
+    );
+
+FileNackFrame parseFileNack(String body) {
+  final j = jsonDecode(body) as Map<String, dynamic>;
+  final m = j['m'];
+  return (
+    transferId: j['tid'] as String,
+    missing: m is List ? m.whereType<int>().toList() : null,
   );
 }
 
