@@ -80,7 +80,24 @@ GC + delete-scrub so a deleted/orphaned blob doesn't linger.
 - `lib/domain/chat.dart` (Message) + `lib/domain/event.dart` (filePost body): add
   `blobRef` (`{type:'stream', tid}`; absent/null ⇒ legacy in-container, no migration).
 
-### Stage 6 — Send/receive
+### ⚠️ Stage 6 — GATING PREREQUISITE: verify stream NAT-traversal
+Before building the send/receive integration, PROVE that a veil app-stream
+(`open_stream`/`accept_stream`) actually traverses **phone→desktop** (phone is
+NAT'd). The anonymous DATAGRAM path provably does (auth_deliver delivered small
+frames on-device); whether app-streams ride the same NAT-traversable relay/onion
+path or a DIRECT node-to-node session (which the NAT'd phone can't accept inbound)
+is UNVERIFIED — `veilclient::open_stream` → node `StreamOpen`; the node's app-
+stream data plane (`veil-app/src/registry.rs send_to`) routing wasn't pinned down.
+- Test: rebuild Android .so (cargo-ndk) with the new symbols, add a throwaway
+  "open stream phone→desktop, write N bytes, assert received" path, run on the 2
+  devices. If bytes arrive → proceed with the stream design below. If NOT →
+  FALLBACK: keep the anonymous-datagram transfer but (a) PACE `_sendFileFrames`
+  (send fileMeta, await a tiny ack/window, then trickle chunks so the burst
+  doesn't drop the meta) and (b) make the resumable `fileQuery`/`fileNack` round
+  actually drive completion (it was silent on-device — fileQuery count=0). The
+  ExternalBlobStore + crypto + wire model (Stages 1-5) are reused EITHER way.
+
+### Stage 6 — Send/receive (if streams traverse NAT)
 - Send (`messaging.dart sendFile`): route on size. ≤1 MB → unchanged. >1 MB →
   store to ExternalBlobStore (encrypt-on-write), `transport.openStream(dst,...)`,
   write the blob in ≤16 MiB chunks off the UI isolate, close; emit a `fileStream`
