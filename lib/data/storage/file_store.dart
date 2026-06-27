@@ -5,14 +5,20 @@ import '../../domain/file_transfer.dart';
 import 'async_kv_log_store.dart';
 import 'kv_log_store.dart';
 
-/// Storage chunk size: one [Ns.fileChunks] log record. The store caps a record
-/// at 8 KiB; stay safely under.
-const int _kStoreRecord = 8000;
+/// Storage chunk size: one [Ns.fileChunks] log record. The store seals each
+/// record's batch into a single 4 KiB container chunk, whose usable payload
+/// (after nonce/tag/header) is PAYLOAD_CAP ≈ 4040 bytes — and the batch is zstd-
+/// compressed, but media is INCOMPRESSIBLE, so a record only fits if its RAW size
+/// (plus ~36 bytes batch+zstd framing) stays under that. 3800 leaves a safe
+/// margin. (The old 8000 silently broke every non-trivial file: an 8 KiB
+/// incompressible record can't be placed in a 4 KiB chunk even after the store's
+/// auto-split, which can't divide below one record → PayloadTooLarge.)
+const int _kStoreRecord = 3800;
 
-/// Append at most this many chunk records per commit so the raw batch stays well
-/// under the store's ~1 MiB MAX_RAW_BATCH_LEN (≈ 100 × 8 KiB = 800 KiB). A larger
-/// blob is committed across several batches.
-const int _kChunksPerCommit = 100;
+/// Append at most this many chunk records per commit. The store auto-splits a
+/// commit's records into per-chunk DataBatches; keeping each commit modest bounds
+/// the split recursion's work while staying well under MAX_RECORDS_PER_BATCH=1024.
+const int _kChunksPerCommit = 64;
 
 /// Max chunk records a stored file may occupy. A file must be deletable in ONE
 /// atomic commit (zero every chunk + drop metadata together so a deleted blob
@@ -20,30 +26,35 @@ const int _kChunksPerCommit = 100;
 /// (MAX_RECORDS_PER_BATCH) — so cap just under that.
 const int _kMaxStoredChunks = 1000;
 
-/// Largest attachment that can be stored (and atomically deleted): ~8 MB. The
+/// Largest attachment that can be stored (and atomically deleted): ~3.6 MB. The
 /// send path pre-checks this and surfaces a friendly error instead of letting
 /// the storage layer throw [PayloadTooLarge] (uncaught → the attach silently
-/// failed before). The ceiling is architectural: 1024 records/commit × 8 KiB.
-const int kMaxStoredFileBytes = _kMaxStoredChunks * _kStoreRecord; // 8_000_000
+/// failed before). The ceiling is architectural: a 4 KiB container chunk holds
+/// one ≤3800-byte record, and an atomic delete fits ≤1024 of them in one commit.
+const int kMaxStoredFileBytes = _kMaxStoredChunks * _kStoreRecord; // 3_800_000
 
 /// Deniable at-rest storage for files (received attachments, sent media) inside
 /// the hidden-volume container — NOT plaintext on disk, which would defeat the
 /// container's deniability.
 ///
-/// A file is split into <=8KiB records appended to the [Ns.fileChunks] log
-/// (the KV value cap is ~2KB, too small for media); a small KV metadata entry
-/// `file:<id>` records the name, size, and the contiguous base log id + count.
-/// hidden-volume exposes no KV key enumeration, so the base/count let us read
-/// the chunks back without scanning.
+/// A file is split into [_kStoreRecord]-byte records appended to the
+/// [Ns.fileChunks] log; a small KV metadata entry `file:<id>` records the name,
+/// size, and the contiguous base log id + count. hidden-volume exposes no KV key
+/// enumeration, so the base/count let us read the chunks back without scanning.
 ///
-/// A whole file's chunks do NOT fit in one commit: the store caps a single
-/// commit (DataBatch) at ~1 MiB ([_maxRawBatchLen]) AND 1024 records, so a
-/// multi-MiB blob is appended across SEVERAL commits ([_chunksPerCommit] each),
+/// The record size is bound by the on-disk format, NOT a generous KV cap: the
+/// store seals each record into a 4 KiB container chunk (PAYLOAD_CAP ≈ 4040 B of
+/// usable, zstd-compressed payload), and media is incompressible — so a record
+/// must stay under ~4 KB raw or it can't be placed at all (the store's auto-split
+/// can't divide below one record → PayloadTooLarge). The earlier 8 KiB chunk
+/// silently broke every file over a few KB.
+///
+/// A multi-MiB blob is appended across SEVERAL commits ([_kChunksPerCommit] each),
 /// with the metadata published LAST so the file becomes readable only once every
 /// chunk is durable. The whole file must still be DELETABLE in one atomic commit
 /// (zero every chunk + drop metadata together, so a deleted blob never lingers),
 /// and one commit holds at most 1024 records — so a stored file is capped at
-/// [kMaxStoredFileBytes] (~8 MB); a larger attachment is rejected up-front.
+/// [kMaxStoredFileBytes] (~3.6 MB); a larger attachment is rejected up-front.
 class FileStore {
   FileStore(this._store);
 
