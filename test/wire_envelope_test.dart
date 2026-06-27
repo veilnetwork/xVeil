@@ -124,6 +124,29 @@ void main() {
     expect((jsonDecode(utf8.decode(raw)) as Map)['v'], 2);
   });
 
+  test('a file chunk wire frame stays under the 6144 auth_deliver cap', () {
+    // veil's anonymous authenticated send (the live path) drops any message
+    // whose encoded size exceeds MAX_AUTH_DELIVER_MSG_BYTES = 6144 bytes — a
+    // chunk is base64 + JSON-wrapped, so a too-large raw chunk silently kills
+    // every file frame on the live path. The wire chunk size (4000) must encode
+    // to comfortably under 6144 (leaving room for the AuthDeliver header/sig).
+    const cap = 6144;
+    final tid = 'a1b2c3d4-e5f6-7890-abcd-ef0123456789'; // realistic uuid length
+    Uint8List frame(int raw) => fileChunkEnvelope(
+          transferId: tid,
+          index: 3,
+          total: 99,
+          data: Uint8List(raw),
+        ).encode();
+    expect(frame(4000).length, lessThan(cap - 400),
+        reason: 'the 4000-byte wire chunk must fit the auth_deliver cap '
+            'with margin for the AuthDeliver framing');
+    // Document the regression: the old 6000-byte chunk overflowed the cap.
+    expect(frame(6000).length, greaterThan(cap),
+        reason: 'the old 6000-byte chunk exceeded the cap — every file frame '
+            'was dropped on the live path');
+  });
+
   test('fileNack round-trips missing indices; absent m means "all"', () {
     final some = parseFileNack(
         WireEnvelope.decode(fileNackEnvelope(transferId: 't9', missing: [1, 4, 7]).encode()).body);

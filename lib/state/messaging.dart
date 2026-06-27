@@ -25,8 +25,15 @@ import 'package:xveil/core/log.dart';
 
 const _uuid = Uuid();
 
-/// Raw bytes per wire chunk. Base64 + JSON wrap keeps the datagram modest.
-const _wireChunkBytes = 6000;
+/// Raw bytes per wire chunk. The anonymous authenticated send (the live path,
+/// veil's auth_deliver) caps ONE message at MAX_AUTH_DELIVER_MSG_BYTES = 6144
+/// bytes and silently drops anything larger (fire-and-forget, no retry). A chunk
+/// is base64 + JSON-wrapped (~1.35×) plus the AuthDeliver header/signature, so
+/// 6000 inflated to ~8099 B and EVERY file chunk was dropped on the live path
+/// (text survived only via its mailbox stash; files have none). 4000 → ~5.5 KB
+/// encoded, a safe margin under 6144, so file chunks actually traverse the
+/// onion. (Mailbox-deposited frames share the same ceiling.)
+const _wireChunkBytes = 4000;
 
 /// Hard ceiling on a file we will buffer in memory and store. Bound by the
 /// at-rest layer: a stored file must be DELETABLE in one atomic commit (≤ 1024
