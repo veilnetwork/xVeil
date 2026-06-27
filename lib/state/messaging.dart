@@ -9,6 +9,7 @@ import '../core/ids.dart';
 import '../crypto/blake3.dart';
 import '../data/node/embedded_node.dart' show BootstrapPeerCfg;
 import '../data/node/node_controller.dart';
+import '../data/storage/file_store.dart' show kMaxStoredFileBytes;
 import '../data/storage/storage.dart';
 import '../data/transport/relay_key_cache.dart';
 import '../data/transport/veil_flutter_transport.dart';
@@ -27,11 +28,14 @@ const _uuid = Uuid();
 /// Raw bytes per wire chunk. Base64 + JSON wrap keeps the datagram modest.
 const _wireChunkBytes = 6000;
 
-/// Hard ceiling on an inbound file we will buffer in memory before it is
-/// stored. A backstop so a hostile (but accepted) peer cannot exhaust memory
-/// with a giant transfer. Purely a local safety bound — tune to product taste;
-/// it is not a protocol constant and both sides need not agree on it.
-const kMaxIncomingFileBytes = 100 * 1024 * 1024; // 100 MiB
+/// Hard ceiling on a file we will buffer in memory and store. Bound by the
+/// at-rest layer: a stored file must be DELETABLE in one atomic commit (≤ 1024
+/// records × 8 KiB), so a larger blob can neither be persisted nor scrubbed on
+/// delete — see [kMaxStoredFileBytes]. It therefore doubles as (a) the inbound
+/// memory-DoS backstop (a hostile accepted peer can't buffer more than this) and
+/// (b) the send-side pre-check bound (the UI shows a friendly "too large" error
+/// here, instead of the storage layer throwing PayloadTooLarge mid-attach).
+const kMaxIncomingFileBytes = kMaxStoredFileBytes; // ~8 MiB (1024×8 KiB ceiling)
 
 /// Max simultaneous inbound transfers we will buffer. Without this the
 /// per-transfer [kMaxIncomingFileBytes] cap is not enough: a peer could open
@@ -889,11 +893,19 @@ class MessagingService {
         // dedup + deleted-resurrect guards are already conversation-scoped); only
         // the blob's storage key is decoupled.
         final localFileId = _uuid.v4();
-        await _storage.storeFile(
-          localFileId,
-          inc.reasm.assemble(),
-          name: inc.name,
-        );
+        try {
+          await _storage.storeFile(
+            localFileId,
+            inc.reasm.assemble(),
+            name: inc.name,
+          );
+        } catch (e) {
+          // Over the storage cap (the buffer cap should have aborted it first) or
+          // a transient store error — drop the transfer rather than crash the
+          // inbound chain. The sender's gap-fill can retry; no half-stored blob.
+          devLog(() => 'xVeil[recv]: storeFile failed for $tid — dropped: $e');
+          return;
+        }
         await _store(
           m.src,
           MessageDirection.incoming,
@@ -1607,6 +1619,13 @@ class MessagingService {
   Future<void> sendFile(NodeId dst, Uint8List bytes, String name) async {
     final contact = await _storage.getContact(dst);
     if (contact == null || contact.status != ContactStatus.accepted) return;
+    // Backstop the storage ceiling: the UI pre-checks the same bound and shows a
+    // friendly error, but a direct caller must not drive storeFile past its
+    // atomic-delete cap (which throws). Drop silently here — the UI owns the UX.
+    if (bytes.length > kMaxStoredFileBytes) {
+      devLog(() => 'xVeil[sendFile]: ${bytes.length}B over cap — dropped');
+      return;
+    }
 
     final fileId = _uuid.v4();
     await _storage.storeFile(fileId, bytes, name: name);
