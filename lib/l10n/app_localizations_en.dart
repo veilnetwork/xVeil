@@ -231,6 +231,9 @@ class AppL10nEn extends AppL10n {
   String get chatFileTooLarge => 'File is too large';
 
   @override
+  String get chatFileUnreadable => 'Couldn\'t read the file';
+
+  @override
   String get chatMsgEdit => 'Edit';
 
   @override
