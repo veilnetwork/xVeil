@@ -201,6 +201,39 @@ void main() {
     }
   }, skip: skipReason);
 
+  // A multi-MiB file on a REAL container. storeFile splits the blob across many
+  // commits because one commit (DataBatch) caps at ~1 MiB / 1024 records — a
+  // single-commit store threw HvException.PayloadTooLarge ("payload exceeds
+  // chunk capacity") for anything over ~1 MB, which is exactly what silently
+  // broke attaching a phone photo. The blob must round-trip + verify clean.
+  test('stores + reloads a multi-MiB file on a real container (multi-commit)',
+      () async {
+    final dir = Directory.systemTemp.createTempSync('xveil_hv_bigfile_');
+    final path = '${dir.path}/test.store';
+    try {
+      final space = hv.HvSpace.create(
+          path: path,
+          password: Uint8List.fromList('pw'.codeUnits),
+          argon: hv.ArgonPreset.min);
+      final store = HvKvLogStore(space);
+      final storage =
+          HiddenVolumeStorage(({required password, required create}) => store);
+      await storage.open(password: 'pw', createIfMissing: true);
+
+      // ~3 MiB — comfortably over the old ~1 MB single-commit ceiling.
+      final data =
+          Uint8List.fromList(List.generate(3000000, (i) => (i * 7 + 3) % 256));
+      await storage.storeFile('big', data, name: 'photo.bin');
+      expect(await storage.loadFile('big'), data,
+          reason: 'multi-commit blob reassembles byte-for-byte');
+      expect(() => space.verifyIntegrity(), returnsNormally);
+
+      await storage.close();
+    } finally {
+      dir.deleteSync(recursive: true);
+    }
+  }, skip: skipReason);
+
   // The master-space FFI (open_with_keys / space_keys) end-to-end through
   // xVeil's stack on a real container — using the flock-respecting flow: the
   // real library takes an EXCLUSIVE per-container lock, so only ONE space is
