@@ -107,6 +107,15 @@ class _FileSettingsScreenState extends ConsumerState<FileSettingsScreen> {
             onTap: () => _pickLimit(l),
           ),
           const Divider(),
+          SwitchListTile(
+            secondary: const Icon(Icons.sd_storage_outlined),
+            title: Text(l.fileOnDiskTier),
+            subtitle: Text(l.fileOnDiskTierHint),
+            isThreeLine: true,
+            value: _policy.largeFilesOnDisk,
+            onChanged: (v) => _save(_policy.copyWith(largeFilesOnDisk: v)),
+          ),
+          const Divider(),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
             child: Column(

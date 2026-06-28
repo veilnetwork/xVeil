@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/format.dart';
 import '../../core/ids.dart';
@@ -251,15 +252,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// Tap on a file bubble: if we already hold the blob, save it out; if it is an
   /// OFFER we have not downloaded yet, start the opt-in download (the bubble flips
   /// to "downloaded" when it completes — messagesProvider re-yields on _signal).
+  /// A large offer when the on-disk tier is off (§16.5) prompts to enable it.
   Future<void> _onTapFile(Message m) async {
     final key = m.fileId ?? m.fileContentId;
     if (key == null) return;
     if (await ref.read(storageProvider).hasFile(key)) {
       await _saveFile(m);
     } else if (m.fileContentId != null) {
-      await ref
+      final res = await ref
           .read(messagingServiceProvider)
           .downloadContent(_peer, m.fileContentId!);
+      if (res == ContentDownloadResult.needsLargeFileOptIn && mounted) {
+        final l = AppL10n.of(context);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(l.fileLargeNeedsOptIn),
+          action: SnackBarAction(
+            label: l.fileOpenSettings,
+            onPressed: () => context.push('/file-settings'),
+          ),
+        ));
+      }
     }
   }
 
@@ -269,6 +281,35 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final l = AppL10n.of(context);
     final key = m.fileId ?? m.fileContentId;
     if (key == null) return;
+
+    // Large file on DESKTOP → STREAM it to the chosen path (decrypt chunk by
+    // chunk) so a multi-GB blob is never held whole in RAM. (On mobile the save
+    // plugin wants the bytes up-front, so the small/in-RAM path below is used.)
+    final size = m.fileSize ?? 0;
+    if (size > kMaxIncomingFileBytes && !Platform.isAndroid && !Platform.isIOS) {
+      final dest = await FilePicker.saveFile(fileName: m.fileName ?? 'file');
+      if (dest == null) return; // cancelled
+      final storage = ref.read(storageProvider);
+      final sink = File(dest).openWrite();
+      var off = 0;
+      try {
+        const chunk = 4 * 1024 * 1024;
+        while (off < size) {
+          final want = (size - off) < chunk ? (size - off) : chunk;
+          final part = await storage.readFileRange(key, off, want);
+          if (part == null || part.isEmpty) break;
+          sink.add(part);
+          off += part.length;
+        }
+      } finally {
+        await sink.close();
+      }
+      if (mounted) {
+        _snack(off >= size ? l.chatFileSaved : l.chatFileSaveFailed);
+      }
+      return;
+    }
+
     final bytes = await ref.read(storageProvider).loadFile(key);
     if (bytes == null) {
       if (mounted) _snack(l.chatFileSaveFailed);

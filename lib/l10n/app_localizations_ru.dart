@@ -508,6 +508,20 @@ class AppL10nRu extends AppL10n {
   String get fileTypeHint => 'Расширение, напр. apk';
 
   @override
+  String get fileOnDiskTier => 'Хранить большие файлы на диске';
+
+  @override
+  String get fileOnDiskTierHint =>
+      'Файлы, не помещающиеся в скрытый том, хранятся зашифрованными на диске. Их существование (не содержимое) может быть раскрыто. По умолчанию выключено.';
+
+  @override
+  String get fileLargeNeedsOptIn =>
+      'Большие файлы хранятся зашифрованными на диске — включите в Настройках.';
+
+  @override
+  String get fileOpenSettings => 'Настройки';
+
+  @override
   String get addIdentityTitle => 'Добавить личность';
 
   @override
