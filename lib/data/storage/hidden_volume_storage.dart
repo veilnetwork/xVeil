@@ -420,6 +420,17 @@ class HiddenVolumeStorage implements Storage {
   Future<bool> hasFile(String fileId) => AsyncFileStore(_as).hasFile(fileId);
 
   @override
+  Future<void> storeFilePiece(String fileId, int pieceIndex, int pieceCount,
+          int pieceSize, int totalSize, Uint8List bytes, {String? name}) =>
+      _fileSerialized(() => AsyncFileStore(_as).storeFilePiece(
+          fileId, pieceIndex, pieceCount, pieceSize, totalSize, bytes,
+          name: name));
+
+  @override
+  Future<Uint8List?> readFileRange(String fileId, int offset, int length) =>
+      AsyncFileStore(_as).readFileRange(fileId, offset, length);
+
+  @override
   Future<Message> appendMessage(Message message) async {
     // Bind (author, seq): the author is the message originator (set by the
     // messaging layer from the authenticated sender — R1; defaults to the
