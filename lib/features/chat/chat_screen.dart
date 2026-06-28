@@ -160,6 +160,35 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final picked = await FilePicker.pickFiles();
     final file = picked?.files.firstOrNull;
     if (file == null) return; // cancelled
+
+    // A file too big for the in-RAM path, with a real filesystem path, is
+    // STREAMED: read range-by-range off disk so a multi-GB / TB attachment is
+    // never loaded whole into memory (readAsBytes would OOM first) — no size
+    // ceiling on this path. Without a path (web / some SAF URIs) we can't seek,
+    // so fall through to the in-RAM path and its cap.
+    if (file.size > kMaxIncomingFileBytes && file.path != null) {
+      devLog(() => 'xVeil[attach]: ${file.name} size=${file.size} -> stream');
+      final raf = await File(file.path!).open();
+      try {
+        await ref.read(messagingServiceProvider).sendFileStreaming(
+          _peer,
+          file.name,
+          file.size,
+          (offset, length) async {
+            await raf.setPosition(offset);
+            return raf.read(length);
+          },
+        );
+      } catch (e) {
+        devLog(() => 'xVeil[attach]: stream send failed ${file.name}: $e');
+        if (mounted) _snack(l.chatFileUnreadable);
+      } finally {
+        await raf.close();
+      }
+      if (mounted) _scrollToBottom(force: true);
+      return;
+    }
+
     Uint8List? bytes = file.bytes;
     if (bytes == null && file.path != null) {
       try {

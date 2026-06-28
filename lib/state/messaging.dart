@@ -2058,17 +2058,11 @@ class MessagingService {
     }
   }
 
-  /// Serve [manifest]'s bytes by contentId and advertise it to [dst]. One source
-  /// of truth for the serve+advertise tail, shared by the message send path and
-  /// the bare-content API. The bytes are persisted to the on-disk blob store
-  /// (streamed pieces) and then served from there — [bytes] is not retained.
-  Future<void> _advertise(
-      NodeId dst, ContentManifest manifest, Uint8List bytes) async {
-    try {
-      await _storeServedBlob(manifest, bytes);
-    } catch (e) {
-      devLog(() => 'xVeil[content]: serve-store failed for ${manifest.name}: $e');
-    }
+  /// Register [manifest] for serving (its bytes are ALREADY in the on-disk blob
+  /// store, keyed by contentId) and advertise it to [dst]. The serve loop reads
+  /// the bytes back from disk on request — nothing is held in RAM. Shared tail of
+  /// every advertise path (in-RAM and streamed).
+  Future<void> _advertiseStored(NodeId dst, ContentManifest manifest) async {
     _serving[manifest.contentId] = (manifest: manifest, servedAt: _now());
     _evictServing();
     _ensureContentTimer();
@@ -2078,6 +2072,19 @@ class MessagingService {
     devLog(() => 'xVeil[content]: advertise ${manifest.contentId.substring(0, 12)} '
         '(${manifest.pieceCount} pieces'
         '${mid != null ? ', msg ${mid.substring(0, 8)}' : ''}) -> ${dst.short}');
+  }
+
+  /// Persist [bytes] to the blob store (streamed pieces) and advertise. One
+  /// source of truth for the in-RAM serve+advertise tail (the bare-content API
+  /// and the in-RAM message path); [bytes] is not retained past the store.
+  Future<void> _advertise(
+      NodeId dst, ContentManifest manifest, Uint8List bytes) async {
+    try {
+      await _storeServedBlob(manifest, bytes);
+    } catch (e) {
+      devLog(() => 'xVeil[content]: serve-store failed for ${manifest.name}: $e');
+    }
+    await _advertiseStored(dst, manifest);
   }
 
   /// Offer [bytes] as a bare content transfer to [dst] (no chat message / event
@@ -2131,6 +2138,62 @@ class MessagingService {
     await _advertise(dst,
         base.withEvent(msgId: msgId, author: stored.author, seq: stored.seq),
         bytes);
+  }
+
+  /// Send a file from a SOURCE that is read range-by-range ([readRange] returns
+  /// [length] bytes at [offset]; [size] is the total) — the file is NEVER loaded
+  /// whole into RAM, on either the manifest pass or the store pass. The streaming
+  /// twin of [_sendAsContent] for a file too large to fit in memory (a multi-GB /
+  /// TB attachment): the UI opens the picked file as a RandomAccessFile and hands
+  /// in a reader; tests pass an in-memory slicer. Same content layer, same event
+  /// identity, same contentId as the in-RAM path (so the two dedup together).
+  ///
+  /// Two RAM-bounded passes over the source: (1) hash each piece → manifest +
+  /// contentId; (2) read each piece again → persist it to the blob store. The
+  /// local file is read twice (cheap vs. the network transfer) so we never hold
+  /// more than one piece, and the served blob is keyed by contentId exactly like
+  /// every other send (de-duped, re-openable).
+  Future<void> sendFileStreaming(NodeId dst, String name, int size,
+      Future<Uint8List> Function(int offset, int length) readRange) async {
+    final contact = await _storage.getContact(dst);
+    if (contact == null || contact.status != ContactStatus.accepted) return;
+    final pieceSize = _adaptivePieceSize(size);
+    // Pass 1: hash the source piece-by-piece → manifest (contentId + per-piece
+    // hashes). Holds at most one piece in RAM.
+    final base = await ContentManifest.fromReader(
+        name: name,
+        size: size,
+        pieceSize: pieceSize,
+        chunkBytes: _contentChunkBytes,
+        readRange: readRange);
+    final cid = base.contentId;
+    // Pass 2: persist the blob as streamed pieces (uncapped, de-duped) so we can
+    // serve it from disk. A blob already present (re-send of identical bytes) is
+    // skipped. If we can't store it we can't serve it → abort the send.
+    try {
+      if (!await _storage.hasFile(cid)) {
+        for (var p = 0; p < base.pieceCount; p++) {
+          final start = p * base.pieceSize;
+          final piece = await readRange(start, base.pieceLength(p));
+          await _storage.storeFilePiece(
+              cid, p, base.pieceCount, base.pieceSize, size, piece, name: name);
+        }
+      }
+    } catch (e) {
+      devLog(() => 'xVeil[content]: stream store failed for $name: $e');
+      return;
+    }
+    // Fresh per-send msgId = a NEW filePost event (identity is (author,seq), not
+    // the byte-hash → a re-send surfaces even after a delete). fileId = contentId.
+    final msgId = _uuid.v4();
+    final stored = await _store(dst, MessageDirection.outgoing, '📎 $name',
+        MessageStatus.sent,
+        fileId: cid, fileName: name, fileSize: size, id: msgId,
+        timestamp: _now());
+    _signal();
+    // Bytes are already on disk → advertise (serve-from-disk), no re-store.
+    await _advertiseStored(dst,
+        base.withEvent(msgId: msgId, author: stored.author, seq: stored.seq));
   }
 
   Future<void> _onContentManifest(NodeId peer, String body) async {
