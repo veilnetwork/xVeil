@@ -14,6 +14,7 @@ import '../features/network/peers_screen.dart';
 import '../features/network/proxy_routing_screen.dart';
 import '../features/onboarding/onboarding_screen.dart';
 import '../features/preparing/preparing_screen.dart';
+import '../features/settings/file_settings_screen.dart';
 import '../features/splash/splash_screen.dart';
 import '../state/app_controller.dart';
 
@@ -111,6 +112,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/peers', builder: (_, _) => const PeersScreen()),
       GoRoute(path: '/route', builder: (_, _) => const ProxyRoutingScreen()),
       GoRoute(path: '/nodes', builder: (_, _) => const ManagedNodesScreen()),
+      GoRoute(
+        path: '/file-settings',
+        builder: (_, _) => const FileSettingsScreen(),
+      ),
     ],
   );
 });
