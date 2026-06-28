@@ -442,6 +442,8 @@ class MessagingService {
     MessageStatus status, {
     String? fileId,
     String? fileName,
+    int? fileSize,
+    String? fileContentId,
     String? id,
     DateTime? timestamp,
     int? seq,
@@ -459,6 +461,8 @@ class MessagingService {
         status: status,
         fileId: fileId,
         fileName: fileName,
+        fileSize: fileSize,
+        fileContentId: fileContentId,
         // Event-log author (R1): the message originator's node id, bound to the
         // AUTHENTICATED side — our own for an outgoing message, the peer (the
         // server-authenticated conversation id) for an incoming one. Never
@@ -1944,6 +1948,39 @@ class MessagingService {
   @visibleForTesting
   int get fetchingCount => _fetching.length;
 
+  /// Manifests of OFFERED-but-not-yet-downloaded files (by contentId), retained so
+  /// [downloadContent] can fetch on the user's opt-in. Bounded by [_maxOffered]
+  /// (the manifest is small — piece hashes — but cap it anyway); the OFFER chat
+  /// message is what persists, this is just the fetch handle.
+  final Map<String, ({ContentManifest manifest, NodeId peer})> _offered = {};
+  static const _maxOffered = 256;
+
+  /// A file ≤ this is auto-downloaded; larger is OFFERED (the receiver opts in) —
+  /// so a peer can't silently fill the disk. Default 2 MiB; a settings layer can
+  /// override per-identity later. (Phase A1.)
+  static const _autoDownloadMaxBytes = 2 * 1024 * 1024;
+
+  /// Extensions NEVER auto-downloaded regardless of size (always offered) — a
+  /// peer can't push an executable onto the device unbidden. Settings-extensible.
+  static const _noAutoDownloadExts = {
+    'apk', 'exe', 'dmg', 'msi', 'bat', 'cmd', 'com', 'sh', 'scr', 'jar', 'deb',
+    'app', 'pkg', 'ps1',
+  };
+
+  bool _shouldAutoDownload(int? size, String? name) {
+    if (size == null || size > _autoDownloadMaxBytes) return false;
+    final ext = _extOf(name);
+    return ext == null || !_noAutoDownloadExts.contains(ext);
+  }
+
+  String? _extOf(String? name) {
+    if (name == null) return null;
+    final dot = name.lastIndexOf('.');
+    return (dot >= 0 && dot < name.length - 1)
+        ? name.substring(dot + 1).toLowerCase()
+        : null;
+  }
+
   /// Fires when a content transfer completes + verifies. The integration layer
   /// persists the bytes + surfaces a chat message (wired in a later stage).
   final _contentReceived = StreamController<
@@ -2074,28 +2111,47 @@ class MessagingService {
       devLog(() => 'xVeil[content]: manifest DROPPED (malformed) <- ${peer.short}');
       return; // malformed / not self-consistent → untrusted, drop
     }
-    // DEDUP: we ALREADY hold these exact bytes (keyed by contentId). Skip the
-    // entire download — surface a fresh filePost for THIS send (msgId/author/seq)
-    // referencing the cached blob, and ack so the sender flips sent->delivered.
+    // Surface the file as an OFFER first — metadata only (name/size + the
+    // contentId to fetch), NO blob yet — idempotent on the sender's per-send
+    // msgId. The receiver decides whether to download (anti-spam + disk control).
+    await _surfaceFileOffer(peer, m);
+
+    // We ALREADY hold these exact bytes (a re-offer / dedup) → the offer renders
+    // as downloaded; ack so the sender flips sent->delivered.
     if (await _storage.hasFile(m.contentId)) {
-      devLog(() => 'xVeil[content]: manifest ${m.contentId.substring(0, 12)} '
-          'ALREADY HELD <- ${peer.short} — referencing (no re-download)');
-      if (await _foldIncomingFile(peer, m)) {
-        await _send(peer, WireEnvelope.ack(m.msgId ?? m.contentId).encode());
-      }
+      devLog(() => 'xVeil[content]: ${m.contentId.substring(0, 12)} ALREADY HELD '
+          '<- ${peer.short} (no re-download)');
+      await _send(peer, WireEnvelope.ack(m.msgId ?? m.contentId).encode());
+      _signal();
       return;
     }
+    // Already pulling it (a re-advertise mid-download) → keep the latest identity.
     if (_fetching.containsKey(m.contentId)) {
-      // A re-advertise mid-download: keep the LATEST event identity so completion
-      // surfaces this send's (msgId,seq); the bytes are already being pulled.
       final cur = _fetching[m.contentId]!;
       _fetching[m.contentId] =
           (manifest: m, xfer: cur.xfer, peer: peer, name: m.name);
-      return; // already fetching
+      return;
     }
-    // Evict any reassembler whose transfer was abandoned mid-flight (no chunk in
-    // _fetchStaleTimeout) before starting a new one, so abandoned fetches don't
-    // accumulate their buffered bytes in RAM.
+    // Retain the manifest so the user (or auto-download) can fetch on demand.
+    if (_offered.length >= _maxOffered && !_offered.containsKey(m.contentId)) {
+      _offered.remove(_offered.keys.first);
+    }
+    _offered[m.contentId] = (manifest: m, peer: peer);
+
+    if (_shouldAutoDownload(m.size, m.name)) {
+      devLog(() => 'xVeil[content]: ${m.contentId.substring(0, 12)} '
+          '(${m.size}B "${m.name}") <- ${peer.short} — auto-downloading (<= cap)');
+      await _beginFetch(peer, m);
+    } else {
+      devLog(() => 'xVeil[content]: ${m.contentId.substring(0, 12)} '
+          '(${m.size}B "${m.name}") <- ${peer.short} — OFFERED (awaiting user)');
+    }
+  }
+
+  /// Register a fetch for [m] + request all its pieces. Evicts any abandoned
+  /// reassembler first (RAM bound). Shared by auto-download and [downloadContent].
+  Future<void> _beginFetch(NodeId peer, ContentManifest m) async {
+    if (_fetching.containsKey(m.contentId)) return;
     final cutoff = _now();
     _fetching.removeWhere((cid, _) {
       final last = _fetchActivity[cid];
@@ -2108,11 +2164,26 @@ class MessagingService {
         (manifest: m, xfer: ContentTransfer(m), peer: peer, name: m.name);
     _fetchActivity[m.contentId] = _now();
     _ensureContentTimer();
-    devLog(() => 'xVeil[content]: manifest ${m.contentId.substring(0, 12)} '
-        '(${m.pieceCount} pieces, "${m.name}", msg '
-        '${(m.msgId ?? m.contentId).substring(0, 8)}) <- ${peer.short}; requesting all');
-    await _send(
-        peer, pieceRequestEnvelope(contentId: m.contentId, indices: null).encode());
+    await _send(peer,
+        pieceRequestEnvelope(contentId: m.contentId, indices: null).encode());
+  }
+
+  /// The user opted to download an OFFERED file. Fetches from the retained
+  /// manifest. No-op if we already hold the blob; if the offer handle is gone
+  /// (evicted / app restart) the sender must re-advertise to re-offer it.
+  Future<void> downloadContent(NodeId peer, String contentId) async {
+    if (await _storage.hasFile(contentId)) {
+      _signal();
+      return;
+    }
+    final offered = _offered[contentId];
+    if (offered == null) {
+      devLog(() => 'xVeil[content]: download — no live offer for '
+          '${contentId.substring(0, 12)} (sender must re-advertise)');
+      return;
+    }
+    devLog(() => 'xVeil[content]: user download ${contentId.substring(0, 12)}');
+    await _beginFetch(offered.peer, offered.manifest);
   }
 
   void _onPieceRequest(NodeId peer, PieceRequestFrame req) {
@@ -2275,9 +2346,10 @@ class MessagingService {
   }
 
   /// Persist a completed content transfer: store the blob under its HASH
-  /// (contentId, de-duped) then surface it as an incoming filePost event. Returns
-  /// true if persisted-or-already-present (safe to ack); false only when the
-  /// durable store failed (no ack → the sender keeps retrying).
+  /// (contentId, de-duped), then SIGNAL so the already-surfaced OFFER message
+  /// flips offer → downloaded (its hasFile(contentId) is now true). Returns true
+  /// if persisted-or-already-present (safe to ack = delivered); false only when
+  /// the durable store failed (no ack → the sender keeps the message un-delivered).
   Future<bool> _persistReceivedContent(
       NodeId peer, ContentManifest m, Uint8List bytes) async {
     try {
@@ -2288,36 +2360,37 @@ class MessagingService {
       devLog(() => 'xVeil[content]: recv store failed for ${m.name}: $e');
       return false; // no durable blob → no delivery ack
     }
-    return _foldIncomingFile(peer, m);
+    _offered.remove(m.contentId);
+    // The offer message normally already exists; ensure it (idempotent) for any
+    // ordering where the blob lands first, then signal so the UI re-renders.
+    await _surfaceFileOffer(peer, m);
+    _signal();
+    return true;
   }
 
-  /// Surface a received file as an incoming filePost EVENT keyed by the sender's
-  /// per-send (msgId, author, seq) — NOT the content hash — referencing the
-  /// hash-keyed blob (m.contentId). Idempotent on msgId: a retried/re-advertised
-  /// manifest never duplicates the bubble. Because the identity is the EVENT, a
-  /// re-send of previously-DELETED bytes surfaces as a NEW message (A), while a
-  /// re-delivery of the SAME (deleted) event stays gone — "deleted never
-  /// resurrects" reinterpreted at the (author,seq) level. Assumes the blob is
-  /// already stored under m.contentId. Returns true when surfaced-or-present.
-  Future<bool> _foldIncomingFile(NodeId peer, ContentManifest m) async {
-    // Legacy sender (no event identity) → fall back to the hash as the id, i.e.
-    // the old content-addressed behaviour (re-send of identical bytes dedups).
-    final msgId = m.msgId ?? m.contentId;
+  /// Surface a received file as an incoming filePost — an OFFER carrying the
+  /// descriptor (name/size + the contentId to download on demand), NOT the blob.
+  /// Idempotent on the sender's per-send msgId. A re-send of previously-DELETED
+  /// content surfaces as a NEW message (A); a re-delivery of the SAME (deleted)
+  /// event stays gone. The "downloaded" state is derived from hasFile(contentId),
+  /// so no message rewrite is needed when the blob later lands.
+  Future<void> _surfaceFileOffer(NodeId peer, ContentManifest m) async {
+    final msgId = m.msgId ?? m.contentId; // legacy sender → hash id
     if (await _hasMessage(peer, msgId) ||
         await _storage.isMessageDeleted(peer.hex, msgId)) {
-      return true; // already folded this event / it was deleted → re-ack, no dup
+      return; // already surfaced / deliberately deleted
     }
     await _store(peer, MessageDirection.incoming, '📎 ${m.name}',
         MessageStatus.delivered,
-        fileId: m.contentId, fileName: m.name, id: msgId, seq: m.seq,
+        fileContentId: m.contentId, fileSize: m.size, fileName: m.name,
+        id: msgId, seq: m.seq,
         timestamp: m.ts != null
             ? DateTime.fromMillisecondsSinceEpoch(m.ts!)
             : _now());
     _emitIncoming(peer, '📎 ${m.name}', isFile: true);
     _signal();
-    devLog(() => 'xVeil[content]: surfaced ${m.contentId.substring(0, 12)} as '
-        'msg ${msgId.substring(0, 8)} <- ${peer.short}');
-    return true;
+    devLog(() => 'xVeil[content]: offered ${m.contentId.substring(0, 12)} as msg '
+        '${msgId.substring(0, 8)} (${m.size}B) <- ${peer.short}');
   }
 
   void _ensureContentTimer() {
