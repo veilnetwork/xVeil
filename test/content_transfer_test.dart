@@ -30,6 +30,18 @@ List<({int p, int c, int n, Uint8List d})> _chunksFor(
   return out;
 }
 
+/// Reassemble the whole from the verified pieces [ContentTransfer.addChunk]
+/// hands back as each completes — the unit-test stand-in for the receiver's
+/// storeFilePiece. The transfer no longer holds the whole file (it streams each
+/// verified piece out to disk), so the test collects the pieces itself.
+Uint8List _whole(ContentManifest m, Map<int, Uint8List> pieces) {
+  final out = BytesBuilder(copy: false);
+  for (var p = 0; p < m.pieceCount; p++) {
+    out.add(pieces[p]!);
+  }
+  return out.toBytes();
+}
+
 void main() {
   test('out-of-order, duplicate chunks reassemble + verify into the whole', () {
     final data = _rnd(20000, 1);
@@ -37,13 +49,15 @@ void main() {
         pieceSize: 8192, chunkBytes: 4000); // 3 pieces
     expect(m.pieceCount, 3);
     final ct = ContentTransfer(m);
+    final pieces = <int, Uint8List>{};
     final chunks = _chunksFor(m, data)..shuffle(Random(9));
     for (final ch in chunks) {
-      ct.addChunk(ch.p, ch.c, ch.n, ch.d);
-      ct.addChunk(ch.p, ch.c, ch.n, ch.d); // duplicate — harmless
+      final got = ct.addChunk(ch.p, ch.c, ch.n, ch.d);
+      if (got != null) pieces[ch.p] = got;
+      ct.addChunk(ch.p, ch.c, ch.n, ch.d); // duplicate — harmless (returns null)
     }
     expect(ct.isComplete, isTrue);
-    expect(ct.assemble(), data, reason: 'verified whole == original');
+    expect(_whole(m, pieces), data, reason: 'verified whole == original');
   });
 
   test('a dropped chunk leaves exactly that piece+chunk missing for re-request',
@@ -52,11 +66,13 @@ void main() {
     final m = ContentManifest.fromBytes('f', data,
         pieceSize: 8192, chunkBytes: 4000);
     final ct = ContentTransfer(m);
+    final pieces = <int, Uint8List>{};
     final chunks = _chunksFor(m, data);
     // Deliver everything EXCEPT piece 1, chunk 1.
     final dropped = chunks.where((ch) => !(ch.p == 1 && ch.c == 1));
     for (final ch in dropped) {
-      ct.addChunk(ch.p, ch.c, ch.n, ch.d);
+      final got = ct.addChunk(ch.p, ch.c, ch.n, ch.d);
+      if (got != null) pieces[ch.p] = got;
     }
     expect(ct.isComplete, isFalse);
     expect(ct.missingPieces(), [1], reason: 'only piece 1 is unfinished');
@@ -66,12 +82,13 @@ void main() {
     final bm = ct.missingChunkBitmap(1);
     expect(bm[0] & 0x01, 0, reason: 'chunk 0 present → bit clear');
     expect(bm[0] & 0x02, 0x02, reason: 'chunk 1 missing → bit set');
-    // Re-deliver the missing chunk → complete.
+    // Re-deliver the missing chunk → piece verifies + is handed back.
     final miss = chunks.firstWhere((ch) => ch.p == 1 && ch.c == 1);
-    expect(ct.addChunk(miss.p, miss.c, miss.n, miss.d), isTrue,
-        reason: 'completing chunk verifies the piece');
+    final got = ct.addChunk(miss.p, miss.c, miss.n, miss.d);
+    expect(got, isNotNull, reason: 'completing chunk verifies the piece');
+    pieces[miss.p] = got!;
     expect(ct.isComplete, isTrue);
-    expect(ct.assemble(), data);
+    expect(_whole(m, pieces), data);
   });
 
   test('a corrupted chunk fails the piece hash → piece stays missing (re-fetch)',
@@ -80,13 +97,15 @@ void main() {
     final m = ContentManifest.fromBytes('f', data,
         pieceSize: 8192, chunkBytes: 4000);
     final ct = ContentTransfer(m);
+    final pieces = <int, Uint8List>{};
     final chunks = _chunksFor(m, data);
     for (final ch in chunks) {
       if (ch.p == 2 && ch.c == 0) {
         final bad = Uint8List.fromList(ch.d)..[0] ^= 0xff; // corrupt piece 2
         ct.addChunk(ch.p, ch.c, ch.n, bad);
       } else {
-        ct.addChunk(ch.p, ch.c, ch.n, ch.d);
+        final got = ct.addChunk(ch.p, ch.c, ch.n, ch.d);
+        if (got != null) pieces[ch.p] = got;
       }
     }
     expect(ct.isVerified(2), isFalse, reason: 'corrupt piece not accepted');
@@ -97,10 +116,11 @@ void main() {
         reason: 'dropped piece → request all of its chunks again');
     // Honest re-delivery of piece 2 completes the transfer.
     for (final ch in chunks.where((c) => c.p == 2)) {
-      ct.addChunk(ch.p, ch.c, ch.n, ch.d);
+      final got = ct.addChunk(ch.p, ch.c, ch.n, ch.d);
+      if (got != null) pieces[ch.p] = got;
     }
     expect(ct.isComplete, isTrue);
-    expect(ct.assemble(), data);
+    expect(_whole(m, pieces), data);
   });
 
   test('a chunk whose count disagrees with the manifest is ignored', () {
