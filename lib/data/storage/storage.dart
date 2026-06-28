@@ -235,6 +235,19 @@ abstract interface class Storage {
   /// hold is referenced (a fresh filePost event), not re-fetched over the network.
   Future<bool> hasFile(String fileId);
 
+  /// Store ONE piece of a STREAMED file incrementally (its own record-run), so a
+  /// large file is never held whole in RAM and its size is bounded by disk, not
+  /// [kMaxStoredFileBytes]. [hasFile] becomes true once all [pieceCount] pieces
+  /// are stored. Idempotent per (fileId, pieceIndex).
+  Future<void> storeFilePiece(String fileId, int pieceIndex, int pieceCount,
+      int pieceSize, int totalSize, Uint8List bytes,
+      {String? name});
+
+  /// Read [length] bytes at [offset] of a stored file WITHOUT loading it whole
+  /// (reads only the covering records) — lets the sender serve a wire chunk
+  /// straight from disk. Null if unknown / a needed record is missing.
+  Future<Uint8List?> readFileRange(String fileId, int offset, int length);
+
   /// Lock the space and zeroize in-memory key material.
   Future<void> close();
 }
