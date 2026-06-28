@@ -435,6 +435,13 @@ class SettingsScreen extends ConsumerWidget {
             onTap: () => _openStorage(context, ref, l),
           ),
           ListTile(
+            leading: const Icon(Icons.download_outlined),
+            title: Text(l.settingsFiles),
+            subtitle: Text(l.settingsFilesHint),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push('/file-settings'),
+          ),
+          ListTile(
             leading: const Icon(Icons.hub_outlined),
             title: Text(l.settingsNetwork),
             trailing: const Icon(Icons.chevron_right),

@@ -19,6 +19,7 @@ import '../domain/chat.dart';
 import '../domain/content_manifest.dart';
 import '../domain/content_transfer.dart';
 import '../domain/event.dart';
+import '../domain/file_download_policy.dart';
 import '../domain/file_transfer.dart';
 import 'app_controller.dart';
 import 'mailbox_service.dart';
@@ -389,6 +390,7 @@ class MessagingService {
   void start() {
     _sub ??= _transport.messages().listen(_onInbound);
     _retryTimer ??= Timer.periodic(_retryInterval, (_) => _retryFlush());
+    unawaited(_loadFilePolicy()); // this identity's auto-download policy (A1)
   }
 
   Future<void> _retryFlush() async {
@@ -1957,30 +1959,36 @@ class MessagingService {
   final Map<String, ({ContentManifest manifest, NodeId peer})> _offered = {};
   static const _maxOffered = 256;
 
-  /// A file ≤ this is auto-downloaded; larger is OFFERED (the receiver opts in) —
-  /// so a peer can't silently fill the disk. Default 2 MiB; a settings layer can
-  /// override per-identity later. (Phase A1.)
-  static const _autoDownloadMaxBytes = 2 * 1024 * 1024;
+  /// Per-identity auto-download policy (size cap + blocked types): which incoming
+  /// files download silently vs. surface as an OFFER the user must accept — so a
+  /// peer can't silently fill the disk or push an executable unbidden (Phase A1).
+  /// Loaded from THIS identity's storage on [start]; the safe default applies
+  /// until then (and for a fresh identity). Edited via [setFileDownloadPolicy].
+  FileDownloadPolicy _filePolicy = FileDownloadPolicy.defaults;
+  static const _kFilePolicySetting = 'file_policy';
 
-  /// Extensions NEVER auto-downloaded regardless of size (always offered) — a
-  /// peer can't push an executable onto the device unbidden. Settings-extensible.
-  static const _noAutoDownloadExts = {
-    'apk', 'exe', 'dmg', 'msi', 'bat', 'cmd', 'com', 'sh', 'scr', 'jar', 'deb',
-    'app', 'pkg', 'ps1',
-  };
+  /// This identity's current incoming-file policy (read by the settings UI).
+  FileDownloadPolicy get fileDownloadPolicy => _filePolicy;
 
-  bool _shouldAutoDownload(int? size, String? name) {
-    if (size == null || size > _autoDownloadMaxBytes) return false;
-    final ext = _extOf(name);
-    return ext == null || !_noAutoDownloadExts.contains(ext);
+  /// Apply + persist a new auto-download policy for THIS identity. Takes effect
+  /// immediately (the next offer is judged against it) and survives restart.
+  Future<void> setFileDownloadPolicy(FileDownloadPolicy policy) async {
+    _filePolicy = policy;
+    await _storage.putSetting(_kFilePolicySetting, jsonEncode(policy.toJson()));
   }
 
-  String? _extOf(String? name) {
-    if (name == null) return null;
-    final dot = name.lastIndexOf('.');
-    return (dot >= 0 && dot < name.length - 1)
-        ? name.substring(dot + 1).toLowerCase()
-        : null;
+  /// Load this identity's stored policy (called from [start]); a missing or
+  /// corrupt blob leaves the safe default in place.
+  Future<void> _loadFilePolicy() async {
+    try {
+      final raw = await _storage.getSetting(_kFilePolicySetting);
+      if (raw != null && raw.isNotEmpty) {
+        _filePolicy = FileDownloadPolicy.fromJson(
+            jsonDecode(raw) as Map<String, dynamic>);
+      }
+    } catch (_) {
+      // Unparseable / store hiccup → keep defaults (fail safe, not open).
+    }
   }
 
   /// Fires when a content transfer COMPLETES (all pieces streamed to disk). No
@@ -2229,7 +2237,7 @@ class MessagingService {
     }
     _offered[m.contentId] = (manifest: m, peer: peer);
 
-    if (_shouldAutoDownload(m.size, m.name)) {
+    if (_filePolicy.allowsAuto(m.size, m.name)) {
       devLog(() => 'xVeil[content]: ${m.contentId.substring(0, 12)} '
           '(${m.size}B "${m.name}") <- ${peer.short} — auto-downloading (<= cap)');
       await _beginFetch(peer, m);

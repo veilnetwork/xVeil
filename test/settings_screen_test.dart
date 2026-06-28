@@ -55,9 +55,10 @@ void main() {
     expect(find.text('Nat'), findsOneWidget);
     expect(find.text(id.nodeId.short), findsWidgets);
 
-    // "Lock now" locks the session (scroll the list — more tiles can push it
-    // below the test viewport).
-    await tester.drag(find.byType(ListView), const Offset(0, -400));
+    // "Lock now" locks the session (scroll it into view — the lazy ListView only
+    // builds it once near the viewport; scrollUntilVisible is robust to how many
+    // tiles precede it).
+    await tester.scrollUntilVisible(find.text('Lock now'), 300);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Lock now'));
     await tester.pump();
