@@ -2188,8 +2188,10 @@ class MessagingService {
         }
       }
     } catch (e) {
+      // Surface to the caller (the UI shows an error) instead of dropping the
+      // send silently — a vanished message with no feedback is the worst outcome.
       devLog(() => 'xVeil[content]: stream store failed for $name: $e');
-      return;
+      rethrow;
     }
     // Fresh per-send msgId = a NEW filePost event (identity is (author,seq), not
     // the byte-hash → a re-send surfaces even after a delete). fileId = contentId.

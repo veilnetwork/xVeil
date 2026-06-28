@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -166,27 +167,36 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // never loaded whole into memory (readAsBytes would OOM first) — no size
     // ceiling on this path. Without a path (web / some SAF URIs) we can't seek,
     // so fall through to the in-RAM path and its cap.
-    if (file.size > kMaxIncomingFileBytes && file.path != null) {
-      devLog(() => 'xVeil[attach]: ${file.name} size=${file.size} -> stream');
-      final raf = await File(file.path!).open();
+    final path = file.path;
+    if (path != null) {
+      // Authoritative size from the FILESYSTEM. file_picker's PlatformFile.size
+      // is frequently 0 / stale on Android SAF content URIs — trusting it would
+      // wrongly skip streaming and shove a huge file down the in-RAM path, where
+      // it trips the cap and is dropped with NOTHING recorded (the observed bug).
+      var size = file.size;
       try {
-        await ref.read(messagingServiceProvider).sendFileStreaming(
-          _peer,
-          file.name,
-          file.size,
-          (offset, length) async {
-            await raf.setPosition(offset);
-            return raf.read(length);
-          },
-        );
-      } catch (e) {
-        devLog(() => 'xVeil[attach]: stream send failed ${file.name}: $e');
-        if (mounted) _snack(l.chatFileUnreadable);
-      } finally {
-        await raf.close();
+        final fsLen = await File(path).length();
+        if (fsLen > 0) size = fsLen;
+      } catch (_) {/* unreadable length → keep the picker's size */}
+      if (size > kMaxIncomingFileBytes) {
+        devLog(() => 'xVeil[attach]: ${file.name} size=$size -> stream');
+        final raf = await File(path).open();
+        try {
+          await ref.read(messagingServiceProvider).sendFileStreaming(
+            _peer,
+            file.name,
+            size,
+            (offset, length) => _readFully(raf, offset, length),
+          );
+        } catch (e) {
+          devLog(() => 'xVeil[attach]: stream send failed ${file.name}: $e');
+          if (mounted) _snack(l.chatFileUnreadable);
+        } finally {
+          await raf.close();
+        }
+        if (mounted) _scrollToBottom(force: true);
+        return;
       }
-      if (mounted) _scrollToBottom(force: true);
-      return;
     }
 
     Uint8List? bytes = file.bytes;
@@ -212,6 +222,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
     await ref.read(messagingServiceProvider).sendFile(_peer, data, file.name);
     _scrollToBottom(force: true);
+  }
+
+  /// Read EXACTLY [length] bytes at [offset], looping until satisfied or EOF.
+  /// [RandomAccessFile.read] is documented to return *up to* count bytes and on
+  /// Android can hand back a short read for a large request — which the streaming
+  /// manifest's short-read guard would (correctly) reject, failing the whole send
+  /// for an otherwise-fine file. Looping here makes a full piece read reliable.
+  static Future<Uint8List> _readFully(
+      RandomAccessFile raf, int offset, int length) async {
+    await raf.setPosition(offset);
+    final out = BytesBuilder(copy: false);
+    var remaining = length;
+    while (remaining > 0) {
+      final chunk = await raf.read(remaining);
+      if (chunk.isEmpty) break; // EOF (the source is shorter than declared)
+      out.add(chunk);
+      remaining -= chunk.length;
+    }
+    return out.toBytes();
   }
 
   /// Tap on a file bubble: if we already hold the blob, save it out; if it is an
