@@ -138,6 +138,17 @@ class IncomingNotice {
   final bool isFile;
 }
 
+/// A live byte source the SENDER serves a large file from directly — the user's
+/// ORIGINAL file on disk — instead of a stored/duplicated copy. [read] returns
+/// exactly [length] bytes at [offset]; [close] releases the underlying handle
+/// (the file picker's RandomAccessFile) when serving ends. Held by
+/// [MessagingService._serving] and closed on eviction/dispose. The dart:io
+/// implementation lives in the UI layer so this stays transport-/io-free.
+typedef _ServeSource = ({
+  Future<Uint8List> Function(int offset, int length) read,
+  Future<void> Function() close,
+});
+
 /// Wires the [VeilTransport] inbound stream into [Storage] and exposes a send
 /// path. Persists every message, then signals [changes] so the read providers
 /// refresh. Intentionally Riverpod-free (no Ref) — it owns a plain broadcast
@@ -1909,15 +1920,18 @@ class MessagingService {
   // Receiver: verify the manifest, request missing pieces, verify each piece on
   // arrival, reassemble + verify the WHOLE, then surface it. Order/loss-tolerant.
 
-  /// Content we SERVE, by contentId — the MANIFEST only; the bytes live in the
-  /// on-disk blob store (keyed by contentId) and are read range-by-range as
-  /// pieces are requested ([_serveChunks] → readFileRange), so a served file of
-  /// ANY size costs only its small manifest in RAM (the sender used to hold the
-  /// full bytes of every file it ever sent — observed 0.5 GB RSS).
+  /// Content we SERVE, by contentId — the MANIFEST plus, for a LARGE send, a live
+  /// [source] over the user's ORIGINAL file. [_serveChunks] reads each requested
+  /// chunk either from [source] (serve-from-source: no copy of the file is kept —
+  /// the sender already HAS it, so storing one would just duplicate it, and for a
+  /// big file that copy is what overflows the hidden-volume index) or, when
+  /// [source] is null (small / in-RAM sends), from the on-disk blob store
+  /// ([readFileRange]). Either way only a small manifest sits in RAM.
   /// [servedAt] is refreshed on every advertise/request so an ACTIVE transfer
-  /// stays; an idle one is evicted by [_evictServing].
-  final Map<String, ({ContentManifest manifest, DateTime servedAt})> _serving =
-      {};
+  /// stays; an idle one is evicted by [_evictServing], which closes its [source].
+  final Map<String,
+      ({ContentManifest manifest, _ServeSource? source, DateTime servedAt})>
+      _serving = {};
 
   /// A served manifest is dropped from [_serving] this long after its last
   /// advertise/request — the on-disk blob remains, so a later re-request simply
@@ -2066,12 +2080,19 @@ class MessagingService {
     }
   }
 
-  /// Register [manifest] for serving (its bytes are ALREADY in the on-disk blob
-  /// store, keyed by contentId) and advertise it to [dst]. The serve loop reads
-  /// the bytes back from disk on request — nothing is held in RAM. Shared tail of
-  /// every advertise path (in-RAM and streamed).
-  Future<void> _advertiseStored(NodeId dst, ContentManifest manifest) async {
-    _serving[manifest.contentId] = (manifest: manifest, servedAt: _now());
+  /// Register [manifest] for serving and advertise it to [dst]. The bytes are
+  /// read on request either from [source] (a large send, served straight from the
+  /// user's original file) or — when [source] is null — from the on-disk blob
+  /// store keyed by contentId. Shared tail of every advertise path. A prior
+  /// [source] for this contentId is closed if we replace it (no leaked handle).
+  Future<void> _advertiseStored(NodeId dst, ContentManifest manifest,
+      {_ServeSource? source}) async {
+    final cid = manifest.contentId;
+    final prev = _serving[cid];
+    if (prev?.source != null && !identical(prev!.source, source)) {
+      unawaited(prev.source!.close());
+    }
+    _serving[cid] = (manifest: manifest, source: source, servedAt: _now());
     _evictServing();
     _ensureContentTimer();
     await _send(dst,
@@ -2148,51 +2169,42 @@ class MessagingService {
         bytes);
   }
 
-  /// Send a file from a SOURCE that is read range-by-range ([readRange] returns
-  /// [length] bytes at [offset]; [size] is the total) — the file is NEVER loaded
-  /// whole into RAM, on either the manifest pass or the store pass. The streaming
-  /// twin of [_sendAsContent] for a file too large to fit in memory (a multi-GB /
-  /// TB attachment): the UI opens the picked file as a RandomAccessFile and hands
-  /// in a reader; tests pass an in-memory slicer. Same content layer, same event
-  /// identity, same contentId as the in-RAM path (so the two dedup together).
-  ///
-  /// Two RAM-bounded passes over the source: (1) hash each piece → manifest +
-  /// contentId; (2) read each piece again → persist it to the blob store. The
-  /// local file is read twice (cheap vs. the network transfer) so we never hold
-  /// more than one piece, and the served blob is keyed by contentId exactly like
-  /// every other send (de-duped, re-openable).
+  /// Send a LARGE file by SERVING IT STRAIGHT FROM THE SOURCE — the user's
+  /// original file on disk — with no stored or encrypted copy. [read] returns
+  /// [length] bytes at [offset] of the source; [close] releases its handle when
+  /// serving ends; [size] is the total. The sender already HAS the file, so
+  /// keeping a copy would (a) duplicate it — 2× disk for a TB attachment — and
+  /// (b) be exactly what overflowed the hidden-volume index on a big send. So we
+  /// only HASH the source (one RAM-bounded pass → the manifest), record the
+  /// filePost, and register the live source for serving; [_serveChunks] then
+  /// reads each requested chunk from it on demand. Same content layer + contentId
+  /// as the in-RAM path (so a streamed and an in-RAM send of the same bytes still
+  /// share a swarm address). The source is owned by [_serving] and closed on
+  /// eviction/dispose — the UI must NOT close it after this returns.
   Future<void> sendFileStreaming(NodeId dst, String name, int size,
-      Future<Uint8List> Function(int offset, int length) readRange) async {
+      Future<Uint8List> Function(int offset, int length) read,
+      {required Future<void> Function() close}) async {
     final contact = await _storage.getContact(dst);
-    if (contact == null || contact.status != ContactStatus.accepted) return;
-    final pieceSize = _adaptivePieceSize(size);
-    // Pass 1: hash the source piece-by-piece → manifest (contentId + per-piece
-    // hashes). Holds at most one piece in RAM.
-    final base = await ContentManifest.fromReader(
-        name: name,
-        size: size,
-        pieceSize: pieceSize,
-        chunkBytes: _contentChunkBytes,
-        readRange: readRange);
-    final cid = base.contentId;
-    // Pass 2: persist the blob as streamed pieces (uncapped, de-duped) so we can
-    // serve it from disk. A blob already present (re-send of identical bytes) is
-    // skipped. If we can't store it we can't serve it → abort the send.
+    if (contact == null || contact.status != ContactStatus.accepted) {
+      await close(); // not serving this peer → release the handle now
+      return;
+    }
+    // Hash the source piece-by-piece → manifest (contentId + per-piece hashes).
+    // Holds at most one piece in RAM; on failure release the handle + surface.
+    final ContentManifest base;
     try {
-      if (!await _storage.hasFile(cid)) {
-        for (var p = 0; p < base.pieceCount; p++) {
-          final start = p * base.pieceSize;
-          final piece = await readRange(start, base.pieceLength(p));
-          await _storage.storeFilePiece(
-              cid, p, base.pieceCount, base.pieceSize, size, piece, name: name);
-        }
-      }
+      base = await ContentManifest.fromReader(
+          name: name,
+          size: size,
+          pieceSize: _adaptivePieceSize(size),
+          chunkBytes: _contentChunkBytes,
+          readRange: read);
     } catch (e) {
-      // Surface to the caller (the UI shows an error) instead of dropping the
-      // send silently — a vanished message with no feedback is the worst outcome.
-      devLog(() => 'xVeil[content]: stream store failed for $name: $e');
+      await close();
+      devLog(() => 'xVeil[content]: stream hash failed for $name: $e');
       rethrow;
     }
+    final cid = base.contentId;
     // Fresh per-send msgId = a NEW filePost event (identity is (author,seq), not
     // the byte-hash → a re-send surfaces even after a delete). fileId = contentId.
     final msgId = _uuid.v4();
@@ -2201,9 +2213,10 @@ class MessagingService {
         fileId: cid, fileName: name, fileSize: size, id: msgId,
         timestamp: _now());
     _signal();
-    // Bytes are already on disk → advertise (serve-from-disk), no re-store.
-    await _advertiseStored(dst,
-        base.withEvent(msgId: msgId, author: stored.author, seq: stored.seq));
+    // Register the live source + advertise — NO stored copy.
+    await _advertiseStored(
+        dst, base.withEvent(msgId: msgId, author: stored.author, seq: stored.seq),
+        source: (read: read, close: close));
   }
 
   Future<void> _onContentManifest(NodeId peer, String body) async {
@@ -2294,8 +2307,13 @@ class MessagingService {
           '${req.contentId.substring(0, 12)} <- ${peer.short} (ignored)');
       return; // not serving this content
     }
-    // Keep an actively-requested transfer fresh so it isn't evicted mid-flight.
-    _serving[req.contentId] = (manifest: served.manifest, servedAt: _now());
+    // Keep an actively-requested transfer fresh so it isn't evicted mid-flight
+    // (this is what keeps a serve-from-source handle open through a long send).
+    _serving[req.contentId] = (
+      manifest: served.manifest,
+      source: served.source,
+      servedAt: _now()
+    );
     final m = served.manifest;
     // gaps: pieceIndex → chunk indices to serve (null ⇒ every chunk of the piece).
     final Map<int, List<int>?> gaps;
@@ -2317,21 +2335,27 @@ class MessagingService {
           '(${indices.length}/${m.pieceCount} whole pieces) <- ${peer.short} '
           '-> serving');
     }
-    unawaited(_serveChunks(peer, m, gaps));
+    unawaited(_serveChunks(peer, m, served.source, gaps));
   }
 
   /// Drop served manifests idle past [_servingTtl], then — if still over
-  /// [_servingMaxEntries] — evict the OLDEST until under it. The bytes are on
-  /// disk, so this only bounds the small manifest cache; a later re-request
-  /// re-advertises, re-seeding [_serving] and reading the blob back from disk.
+  /// [_servingMaxEntries] — evict the OLDEST until under it. A serve-from-source
+  /// entry's [_ServeSource.close] is called as it leaves (release the file
+  /// handle); a later re-request to an evicted entry simply finds nothing served
+  /// and the receiver gives up (a re-send re-opens the source).
   void _evictServing() {
     final now = _now();
-    _serving.removeWhere((_, v) => now.difference(v.servedAt) > _servingTtl);
+    _serving.removeWhere((_, v) {
+      if (now.difference(v.servedAt) <= _servingTtl) return false;
+      if (v.source != null) unawaited(v.source!.close());
+      return true;
+    });
     if (_serving.length <= _servingMaxEntries) return;
     final byAge = _serving.entries.toList()
       ..sort((a, b) => a.value.servedAt.compareTo(b.value.servedAt));
     for (final e in byAge) {
       if (_serving.length <= _servingMaxEntries) break;
+      if (e.value.source != null) unawaited(e.value.source!.close());
       _serving.remove(e.key);
     }
   }
@@ -2346,16 +2370,15 @@ class MessagingService {
   }
 
   /// Serve [gaps] (pieceIndex → chunk indices, null ⇒ all chunks of the piece)
-  /// of content [m], one wire chunk at a time paced by [_contentPacing]. Each
-  /// chunk's bytes are read from the on-disk blob ([readFileRange]) at the
-  /// derived offset — the file is never held in RAM. Chunk coordinates are
-  /// derived from the manifest's [ContentManifest.chunkBytes] so they match the
-  /// receiver's expectation.
-  Future<void> _serveChunks(
-      NodeId peer, ContentManifest m, Map<int, List<int>?> gaps) async {
+  /// of content [m] to [peer]. Each chunk's bytes are read either from [source]
+  /// (the sender's original file, for a large serve-from-source send) or — when
+  /// [source] is null — from the on-disk blob ([readFileRange]) at the derived
+  /// offset; the file is never held in RAM. Chunk coordinates come from the
+  /// manifest's [ContentManifest.chunkBytes] so they match the receiver.
+  Future<void> _serveChunks(NodeId peer, ContentManifest m, _ServeSource? source,
+      Map<int, List<int>?> gaps) async {
     // Flatten the requested (piece, chunk) coordinates into one list so we can
-    // emit them in bounded-parallel batches across pieces, not strictly piece-by-
-    // piece chunk-by-chunk.
+    // emit them in bounded batches across pieces, not strictly piece-by-piece.
     final coords = <({int p, int c})>[];
     for (final entry in gaps.entries) {
       final p = entry.key;
@@ -2366,34 +2389,43 @@ class MessagingService {
         if (c >= 0 && c < n) coords.add((p: p, c: c));
       }
     }
-    // Emit [_serveBatch] chunks CONCURRENTLY, then one pacing gap before the next
-    // batch — "parallel parts" instead of one-chunk-per-pace. Cuts the serve time
-    // ~Nx; the re-request loop refills anything the TX queue sheds under load.
     for (var i = 0; i < coords.length; i += _serveBatch) {
       final end =
           (i + _serveBatch < coords.length) ? i + _serveBatch : coords.length;
+      // READ the batch sequentially (a serve-from-source RandomAccessFile is a
+      // single cursor — concurrent reads would race it; on-disk readFileRange is
+      // fine either way), then SEND the batch CONCURRENTLY for throughput — the
+      // re-request loop refills anything the TX queue sheds under load.
+      final batch = <({int p, int c, Uint8List data})>[];
+      for (var j = i; j < end; j++) {
+        final p = coords[j].p, c = coords[j].c;
+        final cb = m.chunkBytes;
+        final plen = m.pieceLength(p);
+        final cstart = p * m.pieceSize + c * cb;
+        final clen = (c * cb + cb <= plen) ? cb : plen - c * cb;
+        Uint8List? data;
+        try {
+          data = source != null
+              ? await source.read(cstart, clen)
+              : await _storage.readFileRange(m.contentId, cstart, clen);
+        } catch (e) {
+          devLog(() => 'xVeil[content]: serve read failed '
+              '${m.contentId.substring(0, 12)} p$p c$c: $e');
+        }
+        if (data != null) batch.add((p: p, c: c, data: data));
+      }
       await Future.wait([
-        for (var j = i; j < end; j++)
-          () async {
-            final p = coords[j].p, c = coords[j].c;
-            final cb = m.chunkBytes;
-            final plen = m.pieceLength(p);
-            final pstart = p * m.pieceSize;
-            final cstart = pstart + c * cb;
-            final clen = (c * cb + cb <= plen) ? cb : plen - c * cb;
-            final data = await _storage.readFileRange(m.contentId, cstart, clen);
-            if (data == null) return; // blob evicted/missing — receiver re-requests
-            await _send(
-              peer,
-              pieceChunkEnvelope(
-                contentId: m.contentId,
-                pieceIndex: p,
-                chunkIndex: c,
-                chunkCount: m.chunkCount(p),
-                data: data,
-              ).encode(),
-            );
-          }(),
+        for (final ch in batch)
+          _send(
+            peer,
+            pieceChunkEnvelope(
+              contentId: m.contentId,
+              pieceIndex: ch.p,
+              chunkIndex: ch.c,
+              chunkCount: m.chunkCount(ch.p),
+              data: ch.data,
+            ).encode(),
+          ),
       ]);
       await Future<void>.delayed(_contentPacing); // anti-burst pace between batches
     }
@@ -2528,6 +2560,11 @@ class MessagingService {
     _contentTimer = null;
     await _sub?.cancel();
     _sub = null;
+    // Release any open serve-from-source file handles.
+    for (final v in _serving.values) {
+      if (v.source != null) unawaited(v.source!.close());
+    }
+    _serving.clear();
     await _changes.close();
     await _incoming.close();
     await _contentReceived.close();
