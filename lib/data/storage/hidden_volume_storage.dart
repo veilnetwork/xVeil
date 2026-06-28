@@ -568,8 +568,13 @@ class HiddenVolumeStorage implements Storage {
       final sq = m['sq'];
       if (au != author || sq is! int || sq <= fromSeq) continue;
       final ts = m['t'] is int ? m['t'] as int : 0;
-      if (m['op'] == 'del' || m['k'] == EventKind.void_.index) {
-        // A deleted / superseded slot → an inert void on the wire (no id/body).
+      if (m['op'] == 'del' ||
+          m['k'] == EventKind.void_.index ||
+          m['k'] == EventKind.clear.index) {
+        // A deleted / superseded / clear slot → an inert void on the wire (no
+        // id/body). A clear's EFFECT travels via its own WireEnvelope.clear frame
+        // (carrying the watermark); the gap-fill re-ship only advances the peer's
+        // high-water past the clear's seq so the per-author stream stays gap-free.
         events.add((
           kind: EventKind.void_,
           author: author,
@@ -921,11 +926,21 @@ class HiddenVolumeStorage implements Storage {
   /// caller ALSO drops the contact record. Coalescing to a single commit is the
   /// high-leverage cut for storage bloat. Voiding the edit rows ensures no
   /// superseded edit plaintext survives a clear (forensic, with the scrub).
-  Future<List<KvLogOp>> _tombstoneAllOps(NodeId peer) async {
+  Future<List<KvLogOp>> _tombstoneAllOps(NodeId peer,
+      {Map<String, int>? upTo}) async {
     final ops = <KvLogOp>[];
+    final cleared = <String>{};
     for (final m in await loadMessages(peer.hex)) {
+      // Bounded clear (applyRemoteClear): a remote clear only erases up to the
+      // high-water it captured — KEEP anything newer (seq > watermark) that the
+      // receiver has since received. A null upTo clears everything (local clear).
+      if (upTo != null) {
+        final a = m.author, s = m.seq;
+        if (a == null || s == null || s > (upTo[a] ?? -1)) continue;
+      }
       final hit = await _liveEntryFor(peer.hex, m.id);
       if (hit == null) continue;
+      cleared.add(m.id);
       ops.add(
         AppendLogOp(
           Ns.messageLog,
@@ -946,7 +961,11 @@ class HiddenVolumeStorage implements Storage {
         ops.addAll(await AsyncFileStore(_as).deleteFileOps(fileId));
       }
     }
-    ops.addAll(await _voidEditRowsOps(peer.hex)); // all edit rows in the conv
+    // Scrub edit rows: ALL of them for a full local clear; only the cleared
+    // messages' for a bounded (remote) clear, so a kept newer message keeps its
+    // edit history.
+    ops.addAll(await _voidEditRowsOps(peer.hex,
+        targets: upTo == null ? null : cleared));
     return ops;
   }
 
@@ -1039,6 +1058,85 @@ class HiddenVolumeStorage implements Storage {
     if (ops.isEmpty) return; // nothing stored — keep the chat untouched
     await _commitBatched(ops);
     await scrubDeleted();
+  }
+
+  @override
+  Future<({String author, int seq, Map<String, int> watermark})>
+      emitClearConversation(NodeId peer, String selfHex) async {
+    // Clear locally AND record a propagatable + replayable clear EVENT: a
+    // per-author seq WATERMARK (= the current contiguous high-water) under
+    // [selfHex]'s next seq. The per-message scrub + tombstone still runs (forensic
+    // erasure + immediate local hide); the watermark is what brings ANOTHER device
+    // (the peer, or — once multi-device lands — the author's own) to the same
+    // emptied state on replay, and suppresses an in-flight message that belongs
+    // before the clear. Returns the event so the caller ships it on the wire.
+    final conv = peer.hex;
+    final sync = await conversationSync(conv);
+    final wm = Map<String, int>.from(sync.highWater);
+    final tombstones = await _tombstoneAllOps(peer); // all current (== <= wm)
+    final seq = await _nextConvSeq(conv, selfHex);
+    await _commitAtNextLogId((logId) => [
+      AppendLogOp(
+        Ns.messageLog,
+        logId,
+        // ONLY the watermark travels/persists — never a cleared id or text.
+        _sk(jsonEncode({
+          'k': EventKind.clear.index,
+          'c': conv,
+          'au': selfHex,
+          'sq': seq,
+          't': DateTime.now().millisecondsSinceEpoch,
+          'wm': wm,
+        })),
+      ),
+      PutOp(Ns.settings, _sk('conv_seq:$conv:$selfHex'), _sk('${seq + 1}')),
+    ]);
+    if (tombstones.isNotEmpty) await _commitBatched(tombstones);
+    await scrubDeleted();
+    await _patchCache(() {}); // refold → watermark + tombstones land
+    return (author: selfHex, seq: seq, watermark: wm);
+  }
+
+  @override
+  Future<void> applyRemoteClear(
+      NodeId peer, String author, int seq, Map<String, int> watermark) async {
+    // Apply a clear received from [author]. Record the watermark, scrub +
+    // tombstone every local message AT/BELOW it (keep anything newer), and occupy
+    // the clear's own (author, seq) slot so the per-author stream stays gap-free.
+    // Idempotent on (author, seq). The caller (messaging) decides WHETHER to apply
+    // a peer's clear (policy); this is the apply mechanism.
+    final conv = peer.hex;
+    final entries =
+        await _as.iterLogRange(namespace: Ns.messageLog, limit: _logScanLimit);
+    for (final e in entries) {
+      final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
+      if (m['c'] == conv &&
+          m['au'] == author &&
+          m['sq'] == seq &&
+          m['op'] != 'status') {
+        return; // slot present — already applied
+      }
+    }
+    // Gather scrub+tombstone ops BEFORE the clear row sets the fold watermark, so
+    // loadMessages still lists the to-be-cleared messages.
+    final tombstones = await _tombstoneAllOps(peer, upTo: watermark);
+    await _commitAtNextLogId((logId) => [
+      AppendLogOp(
+        Ns.messageLog,
+        logId,
+        _sk(jsonEncode({
+          'k': EventKind.clear.index,
+          'c': conv,
+          'au': author,
+          'sq': seq,
+          't': DateTime.now().millisecondsSinceEpoch,
+          'wm': watermark,
+        })),
+      ),
+    ]);
+    if (tombstones.isNotEmpty) await _commitBatched(tombstones);
+    await scrubDeleted();
+    await _patchCache(() {});
   }
 
   /// Commit [ops] in as few batches as fit. The at-rest store encodes ONE commit
@@ -1159,6 +1257,12 @@ class HiddenVolumeStorage implements Storage {
   // with NO old body kept in state (superseded bodies live only in the log rows,
   // surfaced by loadMessageHistory until a clear-history scrub reclaims them).
   final Map<String, int> _scanEditWinSeq = {};
+  // conv -> author -> cleared-up-to seq watermark, built from folded
+  // EventKind.clear rows. A message with (author, seq <= watermark) is
+  // BORN-CLEARED: suppressed in the fold even if it arrives AFTER the clear (out
+  // of order) — a per-message tombstone can't catch a not-yet-seen message, the
+  // watermark can, which is what makes a propagated clear CONVERGE across devices.
+  final Map<String, Map<String, int>> _clearedWatermark = {};
   int _scanFoldedUpTo = 0; // next log_id not yet folded into the state above
   List<Message>?
   _scanResult; // materialised; valid while _scanFoldedUpTo == nextId
@@ -1241,6 +1345,7 @@ class HiddenVolumeStorage implements Storage {
     _scanStatusOps.clear();
     _scanStatusLegacy.clear();
     _scanEditWinSeq.clear();
+    _clearedWatermark.clear();
     _scanFoldedUpTo = 0;
     _scanResult = null;
     // Drop the log-id counter too: adopting a different space (open), or a
@@ -1357,6 +1462,32 @@ class HiddenVolumeStorage implements Storage {
       // seq whose content was reclaimed (a retention/clear-history scrub rewrote a
       // superseded edit row to a body-less void). No effect on the fold state.
       if (m['k'] == EventKind.void_.index) continue;
+      // Event-log CLEAR row (k:clear): the conversation was cleared up to a
+      // per-author seq WATERMARK. Record it (max-merge across repeated clears),
+      // then RETROACTIVELY purge already-folded messages at/below it. Messages
+      // folded LATER (out-of-order arrival after the clear) are caught by the
+      // born-clear guard in the post arm below — together they converge.
+      if (m['k'] == EventKind.clear.index) {
+        final c = m['c'] as String?;
+        final wmRaw = m['wm'];
+        if (c != null && wmRaw is Map) {
+          final wm = _clearedWatermark.putIfAbsent(c, () => <String, int>{});
+          wmRaw.forEach((au, hw) {
+            if (au is String && hw is int && hw > (wm[au] ?? 0)) wm[au] = hw;
+          });
+          for (final key in _scanOrder.toList()) {
+            final msg = _scanById[key];
+            if (msg == null || msg.conversationId != c) continue;
+            final a = msg.author, s = msg.seq;
+            if (a != null && s != null && s <= (wm[a] ?? -1)) {
+              _scanById.remove(key);
+              _scanOrder.remove(key);
+              _scanLogIds.remove(key);
+            }
+          }
+        }
+        continue;
+      }
       // Event-log EDIT row (k:edit, §15): replace the body of an existing post
       // by the SAME author (R16), keeping a strictly-newer edit only (R5). The
       // original/ superseded bodies stay in their own log rows for the edit
@@ -1387,6 +1518,19 @@ class HiddenVolumeStorage implements Storage {
       }
       final id = m['id'] as String;
       final c = m['c'] as String;
+      // Born-clear (R17-analogue): a post whose (author, seq) is at/below a
+      // folded clear watermark for this conversation was cleared — drop it. This
+      // catches a message that arrives AFTER the clear (out of order); the clear
+      // arm above already purged the ones folded before it.
+      final pAu = m['au'] as String?;
+      final pSq = m['sq'] as int?;
+      if (pAu != null && pSq != null && pSq <= (_clearedWatermark[c]?[pAu] ?? -1)) {
+        final dk = _msgKey(c, id);
+        _scanById.remove(dk);
+        _scanOrder.remove(dk);
+        _scanLogIds.remove(dk);
+        continue;
+      }
       final k = _msgKey(c, id);
       if (!_scanById.containsKey(k)) _scanOrder.add(k);
       _scanById[k] = Message(
