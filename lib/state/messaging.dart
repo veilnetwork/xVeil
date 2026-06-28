@@ -802,6 +802,29 @@ class MessagingService {
           await _storage.applyRemoteVoid(m.src.hex, m.src.hex, vseq);
         }
         return;
+      case WireKind.clear:
+        // The peer CLEARED the conversation up to a per-author seq watermark
+        // (clear-for-everyone). Consent-gated (R2); the author is bound to the
+        // AUTHENTICATED sender (R1, m.src). v1 policy: an accepted contact's clear
+        // is APPLIED (the "delete for everyone" the sender intends) — a future
+        // per-contact toggle can decline it; and once multi-device lands, a clear
+        // from our OWN identity is authoritative for our devices the same way.
+        if (existing?.status != ContactStatus.accepted) return;
+        final cseq = env.seq;
+        if (cseq != null) {
+          Map<String, int> wm;
+          try {
+            final raw = jsonDecode(env.body);
+            wm = raw is Map
+                ? raw.map((k, v) => MapEntry(k as String, v as int))
+                : <String, int>{};
+          } catch (_) {
+            return; // malformed watermark → drop
+          }
+          await _storage.applyRemoteClear(m.src, m.src.hex, cseq, wm);
+          _signal();
+        }
+        return;
       case WireKind.fileQuery:
         // A gap-fill probe for a file (§15 3c, resumable): the peer still holds
         // file <tid> and asks what we're missing. Reply with a fileNack naming
@@ -1182,7 +1205,15 @@ class MessagingService {
   /// not told. Also forget any deposited-once markers for those ids so a future
   /// edit/del with a recycled id can still be deposited.
   Future<void> clearConversation(NodeId peer) async {
-    await _storage.clearMessages(peer);
+    // Clear locally AND emit a clear EVENT carrying a per-author seq watermark, so
+    // the peer (and — once multi-device lands — our OWN other devices) converge to
+    // the same emptied state on replay. Only the watermark travels (no oracle).
+    final selfHex = await _selfHex();
+    final ev = await _storage.emitClearConversation(peer, selfHex);
+    final wire =
+        WireEnvelope.clear(jsonEncode(ev.watermark), seq: ev.seq).encode();
+    await _send(peer, wire);
+    unawaited(_maybeStash(peer, 'clear:${ev.seq}', wire)); // offline carrier
     _signal();
   }
 
@@ -1503,7 +1534,11 @@ class MessagingService {
           case EventKind.void_:
             await _send(peer, WireEnvelope.voidSeq(ev.seq).encode());
           case EventKind.delete:
-            continue; // not a stored event kind on this path
+          case EventKind.clear:
+            // delete: never a stored event kind on this path. clear: the storage
+            // re-ship maps a clear row to an inert void_ (its effect travels via
+            // its own WireEnvelope.clear), so a clear LogEvent never reaches here.
+            continue;
         }
       }
     }

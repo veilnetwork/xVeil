@@ -32,6 +32,17 @@ enum EventKind {
   /// A post whose body is a file descriptor (name/size/blob ref). The blob
   /// itself travels on the existing file-chunk plane; this is the log entry.
   filePost,
+
+  /// Clear the whole conversation up to a per-author seq WATERMARK (carried as a
+  /// JSON map `{authorHex: hw}` in [LogEvent.body]). Folded on every device it
+  /// suppresses + scrubs every event with `(author, seq) <= watermark[author]`,
+  /// so a clear is a first-class, replayable event that brings ANY device (the
+  /// peer, or another of the author's OWN devices) to the same emptied state.
+  /// ONLY the watermark travels — never a cleared message id or text (no oracle).
+  /// The author's own clear is authoritative on their devices; a peer's clear is
+  /// advisory (the receiver may apply or decline). A clear consumes a seq so the
+  /// per-author stream stays gap-free (R4).
+  clear,
 }
 
 /// One forward log event. [author] is the node-id hex of the originator and is

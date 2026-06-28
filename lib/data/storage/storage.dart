@@ -194,6 +194,23 @@ abstract interface class Storage {
   /// Local-only; the peer is not notified. Irreversible.
   Future<void> clearMessages(NodeId peer);
 
+  /// Clear the conversation with [peer] AND emit a propagatable + replayable
+  /// clear EVENT: a per-author seq watermark (= the current high-water) under
+  /// [selfHex]'s next seq. Scrubs + tombstones locally like [clearMessages]; the
+  /// watermark additionally lets ANOTHER device (the peer, or the author's own
+  /// other device) reach the same emptied state on replay. Returns the event
+  /// (author, seq, watermark) so the caller ships it on the wire. Only the
+  /// watermark travels — no cleared id/text (no oracle).
+  Future<({String author, int seq, Map<String, int> watermark})>
+      emitClearConversation(NodeId peer, String selfHex);
+
+  /// Apply a clear event received from [author] for [peer]'s conversation: record
+  /// the [watermark], scrub + tombstone every local message at/below it (keep
+  /// anything newer), and occupy the clear's own ([author], [seq]) slot so the
+  /// per-author stream stays gap-free. Idempotent on (author, seq).
+  Future<void> applyRemoteClear(
+      NodeId peer, String author, int seq, Map<String, int> watermark);
+
   /// FORENSICALLY erase this whole space — every namespace (identity, contacts,
   /// messages, file blobs) — then scrub orphaned chunks, so the deleted
   /// identity's data can no longer be recovered even by a password-holder.
