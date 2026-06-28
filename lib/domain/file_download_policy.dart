@@ -11,6 +11,7 @@ class FileDownloadPolicy {
   const FileDownloadPolicy({
     required this.autoMaxBytes,
     required this.blockedExts,
+    this.largeFilesOnDisk = false,
   });
 
   /// Files up to this size auto-download; anything larger is OFFERED. `0` ⇒ offer
@@ -20,6 +21,15 @@ class FileDownloadPolicy {
   /// Lowercased extensions (no dot) NEVER auto-downloaded regardless of size —
   /// always offered, so a peer can't push an executable onto the device unbidden.
   final Set<String> blockedExts;
+
+  /// Opt-in to the on-disk LARGE-FILE tier (§16.5). A file too big for the
+  /// hidden-volume index can only be received by storing it ENCRYPTED on the
+  /// normal filesystem — where the existence (not content) of an encrypted blob
+  /// is revealable, unlike everything in the hidden volume. So receiving large
+  /// files is OFF by default; the user accepts the trade-off to turn it on.
+  /// Sending a large file is unaffected (it is served from the original, never
+  /// copied to disk).
+  final bool largeFilesOnDisk;
 
   static const int defaultAutoMaxBytes = 2 * 1024 * 1024;
   static const Set<String> defaultBlockedExts = {
@@ -62,15 +72,20 @@ class FileDownloadPolicy {
     return e.isEmpty ? null : e;
   }
 
-  FileDownloadPolicy copyWith({int? autoMaxBytes, Set<String>? blockedExts}) =>
+  FileDownloadPolicy copyWith(
+          {int? autoMaxBytes,
+          Set<String>? blockedExts,
+          bool? largeFilesOnDisk}) =>
       FileDownloadPolicy(
         autoMaxBytes: autoMaxBytes ?? this.autoMaxBytes,
         blockedExts: blockedExts ?? this.blockedExts,
+        largeFilesOnDisk: largeFilesOnDisk ?? this.largeFilesOnDisk,
       );
 
   Map<String, dynamic> toJson() => {
         'max': autoMaxBytes,
         'block': blockedExts.toList()..sort(),
+        'ondisk': largeFilesOnDisk,
       };
 
   /// Parse a stored policy, falling back to the defaults for any missing or
@@ -88,6 +103,7 @@ class FileDownloadPolicy {
               .whereType<String>()
               .toSet()
           : defaultBlockedExts,
+      largeFilesOnDisk: j['ondisk'] is bool ? j['ondisk'] as bool : false,
     );
   }
 
@@ -95,10 +111,11 @@ class FileDownloadPolicy {
   bool operator ==(Object other) =>
       other is FileDownloadPolicy &&
       other.autoMaxBytes == autoMaxBytes &&
+      other.largeFilesOnDisk == largeFilesOnDisk &&
       other.blockedExts.length == blockedExts.length &&
       other.blockedExts.containsAll(blockedExts);
 
   @override
   int get hashCode => Object.hash(
-      autoMaxBytes, Object.hashAllUnordered(blockedExts));
+      autoMaxBytes, largeFilesOnDisk, Object.hashAllUnordered(blockedExts));
 }

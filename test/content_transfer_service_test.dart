@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -176,5 +177,34 @@ void main() {
     expect(closed, isFalse, reason: 'source stays open for re-requests');
     await mA.dispose(); // dispose releases it
     expect(closed, isTrue, reason: 'dispose closes the serve-from-source handle');
+  });
+
+  test('a LARGE offer is gated by the on-disk opt-in (§16.5): blocked until the '
+      'identity enables large-file storage', () async {
+    final big = _rnd(4 * 1024 * 1024, 21); // > kMaxIncomingFileBytes (~3.8 MB)
+    final cid = ContentManifest.fromBytes('big.bin', big).contentId;
+    Future<Uint8List> read(int o, int l) async =>
+        Uint8List.sublistView(big, o, o + l);
+    // A advertises it (manifest only, served from source) → B registers an OFFER.
+    await mA.sendFileStreaming(b, 'big.bin', big.length, read,
+        close: () async {});
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+
+    // Policy OFF (default) → download is refused and NO fetch starts.
+    final off = await mB.downloadContent(a, cid);
+    expect(off, ContentDownloadResult.needsLargeFileOptIn);
+    expect(mB.fetchingCount, 0, reason: 'a blocked offer does not fetch');
+
+    // Opt in + wire the on-disk tier → the download starts.
+    final dir = await Directory.systemTemp.createTemp('xveil-gate');
+    addTearDown(() async {
+      if (await dir.exists()) await dir.delete(recursive: true);
+    });
+    sB.useOnDiskTier(dir);
+    await mB.setFileDownloadPolicy(
+        mB.fileDownloadPolicy.copyWith(largeFilesOnDisk: true));
+    final on = await mB.downloadContent(a, cid);
+    expect(on, ContentDownloadResult.started);
+    expect(mB.fetchingCount, 1, reason: 'opted in → the fetch begins');
   });
 }
