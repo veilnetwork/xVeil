@@ -1945,6 +1945,16 @@ class MessagingService {
   /// re-request itself stays small enough to survive the lossy path, and focuses
   /// serving on a few pieces at a time so they complete sooner.
   static const _reRequestPieceWindow = 4;
+
+  /// How many content chunks to put on the wire CONCURRENTLY before the next
+  /// anti-burst pace. The serve loop used to send one chunk per [_contentPacing]
+  /// (20 ms) — so a ~2250-chunk 1 MiB file spent ~45 s purely pacing. Emitting a
+  /// small batch at once ("parallel parts") fills the session TX queue closer to
+  /// the circuit's drain rate for a ~Nx speedup, while staying well under the
+  /// all-at-once burst that trips the LIMIT tx_queue guard. Self-correcting: any
+  /// chunk the queue drops under load is refilled by the chunk-granular
+  /// re-request, so an over-eager batch is never lossy, only (at worst) no faster.
+  static const _serveBatch = 6;
   /// Files larger than this go via the content layer (hash-verified pieces over
   /// the NAT-traversing datagram path) instead of the per-chunk fileMeta push.
   // Keep the legacy fileMeta/fileChunk burst below the native session queue's
@@ -2110,30 +2120,47 @@ class MessagingService {
   /// [ContentManifest.chunkBytes] so they match the receiver's expectation.
   Future<void> _serveChunks(NodeId peer, ContentManifest m, Uint8List bytes,
       Map<int, List<int>?> gaps) async {
+    // Flatten the requested (piece, chunk) coordinates into one list so we can
+    // emit them in bounded-parallel batches across pieces, not strictly piece-by-
+    // piece chunk-by-chunk.
+    final coords = <({int p, int c})>[];
     for (final entry in gaps.entries) {
       final p = entry.key;
       if (p < 0 || p >= m.pieceCount) continue;
-      final pstart = p * m.pieceSize;
-      final plen = m.pieceLength(p);
-      final cb = m.chunkBytes;
       final n = m.chunkCount(p);
       final chunks = entry.value ?? [for (var c = 0; c < n; c++) c];
       for (final c in chunks) {
-        if (c < 0 || c >= n) continue;
-        final cstart = pstart + c * cb;
-        final cend = (c * cb + cb <= plen) ? cstart + cb : pstart + plen;
-        await _send(
-          peer,
-          pieceChunkEnvelope(
-            contentId: m.contentId,
-            pieceIndex: p,
-            chunkIndex: c,
-            chunkCount: n,
-            data: Uint8List.sublistView(bytes, cstart, cend),
-          ).encode(),
-        );
-        await Future<void>.delayed(_contentPacing); // anti-burst pacing
+        if (c >= 0 && c < n) coords.add((p: p, c: c));
       }
+    }
+    // Emit [_serveBatch] chunks CONCURRENTLY, then one pacing gap before the next
+    // batch — "parallel parts" instead of one-chunk-per-pace. Cuts the serve time
+    // ~Nx; the re-request loop refills anything the TX queue sheds under load.
+    for (var i = 0; i < coords.length; i += _serveBatch) {
+      final end =
+          (i + _serveBatch < coords.length) ? i + _serveBatch : coords.length;
+      await Future.wait([
+        for (var j = i; j < end; j++)
+          () {
+            final p = coords[j].p, c = coords[j].c;
+            final cb = m.chunkBytes;
+            final plen = m.pieceLength(p);
+            final pstart = p * m.pieceSize;
+            final cstart = pstart + c * cb;
+            final cend = (c * cb + cb <= plen) ? cstart + cb : pstart + plen;
+            return _send(
+              peer,
+              pieceChunkEnvelope(
+                contentId: m.contentId,
+                pieceIndex: p,
+                chunkIndex: c,
+                chunkCount: m.chunkCount(p),
+                data: Uint8List.sublistView(bytes, cstart, cend),
+              ).encode(),
+            );
+          }(),
+      ]);
+      await Future<void>.delayed(_contentPacing); // anti-burst pace between batches
     }
   }
 
