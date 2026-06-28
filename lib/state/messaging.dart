@@ -1907,23 +1907,25 @@ class MessagingService {
   // Receiver: verify the manifest, request missing pieces, verify each piece on
   // arrival, reassemble + verify the WHOLE, then surface it. Order/loss-tolerant.
 
-  /// Content we SERVE (manifest + source bytes), by contentId. (v1 holds the
-  /// source in memory; serving from the on-disk blob store is a later step.)
+  /// Content we SERVE, by contentId — the MANIFEST only; the bytes live in the
+  /// on-disk blob store (keyed by contentId) and are read range-by-range as
+  /// pieces are requested ([_serveChunks] → readFileRange), so a served file of
+  /// ANY size costs only its small manifest in RAM (the sender used to hold the
+  /// full bytes of every file it ever sent — observed 0.5 GB RSS).
   /// [servedAt] is refreshed on every advertise/request so an ACTIVE transfer
-  /// stays; an idle one is evicted by [_evictServing] — without that the sender
-  /// kept the full bytes of EVERY file it ever sent forever (observed 0.5 GB RSS).
-  final Map<String,
-          ({ContentManifest manifest, Uint8List bytes, DateTime servedAt})>
-      _serving = {};
+  /// stays; an idle one is evicted by [_evictServing].
+  final Map<String, ({ContentManifest manifest, DateTime servedAt})> _serving =
+      {};
 
-  /// A served file is dropped from [_serving] this long after its last
-  /// advertise/request — the sender no longer needs the source once the receiver
-  /// has it (and a later re-request re-advertises, re-seeding it from the blob).
+  /// A served manifest is dropped from [_serving] this long after its last
+  /// advertise/request — the on-disk blob remains, so a later re-request simply
+  /// re-advertises and re-seeds [_serving], reading the bytes back from disk.
   static const _servingTtl = Duration(minutes: 10);
 
-  /// Hard cap on total bytes across [_serving]; the OLDEST entries are evicted
-  /// first when over it, so RAM stays bounded even under many concurrent sends.
-  static const _servingByteCap = 64 * 1024 * 1024;
+  /// Cap on the number of concurrently-served manifests; the OLDEST are evicted
+  /// first when over it. Manifests are small (piece hashes), but bound the count
+  /// anyway so a long-lived node doesn't accumulate them without limit.
+  static const _servingMaxEntries = 256;
 
   /// Content we are FETCHING: the verified manifest + the reassembler + the peer.
   final Map<
@@ -1981,11 +1983,12 @@ class MessagingService {
         : null;
   }
 
-  /// Fires when a content transfer completes + verifies. The integration layer
-  /// persists the bytes + surfaces a chat message (wired in a later stage).
-  final _contentReceived = StreamController<
-      ({String contentId, String name, Uint8List bytes})>.broadcast();
-  Stream<({String contentId, String name, Uint8List bytes})> get contentReceived =>
+  /// Fires when a content transfer COMPLETES (all pieces streamed to disk). No
+  /// bytes — the blob is on disk under contentId; read it via loadFile /
+  /// readFileRange rather than holding the whole file in RAM.
+  final _contentReceived =
+      StreamController<({String contentId, String name})>.broadcast();
+  Stream<({String contentId, String name})> get contentReceived =>
       _contentReceived.stream;
 
   Timer? _contentTimer;
@@ -2036,13 +2039,37 @@ class MessagingService {
         : ContentManifest.defaultPieceSize;
   }
 
+  /// Persist [bytes] as a streamed (uncapped) blob keyed by the manifest's
+  /// contentId — the SAME on-disk piece layout the receiver builds — so the
+  /// sender SERVES it from disk ([readFileRange]) without holding it in RAM and
+  /// without the whole-file [storeFile] cap (which is what bounded send size).
+  /// Idempotent: a blob already present (a re-send / re-advertise of identical
+  /// bytes) is left as-is, so the de-dup store happens at most once.
+  Future<void> _storeServedBlob(ContentManifest manifest, Uint8List bytes) async {
+    final cid = manifest.contentId;
+    if (await _storage.hasFile(cid)) return;
+    for (var p = 0; p < manifest.pieceCount; p++) {
+      final start = p * manifest.pieceSize;
+      final end = start + manifest.pieceLength(p);
+      await _storage.storeFilePiece(cid, p, manifest.pieceCount,
+          manifest.pieceSize, bytes.length,
+          Uint8List.sublistView(bytes, start, end),
+          name: manifest.name);
+    }
+  }
+
   /// Serve [manifest]'s bytes by contentId and advertise it to [dst]. One source
   /// of truth for the serve+advertise tail, shared by the message send path and
-  /// the bare-content API.
+  /// the bare-content API. The bytes are persisted to the on-disk blob store
+  /// (streamed pieces) and then served from there — [bytes] is not retained.
   Future<void> _advertise(
       NodeId dst, ContentManifest manifest, Uint8List bytes) async {
-    _serving[manifest.contentId] =
-        (manifest: manifest, bytes: bytes, servedAt: _now());
+    try {
+      await _storeServedBlob(manifest, bytes);
+    } catch (e) {
+      devLog(() => 'xVeil[content]: serve-store failed for ${manifest.name}: $e');
+    }
+    _serving[manifest.contentId] = (manifest: manifest, servedAt: _now());
     _evictServing();
     _ensureContentTimer();
     await _send(dst,
@@ -2079,12 +2106,13 @@ class MessagingService {
         pieceSize: _adaptivePieceSize(bytes.length),
         chunkBytes: _contentChunkBytes);
     final cid = base.contentId;
-    // Store the blob under its HASH, de-duped: a re-send of identical bytes keeps
-    // ONE copy here, and a receiver that already holds it skips the re-download.
+    // Store the blob under its HASH as streamed pieces (uncapped), de-duped: a
+    // re-send of identical bytes keeps ONE copy, and a receiver that already
+    // holds it skips the re-download. ([_advertise] would also ensure-store, but
+    // do it here too so a send to a not-yet-accepted contact still retains the
+    // local copy for a later re-ship.)
     try {
-      if (!await _storage.hasFile(cid)) {
-        await _storage.storeFile(cid, bytes, name: name);
-      }
+      await _storeServedBlob(base, bytes);
     } catch (e) {
       devLog(() => 'xVeil[content]: local store failed for $name: $e');
     }
@@ -2194,8 +2222,7 @@ class MessagingService {
       return; // not serving this content
     }
     // Keep an actively-requested transfer fresh so it isn't evicted mid-flight.
-    _serving[req.contentId] =
-        (manifest: served.manifest, bytes: served.bytes, servedAt: _now());
+    _serving[req.contentId] = (manifest: served.manifest, servedAt: _now());
     final m = served.manifest;
     // gaps: pieceIndex → chunk indices to serve (null ⇒ every chunk of the piece).
     final Map<int, List<int>?> gaps;
@@ -2217,23 +2244,21 @@ class MessagingService {
           '(${indices.length}/${m.pieceCount} whole pieces) <- ${peer.short} '
           '-> serving');
     }
-    unawaited(_serveChunks(peer, m, served.bytes, gaps));
+    unawaited(_serveChunks(peer, m, gaps));
   }
 
-  /// Drop served sources idle past [_servingTtl], then — if still over
-  /// [_servingByteCap] total — evict the OLDEST until under it. Bounds the RAM the
-  /// sender holds for content it has finished (or abandoned) serving. A later
-  /// re-request simply re-advertises, re-seeding [_serving] from the stored blob.
+  /// Drop served manifests idle past [_servingTtl], then — if still over
+  /// [_servingMaxEntries] — evict the OLDEST until under it. The bytes are on
+  /// disk, so this only bounds the small manifest cache; a later re-request
+  /// re-advertises, re-seeding [_serving] and reading the blob back from disk.
   void _evictServing() {
     final now = _now();
     _serving.removeWhere((_, v) => now.difference(v.servedAt) > _servingTtl);
-    var total = _serving.values.fold<int>(0, (a, v) => a + v.bytes.length);
-    if (total <= _servingByteCap) return;
+    if (_serving.length <= _servingMaxEntries) return;
     final byAge = _serving.entries.toList()
       ..sort((a, b) => a.value.servedAt.compareTo(b.value.servedAt));
     for (final e in byAge) {
-      if (total <= _servingByteCap) break;
-      total -= e.value.bytes.length;
+      if (_serving.length <= _servingMaxEntries) break;
       _serving.remove(e.key);
     }
   }
@@ -2248,11 +2273,13 @@ class MessagingService {
   }
 
   /// Serve [gaps] (pieceIndex → chunk indices, null ⇒ all chunks of the piece)
-  /// of content [m] from [bytes], one wire chunk at a time paced by
-  /// [_contentPacing]. Chunk coordinates are derived from the manifest's
-  /// [ContentManifest.chunkBytes] so they match the receiver's expectation.
-  Future<void> _serveChunks(NodeId peer, ContentManifest m, Uint8List bytes,
-      Map<int, List<int>?> gaps) async {
+  /// of content [m], one wire chunk at a time paced by [_contentPacing]. Each
+  /// chunk's bytes are read from the on-disk blob ([readFileRange]) at the
+  /// derived offset — the file is never held in RAM. Chunk coordinates are
+  /// derived from the manifest's [ContentManifest.chunkBytes] so they match the
+  /// receiver's expectation.
+  Future<void> _serveChunks(
+      NodeId peer, ContentManifest m, Map<int, List<int>?> gaps) async {
     // Flatten the requested (piece, chunk) coordinates into one list so we can
     // emit them in bounded-parallel batches across pieces, not strictly piece-by-
     // piece chunk-by-chunk.
@@ -2274,21 +2301,23 @@ class MessagingService {
           (i + _serveBatch < coords.length) ? i + _serveBatch : coords.length;
       await Future.wait([
         for (var j = i; j < end; j++)
-          () {
+          () async {
             final p = coords[j].p, c = coords[j].c;
             final cb = m.chunkBytes;
             final plen = m.pieceLength(p);
             final pstart = p * m.pieceSize;
             final cstart = pstart + c * cb;
-            final cend = (c * cb + cb <= plen) ? cstart + cb : pstart + plen;
-            return _send(
+            final clen = (c * cb + cb <= plen) ? cb : plen - c * cb;
+            final data = await _storage.readFileRange(m.contentId, cstart, clen);
+            if (data == null) return; // blob evicted/missing — receiver re-requests
+            await _send(
               peer,
               pieceChunkEnvelope(
                 contentId: m.contentId,
                 pieceIndex: p,
                 chunkIndex: c,
                 chunkCount: m.chunkCount(p),
-                data: Uint8List.sublistView(bytes, cstart, cend),
+                data: data,
               ).encode(),
             );
           }(),
@@ -2309,30 +2338,36 @@ class MessagingService {
       return; // not fetching this content
     }
     _fetchActivity[f.contentId] = _now(); // progress — keep this fetch non-stale
-    final done = fetch.xfer.addChunk(
-        f.pieceIndex, f.chunkIndex, f.chunkCount, f.data);
-    if (done) {
-      devLog(() => 'xVeil[content]: piece ${f.pieceIndex} VERIFIED for '
-          '${f.contentId.substring(0, 12)} '
+    final piece =
+        fetch.xfer.addChunk(f.pieceIndex, f.chunkIndex, f.chunkCount, f.data);
+    if (piece != null) {
+      // Stream the verified piece STRAIGHT to disk; the reassembler keeps no
+      // piece bytes, so the whole file never sits in RAM (any size).
+      final m = fetch.manifest;
+      try {
+        await _storage.storeFilePiece(
+            m.contentId, f.pieceIndex, m.pieceCount, m.pieceSize, m.size, piece,
+            name: m.name);
+      } catch (e) {
+        fetch.xfer.unverify(f.pieceIndex); // disk write failed → re-request it
+        devLog(() => 'xVeil[content]: storeFilePiece p${f.pieceIndex} '
+            'failed for ${m.contentId.substring(0, 12)}: $e');
+        return;
+      }
+      devLog(() => 'xVeil[content]: piece ${f.pieceIndex} VERIFIED+STORED for '
+          '${m.contentId.substring(0, 12)} '
           '(${fetch.xfer.verifiedCount}/${fetch.xfer.pieceCount})');
     }
     if (!fetch.xfer.isComplete) return;
-    Uint8List bytes;
-    try {
-      bytes = fetch.xfer.assemble(); // re-verifies the WHOLE
-    } catch (_) {
-      return; // leave it pending — re-request will refill any bad piece
-    }
+    // Every piece verified AND durably stored → the blob is fully on disk.
     _fetching.remove(f.contentId);
     _fetchActivity.remove(f.contentId);
     devLog(() => 'xVeil[content]: COMPLETE ${f.contentId.substring(0, 12)} '
-        '(${bytes.length}B) verified');
-    final persisted =
-        await _persistReceivedContent(fetch.peer, fetch.manifest, bytes);
-    // A content file is "delivered" only after the receiver verified the whole
-    // content hash and durably stored it. Ack by the per-send msgId (the EVENT
-    // identity) so the SENDER's specific file message flips sent->delivered (a
-    // legacy sender without msgId falls back to the contentId — old behaviour).
+        '(${fetch.manifest.size}B) streamed to disk');
+    final persisted = await _persistReceivedContent(fetch.peer, fetch.manifest);
+    // Ack by the per-send msgId (the EVENT identity) so the SENDER's specific
+    // file message flips sent->delivered = actually received (a legacy sender
+    // without msgId falls back to the contentId — old behaviour).
     if (persisted) {
       final ackId = fetch.manifest.msgId ?? f.contentId;
       devLog(() => 'xVeil[timeline]: content-ack id=$ackId '
@@ -2340,29 +2375,16 @@ class MessagingService {
       await _send(fetch.peer, WireEnvelope.ack(ackId).encode());
     }
     if (!_contentReceived.isClosed) {
-      _contentReceived
-          .add((contentId: f.contentId, name: fetch.name, bytes: bytes));
+      _contentReceived.add((contentId: f.contentId, name: fetch.name));
     }
   }
 
-  /// Persist a completed content transfer: store the blob under its HASH
-  /// (contentId, de-duped), then SIGNAL so the already-surfaced OFFER message
-  /// flips offer → downloaded (its hasFile(contentId) is now true). Returns true
-  /// if persisted-or-already-present (safe to ack = delivered); false only when
-  /// the durable store failed (no ack → the sender keeps the message un-delivered).
-  Future<bool> _persistReceivedContent(
-      NodeId peer, ContentManifest m, Uint8List bytes) async {
-    try {
-      if (!await _storage.hasFile(m.contentId)) {
-        await _storage.storeFile(m.contentId, bytes, name: m.name);
-      }
-    } catch (e) {
-      devLog(() => 'xVeil[content]: recv store failed for ${m.name}: $e');
-      return false; // no durable blob → no delivery ack
-    }
+  /// A content transfer completed: its pieces were already streamed to disk
+  /// (storeFilePiece in [_onPieceChunk]), so the blob is hasFile-complete. Ensure
+  /// the OFFER message exists (idempotent) so it flips offer → downloaded, then
+  /// signal. Returns true (safe to ack = delivered = actually received).
+  Future<bool> _persistReceivedContent(NodeId peer, ContentManifest m) async {
     _offered.remove(m.contentId);
-    // The offer message normally already exists; ensure it (idempotent) for any
-    // ordering where the blob lands first, then signal so the UI re-renders.
     await _surfaceFileOffer(peer, m);
     _signal();
     return true;

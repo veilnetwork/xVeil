@@ -19,11 +19,13 @@ class ContentTransfer {
 
   final ContentManifest manifest;
 
-  /// pieceIndex → {chunkIndex: chunkBytes} for not-yet-verified pieces.
+  /// pieceIndex → {chunkIndex: chunkBytes} for not-yet-verified pieces. The only
+  /// bytes held in RAM are the chunks of the pieces CURRENTLY in flight; a
+  /// verified piece is handed to the caller (to persist to disk) and dropped, so
+  /// a transfer's peak memory is bounded by the re-request window, not file size.
   final Map<int, Map<int, Uint8List>> _chunks = {};
 
-  /// pieceIndex → the assembled, hash-verified piece bytes.
-  final Map<int, Uint8List> _verifiedPieces = {};
+  /// Indices of pieces verified (and handed off to the caller). No bytes held.
   final Set<int> _verified = {};
 
   int get pieceCount => manifest.pieceCount;
@@ -31,34 +33,36 @@ class ContentTransfer {
   bool get isComplete => _verified.length == manifest.pieceCount;
   bool isVerified(int pieceIndex) => _verified.contains(pieceIndex);
 
-  /// Ingest one received chunk. Returns true iff this chunk COMPLETED and
-  /// VERIFIED its piece (so the caller can update progress). The chunk's
-  /// coordinates are validated against the MANIFEST (the chunk-count authority),
-  /// so a garbled / hostile count, an out-of-range index, or a chunk for an
-  /// already-verified piece is ignored.
-  bool addChunk(int pieceIndex, int chunkIndex, int chunkCount, Uint8List data) {
-    if (pieceIndex < 0 || pieceIndex >= manifest.pieceCount) return false;
+  /// Forget a verified piece so it is re-requested — e.g. its disk write failed,
+  /// so it must not count toward completion until durably persisted.
+  void unverify(int pieceIndex) => _verified.remove(pieceIndex);
+
+  /// Ingest one received chunk. Returns the VERIFIED piece bytes iff this chunk
+  /// just COMPLETED and verified its piece — the caller persists them to disk
+  /// (storeFilePiece) and they are NOT retained here, so the whole file never sits
+  /// in RAM. Returns null otherwise. Coordinates are validated against the
+  /// MANIFEST (the chunk-count authority): a garbled / hostile count, an
+  /// out-of-range index, or a chunk for an already-verified piece is ignored.
+  Uint8List? addChunk(
+      int pieceIndex, int chunkIndex, int chunkCount, Uint8List data) {
+    if (pieceIndex < 0 || pieceIndex >= manifest.pieceCount) return null;
     final expected = manifest.chunkCount(pieceIndex);
-    if (chunkCount != expected) return false; // disagrees with the manifest
-    if (chunkIndex < 0 || chunkIndex >= expected) return false;
-    if (_verified.contains(pieceIndex)) return false; // already done
+    if (chunkCount != expected) return null; // disagrees with the manifest
+    if (chunkIndex < 0 || chunkIndex >= expected) return null;
+    if (_verified.contains(pieceIndex)) return null; // already done
 
     final buf = _chunks.putIfAbsent(pieceIndex, () => {});
     buf[chunkIndex] = data;
-    if (buf.length != expected) return false; // piece still incomplete
+    if (buf.length != expected) return null; // piece still incomplete
 
     final piece = _assemblePiece(expected, buf);
+    _chunks.remove(pieceIndex); // free the per-chunk buffers either way
     if (manifest.verifyPiece(pieceIndex, piece)) {
       _verified.add(pieceIndex);
-      _verifiedPieces[pieceIndex] = piece;
-      _chunks.remove(pieceIndex); // free the per-chunk buffers; keep the piece
-      return true;
+      return piece; // hand off to the caller to persist; not held here
     }
-    // The reassembled piece doesn't match its hash (corruption / a lying chunk).
-    // Drop it entirely — its chunks will be re-requested. Loss (not corruption)
-    // is the common case on a lossy path, so this is rare.
-    _chunks.remove(pieceIndex);
-    return false;
+    // Hash mismatch (corruption / a lying chunk) → drop; the chunks re-request.
+    return null;
   }
 
   /// Piece indices not yet verified — the coarse re-request set.
@@ -110,22 +114,8 @@ class ContentTransfer {
     return bm;
   }
 
-  /// Assemble + verify the whole file. Throws if incomplete or (defensively) if
-  /// the reassembled whole fails [ContentManifest.verifyWhole].
-  Uint8List assemble() {
-    if (!isComplete) {
-      throw StateError('incomplete: $verifiedCount/${manifest.pieceCount} pieces');
-    }
-    final out = BytesBuilder(copy: false);
-    for (var i = 0; i < manifest.pieceCount; i++) {
-      out.add(_verifiedPieces[i]!);
-    }
-    final bytes = out.toBytes();
-    if (!manifest.verifyWhole(bytes)) {
-      throw StateError('content ${manifest.contentId}: whole-file verify failed');
-    }
-    return bytes;
-  }
+  /// The byte offset of piece [pieceIndex] in the whole file (for storeFilePiece).
+  int pieceOffset(int pieceIndex) => pieceIndex * manifest.pieceSize;
 
   Uint8List _assemblePiece(int chunkCount, Map<int, Uint8List> chunks) {
     final out = BytesBuilder(copy: false);
