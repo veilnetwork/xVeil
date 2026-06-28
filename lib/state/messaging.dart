@@ -1756,6 +1756,10 @@ class MessagingService {
           data: c.data,
         ).encode(),
       );
+      // Native send completes when the fragmented onion cells are queued, not
+      // when the session drains them. Without pacing, a sub-MiB attachment can
+      // enqueue >4K cells in one burst and silently trip LIMIT tx_queue.
+      await Future<void>.delayed(_contentPacing);
     }
   }
 
@@ -1765,10 +1769,13 @@ class MessagingService {
   /// so the completed file folds convergently when the re-sent chunks arrive.
   Future<void> _handleFileQuery(InboundMessage m, FileMetaFrame meta) async {
     final tid = meta.transferId;
-    // Already complete (we hold the message) or deleted → nothing to request; a
-    // deleted file must NOT be resurrected, so we stay silent.
+    // Already complete (or deliberately deleted) → ACK it again. The sender may
+    // be probing precisely because our original completion ACK was lost; staying
+    // silent here leaves its UI stuck or lets an unrelated sync receipt be
+    // mistaken for file completion.
     if (await _hasMessage(m.src, tid) ||
         await _storage.isMessageDeleted(m.src.hex, tid)) {
+      await _ackTo(m, tid, direct: true);
       return;
     }
     var inc = _inFlight[tid];
@@ -1851,6 +1858,7 @@ class MessagingService {
           data: c.data,
         ).encode(),
       );
+      await Future<void>.delayed(_contentPacing);
       if (++sent >= _fileNackChunkCap) break; // rest heal on the next round
     }
   }
@@ -1904,7 +1912,10 @@ class MessagingService {
   static const _reRequestPieceWindow = 4;
   /// Files larger than this go via the content layer (hash-verified pieces over
   /// the NAT-traversing datagram path) instead of the per-chunk fileMeta push.
-  static const _contentThreshold = 1024 * 1024; // 1 MiB
+  // Keep the legacy fileMeta/fileChunk burst below the native session queue's
+  // cell budget. Larger attachments use the paced, hash-verified content path
+  // with chunk-granular retries; this includes ordinary camera screenshots.
+  static const _contentThreshold = 128 * 1024;
 
   /// Piece size that keeps the manifest inside one datagram (≤ ~70 pieces — the
   /// hex piece-hash list dominates the manifest JSON).
@@ -2075,7 +2086,20 @@ class MessagingService {
     _fetching.remove(f.contentId);
     devLog(() => 'xVeil[content]: COMPLETE ${f.contentId.substring(0, 12)} '
         '(${bytes.length}B) verified');
-    await _persistReceivedContent(fetch.peer, f.contentId, fetch.name, bytes);
+    final persisted = await _persistReceivedContent(
+      fetch.peer,
+      f.contentId,
+      fetch.name,
+      bytes,
+    );
+    // A content file is "delivered" only after the receiver verified the whole
+    // content hash and durably stored it. Do not ACK the manifest or individual
+    // pieces: either would make the sender UI lie while chunks are still missing.
+    if (persisted) {
+      devLog(() => 'xVeil[timeline]: content-ack id=${f.contentId} '
+          'via=direct t=${DateTime.now().millisecondsSinceEpoch}');
+      await _send(fetch.peer, WireEnvelope.ack(f.contentId).encode());
+    }
     if (!_contentReceived.isClosed) {
       _contentReceived
           .add((contentId: f.contentId, name: fetch.name, bytes: bytes));
@@ -2086,23 +2110,24 @@ class MessagingService {
   /// message (id == contentId, so a re-delivery dedups + a deleted content
   /// never resurrects). v1 stores in-container (≤ the atomic-delete cap); the
   /// external encrypted store for truly large blobs is the next step.
-  Future<void> _persistReceivedContent(
+  Future<bool> _persistReceivedContent(
       NodeId peer, String contentId, String name, Uint8List bytes) async {
     if (await _hasMessage(peer, contentId) ||
         await _storage.isMessageDeleted(peer.hex, contentId)) {
-      return; // already have it / deliberately deleted
+      return true; // already have it / deliberately deleted: safe to re-ACK
     }
     final fileId = _uuid.v4();
     try {
       await _storage.storeFile(fileId, bytes, name: name);
     } catch (e) {
       devLog(() => 'xVeil[content]: recv store failed for $name: $e');
-      return; // (over the in-container cap — external store handles big blobs)
+      return false; // no durable file means no delivery ACK
     }
     await _store(peer, MessageDirection.incoming, '📎 $name',
         MessageStatus.delivered,
         fileId: fileId, fileName: name, id: contentId, timestamp: _now());
     _emitIncoming(peer, '📎 $name', isFile: true);
+    return true;
   }
 
   void _ensureContentTimer() {
