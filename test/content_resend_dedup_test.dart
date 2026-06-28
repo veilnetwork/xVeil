@@ -138,17 +138,20 @@ void main() {
 
   test('A re-send when B ALREADY HOLDS the blob surfaces a new message WITHOUT '
       're-downloading (content-hash dedup)', () async {
-    final data = rnd(1024 * 1024 + 1, 12);
+    final data = rnd(1024 * 1024 + 1, 12); // ~1 MiB <= 2 MiB → auto-downloads
+    // The OFFER surfaces immediately; the blob arrives later. Wait for the first
+    // send to fully DOWNLOAD (contentReceived) before snapshotting the count.
+    final got1 = mB.contentReceived.first;
     await mA.sendFile(b, data, 'pic.jpg');
+    await got1.timeout(const Duration(seconds: 20));
     await waitFiles(sB, a, 1);
-    // Let any trailing re-request ticks settle, then snapshot the request count.
     await Future<void>.delayed(const Duration(milliseconds: 200));
     final reqsAfterFirst = tB.pieceRequests;
     expect(reqsAfterFirst, greaterThan(0),
         reason: 'the first send genuinely downloaded the pieces');
 
-    // Second send of identical bytes: B holds the blob (keyed by contentId), so
-    // it references it and surfaces a new message — issuing NO piece requests.
+    // Second send of identical bytes: B already holds the blob (keyed by
+    // contentId), so the offer renders downloaded and B issues NO new requests.
     await mA.sendFile(b, data, 'pic.jpg');
     final two = await waitFiles(sB, a, 2);
     expect(two.length, 2, reason: 'a second, distinct file message surfaced');
@@ -156,7 +159,33 @@ void main() {
         reason: 'dedup: the second send issued NO new piece requests');
     expect(two.map((m) => m.id).toSet().length, 2,
         reason: 'two distinct events (msgIds)');
-    expect(two.map((m) => m.fileId).toSet(), hasLength(1),
+    expect(two.map((m) => m.fileContentId).toSet(), hasLength(1),
         reason: 'both reference the ONE hash-keyed blob (contentId)');
+  });
+
+  test('a LARGE file (> auto-download cap) is OFFERED, not auto-fetched, until '
+      'the user calls downloadContent (anti-spam / disk control)', () async {
+    final data = rnd(3 * 1024 * 1024, 21); // 3 MiB > 2 MiB cap → OFFER
+    await mA.sendFile(b, data, 'big.bin');
+
+    // The offer surfaces (metadata) but NOTHING downloads on its own.
+    final offered = await waitFiles(sB, a, 1);
+    expect(offered.single.fileContentId, isNotNull,
+        reason: 'the offer carries the contentId to fetch');
+    expect(offered.single.fileSize, data.length,
+        reason: 'the offer carries the size so the user can decide');
+    expect(offered.single.isDownloaded, isFalse, reason: 'no blob yet');
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    expect(tB.pieceRequests, 0, reason: 'a large file is NOT auto-downloaded');
+    expect(await sB.hasFile(offered.single.fileContentId!), isFalse);
+
+    // The user opts in → it downloads.
+    final got = mB.contentReceived.first;
+    await mB.downloadContent(a, offered.single.fileContentId!);
+    await got.timeout(const Duration(seconds: 30));
+    expect(tB.pieceRequests, greaterThan(0),
+        reason: 'the opt-in download issues piece requests');
+    expect(await sB.hasFile(offered.single.fileContentId!), isTrue,
+        reason: 'the blob is present after the user-triggered download');
   });
 }
