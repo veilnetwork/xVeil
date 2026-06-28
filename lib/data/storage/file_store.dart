@@ -243,6 +243,12 @@ class AsyncFileStore {
     ];
   }
 
+  /// True iff a blob is stored under [fileId] — a cheap metadata-only existence
+  /// check (no chunk reads). Used for content dedup: a received manifest whose
+  /// contentId we ALREADY hold need not be re-fetched over the network.
+  Future<bool> hasFile(String fileId) async =>
+      (await _store.get(Ns.settings, _k('file:$fileId'))) != null;
+
   /// Reassemble the stored file, or null if unknown / a chunk is missing.
   Future<Uint8List?> loadFile(String fileId) async {
     final raw = await _store.get(Ns.settings, _k('file:$fileId'));

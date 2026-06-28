@@ -213,6 +213,11 @@ abstract interface class Storage {
   /// Load a previously stored file, or null if unknown / incomplete.
   Future<Uint8List?> loadFile(String fileId);
 
+  /// True iff a blob is already stored under [fileId] — a cheap existence check
+  /// (no chunk reads). Content dedup: a received file whose contentId we already
+  /// hold is referenced (a fresh filePost event), not re-fetched over the network.
+  Future<bool> hasFile(String fileId);
+
   /// Lock the space and zeroize in-memory key material.
   Future<void> close();
 }
