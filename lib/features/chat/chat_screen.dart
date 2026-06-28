@@ -182,17 +182,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         devLog(() => 'xVeil[attach]: ${file.name} size=$size -> stream');
         final raf = await File(path).open();
         try {
+          // Serve-from-source: the sender already HAS this file, so we don't
+          // copy or encrypt it — MessagingService reads chunks straight from
+          // `raf` on request and OWNS the handle (closes it when serving ends).
+          // Do NOT close `raf` here.
           await ref.read(messagingServiceProvider).sendFileStreaming(
             _peer,
             file.name,
             size,
             (offset, length) => _readFully(raf, offset, length),
+            close: () async {
+              await raf.close();
+            },
           );
         } catch (e) {
           devLog(() => 'xVeil[attach]: stream send failed ${file.name}: $e');
           if (mounted) _snack(l.chatFileUnreadable);
-        } finally {
-          await raf.close();
         }
         if (mounted) _scrollToBottom(force: true);
         return;

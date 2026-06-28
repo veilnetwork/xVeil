@@ -141,27 +141,28 @@ void main() {
         reason: 'whole-content completion ACK must flip sender status');
   });
 
-  test('a STREAMED send (source read range-by-range, never whole in RAM) '
-      'delivers + dedups to the same contentId as the in-RAM path', () async {
+  test('a large send is SERVED FROM SOURCE (no duplicated copy on the sender) '
+      'and still delivers + verifies on the receiver', () async {
     final source = _rnd(700000, 11); // ~3 pieces; stands in for a too-big file
-    // The analogue of RandomAccessFile.read(offset, length): the service holds
-    // at most one piece, never the whole `source`.
-    Future<Uint8List> readRange(int offset, int length) async =>
+    var closed = false;
+    // The analogue of RandomAccessFile.read(offset, length): the sender reads
+    // each chunk straight from the source on request — never the whole file.
+    Future<Uint8List> read(int offset, int length) async =>
         Uint8List.sublistView(source, offset, offset + length);
 
     final got = mB.contentReceived.first;
-    await mA.sendFileStreaming(b, 'huge.bin', source.length, readRange);
+    await mA.sendFileStreaming(b, 'huge.bin', source.length, read,
+        close: () async => closed = true);
 
-    // Same self-authenticating address as a one-shot hash → the two paths dedup.
     final cid = ContentManifest.fromBytes('huge.bin', source).contentId;
     final received = await got.timeout(const Duration(seconds: 20));
     expect(received.contentId, cid, reason: 'streamed id == in-RAM id');
     expect(await sB.loadFile(received.contentId), source,
-        reason: 'receiver reassembled + verified the whole');
-    // The SENDER persisted its serving blob by streaming the source to disk too
-    // (ingress → disk, piece by piece), so it can serve re-requests from disk.
-    expect(await sA.hasFile(cid), isTrue,
-        reason: 'sender stored the blob piece-by-piece');
+        reason: 'receiver reassembled + verified the whole from the served source');
+    // The SENDER keeps NO copy — it already has the original, so storing one
+    // would duplicate it (and a big copy is what overflowed the in-volume index).
+    expect(await sA.hasFile(cid), isFalse,
+        reason: 'serve-from-source: sender stores nothing');
 
     // Status flips to delivered once the receiver has the whole content.
     MessageStatus? status;
@@ -171,5 +172,9 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 10));
     }
     expect(status, MessageStatus.delivered);
+    // The source handle is still held while serving (closed only on eviction).
+    expect(closed, isFalse, reason: 'source stays open for re-requests');
+    await mA.dispose(); // dispose releases it
+    expect(closed, isTrue, reason: 'dispose closes the serve-from-source handle');
   });
 }
