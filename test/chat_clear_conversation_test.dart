@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
@@ -40,6 +41,22 @@ SpaceOpener _mem() {
   return ({required password, required bool create}) => s;
 }
 
+/// A fake that rejects an over-large commit exactly like the real at-rest store
+/// (which encodes one commit into a single ~4 KB batch with no auto-split). Lets
+/// the clear path's recursive batch-split actually be exercised — a regression
+/// once made it recurse into ITSELF (Stack Overflow) instead of splitting.
+class _CapCommitStore extends FakeKvLogStore {
+  _CapCommitStore(this.maxOps);
+  final int maxOps;
+  @override
+  int commit(List<KvLogOp> ops) {
+    if (ops.length > maxOps) {
+      throw hv.HvException('PayloadTooLarge', 'too many records for one batch');
+    }
+    return super.commit(ops);
+  }
+}
+
 void main() {
   test('clearConversation erases the history AND emits on changes '
       '(so messagesProvider reloads the now-empty chat)', () async {
@@ -69,5 +86,34 @@ void main() {
         reason: 'history is erased');
     // The contact stays — the conversation remains, just emptied.
     expect(await storage.getContact(peer), isNotNull);
+  });
+
+  test('clearConversation succeeds on a chat too big for ONE commit '
+      '(recursive batch-split; no PayloadTooLarge, no stack overflow)', () async {
+    final me = _id(1);
+    final peer = _id(2);
+    // Reject any commit over 8 records — a whole-chat tombstone of 40 messages
+    // is one ~40-record commit, so the clear MUST split it to get through.
+    final cap = _CapCommitStore(8);
+    final storage = HiddenVolumeStorage(
+        ({required password, required bool create}) => cap);
+    await storage.open(password: 'p', createIfMissing: true);
+    await storage.upsertContact(
+        Contact(nodeId: peer, status: ContactStatus.accepted));
+    final svc = MessagingService(_Noop(me), storage)..start();
+    addTearDown(svc.dispose);
+    for (var i = 0; i < 40; i++) {
+      await svc.sendText(peer, 'm$i'); // small per-message commits — all fit
+    }
+    expect((await storage.loadMessages(peer.hex)).length,
+        greaterThanOrEqualTo(40));
+
+    // The one big tombstone commit overflows the cap; _commitBatched must split
+    // it recursively until each batch fits — NOT recurse into itself (the typo
+    // that stack-overflowed on device) and NOT abort with PayloadTooLarge.
+    await svc.clearConversation(peer);
+
+    expect((await storage.loadMessages(peer.hex)), isEmpty,
+        reason: 'the oversized clear committed in batches');
   });
 }

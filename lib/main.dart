@@ -45,7 +45,7 @@ Future<void> main() async {
       // Uncaught async / platform errors (the fire-and-forget teardown legs the
       // audit flagged). Returning true marks them handled so they don't escalate.
       PlatformDispatcher.instance.onError = (error, stack) {
-        devLog(() => 'xVeil[uncaught:platform]: $error');
+        devLog(() => 'xVeil[uncaught:platform]: $error\n$stack');
         return true;
       };
 
@@ -65,7 +65,7 @@ Future<void> main() async {
       );
     },
     (error, stack) {
-      devLog(() => 'xVeil[uncaught:zone]: $error');
+      devLog(() => 'xVeil[uncaught:zone]: $error\n$stack');
     },
   );
 }

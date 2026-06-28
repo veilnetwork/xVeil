@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/ids.dart';
+import '../../core/log.dart';
 import '../../domain/chat.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/messaging.dart';
@@ -235,7 +236,13 @@ Future<void> _confirmClear(
   // emits the changes signal so messagesProvider reloads and the now-empty chat
   // actually re-renders. Calling storage.clearMessages directly cleared the
   // store but left the UI showing the old messages (looked like nothing happened).
-  await ref.read(messagingServiceProvider).clearConversation(peer);
+  try {
+    await ref.read(messagingServiceProvider).clearConversation(peer);
+  } catch (e, st) {
+    // Surface the failure instead of a silent no-op (a too-large commit threw
+    // PayloadTooLarge and the clear aborted, leaving the history intact).
+    devLog(() => 'xVeil[clear]: clearConversation FAILED for ${peer.short}: $e\n$st');
+  }
 }
 
 Future<void> _confirmDelete(
