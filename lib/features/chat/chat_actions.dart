@@ -5,7 +5,6 @@ import '../../core/ids.dart';
 import '../../domain/chat.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/messaging.dart';
-import '../../state/providers.dart';
 
 /// Shared conversation-management actions, reused by the in-chat AppBar menu AND
 /// the chats-list long-press so the user manages a dialog from either place. All
@@ -232,7 +231,11 @@ Future<void> _confirmClear(
     ),
   );
   if (ok != true) return;
-  await ref.read(storageProvider).clearMessages(peer);
+  // Route through the service (not storageProvider directly): clearConversation
+  // emits the changes signal so messagesProvider reloads and the now-empty chat
+  // actually re-renders. Calling storage.clearMessages directly cleared the
+  // store but left the UI showing the old messages (looked like nothing happened).
+  await ref.read(messagingServiceProvider).clearConversation(peer);
 }
 
 Future<void> _confirmDelete(
