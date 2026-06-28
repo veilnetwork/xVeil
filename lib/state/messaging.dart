@@ -138,6 +138,19 @@ class IncomingNotice {
   final bool isFile;
 }
 
+/// Outcome of a user-initiated [MessagingService.downloadContent].
+enum ContentDownloadResult {
+  /// The fetch began (or the bytes were already held).
+  started,
+
+  /// The file is large and the on-disk tier is OFF for this identity (§16.5):
+  /// the UI should offer to enable large-file storage in settings.
+  needsLargeFileOptIn,
+
+  /// No live offer for this contentId — the sender must re-advertise.
+  noOffer,
+}
+
 /// A live byte source the SENDER serves a large file from directly — the user's
 /// ORIGINAL file on disk — instead of a stored/duplicated copy. [read] returns
 /// exactly [length] bytes at [offset]; [close] releases the underlying handle
@@ -2285,19 +2298,30 @@ class MessagingService {
   /// The user opted to download an OFFERED file. Fetches from the retained
   /// manifest. No-op if we already hold the blob; if the offer handle is gone
   /// (evicted / app restart) the sender must re-advertise to re-offer it.
-  Future<void> downloadContent(NodeId peer, String contentId) async {
+  Future<ContentDownloadResult> downloadContent(
+      NodeId peer, String contentId) async {
     if (await _storage.hasFile(contentId)) {
       _signal();
-      return;
+      return ContentDownloadResult.started;
     }
     final offered = _offered[contentId];
     if (offered == null) {
       devLog(() => 'xVeil[content]: download — no live offer for '
           '${contentId.substring(0, 12)} (sender must re-advertise)');
-      return;
+      return ContentDownloadResult.noOffer;
+    }
+    // §16.5 gate: a file too big for the hidden-volume index can only be
+    // RECEIVED by storing it ENCRYPTED on disk (its existence becomes
+    // revealable) — refuse until the user opts into the on-disk tier.
+    final size = offered.manifest.size;
+    if (size > kMaxIncomingFileBytes && !_filePolicy.largeFilesOnDisk) {
+      devLog(() => 'xVeil[content]: download BLOCKED ${contentId.substring(0, 12)} '
+          '($size B) — large-file on-disk tier is off for this identity');
+      return ContentDownloadResult.needsLargeFileOptIn;
     }
     devLog(() => 'xVeil[content]: user download ${contentId.substring(0, 12)}');
     await _beginFetch(offered.peer, offered.manifest);
+    return ContentDownloadResult.started;
   }
 
   void _onPieceRequest(NodeId peer, PieceRequestFrame req) {

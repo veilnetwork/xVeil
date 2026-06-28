@@ -507,6 +507,20 @@ class AppL10nEn extends AppL10n {
   String get fileTypeHint => 'Extension, e.g. apk';
 
   @override
+  String get fileOnDiskTier => 'Store large files on disk';
+
+  @override
+  String get fileOnDiskTierHint =>
+      'Files too big for the hidden volume are kept encrypted on disk. Their existence (not contents) can be revealed. Off by default.';
+
+  @override
+  String get fileLargeNeedsOptIn =>
+      'Large files are stored encrypted on disk — enable it in Settings.';
+
+  @override
+  String get fileOpenSettings => 'Settings';
+
+  @override
   String get addIdentityTitle => 'Add identity';
 
   @override

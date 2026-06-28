@@ -1039,6 +1039,30 @@ abstract class AppL10n {
   /// **'Extension, e.g. apk'**
   String get fileTypeHint;
 
+  /// No description provided for @fileOnDiskTier.
+  ///
+  /// In en, this message translates to:
+  /// **'Store large files on disk'**
+  String get fileOnDiskTier;
+
+  /// No description provided for @fileOnDiskTierHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Files too big for the hidden volume are kept encrypted on disk. Their existence (not contents) can be revealed. Off by default.'**
+  String get fileOnDiskTierHint;
+
+  /// No description provided for @fileLargeNeedsOptIn.
+  ///
+  /// In en, this message translates to:
+  /// **'Large files are stored encrypted on disk — enable it in Settings.'**
+  String get fileLargeNeedsOptIn;
+
+  /// No description provided for @fileOpenSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Settings'**
+  String get fileOpenSettings;
+
   /// No description provided for @addIdentityTitle.
   ///
   /// In en, this message translates to:

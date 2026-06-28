@@ -424,9 +424,11 @@ class HiddenVolumeStorage implements Storage {
   // and recorded as `ondisk:<cid>` metadata; every later read consults it, so a
   // file's tier is stable regardless of the (size-less) read API.
 
-  /// Files at/above this route to the on-disk encrypted tier; smaller ones stay
-  /// in the volume (fast, fully deniable). Below the ~20–40 MB index ceiling.
-  static const int _kOnDiskTierMinBytes = 16 * 1024 * 1024;
+  /// Files ABOVE the proven in-volume whole-file cap route to the on-disk
+  /// encrypted tier; at/below it they stay in the volume (fully deniable). This
+  /// aligns with the sender's serve-from-source threshold and keeps the
+  /// hidden-volume index well clear of its ceiling.
+  static const int _kOnDiskTierMinBytes = kMaxStoredFileBytes;
 
   OnDiskBlobStore? _blobs;
   int _onDiskMinBytes = _kOnDiskTierMinBytes;
@@ -485,7 +487,7 @@ class HiddenVolumeStorage implements Storage {
       int pieceSize, int totalSize, Uint8List bytes, {String? name}) {
     // Route by size — but a file already known on-disk stays on-disk even if a
     // (re)store passes a smaller-looking total, so reads remain consistent.
-    if (_blobs != null && totalSize >= _onDiskMinBytes) {
+    if (_blobs != null && totalSize > _onDiskMinBytes) {
       return _fileSerialized(() => _storeFilePieceOnDisk(
           fileId, pieceIndex, pieceCount, pieceSize, totalSize, bytes, name));
     }
