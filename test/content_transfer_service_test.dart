@@ -102,7 +102,7 @@ void main() {
     await mA.sendContent(b, data, 'movie.bin');
     final received = await got.timeout(const Duration(seconds: 10));
     expect(received.name, 'movie.bin');
-    expect(received.bytes, data, reason: 'verified whole == original');
+    expect(await sB.loadFile(received.contentId), data, reason: 'verified whole == original');
   });
 
   test('a dropped piece is re-requested and the transfer still completes',
@@ -114,7 +114,7 @@ void main() {
     await mA.sendContent(b, data, 'doc.bin');
     // B's re-request timer asks A again for the missing piece; it lands next time.
     final received = await got.timeout(const Duration(seconds: 10));
-    expect(received.bytes, data, reason: 'recovered the dropped piece');
+    expect(await sB.loadFile(received.contentId), data, reason: 'recovered the dropped piece');
   });
 
   test('large file becomes delivered only after receiver verifies and stores it',
@@ -128,7 +128,7 @@ void main() {
         reason: 'manifest advertisement is not file delivery');
 
     final received = await got.timeout(const Duration(seconds: 20));
-    expect(received.bytes, data);
+    expect(await sB.loadFile(received.contentId), data);
 
     MessageStatus? status;
     for (var i = 0; i < 100; i++) {
