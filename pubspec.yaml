@@ -51,6 +51,11 @@ dependencies:
   # SHA-256 for content-addressing (piece + manifest hashes). The bundled
   # blake3.dart is single-chunk (<=1 KiB) only — it can't hash multi-KiB pieces.
   crypto: ^3.0.7
+  # AEAD (ChaCha20-Poly1305) for the on-disk LARGE-FILE tier (Phase B): blobs too
+  # big for the hidden-volume index live as encrypted files on the normal FS,
+  # sealed per-piece under a per-blob random key kept in the volume. Vetted Dart
+  # crypto — we do NOT hand-roll AEAD for a deniability tool.
+  cryptography: ^2.7.0
   # Non-sensitive UI prefs ONLY (theme, locale). Never secrets — those live
   # in the hidden-volume container. See doc/SECURITY-NOTES.md.
   shared_preferences: ^2.3.3

@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import '../../core/ids.dart';
@@ -11,6 +13,7 @@ import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'async_kv_log_store.dart';
 import 'file_store.dart';
 import 'kv_log_store.dart';
+import 'on_disk_blob_store.dart';
 import 'storage.dart';
 import 'package:xveil/core/log.dart';
 
@@ -412,23 +415,119 @@ class HiddenVolumeStorage implements Storage {
       _fileSerialized(
           () => AsyncFileStore(_as).storeFile(fileId, bytes, name: name));
 
-  @override
-  Future<Uint8List?> loadFile(String fileId) =>
-      AsyncFileStore(_as).loadFile(fileId);
+  // ── Large-file tier (Phase B) ────────────────────────────────────────────
+  // A blob at/above [_kOnDiskTierMinBytes] can't fit the hidden-volume index
+  // (its per-namespace B+ tree caps at a few thousand small records), so it is
+  // stored ENCRYPTED on the normal filesystem ([OnDiskBlobStore]). The per-blob
+  // random key + opaque name live HERE, in the volume (deniable) — only
+  // ciphertext is on disk. Per cid, the routing is decided ONCE at first store
+  // and recorded as `ondisk:<cid>` metadata; every later read consults it, so a
+  // file's tier is stable regardless of the (size-less) read API.
+
+  /// Files at/above this route to the on-disk encrypted tier; smaller ones stay
+  /// in the volume (fast, fully deniable). Below the ~20–40 MB index ceiling.
+  static const int _kOnDiskTierMinBytes = 16 * 1024 * 1024;
+
+  OnDiskBlobStore? _blobs;
+  int _onDiskMinBytes = _kOnDiskTierMinBytes;
+  final Random _blobRand = Random.secure();
+
+  /// Enable the on-disk LARGE-FILE tier, rooted at [dir] (one per identity).
+  /// Until set, large files fall back to the in-volume store (and would hit its
+  /// index ceiling). Production wiring points this at an app-private dir.
+  /// [minBytes] overrides the routing threshold (tests use a tiny one).
+  void useOnDiskTier(Directory dir, {int? minBytes}) {
+    _blobs = OnDiskBlobStore(dir);
+    if (minBytes != null) _onDiskMinBytes = minBytes;
+  }
+
+  Uint8List _randomBytes(int n) =>
+      Uint8List.fromList(List.generate(n, (_) => _blobRand.nextInt(256)));
+
+  Future<Map<String, dynamic>?> _odMeta(String cid) async {
+    final raw = await _as.get(Ns.settings, _sk('ondisk:$cid'));
+    if (raw == null) return null;
+    try {
+      return jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _putOdMeta(String cid, Map<String, dynamic> m) =>
+      _as.commit([PutOp(Ns.settings, _sk('ondisk:$cid'), _sk(jsonEncode(m)))]);
 
   @override
-  Future<bool> hasFile(String fileId) => AsyncFileStore(_as).hasFile(fileId);
+  Future<Uint8List?> loadFile(String fileId) async {
+    final meta = await _odMeta(fileId);
+    if (meta != null) {
+      if (_blobs == null) return null;
+      final size = meta['sz'] as int;
+      // Whole-file read — large-file callers should STREAM via [readFileRange]
+      // instead (this holds the whole blob in RAM). Used for small/medium blobs.
+      return _blobs!.readRange(meta['fn'] as String,
+          base64.decode(meta['k'] as String), 0, size, meta['ps'] as int, size);
+    }
+    return AsyncFileStore(_as).loadFile(fileId);
+  }
+
+  @override
+  Future<bool> hasFile(String fileId) async {
+    final meta = await _odMeta(fileId);
+    if (meta != null) {
+      return (meta['st'] as List).length >= (meta['pc'] as int);
+    }
+    return AsyncFileStore(_as).hasFile(fileId);
+  }
 
   @override
   Future<void> storeFilePiece(String fileId, int pieceIndex, int pieceCount,
-          int pieceSize, int totalSize, Uint8List bytes, {String? name}) =>
-      _fileSerialized(() => AsyncFileStore(_as).storeFilePiece(
-          fileId, pieceIndex, pieceCount, pieceSize, totalSize, bytes,
-          name: name));
+      int pieceSize, int totalSize, Uint8List bytes, {String? name}) {
+    // Route by size — but a file already known on-disk stays on-disk even if a
+    // (re)store passes a smaller-looking total, so reads remain consistent.
+    if (_blobs != null && totalSize >= _onDiskMinBytes) {
+      return _fileSerialized(() => _storeFilePieceOnDisk(
+          fileId, pieceIndex, pieceCount, pieceSize, totalSize, bytes, name));
+    }
+    return _fileSerialized(() => AsyncFileStore(_as).storeFilePiece(
+        fileId, pieceIndex, pieceCount, pieceSize, totalSize, bytes,
+        name: name));
+  }
+
+  /// Store one piece of a large blob in the on-disk encrypted tier. Runs under
+  /// [_fileSerialized] (no nested gate): the metadata read-modify-write — first
+  /// piece mints a random opaque name + per-blob key — is serialized so
+  /// concurrent pieces agree on ONE blob, and each piece records itself in `st`.
+  Future<void> _storeFilePieceOnDisk(String cid, int pieceIndex, int pieceCount,
+      int pieceSize, int totalSize, Uint8List bytes, String? name) async {
+    final meta = await _odMeta(cid) ??
+        <String, dynamic>{
+          'fn': base64Url.encode(_randomBytes(12)), // opaque, FS-safe name
+          'k': base64.encode(_randomBytes(32)), // per-blob AEAD key
+          'sz': totalSize,
+          'ps': pieceSize,
+          'pc': pieceCount,
+          'name': name,
+          'st': <int>[],
+        };
+    await _blobs!.storePiece(
+        meta['fn'] as String, base64.decode(meta['k'] as String), pieceIndex, bytes);
+    final st = (meta['st'] as List).cast<int>().toSet()..add(pieceIndex);
+    meta['st'] = st.toList()..sort();
+    await _putOdMeta(cid, meta);
+  }
 
   @override
-  Future<Uint8List?> readFileRange(String fileId, int offset, int length) =>
-      AsyncFileStore(_as).readFileRange(fileId, offset, length);
+  Future<Uint8List?> readFileRange(String fileId, int offset, int length) async {
+    final meta = await _odMeta(fileId);
+    if (meta != null) {
+      if (_blobs == null) return null;
+      return _blobs!.readRange(meta['fn'] as String,
+          base64.decode(meta['k'] as String), offset, length,
+          meta['ps'] as int, meta['sz'] as int);
+    }
+    return AsyncFileStore(_as).readFileRange(fileId, offset, length);
+  }
 
   @override
   Future<Message> appendMessage(Message message) async {
