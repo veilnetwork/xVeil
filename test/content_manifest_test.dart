@@ -77,4 +77,45 @@ void main() {
     expect(one.verifyWhole(Uint8List.fromList([7])), isTrue);
     expect(one.verifyWhole(Uint8List.fromList([8])), isFalse);
   });
+
+  test('fromReader (streaming) produces the IDENTICAL manifest to fromBytes — '
+      'same id, never reading more than one piece at a time', () async {
+    final data = _rnd(700000, 6); // short last piece
+    const pieceSize = 200000; // 4 pieces: 200k,200k,200k,100k
+    var maxRead = 0;
+    Future<Uint8List> readRange(int offset, int length) async {
+      maxRead = length > maxRead ? length : maxRead;
+      return Uint8List.sublistView(data, offset, offset + length);
+    }
+
+    final streamed = await ContentManifest.fromReader(
+        name: 'clip.bin', size: data.length, pieceSize: pieceSize,
+        readRange: readRange);
+    final inRam =
+        ContentManifest.fromBytes('clip.bin', data, pieceSize: pieceSize);
+
+    expect(streamed.contentId, inRam.contentId, reason: 'same self-auth address');
+    expect(streamed.pieceCount, inRam.pieceCount);
+    expect(streamed.isSelfConsistent, isTrue);
+    expect(streamed.verifyWhole(data), isTrue);
+    expect(maxRead, lessThanOrEqualTo(pieceSize),
+        reason: 'never holds more than one piece');
+  });
+
+  test('fromReader: empty file → zero pieces, self-consistent', () async {
+    Future<Uint8List> readRange(int o, int l) async => Uint8List(0);
+    final m = await ContentManifest.fromReader(
+        name: 'e', size: 0, readRange: readRange);
+    expect(m.pieceCount, 0);
+    expect(m.contentId, ContentManifest.fromBytes('e', Uint8List(0)).contentId);
+  });
+
+  test('fromReader: a short read (truncated/lying source) throws, not corrupts',
+      () async {
+    Future<Uint8List> readRange(int o, int l) async => Uint8List(l - 1); // short
+    expect(
+        () => ContentManifest.fromReader(
+            name: 'x', size: 1000, pieceSize: 1000, readRange: readRange),
+        throwsA(isA<StateError>()));
+  });
 }

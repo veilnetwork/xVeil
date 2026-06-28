@@ -10,6 +10,7 @@ import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/content_manifest.dart';
 import 'package:xveil/state/messaging.dart';
 
 NodeId _id(int s) => NodeId(Uint8List.fromList(List.filled(32, s)));
@@ -138,5 +139,37 @@ void main() {
     }
     expect(status, MessageStatus.delivered,
         reason: 'whole-content completion ACK must flip sender status');
+  });
+
+  test('a STREAMED send (source read range-by-range, never whole in RAM) '
+      'delivers + dedups to the same contentId as the in-RAM path', () async {
+    final source = _rnd(700000, 11); // ~3 pieces; stands in for a too-big file
+    // The analogue of RandomAccessFile.read(offset, length): the service holds
+    // at most one piece, never the whole `source`.
+    Future<Uint8List> readRange(int offset, int length) async =>
+        Uint8List.sublistView(source, offset, offset + length);
+
+    final got = mB.contentReceived.first;
+    await mA.sendFileStreaming(b, 'huge.bin', source.length, readRange);
+
+    // Same self-authenticating address as a one-shot hash → the two paths dedup.
+    final cid = ContentManifest.fromBytes('huge.bin', source).contentId;
+    final received = await got.timeout(const Duration(seconds: 20));
+    expect(received.contentId, cid, reason: 'streamed id == in-RAM id');
+    expect(await sB.loadFile(received.contentId), source,
+        reason: 'receiver reassembled + verified the whole');
+    // The SENDER persisted its serving blob by streaming the source to disk too
+    // (ingress → disk, piece by piece), so it can serve re-requests from disk.
+    expect(await sA.hasFile(cid), isTrue,
+        reason: 'sender stored the blob piece-by-piece');
+
+    // Status flips to delivered once the receiver has the whole content.
+    MessageStatus? status;
+    for (var i = 0; i < 200; i++) {
+      status = (await sA.loadMessages(b.hex)).single.status;
+      if (status == MessageStatus.delivered) break;
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    expect(status, MessageStatus.delivered);
   });
 }
