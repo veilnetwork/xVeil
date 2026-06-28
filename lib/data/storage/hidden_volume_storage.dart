@@ -6,6 +6,8 @@ import '../../domain/chat.dart';
 import '../../domain/event.dart';
 import '../../domain/identity.dart';
 import '../../domain/roster.dart';
+import 'package:hidden_volume/hidden_volume.dart' as hv;
+
 import 'async_kv_log_store.dart';
 import 'file_store.dart';
 import 'kv_log_store.dart';
@@ -952,7 +954,7 @@ class HiddenVolumeStorage implements Storage {
     index.remove(peer.hex);
     ops.add(DeleteOp(Ns.contacts, peer.bytes));
     ops.add(PutOp(Ns.settings, _sk('contacts:index'), _sk(jsonEncode(index))));
-    await _as.commit(ops);
+    await _commitBatched(ops);
     // Whole conversation is gone — scrub the orphaned chunks for forensic erasure
     // and drop the warm fold (scrubDeleted invalidates it) so a later read can't
     // resurrect a tombstoned row; the tombstones are durable in the log, so
@@ -1021,7 +1023,7 @@ class HiddenVolumeStorage implements Storage {
       }
     }
     if (ops.isEmpty) return 0;
-    await _as.commit(ops);
+    await _commitBatched(ops);
     await scrubDeleted();
     return old.length;
   }
@@ -1032,8 +1034,30 @@ class HiddenVolumeStorage implements Storage {
     // record and chat-list index entry stay — the conversation remains (empty).
     final ops = await _tombstoneAllOps(peer);
     if (ops.isEmpty) return; // nothing stored — keep the chat untouched
-    await _as.commit(ops);
+    await _commitBatched(ops);
     await scrubDeleted();
+  }
+
+  /// Commit [ops] in as few batches as fit. The at-rest store encodes ONE commit
+  /// into a single DataBatch bounded by the chunk capacity (~4 KB zstd), with no
+  /// auto-split at this layer — so a big atomic commit (clearing a chat with many
+  /// files = a chunk-zeroing op PER chunk, thousands of records) overflowed with
+  /// `HvException.PayloadTooLarge`, aborting the whole clear so the history
+  /// survived. Try the whole list first (one commit when it fits), and on
+  /// PayloadTooLarge split recursively in half until each batch fits. This is no
+  /// longer a single atomic commit, but every caller [scrubDeleted]s afterwards,
+  /// so a deleted blob still ends forensically erased even if a split lands
+  /// mid-file. A genuinely oversized SINGLE record (length 1) still rethrows.
+  Future<void> _commitBatched(List<KvLogOp> ops) async {
+    if (ops.isEmpty) return;
+    try {
+      await _as.commit(ops);
+    } on hv.HvException catch (e) {
+      if (e.kind != 'PayloadTooLarge' || ops.length == 1) rethrow;
+      final mid = ops.length >> 1;
+      await _commitBatched(ops.sublist(0, mid));
+      await _commitBatched(ops.sublist(mid));
+    }
   }
 
   @override
