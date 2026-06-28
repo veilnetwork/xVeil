@@ -116,4 +116,27 @@ void main() {
     final received = await got.timeout(const Duration(seconds: 10));
     expect(received.bytes, data, reason: 'recovered the dropped piece');
   });
+
+  test('large file becomes delivered only after receiver verifies and stores it',
+      () async {
+    final data = _rnd(1024 * 1024 + 1, 9); // force the content-layer path
+    final got = mB.contentReceived.first;
+    await mA.sendFile(b, data, 'large.bin');
+
+    final before = await sA.loadMessages(b.hex);
+    expect(before.single.status, MessageStatus.sent,
+        reason: 'manifest advertisement is not file delivery');
+
+    final received = await got.timeout(const Duration(seconds: 20));
+    expect(received.bytes, data);
+
+    MessageStatus? status;
+    for (var i = 0; i < 100; i++) {
+      status = (await sA.loadMessages(b.hex)).single.status;
+      if (status == MessageStatus.delivered) break;
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    expect(status, MessageStatus.delivered,
+        reason: 'whole-content completion ACK must flip sender status');
+  });
 }
