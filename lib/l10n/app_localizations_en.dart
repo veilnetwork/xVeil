@@ -475,6 +475,38 @@ class AppL10nEn extends AppL10n {
   String get settingsAddIdentity => 'Add identity';
 
   @override
+  String get settingsFiles => 'Files';
+
+  @override
+  String get settingsFilesHint => 'Auto-download limit & blocked types';
+
+  @override
+  String get fileSettingsTitle => 'File downloads';
+
+  @override
+  String get fileAutoLimit => 'Auto-download up to';
+
+  @override
+  String get fileAutoLimitHint =>
+      'Bigger files are offered — you choose whether to download.';
+
+  @override
+  String get fileAlwaysAsk => 'Always ask';
+
+  @override
+  String get fileBlockedTitle => 'Never auto-download these types';
+
+  @override
+  String get fileBlockedHint =>
+      'These always wait for your tap (e.g. apk, exe), even when small.';
+
+  @override
+  String get fileAddType => 'Add type';
+
+  @override
+  String get fileTypeHint => 'Extension, e.g. apk';
+
+  @override
   String get addIdentityTitle => 'Add identity';
 
   @override

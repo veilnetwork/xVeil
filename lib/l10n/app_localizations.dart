@@ -979,6 +979,66 @@ abstract class AppL10n {
   /// **'Add identity'**
   String get settingsAddIdentity;
 
+  /// No description provided for @settingsFiles.
+  ///
+  /// In en, this message translates to:
+  /// **'Files'**
+  String get settingsFiles;
+
+  /// No description provided for @settingsFilesHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto-download limit & blocked types'**
+  String get settingsFilesHint;
+
+  /// No description provided for @fileSettingsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'File downloads'**
+  String get fileSettingsTitle;
+
+  /// No description provided for @fileAutoLimit.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto-download up to'**
+  String get fileAutoLimit;
+
+  /// No description provided for @fileAutoLimitHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Bigger files are offered — you choose whether to download.'**
+  String get fileAutoLimitHint;
+
+  /// No description provided for @fileAlwaysAsk.
+  ///
+  /// In en, this message translates to:
+  /// **'Always ask'**
+  String get fileAlwaysAsk;
+
+  /// No description provided for @fileBlockedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Never auto-download these types'**
+  String get fileBlockedTitle;
+
+  /// No description provided for @fileBlockedHint.
+  ///
+  /// In en, this message translates to:
+  /// **'These always wait for your tap (e.g. apk, exe), even when small.'**
+  String get fileBlockedHint;
+
+  /// No description provided for @fileAddType.
+  ///
+  /// In en, this message translates to:
+  /// **'Add type'**
+  String get fileAddType;
+
+  /// No description provided for @fileTypeHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Extension, e.g. apk'**
+  String get fileTypeHint;
+
   /// No description provided for @addIdentityTitle.
   ///
   /// In en, this message translates to:
