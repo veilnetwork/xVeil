@@ -417,6 +417,9 @@ class HiddenVolumeStorage implements Storage {
       AsyncFileStore(_as).loadFile(fileId);
 
   @override
+  Future<bool> hasFile(String fileId) => AsyncFileStore(_as).hasFile(fileId);
+
+  @override
   Future<Message> appendMessage(Message message) async {
     // Bind (author, seq): the author is the message originator (set by the
     // messaging layer from the authenticated sender — R1; defaults to the

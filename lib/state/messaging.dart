@@ -1927,42 +1927,71 @@ class MessagingService {
         : ContentManifest.defaultPieceSize;
   }
 
-  /// Offer [bytes] as a content transfer to [dst]: build the manifest, serve it,
-  /// advertise it. The receiver pulls the pieces it lacks (verified by hash).
-  /// Returns the contentId (used as the chat file-message id, content-addressed).
-  Future<String> sendContent(NodeId dst, Uint8List bytes, String name) async {
-    final contact = await _storage.getContact(dst);
-    if (contact == null || contact.status != ContactStatus.accepted) {
-      return ContentManifest.fromBytes(name, bytes,
-              chunkBytes: _contentChunkBytes)
-          .contentId;
-    }
-    final manifest = ContentManifest.fromBytes(name, bytes,
-        pieceSize: _adaptivePieceSize(bytes.length),
-        chunkBytes: _contentChunkBytes);
+  /// Serve [manifest]'s bytes by contentId and advertise it to [dst]. One source
+  /// of truth for the serve+advertise tail, shared by the message send path and
+  /// the bare-content API.
+  Future<void> _advertise(
+      NodeId dst, ContentManifest manifest, Uint8List bytes) async {
     _serving[manifest.contentId] = (manifest: manifest, bytes: bytes);
     _ensureContentTimer();
     await _send(dst,
         contentManifestEnvelope(jsonEncode(manifest.toJson())).encode());
+    final mid = manifest.msgId;
     devLog(() => 'xVeil[content]: advertise ${manifest.contentId.substring(0, 12)} '
-        '(${manifest.pieceCount} pieces) -> ${dst.short}');
+        '(${manifest.pieceCount} pieces'
+        '${mid != null ? ', msg ${mid.substring(0, 8)}' : ''}) -> ${dst.short}');
+  }
+
+  /// Offer [bytes] as a bare content transfer to [dst] (no chat message / event
+  /// identity): build the manifest, serve it, advertise it. Returns the contentId
+  /// (the bytes' self-authenticating address). Used by tests + the recovery
+  /// re-ship; user file sends go through [_sendAsContent] (which adds the event).
+  Future<String> sendContent(NodeId dst, Uint8List bytes, String name) async {
+    final manifest = ContentManifest.fromBytes(name, bytes,
+        pieceSize: _adaptivePieceSize(bytes.length),
+        chunkBytes: _contentChunkBytes);
+    final contact = await _storage.getContact(dst);
+    if (contact?.status == ContactStatus.accepted) {
+      await _advertise(dst, manifest, bytes);
+    }
     return manifest.contentId;
   }
 
-  /// Send a LARGE file via the content layer, recorded as an outgoing file
-  /// message keyed by its contentId (content-addressed → idempotent re-send).
+  /// Send a LARGE file via the content layer as a first-class filePost EVENT.
+  /// The BYTES are content-addressed (stored + served by contentId, de-duped);
+  /// the MESSAGE is a per-send event under a fresh [msgId] + the (author,seq) the
+  /// log allocates — so a re-send (even of previously-DELETED content) surfaces
+  /// as a NEW message (A), while identical bytes are never re-stored/re-fetched.
   Future<void> _sendAsContent(NodeId dst, Uint8List bytes, String name) async {
-    final cid = await sendContent(dst, bytes, name);
-    if (await _hasMessage(dst, cid)) return; // already sent this exact content
-    final fileId = _uuid.v4();
+    // Hash the file ONCE → the manifest + contentId (the blob key).
+    final base = ContentManifest.fromBytes(name, bytes,
+        pieceSize: _adaptivePieceSize(bytes.length),
+        chunkBytes: _contentChunkBytes);
+    final cid = base.contentId;
+    // Store the blob under its HASH, de-duped: a re-send of identical bytes keeps
+    // ONE copy here, and a receiver that already holds it skips the re-download.
     try {
-      await _storage.storeFile(fileId, bytes, name: name);
+      if (!await _storage.hasFile(cid)) {
+        await _storage.storeFile(cid, bytes, name: name);
+      }
     } catch (e) {
       devLog(() => 'xVeil[content]: local store failed for $name: $e');
     }
-    await _store(dst, MessageDirection.outgoing, '📎 $name', MessageStatus.sent,
-        fileId: fileId, fileName: name, id: cid, timestamp: _now());
+    // Fresh per-send msgId = a NEW event each send (the (author,seq) event is the
+    // identity, NOT the byte-hash → re-send surfaces, even after a delete).
+    // fileId = contentId binds the message to its hash-keyed blob.
+    final msgId = _uuid.v4();
+    final stored = await _store(dst, MessageDirection.outgoing, '📎 $name',
+        MessageStatus.sent,
+        fileId: cid, fileName: name, id: msgId, timestamp: _now());
     _signal();
+    // Advertise carrying THIS send's event identity so the receiver folds a
+    // first-class filePost and acks by msgId (not the shared contentId).
+    final contact = await _storage.getContact(dst);
+    if (contact?.status != ContactStatus.accepted) return;
+    await _advertise(dst,
+        base.withEvent(msgId: msgId, author: stored.author, seq: stored.seq),
+        bytes);
   }
 
   Future<void> _onContentManifest(NodeId peer, String body) async {
@@ -1971,16 +2000,31 @@ class MessagingService {
       devLog(() => 'xVeil[content]: manifest DROPPED (malformed) <- ${peer.short}');
       return; // malformed / not self-consistent → untrusted, drop
     }
-    if (_fetching.containsKey(m.contentId)) {
+    // DEDUP: we ALREADY hold these exact bytes (keyed by contentId). Skip the
+    // entire download — surface a fresh filePost for THIS send (msgId/author/seq)
+    // referencing the cached blob, and ack so the sender flips sent->delivered.
+    if (await _storage.hasFile(m.contentId)) {
       devLog(() => 'xVeil[content]: manifest ${m.contentId.substring(0, 12)} '
-          'dup (already fetching) <- ${peer.short}');
+          'ALREADY HELD <- ${peer.short} — referencing (no re-download)');
+      if (await _foldIncomingFile(peer, m)) {
+        await _send(peer, WireEnvelope.ack(m.msgId ?? m.contentId).encode());
+      }
+      return;
+    }
+    if (_fetching.containsKey(m.contentId)) {
+      // A re-advertise mid-download: keep the LATEST event identity so completion
+      // surfaces this send's (msgId,seq); the bytes are already being pulled.
+      final cur = _fetching[m.contentId]!;
+      _fetching[m.contentId] =
+          (manifest: m, xfer: cur.xfer, peer: peer, name: m.name);
       return; // already fetching
     }
     _fetching[m.contentId] =
         (manifest: m, xfer: ContentTransfer(m), peer: peer, name: m.name);
     _ensureContentTimer();
     devLog(() => 'xVeil[content]: manifest ${m.contentId.substring(0, 12)} '
-        '(${m.pieceCount} pieces, "${m.name}") <- ${peer.short}; requesting all');
+        '(${m.pieceCount} pieces, "${m.name}", msg '
+        '${(m.msgId ?? m.contentId).substring(0, 8)}) <- ${peer.short}; requesting all');
     await _send(
         peer, pieceRequestEnvelope(contentId: m.contentId, indices: null).encode());
   }
@@ -2086,19 +2130,17 @@ class MessagingService {
     _fetching.remove(f.contentId);
     devLog(() => 'xVeil[content]: COMPLETE ${f.contentId.substring(0, 12)} '
         '(${bytes.length}B) verified');
-    final persisted = await _persistReceivedContent(
-      fetch.peer,
-      f.contentId,
-      fetch.name,
-      bytes,
-    );
+    final persisted =
+        await _persistReceivedContent(fetch.peer, fetch.manifest, bytes);
     // A content file is "delivered" only after the receiver verified the whole
-    // content hash and durably stored it. Do not ACK the manifest or individual
-    // pieces: either would make the sender UI lie while chunks are still missing.
+    // content hash and durably stored it. Ack by the per-send msgId (the EVENT
+    // identity) so the SENDER's specific file message flips sent->delivered (a
+    // legacy sender without msgId falls back to the contentId — old behaviour).
     if (persisted) {
-      devLog(() => 'xVeil[timeline]: content-ack id=${f.contentId} '
+      final ackId = fetch.manifest.msgId ?? f.contentId;
+      devLog(() => 'xVeil[timeline]: content-ack id=$ackId '
           'via=direct t=${DateTime.now().millisecondsSinceEpoch}');
-      await _send(fetch.peer, WireEnvelope.ack(f.contentId).encode());
+      await _send(fetch.peer, WireEnvelope.ack(ackId).encode());
     }
     if (!_contentReceived.isClosed) {
       _contentReceived
@@ -2106,27 +2148,49 @@ class MessagingService {
     }
   }
 
-  /// Persist a completed content transfer + surface it as an incoming file
-  /// message (id == contentId, so a re-delivery dedups + a deleted content
-  /// never resurrects). v1 stores in-container (≤ the atomic-delete cap); the
-  /// external encrypted store for truly large blobs is the next step.
+  /// Persist a completed content transfer: store the blob under its HASH
+  /// (contentId, de-duped) then surface it as an incoming filePost event. Returns
+  /// true if persisted-or-already-present (safe to ack); false only when the
+  /// durable store failed (no ack → the sender keeps retrying).
   Future<bool> _persistReceivedContent(
-      NodeId peer, String contentId, String name, Uint8List bytes) async {
-    if (await _hasMessage(peer, contentId) ||
-        await _storage.isMessageDeleted(peer.hex, contentId)) {
-      return true; // already have it / deliberately deleted: safe to re-ACK
-    }
-    final fileId = _uuid.v4();
+      NodeId peer, ContentManifest m, Uint8List bytes) async {
     try {
-      await _storage.storeFile(fileId, bytes, name: name);
+      if (!await _storage.hasFile(m.contentId)) {
+        await _storage.storeFile(m.contentId, bytes, name: m.name);
+      }
     } catch (e) {
-      devLog(() => 'xVeil[content]: recv store failed for $name: $e');
-      return false; // no durable file means no delivery ACK
+      devLog(() => 'xVeil[content]: recv store failed for ${m.name}: $e');
+      return false; // no durable blob → no delivery ack
     }
-    await _store(peer, MessageDirection.incoming, '📎 $name',
+    return _foldIncomingFile(peer, m);
+  }
+
+  /// Surface a received file as an incoming filePost EVENT keyed by the sender's
+  /// per-send (msgId, author, seq) — NOT the content hash — referencing the
+  /// hash-keyed blob (m.contentId). Idempotent on msgId: a retried/re-advertised
+  /// manifest never duplicates the bubble. Because the identity is the EVENT, a
+  /// re-send of previously-DELETED bytes surfaces as a NEW message (A), while a
+  /// re-delivery of the SAME (deleted) event stays gone — "deleted never
+  /// resurrects" reinterpreted at the (author,seq) level. Assumes the blob is
+  /// already stored under m.contentId. Returns true when surfaced-or-present.
+  Future<bool> _foldIncomingFile(NodeId peer, ContentManifest m) async {
+    // Legacy sender (no event identity) → fall back to the hash as the id, i.e.
+    // the old content-addressed behaviour (re-send of identical bytes dedups).
+    final msgId = m.msgId ?? m.contentId;
+    if (await _hasMessage(peer, msgId) ||
+        await _storage.isMessageDeleted(peer.hex, msgId)) {
+      return true; // already folded this event / it was deleted → re-ack, no dup
+    }
+    await _store(peer, MessageDirection.incoming, '📎 ${m.name}',
         MessageStatus.delivered,
-        fileId: fileId, fileName: name, id: contentId, timestamp: _now());
-    _emitIncoming(peer, '📎 $name', isFile: true);
+        fileId: m.contentId, fileName: m.name, id: msgId, seq: m.seq,
+        timestamp: m.ts != null
+            ? DateTime.fromMillisecondsSinceEpoch(m.ts!)
+            : _now());
+    _emitIncoming(peer, '📎 ${m.name}', isFile: true);
+    _signal();
+    devLog(() => 'xVeil[content]: surfaced ${m.contentId.substring(0, 12)} as '
+        'msg ${msgId.substring(0, 8)} <- ${peer.short}');
     return true;
   }
 

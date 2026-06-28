@@ -25,6 +25,10 @@ class ContentManifest {
     required this.pieceHashes,
     required this.contentId,
     this.chunkBytes = defaultChunkBytes,
+    this.msgId,
+    this.author,
+    this.seq,
+    this.ts,
   });
 
   /// Original file name (authenticated — folded into [contentId]).
@@ -51,6 +55,27 @@ class ContentManifest {
   /// chunk count from it, so it can re-request specific MISSING chunks from the
   /// first round (without first receiving any chunk of the piece).
   final int chunkBytes;
+
+  /// The sender's per-SEND message id (uuid) — the EVENT identity of this file
+  /// post, decoupled from [contentId] (which addresses the BYTES). UNBOUND (not
+  /// folded into contentId), so re-sending identical bytes yields the SAME
+  /// contentId (blob dedup) but a DISTINCT msgId: a new filePost event that
+  /// surfaces even if a prior identical send was deleted — "deleted never
+  /// resurrects" binds the (author,seq) EVENT, not the byte-hash. Null only from
+  /// a legacy sender, in which case the receiver falls back to the contentId path.
+  final String? msgId;
+
+  /// The sender's event author (node-id hex, R1) + per-(conv,author) gap-free
+  /// [seq] for this file post — carried so the receiver folds the filePost as a
+  /// first-class log event (surface/dedup/order by (author,seq)), exactly like
+  /// the small-file fileMeta path already does. UNBOUND (not in contentId).
+  final String? author;
+  final int? seq;
+
+  /// The sender's send-time (ms since epoch) for THIS file post — carried so the
+  /// receiver folds it with the SAME timestamp on every device (convergent
+  /// display order), mirroring fileMeta's `sentAtMs`. UNBOUND (not in contentId).
+  final int? ts;
 
   /// Default piece size: 256 KiB — keeps the manifest small (a 256 MiB file is
   /// 1024 × 32 B = 32 KiB of hashes) while bounding per-piece re-request cost.
@@ -106,6 +131,25 @@ class ContentManifest {
       chunkBytes: chunkBytes,
     );
   }
+
+  /// A copy stamped with the event-identity of ONE send (msgId/author/seq)
+  /// WITHOUT re-hashing — [contentId] and [pieceHashes] are reused unchanged
+  /// (those fields are unbound). Used by the send path to mint the manifest once
+  /// (from bytes) then attach the (author,seq) the storage layer just allocated.
+  ContentManifest withEvent(
+          {String? msgId, String? author, int? seq, int? ts}) =>
+      ContentManifest(
+        name: name,
+        size: size,
+        pieceSize: pieceSize,
+        pieceHashes: pieceHashes,
+        contentId: contentId,
+        chunkBytes: chunkBytes,
+        msgId: msgId ?? this.msgId,
+        author: author ?? this.author,
+        seq: seq ?? this.seq,
+        ts: ts ?? this.ts,
+      );
 
   /// Canonical, deterministic content id: hex SHA-256 over
   /// `len(name)|name|size|pieceSize|count|hash0|hash1|…`. Any change to the name,
@@ -176,6 +220,13 @@ class ContentManifest {
         'ps': pieceSize,
         'cb': chunkBytes,
         'ph': _hex(_concatHashes(pieceHashes)),
+        // Event-identity of THIS send (unbound — absent from contentId). Lets the
+        // receiver fold a first-class filePost (author,seq) under a per-send msgId
+        // so a re-send surfaces as a NEW message (A) while bytes dedup by contentId.
+        if (msgId != null) 'mid': msgId,
+        if (author != null) 'au': author,
+        if (seq != null) 'sq': seq,
+        if (ts != null) 'mts': ts,
       };
 
   /// Parse + validate a manifest. Returns null if malformed or NOT self-
@@ -204,7 +255,14 @@ class ContentManifest {
           pieceSize: ps,
           pieceHashes: hashes,
           contentId: id,
-          chunkBytes: cb);
+          chunkBytes: cb,
+          // Unbound event-identity (a legacy sender omits these → null, and the
+          // receiver falls back to the contentId-keyed path). NOT validated by
+          // isSelfConsistent — they don't participate in contentId.
+          msgId: j['mid'] as String?,
+          author: j['au'] as String?,
+          seq: j['sq'] as int?,
+          ts: j['mts'] as int?);
       return m.isSelfConsistent ? m : null;
     } catch (_) {
       return null;
