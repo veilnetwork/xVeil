@@ -1905,7 +1905,21 @@ class MessagingService {
 
   /// Content we SERVE (manifest + source bytes), by contentId. (v1 holds the
   /// source in memory; serving from the on-disk blob store is a later step.)
-  final Map<String, ({ContentManifest manifest, Uint8List bytes})> _serving = {};
+  /// [servedAt] is refreshed on every advertise/request so an ACTIVE transfer
+  /// stays; an idle one is evicted by [_evictServing] — without that the sender
+  /// kept the full bytes of EVERY file it ever sent forever (observed 0.5 GB RSS).
+  final Map<String,
+          ({ContentManifest manifest, Uint8List bytes, DateTime servedAt})>
+      _serving = {};
+
+  /// A served file is dropped from [_serving] this long after its last
+  /// advertise/request — the sender no longer needs the source once the receiver
+  /// has it (and a later re-request re-advertises, re-seeding it from the blob).
+  static const _servingTtl = Duration(minutes: 10);
+
+  /// Hard cap on total bytes across [_serving]; the OLDEST entries are evicted
+  /// first when over it, so RAM stays bounded even under many concurrent sends.
+  static const _servingByteCap = 64 * 1024 * 1024;
 
   /// Content we are FETCHING: the verified manifest + the reassembler + the peer.
   final Map<
@@ -1916,6 +1930,19 @@ class MessagingService {
         NodeId peer,
         String name
       })> _fetching = {};
+
+  /// Last-progress wall-clock per fetched contentId, so a transfer ABANDONED
+  /// mid-flight (the sender vanished) has its reassembler buffers evicted instead
+  /// of leaking. An actively-progressing fetch (a recent chunk) is untouched.
+  final Map<String, DateTime> _fetchActivity = {};
+  static const _fetchStaleTimeout = Duration(minutes: 5);
+
+  /// Test seam: how many files are currently cached for serving / being fetched
+  /// (so a test can assert the RAM caches stay bounded by the eviction logic).
+  @visibleForTesting
+  int get servingCount => _serving.length;
+  @visibleForTesting
+  int get fetchingCount => _fetching.length;
 
   /// Fires when a content transfer completes + verifies. The integration layer
   /// persists the bytes + surfaces a chat message (wired in a later stage).
@@ -1977,7 +2004,9 @@ class MessagingService {
   /// the bare-content API.
   Future<void> _advertise(
       NodeId dst, ContentManifest manifest, Uint8List bytes) async {
-    _serving[manifest.contentId] = (manifest: manifest, bytes: bytes);
+    _serving[manifest.contentId] =
+        (manifest: manifest, bytes: bytes, servedAt: _now());
+    _evictServing();
     _ensureContentTimer();
     await _send(dst,
         contentManifestEnvelope(jsonEncode(manifest.toJson())).encode());
@@ -2064,8 +2093,20 @@ class MessagingService {
           (manifest: m, xfer: cur.xfer, peer: peer, name: m.name);
       return; // already fetching
     }
+    // Evict any reassembler whose transfer was abandoned mid-flight (no chunk in
+    // _fetchStaleTimeout) before starting a new one, so abandoned fetches don't
+    // accumulate their buffered bytes in RAM.
+    final cutoff = _now();
+    _fetching.removeWhere((cid, _) {
+      final last = _fetchActivity[cid];
+      final stale =
+          last != null && cutoff.difference(last) > _fetchStaleTimeout;
+      if (stale) _fetchActivity.remove(cid);
+      return stale;
+    });
     _fetching[m.contentId] =
         (manifest: m, xfer: ContentTransfer(m), peer: peer, name: m.name);
+    _fetchActivity[m.contentId] = _now();
     _ensureContentTimer();
     devLog(() => 'xVeil[content]: manifest ${m.contentId.substring(0, 12)} '
         '(${m.pieceCount} pieces, "${m.name}", msg '
@@ -2081,6 +2122,9 @@ class MessagingService {
           '${req.contentId.substring(0, 12)} <- ${peer.short} (ignored)');
       return; // not serving this content
     }
+    // Keep an actively-requested transfer fresh so it isn't evicted mid-flight.
+    _serving[req.contentId] =
+        (manifest: served.manifest, bytes: served.bytes, servedAt: _now());
     final m = served.manifest;
     // gaps: pieceIndex → chunk indices to serve (null ⇒ every chunk of the piece).
     final Map<int, List<int>?> gaps;
@@ -2103,6 +2147,24 @@ class MessagingService {
           '-> serving');
     }
     unawaited(_serveChunks(peer, m, served.bytes, gaps));
+  }
+
+  /// Drop served sources idle past [_servingTtl], then — if still over
+  /// [_servingByteCap] total — evict the OLDEST until under it. Bounds the RAM the
+  /// sender holds for content it has finished (or abandoned) serving. A later
+  /// re-request simply re-advertises, re-seeding [_serving] from the stored blob.
+  void _evictServing() {
+    final now = _now();
+    _serving.removeWhere((_, v) => now.difference(v.servedAt) > _servingTtl);
+    var total = _serving.values.fold<int>(0, (a, v) => a + v.bytes.length);
+    if (total <= _servingByteCap) return;
+    final byAge = _serving.entries.toList()
+      ..sort((a, b) => a.value.servedAt.compareTo(b.value.servedAt));
+    for (final e in byAge) {
+      if (total <= _servingByteCap) break;
+      total -= e.value.bytes.length;
+      _serving.remove(e.key);
+    }
   }
 
   /// Decode a missing-chunk bitmap into the chunk indices it marks for piece [p].
@@ -2175,6 +2237,7 @@ class MessagingService {
           '${f.contentId.substring(0, 12)} (p${f.pieceIndex} c${f.chunkIndex})');
       return; // not fetching this content
     }
+    _fetchActivity[f.contentId] = _now(); // progress — keep this fetch non-stale
     final done = fetch.xfer.addChunk(
         f.pieceIndex, f.chunkIndex, f.chunkCount, f.data);
     if (done) {
@@ -2190,6 +2253,7 @@ class MessagingService {
       return; // leave it pending — re-request will refill any bad piece
     }
     _fetching.remove(f.contentId);
+    _fetchActivity.remove(f.contentId);
     devLog(() => 'xVeil[content]: COMPLETE ${f.contentId.substring(0, 12)} '
         '(${bytes.length}B) verified');
     final persisted =
