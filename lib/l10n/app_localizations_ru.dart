@@ -476,6 +476,38 @@ class AppL10nRu extends AppL10n {
   String get settingsAddIdentity => 'Добавить личность';
 
   @override
+  String get settingsFiles => 'Файлы';
+
+  @override
+  String get settingsFilesHint => 'Лимит авто-загрузки и заблокированные типы';
+
+  @override
+  String get fileSettingsTitle => 'Загрузка файлов';
+
+  @override
+  String get fileAutoLimit => 'Авто-загрузка до';
+
+  @override
+  String get fileAutoLimitHint =>
+      'Файлы крупнее — по запросу: вы решаете, загружать ли.';
+
+  @override
+  String get fileAlwaysAsk => 'Всегда спрашивать';
+
+  @override
+  String get fileBlockedTitle => 'Не загружать автоматически эти типы';
+
+  @override
+  String get fileBlockedHint =>
+      'Такие всегда ждут вашего нажатия (напр. apk, exe), даже маленькие.';
+
+  @override
+  String get fileAddType => 'Добавить тип';
+
+  @override
+  String get fileTypeHint => 'Расширение, напр. apk';
+
+  @override
   String get addIdentityTitle => 'Добавить личность';
 
   @override
