@@ -234,26 +234,157 @@ class AsyncFileStore {
     final raw = await _store.get(Ns.settings, _k('file:$fileId'));
     if (raw == null) return const [];
     final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
+    final ops = <KvLogOp>[];
+    if (m['streamed'] == true) {
+      // A STREAMED blob is a set of per-piece record-runs (see storeFilePiece) —
+      // scrub each run + drop its piece-map entry, then the file metadata.
+      final pieceCount = m['pieceCount'] as int? ?? 0;
+      for (var p = 0; p < pieceCount; p++) {
+        final pr = await _store.get(Ns.settings, _k('filepiece:$fileId:$p'));
+        if (pr == null) continue;
+        final pm = jsonDecode(utf8.decode(pr)) as Map<String, dynamic>;
+        final pb = pm['base'] as int, pc = pm['count'] as int;
+        for (var i = 0; i < pc; i++) {
+          ops.add(AppendLogOp(Ns.fileChunks, pb + i, Uint8List(0)));
+        }
+        ops.add(DeleteOp(Ns.settings, _k('filepiece:$fileId:$p')));
+      }
+      ops.add(DeleteOp(Ns.settings, _k('file:$fileId')));
+      return ops;
+    }
     final base = m['base'] as int;
     final count = m['count'] as int;
-    return [
-      for (var i = 0; i < count; i++)
-        AppendLogOp(Ns.fileChunks, base + i, Uint8List(0)),
-      DeleteOp(Ns.settings, _k('file:$fileId')),
-    ];
+    for (var i = 0; i < count; i++) {
+      ops.add(AppendLogOp(Ns.fileChunks, base + i, Uint8List(0)));
+    }
+    ops.add(DeleteOp(Ns.settings, _k('file:$fileId')));
+    return ops;
   }
 
-  /// True iff a blob is stored under [fileId] — a cheap metadata-only existence
-  /// check (no chunk reads). Used for content dedup: a received manifest whose
-  /// contentId we ALREADY hold need not be re-fetched over the network.
-  Future<bool> hasFile(String fileId) async =>
-      (await _store.get(Ns.settings, _k('file:$fileId'))) != null;
+  /// True iff a file is FULLY available: a whole-blob is present, a STREAMED file
+  /// only once all its pieces are stored. A partially-downloaded streamed file
+  /// answers false (it is still an offer being fetched).
+  Future<bool> hasFile(String fileId) async {
+    final raw = await _store.get(Ns.settings, _k('file:$fileId'));
+    if (raw == null) return false;
+    final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
+    if (m['streamed'] == true) {
+      return (m['stored'] as int? ?? 0) >= (m['pieceCount'] as int? ?? 1);
+    }
+    return true;
+  }
 
-  /// Reassemble the stored file, or null if unknown / a chunk is missing.
+  /// Store ONE piece of a STREAMED file incrementally (its own record-run, keyed
+  /// by piece index), so the receiver never holds the whole file in RAM and the
+  /// file size is bounded only by disk, not [kMaxStoredFileBytes]. Idempotent per
+  /// (fileId, pieceIndex); the file becomes [hasFile]-complete once all
+  /// [pieceCount] pieces are stored.
+  Future<void> storeFilePiece(String fileId, int pieceIndex, int pieceCount,
+      int pieceSize, int totalSize, Uint8List bytes,
+      {String? name}) async {
+    if (await _store.get(Ns.settings, _k('filepiece:$fileId:$pieceIndex')) !=
+        null) {
+      return; // already have this piece
+    }
+    final chunks =
+        chunkBytes(bytes, transferId: '$fileId:$pieceIndex', maxChunk: _maxRecord);
+    final base = await _nextLogId();
+    for (var s = 0; s < chunks.length; s += _kChunksPerCommit) {
+      final e =
+          s + _kChunksPerCommit < chunks.length ? s + _kChunksPerCommit : chunks.length;
+      await _store.commit([
+        for (var i = s; i < e; i++)
+          AppendLogOp(Ns.fileChunks, base + i, chunks[i].data),
+      ]);
+    }
+    final metaRaw = await _store.get(Ns.settings, _k('file:$fileId'));
+    final meta = metaRaw != null
+        ? jsonDecode(utf8.decode(metaRaw)) as Map<String, dynamic>
+        : <String, dynamic>{};
+    final stored = (meta['stored'] as int? ?? 0) + 1;
+    await _store.commit([
+      PutOp(Ns.settings, _k('filepiece:$fileId:$pieceIndex'),
+          _k(jsonEncode({'base': base, 'count': chunks.length, 'len': bytes.length}))),
+      PutOp(
+          Ns.settings,
+          _k('file:$fileId'),
+          _k(jsonEncode({
+            'name': name ?? meta['name'],
+            'size': totalSize,
+            'pieceCount': pieceCount,
+            'pieceSize': pieceSize,
+            'streamed': true,
+            'stored': stored,
+          }))),
+      PutOp(Ns.settings, _k('file_next_log'), _k('${base + chunks.length}')),
+    ]);
+  }
+
+  /// Read [length] bytes at [offset] of the stored file WITHOUT loading the whole
+  /// thing — reads only the records covering the range (per-piece for a streamed
+  /// file). Lets the sender serve a wire chunk straight from disk. Null if unknown
+  /// / a needed record is missing.
+  Future<Uint8List?> readFileRange(String fileId, int offset, int length) async {
+    final raw = await _store.get(Ns.settings, _k('file:$fileId'));
+    if (raw == null) return null;
+    final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
+    if (m['streamed'] != true) {
+      return _readRecordRange(
+          m['base'] as int, m['count'] as int, m['size'] as int, offset, length);
+    }
+    final pieceSize = m['pieceSize'] as int;
+    final size = m['size'] as int;
+    final out = BytesBuilder(copy: false);
+    var pos = offset.clamp(0, size);
+    final end = (offset + length).clamp(0, size);
+    while (pos < end) {
+      final pIdx = pos ~/ pieceSize;
+      final pr = await _store.get(Ns.settings, _k('filepiece:$fileId:$pIdx'));
+      if (pr == null) return null;
+      final pm = jsonDecode(utf8.decode(pr)) as Map<String, dynamic>;
+      final inPiece = pos - pIdx * pieceSize;
+      final pLen = pm['len'] as int;
+      final take = (end - pos) < (pLen - inPiece) ? (end - pos) : (pLen - inPiece);
+      if (take <= 0) break;
+      final got = await _readRecordRange(
+          pm['base'] as int, pm['count'] as int, pLen, inPiece, take);
+      if (got == null) return null;
+      out.add(got);
+      pos += take;
+    }
+    return out.toBytes();
+  }
+
+  /// Read [length] bytes at [start] from a record-run `[base, base+count)` of
+  /// logical length [runLen] (records are [_maxRecord] B, the last possibly short).
+  Future<Uint8List?> _readRecordRange(
+      int base, int count, int runLen, int start, int length) async {
+    final out = BytesBuilder(copy: false);
+    var pos = start.clamp(0, runLen);
+    final end = (start + length).clamp(0, runLen);
+    while (pos < end) {
+      final recIdx = pos ~/ _maxRecord;
+      if (recIdx >= count) break;
+      final rec = await _store.readLog(Ns.fileChunks, base + recIdx);
+      if (rec == null) return null;
+      final inRec = pos % _maxRecord;
+      final take = (end - pos) < (rec.length - inRec) ? (end - pos) : (rec.length - inRec);
+      if (take <= 0) break;
+      out.add(Uint8List.sublistView(rec, inRec, inRec + take));
+      pos += take;
+    }
+    return out.toBytes();
+  }
+
+  /// Reassemble the whole stored file, or null if unknown / incomplete. For a
+  /// large STREAMED file prefer [readFileRange] to avoid holding it all in RAM.
   Future<Uint8List?> loadFile(String fileId) async {
     final raw = await _store.get(Ns.settings, _k('file:$fileId'));
     if (raw == null) return null;
     final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
+    if (m['streamed'] == true) {
+      return readFileRange(fileId, 0, m['size'] as int);
+    }
     final base = m['base'] as int;
     final count = m['count'] as int;
     final out = BytesBuilder(copy: false);

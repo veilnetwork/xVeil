@@ -1026,6 +1026,19 @@ class _Bubble extends ConsumerWidget {
   final void Function(Message message)? onTapFile;
   final void Function(Message message)? onLongPress;
 
+  /// Whether the file blob is locally available (bubble shows "save" vs
+  /// "download"). Resilient: a not-yet-open / erroring store falls back to the
+  /// fileId presence instead of throwing out of build.
+  Future<bool> _held(WidgetRef ref) async {
+    final key = message.fileId ?? message.fileContentId;
+    if (key == null) return message.fileId != null;
+    try {
+      return await ref.read(storageProvider).hasFile(key);
+    } catch (_) {
+      return message.fileId != null;
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppL10n.of(context);
@@ -1098,8 +1111,7 @@ class _Bubble extends ConsumerWidget {
                       // Download icon for an OFFER we have not fetched yet; a save
                       // icon once the blob is local (tap then writes it out).
                       FutureBuilder<bool>(
-                        future: ref.read(storageProvider).hasFile(
-                            message.fileId ?? message.fileContentId ?? ''),
+                        future: _held(ref),
                         builder: (_, snap) {
                           final held = snap.data ?? (message.fileId != null);
                           return Icon(

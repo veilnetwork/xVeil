@@ -122,6 +122,8 @@ void main() {
     await tester.pump();
     expect(find.text('photo.png'), findsOneWidget);
     expect(find.byIcon(Icons.insert_drive_file_outlined), findsOneWidget);
-    expect(find.byIcon(Icons.download_outlined), findsOneWidget);
+    // A downloaded file (fileId set) shows the SAVE affordance; an un-fetched
+    // OFFER would show Icons.download_outlined instead (Phase A1 opt-in).
+    expect(find.byIcon(Icons.save_alt_outlined), findsOneWidget);
   });
 }
