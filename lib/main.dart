@@ -109,6 +109,12 @@ Future<List<Override>> _bootstrapOverrides() async {
                   workerSpaceOpener(path),
                   keysOpener: syncWrappedKeysOpener(hvKeysSpaceOpener(path)),
                 );
+          // Large-file tier (Phase B): blobs too big for the hidden-volume index
+          // are stored ENCRYPTED here (per-blob key + opaque name kept in the
+          // volume). Alongside the container so a separate store (dev override)
+          // gets its own. Capability only — a large file is stored on disk only
+          // when the per-identity policy opts in (the receiver gates download).
+          storage.useOnDiskTier(Directory('${File(path).parent.path}/blobs'));
           ref.onDispose(storage.close);
           return storage;
         }),
