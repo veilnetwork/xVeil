@@ -859,7 +859,11 @@ class MessagingService {
         // the decoder already mapped it to this drop sentinel (RULE WC). Ignore.
         return;
       case WireKind.fileMeta:
-        if (existing?.status != ContactStatus.accepted) return;
+        if (existing?.status != ContactStatus.accepted) {
+          devLog(() => 'xVeil[recv]: fileMeta DROPPED — ${m.src.short} '
+              'not accepted (status=${existing?.status})');
+          return;
+        }
         final meta = parseFileMeta(env.body);
         // Refuse over-budget transfers up front (the declared size is a hint;
         // the per-chunk guard below enforces it even if the peer lies here).
@@ -892,14 +896,25 @@ class MessagingService {
           seq: meta.seq, // the sender's filePost seq (null from an older sender)
           sentAtMs: meta.sentAtMs, // the sender's send-time (convergent order)
         );
+        devLog(() => 'xVeil[recv]: fileMeta ${meta.transferId} "${meta.name}" '
+            'count=${meta.count} size=${meta.size} <- ${m.src.short} — tracking');
         return; // nothing to show until the file completes
       case WireKind.fileChunk:
-        if (existing?.status != ContactStatus.accepted) return;
+        if (existing?.status != ContactStatus.accepted) {
+          devLog(() => 'xVeil[recv]: fileChunk DROPPED — ${m.src.short} '
+              'not accepted (status=${existing?.status})');
+          return;
+        }
         final frame = parseFileChunk(env.body);
         final inc = _inFlight[frame.transferId];
         // Unknown transfer (chunk before meta), or a different peer trying to
         // contribute to someone else's in-flight transfer — drop it.
-        if (inc == null || inc.src != m.src) return;
+        if (inc == null || inc.src != m.src) {
+          devLog(() => 'xVeil[recv]: fileChunk DROPPED — no meta for transfer '
+              '${frame.transferId} (idx ${frame.index}/${frame.total}) <- ${m.src.short}'
+              '${inc != null ? " (src mismatch)" : " (META LOST or not yet arrived)"}');
+          return;
+        }
         inc.lastActivity = _now(); // progress — keep this transfer non-stale
         inc.reasm.add(
           FileChunk(
@@ -917,6 +932,7 @@ class MessagingService {
         }
         if (!inc.reasm.isComplete) return; // wait for the rest
         final tid = frame.transferId;
+        devLog(() => 'xVeil[recv]: file $tid "${inc.name}" COMPLETE — assembling + storing');
         _inFlight.remove(tid);
         // Use the transfer id AS the message id (symmetry with the sender), so
         // a re-delivered transfer dedups and — crucially — a file we DELETED
