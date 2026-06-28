@@ -52,6 +52,7 @@ enum WireKind {
   contentManifest,
   pieceRequest,
   pieceChunk,
+  clear,
   unknown,
 }
 
@@ -103,6 +104,13 @@ class WireEnvelope {
   /// Inert seq placeholder (R-VOID): advances the peer's high-water past a
   /// deleted/superseded slot at [seq] with NO id/body (§12.1 — no oracle).
   const WireEnvelope.voidSeq(int seq) : this(WireKind.voidSeq, '', seq: seq);
+
+  /// Clear-conversation event: [body] is the JSON watermark map `{authorHex: hw}`
+  /// captured at clear time; [seq] is the clearing author's seq for this clear
+  /// event. Carries NO cleared message id or text — only the per-author
+  /// watermark (no oracle). v:2, so an un-upgraded peer drops it (RULE WC).
+  const WireEnvelope.clear(String watermarkJson, {int? seq})
+      : this(WireKind.clear, watermarkJson, seq: seq);
 
   /// "We were connected — please re-establish" (body = optional greeting). Sent
   /// when a message stays un-acked past a threshold; the receiver re-intros it if
