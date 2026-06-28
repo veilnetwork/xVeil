@@ -185,11 +185,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _scrollToBottom(force: true);
   }
 
+  /// Tap on a file bubble: if we already hold the blob, save it out; if it is an
+  /// OFFER we have not downloaded yet, start the opt-in download (the bubble flips
+  /// to "downloaded" when it completes — messagesProvider re-yields on _signal).
+  Future<void> _onTapFile(Message m) async {
+    final key = m.fileId ?? m.fileContentId;
+    if (key == null) return;
+    if (await ref.read(storageProvider).hasFile(key)) {
+      await _saveFile(m);
+    } else if (m.fileContentId != null) {
+      await ref
+          .read(messagingServiceProvider)
+          .downloadContent(_peer, m.fileContentId!);
+    }
+  }
+
   /// Save a received (or sent) file out of the deniable container to a location
   /// the user picks.
   Future<void> _saveFile(Message m) async {
     final l = AppL10n.of(context);
-    final bytes = await ref.read(storageProvider).loadFile(m.fileId!);
+    final key = m.fileId ?? m.fileContentId;
+    if (key == null) return;
+    final bytes = await ref.read(storageProvider).loadFile(key);
     if (bytes == null) {
       if (mounted) _snack(l.chatFileSaveFailed);
       return;
@@ -753,7 +770,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     }
                     return _Bubble(
                       message: list[hasMore ? i - 1 : i],
-                      onTapFile: _saveFile,
+                      onTapFile: _onTapFile,
                       onLongPress: _showMessageActions,
                     );
                   },
@@ -993,14 +1010,24 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
-class _Bubble extends StatelessWidget {
+/// Compact human size for a file offer ("3.2 MB"). Binary units, one source.
+String _formatBytes(int b) {
+  if (b < 1024) return '$b B';
+  if (b < 1024 * 1024) return '${(b / 1024).toStringAsFixed(0)} KB';
+  if (b < 1024 * 1024 * 1024) {
+    return '${(b / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+  return '${(b / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
+}
+
+class _Bubble extends ConsumerWidget {
   const _Bubble({required this.message, this.onTapFile, this.onLongPress});
   final Message message;
   final void Function(Message message)? onTapFile;
   final void Function(Message message)? onLongPress;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
     final outgoing = message.direction == MessageDirection.outgoing;
@@ -1048,16 +1075,41 @@ class _Bubble extends StatelessWidget {
                       ),
                       const SizedBox(width: 8),
                       Flexible(
-                        child: Text(
-                          message.fileName ?? message.body,
-                          overflow: TextOverflow.ellipsis,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              message.fileName ?? message.body,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            if (message.fileSize != null)
+                              Text(
+                                _formatBytes(message.fileSize!),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelSmall
+                                    ?.copyWith(color: scheme.onSurfaceVariant),
+                              ),
+                          ],
                         ),
                       ),
                       const SizedBox(width: 8),
-                      Icon(
-                        Icons.download_outlined,
-                        size: 16,
-                        color: scheme.onSurfaceVariant,
+                      // Download icon for an OFFER we have not fetched yet; a save
+                      // icon once the blob is local (tap then writes it out).
+                      FutureBuilder<bool>(
+                        future: ref.read(storageProvider).hasFile(
+                            message.fileId ?? message.fileContentId ?? ''),
+                        builder: (_, snap) {
+                          final held = snap.data ?? (message.fileId != null);
+                          return Icon(
+                            held
+                                ? Icons.save_alt_outlined
+                                : Icons.download_outlined,
+                            size: 16,
+                            color: scheme.onSurfaceVariant,
+                          );
+                        },
                       ),
                     ],
                   ),
