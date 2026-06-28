@@ -132,6 +132,48 @@ class ContentManifest {
     );
   }
 
+  /// Build a manifest by reading the source piece-by-piece via [readRange] —
+  /// never holding more than ONE piece in RAM. For files too large to fit in
+  /// memory (the in-RAM [fromBytes] would OOM first). [readRange] returns exactly
+  /// [length] bytes at byte [offset] of the source; [size] is its total length.
+  ///
+  /// Produces the SAME [contentId] as [fromBytes] for identical bytes — the id
+  /// binds the per-PIECE hashes (not the raw bytes), and each piece is hashed the
+  /// same way — so a streamed send and an in-RAM send of the same file dedup to
+  /// one blob and one swarm address.
+  static Future<ContentManifest> fromReader({
+    required String name,
+    required int size,
+    required Future<Uint8List> Function(int offset, int length) readRange,
+    int pieceSize = defaultPieceSize,
+    int chunkBytes = defaultChunkBytes,
+  }) async {
+    if (pieceSize <= 0) throw ArgumentError.value(pieceSize, 'pieceSize', '> 0');
+    if (chunkBytes <= 0) throw ArgumentError.value(chunkBytes, 'chunkBytes', '> 0');
+    final count = size <= 0 ? 0 : (size + pieceSize - 1) ~/ pieceSize;
+    final hashes = <Uint8List>[];
+    for (var i = 0; i < count; i++) {
+      final start = i * pieceSize;
+      final len = (start + pieceSize <= size) ? pieceSize : size - start;
+      final piece = await readRange(start, len);
+      if (piece.length != len) {
+        throw StateError(
+            'short read at piece $i: got ${piece.length}, want $len');
+      }
+      hashes.add(_hash(piece));
+    }
+    final id = computeContentId(
+        name: name, size: size, pieceSize: pieceSize, pieceHashes: hashes);
+    return ContentManifest(
+      name: name,
+      size: size,
+      pieceSize: pieceSize,
+      pieceHashes: hashes,
+      contentId: id,
+      chunkBytes: chunkBytes,
+    );
+  }
+
   /// A copy stamped with the event-identity of ONE send (msgId/author/seq)
   /// WITHOUT re-hashing — [contentId] and [pieceHashes] are reused unchanged
   /// (those fields are unbound). Used by the send path to mint the manifest once
