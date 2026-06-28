@@ -671,7 +671,10 @@ class HiddenVolumeStorage implements Storage {
     // travels out-of-band); a text message is a post. The fold treats both as a
     // post-class row, but loadEventsSince surfaces the right kind so the gap-fill
     // re-ship and any kind-aware consumer agree with the wire.
-    'k': (m.fileId != null ? EventKind.filePost : EventKind.post).index,
+    // A file message is a filePost event whether DOWNLOADED (fileId) or merely
+    // OFFERED (fileContentId, awaiting opt-in download) — both carry the
+    // descriptor; only the blob differs. A text message is a post.
+    'k': (m.isFile ? EventKind.filePost : EventKind.post).index,
     'd': m.direction.index,
     'b': m.body,
     't': m.timestamp.millisecondsSinceEpoch,
@@ -679,6 +682,8 @@ class HiddenVolumeStorage implements Storage {
     if (m.edited) 'e': 1,
     if (m.fileId != null) 'fi': m.fileId,
     if (m.fileName != null) 'fn': m.fileName,
+    if (m.fileSize != null) 'fs': m.fileSize,
+    if (m.fileContentId != null) 'fc': m.fileContentId,
     if (m.fileExternal) 'fx': 1, // blob in the external store, not in-container
   });
 
@@ -1543,6 +1548,8 @@ class HiddenVolumeStorage implements Storage {
         edited: m['e'] == 1,
         fileId: m['fi'] as String?,
         fileName: m['fn'] as String?,
+        fileSize: m['fs'] as int?,
+        fileContentId: m['fc'] as String?,
         fileExternal: m['fx'] == 1,
         author: m['au'] as String?,
         seq: m['sq'] as int?,

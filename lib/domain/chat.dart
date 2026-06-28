@@ -81,6 +81,8 @@ class Message {
     this.status = MessageStatus.sent,
     this.fileId,
     this.fileName,
+    this.fileSize,
+    this.fileContentId,
     this.fileExternal = false,
     this.edited = false,
     this.author,
@@ -103,6 +105,17 @@ class Message {
   final String? fileId;
   final String? fileName;
 
+  /// Total size of the file in bytes — known from the OFFER descriptor BEFORE the
+  /// blob is downloaded, so the receiver can show "name (size)" and decide whether
+  /// to fetch (opt-in / anti-spam). Null for inline / legacy file messages.
+  final int? fileSize;
+
+  /// The content hash (manifest contentId) used to REQUEST the blob on demand.
+  /// Set on a large file that was OFFERED but not yet downloaded; after download
+  /// the blob lands under [fileId]. So `fileContentId != null && fileId == null`
+  /// is the "offered, not downloaded" state. Null for small/inline files.
+  final String? fileContentId;
+
   /// True for a LARGE file whose blob lives in the external encrypted blob store
   /// (ExternalBlobStore[fileId]) instead of the in-container FileStore — sent /
   /// received over a reliable veil stream. False (default) = small file in the
@@ -118,9 +131,18 @@ class Message {
   final String? author;
   final int? seq;
 
-  bool get isFile => fileId != null;
+  /// A file message — whether already downloaded ([fileId]) or merely OFFERED
+  /// ([fileContentId], awaiting an opt-in download).
+  bool get isFile => fileId != null || fileContentId != null;
 
-  Message copyWith({MessageStatus? status, String? body, bool? edited}) =>
+  /// The blob is present locally (downloaded / stored), not just offered.
+  bool get isDownloaded => fileId != null;
+
+  Message copyWith(
+          {MessageStatus? status,
+          String? body,
+          bool? edited,
+          String? fileId}) =>
       Message(
         id: id,
         conversationId: conversationId,
@@ -128,8 +150,10 @@ class Message {
         body: body ?? this.body,
         timestamp: timestamp,
         status: status ?? this.status,
-        fileId: fileId,
+        fileId: fileId ?? this.fileId,
         fileName: fileName,
+        fileSize: fileSize,
+        fileContentId: fileContentId,
         fileExternal: fileExternal,
         edited: edited ?? this.edited,
         author: author,
