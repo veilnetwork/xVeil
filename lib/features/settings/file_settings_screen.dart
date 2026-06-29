@@ -87,6 +87,32 @@ class _FileSettingsScreenState extends ConsumerState<FileSettingsScreen> {
   Future<void> _removeType(String ext) async => _save(_policy.copyWith(
       blockedExts: _policy.blockedExts.where((e) => e != ext).toSet()));
 
+  String _modeLabel(AppL10n l, LargeFileMode m) => switch (m) {
+        LargeFileMode.ask => l.fileLargeModeAsk,
+        LargeFileMode.encrypted => l.fileSaveEncrypted,
+        LargeFileMode.open => l.fileSavePlain,
+      };
+
+  Future<void> _pickLargeFileMode(AppL10n l) async {
+    final choice = await showDialog<LargeFileMode>(
+      context: context,
+      builder: (d) => SimpleDialog(
+        title: Text(l.fileLargeMode),
+        children: [
+          for (final m in LargeFileMode.values)
+            ListTile(
+              title: Text(_modeLabel(l, m)),
+              trailing:
+                  _policy.largeFileMode == m ? const Icon(Icons.check) : null,
+              onTap: () => Navigator.of(d).pop(m),
+            ),
+        ],
+      ),
+    );
+    if (choice == null) return;
+    await _save(_policy.copyWith(largeFileMode: choice));
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
@@ -105,6 +131,18 @@ class _FileSettingsScreenState extends ConsumerState<FileSettingsScreen> {
             ),
             isThreeLine: true,
             onTap: () => _pickLimit(l),
+          ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.sd_storage_outlined),
+            title: Text(l.fileLargeMode),
+            subtitle: Text(l.fileLargeModeHint),
+            trailing: Text(
+              _modeLabel(l, _policy.largeFileMode),
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            isThreeLine: true,
+            onTap: () => _pickLargeFileMode(l),
           ),
           const Divider(),
           Padding(
