@@ -1039,29 +1039,47 @@ abstract class AppL10n {
   /// **'Extension, e.g. apk'**
   String get fileTypeHint;
 
-  /// No description provided for @fileOnDiskTier.
+  /// No description provided for @fileDownloadTitle.
   ///
   /// In en, this message translates to:
-  /// **'Store large files on disk'**
-  String get fileOnDiskTier;
+  /// **'Download file'**
+  String get fileDownloadTitle;
 
-  /// No description provided for @fileOnDiskTierHint.
+  /// No description provided for @fileSaveEncrypted.
   ///
   /// In en, this message translates to:
-  /// **'Files too big for the hidden volume are kept encrypted on disk. Their existence (not contents) can be revealed. Off by default.'**
-  String get fileOnDiskTierHint;
+  /// **'Encrypted storage'**
+  String get fileSaveEncrypted;
 
-  /// No description provided for @fileLargeNeedsOptIn.
+  /// No description provided for @fileSaveEncryptedHint.
   ///
   /// In en, this message translates to:
-  /// **'Large files are stored encrypted on disk — enable it in Settings.'**
-  String get fileLargeNeedsOptIn;
+  /// **'Kept in the app, encrypted on disk'**
+  String get fileSaveEncryptedHint;
 
-  /// No description provided for @fileOpenSettings.
+  /// No description provided for @fileSavePlain.
   ///
   /// In en, this message translates to:
-  /// **'Settings'**
-  String get fileOpenSettings;
+  /// **'Save to disk (unencrypted)'**
+  String get fileSavePlain;
+
+  /// No description provided for @fileSavePlainHint.
+  ///
+  /// In en, this message translates to:
+  /// **'A plain file you choose — not protected'**
+  String get fileSavePlainHint;
+
+  /// No description provided for @fileSavePlainWarn.
+  ///
+  /// In en, this message translates to:
+  /// **'This file will be saved UNENCRYPTED on disk. Anyone with access to the device can read it. Continue?'**
+  String get fileSavePlainWarn;
+
+  /// No description provided for @fileSavePlainConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Save unencrypted'**
+  String get fileSavePlainConfirm;
 
   /// No description provided for @addIdentityTitle.
   ///

@@ -57,14 +57,4 @@ void main() {
     expect(FileDownloadPolicy.defaults.blockedExts, contains('apk'));
     expect(FileDownloadPolicy.defaults.blockedExts, contains('exe'));
   });
-
-  test('largeFilesOnDisk: OFF by default (§16.5), round-trips, copyWith', () {
-    expect(FileDownloadPolicy.defaults.largeFilesOnDisk, isFalse);
-    final on = FileDownloadPolicy.defaults.copyWith(largeFilesOnDisk: true);
-    expect(on.largeFilesOnDisk, isTrue);
-    expect(FileDownloadPolicy.fromJson(on.toJson()).largeFilesOnDisk, isTrue);
-    expect(on, isNot(FileDownloadPolicy.defaults), reason: 'flag in equality');
-    // A blob with no flag (legacy) parses to OFF — fail safe, not on.
-    expect(FileDownloadPolicy.fromJson({'max': mb}).largeFilesOnDisk, isFalse);
-  });
 }
