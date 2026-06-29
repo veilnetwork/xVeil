@@ -551,6 +551,10 @@ class AppL10nEn extends AppL10n {
   String get fileRequestingResend => 'Requesting the file from the sender…';
 
   @override
+  String get fileReofferFailed =>
+      'Couldn\'t get the file — ask the sender to re-send it.';
+
+  @override
   String get addIdentityTitle => 'Add identity';
 
   @override
