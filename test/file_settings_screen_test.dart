@@ -52,6 +52,13 @@ void main() {
     final m = MessagingService(t, s); // not started: no timers in this test
     addTearDown(m.dispose);
 
+    // A tall surface so the LAZY ListView lays out the WHOLE screen — including
+    // the blocked-types input at the bottom (an earlier Row/Expanded/button there
+    // forced an infinite width that only bit once it was actually laid out, off
+    // the 800x600 default viewport).
+    await tester.binding.setSurfaceSize(const Size(900, 1600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
     await tester.pumpWidget(ProviderScope(
       overrides: [messagingServiceProvider.overrideWithValue(m)],
       child: MaterialApp(
@@ -69,7 +76,7 @@ void main() {
 
     // Add a type → applied in-memory AND persisted to this identity's storage.
     await tester.enterText(find.byType(TextField), 'iso');
-    await tester.tap(find.text('Add type'));
+    await tester.tap(find.byIcon(Icons.add)); // the add suffix-icon
     await tester.pumpAndSettle();
     expect(m.fileDownloadPolicy.blockedExts, contains('iso'));
     expect(find.text('iso'), findsOneWidget);

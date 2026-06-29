@@ -167,25 +167,19 @@ class _FileSettingsScreenState extends ConsumerState<FileSettingsScreen> {
                       ),
                   ],
                 ),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _addCtl,
-                        autocorrect: false,
-                        decoration: InputDecoration(
-                          hintText: l.fileTypeHint,
-                          prefixText: '.',
-                        ),
-                        onSubmitted: (_) => _addType(),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    FilledButton.tonal(
+                TextField(
+                  controller: _addCtl,
+                  autocorrect: false,
+                  decoration: InputDecoration(
+                    hintText: l.fileTypeHint,
+                    prefixText: '.',
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.add),
+                      tooltip: l.fileAddType,
                       onPressed: _addType,
-                      child: Text(l.fileAddType),
                     ),
-                  ],
+                  ),
+                  onSubmitted: (_) => _addType(),
                 ),
               ],
             ),
