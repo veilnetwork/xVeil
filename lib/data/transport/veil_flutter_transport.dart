@@ -15,7 +15,7 @@ import 'veil_transport.dart';
 /// Production [VeilTransport] over veil_flutter. Binds the shared `xveil/inbox`
 /// named endpoint, so a peer is addressable from its node id alone (its app_id
 /// is derived — see [chatAppIdFor], verified against the native bindNamed).
-class VeilFlutterTransport implements VeilTransport {
+class VeilFlutterTransport implements VeilTransport, StreamTransport {
   VeilFlutterTransport._(this._client, this._app);
 
   final VeilClient _client;
@@ -158,19 +158,28 @@ class VeilFlutterTransport implements VeilTransport {
   /// Open a reliable, flow-controlled byte-stream to [dst]'s chat endpoint — the
   /// transport for any-size file transfer (Stage 6). Same app_id/endpoint as a
   /// message, so it lands on the peer's bound chat endpoint accept queue.
-  Future<VeilStream> openStream(NodeId dst) => _app.openStream(
+  @override
+  Future<ReliableStream?> openStream(NodeId dst) async {
+    try {
+      final s = await _app.openStream(
         dstNodeId: dst.bytes,
         dstAppId: chatAppIdFor(dst),
         dstEndpointId: veilChatEndpointId,
       );
+      return _VeilReliableStream(s);
+    } catch (_) {
+      return null; // no circuit / peer unreachable → caller falls back
+    }
+  }
 
   /// Accept the next inbound stream a peer opened to our chat endpoint, or null
   /// on [timeout] (so a server loop polls). The receive side of file streaming.
-  Future<({VeilStream stream, NodeId src})?> acceptStream(
+  @override
+  Future<({ReliableStream stream, NodeId src})?> acceptStream(
       {Duration timeout = const Duration(seconds: 2)}) async {
     final r = await _app.acceptStream(timeout: timeout);
     if (r == null) return null;
-    return (stream: r.stream, src: NodeId(r.srcNodeId));
+    return (stream: _VeilReliableStream(r.stream), src: NodeId(r.srcNodeId));
   }
 
   @override
@@ -231,4 +240,18 @@ class VeilFlutterTransport implements VeilTransport {
     await _app.close();
     await _client.close();
   }
+}
+
+/// Adapts veil_flutter's [VeilStream] to the transport-agnostic [ReliableStream]
+/// port, so the messaging layer drives bulk transfers without depending on
+/// veil_flutter directly (and a fake pipe can stand in for tests).
+class _VeilReliableStream implements ReliableStream {
+  _VeilReliableStream(this._s);
+  final VeilStream _s;
+  @override
+  Future<void> write(Uint8List data) => _s.write(data);
+  @override
+  Future<Uint8List> read({int maxBytes = 65536}) => _s.read(maxBytes: maxBytes);
+  @override
+  Future<void> close() => _s.close();
 }
