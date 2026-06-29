@@ -529,6 +529,16 @@ class AppL10nEn extends AppL10n {
   String get fileSavePlainConfirm => 'Save unencrypted';
 
   @override
+  String get fileLargeMode => 'Large files';
+
+  @override
+  String get fileLargeModeHint =>
+      'When you download a file too big for the hidden volume';
+
+  @override
+  String get fileLargeModeAsk => 'Ask each time';
+
+  @override
   String get addIdentityTitle => 'Add identity';
 
   @override

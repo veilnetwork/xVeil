@@ -12,6 +12,7 @@ import '../../core/ids.dart';
 import '../../core/log.dart';
 import 'chat_actions.dart';
 import '../../domain/chat.dart';
+import '../../domain/file_download_policy.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/messaging.dart';
 import '../../state/notifications.dart';
@@ -264,7 +265,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final cid = m.fileContentId;
     if (cid == null) return;
     if ((m.fileSize ?? 0) > kMaxIncomingFileBytes) {
-      await _showDownloadMenu(m, cid);
+      // A LARGE file: honour this identity's preference — ask, always encrypted,
+      // or always unencrypted-to-disk (set in Settings → Files).
+      switch (ref.read(messagingServiceProvider).fileDownloadPolicy.largeFileMode) {
+        case LargeFileMode.ask:
+          await _showDownloadMenu(m, cid);
+        case LargeFileMode.encrypted:
+          await ref.read(messagingServiceProvider).downloadContent(_peer, cid);
+        case LargeFileMode.open:
+          await _downloadUnencrypted(m, cid, warn: false); // settings = consent
+      }
     } else {
       await ref.read(messagingServiceProvider).downloadContent(_peer, cid);
     }
@@ -303,26 +313,32 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
-  /// Download a large offer UNENCRYPTED, streamed straight to a plaintext file —
-  /// gated behind a clear warning. Desktop: the user picks the path. Mobile: the
-  /// app documents dir (the save plugin can't stream to a chosen location there).
-  Future<void> _downloadUnencrypted(Message m, String cid) async {
+  /// Download a large offer UNENCRYPTED, streamed straight to a plaintext file.
+  /// [warn] shows the one-off confirmation (the ASK path); it is skipped when the
+  /// identity's setting already chose "always unencrypted" (that is the consent).
+  /// Desktop: the user picks the path. Mobile: the app documents dir (the save
+  /// plugin can't stream to a chosen location there).
+  Future<void> _downloadUnencrypted(Message m, String cid,
+      {bool warn = true}) async {
     final l = AppL10n.of(context);
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (d) => AlertDialog(
-        content: Text(l.fileSavePlainWarn),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.of(d).pop(false),
-              child: Text(l.actionCancel)),
-          FilledButton(
-              onPressed: () => Navigator.of(d).pop(true),
-              child: Text(l.fileSavePlainConfirm)),
-        ],
-      ),
-    );
-    if (ok != true) return;
+    if (warn) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (d) => AlertDialog(
+          content: Text(l.fileSavePlainWarn),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.of(d).pop(false),
+                child: Text(l.actionCancel)),
+            FilledButton(
+                onPressed: () => Navigator.of(d).pop(true),
+                child: Text(l.fileSavePlainConfirm)),
+          ],
+        ),
+      );
+      if (ok != true) return;
+      if (!mounted) return;
+    }
     final name = m.fileName ?? 'file';
     String? dest;
     if (!Platform.isAndroid && !Platform.isIOS) {
