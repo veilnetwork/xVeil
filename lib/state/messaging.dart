@@ -2455,12 +2455,25 @@ class MessagingService {
         contentManifestEnvelope(jsonEncode(served.manifest.toJson())).encode()));
   }
 
+  /// Content ids with a [_serveChunks] loop currently running — only ONE serve
+  /// per content at a time. A serve-from-source [RandomAccessFile] is a single
+  /// cursor, so two concurrent serves thrash it ("An async operation is currently
+  /// pending", and almost every read fails → the transfer crawls). A request that
+  /// lands mid-serve is skipped; the receiver's re-request loop re-asks for
+  /// whatever is still missing once the current serve finishes.
+  final Set<String> _servingNow = {};
+
   void _onPieceRequest(NodeId peer, PieceRequestFrame req) {
     final served = _serving[req.contentId];
     if (served == null) {
       devLog(() => 'xVeil[content]: pieceRequest for UNSERVED '
           '${req.contentId.substring(0, 12)} <- ${peer.short} (ignored)');
       return; // not serving this content
+    }
+    if (_servingNow.contains(req.contentId)) {
+      devLog(() => 'xVeil[content]: pieceRequest ${req.contentId.substring(0, 12)} '
+          '— a serve is already in flight, skipping <- ${peer.short}');
+      return; // one serve loop per content (single-cursor source)
     }
     // Keep an actively-requested transfer fresh so it isn't evicted mid-flight
     // (this is what keeps a serve-from-source handle open through a long send).
@@ -2490,7 +2503,9 @@ class MessagingService {
           '(${indices.length}/${m.pieceCount} whole pieces) <- ${peer.short} '
           '-> serving');
     }
-    unawaited(_serveChunks(peer, m, served.source, gaps));
+    _servingNow.add(req.contentId);
+    unawaited(_serveChunks(peer, m, served.source, gaps)
+        .whenComplete(() => _servingNow.remove(req.contentId)));
   }
 
   /// Drop served manifests idle past [_servingTtl], then — if still over
