@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:veil_flutter/veil_flutter.dart';
 
 import '../../core/ids.dart';
+import '../../core/log.dart';
 import '../../state/mailbox_orchestrator.dart';
 import '../../state/mailbox_service.dart';
 import 'relay_key_cache.dart';
@@ -167,8 +168,15 @@ class VeilFlutterTransport implements VeilTransport, StreamTransport {
         dstEndpointId: veilChatEndpointId,
       );
       return _VeilReliableStream(s);
-    } catch (_) {
-      return null; // no circuit / peer unreachable → caller falls back
+    } catch (e) {
+      // veil's stream rides the DIRECT wire AppOpen/AppData session machinery
+      // (no anonymous/onion routing — StreamOpenPayload has no anon flag), so a
+      // NAT'd, onion-only peer with no direct session can't be reached and this
+      // throws ("stream open failed: …" / REMOTE_NOT_IMPLEMENTED). Surface the
+      // reason (debug-only) so the datagram fallback isn't silent, then fall back.
+      devLog(() => 'xVeil[stream]: openStream(${dst.short}) failed → datagram '
+          'fallback: $e');
+      return null;
     }
   }
 
