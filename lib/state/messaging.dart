@@ -144,7 +144,11 @@ enum ContentDownloadResult {
   /// The fetch began (or the bytes were already held).
   started,
 
-  /// No live offer for this contentId — the sender must re-advertise.
+  /// No live manifest handle — we asked the sender to re-advertise; the download
+  /// continues automatically if the sender is still serving, else nothing comes.
+  requestedReoffer,
+
+  /// No live offer AND no peer to ask — the sender must re-send.
   noOffer,
 }
 
@@ -902,6 +906,12 @@ class MessagingService {
         // register a transfer, request the pieces we lack.
         if (existing?.status != ContactStatus.accepted) return;
         await _onContentManifest(m.src, env.body);
+        return;
+      case WireKind.contentReoffer:
+        // A peer lost the manifest handle (restart) but still holds the offer —
+        // re-advertise if we are still serving the content.
+        if (existing?.status != ContactStatus.accepted) return;
+        _onContentReoffer(m.src, env.body);
         return;
       case WireKind.pieceRequest:
         // A peer asks for pieces of content we serve — send the requested
@@ -2288,6 +2298,18 @@ class MessagingService {
     }
     _offered[m.contentId] = (manifest: m, peer: peer);
 
+    // A user download was PARKED waiting for this manifest (re-advertise after a
+    // restart) → start it now with its destination (sink for unencrypted-to-file,
+    // null for the encrypted tier), regardless of the auto-download policy.
+    if (_pendingDownload.containsKey(m.contentId)) {
+      final sink = _pendingDownload.remove(m.contentId);
+      _pendingTimers.remove(m.contentId)?.cancel();
+      devLog(() => 'xVeil[content]: re-advertised manifest arrived for '
+          '${m.contentId.substring(0, 12)} — resuming the parked download');
+      await _beginFetch(peer, m, sink: sink);
+      return;
+    }
+
     if (_filePolicy.allowsAuto(m.size, m.name)) {
       devLog(() => 'xVeil[content]: ${m.contentId.substring(0, 12)} '
           '(${m.size}B "${m.name}") <- ${peer.short} — auto-downloading (<= cap)');
@@ -2331,9 +2353,12 @@ class MessagingService {
 
   /// The user opted to download an OFFERED file into local STORAGE (the encrypted
   /// on-disk tier for a large file, or the hidden volume for a small one). No-op
-  /// if we already hold the blob; if the offer handle is gone (evicted / app
-  /// restart) the sender must re-advertise. The download choice itself is the
-  /// §16.5 consent — a large file lands as an encrypted on-disk blob.
+  /// if we already hold the blob. If the in-memory manifest handle is gone (app
+  /// restart — the offer MESSAGE synced via the event log but the one-shot
+  /// manifest did not), ask the sender (over [peer]) to re-advertise; the
+  /// download then continues automatically when the manifest arrives. The
+  /// download choice itself is the §16.5 consent — a large file lands as an
+  /// encrypted on-disk blob.
   Future<ContentDownloadResult> downloadContent(
       NodeId peer, String contentId) async {
     if (await _storage.hasFile(contentId)) {
@@ -2342,9 +2367,7 @@ class MessagingService {
     }
     final offered = _offered[contentId];
     if (offered == null) {
-      devLog(() => 'xVeil[content]: download — no live offer for '
-          '${contentId.substring(0, 12)} (sender must re-advertise)');
-      return ContentDownloadResult.noOffer;
+      return _requestReoffer(peer, contentId, null);
     }
     devLog(() => 'xVeil[content]: user download ${contentId.substring(0, 12)}');
     await _beginFetch(offered.peer, offered.manifest);
@@ -2355,29 +2378,75 @@ class MessagingService {
   /// plaintext file they picked. [write]/[close] is the file sink (created in the
   /// UI); each verified piece is written at its byte offset, nothing is kept in
   /// the app. On completion the file is closed and a [contentReceived] event
-  /// fires carrying [savedPath]. [close] is called if there is no live offer.
+  /// fires carrying [savedPath]. If the manifest handle is gone, the sender is
+  /// asked to re-advertise (the sink is held until it arrives or times out).
   Future<ContentDownloadResult> downloadContentToFile(
       NodeId peer, String contentId, String savedPath,
       {required Future<void> Function(int offset, Uint8List bytes) write,
       required Future<void> Function() close}) async {
+    final sink = (write: write, close: close);
+    _fetchSavePath[contentId] = savedPath;
     final offered = _offered[contentId];
     if (offered == null) {
-      await close();
-      devLog(() => 'xVeil[content]: download-to-file — no live offer for '
-          '${contentId.substring(0, 12)}');
-      return ContentDownloadResult.noOffer;
+      return _requestReoffer(peer, contentId, sink);
     }
     devLog(() => 'xVeil[content]: user download-to-file (unencrypted) '
         '${contentId.substring(0, 12)} -> $savedPath');
-    await _beginFetch(offered.peer, offered.manifest,
-        sink: (write: write, close: close));
-    _fetchSavePath[contentId] = savedPath;
+    await _beginFetch(offered.peer, offered.manifest, sink: sink);
     return ContentDownloadResult.started;
   }
 
   /// Destination paths for in-flight unencrypted-to-file downloads (so the
   /// completion event can report where the plaintext file landed).
   final Map<String, String> _fetchSavePath = {};
+
+  /// Downloads waiting for a re-advertised manifest (contentId → its sink, null
+  /// for an encrypted/in-volume download). [_onContentManifest] consumes these.
+  final Map<String, _FetchSink?> _pendingDownload = {};
+  final Map<String, Timer> _pendingTimers = {};
+  static const _reofferTimeout = Duration(seconds: 20);
+
+  /// Ask [peer] to re-advertise [contentId] (we have the offer but not the live
+  /// manifest) and park the download until the manifest arrives. A timeout frees
+  /// a parked file sink (so a RandomAccessFile handle isn't leaked if the sender
+  /// can no longer serve — then the user must re-send).
+  ContentDownloadResult _requestReoffer(
+      NodeId peer, String contentId, _FetchSink? sink) {
+    devLog(() => 'xVeil[content]: no live manifest for '
+        '${contentId.substring(0, 12)} — requesting re-advertise <- ${peer.short}');
+    _pendingDownload[contentId] = sink;
+    _pendingTimers[contentId]?.cancel();
+    _pendingTimers[contentId] = Timer(_reofferTimeout, () {
+      _pendingTimers.remove(contentId);
+      final parked = _pendingDownload.remove(contentId);
+      if (parked != null) unawaited(parked.close()); // release the file handle
+      _fetchSavePath.remove(contentId);
+      devLog(() => 'xVeil[content]: re-advertise TIMED OUT for '
+          '${contentId.substring(0, 12)} — sender not serving; re-send needed');
+    });
+    unawaited(_send(peer, contentReofferEnvelope(contentId).encode()));
+    return ContentDownloadResult.requestedReoffer;
+  }
+
+  /// A peer asked us to re-advertise [contentId] (their manifest handle is gone).
+  /// Re-send the manifest iff we are still serving it (refreshing its TTL).
+  void _onContentReoffer(NodeId peer, String contentId) {
+    final served = _serving[contentId];
+    if (served == null) {
+      devLog(() => 'xVeil[content]: reoffer for UNSERVED '
+          '${contentId.substring(0, 12)} <- ${peer.short} (can\'t — re-send)');
+      return;
+    }
+    _serving[contentId] = (
+      manifest: served.manifest,
+      source: served.source,
+      servedAt: _now()
+    );
+    devLog(() => 'xVeil[content]: re-advertising ${contentId.substring(0, 12)} '
+        '-> ${peer.short} (reoffer)');
+    unawaited(_send(peer,
+        contentManifestEnvelope(jsonEncode(served.manifest.toJson())).encode()));
+  }
 
   void _onPieceRequest(NodeId peer, PieceRequestFrame req) {
     final served = _serving[req.contentId];
@@ -2682,6 +2751,15 @@ class MessagingService {
       if (v.source != null) unawaited(v.source!.close());
     }
     _serving.clear();
+    // Cancel reoffer timers + close any parked download sinks.
+    for (final t in _pendingTimers.values) {
+      t.cancel();
+    }
+    _pendingTimers.clear();
+    for (final s in _pendingDownload.values) {
+      if (s != null) unawaited(s.close());
+    }
+    _pendingDownload.clear();
     await _changes.close();
     await _incoming.close();
     await _contentReceived.close();

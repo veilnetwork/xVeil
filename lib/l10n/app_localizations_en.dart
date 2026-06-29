@@ -548,6 +548,9 @@ class AppL10nEn extends AppL10n {
   String get fileDownloading => 'Downloading';
 
   @override
+  String get fileRequestingResend => 'Requesting the file from the sender…';
+
+  @override
   String get addIdentityTitle => 'Add identity';
 
   @override
