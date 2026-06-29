@@ -49,3 +49,15 @@ Uint8List deriveAppId(NodeId nodeId, String namespace, String name) {
 /// for [VeilTransport.send].
 Uint8List chatAppIdFor(NodeId peer) =>
     deriveAppId(peer, veilChatNamespace, veilChatName);
+
+/// The dedicated endpoint anonymous reliable streams (bulk transfer) ride —
+/// distinct from chat so its cells never reach the chat recv path. MUST match
+/// veilclient-ffi `anon_stream::{STREAM_NAMESPACE, STREAM_NAME,
+/// STREAM_ENDPOINT_ID}`.
+const veilStreamName = 'onion-stream';
+const veilStreamEndpointId = 12;
+
+/// The app_id a peer exposes on its onion-stream endpoint — the routing target
+/// for an anonymous reliable stream to that peer.
+Uint8List streamAppIdFor(NodeId peer) =>
+    deriveAppId(peer, veilChatNamespace, veilStreamName);
