@@ -508,18 +508,27 @@ class AppL10nRu extends AppL10n {
   String get fileTypeHint => 'Расширение, напр. apk';
 
   @override
-  String get fileOnDiskTier => 'Хранить большие файлы на диске';
+  String get fileDownloadTitle => 'Загрузить файл';
 
   @override
-  String get fileOnDiskTierHint =>
-      'Файлы, не помещающиеся в скрытый том, хранятся зашифрованными на диске. Их существование (не содержимое) может быть раскрыто. По умолчанию выключено.';
+  String get fileSaveEncrypted => 'Зашифрованное хранилище';
 
   @override
-  String get fileLargeNeedsOptIn =>
-      'Большие файлы хранятся зашифрованными на диске — включите в Настройках.';
+  String get fileSaveEncryptedHint =>
+      'Хранится в приложении, зашифрован на диске';
 
   @override
-  String get fileOpenSettings => 'Настройки';
+  String get fileSavePlain => 'Сохранить на диск (без шифрования)';
+
+  @override
+  String get fileSavePlainHint => 'Обычный файл по вашему выбору — без защиты';
+
+  @override
+  String get fileSavePlainWarn =>
+      'Файл будет сохранён НЕЗАШИФРОВАННЫМ на диске. Его сможет прочитать любой, у кого есть доступ к устройству. Продолжить?';
+
+  @override
+  String get fileSavePlainConfirm => 'Сохранить без шифрования';
 
   @override
   String get addIdentityTitle => 'Добавить личность';

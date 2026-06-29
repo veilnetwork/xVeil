@@ -138,14 +138,11 @@ class IncomingNotice {
   final bool isFile;
 }
 
-/// Outcome of a user-initiated [MessagingService.downloadContent].
+/// Outcome of a user-initiated download ([MessagingService.downloadContent] /
+/// [MessagingService.downloadContentToFile]).
 enum ContentDownloadResult {
   /// The fetch began (or the bytes were already held).
   started,
-
-  /// The file is large and the on-disk tier is OFF for this identity (§16.5):
-  /// the UI should offer to enable large-file storage in settings.
-  needsLargeFileOptIn,
 
   /// No live offer for this contentId — the sender must re-advertise.
   noOffer,
@@ -159,6 +156,17 @@ enum ContentDownloadResult {
 /// implementation lives in the UI layer so this stays transport-/io-free.
 typedef _ServeSource = ({
   Future<Uint8List> Function(int offset, int length) read,
+  Future<void> Function() close,
+});
+
+/// Where a RECEIVE writes each verified piece when the user chose to download a
+/// large file UNENCRYPTED, straight to a plaintext file they picked — instead of
+/// the encrypted on-disk tier. [write] places [bytes] at byte [offset];
+/// [close] finalises the file. The dart:io sink lives in the UI layer so the
+/// messaging service stays io-free. Null fetch sink ⇒ store via the Storage port
+/// (encrypted tier / in-volume) as usual.
+typedef _FetchSink = ({
+  Future<void> Function(int offset, Uint8List bytes) write,
   Future<void> Function() close,
 });
 
@@ -1956,14 +1964,18 @@ class MessagingService {
   /// anyway so a long-lived node doesn't accumulate them without limit.
   static const _servingMaxEntries = 256;
 
-  /// Content we are FETCHING: the verified manifest + the reassembler + the peer.
+  /// Content we are FETCHING: the verified manifest + the reassembler + the peer,
+  /// plus an optional [_FetchSink] when the user chose to download UNENCRYPTED to
+  /// a plaintext file (null ⇒ store via the Storage port — encrypted tier or
+  /// in-volume).
   final Map<
       String,
       ({
         ContentManifest manifest,
         ContentTransfer xfer,
         NodeId peer,
-        String name
+        String name,
+        _FetchSink? sink,
       })> _fetching = {};
 
   /// Last-progress wall-clock per fetched contentId, so a transfer ABANDONED
@@ -2021,10 +2033,13 @@ class MessagingService {
   /// Fires when a content transfer COMPLETES (all pieces streamed to disk). No
   /// bytes — the blob is on disk under contentId; read it via loadFile /
   /// readFileRange rather than holding the whole file in RAM.
-  final _contentReceived =
-      StreamController<({String contentId, String name})>.broadcast();
-  Stream<({String contentId, String name})> get contentReceived =>
-      _contentReceived.stream;
+  /// [savedToPath] is set only for an unencrypted download-to-file completion —
+  /// the plaintext file's path (so the UI can say where it landed); null for a
+  /// normal store (encrypted tier / in-volume).
+  final _contentReceived = StreamController<
+      ({String contentId, String name, String? savedToPath})>.broadcast();
+  Stream<({String contentId, String name, String? savedToPath})>
+      get contentReceived => _contentReceived.stream;
 
   Timer? _contentTimer;
   /// Re-request cadence for still-missing pieces (injectable for tests).
@@ -2256,7 +2271,7 @@ class MessagingService {
     if (_fetching.containsKey(m.contentId)) {
       final cur = _fetching[m.contentId]!;
       _fetching[m.contentId] =
-          (manifest: m, xfer: cur.xfer, peer: peer, name: m.name);
+          (manifest: m, xfer: cur.xfer, peer: peer, name: m.name, sink: cur.sink);
       return;
     }
     // Retain the manifest so the user (or auto-download) can fetch on demand.
@@ -2276,9 +2291,15 @@ class MessagingService {
   }
 
   /// Register a fetch for [m] + request all its pieces. Evicts any abandoned
-  /// reassembler first (RAM bound). Shared by auto-download and [downloadContent].
-  Future<void> _beginFetch(NodeId peer, ContentManifest m) async {
-    if (_fetching.containsKey(m.contentId)) return;
+  /// reassembler first (RAM bound). [sink] (non-null) diverts each verified piece
+  /// to a plaintext file the user picked, instead of the Storage port. Shared by
+  /// auto-download and [downloadContent]/[downloadContentToFile].
+  Future<void> _beginFetch(NodeId peer, ContentManifest m,
+      {_FetchSink? sink}) async {
+    if (_fetching.containsKey(m.contentId)) {
+      if (sink != null) await sink.close(); // already fetching → drop the dupe sink
+      return;
+    }
     final cutoff = _now();
     _fetching.removeWhere((cid, _) {
       final last = _fetchActivity[cid];
@@ -2287,17 +2308,24 @@ class MessagingService {
       if (stale) _fetchActivity.remove(cid);
       return stale;
     });
-    _fetching[m.contentId] =
-        (manifest: m, xfer: ContentTransfer(m), peer: peer, name: m.name);
+    _fetching[m.contentId] = (
+      manifest: m,
+      xfer: ContentTransfer(m),
+      peer: peer,
+      name: m.name,
+      sink: sink,
+    );
     _fetchActivity[m.contentId] = _now();
     _ensureContentTimer();
     await _send(peer,
         pieceRequestEnvelope(contentId: m.contentId, indices: null).encode());
   }
 
-  /// The user opted to download an OFFERED file. Fetches from the retained
-  /// manifest. No-op if we already hold the blob; if the offer handle is gone
-  /// (evicted / app restart) the sender must re-advertise to re-offer it.
+  /// The user opted to download an OFFERED file into local STORAGE (the encrypted
+  /// on-disk tier for a large file, or the hidden volume for a small one). No-op
+  /// if we already hold the blob; if the offer handle is gone (evicted / app
+  /// restart) the sender must re-advertise. The download choice itself is the
+  /// §16.5 consent — a large file lands as an encrypted on-disk blob.
   Future<ContentDownloadResult> downloadContent(
       NodeId peer, String contentId) async {
     if (await _storage.hasFile(contentId)) {
@@ -2310,19 +2338,38 @@ class MessagingService {
           '${contentId.substring(0, 12)} (sender must re-advertise)');
       return ContentDownloadResult.noOffer;
     }
-    // §16.5 gate: a file too big for the hidden-volume index can only be
-    // RECEIVED by storing it ENCRYPTED on disk (its existence becomes
-    // revealable) — refuse until the user opts into the on-disk tier.
-    final size = offered.manifest.size;
-    if (size > kMaxIncomingFileBytes && !_filePolicy.largeFilesOnDisk) {
-      devLog(() => 'xVeil[content]: download BLOCKED ${contentId.substring(0, 12)} '
-          '($size B) — large-file on-disk tier is off for this identity');
-      return ContentDownloadResult.needsLargeFileOptIn;
-    }
     devLog(() => 'xVeil[content]: user download ${contentId.substring(0, 12)}');
     await _beginFetch(offered.peer, offered.manifest);
     return ContentDownloadResult.started;
   }
+
+  /// The user opted to download an OFFERED file UNENCRYPTED, straight to a
+  /// plaintext file they picked. [write]/[close] is the file sink (created in the
+  /// UI); each verified piece is written at its byte offset, nothing is kept in
+  /// the app. On completion the file is closed and a [contentReceived] event
+  /// fires carrying [savedPath]. [close] is called if there is no live offer.
+  Future<ContentDownloadResult> downloadContentToFile(
+      NodeId peer, String contentId, String savedPath,
+      {required Future<void> Function(int offset, Uint8List bytes) write,
+      required Future<void> Function() close}) async {
+    final offered = _offered[contentId];
+    if (offered == null) {
+      await close();
+      devLog(() => 'xVeil[content]: download-to-file — no live offer for '
+          '${contentId.substring(0, 12)}');
+      return ContentDownloadResult.noOffer;
+    }
+    devLog(() => 'xVeil[content]: user download-to-file (unencrypted) '
+        '${contentId.substring(0, 12)} -> $savedPath');
+    await _beginFetch(offered.peer, offered.manifest,
+        sink: (write: write, close: close));
+    _fetchSavePath[contentId] = savedPath;
+    return ContentDownloadResult.started;
+  }
+
+  /// Destination paths for in-flight unencrypted-to-file downloads (so the
+  /// completion event can report where the plaintext file landed).
+  final Map<String, String> _fetchSavePath = {};
 
   void _onPieceRequest(NodeId peer, PieceRequestFrame req) {
     final served = _serving[req.contentId];
@@ -2470,27 +2517,58 @@ class MessagingService {
     final piece =
         fetch.xfer.addChunk(f.pieceIndex, f.chunkIndex, f.chunkCount, f.data);
     if (piece != null) {
-      // Stream the verified piece STRAIGHT to disk; the reassembler keeps no
-      // piece bytes, so the whole file never sits in RAM (any size).
+      // Stream the verified piece STRAIGHT to its destination; the reassembler
+      // keeps no piece bytes, so the whole file never sits in RAM (any size).
       final m = fetch.manifest;
       try {
-        await _storage.storeFilePiece(
-            m.contentId, f.pieceIndex, m.pieceCount, m.pieceSize, m.size, piece,
-            name: m.name);
+        if (fetch.sink != null) {
+          // UNENCRYPTED download → write the piece to the user's plaintext file
+          // at its byte offset; nothing is kept in the app.
+          await fetch.sink!.write(f.pieceIndex * m.pieceSize, piece);
+        } else {
+          // Store via the Storage port (encrypted on-disk tier / in-volume).
+          await _storage.storeFilePiece(m.contentId, f.pieceIndex, m.pieceCount,
+              m.pieceSize, m.size, piece,
+              name: m.name);
+        }
       } catch (e) {
-        fetch.xfer.unverify(f.pieceIndex); // disk write failed → re-request it
-        devLog(() => 'xVeil[content]: storeFilePiece p${f.pieceIndex} '
-            'failed for ${m.contentId.substring(0, 12)}: $e');
+        fetch.xfer.unverify(f.pieceIndex); // write failed → re-request it
+        devLog(() => 'xVeil[content]: piece ${f.pieceIndex} store/write failed '
+            'for ${m.contentId.substring(0, 12)}: $e');
         return;
       }
-      devLog(() => 'xVeil[content]: piece ${f.pieceIndex} VERIFIED+STORED for '
+      devLog(() => 'xVeil[content]: piece ${f.pieceIndex} VERIFIED+'
+          '${fetch.sink != null ? 'WRITTEN' : 'STORED'} for '
           '${m.contentId.substring(0, 12)} '
           '(${fetch.xfer.verifiedCount}/${fetch.xfer.pieceCount})');
     }
     if (!fetch.xfer.isComplete) return;
-    // Every piece verified AND durably stored → the blob is fully on disk.
+    // Every piece verified AND written → done.
     _fetching.remove(f.contentId);
     _fetchActivity.remove(f.contentId);
+    final ackId = fetch.manifest.msgId ?? f.contentId;
+    final sink = fetch.sink;
+    if (sink != null) {
+      // UNENCRYPTED-to-file: the bytes are on the user's disk, NOT in the app —
+      // so no offer→downloaded flip; just finalise the file, ack (we received
+      // it), and tell the UI where it landed.
+      final savedPath = _fetchSavePath.remove(f.contentId);
+      try {
+        await sink.close();
+      } catch (_) {/* best-effort finalise */}
+      devLog(() => 'xVeil[content]: COMPLETE ${f.contentId.substring(0, 12)} '
+          '(${fetch.manifest.size}B) saved UNENCRYPTED to $savedPath');
+      await _send(fetch.peer, WireEnvelope.ack(ackId).encode());
+      if (!_contentReceived.isClosed) {
+        _contentReceived.add((
+          contentId: f.contentId,
+          name: fetch.name,
+          savedToPath: savedPath,
+        ));
+      }
+      return;
+    }
+    // Stored in the app (encrypted tier / in-volume) → surface offer→downloaded.
     devLog(() => 'xVeil[content]: COMPLETE ${f.contentId.substring(0, 12)} '
         '(${fetch.manifest.size}B) streamed to disk');
     final persisted = await _persistReceivedContent(fetch.peer, fetch.manifest);
@@ -2498,13 +2576,13 @@ class MessagingService {
     // file message flips sent->delivered = actually received (a legacy sender
     // without msgId falls back to the contentId — old behaviour).
     if (persisted) {
-      final ackId = fetch.manifest.msgId ?? f.contentId;
       devLog(() => 'xVeil[timeline]: content-ack id=$ackId '
           'via=direct t=${DateTime.now().millisecondsSinceEpoch}');
       await _send(fetch.peer, WireEnvelope.ack(ackId).encode());
     }
     if (!_contentReceived.isClosed) {
-      _contentReceived.add((contentId: f.contentId, name: fetch.name));
+      _contentReceived
+          .add((contentId: f.contentId, name: fetch.name, savedToPath: null));
     }
   }
 
