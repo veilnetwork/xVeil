@@ -271,12 +271,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         case LargeFileMode.ask:
           await _showDownloadMenu(m, cid);
         case LargeFileMode.encrypted:
-          await ref.read(messagingServiceProvider).downloadContent(_peer, cid);
+          await _downloadEncrypted(cid);
         case LargeFileMode.open:
           await _downloadUnencrypted(m, cid, warn: false); // settings = consent
       }
     } else {
-      await ref.read(messagingServiceProvider).downloadContent(_peer, cid);
+      await _downloadEncrypted(cid);
+    }
+  }
+
+  /// Start an in-app download (encrypted tier / in-volume) + surface a hint if we
+  /// had to ask the sender to re-advertise (stale offer after a restart).
+  Future<void> _downloadEncrypted(String cid) async {
+    final r =
+        await ref.read(messagingServiceProvider).downloadContent(_peer, cid);
+    if (mounted && r == ContentDownloadResult.requestedReoffer) {
+      _snack(AppL10n.of(context).fileRequestingResend);
     }
   }
 
@@ -307,7 +317,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ),
     );
     if (choice == 'enc') {
-      await ref.read(messagingServiceProvider).downloadContent(_peer, cid);
+      await _downloadEncrypted(cid);
     } else if (choice == 'plain') {
       await _downloadUnencrypted(m, cid);
     }
@@ -359,7 +369,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         .then((e) {
       if (mounted) _snack('${l.chatFileSaved}: ${e.savedToPath}');
     }).catchError((_) {/* stream closed before completion */});
-    await svc.downloadContentToFile(
+    final r = await svc.downloadContentToFile(
       _peer,
       cid,
       dest,
@@ -371,6 +381,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         await raf.close();
       },
     );
+    if (mounted && r == ContentDownloadResult.requestedReoffer) {
+      _snack(l.fileRequestingResend);
+    }
   }
 
   /// Save a received (or sent) file out of the deniable container to a location

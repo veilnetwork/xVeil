@@ -53,6 +53,7 @@ enum WireKind {
   pieceRequest,
   pieceChunk,
   clear,
+  contentReoffer,
   unknown,
 }
 
@@ -259,6 +260,13 @@ FileMetaFrame parseFileMeta(String body) {
 /// one datagram (adaptive piece size keeps the manifest small).
 WireEnvelope contentManifestEnvelope(String manifestJson) =>
     WireEnvelope(WireKind.contentManifest, manifestJson);
+
+/// Ask the sender to RE-ADVERTISE [contentId]'s manifest — the receiver has the
+/// OFFER (synced via the event log) but lost the in-memory manifest handle (app
+/// restart / the one-shot manifest was never re-sent). The sender re-sends its
+/// manifest iff it is still serving that content.
+WireEnvelope contentReofferEnvelope(String contentId) =>
+    WireEnvelope(WireKind.contentReoffer, contentId);
 
 /// Request content the receiver lacks. Two granularities, both optional:
 ///   `idx:[pieces]`  — whole pieces (absent ⇒ "all pieces"); used for the FIRST
