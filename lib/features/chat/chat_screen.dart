@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../core/format.dart';
 import '../../core/ids.dart';
+import '../../data/serve_source.dart';
 import '../../core/log.dart';
 import 'chat_actions.dart';
 import '../../domain/chat.dart';
@@ -182,20 +183,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       } catch (_) {/* unreadable length → keep the picker's size */}
       if (size > kMaxIncomingFileBytes) {
         devLog(() => 'xVeil[attach]: ${file.name} size=$size -> stream');
-        final raf = await File(path).open();
+        // Serve-from-source: the sender already HAS this file, so we don't copy
+        // or encrypt it — MessagingService reads chunks straight from disk on
+        // request via this serialized source (a single-cursor RandomAccessFile,
+        // so reads MUST be serialized) and OWNS it (closes it when serving ends).
+        final src = await veilSourceOpener(path);
+        if (src == null) {
+          if (mounted) _snack(l.chatFileUnreadable);
+          return;
+        }
         try {
-          // Serve-from-source: the sender already HAS this file, so we don't
-          // copy or encrypt it — MessagingService reads chunks straight from
-          // `raf` on request and OWNS the handle (closes it when serving ends).
-          // Do NOT close `raf` here.
           await ref.read(messagingServiceProvider).sendFileStreaming(
             _peer,
             file.name,
             size,
-            (offset, length) => _readFully(raf, offset, length),
-            close: () async {
-              await raf.close();
-            },
+            src.read,
+            close: src.close,
             // Persist this path so a reoffer after a restart can re-open + re-serve
             // (durable offers). Best-effort — works while the file stays here.
             sourcePath: path,
@@ -234,25 +237,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _scrollToBottom(force: true);
   }
 
-  /// Read EXACTLY [length] bytes at [offset], looping until satisfied or EOF.
-  /// [RandomAccessFile.read] is documented to return *up to* count bytes and on
-  /// Android can hand back a short read for a large request — which the streaming
-  /// manifest's short-read guard would (correctly) reject, failing the whole send
-  /// for an otherwise-fine file. Looping here makes a full piece read reliable.
-  static Future<Uint8List> _readFully(
-      RandomAccessFile raf, int offset, int length) async {
-    await raf.setPosition(offset);
-    final out = BytesBuilder(copy: false);
-    var remaining = length;
-    while (remaining > 0) {
-      final chunk = await raf.read(remaining);
-      if (chunk.isEmpty) break; // EOF (the source is shorter than declared)
-      out.add(chunk);
-      remaining -= chunk.length;
-    }
-    return out.toBytes();
-  }
-
   /// Tap on a file bubble: if we already hold the blob, save it out. For an OFFER
   /// we have not downloaded: a small file downloads into the deniable volume
   /// directly; a LARGE file asks WHERE — the encrypted in-app tier, or a plain
@@ -267,6 +251,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
     final cid = m.fileContentId;
     if (cid == null) return;
+    // Already downloaded UNENCRYPTED to a plain file → OPEN it (it isn't in the
+    // app store, so hasFile is false — don't re-offer).
+    final saved = await ref.read(messagingServiceProvider).contentSavedPath(cid);
+    if (saved != null && await File(saved).exists()) {
+      await _openSavedFile(saved);
+      return;
+    }
     if ((m.fileSize ?? 0) > kMaxIncomingFileBytes) {
       // A LARGE file: honour this identity's preference — ask, always encrypted,
       // or always unencrypted-to-disk (set in Settings → Files).
@@ -281,6 +272,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     } else {
       await _downloadEncrypted(cid);
     }
+  }
+
+  /// Open a previously-saved (unencrypted) file with the OS handler. Desktop uses
+  /// the platform opener; on mobile (no generic opener wired) we surface the path.
+  Future<void> _openSavedFile(String path) async {
+    final l = AppL10n.of(context);
+    try {
+      if (Platform.isMacOS) {
+        await Process.run('open', [path]);
+        return;
+      } else if (Platform.isLinux) {
+        await Process.run('xdg-open', [path]);
+        return;
+      } else if (Platform.isWindows) {
+        await Process.run('explorer', [path]);
+        return;
+      }
+    } catch (_) {/* fall through to showing the path */}
+    if (mounted) _snack('${l.chatFileSaved}: $path');
   }
 
   /// Start an in-app download (encrypted tier / in-volume) + surface a hint if we
@@ -1258,6 +1268,10 @@ String _formatBytes(int b) {
   return '${(b / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
 }
 
+/// What a file bubble's trailing icon + tap do: download an offer, save a held
+/// blob out, or open a file already saved unencrypted to disk.
+enum _FileAffordance { download, save, open }
+
 class _Bubble extends ConsumerWidget {
   const _Bubble({required this.message, this.onTapFile, this.onLongPress});
   final Message message;
@@ -1267,14 +1281,28 @@ class _Bubble extends ConsumerWidget {
   /// Whether the file blob is locally available (bubble shows "save" vs
   /// "download"). Resilient: a not-yet-open / erroring store falls back to the
   /// fileId presence instead of throwing out of build.
-  Future<bool> _held(WidgetRef ref) async {
+  /// What tapping the file does right now: download an OFFER, SAVE a blob we hold
+  /// in the app, or OPEN a file already downloaded unencrypted to disk.
+  Future<_FileAffordance> _affordance(WidgetRef ref) async {
     final key = message.fileId ?? message.fileContentId;
-    if (key == null) return message.fileId != null;
-    try {
-      return await ref.read(storageProvider).hasFile(key);
-    } catch (_) {
-      return message.fileId != null;
+    if (key == null) {
+      return message.fileId != null
+          ? _FileAffordance.save
+          : _FileAffordance.download;
     }
+    try {
+      if (await ref.read(storageProvider).hasFile(key)) {
+        return _FileAffordance.save;
+      }
+    } catch (_) {
+      if (message.fileId != null) return _FileAffordance.save;
+    }
+    final cid = message.fileContentId;
+    if (cid != null &&
+        await ref.read(messagingServiceProvider).contentSavedPath(cid) != null) {
+      return _FileAffordance.open;
+    }
+    return _FileAffordance.download;
   }
 
   @override
@@ -1375,14 +1403,20 @@ class _Bubble extends ConsumerWidget {
                           ),
                         )
                       else
-                        FutureBuilder<bool>(
-                          future: _held(ref),
+                        FutureBuilder<_FileAffordance>(
+                          future: _affordance(ref),
                           builder: (_, snap) {
-                            final held = snap.data ?? (message.fileId != null);
+                            final a = snap.data ??
+                                (message.fileId != null
+                                    ? _FileAffordance.save
+                                    : _FileAffordance.download);
                             return Icon(
-                              held
-                                  ? Icons.save_alt_outlined
-                                  : Icons.download_outlined,
+                              switch (a) {
+                                _FileAffordance.save => Icons.save_alt_outlined,
+                                _FileAffordance.open => Icons.open_in_new,
+                                _FileAffordance.download =>
+                                  Icons.download_outlined,
+                              },
                               size: 16,
                               color: scheme.onSurfaceVariant,
                             );
