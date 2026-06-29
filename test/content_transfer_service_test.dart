@@ -179,6 +179,24 @@ void main() {
     expect(closed, isTrue, reason: 'dispose closes the serve-from-source handle');
   });
 
+  test('download emits monotonic progress, ending at done == total', () async {
+    final data = _rnd(300000, 31); // multi-piece, auto-downloads (< 2 MB cap)
+    final events = <({String contentId, int done, int total})>[];
+    final sub = mB.contentProgress.listen(events.add);
+    addTearDown(sub.cancel);
+    final got = mB.contentReceived.first;
+    await mA.sendContent(b, data, 'p.bin');
+    await got.timeout(const Duration(seconds: 10));
+
+    expect(events, isNotEmpty, reason: 'progress is emitted per piece');
+    expect(events.last.total, greaterThan(1), reason: 'multi-piece file');
+    expect(events.last.done, events.last.total, reason: 'ends complete');
+    for (var i = 1; i < events.length; i++) {
+      expect(events[i].done, greaterThanOrEqualTo(events[i - 1].done),
+          reason: 'progress never goes backwards');
+    }
+  });
+
   test('UNENCRYPTED download: pieces are written straight to a plaintext file; '
       'NOTHING is stored in the app; completion reports the path', () async {
     final data = _rnd(300000, 22); // multi-piece, served from source

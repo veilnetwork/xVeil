@@ -541,6 +541,15 @@ class AppL10nRu extends AppL10n {
   String get fileLargeModeAsk => 'Спрашивать каждый раз';
 
   @override
+  String get fileCustomSize => 'Свой размер…';
+
+  @override
+  String get fileSizeMb => 'Размер в МБ';
+
+  @override
+  String get fileDownloading => 'Загрузка';
+
+  @override
   String get addIdentityTitle => 'Добавить личность';
 
   @override
