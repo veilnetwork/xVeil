@@ -1099,6 +1099,24 @@ abstract class AppL10n {
   /// **'Ask each time'**
   String get fileLargeModeAsk;
 
+  /// No description provided for @fileCustomSize.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom…'**
+  String get fileCustomSize;
+
+  /// No description provided for @fileSizeMb.
+  ///
+  /// In en, this message translates to:
+  /// **'Size in MB'**
+  String get fileSizeMb;
+
+  /// No description provided for @fileDownloading.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading'**
+  String get fileDownloading;
+
   /// No description provided for @addIdentityTitle.
   ///
   /// In en, this message translates to:

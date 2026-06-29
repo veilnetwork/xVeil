@@ -539,6 +539,15 @@ class AppL10nEn extends AppL10n {
   String get fileLargeModeAsk => 'Ask each time';
 
   @override
+  String get fileCustomSize => 'Custom…';
+
+  @override
+  String get fileSizeMb => 'Size in MB';
+
+  @override
+  String get fileDownloading => 'Downloading';
+
+  @override
   String get addIdentityTitle => 'Add identity';
 
   @override

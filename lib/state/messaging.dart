@@ -2041,6 +2041,14 @@ class MessagingService {
   Stream<({String contentId, String name, String? savedToPath})>
       get contentReceived => _contentReceived.stream;
 
+  /// Download progress for an in-flight fetch (verified/total pieces), emitted as
+  /// each piece is stored/written — the UI shows it on the file bubble. The final
+  /// emit has done == total; a fetch that never starts emits nothing.
+  final _contentProgress =
+      StreamController<({String contentId, int done, int total})>.broadcast();
+  Stream<({String contentId, int done, int total})> get contentProgress =>
+      _contentProgress.stream;
+
   Timer? _contentTimer;
   /// Re-request cadence for still-missing pieces (injectable for tests).
   final Duration _contentReRequestInterval;
@@ -2541,6 +2549,13 @@ class MessagingService {
           '${fetch.sink != null ? 'WRITTEN' : 'STORED'} for '
           '${m.contentId.substring(0, 12)} '
           '(${fetch.xfer.verifiedCount}/${fetch.xfer.pieceCount})');
+      if (!_contentProgress.isClosed) {
+        _contentProgress.add((
+          contentId: f.contentId,
+          done: fetch.xfer.verifiedCount,
+          total: fetch.xfer.pieceCount,
+        ));
+      }
     }
     if (!fetch.xfer.isComplete) return;
     // Every piece verified AND written → done.
@@ -2670,6 +2685,7 @@ class MessagingService {
     await _changes.close();
     await _incoming.close();
     await _contentReceived.close();
+    await _contentProgress.close();
   }
 }
 
@@ -2772,6 +2788,37 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
   ref.onDispose(service.dispose);
   return service;
 });
+
+/// In-flight download progress (contentId → fraction 0..1), fed by
+/// [MessagingService.contentProgress]. A completed transfer's entry is cleared
+/// shortly after the final emit so the file bubble flips to its downloaded/saved
+/// state instead of lingering at 100%.
+class ContentProgressNotifier extends StateNotifier<Map<String, double>> {
+  ContentProgressNotifier(MessagingService svc) : super(const {}) {
+    _sub = svc.contentProgress.listen((e) {
+      final frac = e.total <= 0 ? 0.0 : e.done / e.total;
+      state = {...state, e.contentId: frac};
+      if (e.done >= e.total) {
+        Future<void>.delayed(const Duration(milliseconds: 800), () {
+          if (mounted) state = {...state}..remove(e.contentId);
+        });
+      }
+    });
+  }
+
+  StreamSubscription<({String contentId, int done, int total})>? _sub;
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+}
+
+/// contentId → download fraction (0..1) for transfers currently in flight.
+final contentProgressProvider =
+    StateNotifierProvider<ContentProgressNotifier, Map<String, double>>(
+        (ref) => ContentProgressNotifier(ref.watch(messagingServiceProvider)));
 
 /// Candidate mailbox-relay node_ids derived from configured bootstrap peers: a
 /// node_id is `BLAKE3(identity_pubkey)` (veil `compute_node_id`) and a bootstrap
