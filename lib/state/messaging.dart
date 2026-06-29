@@ -1970,6 +1970,12 @@ class MessagingService {
   /// re-advertises and re-seeds [_serving], reading the bytes back from disk.
   static const _servingTtl = Duration(minutes: 10);
 
+  /// A long serve aborts if the receiver hasn't re-requested within this window
+  /// (it refreshes [_serving] freshness on every request) — i.e. it abandoned the
+  /// download. Comfortably above the receiver's re-request interval so an active
+  /// transfer is never cut, but well under the idle [_servingTtl].
+  static const _serveAbandonTimeout = Duration(seconds: 50);
+
   /// Cap on the number of concurrently-served manifests; the OLDEST are evicted
   /// first when over it. Manifests are small (piece hashes), but bound the count
   /// anyway so a long-lived node doesn't accumulate them without limit.
@@ -2077,13 +2083,18 @@ class MessagingService {
   Timer? _contentTimer;
   /// Re-request cadence for still-missing pieces (injectable for tests).
   final Duration _contentReRequestInterval;
-  // Wire chunk per piece. SMALL on purpose: over the onion path a chunk is a
-  // single auth_deliver message that fragments into ceil(size/≈150 B) cells which
-  // must ALL arrive (no per-cell ARQ), so per-chunk delivery is (1-p^redundancy)^F.
-  // At 4000 B (~27 cells) and ~50% cell loss that was ~2% — pieces never
-  // completed. 512 B (~6 cells) lifts per-chunk delivery enough that a piece's
-  // chunks ACCUMULATE across chunk-granular re-request rounds and converge.
-  static const _contentChunkBytes = 512;
+  // Wire chunk per piece. Over the onion path a chunk is ONE auth_deliver message
+  // (cap MAX_AUTH_DELIVER_MSG_BYTES 6144, base64+JSON framed) that fragments into
+  // ceil(size/≈150 B) cells which must ALL arrive (no per-cell ARQ), so per-chunk
+  // delivery is (1-p^redundancy)^cells. 512 B (~6 cells) was tuned for the BUGGY
+  // rendezvous era (~50 % cell loss; 4000 B/~27 cells delivered ~2 %). With the
+  // rendezvous fix delivery is now high, and a 512 B chunk wastes ~88 % of an
+  // auth_deliver — millions of tiny messages for a big file. 2048 B (~14 cells)
+  // 4×'s the goodput per message (fewer messages, less fixed framing overhead)
+  // while staying robust to a few-% cell loss; any chunk the queue/path drops is
+  // healed by the chunk-granular re-request (self-correcting — never lossy). Tune
+  // up toward ~4000 B if device logs show delivery stays high.
+  static const _contentChunkBytes = 2048;
   // Per-chunk pacing: feed the local onion circuit builder steadily without
   // overflowing the per-session TX queue (a too-fast burst trips the silent
   // tx_queue drop — now logged as `LIMIT tx_queue`). Many small chunks, so keep
@@ -2526,18 +2537,19 @@ class MessagingService {
           '${req.contentId.substring(0, 12)} <- ${peer.short} (ignored)');
       return; // not serving this content
     }
-    if (_servingNow.contains(req.contentId)) {
-      devLog(() => 'xVeil[content]: pieceRequest ${req.contentId.substring(0, 12)} '
-          '— a serve is already in flight, skipping <- ${peer.short}');
-      return; // one serve loop per content (single-cursor source)
-    }
-    // Keep an actively-requested transfer fresh so it isn't evicted mid-flight
-    // (this is what keeps a serve-from-source handle open through a long send).
+    // Refresh freshness on EVERY request (even one we skip) — it isn't evicted
+    // mid-flight, and the live serve loop reads this to know the receiver is
+    // still interested (it STOPS when the requests stop — see [_serveChunks]).
     _serving[req.contentId] = (
       manifest: served.manifest,
       source: served.source,
       servedAt: _now()
     );
+    if (_servingNow.contains(req.contentId)) {
+      devLog(() => 'xVeil[content]: pieceRequest ${req.contentId.substring(0, 12)} '
+          '— a serve is already in flight, skipping <- ${peer.short}');
+      return; // one serve loop per content (single-cursor source)
+    }
     final m = served.manifest;
     // gaps: pieceIndex → chunk indices to serve (null ⇒ every chunk of the piece).
     final Map<int, List<int>?> gaps;
@@ -2616,6 +2628,18 @@ class MessagingService {
       }
     }
     for (var i = 0; i < coords.length; i += _serveBatch) {
+      // Stop a long serve the receiver has ABANDONED: if it stopped re-requesting
+      // (its fetch completed / went stale), our [_serving] freshness goes stale
+      // (refreshed on every pieceRequest). Otherwise the sender grinds out a
+      // whole big file nobody is fetching (the receiver logs "pieceChunk DROPPED"
+      // for every late chunk) — wasted bandwidth + log spam.
+      final cur = _serving[m.contentId];
+      if (cur == null ||
+          _now().difference(cur.servedAt) > _serveAbandonTimeout) {
+        devLog(() => 'xVeil[content]: serve STOPPED ${m.contentId.substring(0, 12)} '
+            'at chunk $i/${coords.length} — receiver no longer requesting');
+        return;
+      }
       final end =
           (i + _serveBatch < coords.length) ? i + _serveBatch : coords.length;
       // READ the batch sequentially (a serve-from-source RandomAccessFile is a
