@@ -2059,6 +2059,12 @@ class MessagingService {
   Stream<({String contentId, int done, int total})> get contentProgress =>
       _contentProgress.stream;
 
+  /// Fires when a user download can't proceed — the re-advertise request timed
+  /// out (the sender no longer serves the file). The UI clears any empty
+  /// destination file and tells the user to ask for a re-send.
+  final _contentFailed = StreamController<String>.broadcast();
+  Stream<String> get contentDownloadFailed => _contentFailed.stream;
+
   Timer? _contentTimer;
   /// Re-request cadence for still-missing pieces (injectable for tests).
   final Duration _contentReRequestInterval;
@@ -2423,6 +2429,7 @@ class MessagingService {
       _fetchSavePath.remove(contentId);
       devLog(() => 'xVeil[content]: re-advertise TIMED OUT for '
           '${contentId.substring(0, 12)} — sender not serving; re-send needed');
+      if (!_contentFailed.isClosed) _contentFailed.add(contentId);
     });
     unawaited(_send(peer, contentReofferEnvelope(contentId).encode()));
     return ContentDownloadResult.requestedReoffer;
@@ -2764,6 +2771,7 @@ class MessagingService {
     await _incoming.close();
     await _contentReceived.close();
     await _contentProgress.close();
+    await _contentFailed.close();
   }
 }
 

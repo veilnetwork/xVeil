@@ -553,6 +553,10 @@ class AppL10nRu extends AppL10n {
   String get fileRequestingResend => 'Запрашиваем файл у отправителя…';
 
   @override
+  String get fileReofferFailed =>
+      'Не удалось получить файл — попросите отправителя переслать его.';
+
+  @override
   String get addIdentityTitle => 'Добавить личность';
 
   @override
