@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -428,7 +429,12 @@ class MessagingService {
     _sub ??= _transport.messages().listen(_onInbound);
     _retryTimer ??= Timer.periodic(_retryInterval, (_) => _retryFlush());
     unawaited(_loadFilePolicy()); // this identity's auto-download policy (A1)
+    // Serve inbound bulk file streams (S2) when the transport supports them.
+    if (_transport is StreamTransport) unawaited(_acceptStreamLoop());
   }
+
+  /// Set in [dispose]; stops the stream accept loop.
+  bool _disposed = false;
 
   Future<void> _retryFlush() async {
     if (_flushing) return; // don't stack overlapping flushes
@@ -2404,11 +2410,17 @@ class MessagingService {
       _signal();
       return ContentDownloadResult.started;
     }
+    devLog(() => 'xVeil[content]: user download ${contentId.substring(0, 12)}');
+    // Reliable STREAM path (fast + flow-controlled): fetches the manifest itself,
+    // so it works even without a live offer handle (no reoffer dance needed).
+    if (await _pullStream(peer, contentId, null)) {
+      return ContentDownloadResult.started;
+    }
+    // Datagram fallback (transport has no streams — e.g. a loopback fake).
     final offered = _offered[contentId];
     if (offered == null) {
       return _requestReoffer(peer, contentId, null);
     }
-    devLog(() => 'xVeil[content]: user download ${contentId.substring(0, 12)}');
     await _beginFetch(offered.peer, offered.manifest);
     return ContentDownloadResult.started;
   }
@@ -2424,13 +2436,18 @@ class MessagingService {
       {required Future<void> Function(int offset, Uint8List bytes) write,
       required Future<void> Function() close}) async {
     final sink = (write: write, close: close);
+    devLog(() => 'xVeil[content]: user download-to-file (unencrypted) '
+        '${contentId.substring(0, 12)} -> $savedPath');
+    // Reliable STREAM path (fast). Works without a live offer handle.
+    if (await _pullStream(peer, contentId, sink, savedPath: savedPath)) {
+      return ContentDownloadResult.started;
+    }
+    // Datagram fallback.
     _fetchSavePath[contentId] = savedPath;
     final offered = _offered[contentId];
     if (offered == null) {
       return _requestReoffer(peer, contentId, sink);
     }
-    devLog(() => 'xVeil[content]: user download-to-file (unencrypted) '
-        '${contentId.substring(0, 12)} -> $savedPath');
     await _beginFetch(offered.peer, offered.manifest, sink: sink);
     return ContentDownloadResult.started;
   }
@@ -2688,6 +2705,248 @@ class MessagingService {
     }
   }
 
+  // ── Stream-based bulk transfer (S2/S3) ──────────────────────────────────────
+  // Large files ride veil's RELIABLE, window-flow-controlled stream instead of
+  // fire-and-forget datagrams + manual re-request: the transport's congestion
+  // control fills the circuit without overflowing the tx_queue (the datagram path
+  // blasted ~6:1 → ~80% drops). Wire: the receiver opens a stream and writes the
+  // 32-byte contentId; the sender replies [u32 manifest-len][manifest JSON][file
+  // bytes…] then closes (EOF). The receiver checks the manifest binds the
+  // REQUESTED cid (cid binds manifest binds pieces → a malicious sender can't
+  // substitute), then verifies each piece as it reassembles from the byte stream.
+
+  static const int _streamReadChunk = 256 * 1024; // source read / wire write unit
+  bool _acceptingStreams = false;
+
+  /// Accept inbound bulk streams + serve the requested file. Started by [start]
+  /// when the transport supports streams; ends on [dispose].
+  Future<void> _acceptStreamLoop() async {
+    if (_acceptingStreams) return;
+    _acceptingStreams = true;
+    final st = _transport as StreamTransport;
+    while (!_disposed) {
+      try {
+        final r = await st.acceptStream(timeout: const Duration(seconds: 2));
+        if (r != null) unawaited(_serveStream(r.src, r.stream));
+      } catch (e) {
+        devLog(() => 'xVeil[content]: acceptStream error: $e');
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      }
+    }
+  }
+
+  /// Serve one inbound bulk stream: read the 32-byte contentId, then write the
+  /// manifest + the file bytes from our source (live serve-from-source, or a
+  /// durable re-open). Closes the stream (EOF) when done / on any failure.
+  Future<void> _serveStream(NodeId peer, ReliableStream stream) async {
+    _ServeSource? durable; // opened just for this serve (closed in finally)
+    try {
+      final cidBytes = await _readExactly(stream, 32);
+      if (cidBytes == null) return; // peer hung up before requesting
+      final cid = _hexEncode(cidBytes);
+      ContentManifest? manifest;
+      _ServeSource? source;
+      final live = _serving[cid];
+      if (live != null) {
+        manifest = live.manifest;
+        source = live.source;
+      } else if (sourceOpener != null) {
+        final path = await _storage.getSetting('served:$cid');
+        final mfBytes = await _storage.loadFile('mf:$cid');
+        if (path != null && mfBytes != null) {
+          manifest = ContentManifest.fromJson(
+              jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>);
+          if (manifest != null) source = durable = await sourceOpener!(path);
+        }
+      }
+      if (manifest == null || source == null) {
+        devLog(() => 'xVeil[content]: stream-serve UNSERVED '
+            '${cid.substring(0, 12)} <- ${peer.short} (close → re-send)');
+        return; // close → receiver sees EOF before the manifest
+      }
+      final m = manifest; // promoted non-null (closures need a final)
+      final src = source;
+      devLog(() => 'xVeil[content]: stream-serve ${cid.substring(0, 12)} '
+          '(${m.size}B) -> ${peer.short}');
+      final mf = Uint8List.fromList(utf8.encode(jsonEncode(m.toJson())));
+      await stream.write(_u32be(mf.length));
+      await stream.write(mf);
+      var off = 0;
+      final size = m.size;
+      while (off < size) {
+        final n =
+            (size - off) < _streamReadChunk ? (size - off) : _streamReadChunk;
+        final data = await src.read(off, n);
+        if (data.isEmpty) break; // source truncated
+        await stream.write(data); // flow-controlled (back-pressures)
+        off += data.length;
+      }
+    } catch (e) {
+      devLog(() => 'xVeil[content]: stream-serve failed <- ${peer.short}: $e');
+    } finally {
+      if (durable != null) {
+        try {
+          await durable.close();
+        } catch (_) {}
+      }
+      try {
+        await stream.close();
+      } catch (_) {}
+    }
+  }
+
+  /// Try to download [cid] from [peer] over a RELIABLE stream. Returns true if it
+  /// took ownership (runs async to completion / failure); false if streams aren't
+  /// available so the caller falls back to the datagram path. The bytes land in
+  /// [sink] (unencrypted-to-file) or the Storage port (encrypted tier / in-volume)
+  /// with per-piece verification + progress. Works WITHOUT a live offer handle —
+  /// the manifest arrives on the stream, so no reoffer dance.
+  Future<bool> _pullStream(NodeId peer, String cid, _FetchSink? sink,
+      {String? savedPath}) async {
+    final t = _transport;
+    if (t is! StreamTransport) return false;
+    final stream = await (t as StreamTransport).openStream(peer);
+    if (stream == null) return false; // no circuit → caller falls back
+    unawaited(_runPull(peer, cid, sink, stream, savedPath));
+    return true;
+  }
+
+  Future<void> _runPull(NodeId peer, String cid, _FetchSink? sink,
+      ReliableStream stream, String? savedPath) async {
+    var ok = false;
+    try {
+      await stream.write(_hexDecode(cid)); // request = the 32-byte contentId
+      final lenB = await _readExactly(stream, 4);
+      if (lenB == null) throw StateError('no manifest (sender not serving)');
+      final mfLen = _readU32be(lenB);
+      if (mfLen <= 0 || mfLen > (1 << 20)) throw StateError('bad manifest len');
+      final mfBytes = await _readExactly(stream, mfLen);
+      if (mfBytes == null) throw StateError('manifest truncated');
+      final m = ContentManifest.fromJson(
+          jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>);
+      if (m == null || m.contentId != cid) {
+        throw StateError('manifest does not bind the requested cid');
+      }
+      devLog(() => 'xVeil[content]: stream-pull ${cid.substring(0, 12)} '
+          '(${m.size}B, ${m.pieceCount} pieces) <- ${peer.short}');
+      final buf = BytesBuilder(copy: false);
+      var bufLen = 0;
+      for (var pi = 0; pi < m.pieceCount; pi++) {
+        final pieceLen = m.pieceLength(pi);
+        while (bufLen < pieceLen) {
+          final chunk = await stream.read(maxBytes: _streamReadChunk);
+          if (chunk.isEmpty) throw StateError('stream EOF mid-piece $pi');
+          buf.add(chunk);
+          bufLen += chunk.length;
+        }
+        final acc = buf.takeBytes(); // clears buf
+        final piece = acc.length == pieceLen
+            ? acc
+            : Uint8List.sublistView(acc, 0, pieceLen);
+        if (!m.verifyPiece(pi, piece)) throw StateError('piece $pi failed verify');
+        if (sink != null) {
+          await sink.write(pi * m.pieceSize, piece);
+        } else {
+          await _storage.storeFilePiece(
+              cid, pi, m.pieceCount, m.pieceSize, m.size, piece, name: m.name);
+        }
+        if (acc.length > pieceLen) {
+          buf.add(Uint8List.sublistView(acc, pieceLen));
+          bufLen = acc.length - pieceLen;
+        } else {
+          bufLen = 0;
+        }
+        if (!_contentProgress.isClosed) {
+          _contentProgress
+              .add((contentId: cid, done: pi + 1, total: m.pieceCount));
+        }
+      }
+      ok = true;
+      await _finishReceived(peer, m, sink, savedPath);
+    } catch (e) {
+      devLog(() => 'xVeil[content]: stream-pull failed ${cid.substring(0, 12)}: $e');
+    } finally {
+      try {
+        await stream.close();
+      } catch (_) {}
+      if (!ok && sink != null) {
+        try {
+          await sink.close();
+        } catch (_) {}
+        if (!_contentFailed.isClosed) _contentFailed.add(cid);
+      }
+    }
+  }
+
+  /// Finalise a completed RECEIVE: an unencrypted-to-file download closes the
+  /// sink, remembers the path (tap → open), and reports it; an in-app store
+  /// surfaces offer→downloaded. Acks the sender either way (flips sent→delivered).
+  Future<void> _finishReceived(NodeId peer, ContentManifest m, _FetchSink? sink,
+      String? savedPath) async {
+    final ackId = m.msgId ?? m.contentId;
+    if (sink != null) {
+      try {
+        await sink.close();
+      } catch (_) {}
+      if (savedPath != null) {
+        try {
+          await _storage.putSetting('saved:${m.contentId}', savedPath);
+        } catch (_) {}
+      }
+      devLog(() => 'xVeil[content]: COMPLETE ${m.contentId.substring(0, 12)} '
+          '(${m.size}B) saved to $savedPath');
+      await _send(peer, WireEnvelope.ack(ackId).encode());
+      if (!_contentReceived.isClosed) {
+        _contentReceived.add(
+            (contentId: m.contentId, name: m.name, savedToPath: savedPath));
+      }
+      return;
+    }
+    devLog(() => 'xVeil[content]: COMPLETE ${m.contentId.substring(0, 12)} '
+        '(${m.size}B) stored');
+    final persisted = await _persistReceivedContent(peer, m);
+    if (persisted) await _send(peer, WireEnvelope.ack(ackId).encode());
+    if (!_contentReceived.isClosed) {
+      _contentReceived
+          .add((contentId: m.contentId, name: m.name, savedToPath: null));
+    }
+  }
+
+  /// Read EXACTLY [n] bytes (looping); null on EOF before [n] arrives.
+  static Future<Uint8List?> _readExactly(ReliableStream s, int n) async {
+    final out = BytesBuilder(copy: false);
+    var got = 0;
+    while (got < n) {
+      final chunk = await s.read(maxBytes: n - got);
+      if (chunk.isEmpty) return null; // EOF
+      out.add(chunk);
+      got += chunk.length;
+    }
+    return out.takeBytes();
+  }
+
+  static Uint8List _u32be(int v) =>
+      Uint8List(4)..buffer.asByteData().setUint32(0, v);
+  static int _readU32be(Uint8List b) =>
+      b.buffer.asByteData(b.offsetInBytes, 4).getUint32(0);
+
+  static String _hexEncode(Uint8List b) {
+    const d = '0123456789abcdef';
+    final sb = StringBuffer();
+    for (final x in b) {
+      sb..write(d[(x >> 4) & 0xf])..write(d[x & 0xf]);
+    }
+    return sb.toString();
+  }
+
+  static Uint8List _hexDecode(String s) {
+    final out = Uint8List(s.length ~/ 2);
+    for (var i = 0; i < out.length; i++) {
+      out[i] = int.parse(s.substring(i * 2, i * 2 + 2), radix: 16);
+    }
+    return out;
+  }
+
   Future<void> _onPieceChunk(PieceChunkFrame f) async {
     final fetch = _fetching[f.contentId];
     if (fetch == null) {
@@ -2856,6 +3115,7 @@ class MessagingService {
   }
 
   Future<void> dispose() async {
+    _disposed = true; // stops the stream accept loop
     _retryTimer?.cancel();
     _retryTimer = null;
     _contentTimer?.cancel();
