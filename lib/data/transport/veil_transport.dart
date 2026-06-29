@@ -124,3 +124,39 @@ abstract interface class VeilTransport {
 
   Future<void> dispose();
 }
+
+/// A reliable, ordered, FLOW-CONTROLLED byte-stream to a peer — the transport's
+/// windowed bulk channel (veil's SCTP-like stream: window-based flow control,
+/// ordered delivery, retransmission). Unlike [VeilTransport.send] (fire-and-
+/// forget datagrams with no congestion control), [write] back-pressures when the
+/// peer's receive window is full, so a bulk file transfer rides the transport's
+/// real congestion control instead of blasting + manual re-request. Mirrors
+/// veil_flutter's `VeilStream`; an in-memory pipe implements it for tests.
+abstract interface class ReliableStream {
+  /// Write all of [data], resolving once the daemon has buffered it
+  /// (flow-controlled). Throws if the stream is closed / the peer reset. The veil
+  /// FFI caps one call at 16 MiB — callers chunk larger payloads.
+  Future<void> write(Uint8List data);
+
+  /// Read up to [maxBytes]. An EMPTY list means clean EOF (the peer closed its
+  /// write half); further reads keep returning empty.
+  Future<Uint8List> read({int maxBytes});
+
+  /// Close + release the stream (idempotent).
+  Future<void> close();
+}
+
+/// A [VeilTransport] that can also open/accept [ReliableStream]s — the bulk
+/// file-transfer channel (any-size, flow-controlled). The production transport
+/// implements it; simple datagram-only fakes need not, and the messaging layer
+/// falls back to the datagram path when the transport is not a [StreamTransport].
+abstract interface class StreamTransport {
+  /// Open a reliable stream to [dst]'s chat endpoint (same routing/anonymity as
+  /// a message), or null if one can't be opened.
+  Future<ReliableStream?> openStream(NodeId dst);
+
+  /// Accept the next inbound stream opened to our chat endpoint, or null on
+  /// [timeout] (a server loop polls). The receive side of file streaming.
+  Future<({ReliableStream stream, NodeId src})?> acceptStream(
+      {Duration timeout});
+}
