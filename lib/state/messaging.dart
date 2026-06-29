@@ -18,6 +18,7 @@ import '../data/transport/wire_envelope.dart';
 import '../domain/chat.dart';
 import '../domain/content_manifest.dart';
 import '../domain/content_transfer.dart';
+import '../data/serve_source.dart';
 import '../domain/event.dart';
 import '../domain/file_download_policy.dart';
 import '../domain/file_transfer.dart';
@@ -909,9 +910,9 @@ class MessagingService {
         return;
       case WireKind.contentReoffer:
         // A peer lost the manifest handle (restart) but still holds the offer —
-        // re-advertise if we are still serving the content.
+        // re-advertise if we are still serving (or can re-open a durable source).
         if (existing?.status != ContactStatus.accepted) return;
-        _onContentReoffer(m.src, env.body);
+        await _onContentReoffer(m.src, env.body);
         return;
       case WireKind.pieceRequest:
         // A peer asks for pieces of content we serve — send the requested
@@ -1974,6 +1975,14 @@ class MessagingService {
   /// anyway so a long-lived node doesn't accumulate them without limit.
   static const _servingMaxEntries = 256;
 
+  /// Re-opens a serve source for a persisted file path (DURABLE offers): on a
+  /// reoffer request after our [_serving] entry is gone (restart / TTL), the
+  /// sender re-opens the original file and re-serves. Injected because the
+  /// dart:io open lives in the data layer (the service stays io-free). Null ⇒
+  /// durable re-serve is off (tests / not wired) — a stale offer then needs a
+  /// re-send. Returns null if the path can't be opened (file moved / SAF expired).
+  Future<_ServeSource?> Function(String path)? sourceOpener;
+
   /// Content we are FETCHING: the verified manifest + the reassembler + the peer,
   /// plus an optional [_FetchSink] when the user chose to download UNENCRYPTED to
   /// a plaintext file (null ⇒ store via the Storage port — encrypted tier or
@@ -2235,7 +2244,7 @@ class MessagingService {
   /// eviction/dispose — the UI must NOT close it after this returns.
   Future<void> sendFileStreaming(NodeId dst, String name, int size,
       Future<Uint8List> Function(int offset, int length) read,
-      {required Future<void> Function() close}) async {
+      {required Future<void> Function() close, String? sourcePath}) async {
     final contact = await _storage.getContact(dst);
     if (contact == null || contact.status != ContactStatus.accepted) {
       await close(); // not serving this peer → release the handle now
@@ -2265,10 +2274,22 @@ class MessagingService {
         fileId: cid, fileName: name, fileSize: size, id: msgId,
         timestamp: _now());
     _signal();
+    final m = base.withEvent(msgId: msgId, author: stored.author, seq: stored.seq);
+    // DURABLE offer: persist the manifest + the source PATH so a reoffer after a
+    // restart can re-open the file and re-serve (best-effort; the file must still
+    // be at that path). The manifest exceeds the KV value cap → file store.
+    if (sourcePath != null) {
+      try {
+        await _storage.storeFile('mf:$cid',
+            Uint8List.fromList(utf8.encode(jsonEncode(m.toJson()))),
+            name: 'manifest');
+        await _storage.putSetting('served:$cid', sourcePath);
+      } catch (e) {
+        devLog(() => 'xVeil[content]: durable-offer persist failed for $cid: $e');
+      }
+    }
     // Register the live source + advertise — NO stored copy.
-    await _advertiseStored(
-        dst, base.withEvent(msgId: msgId, author: stored.author, seq: stored.seq),
-        source: (read: read, close: close));
+    await _advertiseStored(dst, m, source: (read: read, close: close));
   }
 
   Future<void> _onContentManifest(NodeId peer, String body) async {
@@ -2436,23 +2457,58 @@ class MessagingService {
   }
 
   /// A peer asked us to re-advertise [contentId] (their manifest handle is gone).
-  /// Re-send the manifest iff we are still serving it (refreshing its TTL).
-  void _onContentReoffer(NodeId peer, String contentId) {
+  /// Re-send the manifest if we are still serving it (refreshing its TTL), or —
+  /// DURABLE offer — re-open the persisted source file and re-serve from the
+  /// persisted manifest (so an offer survives our restart / the serve TTL). Fails
+  /// quietly (→ receiver times out → re-send) if there is no durable record, no
+  /// opener, or the file is gone.
+  Future<void> _onContentReoffer(NodeId peer, String contentId) async {
     final served = _serving[contentId];
-    if (served == null) {
-      devLog(() => 'xVeil[content]: reoffer for UNSERVED '
-          '${contentId.substring(0, 12)} <- ${peer.short} (can\'t — re-send)');
+    if (served != null) {
+      _serving[contentId] = (
+        manifest: served.manifest,
+        source: served.source,
+        servedAt: _now()
+      );
+      devLog(() => 'xVeil[content]: re-advertising ${contentId.substring(0, 12)} '
+          '-> ${peer.short} (live serving)');
+      unawaited(_send(peer,
+          contentManifestEnvelope(jsonEncode(served.manifest.toJson())).encode()));
       return;
     }
-    _serving[contentId] = (
-      manifest: served.manifest,
-      source: served.source,
-      servedAt: _now()
-    );
-    devLog(() => 'xVeil[content]: re-advertising ${contentId.substring(0, 12)} '
-        '-> ${peer.short} (reoffer)');
-    unawaited(_send(peer,
-        contentManifestEnvelope(jsonEncode(served.manifest.toJson())).encode()));
+    if (sourceOpener == null) {
+      devLog(() => 'xVeil[content]: reoffer for UNSERVED '
+          '${contentId.substring(0, 12)} <- ${peer.short} (no opener — re-send)');
+      return;
+    }
+    try {
+      final path = await _storage.getSetting('served:$contentId');
+      final mfBytes = await _storage.loadFile('mf:$contentId');
+      if (path == null || mfBytes == null) {
+        devLog(() => 'xVeil[content]: reoffer ${contentId.substring(0, 12)} — no '
+            'durable record <- ${peer.short} (re-send)');
+        return;
+      }
+      final m = ContentManifest.fromJson(
+          jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>);
+      if (m == null) return;
+      final src = await sourceOpener!(path);
+      if (src == null) {
+        devLog(() => 'xVeil[content]: reoffer ${contentId.substring(0, 12)} — '
+            'source GONE ($path) <- ${peer.short} (re-send)');
+        return;
+      }
+      _serving[contentId] = (manifest: m, source: src, servedAt: _now());
+      _evictServing();
+      _ensureContentTimer();
+      devLog(() => 'xVeil[content]: re-advertising ${contentId.substring(0, 12)} '
+          '-> ${peer.short} (DURABLE — re-opened $path)');
+      unawaited(
+          _send(peer, contentManifestEnvelope(jsonEncode(m.toJson())).encode()));
+    } catch (e) {
+      devLog(() => 'xVeil[content]: durable reoffer failed for '
+          '${contentId.substring(0, 12)}: $e');
+    }
   }
 
   /// Content ids with a [_serveChunks] loop currently running — only ONE serve
@@ -2818,6 +2874,7 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
         'anonymous=$anonymous',
   );
   final service = MessagingService(transport, storage, anonymous: anonymous);
+  service.sourceOpener = veilSourceOpener; // DURABLE offers: re-open by path
   service.start();
 
   // Offline delivery: over the real veil transport, advertise a mailbox relay
