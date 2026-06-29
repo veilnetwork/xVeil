@@ -1,3 +1,4 @@
+import '../data/serve_source.dart';
 // Clean public param names are worth more than initializing-formal terseness
 // for this small orchestration constructor.
 // ignore_for_file: prefer_initializing_formals
@@ -224,7 +225,9 @@ class MultiIdentitySession {
           node.transport,
           storage,
           anonymous: spec.anonymous,
-        )..start();
+        )
+          ..sourceOpener = veilSourceOpener // DURABLE offers: re-open by path
+          ..start();
       } catch (_) {
         // Node didn't come up — keep the storage view so the UI shows history;
         // this identity just can't send/receive live until re-booted.
