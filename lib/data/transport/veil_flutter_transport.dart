@@ -161,33 +161,31 @@ class VeilFlutterTransport implements VeilTransport, StreamTransport {
   /// message, so it lands on the peer's bound chat endpoint accept queue.
   @override
   Future<ReliableStream?> openStream(NodeId dst) async {
+    // ANONYMOUS stream: onion-routed + congestion-controlled (veil-onion-stream),
+    // so it reaches NAT'd/anonymous peers — unlike veil's DIRECT veil_stream
+    // (which rides the wire AppOpen/AppData session machinery and only works to a
+    // directly-reachable peer). On any failure return null → datagram fallback.
     try {
-      final s = await _app.openStream(
+      final s = await _client.openAnonStream(
         dstNodeId: dst.bytes,
-        dstAppId: chatAppIdFor(dst),
-        dstEndpointId: veilChatEndpointId,
+        dstAppId: streamAppIdFor(dst),
       );
-      return _VeilReliableStream(s);
+      return _VeilAnonReliableStream(s);
     } catch (e) {
-      // veil's stream rides the DIRECT wire AppOpen/AppData session machinery
-      // (no anonymous/onion routing — StreamOpenPayload has no anon flag), so a
-      // NAT'd, onion-only peer with no direct session can't be reached and this
-      // throws ("stream open failed: …" / REMOTE_NOT_IMPLEMENTED). Surface the
-      // reason (debug-only) so the datagram fallback isn't silent, then fall back.
-      devLog(() => 'xVeil[stream]: openStream(${dst.short}) failed → datagram '
-          'fallback: $e');
+      devLog(() => 'xVeil[stream]: openAnonStream(${dst.short}) failed → '
+          'datagram fallback: $e');
       return null;
     }
   }
 
-  /// Accept the next inbound stream a peer opened to our chat endpoint, or null
-  /// on [timeout] (so a server loop polls). The receive side of file streaming.
+  /// Accept the next inbound anonymous stream a peer opened to us, or null on
+  /// [timeout] (so a server loop polls). The receive side of file streaming.
   @override
   Future<({ReliableStream stream, NodeId src})?> acceptStream(
       {Duration timeout = const Duration(seconds: 2)}) async {
-    final r = await _app.acceptStream(timeout: timeout);
+    final r = await _client.acceptAnonStream(timeout: timeout);
     if (r == null) return null;
-    return (stream: _VeilReliableStream(r.stream), src: NodeId(r.srcNodeId));
+    return (stream: _VeilAnonReliableStream(r.stream), src: NodeId(r.srcNodeId));
   }
 
   @override
@@ -253,13 +251,15 @@ class VeilFlutterTransport implements VeilTransport, StreamTransport {
 /// Adapts veil_flutter's [VeilStream] to the transport-agnostic [ReliableStream]
 /// port, so the messaging layer drives bulk transfers without depending on
 /// veil_flutter directly (and a fake pipe can stand in for tests).
-class _VeilReliableStream implements ReliableStream {
-  _VeilReliableStream(this._s);
-  final VeilStream _s;
+class _VeilAnonReliableStream implements ReliableStream {
+  _VeilAnonReliableStream(this._s);
+  final VeilAnonStream _s;
   @override
   Future<void> write(Uint8List data) => _s.write(data);
   @override
   Future<Uint8List> read({int maxBytes = 65536}) => _s.read(maxBytes: maxBytes);
   @override
+  // close() drops the handle → the driver sends a clean FIN (the reader sees
+  // EOF); use this after writing all bytes on the serve side.
   Future<void> close() => _s.close();
 }
