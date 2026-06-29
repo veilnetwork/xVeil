@@ -179,32 +179,45 @@ void main() {
     expect(closed, isTrue, reason: 'dispose closes the serve-from-source handle');
   });
 
-  test('a LARGE offer is gated by the on-disk opt-in (§16.5): blocked until the '
-      'identity enables large-file storage', () async {
-    final big = _rnd(4 * 1024 * 1024, 21); // > kMaxIncomingFileBytes (~3.8 MB)
-    final cid = ContentManifest.fromBytes('big.bin', big).contentId;
+  test('UNENCRYPTED download: pieces are written straight to a plaintext file; '
+      'NOTHING is stored in the app; completion reports the path', () async {
+    final data = _rnd(300000, 22); // multi-piece, served from source
+    final cid = ContentManifest.fromBytes('clip.bin', data).contentId;
+    // "Always ask" so the file stays an OFFER (not auto-downloaded) → the user
+    // gets to choose the unencrypted-to-file path.
+    await mB.setFileDownloadPolicy(
+        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0));
     Future<Uint8List> read(int o, int l) async =>
-        Uint8List.sublistView(big, o, o + l);
-    // A advertises it (manifest only, served from source) → B registers an OFFER.
-    await mA.sendFileStreaming(b, 'big.bin', big.length, read,
+        Uint8List.sublistView(data, o, o + l);
+    await mA.sendFileStreaming(b, 'clip.bin', data.length, read,
         close: () async {});
     await Future<void>.delayed(const Duration(milliseconds: 100));
 
-    // Policy OFF (default) → download is refused and NO fetch starts.
-    final off = await mB.downloadContent(a, cid);
-    expect(off, ContentDownloadResult.needsLargeFileOptIn);
-    expect(mB.fetchingCount, 0, reason: 'a blocked offer does not fetch');
-
-    // Opt in + wire the on-disk tier → the download starts.
-    final dir = await Directory.systemTemp.createTemp('xveil-gate');
+    // B downloads it UNENCRYPTED to a plaintext file (a temp file stands in for
+    // the user's picked path). Each verified piece is written at its offset.
+    final dir = await Directory.systemTemp.createTemp('xveil-plain');
     addTearDown(() async {
       if (await dir.exists()) await dir.delete(recursive: true);
     });
-    sB.useOnDiskTier(dir);
-    await mB.setFileDownloadPolicy(
-        mB.fileDownloadPolicy.copyWith(largeFilesOnDisk: true));
-    final on = await mB.downloadContent(a, cid);
-    expect(on, ContentDownloadResult.started);
-    expect(mB.fetchingCount, 1, reason: 'opted in → the fetch begins');
+    final dest = '${dir.path}/clip.bin';
+    final raf = await File(dest).open(mode: FileMode.write);
+    final done = mB.contentReceived.firstWhere((e) => e.contentId == cid);
+
+    final res = await mB.downloadContentToFile(a, cid, dest,
+        write: (offset, bytes) async {
+      await raf.setPosition(offset);
+      await raf.writeFrom(bytes);
+    }, close: () async {
+      await raf.close();
+    });
+    expect(res, ContentDownloadResult.started);
+
+    final ev = await done.timeout(const Duration(seconds: 20));
+    expect(ev.savedToPath, dest, reason: 'completion reports the plaintext path');
+    // The plaintext file on disk == the original bytes.
+    expect(await File(dest).readAsBytes(), data);
+    // NOTHING was stored in the app (no in-volume blob, no encrypted tier).
+    expect(await sB.hasFile(cid), isFalse,
+        reason: 'unencrypted-to-file keeps nothing in the app');
   });
 }

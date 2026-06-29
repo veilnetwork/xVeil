@@ -5,7 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../core/format.dart';
 import '../../core/ids.dart';
@@ -249,30 +249,112 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return out.toBytes();
   }
 
-  /// Tap on a file bubble: if we already hold the blob, save it out; if it is an
-  /// OFFER we have not downloaded yet, start the opt-in download (the bubble flips
-  /// to "downloaded" when it completes — messagesProvider re-yields on _signal).
-  /// A large offer when the on-disk tier is off (§16.5) prompts to enable it.
+  /// Tap on a file bubble: if we already hold the blob, save it out. For an OFFER
+  /// we have not downloaded: a small file downloads into the deniable volume
+  /// directly; a LARGE file asks WHERE — the encrypted in-app tier, or a plain
+  /// unencrypted file on disk (the bubble flips to "downloaded" for the in-app
+  /// case when it completes — messagesProvider re-yields on _signal).
   Future<void> _onTapFile(Message m) async {
     final key = m.fileId ?? m.fileContentId;
     if (key == null) return;
     if (await ref.read(storageProvider).hasFile(key)) {
       await _saveFile(m);
-    } else if (m.fileContentId != null) {
-      final res = await ref
-          .read(messagingServiceProvider)
-          .downloadContent(_peer, m.fileContentId!);
-      if (res == ContentDownloadResult.needsLargeFileOptIn && mounted) {
-        final l = AppL10n.of(context);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(l.fileLargeNeedsOptIn),
-          action: SnackBarAction(
-            label: l.fileOpenSettings,
-            onPressed: () => context.push('/file-settings'),
-          ),
-        ));
-      }
+      return;
     }
+    final cid = m.fileContentId;
+    if (cid == null) return;
+    if ((m.fileSize ?? 0) > kMaxIncomingFileBytes) {
+      await _showDownloadMenu(m, cid);
+    } else {
+      await ref.read(messagingServiceProvider).downloadContent(_peer, cid);
+    }
+  }
+
+  /// Ask where to put a LARGE offered file: the encrypted in-app tier, or a plain
+  /// unencrypted file on disk (with a warning).
+  Future<void> _showDownloadMenu(Message m, String cid) async {
+    final l = AppL10n.of(context);
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheet) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.lock_outline),
+              title: Text(l.fileSaveEncrypted),
+              subtitle: Text(l.fileSaveEncryptedHint),
+              onTap: () => Navigator.of(sheet).pop('enc'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.warning_amber_outlined),
+              title: Text(l.fileSavePlain),
+              subtitle: Text(l.fileSavePlainHint),
+              onTap: () => Navigator.of(sheet).pop('plain'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (choice == 'enc') {
+      await ref.read(messagingServiceProvider).downloadContent(_peer, cid);
+    } else if (choice == 'plain') {
+      await _downloadUnencrypted(m, cid);
+    }
+  }
+
+  /// Download a large offer UNENCRYPTED, streamed straight to a plaintext file —
+  /// gated behind a clear warning. Desktop: the user picks the path. Mobile: the
+  /// app documents dir (the save plugin can't stream to a chosen location there).
+  Future<void> _downloadUnencrypted(Message m, String cid) async {
+    final l = AppL10n.of(context);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        content: Text(l.fileSavePlainWarn),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(d).pop(false),
+              child: Text(l.actionCancel)),
+          FilledButton(
+              onPressed: () => Navigator.of(d).pop(true),
+              child: Text(l.fileSavePlainConfirm)),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final name = m.fileName ?? 'file';
+    String? dest;
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      dest = await FilePicker.saveFile(fileName: name);
+    } else {
+      dest = '${(await getApplicationDocumentsDirectory()).path}/$name';
+    }
+    if (dest == null) return; // cancelled
+    final raf = await File(dest).open(mode: FileMode.write);
+    if (!mounted) {
+      await raf.close();
+      return;
+    }
+    final svc = ref.read(messagingServiceProvider);
+    // Snackbar once the streamed plaintext file is fully written.
+    svc.contentReceived
+        .firstWhere((e) => e.contentId == cid && e.savedToPath != null)
+        .then((e) {
+      if (mounted) _snack('${l.chatFileSaved}: ${e.savedToPath}');
+    }).catchError((_) {/* stream closed before completion */});
+    await svc.downloadContentToFile(
+      _peer,
+      cid,
+      dest,
+      write: (offset, bytes) async {
+        await raf.setPosition(offset);
+        await raf.writeFrom(bytes);
+      },
+      close: () async {
+        await raf.close();
+      },
+    );
   }
 
   /// Save a received (or sent) file out of the deniable container to a location
