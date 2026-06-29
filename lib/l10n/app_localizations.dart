@@ -1117,6 +1117,12 @@ abstract class AppL10n {
   /// **'Downloading'**
   String get fileDownloading;
 
+  /// No description provided for @fileRequestingResend.
+  ///
+  /// In en, this message translates to:
+  /// **'Requesting the file from the sender…'**
+  String get fileRequestingResend;
+
   /// No description provided for @addIdentityTitle.
   ///
   /// In en, this message translates to:

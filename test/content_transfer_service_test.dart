@@ -25,6 +25,9 @@ class _Link implements VeilTransport {
   _Link? peer;
   // Drop the first delivery of these (pieceIndex) chunks, once each.
   final Set<int> dropPiecesOnce = {};
+  // Drop the FIRST contentManifest (simulate the offer's one-shot manifest being
+  // lost / a receiver restart) so the reoffer path must re-fetch it.
+  bool dropManifestOnce = false;
 
   @override
   Future<NodeId> nodeId() async => _me;
@@ -41,6 +44,10 @@ class _Link implements VeilTransport {
     if (env.kind == WireKind.pieceChunk) {
       final f = parsePieceChunk(env.body);
       if (dropPiecesOnce.remove(f.pieceIndex)) return; // drop once → forces re-request
+    }
+    if (env.kind == WireKind.contentManifest && dropManifestOnce) {
+      dropManifestOnce = false;
+      return; // the offer's manifest is "lost" → receiver must reoffer
     }
     peer?._in.add(InboundMessage(src: _me, payload: payload));
   }
@@ -177,6 +184,26 @@ void main() {
     expect(closed, isFalse, reason: 'source stays open for re-requests');
     await mA.dispose(); // dispose releases it
     expect(closed, isTrue, reason: 'dispose closes the serve-from-source handle');
+  });
+
+  test('a download with no live manifest RE-REQUESTS it from the sender and '
+      'resumes (offer survived a restart, manifest did not)', () async {
+    final data = _rnd(300000, 41);
+    final cid = ContentManifest.fromBytes('r.bin', data).contentId;
+    // A's first advertise is lost → A is SERVING but B never registered the offer.
+    tA.dropManifestOnce = true;
+    await mA.sendContent(b, data, 'r.bin');
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+    expect(mB.fetchingCount, 0, reason: 'B has no manifest → not fetching');
+
+    // B taps download → no live offer → asks A to re-advertise → A re-sends the
+    // manifest → B fetches + completes.
+    final got = mB.contentReceived.first;
+    final r = await mB.downloadContent(a, cid);
+    expect(r, ContentDownloadResult.requestedReoffer);
+    final ev = await got.timeout(const Duration(seconds: 20));
+    expect(ev.contentId, cid);
+    expect(await sB.loadFile(cid), data, reason: 'resumed + verified the whole');
   });
 
   test('download emits monotonic progress, ending at done == total', () async {
