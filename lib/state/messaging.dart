@@ -2089,12 +2089,13 @@ class MessagingService {
   // delivery is (1-p^redundancy)^cells. 512 B (~6 cells) was tuned for the BUGGY
   // rendezvous era (~50 % cell loss; 4000 B/~27 cells delivered ~2 %). With the
   // rendezvous fix delivery is now high, and a 512 B chunk wastes ~88 % of an
-  // auth_deliver — millions of tiny messages for a big file. 2048 B (~14 cells)
-  // 4×'s the goodput per message (fewer messages, less fixed framing overhead)
-  // while staying robust to a few-% cell loss; any chunk the queue/path drops is
-  // healed by the chunk-granular re-request (self-correcting — never lossy). Tune
-  // up toward ~4000 B if device logs show delivery stays high.
-  static const _contentChunkBytes = 2048;
+  // auth_deliver — millions of tiny messages for a big file. On a reliable
+  // transport push it near the ceiling: 4096 B (base64+JSON ≈ 5.6 KB < 6144) is
+  // the practical max, ~8× fewer messages than 512 B. Any chunk the queue/path
+  // drops is healed by the chunk-granular re-request (self-correcting — never
+  // lossy). Drop it back only if device logs show pieces stalling (per-chunk
+  // delivery falling on a lossy path).
+  static const _contentChunkBytes = 4096;
   // Per-chunk pacing: feed the local onion circuit builder steadily without
   // overflowing the per-session TX queue (a too-fast burst trips the silent
   // tx_queue drop — now logged as `LIMIT tx_queue`). Many small chunks, so keep
@@ -2438,6 +2439,12 @@ class MessagingService {
   /// completion event can report where the plaintext file landed).
   final Map<String, String> _fetchSavePath = {};
 
+  /// The plaintext path an UNENCRYPTED download of [contentId] was saved to —
+  /// the UI OPENS it on tap instead of re-offering (it isn't in the app store).
+  /// Null if it was never downloaded unencrypted.
+  Future<String?> contentSavedPath(String contentId) =>
+      _storage.getSetting('saved:$contentId');
+
   /// Downloads waiting for a re-advertised manifest (contentId → its sink, null
   /// for an encrypted/in-volume download). [_onContentManifest] consumes these.
   final Map<String, _FetchSink?> _pendingDownload = {};
@@ -2742,6 +2749,13 @@ class MessagingService {
       try {
         await sink.close();
       } catch (_) {/* best-effort finalise */}
+      // Remember where it landed so a later tap OPENS the file instead of
+      // re-offering it (it isn't in the app store → hasFile is false).
+      if (savedPath != null) {
+        try {
+          await _storage.putSetting('saved:${f.contentId}', savedPath);
+        } catch (_) {/* non-fatal */}
+      }
       devLog(() => 'xVeil[content]: COMPLETE ${f.contentId.substring(0, 12)} '
           '(${fetch.manifest.size}B) saved UNENCRYPTED to $savedPath');
       await _send(fetch.peer, WireEnvelope.ack(ackId).encode());
