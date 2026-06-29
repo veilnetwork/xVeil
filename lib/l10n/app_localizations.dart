@@ -1081,6 +1081,24 @@ abstract class AppL10n {
   /// **'Save unencrypted'**
   String get fileSavePlainConfirm;
 
+  /// No description provided for @fileLargeMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Large files'**
+  String get fileLargeMode;
+
+  /// No description provided for @fileLargeModeHint.
+  ///
+  /// In en, this message translates to:
+  /// **'When you download a file too big for the hidden volume'**
+  String get fileLargeModeHint;
+
+  /// No description provided for @fileLargeModeAsk.
+  ///
+  /// In en, this message translates to:
+  /// **'Ask each time'**
+  String get fileLargeModeAsk;
+
   /// No description provided for @addIdentityTitle.
   ///
   /// In en, this message translates to:

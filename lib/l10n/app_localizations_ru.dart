@@ -531,6 +531,16 @@ class AppL10nRu extends AppL10n {
   String get fileSavePlainConfirm => 'Сохранить без шифрования';
 
   @override
+  String get fileLargeMode => 'Большие файлы';
+
+  @override
+  String get fileLargeModeHint =>
+      'Когда загружаете файл, не помещающийся в скрытый том';
+
+  @override
+  String get fileLargeModeAsk => 'Спрашивать каждый раз';
+
+  @override
   String get addIdentityTitle => 'Добавить личность';
 
   @override

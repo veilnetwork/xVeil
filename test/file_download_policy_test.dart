@@ -57,4 +57,19 @@ void main() {
     expect(FileDownloadPolicy.defaults.blockedExts, contains('apk'));
     expect(FileDownloadPolicy.defaults.blockedExts, contains('exe'));
   });
+
+  test('largeFileMode: defaults to ASK, round-trips, copyWith, equality', () {
+    expect(FileDownloadPolicy.defaults.largeFileMode, LargeFileMode.ask);
+    final open =
+        FileDownloadPolicy.defaults.copyWith(largeFileMode: LargeFileMode.open);
+    expect(open.largeFileMode, LargeFileMode.open);
+    expect(FileDownloadPolicy.fromJson(open.toJson()).largeFileMode,
+        LargeFileMode.open);
+    expect(open, isNot(FileDownloadPolicy.defaults), reason: 'mode in equality');
+    // Missing / junk mode → ASK (fail safe, not unencrypted).
+    expect(FileDownloadPolicy.fromJson({'max': mb}).largeFileMode,
+        LargeFileMode.ask);
+    expect(FileDownloadPolicy.fromJson({'max': mb, 'lfm': 'nope'}).largeFileMode,
+        LargeFileMode.ask);
+  });
 }
