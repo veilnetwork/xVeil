@@ -186,6 +186,49 @@ void main() {
     expect(closed, isTrue, reason: 'dispose closes the serve-from-source handle');
   });
 
+  test('DURABLE offer: a reoffer after the SENDER restarts re-opens the source '
+      'file and re-serves (offer survives the sender losing its serve state)',
+      () async {
+    final data = _rnd(300000, 52);
+    final cid = ContentManifest.fromBytes('d.bin', data).contentId;
+    Future<Uint8List> read(int o, int l) async =>
+        Uint8List.sublistView(data, o, o + l);
+    // A test source opener: the persisted "path" maps back to the bytes.
+    Future<
+        ({
+          Future<Uint8List> Function(int, int) read,
+          Future<void> Function() close
+        })?> opener(String path) async {
+      if (path != 'mem://d') return null;
+      return (read: read, close: () async {});
+    }
+
+    // A's first advertise is lost → B never registers the offer (the lost-manifest
+    // case); A persists the durable record (mf + path) and serves.
+    tA.dropManifestOnce = true;
+    await mA.sendFileStreaming(b, 'd.bin', data.length, read,
+        close: () async {}, sourcePath: 'mem://d');
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+
+    // "Restart" the SENDER: drop its in-memory serve state, keep its storage.
+    await mA.dispose();
+    final mA2 = MessagingService(tA, sA,
+        contentReRequestInterval: const Duration(milliseconds: 120),
+        contentPacing: Duration.zero)
+      ..sourceOpener = opener
+      ..start();
+    addTearDown(mA2.dispose);
+
+    // B downloads → no manifest → reoffer → A2 RE-OPENS the file (durable) and
+    // re-serves → B fetches + completes.
+    final got = mB.contentReceived.first;
+    final r = await mB.downloadContent(a, cid);
+    expect(r, ContentDownloadResult.requestedReoffer);
+    final ev = await got.timeout(const Duration(seconds: 20));
+    expect(ev.contentId, cid);
+    expect(await sB.loadFile(cid), data, reason: 'resumed from the re-opened source');
+  });
+
   test('a download with no live manifest RE-REQUESTS it from the sender and '
       'resumes (offer survived a restart, manifest did not)', () async {
     final data = _rnd(300000, 41);

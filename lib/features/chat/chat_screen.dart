@@ -196,6 +196,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             close: () async {
               await raf.close();
             },
+            // Persist this path so a reoffer after a restart can re-open + re-serve
+            // (durable offers). Best-effort — works while the file stays here.
+            sourcePath: path,
           );
         } catch (e) {
           devLog(() => 'xVeil[attach]: stream send failed ${file.name}: $e');
