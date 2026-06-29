@@ -55,6 +55,7 @@ class _FileSettingsScreenState extends ConsumerState<FileSettingsScreen> {
   }
 
   Future<void> _pickLimit(AppL10n l) async {
+    const customSentinel = -1;
     final choice = await showDialog<int>(
       context: context,
       builder: (d) => SimpleDialog(
@@ -67,11 +68,65 @@ class _FileSettingsScreenState extends ConsumerState<FileSettingsScreen> {
                   _policy.autoMaxBytes == p ? const Icon(Icons.check) : null,
               onTap: () => Navigator.of(d).pop(p),
             ),
+          ListTile(
+            title: Text(l.fileCustomSize),
+            trailing: !_presets.contains(_policy.autoMaxBytes)
+                ? Text(_fmtBytes(_policy.autoMaxBytes))
+                : const Icon(Icons.edit_outlined),
+            onTap: () => Navigator.of(d).pop(customSentinel),
+          ),
         ],
       ),
     );
     if (choice == null) return;
+    if (choice == customSentinel) {
+      await _pickCustomLimit(l);
+      return;
+    }
     await _save(_policy.copyWith(autoMaxBytes: choice));
+  }
+
+  /// Free-form auto-download cap in MB (the presets don't have to fit everyone).
+  Future<void> _pickCustomLimit(AppL10n l) async {
+    final cur = _policy.autoMaxBytes / (1 << 20);
+    final ctl = TextEditingController(
+        text: cur == cur.roundToDouble()
+            ? cur.toStringAsFixed(0)
+            : cur.toStringAsFixed(1));
+    try {
+      final mb = await showDialog<double>(
+        context: context,
+        builder: (d) {
+          double? parse() => double.tryParse(ctl.text.trim().replaceAll(',', '.'));
+          return AlertDialog(
+            title: Text(l.fileCustomSize),
+            content: TextField(
+              controller: ctl,
+              autofocus: true,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(
+                labelText: l.fileSizeMb,
+                suffixText: 'MB',
+              ),
+              onSubmitted: (_) => Navigator.of(d).pop(parse()),
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.of(d).pop(),
+                  child: Text(l.actionCancel)),
+              FilledButton(
+                  onPressed: () => Navigator.of(d).pop(parse()),
+                  child: Text(l.actionSave)),
+            ],
+          );
+        },
+      );
+      if (mb == null || mb < 0) return;
+      await _save(_policy.copyWith(autoMaxBytes: (mb * (1 << 20)).round()));
+    } finally {
+      ctl.dispose();
+    }
   }
 
   Future<void> _addType() async {

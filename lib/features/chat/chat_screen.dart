@@ -1246,6 +1246,11 @@ class _Bubble extends ConsumerWidget {
     final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
     final outgoing = message.direction == MessageDirection.outgoing;
+    // In-flight download fraction for this file (null = not downloading).
+    final cid = message.fileContentId;
+    final progress = cid == null
+        ? null
+        : ref.watch(contentProgressProvider.select((m) => m[cid]));
     return Align(
       alignment: outgoing ? Alignment.centerRight : Alignment.centerLeft,
       child: GestureDetector(
@@ -1298,7 +1303,17 @@ class _Bubble extends ConsumerWidget {
                               message.fileName ?? message.body,
                               overflow: TextOverflow.ellipsis,
                             ),
-                            if (message.fileSize != null)
+                            // Show "Downloading NN%" while a transfer is in
+                            // flight, else the file size.
+                            if (progress != null)
+                              Text(
+                                '${l.fileDownloading} ${(progress * 100).round()}%',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelSmall
+                                    ?.copyWith(color: scheme.onSurfaceVariant),
+                              )
+                            else if (message.fileSize != null)
                               Text(
                                 _formatBytes(message.fileSize!),
                                 style: Theme.of(context)
@@ -1310,21 +1325,33 @@ class _Bubble extends ConsumerWidget {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      // Download icon for an OFFER we have not fetched yet; a save
-                      // icon once the blob is local (tap then writes it out).
-                      FutureBuilder<bool>(
-                        future: _held(ref),
-                        builder: (_, snap) {
-                          final held = snap.data ?? (message.fileId != null);
-                          return Icon(
-                            held
-                                ? Icons.save_alt_outlined
-                                : Icons.download_outlined,
-                            size: 16,
+                      // While downloading: a ring at the current fraction. Else a
+                      // download icon for an un-fetched OFFER, or a save icon once
+                      // the blob is local (tap then writes it out).
+                      if (progress != null)
+                        SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            value: progress == 0 ? null : progress,
+                            strokeWidth: 2,
                             color: scheme.onSurfaceVariant,
-                          );
-                        },
-                      ),
+                          ),
+                        )
+                      else
+                        FutureBuilder<bool>(
+                          future: _held(ref),
+                          builder: (_, snap) {
+                            final held = snap.data ?? (message.fileId != null);
+                            return Icon(
+                              held
+                                  ? Icons.save_alt_outlined
+                                  : Icons.download_outlined,
+                              size: 16,
+                              color: scheme.onSurfaceVariant,
+                            );
+                          },
+                        ),
                     ],
                   ),
                 )
