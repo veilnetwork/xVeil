@@ -1123,6 +1123,12 @@ abstract class AppL10n {
   /// **'Requesting the file from the sender…'**
   String get fileRequestingResend;
 
+  /// No description provided for @fileReofferFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t get the file — ask the sender to re-send it.'**
+  String get fileReofferFailed;
+
   /// No description provided for @addIdentityTitle.
   ///
   /// In en, this message translates to:
