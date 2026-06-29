@@ -185,6 +185,7 @@
   "fileSizeMb": "Size in MB",
   "fileDownloading": "Downloading",
   "fileRequestingResend": "Requesting the file from the sender…",
+  "fileReofferFailed": "Couldn't get the file — ask the sender to re-send it.",
   "addIdentityTitle": "Add identity",
   "addIdentitySubtitle": "A new identity is hidden in the same file. The first time you add one, your current identity and the new one are managed by a master password you set below.",
   "addIdentityCurrentName": "Name for your current identity",

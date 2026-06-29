@@ -287,7 +287,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         await ref.read(messagingServiceProvider).downloadContent(_peer, cid);
     if (mounted && r == ContentDownloadResult.requestedReoffer) {
       _snack(AppL10n.of(context).fileRequestingResend);
+      _watchDownloadFailure(cid);
     }
+  }
+
+  /// After a re-advertise REQUEST, react if it times out (the sender no longer
+  /// serves the file): tell the user to ask for a re-send, and delete the empty
+  /// destination file an unencrypted download had already created.
+  void _watchDownloadFailure(String cid, {String? deletePath}) {
+    ref
+        .read(messagingServiceProvider)
+        .contentDownloadFailed
+        .firstWhere((c) => c == cid)
+        .then((_) async {
+      if (deletePath != null) {
+        try {
+          await File(deletePath).delete();
+        } catch (_) {/* already gone */}
+      }
+      if (mounted) _snack(AppL10n.of(context).fileReofferFailed);
+    }).catchError((_) {/* stream closed before any failure */});
   }
 
   /// Ask where to put a LARGE offered file: the encrypted in-app tier, or a plain
@@ -383,6 +402,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
     if (mounted && r == ContentDownloadResult.requestedReoffer) {
       _snack(l.fileRequestingResend);
+      _watchDownloadFailure(cid, deletePath: dest); // clean up the empty file
     }
   }
 
