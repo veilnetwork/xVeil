@@ -340,17 +340,34 @@ stop_existing_nodes() {
   done
 
   old_pids="$(pgrep -f "$NODES/.*/config.toml" 2>/dev/null || true)"
-  [[ -n "$old_pids" ]] || return 0
-  echo "==> stopping stale local onion-stream nodes"
-  while read -r pid; do
-    [[ -n "$pid" ]] || continue
-    kill "$pid" 2>/dev/null || true
-  done <<<"$old_pids"
-  sleep 2
-  while read -r pid; do
-    [[ -n "$pid" ]] || continue
-    kill -9 "$pid" 2>/dev/null || true
-  done <<<"$old_pids"
+  if [[ -n "$old_pids" ]]; then
+    echo "==> stopping stale local onion-stream nodes"
+    while read -r pid; do
+      [[ -n "$pid" ]] || continue
+      kill "$pid" 2>/dev/null || true
+    done <<<"$old_pids"
+    sleep 2
+    while read -r pid; do
+      [[ -n "$pid" ]] || continue
+      kill -9 "$pid" 2>/dev/null || true
+    done <<<"$old_pids"
+  fi
+
+  if command -v lsof >/dev/null 2>&1; then
+    old_pids="$(lsof -tiTCP:9230-9233 -sTCP:LISTEN 2>/dev/null || true)"
+    [[ -n "$old_pids" ]] || return 0
+    echo "==> stopping stale local onion-stream port listeners"
+    while read -r pid; do
+      [[ -n "$pid" ]] || continue
+      kill "$pid" 2>/dev/null || true
+    done <<<"$old_pids"
+    sleep 2
+    while read -r pid; do
+      [[ -n "$pid" ]] || continue
+      kill -0 "$pid" 2>/dev/null || continue
+      kill -9 "$pid" 2>/dev/null || true
+    done <<<"$old_pids"
+  fi
 }
 
 stop_existing_flutter_tests() {
@@ -371,6 +388,22 @@ stop_existing_flutter_tests() {
     kill -0 "$pid" 2>/dev/null || continue
     kill -9 "$pid" 2>/dev/null || true
   done <<<"$old_pids"
+
+  if command -v lsof >/dev/null 2>&1; then
+    old_pids="$(lsof -tiTCP:9230-9233 -sTCP:LISTEN 2>/dev/null || true)"
+    [[ -n "$old_pids" ]] || return 0
+    echo "==> stopping stale local onion-stream port listeners"
+    while read -r pid; do
+      [[ -n "$pid" ]] || continue
+      kill "$pid" 2>/dev/null || true
+    done <<<"$old_pids"
+    sleep 2
+    while read -r pid; do
+      [[ -n "$pid" ]] || continue
+      kill -0 "$pid" 2>/dev/null || continue
+      kill -9 "$pid" 2>/dev/null || true
+    done <<<"$old_pids"
+  fi
 }
 
 cleanup() {
