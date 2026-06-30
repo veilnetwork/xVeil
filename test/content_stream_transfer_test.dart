@@ -785,6 +785,113 @@ void main() {
   );
 
   test(
+    'STREAM reoffer resumes a parked encrypted download on range streams',
+    () async {
+      final data = _rnd(700000, 67); // 3 pieces at the default 256 KiB.
+      final cid = ContentManifest.fromBytes(
+        'reoffer-range.bin',
+        data,
+      ).contentId;
+      await mB.setFileDownloadPolicy(
+        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+
+      // A serves the file, but the original manifest advertisement is lost
+      // before B sees it. B will have to request a re-advertise.
+      tA.peer = null;
+      await mA.sendFileStreaming(
+        b,
+        'reoffer-range.bin',
+        data.length,
+        (o, l) async => Uint8List.sublistView(data, o, o + l),
+        close: () async {},
+      );
+      tA.peer = tB;
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      // The first stream-open attempt fails like a cold/stale anonymous circuit,
+      // so downloadContent parks the request and asks for a reoffer. Once the
+      // manifest arrives, it must continue on the fast range-stream path instead
+      // of falling back to the old datagram piece sender.
+      tB.openStreamFailures = 1;
+      final got = mB.contentReceived.firstWhere((e) => e.contentId == cid);
+      expect(
+        await mB.downloadContent(a, cid),
+        ContentDownloadResult.requestedReoffer,
+      );
+      final ev = await got.timeout(const Duration(seconds: 20));
+
+      expect(ev.contentId, cid);
+      expect(await sB.loadFile(cid), data);
+      expect(
+        tB.openedStreamCount,
+        greaterThanOrEqualTo(3),
+        reason:
+            'reoffered manifests should restart parked downloads via range streams',
+      );
+    },
+  );
+
+  test(
+    'STREAM reoffer resumes a parked plaintext download on range streams',
+    () async {
+      final data = _rnd(700000, 73); // 3 pieces at the default 256 KiB.
+      final cid = ContentManifest.fromBytes(
+        'reoffer-plain.bin',
+        data,
+      ).contentId;
+      await mB.setFileDownloadPolicy(
+        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+
+      tA.peer = null;
+      await mA.sendFileStreaming(
+        b,
+        'reoffer-plain.bin',
+        data.length,
+        (o, l) async => Uint8List.sublistView(data, o, o + l),
+        close: () async {},
+      );
+      tA.peer = tB;
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      final dir = await Directory.systemTemp.createTemp('xveil-reoffer-plain');
+      addTearDown(() async {
+        if (await dir.exists()) await dir.delete(recursive: true);
+      });
+      final dest = '${dir.path}/reoffer-plain.bin';
+      final raf = await File(dest).open(mode: FileMode.write);
+      tB.openStreamFailures = 1;
+
+      final got = mB.contentReceived.firstWhere((e) => e.contentId == cid);
+      final r = await mB.downloadContentToFile(
+        a,
+        cid,
+        dest,
+        write: (offset, bytes) async {
+          await raf.setPosition(offset);
+          await raf.writeFrom(bytes);
+        },
+        close: () async {
+          await raf.close();
+        },
+      );
+      expect(r, ContentDownloadResult.requestedReoffer);
+      final ev = await got.timeout(const Duration(seconds: 20));
+
+      expect(ev.savedToPath, dest);
+      expect(await File(dest).readAsBytes(), data);
+      expect(await sB.hasFile(cid), isFalse);
+      expect(
+        tB.openedStreamCount,
+        greaterThanOrEqualTo(3),
+        reason:
+            'plaintext reoffers should also use parallel range streams, not datagrams',
+      );
+    },
+  );
+
+  test(
     'STREAM swarm resume switches to another holder after partial payload',
     () async {
       final data = _rnd(700000, 31); // 3 pieces at the default 256 KiB.

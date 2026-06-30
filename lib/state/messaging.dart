@@ -2577,6 +2577,45 @@ class MessagingService {
             'xVeil[content]: re-advertised manifest arrived for '
             '${m.contentId.substring(0, 12)} — resuming the parked download',
       );
+      final retryPeers = await _contentSourcePeers(
+        preferred: peer,
+        contentId: m.contentId,
+      );
+      if (sink != null) {
+        final savedPath = _fetchSavePath[m.contentId];
+        if (savedPath != null &&
+            await _pullSwarmStreamToFile(
+              peer,
+              m.contentId,
+              m,
+              retryPeers,
+              sink,
+              savedPath,
+            )) {
+          return;
+        }
+        if (await _pullStream(
+          peer,
+          m.contentId,
+          sink,
+          savedPath: savedPath,
+          retryPeers: retryPeers,
+        )) {
+          return;
+        }
+      } else {
+        if (await _pullSwarmStream(peer, m.contentId, m, retryPeers)) {
+          return;
+        }
+        if (await _pullStream(
+          peer,
+          m.contentId,
+          null,
+          retryPeers: retryPeers,
+        )) {
+          return;
+        }
+      }
       await _beginFetch(peer, m, sink: sink);
       return;
     }
