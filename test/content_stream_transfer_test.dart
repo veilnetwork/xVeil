@@ -71,6 +71,46 @@ class _PipeEnd implements ReliableStream {
   Future<void> close() async => _w.close();
 }
 
+/// Test fault: after [passBytes] bytes written by this endpoint, the write side
+/// turns into a blackhole. Writes still resolve (like a lower layer accepting
+/// cells into a dead path), but the peer receives no more bytes and no EOF.
+class _BlackholeWriteStream implements ReliableStream {
+  _BlackholeWriteStream(this._inner, {required this.passBytes});
+
+  final ReliableStream _inner;
+  final int passBytes;
+  int _written = 0;
+  bool _blackholed = false;
+
+  @override
+  Future<void> write(Uint8List data) async {
+    if (_blackholed) return;
+    final remaining = passBytes - _written;
+    if (remaining <= 0) {
+      _blackholed = true;
+      return;
+    }
+    if (data.length <= remaining) {
+      _written += data.length;
+      await _inner.write(data);
+      return;
+    }
+    await _inner.write(Uint8List.sublistView(data, 0, remaining));
+    _written += remaining;
+    _blackholed = true;
+  }
+
+  @override
+  Future<Uint8List> read({int maxBytes = 65536}) =>
+      _inner.read(maxBytes: maxBytes);
+
+  @override
+  Future<void> close() async {
+    if (_blackholed) return;
+    await _inner.close();
+  }
+}
+
 /// Datagram + reliable-stream loopback link between two peers.
 class _StreamLink implements VeilTransport, StreamTransport {
   _StreamLink(this._me);
@@ -78,6 +118,9 @@ class _StreamLink implements VeilTransport, StreamTransport {
   final _in = StreamController<InboundMessage>.broadcast();
   _StreamLink? peer;
   final _accepts = <({ReliableStream stream, NodeId src})>[];
+  final acceptStreamWrappers =
+      <ReliableStream Function(ReliableStream stream)>[];
+  int openedStreamCount = 0;
   Completer<void>? _acceptWaiter;
 
   @override
@@ -85,8 +128,11 @@ class _StreamLink implements VeilTransport, StreamTransport {
   @override
   Stream<InboundMessage> messages() => _in.stream;
   @override
-  Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) async =>
-      peer?._in.add(InboundMessage(src: _me, payload: payload));
+  Future<void> send(
+    NodeId dst,
+    Uint8List payload, {
+    bool anonymous = false,
+  }) async => peer?._in.add(InboundMessage(src: _me, payload: payload));
   @override
   Future<void> sendWithReply(NodeId dst, Uint8List payload) =>
       send(dst, payload);
@@ -103,9 +149,14 @@ class _StreamLink implements VeilTransport, StreamTransport {
   Future<ReliableStream?> openStream(NodeId dst) async {
     final p = peer;
     if (p == null) return null;
+    openedStreamCount++;
     final aToB = _Chan(), bToA = _Chan();
+    ReliableStream peerStream = _PipeEnd(bToA, aToB);
+    if (p.acceptStreamWrappers.isNotEmpty) {
+      peerStream = p.acceptStreamWrappers.removeAt(0)(peerStream);
+    }
     // Peer accepts the B-end; I keep the A-end.
-    p._accepts.add((stream: _PipeEnd(bToA, aToB), src: _me));
+    p._accepts.add((stream: peerStream, src: _me));
     final w = p._acceptWaiter;
     p._acceptWaiter = null;
     w?.complete();
@@ -113,8 +164,9 @@ class _StreamLink implements VeilTransport, StreamTransport {
   }
 
   @override
-  Future<({ReliableStream stream, NodeId src})?> acceptStream(
-      {Duration timeout = const Duration(seconds: 2)}) async {
+  Future<({ReliableStream stream, NodeId src})?> acceptStream({
+    Duration timeout = const Duration(seconds: 2),
+  }) async {
     if (_accepts.isEmpty) {
       try {
         await (_acceptWaiter = Completer<void>()).future.timeout(timeout);
@@ -158,36 +210,52 @@ void main() {
     await mB.dispose();
   });
 
-  test('STREAM download: receiver pulls a multi-piece file over a reliable '
-      'stream, verifies every piece, stores it (no datagram chunk/re-request)',
-      () async {
-    final data = _rnd(500000, 7); // ~2 pieces
-    final cid = ContentManifest.fromBytes('movie.bin', data).contentId;
-    // A advertises + serves-from-source; B is "always ask" so it stays an OFFER.
-    await mB.setFileDownloadPolicy(
-        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0));
-    await mA.sendFileStreaming(b, 'movie.bin', data.length,
+  test(
+    'STREAM download: receiver pulls a multi-piece file over a reliable '
+    'stream, verifies every piece, stores it (no datagram chunk/re-request)',
+    () async {
+      final data = _rnd(500000, 7); // ~2 pieces
+      final cid = ContentManifest.fromBytes('movie.bin', data).contentId;
+      // A advertises + serves-from-source; B is "always ask" so it stays an OFFER.
+      await mB.setFileDownloadPolicy(
+        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+      await mA.sendFileStreaming(
+        b,
+        'movie.bin',
+        data.length,
         (o, l) async => Uint8List.sublistView(data, o, o + l),
-        close: () async {});
-    await Future<void>.delayed(const Duration(milliseconds: 80));
+        close: () async {},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 80));
 
-    final got = mB.contentReceived.first;
-    final r = await mB.downloadContent(a, cid);
-    expect(r, ContentDownloadResult.started);
-    final ev = await got.timeout(const Duration(seconds: 20));
-    expect(ev.contentId, cid);
-    expect(await sB.loadFile(cid), data, reason: 'pulled + verified the whole');
-  });
+      final got = mB.contentReceived.first;
+      final r = await mB.downloadContent(a, cid);
+      expect(r, ContentDownloadResult.started);
+      final ev = await got.timeout(const Duration(seconds: 20));
+      expect(ev.contentId, cid);
+      expect(
+        await sB.loadFile(cid),
+        data,
+        reason: 'pulled + verified the whole',
+      );
+    },
+  );
 
   test('STREAM download to an UNENCRYPTED file writes the plaintext + nothing '
       'in the app', () async {
     final data = _rnd(400000, 9);
     final cid = ContentManifest.fromBytes('clip.bin', data).contentId;
     await mB.setFileDownloadPolicy(
-        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0));
-    await mA.sendFileStreaming(b, 'clip.bin', data.length,
-        (o, l) async => Uint8List.sublistView(data, o, o + l),
-        close: () async {});
+      mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+    );
+    await mA.sendFileStreaming(
+      b,
+      'clip.bin',
+      data.length,
+      (o, l) async => Uint8List.sublistView(data, o, o + l),
+      close: () async {},
+    );
     await Future<void>.delayed(const Duration(milliseconds: 80));
 
     final dir = await Directory.systemTemp.createTemp('xveil-stream');
@@ -197,17 +265,81 @@ void main() {
     final dest = '${dir.path}/clip.bin';
     final raf = await File(dest).open(mode: FileMode.write);
     final got = mB.contentReceived.first;
-    final r = await mB.downloadContentToFile(a, cid, dest,
-        write: (offset, bytes) async {
-      await raf.setPosition(offset);
-      await raf.writeFrom(bytes);
-    }, close: () async {
-      await raf.close();
-    });
+    final r = await mB.downloadContentToFile(
+      a,
+      cid,
+      dest,
+      write: (offset, bytes) async {
+        await raf.setPosition(offset);
+        await raf.writeFrom(bytes);
+      },
+      close: () async {
+        await raf.close();
+      },
+    );
     expect(r, ContentDownloadResult.started);
     final ev = await got.timeout(const Duration(seconds: 20));
     expect(ev.savedToPath, dest);
     expect(await File(dest).readAsBytes(), data);
-    expect(await sB.hasFile(cid), isFalse, reason: 'plaintext-to-file keeps nothing');
+    expect(
+      await sB.hasFile(cid),
+      isFalse,
+      reason: 'plaintext-to-file keeps nothing',
+    );
+  });
+
+  test('STREAM download resumes on a fresh stream after payload idle', () async {
+    await mA.dispose();
+    await mB.dispose();
+    mA = MessagingService(
+      tA,
+      sA,
+      contentPacing: Duration.zero,
+      streamPayloadIdleTimeout: const Duration(milliseconds: 120),
+      streamPullMaxAttempts: 4,
+    )..start();
+    mB = MessagingService(
+      tB,
+      sB,
+      contentPacing: Duration.zero,
+      streamPayloadIdleTimeout: const Duration(milliseconds: 120),
+      streamPullMaxAttempts: 4,
+    )..start();
+
+    // The sender's first accepted stream blackholes after enough bytes for the
+    // receiver to verify one 256 KiB piece, but before the full file arrives.
+    tA.acceptStreamWrappers.add(
+      (stream) => _BlackholeWriteStream(stream, passBytes: 350 * 1024),
+    );
+
+    final data = _rnd(700000, 13); // 3 pieces
+    final cid = ContentManifest.fromBytes('resume.bin', data).contentId;
+    await mB.setFileDownloadPolicy(
+      mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+    );
+    await mA.sendFileStreaming(
+      b,
+      'resume.bin',
+      data.length,
+      (o, l) async => Uint8List.sublistView(data, o, o + l),
+      close: () async {},
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+
+    final got = mB.contentReceived.first;
+    final r = await mB.downloadContent(a, cid);
+    expect(r, ContentDownloadResult.started);
+    final ev = await got.timeout(const Duration(seconds: 8));
+    expect(ev.contentId, cid);
+    expect(
+      tB.openedStreamCount,
+      greaterThanOrEqualTo(2),
+      reason: 'receiver should abandon the blackholed stream and retry',
+    );
+    expect(
+      await sB.loadFile(cid),
+      data,
+      reason: 'resume stream must reconstruct the original bytes intact',
+    );
   });
 }
