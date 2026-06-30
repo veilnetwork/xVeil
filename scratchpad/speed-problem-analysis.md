@@ -14,6 +14,9 @@
   - congestion growth считает подтверждённые байты, а не ACK-пакеты.
 - Rust synthetic clean-circuit regression теперь защищает порог **≥2.0 MiB/s**
   на текущем профиле (150 ms RTT, MSS 318, window 896 KiB, batch=12, ACK×16).
+- Published pinned-circuit режим больше не кладёт sender node id в cleartext
+  envelope на rendezvous relay: обычные cells идут как opaque `peer_tag`,
+  а SYN/SYN_ACK несут зашифрованный receiver-only peer intro.
 - Более агрессивная ступень batch=24 / ACK×32 на 37,158,021 Б давала:
   - steady: 2.80–3.01 МБ/с;
   - примерно 13.8 с от `stream-serve` до готового файла;
@@ -38,8 +41,11 @@
    существенно уменьшил reverse traffic и per-cell работу rendezvous.
 5. Slow-start и congestion avoidance росли на ACK-пакет, а не на число
    подтверждённых байт. ACK thinning поэтому искусственно замедлял разгон.
-6. Pinned circuit жил дольше relay idle TTL и становился stale. Добавлен
-   подтверждённый refresh каждые 120 с с grace-периодом старой цепочки.
+6. Pinned circuit жил дольше relay idle TTL и становился stale. Refresh теперь
+   делается только после idle, не посреди активной передачи; старая цепочка
+   держится grace-периодом, чтобы ACK/data уже открытых stream'ов не black-hole.
+   Новый stream-handshake на старом/тихом outbound path быстро переоткрывает
+   цепочку.
 7. Recreated hub использовал случайный registration key для прежнего cookie;
    relay first-registration-wins блокировал новую цепочку. Registration key
    теперь стабильно выводится из identity key; cookie переведён на v2 domain.
@@ -62,9 +68,32 @@
 - `veil-session`: очереди, encrypted batching и безопасный writer admission.
 - `veil-onion-stream`: pacing batches, delayed/cumulative ACK, byte-counted
   congestion growth, RTT diagnostics.
-- `veil-node-runtime`: stable onion-stream registration key.
-- `veilclient-ffi`: exact circuit MSS, circuit refresh/lifecycle и tuned config.
+- `veil-node-runtime`: stable onion-stream registration key, published rendezvous
+  ad resolution for stream circuits, decrypt helper for protected peer intro.
+- `veilclient-ffi`: exact circuit MSS, circuit refresh/lifecycle, tuned config,
+  published-mode `peer_tag` + encrypted SYN/SYN_ACK intro.
 
-Все 27 тестов `veil-onion-stream` и 235 тестов `veil-session` проходили после
-основных изменений; финальные numeric tuning changes также успешно собраны для
-macOS и Android.
+## Текущая автономная проверка
+
+`scripts/onion-stream-synthetic.sh` не требует телефона, UI-кликов или живых
+seed-реле. Сейчас он гоняет:
+
+- `veil-onion-stream` fault injection и полный sans-IO набор;
+- `veilclient-ffi --features node-embedded anon_stream::tests`, включая strict
+  opt-in, размер protected envelope и binding encrypted-intro plaintext к tag;
+- Flutter content-stream range/reoffer/resume/download-to-file regressions,
+  включая пустой/частичный plaintext destination и truncated source;
+- `dart analyze` для затронутых Dart-файлов и `bash -n` для soak scripts.
+
+Последний полный прогон после protected-intro правок: **passed**.
+
+## Оставшиеся границы
+
+- Stream cookie всё ещё детерминированный (`stream-cookie-v2`) и виден R как
+  стабильный target cookie. Убрать это малой локальной правкой нельзя: R должен
+  знать target cookie до первого stream cell. Нужна протокольная миграция:
+  published stream-cookie в rendezvous ad или preflight invite через обычный
+  rendezvous path.
+- Финальная уверенность всё ещё требует real-device прогона phone ↔ desktop ↔
+  3 seed-реле: synthetic ловит регрессии логики, но не доказывает radio/ADB,
+  Android process lifecycle и реальные obfs4/session очереди.
