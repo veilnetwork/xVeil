@@ -3619,7 +3619,10 @@ class MessagingService {
         ? pending.length
         : _streamRangeParallelism;
     final attempts = List<int>.filled(manifest.pieceCount, 0);
-    final maxAttemptsPerPiece = sources.length * 2 < 3 ? 3 : sources.length * 2;
+    final minAttemptsPerPiece = sources.length < 3 ? 3 : sources.length;
+    final maxAttemptsPerPiece = _streamPullMaxAttempts < minAttemptsPerPiece
+        ? minAttemptsPerPiece
+        : _streamPullMaxAttempts;
     var failed = false;
     NodeId? completionPeer;
     ContentManifest? completionManifest;
@@ -3677,7 +3680,8 @@ class MessagingService {
       () =>
           'xVeil[content]: swarm-range start ${cid.substring(0, 12)} '
           'pieces=${manifest.pieceCount} workers=$workerCount '
-          'sources=${sources.length} resume=${completed.length}',
+          'sources=${sources.length} resume=${completed.length} '
+          'attempts_per_piece=$maxAttemptsPerPiece',
     );
     await Future.wait<void>([for (var i = 0; i < workerCount; i++) worker(i)]);
     if (failed ||
