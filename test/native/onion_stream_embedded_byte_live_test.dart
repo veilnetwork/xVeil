@@ -232,7 +232,7 @@ void main() {
     256 * 1024,
   ).clamp(1, 16 * 1024 * 1024);
   final requireEof =
-      Platform.environment['XVEIL_BYTE_STREAM_REQUIRE_EOF'] == '1';
+      Platform.environment['XVEIL_BYTE_STREAM_REQUIRE_EOF'] != '0';
   final warmupSeconds = _envInt('XVEIL_EMBED_WARMUP_SECONDS', 12).clamp(0, 300);
   final minMiBPerSec = double.tryParse(
     Platform.environment['XVEIL_TEST_MIN_MIB_PER_SEC'] ?? '',
@@ -341,7 +341,8 @@ void main() {
       final acceptFuture = acceptAll();
       await Future<void>.delayed(const Duration(milliseconds: 100));
 
-      final sw = Stopwatch()..start();
+      final totalSw = Stopwatch()..start();
+      final setupSw = Stopwatch()..start();
       final streams = await Future.wait([
         for (var i = 0; i < streamCount; i++)
           clientA.openAnonStream(
@@ -350,6 +351,8 @@ void main() {
           ),
       ]);
       final receivers = await acceptFuture.timeout(const Duration(seconds: 60));
+      setupSw.stop();
+      final payloadSw = Stopwatch()..start();
       await Future.wait([
         for (var i = 0; i < streams.length; i++)
           _sendStream(streams[i], i, perStream[i], chunkBytes, requireEof),
@@ -357,16 +360,26 @@ void main() {
       final received = await Future.wait(
         receivers,
       ).timeout(const Duration(minutes: 5));
-      sw.stop();
+      payloadSw.stop();
+      totalSw.stop();
 
       final receivedBytes = received.fold<int>(0, (a, b) => a + b);
       expect(receivedBytes, totalBytes);
-      final seconds = max(sw.elapsedMicroseconds / 1000000.0, 0.001);
-      final mibPerSec = totalBytes / seconds / 1024 / 1024;
+      final totalSeconds = max(totalSw.elapsedMicroseconds / 1000000.0, 0.001);
+      final setupSeconds = setupSw.elapsedMicroseconds / 1000000.0;
+      final payloadSeconds = max(
+        payloadSw.elapsedMicroseconds / 1000000.0,
+        0.001,
+      );
+      final mibPerSec = totalBytes / totalSeconds / 1024 / 1024;
+      final payloadMiBPerSec = totalBytes / payloadSeconds / 1024 / 1024;
       stderr.writeln(
         '[onion-byte-embedded] completed ${totalBytes}B in '
-        '${seconds.toStringAsFixed(3)}s = '
-        '${mibPerSec.toStringAsFixed(3)} MiB/s',
+        '${totalSeconds.toStringAsFixed(3)}s = '
+        '${mibPerSec.toStringAsFixed(3)} MiB/s '
+        '(setup=${setupSeconds.toStringAsFixed(3)}s, '
+        'payload=${payloadSeconds.toStringAsFixed(3)}s = '
+        '${payloadMiBPerSec.toStringAsFixed(3)} MiB/s)',
       );
       if (minMiBPerSec != null) {
         expect(

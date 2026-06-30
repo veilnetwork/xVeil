@@ -45,7 +45,9 @@ class VeilFlutterTransport implements VeilTransport, StreamTransport {
   Future<String> createInvite() async {
     final r = await _client.createBootstrapInvite();
     if (r.status != CreateBootstrapInviteStatus.ok || r.uri.isEmpty) {
-      throw StateError('create invite failed: ${r.status.name} ${r.detail ?? ''}');
+      throw StateError(
+        'create invite failed: ${r.status.name} ${r.detail ?? ''}',
+      );
     }
     return r.uri;
   }
@@ -172,8 +174,11 @@ class VeilFlutterTransport implements VeilTransport, StreamTransport {
       );
       return _VeilAnonReliableStream(s);
     } catch (e) {
-      devLog(() => 'xVeil[stream]: openAnonStream(${dst.short}) failed → '
-          'datagram fallback: $e');
+      devLog(
+        () =>
+            'xVeil[stream]: openAnonStream(${dst.short}) failed → '
+            'datagram fallback: $e',
+      );
       return null;
     }
   }
@@ -181,21 +186,25 @@ class VeilFlutterTransport implements VeilTransport, StreamTransport {
   /// Accept the next inbound anonymous stream a peer opened to us, or null on
   /// [timeout] (so a server loop polls). The receive side of file streaming.
   @override
-  Future<({ReliableStream stream, NodeId src})?> acceptStream(
-      {Duration timeout = const Duration(seconds: 2)}) async {
+  Future<({ReliableStream stream, NodeId src})?> acceptStream({
+    Duration timeout = const Duration(seconds: 2),
+  }) async {
     final r = await _client.acceptAnonStream(timeout: timeout);
     if (r == null) return null;
-    return (stream: _VeilAnonReliableStream(r.stream), src: NodeId(r.srcNodeId));
+    return (
+      stream: _VeilAnonReliableStream(r.stream),
+      src: NodeId(r.srcNodeId),
+    );
   }
 
   @override
   Stream<InboundMessage> messages() => _app.messages().map(
-        (m) => InboundMessage(
-          src: NodeId(m.srcNodeId),
-          payload: m.data,
-          replyId: m.replyId,
-        ),
-      );
+    (m) => InboundMessage(
+      src: NodeId(m.srcNodeId),
+      payload: m.data,
+      replyId: m.replyId,
+    ),
+  );
 
   @override
   Stream<int> sessionCount() async* {
@@ -219,27 +228,29 @@ class VeilFlutterTransport implements VeilTransport, StreamTransport {
   Future<List<PeerInfo>> peers() async {
     final raw = await _client.peers();
     return raw
-        .map((p) => PeerInfo(
-              nodeId: NodeId(p.nodeId),
-              state: _mapState(p.state),
-              direction: _mapDir(p.direction),
-              transport: p.transport,
-            ))
+        .map(
+          (p) => PeerInfo(
+            nodeId: NodeId(p.nodeId),
+            state: _mapState(p.state),
+            direction: _mapDir(p.direction),
+            transport: p.transport,
+          ),
+        )
         .toList(growable: false);
   }
 
   static PeerState _mapState(VeilPeerState s) => switch (s) {
-        VeilPeerState.connecting => PeerState.connecting,
-        VeilPeerState.active => PeerState.active,
-        VeilPeerState.closed => PeerState.closed,
-        VeilPeerState.unknown => PeerState.unknown,
-      };
+    VeilPeerState.connecting => PeerState.connecting,
+    VeilPeerState.active => PeerState.active,
+    VeilPeerState.closed => PeerState.closed,
+    VeilPeerState.unknown => PeerState.unknown,
+  };
 
   static PeerDirection _mapDir(VeilPeerDirection d) => switch (d) {
-        VeilPeerDirection.inbound => PeerDirection.inbound,
-        VeilPeerDirection.outbound => PeerDirection.outbound,
-        VeilPeerDirection.unknown => PeerDirection.unknown,
-      };
+    VeilPeerDirection.inbound => PeerDirection.inbound,
+    VeilPeerDirection.outbound => PeerDirection.outbound,
+    VeilPeerDirection.unknown => PeerDirection.unknown,
+  };
 
   @override
   Future<void> dispose() async {
@@ -259,7 +270,15 @@ class _VeilAnonReliableStream implements ReliableStream {
   @override
   Future<Uint8List> read({int maxBytes = 65536}) => _s.read(maxBytes: maxBytes);
   @override
-  // close() drops the handle → the driver sends a clean FIN (the reader sees
-  // EOF); use this after writing all bytes on the serve side.
-  Future<void> close() => _s.close();
+  // Send an explicit FIN before releasing the handle. Relying on handle-drop to
+  // imply FIN is too racy for the pinned-circuit backend: the app can drop its
+  // FFI handle before the driver has accepted the half-close, and the peer then
+  // observes a reset instead of EOF under load.
+  Future<void> close() async {
+    try {
+      await _s.finish();
+    } finally {
+      await _s.close();
+    }
+  }
 }
