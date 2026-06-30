@@ -17,6 +17,7 @@ set -euo pipefail
 #   ONION_STREAM_LIVE_BUILD=auto|0|1     build release native artifacts if needed
 #   ONION_STREAM_LIVE_RUN_TEST=1|0       run Flutter test after nodes are ready
 #   ONION_STREAM_LIVE_KEEP_NODES=0|1     leave nodes running after script exit
+#   ONION_STREAM_LIVE_CHECK_LOGS=1|0     fail if node logs contain known bad markers
 #   ONION_STREAM_LIVE_REUSE_IDENTITIES=1 reuse mined local identities/configs
 #   ONION_STREAM_LIVE_SEED_DIR=.dev-mailbox-onion
 #                                      source identities for a/b/m1/m2
@@ -31,6 +32,7 @@ PROFILE="${ONION_STREAM_LIVE_PROFILE:-release}"
 BUILD="${ONION_STREAM_LIVE_BUILD:-auto}"
 RUN_TEST="${ONION_STREAM_LIVE_RUN_TEST:-1}"
 KEEP_NODES="${ONION_STREAM_LIVE_KEEP_NODES:-0}"
+CHECK_LOGS="${ONION_STREAM_LIVE_CHECK_LOGS:-1}"
 REUSE_IDENTITIES="${ONION_STREAM_LIVE_REUSE_IDENTITIES:-1}"
 MINT_DIFFICULTY="${VEIL_MINT_DIFFICULTY:-24}"
 LOG_LEVEL="${ONION_STREAM_LIVE_RUST_LOG:-info,veil_node_runtime=debug}"
@@ -226,6 +228,27 @@ tail_node_logs() {
   done
 }
 
+check_node_logs() {
+  [[ "$CHECK_LOGS" == "1" ]] || return 0
+
+  local pattern
+  pattern='DHT quota|auto_ban|rate_limited|session\.violation|piece failed|truncated'
+
+  local hits=0
+  for n in "${peers[@]}"; do
+    local log="$NODES/$n/node.log"
+    [[ -f "$log" ]] || continue
+    if grep -EIn "$pattern" "$log" >&2; then
+      hits=1
+    fi
+  done
+
+  if [[ "$hits" == "1" ]]; then
+    echo "node logs contain known onion-stream failure markers" >&2
+    return 1
+  fi
+}
+
 nodes_alive() {
   local pid
   for pid in "${pids[@]:-}"; do
@@ -386,6 +409,7 @@ echo "==> rendezvous ready"
 
 if [[ "$RUN_TEST" == "1" ]]; then
   echo "==> running live file transfer"
+  test_code=0
   (
     cd "$ROOT"
     VEIL_FFI_DYLIB="$DYLIB" \
@@ -393,7 +417,12 @@ if [[ "$RUN_TEST" == "1" ]]; then
       XVEIL_TEST_SOCK_A="$NODES/a/app.sock" \
       XVEIL_TEST_SOCK_B="$NODES/b/app.sock" \
       flutter test test/native/onion_stream_file_live_test.dart
-  )
+  ) || test_code=$?
+  check_node_logs || {
+    tail_node_logs >&2
+    exit 1
+  }
+  exit "$test_code"
 else
   cat <<EOF
 

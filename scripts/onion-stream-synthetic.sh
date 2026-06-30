@@ -13,45 +13,63 @@ set -euo pipefail
 #
 # Set SYNTHETIC_ROUNDS=N to repeat the whole deterministic suite N times while
 # chasing rare ordering races.
+# Set SYNTHETIC_LIVE=0 to skip the autonomous four-node live transfer.
+# Set SYNTHETIC_LIVE_FILE_SIZE=N to change the live payload size; the default
+# 16 MiB covers the former mid-transfer DHT quota / auto-ban regression.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VEIL="$ROOT/third_party/veil"
 SYNTHETIC_ROUNDS="${SYNTHETIC_ROUNDS:-1}"
+SYNTHETIC_LIVE="${SYNTHETIC_LIVE:-1}"
+SYNTHETIC_LIVE_FILE_SIZE="${SYNTHETIC_LIVE_FILE_SIZE:-16777216}"
+SYNTHETIC_LIVE_MIN_MIB_PER_SEC="${SYNTHETIC_LIVE_MIN_MIB_PER_SEC:-}"
 
 if [[ ! "$SYNTHETIC_ROUNDS" =~ ^[1-9][0-9]*$ ]]; then
   echo "SYNTHETIC_ROUNDS must be a positive integer." >&2
   exit 2
 fi
+if [[ "$SYNTHETIC_LIVE" != "0" && "$SYNTHETIC_LIVE" != "1" ]]; then
+  echo "SYNTHETIC_LIVE must be 0 or 1." >&2
+  exit 2
+fi
+if ! [[ "$SYNTHETIC_LIVE_FILE_SIZE" =~ ^[1-9][0-9]*$ ]]; then
+  echo "SYNTHETIC_LIVE_FILE_SIZE must be a positive integer." >&2
+  exit 2
+fi
 
 run_round() {
   local round="$1"
+  local steps=6
+  if [[ "$SYNTHETIC_LIVE" == "1" ]]; then
+    steps=7
+  fi
   echo "== synthetic round $round/$SYNTHETIC_ROUNDS =="
 
-  echo "[1/6] Rust stream mux fault-injection"
+  echo "[1/$steps] Rust stream mux fault-injection"
   (
     cd "$VEIL"
     cargo test -p veil-onion-stream --test mux_fault -- --nocapture
   )
 
-  echo "[2/6] Rust stream full test suite"
+  echo "[2/$steps] Rust stream full test suite"
   (
     cd "$VEIL"
     cargo test -p veil-onion-stream
   )
 
-  echo "[3/6] veilclient-ffi circuit framing smoke tests"
+  echo "[3/$steps] veilclient-ffi circuit framing smoke tests"
   (
     cd "$VEIL"
     cargo test -p veilclient-ffi --features node-embedded anon_stream::tests
   )
 
-  echo "[4/6] Dart/Flutter content stream resume tests"
+  echo "[4/$steps] Dart/Flutter content stream resume tests"
   (
     cd "$ROOT"
     flutter test test/content_stream_transfer_test.dart
   )
 
-  echo "[5/6] Static analysis for touched Dart files"
+  echo "[5/$steps] Static analysis for touched Dart files"
   (
     cd "$ROOT"
     dart analyze \
@@ -61,7 +79,7 @@ run_round() {
       test/content_stream_transfer_test.dart
   )
 
-  echo "[6/6] Shell harness syntax checks"
+  echo "[6/$steps] Shell harness syntax checks"
   (
     cd "$ROOT"
     bash -n \
@@ -71,6 +89,20 @@ run_round() {
       scripts/onion-stream-synthetic.sh \
       scripts/onion_stream_soak.sh
   )
+
+  if [[ "$SYNTHETIC_LIVE" == "1" ]]; then
+    echo "[7/$steps] Autonomous local live published onion-stream file transfer"
+    (
+      cd "$ROOT"
+      live_env=(
+        "XVEIL_TEST_FILE_SIZE=$SYNTHETIC_LIVE_FILE_SIZE"
+      )
+      if [[ -n "$SYNTHETIC_LIVE_MIN_MIB_PER_SEC" ]]; then
+        live_env+=("XVEIL_TEST_MIN_MIB_PER_SEC=$SYNTHETIC_LIVE_MIN_MIB_PER_SEC")
+      fi
+      env "${live_env[@]}" scripts/onion-stream-local-live.sh
+    )
+  fi
 }
 
 for ((round = 1; round <= SYNTHETIC_ROUNDS; round++)); do
