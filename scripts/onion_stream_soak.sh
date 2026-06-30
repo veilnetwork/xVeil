@@ -370,6 +370,7 @@ fi
 
 fault_pid=""
 fault_status_file="$LOG_DIR/fault.status"
+fault_started_file="$LOG_DIR/fault.started"
 if [[ -n "$SOAK_FAULT_CMD" || -n "$SOAK_ANDROID_WIFI_FLAP_AFTER_SEC" ]]; then
   fault_delay="$SOAK_FAULT_AFTER_SEC"
   if [[ -z "$fault_delay" && -n "$SOAK_ANDROID_WIFI_FLAP_AFTER_SEC" ]]; then
@@ -380,6 +381,7 @@ if [[ -n "$SOAK_FAULT_CMD" || -n "$SOAK_ANDROID_WIFI_FLAP_AFTER_SEC" ]]; then
   (
     set +e
     sleep "$fault_delay"
+    date +%s >"$fault_started_file"
     if [[ -n "$SOAK_FAULT_CMD" ]]; then
       echo "running SOAK_FAULT_CMD"
       if cd "$ROOT"; then
@@ -390,11 +392,17 @@ if [[ -n "$SOAK_FAULT_CMD" || -n "$SOAK_ANDROID_WIFI_FLAP_AFTER_SEC" ]]; then
       fi
     else
       echo "running Android Wi-Fi flap: down ${SOAK_ANDROID_WIFI_FLAP_DOWN_SEC}s"
+      wifi_disabled=0
+      trap 'if [[ "$wifi_disabled" == "1" ]]; then adb -s "$ANDROID_SERIAL" shell svc wifi enable >/dev/null 2>&1 || true; fi' EXIT
       adb -s "$ANDROID_SERIAL" shell svc wifi disable
       off_status=$?
+      if [[ "$off_status" == "0" ]]; then
+        wifi_disabled=1
+      fi
       sleep "$SOAK_ANDROID_WIFI_FLAP_DOWN_SEC"
       adb -s "$ANDROID_SERIAL" shell svc wifi enable
       on_status=$?
+      wifi_disabled=0
       if [[ "$off_status" == "0" && "$on_status" == "0" ]]; then
         status=0
       else
@@ -506,6 +514,25 @@ if [[ -n "$trigger_pid" ]]; then
 fi
 check_fault_status
 
+fault_summary_status="none"
+if [[ -n "$fault_pid" ]]; then
+  if [[ ! -f "$fault_started_file" ]]; then
+    fault_summary_status="not_started"
+    echo "fault injection did not start before transfer completed; increase SOAK_SIZE or lower the fault delay" >&2
+    exit 1
+  fi
+  fault_wait_status=0
+  wait "$fault_pid" || fault_wait_status=$?
+  fault_summary_status="$fault_wait_status"
+  if [[ -f "$fault_status_file" ]]; then
+    fault_summary_status="$(cat "$fault_status_file")"
+  fi
+  if [[ "$fault_summary_status" != "0" ]]; then
+    echo "fault injection failed with status $fault_summary_status; see $LOG_DIR/fault.log" >&2
+    exit "$fault_summary_status"
+  fi
+fi
+
 summary_ts="$(date +%s)"
 wall_elapsed_sec=$((summary_ts - monitor_start_ts))
 if (( wall_elapsed_sec < 1 )); then
@@ -540,12 +567,10 @@ wall_avg_mib_s="$(
   if [[ -n "$min_bytes_per_sec" ]]; then
     echo "min_bytes_per_sec=$min_bytes_per_sec"
   fi
-  if [[ -n "$fault_pid" ]]; then
-    echo "fault_injection=enabled"
-  fi
+  echo "fault_status=$fault_summary_status"
 } | tee "$LOG_DIR/summary.txt"
 cat >"$LOG_DIR/summary.json" <<JSON
-{"final_size_bytes":$final_size,"wall_elapsed_sec":$wall_elapsed_sec,"active_elapsed_sec":$active_elapsed_sec,"avg_bytes_per_sec":$avg_bps,"avg_mib_per_sec":$avg_mib_s,"wall_avg_bytes_per_sec":$wall_avg_bps,"wall_avg_mib_per_sec":$wall_avg_mib_s,"expected_size_bytes":${EXPECT_SIZE:-null},"min_bytes_per_sec":${min_bytes_per_sec:-null},"fault_injection":$([[ -n "$fault_pid" ]] && echo true || echo false)}
+{"final_size_bytes":$final_size,"wall_elapsed_sec":$wall_elapsed_sec,"active_elapsed_sec":$active_elapsed_sec,"avg_bytes_per_sec":$avg_bps,"avg_mib_per_sec":$avg_mib_s,"wall_avg_bytes_per_sec":$wall_avg_bps,"wall_avg_mib_per_sec":$wall_avg_mib_s,"expected_size_bytes":${EXPECT_SIZE:-null},"min_bytes_per_sec":${min_bytes_per_sec:-null},"fault_status":"$fault_summary_status"}
 JSON
 
 if [[ -n "$min_bytes_per_sec" && "$avg_bps" -lt "$min_bytes_per_sec" ]]; then
