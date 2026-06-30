@@ -39,7 +39,11 @@ echo "[4/5] Dart/Flutter content stream resume tests"
 echo "[5/5] Static analysis for touched Dart files"
 (
   cd "$ROOT"
-  dart analyze lib/state/messaging.dart test/content_stream_transfer_test.dart
+  dart analyze \
+    lib/debug/soak_hook.dart \
+    lib/main.dart \
+    lib/state/messaging.dart \
+    test/content_stream_transfer_test.dart
 )
 
 echo "ok: onion stream synthetic harness passed"

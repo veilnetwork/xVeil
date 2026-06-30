@@ -18,6 +18,7 @@ import 'data/storage/hv_kv_log_store.dart';
 import 'data/storage/hv_native.dart';
 import 'data/transport/veil_native.dart';
 import 'data/veil_stack.dart';
+import 'debug/soak_hook.dart';
 import 'state/providers.dart';
 import 'package:xveil/core/log.dart';
 
@@ -60,7 +61,7 @@ Future<void> main() async {
       runApp(
         ProviderScope(
           overrides: await _bootstrapOverrides(),
-          child: const XVeilApp(),
+          child: const DebugSoakHookHost(child: XVeilApp()),
         ),
       );
     },
