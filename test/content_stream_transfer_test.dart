@@ -1059,6 +1059,186 @@ void main() {
     );
   });
 
+  test(
+    'STREAM download-to-file does not report completion when every stream dies '
+    'before payload',
+    () async {
+      await mA.dispose();
+      await mB.dispose();
+      mA = MessagingService(
+        tA,
+        sA,
+        contentPacing: Duration.zero,
+        streamPayloadIdleTimeout: const Duration(milliseconds: 120),
+        streamPullMaxAttempts: 1,
+        streamRangeParallelism: 2,
+      )..start();
+      mB = MessagingService(
+        tB,
+        sB,
+        contentPacing: Duration.zero,
+        streamPayloadIdleTimeout: const Duration(milliseconds: 120),
+        streamPullMaxAttempts: 1,
+        streamRangeParallelism: 2,
+      )..start();
+
+      final data = _rnd(400000, 79); // 2 pieces at the default 256 KiB.
+      final cid = ContentManifest.fromBytes('dead-stream.bin', data).contentId;
+      await mB.setFileDownloadPolicy(
+        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+      await mA.sendFileStreaming(
+        b,
+        'dead-stream.bin',
+        data.length,
+        (o, l) async => Uint8List.sublistView(data, o, o + l),
+        close: () async {},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      // Two range workers × three minimum attempts per piece, plus one
+      // sequential fallback stream. Each accepted sender stream closes as soon
+      // as the serve side tries to write the manifest length, so the receiver's
+      // destination file exists but no verified payload is written.
+      for (var i = 0; i < 7; i++) {
+        tA.acceptStreamWrappers.add((stream) => _CloseOnWriteStream(stream));
+      }
+
+      final dir = await Directory.systemTemp.createTemp(
+        'xveil-stream-dead-file',
+      );
+      addTearDown(() async {
+        if (await dir.exists()) await dir.delete(recursive: true);
+      });
+      final dest = '${dir.path}/dead-stream.bin';
+      final raf = await File(dest).open(mode: FileMode.write);
+      var completed = false;
+      final doneSub = mB.contentReceived
+          .where((e) => e.contentId == cid)
+          .listen((_) => completed = true);
+      addTearDown(doneSub.cancel);
+      final failed = mB.contentDownloadFailed.firstWhere((c) => c == cid);
+
+      final r = await mB.downloadContentToFile(
+        a,
+        cid,
+        dest,
+        write: (offset, bytes) async {
+          await raf.setPosition(offset);
+          await raf.writeFrom(bytes);
+        },
+        close: () async {
+          await raf.close();
+        },
+      );
+      expect(r, ContentDownloadResult.started);
+      await failed.timeout(const Duration(seconds: 10));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(
+        completed,
+        isFalse,
+        reason: 'a failed plaintext download must not emit saved-path done',
+      );
+      expect(
+        await mB.contentSavedPath(cid),
+        isNull,
+        reason: 'failed downloads must not make later taps open an empty file',
+      );
+      expect(await File(dest).length(), 0);
+    },
+  );
+
+  test(
+    'STREAM download-to-file does not report completion for a truncated source',
+    () async {
+      await mA.dispose();
+      await mB.dispose();
+      mA = MessagingService(
+        tA,
+        sA,
+        contentPacing: Duration.zero,
+        streamPayloadIdleTimeout: const Duration(milliseconds: 120),
+        streamPullMaxAttempts: 1,
+        streamRangeParallelism: 2,
+      )..start();
+      mB = MessagingService(
+        tB,
+        sB,
+        contentPacing: Duration.zero,
+        streamPayloadIdleTimeout: const Duration(milliseconds: 120),
+        streamPullMaxAttempts: 1,
+        streamRangeParallelism: 2,
+      )..start();
+
+      final pieceSize = ContentManifest.defaultPieceSize;
+      final data = _rnd(pieceSize * 2 + 12345, 83);
+      final cid = ContentManifest.fromBytes(
+        'truncated-source.bin',
+        data,
+      ).contentId;
+      await mB.setFileDownloadPolicy(
+        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+      var truncateTail = false;
+      await mA.sendFileStreaming(b, 'truncated-source.bin', data.length, (
+        o,
+        l,
+      ) async {
+        if (truncateTail && o >= pieceSize) {
+          throw StateError('synthetic source vanished at $o');
+        }
+        return Uint8List.sublistView(data, o, o + l);
+      }, close: () async {});
+      truncateTail = true;
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      final dir = await Directory.systemTemp.createTemp(
+        'xveil-stream-truncated-file',
+      );
+      addTearDown(() async {
+        if (await dir.exists()) await dir.delete(recursive: true);
+      });
+      final dest = '${dir.path}/truncated-source.bin';
+      final raf = await File(dest).open(mode: FileMode.write);
+      var completed = false;
+      final doneSub = mB.contentReceived
+          .where((e) => e.contentId == cid)
+          .listen((_) => completed = true);
+      addTearDown(doneSub.cancel);
+      final failed = mB.contentDownloadFailed.firstWhere((c) => c == cid);
+
+      final r = await mB.downloadContentToFile(
+        a,
+        cid,
+        dest,
+        write: (offset, bytes) async {
+          await raf.setPosition(offset);
+          await raf.writeFrom(bytes);
+        },
+        close: () async {
+          await raf.close();
+        },
+      );
+      expect(r, ContentDownloadResult.started);
+      await failed.timeout(const Duration(seconds: 10));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(
+        completed,
+        isFalse,
+        reason: 'a truncated source must not emit saved-path done',
+      );
+      expect(await mB.contentSavedPath(cid), isNull);
+      expect(
+        await File(dest).length(),
+        lessThan(data.length),
+        reason:
+            'the synthetic fault should leave a partial plaintext destination',
+      );
+    },
+  );
+
   test('STREAM download resumes on a fresh stream after payload idle', () async {
     await mA.dispose();
     await mB.dispose();
