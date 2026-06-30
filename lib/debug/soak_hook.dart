@@ -35,11 +35,13 @@ const _debugHookPort = int.fromEnvironment(
 ///   GET /identity
 ///   GET /contacts
 ///   `POST/GET /send_file?peer=NODE_HEX&path=SOURCE_PATH[&name=NAME]`
-///   `POST/GET /download_file?peer=NODE_HEX&cid=CONTENT_ID&path=DEST_PATH
-///      [&timeout_ms=1800000]`
+///   `POST/GET /download_file?peer=NODE_HEX|any&cid=CONTENT_ID&path=DEST_PATH
+///      [&peers=NODE_HEX,NODE_HEX][&timeout_ms=1800000]`
 ///
 /// If [path] is omitted for /download_file, the file is downloaded into the
 /// encrypted app tier. If present, bytes are written unencrypted to that path.
+/// `peer=any` uses all accepted contacts as candidate holders; `peers` can add
+/// an explicit comma-separated/repeated holder list.
 class DebugSoakHookHost extends ConsumerStatefulWidget {
   const DebugSoakHookHost({required this.child, super.key});
 
@@ -232,22 +234,26 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   Future<void> _downloadFile(HttpRequest req) async {
     final ready = _requireReady(req);
     if (!ready) return;
-    final peer = _peer(req);
+    final peers = await _downloadPeers(req);
     final cid = _required(req, 'cid');
-    if (peer == null || cid == null) return;
+    if (peers == null || cid == null) return;
+    final primaryPeer = peers.first;
     final path = req.uri.queryParameters['path']?.trim();
     final timeout = _timeout(req, defaultMs: 30 * 60 * 1000);
     final svc = ref.read(messagingServiceProvider);
     if (path == null || path.isEmpty) {
       final alreadyHeld = await ref.read(storageProvider).hasFile(cid);
       final wait = alreadyHeld ? null : _waitDownload(svc, cid, timeout);
-      final result = await svc.downloadContent(peer, cid);
+      final result = peers.length == 1
+          ? await svc.downloadContent(primaryPeer, cid)
+          : await svc.downloadContentFromAny(peers, cid);
       if (result == ContentDownloadResult.noOffer) {
         return _json(req, {
           'ok': false,
           'mode': 'encrypted',
           'result': result.name,
           'contentId': cid,
+          'sources': [for (final p in peers) p.hex],
           'error': 'no live offer',
         }, status: 409);
       }
@@ -258,6 +264,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           'mode': 'encrypted',
           'result': result.name,
           'contentId': cid,
+          'sources': [for (final p in peers) p.hex],
           'error': done.error,
           'done': done.done,
           'total': done.total,
@@ -268,6 +275,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         'mode': 'encrypted',
         'result': result.name,
         'contentId': cid,
+        'sources': [for (final p in peers) p.hex],
         'done': done.done,
         'total': done.total,
       });
@@ -279,24 +287,35 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     var handedOff = false;
     try {
       final wait = _waitDownload(svc, cid, timeout, savedPath: path);
-      final result = await svc.downloadContentToFile(
-        peer,
-        cid,
-        path,
-        write: (offset, bytes) async {
-          await raf.setPosition(offset);
-          await raf.writeFrom(bytes);
-        },
-        close: () async {
-          await raf.close();
-        },
-      );
+      Future<void> write(int offset, Uint8List bytes) async {
+        await raf.setPosition(offset);
+        await raf.writeFrom(bytes);
+      }
+
+      Future<void> close() => raf.close();
+
+      final result = peers.length == 1
+          ? await svc.downloadContentToFile(
+              primaryPeer,
+              cid,
+              path,
+              write: write,
+              close: close,
+            )
+          : await svc.downloadContentToFileFromAny(
+              peers,
+              cid,
+              path,
+              write: write,
+              close: close,
+            );
       if (result == ContentDownloadResult.noOffer) {
         return _json(req, {
           'ok': false,
           'mode': 'plain-file',
           'result': result.name,
           'contentId': cid,
+          'sources': [for (final p in peers) p.hex],
           'path': path,
           'error': 'no live offer',
         }, status: 409);
@@ -308,6 +327,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           'mode': 'plain-file',
           'result': result.name,
           'contentId': cid,
+          'sources': [for (final p in peers) p.hex],
           'path': path,
           'error': done.error,
           'done': done.done,
@@ -321,6 +341,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         'mode': 'plain-file',
         'result': result.name,
         'contentId': cid,
+        'sources': [for (final p in peers) p.hex],
         'path': path,
         'done': done.done,
         'total': done.total,
@@ -353,6 +374,66 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       }, status: 409),
     );
     return false;
+  }
+
+  Future<List<NodeId>?> _downloadPeers(HttpRequest req) async {
+    final explicit = <String>[];
+    var includeAnyAccepted = false;
+
+    final peer = req.uri.queryParameters['peer']?.trim();
+    if (peer != null && peer.isNotEmpty) {
+      if (peer.toLowerCase() == 'any') {
+        includeAnyAccepted = true;
+      } else {
+        explicit.add(peer);
+      }
+    }
+    for (final raw in req.uri.queryParametersAll['peers'] ?? const <String>[]) {
+      for (final part in raw.split(',')) {
+        final value = part.trim();
+        if (value.isEmpty) continue;
+        if (value.toLowerCase() == 'any') {
+          includeAnyAccepted = true;
+        } else {
+          explicit.add(value);
+        }
+      }
+    }
+    if (!includeAnyAccepted && explicit.isEmpty) {
+      unawaited(
+        _json(req, {'ok': false, 'error': 'missing peer/peers'}, status: 400),
+      );
+      return null;
+    }
+
+    final out = <String, NodeId>{};
+    if (includeAnyAccepted) {
+      final conversations = await ref.read(storageProvider).loadConversations();
+      for (final conv in conversations) {
+        if (conv.peer.canMessage) {
+          out[conv.peer.nodeId.hex] = conv.peer.nodeId;
+        }
+      }
+    }
+    for (final hex in explicit) {
+      try {
+        final id = NodeId.fromHex(hex);
+        out[id.hex] = id;
+      } catch (e) {
+        unawaited(_json(req, {'ok': false, 'error': '$e'}, status: 400));
+        return null;
+      }
+    }
+    if (out.isEmpty) {
+      unawaited(
+        _json(req, {
+          'ok': false,
+          'error': 'no accepted download peers',
+        }, status: 409),
+      );
+      return null;
+    }
+    return out.values.toList(growable: false);
   }
 
   NodeId? _peer(HttpRequest req) {
