@@ -314,11 +314,49 @@ void main() {
         data,
         reason: 'pulled + verified the whole',
       );
+    },
+  );
+
+  test(
+    'STREAM range pull coalesces adjacent pieces into wider streams',
+    () async {
+      await mB.dispose();
+      mB = MessagingService(
+        tB,
+        sB,
+        contentPacing: Duration.zero,
+        streamRangeParallelism: 6,
+        streamRangeTargetBytes: ContentManifest.defaultPieceSize * 4,
+      )..start();
+
+      final size = ContentManifest.defaultPieceSize * 5 + 123;
+      final data = _rnd(size, 31);
+      final cid = ContentManifest.fromBytes(
+        'coalesced-range.bin',
+        data,
+      ).contentId;
+      await mB.setFileDownloadPolicy(
+        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+      await mA.sendFileStreaming(
+        b,
+        'coalesced-range.bin',
+        data.length,
+        (o, l) async => Uint8List.sublistView(data, o, o + l),
+        close: () async {},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      final got = mB.contentReceived.firstWhere((e) => e.contentId == cid);
+      expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+      await got.timeout(const Duration(seconds: 20));
+
+      expect(await sB.loadFile(cid), data);
       expect(
         tB.openedStreamCount,
-        greaterThanOrEqualTo(2),
+        lessThanOrEqualTo(2),
         reason:
-            'multi-piece stream downloads should pull piece ranges in parallel',
+            'six verified pieces should be fetched as two contiguous range streams',
       );
     },
   );
@@ -326,6 +364,13 @@ void main() {
   test(
     'STREAM range pull fills a slow per-stream channel in parallel',
     () async {
+      await mB.dispose();
+      mB = MessagingService(
+        tB,
+        sB,
+        contentPacing: Duration.zero,
+        streamRangeTargetBytes: ContentManifest.defaultPieceSize,
+      )..start();
       final data = _rnd(720000, 37); // 3 pieces at the default 256 KiB.
       final cid = ContentManifest.fromBytes('slow-range.bin', data).contentId;
       await mB.setFileDownloadPolicy(
@@ -431,6 +476,13 @@ void main() {
   );
 
   test('STREAM range pull survives a transient stream-open outage', () async {
+    await mB.dispose();
+    mB = MessagingService(
+      tB,
+      sB,
+      contentPacing: Duration.zero,
+      streamRangeTargetBytes: ContentManifest.defaultPieceSize,
+    )..start();
     final data = _rnd(700000, 53); // 3 pieces at the default 256 KiB.
     final cid = ContentManifest.fromBytes('range-outage.bin', data).contentId;
     await mB.setFileDownloadPolicy(
@@ -473,12 +525,14 @@ void main() {
         sA,
         contentPacing: Duration.zero,
         streamRangeParallelism: 6,
+        streamRangeTargetBytes: ContentManifest.defaultPieceSize,
       )..start();
       mB = MessagingService(
         tB,
         sB,
         contentPacing: Duration.zero,
         streamRangeParallelism: 6,
+        streamRangeTargetBytes: ContentManifest.defaultPieceSize,
       )..start();
 
       final size = ContentManifest.defaultPieceSize * 6 + 1;
@@ -825,7 +879,7 @@ void main() {
       expect(await sB.loadFile(cid), data);
       expect(
         tB.openedStreamCount,
-        greaterThanOrEqualTo(3),
+        greaterThanOrEqualTo(1),
         reason:
             'reoffered manifests should restart parked downloads via range streams',
       );
@@ -884,9 +938,9 @@ void main() {
       expect(await sB.hasFile(cid), isFalse);
       expect(
         tB.openedStreamCount,
-        greaterThanOrEqualTo(3),
+        greaterThanOrEqualTo(1),
         reason:
-            'plaintext reoffers should also use parallel range streams, not datagrams',
+            'plaintext reoffers should also use range streams, not datagrams',
       );
     },
   );
@@ -1162,9 +1216,8 @@ void main() {
     expect(await File(dest).readAsBytes(), data);
     expect(
       tB.openedStreamCount,
-      greaterThanOrEqualTo(2),
-      reason:
-          'save-to-file should use parallel range streams when it has a live offer',
+      greaterThanOrEqualTo(1),
+      reason: 'save-to-file should use range streams when it has a live offer',
     );
     expect(
       await sB.hasFile(cid),
@@ -1297,8 +1350,8 @@ void main() {
       );
       expect(
         tC.openedStreamCount,
-        greaterThanOrEqualTo(3),
-        reason: 'the receiver should try multiple range streams/sources',
+        greaterThanOrEqualTo(2),
+        reason: 'the receiver should try the dead holder and a healthy seeder',
       );
     },
   );
@@ -1316,6 +1369,7 @@ void main() {
         streamPayloadIdleTimeout: const Duration(milliseconds: 120),
         streamPullMaxAttempts: 1,
         streamRangeParallelism: 2,
+        streamRangeTargetBytes: ContentManifest.defaultPieceSize,
       )..start();
       mB = MessagingService(
         tB,
@@ -1324,6 +1378,7 @@ void main() {
         streamPayloadIdleTimeout: const Duration(milliseconds: 120),
         streamPullMaxAttempts: 1,
         streamRangeParallelism: 2,
+        streamRangeTargetBytes: ContentManifest.defaultPieceSize,
       )..start();
 
       final data = _rnd(400000, 79); // 2 pieces at the default 256 KiB.
@@ -1405,6 +1460,7 @@ void main() {
         streamPayloadIdleTimeout: const Duration(milliseconds: 120),
         streamPullMaxAttempts: 1,
         streamRangeParallelism: 2,
+        streamRangeTargetBytes: ContentManifest.defaultPieceSize,
       )..start();
       mB = MessagingService(
         tB,
@@ -1413,6 +1469,7 @@ void main() {
         streamPayloadIdleTimeout: const Duration(milliseconds: 120),
         streamPullMaxAttempts: 1,
         streamRangeParallelism: 2,
+        streamRangeTargetBytes: ContentManifest.defaultPieceSize,
       )..start();
 
       final pieceSize = ContentManifest.defaultPieceSize;
