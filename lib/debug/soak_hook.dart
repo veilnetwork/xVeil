@@ -321,6 +321,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         }, status: 409);
       }
       final done = await wait;
+      final size = await _fileLengthIfExists(out);
       if (!done.ok) {
         return _json(req, {
           'ok': false,
@@ -332,8 +333,22 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           'error': done.error,
           'done': done.done,
           'total': done.total,
-          'size': await _fileLengthIfExists(out),
+          'size': size,
         }, status: done.timedOut ? 504 : 409);
+      }
+      if (done.total != null && size != done.total) {
+        return _json(req, {
+          'ok': false,
+          'mode': 'plain-file',
+          'result': result.name,
+          'contentId': cid,
+          'sources': [for (final p in peers) p.hex],
+          'path': path,
+          'error': 'saved file size mismatch',
+          'done': done.done,
+          'total': done.total,
+          'size': size,
+        }, status: 409);
       }
       handedOff = true;
       return _json(req, {
@@ -345,7 +360,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         'path': path,
         'done': done.done,
         'total': done.total,
-        'size': await out.length(),
+        'size': size,
       });
     } finally {
       if (!handedOff) {
@@ -494,6 +509,8 @@ Future<_DownloadWait> _waitDownload(
   StreamSubscription<({String contentId, int done, int total})>? progressSub;
   StreamSubscription<String>? failedSub;
   Timer? timer;
+  int? lastDone;
+  int? lastTotal;
 
   void finish(_DownloadWait result) {
     if (completer.isCompleted) return;
@@ -507,11 +524,17 @@ Future<_DownloadWait> _waitDownload(
   receivedSub = svc.contentReceived.listen((e) {
     if (e.contentId != cid) return;
     if (savedPath != null && e.savedToPath != savedPath) return;
-    finish(_DownloadWait.done());
+    finish(_DownloadWait.done(done: lastDone, total: lastTotal));
   });
   progressSub = svc.contentProgress.listen((e) {
     if (e.contentId != cid) return;
-    if (e.total > 0 && e.done >= e.total) {
+    lastDone = e.done;
+    lastTotal = e.total;
+    // For encrypted/in-volume downloads, complete progress means the storage
+    // layer has the verified blob. For plaintext-to-file downloads, progress is
+    // only a liveness signal: success requires the final contentReceived event
+    // carrying the exact savedPath after the sink has been closed.
+    if (savedPath == null && e.total > 0 && e.done >= e.total) {
       finish(_DownloadWait.done(done: e.done, total: e.total));
     }
   });

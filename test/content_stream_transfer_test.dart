@@ -1369,6 +1369,69 @@ void main() {
     },
   );
 
+  test(
+    'STREAM download-to-file fails closed when the destination cannot finalise',
+    () async {
+      final data = _rnd(
+        180000,
+        89,
+      ); // single-piece: exercises _runPull finalise
+      final cid = ContentManifest.fromBytes('close-fails.bin', data).contentId;
+      await mB.setFileDownloadPolicy(
+        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+      await mA.sendFileStreaming(
+        b,
+        'close-fails.bin',
+        data.length,
+        (o, l) async => Uint8List.sublistView(data, o, o + l),
+        close: () async {},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      final written = Uint8List(data.length);
+      var writtenEnd = 0;
+      var closeCount = 0;
+      var completed = false;
+      final doneSub = mB.contentReceived
+          .where((e) => e.contentId == cid)
+          .listen((_) => completed = true);
+      addTearDown(doneSub.cancel);
+      final failed = mB.contentDownloadFailed.firstWhere((c) => c == cid);
+
+      final r = await mB.downloadContentToFile(
+        a,
+        cid,
+        '/synthetic/close-fails.bin',
+        write: (offset, bytes) async {
+          written.setRange(offset, offset + bytes.length, bytes);
+          writtenEnd = max(writtenEnd, offset + bytes.length);
+        },
+        close: () async {
+          closeCount++;
+          throw StateError('synthetic close failure');
+        },
+      );
+      expect(r, ContentDownloadResult.started);
+      await failed.timeout(const Duration(seconds: 10));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(writtenEnd, data.length, reason: 'the payload itself arrived');
+      expect(written, data);
+      expect(closeCount, greaterThanOrEqualTo(1));
+      expect(
+        completed,
+        isFalse,
+        reason: 'a failed destination finalise must not emit completion',
+      );
+      expect(
+        await mB.contentSavedPath(cid),
+        isNull,
+        reason: 'failed finalisation must not make later taps open the path',
+      );
+    },
+  );
+
   test('STREAM download resumes on a fresh stream after payload idle', () async {
     await mA.dispose();
     await mB.dispose();
