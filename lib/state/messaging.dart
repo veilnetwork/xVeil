@@ -2256,6 +2256,7 @@ class MessagingService {
       _retireServeSourceForContent(cid, prev!.source!);
     }
     _serving[cid] = (manifest: manifest, source: source, servedAt: _now());
+    await _persistServeManifest(manifest);
     _evictServing();
     _ensureContentTimer();
     await _send(
@@ -2269,6 +2270,22 @@ class MessagingService {
           '(${manifest.pieceCount} pieces'
           '${mid != null ? ', msg ${mid.substring(0, 8)}' : ''}) -> ${dst.short}',
     );
+  }
+
+  Future<void> _persistServeManifest(ContentManifest manifest) async {
+    try {
+      await _storage.storeFile(
+        'mf:${manifest.contentId}',
+        Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+        name: 'manifest',
+      );
+    } catch (e) {
+      devLog(
+        () =>
+            'xVeil[content]: serve-manifest persist failed '
+            '${manifest.contentId.substring(0, 12)}: $e',
+      );
+    }
   }
 
   bool _sameServeSource(ServeSource a, ServeSource b) =>
@@ -3091,6 +3108,15 @@ class MessagingService {
             '${requestedOffset > 0 ? ' @ $requestedOffset' : ''} '
             '<- ${peer.short}',
       );
+      final contact = await _storage.getContact(peer);
+      if (contact == null || contact.status != ContactStatus.accepted) {
+        devLog(
+          () =>
+              'xVeil[content]: stream-serve DENIED '
+              '${cid.substring(0, 12)} <- ${peer.short} (not accepted)',
+        );
+        return;
+      }
       if (!_beginStreamServe(cid)) {
         devLog(
           () =>
@@ -3102,6 +3128,7 @@ class MessagingService {
       activeCid = cid;
       ContentManifest? manifest;
       ServeSource? source;
+      var canReadStoredBlob = false;
       final live = _serving[cid];
       if (live != null) {
         manifest = live.manifest;
@@ -3117,17 +3144,25 @@ class MessagingService {
           }
         }
         source ??= live.source;
-      } else if (sourceOpener != null) {
-        final path = await _storage.getSetting('served:$cid');
+      }
+      if (manifest == null) {
         final mfBytes = await _storage.loadFile('mf:$cid');
-        if (path != null && mfBytes != null) {
+        if (mfBytes != null) {
           manifest = ContentManifest.fromJson(
             jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>,
           );
-          if (manifest != null) source = durable = await sourceOpener!(path);
         }
       }
-      if (manifest == null || source == null) {
+      if (source == null && sourceOpener != null) {
+        final path = await _storage.getSetting('served:$cid');
+        if (path != null) {
+          source = durable = await sourceOpener!(path);
+        }
+      }
+      if (source == null && manifest != null) {
+        canReadStoredBlob = await _storage.hasFile(cid);
+      }
+      if (manifest == null || (source == null && !canReadStoredBlob)) {
         devLog(
           () =>
               'xVeil[content]: stream-serve UNSERVED '
@@ -3137,6 +3172,12 @@ class MessagingService {
       }
       final m = manifest; // promoted non-null (closures need a final)
       final src = source;
+      if (src == null) {
+        // Warm the manifest for repeated swarm pulls. A null source means the
+        // bytes are served from this identity's verified stored blob.
+        _serving[cid] = (manifest: m, source: null, servedAt: _now());
+        _evictServing();
+      }
       devLog(
         () =>
             'xVeil[content]: stream-serve ${cid.substring(0, 12)} '
@@ -3166,16 +3207,28 @@ class MessagingService {
         final n =
             ((size - off) < _streamReadChunk ? (size - off) : _streamReadChunk)
                 .toInt();
-        final data = await src
-            .read(off, n)
-            .timeout(
-              _streamSourceReadTimeout,
-              onTimeout: () => throw TimeoutException(
-                'source idle at $off/$size',
-                _streamSourceReadTimeout,
-              ),
-            );
-        if (data.isEmpty) break; // source truncated
+        final data = src == null
+            ? await _storage
+                  .readFileRange(cid, off, n)
+                  .timeout(
+                    _streamSourceReadTimeout,
+                    onTimeout: () => throw TimeoutException(
+                      'stored blob idle at $off/$size',
+                      _streamSourceReadTimeout,
+                    ),
+                  )
+            : await src
+                  .read(off, n)
+                  .timeout(
+                    _streamSourceReadTimeout,
+                    onTimeout: () => throw TimeoutException(
+                      'source idle at $off/$size',
+                      _streamSourceReadTimeout,
+                    ),
+                  );
+        if (data == null || data.isEmpty) {
+          throw StateError('source truncated at $off/$size');
+        }
         await stream
             .write(data)
             .timeout(
@@ -3792,6 +3845,10 @@ class MessagingService {
   Future<bool> _persistReceivedContent(NodeId peer, ContentManifest m) async {
     _offered.remove(m.contentId);
     await _surfaceFileOffer(peer, m);
+    await _persistServeManifest(m);
+    _serving[m.contentId] = (manifest: m, source: null, servedAt: _now());
+    _evictServing();
+    _ensureContentTimer();
     _signal();
     return true;
   }
