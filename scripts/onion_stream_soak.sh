@@ -355,6 +355,8 @@ last_size=0
 last_ts="$(date +%s)"
 monitor_start_ts="$last_ts"
 final_size=0
+first_byte_ts=""
+last_byte_ts=""
 while true; do
   now="$(date +%s)"
   size=0
@@ -387,6 +389,14 @@ while true; do
   echo "$(date '+%H:%M:%S'),$size,$delta,$bps,${phone_pid:-missing},$desktop_errors,$android_errors" \
     | tee -a "$LOG_DIR/progress.csv"
   final_size="$size"
+  if (( size > 0 )); then
+    if [[ -z "$first_byte_ts" ]]; then
+      first_byte_ts="$now"
+    fi
+    if (( size > last_size )); then
+      last_byte_ts="$now"
+    fi
+  fi
 
   if [[ -n "$EXPECT_SIZE" && "$size" -ge "$EXPECT_SIZE" ]]; then
     echo "expected size reached: $size >= $EXPECT_SIZE"
@@ -423,19 +433,33 @@ if [[ -n "$trigger_pid" ]]; then
 fi
 
 summary_ts="$(date +%s)"
-elapsed_sec=$((summary_ts - monitor_start_ts))
-if (( elapsed_sec < 1 )); then
-  elapsed_sec=1
+wall_elapsed_sec=$((summary_ts - monitor_start_ts))
+if (( wall_elapsed_sec < 1 )); then
+  wall_elapsed_sec=1
 fi
-avg_bps=$((final_size / elapsed_sec))
+active_elapsed_sec="$wall_elapsed_sec"
+if [[ -n "$first_byte_ts" && -n "$last_byte_ts" ]]; then
+  active_elapsed_sec=$((last_byte_ts - first_byte_ts))
+  if (( active_elapsed_sec < 1 )); then
+    active_elapsed_sec=1
+  fi
+fi
+avg_bps=$((final_size / active_elapsed_sec))
+wall_avg_bps=$((final_size / wall_elapsed_sec))
 avg_mib_s="$(
   awk -v bps="$avg_bps" 'BEGIN { printf "%.3f", bps / 1024 / 1024 }'
 )"
+wall_avg_mib_s="$(
+  awk -v bps="$wall_avg_bps" 'BEGIN { printf "%.3f", bps / 1024 / 1024 }'
+)"
 {
   echo "final_size_bytes=$final_size"
-  echo "elapsed_sec=$elapsed_sec"
+  echo "wall_elapsed_sec=$wall_elapsed_sec"
+  echo "active_elapsed_sec=$active_elapsed_sec"
   echo "avg_bytes_per_sec=$avg_bps"
   echo "avg_mib_per_sec=$avg_mib_s"
+  echo "wall_avg_bytes_per_sec=$wall_avg_bps"
+  echo "wall_avg_mib_per_sec=$wall_avg_mib_s"
   if [[ -n "$EXPECT_SIZE" ]]; then
     echo "expected_size_bytes=$EXPECT_SIZE"
   fi
@@ -444,7 +468,7 @@ avg_mib_s="$(
   fi
 } | tee "$LOG_DIR/summary.txt"
 cat >"$LOG_DIR/summary.json" <<JSON
-{"final_size_bytes":$final_size,"elapsed_sec":$elapsed_sec,"avg_bytes_per_sec":$avg_bps,"avg_mib_per_sec":$avg_mib_s,"expected_size_bytes":${EXPECT_SIZE:-null},"min_bytes_per_sec":${min_bytes_per_sec:-null}}
+{"final_size_bytes":$final_size,"wall_elapsed_sec":$wall_elapsed_sec,"active_elapsed_sec":$active_elapsed_sec,"avg_bytes_per_sec":$avg_bps,"avg_mib_per_sec":$avg_mib_s,"wall_avg_bytes_per_sec":$wall_avg_bps,"wall_avg_mib_per_sec":$wall_avg_mib_s,"expected_size_bytes":${EXPECT_SIZE:-null},"min_bytes_per_sec":${min_bytes_per_sec:-null}}
 JSON
 
 if [[ -n "$min_bytes_per_sec" && "$avg_bps" -lt "$min_bytes_per_sec" ]]; then
