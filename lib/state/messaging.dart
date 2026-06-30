@@ -2086,10 +2086,14 @@ class MessagingService {
   int get fetchingCount => _fetching.length;
 
   /// Manifests of OFFERED-but-not-yet-downloaded files (by contentId), retained so
-  /// [downloadContent] can fetch on the user's opt-in. Bounded by [_maxOffered]
-  /// (the manifest is small — piece hashes — but cap it anyway); the OFFER chat
-  /// message is what persists, this is just the fetch handle.
-  final Map<String, ({ContentManifest manifest, NodeId peer})> _offered = {};
+  /// [downloadContent] can fetch on the user's opt-in. A single contentId may be
+  /// advertised by several accepted peers (group chat / multi-device swarm);
+  /// keep all known sources so stream retries can fail over instead of pinning
+  /// the transfer to the peer whose bubble the user happened to tap. Bounded by
+  /// [_maxOffered] (the manifest is small — piece hashes — but cap it anyway);
+  /// the OFFER chat message is what persists, this is just the fetch handle.
+  final Map<String, ({ContentManifest manifest, Map<String, NodeId> peers})>
+  _offered = {};
   static const _maxOffered = 256;
 
   /// Per-identity auto-download policy (size cap + blocked types): which incoming
@@ -2540,7 +2544,14 @@ class MessagingService {
     if (_offered.length >= _maxOffered && !_offered.containsKey(m.contentId)) {
       _offered.remove(_offered.keys.first);
     }
-    _offered[m.contentId] = (manifest: m, peer: peer);
+    final existingOffer = _offered[m.contentId];
+    _offered[m.contentId] = (
+      manifest: m,
+      peers: {
+        if (existingOffer != null) ...existingOffer.peers,
+        peer.hex: peer,
+      },
+    );
 
     // A user download was PARKED waiting for this manifest (re-advertise after a
     // restart) → start it now with its destination (sink for unencrypted-to-file,
@@ -2631,7 +2642,12 @@ class MessagingService {
     _markContentDownloadStarted(contentId);
     // Reliable STREAM path (fast + flow-controlled): fetches the manifest itself,
     // so it works even without a live offer handle (no reoffer dance needed).
-    if (await _pullStream(peer, contentId, null)) {
+    if (await _pullStream(
+      peer,
+      contentId,
+      null,
+      retryPeers: _offerPeers(preferred: peer, contentId: contentId),
+    )) {
       return ContentDownloadResult.started;
     }
     // Datagram fallback (transport has no streams — e.g. a loopback fake).
@@ -2639,8 +2655,86 @@ class MessagingService {
     if (offered == null) {
       return _requestReoffer(peer, contentId, null);
     }
-    await _beginFetch(offered.peer, offered.manifest);
+    await _beginFetch(_offerPeer(offered, preferred: peer), offered.manifest);
     return ContentDownloadResult.started;
+  }
+
+  /// Swarm/group download primitive: fetch [contentId] from the first accepted
+  /// peer that can actually serve it. This is deliberately content-addressed —
+  /// any holder of the verified blob can seed the same bytes, so a group/torrent
+  /// layer can pass all known holders instead of depending on the original
+  /// sender staying online.
+  ///
+  /// The normal one-peer [downloadContent] path starts the pull and returns
+  /// immediately for UI responsiveness. This method awaits each stream attempt
+  /// to a terminal result before trying the next source, so a dead/non-seeding
+  /// peer does not strand the transfer when another accepted peer has the blob.
+  Future<ContentDownloadResult> downloadContentFromAny(
+    Iterable<NodeId> peers,
+    String contentId,
+  ) async {
+    if (await _storage.hasFile(contentId)) {
+      _signal();
+      return ContentDownloadResult.started;
+    }
+    final offered = _offered[contentId];
+    final sources = <NodeId>[
+      ...peers,
+      if (offered != null) ...offered.peers.values,
+    ];
+    final seen = <String>{};
+    var attempted = 0;
+    _markContentDownloadStarted(contentId);
+    for (final peer in sources) {
+      if (!seen.add(peer.hex)) continue;
+      final contact = await _storage.getContact(peer);
+      if (contact == null || contact.status != ContactStatus.accepted) {
+        continue;
+      }
+      attempted++;
+      devLog(
+        () =>
+            'xVeil[content]: swarm download '
+            '${contentId.substring(0, 12)} trying ${peer.short}',
+      );
+      final ok = await _pullStreamToCompletion(peer, contentId);
+      if (ok == true || await _storage.hasFile(contentId)) {
+        return ContentDownloadResult.started;
+      }
+      devLog(
+        () =>
+            'xVeil[content]: swarm source failed '
+            '${contentId.substring(0, 12)} <- ${peer.short}',
+      );
+    }
+    devLog(
+      () =>
+          'xVeil[content]: swarm download failed '
+          '${contentId.substring(0, 12)} sources=$attempted',
+    );
+    if (!_contentFailed.isClosed) _contentFailed.add(contentId);
+    return ContentDownloadResult.noOffer;
+  }
+
+  NodeId _offerPeer(
+    ({ContentManifest manifest, Map<String, NodeId> peers}) offered, {
+    required NodeId preferred,
+  }) =>
+      offered.peers[preferred.hex] ??
+      (offered.peers.isNotEmpty ? offered.peers.values.first : preferred);
+
+  List<NodeId> _offerPeers({
+    required NodeId preferred,
+    required String contentId,
+  }) {
+    final out = <String, NodeId>{preferred.hex: preferred};
+    final offered = _offered[contentId];
+    if (offered != null) {
+      for (final peer in offered.peers.values) {
+        out[peer.hex] = peer;
+      }
+    }
+    return out.values.toList(growable: false);
   }
 
   /// The user opted to download an OFFERED file UNENCRYPTED, straight to a
@@ -2664,7 +2758,13 @@ class MessagingService {
     );
     _markContentDownloadStarted(contentId);
     // Reliable STREAM path (fast). Works without a live offer handle.
-    if (await _pullStream(peer, contentId, sink, savedPath: savedPath)) {
+    if (await _pullStream(
+      peer,
+      contentId,
+      sink,
+      savedPath: savedPath,
+      retryPeers: _offerPeers(preferred: peer, contentId: contentId),
+    )) {
       return ContentDownloadResult.started;
     }
     // Datagram fallback.
@@ -2673,7 +2773,11 @@ class MessagingService {
     if (offered == null) {
       return _requestReoffer(peer, contentId, sink);
     }
-    await _beginFetch(offered.peer, offered.manifest, sink: sink);
+    await _beginFetch(
+      _offerPeer(offered, preferred: peer),
+      offered.manifest,
+      sink: sink,
+    );
     return ContentDownloadResult.started;
   }
 
@@ -3280,14 +3384,53 @@ class MessagingService {
   /// [sink] (unencrypted-to-file) or the Storage port (encrypted tier / in-volume)
   /// with per-piece verification + progress. Works WITHOUT a live offer handle —
   /// the manifest arrives on the stream, so no reoffer dance.
+  List<NodeId> _orderedPullPeers(NodeId first, Iterable<NodeId> peers) {
+    final out = <String, NodeId>{first.hex: first};
+    for (final peer in peers) {
+      out[peer.hex] = peer;
+    }
+    return out.values.toList(growable: false);
+  }
+
   Future<bool> _pullStream(
     NodeId peer,
     String cid,
     _FetchSink? sink, {
     String? savedPath,
+    Iterable<NodeId> retryPeers = const [],
   }) async {
+    final peers = _orderedPullPeers(peer, retryPeers);
+    for (final candidate in peers) {
+      final stream = await _openInitialPullStream(candidate, cid);
+      if (stream == null) continue;
+      final runPeers = _orderedPullPeers(candidate, peers);
+      unawaited(
+        _runPull(
+          candidate,
+          cid,
+          sink,
+          stream,
+          savedPath,
+          retryPeers: runPeers,
+        ).then((_) {}),
+      );
+      return true;
+    }
+    return false; // no circuit → caller falls back
+  }
+
+  Future<bool?> _pullStreamToCompletion(NodeId peer, String cid) async {
+    final stream = await _openInitialPullStream(peer, cid);
+    if (stream == null) return null;
+    return _runPull(peer, cid, null, stream, null, emitFailure: false);
+  }
+
+  Future<ReliableStream?> _openInitialPullStream(
+    NodeId peer,
+    String cid,
+  ) async {
     final t = _transport;
-    if (t is! StreamTransport) return false;
+    if (t is! StreamTransport) return null;
     final sw = Stopwatch()..start();
     devLog(
       () =>
@@ -3315,27 +3458,29 @@ class MessagingService {
             '${cid.substring(0, 12)} -> ${peer.short} '
             '(${sw.elapsedMilliseconds}ms), using datagram fallback',
       );
-      return false; // no circuit → caller falls back
+      return null;
     }
     devLog(
       () =>
           'xVeil[content]: stream-open ok ${cid.substring(0, 12)} '
           '-> ${peer.short} (${sw.elapsedMilliseconds}ms)',
     );
-    unawaited(_runPull(peer, cid, sink, stream, savedPath));
-    return true;
+    return stream;
   }
 
-  Future<void> _runPull(
+  Future<bool> _runPull(
     NodeId peer,
     String cid,
     _FetchSink? sink,
     ReliableStream initialStream,
-    String? savedPath,
-  ) async {
+    String? savedPath, {
+    bool emitFailure = true,
+    Iterable<NodeId> retryPeers = const [],
+  }) async {
     var ok = false;
     Object? lastError;
     ReliableStream? stream = initialStream;
+    final peers = _orderedPullPeers(peer, retryPeers);
     ContentManifest? resumeManifest;
     var resumePiece = 0;
     try {
@@ -3351,15 +3496,20 @@ class MessagingService {
         final attemptStream = stream;
         stream = null;
         ReliableStream? current;
+        final attemptPeer = attemptStream != null
+            ? peer
+            : peers[(attempt - 1) % peers.length];
         try {
-          current = attemptStream ?? await _openRetryStream(peer, cid, attempt);
+          current =
+              attemptStream ??
+              await _openRetryStream(attemptPeer, cid, attempt);
           if (current == null) {
             throw StateError('stream retry-open unavailable');
           }
           devLog(
             () =>
                 'xVeil[content]: stream-pull request '
-                '${cid.substring(0, 12)} -> ${peer.short} '
+                '${cid.substring(0, 12)} -> ${attemptPeer.short} '
                 '(attempt $attempt)',
           );
           final resumeFrom = resumeManifest;
@@ -3381,7 +3531,7 @@ class MessagingService {
           devLog(
             () =>
                 'xVeil[content]: stream-pull request sent '
-                '${cid.substring(0, 12)} -> ${peer.short} '
+                '${cid.substring(0, 12)} -> ${attemptPeer.short} '
                 '(${req.length}B'
                 '${resumeOffset > 0 ? ', resume=$resumeOffset' : ''}, '
                 'attempt $attempt)',
@@ -3390,7 +3540,7 @@ class MessagingService {
             devLog(
               () =>
                   'xVeil[content]: stream-pull waiting manifest '
-                  '${cid.substring(0, 12)} <- ${peer.short} '
+                  '${cid.substring(0, 12)} <- ${attemptPeer.short} '
                   '(attempt $attempt)',
             );
           });
@@ -3435,7 +3585,7 @@ class MessagingService {
           devLog(
             () =>
                 'xVeil[content]: stream-pull ${cid.substring(0, 12)} '
-                '(${m.size}B, ${m.pieceCount} pieces) <- ${peer.short} '
+                '(${m.size}B, ${m.pieceCount} pieces) <- ${attemptPeer.short} '
                 '(attempt $attempt'
                 '${readBytes > 0 ? ', resume=$readBytes' : ''})',
           );
@@ -3518,7 +3668,7 @@ class MessagingService {
             }
           }
           ok = true;
-          await _finishReceived(peer, m, sink, savedPath);
+          await _finishReceived(attemptPeer, m, sink, savedPath);
           if (!_contentProgress.isClosed) {
             _contentProgress.add((contentId: cid, done: m.size, total: m.size));
           }
@@ -3576,8 +3726,11 @@ class MessagingService {
           await sink.close();
         } catch (_) {}
       }
-      if (!ok && !_contentFailed.isClosed) _contentFailed.add(cid);
+      if (!ok && emitFailure && !_contentFailed.isClosed) {
+        _contentFailed.add(cid);
+      }
     }
+    return ok;
   }
 
   Future<ReliableStream?> _openRetryStream(
