@@ -14,6 +14,10 @@ set -euo pipefail
 #   ONION_STREAM_MATRIX_MIN_MIB_PER_SEC=      optional floor passed to live test
 #   ONION_STREAM_MATRIX_OUT=.dev-onion-stream-matrix
 #   ONION_STREAM_MATRIX_RUN_ID=<timestamp-pid>  output subdirectory name
+#   ONION_STREAM_MATRIX_LIVE_NODES=/tmp/xveil-osm-<run-id>
+#      Short local-live node directory root; each case gets its own child dir to
+#      avoid stale sockets/locks/process logs after a failed run. Keep it short
+#      for Unix socket SUN_LEN.
 #   ONION_STREAM_MATRIX_CONTINUE_ON_FAIL=1    keep running after failed cases
 #   ONION_STREAM_MATRIX_BUILD=0               passed as ONION_STREAM_LIVE_BUILD
 #   ONION_STREAM_MATRIX_RUST_LOG=info         passed as ONION_STREAM_LIVE_RUST_LOG
@@ -22,6 +26,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_ROOT="${ONION_STREAM_MATRIX_OUT:-$ROOT/.dev-onion-stream-matrix}"
 RUN_ID="${ONION_STREAM_MATRIX_RUN_ID:-$(date +%Y%m%d-%H%M%S)-$$}"
 OUT="$OUT_ROOT/$RUN_ID"
+LIVE_NODES_ROOT="${ONION_STREAM_MATRIX_LIVE_NODES:-/tmp/xveil-osm-$RUN_ID}"
 CASES="${ONION_STREAM_MATRIX_CASES:-6:1048576 8:1048576 6:2097152 4:2097152 4:4194304}"
 FILE_SIZE="${ONION_STREAM_MATRIX_FILE_SIZE:-16777216}"
 MIN_MIB="${ONION_STREAM_MATRIX_MIN_MIB_PER_SEC:-}"
@@ -61,13 +66,14 @@ for spec in $CASES; do
 
   label="case-${case_no}-p${parallelism}-t${target_bytes}"
   log="$OUT/$label.log"
+  live_nodes="$LIVE_NODES_ROOT/$label"
   echo "==> $label file_size=$FILE_SIZE"
 
   live_env=(
     "ONION_STREAM_LIVE_DART_DEFINES="
     "ONION_STREAM_LIVE_BUILD=$BUILD"
     "ONION_STREAM_LIVE_FORCE_CLEAN=1"
-    "ONION_STREAM_LIVE_NODES=$ROOT/.dev-onion-stream"
+    "ONION_STREAM_LIVE_NODES=$live_nodes"
     "ONION_STREAM_LIVE_RUN_TEST=1"
     "ONION_STREAM_LIVE_RUST_LOG=$RUST_LOG"
     "XVEIL_TEST_FILE_SIZE=$FILE_SIZE"
