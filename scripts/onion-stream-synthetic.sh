@@ -12,31 +12,31 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VEIL="$ROOT/third_party/veil"
 
-echo "[1/5] Rust stream mux fault-injection"
+echo "[1/6] Rust stream mux fault-injection"
 (
   cd "$VEIL"
   cargo test -p veil-onion-stream --test mux_fault -- --nocapture
 )
 
-echo "[2/5] Rust stream full test suite"
+echo "[2/6] Rust stream full test suite"
 (
   cd "$VEIL"
   cargo test -p veil-onion-stream
 )
 
-echo "[3/5] veilclient-ffi circuit gate smoke test"
+echo "[3/6] veilclient-ffi circuit gate smoke test"
 (
   cd "$VEIL"
   cargo test -p veilclient-ffi --features node-embedded circuit_env_is_strict_opt_in
 )
 
-echo "[4/5] Dart/Flutter content stream resume tests"
+echo "[4/6] Dart/Flutter content stream resume tests"
 (
   cd "$ROOT"
   flutter test test/content_stream_transfer_test.dart
 )
 
-echo "[5/5] Static analysis for touched Dart files"
+echo "[5/6] Static analysis for touched Dart files"
 (
   cd "$ROOT"
   dart analyze \
@@ -44,6 +44,16 @@ echo "[5/5] Static analysis for touched Dart files"
     lib/main.dart \
     lib/state/messaging.dart \
     test/content_stream_transfer_test.dart
+)
+
+echo "[6/6] Shell harness syntax checks"
+(
+  cd "$ROOT"
+  bash -n \
+    scripts/onion-stream-device-soak.sh \
+    scripts/onion-stream-hook-transfer.sh \
+    scripts/onion-stream-synthetic.sh \
+    scripts/onion_stream_soak.sh
 )
 
 echo "ok: onion stream synthetic harness passed"
