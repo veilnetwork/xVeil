@@ -50,6 +50,7 @@ SOAK_GENERATE_SOURCE="${SOAK_GENERATE_SOURCE:-auto}" # auto|0|1
 SOAK_WAIT_READY_MS="${SOAK_WAIT_READY_MS:-120000}"
 SOAK_EXIT_AFTER_TRANSFER="${SOAK_EXIT_AFTER_TRANSFER:-$SOAK_AUTO_TRANSFER}"
 SOAK_CLEAN_DEST="${SOAK_CLEAN_DEST:-1}"
+SOAK_STREAM_RANGE_PARALLELISM="${SOAK_STREAM_RANGE_PARALLELISM:-}"
 SOAK_MIN_BYTES_PER_SEC="${SOAK_MIN_BYTES_PER_SEC:-}"
 SOAK_MIN_MIB_PER_SEC="${SOAK_MIN_MIB_PER_SEC:-}"
 SOAK_FAULT_AFTER_SEC="${SOAK_FAULT_AFTER_SEC:-}"
@@ -243,6 +244,7 @@ resolve_min_speed
 validate_nonnegative_int SOAK_FAULT_AFTER_SEC "$SOAK_FAULT_AFTER_SEC"
 validate_nonnegative_int SOAK_ANDROID_WIFI_FLAP_AFTER_SEC "$SOAK_ANDROID_WIFI_FLAP_AFTER_SEC"
 validate_nonnegative_int SOAK_ANDROID_WIFI_FLAP_DOWN_SEC "$SOAK_ANDROID_WIFI_FLAP_DOWN_SEC"
+validate_nonnegative_int SOAK_STREAM_RANGE_PARALLELISM "$SOAK_STREAM_RANGE_PARALLELISM"
 prepare_auto_transfer
 
 pids=()
@@ -271,6 +273,9 @@ if [[ "$ENABLE_DEBUG_HOOK" == "1" ]]; then
 fi
 if [[ -n "$min_bytes_per_sec" ]]; then
   echo "minimum average throughput: $min_bytes_per_sec B/s"
+fi
+if [[ -n "$SOAK_STREAM_RANGE_PARALLELISM" ]]; then
+  echo "stream range parallelism: $SOAK_STREAM_RANGE_PARALLELISM"
 fi
 if [[ -n "$SOAK_FAULT_CMD" || -n "$SOAK_ANDROID_WIFI_FLAP_AFTER_SEC" ]]; then
   echo "fault injection: enabled"
@@ -304,6 +309,14 @@ if [[ "$ENABLE_DEBUG_HOOK" == "1" ]]; then
   android_defines+=(
     "--dart-define=XVEIL_DEBUG_HOOK=true"
     "--dart-define=XVEIL_DEBUG_HOOK_PORT=$ANDROID_HOOK_PORT"
+  )
+fi
+if [[ -n "$SOAK_STREAM_RANGE_PARALLELISM" ]]; then
+  desktop_defines+=(
+    "--dart-define=XVEIL_STREAM_RANGE_PARALLELISM=$SOAK_STREAM_RANGE_PARALLELISM"
+  )
+  android_defines+=(
+    "--dart-define=XVEIL_STREAM_RANGE_PARALLELISM=$SOAK_STREAM_RANGE_PARALLELISM"
   )
 fi
 
