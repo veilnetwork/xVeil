@@ -1583,8 +1583,9 @@ class MessagingService {
             'xVeil[sync]: <- ${peer.short} peerHw(me)=$peerHw '
             'reship=${events.length}',
       );
-      // Resolve ids → Messages once, so a file post can re-ship its BLOB (not
-      // just the caption text). A file message is a post with a fileId.
+      // Resolve ids → Messages once, so a file post can re-ship its transfer
+      // descriptor (content manifest for the new content layer, legacy file
+      // probe for old small-file chunks) rather than only the caption text.
       final byId = {
         for (final mm in await _storage.loadMessages(peer.hex)) mm.id: mm,
       };
@@ -1596,12 +1597,36 @@ class MessagingService {
             final isFile =
                 ev.kind == EventKind.filePost || (stored?.isFile ?? false);
             if (isFile) {
-              // A file event: send a CHEAP probe (no blob load), never the caption
-              // text. The receiver replies with a fileNack listing the chunks it
-              // lacks and we re-send only those (resumable) — instead of pushing
-              // the whole blob every round. A filePost whose row/blob is gone is
-              // simply not probed (it heals as a void later).
-              if (stored == null || stored.fileId == null) continue;
+              if (stored == null) continue;
+              final contentId = stored.fileContentId ?? stored.fileId;
+              final served = contentId == null ? null : _serving[contentId];
+              if (served != null) {
+                // Content-layer filePost: the first contentManifest is a lossy
+                // live datagram. If it was the frame that got dropped while an
+                // anonymous circuit was still warming up, gap-fill must re-send
+                // the MANIFEST itself; a legacy fileQuery probe is not enough to
+                // surface an offered file on the receiver.
+                final manifest = served.manifest.withEvent(
+                  msgId: ev.id,
+                  author: selfHex,
+                  seq: ev.seq,
+                  ts: ev.ts,
+                );
+                await _send(
+                  peer,
+                  contentManifestEnvelope(
+                    jsonEncode(manifest.toJson()),
+                  ).encode(),
+                );
+                continue;
+              }
+              // Legacy small-file event: send a CHEAP probe (no blob load),
+              // never the caption text. The receiver replies with a fileNack
+              // listing the chunks it lacks and we re-send only those
+              // (resumable) — instead of pushing the whole blob every round.
+              // A filePost whose row/blob is gone is simply not probed (it heals
+              // as a void later).
+              if (stored.fileId == null) continue;
               await _send(
                 peer,
                 fileQueryEnvelope(

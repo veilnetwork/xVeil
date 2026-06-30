@@ -57,6 +57,7 @@ ios/Runner.xcworkspace/xcshareddata/swiftpm/
 # Local dev veil nodes (mined identities, logs, sockets)
 .dev-nodes/
 /.dev-onion/
+/.dev-onion-stream/
 /.dev-mailbox/
 /.dev-mailbox-mesh/
 /.dev-mailbox-onion/
