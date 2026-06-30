@@ -3877,7 +3877,9 @@ class MessagingService {
     }
     if (pending.isEmpty) {
       if (!await _storage.hasFile(cid)) return false;
-      await _finishReceived(sourceList().first, manifest, null, null);
+      if (!await _finishReceived(sourceList().first, manifest, null, null)) {
+        return false;
+      }
       if (!_contentProgress.isClosed) {
         _contentProgress.add((
           contentId: cid,
@@ -3997,12 +3999,14 @@ class MessagingService {
       );
       return false;
     }
-    await _finishReceived(
+    if (!await _finishReceived(
       completionPeer ?? sourceList().first,
       completionManifest ?? manifest,
       sink,
       savedPath,
-    );
+    )) {
+      return false;
+    }
     if (!_contentProgress.isClosed) {
       _contentProgress.add((
         contentId: cid,
@@ -4322,8 +4326,11 @@ class MessagingService {
               bufLen = 0;
             }
           }
+          if (!await _finishReceived(attemptPeer, m, sink, savedPath)) {
+            lastError = StateError('download finalization failed');
+            break;
+          }
           ok = true;
-          await _finishReceived(attemptPeer, m, sink, savedPath);
           if (!_contentProgress.isClosed) {
             _contentProgress.add((contentId: cid, done: m.size, total: m.size));
           }
@@ -4424,7 +4431,7 @@ class MessagingService {
   /// Finalise a completed RECEIVE: an unencrypted-to-file download closes the
   /// sink, remembers the path (tap → open), and reports it; an in-app store
   /// surfaces offer→downloaded. Acks the sender either way (flips sent→delivered).
-  Future<void> _finishReceived(
+  Future<bool> _finishReceived(
     NodeId peer,
     ContentManifest m,
     _FetchSink? sink,
@@ -4434,7 +4441,15 @@ class MessagingService {
     if (sink != null) {
       try {
         await sink.close();
-      } catch (_) {}
+      } catch (e) {
+        devLog(
+          () =>
+              'xVeil[content]: plaintext close failed '
+              '${m.contentId.substring(0, 12)} -> $savedPath: $e',
+        );
+        if (!_contentFailed.isClosed) _contentFailed.add(m.contentId);
+        return false;
+      }
       if (savedPath != null) {
         try {
           await _storage.putSetting('saved:${m.contentId}', savedPath);
@@ -4453,7 +4468,7 @@ class MessagingService {
           savedToPath: savedPath,
         ));
       }
-      return;
+      return true;
     }
     devLog(
       () =>
@@ -4469,6 +4484,7 @@ class MessagingService {
         savedToPath: null,
       ));
     }
+    return persisted;
   }
 
   /// Read EXACTLY [n] bytes (looping); null on EOF before [n] arrives.
@@ -4592,8 +4608,14 @@ class MessagingService {
       final savedPath = _fetchSavePath.remove(f.contentId);
       try {
         await sink.close();
-      } catch (_) {
-        /* best-effort finalise */
+      } catch (e) {
+        devLog(
+          () =>
+              'xVeil[content]: plaintext close failed '
+              '${f.contentId.substring(0, 12)} -> $savedPath: $e',
+        );
+        if (!_contentFailed.isClosed) _contentFailed.add(f.contentId);
+        return;
       }
       // Remember where it landed so a later tap OPENS the file instead of
       // re-offering it (it isn't in the app store → hasFile is false).
