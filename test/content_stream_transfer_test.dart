@@ -347,13 +347,17 @@ void main() {
       expect(await sB.loadFile(cid), data);
 
       final c = _id(3);
-      final d = _id(4); // accepted but not a holder
+      final d = _id(4);
+      final e = _id(5);
       final tC = _StreamLink(c);
       final tD = _StreamLink(d);
+      final tE = _StreamLink(e);
       final sC = HiddenVolumeStorage(_mem());
       final sD = HiddenVolumeStorage(_mem());
+      final sE = HiddenVolumeStorage(_mem());
       await sC.open(password: 'c', createIfMissing: true);
       await sD.open(password: 'd', createIfMissing: true);
+      await sE.open(password: 'e', createIfMissing: true);
       final mC = MessagingService(
         tC,
         sC,
@@ -362,17 +366,27 @@ void main() {
       )..start();
       final mD = MessagingService(tD, sD, contentPacing: Duration.zero)
         ..start();
+      final mE = MessagingService(tE, sE, contentPacing: Duration.zero)
+        ..start();
       addTearDown(() async {
         await mC.dispose();
         await mD.dispose();
+        await mE.dispose();
         await sC.close();
         await sD.close();
+        await sE.close();
       });
 
       await sC.upsertContact(
         Contact(nodeId: d, status: ContactStatus.accepted),
       );
       await sD.upsertContact(
+        Contact(nodeId: c, status: ContactStatus.accepted),
+      );
+      await sC.upsertContact(
+        Contact(nodeId: e, status: ContactStatus.accepted),
+      );
+      await sE.upsertContact(
         Contact(nodeId: c, status: ContactStatus.accepted),
       );
       await sC.upsertContact(
@@ -385,11 +399,20 @@ void main() {
         mC.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
       );
       tC.routes[d.hex] = tD;
+      tC.routes[e.hex] = tE;
       tC.routes[b.hex] = tB;
       tB.routes[c.hex] = tC;
       tD.routes[c.hex] = tC;
+      tE.routes[c.hex] = tC;
 
       await mD.sendFileStreaming(
+        c,
+        'multi-source.bin',
+        data.length,
+        (o, l) async => Uint8List.sublistView(data, o, o + l),
+        close: () async {},
+      );
+      await mE.sendFileStreaming(
         c,
         'multi-source.bin',
         data.length,
@@ -407,6 +430,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 80));
 
       tD.acceptStreamWrappers.add((stream) => _CloseOnWriteStream(stream));
+      tE.acceptStreamWrappers.add((stream) => _CloseOnWriteStream(stream));
       final gotC = mC.contentReceived.firstWhere((e) => e.contentId == cid);
       final result = await mC.downloadContent(d, cid);
       expect(result, ContentDownloadResult.started);
@@ -415,8 +439,8 @@ void main() {
       expect(await sC.loadFile(cid), data);
       expect(
         tC.openedStreamCount,
-        greaterThanOrEqualTo(2),
-        reason: 'C should abandon D and retry from B',
+        greaterThanOrEqualTo(3),
+        reason: 'C should try every known holder, not stop at retry budget 2',
       );
     },
   );
