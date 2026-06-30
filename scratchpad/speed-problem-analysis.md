@@ -5,17 +5,21 @@
 ## Результат
 
 - Исходно: около 135 КБ/с.
-- Финальная конфигурация одной pinned anonymous circuit:
+- Текущая checked-in конфигурация одной pinned anonymous circuit:
   - MSS: 318 Б;
   - receive window: 896 КБ;
-  - pacing batch: 24 сегмента;
-  - cumulative ACK: каждые 32 DATA, но не позднее 5 мс;
+  - pacing batch: 12 сегментов;
+  - cumulative ACK: каждые 16 DATA, но не позднее 5 мс;
   - gap/duplicate/FIN ACK отправляются немедленно;
   - congestion growth считает подтверждённые байты, а не ACK-пакеты.
-- 37,158,021 Б:
+- Rust synthetic clean-circuit regression теперь защищает порог **≥2.0 MiB/s**
+  на текущем профиле (150 ms RTT, MSS 318, window 896 KiB, batch=12, ACK×16).
+- Более агрессивная ступень batch=24 / ACK×32 на 37,158,021 Б давала:
   - steady: 2.80–3.01 МБ/с;
   - примерно 13.8 с от `stream-serve` до готового файла;
   - zero resend / RTO / relay drops.
+  Она оставлена как измеренный верхний ориентир, но checked-in профиль сейчас
+  консервативнее, чтобы снизить риск переполнения bounded relay/session queues.
 - 237,765,788 Б на предыдущей консервативной ступени 768 КБ / batch=16:
   - около 2.50 МБ/с end-to-end;
   - refresh pinned circuit посередине передачи прошёл без паузы;
@@ -47,6 +51,10 @@
 - Batch=16 давал почти точный timer ceiling:
   `16 × 318 Б / ~2 мс ≈ 2.54 МБ/с`.
 - Batch=24 поднял steady примерно до 2.8–3.0 МБ/с без потерь.
+- Batch=8 в synthetic-регрессии давал только ~1.91 MiB/s, слишком близко к
+  старому 1.5 MiB/s потолку.
+- Checked-in batch=12 держит synthetic-регрессию выше 2.0 MiB/s и оставляет
+  safety margin против очередей реле/сессии относительно batch=24.
 - Relay и клиенты не упираются в CPU; drop counters остаются нулевыми.
 
 ## Изменённые компоненты
