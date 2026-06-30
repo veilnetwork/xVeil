@@ -34,8 +34,9 @@ const _debugHookPort = int.fromEnvironment(
 ///   GET /wait_ready[?timeout_ms=60000]
 ///   GET /identity
 ///   GET /contacts
-///   `POST/GET /send_file?peer=<node-hex>&path=<source-path>[&name=<name>]`
-///   `POST/GET /download_file?peer=<node-hex>&cid=<content-id>[&path=<dest>]`
+///   `POST/GET /send_file?peer=NODE_HEX&path=SOURCE_PATH[&name=NAME]`
+///   `POST/GET /download_file?peer=NODE_HEX&cid=CONTENT_ID&path=DEST_PATH
+///      [&timeout_ms=1800000]`
 ///
 /// If [path] is omitted for /download_file, the file is downloaded into the
 /// encrypted app tier. If present, bytes are written unencrypted to that path.
@@ -235,14 +236,40 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final cid = _required(req, 'cid');
     if (peer == null || cid == null) return;
     final path = req.uri.queryParameters['path']?.trim();
+    final timeout = _timeout(req, defaultMs: 30 * 60 * 1000);
     final svc = ref.read(messagingServiceProvider);
     if (path == null || path.isEmpty) {
+      final alreadyHeld = await ref.read(storageProvider).hasFile(cid);
+      final wait = alreadyHeld ? null : _waitDownload(svc, cid, timeout);
       final result = await svc.downloadContent(peer, cid);
+      if (result == ContentDownloadResult.noOffer) {
+        return _json(req, {
+          'ok': false,
+          'mode': 'encrypted',
+          'result': result.name,
+          'contentId': cid,
+          'error': 'no live offer',
+        }, status: 409);
+      }
+      final done = wait == null ? _DownloadWait.done() : await wait;
+      if (!done.ok) {
+        return _json(req, {
+          'ok': false,
+          'mode': 'encrypted',
+          'result': result.name,
+          'contentId': cid,
+          'error': done.error,
+          'done': done.done,
+          'total': done.total,
+        }, status: done.timedOut ? 504 : 409);
+      }
       return _json(req, {
         'ok': true,
         'mode': 'encrypted',
         'result': result.name,
         'contentId': cid,
+        'done': done.done,
+        'total': done.total,
       });
     }
 
@@ -251,6 +278,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final raf = await out.open(mode: FileMode.write);
     var handedOff = false;
     try {
+      final wait = _waitDownload(svc, cid, timeout, savedPath: path);
       final result = await svc.downloadContentToFile(
         peer,
         cid,
@@ -263,6 +291,30 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           await raf.close();
         },
       );
+      if (result == ContentDownloadResult.noOffer) {
+        return _json(req, {
+          'ok': false,
+          'mode': 'plain-file',
+          'result': result.name,
+          'contentId': cid,
+          'path': path,
+          'error': 'no live offer',
+        }, status: 409);
+      }
+      final done = await wait;
+      if (!done.ok) {
+        return _json(req, {
+          'ok': false,
+          'mode': 'plain-file',
+          'result': result.name,
+          'contentId': cid,
+          'path': path,
+          'error': done.error,
+          'done': done.done,
+          'total': done.total,
+          'size': await _fileLengthIfExists(out),
+        }, status: done.timedOut ? 504 : 409);
+      }
       handedOff = true;
       return _json(req, {
         'ok': true,
@@ -270,6 +322,8 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         'result': result.name,
         'contentId': cid,
         'path': path,
+        'done': done.done,
+        'total': done.total,
         'size': await out.length(),
       });
     } finally {
@@ -279,6 +333,13 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         } catch (_) {}
       }
     }
+  }
+
+  Duration _timeout(HttpRequest req, {required int defaultMs}) {
+    final ms =
+        int.tryParse(req.uri.queryParameters['timeout_ms']?.trim() ?? '') ??
+        defaultMs;
+    return Duration(milliseconds: ms.clamp(1000, 24 * 60 * 60 * 1000));
   }
 
   bool _requireReady(HttpRequest req) {
@@ -311,6 +372,84 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     unawaited(_json(req, {'ok': false, 'error': 'missing $key'}, status: 400));
     return null;
   }
+}
+
+Future<int> _fileLengthIfExists(File file) async {
+  try {
+    return await file.exists() ? await file.length() : 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
+class _DownloadWait {
+  const _DownloadWait({
+    required this.ok,
+    this.error,
+    this.done,
+    this.total,
+    this.timedOut = false,
+  });
+
+  factory _DownloadWait.done({int? done, int? total}) =>
+      _DownloadWait(ok: true, done: done, total: total);
+
+  final bool ok;
+  final String? error;
+  final int? done;
+  final int? total;
+  final bool timedOut;
+}
+
+Future<_DownloadWait> _waitDownload(
+  MessagingService svc,
+  String cid,
+  Duration timeout, {
+  String? savedPath,
+}) {
+  final completer = Completer<_DownloadWait>();
+  StreamSubscription<({String contentId, String name, String? savedToPath})>?
+  receivedSub;
+  StreamSubscription<({String contentId, int done, int total})>? progressSub;
+  StreamSubscription<String>? failedSub;
+  Timer? timer;
+
+  void finish(_DownloadWait result) {
+    if (completer.isCompleted) return;
+    completer.complete(result);
+    unawaited(receivedSub?.cancel());
+    unawaited(progressSub?.cancel());
+    unawaited(failedSub?.cancel());
+    timer?.cancel();
+  }
+
+  receivedSub = svc.contentReceived.listen((e) {
+    if (e.contentId != cid) return;
+    if (savedPath != null && e.savedToPath != savedPath) return;
+    finish(_DownloadWait.done());
+  });
+  progressSub = svc.contentProgress.listen((e) {
+    if (e.contentId != cid) return;
+    if (e.total > 0 && e.done >= e.total) {
+      finish(_DownloadWait.done(done: e.done, total: e.total));
+    }
+  });
+  failedSub = svc.contentDownloadFailed.listen((failedCid) {
+    if (failedCid == cid) {
+      finish(const _DownloadWait(ok: false, error: 'download failed'));
+    }
+  });
+  timer = Timer(timeout, () {
+    finish(
+      _DownloadWait(
+        ok: false,
+        error: 'download timed out after ${timeout.inMilliseconds}ms',
+        timedOut: true,
+      ),
+    );
+  });
+
+  return completer.future;
 }
 
 Map<String, Object?>? _identityJson(AppState state) {
