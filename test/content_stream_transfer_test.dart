@@ -685,6 +685,106 @@ void main() {
   );
 
   test(
+    'STREAM swarm range pull picks up a holder advertised after download start',
+    () async {
+      final data = _rnd(720000, 29); // 3 pieces at the default 256 KiB.
+      final cid = ContentManifest.fromBytes('late-holder.bin', data).contentId;
+
+      final c = _id(3);
+      final d = _id(4);
+      final e = _id(5);
+      final tC = _StreamLink(c);
+      final tD = _StreamLink(d);
+      final tE = _StreamLink(e);
+      final sC = HiddenVolumeStorage(_mem());
+      final sD = HiddenVolumeStorage(_mem());
+      final sE = HiddenVolumeStorage(_mem());
+      await sC.open(password: 'c', createIfMissing: true);
+      await sD.open(password: 'd', createIfMissing: true);
+      await sE.open(password: 'e', createIfMissing: true);
+      final mC = MessagingService(
+        tC,
+        sC,
+        contentPacing: Duration.zero,
+        streamPullMaxAttempts: 12,
+      )..start();
+      final mD = MessagingService(tD, sD, contentPacing: Duration.zero)
+        ..start();
+      final mE = MessagingService(tE, sE, contentPacing: Duration.zero)
+        ..start();
+      addTearDown(() async {
+        await mC.dispose();
+        await mD.dispose();
+        await mE.dispose();
+        await sC.close();
+        await sD.close();
+        await sE.close();
+      });
+
+      await sC.upsertContact(
+        Contact(nodeId: d, status: ContactStatus.accepted),
+      );
+      await sD.upsertContact(
+        Contact(nodeId: c, status: ContactStatus.accepted),
+      );
+      await sC.upsertContact(
+        Contact(nodeId: e, status: ContactStatus.accepted),
+      );
+      await sE.upsertContact(
+        Contact(nodeId: c, status: ContactStatus.accepted),
+      );
+      await mC.setFileDownloadPolicy(
+        mC.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+      tC.routes[d.hex] = tD;
+      tC.routes[e.hex] = tE;
+      tD.routes[c.hex] = tC;
+      tE.routes[c.hex] = tC;
+
+      await mD.sendFileStreaming(
+        c,
+        'late-holder.bin',
+        data.length,
+        (o, l) async => Uint8List.sublistView(data, o, o + l),
+        close: () async {},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      // D has advertised the content, but every stream serve from D dies before
+      // a manifest/piece can be read. The live holder E advertises only after C
+      // already started downloading, so the range pull must refresh its source
+      // set while retrying instead of staying pinned to the initial dead holder.
+      for (var i = 0; i < 24; i++) {
+        tD.acceptStreamWrappers.add((stream) => _CloseOnWriteStream(stream));
+      }
+      final eServeOffsets = <int>[];
+      unawaited(
+        Future<void>.delayed(const Duration(milliseconds: 120), () async {
+          await mE.sendFileStreaming(c, 'late-holder.bin', data.length, (
+            o,
+            l,
+          ) async {
+            eServeOffsets.add(o);
+            return Uint8List.sublistView(data, o, o + l);
+          }, close: () async {});
+          eServeOffsets.clear(); // ignore hashing reads from advertisement.
+        }),
+      );
+
+      final gotC = mC.contentReceived.firstWhere((e) => e.contentId == cid);
+      expect(await mC.downloadContent(d, cid), ContentDownloadResult.started);
+      final ev = await gotC.timeout(const Duration(seconds: 20));
+      expect(ev.contentId, cid);
+      expect(await sC.loadFile(cid), data);
+      expect(
+        eServeOffsets,
+        isNotEmpty,
+        reason: 'the late holder should be used for piece-range serving',
+      );
+    },
+  );
+
+  test(
     'STREAM swarm resume switches to another holder after partial payload',
     () async {
       final data = _rnd(700000, 31); // 3 pieces at the default 256 KiB.
@@ -839,6 +939,12 @@ void main() {
     final ev = await got.timeout(const Duration(seconds: 20));
     expect(ev.savedToPath, dest);
     expect(await File(dest).readAsBytes(), data);
+    expect(
+      tB.openedStreamCount,
+      greaterThanOrEqualTo(2),
+      reason:
+          'save-to-file should use parallel range streams when it has a live offer',
+    );
     expect(
       await sB.hasFile(cid),
       isFalse,

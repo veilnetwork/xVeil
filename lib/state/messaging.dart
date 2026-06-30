@@ -2818,22 +2818,34 @@ class MessagingService {
           '${contentId.substring(0, 12)} -> $savedPath',
     );
     _markContentDownloadStarted(contentId);
+    final retryPeers = await _contentSourcePeers(
+      preferred: peer,
+      contentId: contentId,
+    );
+    final offered = _offered[contentId];
+    if (offered != null &&
+        await _pullSwarmStreamToFile(
+          peer,
+          contentId,
+          offered.manifest,
+          retryPeers,
+          sink,
+          savedPath,
+        )) {
+      return ContentDownloadResult.started;
+    }
     // Reliable STREAM path (fast). Works without a live offer handle.
     if (await _pullStream(
       peer,
       contentId,
       sink,
       savedPath: savedPath,
-      retryPeers: await _contentSourcePeers(
-        preferred: peer,
-        contentId: contentId,
-      ),
+      retryPeers: retryPeers,
     )) {
       return ContentDownloadResult.started;
     }
     // Datagram fallback.
     _fetchSavePath[contentId] = savedPath;
-    final offered = _offered[contentId];
     if (offered == null) {
       return _requestReoffer(peer, contentId, sink);
     }
@@ -3507,10 +3519,24 @@ class MessagingService {
     return false; // no circuit → caller falls back
   }
 
-  Future<bool?> _pullStreamToCompletion(NodeId peer, String cid) async {
+  Future<bool?> _pullStreamToCompletion(
+    NodeId peer,
+    String cid, {
+    _FetchSink? sink,
+    String? savedPath,
+    bool closeSinkOnFailure = true,
+  }) async {
     final stream = await _openInitialPullStream(peer, cid);
     if (stream == null) return null;
-    return _runPull(peer, cid, null, stream, null, emitFailure: false);
+    return _runPull(
+      peer,
+      cid,
+      sink,
+      stream,
+      savedPath,
+      emitFailure: false,
+      closeSinkOnFailure: closeSinkOnFailure,
+    );
   }
 
   Future<bool> _pullSwarmStream(
@@ -3527,6 +3553,34 @@ class MessagingService {
     );
     if (sources.isEmpty) return false;
     unawaited(_runSwarmPullThenFallback(preferred, cid, manifest, sources));
+    return true;
+  }
+
+  Future<bool> _pullSwarmStreamToFile(
+    NodeId preferred,
+    String cid,
+    ContentManifest manifest,
+    Iterable<NodeId> peers,
+    _FetchSink sink,
+    String savedPath,
+  ) async {
+    if (_transport is! StreamTransport || manifest.pieceCount < 2) {
+      return false;
+    }
+    final sources = await _acceptedStreamSources(
+      _orderedPullPeers(preferred, peers),
+    );
+    if (sources.isEmpty) return false;
+    unawaited(
+      _runSwarmFileThenFallback(
+        preferred,
+        cid,
+        manifest,
+        sources,
+        sink,
+        savedPath,
+      ),
+    );
     return true;
   }
 
@@ -3555,7 +3609,11 @@ class MessagingService {
           'xVeil[content]: swarm-range failed ${cid.substring(0, 12)}, '
           'falling back to sequential stream',
     );
-    for (final peer in peers) {
+    final fallbackPeers = _orderedPullPeers(preferred, [
+      ...peers,
+      ...await _contentSourcePeers(preferred: preferred, contentId: cid),
+    ]);
+    for (final peer in fallbackPeers) {
       final contact = await _storage.getContact(peer);
       if (contact == null || contact.status != ContactStatus.accepted) continue;
       final ok = await _pullStreamToCompletion(peer, cid);
@@ -3566,26 +3624,105 @@ class MessagingService {
     if (!_contentFailed.isClosed) _contentFailed.add(cid);
   }
 
+  Future<void> _runSwarmFileThenFallback(
+    NodeId preferred,
+    String cid,
+    ContentManifest manifest,
+    List<NodeId> peers,
+    _FetchSink sink,
+    String savedPath,
+  ) async {
+    var ok = false;
+    try {
+      ok = await _pullSwarmPiecesToCompletion(
+        peers,
+        manifest,
+        sink: sink,
+        savedPath: savedPath,
+      );
+      if (ok) return;
+      devLog(
+        () =>
+            'xVeil[content]: swarm-range-to-file failed '
+            '${cid.substring(0, 12)}, falling back to sequential stream',
+      );
+      final fallbackPeers = _orderedPullPeers(preferred, [
+        ...peers,
+        ...await _contentSourcePeers(preferred: preferred, contentId: cid),
+      ]);
+      for (final peer in fallbackPeers) {
+        final contact = await _storage.getContact(peer);
+        if (contact == null || contact.status != ContactStatus.accepted) {
+          continue;
+        }
+        ok =
+            await _pullStreamToCompletion(
+              peer,
+              cid,
+              sink: sink,
+              savedPath: savedPath,
+              closeSinkOnFailure: false,
+            ) ==
+            true;
+        if (ok) return;
+      }
+    } finally {
+      if (!ok) {
+        try {
+          await sink.close();
+        } catch (_) {}
+        if (!_contentFailed.isClosed) _contentFailed.add(cid);
+      }
+    }
+  }
+
   Future<bool> _pullSwarmPiecesToCompletion(
     Iterable<NodeId> peers,
-    ContentManifest manifest,
-  ) async {
+    ContentManifest manifest, {
+    _FetchSink? sink,
+    String? savedPath,
+  }) async {
     final cid = manifest.contentId;
     if (_transport is! StreamTransport || manifest.pieceCount < 2) return false;
-    final sources = await _acceptedStreamSources(peers);
-    if (sources.isEmpty) return false;
+    final initialPeers = peers.toList(growable: false);
+    final sourceMap = <String, NodeId>{};
+
+    Future<int> refreshSources() async {
+      final before = sourceMap.length;
+      final offered = _offered[cid];
+      final accepted = await _acceptedStreamSources([
+        ...initialPeers,
+        if (offered != null) ...offered.peers.values,
+        ...await _storedContentSourcePeers(cid),
+      ]);
+      for (final peer in accepted) {
+        sourceMap[peer.hex] = peer;
+      }
+      final added = sourceMap.length - before;
+      if (added > 0 && before > 0) {
+        devLog(
+          () =>
+              'xVeil[content]: swarm-range sources refreshed '
+              '${cid.substring(0, 12)} +$added -> ${sourceMap.length}',
+        );
+      }
+      return added;
+    }
+
+    await refreshSources();
+    if (sourceMap.isEmpty) return false;
+    List<NodeId> sourceList() => sourceMap.values.toList(growable: false);
 
     final pending = <int>[];
     final completed = <int>{};
     var completedBytes = 0;
     for (var i = 0; i < manifest.pieceCount; i++) {
       final len = manifest.pieceLength(i);
-      final existing = await _storage.readFileRange(
-        cid,
-        i * manifest.pieceSize,
-        len,
-      );
-      if (existing != null &&
+      final existing = sink == null
+          ? await _storage.readFileRange(cid, i * manifest.pieceSize, len)
+          : null;
+      if (sink == null &&
+          existing != null &&
           existing.length == len &&
           manifest.verifyPiece(i, existing)) {
         completed.add(i);
@@ -3604,7 +3741,7 @@ class MessagingService {
     }
     if (pending.isEmpty) {
       if (!await _storage.hasFile(cid)) return false;
-      await _finishReceived(sources.first, manifest, null, null);
+      await _finishReceived(sourceList().first, manifest, null, null);
       if (!_contentProgress.isClosed) {
         _contentProgress.add((
           contentId: cid,
@@ -3619,19 +3756,46 @@ class MessagingService {
         ? pending.length
         : _streamRangeParallelism;
     final attempts = List<int>.filled(manifest.pieceCount, 0);
-    final minAttemptsPerPiece = sources.length < 3 ? 3 : sources.length;
-    final maxAttemptsPerPiece = _streamPullMaxAttempts < minAttemptsPerPiece
-        ? minAttemptsPerPiece
-        : _streamPullMaxAttempts;
+    int maxAttemptsPerPiece() {
+      final sourceCount = sourceMap.length;
+      final minAttemptsPerPiece = sourceCount < 3 ? 3 : sourceCount;
+      return _streamPullMaxAttempts < minAttemptsPerPiece
+          ? minAttemptsPerPiece
+          : _streamPullMaxAttempts;
+    }
+
     var failed = false;
     NodeId? completionPeer;
     ContentManifest? completionManifest;
+    Future<void> sinkWriteTail = Future<void>.value();
+
+    Future<void> writePiece(int pieceIndex, Uint8List piece) {
+      if (sink == null) {
+        return _storage.storeFilePiece(
+          cid,
+          pieceIndex,
+          manifest.pieceCount,
+          manifest.pieceSize,
+          manifest.size,
+          piece,
+          name: manifest.name,
+        );
+      }
+      final offset = pieceIndex * manifest.pieceSize;
+      final next = sinkWriteTail.then((_) => sink.write(offset, piece));
+      // The UI/soak callers use one RandomAccessFile with setPosition+write.
+      // Serialize those writes here so parallel network pulls do not race the
+      // file cursor.
+      sinkWriteTail = next.catchError((_) {});
+      return next;
+    }
 
     ({int piece, NodeId peer})? takePiece() {
       if (failed || pending.isEmpty) return null;
       final piece = pending.removeAt(0);
       final attempt = attempts[piece];
-      if (attempt >= maxAttemptsPerPiece) {
+      final sources = sourceList();
+      if (sources.isEmpty || attempt >= maxAttemptsPerPiece()) {
         failed = true;
         return null;
       }
@@ -3639,8 +3803,9 @@ class MessagingService {
       return (piece: piece, peer: sources[(piece + attempt) % sources.length]);
     }
 
-    void requeue(int piece) {
-      if (attempts[piece] >= maxAttemptsPerPiece) {
+    Future<void> requeue(int piece) async {
+      await refreshSources();
+      if (attempts[piece] >= maxAttemptsPerPiece()) {
         failed = true;
       } else {
         pending.add(piece);
@@ -3656,9 +3821,10 @@ class MessagingService {
           task.peer,
           manifest,
           piece,
+          writePiece: writePiece,
         );
         if (pulled == null) {
-          requeue(piece);
+          await requeue(piece);
           await Future<void>.delayed(_streamPullRetryDelay(attempts[piece]));
           continue;
         }
@@ -3680,13 +3846,13 @@ class MessagingService {
       () =>
           'xVeil[content]: swarm-range start ${cid.substring(0, 12)} '
           'pieces=${manifest.pieceCount} workers=$workerCount '
-          'sources=${sources.length} resume=${completed.length} '
-          'attempts_per_piece=$maxAttemptsPerPiece',
+          'sources=${sourceMap.length} resume=${completed.length} '
+          'attempts_per_piece=${maxAttemptsPerPiece()}',
     );
     await Future.wait<void>([for (var i = 0; i < workerCount; i++) worker(i)]);
     if (failed ||
         completed.length < manifest.pieceCount ||
-        !await _storage.hasFile(cid)) {
+        (sink == null && !await _storage.hasFile(cid))) {
       devLog(
         () =>
             'xVeil[content]: swarm-range incomplete '
@@ -3696,10 +3862,10 @@ class MessagingService {
       return false;
     }
     await _finishReceived(
-      completionPeer ?? sources.first,
+      completionPeer ?? sourceList().first,
       completionManifest ?? manifest,
-      null,
-      null,
+      sink,
+      savedPath,
     );
     if (!_contentProgress.isClosed) {
       _contentProgress.add((
@@ -3714,8 +3880,9 @@ class MessagingService {
   Future<({NodeId peer, ContentManifest manifest})?> _pullPieceRangeToStorage(
     NodeId peer,
     ContentManifest expected,
-    int pieceIndex,
-  ) async {
+    int pieceIndex, {
+    required Future<void> Function(int pieceIndex, Uint8List piece) writePiece,
+  }) async {
     final cid = expected.contentId;
     final pieceLen = expected.pieceLength(pieceIndex);
     final offset = pieceIndex * expected.pieceSize;
@@ -3759,15 +3926,7 @@ class MessagingService {
       if (!expected.verifyPiece(pieceIndex, piece)) {
         throw StateError('piece $pieceIndex failed verify');
       }
-      await _storage.storeFilePiece(
-        cid,
-        pieceIndex,
-        expected.pieceCount,
-        expected.pieceSize,
-        expected.size,
-        piece,
-        name: expected.name,
-      );
+      await writePiece(pieceIndex, piece);
       return (peer: peer, manifest: m);
     } catch (e) {
       devLog(
@@ -3834,6 +3993,7 @@ class MessagingService {
     String? savedPath, {
     bool emitFailure = true,
     Iterable<NodeId> retryPeers = const [],
+    bool closeSinkOnFailure = true,
   }) async {
     var ok = false;
     Object? lastError;
@@ -4080,7 +4240,7 @@ class MessagingService {
               '${cid.substring(0, 12)}: $lastError',
         );
       }
-      if (!ok && sink != null) {
+      if (!ok && sink != null && closeSinkOnFailure) {
         try {
           await sink.close();
         } catch (_) {}
