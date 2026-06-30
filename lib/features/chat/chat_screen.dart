@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -180,7 +179,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       try {
         final fsLen = await File(path).length();
         if (fsLen > 0) size = fsLen;
-      } catch (_) {/* unreadable length → keep the picker's size */}
+      } catch (_) {
+        /* unreadable length → keep the picker's size */
+      }
       if (size > kMaxIncomingFileBytes) {
         devLog(() => 'xVeil[attach]: ${file.name} size=$size -> stream');
         // Serve-from-source: the sender already HAS this file, so we don't copy
@@ -193,16 +194,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           return;
         }
         try {
-          await ref.read(messagingServiceProvider).sendFileStreaming(
-            _peer,
-            file.name,
-            size,
-            src.read,
-            close: src.close,
-            // Persist this path so a reoffer after a restart can re-open + re-serve
-            // (durable offers). Best-effort — works while the file stays here.
-            sourcePath: path,
-          );
+          await ref
+              .read(messagingServiceProvider)
+              .sendFileStreaming(
+                _peer,
+                file.name,
+                size,
+                src.read,
+                close: src.close,
+                // Persist this path so a reoffer after a restart can re-open + re-serve
+                // (durable offers). Best-effort — works while the file stays here.
+                sourcePath: path,
+              );
         } catch (e) {
           devLog(() => 'xVeil[attach]: stream send failed ${file.name}: $e');
           if (mounted) _snack(l.chatFileUnreadable);
@@ -217,13 +220,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       try {
         bytes = await File(file.path!).readAsBytes();
       } catch (e) {
-        devLog(() => 'xVeil[attach]: read failed ${file.name} '
-            'path=${file.path}: $e');
+        devLog(
+          () =>
+              'xVeil[attach]: read failed ${file.name} '
+              'path=${file.path}: $e',
+        );
       }
     }
     if (bytes == null) {
-      devLog(() => 'xVeil[attach]: ${file.name} UNREADABLE '
-          '(path=${file.path}, size=${file.size}) — no bytes, nothing sent');
+      devLog(
+        () =>
+            'xVeil[attach]: ${file.name} UNREADABLE '
+            '(path=${file.path}, size=${file.size}) — no bytes, nothing sent',
+      );
       if (mounted) _snack(l.chatFileUnreadable);
       return;
     }
@@ -253,15 +262,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (cid == null) return;
     // Already downloaded UNENCRYPTED to a plain file → OPEN it (it isn't in the
     // app store, so hasFile is false — don't re-offer).
-    final saved = await ref.read(messagingServiceProvider).contentSavedPath(cid);
-    if (saved != null && await File(saved).exists()) {
+    final saved = await ref
+        .read(messagingServiceProvider)
+        .contentSavedPath(cid);
+    if (saved != null &&
+        await _savedFileLooksComplete(saved, expectedSize: m.fileSize)) {
       await _openSavedFile(saved);
       return;
     }
     if ((m.fileSize ?? 0) > kMaxIncomingFileBytes) {
       // A LARGE file: honour this identity's preference — ask, always encrypted,
       // or always unencrypted-to-disk (set in Settings → Files).
-      switch (ref.read(messagingServiceProvider).fileDownloadPolicy.largeFileMode) {
+      switch (ref
+          .read(messagingServiceProvider)
+          .fileDownloadPolicy
+          .largeFileMode) {
         case LargeFileMode.ask:
           await _showDownloadMenu(m, cid);
         case LargeFileMode.encrypted:
@@ -289,15 +304,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         await Process.run('explorer', [path]);
         return;
       }
-    } catch (_) {/* fall through to showing the path */}
+    } catch (_) {
+      /* fall through to showing the path */
+    }
     if (mounted) _snack('${l.chatFileSaved}: $path');
   }
 
   /// Start an in-app download (encrypted tier / in-volume) + surface a hint if we
   /// had to ask the sender to re-advertise (stale offer after a restart).
   Future<void> _downloadEncrypted(String cid) async {
-    final r =
-        await ref.read(messagingServiceProvider).downloadContent(_peer, cid);
+    final r = await ref
+        .read(messagingServiceProvider)
+        .downloadContent(_peer, cid);
     if (mounted && r == ContentDownloadResult.requestedReoffer) {
       _snack(AppL10n.of(context).fileRequestingResend);
       _watchDownloadFailure(cid);
@@ -313,13 +331,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         .contentDownloadFailed
         .firstWhere((c) => c == cid)
         .then((_) async {
-      if (deletePath != null) {
-        try {
-          await File(deletePath).delete();
-        } catch (_) {/* already gone */}
-      }
-      if (mounted) _snack(AppL10n.of(context).fileReofferFailed);
-    }).catchError((_) {/* stream closed before any failure */});
+          if (deletePath != null) {
+            try {
+              await File(deletePath).delete();
+            } catch (_) {
+              /* already gone */
+            }
+          }
+          if (mounted) _snack(AppL10n.of(context).fileReofferFailed);
+        })
+        .catchError((_) {
+          /* stream closed before any failure */
+        });
   }
 
   /// Ask where to put a LARGE offered file: the encrypted in-app tier, or a plain
@@ -360,8 +383,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// identity's setting already chose "always unencrypted" (that is the consent).
   /// Desktop: the user picks the path. Mobile: the app documents dir (the save
   /// plugin can't stream to a chosen location there).
-  Future<void> _downloadUnencrypted(Message m, String cid,
-      {bool warn = true}) async {
+  Future<void> _downloadUnencrypted(
+    Message m,
+    String cid, {
+    bool warn = true,
+  }) async {
     final l = AppL10n.of(context);
     if (warn) {
       final ok = await showDialog<bool>(
@@ -370,11 +396,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           content: Text(l.fileSavePlainWarn),
           actions: [
             TextButton(
-                onPressed: () => Navigator.of(d).pop(false),
-                child: Text(l.actionCancel)),
+              onPressed: () => Navigator.of(d).pop(false),
+              child: Text(l.actionCancel),
+            ),
             FilledButton(
-                onPressed: () => Navigator.of(d).pop(true),
-                child: Text(l.fileSavePlainConfirm)),
+              onPressed: () => Navigator.of(d).pop(true),
+              child: Text(l.fileSavePlainConfirm),
+            ),
           ],
         ),
       );
@@ -395,12 +423,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return;
     }
     final svc = ref.read(messagingServiceProvider);
+    _watchDownloadFailure(
+      cid,
+      deletePath: dest,
+    ); // clean up empty/partial files
     // Snackbar once the streamed plaintext file is fully written.
     svc.contentReceived
         .firstWhere((e) => e.contentId == cid && e.savedToPath != null)
         .then((e) {
-      if (mounted) _snack('${l.chatFileSaved}: ${e.savedToPath}');
-    }).catchError((_) {/* stream closed before completion */});
+          if (mounted) _snack('${l.chatFileSaved}: ${e.savedToPath}');
+        })
+        .catchError((_) {
+          /* stream closed before completion */
+        });
     final r = await svc.downloadContentToFile(
       _peer,
       cid,
@@ -415,7 +450,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
     if (mounted && r == ContentDownloadResult.requestedReoffer) {
       _snack(l.fileRequestingResend);
-      _watchDownloadFailure(cid, deletePath: dest); // clean up the empty file
     }
   }
 
@@ -430,7 +464,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // chunk) so a multi-GB blob is never held whole in RAM. (On mobile the save
     // plugin wants the bytes up-front, so the small/in-RAM path below is used.)
     final size = m.fileSize ?? 0;
-    if (size > kMaxIncomingFileBytes && !Platform.isAndroid && !Platform.isIOS) {
+    if (size > kMaxIncomingFileBytes &&
+        !Platform.isAndroid &&
+        !Platform.isIOS) {
       final dest = await FilePicker.saveFile(fileName: m.fileName ?? 'file');
       if (dest == null) return; // cancelled
       final storage = ref.read(storageProvider);
@@ -652,7 +688,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// Pick this conversation's auto-delete window (presets + custom days) — shared
   /// with the chats-list management sheet so both offer the same picker.
   Future<void> _pickRetention() async {
-    final current = ref.read(contactProvider(widget.peerHex)).value?.retentionDays;
+    final current = ref
+        .read(contactProvider(widget.peerHex))
+        .value
+        ?.retentionDays;
     await pickRetention(context, ref, _peer, current);
   }
 
@@ -745,9 +784,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             children: [
               Text(l.chatMsgInfo, style: Theme.of(sheet).textTheme.titleMedium),
               const SizedBox(height: 16),
-              _InfoRow(label: l.msgInfoDirection, value: own ? l.dirOutgoing : l.dirIncoming),
-              _InfoRow(label: l.msgInfoTime, value: formatDateTime(m.timestamp.toLocal())),
-              if (own) _InfoRow(label: l.msgInfoStatus, value: _statusLabel(l, m.status)),
+              _InfoRow(
+                label: l.msgInfoDirection,
+                value: own ? l.dirOutgoing : l.dirIncoming,
+              ),
+              _InfoRow(
+                label: l.msgInfoTime,
+                value: formatDateTime(m.timestamp.toLocal()),
+              ),
+              if (own)
+                _InfoRow(
+                  label: l.msgInfoStatus,
+                  value: _statusLabel(l, m.status),
+                ),
               if (m.isFile && m.fileName != null)
                 _InfoRow(label: l.msgInfoFile, value: m.fileName!),
               _InfoRow(label: l.msgInfoId, value: m.id),
@@ -759,11 +808,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   String _statusLabel(AppL10n l, MessageStatus s) => switch (s) {
-        MessageStatus.sending => l.msgStatusSending,
-        MessageStatus.sent => l.msgStatusSent,
-        MessageStatus.delivered => l.msgStatusDelivered,
-        MessageStatus.failed => l.msgStatusFailed,
-      };
+    MessageStatus.sending => l.msgStatusSending,
+    MessageStatus.sent => l.msgStatusSent,
+    MessageStatus.delivered => l.msgStatusDelivered,
+    MessageStatus.failed => l.msgStatusFailed,
+  };
 
   /// Read-only edit-history sheet: every retained version of [m], oldest-first,
   /// each labelled original/edited with its time. Local — nothing leaves the
@@ -771,8 +820,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Future<void> _showMessageHistory(Message m) async {
     final l = AppL10n.of(context);
     final theme = Theme.of(context);
-    final versions =
-        await ref.read(storageProvider).loadMessageHistory(widget.peerHex, m.id);
+    final versions = await ref
+        .read(storageProvider)
+        .loadMessageHistory(widget.peerHex, m.id);
     if (!mounted) return;
     await showModalBottomSheet<void>(
       context: context,
@@ -1268,6 +1318,20 @@ String _formatBytes(int b) {
   return '${(b / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
 }
 
+Future<bool> _savedFileLooksComplete(String path, {int? expectedSize}) async {
+  try {
+    final f = File(path);
+    if (!await f.exists()) return false;
+    final len = await f.length();
+    if (expectedSize != null && expectedSize > 0) {
+      return len == expectedSize;
+    }
+    return len > 0;
+  } catch (_) {
+    return false;
+  }
+}
+
 /// What a file bubble's trailing icon + tap do: download an offer, save a held
 /// blob out, or open a file already saved unencrypted to disk.
 enum _FileAffordance { download, save, open }
@@ -1298,9 +1362,17 @@ class _Bubble extends ConsumerWidget {
       if (message.fileId != null) return _FileAffordance.save;
     }
     final cid = message.fileContentId;
-    if (cid != null &&
-        await ref.read(messagingServiceProvider).contentSavedPath(cid) != null) {
-      return _FileAffordance.open;
+    if (cid != null) {
+      final saved = await ref
+          .read(messagingServiceProvider)
+          .contentSavedPath(cid);
+      if (saved != null &&
+          await _savedFileLooksComplete(
+            saved,
+            expectedSize: message.fileSize,
+          )) {
+        return _FileAffordance.open;
+      }
     }
     return _FileAffordance.download;
   }
@@ -1372,17 +1444,13 @@ class _Bubble extends ConsumerWidget {
                             if (progress != null)
                               Text(
                                 '${l.fileDownloading} ${(progress * 100).round()}%',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .labelSmall
+                                style: Theme.of(context).textTheme.labelSmall
                                     ?.copyWith(color: scheme.onSurfaceVariant),
                               )
                             else if (message.fileSize != null)
                               Text(
                                 _formatBytes(message.fileSize!),
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .labelSmall
+                                style: Theme.of(context).textTheme.labelSmall
                                     ?.copyWith(color: scheme.onSurfaceVariant),
                               ),
                           ],
@@ -1406,7 +1474,8 @@ class _Bubble extends ConsumerWidget {
                         FutureBuilder<_FileAffordance>(
                           future: _affordance(ref),
                           builder: (_, snap) {
-                            final a = snap.data ??
+                            final a =
+                                snap.data ??
                                 (message.fileId != null
                                     ? _FileAffordance.save
                                     : _FileAffordance.download);
