@@ -7,6 +7,7 @@ set -euo pipefail
 # It covers:
 #   * sans-IO reliability/pacing simulations;
 #   * StreamMux retry after reset / SYN_ACK blackhole / return-path blackhole;
+#   * FFI circuit opt-in plus published-mode protected-intro framing;
 #   * Flutter content-layer range, reoffer, resume, disk-write and false-complete
 #     regressions, including empty/partial plaintext destinations.
 #
@@ -38,10 +39,10 @@ run_round() {
     cargo test -p veil-onion-stream
   )
 
-  echo "[3/6] veilclient-ffi circuit gate smoke test"
+  echo "[3/6] veilclient-ffi circuit framing smoke tests"
   (
     cd "$VEIL"
-    cargo test -p veilclient-ffi --features node-embedded circuit_env_is_strict_opt_in
+    cargo test -p veilclient-ffi --features node-embedded anon_stream::tests
   )
 
   echo "[4/6] Dart/Flutter content stream resume tests"
