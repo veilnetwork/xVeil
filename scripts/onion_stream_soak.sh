@@ -11,6 +11,8 @@ set -euo pipefail
 #   - starts a debug-only loopback command hook on both apps;
 #   - with SOAK_AUTO_TRANSFER=1, creates a test payload and drives a full
 #     phone<->desktop send/download through those hooks;
+#   - with SOAK_DOWNLOAD_PEER=any or SOAK_DOWNLOAD_PEERS=hex,hex, makes the
+#     receiver pull from every accepted/explicit holder instead of one sender;
 #   - optionally runs SOAK_TRIGGER_CMD to send/download without UI clicks;
 #   - optionally monitors a destination file until it reaches EXPECT_SIZE;
 #   - optionally injects a real-device fault (custom command or Android Wi-Fi
@@ -47,6 +49,8 @@ SOAK_SOURCE_PATH="${SOAK_SOURCE_PATH:-${SOURCE_PATH:-}}"
 SOAK_DEST_PATH="${SOAK_DEST_PATH:-${DEST_PATH:-}}"
 SOAK_SOURCE_LOCAL="${SOAK_SOURCE_LOCAL:-}"
 SOAK_GENERATE_SOURCE="${SOAK_GENERATE_SOURCE:-auto}" # auto|0|1
+SOAK_DOWNLOAD_PEER="${SOAK_DOWNLOAD_PEER:-}"
+SOAK_DOWNLOAD_PEERS="${SOAK_DOWNLOAD_PEERS:-}"
 SOAK_WAIT_READY_MS="${SOAK_WAIT_READY_MS:-120000}"
 SOAK_EXIT_AFTER_TRANSFER="${SOAK_EXIT_AFTER_TRANSFER:-$SOAK_AUTO_TRANSFER}"
 SOAK_CLEAN_DEST="${SOAK_CLEAN_DEST:-1}"
@@ -223,6 +227,11 @@ prepare_auto_transfer() {
   echo "auto transfer: sender=$SOAK_SENDER"
   echo "auto source: $auto_source_path"
   echo "auto dest: $auto_dest_path"
+  if [[ -n "$SOAK_DOWNLOAD_PEERS" ]]; then
+    echo "auto download peers: $SOAK_DOWNLOAD_PEERS"
+  elif [[ -n "$SOAK_DOWNLOAD_PEER" ]]; then
+    echo "auto download peer: $SOAK_DOWNLOAD_PEER"
+  fi
   if [[ -n "$auto_expected_size" ]]; then
     echo "auto expect size: $auto_expected_size"
   fi
@@ -374,6 +383,8 @@ if [[ "$SOAK_AUTO_TRANSFER" == "1" ]]; then
         DEST_PATH="$auto_dest_path" \
         NAME="$SOAK_NAME" \
         WAIT_READY_MS="$SOAK_WAIT_READY_MS" \
+        DOWNLOAD_PEER="$SOAK_DOWNLOAD_PEER" \
+        DOWNLOAD_PEERS="$SOAK_DOWNLOAD_PEERS" \
         ANDROID_SERIAL="$ANDROID_SERIAL" \
         APP_ID="$APP_ID" \
         CLEAN_DEST=0 \
