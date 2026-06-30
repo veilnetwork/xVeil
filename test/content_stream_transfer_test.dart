@@ -267,6 +267,12 @@ void main() {
         data,
         reason: 'pulled + verified the whole',
       );
+      expect(
+        tB.openedStreamCount,
+        greaterThanOrEqualTo(2),
+        reason:
+            'multi-piece stream downloads should pull piece ranges in parallel',
+      );
     },
   );
 
@@ -644,6 +650,18 @@ void main() {
       close: () async {},
     );
     await Future<void>.delayed(const Duration(milliseconds: 80));
+
+    // Drop the in-memory offer before downloading so this test keeps exercising
+    // the legacy sequential stream resume path rather than the newer parallel
+    // range-pull path, which needs a live manifest handle.
+    await mB.dispose();
+    mB = MessagingService(
+      tB,
+      sB,
+      contentPacing: Duration.zero,
+      streamPayloadIdleTimeout: const Duration(milliseconds: 120),
+      streamPullMaxAttempts: 4,
+    )..start();
 
     final got = mB.contentReceived.first;
     final r = await mB.downloadContent(a, cid);
