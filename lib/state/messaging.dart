@@ -47,7 +47,8 @@ const _wireChunkBytes = 4000;
 /// memory-DoS backstop (a hostile accepted peer can't buffer more than this) and
 /// (b) the send-side pre-check bound (the UI shows a friendly "too large" error
 /// here, instead of the storage layer throwing PayloadTooLarge mid-attach).
-const kMaxIncomingFileBytes = kMaxStoredFileBytes; // ~8 MiB (1024×8 KiB ceiling)
+const kMaxIncomingFileBytes =
+    kMaxStoredFileBytes; // ~8 MiB (1024×8 KiB ceiling)
 
 /// Max simultaneous inbound transfers we will buffer. Without this the
 /// per-transfer [kMaxIncomingFileBytes] cap is not enough: a peer could open
@@ -189,9 +190,15 @@ class MessagingService {
     DateTime Function()? now,
     Duration contentReRequestInterval = const Duration(seconds: 20),
     Duration contentPacing = const Duration(milliseconds: 20),
-  })  : _now = now ?? DateTime.now,
-        _contentReRequestInterval = contentReRequestInterval,
-        _contentPacing = contentPacing;
+    Duration? streamPayloadIdleTimeout,
+    int? streamPullMaxAttempts,
+  }) : _now = now ?? DateTime.now,
+       _contentReRequestInterval = contentReRequestInterval,
+       _contentPacing = contentPacing,
+       _streamPayloadIdleTimeout =
+           streamPayloadIdleTimeout ?? _defaultStreamPayloadIdleTimeout,
+       _streamPullMaxAttempts =
+           streamPullMaxAttempts ?? _defaultStreamPullMaxAttempts;
 
   /// Wall-clock source, injectable so stale-transfer eviction is testable
   /// without real delays. Defaults to [DateTime.now].
@@ -512,9 +519,7 @@ class MessagingService {
         // AUTHENTICATED side — our own for an outgoing message, the peer (the
         // server-authenticated conversation id) for an incoming one. Never
         // inferred from an in-band wire field.
-        author: dir == MessageDirection.outgoing
-            ? await _selfHex()
-            : peer.hex,
+        author: dir == MessageDirection.outgoing ? await _selfHex() : peer.hex,
         // The SENDER's seq when this is a wire-delivered incoming event (keeps
         // the log convergent, R4); null for our own outgoing message → storage
         // allocates the next gap-free value, which the caller puts on the wire.
@@ -593,8 +598,7 @@ class MessagingService {
     final key = _opKey(peer, id);
     final existing = _pendingOps[key];
     if (existing != null && existing.isDelete) return; // delete already wins
-    if (!_pendingOps.containsKey(key) &&
-        _pendingOps.length >= kMaxPendingOps) {
+    if (!_pendingOps.containsKey(key) && _pendingOps.length >= kMaxPendingOps) {
       _pendingOps.remove(_pendingOps.keys.first); // evict oldest insertion
     }
     _pendingOps[key] = op;
@@ -726,7 +730,9 @@ class MessagingService {
         // The peer's edit/delete of this message may have DRAINED FIRST (mailbox
         // blobs are unordered): when they sent then edited/unsent it while we
         // were offline, both deposits arrive on reconnect in arbitrary order.
-        final pending = id == null ? null : _pendingOps.remove(_opKey(m.src, id));
+        final pending = id == null
+            ? null
+            : _pendingOps.remove(_opKey(m.src, id));
         if (pending != null && pending.isDelete) {
           // Honor the unsend: store then tombstone so the message never shows AND
           // a later re-delivery is refused (isMessageDeleted above) — deniable
@@ -905,8 +911,11 @@ class MessagingService {
         // Until then drop it gracefully — the sender's gap-fill re-announces, so
         // no message is lost once the receive path lands.
         if (existing?.status != ContactStatus.accepted) return;
-        devLog(() => 'xVeil[recv]: fileStream announce '
-            '${parseFileMeta(env.body).transferId} — receive not yet wired');
+        devLog(
+          () =>
+              'xVeil[recv]: fileStream announce '
+              '${parseFileMeta(env.body).transferId} — receive not yet wired',
+        );
         return;
       case WireKind.contentManifest:
         // A peer advertises a content manifest (the "torrent"): verify it,
@@ -938,8 +947,11 @@ class MessagingService {
         return;
       case WireKind.fileMeta:
         if (existing?.status != ContactStatus.accepted) {
-          devLog(() => 'xVeil[recv]: fileMeta DROPPED — ${m.src.short} '
-              'not accepted (status=${existing?.status})');
+          devLog(
+            () =>
+                'xVeil[recv]: fileMeta DROPPED — ${m.src.short} '
+                'not accepted (status=${existing?.status})',
+          );
           return;
         }
         final meta = parseFileMeta(env.body);
@@ -971,16 +983,23 @@ class MessagingService {
           name: meta.name,
           reasm: FileReassembler(),
           lastActivity: _now(),
-          seq: meta.seq, // the sender's filePost seq (null from an older sender)
+          seq:
+              meta.seq, // the sender's filePost seq (null from an older sender)
           sentAtMs: meta.sentAtMs, // the sender's send-time (convergent order)
         );
-        devLog(() => 'xVeil[recv]: fileMeta ${meta.transferId} "${meta.name}" '
-            'count=${meta.count} size=${meta.size} <- ${m.src.short} — tracking');
+        devLog(
+          () =>
+              'xVeil[recv]: fileMeta ${meta.transferId} "${meta.name}" '
+              'count=${meta.count} size=${meta.size} <- ${m.src.short} — tracking',
+        );
         return; // nothing to show until the file completes
       case WireKind.fileChunk:
         if (existing?.status != ContactStatus.accepted) {
-          devLog(() => 'xVeil[recv]: fileChunk DROPPED — ${m.src.short} '
-              'not accepted (status=${existing?.status})');
+          devLog(
+            () =>
+                'xVeil[recv]: fileChunk DROPPED — ${m.src.short} '
+                'not accepted (status=${existing?.status})',
+          );
           return;
         }
         final frame = parseFileChunk(env.body);
@@ -988,9 +1007,12 @@ class MessagingService {
         // Unknown transfer (chunk before meta), or a different peer trying to
         // contribute to someone else's in-flight transfer — drop it.
         if (inc == null || inc.src != m.src) {
-          devLog(() => 'xVeil[recv]: fileChunk DROPPED — no meta for transfer '
-              '${frame.transferId} (idx ${frame.index}/${frame.total}) <- ${m.src.short}'
-              '${inc != null ? " (src mismatch)" : " (META LOST or not yet arrived)"}');
+          devLog(
+            () =>
+                'xVeil[recv]: fileChunk DROPPED — no meta for transfer '
+                '${frame.transferId} (idx ${frame.index}/${frame.total}) <- ${m.src.short}'
+                '${inc != null ? " (src mismatch)" : " (META LOST or not yet arrived)"}',
+          );
           return;
         }
         inc.lastActivity = _now(); // progress — keep this transfer non-stale
@@ -1010,7 +1032,10 @@ class MessagingService {
         }
         if (!inc.reasm.isComplete) return; // wait for the rest
         final tid = frame.transferId;
-        devLog(() => 'xVeil[recv]: file $tid "${inc.name}" COMPLETE — assembling + storing');
+        devLog(
+          () =>
+              'xVeil[recv]: file $tid "${inc.name}" COMPLETE — assembling + storing',
+        );
         _inFlight.remove(tid);
         // Use the transfer id AS the message id (symmetry with the sender), so
         // a re-delivered transfer dedups and — crucially — a file we DELETED
@@ -1265,8 +1290,10 @@ class MessagingService {
     // the same emptied state on replay. Only the watermark travels (no oracle).
     final selfHex = await _selfHex();
     final ev = await _storage.emitClearConversation(peer, selfHex);
-    final wire =
-        WireEnvelope.clear(jsonEncode(ev.watermark), seq: ev.seq).encode();
+    final wire = WireEnvelope.clear(
+      jsonEncode(ev.watermark),
+      seq: ev.seq,
+    ).encode();
     await _send(peer, wire);
     unawaited(_maybeStash(peer, 'clear:${ev.seq}', wire)); // offline carrier
     _signal();
@@ -1479,7 +1506,9 @@ class MessagingService {
     // Records don't JSON-encode → flatten each hole tuple to a [lo, hi] list.
     final holes = <String, List<List<int>>>{
       for (final e in sync.holes.entries)
-        e.key: [for (final h in e.value) [h.$1, h.$2]],
+        e.key: [
+          for (final h in e.value) [h.$1, h.$2],
+        ],
     };
     final body = jsonEncode({
       'hw': sync.highWater,
@@ -1487,7 +1516,8 @@ class MessagingService {
       'ep': now.millisecondsSinceEpoch,
     });
     devLog(
-      () => 'xVeil[sync]: -> ${peer.short} hw=${sync.highWater} '
+      () =>
+          'xVeil[sync]: -> ${peer.short} hw=${sync.highWater} '
           'holes=${holes.length}',
     );
     await _send(peer, WireEnvelope.sync(body).encode());
@@ -1538,7 +1568,8 @@ class MessagingService {
     );
     if (events.isNotEmpty) {
       devLog(
-        () => 'xVeil[sync]: <- ${peer.short} peerHw(me)=$peerHw '
+        () =>
+            'xVeil[sync]: <- ${peer.short} peerHw(me)=$peerHw '
             'reship=${events.length}',
       );
       // Resolve ids → Messages once, so a file post can re-ship its BLOB (not
@@ -1584,7 +1615,11 @@ class MessagingService {
             if (ev.target == null) continue;
             await _send(
               peer,
-              WireEnvelope.edit(ev.target!, ev.body ?? '', seq: ev.seq).encode(),
+              WireEnvelope.edit(
+                ev.target!,
+                ev.body ?? '',
+                seq: ev.seq,
+              ).encode(),
             );
           case EventKind.void_:
             await _send(peer, WireEnvelope.voidSeq(ev.seq).encode());
@@ -1731,7 +1766,11 @@ class MessagingService {
     // The edit event allocates the next gap-free seq for our author stream; it
     // travels so the peer folds under the SAME (author, seq) we used (R4/R5) and
     // gap-fill can re-ship a missed edit. Null only if the id vanished mid-edit.
-    final editSeq = await _storage.editMessage(msg.conversationId, messageId, trimmed);
+    final editSeq = await _storage.editMessage(
+      msg.conversationId,
+      messageId,
+      trimmed,
+    );
     await _storage.scrubDeleted();
     _signal();
     final dst = NodeId.fromHex(msg.conversationId);
@@ -1874,8 +1913,10 @@ class MessagingService {
       // then refuse a NEW transfer only when still at capacity.
       if (_inFlight.length >= kMaxConcurrentIncomingFiles) {
         final cutoff = _now();
-        _inFlight.removeWhere((_, x) =>
-            cutoff.difference(x.lastActivity) > kStaleIncomingFileTimeout);
+        _inFlight.removeWhere(
+          (_, x) =>
+              cutoff.difference(x.lastActivity) > kStaleIncomingFileTimeout,
+        );
       }
       if (_inFlight.length >= kMaxConcurrentIncomingFiles) return;
       inc = _Incoming(
@@ -1893,8 +1934,7 @@ class MessagingService {
     // What we're missing. Until a chunk has set the total we hold NONE, so ask
     // for everything (null) — the sender knows its own chunk count.
     final total = inc.reasm.total;
-    final missing =
-        total == null ? null : inc.reasm.missingIndices(total);
+    final missing = total == null ? null : inc.reasm.missingIndices(total);
     await _send(
       m.src,
       fileNackEnvelope(transferId: tid, missing: missing).encode(),
@@ -1927,7 +1967,9 @@ class MessagingService {
     // a blob nor grows the throttle map. Evict inert entries (older than the
     // interval) so the map stays O(active transfers), not O(every tid ever).
     final now = DateTime.now();
-    _lastFileNackAt.removeWhere((_, v) => now.difference(v) > _fileNackInterval);
+    _lastFileNackAt.removeWhere(
+      (_, v) => now.difference(v) > _fileNackInterval,
+    );
     final key = '${peer.hex}:$transferId';
     final last = _lastFileNackAt[key];
     if (last != null && now.difference(last) < _fileNackInterval) return;
@@ -1935,7 +1977,11 @@ class MessagingService {
     final bytes = await _storage.loadFile(msg.fileId!);
     if (bytes == null) return;
     final want = missing?.toSet();
-    final chunks = chunkBytes(bytes, transferId: transferId, maxChunk: _wireChunkBytes);
+    final chunks = chunkBytes(
+      bytes,
+      transferId: transferId,
+      maxChunk: _wireChunkBytes,
+    );
     var sent = 0;
     for (final c in chunks) {
       if (want != null && !want.contains(c.index)) continue;
@@ -1967,9 +2013,11 @@ class MessagingService {
   /// ([readFileRange]). Either way only a small manifest sits in RAM.
   /// [servedAt] is refreshed on every advertise/request so an ACTIVE transfer
   /// stays; an idle one is evicted by [_evictServing], which closes its [source].
-  final Map<String,
-      ({ContentManifest manifest, _ServeSource? source, DateTime servedAt})>
-      _serving = {};
+  final Map<
+    String,
+    ({ContentManifest manifest, _ServeSource? source, DateTime servedAt})
+  >
+  _serving = {};
 
   /// A served manifest is dropped from [_serving] this long after its last
   /// advertise/request — the on-disk blob remains, so a later re-request simply
@@ -1981,6 +2029,21 @@ class MessagingService {
   /// download. Comfortably above the receiver's re-request interval so an active
   /// transfer is never cut, but well under the idle [_servingTtl].
   static const _serveAbandonTimeout = Duration(seconds: 50);
+
+  /// When a same-content re-send replaces a live serve source, the old source may
+  /// still be feeding an already-accepted stream. Closing it immediately makes
+  /// that stream fail with "File closed" mid-piece. Retire replaced handles after
+  /// a grace window; stream serves normally use a per-stream reopened handle, so
+  /// this is mostly a safety net for legacy/datagram reads.
+  static const _serveSourceRetireGrace = Duration(minutes: 15);
+
+  /// Active stream serves by content id. A same-content re-send may arrive while
+  /// a large file is already being streamed; in that case we must not replace the
+  /// live source/path underneath the running stream. This is especially important
+  /// for Android file_picker cache paths, where a second pick of the same file can
+  /// invalidate the previous temporary handle.
+  final Map<String, int> _activeStreamServes = {};
+  final Map<String, List<_ServeSource>> _retiredAfterStream = {};
 
   /// Cap on the number of concurrently-served manifests; the OLDEST are evicted
   /// first when over it. Manifests are small (piece hashes), but bound the count
@@ -2000,14 +2063,16 @@ class MessagingService {
   /// a plaintext file (null ⇒ store via the Storage port — encrypted tier or
   /// in-volume).
   final Map<
-      String,
-      ({
-        ContentManifest manifest,
-        ContentTransfer xfer,
-        NodeId peer,
-        String name,
-        _FetchSink? sink,
-      })> _fetching = {};
+    String,
+    ({
+      ContentManifest manifest,
+      ContentTransfer xfer,
+      NodeId peer,
+      String name,
+      _FetchSink? sink,
+    })
+  >
+  _fetching = {};
 
   /// Last-progress wall-clock per fetched contentId, so a transfer ABANDONED
   /// mid-flight (the sender vanished) has its reassembler buffers evicted instead
@@ -2054,7 +2119,8 @@ class MessagingService {
       final raw = await _storage.getSetting(_kFilePolicySetting);
       if (raw != null && raw.isNotEmpty) {
         _filePolicy = FileDownloadPolicy.fromJson(
-            jsonDecode(raw) as Map<String, dynamic>);
+          jsonDecode(raw) as Map<String, dynamic>,
+        );
       }
     } catch (_) {
       // Unparseable / store hiccup → keep defaults (fail safe, not open).
@@ -2067,10 +2133,12 @@ class MessagingService {
   /// [savedToPath] is set only for an unencrypted download-to-file completion —
   /// the plaintext file's path (so the UI can say where it landed); null for a
   /// normal store (encrypted tier / in-volume).
-  final _contentReceived = StreamController<
-      ({String contentId, String name, String? savedToPath})>.broadcast();
+  final _contentReceived =
+      StreamController<
+        ({String contentId, String name, String? savedToPath})
+      >.broadcast();
   Stream<({String contentId, String name, String? savedToPath})>
-      get contentReceived => _contentReceived.stream;
+  get contentReceived => _contentReceived.stream;
 
   /// Download progress for an in-flight fetch (verified/total pieces), emitted as
   /// each piece is stored/written — the UI shows it on the file bubble. The final
@@ -2087,6 +2155,7 @@ class MessagingService {
   Stream<String> get contentDownloadFailed => _contentFailed.stream;
 
   Timer? _contentTimer;
+
   /// Re-request cadence for still-missing pieces (injectable for tests).
   final Duration _contentReRequestInterval;
   // Wire chunk per piece. Over the onion path a chunk is ONE auth_deliver message
@@ -2108,6 +2177,7 @@ class MessagingService {
   // it short; tune against the tx_queue / delivery logs. Injectable so tests
   // (which deliver instantly) don't wait real-time per chunk.
   final Duration _contentPacing;
+
   /// How many not-yet-verified pieces a single re-request covers. Bounds the
   /// re-request size (each piece adds a ceil(chunkCount/8)-byte bitmap) so the
   /// re-request itself stays small enough to survive the lossy path, and focuses
@@ -2123,6 +2193,7 @@ class MessagingService {
   /// chunk the queue drops under load is refilled by the chunk-granular
   /// re-request, so an over-eager batch is never lossy, only (at worst) no faster.
   static const _serveBatch = 6;
+
   /// Files larger than this go via the content layer (hash-verified pieces over
   /// the NAT-traversing datagram path) instead of the per-chunk fileMeta push.
   // Keep the legacy fileMeta/fileChunk burst below the native session queue's
@@ -2146,16 +2217,24 @@ class MessagingService {
   /// without the whole-file [storeFile] cap (which is what bounded send size).
   /// Idempotent: a blob already present (a re-send / re-advertise of identical
   /// bytes) is left as-is, so the de-dup store happens at most once.
-  Future<void> _storeServedBlob(ContentManifest manifest, Uint8List bytes) async {
+  Future<void> _storeServedBlob(
+    ContentManifest manifest,
+    Uint8List bytes,
+  ) async {
     final cid = manifest.contentId;
     if (await _storage.hasFile(cid)) return;
     for (var p = 0; p < manifest.pieceCount; p++) {
       final start = p * manifest.pieceSize;
       final end = start + manifest.pieceLength(p);
-      await _storage.storeFilePiece(cid, p, manifest.pieceCount,
-          manifest.pieceSize, bytes.length,
-          Uint8List.sublistView(bytes, start, end),
-          name: manifest.name);
+      await _storage.storeFilePiece(
+        cid,
+        p,
+        manifest.pieceCount,
+        manifest.pieceSize,
+        bytes.length,
+        Uint8List.sublistView(bytes, start, end),
+        name: manifest.name,
+      );
     }
   }
 
@@ -2164,33 +2243,70 @@ class MessagingService {
   /// user's original file) or — when [source] is null — from the on-disk blob
   /// store keyed by contentId. Shared tail of every advertise path. A prior
   /// [source] for this contentId is closed if we replace it (no leaked handle).
-  Future<void> _advertiseStored(NodeId dst, ContentManifest manifest,
-      {_ServeSource? source}) async {
+  Future<void> _advertiseStored(
+    NodeId dst,
+    ContentManifest manifest, {
+    _ServeSource? source,
+  }) async {
     final cid = manifest.contentId;
     final prev = _serving[cid];
-    if (prev?.source != null && !identical(prev!.source, source)) {
-      unawaited(prev.source!.close());
+    if (prev?.source != null &&
+        source != null &&
+        !_sameServeSource(prev!.source!, source)) {
+      _retireServeSourceForContent(cid, prev.source!);
+    } else if (prev?.source != null && source == null) {
+      _retireServeSourceForContent(cid, prev!.source!);
     }
     _serving[cid] = (manifest: manifest, source: source, servedAt: _now());
     _evictServing();
     _ensureContentTimer();
-    await _send(dst,
-        contentManifestEnvelope(jsonEncode(manifest.toJson())).encode());
+    await _send(
+      dst,
+      contentManifestEnvelope(jsonEncode(manifest.toJson())).encode(),
+    );
     final mid = manifest.msgId;
-    devLog(() => 'xVeil[content]: advertise ${manifest.contentId.substring(0, 12)} '
-        '(${manifest.pieceCount} pieces'
-        '${mid != null ? ', msg ${mid.substring(0, 8)}' : ''}) -> ${dst.short}');
+    devLog(
+      () =>
+          'xVeil[content]: advertise ${manifest.contentId.substring(0, 12)} '
+          '(${manifest.pieceCount} pieces'
+          '${mid != null ? ', msg ${mid.substring(0, 8)}' : ''}) -> ${dst.short}',
+    );
+  }
+
+  bool _sameServeSource(_ServeSource a, _ServeSource b) =>
+      identical(a, b) ||
+      (identical(a.read, b.read) && identical(a.close, b.close));
+
+  void _retireServeSourceForContent(String cid, _ServeSource source) {
+    if ((_activeStreamServes[cid] ?? 0) > 0) {
+      (_retiredAfterStream[cid] ??= []).add(source);
+      return;
+    }
+    _retireServeSourceLater(source);
+  }
+
+  void _retireServeSourceLater(_ServeSource source) {
+    Timer(_serveSourceRetireGrace, () async {
+      try {
+        await source.close();
+      } catch (_) {}
+    });
   }
 
   /// Persist [bytes] to the blob store (streamed pieces) and advertise. One
   /// source of truth for the in-RAM serve+advertise tail (the bare-content API
   /// and the in-RAM message path); [bytes] is not retained past the store.
   Future<void> _advertise(
-      NodeId dst, ContentManifest manifest, Uint8List bytes) async {
+    NodeId dst,
+    ContentManifest manifest,
+    Uint8List bytes,
+  ) async {
     try {
       await _storeServedBlob(manifest, bytes);
     } catch (e) {
-      devLog(() => 'xVeil[content]: serve-store failed for ${manifest.name}: $e');
+      devLog(
+        () => 'xVeil[content]: serve-store failed for ${manifest.name}: $e',
+      );
     }
     await _advertiseStored(dst, manifest);
   }
@@ -2200,9 +2316,12 @@ class MessagingService {
   /// (the bytes' self-authenticating address). Used by tests + the recovery
   /// re-ship; user file sends go through [_sendAsContent] (which adds the event).
   Future<String> sendContent(NodeId dst, Uint8List bytes, String name) async {
-    final manifest = ContentManifest.fromBytes(name, bytes,
-        pieceSize: _adaptivePieceSize(bytes.length),
-        chunkBytes: _contentChunkBytes);
+    final manifest = ContentManifest.fromBytes(
+      name,
+      bytes,
+      pieceSize: _adaptivePieceSize(bytes.length),
+      chunkBytes: _contentChunkBytes,
+    );
     final contact = await _storage.getContact(dst);
     if (contact?.status == ContactStatus.accepted) {
       await _advertise(dst, manifest, bytes);
@@ -2217,9 +2336,12 @@ class MessagingService {
   /// as a NEW message (A), while identical bytes are never re-stored/re-fetched.
   Future<void> _sendAsContent(NodeId dst, Uint8List bytes, String name) async {
     // Hash the file ONCE → the manifest + contentId (the blob key).
-    final base = ContentManifest.fromBytes(name, bytes,
-        pieceSize: _adaptivePieceSize(bytes.length),
-        chunkBytes: _contentChunkBytes);
+    final base = ContentManifest.fromBytes(
+      name,
+      bytes,
+      pieceSize: _adaptivePieceSize(bytes.length),
+      chunkBytes: _contentChunkBytes,
+    );
     final cid = base.contentId;
     // Store the blob under its HASH as streamed pieces (uncapped), de-duped: a
     // re-send of identical bytes keeps ONE copy, and a receiver that already
@@ -2235,17 +2357,26 @@ class MessagingService {
     // identity, NOT the byte-hash → re-send surfaces, even after a delete).
     // fileId = contentId binds the message to its hash-keyed blob.
     final msgId = _uuid.v4();
-    final stored = await _store(dst, MessageDirection.outgoing, '📎 $name',
-        MessageStatus.sent,
-        fileId: cid, fileName: name, id: msgId, timestamp: _now());
+    final stored = await _store(
+      dst,
+      MessageDirection.outgoing,
+      '📎 $name',
+      MessageStatus.sent,
+      fileId: cid,
+      fileName: name,
+      id: msgId,
+      timestamp: _now(),
+    );
     _signal();
     // Advertise carrying THIS send's event identity so the receiver folds a
     // first-class filePost and acks by msgId (not the shared contentId).
     final contact = await _storage.getContact(dst);
     if (contact?.status != ContactStatus.accepted) return;
-    await _advertise(dst,
-        base.withEvent(msgId: msgId, author: stored.author, seq: stored.seq),
-        bytes);
+    await _advertise(
+      dst,
+      base.withEvent(msgId: msgId, author: stored.author, seq: stored.seq),
+      bytes,
+    );
   }
 
   /// Send a LARGE file by SERVING IT STRAIGHT FROM THE SOURCE — the user's
@@ -2260,9 +2391,14 @@ class MessagingService {
   /// as the in-RAM path (so a streamed and an in-RAM send of the same bytes still
   /// share a swarm address). The source is owned by [_serving] and closed on
   /// eviction/dispose — the UI must NOT close it after this returns.
-  Future<void> sendFileStreaming(NodeId dst, String name, int size,
-      Future<Uint8List> Function(int offset, int length) read,
-      {required Future<void> Function() close, String? sourcePath}) async {
+  Future<void> sendFileStreaming(
+    NodeId dst,
+    String name,
+    int size,
+    Future<Uint8List> Function(int offset, int length) read, {
+    required Future<void> Function() close,
+    String? sourcePath,
+  }) async {
     final contact = await _storage.getContact(dst);
     if (contact == null || contact.status != ContactStatus.accepted) {
       await close(); // not serving this peer → release the handle now
@@ -2273,11 +2409,12 @@ class MessagingService {
     final ContentManifest base;
     try {
       base = await ContentManifest.fromReader(
-          name: name,
-          size: size,
-          pieceSize: _adaptivePieceSize(size),
-          chunkBytes: _contentChunkBytes,
-          readRange: read);
+        name: name,
+        size: size,
+        pieceSize: _adaptivePieceSize(size),
+        chunkBytes: _contentChunkBytes,
+        readRange: read,
+      );
     } catch (e) {
       await close();
       devLog(() => 'xVeil[content]: stream hash failed for $name: $e');
@@ -2287,33 +2424,71 @@ class MessagingService {
     // Fresh per-send msgId = a NEW filePost event (identity is (author,seq), not
     // the byte-hash → a re-send surfaces even after a delete). fileId = contentId.
     final msgId = _uuid.v4();
-    final stored = await _store(dst, MessageDirection.outgoing, '📎 $name',
-        MessageStatus.sent,
-        fileId: cid, fileName: name, fileSize: size, id: msgId,
-        timestamp: _now());
+    final stored = await _store(
+      dst,
+      MessageDirection.outgoing,
+      '📎 $name',
+      MessageStatus.sent,
+      fileId: cid,
+      fileName: name,
+      fileSize: size,
+      id: msgId,
+      timestamp: _now(),
+    );
     _signal();
-    final m = base.withEvent(msgId: msgId, author: stored.author, seq: stored.seq);
+    final m = base.withEvent(
+      msgId: msgId,
+      author: stored.author,
+      seq: stored.seq,
+    );
+    final activeExisting = (_activeStreamServes[cid] ?? 0) > 0
+        ? _serving[cid]
+        : null;
+    final activeSource = activeExisting?.source;
     // DURABLE offer: persist the manifest + the source PATH so a reoffer after a
     // restart can re-open the file and re-serve (best-effort; the file must still
     // be at that path). The manifest exceeds the KV value cap → file store.
-    if (sourcePath != null) {
+    if (sourcePath != null && activeSource == null) {
       try {
-        await _storage.storeFile('mf:$cid',
-            Uint8List.fromList(utf8.encode(jsonEncode(m.toJson()))),
-            name: 'manifest');
+        await _storage.storeFile(
+          'mf:$cid',
+          Uint8List.fromList(utf8.encode(jsonEncode(m.toJson()))),
+          name: 'manifest',
+        );
         await _storage.putSetting('served:$cid', sourcePath);
       } catch (e) {
-        devLog(() => 'xVeil[content]: durable-offer persist failed for $cid: $e');
+        devLog(
+          () => 'xVeil[content]: durable-offer persist failed for $cid: $e',
+        );
       }
+    } else if (sourcePath != null) {
+      devLog(
+        () =>
+            'xVeil[content]: keep active source/path for '
+            '${cid.substring(0, 12)} — same-content resend while streaming',
+      );
     }
-    // Register the live source + advertise — NO stored copy.
-    await _advertiseStored(dst, m, source: (read: read, close: close));
+    if (activeSource != null) {
+      // We only needed this newly-opened handle to hash/identify the resend. The
+      // bytes are identical (same contentId), and an active stream is already
+      // using the previous source/path; replacing it mid-flight can close or
+      // invalidate the stream's file handle on Android file_picker cache paths.
+      await close();
+      await _advertiseStored(dst, m, source: activeSource);
+    } else {
+      // Register the live source + advertise — NO stored copy.
+      await _advertiseStored(dst, m, source: (read: read, close: close));
+    }
   }
 
   Future<void> _onContentManifest(NodeId peer, String body) async {
-    final m = ContentManifest.fromJson(jsonDecode(body) as Map<String, dynamic>);
+    final m = ContentManifest.fromJson(
+      jsonDecode(body) as Map<String, dynamic>,
+    );
     if (m == null) {
-      devLog(() => 'xVeil[content]: manifest DROPPED (malformed) <- ${peer.short}');
+      devLog(
+        () => 'xVeil[content]: manifest DROPPED (malformed) <- ${peer.short}',
+      );
       return; // malformed / not self-consistent → untrusted, drop
     }
     // Surface the file as an OFFER first — metadata only (name/size + the
@@ -2324,8 +2499,11 @@ class MessagingService {
     // We ALREADY hold these exact bytes (a re-offer / dedup) → the offer renders
     // as downloaded; ack so the sender flips sent->delivered.
     if (await _storage.hasFile(m.contentId)) {
-      devLog(() => 'xVeil[content]: ${m.contentId.substring(0, 12)} ALREADY HELD '
-          '<- ${peer.short} (no re-download)');
+      devLog(
+        () =>
+            'xVeil[content]: ${m.contentId.substring(0, 12)} ALREADY HELD '
+            '<- ${peer.short} (no re-download)',
+      );
       await _send(peer, WireEnvelope.ack(m.msgId ?? m.contentId).encode());
       _signal();
       return;
@@ -2333,8 +2511,13 @@ class MessagingService {
     // Already pulling it (a re-advertise mid-download) → keep the latest identity.
     if (_fetching.containsKey(m.contentId)) {
       final cur = _fetching[m.contentId]!;
-      _fetching[m.contentId] =
-          (manifest: m, xfer: cur.xfer, peer: peer, name: m.name, sink: cur.sink);
+      _fetching[m.contentId] = (
+        manifest: m,
+        xfer: cur.xfer,
+        peer: peer,
+        name: m.name,
+        sink: cur.sink,
+      );
       return;
     }
     // Retain the manifest so the user (or auto-download) can fetch on demand.
@@ -2349,19 +2532,28 @@ class MessagingService {
     if (_pendingDownload.containsKey(m.contentId)) {
       final sink = _pendingDownload.remove(m.contentId);
       _pendingTimers.remove(m.contentId)?.cancel();
-      devLog(() => 'xVeil[content]: re-advertised manifest arrived for '
-          '${m.contentId.substring(0, 12)} — resuming the parked download');
+      devLog(
+        () =>
+            'xVeil[content]: re-advertised manifest arrived for '
+            '${m.contentId.substring(0, 12)} — resuming the parked download',
+      );
       await _beginFetch(peer, m, sink: sink);
       return;
     }
 
     if (_filePolicy.allowsAuto(m.size, m.name)) {
-      devLog(() => 'xVeil[content]: ${m.contentId.substring(0, 12)} '
-          '(${m.size}B "${m.name}") <- ${peer.short} — auto-downloading (<= cap)');
+      devLog(
+        () =>
+            'xVeil[content]: ${m.contentId.substring(0, 12)} '
+            '(${m.size}B "${m.name}") <- ${peer.short} — auto-downloading (<= cap)',
+      );
       await _beginFetch(peer, m);
     } else {
-      devLog(() => 'xVeil[content]: ${m.contentId.substring(0, 12)} '
-          '(${m.size}B "${m.name}") <- ${peer.short} — OFFERED (awaiting user)');
+      devLog(
+        () =>
+            'xVeil[content]: ${m.contentId.substring(0, 12)} '
+            '(${m.size}B "${m.name}") <- ${peer.short} — OFFERED (awaiting user)',
+      );
     }
   }
 
@@ -2369,10 +2561,15 @@ class MessagingService {
   /// reassembler first (RAM bound). [sink] (non-null) diverts each verified piece
   /// to a plaintext file the user picked, instead of the Storage port. Shared by
   /// auto-download and [downloadContent]/[downloadContentToFile].
-  Future<void> _beginFetch(NodeId peer, ContentManifest m,
-      {_FetchSink? sink}) async {
+  Future<void> _beginFetch(
+    NodeId peer,
+    ContentManifest m, {
+    _FetchSink? sink,
+  }) async {
     if (_fetching.containsKey(m.contentId)) {
-      if (sink != null) await sink.close(); // already fetching → drop the dupe sink
+      if (sink != null) {
+        await sink.close(); // already fetching → drop the dupe sink
+      }
       return;
     }
     final cutoff = _now();
@@ -2392,8 +2589,10 @@ class MessagingService {
     );
     _fetchActivity[m.contentId] = _now();
     _ensureContentTimer();
-    await _send(peer,
-        pieceRequestEnvelope(contentId: m.contentId, indices: null).encode());
+    await _send(
+      peer,
+      pieceRequestEnvelope(contentId: m.contentId, indices: null).encode(),
+    );
   }
 
   /// The user opted to download an OFFERED file into local STORAGE (the encrypted
@@ -2405,12 +2604,15 @@ class MessagingService {
   /// download choice itself is the §16.5 consent — a large file lands as an
   /// encrypted on-disk blob.
   Future<ContentDownloadResult> downloadContent(
-      NodeId peer, String contentId) async {
+    NodeId peer,
+    String contentId,
+  ) async {
     if (await _storage.hasFile(contentId)) {
       _signal();
       return ContentDownloadResult.started;
     }
     devLog(() => 'xVeil[content]: user download ${contentId.substring(0, 12)}');
+    _markContentDownloadStarted(contentId);
     // Reliable STREAM path (fast + flow-controlled): fetches the manifest itself,
     // so it works even without a live offer handle (no reoffer dance needed).
     if (await _pullStream(peer, contentId, null)) {
@@ -2432,12 +2634,19 @@ class MessagingService {
   /// fires carrying [savedPath]. If the manifest handle is gone, the sender is
   /// asked to re-advertise (the sink is held until it arrives or times out).
   Future<ContentDownloadResult> downloadContentToFile(
-      NodeId peer, String contentId, String savedPath,
-      {required Future<void> Function(int offset, Uint8List bytes) write,
-      required Future<void> Function() close}) async {
+    NodeId peer,
+    String contentId,
+    String savedPath, {
+    required Future<void> Function(int offset, Uint8List bytes) write,
+    required Future<void> Function() close,
+  }) async {
     final sink = (write: write, close: close);
-    devLog(() => 'xVeil[content]: user download-to-file (unencrypted) '
-        '${contentId.substring(0, 12)} -> $savedPath');
+    devLog(
+      () =>
+          'xVeil[content]: user download-to-file (unencrypted) '
+          '${contentId.substring(0, 12)} -> $savedPath',
+    );
+    _markContentDownloadStarted(contentId);
     // Reliable STREAM path (fast). Works without a live offer handle.
     if (await _pullStream(peer, contentId, sink, savedPath: savedPath)) {
       return ContentDownloadResult.started;
@@ -2450,6 +2659,15 @@ class MessagingService {
     }
     await _beginFetch(offered.peer, offered.manifest, sink: sink);
     return ContentDownloadResult.started;
+  }
+
+  /// Surface user intent immediately. The stream path may spend seconds opening
+  /// an anonymous circuit before the manifest / first verified piece arrives;
+  /// without this, the file bubble looks like the tap was ignored.
+  void _markContentDownloadStarted(String contentId) {
+    if (!_contentProgress.isClosed) {
+      _contentProgress.add((contentId: contentId, done: 0, total: 1));
+    }
   }
 
   /// Destination paths for in-flight unencrypted-to-file downloads (so the
@@ -2473,9 +2691,15 @@ class MessagingService {
   /// a parked file sink (so a RandomAccessFile handle isn't leaked if the sender
   /// can no longer serve — then the user must re-send).
   ContentDownloadResult _requestReoffer(
-      NodeId peer, String contentId, _FetchSink? sink) {
-    devLog(() => 'xVeil[content]: no live manifest for '
-        '${contentId.substring(0, 12)} — requesting re-advertise <- ${peer.short}');
+    NodeId peer,
+    String contentId,
+    _FetchSink? sink,
+  ) {
+    devLog(
+      () =>
+          'xVeil[content]: no live manifest for '
+          '${contentId.substring(0, 12)} — requesting re-advertise <- ${peer.short}',
+    );
     _pendingDownload[contentId] = sink;
     _pendingTimers[contentId]?.cancel();
     _pendingTimers[contentId] = Timer(_reofferTimeout, () {
@@ -2483,8 +2707,11 @@ class MessagingService {
       final parked = _pendingDownload.remove(contentId);
       if (parked != null) unawaited(parked.close()); // release the file handle
       _fetchSavePath.remove(contentId);
-      devLog(() => 'xVeil[content]: re-advertise TIMED OUT for '
-          '${contentId.substring(0, 12)} — sender not serving; re-send needed');
+      devLog(
+        () =>
+            'xVeil[content]: re-advertise TIMED OUT for '
+            '${contentId.substring(0, 12)} — sender not serving; re-send needed',
+      );
       if (!_contentFailed.isClosed) _contentFailed.add(contentId);
     });
     unawaited(_send(peer, contentReofferEnvelope(contentId).encode()));
@@ -2503,46 +2730,72 @@ class MessagingService {
       _serving[contentId] = (
         manifest: served.manifest,
         source: served.source,
-        servedAt: _now()
+        servedAt: _now(),
       );
-      devLog(() => 'xVeil[content]: re-advertising ${contentId.substring(0, 12)} '
-          '-> ${peer.short} (live serving)');
-      unawaited(_send(peer,
-          contentManifestEnvelope(jsonEncode(served.manifest.toJson())).encode()));
+      devLog(
+        () =>
+            'xVeil[content]: re-advertising ${contentId.substring(0, 12)} '
+            '-> ${peer.short} (live serving)',
+      );
+      unawaited(
+        _send(
+          peer,
+          contentManifestEnvelope(
+            jsonEncode(served.manifest.toJson()),
+          ).encode(),
+        ),
+      );
       return;
     }
     if (sourceOpener == null) {
-      devLog(() => 'xVeil[content]: reoffer for UNSERVED '
-          '${contentId.substring(0, 12)} <- ${peer.short} (no opener — re-send)');
+      devLog(
+        () =>
+            'xVeil[content]: reoffer for UNSERVED '
+            '${contentId.substring(0, 12)} <- ${peer.short} (no opener — re-send)',
+      );
       return;
     }
     try {
       final path = await _storage.getSetting('served:$contentId');
       final mfBytes = await _storage.loadFile('mf:$contentId');
       if (path == null || mfBytes == null) {
-        devLog(() => 'xVeil[content]: reoffer ${contentId.substring(0, 12)} — no '
-            'durable record <- ${peer.short} (re-send)');
+        devLog(
+          () =>
+              'xVeil[content]: reoffer ${contentId.substring(0, 12)} — no '
+              'durable record <- ${peer.short} (re-send)',
+        );
         return;
       }
       final m = ContentManifest.fromJson(
-          jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>);
+        jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>,
+      );
       if (m == null) return;
       final src = await sourceOpener!(path);
       if (src == null) {
-        devLog(() => 'xVeil[content]: reoffer ${contentId.substring(0, 12)} — '
-            'source GONE ($path) <- ${peer.short} (re-send)');
+        devLog(
+          () =>
+              'xVeil[content]: reoffer ${contentId.substring(0, 12)} — '
+              'source GONE ($path) <- ${peer.short} (re-send)',
+        );
         return;
       }
       _serving[contentId] = (manifest: m, source: src, servedAt: _now());
       _evictServing();
       _ensureContentTimer();
-      devLog(() => 'xVeil[content]: re-advertising ${contentId.substring(0, 12)} '
-          '-> ${peer.short} (DURABLE — re-opened $path)');
+      devLog(
+        () =>
+            'xVeil[content]: re-advertising ${contentId.substring(0, 12)} '
+            '-> ${peer.short} (DURABLE — re-opened $path)',
+      );
       unawaited(
-          _send(peer, contentManifestEnvelope(jsonEncode(m.toJson())).encode()));
+        _send(peer, contentManifestEnvelope(jsonEncode(m.toJson())).encode()),
+      );
     } catch (e) {
-      devLog(() => 'xVeil[content]: durable reoffer failed for '
-          '${contentId.substring(0, 12)}: $e');
+      devLog(
+        () =>
+            'xVeil[content]: durable reoffer failed for '
+            '${contentId.substring(0, 12)}: $e',
+      );
     }
   }
 
@@ -2557,8 +2810,11 @@ class MessagingService {
   void _onPieceRequest(NodeId peer, PieceRequestFrame req) {
     final served = _serving[req.contentId];
     if (served == null) {
-      devLog(() => 'xVeil[content]: pieceRequest for UNSERVED '
-          '${req.contentId.substring(0, 12)} <- ${peer.short} (ignored)');
+      devLog(
+        () =>
+            'xVeil[content]: pieceRequest for UNSERVED '
+            '${req.contentId.substring(0, 12)} <- ${peer.short} (ignored)',
+      );
       return; // not serving this content
     }
     // Refresh freshness on EVERY request (even one we skip) — it isn't evicted
@@ -2567,11 +2823,14 @@ class MessagingService {
     _serving[req.contentId] = (
       manifest: served.manifest,
       source: served.source,
-      servedAt: _now()
+      servedAt: _now(),
     );
     if (_servingNow.contains(req.contentId)) {
-      devLog(() => 'xVeil[content]: pieceRequest ${req.contentId.substring(0, 12)} '
-          '— a serve is already in flight, skipping <- ${peer.short}');
+      devLog(
+        () =>
+            'xVeil[content]: pieceRequest ${req.contentId.substring(0, 12)} '
+            '— a serve is already in flight, skipping <- ${peer.short}',
+      );
       return; // one serve loop per content (single-cursor source)
     }
     final m = served.manifest;
@@ -2585,19 +2844,31 @@ class MessagingService {
             e.key: _chunksFromBitmap(m, e.key, e.value),
       };
       final total = gaps.values.fold<int>(0, (a, b) => a + (b?.length ?? 0));
-      devLog(() => 'xVeil[content]: pieceRequest ${req.contentId.substring(0, 12)} '
-          'CHUNK-granular ($total chunks over ${gaps.length} pieces) '
-          '<- ${peer.short} -> serving');
+      devLog(
+        () =>
+            'xVeil[content]: pieceRequest ${req.contentId.substring(0, 12)} '
+            'CHUNK-granular ($total chunks over ${gaps.length} pieces) '
+            '<- ${peer.short} -> serving',
+      );
     } else {
       final indices = req.indices ?? [for (var i = 0; i < m.pieceCount; i++) i];
       gaps = {for (final p in indices) p: null};
-      devLog(() => 'xVeil[content]: pieceRequest ${req.contentId.substring(0, 12)} '
-          '(${indices.length}/${m.pieceCount} whole pieces) <- ${peer.short} '
-          '-> serving');
+      devLog(
+        () =>
+            'xVeil[content]: pieceRequest ${req.contentId.substring(0, 12)} '
+            '(${indices.length}/${m.pieceCount} whole pieces) <- ${peer.short} '
+            '-> serving',
+      );
     }
     _servingNow.add(req.contentId);
-    unawaited(_serveChunks(peer, m, served.source, gaps)
-        .whenComplete(() => _servingNow.remove(req.contentId)));
+    unawaited(
+      _serveChunks(
+        peer,
+        m,
+        served.source,
+        gaps,
+      ).whenComplete(() => _servingNow.remove(req.contentId)),
+    );
   }
 
   /// Drop served manifests idle past [_servingTtl], then — if still over
@@ -2607,7 +2878,8 @@ class MessagingService {
   /// and the receiver gives up (a re-send re-opens the source).
   void _evictServing() {
     final now = _now();
-    _serving.removeWhere((_, v) {
+    _serving.removeWhere((cid, v) {
+      if ((_activeStreamServes[cid] ?? 0) > 0) return false;
       if (now.difference(v.servedAt) <= _servingTtl) return false;
       if (v.source != null) unawaited(v.source!.close());
       return true;
@@ -2617,6 +2889,7 @@ class MessagingService {
       ..sort((a, b) => a.value.servedAt.compareTo(b.value.servedAt));
     for (final e in byAge) {
       if (_serving.length <= _servingMaxEntries) break;
+      if ((_activeStreamServes[e.key] ?? 0) > 0) continue;
       if (e.value.source != null) unawaited(e.value.source!.close());
       _serving.remove(e.key);
     }
@@ -2637,8 +2910,12 @@ class MessagingService {
   /// [source] is null — from the on-disk blob ([readFileRange]) at the derived
   /// offset; the file is never held in RAM. Chunk coordinates come from the
   /// manifest's [ContentManifest.chunkBytes] so they match the receiver.
-  Future<void> _serveChunks(NodeId peer, ContentManifest m, _ServeSource? source,
-      Map<int, List<int>?> gaps) async {
+  Future<void> _serveChunks(
+    NodeId peer,
+    ContentManifest m,
+    _ServeSource? source,
+    Map<int, List<int>?> gaps,
+  ) async {
     // Flatten the requested (piece, chunk) coordinates into one list so we can
     // emit them in bounded batches across pieces, not strictly piece-by-piece.
     final coords = <({int p, int c})>[];
@@ -2660,12 +2937,16 @@ class MessagingService {
       final cur = _serving[m.contentId];
       if (cur == null ||
           _now().difference(cur.servedAt) > _serveAbandonTimeout) {
-        devLog(() => 'xVeil[content]: serve STOPPED ${m.contentId.substring(0, 12)} '
-            'at chunk $i/${coords.length} — receiver no longer requesting');
+        devLog(
+          () =>
+              'xVeil[content]: serve STOPPED ${m.contentId.substring(0, 12)} '
+              'at chunk $i/${coords.length} — receiver no longer requesting',
+        );
         return;
       }
-      final end =
-          (i + _serveBatch < coords.length) ? i + _serveBatch : coords.length;
+      final end = (i + _serveBatch < coords.length)
+          ? i + _serveBatch
+          : coords.length;
       // READ the batch sequentially (a serve-from-source RandomAccessFile is a
       // single cursor — concurrent reads would race it; on-disk readFileRange is
       // fine either way), then SEND the batch CONCURRENTLY for throughput — the
@@ -2683,8 +2964,11 @@ class MessagingService {
               ? await source.read(cstart, clen)
               : await _storage.readFileRange(m.contentId, cstart, clen);
         } catch (e) {
-          devLog(() => 'xVeil[content]: serve read failed '
-              '${m.contentId.substring(0, 12)} p$p c$c: $e');
+          devLog(
+            () =>
+                'xVeil[content]: serve read failed '
+                '${m.contentId.substring(0, 12)} p$p c$c: $e',
+          );
         }
         if (data != null) batch.add((p: p, c: c, data: data));
       }
@@ -2701,7 +2985,9 @@ class MessagingService {
             ).encode(),
           ),
       ]);
-      await Future<void>.delayed(_contentPacing); // anti-burst pace between batches
+      await Future<void>.delayed(
+        _contentPacing,
+      ); // anti-burst pace between batches
     }
   }
 
@@ -2715,8 +3001,42 @@ class MessagingService {
   // REQUESTED cid (cid binds manifest binds pieces → a malicious sender can't
   // substitute), then verifies each piece as it reassembles from the byte stream.
 
-  static const int _streamReadChunk = 256 * 1024; // source read / wire write unit
+  static const int _streamReadChunk =
+      256 * 1024; // source read / wire write unit
+  static const int _streamRequestBytes =
+      2048; // fixed request frame: cid + padding
+  static const Duration _streamRequestTimeout = Duration(seconds: 20);
+  static const Duration _streamManifestTimeout = Duration(seconds: 25);
+  static const Duration _streamSourceReadTimeout = Duration(seconds: 30);
+  static const Duration _defaultStreamPayloadIdleTimeout = Duration(seconds: 60);
+  static const Duration _streamPayloadWriteTimeout = Duration(seconds: 120);
+  static const int _streamServeMaxParallelPerContent = 3;
+  static const int _defaultStreamPullMaxAttempts = 24;
+  final Duration _streamPayloadIdleTimeout;
+  final int _streamPullMaxAttempts;
   bool _acceptingStreams = false;
+
+  bool _beginStreamServe(String cid) {
+    final active = _activeStreamServes[cid] ?? 0;
+    if (active >= _streamServeMaxParallelPerContent) return false;
+    _activeStreamServes[cid] = active + 1;
+    return true;
+  }
+
+  void _endStreamServe(String cid) {
+    final active = (_activeStreamServes[cid] ?? 0) - 1;
+    if (active > 0) {
+      _activeStreamServes[cid] = active;
+      return;
+    }
+    _activeStreamServes.remove(cid);
+    final retired = _retiredAfterStream.remove(cid);
+    if (retired != null) {
+      for (final source in retired) {
+        _retireServeSourceLater(source);
+      }
+    }
+  }
 
   /// Accept inbound bulk streams + serve the requested file. Started by [start]
   /// when the transport supports streams; ends on [dispose].
@@ -2727,7 +3047,10 @@ class MessagingService {
     while (!_disposed) {
       try {
         final r = await st.acceptStream(timeout: const Duration(seconds: 2));
-        if (r != null) unawaited(_serveStream(r.src, r.stream));
+        if (r != null) {
+          devLog(() => 'xVeil[content]: stream-accept <- ${r.src.short}');
+          unawaited(_serveStream(r.src, r.stream));
+        }
       } catch (e) {
         devLog(() => 'xVeil[content]: acceptStream error: $e');
         await Future<void>.delayed(const Duration(milliseconds: 200));
@@ -2740,50 +3063,152 @@ class MessagingService {
   /// durable re-open). Closes the stream (EOF) when done / on any failure.
   Future<void> _serveStream(NodeId peer, ReliableStream stream) async {
     _ServeSource? durable; // opened just for this serve (closed in finally)
+    String? activeCid;
     try {
-      final cidBytes = await _readExactly(stream, 32);
-      if (cidBytes == null) return; // peer hung up before requesting
+      devLog(() => 'xVeil[content]: stream-serve accepted <- ${peer.short}');
+      final reqBytes = await _readExactly(
+        stream,
+        _streamRequestBytes,
+      ).timeout(_streamRequestTimeout, onTimeout: () => null);
+      if (reqBytes == null) {
+        devLog(
+          () =>
+              'xVeil[content]: stream-serve EOF/timeout before request '
+              '<- ${peer.short}',
+        );
+        return; // peer hung up before requesting
+      }
+      final cidBytes = Uint8List.sublistView(reqBytes, 0, 32);
       final cid = _hexEncode(cidBytes);
+      final requestedOffset = reqBytes.length >= 40
+          ? _readU64be(Uint8List.sublistView(reqBytes, 32, 40))
+          : 0;
+      devLog(
+        () =>
+            'xVeil[content]: stream-serve request '
+            '${cid.substring(0, 12)}'
+            '${requestedOffset > 0 ? ' @ $requestedOffset' : ''} '
+            '<- ${peer.short}',
+      );
+      if (!_beginStreamServe(cid)) {
+        devLog(
+          () =>
+              'xVeil[content]: stream-serve too many active '
+              '${cid.substring(0, 12)} <- ${peer.short} (closing retry)',
+        );
+        return;
+      }
+      activeCid = cid;
       ContentManifest? manifest;
       _ServeSource? source;
       final live = _serving[cid];
       if (live != null) {
         manifest = live.manifest;
-        source = live.source;
+        // Prefer a per-stream file handle when we persisted the source path.
+        // A repeated send of the same bytes has the same contentId and replaces
+        // the shared live source; if this stream borrowed that shared handle, the
+        // replacement could close it mid-transfer ("File closed"). A reopened
+        // handle is independent and is closed in this method's finally.
+        if (sourceOpener != null) {
+          final path = await _storage.getSetting('served:$cid');
+          if (path != null) {
+            source = durable = await sourceOpener!(path);
+          }
+        }
+        source ??= live.source;
       } else if (sourceOpener != null) {
         final path = await _storage.getSetting('served:$cid');
         final mfBytes = await _storage.loadFile('mf:$cid');
         if (path != null && mfBytes != null) {
           manifest = ContentManifest.fromJson(
-              jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>);
+            jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>,
+          );
           if (manifest != null) source = durable = await sourceOpener!(path);
         }
       }
       if (manifest == null || source == null) {
-        devLog(() => 'xVeil[content]: stream-serve UNSERVED '
-            '${cid.substring(0, 12)} <- ${peer.short} (close → re-send)');
+        devLog(
+          () =>
+              'xVeil[content]: stream-serve UNSERVED '
+              '${cid.substring(0, 12)} <- ${peer.short} (close → re-send)',
+        );
         return; // close → receiver sees EOF before the manifest
       }
       final m = manifest; // promoted non-null (closures need a final)
       final src = source;
-      devLog(() => 'xVeil[content]: stream-serve ${cid.substring(0, 12)} '
-          '(${m.size}B) -> ${peer.short}');
+      devLog(
+        () =>
+            'xVeil[content]: stream-serve ${cid.substring(0, 12)} '
+            '(${m.size}B) -> ${peer.short}',
+      );
       final mf = Uint8List.fromList(utf8.encode(jsonEncode(m.toJson())));
-      await stream.write(_u32be(mf.length));
-      await stream.write(mf);
-      var off = 0;
+      await stream.write(_u32be(mf.length)).timeout(_streamPayloadWriteTimeout);
+      await stream.write(mf).timeout(_streamPayloadWriteTimeout);
+      devLog(
+        () =>
+            'xVeil[content]: stream-serve manifest sent '
+            '${cid.substring(0, 12)} (${mf.length}B) -> ${peer.short}',
+      );
       final size = m.size;
+      var off = requestedOffset.clamp(0, size).toInt();
+      if (off > 0) {
+        devLog(
+          () =>
+              'xVeil[content]: stream-serve resume '
+              '${cid.substring(0, 12)} from $off/${size}B -> ${peer.short}',
+        );
+      }
+      final serveSw = Stopwatch()..start();
+      var lastServeLogBytes = off;
+      var lastServeLogMs = 0;
       while (off < size) {
         final n =
-            (size - off) < _streamReadChunk ? (size - off) : _streamReadChunk;
-        final data = await src.read(off, n);
+            ((size - off) < _streamReadChunk ? (size - off) : _streamReadChunk)
+                .toInt();
+        final data = await src
+            .read(off, n)
+            .timeout(
+              _streamSourceReadTimeout,
+              onTimeout: () => throw TimeoutException(
+                'source idle at $off/$size',
+                _streamSourceReadTimeout,
+              ),
+            );
         if (data.isEmpty) break; // source truncated
-        await stream.write(data); // flow-controlled (back-pressures)
+        await stream
+            .write(data)
+            .timeout(
+              _streamPayloadWriteTimeout,
+              onTimeout: () => throw TimeoutException(
+                'payload write idle at $off/$size',
+                _streamPayloadWriteTimeout,
+              ),
+            ); // flow-controlled (back-pressures)
         off += data.length;
+        final elapsedMs = serveSw.elapsedMilliseconds;
+        if (off == data.length ||
+            off >= size ||
+            off - lastServeLogBytes >= 1024 * 1024 ||
+            elapsedMs - lastServeLogMs >= 2000) {
+          devLog(
+            () =>
+                'xVeil[content]: stream-serve queued '
+                '${cid.substring(0, 12)} $off/${size}B -> ${peer.short}',
+          );
+          lastServeLogBytes = off;
+          lastServeLogMs = elapsedMs;
+        }
       }
+      devLog(
+        () =>
+            'xVeil[content]: stream-serve complete '
+            '${cid.substring(0, 12)} $off/${size}B -> ${peer.short}',
+      );
     } catch (e) {
       devLog(() => 'xVeil[content]: stream-serve failed <- ${peer.short}: $e');
     } finally {
+      final cid = activeCid;
+      if (cid != null) _endStreamServe(cid);
       if (durable != null) {
         try {
           await durable.close();
@@ -2801,88 +3226,348 @@ class MessagingService {
   /// [sink] (unencrypted-to-file) or the Storage port (encrypted tier / in-volume)
   /// with per-piece verification + progress. Works WITHOUT a live offer handle —
   /// the manifest arrives on the stream, so no reoffer dance.
-  Future<bool> _pullStream(NodeId peer, String cid, _FetchSink? sink,
-      {String? savedPath}) async {
+  Future<bool> _pullStream(
+    NodeId peer,
+    String cid,
+    _FetchSink? sink, {
+    String? savedPath,
+  }) async {
     final t = _transport;
     if (t is! StreamTransport) return false;
-    final stream = await (t as StreamTransport).openStream(peer);
-    if (stream == null) return false; // no circuit → caller falls back
+    final sw = Stopwatch()..start();
+    devLog(
+      () =>
+          'xVeil[content]: stream-open ${cid.substring(0, 12)} '
+          '-> ${peer.short}',
+    );
+    final slowLog = Timer(const Duration(seconds: 5), () {
+      devLog(
+        () =>
+            'xVeil[content]: stream-open still pending '
+            '${cid.substring(0, 12)} -> ${peer.short} '
+            '(${sw.elapsedMilliseconds}ms)',
+      );
+    });
+    ReliableStream? stream;
+    try {
+      stream = await (t as StreamTransport).openStream(peer);
+    } finally {
+      slowLog.cancel();
+    }
+    if (stream == null) {
+      devLog(
+        () =>
+            'xVeil[content]: stream-open unavailable '
+            '${cid.substring(0, 12)} -> ${peer.short} '
+            '(${sw.elapsedMilliseconds}ms), using datagram fallback',
+      );
+      return false; // no circuit → caller falls back
+    }
+    devLog(
+      () =>
+          'xVeil[content]: stream-open ok ${cid.substring(0, 12)} '
+          '-> ${peer.short} (${sw.elapsedMilliseconds}ms)',
+    );
     unawaited(_runPull(peer, cid, sink, stream, savedPath));
     return true;
   }
 
-  Future<void> _runPull(NodeId peer, String cid, _FetchSink? sink,
-      ReliableStream stream, String? savedPath) async {
+  Future<void> _runPull(
+    NodeId peer,
+    String cid,
+    _FetchSink? sink,
+    ReliableStream initialStream,
+    String? savedPath,
+  ) async {
     var ok = false;
+    Object? lastError;
+    ReliableStream? stream = initialStream;
+    ContentManifest? resumeManifest;
+    var resumePiece = 0;
     try {
-      await stream.write(_hexDecode(cid)); // request = the 32-byte contentId
-      final lenB = await _readExactly(stream, 4);
-      if (lenB == null) throw StateError('no manifest (sender not serving)');
-      final mfLen = _readU32be(lenB);
-      if (mfLen <= 0 || mfLen > (1 << 20)) throw StateError('bad manifest len');
-      final mfBytes = await _readExactly(stream, mfLen);
-      if (mfBytes == null) throw StateError('manifest truncated');
-      final m = ContentManifest.fromJson(
-          jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>);
-      if (m == null || m.contentId != cid) {
-        throw StateError('manifest does not bind the requested cid');
+      for (
+        var attempt = 1;
+        attempt <= _streamPullMaxAttempts && !_disposed;
+        attempt++
+      ) {
+        var payloadStarted = false;
+        var readBytes = 0;
+        var committedPieces = 0;
+        Timer? manifestWait;
+        final attemptStream = stream;
+        stream = null;
+        ReliableStream? current;
+        try {
+          current = attemptStream ?? await _openRetryStream(peer, cid, attempt);
+          if (current == null) {
+            throw StateError('stream retry-open unavailable');
+          }
+          devLog(
+            () =>
+                'xVeil[content]: stream-pull request '
+                '${cid.substring(0, 12)} -> ${peer.short} '
+                '(attempt $attempt)',
+          );
+          final resumeFrom = resumeManifest;
+          final resumeOffset = resumeFrom == null
+              ? 0
+              : (resumePiece * resumeFrom.pieceSize)
+                    .clamp(0, resumeFrom.size)
+                    .toInt();
+          // The sender consumes the whole fixed-size request frame. The first
+          // 32 bytes are contentId; bytes 32..40 carry an optional big-endian
+          // resume offset. The rest stays padding. A multi-cell first write
+          // nudges the pinned-circuit path out of the observed
+          // SYN/accept/no-DATA hole without leaving unread padding in the
+          // peer's receive window.
+          final req = Uint8List(_streamRequestBytes)
+            ..setAll(0, _hexDecode(cid))
+            ..setAll(32, _u64be(resumeOffset));
+          await current.write(req).timeout(_streamRequestTimeout);
+          devLog(
+            () =>
+                'xVeil[content]: stream-pull request sent '
+                '${cid.substring(0, 12)} -> ${peer.short} '
+                '(${req.length}B'
+                '${resumeOffset > 0 ? ', resume=$resumeOffset' : ''}, '
+                'attempt $attempt)',
+          );
+          manifestWait = Timer(const Duration(seconds: 5), () {
+            devLog(
+              () =>
+                  'xVeil[content]: stream-pull waiting manifest '
+                  '${cid.substring(0, 12)} <- ${peer.short} '
+                  '(attempt $attempt)',
+            );
+          });
+          final lenB = await _readExactly(
+            current,
+            4,
+          ).timeout(_streamManifestTimeout, onTimeout: () => null);
+          manifestWait.cancel();
+          manifestWait = null;
+          if (lenB == null) {
+            throw StateError('no manifest (sender not serving)');
+          }
+          final mfLen = _readU32be(lenB);
+          if (mfLen <= 0 || mfLen > (1 << 20)) {
+            throw StateError('bad manifest len');
+          }
+          final mfBytes = await _readExactly(
+            current,
+            mfLen,
+          ).timeout(_streamManifestTimeout, onTimeout: () => null);
+          if (mfBytes == null) throw StateError('manifest truncated');
+          final m = ContentManifest.fromJson(
+            jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>,
+          );
+          if (m == null || m.contentId != cid) {
+            throw StateError('manifest does not bind the requested cid');
+          }
+          final previous = resumeManifest;
+          if (previous != null &&
+              (previous.size != m.size ||
+                  previous.pieceSize != m.pieceSize ||
+                  previous.pieceCount != m.pieceCount ||
+                  previous.contentId != m.contentId)) {
+            throw StateError('manifest changed across resume');
+          }
+          resumeManifest ??= m;
+          final startPiece = resumeOffset > 0
+              ? (resumeOffset ~/ m.pieceSize).clamp(0, m.pieceCount)
+              : 0;
+          readBytes = (startPiece * m.pieceSize).clamp(0, m.size).toInt();
+          payloadStarted = true;
+          devLog(
+            () =>
+                'xVeil[content]: stream-pull ${cid.substring(0, 12)} '
+                '(${m.size}B, ${m.pieceCount} pieces) <- ${peer.short} '
+                '(attempt $attempt'
+                '${readBytes > 0 ? ', resume=$readBytes' : ''})',
+          );
+          if (!_contentProgress.isClosed) {
+            _contentProgress.add((
+              contentId: cid,
+              done: readBytes,
+              total: m.size,
+            ));
+          }
+          var lastProgressBytes = readBytes;
+          var lastProgressMs = 0;
+          final progressSw = Stopwatch()..start();
+          const minProgressBytes = 1024 * 1024; // avoid UI backpressure
+          const minProgressMs = 1000;
+          void emitReadProgress() {
+            if (_contentProgress.isClosed || m.size <= 0) return;
+            final elapsedMs = progressSw.elapsedMilliseconds;
+            if (readBytes < m.size &&
+                readBytes - lastProgressBytes < minProgressBytes &&
+                elapsedMs - lastProgressMs < minProgressMs) {
+              return;
+            }
+            final visibleDone = readBytes < m.size ? readBytes : m.size - 1;
+            _contentProgress.add((
+              contentId: cid,
+              done: visibleDone,
+              total: m.size,
+            ));
+            lastProgressBytes = readBytes;
+            lastProgressMs = elapsedMs;
+          }
+
+          final buf = BytesBuilder(copy: false);
+          var bufLen = 0;
+          for (var pi = startPiece; pi < m.pieceCount; pi++) {
+            final pieceLen = m.pieceLength(pi);
+            while (bufLen < pieceLen) {
+              final chunk = await current
+                  .read(maxBytes: _streamReadChunk)
+                  .timeout(
+                    _streamPayloadIdleTimeout,
+                    onTimeout: () => throw TimeoutException(
+                      'payload idle after $readBytes/${m.size}B',
+                      _streamPayloadIdleTimeout,
+                    ),
+                  );
+              if (chunk.isEmpty) throw StateError('stream EOF mid-piece $pi');
+              buf.add(chunk);
+              bufLen += chunk.length;
+              readBytes = (readBytes + chunk.length).clamp(0, m.size).toInt();
+              emitReadProgress();
+            }
+            final acc = buf.takeBytes(); // clears buf
+            final piece = acc.length == pieceLen
+                ? acc
+                : Uint8List.sublistView(acc, 0, pieceLen);
+            if (!m.verifyPiece(pi, piece)) {
+              throw StateError('piece $pi failed verify');
+            }
+            if (sink != null) {
+              await sink.write(pi * m.pieceSize, piece);
+            } else {
+              await _storage.storeFilePiece(
+                cid,
+                pi,
+                m.pieceCount,
+                m.pieceSize,
+                m.size,
+                piece,
+                name: m.name,
+              );
+            }
+            committedPieces++;
+            if (acc.length > pieceLen) {
+              buf.add(Uint8List.sublistView(acc, pieceLen));
+              bufLen = acc.length - pieceLen;
+            } else {
+              bufLen = 0;
+            }
+          }
+          ok = true;
+          await _finishReceived(peer, m, sink, savedPath);
+          if (!_contentProgress.isClosed) {
+            _contentProgress.add((contentId: cid, done: m.size, total: m.size));
+          }
+          break;
+        } catch (e) {
+          lastError = e;
+          if (payloadStarted && committedPieces > 0) {
+            final completed = (resumePiece + committedPieces)
+                .clamp(
+                  0,
+                  resumeManifest?.pieceCount ?? resumePiece + committedPieces,
+                )
+                .toInt();
+            if (completed > resumePiece) {
+              resumePiece = completed;
+              final m = resumeManifest;
+              final resumeBytes = m == null
+                  ? 0
+                  : (resumePiece * m.pieceSize).clamp(0, m.size).toInt();
+              devLog(
+                () =>
+                    'xVeil[content]: stream-pull resume point '
+                    '${cid.substring(0, 12)} piece=$resumePiece '
+                    'offset=$resumeBytes after attempt $attempt',
+              );
+            }
+          }
+          devLog(
+            () =>
+                'xVeil[content]: stream-pull attempt $attempt failed '
+                '${cid.substring(0, 12)}: $e',
+          );
+          if (attempt == _streamPullMaxAttempts || _disposed) {
+            break;
+          }
+        } finally {
+          manifestWait?.cancel();
+          try {
+            await current?.close();
+          } catch (_) {}
+        }
+
+        await Future<void>.delayed(_streamPullRetryDelay(attempt));
       }
-      devLog(() => 'xVeil[content]: stream-pull ${cid.substring(0, 12)} '
-          '(${m.size}B, ${m.pieceCount} pieces) <- ${peer.short}');
-      final buf = BytesBuilder(copy: false);
-      var bufLen = 0;
-      for (var pi = 0; pi < m.pieceCount; pi++) {
-        final pieceLen = m.pieceLength(pi);
-        while (bufLen < pieceLen) {
-          final chunk = await stream.read(maxBytes: _streamReadChunk);
-          if (chunk.isEmpty) throw StateError('stream EOF mid-piece $pi');
-          buf.add(chunk);
-          bufLen += chunk.length;
-        }
-        final acc = buf.takeBytes(); // clears buf
-        final piece = acc.length == pieceLen
-            ? acc
-            : Uint8List.sublistView(acc, 0, pieceLen);
-        if (!m.verifyPiece(pi, piece)) throw StateError('piece $pi failed verify');
-        if (sink != null) {
-          await sink.write(pi * m.pieceSize, piece);
-        } else {
-          await _storage.storeFilePiece(
-              cid, pi, m.pieceCount, m.pieceSize, m.size, piece, name: m.name);
-        }
-        if (acc.length > pieceLen) {
-          buf.add(Uint8List.sublistView(acc, pieceLen));
-          bufLen = acc.length - pieceLen;
-        } else {
-          bufLen = 0;
-        }
-        if (!_contentProgress.isClosed) {
-          _contentProgress
-              .add((contentId: cid, done: pi + 1, total: m.pieceCount));
-        }
-      }
-      ok = true;
-      await _finishReceived(peer, m, sink, savedPath);
-    } catch (e) {
-      devLog(() => 'xVeil[content]: stream-pull failed ${cid.substring(0, 12)}: $e');
     } finally {
-      try {
-        await stream.close();
-      } catch (_) {}
+      if (!ok && lastError != null) {
+        devLog(
+          () =>
+              'xVeil[content]: stream-pull failed '
+              '${cid.substring(0, 12)}: $lastError',
+        );
+      }
       if (!ok && sink != null) {
         try {
           await sink.close();
         } catch (_) {}
-        if (!_contentFailed.isClosed) _contentFailed.add(cid);
       }
+      if (!ok && !_contentFailed.isClosed) _contentFailed.add(cid);
     }
+  }
+
+  Future<ReliableStream?> _openRetryStream(
+    NodeId peer,
+    String cid,
+    int attempt,
+  ) async {
+    final t = _transport;
+    if (t is! StreamTransport) return null;
+    final streamTransport = t as StreamTransport;
+    devLog(
+      () =>
+          'xVeil[content]: stream-pull retry-open '
+          '${cid.substring(0, 12)} -> ${peer.short} '
+          '(attempt $attempt)',
+    );
+    try {
+      return await streamTransport
+          .openStream(peer)
+          .timeout(_streamRequestTimeout, onTimeout: () => null);
+    } catch (e) {
+      devLog(
+        () =>
+            'xVeil[content]: stream-pull retry-open failed '
+            '${cid.substring(0, 12)} -> ${peer.short}: $e',
+      );
+      return null;
+    }
+  }
+
+  static Duration _streamPullRetryDelay(int attempt) {
+    final ms = 250 * attempt;
+    return Duration(milliseconds: ms > 3000 ? 3000 : ms);
   }
 
   /// Finalise a completed RECEIVE: an unencrypted-to-file download closes the
   /// sink, remembers the path (tap → open), and reports it; an in-app store
   /// surfaces offer→downloaded. Acks the sender either way (flips sent→delivered).
-  Future<void> _finishReceived(NodeId peer, ContentManifest m, _FetchSink? sink,
-      String? savedPath) async {
+  Future<void> _finishReceived(
+    NodeId peer,
+    ContentManifest m,
+    _FetchSink? sink,
+    String? savedPath,
+  ) async {
     final ackId = m.msgId ?? m.contentId;
     if (sink != null) {
       try {
@@ -2893,22 +3578,34 @@ class MessagingService {
           await _storage.putSetting('saved:${m.contentId}', savedPath);
         } catch (_) {}
       }
-      devLog(() => 'xVeil[content]: COMPLETE ${m.contentId.substring(0, 12)} '
-          '(${m.size}B) saved to $savedPath');
+      devLog(
+        () =>
+            'xVeil[content]: COMPLETE ${m.contentId.substring(0, 12)} '
+            '(${m.size}B) saved to $savedPath',
+      );
       await _send(peer, WireEnvelope.ack(ackId).encode());
       if (!_contentReceived.isClosed) {
-        _contentReceived.add(
-            (contentId: m.contentId, name: m.name, savedToPath: savedPath));
+        _contentReceived.add((
+          contentId: m.contentId,
+          name: m.name,
+          savedToPath: savedPath,
+        ));
       }
       return;
     }
-    devLog(() => 'xVeil[content]: COMPLETE ${m.contentId.substring(0, 12)} '
-        '(${m.size}B) stored');
+    devLog(
+      () =>
+          'xVeil[content]: COMPLETE ${m.contentId.substring(0, 12)} '
+          '(${m.size}B) stored',
+    );
     final persisted = await _persistReceivedContent(peer, m);
     if (persisted) await _send(peer, WireEnvelope.ack(ackId).encode());
     if (!_contentReceived.isClosed) {
-      _contentReceived
-          .add((contentId: m.contentId, name: m.name, savedToPath: null));
+      _contentReceived.add((
+        contentId: m.contentId,
+        name: m.name,
+        savedToPath: null,
+      ));
     }
   }
 
@@ -2929,12 +3626,18 @@ class MessagingService {
       Uint8List(4)..buffer.asByteData().setUint32(0, v);
   static int _readU32be(Uint8List b) =>
       b.buffer.asByteData(b.offsetInBytes, 4).getUint32(0);
+  static Uint8List _u64be(int v) =>
+      Uint8List(8)..buffer.asByteData().setUint64(0, v);
+  static int _readU64be(Uint8List b) =>
+      b.buffer.asByteData(b.offsetInBytes, 8).getUint64(0);
 
   static String _hexEncode(Uint8List b) {
     const d = '0123456789abcdef';
     final sb = StringBuffer();
     for (final x in b) {
-      sb..write(d[(x >> 4) & 0xf])..write(d[x & 0xf]);
+      sb
+        ..write(d[(x >> 4) & 0xf])
+        ..write(d[x & 0xf]);
     }
     return sb.toString();
   }
@@ -2954,13 +3657,21 @@ class MessagingService {
       // deleted): we hold no reassembler, so the chunk is dropped. A burst of
       // these means a LOST MANIFEST — the receiver can't reassemble or
       // re-request without it.
-      devLog(() => 'xVeil[content]: pieceChunk DROPPED — no manifest/fetch for '
-          '${f.contentId.substring(0, 12)} (p${f.pieceIndex} c${f.chunkIndex})');
+      devLog(
+        () =>
+            'xVeil[content]: pieceChunk DROPPED — no manifest/fetch for '
+            '${f.contentId.substring(0, 12)} (p${f.pieceIndex} c${f.chunkIndex})',
+      );
       return; // not fetching this content
     }
-    _fetchActivity[f.contentId] = _now(); // progress — keep this fetch non-stale
-    final piece =
-        fetch.xfer.addChunk(f.pieceIndex, f.chunkIndex, f.chunkCount, f.data);
+    _fetchActivity[f.contentId] =
+        _now(); // progress — keep this fetch non-stale
+    final piece = fetch.xfer.addChunk(
+      f.pieceIndex,
+      f.chunkIndex,
+      f.chunkCount,
+      f.data,
+    );
     if (piece != null) {
       // Stream the verified piece STRAIGHT to its destination; the reassembler
       // keeps no piece bytes, so the whole file never sits in RAM (any size).
@@ -2972,20 +3683,32 @@ class MessagingService {
           await fetch.sink!.write(f.pieceIndex * m.pieceSize, piece);
         } else {
           // Store via the Storage port (encrypted on-disk tier / in-volume).
-          await _storage.storeFilePiece(m.contentId, f.pieceIndex, m.pieceCount,
-              m.pieceSize, m.size, piece,
-              name: m.name);
+          await _storage.storeFilePiece(
+            m.contentId,
+            f.pieceIndex,
+            m.pieceCount,
+            m.pieceSize,
+            m.size,
+            piece,
+            name: m.name,
+          );
         }
       } catch (e) {
         fetch.xfer.unverify(f.pieceIndex); // write failed → re-request it
-        devLog(() => 'xVeil[content]: piece ${f.pieceIndex} store/write failed '
-            'for ${m.contentId.substring(0, 12)}: $e');
+        devLog(
+          () =>
+              'xVeil[content]: piece ${f.pieceIndex} store/write failed '
+              'for ${m.contentId.substring(0, 12)}: $e',
+        );
         return;
       }
-      devLog(() => 'xVeil[content]: piece ${f.pieceIndex} VERIFIED+'
-          '${fetch.sink != null ? 'WRITTEN' : 'STORED'} for '
-          '${m.contentId.substring(0, 12)} '
-          '(${fetch.xfer.verifiedCount}/${fetch.xfer.pieceCount})');
+      devLog(
+        () =>
+            'xVeil[content]: piece ${f.pieceIndex} VERIFIED+'
+            '${fetch.sink != null ? 'WRITTEN' : 'STORED'} for '
+            '${m.contentId.substring(0, 12)} '
+            '(${fetch.xfer.verifiedCount}/${fetch.xfer.pieceCount})',
+      );
       if (!_contentProgress.isClosed) {
         _contentProgress.add((
           contentId: f.contentId,
@@ -3007,16 +3730,23 @@ class MessagingService {
       final savedPath = _fetchSavePath.remove(f.contentId);
       try {
         await sink.close();
-      } catch (_) {/* best-effort finalise */}
+      } catch (_) {
+        /* best-effort finalise */
+      }
       // Remember where it landed so a later tap OPENS the file instead of
       // re-offering it (it isn't in the app store → hasFile is false).
       if (savedPath != null) {
         try {
           await _storage.putSetting('saved:${f.contentId}', savedPath);
-        } catch (_) {/* non-fatal */}
+        } catch (_) {
+          /* non-fatal */
+        }
       }
-      devLog(() => 'xVeil[content]: COMPLETE ${f.contentId.substring(0, 12)} '
-          '(${fetch.manifest.size}B) saved UNENCRYPTED to $savedPath');
+      devLog(
+        () =>
+            'xVeil[content]: COMPLETE ${f.contentId.substring(0, 12)} '
+            '(${fetch.manifest.size}B) saved UNENCRYPTED to $savedPath',
+      );
       await _send(fetch.peer, WireEnvelope.ack(ackId).encode());
       if (!_contentReceived.isClosed) {
         _contentReceived.add((
@@ -3028,20 +3758,29 @@ class MessagingService {
       return;
     }
     // Stored in the app (encrypted tier / in-volume) → surface offer→downloaded.
-    devLog(() => 'xVeil[content]: COMPLETE ${f.contentId.substring(0, 12)} '
-        '(${fetch.manifest.size}B) streamed to disk');
+    devLog(
+      () =>
+          'xVeil[content]: COMPLETE ${f.contentId.substring(0, 12)} '
+          '(${fetch.manifest.size}B) streamed to disk',
+    );
     final persisted = await _persistReceivedContent(fetch.peer, fetch.manifest);
     // Ack by the per-send msgId (the EVENT identity) so the SENDER's specific
     // file message flips sent->delivered = actually received (a legacy sender
     // without msgId falls back to the contentId — old behaviour).
     if (persisted) {
-      devLog(() => 'xVeil[timeline]: content-ack id=$ackId '
-          'via=direct t=${DateTime.now().millisecondsSinceEpoch}');
+      devLog(
+        () =>
+            'xVeil[timeline]: content-ack id=$ackId '
+            'via=direct t=${DateTime.now().millisecondsSinceEpoch}',
+      );
       await _send(fetch.peer, WireEnvelope.ack(ackId).encode());
     }
     if (!_contentReceived.isClosed) {
-      _contentReceived
-          .add((contentId: f.contentId, name: fetch.name, savedToPath: null));
+      _contentReceived.add((
+        contentId: f.contentId,
+        name: fetch.name,
+        savedToPath: null,
+      ));
     }
   }
 
@@ -3068,22 +3807,34 @@ class MessagingService {
         await _storage.isMessageDeleted(peer.hex, msgId)) {
       return; // already surfaced / deliberately deleted
     }
-    await _store(peer, MessageDirection.incoming, '📎 ${m.name}',
-        MessageStatus.delivered,
-        fileContentId: m.contentId, fileSize: m.size, fileName: m.name,
-        id: msgId, seq: m.seq,
-        timestamp: m.ts != null
-            ? DateTime.fromMillisecondsSinceEpoch(m.ts!)
-            : _now());
+    await _store(
+      peer,
+      MessageDirection.incoming,
+      '📎 ${m.name}',
+      MessageStatus.delivered,
+      fileContentId: m.contentId,
+      fileSize: m.size,
+      fileName: m.name,
+      id: msgId,
+      seq: m.seq,
+      timestamp: m.ts != null
+          ? DateTime.fromMillisecondsSinceEpoch(m.ts!)
+          : _now(),
+    );
     _emitIncoming(peer, '📎 ${m.name}', isFile: true);
     _signal();
-    devLog(() => 'xVeil[content]: offered ${m.contentId.substring(0, 12)} as msg '
-        '${msgId.substring(0, 8)} (${m.size}B) <- ${peer.short}');
+    devLog(
+      () =>
+          'xVeil[content]: offered ${m.contentId.substring(0, 12)} as msg '
+          '${msgId.substring(0, 8)} (${m.size}B) <- ${peer.short}',
+    );
   }
 
   void _ensureContentTimer() {
-    _contentTimer ??=
-        Timer.periodic(_contentReRequestInterval, (_) => _contentReRequest());
+    _contentTimer ??= Timer.periodic(
+      _contentReRequestInterval,
+      (_) => _contentReRequest(),
+    );
   }
 
   void _contentReRequest() {
@@ -3102,15 +3853,22 @@ class MessagingService {
         for (final p in pieces) p: fetch.xfer.missingChunkBitmap(p),
       };
       final remaining = fetch.xfer.missingPieces().length;
-      devLog(() => 'xVeil[content]: re-request '
-          '${fetch.manifest.contentId.substring(0, 12)} — chunk-granular over '
-          'pieces $pieces ($remaining/${fetch.manifest.pieceCount} unverified) '
-          '-> ${fetch.peer.short}');
-      unawaited(_send(
+      devLog(
+        () =>
+            'xVeil[content]: re-request '
+            '${fetch.manifest.contentId.substring(0, 12)} — chunk-granular over '
+            'pieces $pieces ($remaining/${fetch.manifest.pieceCount} unverified) '
+            '-> ${fetch.peer.short}',
+      );
+      unawaited(
+        _send(
           fetch.peer,
           pieceRequestEnvelope(
-                  contentId: fetch.manifest.contentId, bitmaps: bitmaps)
-              .encode()));
+            contentId: fetch.manifest.contentId,
+            bitmaps: bitmaps,
+          ).encode(),
+        ),
+      );
     }
   }
 
@@ -3127,6 +3885,13 @@ class MessagingService {
       if (v.source != null) unawaited(v.source!.close());
     }
     _serving.clear();
+    for (final sources in _retiredAfterStream.values) {
+      for (final source in sources) {
+        unawaited(source.close());
+      }
+    }
+    _retiredAfterStream.clear();
+    _activeStreamServes.clear();
     // Cancel reoffer timers + close any parked download sinks.
     for (final t in _pendingTimers.values) {
       t.cancel();
@@ -3260,13 +4025,18 @@ class ContentProgressNotifier extends StateNotifier<Map<String, double>> {
         });
       }
     });
+    _failedSub = svc.contentDownloadFailed.listen((contentId) {
+      state = {...state}..remove(contentId);
+    });
   }
 
   StreamSubscription<({String contentId, int done, int total})>? _sub;
+  StreamSubscription<String>? _failedSub;
 
   @override
   void dispose() {
     _sub?.cancel();
+    _failedSub?.cancel();
     super.dispose();
   }
 }
@@ -3274,7 +4044,8 @@ class ContentProgressNotifier extends StateNotifier<Map<String, double>> {
 /// contentId → download fraction (0..1) for transfers currently in flight.
 final contentProgressProvider =
     StateNotifierProvider<ContentProgressNotifier, Map<String, double>>(
-        (ref) => ContentProgressNotifier(ref.watch(messagingServiceProvider)));
+      (ref) => ContentProgressNotifier(ref.watch(messagingServiceProvider)),
+    );
 
 /// Candidate mailbox-relay node_ids derived from configured bootstrap peers: a
 /// node_id is `BLAKE3(identity_pubkey)` (veil `compute_node_id`) and a bootstrap
