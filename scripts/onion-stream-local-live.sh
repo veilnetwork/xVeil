@@ -7,15 +7,17 @@ set -euo pipefail
 #   A, B    = anonymous receivers/app endpoints (both publish rendezvous ads)
 #   M1, M2 = relay-capable rendezvous/middle relays
 #
-# Then it runs test/native/onion_stream_file_live_test.dart with
+# Then it runs one of the native live tests with
 # VEIL_ONION_STREAM_CIRCUIT=published. This catches failures that unit-level
-# synthetic tests cannot see: published rendezvous resolution, circuit splice,
-# stream pull back to the sender, app-level offer/download/finalize, and rough
-# throughput.
+# synthetic tests cannot see. The default file test covers app-level
+# offer/download/finalize; ONION_STREAM_LIVE_TEST=byte runs a narrower raw
+# anonymous byte-stream transfer to isolate native stream/FFI failures from the
+# file/range layer.
 #
 # Useful knobs:
 #   ONION_STREAM_LIVE_BUILD=auto|0|1     build release native artifacts if needed
 #   ONION_STREAM_LIVE_RUN_TEST=1|0       run Flutter test after nodes are ready
+#   ONION_STREAM_LIVE_TEST=file|byte     which native live test to run
 #   ONION_STREAM_LIVE_KEEP_NODES=0|1     leave nodes running after script exit
 #   ONION_STREAM_LIVE_CHECK_LOGS=1|0     fail if node logs contain known bad markers
 #   ONION_STREAM_LIVE_TEST_TIMEOUT=10m   flutter test timeout
@@ -39,6 +41,7 @@ LOCK_DIR="$NODES/live.lock"
 PROFILE="${ONION_STREAM_LIVE_PROFILE:-release}"
 BUILD="${ONION_STREAM_LIVE_BUILD:-auto}"
 RUN_TEST="${ONION_STREAM_LIVE_RUN_TEST:-1}"
+LIVE_TEST="${ONION_STREAM_LIVE_TEST:-file}"
 KEEP_NODES="${ONION_STREAM_LIVE_KEEP_NODES:-0}"
 CHECK_LOGS="${ONION_STREAM_LIVE_CHECK_LOGS:-1}"
 TEST_TIMEOUT="${ONION_STREAM_LIVE_TEST_TIMEOUT:-10m}"
@@ -66,6 +69,14 @@ if ! [[ "$MINT_DIFFICULTY" =~ ^[0-9]+$ ]] || (( MINT_DIFFICULTY < 24 )); then
   echo "VEIL_MINT_DIFFICULTY must be an integer >= 24 (node validation floor)." >&2
   exit 2
 fi
+case "$LIVE_TEST" in
+  file) LIVE_TEST_PATH="test/native/onion_stream_file_live_test.dart" ;;
+  byte) LIVE_TEST_PATH="test/native/onion_stream_byte_live_test.dart" ;;
+  *)
+    echo "ONION_STREAM_LIVE_TEST must be 'file' or 'byte'." >&2
+    exit 2
+    ;;
+esac
 
 maybe_build() {
   local need=0
@@ -373,7 +384,7 @@ stop_existing_nodes() {
 stop_existing_flutter_tests() {
   local old_pids
   old_pids="$(
-    pgrep -f 'flutter_tools\.snapshot test .*onion_stream_file_live_test\.dart|flutter_tester.*flutter_test_listener' \
+    pgrep -f 'flutter_tools\.snapshot test .*onion_stream_(file|byte)_live_test\.dart|flutter_tester.*flutter_test_listener' \
       2>/dev/null || true
   )"
   [[ -n "$old_pids" ]] || return 0
@@ -539,7 +550,7 @@ fi
 echo "==> rendezvous ready"
 
 if [[ "$RUN_TEST" == "1" ]]; then
-  echo "==> running live file transfer"
+  echo "==> running live $LIVE_TEST transfer"
   test_code=0
   test_log="$NODES/flutter-test.log"
   rm -f "$test_log"
@@ -551,7 +562,7 @@ if [[ "$RUN_TEST" == "1" ]]; then
       XVEIL_TEST_SOCK_A="$NODES/a/app.sock" \
       XVEIL_TEST_SOCK_B="$NODES/b/app.sock" \
       flutter test --timeout="$TEST_TIMEOUT" "${DART_DEFINES[@]}" \
-        test/native/onion_stream_file_live_test.dart
+        "$LIVE_TEST_PATH"
   ) > >(tee "$test_log") 2>&1 &
   flutter_pid="$!"
   wait "$flutter_pid"
@@ -576,7 +587,7 @@ Run:
   VEIL_ONION_STREAM_CIRCUIT=published \\
   XVEIL_TEST_SOCK_A="$NODES/a/app.sock" \\
   XVEIL_TEST_SOCK_B="$NODES/b/app.sock" \\
-  flutter test test/native/onion_stream_file_live_test.dart
+  flutter test "$LIVE_TEST_PATH"
 
 EOF
 fi
