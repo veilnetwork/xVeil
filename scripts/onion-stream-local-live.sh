@@ -34,6 +34,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VEIL="$ROOT/third_party/veil"
 NODES="${ONION_STREAM_LIVE_NODES:-$ROOT/.dev-onion-stream}"
 SEED_DIR="${ONION_STREAM_LIVE_SEED_DIR:-$ROOT/.dev-mailbox-onion}"
+LOCK_DIR="$NODES/live.lock"
 PROFILE="${ONION_STREAM_LIVE_PROFILE:-release}"
 BUILD="${ONION_STREAM_LIVE_BUILD:-auto}"
 RUN_TEST="${ONION_STREAM_LIVE_RUN_TEST:-1}"
@@ -57,6 +58,7 @@ peers=(a b m1 m2)
 pids=()
 flutter_pid=""
 cleaned_up=0
+lock_acquired=0
 
 if ! [[ "$MINT_DIFFICULTY" =~ ^[0-9]+$ ]] || (( MINT_DIFFICULTY < 24 )); then
   echo "VEIL_MINT_DIFFICULTY must be an integer >= 24 (node validation floor)." >&2
@@ -213,6 +215,28 @@ collect_dart_defines() {
   fi
 }
 
+acquire_live_lock() {
+  mkdir -p "$NODES"
+  if mkdir "$LOCK_DIR" 2>/dev/null; then
+    lock_acquired=1
+    echo "$$" >"$LOCK_DIR/pid"
+    return 0
+  fi
+
+  local owner=""
+  owner="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+  if [[ -n "$owner" ]] && kill -0 "$owner" 2>/dev/null; then
+    echo "another onion-stream live harness is already running (pid $owner)" >&2
+    exit 2
+  fi
+
+  echo "==> removing stale onion-stream live lock"
+  rm -rf "$LOCK_DIR"
+  mkdir "$LOCK_DIR"
+  lock_acquired=1
+  echo "$$" >"$LOCK_DIR/pid"
+}
+
 invite_of() {
   "$BIN" -c "$1/config.toml" bootstrap invite 2>/dev/null |
     grep -oE 'veil:bootstrap\S+' |
@@ -314,20 +338,6 @@ stop_existing_nodes() {
   done <<<"$old_pids"
 }
 
-stop_existing_live_harnesses() {
-  local old_pids pid cmd
-  old_pids="$(pgrep -f 'scripts/onion-stream-local-live\.sh' 2>/dev/null || true)"
-  [[ -n "$old_pids" ]] || return 0
-  while read -r pid; do
-    [[ -n "$pid" ]] || continue
-    [[ "$pid" == "$$" || "$pid" == "$BASHPID" || "$pid" == "$PPID" ]] && continue
-    cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
-    [[ "$cmd" == *"scripts/onion-stream-local-live.sh"* ]] || continue
-    echo "==> stopping stale onion-stream live harness pid $pid"
-    kill "$pid" 2>/dev/null || true
-  done <<<"$old_pids"
-}
-
 stop_existing_flutter_tests() {
   local old_pids
   old_pids="$(
@@ -357,7 +367,6 @@ cleanup() {
   if [[ -n "${flutter_pid:-}" ]]; then
     kill "$flutter_pid" 2>/dev/null || true
   fi
-  stop_existing_flutter_tests
   if [[ "$KEEP_NODES" != "1" ]]; then
     for pid in "${pids[@]:-}"; do
       kill "$pid" 2>/dev/null || true
@@ -374,12 +383,15 @@ cleanup() {
     stop_existing_nodes
     wait 2>/dev/null || true
   fi
+  if [[ "$lock_acquired" == "1" ]]; then
+    rm -rf "$LOCK_DIR" 2>/dev/null || true
+  fi
   echo "logs: $NODES/{a,b,m1,m2}/node.log"
   exit "$code"
 }
 trap cleanup EXIT INT TERM
 
-stop_existing_live_harnesses
+acquire_live_lock
 stop_existing_flutter_tests
 maybe_build
 collect_dart_defines
