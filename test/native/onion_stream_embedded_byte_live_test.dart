@@ -33,6 +33,7 @@ import 'package:xveil/data/transport/veil_addressing.dart';
 ///   XVEIL_TEST_MIN_MIB_PER_SEC=1.5
 
 const _magic = 0x58564253; // "XVBS"
+final _preflight = Uint8List.fromList('XVBSREADY'.codeUnits);
 
 int _envInt(String name, int fallback) {
   final raw = Platform.environment[name];
@@ -74,7 +75,7 @@ Uint8List _payloadChunk(int streamIndex, int offset, int length) {
 Future<Uint8List> _readExactly(
   VeilAnonStream stream,
   int length, {
-  Duration idle = const Duration(seconds: 30),
+  required Duration idle,
 }) async {
   final out = BytesBuilder(copy: false);
   var got = 0;
@@ -102,8 +103,16 @@ Future<void> _sendStream(
   int bytes,
   int chunkBytes,
   bool requireEof,
+  bool preflight,
+  Duration idle,
 ) async {
   try {
+    if (preflight) {
+      final ready = await _readExactly(stream, _preflight.length, idle: idle);
+      if (!_listEquals(ready, _preflight)) {
+        throw StateError('bad preflight token on stream $streamIndex');
+      }
+    }
     final header = BytesBuilder(copy: false)
       ..add(_u32be(_magic))
       ..add(_u32be(streamIndex))
@@ -124,9 +133,17 @@ Future<void> _sendStream(
   }
 }
 
-Future<int> _receiveStream(VeilAnonStream stream, bool requireEof) async {
+Future<int> _receiveStreamWithOptions(
+  VeilAnonStream stream,
+  bool requireEof,
+  bool preflight,
+  Duration idle,
+) async {
   try {
-    final header = await _readExactly(stream, 16);
+    if (preflight) {
+      await stream.write(_preflight);
+    }
+    final header = await _readExactly(stream, 16, idle: idle);
     final magic = _readU32be(header, 0);
     if (magic != _magic) {
       throw StateError('bad stream magic 0x${magic.toRadixString(16)}');
@@ -142,10 +159,10 @@ Future<int> _receiveStream(VeilAnonStream stream, bool requireEof) async {
         chunk = await stream
             .read(maxBytes: want)
             .timeout(
-              const Duration(seconds: 30),
+              idle,
               onTimeout: () => throw TimeoutException(
                 'stream $streamIndex idle after $offset/$expectedBytes bytes',
-                const Duration(seconds: 30),
+                idle,
               ),
             );
       } catch (e) {
@@ -172,9 +189,7 @@ Future<int> _receiveStream(VeilAnonStream stream, bool requireEof) async {
     }
 
     if (requireEof) {
-      final eof = await stream
-          .read(maxBytes: 1)
-          .timeout(const Duration(seconds: 30));
+      final eof = await stream.read(maxBytes: 1).timeout(idle);
       if (eof.isNotEmpty) {
         throw StateError(
           'stream $streamIndex has trailing bytes after payload',
@@ -185,6 +200,14 @@ Future<int> _receiveStream(VeilAnonStream stream, bool requireEof) async {
   } finally {
     await stream.close();
   }
+}
+
+bool _listEquals(Uint8List a, Uint8List b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
 }
 
 bool _publishedCircuitEnabled(String? value) {
@@ -233,6 +256,10 @@ void main() {
   ).clamp(1, 16 * 1024 * 1024);
   final requireEof =
       Platform.environment['XVEIL_BYTE_STREAM_REQUIRE_EOF'] != '0';
+  final preflight = Platform.environment['XVEIL_BYTE_STREAM_PREFLIGHT'] == '1';
+  final idle = Duration(
+    seconds: _envInt('XVEIL_BYTE_STREAM_IDLE_SECONDS', 90).clamp(5, 600),
+  );
   final warmupSeconds = _envInt('XVEIL_EMBED_WARMUP_SECONDS', 12).clamp(0, 300);
   final minMiBPerSec = double.tryParse(
     Platform.environment['XVEIL_TEST_MIN_MIB_PER_SEC'] ?? '',
@@ -272,6 +299,7 @@ void main() {
         readinessTimeout: const Duration(seconds: 60),
       );
       addTearDown(() async {
+        stderr.writeln('[onion-byte-embedded] teardown: controllers');
         await controllerA.dispose();
         await controllerB.dispose();
       });
@@ -296,6 +324,7 @@ void main() {
       final clientA = await VeilClient.connect(sockA);
       final clientB = await VeilClient.connect(sockB);
       addTearDown(() async {
+        stderr.writeln('[onion-byte-embedded] teardown: clients');
         await clientA.close();
         await clientB.close();
       });
@@ -305,7 +334,7 @@ void main() {
       stderr.writeln(
         '[onion-byte-embedded] A=${aId.short} B=${bId.short} '
         'streams=$streamCount totalBytes=$totalBytes chunkBytes=$chunkBytes '
-        'requireEof=$requireEof',
+        'requireEof=$requireEof preflight=$preflight idle=${idle.inSeconds}s',
       );
 
       final perStream = List<int>.generate(streamCount, (i) {
@@ -333,7 +362,9 @@ void main() {
               'accepted stream from unexpected peer ${src.short}',
             );
           }
-          accepted.add(_receiveStream(r.stream, requireEof));
+          accepted.add(
+            _receiveStreamWithOptions(r.stream, requireEof, preflight, idle),
+          );
         }
         return accepted;
       }
@@ -343,23 +374,48 @@ void main() {
 
       final totalSw = Stopwatch()..start();
       final setupSw = Stopwatch()..start();
-      final streams = await Future.wait([
-        for (var i = 0; i < streamCount; i++)
-          clientA.openAnonStream(
-            dstNodeId: bId.bytes,
-            dstAppId: streamAppIdFor(bId),
-          ),
-      ]);
-      final receivers = await acceptFuture.timeout(const Duration(seconds: 60));
+      stderr.writeln('[onion-byte-embedded] opening $streamCount stream(s)');
+      late final List<VeilAnonStream> streams;
+      late final List<Future<int>> receivers;
+      try {
+        streams = await Future.wait([
+          for (var i = 0; i < streamCount; i++)
+            clientA.openAnonStream(
+              dstNodeId: bId.bytes,
+              dstAppId: streamAppIdFor(bId),
+            ),
+        ]);
+        stderr.writeln(
+          '[onion-byte-embedded] opened ${streams.length} stream(s)',
+        );
+        receivers = await acceptFuture.timeout(const Duration(seconds: 60));
+        stderr.writeln(
+          '[onion-byte-embedded] accepted ${receivers.length} receiver(s)',
+        );
+      } catch (e, st) {
+        stderr.writeln('[onion-byte-embedded] setup failed: $e\n$st');
+        rethrow;
+      }
       setupSw.stop();
       final payloadSw = Stopwatch()..start();
+      stderr.writeln('[onion-byte-embedded] sending payload');
       await Future.wait([
         for (var i = 0; i < streams.length; i++)
-          _sendStream(streams[i], i, perStream[i], chunkBytes, requireEof),
+          _sendStream(
+            streams[i],
+            i,
+            perStream[i],
+            chunkBytes,
+            requireEof,
+            preflight,
+            idle,
+          ),
       ]);
+      stderr.writeln('[onion-byte-embedded] payload sent, waiting receivers');
       final received = await Future.wait(
         receivers,
       ).timeout(const Duration(minutes: 5));
+      stderr.writeln('[onion-byte-embedded] receivers completed');
       payloadSw.stop();
       totalSw.stop();
 
