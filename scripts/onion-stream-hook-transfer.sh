@@ -24,6 +24,8 @@ SENDER="${SENDER:-android}" # android|desktop
 SOURCE_PATH="${SOURCE_PATH:-}"
 DEST_PATH="${DEST_PATH:-}"
 NAME="${NAME:-}"
+DOWNLOAD_PEER="${DOWNLOAD_PEER:-}"
+DOWNLOAD_PEERS="${DOWNLOAD_PEERS:-}"
 WAIT_READY_MS="${WAIT_READY_MS:-120000}"
 DOWNLOAD_TIMEOUT_MS="${DOWNLOAD_TIMEOUT_MS:-1800000}"
 EXPECT_SHA256="${EXPECT_SHA256:-}"
@@ -179,7 +181,13 @@ size="$(printf '%s' "$send_body" | json_get size)"
 echo "contentId: $cid"
 echo "advertised size: $size"
 
-download_url="$receiver_hook/download_file?peer=$(urlencode "$receiver_peer")&cid=$(urlencode "$cid")&path=$(urlencode "$DEST_PATH")&timeout_ms=$DOWNLOAD_TIMEOUT_MS"
+download_peer="${DOWNLOAD_PEER:-$receiver_peer}"
+download_url="$receiver_hook/download_file?cid=$(urlencode "$cid")&path=$(urlencode "$DEST_PATH")&timeout_ms=$DOWNLOAD_TIMEOUT_MS"
+if [[ -n "$DOWNLOAD_PEERS" ]]; then
+  download_url="$download_url&peers=$(urlencode "$DOWNLOAD_PEERS")"
+else
+  download_url="$download_url&peer=$(urlencode "$download_peer")"
+fi
 echo "downloading to $DEST_PATH"
 download_body="$(get_json "$download_url")"
 require_ok "$download_body" "download_file"

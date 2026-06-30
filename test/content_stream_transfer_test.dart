@@ -1060,6 +1060,136 @@ void main() {
   });
 
   test(
+    'STREAM download-to-file from any holder falls through to a verified seeder',
+    () async {
+      final data = _rnd(700000, 89); // 3 pieces at the default 256 KiB.
+      final cid = ContentManifest.fromBytes('plain-any.bin', data).contentId;
+      await mB.setFileDownloadPolicy(
+        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+
+      // A seeds B first; B becomes an independent verified holder that can
+      // serve from its stored blob rather than the original source handle.
+      await mA.sendFileStreaming(
+        b,
+        'plain-any.bin',
+        data.length,
+        (o, l) async => Uint8List.sublistView(data, o, o + l),
+        close: () async {},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      final gotB = mB.contentReceived.firstWhere((e) => e.contentId == cid);
+      expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+      await gotB.timeout(const Duration(seconds: 20));
+      expect(await sB.loadFile(cid), data);
+
+      final c = _id(3);
+      final d = _id(4);
+      final tC = _StreamLink(c);
+      final tD = _StreamLink(d);
+      final sC = HiddenVolumeStorage(_mem());
+      final sD = HiddenVolumeStorage(_mem());
+      await sC.open(password: 'c', createIfMissing: true);
+      await sD.open(password: 'd', createIfMissing: true);
+      final mC = MessagingService(
+        tC,
+        sC,
+        contentPacing: Duration.zero,
+        streamPullMaxAttempts: 6,
+        streamRangeParallelism: 3,
+      )..start();
+      final mD = MessagingService(tD, sD, contentPacing: Duration.zero)
+        ..start();
+      addTearDown(() async {
+        await mC.dispose();
+        await mD.dispose();
+        await sC.close();
+        await sD.close();
+      });
+
+      await sC.upsertContact(
+        Contact(nodeId: d, status: ContactStatus.accepted),
+      );
+      await sD.upsertContact(
+        Contact(nodeId: c, status: ContactStatus.accepted),
+      );
+      await sC.upsertContact(
+        Contact(nodeId: b, status: ContactStatus.accepted),
+      );
+      await sB.upsertContact(
+        Contact(nodeId: c, status: ContactStatus.accepted),
+      );
+      await mC.setFileDownloadPolicy(
+        mC.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+      tC.routes[d.hex] = tD;
+      tC.routes[b.hex] = tB;
+      tD.routes[c.hex] = tC;
+      tB.routes[c.hex] = tC;
+
+      // C learns D first, but D's accepted streams die before payload. B then
+      // advertises the same contentId and must be used as the healthy seeder.
+      await mD.sendFileStreaming(
+        c,
+        'plain-any.bin',
+        data.length,
+        (o, l) async => Uint8List.sublistView(data, o, o + l),
+        close: () async {},
+      );
+      final bServeOffsets = <int>[];
+      await mB.sendFileStreaming(c, 'plain-any.bin', data.length, (o, l) async {
+        bServeOffsets.add(o);
+        final bytes = await sB.readFileRange(cid, o, l);
+        if (bytes == null) throw StateError('stored blob missing');
+        return bytes;
+      }, close: () async {});
+      bServeOffsets.clear(); // ignore manifest hashing reads.
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      for (var i = 0; i < 24; i++) {
+        tD.acceptStreamWrappers.add((stream) => _CloseOnWriteStream(stream));
+      }
+
+      final dir = await Directory.systemTemp.createTemp('xveil-plain-any');
+      addTearDown(() async {
+        if (await dir.exists()) await dir.delete(recursive: true);
+      });
+      final dest = '${dir.path}/plain-any.bin';
+      final raf = await File(dest).open(mode: FileMode.write);
+      final gotC = mC.contentReceived.firstWhere((e) => e.contentId == cid);
+
+      final r = await mC.downloadContentToFileFromAny(
+        [d, b],
+        cid,
+        dest,
+        write: (offset, bytes) async {
+          await raf.setPosition(offset);
+          await raf.writeFrom(bytes);
+        },
+        close: () async {
+          await raf.close();
+        },
+      );
+      expect(r, ContentDownloadResult.started);
+      final ev = await gotC.timeout(const Duration(seconds: 20));
+
+      expect(ev.savedToPath, dest);
+      expect(await File(dest).readAsBytes(), data);
+      expect(await sC.hasFile(cid), isFalse);
+      expect(
+        bServeOffsets,
+        isNotEmpty,
+        reason: 'the healthy verified holder should serve at least one range',
+      );
+      expect(
+        tC.openedStreamCount,
+        greaterThanOrEqualTo(3),
+        reason: 'the receiver should try multiple range streams/sources',
+      );
+    },
+  );
+
+  test(
     'STREAM download-to-file does not report completion when every stream dies '
     'before payload',
     () async {
