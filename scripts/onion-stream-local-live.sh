@@ -18,6 +18,10 @@ set -euo pipefail
 #   ONION_STREAM_LIVE_BUILD=auto|0|1     build release native artifacts if needed
 #   ONION_STREAM_LIVE_RUN_TEST=1|0       run Flutter test after nodes are ready
 #   ONION_STREAM_LIVE_TEST=file|byte     which native live test to run
+#   ONION_STREAM_LIVE_NODE_MODE=external|embedded-endpoints
+#                                      external starts A/B/M1/M2 as veil-cli;
+#                                      embedded-endpoints starts only M1/M2 as
+#                                      veil-cli and boots A/B inside Flutter
 #   ONION_STREAM_LIVE_KEEP_NODES=0|1     leave nodes running after script exit
 #   ONION_STREAM_LIVE_CHECK_LOGS=1|0     fail if node logs contain known bad markers
 #   ONION_STREAM_LIVE_TEST_TIMEOUT=10m   flutter test timeout
@@ -42,6 +46,7 @@ PROFILE="${ONION_STREAM_LIVE_PROFILE:-release}"
 BUILD="${ONION_STREAM_LIVE_BUILD:-auto}"
 RUN_TEST="${ONION_STREAM_LIVE_RUN_TEST:-1}"
 LIVE_TEST="${ONION_STREAM_LIVE_TEST:-file}"
+NODE_MODE="${ONION_STREAM_LIVE_NODE_MODE:-external}"
 KEEP_NODES="${ONION_STREAM_LIVE_KEEP_NODES:-0}"
 CHECK_LOGS="${ONION_STREAM_LIVE_CHECK_LOGS:-1}"
 TEST_TIMEOUT="${ONION_STREAM_LIVE_TEST_TIMEOUT:-10m}"
@@ -74,6 +79,20 @@ case "$LIVE_TEST" in
   byte) LIVE_TEST_PATH="test/native/onion_stream_byte_live_test.dart" ;;
   *)
     echo "ONION_STREAM_LIVE_TEST must be 'file' or 'byte'." >&2
+    exit 2
+    ;;
+esac
+case "$NODE_MODE" in
+  external) ;;
+  embedded-endpoints)
+    if [[ "$LIVE_TEST" != "byte" ]]; then
+      echo "ONION_STREAM_LIVE_NODE_MODE=embedded-endpoints currently supports ONION_STREAM_LIVE_TEST=byte only." >&2
+      exit 2
+    fi
+    LIVE_TEST_PATH="test/native/onion_stream_embedded_byte_live_test.dart"
+    ;;
+  *)
+    echo "ONION_STREAM_LIVE_NODE_MODE must be 'external' or 'embedded-endpoints'." >&2
     exit 2
     ;;
 esac
@@ -384,7 +403,7 @@ stop_existing_nodes() {
 stop_existing_flutter_tests() {
   local old_pids
   old_pids="$(
-    pgrep -f 'flutter_tools\.snapshot test .*onion_stream_(file|byte)_live_test\.dart|flutter_tester.*flutter_test_listener' \
+    pgrep -f 'flutter_tools\.snapshot test .*onion_stream_(file|byte|embedded_byte)_live_test\.dart|flutter_tester.*flutter_test_listener' \
       2>/dev/null || true
   )"
   [[ -n "$old_pids" ]] || return 0
@@ -492,8 +511,12 @@ stop_existing_nodes
 rm -f "$NODES"/*/dht_values.json "$NODES"/*/app.sock "$NODES"/*/app.tmp \
   "$NODES"/*/config.sock "$NODES"/*/node.pid 2>/dev/null || true
 
-echo "==> starting nodes"
-for n in "${peers[@]}"; do
+echo "==> starting nodes ($NODE_MODE)"
+start_peers=("${peers[@]}")
+if [[ "$NODE_MODE" == "embedded-endpoints" ]]; then
+  start_peers=(m1 m2)
+fi
+for n in "${start_peers[@]}"; do
   (
     cd "$ROOT"
     RUST_LOG="$LOG_LEVEL" "$BIN" -c "$NODES/$n/config.toml" node run --foreground
@@ -504,8 +527,19 @@ for n in "${peers[@]}"; do
 done
 
 echo "==> waiting for app sockets"
+socket_peers=(a b)
+if [[ "$NODE_MODE" == "embedded-endpoints" ]]; then
+  socket_peers=(m1 m2)
+fi
 for i in $(seq 1 90); do
-  if [[ -S "$NODES/a/app.sock" && -S "$NODES/b/app.sock" ]]; then
+  sockets_ready=1
+  for n in "${socket_peers[@]}"; do
+    if [[ ! -S "$NODES/$n/app.sock" ]]; then
+      sockets_ready=0
+      break
+    fi
+  done
+  if [[ "$sockets_ready" == "1" ]]; then
     break
   fi
   if ! nodes_alive; then
@@ -518,34 +552,44 @@ for i in $(seq 1 90); do
   fi
   sleep 1
 done
-[[ -S "$NODES/a/app.sock" && -S "$NODES/b/app.sock" ]] || {
+socket_error=0
+for n in "${socket_peers[@]}"; do
+  if [[ ! -S "$NODES/$n/app.sock" ]]; then
+    socket_error=1
+  fi
+done
+[[ "$socket_error" == "0" ]] || {
   echo "nodes failed to expose app sockets" >&2
   tail_node_logs >&2
   exit 1
 }
 
-echo "==> waiting for A and B rendezvous registrations"
-registered=0
-for i in $(seq 1 180); do
-  if rendezvous_registered "$NODES/a/node.log" &&
-    rendezvous_registered "$NODES/b/node.log"; then
-    registered=1
-    break
-  fi
-  if ! nodes_alive; then
-    echo "one or more nodes exited before rendezvous registration" >&2
+if [[ "$NODE_MODE" == "external" ]]; then
+  echo "==> waiting for A and B rendezvous registrations"
+  registered=0
+  for i in $(seq 1 180); do
+    if rendezvous_registered "$NODES/a/node.log" &&
+      rendezvous_registered "$NODES/b/node.log"; then
+      registered=1
+      break
+    fi
+    if ! nodes_alive; then
+      echo "one or more nodes exited before rendezvous registration" >&2
+      tail_node_logs >&2
+      exit 1
+    fi
+    if (( i % 10 == 0 )); then
+      echo "   still waiting for rendezvous registration (${i}s)"
+    fi
+    sleep 1
+  done
+  if [[ "$registered" != "1" ]]; then
+    echo "A/B did not both register rendezvous relays within 180s" >&2
     tail_node_logs >&2
     exit 1
   fi
-  if (( i % 10 == 0 )); then
-    echo "   still waiting for rendezvous registration (${i}s)"
-  fi
-  sleep 1
-done
-if [[ "$registered" != "1" ]]; then
-  echo "A/B did not both register rendezvous relays within 180s" >&2
-  tail_node_logs >&2
-  exit 1
+else
+  echo "==> endpoint rendezvous registrations will be established inside embedded test"
 fi
 echo "==> rendezvous ready"
 
@@ -559,6 +603,8 @@ if [[ "$RUN_TEST" == "1" ]]; then
     cd "$ROOT"
     VEIL_FFI_DYLIB="$DYLIB" \
       VEIL_ONION_STREAM_CIRCUIT=published \
+      XVEIL_EMBED_CONFIG_A="$NODES/a/config.toml" \
+      XVEIL_EMBED_CONFIG_B="$NODES/b/config.toml" \
       XVEIL_TEST_SOCK_A="$NODES/a/app.sock" \
       XVEIL_TEST_SOCK_B="$NODES/b/app.sock" \
       flutter test --timeout="$TEST_TIMEOUT" "${DART_DEFINES[@]}" \
@@ -585,6 +631,8 @@ Mesh is running.
 Run:
   VEIL_FFI_DYLIB="$DYLIB" \\
   VEIL_ONION_STREAM_CIRCUIT=published \\
+  XVEIL_EMBED_CONFIG_A="$NODES/a/config.toml" \\
+  XVEIL_EMBED_CONFIG_B="$NODES/b/config.toml" \\
   XVEIL_TEST_SOCK_A="$NODES/a/app.sock" \\
   XVEIL_TEST_SOCK_B="$NODES/b/app.sock" \\
   flutter test "$LIVE_TEST_PATH"
