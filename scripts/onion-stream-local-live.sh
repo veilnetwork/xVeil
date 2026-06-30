@@ -396,7 +396,9 @@ cleanup() {
     done
     sleep 1
     stop_existing_nodes
-    wait 2>/dev/null || true
+    for pid in "${pids[@]:-}"; do
+      wait "$pid" 2>/dev/null || true
+    done
   fi
   if [[ "$lock_acquired" == "1" ]]; then
     rm -rf "$LOCK_DIR" 2>/dev/null || true
