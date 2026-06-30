@@ -2640,21 +2640,21 @@ class MessagingService {
     }
     devLog(() => 'xVeil[content]: user download ${contentId.substring(0, 12)}');
     _markContentDownloadStarted(contentId);
+    final retryPeers = await _contentSourcePeers(
+      preferred: peer,
+      contentId: contentId,
+    );
+    final offered = _offered[contentId];
+    if (offered != null &&
+        await _pullSwarmStream(peer, contentId, offered.manifest, retryPeers)) {
+      return ContentDownloadResult.started;
+    }
     // Reliable STREAM path (fast + flow-controlled): fetches the manifest itself,
     // so it works even without a live offer handle (no reoffer dance needed).
-    if (await _pullStream(
-      peer,
-      contentId,
-      null,
-      retryPeers: await _contentSourcePeers(
-        preferred: peer,
-        contentId: contentId,
-      ),
-    )) {
+    if (await _pullStream(peer, contentId, null, retryPeers: retryPeers)) {
       return ContentDownloadResult.started;
     }
     // Datagram fallback (transport has no streams — e.g. a loopback fake).
-    final offered = _offered[contentId];
     if (offered == null) {
       return _requestReoffer(peer, contentId, null);
     }
@@ -2690,6 +2690,10 @@ class MessagingService {
     final seen = <String>{};
     var attempted = 0;
     _markContentDownloadStarted(contentId);
+    if (offered != null &&
+        await _pullSwarmPiecesToCompletion(sources, offered.manifest)) {
+      return ContentDownloadResult.started;
+    }
     for (final peer in sources) {
       if (!seen.add(peer.hex)) continue;
       final contact = await _storage.getContact(peer);
@@ -3167,6 +3171,9 @@ class MessagingService {
   // bytes…] then closes (EOF). The receiver checks the manifest binds the
   // REQUESTED cid (cid binds manifest binds pieces → a malicious sender can't
   // substitute), then verifies each piece as it reassembles from the byte stream.
+  // Request frame: [cid 32][offset u64][length u64][padding]. A zero length is
+  // the legacy "stream to EOF" form; a non-zero length lets swarm/range pulls
+  // ask a holder for exactly one piece without wasting tail bytes.
 
   static const int _streamReadChunk =
       256 * 1024; // source read / wire write unit
@@ -3184,6 +3191,12 @@ class MessagingService {
   final Duration _streamPayloadIdleTimeout;
   final int _streamPullMaxAttempts;
   bool _acceptingStreams = false;
+
+  Uint8List _streamRequest(String cid, {int offset = 0, int length = 0}) =>
+      Uint8List(_streamRequestBytes)
+        ..setAll(0, _hexDecode(cid))
+        ..setAll(32, _u64be(offset))
+        ..setAll(40, _u64be(length));
 
   bool _beginStreamServe(String cid) {
     final active = _activeStreamServes[cid] ?? 0;
@@ -3252,11 +3265,15 @@ class MessagingService {
       final requestedOffset = reqBytes.length >= 40
           ? _readU64be(Uint8List.sublistView(reqBytes, 32, 40))
           : 0;
+      final requestedLength = reqBytes.length >= 48
+          ? _readU64be(Uint8List.sublistView(reqBytes, 40, 48))
+          : 0;
       devLog(
         () =>
             'xVeil[content]: stream-serve request '
             '${cid.substring(0, 12)}'
-            '${requestedOffset > 0 ? ' @ $requestedOffset' : ''} '
+            '${requestedOffset > 0 ? ' @ $requestedOffset' : ''}'
+            '${requestedLength > 0 ? ' +$requestedLength' : ''} '
             '<- ${peer.short}',
       );
       final contact = await _storage.getContact(peer);
@@ -3344,19 +3361,22 @@ class MessagingService {
       );
       final size = m.size;
       var off = requestedOffset.clamp(0, size).toInt();
-      if (off > 0) {
+      final end = requestedLength > 0
+          ? (off + requestedLength).clamp(off, size).toInt()
+          : size;
+      if (off > 0 || requestedLength > 0) {
         devLog(
           () =>
-              'xVeil[content]: stream-serve resume '
-              '${cid.substring(0, 12)} from $off/${size}B -> ${peer.short}',
+              'xVeil[content]: stream-serve range '
+              '${cid.substring(0, 12)} $off..$end/${size}B -> ${peer.short}',
         );
       }
       final serveSw = Stopwatch()..start();
       var lastServeLogBytes = off;
       var lastServeLogMs = 0;
-      while (off < size) {
+      while (off < end) {
         final n =
-            ((size - off) < _streamReadChunk ? (size - off) : _streamReadChunk)
+            ((end - off) < _streamReadChunk ? (end - off) : _streamReadChunk)
                 .toInt();
         final data = src == null
             ? await _storage
@@ -3472,6 +3492,238 @@ class MessagingService {
     return _runPull(peer, cid, null, stream, null, emitFailure: false);
   }
 
+  Future<bool> _pullSwarmStream(
+    NodeId preferred,
+    String cid,
+    ContentManifest manifest,
+    Iterable<NodeId> peers,
+  ) async {
+    if (_transport is! StreamTransport || manifest.pieceCount < 2) {
+      return false;
+    }
+    final sources = await _acceptedStreamSources(
+      _orderedPullPeers(preferred, peers),
+    );
+    if (sources.isEmpty) return false;
+    unawaited(_runSwarmPullThenFallback(preferred, cid, manifest, sources));
+    return true;
+  }
+
+  Future<List<NodeId>> _acceptedStreamSources(Iterable<NodeId> peers) async {
+    final accepted = <String, NodeId>{};
+    for (final peer in peers) {
+      final contact = await _storage.getContact(peer);
+      if (contact == null || contact.status != ContactStatus.accepted) continue;
+      accepted[peer.hex] = peer;
+    }
+    return accepted.values.toList(growable: false);
+  }
+
+  Future<void> _runSwarmPullThenFallback(
+    NodeId preferred,
+    String cid,
+    ContentManifest manifest,
+    List<NodeId> peers,
+  ) async {
+    if (await _pullSwarmPiecesToCompletion(peers, manifest) ||
+        await _storage.hasFile(cid)) {
+      return;
+    }
+    devLog(
+      () =>
+          'xVeil[content]: swarm-range failed ${cid.substring(0, 12)}, '
+          'falling back to sequential stream',
+    );
+    for (final peer in peers) {
+      final contact = await _storage.getContact(peer);
+      if (contact == null || contact.status != ContactStatus.accepted) continue;
+      final ok = await _pullStreamToCompletion(peer, cid);
+      if (ok == true || await _storage.hasFile(cid)) return;
+    }
+    final ok = await _pullStreamToCompletion(preferred, cid);
+    if (ok == true || await _storage.hasFile(cid)) return;
+    if (!_contentFailed.isClosed) _contentFailed.add(cid);
+  }
+
+  Future<bool> _pullSwarmPiecesToCompletion(
+    Iterable<NodeId> peers,
+    ContentManifest manifest,
+  ) async {
+    final cid = manifest.contentId;
+    if (_transport is! StreamTransport || manifest.pieceCount < 2) return false;
+    final sources = await _acceptedStreamSources(peers);
+    if (sources.isEmpty) return false;
+
+    final workerCount = manifest.pieceCount < _streamServeMaxParallelPerContent
+        ? manifest.pieceCount
+        : _streamServeMaxParallelPerContent;
+    final pending = <int>[for (var i = 0; i < manifest.pieceCount; i++) i];
+    final attempts = List<int>.filled(manifest.pieceCount, 0);
+    final maxAttemptsPerPiece = sources.length * 2 < 3 ? 3 : sources.length * 2;
+    var completedPieces = 0;
+    var failed = false;
+    NodeId? completionPeer;
+    ContentManifest? completionManifest;
+
+    ({int piece, NodeId peer})? takePiece() {
+      if (failed || pending.isEmpty) return null;
+      final piece = pending.removeAt(0);
+      final attempt = attempts[piece];
+      if (attempt >= maxAttemptsPerPiece) {
+        failed = true;
+        return null;
+      }
+      attempts[piece] = attempt + 1;
+      return (piece: piece, peer: sources[(piece + attempt) % sources.length]);
+    }
+
+    void requeue(int piece) {
+      if (attempts[piece] >= maxAttemptsPerPiece) {
+        failed = true;
+      } else {
+        pending.add(piece);
+      }
+    }
+
+    Future<void> worker(int index) async {
+      while (!_disposed && !failed) {
+        final task = takePiece();
+        if (task == null) return;
+        final piece = task.piece;
+        final pulled = await _pullPieceRangeToStorage(
+          task.peer,
+          manifest,
+          piece,
+        );
+        if (pulled == null) {
+          requeue(piece);
+          await Future<void>.delayed(_streamPullRetryDelay(attempts[piece]));
+          continue;
+        }
+        completionPeer = pulled.peer;
+        completionManifest = pulled.manifest;
+        completedPieces++;
+        if (!_contentProgress.isClosed) {
+          final done =
+              ((completedPieces * manifest.pieceSize) < manifest.size
+                      ? completedPieces * manifest.pieceSize
+                      : manifest.size)
+                  .toInt();
+          _contentProgress.add((
+            contentId: cid,
+            done: done,
+            total: manifest.size,
+          ));
+        }
+      }
+    }
+
+    devLog(
+      () =>
+          'xVeil[content]: swarm-range start ${cid.substring(0, 12)} '
+          'pieces=${manifest.pieceCount} workers=$workerCount '
+          'sources=${sources.length}',
+    );
+    await Future.wait<void>([for (var i = 0; i < workerCount; i++) worker(i)]);
+    if (failed ||
+        completedPieces < manifest.pieceCount ||
+        !await _storage.hasFile(cid)) {
+      devLog(
+        () =>
+            'xVeil[content]: swarm-range incomplete '
+            '${cid.substring(0, 12)} completed=$completedPieces/'
+            '${manifest.pieceCount} failed=$failed',
+      );
+      return false;
+    }
+    await _finishReceived(
+      completionPeer ?? sources.first,
+      completionManifest ?? manifest,
+      null,
+      null,
+    );
+    if (!_contentProgress.isClosed) {
+      _contentProgress.add((
+        contentId: cid,
+        done: manifest.size,
+        total: manifest.size,
+      ));
+    }
+    return true;
+  }
+
+  Future<({NodeId peer, ContentManifest manifest})?> _pullPieceRangeToStorage(
+    NodeId peer,
+    ContentManifest expected,
+    int pieceIndex,
+  ) async {
+    final cid = expected.contentId;
+    final pieceLen = expected.pieceLength(pieceIndex);
+    final offset = pieceIndex * expected.pieceSize;
+    final stream = await _openInitialPullStream(peer, cid);
+    if (stream == null) return null;
+    ReliableStream? current = stream;
+    try {
+      final req = _streamRequest(cid, offset: offset, length: pieceLen);
+      await current.write(req).timeout(_streamRequestTimeout);
+      final lenB = await _readExactly(
+        current,
+        4,
+      ).timeout(_streamManifestTimeout, onTimeout: () => null);
+      if (lenB == null) throw StateError('no manifest (sender not serving)');
+      final mfLen = _readU32be(lenB);
+      if (mfLen <= 0 || mfLen > (1 << 20)) {
+        throw StateError('bad manifest len');
+      }
+      final mfBytes = await _readExactly(
+        current,
+        mfLen,
+      ).timeout(_streamManifestTimeout, onTimeout: () => null);
+      if (mfBytes == null) throw StateError('manifest truncated');
+      final m = ContentManifest.fromJson(
+        jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>,
+      );
+      if (m == null ||
+          m.contentId != cid ||
+          m.size != expected.size ||
+          m.pieceSize != expected.pieceSize ||
+          m.pieceCount != expected.pieceCount) {
+        throw StateError('manifest does not bind requested piece range');
+      }
+      final piece = await _readExactly(
+        current,
+        pieceLen,
+      ).timeout(_streamPayloadIdleTimeout, onTimeout: () => null);
+      if (piece == null || piece.length != pieceLen) {
+        throw StateError('piece $pieceIndex truncated');
+      }
+      if (!expected.verifyPiece(pieceIndex, piece)) {
+        throw StateError('piece $pieceIndex failed verify');
+      }
+      await _storage.storeFilePiece(
+        cid,
+        pieceIndex,
+        expected.pieceCount,
+        expected.pieceSize,
+        expected.size,
+        piece,
+        name: expected.name,
+      );
+      return (peer: peer, manifest: m);
+    } catch (e) {
+      devLog(
+        () =>
+            'xVeil[content]: swarm-range piece failed '
+            '${cid.substring(0, 12)} p$pieceIndex <- ${peer.short}: $e',
+      );
+      return null;
+    } finally {
+      try {
+        await current.close();
+      } catch (_) {}
+    }
+  }
+
   Future<ReliableStream?> _openInitialPullStream(
     NodeId peer,
     String cid,
@@ -3574,9 +3826,7 @@ class MessagingService {
           // nudges the pinned-circuit path out of the observed
           // SYN/accept/no-DATA hole without leaving unread padding in the
           // peer's receive window.
-          final req = Uint8List(_streamRequestBytes)
-            ..setAll(0, _hexDecode(cid))
-            ..setAll(32, _u64be(resumeOffset));
+          final req = _streamRequest(cid, offset: resumeOffset);
           await current.write(req).timeout(_streamRequestTimeout);
           devLog(
             () =>
