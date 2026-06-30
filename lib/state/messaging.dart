@@ -3377,10 +3377,11 @@ class MessagingService {
   static const int _streamReadChunk =
       256 * 1024; // source read / wire write unit
   static const int _streamRequestBytes =
-      2048; // fixed request frame: cid + padding
+      48; // fixed request frame: cid + offset + length
   static const Duration _streamRequestTimeout = Duration(seconds: 20);
   static const Duration _streamManifestTimeout = Duration(seconds: 25);
   static const Duration _streamSourceReadTimeout = Duration(seconds: 30);
+  static const Duration _streamOpenWriteGrace = Duration(milliseconds: 75);
   static const Duration _defaultStreamPayloadIdleTimeout = Duration(
     seconds: 60,
   );
@@ -4135,6 +4136,11 @@ class MessagingService {
     ReliableStream? current = stream;
     try {
       final req = _streamRequest(cid, offset: offset, length: rangeLen);
+      // veil_anon_stream_open returns once the local stream FSM exists; on the
+      // datagram-backed anonymous stream the peer accept can trail by a few
+      // milliseconds. A tiny grace before the first DATA frame avoids the
+      // observed open/accept/no-request race without affecting bulk throughput.
+      await Future<void>.delayed(_streamOpenWriteGrace);
       await current.write(req).timeout(_streamRequestTimeout);
       final lenB = await _readExactly(
         current,
@@ -4331,11 +4337,12 @@ class MessagingService {
                     .toInt();
           // The sender consumes the whole fixed-size request frame. The first
           // 32 bytes are contentId; bytes 32..40 carry an optional big-endian
-          // resume offset. The rest stays padding. A multi-cell first write
-          // nudges the pinned-circuit path out of the observed
-          // SYN/accept/no-DATA hole without leaving unread padding in the
-          // peer's receive window.
+          // resume offset; bytes 40..48 carry an optional requested length.
+          // Keep this first write to a single onion-stream cell: padding this
+          // to several cells created a request burst before payload pacing had
+          // a chance to smooth the transfer.
           final req = _streamRequest(cid, offset: resumeOffset);
+          await Future<void>.delayed(_streamOpenWriteGrace);
           await current.write(req).timeout(_streamRequestTimeout);
           devLog(
             () =>

@@ -14,6 +14,8 @@ set -euo pipefail
 # Set SYNTHETIC_ROUNDS=N to repeat the whole deterministic suite N times while
 # chasing rare ordering races.
 # Set SYNTHETIC_LIVE=0 to skip the autonomous four-node live transfer.
+# Set SYNTHETIC_LIVE_TEST=file|byte to choose the app-level file test or the raw
+# anonymous byte-stream isolation test for the autonomous live transfer.
 # Set SYNTHETIC_LIVE_FILE_SIZE=N to change the live payload size; the default
 # 16 MiB covers the former mid-transfer DHT quota / auto-ban regression.
 # Set XVEIL_STREAM_RANGE_PARALLELISM=N and/or
@@ -23,6 +25,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VEIL="$ROOT/third_party/veil"
 SYNTHETIC_ROUNDS="${SYNTHETIC_ROUNDS:-1}"
 SYNTHETIC_LIVE="${SYNTHETIC_LIVE:-1}"
+SYNTHETIC_LIVE_TEST="${SYNTHETIC_LIVE_TEST:-file}"
 SYNTHETIC_LIVE_FILE_SIZE="${SYNTHETIC_LIVE_FILE_SIZE:-16777216}"
 SYNTHETIC_LIVE_MIN_MIB_PER_SEC="${SYNTHETIC_LIVE_MIN_MIB_PER_SEC:-}"
 
@@ -38,6 +41,13 @@ if ! [[ "$SYNTHETIC_LIVE_FILE_SIZE" =~ ^[1-9][0-9]*$ ]]; then
   echo "SYNTHETIC_LIVE_FILE_SIZE must be a positive integer." >&2
   exit 2
 fi
+case "$SYNTHETIC_LIVE_TEST" in
+  file|byte) ;;
+  *)
+    echo "SYNTHETIC_LIVE_TEST must be 'file' or 'byte'." >&2
+    exit 2
+    ;;
+esac
 
 run_round() {
   local round="$1"
@@ -98,7 +108,9 @@ run_round() {
     (
       cd "$ROOT"
       live_env=(
+        "ONION_STREAM_LIVE_TEST=$SYNTHETIC_LIVE_TEST"
         "XVEIL_TEST_FILE_SIZE=$SYNTHETIC_LIVE_FILE_SIZE"
+        "XVEIL_BYTE_STREAM_TOTAL_BYTES=$SYNTHETIC_LIVE_FILE_SIZE"
       )
       if [[ -n "$SYNTHETIC_LIVE_MIN_MIB_PER_SEC" ]]; then
         live_env+=("XVEIL_TEST_MIN_MIB_PER_SEC=$SYNTHETIC_LIVE_MIN_MIB_PER_SEC")
