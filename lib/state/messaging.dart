@@ -2646,7 +2646,10 @@ class MessagingService {
       peer,
       contentId,
       null,
-      retryPeers: _offerPeers(preferred: peer, contentId: contentId),
+      retryPeers: await _contentSourcePeers(
+        preferred: peer,
+        contentId: contentId,
+      ),
     )) {
       return ContentDownloadResult.started;
     }
@@ -2678,9 +2681,11 @@ class MessagingService {
       return ContentDownloadResult.started;
     }
     final offered = _offered[contentId];
+    final storedSources = await _storedContentSourcePeers(contentId);
     final sources = <NodeId>[
       ...peers,
       if (offered != null) ...offered.peers.values,
+      ...storedSources,
     ];
     final seen = <String>{};
     var attempted = 0;
@@ -2737,6 +2742,45 @@ class MessagingService {
     return out.values.toList(growable: false);
   }
 
+  Future<List<NodeId>> _contentSourcePeers({
+    required NodeId preferred,
+    required String contentId,
+  }) async {
+    final out = <String, NodeId>{
+      for (final peer in _offerPeers(
+        preferred: preferred,
+        contentId: contentId,
+      ))
+        peer.hex: peer,
+    };
+    for (final peer in await _storedContentSourcePeers(contentId)) {
+      out[peer.hex] = peer;
+    }
+    return out.values.toList(growable: false);
+  }
+
+  Future<List<NodeId>> _storedContentSourcePeers(String contentId) async {
+    final out = <String, NodeId>{};
+    try {
+      for (final conv in await _storage.loadConversations()) {
+        if (!conv.peer.canMessage) continue;
+        final hasOffer = (await _storage.loadMessages(conv.id)).any(
+          (m) =>
+              m.direction == MessageDirection.incoming &&
+              (m.fileContentId == contentId || m.fileId == contentId),
+        );
+        if (hasOffer) out[conv.peer.nodeId.hex] = conv.peer.nodeId;
+      }
+    } catch (e) {
+      devLog(
+        () =>
+            'xVeil[content]: stored source scan failed '
+            '${contentId.substring(0, 12)}: $e',
+      );
+    }
+    return out.values.toList(growable: false);
+  }
+
   /// The user opted to download an OFFERED file UNENCRYPTED, straight to a
   /// plaintext file they picked. [write]/[close] is the file sink (created in the
   /// UI); each verified piece is written at its byte offset, nothing is kept in
@@ -2763,7 +2807,10 @@ class MessagingService {
       contentId,
       sink,
       savedPath: savedPath,
-      retryPeers: _offerPeers(preferred: peer, contentId: contentId),
+      retryPeers: await _contentSourcePeers(
+        preferred: peer,
+        contentId: contentId,
+      ),
     )) {
       return ContentDownloadResult.started;
     }
