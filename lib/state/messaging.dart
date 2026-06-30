@@ -1382,7 +1382,7 @@ class MessagingService {
       // Throttled per peer ([_syncSendInterval]); live-only, so it is independent
       // of the mailbox backoff below. The first tick after a (re)connect fires
       // immediately (no throttle entry yet), so reconnect triggers reconciliation.
-      unawaited(_sendSyncTo(conv.peer.nodeId));
+      _sendSyncBestEffort(conv.peer.nodeId);
       final msgs = await _storage.loadMessages(conv.id);
       // Bounded reconnect + terminal "not delivered" (§15.7). Runs BEFORE the
       // resolve-backoff `continue` below so even a never-resolving peer's messages
@@ -1534,6 +1534,16 @@ class MessagingService {
     await _send(peer, WireEnvelope.sync(body).encode());
   }
 
+  void _sendSyncBestEffort(NodeId peer, {bool force = false}) {
+    unawaited(
+      _sendSyncTo(peer, force: force).catchError((_) {
+        // Sync beacons are advisory gap-fill hints. A transient anonymous-send
+        // failure must not surface as an unhandled async exception or abort an
+        // in-flight file transfer; the retry timer will beacon again.
+      }),
+    );
+  }
+
   /// Handle a peer's gap-fill beacon: re-ship every event WE authored above the
   /// peer's high-water for our stream (oldest-first, bounded), then beacon back
   /// so the peer heals OUR gaps in the same round. Rate-limited per peer
@@ -1544,7 +1554,7 @@ class MessagingService {
     if (lastActed != null && now.difference(lastActed) < _syncActInterval) {
       // Still beacon back (cheap, throttled) so the peer's gaps heal, but don't
       // re-run the (heavier) re-ship scan this often.
-      unawaited(_sendSyncTo(peer));
+      _sendSyncBestEffort(peer);
       return;
     }
     _lastSyncActedAt[peer.hex] = now;
@@ -1669,7 +1679,7 @@ class MessagingService {
       }
     }
     // Beacon back so the peer re-ships what WE are missing (throttled).
-    unawaited(_sendSyncTo(peer));
+    _sendSyncBestEffort(peer);
   }
 
   /// Best-effort offline deposit of [wire] (the message envelope) for [peer],
