@@ -374,6 +374,56 @@ void main() {
   );
 
   test(
+    'STREAM range pull resumes from already stored verified pieces',
+    () async {
+      final data = _rnd(700000, 41); // 3 pieces at the default 256 KiB.
+      final manifest = ContentManifest.fromBytes('partial-range.bin', data);
+      final cid = manifest.contentId;
+      await sB.storeFilePiece(
+        cid,
+        0,
+        manifest.pieceCount,
+        manifest.pieceSize,
+        manifest.size,
+        Uint8List.sublistView(data, 0, manifest.pieceLength(0)),
+        name: manifest.name,
+      );
+      expect(await sB.hasFile(cid), isFalse, reason: 'only piece 0 is present');
+
+      await mB.setFileDownloadPolicy(
+        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+      final serveOffsets = <int>[];
+      await mA.sendFileStreaming(b, 'partial-range.bin', data.length, (
+        o,
+        l,
+      ) async {
+        serveOffsets.add(o);
+        return Uint8List.sublistView(data, o, o + l);
+      }, close: () async {});
+      serveOffsets.clear(); // ignore manifest hashing reads.
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      final got = mB.contentReceived.firstWhere((e) => e.contentId == cid);
+      expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+      await got.timeout(const Duration(seconds: 20));
+
+      expect(await sB.loadFile(cid), data);
+      expect(
+        serveOffsets,
+        isNot(contains(0)),
+        reason:
+            'verified piece 0 was already stored and must not be re-fetched',
+      );
+      expect(
+        serveOffsets,
+        contains(ContentManifest.defaultPieceSize),
+        reason: 'the first missing piece should be fetched by range offset',
+      );
+    },
+  );
+
+  test(
     'STREAM range pull opens enough parallel piece streams for large files',
     () async {
       await mA.dispose();
