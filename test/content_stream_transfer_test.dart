@@ -445,6 +445,112 @@ void main() {
     },
   );
 
+  test(
+    'STREAM swarm resume switches to another holder after partial payload',
+    () async {
+      final data = _rnd(700000, 31); // 3 pieces at the default 256 KiB.
+      final cid = ContentManifest.fromBytes('cross-source.bin', data).contentId;
+      await mB.setFileDownloadPolicy(
+        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+
+      // A fully seeds B first, so B can later act as an independent holder.
+      await mA.sendFileStreaming(
+        b,
+        'cross-source.bin',
+        data.length,
+        (o, l) async => Uint8List.sublistView(data, o, o + l),
+        close: () async {},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      final gotB = mB.contentReceived.firstWhere((e) => e.contentId == cid);
+      expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+      await gotB.timeout(const Duration(seconds: 20));
+      expect(await sB.loadFile(cid), data);
+
+      final c = _id(3);
+      final tC = _StreamLink(c);
+      final sC = HiddenVolumeStorage(_mem());
+      await sC.open(password: 'c', createIfMissing: true);
+      final mC = MessagingService(
+        tC,
+        sC,
+        contentPacing: Duration.zero,
+        streamPayloadIdleTimeout: const Duration(milliseconds: 120),
+        streamPullMaxAttempts: 2,
+      )..start();
+      addTearDown(() async {
+        await mC.dispose();
+        await sC.close();
+      });
+
+      await sA.upsertContact(
+        Contact(nodeId: c, status: ContactStatus.accepted),
+      );
+      await sB.upsertContact(
+        Contact(nodeId: c, status: ContactStatus.accepted),
+      );
+      await sC.upsertContact(
+        Contact(nodeId: a, status: ContactStatus.accepted),
+      );
+      await sC.upsertContact(
+        Contact(nodeId: b, status: ContactStatus.accepted),
+      );
+      await mC.setFileDownloadPolicy(
+        mC.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+      tC.routes[a.hex] = tA;
+      tC.routes[b.hex] = tB;
+      tA.routes[c.hex] = tC;
+      tB.routes[c.hex] = tC;
+
+      // C learns two holders for the same contentId, in order: A then B.
+      await mA.sendFileStreaming(
+        c,
+        'cross-source.bin',
+        data.length,
+        (o, l) async => Uint8List.sublistView(data, o, o + l),
+        close: () async {},
+      );
+      final bServeOffsets = <int>[];
+      await mB.sendFileStreaming(c, 'cross-source.bin', data.length, (
+        o,
+        l,
+      ) async {
+        bServeOffsets.add(o);
+        final bytes = await sB.readFileRange(cid, o, l);
+        if (bytes == null) throw StateError('stored blob missing');
+        return bytes;
+      }, close: () async {});
+      bServeOffsets.clear(); // ignore manifest hashing reads.
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      // A's first stream sends enough for C to verify piece 0, then blackholes.
+      // C must retry B with a resume offset instead of restarting at byte 0.
+      tA.acceptStreamWrappers.add(
+        (stream) => _BlackholeWriteStream(stream, passBytes: 350 * 1024),
+      );
+
+      final gotC = mC.contentReceived.firstWhere((e) => e.contentId == cid);
+      expect(await mC.downloadContent(a, cid), ContentDownloadResult.started);
+      final ev = await gotC.timeout(const Duration(seconds: 20));
+      expect(ev.contentId, cid);
+      expect(await sC.loadFile(cid), data);
+      expect(tC.openedStreamCount, greaterThanOrEqualTo(2));
+      expect(
+        bServeOffsets,
+        isNotEmpty,
+        reason: 'the second holder should have served the resumed tail',
+      );
+      expect(
+        bServeOffsets.first,
+        ContentManifest.defaultPieceSize,
+        reason:
+            'cross-source retry should resume after the verified first piece',
+      );
+    },
+  );
+
   test('STREAM download to an UNENCRYPTED file writes the plaintext + nothing '
       'in the app', () async {
     final data = _rnd(400000, 9);
