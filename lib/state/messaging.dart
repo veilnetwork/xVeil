@@ -29,6 +29,15 @@ import 'providers.dart';
 import 'package:xveil/core/log.dart';
 
 const _uuid = Uuid();
+const _streamRangeParallelismDartDefine = int.fromEnvironment(
+  'XVEIL_STREAM_RANGE_PARALLELISM',
+  defaultValue: 0,
+);
+
+int? xveilConfiguredStreamRangeParallelism() =>
+    _streamRangeParallelismDartDefine > 0
+    ? _streamRangeParallelismDartDefine
+    : null;
 
 /// Raw bytes per wire chunk. The anonymous authenticated send (the live path,
 /// veil's auth_deliver) caps ONE message at MAX_AUTH_DELIVER_MSG_BYTES = 6144
@@ -192,14 +201,14 @@ class MessagingService {
     this._contentPacing = const Duration(milliseconds: 20),
     Duration? streamPayloadIdleTimeout,
     int? streamPullMaxAttempts,
-    int streamRangeParallelism = _defaultStreamRangeParallelism,
+    int? streamRangeParallelism,
   }) : _now = now ?? DateTime.now,
        _streamPayloadIdleTimeout =
            streamPayloadIdleTimeout ?? _defaultStreamPayloadIdleTimeout,
        _streamPullMaxAttempts =
            streamPullMaxAttempts ?? _defaultStreamPullMaxAttempts,
        _streamRangeParallelism = _clampStreamRangeParallelism(
-         streamRangeParallelism,
+         streamRangeParallelism ?? _defaultStreamRangeParallelism,
        );
 
   /// Wall-clock source, injectable so stale-transfer eviction is testable
@@ -4457,9 +4466,15 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
   devLog(
     () =>
         'xVeil[messaging]: fallback service (no session pipeline) '
-        'anonymous=$anonymous',
+        'anonymous=$anonymous '
+        'streamRangeParallelism=${xveilConfiguredStreamRangeParallelism() ?? 'default'}',
   );
-  final service = MessagingService(transport, storage, anonymous: anonymous);
+  final service = MessagingService(
+    transport,
+    storage,
+    anonymous: anonymous,
+    streamRangeParallelism: xveilConfiguredStreamRangeParallelism(),
+  );
   service.sourceOpener = veilSourceOpener; // DURABLE offers: re-open by path
   service.start();
 
