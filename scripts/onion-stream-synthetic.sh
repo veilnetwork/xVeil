@@ -16,6 +16,8 @@ set -euo pipefail
 # Set SYNTHETIC_LIVE=0 to skip the autonomous four-node live transfer.
 # Set SYNTHETIC_LIVE_FILE_SIZE=N to change the live payload size; the default
 # 16 MiB covers the former mid-transfer DHT quota / auto-ban regression.
+# Set XVEIL_STREAM_RANGE_PARALLELISM=N and/or
+# XVEIL_STREAM_RANGE_TARGET_BYTES=N to tune the autonomous live speed profile.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VEIL="$ROOT/third_party/veil"
