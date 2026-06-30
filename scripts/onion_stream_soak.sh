@@ -8,12 +8,13 @@ set -euo pipefail
 #   - enables the pinned onion-stream circuit mode on Android via setprop;
 #   - launches desktop + Android debug builds with the local Rust dylibs;
 #   - captures Flutter/app/logcat output under one timestamped log directory;
+#   - starts a debug-only loopback command hook on both apps;
+#   - optionally runs SOAK_TRIGGER_CMD to send/download without UI clicks;
 #   - optionally monitors a destination file until it reaches EXPECT_SIZE.
 #
 # What it deliberately does NOT fake:
-#   - UI send/download actions. Until the app has a debug-only command endpoint,
-#     trigger the transfer manually or set SOAK_TRIGGER_CMD to an explicit command
-#     that does it in your environment.
+#   - unlocking the deniable space. Start from an unlocked/ready app, or unlock
+#     once manually; after that SOAK_TRIGGER_CMD can drive send/download.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_ID="${APP_ID:-network.veil.xveil}"
@@ -27,6 +28,10 @@ EXPECT_SIZE="${EXPECT_SIZE:-}"
 SOAK_TRIGGER_CMD="${SOAK_TRIGGER_CMD:-}"
 MONITOR_INTERVAL="${MONITOR_INTERVAL:-10}"
 KILL_OLD="${KILL_OLD:-1}"
+ENABLE_DEBUG_HOOK="${ENABLE_DEBUG_HOOK:-1}"
+DESKTOP_HOOK_PORT="${DESKTOP_HOOK_PORT:-38765}"
+ANDROID_HOOK_PORT="${ANDROID_HOOK_PORT:-38766}"
+ANDROID_HOST_HOOK_PORT="${ANDROID_HOST_HOOK_PORT:-38766}"
 
 mkdir -p "$LOG_DIR"
 
@@ -61,6 +66,11 @@ echo "root: $ROOT"
 echo "logs: $LOG_DIR"
 echo "android: $ANDROID_SERIAL"
 echo "circuit mode: $VEIL_CIRCUIT_MODE"
+echo "debug hook: $ENABLE_DEBUG_HOOK"
+if [[ "$ENABLE_DEBUG_HOOK" == "1" ]]; then
+  echo "desktop hook: http://127.0.0.1:$DESKTOP_HOOK_PORT"
+  echo "android hook: http://127.0.0.1:$ANDROID_HOST_HOOK_PORT -> device:$ANDROID_HOOK_PORT"
+fi
 
 if [[ "$KILL_OLD" == "1" ]]; then
   adb -s "$ANDROID_SERIAL" shell am force-stop "$APP_ID" >/dev/null 2>&1 || true
@@ -72,22 +82,39 @@ fi
 adb -s "$ANDROID_SERIAL" shell setprop debug.veil.onion_stream_circuit "$VEIL_CIRCUIT_MODE"
 adb -s "$ANDROID_SERIAL" shell svc power stayon true >/dev/null 2>&1 || true
 adb -s "$ANDROID_SERIAL" logcat -c || true
+if [[ "$ENABLE_DEBUG_HOOK" == "1" ]]; then
+  adb -s "$ANDROID_SERIAL" forward \
+    "tcp:$ANDROID_HOST_HOOK_PORT" "tcp:$ANDROID_HOOK_PORT" >/dev/null
+fi
 
 adb -s "$ANDROID_SERIAL" logcat -v time >"$LOG_DIR/android-logcat.log" 2>&1 &
 pids+=("$!")
+
+desktop_defines=()
+android_defines=()
+if [[ "$ENABLE_DEBUG_HOOK" == "1" ]]; then
+  desktop_defines+=(
+    "--dart-define=XVEIL_DEBUG_HOOK=true"
+    "--dart-define=XVEIL_DEBUG_HOOK_PORT=$DESKTOP_HOOK_PORT"
+  )
+  android_defines+=(
+    "--dart-define=XVEIL_DEBUG_HOOK=true"
+    "--dart-define=XVEIL_DEBUG_HOOK_PORT=$ANDROID_HOOK_PORT"
+  )
+fi
 
 (
   cd "$ROOT"
   VEIL_FFI_DYLIB="$DESKTOP_DYLIB" \
     XVEIL_HV_DYLIB="$HV_DYLIB" \
     VEIL_ONION_STREAM_CIRCUIT="$VEIL_CIRCUIT_MODE" \
-    flutter run --no-pub -d macos --debug
+    flutter run --no-pub -d macos --debug "${desktop_defines[@]}"
 ) >"$LOG_DIR/desktop-flutter.log" 2>&1 &
 pids+=("$!")
 
 (
   cd "$ROOT"
-  flutter run --no-pub -d "$ANDROID_SERIAL" --debug
+  flutter run --no-pub -d "$ANDROID_SERIAL" --debug "${android_defines[@]}"
 ) >"$LOG_DIR/android-flutter.log" 2>&1 &
 pids+=("$!")
 
@@ -99,6 +126,22 @@ for _ in $(seq 1 90); do
   fi
   sleep 1
 done
+
+if [[ "$ENABLE_DEBUG_HOOK" == "1" ]] && command -v curl >/dev/null 2>&1; then
+  echo "waiting for debug hooks..."
+  for _ in $(seq 1 90); do
+    desktop_ok=0
+    android_ok=0
+    curl -fsS "http://127.0.0.1:$DESKTOP_HOOK_PORT/health" \
+      >"$LOG_DIR/desktop-hook-health.json" 2>/dev/null && desktop_ok=1 || true
+    curl -fsS "http://127.0.0.1:$ANDROID_HOST_HOOK_PORT/health" \
+      >"$LOG_DIR/android-hook-health.json" 2>/dev/null && android_ok=1 || true
+    if [[ "$desktop_ok" == "1" && "$android_ok" == "1" ]]; then
+      break
+    fi
+    sleep 1
+  done
+fi
 
 if [[ -n "$SOAK_TRIGGER_CMD" ]]; then
   echo "running SOAK_TRIGGER_CMD"
