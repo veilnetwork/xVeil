@@ -114,18 +114,29 @@ void main() {
       final sB = HiddenVolumeStorage(_memOpener());
       await sA.open(password: 'a', createIfMissing: true);
       await sB.open(password: 'b', createIfMissing: true);
+      final streamRangeParallelism = xveilConfiguredStreamRangeParallelism();
+      final streamRangeTargetBytes = xveilConfiguredStreamRangeTargetBytes();
+      stderr.writeln(
+        '[onion-file-live] streamRangeParallelism='
+        '${streamRangeParallelism ?? 'default'} '
+        'streamRangeTargetBytes=${streamRangeTargetBytes ?? 'default'}',
+      );
 
       final mA = MessagingService(
         tA,
         sA,
         anonymous: true,
         contentPacing: Duration.zero,
+        streamRangeParallelism: streamRangeParallelism,
+        streamRangeTargetBytes: streamRangeTargetBytes,
       );
       final mB = MessagingService(
         tB,
         sB,
         anonymous: true,
         contentPacing: Duration.zero,
+        streamRangeParallelism: streamRangeParallelism,
+        streamRangeTargetBytes: streamRangeTargetBytes,
       );
       StreamSubscription<({String contentId, int done, int total})>?
       progressSub;
