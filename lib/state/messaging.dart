@@ -3575,13 +3575,51 @@ class MessagingService {
     final sources = await _acceptedStreamSources(peers);
     if (sources.isEmpty) return false;
 
-    final workerCount = manifest.pieceCount < _streamRangeParallelism
-        ? manifest.pieceCount
+    final pending = <int>[];
+    final completed = <int>{};
+    var completedBytes = 0;
+    for (var i = 0; i < manifest.pieceCount; i++) {
+      final len = manifest.pieceLength(i);
+      final existing = await _storage.readFileRange(
+        cid,
+        i * manifest.pieceSize,
+        len,
+      );
+      if (existing != null &&
+          existing.length == len &&
+          manifest.verifyPiece(i, existing)) {
+        completed.add(i);
+        completedBytes += len;
+      } else {
+        pending.add(i);
+      }
+    }
+
+    if (!_contentProgress.isClosed && completedBytes > 0) {
+      _contentProgress.add((
+        contentId: cid,
+        done: completedBytes.clamp(0, manifest.size).toInt(),
+        total: manifest.size,
+      ));
+    }
+    if (pending.isEmpty) {
+      if (!await _storage.hasFile(cid)) return false;
+      await _finishReceived(sources.first, manifest, null, null);
+      if (!_contentProgress.isClosed) {
+        _contentProgress.add((
+          contentId: cid,
+          done: manifest.size,
+          total: manifest.size,
+        ));
+      }
+      return true;
+    }
+
+    final workerCount = pending.length < _streamRangeParallelism
+        ? pending.length
         : _streamRangeParallelism;
-    final pending = <int>[for (var i = 0; i < manifest.pieceCount; i++) i];
     final attempts = List<int>.filled(manifest.pieceCount, 0);
     final maxAttemptsPerPiece = sources.length * 2 < 3 ? 3 : sources.length * 2;
-    var completedPieces = 0;
     var failed = false;
     NodeId? completionPeer;
     ContentManifest? completionManifest;
@@ -3623,16 +3661,12 @@ class MessagingService {
         }
         completionPeer = pulled.peer;
         completionManifest = pulled.manifest;
-        completedPieces++;
+        if (!completed.add(piece)) continue;
+        completedBytes += manifest.pieceLength(piece);
         if (!_contentProgress.isClosed) {
-          final done =
-              ((completedPieces * manifest.pieceSize) < manifest.size
-                      ? completedPieces * manifest.pieceSize
-                      : manifest.size)
-                  .toInt();
           _contentProgress.add((
             contentId: cid,
-            done: done,
+            done: completedBytes.clamp(0, manifest.size).toInt(),
             total: manifest.size,
           ));
         }
@@ -3643,16 +3677,16 @@ class MessagingService {
       () =>
           'xVeil[content]: swarm-range start ${cid.substring(0, 12)} '
           'pieces=${manifest.pieceCount} workers=$workerCount '
-          'sources=${sources.length}',
+          'sources=${sources.length} resume=${completed.length}',
     );
     await Future.wait<void>([for (var i = 0; i < workerCount; i++) worker(i)]);
     if (failed ||
-        completedPieces < manifest.pieceCount ||
+        completed.length < manifest.pieceCount ||
         !await _storage.hasFile(cid)) {
       devLog(
         () =>
             'xVeil[content]: swarm-range incomplete '
-            '${cid.substring(0, 12)} completed=$completedPieces/'
+            '${cid.substring(0, 12)} completed=${completed.length}/'
             '${manifest.pieceCount} failed=$failed',
       );
       return false;
