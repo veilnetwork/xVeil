@@ -3008,7 +3008,9 @@ class MessagingService {
   static const Duration _streamRequestTimeout = Duration(seconds: 20);
   static const Duration _streamManifestTimeout = Duration(seconds: 25);
   static const Duration _streamSourceReadTimeout = Duration(seconds: 30);
-  static const Duration _defaultStreamPayloadIdleTimeout = Duration(seconds: 60);
+  static const Duration _defaultStreamPayloadIdleTimeout = Duration(
+    seconds: 60,
+  );
   static const Duration _streamPayloadWriteTimeout = Duration(seconds: 120);
   static const int _streamServeMaxParallelPerContent = 3;
   static const int _defaultStreamPullMaxAttempts = 24;
