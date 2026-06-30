@@ -3386,7 +3386,7 @@ class MessagingService {
   );
   static const Duration _streamRangePayloadIdleTimeout = Duration(seconds: 12);
   static const Duration _streamPayloadWriteTimeout = Duration(seconds: 120);
-  static const int _defaultStreamRangeParallelism = 6;
+  static const int _defaultStreamRangeParallelism = 1;
   static const int _maxStreamRangeParallelism = 12;
   static const int _defaultStreamRangeTargetBytes = 1024 * 1024;
   static const int _maxStreamRangeTargetBytes = 8 * 1024 * 1024;

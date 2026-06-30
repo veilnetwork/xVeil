@@ -320,7 +320,15 @@ void main() {
   test(
     'STREAM range pull coalesces adjacent pieces into wider streams',
     () async {
+      await mA.dispose();
       await mB.dispose();
+      mA = MessagingService(
+        tA,
+        sA,
+        contentPacing: Duration.zero,
+        streamRangeParallelism: 6,
+        streamRangeTargetBytes: ContentManifest.defaultPieceSize * 4,
+      )..start();
       mB = MessagingService(
         tB,
         sB,
@@ -364,11 +372,20 @@ void main() {
   test(
     'STREAM range pull fills a slow per-stream channel in parallel',
     () async {
+      await mA.dispose();
       await mB.dispose();
+      mA = MessagingService(
+        tA,
+        sA,
+        contentPacing: Duration.zero,
+        streamRangeParallelism: 3,
+        streamRangeTargetBytes: ContentManifest.defaultPieceSize,
+      )..start();
       mB = MessagingService(
         tB,
         sB,
         contentPacing: Duration.zero,
+        streamRangeParallelism: 3,
         streamRangeTargetBytes: ContentManifest.defaultPieceSize,
       )..start();
       final data = _rnd(720000, 37); // 3 pieces at the default 256 KiB.
