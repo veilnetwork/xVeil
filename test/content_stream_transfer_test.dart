@@ -472,13 +472,14 @@ void main() {
       final tC = _StreamLink(c);
       final sC = HiddenVolumeStorage(_mem());
       await sC.open(password: 'c', createIfMissing: true);
-      final mC = MessagingService(
+      MessagingService newReceiver() => MessagingService(
         tC,
         sC,
         contentPacing: Duration.zero,
         streamPayloadIdleTimeout: const Duration(milliseconds: 120),
         streamPullMaxAttempts: 2,
       )..start();
+      var mC = newReceiver();
       addTearDown(() async {
         await mC.dispose();
         await sC.close();
@@ -524,6 +525,15 @@ void main() {
       }, close: () async {});
       bServeOffsets.clear(); // ignore manifest hashing reads.
       await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      // Simulate an app/service restart after receiving the offers: the
+      // in-memory _offered source set is gone, so C must rediscover candidate
+      // holders from persisted incoming file-offer messages.
+      await mC.dispose();
+      mC = newReceiver();
+      await mC.setFileDownloadPolicy(
+        mC.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
 
       // A's first stream sends enough for C to verify piece 0, then blackholes.
       // C must retry B with a resume offset instead of restarting at byte 0.
