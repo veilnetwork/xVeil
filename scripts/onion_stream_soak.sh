@@ -13,6 +13,8 @@ set -euo pipefail
 #     phone<->desktop send/download through those hooks;
 #   - optionally runs SOAK_TRIGGER_CMD to send/download without UI clicks;
 #   - optionally monitors a destination file until it reaches EXPECT_SIZE;
+#   - optionally injects a real-device fault (custom command or Android Wi-Fi
+#     flap) while the transfer is running;
 #   - writes progress.csv + summary.{txt,json}, and can fail below a minimum
 #     average throughput with SOAK_MIN_BYTES_PER_SEC / SOAK_MIN_MIB_PER_SEC.
 #
@@ -48,6 +50,10 @@ SOAK_WAIT_READY_MS="${SOAK_WAIT_READY_MS:-120000}"
 SOAK_EXIT_AFTER_TRANSFER="${SOAK_EXIT_AFTER_TRANSFER:-$SOAK_AUTO_TRANSFER}"
 SOAK_MIN_BYTES_PER_SEC="${SOAK_MIN_BYTES_PER_SEC:-}"
 SOAK_MIN_MIB_PER_SEC="${SOAK_MIN_MIB_PER_SEC:-}"
+SOAK_FAULT_AFTER_SEC="${SOAK_FAULT_AFTER_SEC:-}"
+SOAK_FAULT_CMD="${SOAK_FAULT_CMD:-}"
+SOAK_ANDROID_WIFI_FLAP_AFTER_SEC="${SOAK_ANDROID_WIFI_FLAP_AFTER_SEC:-}"
+SOAK_ANDROID_WIFI_FLAP_DOWN_SEC="${SOAK_ANDROID_WIFI_FLAP_DOWN_SEC:-15}"
 
 mkdir -p "$LOG_DIR"
 
@@ -99,6 +105,15 @@ resolve_min_speed() {
   fi
   if [[ -n "$min_bytes_per_sec" && ! "$min_bytes_per_sec" =~ ^[0-9]+$ ]]; then
     echo "SOAK_MIN_BYTES_PER_SEC/SOAK_MIN_MIB_PER_SEC must resolve to an integer B/s." >&2
+    exit 2
+  fi
+}
+
+validate_nonnegative_int() {
+  local name="$1"
+  local value="$2"
+  if [[ -n "$value" && ! "$value" =~ ^[0-9]+$ ]]; then
+    echo "$name must be a non-negative integer." >&2
     exit 2
   fi
 }
@@ -204,6 +219,9 @@ if [[ -z "$ANDROID_SERIAL" ]]; then
 fi
 
 resolve_min_speed
+validate_nonnegative_int SOAK_FAULT_AFTER_SEC "$SOAK_FAULT_AFTER_SEC"
+validate_nonnegative_int SOAK_ANDROID_WIFI_FLAP_AFTER_SEC "$SOAK_ANDROID_WIFI_FLAP_AFTER_SEC"
+validate_nonnegative_int SOAK_ANDROID_WIFI_FLAP_DOWN_SEC "$SOAK_ANDROID_WIFI_FLAP_DOWN_SEC"
 prepare_auto_transfer
 
 pids=()
@@ -232,6 +250,9 @@ if [[ "$ENABLE_DEBUG_HOOK" == "1" ]]; then
 fi
 if [[ -n "$min_bytes_per_sec" ]]; then
   echo "minimum average throughput: $min_bytes_per_sec B/s"
+fi
+if [[ -n "$SOAK_FAULT_CMD" || -n "$SOAK_ANDROID_WIFI_FLAP_AFTER_SEC" ]]; then
+  echo "fault injection: enabled"
 fi
 
 if [[ "$KILL_OLD" == "1" ]]; then
@@ -347,6 +368,56 @@ elif [[ -n "$SOAK_TRIGGER_CMD" ]]; then
   pids+=("$trigger_pid")
 fi
 
+fault_pid=""
+fault_status_file="$LOG_DIR/fault.status"
+if [[ -n "$SOAK_FAULT_CMD" || -n "$SOAK_ANDROID_WIFI_FLAP_AFTER_SEC" ]]; then
+  fault_delay="$SOAK_FAULT_AFTER_SEC"
+  if [[ -z "$fault_delay" && -n "$SOAK_ANDROID_WIFI_FLAP_AFTER_SEC" ]]; then
+    fault_delay="$SOAK_ANDROID_WIFI_FLAP_AFTER_SEC"
+  fi
+  fault_delay="${fault_delay:-0}"
+  echo "scheduling fault injection after ${fault_delay}s"
+  (
+    set +e
+    sleep "$fault_delay"
+    if [[ -n "$SOAK_FAULT_CMD" ]]; then
+      echo "running SOAK_FAULT_CMD"
+      if cd "$ROOT"; then
+        bash -lc "$SOAK_FAULT_CMD"
+        status=$?
+      else
+        status=1
+      fi
+    else
+      echo "running Android Wi-Fi flap: down ${SOAK_ANDROID_WIFI_FLAP_DOWN_SEC}s"
+      adb -s "$ANDROID_SERIAL" shell svc wifi disable
+      off_status=$?
+      sleep "$SOAK_ANDROID_WIFI_FLAP_DOWN_SEC"
+      adb -s "$ANDROID_SERIAL" shell svc wifi enable
+      on_status=$?
+      if [[ "$off_status" == "0" && "$on_status" == "0" ]]; then
+        status=0
+      else
+        status=1
+      fi
+    fi
+    echo "$status" >"$fault_status_file"
+    exit "$status"
+  ) >"$LOG_DIR/fault.log" 2>&1 &
+  fault_pid="$!"
+  pids+=("$fault_pid")
+fi
+
+check_fault_status() {
+  if [[ -n "$fault_pid" && -f "$fault_status_file" ]]; then
+    fault_status="$(cat "$fault_status_file")"
+    if [[ "$fault_status" != "0" ]]; then
+      echo "fault injection failed with status $fault_status; see $LOG_DIR/fault.log" >&2
+      exit "$fault_status"
+    fi
+  fi
+}
+
 echo "monitoring; Ctrl-C to stop"
 echo "time,size,delta_bytes,bytes_per_sec,phone_pid,desktop_errors,android_errors" \
   >"$LOG_DIR/progress.csv"
@@ -413,11 +484,13 @@ while true; do
       break
     fi
   fi
+  check_fault_status
 
   last_size="$size"
   last_ts="$now"
   sleep "$MONITOR_INTERVAL"
 done
+check_fault_status
 
 if [[ -n "$trigger_pid" ]]; then
   trigger_wait_status=0
@@ -431,6 +504,7 @@ if [[ -n "$trigger_pid" ]]; then
     exit "$trigger_status"
   fi
 fi
+check_fault_status
 
 summary_ts="$(date +%s)"
 wall_elapsed_sec=$((summary_ts - monitor_start_ts))
@@ -466,9 +540,12 @@ wall_avg_mib_s="$(
   if [[ -n "$min_bytes_per_sec" ]]; then
     echo "min_bytes_per_sec=$min_bytes_per_sec"
   fi
+  if [[ -n "$fault_pid" ]]; then
+    echo "fault_injection=enabled"
+  fi
 } | tee "$LOG_DIR/summary.txt"
 cat >"$LOG_DIR/summary.json" <<JSON
-{"final_size_bytes":$final_size,"wall_elapsed_sec":$wall_elapsed_sec,"active_elapsed_sec":$active_elapsed_sec,"avg_bytes_per_sec":$avg_bps,"avg_mib_per_sec":$avg_mib_s,"wall_avg_bytes_per_sec":$wall_avg_bps,"wall_avg_mib_per_sec":$wall_avg_mib_s,"expected_size_bytes":${EXPECT_SIZE:-null},"min_bytes_per_sec":${min_bytes_per_sec:-null}}
+{"final_size_bytes":$final_size,"wall_elapsed_sec":$wall_elapsed_sec,"active_elapsed_sec":$active_elapsed_sec,"avg_bytes_per_sec":$avg_bps,"avg_mib_per_sec":$avg_mib_s,"wall_avg_bytes_per_sec":$wall_avg_bps,"wall_avg_mib_per_sec":$wall_avg_mib_s,"expected_size_bytes":${EXPECT_SIZE:-null},"min_bytes_per_sec":${min_bytes_per_sec:-null},"fault_injection":$([[ -n "$fault_pid" ]] && echo true || echo false)}
 JSON
 
 if [[ -n "$min_bytes_per_sec" && "$avg_bps" -lt "$min_bytes_per_sec" ]]; then
