@@ -192,11 +192,15 @@ class MessagingService {
     this._contentPacing = const Duration(milliseconds: 20),
     Duration? streamPayloadIdleTimeout,
     int? streamPullMaxAttempts,
+    int streamRangeParallelism = _defaultStreamRangeParallelism,
   }) : _now = now ?? DateTime.now,
        _streamPayloadIdleTimeout =
            streamPayloadIdleTimeout ?? _defaultStreamPayloadIdleTimeout,
        _streamPullMaxAttempts =
-           streamPullMaxAttempts ?? _defaultStreamPullMaxAttempts;
+           streamPullMaxAttempts ?? _defaultStreamPullMaxAttempts,
+       _streamRangeParallelism = _clampStreamRangeParallelism(
+         streamRangeParallelism,
+       );
 
   /// Wall-clock source, injectable so stale-transfer eviction is testable
   /// without real delays. Defaults to [DateTime.now].
@@ -3186,11 +3190,19 @@ class MessagingService {
     seconds: 60,
   );
   static const Duration _streamPayloadWriteTimeout = Duration(seconds: 120);
-  static const int _streamServeMaxParallelPerContent = 3;
+  static const int _defaultStreamRangeParallelism = 6;
+  static const int _maxStreamRangeParallelism = 12;
   static const int _defaultStreamPullMaxAttempts = 24;
   final Duration _streamPayloadIdleTimeout;
   final int _streamPullMaxAttempts;
+  final int _streamRangeParallelism;
   bool _acceptingStreams = false;
+
+  static int _clampStreamRangeParallelism(int value) {
+    if (value < 1) return 1;
+    if (value > _maxStreamRangeParallelism) return _maxStreamRangeParallelism;
+    return value;
+  }
 
   Uint8List _streamRequest(String cid, {int offset = 0, int length = 0}) =>
       Uint8List(_streamRequestBytes)
@@ -3200,7 +3212,7 @@ class MessagingService {
 
   bool _beginStreamServe(String cid) {
     final active = _activeStreamServes[cid] ?? 0;
-    if (active >= _streamServeMaxParallelPerContent) return false;
+    if (active >= _streamRangeParallelism) return false;
     _activeStreamServes[cid] = active + 1;
     return true;
   }
@@ -3554,9 +3566,9 @@ class MessagingService {
     final sources = await _acceptedStreamSources(peers);
     if (sources.isEmpty) return false;
 
-    final workerCount = manifest.pieceCount < _streamServeMaxParallelPerContent
+    final workerCount = manifest.pieceCount < _streamRangeParallelism
         ? manifest.pieceCount
-        : _streamServeMaxParallelPerContent;
+        : _streamRangeParallelism;
     final pending = <int>[for (var i = 0; i < manifest.pieceCount; i++) i];
     final attempts = List<int>.filled(manifest.pieceCount, 0);
     final maxAttemptsPerPiece = sources.length * 2 < 3 ? 3 : sources.length * 2;

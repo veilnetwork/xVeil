@@ -136,6 +136,46 @@ class _CloseOnWriteStream implements ReliableStream {
   }
 }
 
+class _GateWriteStream implements ReliableStream {
+  _GateWriteStream(
+    this._inner, {
+    required this.chunkBytes,
+    required this.onBlocked,
+  });
+
+  final ReliableStream _inner;
+  final int chunkBytes;
+  final void Function(_GateWriteStream stream) onBlocked;
+  final Completer<void> _release = Completer<void>();
+  bool _blocked = false;
+
+  void release() {
+    if (!_release.isCompleted) _release.complete();
+  }
+
+  @override
+  Future<void> write(Uint8List data) async {
+    var off = 0;
+    while (off < data.length) {
+      final end = min(off + chunkBytes, data.length);
+      await _inner.write(Uint8List.sublistView(data, off, end));
+      if (!_blocked) {
+        _blocked = true;
+        onBlocked(this);
+        await _release.future;
+      }
+      off = end;
+    }
+  }
+
+  @override
+  Future<Uint8List> read({int maxBytes = 65536}) =>
+      _inner.read(maxBytes: maxBytes);
+
+  @override
+  Future<void> close() => _inner.close();
+}
+
 /// Datagram + reliable-stream loopback link between two peers.
 class _StreamLink implements VeilTransport, StreamTransport {
   _StreamLink(this._me);
@@ -272,6 +312,109 @@ void main() {
         greaterThanOrEqualTo(2),
         reason:
             'multi-piece stream downloads should pull piece ranges in parallel',
+      );
+    },
+  );
+
+  test(
+    'STREAM range pull fills a slow per-stream channel in parallel',
+    () async {
+      final data = _rnd(720000, 37); // 3 pieces at the default 256 KiB.
+      final cid = ContentManifest.fromBytes('slow-range.bin', data).contentId;
+      await mB.setFileDownloadPolicy(
+        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+      await mA.sendFileStreaming(
+        b,
+        'slow-range.bin',
+        data.length,
+        (o, l) async => Uint8List.sublistView(data, o, o + l),
+        close: () async {},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      final gated = <_GateWriteStream>[];
+      final allBlocked = Completer<void>();
+      for (var i = 0; i < 3; i++) {
+        tA.acceptStreamWrappers.add(
+          (stream) => _GateWriteStream(
+            stream,
+            chunkBytes: 16 * 1024,
+            onBlocked: (gate) {
+              gated.add(gate);
+              if (gated.length >= 3 && !allBlocked.isCompleted) {
+                allBlocked.complete();
+              }
+            },
+          ),
+        );
+      }
+
+      final got = mB.contentReceived.firstWhere((e) => e.contentId == cid);
+      expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+      await allBlocked.future.timeout(
+        const Duration(seconds: 2),
+        onTimeout: () => throw TimeoutException(
+          'range pull did not start three gated streams in parallel',
+        ),
+      );
+      expect(
+        tB.openedStreamCount,
+        greaterThanOrEqualTo(3),
+        reason:
+            'piece-range workers should all open before any gated stream drains',
+      );
+      for (final gate in gated) {
+        gate.release();
+      }
+      await got.timeout(const Duration(seconds: 20));
+
+      expect(await sB.loadFile(cid), data);
+    },
+  );
+
+  test(
+    'STREAM range pull opens enough parallel piece streams for large files',
+    () async {
+      await mA.dispose();
+      await mB.dispose();
+      mA = MessagingService(
+        tA,
+        sA,
+        contentPacing: Duration.zero,
+        streamRangeParallelism: 6,
+      )..start();
+      mB = MessagingService(
+        tB,
+        sB,
+        contentPacing: Duration.zero,
+        streamRangeParallelism: 6,
+      )..start();
+
+      final size = ContentManifest.defaultPieceSize * 6 + 1;
+      final data = _rnd(size, 71);
+      final cid = ContentManifest.fromBytes('parallel.bin', data).contentId;
+      await mB.setFileDownloadPolicy(
+        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+      await mA.sendFileStreaming(
+        b,
+        'parallel.bin',
+        data.length,
+        (o, l) async => Uint8List.sublistView(data, o, o + l),
+        close: () async {},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      final got = mB.contentReceived.firstWhere((e) => e.contentId == cid);
+      expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+      await got.timeout(const Duration(seconds: 20));
+      expect(await sB.loadFile(cid), data);
+      expect(
+        tB.openedStreamCount,
+        greaterThanOrEqualTo(6),
+        reason:
+            'large range downloads should fan out beyond the old 3-stream cap',
       );
     },
   );
