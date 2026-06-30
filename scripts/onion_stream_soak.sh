@@ -12,7 +12,9 @@ set -euo pipefail
 #   - with SOAK_AUTO_TRANSFER=1, creates a test payload and drives a full
 #     phone<->desktop send/download through those hooks;
 #   - optionally runs SOAK_TRIGGER_CMD to send/download without UI clicks;
-#   - optionally monitors a destination file until it reaches EXPECT_SIZE.
+#   - optionally monitors a destination file until it reaches EXPECT_SIZE;
+#   - writes progress.csv + summary.{txt,json}, and can fail below a minimum
+#     average throughput with SOAK_MIN_BYTES_PER_SEC / SOAK_MIN_MIB_PER_SEC.
 #
 # What it deliberately does NOT fake:
 #   - unlocking the deniable space. Start from an unlocked/ready app, or unlock
@@ -44,6 +46,8 @@ SOAK_SOURCE_LOCAL="${SOAK_SOURCE_LOCAL:-}"
 SOAK_GENERATE_SOURCE="${SOAK_GENERATE_SOURCE:-auto}" # auto|0|1
 SOAK_WAIT_READY_MS="${SOAK_WAIT_READY_MS:-120000}"
 SOAK_EXIT_AFTER_TRANSFER="${SOAK_EXIT_AFTER_TRANSFER:-$SOAK_AUTO_TRANSFER}"
+SOAK_MIN_BYTES_PER_SEC="${SOAK_MIN_BYTES_PER_SEC:-}"
+SOAK_MIN_MIB_PER_SEC="${SOAK_MIN_MIB_PER_SEC:-}"
 
 mkdir -p "$LOG_DIR"
 
@@ -84,6 +88,20 @@ auto_source_path=""
 auto_dest_path=""
 auto_sha256=""
 auto_expected_size=""
+min_bytes_per_sec=""
+
+resolve_min_speed() {
+  min_bytes_per_sec="$SOAK_MIN_BYTES_PER_SEC"
+  if [[ -z "$min_bytes_per_sec" && -n "$SOAK_MIN_MIB_PER_SEC" ]]; then
+    min_bytes_per_sec="$(
+      awk -v mib="$SOAK_MIN_MIB_PER_SEC" 'BEGIN { printf "%.0f", mib * 1024 * 1024 }'
+    )"
+  fi
+  if [[ -n "$min_bytes_per_sec" && ! "$min_bytes_per_sec" =~ ^[0-9]+$ ]]; then
+    echo "SOAK_MIN_BYTES_PER_SEC/SOAK_MIN_MIB_PER_SEC must resolve to an integer B/s." >&2
+    exit 2
+  fi
+}
 
 prepare_auto_transfer() {
   if [[ "$SOAK_AUTO_TRANSFER" != "1" ]]; then
@@ -185,6 +203,7 @@ if [[ -z "$ANDROID_SERIAL" ]]; then
   exit 2
 fi
 
+resolve_min_speed
 prepare_auto_transfer
 
 pids=()
@@ -210,6 +229,9 @@ echo "debug hook: $ENABLE_DEBUG_HOOK"
 if [[ "$ENABLE_DEBUG_HOOK" == "1" ]]; then
   echo "desktop hook: http://127.0.0.1:$DESKTOP_HOOK_PORT"
   echo "android hook: http://127.0.0.1:$ANDROID_HOST_HOOK_PORT -> device:$ANDROID_HOOK_PORT"
+fi
+if [[ -n "$min_bytes_per_sec" ]]; then
+  echo "minimum average throughput: $min_bytes_per_sec B/s"
 fi
 
 if [[ "$KILL_OLD" == "1" ]]; then
@@ -331,6 +353,8 @@ echo "time,size,delta_bytes,bytes_per_sec,phone_pid,desktop_errors,android_error
 
 last_size=0
 last_ts="$(date +%s)"
+monitor_start_ts="$last_ts"
+final_size=0
 while true; do
   now="$(date +%s)"
   size=0
@@ -362,6 +386,7 @@ while true; do
   )"
   echo "$(date '+%H:%M:%S'),$size,$delta,$bps,${phone_pid:-missing},$desktop_errors,$android_errors" \
     | tee -a "$LOG_DIR/progress.csv"
+  final_size="$size"
 
   if [[ -n "$EXPECT_SIZE" && "$size" -ge "$EXPECT_SIZE" ]]; then
     echo "expected size reached: $size >= $EXPECT_SIZE"
@@ -395,4 +420,34 @@ if [[ -n "$trigger_pid" ]]; then
     echo "trigger failed with status $trigger_status; see $LOG_DIR" >&2
     exit "$trigger_status"
   fi
+fi
+
+summary_ts="$(date +%s)"
+elapsed_sec=$((summary_ts - monitor_start_ts))
+if (( elapsed_sec < 1 )); then
+  elapsed_sec=1
+fi
+avg_bps=$((final_size / elapsed_sec))
+avg_mib_s="$(
+  awk -v bps="$avg_bps" 'BEGIN { printf "%.3f", bps / 1024 / 1024 }'
+)"
+{
+  echo "final_size_bytes=$final_size"
+  echo "elapsed_sec=$elapsed_sec"
+  echo "avg_bytes_per_sec=$avg_bps"
+  echo "avg_mib_per_sec=$avg_mib_s"
+  if [[ -n "$EXPECT_SIZE" ]]; then
+    echo "expected_size_bytes=$EXPECT_SIZE"
+  fi
+  if [[ -n "$min_bytes_per_sec" ]]; then
+    echo "min_bytes_per_sec=$min_bytes_per_sec"
+  fi
+} | tee "$LOG_DIR/summary.txt"
+cat >"$LOG_DIR/summary.json" <<JSON
+{"final_size_bytes":$final_size,"elapsed_sec":$elapsed_sec,"avg_bytes_per_sec":$avg_bps,"avg_mib_per_sec":$avg_mib_s,"expected_size_bytes":${EXPECT_SIZE:-null},"min_bytes_per_sec":${min_bytes_per_sec:-null}}
+JSON
+
+if [[ -n "$min_bytes_per_sec" && "$avg_bps" -lt "$min_bytes_per_sec" ]]; then
+  echo "average throughput below minimum: $avg_bps < $min_bytes_per_sec B/s" >&2
+  exit 1
 fi
