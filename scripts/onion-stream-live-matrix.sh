@@ -13,6 +13,7 @@ set -euo pipefail
 #      byte mode: XVEIL_BYTE_STREAMS:XVEIL_BYTE_STREAM_CHUNK_BYTES.
 #   ONION_STREAM_MATRIX_FILE_SIZE=16777216
 #   ONION_STREAM_MATRIX_LIVE_TEST=file|byte
+#   ONION_STREAM_MATRIX_NODE_MODE=external|embedded-endpoints
 #   ONION_STREAM_MATRIX_MIN_MIB_PER_SEC=      optional floor passed to live test
 #   ONION_STREAM_MATRIX_OUT=.dev-onion-stream-matrix
 #   ONION_STREAM_MATRIX_RUN_ID=<timestamp-pid>  output subdirectory name
@@ -36,6 +37,7 @@ CONTINUE_ON_FAIL="${ONION_STREAM_MATRIX_CONTINUE_ON_FAIL:-1}"
 BUILD="${ONION_STREAM_MATRIX_BUILD:-0}"
 RUST_LOG="${ONION_STREAM_MATRIX_RUST_LOG:-info}"
 LIVE_TEST="${ONION_STREAM_MATRIX_LIVE_TEST:-file}"
+NODE_MODE="${ONION_STREAM_MATRIX_NODE_MODE:-external}"
 
 if [[ -z "$CASES" ]]; then
   echo "ONION_STREAM_MATRIX_CASES must not be empty." >&2
@@ -53,6 +55,19 @@ case "$LIVE_TEST" in
   file|byte) ;;
   *)
     echo "ONION_STREAM_MATRIX_LIVE_TEST must be 'file' or 'byte'." >&2
+    exit 2
+    ;;
+esac
+case "$NODE_MODE" in
+  external) ;;
+  embedded-endpoints)
+    if [[ "$LIVE_TEST" != "byte" ]]; then
+      echo "ONION_STREAM_MATRIX_NODE_MODE=embedded-endpoints currently requires ONION_STREAM_MATRIX_LIVE_TEST=byte." >&2
+      exit 2
+    fi
+    ;;
+  *)
+    echo "ONION_STREAM_MATRIX_NODE_MODE must be 'external' or 'embedded-endpoints'." >&2
     exit 2
     ;;
 esac
@@ -77,13 +92,14 @@ for spec in $CASES; do
   label="case-${case_no}-p${parallelism}-t${target_bytes}"
   log="$OUT/$label.log"
   live_nodes="$LIVE_NODES_ROOT/$label"
-  echo "==> $label test=$LIVE_TEST file_size=$FILE_SIZE"
+  echo "==> $label mode=$NODE_MODE test=$LIVE_TEST file_size=$FILE_SIZE"
 
   live_env=(
     "ONION_STREAM_LIVE_DART_DEFINES="
     "ONION_STREAM_LIVE_BUILD=$BUILD"
     "ONION_STREAM_LIVE_FORCE_CLEAN=1"
     "ONION_STREAM_LIVE_NODES=$live_nodes"
+    "ONION_STREAM_LIVE_NODE_MODE=$NODE_MODE"
     "ONION_STREAM_LIVE_RUN_TEST=1"
     "ONION_STREAM_LIVE_RUST_LOG=$RUST_LOG"
     "ONION_STREAM_LIVE_TEST=$LIVE_TEST"
