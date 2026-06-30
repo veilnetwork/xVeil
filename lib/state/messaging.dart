@@ -33,10 +33,19 @@ const _streamRangeParallelismDartDefine = int.fromEnvironment(
   'XVEIL_STREAM_RANGE_PARALLELISM',
   defaultValue: 0,
 );
+const _streamRangeTargetBytesDartDefine = int.fromEnvironment(
+  'XVEIL_STREAM_RANGE_TARGET_BYTES',
+  defaultValue: 0,
+);
 
 int? xveilConfiguredStreamRangeParallelism() =>
     _streamRangeParallelismDartDefine > 0
     ? _streamRangeParallelismDartDefine
+    : null;
+
+int? xveilConfiguredStreamRangeTargetBytes() =>
+    _streamRangeTargetBytesDartDefine > 0
+    ? _streamRangeTargetBytesDartDefine
     : null;
 
 /// Raw bytes per wire chunk. The anonymous authenticated send (the live path,
@@ -202,6 +211,7 @@ class MessagingService {
     Duration? streamPayloadIdleTimeout,
     int? streamPullMaxAttempts,
     int? streamRangeParallelism,
+    int? streamRangeTargetBytes,
   }) : _now = now ?? DateTime.now,
        _streamPayloadIdleTimeout =
            streamPayloadIdleTimeout ?? _defaultStreamPayloadIdleTimeout,
@@ -209,6 +219,9 @@ class MessagingService {
            streamPullMaxAttempts ?? _defaultStreamPullMaxAttempts,
        _streamRangeParallelism = _clampStreamRangeParallelism(
          streamRangeParallelism ?? _defaultStreamRangeParallelism,
+       ),
+       _streamRangeTargetBytes = _clampStreamRangeTargetBytes(
+         streamRangeTargetBytes ?? _defaultStreamRangeTargetBytes,
        );
 
   /// Wall-clock source, injectable so stale-transfer eviction is testable
@@ -3371,18 +3384,30 @@ class MessagingService {
   static const Duration _defaultStreamPayloadIdleTimeout = Duration(
     seconds: 60,
   );
+  static const Duration _streamRangePayloadIdleTimeout = Duration(seconds: 12);
   static const Duration _streamPayloadWriteTimeout = Duration(seconds: 120);
   static const int _defaultStreamRangeParallelism = 6;
   static const int _maxStreamRangeParallelism = 12;
+  static const int _defaultStreamRangeTargetBytes = 1024 * 1024;
+  static const int _maxStreamRangeTargetBytes = 8 * 1024 * 1024;
   static const int _defaultStreamPullMaxAttempts = 24;
   final Duration _streamPayloadIdleTimeout;
   final int _streamPullMaxAttempts;
   final int _streamRangeParallelism;
+  final int _streamRangeTargetBytes;
   bool _acceptingStreams = false;
 
   static int _clampStreamRangeParallelism(int value) {
     if (value < 1) return 1;
     if (value > _maxStreamRangeParallelism) return _maxStreamRangeParallelism;
+    return value;
+  }
+
+  static int _clampStreamRangeTargetBytes(int value) {
+    if (value < 1) return 1;
+    if (value > _maxStreamRangeTargetBytes) {
+      return _maxStreamRangeTargetBytes;
+    }
     return value;
   }
 
@@ -3957,48 +3982,89 @@ class MessagingService {
       return next;
     }
 
-    ({int piece, NodeId peer})? takePiece() {
+    ({List<int> pieces, NodeId peer})? takeRange() {
       if (failed || pending.isEmpty) return null;
-      final piece = pending.removeAt(0);
-      final attempt = attempts[piece];
       final sources = sourceList();
-      if (sources.isEmpty || attempt >= maxAttemptsPerPiece()) {
+      if (sources.isEmpty) {
         failed = true;
         return null;
       }
-      attempts[piece] = attempt + 1;
-      return (piece: piece, peer: sources[(piece + attempt) % sources.length]);
+      final first = pending.removeAt(0);
+      final firstAttempt = attempts[first];
+      if (firstAttempt >= maxAttemptsPerPiece()) {
+        failed = true;
+        return null;
+      }
+      final pieces = <int>[first];
+      var rangeBytes = manifest.pieceLength(first);
+      var nextPiece = first + 1;
+      while (nextPiece < manifest.pieceCount) {
+        final pendingIndex = pending.indexOf(nextPiece);
+        if (pendingIndex < 0) break;
+        final nextLen = manifest.pieceLength(nextPiece);
+        if (pieces.isNotEmpty &&
+            rangeBytes + nextLen > _streamRangeTargetBytes) {
+          break;
+        }
+        if (attempts[nextPiece] >= maxAttemptsPerPiece()) {
+          failed = true;
+          return null;
+        }
+        pending.removeAt(pendingIndex);
+        pieces.add(nextPiece);
+        rangeBytes += nextLen;
+        nextPiece++;
+      }
+      for (final piece in pieces) {
+        attempts[piece]++;
+      }
+      return (
+        pieces: List<int>.unmodifiable(pieces),
+        peer: sources[(first + firstAttempt) % sources.length],
+      );
     }
 
-    Future<void> requeue(int piece) async {
+    Future<void> requeueAll(List<int> pieces) async {
       await refreshSources();
-      if (attempts[piece] >= maxAttemptsPerPiece()) {
-        failed = true;
-      } else {
-        pending.add(piece);
+      for (final piece in pieces) {
+        if (attempts[piece] >= maxAttemptsPerPiece()) {
+          failed = true;
+          return;
+        }
+      }
+      for (final piece in pieces) {
+        if (!completed.contains(piece)) {
+          pending.add(piece);
+        }
       }
     }
 
     Future<void> worker(int index) async {
       while (!_disposed && !failed) {
-        final task = takePiece();
+        final task = takeRange();
         if (task == null) return;
-        final piece = task.piece;
         final pulled = await _pullPieceRangeToStorage(
           task.peer,
           manifest,
-          piece,
+          task.pieces,
           writePiece: writePiece,
         );
         if (pulled == null) {
-          await requeue(piece);
-          await Future<void>.delayed(_streamPullRetryDelay(attempts[piece]));
+          await requeueAll(task.pieces);
+          final nextDelayAttempt = task.pieces.fold<int>(
+            0,
+            (maxAttempt, piece) =>
+                attempts[piece] > maxAttempt ? attempts[piece] : maxAttempt,
+          );
+          await Future<void>.delayed(_streamPullRetryDelay(nextDelayAttempt));
           continue;
         }
         completionPeer = pulled.peer;
         completionManifest = pulled.manifest;
-        if (!completed.add(piece)) continue;
-        completedBytes += manifest.pieceLength(piece);
+        for (final piece in pulled.pieces) {
+          if (!completed.add(piece)) continue;
+          completedBytes += manifest.pieceLength(piece);
+        }
         if (!_contentProgress.isClosed) {
           _contentProgress.add((
             contentId: cid,
@@ -4013,6 +4079,7 @@ class MessagingService {
       () =>
           'xVeil[content]: swarm-range start ${cid.substring(0, 12)} '
           'pieces=${manifest.pieceCount} workers=$workerCount '
+          'target_bytes=$_streamRangeTargetBytes '
           'sources=${sourceMap.length} resume=${completed.length} '
           'attempts_per_piece=${maxAttemptsPerPiece()}',
     );
@@ -4046,20 +4113,28 @@ class MessagingService {
     return true;
   }
 
-  Future<({NodeId peer, ContentManifest manifest})?> _pullPieceRangeToStorage(
+  Future<({NodeId peer, ContentManifest manifest, List<int> pieces})?>
+  _pullPieceRangeToStorage(
     NodeId peer,
     ContentManifest expected,
-    int pieceIndex, {
+    List<int> pieceIndices, {
     required Future<void> Function(int pieceIndex, Uint8List piece) writePiece,
   }) async {
     final cid = expected.contentId;
-    final pieceLen = expected.pieceLength(pieceIndex);
-    final offset = pieceIndex * expected.pieceSize;
+    if (pieceIndices.isEmpty) return null;
+    final pieces = pieceIndices.toList(growable: false);
+    final firstPiece = pieces.first;
+    final lastPiece = pieces.last;
+    final offset = firstPiece * expected.pieceSize;
+    var rangeLen = 0;
+    for (final piece in pieces) {
+      rangeLen += expected.pieceLength(piece);
+    }
     final stream = await _openInitialPullStream(peer, cid);
     if (stream == null) return null;
     ReliableStream? current = stream;
     try {
-      final req = _streamRequest(cid, offset: offset, length: pieceLen);
+      final req = _streamRequest(cid, offset: offset, length: rangeLen);
       await current.write(req).timeout(_streamRequestTimeout);
       final lenB = await _readExactly(
         current,
@@ -4085,23 +4160,33 @@ class MessagingService {
           m.pieceCount != expected.pieceCount) {
         throw StateError('manifest does not bind requested piece range');
       }
-      final piece = await _readExactly(
+      final range = await _readRangePayload(
         current,
-        pieceLen,
-      ).timeout(_streamPayloadIdleTimeout, onTimeout: () => null);
-      if (piece == null || piece.length != pieceLen) {
-        throw StateError('piece $pieceIndex truncated');
+        rangeLen,
+        firstPiece,
+        lastPiece,
+      );
+      var cursor = 0;
+      final verifiedPieces = <({int index, Uint8List bytes})>[];
+      for (final pieceIndex in pieces) {
+        final pieceLen = expected.pieceLength(pieceIndex);
+        final piece = Uint8List.sublistView(range, cursor, cursor + pieceLen);
+        if (!expected.verifyPiece(pieceIndex, piece)) {
+          throw StateError('piece $pieceIndex failed verify');
+        }
+        verifiedPieces.add((index: pieceIndex, bytes: piece));
+        cursor += pieceLen;
       }
-      if (!expected.verifyPiece(pieceIndex, piece)) {
-        throw StateError('piece $pieceIndex failed verify');
+      for (final piece in verifiedPieces) {
+        await writePiece(piece.index, piece.bytes);
       }
-      await writePiece(pieceIndex, piece);
-      return (peer: peer, manifest: m);
+      return (peer: peer, manifest: m, pieces: pieces);
     } catch (e) {
       devLog(
         () =>
             'xVeil[content]: swarm-range piece failed '
-            '${cid.substring(0, 12)} p$pieceIndex <- ${peer.short}: $e',
+            '${cid.substring(0, 12)} p$firstPiece..$lastPiece '
+            '<- ${peer.short}: $e',
       );
       return null;
     } finally {
@@ -4109,6 +4194,42 @@ class MessagingService {
         await current.close();
       } catch (_) {}
     }
+  }
+
+  Future<Uint8List> _readRangePayload(
+    ReliableStream s,
+    int rangeLen,
+    int firstPiece,
+    int lastPiece,
+  ) async {
+    final idle = _streamPayloadIdleTimeout < _streamRangePayloadIdleTimeout
+        ? _streamPayloadIdleTimeout
+        : _streamRangePayloadIdleTimeout;
+    final out = BytesBuilder(copy: false);
+    var got = 0;
+    while (got < rangeLen) {
+      final remaining = rangeLen - got;
+      final maxBytes = remaining < _streamReadChunk
+          ? remaining
+          : _streamReadChunk;
+      final chunk = await s
+          .read(maxBytes: maxBytes)
+          .timeout(
+            idle,
+            onTimeout: () => throw TimeoutException(
+              'pieces $firstPiece..$lastPiece idle after $got/$rangeLen',
+              idle,
+            ),
+          );
+      if (chunk.isEmpty) {
+        throw StateError(
+          'pieces $firstPiece..$lastPiece EOF after $got/$rangeLen',
+        );
+      }
+      out.add(chunk);
+      got += chunk.length;
+    }
+    return out.takeBytes();
   }
 
   Future<ReliableStream?> _openInitialPullStream(
@@ -4852,13 +4973,15 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
     () =>
         'xVeil[messaging]: fallback service (no session pipeline) '
         'anonymous=$anonymous '
-        'streamRangeParallelism=${xveilConfiguredStreamRangeParallelism() ?? 'default'}',
+        'streamRangeParallelism=${xveilConfiguredStreamRangeParallelism() ?? 'default'} '
+        'streamRangeTargetBytes=${xveilConfiguredStreamRangeTargetBytes() ?? 'default'}',
   );
   final service = MessagingService(
     transport,
     storage,
     anonymous: anonymous,
     streamRangeParallelism: xveilConfiguredStreamRangeParallelism(),
+    streamRangeTargetBytes: xveilConfiguredStreamRangeTargetBytes(),
   );
   service.sourceOpener = veilSourceOpener; // DURABLE offers: re-open by path
   service.start();
