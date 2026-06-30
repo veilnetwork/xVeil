@@ -2708,7 +2708,7 @@ class MessagingService {
     }
     // Datagram fallback (transport has no streams — e.g. a loopback fake).
     if (offered == null) {
-      return _requestReoffer(peer, contentId, null);
+      return _requestReofferFromAny(retryPeers, contentId, null);
     }
     await _beginFetch(_offerPeer(offered, preferred: peer), offered.manifest);
     return ContentDownloadResult.started;
@@ -2886,7 +2886,7 @@ class MessagingService {
     // Datagram fallback.
     _fetchSavePath[contentId] = savedPath;
     if (offered == null) {
-      return _requestReoffer(peer, contentId, sink);
+      return _requestReofferFromAny(retryPeers, contentId, sink);
     }
     await _beginFetch(
       _offerPeer(offered, preferred: peer),
@@ -2999,16 +2999,10 @@ class MessagingService {
   final Map<String, Timer> _pendingTimers = {};
   static const _reofferTimeout = Duration(seconds: 20);
 
-  /// Ask [peer] to re-advertise [contentId] (we have the offer but not the live
-  /// manifest) and park the download until the manifest arrives. A timeout frees
-  /// a parked file sink (so a RandomAccessFile handle isn't leaked if the sender
-  /// can no longer serve — then the user must re-send).
-  ContentDownloadResult _requestReoffer(
-    NodeId peer,
-    String contentId,
-    _FetchSink? sink,
-  ) => _requestReofferFromAny([peer], contentId, sink);
-
+  /// Ask all known candidate holders to re-advertise [contentId] (we have an
+  /// offer message but not the live manifest) and park the download until one
+  /// manifest arrives. A timeout frees a parked file sink (so a RandomAccessFile
+  /// handle isn't leaked if nobody can serve — then the user must re-send).
   ContentDownloadResult _requestReofferFromAny(
     Iterable<NodeId> peers,
     String contentId,
