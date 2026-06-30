@@ -88,6 +88,7 @@ run_round() {
       scripts/onion-stream-device-soak.sh \
       scripts/onion-stream-hook-transfer.sh \
       scripts/onion-stream-local-live.sh \
+      scripts/onion-stream-live-matrix.sh \
       scripts/onion-stream-synthetic.sh \
       scripts/onion_stream_soak.sh
   )
