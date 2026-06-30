@@ -22,6 +22,9 @@ set -euo pipefail
 #                                      external starts A/B/M1/M2 as veil-cli;
 #                                      embedded-endpoints starts only M1/M2 as
 #                                      veil-cli and boots A/B inside Flutter
+#   ONION_STREAM_LIVE_NODE_CONFIG_LOG_LEVEL=info|warn|debug
+#                                      override [global].log_level in generated
+#                                      configs; embedded-endpoints defaults warn
 #   ONION_STREAM_LIVE_KEEP_NODES=0|1     leave nodes running after script exit
 #   ONION_STREAM_LIVE_CHECK_LOGS=1|0     fail if node logs contain known bad markers
 #   ONION_STREAM_LIVE_TEST_TIMEOUT=10m   flutter test timeout
@@ -54,6 +57,7 @@ FORCE_CLEAN="${ONION_STREAM_LIVE_FORCE_CLEAN:-0}"
 REUSE_IDENTITIES="${ONION_STREAM_LIVE_REUSE_IDENTITIES:-1}"
 MINT_DIFFICULTY="${VEIL_MINT_DIFFICULTY:-24}"
 LOG_LEVEL="${ONION_STREAM_LIVE_RUST_LOG:-info,veil_node_runtime=debug}"
+CONFIG_LOG_LEVEL="${ONION_STREAM_LIVE_NODE_CONFIG_LOG_LEVEL:-}"
 DART_DEFINES=()
 
 case "$(uname -s)" in
@@ -167,6 +171,11 @@ mk_node() {
   strip_local_runtime_blocks "$cfg"
   "$BIN" -c "$cfg" key info >/dev/null
   "$BIN" -c "$cfg" listen add "tcp://127.0.0.1:$port" >/dev/null 2>&1 || true
+  if [[ -n "$CONFIG_LOG_LEVEL" ]]; then
+    set_config_log_level "$cfg" "$CONFIG_LOG_LEVEL"
+  elif [[ "$NODE_MODE" == "embedded-endpoints" ]]; then
+    set_config_log_level "$cfg" warn
+  fi
   "$BIN" -c "$cfg" config set global.admin_socket "unix://$dir/config.sock" >/dev/null 2>&1 || true
   "$BIN" -c "$cfg" config set ipc.enabled true >/dev/null 2>&1 || true
   "$BIN" -c "$cfg" config set ipc.socket_uri "unix://$dir/app.sock" >/dev/null 2>&1 || true
@@ -318,6 +327,40 @@ strip_local_runtime_blocks() {
   mv "$tmp" "$cfg"
 }
 
+set_config_log_level() {
+  local cfg="$1"
+  local level="$2"
+  local tmp="$cfg.tmp"
+  awk -v level="$level" '
+    /^\[global\][[:space:]]*$/ {
+      print
+      in_global = 1
+      next
+    }
+    /^\[/ {
+      if (in_global && !done) {
+        print "log_level = \"" level "\""
+        done = 1
+      }
+      in_global = 0
+    }
+    in_global && /^log_level[[:space:]]*=/ {
+      if (!done) {
+        print "log_level = \"" level "\""
+        done = 1
+      }
+      next
+    }
+    { print }
+    END {
+      if (in_global && !done) {
+        print "log_level = \"" level "\""
+      }
+    }
+  ' "$cfg" >"$tmp"
+  mv "$tmp" "$cfg"
+}
+
 tail_node_logs() {
   for n in "${peers[@]}"; do
     echo "===== $n"
@@ -401,10 +444,15 @@ stop_existing_nodes() {
 }
 
 stop_existing_flutter_tests() {
+  local include_port_listeners="${1:-1}"
   local old_pids
   old_pids="$(
-    pgrep -f 'flutter_tools\.snapshot test .*onion_stream_(file|byte|embedded_byte)_live_test\.dart|flutter_tester.*flutter_test_listener' \
-      2>/dev/null || true
+    ps -axo pid=,command= |
+      awk '
+        $0 !~ /awk/ && /flutter_tools\.snapshot test/ && /onion_stream_.*_live_test\.dart/ { print $1; next }
+        $0 !~ /awk/ && /flutter_tester/ && /flutter_test_listener/ { print $1; next }
+      ' |
+      sort -u
   )"
   [[ -n "$old_pids" ]] || return 0
   echo "==> stopping stale onion-stream live Flutter tests"
@@ -418,6 +466,10 @@ stop_existing_flutter_tests() {
     kill -0 "$pid" 2>/dev/null || continue
     kill -9 "$pid" 2>/dev/null || true
   done <<<"$old_pids"
+
+  if [[ "$include_port_listeners" != "1" ]]; then
+    return 0
+  fi
 
   if command -v lsof >/dev/null 2>&1; then
     old_pids="$(lsof -tiTCP:9230-9233 -sTCP:LISTEN 2>/dev/null || true)"
