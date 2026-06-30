@@ -19,6 +19,7 @@ set -euo pipefail
 #   ONION_STREAM_LIVE_KEEP_NODES=0|1     leave nodes running after script exit
 #   ONION_STREAM_LIVE_CHECK_LOGS=1|0     fail if node logs contain known bad markers
 #   ONION_STREAM_LIVE_TEST_TIMEOUT=10m   flutter test timeout
+#   ONION_STREAM_LIVE_FORCE_CLEAN=0|1    replace a stale locked live harness
 #   ONION_STREAM_LIVE_REUSE_IDENTITIES=1 reuse mined local identities/configs
 #   ONION_STREAM_LIVE_SEED_DIR=.dev-mailbox-onion
 #                                      source identities for a/b/m1/m2
@@ -41,6 +42,7 @@ RUN_TEST="${ONION_STREAM_LIVE_RUN_TEST:-1}"
 KEEP_NODES="${ONION_STREAM_LIVE_KEEP_NODES:-0}"
 CHECK_LOGS="${ONION_STREAM_LIVE_CHECK_LOGS:-1}"
 TEST_TIMEOUT="${ONION_STREAM_LIVE_TEST_TIMEOUT:-10m}"
+FORCE_CLEAN="${ONION_STREAM_LIVE_FORCE_CLEAN:-0}"
 REUSE_IDENTITIES="${ONION_STREAM_LIVE_REUSE_IDENTITIES:-1}"
 MINT_DIFFICULTY="${VEIL_MINT_DIFFICULTY:-24}"
 LOG_LEVEL="${ONION_STREAM_LIVE_RUST_LOG:-info,veil_node_runtime=debug}"
@@ -226,6 +228,19 @@ acquire_live_lock() {
   local owner=""
   owner="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
   if [[ -n "$owner" ]] && kill -0 "$owner" 2>/dev/null; then
+    if [[ "$FORCE_CLEAN" == "1" ]]; then
+      echo "==> replacing locked onion-stream live harness pid $owner"
+      kill "$owner" 2>/dev/null || true
+      sleep 2
+      kill -9 "$owner" 2>/dev/null || true
+      stop_existing_flutter_tests
+      stop_existing_nodes
+      rm -rf "$LOCK_DIR"
+      mkdir "$LOCK_DIR"
+      lock_acquired=1
+      echo "$$" >"$LOCK_DIR/pid"
+      return 0
+    fi
     echo "another onion-stream live harness is already running (pid $owner)" >&2
     exit 2
   fi
