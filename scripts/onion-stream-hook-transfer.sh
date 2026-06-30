@@ -23,6 +23,7 @@ SOURCE_PATH="${SOURCE_PATH:-}"
 DEST_PATH="${DEST_PATH:-}"
 NAME="${NAME:-}"
 WAIT_READY_MS="${WAIT_READY_MS:-120000}"
+DOWNLOAD_TIMEOUT_MS="${DOWNLOAD_TIMEOUT_MS:-1800000}"
 EXPECT_SHA256="${EXPECT_SHA256:-}"
 
 if [[ -z "$SOURCE_PATH" || -z "$DEST_PATH" ]]; then
@@ -130,7 +131,7 @@ size="$(printf '%s' "$send_body" | json_get size)"
 echo "contentId: $cid"
 echo "advertised size: $size"
 
-download_url="$receiver_hook/download_file?peer=$(urlencode "$receiver_peer")&cid=$(urlencode "$cid")&path=$(urlencode "$DEST_PATH")"
+download_url="$receiver_hook/download_file?peer=$(urlencode "$receiver_peer")&cid=$(urlencode "$cid")&path=$(urlencode "$DEST_PATH")&timeout_ms=$DOWNLOAD_TIMEOUT_MS"
 echo "downloading to $DEST_PATH"
 download_body="$(get_json "$download_url")"
 require_ok "$download_body" "download_file"
