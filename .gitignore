@@ -58,6 +58,7 @@ ios/Runner.xcworkspace/xcshareddata/swiftpm/
 .dev-nodes/
 /.dev-onion/
 /.dev-onion-stream/
+/.dev-onion-stream-matrix/
 /.dev-mailbox/
 /.dev-mailbox-mesh/
 /.dev-mailbox-onion/
