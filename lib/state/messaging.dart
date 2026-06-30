@@ -161,7 +161,7 @@ enum ContentDownloadResult {
 /// (the file picker's RandomAccessFile) when serving ends. Held by
 /// [MessagingService._serving] and closed on eviction/dispose. The dart:io
 /// implementation lives in the UI layer so this stays transport-/io-free.
-typedef _ServeSource = ({
+typedef ServeSource = ({
   Future<Uint8List> Function(int offset, int length) read,
   Future<void> Function() close,
 });
@@ -188,13 +188,11 @@ class MessagingService {
     this._storage, {
     this._anonymous = false,
     DateTime Function()? now,
-    Duration contentReRequestInterval = const Duration(seconds: 20),
-    Duration contentPacing = const Duration(milliseconds: 20),
+    this._contentReRequestInterval = const Duration(seconds: 20),
+    this._contentPacing = const Duration(milliseconds: 20),
     Duration? streamPayloadIdleTimeout,
     int? streamPullMaxAttempts,
   }) : _now = now ?? DateTime.now,
-       _contentReRequestInterval = contentReRequestInterval,
-       _contentPacing = contentPacing,
        _streamPayloadIdleTimeout =
            streamPayloadIdleTimeout ?? _defaultStreamPayloadIdleTimeout,
        _streamPullMaxAttempts =
@@ -2015,7 +2013,7 @@ class MessagingService {
   /// stays; an idle one is evicted by [_evictServing], which closes its [source].
   final Map<
     String,
-    ({ContentManifest manifest, _ServeSource? source, DateTime servedAt})
+    ({ContentManifest manifest, ServeSource? source, DateTime servedAt})
   >
   _serving = {};
 
@@ -2043,7 +2041,7 @@ class MessagingService {
   /// for Android file_picker cache paths, where a second pick of the same file can
   /// invalidate the previous temporary handle.
   final Map<String, int> _activeStreamServes = {};
-  final Map<String, List<_ServeSource>> _retiredAfterStream = {};
+  final Map<String, List<ServeSource>> _retiredAfterStream = {};
 
   /// Cap on the number of concurrently-served manifests; the OLDEST are evicted
   /// first when over it. Manifests are small (piece hashes), but bound the count
@@ -2056,7 +2054,7 @@ class MessagingService {
   /// dart:io open lives in the data layer (the service stays io-free). Null ⇒
   /// durable re-serve is off (tests / not wired) — a stale offer then needs a
   /// re-send. Returns null if the path can't be opened (file moved / SAF expired).
-  Future<_ServeSource?> Function(String path)? sourceOpener;
+  Future<ServeSource?> Function(String path)? sourceOpener;
 
   /// Content we are FETCHING: the verified manifest + the reassembler + the peer,
   /// plus an optional [_FetchSink] when the user chose to download UNENCRYPTED to
@@ -2246,7 +2244,7 @@ class MessagingService {
   Future<void> _advertiseStored(
     NodeId dst,
     ContentManifest manifest, {
-    _ServeSource? source,
+    ServeSource? source,
   }) async {
     final cid = manifest.contentId;
     final prev = _serving[cid];
@@ -2273,11 +2271,11 @@ class MessagingService {
     );
   }
 
-  bool _sameServeSource(_ServeSource a, _ServeSource b) =>
+  bool _sameServeSource(ServeSource a, ServeSource b) =>
       identical(a, b) ||
       (identical(a.read, b.read) && identical(a.close, b.close));
 
-  void _retireServeSourceForContent(String cid, _ServeSource source) {
+  void _retireServeSourceForContent(String cid, ServeSource source) {
     if ((_activeStreamServes[cid] ?? 0) > 0) {
       (_retiredAfterStream[cid] ??= []).add(source);
       return;
@@ -2285,7 +2283,7 @@ class MessagingService {
     _retireServeSourceLater(source);
   }
 
-  void _retireServeSourceLater(_ServeSource source) {
+  void _retireServeSourceLater(ServeSource source) {
     Timer(_serveSourceRetireGrace, () async {
       try {
         await source.close();
@@ -2391,7 +2389,7 @@ class MessagingService {
   /// as the in-RAM path (so a streamed and an in-RAM send of the same bytes still
   /// share a swarm address). The source is owned by [_serving] and closed on
   /// eviction/dispose — the UI must NOT close it after this returns.
-  Future<void> sendFileStreaming(
+  Future<String?> sendFileStreaming(
     NodeId dst,
     String name,
     int size,
@@ -2402,7 +2400,7 @@ class MessagingService {
     final contact = await _storage.getContact(dst);
     if (contact == null || contact.status != ContactStatus.accepted) {
       await close(); // not serving this peer → release the handle now
-      return;
+      return null;
     }
     // Hash the source piece-by-piece → manifest (contentId + per-piece hashes).
     // Holds at most one piece in RAM; on failure release the handle + surface.
@@ -2479,6 +2477,7 @@ class MessagingService {
       // Register the live source + advertise — NO stored copy.
       await _advertiseStored(dst, m, source: (read: read, close: close));
     }
+    return cid;
   }
 
   Future<void> _onContentManifest(NodeId peer, String body) async {
@@ -2873,7 +2872,7 @@ class MessagingService {
 
   /// Drop served manifests idle past [_servingTtl], then — if still over
   /// [_servingMaxEntries] — evict the OLDEST until under it. A serve-from-source
-  /// entry's [_ServeSource.close] is called as it leaves (release the file
+  /// entry's [ServeSource.close] is called as it leaves (release the file
   /// handle); a later re-request to an evicted entry simply finds nothing served
   /// and the receiver gives up (a re-send re-opens the source).
   void _evictServing() {
@@ -2913,7 +2912,7 @@ class MessagingService {
   Future<void> _serveChunks(
     NodeId peer,
     ContentManifest m,
-    _ServeSource? source,
+    ServeSource? source,
     Map<int, List<int>?> gaps,
   ) async {
     // Flatten the requested (piece, chunk) coordinates into one list so we can
@@ -3064,7 +3063,7 @@ class MessagingService {
   /// manifest + the file bytes from our source (live serve-from-source, or a
   /// durable re-open). Closes the stream (EOF) when done / on any failure.
   Future<void> _serveStream(NodeId peer, ReliableStream stream) async {
-    _ServeSource? durable; // opened just for this serve (closed in finally)
+    ServeSource? durable; // opened just for this serve (closed in finally)
     String? activeCid;
     try {
       devLog(() => 'xVeil[content]: stream-serve accepted <- ${peer.short}');
@@ -3102,7 +3101,7 @@ class MessagingService {
       }
       activeCid = cid;
       ContentManifest? manifest;
-      _ServeSource? source;
+      ServeSource? source;
       final live = _serving[cid];
       if (live != null) {
         manifest = live.manifest;
