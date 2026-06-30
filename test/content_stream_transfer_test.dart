@@ -186,6 +186,8 @@ class _StreamLink implements VeilTransport, StreamTransport {
   final _accepts = <({ReliableStream stream, NodeId src})>[];
   final acceptStreamWrappers =
       <ReliableStream Function(ReliableStream stream)>[];
+  int openStreamFailures = 0;
+  int openStreamAttemptCount = 0;
   int openedStreamCount = 0;
   Completer<void>? _acceptWaiter;
 
@@ -215,6 +217,11 @@ class _StreamLink implements VeilTransport, StreamTransport {
 
   @override
   Future<ReliableStream?> openStream(NodeId dst) async {
+    openStreamAttemptCount++;
+    if (openStreamFailures > 0) {
+      openStreamFailures--;
+      return null;
+    }
     final p = routes[dst.hex] ?? peer;
     if (p == null) return null;
     openedStreamCount++;
@@ -422,6 +429,39 @@ void main() {
       );
     },
   );
+
+  test('STREAM range pull survives a transient stream-open outage', () async {
+    final data = _rnd(700000, 53); // 3 pieces at the default 256 KiB.
+    final cid = ContentManifest.fromBytes('range-outage.bin', data).contentId;
+    await mB.setFileDownloadPolicy(
+      mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+    );
+    await mA.sendFileStreaming(
+      b,
+      'range-outage.bin',
+      data.length,
+      (o, l) async => Uint8List.sublistView(data, o, o + l),
+      close: () async {},
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+
+    // Three workers × three failed open waves. The old range-pull budget
+    // (3 attempts/piece for one source) gave up here; a Wi-Fi→mobile handoff can
+    // easily look like this before fresh circuits/streams become available.
+    tB.openStreamFailures = 9;
+
+    final got = mB.contentReceived.firstWhere((e) => e.contentId == cid);
+    expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+    await got.timeout(const Duration(seconds: 20));
+
+    expect(await sB.loadFile(cid), data);
+    expect(
+      tB.openStreamAttemptCount,
+      greaterThanOrEqualTo(12),
+      reason:
+          'range workers should keep retrying after the first three failed waves',
+    );
+  });
 
   test(
     'STREAM range pull opens enough parallel piece streams for large files',
