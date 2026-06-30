@@ -497,6 +497,7 @@ cleanup() {
   if [[ -n "${flutter_pid:-}" ]]; then
     kill "$flutter_pid" 2>/dev/null || true
   fi
+  stop_existing_flutter_tests 0
   if [[ "$KEEP_NODES" != "1" ]]; then
     for pid in "${pids[@]:-}"; do
       kill "$pid" 2>/dev/null || true
