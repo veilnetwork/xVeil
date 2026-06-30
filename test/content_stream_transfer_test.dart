@@ -111,12 +111,38 @@ class _BlackholeWriteStream implements ReliableStream {
   }
 }
 
+class _CloseOnWriteStream implements ReliableStream {
+  _CloseOnWriteStream(this._inner);
+
+  final ReliableStream _inner;
+  bool _closed = false;
+
+  @override
+  Future<void> write(Uint8List data) async {
+    if (_closed) return;
+    _closed = true;
+    await _inner.close();
+  }
+
+  @override
+  Future<Uint8List> read({int maxBytes = 65536}) =>
+      _inner.read(maxBytes: maxBytes);
+
+  @override
+  Future<void> close() async {
+    if (_closed) return;
+    _closed = true;
+    await _inner.close();
+  }
+}
+
 /// Datagram + reliable-stream loopback link between two peers.
 class _StreamLink implements VeilTransport, StreamTransport {
   _StreamLink(this._me);
   final NodeId _me;
   final _in = StreamController<InboundMessage>.broadcast();
   _StreamLink? peer;
+  final routes = <String, _StreamLink>{};
   final _accepts = <({ReliableStream stream, NodeId src})>[];
   final acceptStreamWrappers =
       <ReliableStream Function(ReliableStream stream)>[];
@@ -132,7 +158,9 @@ class _StreamLink implements VeilTransport, StreamTransport {
     NodeId dst,
     Uint8List payload, {
     bool anonymous = false,
-  }) async => peer?._in.add(InboundMessage(src: _me, payload: payload));
+  }) async => (routes[dst.hex] ?? peer)?._in.add(
+    InboundMessage(src: _me, payload: payload),
+  );
   @override
   Future<void> sendWithReply(NodeId dst, Uint8List payload) =>
       send(dst, payload);
@@ -147,7 +175,7 @@ class _StreamLink implements VeilTransport, StreamTransport {
 
   @override
   Future<ReliableStream?> openStream(NodeId dst) async {
-    final p = peer;
+    final p = routes[dst.hex] ?? peer;
     if (p == null) return null;
     openedStreamCount++;
     final aToB = _Chan(), bToA = _Chan();
@@ -292,6 +320,104 @@ void main() {
       final ev = await gotC.timeout(const Duration(seconds: 20));
       expect(ev.contentId, cid);
       expect(await sC.loadFile(cid), data);
+    },
+  );
+
+  test(
+    'STREAM swarm download falls through to the next accepted source',
+    () async {
+      final data = _rnd(540000, 23);
+      final cid = ContentManifest.fromBytes('multi-source.bin', data).contentId;
+      await mB.setFileDownloadPolicy(
+        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+
+      // A seeds B first; B becomes a verified holder.
+      await mA.sendFileStreaming(
+        b,
+        'multi-source.bin',
+        data.length,
+        (o, l) async => Uint8List.sublistView(data, o, o + l),
+        close: () async {},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      final gotB = mB.contentReceived.firstWhere((e) => e.contentId == cid);
+      expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+      await gotB.timeout(const Duration(seconds: 20));
+      expect(await sB.loadFile(cid), data);
+
+      final c = _id(3);
+      final d = _id(4); // accepted but not a holder
+      final tC = _StreamLink(c);
+      final tD = _StreamLink(d);
+      final sC = HiddenVolumeStorage(_mem());
+      final sD = HiddenVolumeStorage(_mem());
+      await sC.open(password: 'c', createIfMissing: true);
+      await sD.open(password: 'd', createIfMissing: true);
+      final mC = MessagingService(
+        tC,
+        sC,
+        contentPacing: Duration.zero,
+        streamPullMaxAttempts: 2,
+      )..start();
+      final mD = MessagingService(tD, sD, contentPacing: Duration.zero)
+        ..start();
+      addTearDown(() async {
+        await mC.dispose();
+        await mD.dispose();
+        await sC.close();
+        await sD.close();
+      });
+
+      await sC.upsertContact(
+        Contact(nodeId: d, status: ContactStatus.accepted),
+      );
+      await sD.upsertContact(
+        Contact(nodeId: c, status: ContactStatus.accepted),
+      );
+      await sC.upsertContact(
+        Contact(nodeId: b, status: ContactStatus.accepted),
+      );
+      await sB.upsertContact(
+        Contact(nodeId: c, status: ContactStatus.accepted),
+      );
+      await mC.setFileDownloadPolicy(
+        mC.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+      tC.routes[d.hex] = tD;
+      tC.routes[b.hex] = tB;
+      tB.routes[c.hex] = tC;
+      tD.routes[c.hex] = tC;
+
+      await mD.sendFileStreaming(
+        c,
+        'multi-source.bin',
+        data.length,
+        (o, l) async => Uint8List.sublistView(data, o, o + l),
+        close: () async {},
+      );
+      await mB.sendFileStreaming(c, 'multi-source.bin', data.length, (
+        o,
+        l,
+      ) async {
+        final bytes = await sB.readFileRange(cid, o, l);
+        if (bytes == null) throw StateError('stored blob missing');
+        return bytes;
+      }, close: () async {});
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      tD.acceptStreamWrappers.add((stream) => _CloseOnWriteStream(stream));
+      final gotC = mC.contentReceived.firstWhere((e) => e.contentId == cid);
+      final result = await mC.downloadContent(d, cid);
+      expect(result, ContentDownloadResult.started);
+      final ev = await gotC.timeout(const Duration(seconds: 20));
+      expect(ev.contentId, cid);
+      expect(await sC.loadFile(cid), data);
+      expect(
+        tC.openedStreamCount,
+        greaterThanOrEqualTo(2),
+        reason: 'C should abandon D and retry from B',
+      );
     },
   );
 
