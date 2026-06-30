@@ -30,6 +30,7 @@ LOG_DIR="${LOG_DIR:-$ROOT/scratchpad/soak-$(date +%Y%m%d-%H%M%S)}"
 DESKTOP_DYLIB="${DESKTOP_DYLIB:-$ROOT/third_party/veil/target/debug/libveilclient_ffi.dylib}"
 HV_DYLIB="${HV_DYLIB:-$ROOT/third_party/hidden-volume/target/debug/libhidden_volume_ffi.dylib}"
 DOWNLOAD_PATH="${DOWNLOAD_PATH:-}"
+ANDROID_DOWNLOAD_PATH="${ANDROID_DOWNLOAD_PATH:-}"
 EXPECT_SIZE="${EXPECT_SIZE:-}"
 SOAK_TRIGGER_CMD="${SOAK_TRIGGER_CMD:-}"
 MONITOR_INTERVAL="${MONITOR_INTERVAL:-10}"
@@ -48,6 +49,7 @@ SOAK_SOURCE_LOCAL="${SOAK_SOURCE_LOCAL:-}"
 SOAK_GENERATE_SOURCE="${SOAK_GENERATE_SOURCE:-auto}" # auto|0|1
 SOAK_WAIT_READY_MS="${SOAK_WAIT_READY_MS:-120000}"
 SOAK_EXIT_AFTER_TRANSFER="${SOAK_EXIT_AFTER_TRANSFER:-$SOAK_AUTO_TRANSFER}"
+SOAK_CLEAN_DEST="${SOAK_CLEAN_DEST:-1}"
 SOAK_MIN_BYTES_PER_SEC="${SOAK_MIN_BYTES_PER_SEC:-}"
 SOAK_MIN_MIB_PER_SEC="${SOAK_MIN_MIB_PER_SEC:-}"
 SOAK_FAULT_AFTER_SEC="${SOAK_FAULT_AFTER_SEC:-}"
@@ -88,6 +90,14 @@ with open(path, "wb") as f:
 
 print(sha.hexdigest())
 PY
+}
+
+android_file_size() {
+  local path="$1"
+  adb -s "$ANDROID_SERIAL" shell \
+    "if [ -e $(android_shell_quote "$path") ]; then stat -c %s $(android_shell_quote "$path") 2>/dev/null || wc -c < $(android_shell_quote "$path"); else echo 0; fi" |
+    tr -d '\r' |
+    tail -1
 }
 
 auto_source_path=""
@@ -184,7 +194,7 @@ prepare_auto_transfer() {
     echo "SOAK_GENERATE_SOURCE must be auto, 0 or 1." >&2
     exit 2
   elif [[ "$SOAK_SENDER" == "desktop" && -f "$auto_source_path" ]]; then
-    auto_expected_size="$(stat -f '%z' "$auto_source_path" 2>/dev/null || stat -c '%s' "$auto_source_path")"
+    auto_expected_size="$(stat -c '%s' "$auto_source_path" 2>/dev/null || stat -f '%z' "$auto_source_path")"
     auto_sha256="$(
       shasum -a 256 "$auto_source_path" 2>/dev/null |
         awk '{print $1}'
@@ -193,9 +203,20 @@ prepare_auto_transfer() {
 
   if [[ "$SOAK_SENDER" == "android" ]]; then
     DOWNLOAD_PATH="${DOWNLOAD_PATH:-$auto_dest_path}"
+  else
+    ANDROID_DOWNLOAD_PATH="${ANDROID_DOWNLOAD_PATH:-$auto_dest_path}"
   fi
   if [[ -n "$auto_expected_size" ]]; then
     EXPECT_SIZE="${EXPECT_SIZE:-$auto_expected_size}"
+  fi
+
+  if [[ "$SOAK_CLEAN_DEST" == "1" ]]; then
+    if [[ "$SOAK_SENDER" == "android" ]]; then
+      rm -f "$auto_dest_path"
+    else
+      adb -s "$ANDROID_SERIAL" shell \
+        "rm -f $(android_shell_quote "$auto_dest_path")" >/dev/null
+    fi
   fi
 
   echo "auto transfer: sender=$SOAK_SENDER"
@@ -340,6 +361,9 @@ if [[ "$SOAK_AUTO_TRANSFER" == "1" ]]; then
         DEST_PATH="$auto_dest_path" \
         NAME="$SOAK_NAME" \
         WAIT_READY_MS="$SOAK_WAIT_READY_MS" \
+        ANDROID_SERIAL="$ANDROID_SERIAL" \
+        APP_ID="$APP_ID" \
+        CLEAN_DEST=0 \
         EXPECT_SHA256="$auto_sha256" \
         scripts/onion-stream-hook-transfer.sh
       status=$?
@@ -440,7 +464,16 @@ while true; do
   now="$(date +%s)"
   size=0
   if [[ -n "$DOWNLOAD_PATH" && -e "$DOWNLOAD_PATH" ]]; then
-    size="$(stat -f '%z' "$DOWNLOAD_PATH" 2>/dev/null || echo 0)"
+    size="$(
+      stat -c '%s' "$DOWNLOAD_PATH" 2>/dev/null ||
+        stat -f '%z' "$DOWNLOAD_PATH" 2>/dev/null ||
+        echo 0
+    )"
+  elif [[ -n "$ANDROID_DOWNLOAD_PATH" ]]; then
+    size="$(android_file_size "$ANDROID_DOWNLOAD_PATH")"
+    if [[ -z "$size" || ! "$size" =~ ^[0-9]+$ ]]; then
+      size=0
+    fi
   fi
   dt=$((now - last_ts))
   delta=$((size - last_size))
