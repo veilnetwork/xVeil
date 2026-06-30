@@ -286,6 +286,26 @@ stop_existing_nodes() {
   done <<<"$old_pids"
 }
 
+stop_existing_flutter_tests() {
+  local old_pids
+  old_pids="$(
+    pgrep -f 'flutter_tools\.snapshot test test/native/onion_stream_file_live_test\.dart' \
+      2>/dev/null || true
+  )"
+  [[ -n "$old_pids" ]] || return 0
+  echo "==> stopping stale onion-stream live Flutter tests"
+  while read -r pid; do
+    [[ -n "$pid" ]] || continue
+    kill "$pid" 2>/dev/null || true
+  done <<<"$old_pids"
+  sleep 2
+  while read -r pid; do
+    [[ -n "$pid" ]] || continue
+    kill -0 "$pid" 2>/dev/null || continue
+    kill -9 "$pid" 2>/dev/null || true
+  done <<<"$old_pids"
+}
+
 cleanup() {
   local code=$?
   if [[ "$cleaned_up" == "1" ]]; then
@@ -313,6 +333,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+stop_existing_flutter_tests
 maybe_build
 stop_existing_nodes
 
