@@ -210,6 +210,27 @@ bool _listEquals(Uint8List a, Uint8List b) {
   return true;
 }
 
+Future<void> _waitForActivePeers(
+  String name,
+  VeilClient client,
+  int minActive,
+  Duration timeout,
+) async {
+  if (minActive <= 0) return;
+  final deadline = DateTime.now().add(timeout);
+  var lastActive = 0;
+  while (DateTime.now().isBefore(deadline)) {
+    final peers = await client.peers();
+    lastActive = peers.where((p) => p.state == VeilPeerState.active).length;
+    if (lastActive >= minActive) {
+      stderr.writeln('[onion-byte-embedded] $name active peers: $lastActive');
+      return;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+  }
+  throw TimeoutException('$name active peers $lastActive/$minActive', timeout);
+}
+
 bool _publishedCircuitEnabled(String? value) {
   switch (value?.trim().toLowerCase()) {
     case '1':
@@ -260,6 +281,10 @@ void main() {
   final idle = Duration(
     seconds: _envInt('XVEIL_BYTE_STREAM_IDLE_SECONDS', 90).clamp(5, 600),
   );
+  final minActivePeers = _envInt(
+    'XVEIL_EMBED_MIN_ACTIVE_PEERS',
+    2,
+  ).clamp(0, 16);
   final warmupSeconds = _envInt('XVEIL_EMBED_WARMUP_SECONDS', 12).clamp(0, 300);
   final minMiBPerSec = double.tryParse(
     Platform.environment['XVEIL_TEST_MIN_MIB_PER_SEC'] ?? '',
@@ -328,6 +353,20 @@ void main() {
         await clientA.close();
         await clientB.close();
       });
+      await Future.wait([
+        _waitForActivePeers(
+          'A',
+          clientA,
+          minActivePeers,
+          const Duration(seconds: 45),
+        ),
+        _waitForActivePeers(
+          'B',
+          clientB,
+          minActivePeers,
+          const Duration(seconds: 45),
+        ),
+      ]);
 
       final aId = NodeId(await clientA.nodeId());
       final bId = NodeId(await clientB.nodeId());
