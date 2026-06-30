@@ -3481,14 +3481,17 @@ class MessagingService {
     Object? lastError;
     ReliableStream? stream = initialStream;
     final peers = _orderedPullPeers(peer, retryPeers);
+    // `_streamPullMaxAttempts` protects a single-source transfer from retrying
+    // forever, but a group/swarm transfer may know more holders than that cap.
+    // Give every known holder at least one stream attempt; after that, cycle up
+    // to the configured retry budget.
+    final maxAttempts = _streamPullMaxAttempts < peers.length
+        ? peers.length
+        : _streamPullMaxAttempts;
     ContentManifest? resumeManifest;
     var resumePiece = 0;
     try {
-      for (
-        var attempt = 1;
-        attempt <= _streamPullMaxAttempts && !_disposed;
-        attempt++
-      ) {
+      for (var attempt = 1; attempt <= maxAttempts && !_disposed; attempt++) {
         var payloadStarted = false;
         var readBytes = 0;
         var committedPieces = 0;
@@ -3701,7 +3704,7 @@ class MessagingService {
                 'xVeil[content]: stream-pull attempt $attempt failed '
                 '${cid.substring(0, 12)}: $e',
           );
-          if (attempt == _streamPullMaxAttempts || _disposed) {
+          if (attempt == maxAttempts || _disposed) {
             break;
           }
         } finally {
