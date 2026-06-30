@@ -242,6 +242,59 @@ void main() {
     },
   );
 
+  test(
+    'STREAM swarm: a downloaded blob can be served to another accepted peer',
+    () async {
+      final data = _rnd(520000, 17); // multi-piece
+      final cid = ContentManifest.fromBytes('swarm.bin', data).contentId;
+      await mB.setFileDownloadPolicy(
+        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+
+      // A offers and serves from its original source; B downloads into its app
+      // storage. This is the "first leecher completes" phase.
+      await mA.sendFileStreaming(
+        b,
+        'swarm.bin',
+        data.length,
+        (o, l) async => Uint8List.sublistView(data, o, o + l),
+        close: () async {},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      final gotB = mB.contentReceived.firstWhere((e) => e.contentId == cid);
+      expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+      await gotB.timeout(const Duration(seconds: 20));
+      expect(await sB.loadFile(cid), data);
+
+      // Now C has only B as its source. B no longer has A's original file handle;
+      // it must seed the verified stored blob via readFileRange.
+      final c = _id(3);
+      final tC = _StreamLink(c);
+      final sC = HiddenVolumeStorage(_mem());
+      await sC.open(password: 'c', createIfMissing: true);
+      final mC = MessagingService(tC, sC, contentPacing: Duration.zero)
+        ..start();
+      addTearDown(() async {
+        await mC.dispose();
+        await sC.close();
+      });
+      await sB.upsertContact(
+        Contact(nodeId: c, status: ContactStatus.accepted),
+      );
+      await sC.upsertContact(
+        Contact(nodeId: b, status: ContactStatus.accepted),
+      );
+      tB.peer = tC;
+      tC.peer = tB;
+
+      final gotC = mC.contentReceived.firstWhere((e) => e.contentId == cid);
+      expect(await mC.downloadContent(b, cid), ContentDownloadResult.started);
+      final ev = await gotC.timeout(const Duration(seconds: 20));
+      expect(ev.contentId, cid);
+      expect(await sC.loadFile(cid), data);
+    },
+  );
+
   test('STREAM download to an UNENCRYPTED file writes the plaintext + nothing '
       'in the app', () async {
     final data = _rnd(400000, 9);
