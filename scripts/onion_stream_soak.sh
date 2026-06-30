@@ -9,6 +9,8 @@ set -euo pipefail
 #   - launches desktop + Android debug builds with the local Rust dylibs;
 #   - captures Flutter/app/logcat output under one timestamped log directory;
 #   - starts a debug-only loopback command hook on both apps;
+#   - with SOAK_AUTO_TRANSFER=1, creates a test payload and drives a full
+#     phone<->desktop send/download through those hooks;
 #   - optionally runs SOAK_TRIGGER_CMD to send/download without UI clicks;
 #   - optionally monitors a destination file until it reaches EXPECT_SIZE.
 #
@@ -32,8 +34,144 @@ ENABLE_DEBUG_HOOK="${ENABLE_DEBUG_HOOK:-1}"
 DESKTOP_HOOK_PORT="${DESKTOP_HOOK_PORT:-38765}"
 ANDROID_HOOK_PORT="${ANDROID_HOOK_PORT:-38766}"
 ANDROID_HOST_HOOK_PORT="${ANDROID_HOST_HOOK_PORT:-38766}"
+SOAK_AUTO_TRANSFER="${SOAK_AUTO_TRANSFER:-0}"
+SOAK_SENDER="${SOAK_SENDER:-android}" # android|desktop
+SOAK_SIZE="${SOAK_SIZE:-104857600}"
+SOAK_NAME="${SOAK_NAME:-soak.bin}"
+SOAK_SOURCE_PATH="${SOAK_SOURCE_PATH:-${SOURCE_PATH:-}}"
+SOAK_DEST_PATH="${SOAK_DEST_PATH:-${DEST_PATH:-}}"
+SOAK_SOURCE_LOCAL="${SOAK_SOURCE_LOCAL:-}"
+SOAK_GENERATE_SOURCE="${SOAK_GENERATE_SOURCE:-auto}" # auto|0|1
+SOAK_WAIT_READY_MS="${SOAK_WAIT_READY_MS:-120000}"
+SOAK_EXIT_AFTER_TRANSFER="${SOAK_EXIT_AFTER_TRANSFER:-$SOAK_AUTO_TRANSFER}"
 
 mkdir -p "$LOG_DIR"
+
+android_shell_quote() {
+  local s="$1"
+  s="${s//\'/\'\\\'\'}"
+  printf "'%s'" "$s"
+}
+
+make_payload() {
+  local size="$1"
+  local path="$2"
+  python3 - "$size" "$path" <<'PY'
+import hashlib
+import os
+import sys
+
+size = int(sys.argv[1])
+path = sys.argv[2]
+directory = os.path.dirname(path)
+if directory:
+    os.makedirs(directory, exist_ok=True)
+
+sha = hashlib.sha256()
+remaining = size
+with open(path, "wb") as f:
+    while remaining:
+        chunk = os.urandom(min(1024 * 1024, remaining))
+        f.write(chunk)
+        sha.update(chunk)
+        remaining -= len(chunk)
+
+print(sha.hexdigest())
+PY
+}
+
+auto_source_path=""
+auto_dest_path=""
+auto_sha256=""
+auto_expected_size=""
+
+prepare_auto_transfer() {
+  if [[ "$SOAK_AUTO_TRANSFER" != "1" ]]; then
+    return
+  fi
+  if [[ "$SOAK_SENDER" != "android" && "$SOAK_SENDER" != "desktop" ]]; then
+    echo "SOAK_SENDER must be android or desktop." >&2
+    exit 2
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "python3 is required for SOAK_AUTO_TRANSFER." >&2
+    exit 2
+  fi
+
+  local source_was_defaulted=0
+  if [[ -n "$SOAK_SOURCE_PATH" ]]; then
+    auto_source_path="$SOAK_SOURCE_PATH"
+  elif [[ "$SOAK_SENDER" == "android" ]]; then
+    auto_source_path="/sdcard/Android/data/$APP_ID/files/soak/source-$SOAK_NAME"
+    source_was_defaulted=1
+  else
+    auto_source_path="$LOG_DIR/source-$SOAK_NAME"
+    source_was_defaulted=1
+  fi
+
+  if [[ -n "$SOAK_DEST_PATH" ]]; then
+    auto_dest_path="$SOAK_DEST_PATH"
+  elif [[ "$SOAK_SENDER" == "android" ]]; then
+    auto_dest_path="$LOG_DIR/download-$SOAK_NAME"
+  else
+    auto_dest_path="/sdcard/Android/data/$APP_ID/files/soak/download-$SOAK_NAME"
+  fi
+
+  local generate="$SOAK_GENERATE_SOURCE"
+  if [[ "$generate" == "auto" ]]; then
+    if [[ "$source_was_defaulted" == "1" ]]; then
+      generate=1
+    else
+      generate=0
+    fi
+  fi
+
+  if [[ "$generate" == "1" ]]; then
+    local local_source="$auto_source_path"
+    if [[ "$SOAK_SENDER" == "android" ]]; then
+      local_source="${SOAK_SOURCE_LOCAL:-$LOG_DIR/source-$SOAK_NAME}"
+    fi
+
+    echo "generating soak payload: $SOAK_SIZE bytes -> $local_source"
+    auto_sha256="$(make_payload "$SOAK_SIZE" "$local_source")"
+    auto_expected_size="$SOAK_SIZE"
+
+    if [[ "$SOAK_SENDER" == "android" ]]; then
+      local device_dir="${auto_source_path%/*}"
+      if [[ "$device_dir" == "$auto_source_path" ]]; then
+        device_dir="."
+      fi
+      echo "pushing soak payload to Android: $auto_source_path"
+      adb -s "$ANDROID_SERIAL" shell \
+        "mkdir -p $(android_shell_quote "$device_dir")" >/dev/null
+      adb -s "$ANDROID_SERIAL" push "$local_source" "$auto_source_path" \
+        >"$LOG_DIR/adb-push-source.log"
+    fi
+  elif [[ "$generate" != "0" ]]; then
+    echo "SOAK_GENERATE_SOURCE must be auto, 0 or 1." >&2
+    exit 2
+  elif [[ "$SOAK_SENDER" == "desktop" && -f "$auto_source_path" ]]; then
+    auto_expected_size="$(stat -f '%z' "$auto_source_path" 2>/dev/null || stat -c '%s' "$auto_source_path")"
+    auto_sha256="$(
+      shasum -a 256 "$auto_source_path" 2>/dev/null |
+        awk '{print $1}'
+    )"
+  fi
+
+  if [[ "$SOAK_SENDER" == "android" ]]; then
+    DOWNLOAD_PATH="${DOWNLOAD_PATH:-$auto_dest_path}"
+  fi
+  if [[ -n "$auto_expected_size" ]]; then
+    EXPECT_SIZE="${EXPECT_SIZE:-$auto_expected_size}"
+  fi
+
+  echo "auto transfer: sender=$SOAK_SENDER"
+  echo "auto source: $auto_source_path"
+  echo "auto dest: $auto_dest_path"
+  if [[ -n "$auto_expected_size" ]]; then
+    echo "auto expect size: $auto_expected_size"
+  fi
+}
 
 if [[ -z "$ANDROID_SERIAL" ]]; then
   ANDROID_SERIAL="$(
@@ -46,6 +184,8 @@ if [[ -z "$ANDROID_SERIAL" ]]; then
   echo "No adb device found. Set ANDROID_SERIAL=... or connect a phone." >&2
   exit 2
 fi
+
+prepare_auto_transfer
 
 pids=()
 
@@ -143,12 +283,46 @@ if [[ "$ENABLE_DEBUG_HOOK" == "1" ]] && command -v curl >/dev/null 2>&1; then
   done
 fi
 
-if [[ -n "$SOAK_TRIGGER_CMD" ]]; then
+trigger_pid=""
+trigger_status_file="$LOG_DIR/trigger.status"
+if [[ "$SOAK_AUTO_TRANSFER" == "1" ]]; then
+  echo "running auto hook transfer"
+  (
+    set +e
+    if cd "$ROOT"; then
+      DESKTOP_HOOK="http://127.0.0.1:$DESKTOP_HOOK_PORT" \
+        ANDROID_HOOK="http://127.0.0.1:$ANDROID_HOST_HOOK_PORT" \
+        SENDER="$SOAK_SENDER" \
+        SOURCE_PATH="$auto_source_path" \
+        DEST_PATH="$auto_dest_path" \
+        NAME="$SOAK_NAME" \
+        WAIT_READY_MS="$SOAK_WAIT_READY_MS" \
+        EXPECT_SHA256="$auto_sha256" \
+        scripts/onion-stream-hook-transfer.sh
+      status=$?
+    else
+      status=1
+    fi
+    echo "$status" >"$trigger_status_file"
+    exit "$status"
+  ) >"$LOG_DIR/auto-transfer.log" 2>&1 &
+  trigger_pid="$!"
+  pids+=("$trigger_pid")
+elif [[ -n "$SOAK_TRIGGER_CMD" ]]; then
   echo "running SOAK_TRIGGER_CMD"
   (
-    cd "$ROOT"
-    bash -lc "$SOAK_TRIGGER_CMD"
-  ) >"$LOG_DIR/trigger.log" 2>&1
+    set +e
+    if cd "$ROOT"; then
+      bash -lc "$SOAK_TRIGGER_CMD"
+      status=$?
+    else
+      status=1
+    fi
+    echo "$status" >"$trigger_status_file"
+    exit "$status"
+  ) >"$LOG_DIR/trigger.log" 2>&1 &
+  trigger_pid="$!"
+  pids+=("$trigger_pid")
 fi
 
 echo "monitoring; Ctrl-C to stop"
@@ -193,8 +367,32 @@ while true; do
     echo "expected size reached: $size >= $EXPECT_SIZE"
     break
   fi
+  if [[ -n "$trigger_pid" && -f "$trigger_status_file" ]]; then
+    trigger_status="$(cat "$trigger_status_file")"
+    if [[ "$trigger_status" != "0" ]]; then
+      echo "trigger failed with status $trigger_status; see $LOG_DIR" >&2
+      exit "$trigger_status"
+    fi
+    if [[ "$SOAK_EXIT_AFTER_TRANSFER" == "1" && -z "$EXPECT_SIZE" ]]; then
+      echo "trigger completed"
+      break
+    fi
+  fi
 
   last_size="$size"
   last_ts="$now"
   sleep "$MONITOR_INTERVAL"
 done
+
+if [[ -n "$trigger_pid" ]]; then
+  trigger_wait_status=0
+  wait "$trigger_pid" || trigger_wait_status=$?
+  trigger_status="$trigger_wait_status"
+  if [[ -f "$trigger_status_file" ]]; then
+    trigger_status="$(cat "$trigger_status_file")"
+  fi
+  if [[ "$trigger_status" != "0" ]]; then
+    echo "trigger failed with status $trigger_status; see $LOG_DIR" >&2
+    exit "$trigger_status"
+  fi
+fi
