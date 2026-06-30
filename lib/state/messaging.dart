@@ -2734,11 +2734,11 @@ class MessagingService {
     }
     final offered = _offered[contentId];
     final storedSources = await _storedContentSourcePeers(contentId);
-    final sources = <NodeId>[
+    final sources = _uniquePeers([
       ...peers,
       if (offered != null) ...offered.peers.values,
       ...storedSources,
-    ];
+    ]);
     final seen = <String>{};
     var attempted = 0;
     _markContentDownloadStarted(contentId);
@@ -2896,6 +2896,84 @@ class MessagingService {
     return ContentDownloadResult.started;
   }
 
+  /// Swarm/group variant of [downloadContentToFile]: write verified plaintext
+  /// bytes to [savedPath] from the first known holder that can serve [contentId].
+  ///
+  /// This is used by debug/soak automation and the future group/torrent layer:
+  /// the caller may pass all accepted holders it knows about, while the service
+  /// augments that list with live offers and persisted incoming file-offer
+  /// messages. The app storage remains empty; successful completion only records
+  /// [savedPath] as an external plaintext destination.
+  Future<ContentDownloadResult> downloadContentToFileFromAny(
+    Iterable<NodeId> peers,
+    String contentId,
+    String savedPath, {
+    required Future<void> Function(int offset, Uint8List bytes) write,
+    required Future<void> Function() close,
+  }) async {
+    final sink = (write: write, close: close);
+    devLog(
+      () =>
+          'xVeil[content]: user download-to-file-any (unencrypted) '
+          '${contentId.substring(0, 12)} -> $savedPath',
+    );
+    _markContentDownloadStarted(contentId);
+    final offered = _offered[contentId];
+    final sources = _uniquePeers([
+      ...peers,
+      if (offered != null) ...offered.peers.values,
+      ...await _storedContentSourcePeers(contentId),
+    ]);
+    if (sources.isEmpty) {
+      try {
+        await sink.close();
+      } catch (_) {}
+      return ContentDownloadResult.noOffer;
+    }
+
+    if (offered != null &&
+        await _pullSwarmStreamToFile(
+          sources.first,
+          contentId,
+          offered.manifest,
+          sources,
+          sink,
+          savedPath,
+        )) {
+      return ContentDownloadResult.started;
+    }
+
+    // Reliable STREAM path (fast). Works without a live offer handle because
+    // the sender returns the manifest on the stream.
+    for (final peer in sources) {
+      final contact = await _storage.getContact(peer);
+      if (contact == null || contact.status != ContactStatus.accepted) {
+        continue;
+      }
+      if (await _pullStream(
+        peer,
+        contentId,
+        sink,
+        savedPath: savedPath,
+        retryPeers: _orderedPullPeers(peer, sources),
+      )) {
+        return ContentDownloadResult.started;
+      }
+    }
+
+    // Datagram fallback.
+    _fetchSavePath[contentId] = savedPath;
+    if (offered == null) {
+      return _requestReofferFromAny(sources, contentId, sink);
+    }
+    await _beginFetch(
+      _offerPeer(offered, preferred: sources.first),
+      offered.manifest,
+      sink: sink,
+    );
+    return ContentDownloadResult.started;
+  }
+
   /// Surface user intent immediately. The stream path may spend seconds opening
   /// an anonymous circuit before the manifest / first verified piece arrives;
   /// without this, the file bubble looks like the tap was ignored.
@@ -2929,11 +3007,24 @@ class MessagingService {
     NodeId peer,
     String contentId,
     _FetchSink? sink,
+  ) => _requestReofferFromAny([peer], contentId, sink);
+
+  ContentDownloadResult _requestReofferFromAny(
+    Iterable<NodeId> peers,
+    String contentId,
+    _FetchSink? sink,
   ) {
+    final sources = _uniquePeers(peers);
+    if (sources.isEmpty) {
+      if (sink != null) unawaited(sink.close());
+      _fetchSavePath.remove(contentId);
+      return ContentDownloadResult.noOffer;
+    }
     devLog(
       () =>
           'xVeil[content]: no live manifest for '
-          '${contentId.substring(0, 12)} — requesting re-advertise <- ${peer.short}',
+          '${contentId.substring(0, 12)} — requesting re-advertise from '
+          '${sources.length} source(s)',
     );
     _pendingDownload[contentId] = sink;
     _pendingTimers[contentId]?.cancel();
@@ -2949,7 +3040,9 @@ class MessagingService {
       );
       if (!_contentFailed.isClosed) _contentFailed.add(contentId);
     });
-    unawaited(_send(peer, contentReofferEnvelope(contentId).encode()));
+    for (final peer in sources) {
+      unawaited(_send(peer, contentReofferEnvelope(contentId).encode()));
+    }
     return ContentDownloadResult.requestedReoffer;
   }
 
@@ -3523,12 +3616,16 @@ class MessagingService {
   /// [sink] (unencrypted-to-file) or the Storage port (encrypted tier / in-volume)
   /// with per-piece verification + progress. Works WITHOUT a live offer handle —
   /// the manifest arrives on the stream, so no reoffer dance.
-  List<NodeId> _orderedPullPeers(NodeId first, Iterable<NodeId> peers) {
-    final out = <String, NodeId>{first.hex: first};
+  List<NodeId> _uniquePeers(Iterable<NodeId> peers) {
+    final out = <String, NodeId>{};
     for (final peer in peers) {
       out[peer.hex] = peer;
     }
     return out.values.toList(growable: false);
+  }
+
+  List<NodeId> _orderedPullPeers(NodeId first, Iterable<NodeId> peers) {
+    return _uniquePeers([first, ...peers]);
   }
 
   Future<bool> _pullStream(
