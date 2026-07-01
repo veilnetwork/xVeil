@@ -3389,11 +3389,12 @@ class MessagingService {
   static const Duration _streamPayloadWriteTimeout = Duration(seconds: 120);
   // Local published-onion file live tests on the 2-relay embedded stand show
   // the range stream path is reliable at 5 workers with ~1 MiB ranges
-  // (64 MiB ≈3.2 MiB/s). Larger worker counts (6/8/12) and larger ranges
-  // (p4@4 MiB, p5@2 MiB) have shown intermittent runner/session detaches, so
-  // keep the normal app path below the observed unstable region.
+  // (64 MiB ≈3.2-3.4 MiB/s). Larger worker counts (6/8/12) and very large
+  // ranges (p4@4 MiB) have shown intermittent runner/session detaches, so keep
+  // the normal app path below the observed unstable region while leaving higher
+  // worker counts as explicit test knobs.
   static const int _defaultStreamRangeParallelism = 5;
-  static const int _maxStreamRangeParallelism = 5;
+  static const int _maxStreamRangeParallelism = 8;
   static const int _defaultStreamRangeTargetBytes = 1024 * 1024;
   static const int _maxStreamRangeTargetBytes = 2 * 1024 * 1024;
   static const int _defaultStreamPullMaxAttempts = 24;
