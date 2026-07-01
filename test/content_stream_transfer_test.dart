@@ -856,6 +856,52 @@ void main() {
   );
 
   test(
+    'STREAM range download survives a temporarily unavailable route at start',
+    () async {
+      final data = _rnd(700000, 113); // 3 pieces at the default 256 KiB.
+      final cid = ContentManifest.fromBytes('route-flap.bin', data).contentId;
+      await mB.setFileDownloadPolicy(
+        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+
+      await mA.sendFileStreaming(
+        b,
+        'route-flap.bin',
+        data.length,
+        (o, l) async => Uint8List.sublistView(data, o, o + l),
+        close: () async {},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      // The offer is already in B's UI, but the transport route disappears just
+      // as the user taps Download (Wi-Fi -> cellular, NAT rebinding, daemon
+      // reconnect, etc.). The range workers should keep retrying the consented
+      // download and resume once the route is back instead of requiring another
+      // user click.
+      tA.peer = null;
+      tB.peer = null;
+      unawaited(
+        Future<void>.delayed(const Duration(milliseconds: 300), () {
+          tA.peer = tB;
+          tB.peer = tA;
+        }),
+      );
+
+      final got = mB.contentReceived.firstWhere((e) => e.contentId == cid);
+      expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+      final ev = await got.timeout(const Duration(seconds: 20));
+
+      expect(ev.contentId, cid);
+      expect(await sB.loadFile(cid), data);
+      expect(
+        tB.openStreamAttemptCount,
+        greaterThan(tB.openedStreamCount),
+        reason: 'at least one stream open should have hit the down route first',
+      );
+    },
+  );
+
+  test(
     'STREAM reoffer resumes a parked encrypted download on range streams',
     () async {
       final data = _rnd(700000, 67); // 3 pieces at the default 256 KiB.
