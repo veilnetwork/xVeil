@@ -22,9 +22,9 @@ set -euo pipefail
 #                                      external starts A/B/M1/M2 as veil-cli;
 #                                      embedded-endpoints starts only M1/M2 as
 #                                      veil-cli and boots A/B inside Flutter
-#   ONION_STREAM_LIVE_NODE_CONFIG_LOG_LEVEL=info|warn|debug
+#   ONION_STREAM_LIVE_NODE_CONFIG_LOG_LEVEL=info|warn|error|debug
 #                                      override [global].log_level in generated
-#                                      configs; embedded-endpoints defaults warn
+#                                      configs; embedded-endpoints defaults error
 #   ONION_STREAM_LIVE_KEEP_NODES=0|1     leave nodes running after script exit
 #   ONION_STREAM_LIVE_CHECK_LOGS=1|0     fail if node logs contain known bad markers
 #   ONION_STREAM_LIVE_TEST_TIMEOUT=10m   flutter test timeout
@@ -56,7 +56,13 @@ TEST_TIMEOUT="${ONION_STREAM_LIVE_TEST_TIMEOUT:-10m}"
 FORCE_CLEAN="${ONION_STREAM_LIVE_FORCE_CLEAN:-0}"
 REUSE_IDENTITIES="${ONION_STREAM_LIVE_REUSE_IDENTITIES:-1}"
 MINT_DIFFICULTY="${VEIL_MINT_DIFFICULTY:-24}"
-LOG_LEVEL="${ONION_STREAM_LIVE_RUST_LOG:-info,veil_node_runtime=debug}"
+if [[ -n "${ONION_STREAM_LIVE_RUST_LOG:-}" ]]; then
+  LOG_LEVEL="$ONION_STREAM_LIVE_RUST_LOG"
+elif [[ "$NODE_MODE" == "embedded-endpoints" ]]; then
+  LOG_LEVEL="warn"
+else
+  LOG_LEVEL="info,veil_node_runtime=debug"
+fi
 CONFIG_LOG_LEVEL="${ONION_STREAM_LIVE_NODE_CONFIG_LOG_LEVEL:-}"
 DART_DEFINES=()
 
@@ -89,11 +95,9 @@ esac
 case "$NODE_MODE" in
   external) ;;
   embedded-endpoints)
-    if [[ "$LIVE_TEST" != "byte" ]]; then
-      echo "ONION_STREAM_LIVE_NODE_MODE=embedded-endpoints currently supports ONION_STREAM_LIVE_TEST=byte only." >&2
-      exit 2
+    if [[ "$LIVE_TEST" == "byte" ]]; then
+      LIVE_TEST_PATH="test/native/onion_stream_embedded_byte_live_test.dart"
     fi
-    LIVE_TEST_PATH="test/native/onion_stream_embedded_byte_live_test.dart"
     ;;
   *)
     echo "ONION_STREAM_LIVE_NODE_MODE must be 'external' or 'embedded-endpoints'." >&2
@@ -174,7 +178,7 @@ mk_node() {
   if [[ -n "$CONFIG_LOG_LEVEL" ]]; then
     set_config_log_level "$cfg" "$CONFIG_LOG_LEVEL"
   elif [[ "$NODE_MODE" == "embedded-endpoints" ]]; then
-    set_config_log_level "$cfg" warn
+    set_config_log_level "$cfg" error
   fi
   "$BIN" -c "$cfg" config set global.admin_socket "unix://$dir/config.sock" >/dev/null 2>&1 || true
   "$BIN" -c "$cfg" config set ipc.enabled true >/dev/null 2>&1 || true
@@ -327,6 +331,18 @@ strip_local_runtime_blocks() {
   mv "$tmp" "$cfg"
 }
 
+strip_listen_blocks() {
+  local cfg="$1"
+  local tmp="$cfg.tmp"
+  awk '
+    /^\[\[listen\]\][[:space:]]*$/ { skip = 1; next }
+    /^\[\[[^]]+\]\][[:space:]]*$/ { skip = 0 }
+    /^\[[^]]+\][[:space:]]*$/ { skip = 0 }
+    !skip { print }
+  ' "$cfg" >"$tmp"
+  mv "$tmp" "$cfg"
+}
+
 set_config_log_level() {
   local cfg="$1"
   local level="$2"
@@ -394,6 +410,49 @@ nodes_alive() {
   for pid in "${pids[@]:-}"; do
     kill -0 "$pid" 2>/dev/null || return 1
   done
+}
+
+start_node_process() {
+  local n="$1"
+  local cfg="$NODES/$n/config.toml"
+  local log="$NODES/$n/node.log"
+  local pid_file="$NODES/$n/node.pid"
+  local pid
+
+  if [[ "$KEEP_NODES" == "1" ]] && command -v python3 >/dev/null 2>&1; then
+    python3 - "$ROOT" "$LOG_LEVEL" "$BIN" "$cfg" "$log" "$pid_file" <<'PY'
+import os
+import subprocess
+import sys
+
+root, log_level, bin_path, cfg, log_path, pid_path = sys.argv[1:]
+env = os.environ.copy()
+env["RUST_LOG"] = log_level
+log = open(log_path, "ab", buffering=0)
+process = subprocess.Popen(
+    [bin_path, "-c", cfg, "node", "run", "--foreground"],
+    cwd=root,
+    env=env,
+    stdin=subprocess.DEVNULL,
+    stdout=log,
+    stderr=subprocess.STDOUT,
+    close_fds=True,
+    start_new_session=True,
+)
+with open(pid_path, "w", encoding="utf-8") as f:
+    f.write(f"{process.pid}\n")
+PY
+    pid="$(cat "$pid_file")"
+  else
+    (
+      cd "$ROOT"
+      RUST_LOG="$LOG_LEVEL" "$BIN" -c "$cfg" node run --foreground
+    ) >"$log" 2>&1 &
+    pid="$!"
+    echo "$pid" >"$pid_file"
+  fi
+
+  pids+=("$pid")
 }
 
 rendezvous_registered() {
@@ -497,7 +556,6 @@ cleanup() {
   if [[ -n "${flutter_pid:-}" ]]; then
     kill "$flutter_pid" 2>/dev/null || true
   fi
-  stop_existing_flutter_tests 0
   if [[ "$KEEP_NODES" != "1" ]]; then
     for pid in "${pids[@]:-}"; do
       kill "$pid" 2>/dev/null || true
@@ -549,6 +607,13 @@ echo "==> enabling anonymity roles"
 for n in "${peers[@]}"; do
   strip_anonymity_block "$NODES/$n/config.toml"
 done
+if [[ "$NODE_MODE" == "embedded-endpoints" ]]; then
+  # Embedded endpoints model mobile/desktop clients: they only need outbound
+  # sessions to relay-capable peers, so do not bind fixed TCP ports 9230/9231
+  # inside the Flutter test process.
+  strip_listen_blocks "$NODES/a/config.toml"
+  strip_listen_blocks "$NODES/b/config.toml"
+fi
 relay_m1="$(node_id_of "$NODES/m1")"
 relay_m2="$(node_id_of "$NODES/m2")"
 [[ -n "$relay_m1" && -n "$relay_m2" ]] || {
@@ -570,13 +635,7 @@ if [[ "$NODE_MODE" == "embedded-endpoints" ]]; then
   start_peers=(m1 m2)
 fi
 for n in "${start_peers[@]}"; do
-  (
-    cd "$ROOT"
-    RUST_LOG="$LOG_LEVEL" "$BIN" -c "$NODES/$n/config.toml" node run --foreground
-  ) >"$NODES/$n/node.log" 2>&1 &
-  pid="$!"
-  echo "$pid" >"$NODES/$n/node.pid"
-  pids+=("$pid")
+  start_node_process "$n"
 done
 
 echo "==> waiting for app sockets"

@@ -54,12 +54,7 @@ case "$SYNTHETIC_LIVE_TEST" in
 esac
 case "$SYNTHETIC_LIVE_NODE_MODE" in
   external) ;;
-  embedded-endpoints)
-    if [[ "$SYNTHETIC_LIVE_TEST" != "byte" ]]; then
-      echo "SYNTHETIC_LIVE_NODE_MODE=embedded-endpoints currently requires SYNTHETIC_LIVE_TEST=byte." >&2
-      exit 2
-    fi
-    ;;
+  embedded-endpoints) ;;
   *)
     echo "SYNTHETIC_LIVE_NODE_MODE must be 'external' or 'embedded-endpoints'." >&2
     exit 2

@@ -5,6 +5,8 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/data/node/embedded_node.dart';
+import 'package:xveil/data/node/node_controller.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
@@ -65,6 +67,13 @@ Future<bool> _until(
   return await cond();
 }
 
+int _envInt(String name, int fallback) {
+  final raw = Platform.environment[name];
+  if (raw == null || raw.isEmpty) return fallback;
+  final parsed = int.tryParse(raw);
+  return parsed == null || parsed < 0 ? fallback : parsed;
+}
+
 bool _publishedCircuitEnabled(String? value) {
   switch (value?.trim().toLowerCase()) {
     case '1':
@@ -79,8 +88,47 @@ bool _publishedCircuitEnabled(String? value) {
   return false;
 }
 
+Future<void> _startEmbeddedEndpoint(
+  String name,
+  EmbeddedNodeController controller,
+) async {
+  await controller.start();
+  final status = controller.current;
+  if (status.phase != NodePhase.connected) {
+    throw StateError(
+      '$name embedded node failed to start: '
+      '${status.phase.name}${status.message == null ? '' : ' ${status.message}'}',
+    );
+  }
+}
+
+Future<void> _waitForActivePeers(
+  String name,
+  VeilFlutterTransport transport, {
+  required int minActive,
+  Duration timeout = const Duration(seconds: 60),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  var lastActive = 0;
+  while (DateTime.now().isBefore(deadline)) {
+    final peers = await transport.peers();
+    lastActive = peers.where((p) => p.isActive).length;
+    if (lastActive >= minActive) {
+      stderr.writeln('[onion-file-live] $name active peers: $lastActive');
+      return;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+  }
+  throw TimeoutException(
+    '$name active peers $lastActive/$minActive',
+    timeout,
+  );
+}
+
 void main() {
   final dylib = Platform.environment['VEIL_FFI_DYLIB'];
+  final cfgA = Platform.environment['XVEIL_EMBED_CONFIG_A'];
+  final cfgB = Platform.environment['XVEIL_EMBED_CONFIG_B'];
   final sockA = Platform.environment['XVEIL_TEST_SOCK_A'];
   final sockB = Platform.environment['XVEIL_TEST_SOCK_B'];
   final circuitMode = Platform.environment['VEIL_ONION_STREAM_CIRCUIT'];
@@ -90,6 +138,8 @@ void main() {
   final minMiBPerSec = double.tryParse(
     Platform.environment['XVEIL_TEST_MIN_MIB_PER_SEC'] ?? '',
   );
+  final warmupSeconds = _envInt('XVEIL_EMBED_WARMUP_SECONDS', 12).clamp(0, 300);
+  final minActivePeers = _envInt('XVEIL_EMBED_MIN_ACTIVE_PEERS', 2);
   final skip =
       (dylib == null ||
           dylib.isEmpty ||
@@ -105,11 +155,58 @@ void main() {
   test(
     'A -> B file completes intact over published pinned onion streams',
     () async {
-      DynamicLibrary.open(dylib!); // preload native symbols for veil_flutter.
+      final lib = DynamicLibrary.open(
+        dylib!,
+      ); // preload native symbols for veil_flutter.
       expect(size, greaterThan(0));
+
+      final embedded =
+          cfgA != null && cfgA.isNotEmpty && cfgB != null && cfgB.isNotEmpty;
+      EmbeddedNodeController? controllerA;
+      EmbeddedNodeController? controllerB;
+      if (embedded) {
+        controllerA = EmbeddedNodeController(
+          configPath: cfgA,
+          appSocketPath: sockA!,
+          lib: lib,
+          readinessTimeout: const Duration(seconds: 60),
+        );
+        controllerB = EmbeddedNodeController(
+          configPath: cfgB,
+          appSocketPath: sockB!,
+          lib: lib,
+          readinessTimeout: const Duration(seconds: 60),
+        );
+        addTearDown(() async {
+          stderr.writeln('[onion-file-live] teardown: embedded controllers');
+          await controllerA?.dispose();
+          await controllerB?.dispose();
+        });
+        stderr.writeln(
+          '[onion-file-live] starting embedded endpoints '
+          'cfgA=$cfgA cfgB=$cfgB',
+        );
+        await Future.wait([
+          _startEmbeddedEndpoint('A', controllerA),
+          _startEmbeddedEndpoint('B', controllerB),
+        ]).timeout(const Duration(seconds: 75));
+        if (warmupSeconds > 0) {
+          stderr.writeln(
+            '[onion-file-live] endpoints connected; '
+            'warming rendezvous for ${warmupSeconds}s',
+          );
+          await Future<void>.delayed(Duration(seconds: warmupSeconds));
+        }
+      }
 
       final tA = await VeilFlutterTransport.connect(sockA!);
       final tB = await VeilFlutterTransport.connect(sockB!);
+      if (embedded) {
+        await Future.wait([
+          _waitForActivePeers('A', tA, minActive: minActivePeers),
+          _waitForActivePeers('B', tB, minActive: minActivePeers),
+        ]).timeout(const Duration(seconds: 75));
+      }
       final sA = HiddenVolumeStorage(_memOpener());
       final sB = HiddenVolumeStorage(_memOpener());
       await sA.open(password: 'a', createIfMissing: true);
