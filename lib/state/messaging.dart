@@ -4976,14 +4976,10 @@ class MessagingService {
     }
   }
 
-  Future<void> dispose() async {
-    _disposed = true; // stops the stream accept loop
-    _retryTimer?.cancel();
-    _retryTimer = null;
-    _contentTimer?.cancel();
-    _contentTimer = null;
-    await _sub?.cancel();
-    _sub = null;
+  @visibleForTesting
+  Future<void> dropLiveServingStateForTest() => _clearServingState();
+
+  Future<void> _clearServingState() async {
     // Release any open serve-from-source file handles.
     for (final v in _serving.values) {
       if (v.source != null) unawaited(v.source!.close());
@@ -4996,6 +4992,17 @@ class MessagingService {
     }
     _retiredAfterStream.clear();
     _activeStreamServes.clear();
+  }
+
+  Future<void> dispose() async {
+    _disposed = true; // stops the stream accept loop
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _contentTimer?.cancel();
+    _contentTimer = null;
+    await _sub?.cancel();
+    _sub = null;
+    await _clearServingState();
     // Cancel reoffer timers + close any parked download sinks.
     for (final t in _pendingTimers.values) {
       t.cancel();
