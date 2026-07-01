@@ -63,6 +63,15 @@ elif [[ "$NODE_MODE" == "embedded-endpoints" ]]; then
 else
   LOG_LEVEL="info,veil_node_runtime=debug"
 fi
+TEST_RUST_LOG="${ONION_STREAM_LIVE_TEST_RUST_LOG:-$LOG_LEVEL}"
+if [[ -z "${ONION_STREAM_LIVE_TEST_RUST_LOG:-}" && -z "${ONION_STREAM_LIVE_RUST_LOG:-}" && "$NODE_MODE" == "embedded-endpoints" ]]; then
+  # The embedded endpoints run inside Flutter's test protocol process. High-volume
+  # session WARNs (notably backpressure/rate-limit state flips) can flood stdout
+  # hard enough to make the Flutter runner fail while the transfer itself is
+  # healthy. Keep relay-node logs at LOG_LEVEL, but default the in-process
+  # endpoint runtime to errors only.
+  TEST_RUST_LOG="error"
+fi
 CONFIG_LOG_LEVEL="${ONION_STREAM_LIVE_NODE_CONFIG_LOG_LEVEL:-}"
 DART_DEFINES=()
 
@@ -343,6 +352,18 @@ strip_listen_blocks() {
   mv "$tmp" "$cfg"
 }
 
+strip_bootstrap_blocks() {
+  local cfg="$1"
+  local tmp="$cfg.tmp"
+  awk '
+    /^\[\[bootstrap_peers\]\][[:space:]]*$/ { skip = 1; next }
+    /^\[\[[^]]+\]\][[:space:]]*$/ { skip = 0 }
+    /^\[[^]]+\][[:space:]]*$/ { skip = 0 }
+    !skip { print }
+  ' "$cfg" >"$tmp"
+  mv "$tmp" "$cfg"
+}
+
 set_config_log_level() {
   local cfg="$1"
   local level="$2"
@@ -595,13 +616,35 @@ mk_node "$NODES/m1" 9232
 mk_node "$NODES/m2" 9233
 
 echo "==> peering local mesh"
-for a in "${peers[@]}"; do
-  for b in "${peers[@]}"; do
-    [[ "$a" == "$b" ]] && continue
-    "$BIN" -c "$NODES/$a/config.toml" bootstrap join \
-      --uri "$(invite_of "$NODES/$b")" >/dev/null 2>&1 || true
+if [[ "$NODE_MODE" == "embedded-endpoints" ]]; then
+  for n in "${peers[@]}"; do
+    strip_bootstrap_blocks "$NODES/$n/config.toml"
   done
-done
+  for endpoint in a b; do
+    for relay in m1 m2; do
+      "$BIN" -c "$NODES/$endpoint/config.toml" bootstrap join \
+        --uri "$(invite_of "$NODES/$relay")" >/dev/null 2>&1 || true
+    done
+  done
+  relay_low=m1
+  relay_high=m2
+  relay_m1_id_for_bootstrap="$(node_id_of "$NODES/m1")"
+  relay_m2_id_for_bootstrap="$(node_id_of "$NODES/m2")"
+  if [[ "$relay_m2_id_for_bootstrap" < "$relay_m1_id_for_bootstrap" ]]; then
+    relay_low=m2
+    relay_high=m1
+  fi
+  "$BIN" -c "$NODES/$relay_low/config.toml" bootstrap join \
+    --uri "$(invite_of "$NODES/$relay_high")" >/dev/null 2>&1 || true
+else
+  for a in "${peers[@]}"; do
+    for b in "${peers[@]}"; do
+      [[ "$a" == "$b" ]] && continue
+      "$BIN" -c "$NODES/$a/config.toml" bootstrap join \
+        --uri "$(invite_of "$NODES/$b")" >/dev/null 2>&1 || true
+    done
+  done
+fi
 
 echo "==> enabling anonymity roles"
 for n in "${peers[@]}"; do
@@ -713,7 +756,8 @@ if [[ "$RUN_TEST" == "1" ]]; then
   set +e
   (
     cd "$ROOT"
-    VEIL_FFI_DYLIB="$DYLIB" \
+    RUST_LOG="$TEST_RUST_LOG" \
+      VEIL_FFI_DYLIB="$DYLIB" \
       VEIL_ONION_STREAM_CIRCUIT=published \
       XVEIL_EMBED_CONFIG_A="$NODES/a/config.toml" \
       XVEIL_EMBED_CONFIG_B="$NODES/b/config.toml" \
