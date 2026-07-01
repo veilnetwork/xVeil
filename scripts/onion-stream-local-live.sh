@@ -10,14 +10,18 @@ set -euo pipefail
 # Then it runs one of the native live tests with
 # VEIL_ONION_STREAM_CIRCUIT=published. This catches failures that unit-level
 # synthetic tests cannot see. The default file test covers app-level
-# offer/download/finalize; ONION_STREAM_LIVE_TEST=byte runs a narrower raw
+# offer/download/finalize; ONION_STREAM_LIVE_TEST=swarm adds a third endpoint and
+# verifies that a completed receiver can restart its messaging layer and seed the
+# same blob to a third peer that has an anonymity key but does not host an onion
+# service; ONION_STREAM_LIVE_TEST=byte runs a narrower raw
 # anonymous byte-stream transfer to isolate native stream/FFI failures from the
 # file/range layer.
 #
 # Useful knobs:
 #   ONION_STREAM_LIVE_BUILD=auto|0|1     build release native artifacts if needed
 #   ONION_STREAM_LIVE_RUN_TEST=1|0       run Flutter test after nodes are ready
-#   ONION_STREAM_LIVE_TEST=file|byte     which native live test to run
+#   ONION_STREAM_LIVE_TEST=file|swarm|byte
+#                                      which native live test to run
 #   ONION_STREAM_LIVE_NODE_MODE=external|embedded-endpoints
 #                                      external starts A/B/M1/M2 as veil-cli;
 #                                      embedded-endpoints starts only M1/M2 as
@@ -85,6 +89,9 @@ esac
 BIN="${VEIL_CLI:-$VEIL/target/$PROFILE/veil-cli}"
 DYLIB="${VEIL_FFI_DYLIB:-$VEIL/target/$PROFILE/libveilclient_ffi.$DYLIB_EXT}"
 peers=(a b m1 m2)
+app_peers=(a b)
+receiver_peers=(a b)
+relay_peers=(m1 m2)
 pids=()
 flutter_pid=""
 cleaned_up=0
@@ -96,12 +103,22 @@ if ! [[ "$MINT_DIFFICULTY" =~ ^[0-9]+$ ]] || (( MINT_DIFFICULTY < 24 )); then
 fi
 case "$LIVE_TEST" in
   file) LIVE_TEST_PATH="test/native/onion_stream_file_live_test.dart" ;;
+  swarm) LIVE_TEST_PATH="test/native/onion_stream_swarm_live_test.dart" ;;
   byte) LIVE_TEST_PATH="test/native/onion_stream_byte_live_test.dart" ;;
   *)
-    echo "ONION_STREAM_LIVE_TEST must be 'file' or 'byte'." >&2
+    echo "ONION_STREAM_LIVE_TEST must be 'file', 'swarm', or 'byte'." >&2
     exit 2
     ;;
 esac
+if [[ "$LIVE_TEST" == "swarm" ]]; then
+  peers=(a b c m1 m2)
+  app_peers=(a b c)
+  # C only initiates the B->C pull. It needs an anonymity key for outbound
+  # anonymous circuits, but does not need to host a location-hidden onion
+  # service; doing that on the tiny 2-relay local mesh can drown the test in
+  # registration/control traffic before the file path is exercised.
+  receiver_peers=(a b)
+fi
 case "$NODE_MODE" in
   external) ;;
   embedded-endpoints)
@@ -199,6 +216,7 @@ seed_path_for() {
   case "$1" in
     a) printf '%s\n' "$SEED_DIR/send" ;;
     b) printf '%s\n' "$SEED_DIR/fetch" ;;
+    c) printf '%s\n' "$SEED_DIR/c" ;;
     m1) printf '%s\n' "$SEED_DIR/mid1" ;;
     m2) printf '%s\n' "$SEED_DIR/mid2" ;;
     *) return 1 ;;
@@ -518,7 +536,7 @@ stop_existing_nodes() {
   fi
 
   if command -v lsof >/dev/null 2>&1; then
-    old_pids="$(lsof -tiTCP:9230-9233 -sTCP:LISTEN 2>/dev/null || true)"
+    old_pids="$(lsof -tiTCP:9230-9234 -sTCP:LISTEN 2>/dev/null || true)"
     [[ -n "$old_pids" ]] || return 0
     echo "==> stopping stale local onion-stream port listeners"
     while read -r pid; do
@@ -563,7 +581,7 @@ stop_existing_flutter_tests() {
   fi
 
   if command -v lsof >/dev/null 2>&1; then
-    old_pids="$(lsof -tiTCP:9230-9233 -sTCP:LISTEN 2>/dev/null || true)"
+    old_pids="$(lsof -tiTCP:9230-9234 -sTCP:LISTEN 2>/dev/null || true)"
     [[ -n "$old_pids" ]] || return 0
     echo "==> stopping stale local onion-stream port listeners"
     while read -r pid; do
@@ -612,7 +630,7 @@ cleanup() {
   if [[ "$lock_acquired" == "1" ]]; then
     rm -rf "$LOCK_DIR" 2>/dev/null || true
   fi
-  echo "logs: $NODES/{a,b,m1,m2}/node.log"
+  echo "logs: $NODES/{a,b,c,m1,m2}/node.log"
   exit "$code"
 }
 trap cleanup EXIT INT TERM
@@ -626,6 +644,9 @@ stop_existing_nodes
 echo "==> provisioning local onion-stream mesh (difficulty $MINT_DIFFICULTY)"
 mk_node "$NODES/a" 9230
 mk_node "$NODES/b" 9231
+if [[ "$LIVE_TEST" == "swarm" ]]; then
+  mk_node "$NODES/c" 9234
+fi
 mk_node "$NODES/m1" 9232
 mk_node "$NODES/m2" 9233
 
@@ -634,8 +655,8 @@ if [[ "$NODE_MODE" == "embedded-endpoints" ]]; then
   for n in "${peers[@]}"; do
     strip_bootstrap_blocks "$NODES/$n/config.toml"
   done
-  for endpoint in a b; do
-    for relay in m1 m2; do
+  for endpoint in "${app_peers[@]}"; do
+    for relay in "${relay_peers[@]}"; do
       "$BIN" -c "$NODES/$endpoint/config.toml" bootstrap join \
         --uri "$(invite_of "$NODES/$relay")" >/dev/null 2>&1 || true
     done
@@ -668,8 +689,9 @@ if [[ "$NODE_MODE" == "embedded-endpoints" ]]; then
   # Embedded endpoints model mobile/desktop clients: they only need outbound
   # sessions to relay-capable peers, so do not bind fixed TCP ports 9230/9231
   # inside the Flutter test process.
-  strip_listen_blocks "$NODES/a/config.toml"
-  strip_listen_blocks "$NODES/b/config.toml"
+  for endpoint in "${app_peers[@]}"; do
+    strip_listen_blocks "$NODES/$endpoint/config.toml"
+  done
 fi
 relay_m1="$(node_id_of "$NODES/m1")"
 relay_m2="$(node_id_of "$NODES/m2")"
@@ -677,8 +699,13 @@ relay_m2="$(node_id_of "$NODES/m2")"
   echo "failed to read m1/m2 node ids for rendezvous pinning" >&2
   exit 1
 }
-printf '\n[anonymity]\nreceive_anonymous = true\nonion_service = true\nrendezvous_relays = ["%s", "%s"]\n' "$relay_m1" "$relay_m2" >>"$NODES/a/config.toml"
-printf '\n[anonymity]\nreceive_anonymous = true\nonion_service = true\nrendezvous_relays = ["%s", "%s"]\n' "$relay_m1" "$relay_m2" >>"$NODES/b/config.toml"
+for endpoint in "${app_peers[@]}"; do
+  if [[ " ${receiver_peers[*]} " == *" $endpoint "* ]]; then
+    printf '\n[anonymity]\nreceive_anonymous = true\nonion_service = true\nrendezvous_relays = ["%s", "%s"]\n' "$relay_m1" "$relay_m2" >>"$NODES/$endpoint/config.toml"
+  else
+    printf '\n[anonymity]\nreceive_anonymous = true\nrendezvous_relays = ["%s", "%s"]\n' "$relay_m1" "$relay_m2" >>"$NODES/$endpoint/config.toml"
+  fi
+done
 printf '\n[anonymity]\nrelay_capable = true\n' >>"$NODES/m1/config.toml"
 printf '\n[anonymity]\nrelay_capable = true\n' >>"$NODES/m2/config.toml"
 
@@ -689,7 +716,12 @@ rm -f "$NODES"/*/dht_values.json "$NODES"/*/app.sock "$NODES"/*/app.tmp \
 echo "==> starting nodes ($NODE_MODE)"
 start_peers=("${peers[@]}")
 if [[ "$NODE_MODE" == "embedded-endpoints" ]]; then
-  start_peers=(m1 m2)
+  start_peers=("${relay_peers[@]}")
+  if [[ "$LIVE_TEST" == "swarm" ]]; then
+    # Keep A/B embedded (matching phone/desktop), but run C out-of-process so
+    # the Flutter test protocol is not carrying three embedded runtimes.
+    start_peers+=(c)
+  fi
 fi
 for n in "${start_peers[@]}"; do
   start_node_process "$n"
@@ -698,7 +730,12 @@ done
 echo "==> waiting for app sockets"
 socket_peers=(a b)
 if [[ "$NODE_MODE" == "embedded-endpoints" ]]; then
-  socket_peers=(m1 m2)
+  socket_peers=("${relay_peers[@]}")
+  if [[ "$LIVE_TEST" == "swarm" ]]; then
+    socket_peers+=(c)
+  fi
+else
+  socket_peers=("${app_peers[@]}")
 fi
 for i in $(seq 1 90); do
   sockets_ready=1
@@ -734,11 +771,17 @@ done
 }
 
 if [[ "$NODE_MODE" == "external" ]]; then
-  echo "==> waiting for A and B rendezvous registrations"
+  echo "==> waiting for endpoint rendezvous registrations"
   registered=0
   for i in $(seq 1 180); do
-    if rendezvous_registered "$NODES/a/node.log" &&
-      rendezvous_registered "$NODES/b/node.log"; then
+    all_registered=1
+    for endpoint in "${receiver_peers[@]}"; do
+      if ! rendezvous_registered "$NODES/$endpoint/node.log"; then
+        all_registered=0
+        break
+      fi
+    done
+    if [[ "$all_registered" == "1" ]]; then
       registered=1
       break
     fi
@@ -753,7 +796,7 @@ if [[ "$NODE_MODE" == "external" ]]; then
     sleep 1
   done
   if [[ "$registered" != "1" ]]; then
-    echo "A/B did not both register rendezvous relays within 180s" >&2
+    echo "endpoints did not all register rendezvous relays within 180s" >&2
     tail_node_logs >&2
     exit 1
   fi
@@ -766,6 +809,10 @@ if [[ "$RUN_TEST" == "1" ]]; then
   echo "==> running live $LIVE_TEST transfer"
   test_code=0
   test_log="$NODES/flutter-test.log"
+  embed_config_c="$NODES/c/config.toml"
+  if [[ "$NODE_MODE" == "embedded-endpoints" && "$LIVE_TEST" == "swarm" ]]; then
+    embed_config_c=""
+  fi
   rm -f "$test_log"
   set +e
   (
@@ -775,8 +822,10 @@ if [[ "$RUN_TEST" == "1" ]]; then
       VEIL_ONION_STREAM_CIRCUIT=published \
       XVEIL_EMBED_CONFIG_A="$NODES/a/config.toml" \
       XVEIL_EMBED_CONFIG_B="$NODES/b/config.toml" \
+      XVEIL_EMBED_CONFIG_C="$embed_config_c" \
       XVEIL_TEST_SOCK_A="$NODES/a/app.sock" \
       XVEIL_TEST_SOCK_B="$NODES/b/app.sock" \
+      XVEIL_TEST_SOCK_C="$NODES/c/app.sock" \
       flutter test --timeout="$TEST_TIMEOUT" "${DART_DEFINES[@]}" \
         "$LIVE_TEST_PATH"
   ) > >(tee "$test_log") 2>&1 &
@@ -803,8 +852,10 @@ Run:
   VEIL_ONION_STREAM_CIRCUIT=published \\
   XVEIL_EMBED_CONFIG_A="$NODES/a/config.toml" \\
   XVEIL_EMBED_CONFIG_B="$NODES/b/config.toml" \\
+  XVEIL_EMBED_CONFIG_C="$NODES/c/config.toml" \\
   XVEIL_TEST_SOCK_A="$NODES/a/app.sock" \\
   XVEIL_TEST_SOCK_B="$NODES/b/app.sock" \\
+  XVEIL_TEST_SOCK_C="$NODES/c/app.sock" \\
   flutter test "$LIVE_TEST_PATH"
 
 EOF

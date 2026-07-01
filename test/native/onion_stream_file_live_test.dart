@@ -43,15 +43,59 @@ SpaceOpener _memOpener() {
   return ({required password, required bool create}) => store;
 }
 
-Uint8List _payload(int size) {
-  final out = Uint8List(size);
-  var x = 0x5eed1234;
-  for (var i = 0; i < size; i++) {
-    // Deterministic, cheap, and non-repeating enough to catch ordering/holes.
-    x = (1664525 * x + 1013904223) & 0xffffffff;
-    out[i] = (x >> 16) & 0xff;
+Future<HiddenVolumeStorage> _openTestStorage(
+  String name,
+  List<Directory> blobDirs,
+) async {
+  final storage = HiddenVolumeStorage(_memOpener());
+  final dir = await Directory.systemTemp.createTemp('xveil-onion-file-$name-');
+  blobDirs.add(dir);
+  // The live synthetic can use 128 MiB+ payloads. Keep FakeKvLogStore for the
+  // small metadata/event log, but route blob pieces to the production encrypted
+  // on-disk tier so the test measures the network, not harness heap size.
+  storage.useOnDiskTier(dir, minBytes: 0);
+  await storage.open(password: name, createIfMissing: true);
+  return storage;
+}
+
+int _payloadByte(int offset, int seed) {
+  // Deterministic random-access byte: cheap, non-repeating enough for ordering
+  // checks, and computable for any range without materialising the whole file.
+  var x = (offset ^ (0x5eed1234 + seed * 0x9e3779b9)) & 0xffffffff;
+  x ^= x >> 16;
+  x = (x * 0x7feb352d) & 0xffffffff;
+  x ^= x >> 15;
+  x = (x * 0x846ca68b) & 0xffffffff;
+  x ^= x >> 16;
+  return x & 0xff;
+}
+
+Uint8List _payloadRange(int offset, int length, {int seed = 1}) {
+  final out = Uint8List(length);
+  for (var i = 0; i < length; i++) {
+    out[i] = _payloadByte(offset + i, seed);
   }
   return out;
+}
+
+Future<void> _expectStoredPayload(
+  HiddenVolumeStorage storage,
+  String contentId,
+  int size, {
+  int seed = 1,
+}) async {
+  expect(await storage.hasFile(contentId), isTrue);
+  const step = 1024 * 1024;
+  for (var offset = 0; offset < size; offset += step) {
+    final length = min(step, size - offset);
+    final got = await storage.readFileRange(contentId, offset, length);
+    expect(got, isNotNull, reason: 'stored range @$offset+$length exists');
+    expect(
+      got,
+      _payloadRange(offset, length, seed: seed),
+      reason: 'stored range @$offset+$length matches source',
+    );
+  }
 }
 
 Future<bool> _until(
@@ -119,10 +163,7 @@ Future<void> _waitForActivePeers(
     }
     await Future<void>.delayed(const Duration(milliseconds: 250));
   }
-  throw TimeoutException(
-    '$name active peers $lastActive/$minActive',
-    timeout,
-  );
+  throw TimeoutException('$name active peers $lastActive/$minActive', timeout);
 }
 
 void main() {
@@ -207,10 +248,16 @@ void main() {
           _waitForActivePeers('B', tB, minActive: minActivePeers),
         ]).timeout(const Duration(seconds: 75));
       }
-      final sA = HiddenVolumeStorage(_memOpener());
-      final sB = HiddenVolumeStorage(_memOpener());
-      await sA.open(password: 'a', createIfMissing: true);
-      await sB.open(password: 'b', createIfMissing: true);
+      final blobDirs = <Directory>[];
+      addTearDown(() async {
+        for (final dir in blobDirs.reversed) {
+          if (await dir.exists()) {
+            await dir.delete(recursive: true);
+          }
+        }
+      });
+      final sA = await _openTestStorage('a', blobDirs);
+      final sB = await _openTestStorage('b', blobDirs);
       final streamRangeParallelism = xveilConfiguredStreamRangeParallelism();
       final streamRangeTargetBytes = xveilConfiguredStreamRangeTargetBytes();
       stderr.writeln(
@@ -260,14 +307,13 @@ void main() {
       mA.start();
       mB.start();
 
-      final data = _payload(size);
       final cid = await mA.sendFileStreaming(
         bId,
         'onion-live-$size.bin',
-        data.length,
+        size,
         (offset, length) async {
-          final end = min(offset + length, data.length);
-          return Uint8List.sublistView(data, offset, end);
+          final end = min(offset + length, size);
+          return _payloadRange(offset, end - offset);
         },
         close: () async {},
       );
@@ -307,14 +353,12 @@ void main() {
       await completed.timeout(const Duration(minutes: 5));
       sw.stop();
 
-      final got = await sB.loadFile(contentId);
-      expect(got, isNotNull);
-      expect(got, data);
+      await _expectStoredPayload(sB, contentId, size);
 
       final seconds = max(sw.elapsedMicroseconds / 1000000.0, 0.001);
-      final mibPerSec = data.length / seconds / 1024 / 1024;
+      final mibPerSec = size / seconds / 1024 / 1024;
       stderr.writeln(
-        '[onion-file-live] completed ${data.length}B in '
+        '[onion-file-live] completed ${size}B in '
         '${seconds.toStringAsFixed(3)}s = '
         '${mibPerSec.toStringAsFixed(3)} MiB/s '
         '(progressEvents=$progressEvents lastDone=$lastDone)',
