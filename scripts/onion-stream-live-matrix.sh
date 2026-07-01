@@ -60,12 +60,7 @@ case "$LIVE_TEST" in
 esac
 case "$NODE_MODE" in
   external) ;;
-  embedded-endpoints)
-    if [[ "$LIVE_TEST" != "byte" ]]; then
-      echo "ONION_STREAM_MATRIX_NODE_MODE=embedded-endpoints currently requires ONION_STREAM_MATRIX_LIVE_TEST=byte." >&2
-      exit 2
-    fi
-    ;;
+  embedded-endpoints) ;;
   *)
     echo "ONION_STREAM_MATRIX_NODE_MODE must be 'external' or 'embedded-endpoints'." >&2
     exit 2
