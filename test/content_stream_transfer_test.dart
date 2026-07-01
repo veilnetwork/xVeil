@@ -136,6 +136,29 @@ class _CloseOnWriteStream implements ReliableStream {
   }
 }
 
+class _OnCloseStream implements ReliableStream {
+  _OnCloseStream(this._inner, {required this.onClose});
+
+  final ReliableStream _inner;
+  final void Function() onClose;
+  bool _closed = false;
+
+  @override
+  Future<void> write(Uint8List data) => _inner.write(data);
+
+  @override
+  Future<Uint8List> read({int maxBytes = 65536}) =>
+      _inner.read(maxBytes: maxBytes);
+
+  @override
+  Future<void> close() async {
+    if (_closed) return;
+    _closed = true;
+    onClose();
+    await _inner.close();
+  }
+}
+
 class _GateWriteStream implements ReliableStream {
   _GateWriteStream(
     this._inner, {
@@ -897,6 +920,80 @@ void main() {
         tB.openStreamAttemptCount,
         greaterThan(tB.openedStreamCount),
         reason: 'at least one stream open should have hit the down route first',
+      );
+    },
+  );
+
+  test(
+    'STREAM range download resumes after a mid-transfer route flap',
+    () async {
+      await mA.dispose();
+      await mB.dispose();
+      mA = MessagingService(
+        tA,
+        sA,
+        contentPacing: Duration.zero,
+        streamRangeParallelism: 1,
+        streamRangeTargetBytes: ContentManifest.defaultPieceSize,
+        streamPullMaxAttempts: 8,
+      )..start();
+      mB = MessagingService(
+        tB,
+        sB,
+        contentPacing: Duration.zero,
+        streamRangeParallelism: 1,
+        streamRangeTargetBytes: ContentManifest.defaultPieceSize,
+        streamPullMaxAttempts: 8,
+      )..start();
+
+      final data = _rnd(ContentManifest.defaultPieceSize * 3 + 777, 127);
+      final cid = ContentManifest.fromBytes(
+        'mid-route-flap.bin',
+        data,
+      ).contentId;
+      await mB.setFileDownloadPolicy(
+        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+
+      await mA.sendFileStreaming(
+        b,
+        'mid-route-flap.bin',
+        data.length,
+        (o, l) async => Uint8List.sublistView(data, o, o + l),
+        close: () async {},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      var flapped = false;
+      tA.acceptStreamWrappers.add(
+        (stream) => _OnCloseStream(
+          stream,
+          onClose: () {
+            if (flapped) return;
+            flapped = true;
+            tA.peer = null;
+            tB.peer = null;
+            unawaited(
+              Future<void>.delayed(const Duration(milliseconds: 350), () {
+                tA.peer = tB;
+                tB.peer = tA;
+              }),
+            );
+          },
+        ),
+      );
+
+      final got = mB.contentReceived.firstWhere((e) => e.contentId == cid);
+      expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+      final ev = await got.timeout(const Duration(seconds: 20));
+
+      expect(ev.contentId, cid);
+      expect(await sB.loadFile(cid), data);
+      expect(flapped, isTrue, reason: 'the synthetic route flap should run');
+      expect(
+        tB.openStreamAttemptCount,
+        greaterThan(tB.openedStreamCount),
+        reason: 'at least one retry should hit the down route mid-transfer',
       );
     },
   );
