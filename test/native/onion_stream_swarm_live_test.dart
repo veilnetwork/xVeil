@@ -210,6 +210,12 @@ void main() {
   final sockB = Platform.environment['XVEIL_TEST_SOCK_B'];
   final sockC = Platform.environment['XVEIL_TEST_SOCK_C'];
   final circuitMode = Platform.environment['VEIL_ONION_STREAM_CIRCUIT'];
+  final finalPuller = (Platform.environment['XVEIL_SWARM_FINAL_PULLER'] ?? 'C')
+      .trim()
+      .toUpperCase();
+  final finalPullerIsA = finalPuller == 'A';
+  final finalPullerIsC = finalPuller == 'C';
+  final useThirdPeer = finalPullerIsC;
   final size =
       int.tryParse(Platform.environment['XVEIL_TEST_FILE_SIZE'] ?? '') ??
       8 * 1024 * 1024;
@@ -230,22 +236,24 @@ void main() {
           sockA.isEmpty ||
           sockB == null ||
           sockB.isEmpty ||
-          sockC == null ||
-          sockC.isEmpty)
-      ? 'set VEIL_FFI_DYLIB + XVEIL_TEST_SOCK_A/B/C'
+          (useThirdPeer && (sockC == null || sockC.isEmpty)))
+      ? 'set VEIL_FFI_DYLIB + XVEIL_TEST_SOCK_A/B'
+            '${useThirdPeer ? '/C' : ''}'
+      : (!finalPullerIsA && !finalPullerIsC)
+      ? 'XVEIL_SWARM_FINAL_PULLER must be A or C'
       : (!_publishedCircuitEnabled(circuitMode)
             ? 'set VEIL_ONION_STREAM_CIRCUIT=published to test the pinned circuit'
             : false);
 
   test(
-    'A -> B -> restarted B -> C completes intact over published onion streams',
+    'A -> B -> restarted B -> $finalPuller completes intact over published onion streams',
     () async {
       final lib = DynamicLibrary.open(dylib!);
       expect(size, greaterThan(0));
 
       final embedA = cfgA != null && cfgA.isNotEmpty;
       final embedB = cfgB != null && cfgB.isNotEmpty;
-      final embedC = cfgC != null && cfgC.isNotEmpty;
+      final embedC = useThirdPeer && cfgC != null && cfgC.isNotEmpty;
       final hasEmbeddedEndpoint = embedA || embedB || embedC;
       EmbeddedNodeController? controllerA;
       EmbeddedNodeController? controllerB;
@@ -312,12 +320,15 @@ void main() {
 
       final tA = await VeilFlutterTransport.connect(sockA!);
       final tB = await VeilFlutterTransport.connect(sockB!);
-      final tC = await VeilFlutterTransport.connect(sockC!);
+      final tC = useThirdPeer
+          ? await VeilFlutterTransport.connect(sockC!)
+          : null;
       if (hasEmbeddedEndpoint) {
         await Future.wait([
           _waitForActivePeers('A', tA, minActive: minActivePeers),
           _waitForActivePeers('B', tB, minActive: minActivePeers),
-          _waitForActivePeers('C', tC, minActive: minActivePeers),
+          if (tC != null)
+            _waitForActivePeers('C', tC, minActive: minActivePeers),
         ]).timeout(const Duration(seconds: 90));
       }
 
@@ -331,7 +342,7 @@ void main() {
       });
       final sA = await _openTestStorage('a', blobDirs);
       final sB = await _openTestStorage('b', blobDirs);
-      final sC = await _openTestStorage('c', blobDirs);
+      final sC = useThirdPeer ? await _openTestStorage('c', blobDirs) : null;
       final streamRangeParallelism = xveilConfiguredStreamRangeParallelism();
       final streamRangeTargetBytes = xveilConfiguredStreamRangeTargetBytes();
       stderr.writeln(
@@ -356,7 +367,7 @@ void main() {
 
       final mA = makeService(tA, sA);
       var mB = makeService(tB, sB);
-      final mC = makeService(tC, sC);
+      final mC = tC == null || sC == null ? null : makeService(tC, sC);
       final progressSubs =
           <StreamSubscription<({String contentId, int done, int total})>>[];
 
@@ -366,39 +377,41 @@ void main() {
         }
         await mA.dispose();
         await mB.dispose();
-        await mC.dispose();
+        await mC?.dispose();
         await tA.dispose();
         await tB.dispose();
-        await tC.dispose();
+        await tC?.dispose();
         await sA.close();
         await sB.close();
-        await sC.close();
+        await sC?.close();
       });
 
       final aId = await tA.nodeId();
       final bId = await tB.nodeId();
-      final cId = await tC.nodeId();
+      final cId = tC == null ? null : await tC.nodeId();
       await sA.upsertContact(
         Contact(nodeId: bId, status: ContactStatus.accepted),
       );
       await sB.upsertContact(
         Contact(nodeId: aId, status: ContactStatus.accepted),
       );
-      await sB.upsertContact(
-        Contact(nodeId: cId, status: ContactStatus.accepted),
-      );
-      await sC.upsertContact(
-        Contact(nodeId: bId, status: ContactStatus.accepted),
-      );
+      if (cId != null && sC != null) {
+        await sB.upsertContact(
+          Contact(nodeId: cId, status: ContactStatus.accepted),
+        );
+        await sC.upsertContact(
+          Contact(nodeId: bId, status: ContactStatus.accepted),
+        );
+      }
       await mB.setFileDownloadPolicy(
         mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
       );
-      await mC.setFileDownloadPolicy(
+      await mC?.setFileDownloadPolicy(
         mC.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
       );
       mA.start();
       mB.start();
-      mC.start();
+      mC?.start();
 
       await _warmupMessagePath(
         label: 'A-to-B',
@@ -474,65 +487,137 @@ void main() {
         );
 
         if (restartSeeder) {
-          stderr.writeln(
-            '[onion-swarm-live] restarting B messaging layer before C pull',
-          );
-          await mB.dispose();
-          // The old accept loop can be parked in acceptStream(timeout: 2s).
-          // In a real process restart it disappears immediately; inside this
-          // single test process, let that pending accept drain before the new
-          // MessagingService starts competing for inbound streams.
-          await Future<void>.delayed(const Duration(milliseconds: 2500));
-          mB = makeService(tB, sB);
-          mB.start();
-          await Future<void>.delayed(const Duration(milliseconds: 250));
+          if (finalPullerIsA) {
+            stderr.writeln(
+              '[onion-swarm-live] dropping B live serving state before A pull',
+            );
+            await mB.dropLiveServingStateForTest();
+          } else {
+            stderr.writeln(
+              '[onion-swarm-live] restarting B messaging layer before '
+              '$finalPuller pull',
+            );
+            await mB.dispose();
+            // The old accept loop can be parked in acceptStream(timeout: 2s).
+            // In a real process restart it disappears immediately; inside this
+            // single test process, let that pending accept drain before the new
+            // MessagingService starts competing for inbound streams.
+            await Future<void>.delayed(const Duration(milliseconds: 2500));
+            mB = makeService(tB, sB);
+            mB.start();
+            await Future<void>.delayed(const Duration(milliseconds: 250));
+          }
         }
 
-        await _warmupMessagePath(
-          label: 'B-to-C',
-          from: mB,
-          fromId: bId,
-          toId: cId,
-          recipientStorage: sC,
-          timeout: stageTimeout,
-        );
+        if (useThirdPeer) {
+          final puller = mC!;
+          final pullerStorage = sC!;
+          await _warmupMessagePath(
+            label: 'B-to-C',
+            from: mB,
+            fromId: bId,
+            toId: cId!,
+            recipientStorage: pullerStorage,
+            timeout: stageTimeout,
+          );
 
-        var cProgressEvents = 0;
-        progressSubs.add(
-          mC.contentProgress.where((e) => e.contentId == contentId).listen((e) {
-            cProgressEvents++;
-            stderr.writeln(
-              '[onion-swarm-live] B->C progress ${e.done}/${e.total} '
-              '(${(100 * e.done / e.total).toStringAsFixed(1)}%)',
-            );
-          }),
-        );
-        final completedC = mC.contentReceived.firstWhere(
-          (e) => e.contentId == contentId,
-        );
-        final swBC = Stopwatch()..start();
-        expect(
-          await mC.downloadContent(bId, contentId),
-          ContentDownloadResult.started,
-        );
-        await completedC.timeout(
-          stageTimeout,
-          onTimeout: () => throw TimeoutException(
-            'C did not complete B->C content=$contentId',
+          var cProgressEvents = 0;
+          progressSubs.add(
+            puller.contentProgress
+                .where((e) => e.contentId == contentId)
+                .listen((e) {
+                  cProgressEvents++;
+                  stderr.writeln(
+                    '[onion-swarm-live] B->C progress ${e.done}/${e.total} '
+                    '(${(100 * e.done / e.total).toStringAsFixed(1)}%)',
+                  );
+                }),
+          );
+          final completedC = puller.contentReceived.firstWhere(
+            (e) => e.contentId == contentId,
+          );
+          final swBC = Stopwatch()..start();
+          expect(
+            await puller.downloadContent(bId, contentId),
+            ContentDownloadResult.started,
+          );
+          await completedC.timeout(
             stageTimeout,
-          ),
-        );
-        swBC.stop();
+            onTimeout: () => throw TimeoutException(
+              'C did not complete B->C content=$contentId',
+              stageTimeout,
+            ),
+          );
+          swBC.stop();
 
-        await _expectStoredPayload(sC, contentId, size, seed: seed);
-        stderr.writeln(
-          '[onion-swarm-live] B->C complete '
-          '${(size / max(swBC.elapsedMicroseconds, 1) * 1000000 / 1024 / 1024).toStringAsFixed(3)} MiB/s '
-          '(progressEvents=$cProgressEvents)',
-        );
+          await _expectStoredPayload(
+            pullerStorage,
+            contentId,
+            size,
+            seed: seed,
+          );
+          stderr.writeln(
+            '[onion-swarm-live] B->C complete '
+            '${(size / max(swBC.elapsedMicroseconds, 1) * 1000000 / 1024 / 1024).toStringAsFixed(3)} MiB/s '
+            '(progressEvents=$cProgressEvents)',
+          );
 
-        totalBytes += size * 2;
-        totalMicros += swAB.elapsedMicroseconds + swBC.elapsedMicroseconds;
+          totalBytes += size * 2;
+          totalMicros += swAB.elapsedMicroseconds + swBC.elapsedMicroseconds;
+        } else {
+          await _warmupMessagePath(
+            label: 'B-to-A',
+            from: mB,
+            fromId: bId,
+            toId: aId,
+            recipientStorage: sA,
+            timeout: stageTimeout,
+          );
+          expect(
+            await sA.hasFile(contentId),
+            isFalse,
+            reason: 'A must pull the blob from restarted B, not short-circuit',
+          );
+
+          var aProgressEvents = 0;
+          progressSubs.add(
+            mA.contentProgress.where((e) => e.contentId == contentId).listen((
+              e,
+            ) {
+              aProgressEvents++;
+              stderr.writeln(
+                '[onion-swarm-live] B->A progress ${e.done}/${e.total} '
+                '(${(100 * e.done / e.total).toStringAsFixed(1)}%)',
+              );
+            }),
+          );
+          final completedA = mA.contentReceived.firstWhere(
+            (e) => e.contentId == contentId,
+          );
+          final swBA = Stopwatch()..start();
+          expect(
+            await mA.downloadContent(bId, contentId),
+            ContentDownloadResult.started,
+          );
+          await completedA.timeout(
+            stageTimeout,
+            onTimeout: () => throw TimeoutException(
+              'A did not complete B->A content=$contentId',
+              stageTimeout,
+            ),
+          );
+          swBA.stop();
+
+          await _expectStoredPayload(sA, contentId, size, seed: seed);
+          stderr.writeln(
+            '[onion-swarm-live] B->A complete '
+            '${(size / max(swBA.elapsedMicroseconds, 1) * 1000000 / 1024 / 1024).toStringAsFixed(3)} MiB/s '
+            '(progressEvents=$aProgressEvents)',
+          );
+
+          totalBytes += size * 2;
+          totalMicros += swAB.elapsedMicroseconds + swBA.elapsedMicroseconds;
+        }
       }
 
       final seconds = max(totalMicros / 1000000.0, 0.001);
