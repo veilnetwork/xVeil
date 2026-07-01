@@ -3388,14 +3388,14 @@ class MessagingService {
   static const Duration _streamRangePayloadIdleTimeout = Duration(seconds: 12);
   static const Duration _streamPayloadWriteTimeout = Duration(seconds: 120);
   // Local published-onion file live tests on the 2-relay embedded stand show
-  // the range stream path is reliable at 4 workers (64 MiB ≈3.1 MiB/s). Higher
-  // counts can peak faster, but 6/8 have shown intermittent relay/session
-  // detaches and 12 overloads reliably, so keep the normal app path below the
-  // observed unstable region.
-  static const int _defaultStreamRangeParallelism = 4;
-  static const int _maxStreamRangeParallelism = 8;
+  // the range stream path is reliable at 5 workers with ~1 MiB ranges
+  // (64 MiB ≈3.2 MiB/s). Larger worker counts (6/8/12) and larger ranges
+  // (p4@4 MiB, p5@2 MiB) have shown intermittent runner/session detaches, so
+  // keep the normal app path below the observed unstable region.
+  static const int _defaultStreamRangeParallelism = 5;
+  static const int _maxStreamRangeParallelism = 5;
   static const int _defaultStreamRangeTargetBytes = 1024 * 1024;
-  static const int _maxStreamRangeTargetBytes = 8 * 1024 * 1024;
+  static const int _maxStreamRangeTargetBytes = 2 * 1024 * 1024;
   static const int _defaultStreamPullMaxAttempts = 24;
   final Duration _streamPayloadIdleTimeout;
   final int _streamPullMaxAttempts;
@@ -3988,7 +3988,46 @@ class MessagingService {
       return next;
     }
 
-    ({List<int> pieces, NodeId peer})? takeRange() {
+    var adaptiveRangeTargetBytes = _streamRangeTargetBytes;
+    var successfulBytesSinceRangeGrow = 0;
+    const rangeGrowAfterBytes = 8 * 1024 * 1024;
+
+    void noteRangeFailure(List<int> pieces) {
+      successfulBytesSinceRangeGrow = 0;
+      final minTarget = manifest.pieceSize < _streamRangeTargetBytes
+          ? manifest.pieceSize
+          : _streamRangeTargetBytes;
+      if (adaptiveRangeTargetBytes <= minTarget) return;
+      final previous = adaptiveRangeTargetBytes;
+      var next = adaptiveRangeTargetBytes ~/ 2;
+      if (next < minTarget) next = minTarget;
+      adaptiveRangeTargetBytes = next;
+      devLog(
+        () =>
+            'xVeil[content]: swarm-range adapt shrink '
+            '${cid.substring(0, 12)} target_bytes=$previous'
+            '->$adaptiveRangeTargetBytes failed_pieces=${pieces.length}',
+      );
+    }
+
+    void noteRangeSuccess(int bytes) {
+      if (adaptiveRangeTargetBytes >= _streamRangeTargetBytes) return;
+      successfulBytesSinceRangeGrow += bytes;
+      if (successfulBytesSinceRangeGrow < rangeGrowAfterBytes) return;
+      final previous = adaptiveRangeTargetBytes;
+      var next = adaptiveRangeTargetBytes * 2;
+      if (next > _streamRangeTargetBytes) next = _streamRangeTargetBytes;
+      adaptiveRangeTargetBytes = next;
+      successfulBytesSinceRangeGrow = 0;
+      devLog(
+        () =>
+            'xVeil[content]: swarm-range adapt grow '
+            '${cid.substring(0, 12)} target_bytes=$previous'
+            '->$adaptiveRangeTargetBytes',
+      );
+    }
+
+    ({List<int> pieces, NodeId peer, int bytes})? takeRange() {
       if (failed || pending.isEmpty) return null;
       final sources = sourceList();
       if (sources.isEmpty) {
@@ -4009,7 +4048,7 @@ class MessagingService {
         if (pendingIndex < 0) break;
         final nextLen = manifest.pieceLength(nextPiece);
         if (pieces.isNotEmpty &&
-            rangeBytes + nextLen > _streamRangeTargetBytes) {
+            rangeBytes + nextLen > adaptiveRangeTargetBytes) {
           break;
         }
         if (attempts[nextPiece] >= maxAttemptsPerPiece()) {
@@ -4027,6 +4066,7 @@ class MessagingService {
       return (
         pieces: List<int>.unmodifiable(pieces),
         peer: sources[(first + firstAttempt) % sources.length],
+        bytes: rangeBytes,
       );
     }
 
@@ -4056,6 +4096,7 @@ class MessagingService {
           writePiece: writePiece,
         );
         if (pulled == null) {
+          noteRangeFailure(task.pieces);
           await requeueAll(task.pieces);
           final nextDelayAttempt = task.pieces.fold<int>(
             0,
@@ -4067,6 +4108,7 @@ class MessagingService {
         }
         completionPeer = pulled.peer;
         completionManifest = pulled.manifest;
+        noteRangeSuccess(task.bytes);
         for (final piece in pulled.pieces) {
           if (!completed.add(piece)) continue;
           completedBytes += manifest.pieceLength(piece);
