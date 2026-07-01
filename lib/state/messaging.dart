@@ -37,6 +37,10 @@ const _streamRangeTargetBytesDartDefine = int.fromEnvironment(
   'XVEIL_STREAM_RANGE_TARGET_BYTES',
   defaultValue: 0,
 );
+const _bulkStreamTraceDartDefine = bool.fromEnvironment(
+  'XVEIL_BULK_STREAM_TRACE',
+  defaultValue: false,
+);
 
 int? xveilConfiguredStreamRangeParallelism() =>
     _streamRangeParallelismDartDefine > 0
@@ -47,6 +51,10 @@ int? xveilConfiguredStreamRangeTargetBytes() =>
     _streamRangeTargetBytesDartDefine > 0
     ? _streamRangeTargetBytesDartDefine
     : null;
+
+void _bulkStreamLog(String Function() message) {
+  if (_bulkStreamTraceDartDefine) devLog(message);
+}
 
 /// Raw bytes per wire chunk. The anonymous authenticated send (the live path,
 /// veil's auth_deliver) caps ONE message at MAX_AUTH_DELIVER_MSG_BYTES = 6144
@@ -3456,7 +3464,9 @@ class MessagingService {
       try {
         final r = await st.acceptStream(timeout: const Duration(seconds: 2));
         if (r != null) {
-          devLog(() => 'xVeil[content]: stream-accept <- ${r.src.short}');
+          _bulkStreamLog(
+            () => 'xVeil[content]: stream-accept <- ${r.src.short}',
+          );
           unawaited(_serveStream(r.src, r.stream));
         }
       } catch (e) {
@@ -3473,7 +3483,9 @@ class MessagingService {
     ServeSource? durable; // opened just for this serve (closed in finally)
     String? activeCid;
     try {
-      devLog(() => 'xVeil[content]: stream-serve accepted <- ${peer.short}');
+      _bulkStreamLog(
+        () => 'xVeil[content]: stream-serve accepted <- ${peer.short}',
+      );
       final reqBytes = await _readExactly(
         stream,
         _streamRequestBytes,
@@ -3494,7 +3506,7 @@ class MessagingService {
       final requestedLength = reqBytes.length >= 48
           ? _readU64be(Uint8List.sublistView(reqBytes, 40, 48))
           : 0;
-      devLog(
+      _bulkStreamLog(
         () =>
             'xVeil[content]: stream-serve request '
             '${cid.substring(0, 12)}'
@@ -3572,7 +3584,7 @@ class MessagingService {
         _serving[cid] = (manifest: m, source: null, servedAt: _now());
         _evictServing();
       }
-      devLog(
+      _bulkStreamLog(
         () =>
             'xVeil[content]: stream-serve ${cid.substring(0, 12)} '
             '(${m.size}B) -> ${peer.short}',
@@ -3580,7 +3592,7 @@ class MessagingService {
       final mf = Uint8List.fromList(utf8.encode(jsonEncode(m.toJson())));
       await stream.write(_u32be(mf.length)).timeout(_streamPayloadWriteTimeout);
       await stream.write(mf).timeout(_streamPayloadWriteTimeout);
-      devLog(
+      _bulkStreamLog(
         () =>
             'xVeil[content]: stream-serve manifest sent '
             '${cid.substring(0, 12)} (${mf.length}B) -> ${peer.short}',
@@ -3591,7 +3603,7 @@ class MessagingService {
           ? (off + requestedLength).clamp(off, size).toInt()
           : size;
       if (off > 0 || requestedLength > 0) {
-        devLog(
+        _bulkStreamLog(
           () =>
               'xVeil[content]: stream-serve range '
               '${cid.substring(0, 12)} $off..$end/${size}B -> ${peer.short}',
@@ -3641,7 +3653,7 @@ class MessagingService {
             off >= size ||
             off - lastServeLogBytes >= 1024 * 1024 ||
             elapsedMs - lastServeLogMs >= 2000) {
-          devLog(
+          _bulkStreamLog(
             () =>
                 'xVeil[content]: stream-serve queued '
                 '${cid.substring(0, 12)} $off/${size}B -> ${peer.short}',
@@ -3650,7 +3662,7 @@ class MessagingService {
           lastServeLogMs = elapsedMs;
         }
       }
-      devLog(
+      _bulkStreamLog(
         () =>
             'xVeil[content]: stream-serve complete '
             '${cid.substring(0, 12)} $off/${size}B -> ${peer.short}',
@@ -4293,7 +4305,7 @@ class MessagingService {
     final t = _transport;
     if (t is! StreamTransport) return null;
     final sw = Stopwatch()..start();
-    devLog(
+    _bulkStreamLog(
       () =>
           'xVeil[content]: stream-open ${cid.substring(0, 12)} '
           '-> ${peer.short}',
@@ -4321,7 +4333,7 @@ class MessagingService {
       );
       return null;
     }
-    devLog(
+    _bulkStreamLog(
       () =>
           'xVeil[content]: stream-open ok ${cid.substring(0, 12)} '
           '-> ${peer.short} (${sw.elapsedMilliseconds}ms)',
