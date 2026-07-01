@@ -12,7 +12,7 @@ set -euo pipefail
 #      file mode: XVEIL_STREAM_RANGE_PARALLELISM:XVEIL_STREAM_RANGE_TARGET_BYTES.
 #      byte mode: XVEIL_BYTE_STREAMS:XVEIL_BYTE_STREAM_CHUNK_BYTES.
 #   ONION_STREAM_MATRIX_FILE_SIZE=16777216
-#   ONION_STREAM_MATRIX_LIVE_TEST=file|byte
+#   ONION_STREAM_MATRIX_LIVE_TEST=file|swarm|byte
 #   ONION_STREAM_MATRIX_NODE_MODE=external|embedded-endpoints
 #   ONION_STREAM_MATRIX_MIN_MIB_PER_SEC=      optional floor passed to live test
 #   ONION_STREAM_MATRIX_OUT=.dev-onion-stream-matrix
@@ -52,9 +52,9 @@ if [[ "$CONTINUE_ON_FAIL" != "0" && "$CONTINUE_ON_FAIL" != "1" ]]; then
   exit 2
 fi
 case "$LIVE_TEST" in
-  file|byte) ;;
+  file|swarm|byte) ;;
   *)
-    echo "ONION_STREAM_MATRIX_LIVE_TEST must be 'file' or 'byte'." >&2
+    echo "ONION_STREAM_MATRIX_LIVE_TEST must be 'file', 'swarm' or 'byte'." >&2
     exit 2
     ;;
 esac
