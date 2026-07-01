@@ -14,11 +14,13 @@ set -euo pipefail
 # Set SYNTHETIC_ROUNDS=N to repeat the whole deterministic suite N times while
 # chasing rare ordering races.
 # Set SYNTHETIC_LIVE=0 to skip the autonomous four-node live transfer.
-# Set SYNTHETIC_LIVE_TEST=file|byte to choose the app-level file test or the raw
-# anonymous byte-stream isolation test for the autonomous live transfer.
+# Set SYNTHETIC_LIVE_TEST=file|swarm|byte to choose the app-level file test, the
+# durable-reseed swarm test, or the raw anonymous byte-stream isolation test for
+# the autonomous live transfer.
 # Set SYNTHETIC_LIVE_NODE_MODE=external|embedded-endpoints to run endpoint nodes
-# as external `veil-cli` processes or in-process embedded nodes. The embedded
-# mode currently pairs with SYNTHETIC_LIVE_TEST=byte.
+# as external `veil-cli` processes or in-process embedded nodes. For swarm,
+# embedded-endpoints defaults to the two-endpoint A->B->A reseed path so it avoids
+# the fragile three embedded-runtimes-in-one-Flutter-tester shape.
 # Set SYNTHETIC_LIVE_FILE_SIZE=N to change the live payload size; the default
 # 16 MiB covers the former mid-transfer DHT quota / auto-ban regression.
 # Set XVEIL_STREAM_RANGE_PARALLELISM=N and/or
@@ -46,9 +48,9 @@ if ! [[ "$SYNTHETIC_LIVE_FILE_SIZE" =~ ^[1-9][0-9]*$ ]]; then
   exit 2
 fi
 case "$SYNTHETIC_LIVE_TEST" in
-  file|byte) ;;
+  file|swarm|byte) ;;
   *)
-    echo "SYNTHETIC_LIVE_TEST must be 'file' or 'byte'." >&2
+    echo "SYNTHETIC_LIVE_TEST must be 'file', 'swarm' or 'byte'." >&2
     exit 2
     ;;
 esac
