@@ -5,6 +5,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/node/embedded_node.dart';
 import 'package:xveil/data/node/node_controller.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
@@ -179,6 +180,27 @@ Future<void> _waitForActivePeers(
   throw TimeoutException('$name active peers $lastActive/$minActive', timeout);
 }
 
+Future<void> _warmupMessagePath({
+  required String label,
+  required MessagingService from,
+  required NodeId fromId,
+  required NodeId toId,
+  required HiddenVolumeStorage recipientStorage,
+  required Duration timeout,
+}) async {
+  final text =
+      'warmup-$label-${DateTime.now().microsecondsSinceEpoch.toRadixString(16)}';
+  stderr.writeln('[onion-swarm-live] warmup $label');
+  await from.sendText(toId, text);
+  final ok = await _until(() async {
+    final messages = await recipientStorage.loadMessages(fromId.hex);
+    return messages.any((m) => m.body == text);
+  }, timeout: timeout);
+  if (!ok) {
+    throw TimeoutException('warmup $label did not arrive', timeout);
+  }
+}
+
 void main() {
   final dylib = Platform.environment['VEIL_FFI_DYLIB'];
   final cfgA = Platform.environment['XVEIL_EMBED_CONFIG_A'];
@@ -263,11 +285,22 @@ void main() {
           '[onion-swarm-live] starting embedded endpoints '
           'cfgA=$cfgA cfgB=$cfgB cfgC=$cfgC',
         );
-        await Future.wait([
-          if (controllerA != null) _startEmbeddedEndpoint('A', controllerA),
-          if (controllerB != null) _startEmbeddedEndpoint('B', controllerB),
-          if (controllerC != null) _startEmbeddedEndpoint('C', controllerC),
-        ]).timeout(const Duration(seconds: 90));
+        // Start embedded runtimes sequentially. The macOS Flutter tester is
+        // fragile while several in-process native runtimes are booting and
+        // writing startup diagnostics at the same time; serialising startup
+        // keeps this live test focused on onion-stream behaviour instead of the
+        // test protocol's stdout/event-sink edge cases.
+        for (final endpoint in [
+          if (controllerA != null) (name: 'A', controller: controllerA),
+          if (controllerB != null) (name: 'B', controller: controllerB),
+          if (controllerC != null) (name: 'C', controller: controllerC),
+        ]) {
+          await _startEmbeddedEndpoint(
+            endpoint.name,
+            endpoint.controller,
+          ).timeout(const Duration(seconds: 60));
+          await Future<void>.delayed(const Duration(milliseconds: 250));
+        }
         if (warmupSeconds > 0) {
           stderr.writeln(
             '[onion-swarm-live] endpoints connected; '
@@ -367,6 +400,15 @@ void main() {
       mB.start();
       mC.start();
 
+      await _warmupMessagePath(
+        label: 'A-to-B',
+        from: mA,
+        fromId: aId,
+        toId: bId,
+        recipientStorage: sB,
+        timeout: stageTimeout,
+      );
+
       var totalBytes = 0;
       var totalMicros = 0;
       for (var round = 0; round < rounds; round++) {
@@ -445,6 +487,15 @@ void main() {
           mB.start();
           await Future<void>.delayed(const Duration(milliseconds: 250));
         }
+
+        await _warmupMessagePath(
+          label: 'B-to-C',
+          from: mB,
+          fromId: bId,
+          toId: cId,
+          recipientStorage: sC,
+          timeout: stageTimeout,
+        );
 
         var cProgressEvents = 0;
         progressSubs.add(
