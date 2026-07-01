@@ -3387,8 +3387,13 @@ class MessagingService {
   );
   static const Duration _streamRangePayloadIdleTimeout = Duration(seconds: 12);
   static const Duration _streamPayloadWriteTimeout = Duration(seconds: 120);
-  static const int _defaultStreamRangeParallelism = 1;
-  static const int _maxStreamRangeParallelism = 12;
+  // Local published-onion file live tests on the 2-relay embedded stand show
+  // the range stream path is reliable at 4 workers (64 MiB ≈3.1 MiB/s). Higher
+  // counts can peak faster, but 6/8 have shown intermittent relay/session
+  // detaches and 12 overloads reliably, so keep the normal app path below the
+  // observed unstable region.
+  static const int _defaultStreamRangeParallelism = 4;
+  static const int _maxStreamRangeParallelism = 8;
   static const int _defaultStreamRangeTargetBytes = 1024 * 1024;
   static const int _maxStreamRangeTargetBytes = 8 * 1024 * 1024;
   static const int _defaultStreamPullMaxAttempts = 24;
