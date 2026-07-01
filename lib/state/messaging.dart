@@ -3396,12 +3396,11 @@ class MessagingService {
   static const Duration _streamRangePayloadIdleTimeout = Duration(seconds: 12);
   static const Duration _streamPayloadWriteTimeout = Duration(seconds: 120);
   // Local published-onion file live tests on the 2-relay embedded stand show
-  // the range stream path is reliable at 5 workers with ~1 MiB ranges
-  // (64 MiB ≈3.2 MiB/s). Higher worker counts remain available as explicit
-  // synthetic/stress knobs up to 32; p24/p32 can be faster on short runs, but
-  // have crossed into sustained backpressure on longer runs, so keep the normal
-  // app default below that redline.
-  static const int _defaultStreamRangeParallelism = 5;
+  // the range stream path is reliable at 24 workers with ~1 MiB ranges once the
+  // live-test harness uses the production on-disk blob tier (128 MiB ≈5.6 MiB/s).
+  // 32 workers also passes but is slightly slower on this stand, so keep it as
+  // an explicit stress knob rather than the normal app default.
+  static const int _defaultStreamRangeParallelism = 24;
   static const int _maxStreamRangeParallelism = 32;
   static const int _defaultStreamRangeTargetBytes = 1024 * 1024;
   static const int _maxStreamRangeTargetBytes = 2 * 1024 * 1024;

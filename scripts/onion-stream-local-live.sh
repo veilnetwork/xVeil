@@ -113,10 +113,10 @@ esac
 if [[ "$LIVE_TEST" == "swarm" ]]; then
   peers=(a b c m1 m2)
   app_peers=(a b c)
-  # C only initiates the B->C pull. It needs an anonymity key for outbound
-  # anonymous circuits, but does not need to host a location-hidden onion
-  # service; doing that on the tiny 2-relay local mesh can drown the test in
-  # registration/control traffic before the file path is exercised.
+  # C only initiates the B->C pull. It needs an embedded node/anonymity key for
+  # outbound published pinned circuits, but does not need to host a location-
+  # hidden onion service; doing that on the tiny 2-relay local mesh can drown the
+  # test in registration/control traffic before the file path is exercised.
   receiver_peers=(a b)
 fi
 case "$NODE_MODE" in
@@ -717,11 +717,6 @@ echo "==> starting nodes ($NODE_MODE)"
 start_peers=("${peers[@]}")
 if [[ "$NODE_MODE" == "embedded-endpoints" ]]; then
   start_peers=("${relay_peers[@]}")
-  if [[ "$LIVE_TEST" == "swarm" ]]; then
-    # Keep A/B embedded (matching phone/desktop), but run C out-of-process so
-    # the Flutter test protocol is not carrying three embedded runtimes.
-    start_peers+=(c)
-  fi
 fi
 for n in "${start_peers[@]}"; do
   start_node_process "$n"
@@ -731,9 +726,6 @@ echo "==> waiting for app sockets"
 socket_peers=(a b)
 if [[ "$NODE_MODE" == "embedded-endpoints" ]]; then
   socket_peers=("${relay_peers[@]}")
-  if [[ "$LIVE_TEST" == "swarm" ]]; then
-    socket_peers+=(c)
-  fi
 else
   socket_peers=("${app_peers[@]}")
 fi
@@ -810,9 +802,6 @@ if [[ "$RUN_TEST" == "1" ]]; then
   test_code=0
   test_log="$NODES/flutter-test.log"
   embed_config_c="$NODES/c/config.toml"
-  if [[ "$NODE_MODE" == "embedded-endpoints" && "$LIVE_TEST" == "swarm" ]]; then
-    embed_config_c=""
-  fi
   rm -f "$test_log"
   set +e
   (
