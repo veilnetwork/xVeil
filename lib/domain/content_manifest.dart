@@ -342,10 +342,18 @@ class ContentManifest {
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────
+  /// Pluggable SHA-256: the app injects the native FFI digest at startup
+  /// (~30-50x the pure-Dart rate — with `package:crypto`'s ~35 MB/s a phone
+  /// spent ~1.8 s hashing a 64 MiB file BEFORE its offer could even go out,
+  /// the single largest fixed cost of a send). Tests and non-FFI contexts run
+  /// on the pure-Dart default; both produce identical digests, so contentIds
+  /// (and therefore dedup) are unaffected by which one hashed.
+  static Uint8List Function(Uint8List)? sha256Override;
+
   /// SHA-256 (32 B) over any-length input — content addressing. (The bundled
   /// blake3.dart is single-chunk only and can't hash multi-KiB pieces.)
   static Uint8List _hash(Uint8List b) =>
-      Uint8List.fromList(crypto.sha256.convert(b).bytes);
+      sha256Override?.call(b) ?? Uint8List.fromList(crypto.sha256.convert(b).bytes);
 
   static Uint8List _concatHashes(List<Uint8List> hs) {
     final out = Uint8List(hs.length * 32);

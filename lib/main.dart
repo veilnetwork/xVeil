@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/foundation.dart' show kReleaseMode;
@@ -8,8 +9,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:veil_flutter/veil_flutter.dart' as veil;
 
 import 'app.dart';
+import 'domain/content_manifest.dart';
 import 'data/node/embedded_node.dart';
 import 'data/node/node_controller.dart';
 import 'data/storage/async_kv_log_store.dart';
@@ -34,6 +37,19 @@ Future<void> main() async {
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+
+      // Content hashing on the native digest (~30-50x the pure-Dart rate):
+      // with package:crypto a 64 MiB attachment spent ~1.8 s hashing before
+      // its offer could go out. Probe once — an older bundled dylib without
+      // the symbol keeps the pure-Dart fallback (identical digests either
+      // way, so contentIds and dedup are unaffected).
+      try {
+        veil.VeilCrypto.sha256(Uint8List(0));
+        ContentManifest.sha256Override = veil.VeilCrypto.sha256;
+        devLog(() => 'xVeil[init]: native sha256 engaged for content hashing');
+      } catch (_) {
+        devLog(() => 'xVeil[init]: native sha256 unavailable, Dart fallback');
+      }
 
       final priorFlutterOnError = FlutterError.onError;
       FlutterError.onError = (details) {
