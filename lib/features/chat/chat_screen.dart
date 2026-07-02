@@ -325,15 +325,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// After a re-advertise REQUEST, react if it times out (the sender no longer
   /// serves the file): tell the user to ask for a re-send, and delete the empty
   /// destination file an unencrypted download had already created.
-  void _watchDownloadFailure(String cid, {String? deletePath}) {
+  void _watchDownloadFailure(
+    String cid, {
+    String? deletePath,
+    Iterable<String> deletePaths = const [],
+  }) {
     ref
         .read(messagingServiceProvider)
         .contentDownloadFailed
         .firstWhere((c) => c == cid)
         .then((_) async {
-          if (deletePath != null) {
+          for (final path in [
+            if (deletePath != null) deletePath,
+            ...deletePaths,
+          ]) {
             try {
-              await File(deletePath).delete();
+              await File(path).delete();
             } catch (_) {
               /* already gone */
             }
@@ -417,15 +424,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       dest = '${(await getApplicationDocumentsDirectory()).path}/$name';
     }
     if (dest == null) return; // cancelled
-    final raf = await File(dest).open(mode: FileMode.write);
+    final tmpDest = '$dest.part-${DateTime.now().microsecondsSinceEpoch}';
+    final raf = await File(tmpDest).open(mode: FileMode.write);
     if (!mounted) {
       await raf.close();
+      try {
+        await File(tmpDest).delete();
+      } catch (_) {}
       return;
     }
     final svc = ref.read(messagingServiceProvider);
     _watchDownloadFailure(
       cid,
       deletePath: dest,
+      deletePaths: [tmpDest],
     ); // clean up empty/partial files
     // Snackbar once the streamed plaintext file is fully written.
     svc.contentReceived
@@ -446,6 +458,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       },
       close: () async {
         await raf.close();
+        final out = File(dest!);
+        if (await out.exists()) {
+          await out.delete();
+        }
+        await File(tmpDest).rename(dest);
       },
     );
     if (mounted && r == ContentDownloadResult.requestedReoffer) {

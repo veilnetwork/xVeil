@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
@@ -32,11 +33,14 @@ const _debugHookPort = int.fromEnvironment(
 /// Endpoints:
 ///   GET /health
 ///   GET /wait_ready[?timeout_ms=60000]
+///   POST /unlock                 body: {"password":"..."} or raw password
+///   GET /warmup_onion            construct messaging/onion stream services
 ///   GET /identity
 ///   GET /contacts
+///   GET /wait_offer?cid=CONTENT_ID[&peer=NODE_HEX][&timeout_ms=120000]
 ///   `POST/GET /send_file?peer=NODE_HEX&path=SOURCE_PATH[&name=NAME]`
 ///   `POST/GET /download_file?peer=NODE_HEX|any&cid=CONTENT_ID&path=DEST_PATH
-///      [&peers=NODE_HEX,NODE_HEX][&timeout_ms=1800000]`
+///      [&peers=NODE_HEX,NODE_HEX][&timeout_ms=1800000][&expect_size=BYTES]`
 ///
 /// If [path] is omitted for /download_file, the file is downloaded into the
 /// encrypted app tier. If present, bytes are written unencrypted to that path.
@@ -93,30 +97,63 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   Widget build(BuildContext context) => widget.child;
 
   Future<void> _handle(HttpRequest req) async {
+    final sw = Stopwatch()..start();
+    devLog(() => 'xVeil[debug-hook]: ${req.method} ${req.uri}');
     try {
       switch (req.uri.path) {
         case '/health':
-          return _json(req, {
+          await _json(req, {
             'ok': true,
             'phase': ref.read(appControllerProvider).phase.name,
             'ready': ref.read(appControllerProvider).phase == AppPhase.ready,
           });
+          return;
         case '/wait_ready':
-          return _waitReady(req);
+          await _waitReady(req);
+          return;
+        case '/unlock':
+          await _unlock(req);
+          return;
+        case '/warmup_onion':
+          await _warmupOnion(req);
+          return;
         case '/identity':
-          return _identity(req);
+          await _identity(req);
+          return;
         case '/contacts':
-          return _contacts(req);
+          await _contacts(req);
+          return;
+        case '/wait_offer':
+          await _waitOffer(req);
+          return;
         case '/send_file':
-          return _sendFile(req);
+          await _sendFile(req);
+          return;
         case '/download_file':
-          return _downloadFile(req);
+          await _downloadFile(req);
+          return;
         default:
-          return _json(req, {'ok': false, 'error': 'not found'}, status: 404);
+          await _json(req, {'ok': false, 'error': 'not found'}, status: 404);
+          return;
       }
     } catch (e, st) {
       devLog(() => 'xVeil[debug-hook]: request failed: $e\n$st');
-      return _json(req, {'ok': false, 'error': '$e'}, status: 500);
+      try {
+        return await _json(req, {'ok': false, 'error': '$e'}, status: 500);
+      } catch (writeError) {
+        devLog(
+          () =>
+              'xVeil[debug-hook]: failed to write error response after '
+              '${sw.elapsedMilliseconds}ms: $writeError',
+        );
+        return;
+      }
+    } finally {
+      devLog(
+        () =>
+            'xVeil[debug-hook]: ${req.method} ${req.uri.path} done '
+            'in ${sw.elapsedMilliseconds}ms',
+      );
     }
   }
 
@@ -143,6 +180,71 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'phase': state.phase.name,
       'identity': _identityJson(state),
     }, status: 409);
+  }
+
+  Future<void> _unlock(HttpRequest req) async {
+    if (req.method != 'POST') {
+      return _json(req, {'ok': false, 'error': 'POST required'}, status: 405);
+    }
+    final body = await utf8.decoder.bind(req).join();
+    var password = body.trim();
+    if (password.startsWith('{')) {
+      final decoded = jsonDecode(password);
+      if (decoded is Map<String, dynamic>) {
+        password = (decoded['password'] as String?)?.trim() ?? '';
+      }
+    }
+    if (password.isEmpty) {
+      return _json(req, {
+        'ok': false,
+        'error': 'missing password',
+      }, status: 400);
+    }
+    var state = ref.read(appControllerProvider);
+    if (state.phase != AppPhase.ready) {
+      await ref.read(appControllerProvider.notifier).unlock(password);
+    }
+    final timeoutMs =
+        int.tryParse(req.uri.queryParameters['timeout_ms']?.trim() ?? '') ??
+        120000;
+    final deadline = DateTime.now().add(Duration(milliseconds: timeoutMs));
+    while (mounted && DateTime.now().isBefore(deadline)) {
+      state = ref.read(appControllerProvider);
+      if (state.phase == AppPhase.ready) {
+        return _json(req, {
+          'ok': true,
+          'phase': state.phase.name,
+          'identity': _identityJson(state),
+        });
+      }
+      if (state.phase == AppPhase.locked && state.unlockError) {
+        break;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    state = ref.read(appControllerProvider);
+    return _json(req, {
+      'ok': false,
+      'phase': state.phase.name,
+      'unlockError': state.unlockError,
+      'identity': _identityJson(state),
+    }, status: 409);
+  }
+
+  Future<void> _warmupOnion(HttpRequest req) async {
+    final ready = _requireReady(req);
+    if (!ready) return;
+    // Constructing MessagingService is enough to bind the anonymous stream hub
+    // and start the native pinned-circuit background open. Keep this hook
+    // debug-only and side-effect-light: no content offer, no file transfer, no
+    // runtime circuit refresh while a transfer is active.
+    ref.read(messagingServiceProvider);
+    final state = ref.read(appControllerProvider);
+    return _json(req, {
+      'ok': true,
+      'phase': state.phase.name,
+      'identity': _identityJson(state),
+    });
   }
 
   Future<void> _identity(HttpRequest req) async {
@@ -181,12 +283,127 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     });
   }
 
+  Future<void> _waitOffer(HttpRequest req) async {
+    final ready = _requireReady(req);
+    if (!ready) return;
+    // The hook is often the first receiver-side code touched by a headless soak.
+    // Make sure the messaging service is constructed and subscribed to the
+    // transport before we wait for a manifest to materialise as a stored offer.
+    ref.read(messagingServiceProvider);
+    final cid = _required(req, 'cid');
+    if (cid == null) return;
+    NodeId? peer;
+    final rawPeer = req.uri.queryParameters['peer']?.trim();
+    if (rawPeer != null &&
+        rawPeer.isNotEmpty &&
+        rawPeer.toLowerCase() != 'any') {
+      try {
+        peer = NodeId.fromHex(rawPeer);
+      } catch (e) {
+        return _json(req, {'ok': false, 'error': '$e'}, status: 400);
+      }
+    }
+    final timeout = _timeout(req, defaultMs: 120000);
+    final deadline = DateTime.now().add(timeout);
+    var nextReofferAt = DateTime.now().add(const Duration(seconds: 2));
+    var nextStreamProbeAt = DateTime.now().add(const Duration(seconds: 1));
+    while (mounted && DateTime.now().isBefore(deadline)) {
+      final found = await _findContentOffer(cid, peer: peer);
+      if (found != null) {
+        return _json(req, {
+          'ok': true,
+          'contentId': cid,
+          'peer': found.peer.hex,
+          'messageId': found.messageId,
+          'downloaded': found.downloaded,
+        });
+      }
+      final now = DateTime.now();
+      if (peer != null && !now.isBefore(nextStreamProbeAt)) {
+        if (await ref
+            .read(messagingServiceProvider)
+            .resolveContentOfferViaStream(peer, cid)) {
+          final found = await _findContentOffer(cid, peer: peer);
+          if (found != null) {
+            return _json(req, {
+              'ok': true,
+              'contentId': cid,
+              'peer': found.peer.hex,
+              'messageId': found.messageId,
+              'downloaded': found.downloaded,
+              'via': 'stream_probe',
+            });
+          }
+        }
+        nextStreamProbeAt = now.add(const Duration(seconds: 10));
+      }
+      if (!now.isBefore(nextReofferAt)) {
+        await _pokeContentReoffer(cid, peer: peer);
+        nextReofferAt = now.add(const Duration(seconds: 5));
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    return _json(req, {
+      'ok': false,
+      'contentId': cid,
+      'peer': peer?.hex,
+      'error': 'offer not observed before timeout',
+    }, status: 504);
+  }
+
+  Future<({NodeId peer, String messageId, bool downloaded})?> _findContentOffer(
+    String cid, {
+    NodeId? peer,
+  }) async {
+    final storage = ref.read(storageProvider);
+    if (await storage.hasFile(cid)) {
+      return (
+        peer: peer ?? NodeId(Uint8List(32)),
+        messageId: cid,
+        downloaded: true,
+      );
+    }
+    final conversations = await storage.loadConversations();
+    for (final conv in conversations) {
+      if (peer != null && conv.peer.nodeId.hex != peer.hex) continue;
+      for (final msg in await storage.loadMessages(conv.id)) {
+        if (msg.fileContentId == cid || msg.fileId == cid) {
+          return (
+            peer: conv.peer.nodeId,
+            messageId: msg.id,
+            downloaded: msg.isDownloaded,
+          );
+        }
+      }
+    }
+    return null;
+  }
+
+  Future<void> _pokeContentReoffer(String cid, {NodeId? peer}) async {
+    final svc = ref.read(messagingServiceProvider);
+    if (peer != null) {
+      await svc.requestContentReoffer(peer, cid);
+      return;
+    }
+    final conversations = await ref.read(storageProvider).loadConversations();
+    for (final conv in conversations) {
+      if (!conv.peer.canMessage) continue;
+      await svc.requestContentReoffer(conv.peer.nodeId, cid);
+    }
+  }
+
   Future<void> _sendFile(HttpRequest req) async {
     final ready = _requireReady(req);
     if (!ready) return;
     final peer = _peer(req);
     final path = _required(req, 'path');
     if (peer == null || path == null) return;
+    final sw = Stopwatch()..start();
+    devLog(
+      () =>
+          'xVeil[debug-hook]: send_file start peer=${peer.short} '
+          'path=$path',
+    );
     final file = File(path);
     if (!await file.exists()) {
       return _json(req, {
@@ -194,6 +411,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         'error': 'source not found',
       }, status: 404);
     }
+    final size = await file.length();
+    devLog(
+      () =>
+          'xVeil[debug-hook]: send_file source exists size=$size '
+          'after ${sw.elapsedMilliseconds}ms',
+    );
     final source = await veilSourceOpener(path);
     if (source == null) {
       return _json(req, {
@@ -201,12 +424,16 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         'error': 'source open failed',
       }, status: 409);
     }
+    devLog(
+      () =>
+          'xVeil[debug-hook]: send_file source opened '
+          'after ${sw.elapsedMilliseconds}ms',
+    );
     final requestedName = req.uri.queryParameters['name']?.trim();
     final name = requestedName != null && requestedName.isNotEmpty
         ? requestedName
         : _basename(path);
     try {
-      final size = await file.length();
       final cid = await ref
           .read(messagingServiceProvider)
           .sendFileStreaming(
@@ -217,6 +444,11 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
             close: source.close,
             sourcePath: path,
           );
+      devLog(
+        () =>
+            'xVeil[debug-hook]: send_file finished cid=$cid '
+            'after ${sw.elapsedMilliseconds}ms',
+      );
       return _json(req, {
         'ok': cid != null,
         'peer': peer.hex,
@@ -226,6 +458,11 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         'contentId': cid,
       });
     } catch (_) {
+      devLog(
+        () =>
+            'xVeil[debug-hook]: send_file failed after '
+            '${sw.elapsedMilliseconds}ms',
+      );
       await source.close();
       rethrow;
     }
@@ -239,6 +476,8 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     if (peers == null || cid == null) return;
     final primaryPeer = peers.first;
     final path = req.uri.queryParameters['path']?.trim();
+    final expectedSize = _optionalNonnegativeInt(req, 'expect_size');
+    if (expectedSize == -1) return;
     final timeout = _timeout(req, defaultMs: 30 * 60 * 1000);
     final svc = ref.read(messagingServiceProvider);
     if (path == null || path.isEmpty) {
@@ -283,8 +522,13 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
 
     final out = File(path);
     await out.parent.create(recursive: true);
-    final raf = await out.open(mode: FileMode.write);
+    final tmp = File(
+      '$path.part-${DateTime.now().microsecondsSinceEpoch}-${Isolate.current.hashCode}',
+    );
+    final raf = await tmp.open(mode: FileMode.write);
     var handedOff = false;
+    var rafClosed = false;
+    var committed = false;
     try {
       final wait = _waitDownload(svc, cid, timeout, savedPath: path);
       Future<void> write(int offset, Uint8List bytes) async {
@@ -292,7 +536,17 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         await raf.writeFrom(bytes);
       }
 
-      Future<void> close() => raf.close();
+      Future<void> close() async {
+        if (rafClosed) return;
+        rafClosed = true;
+        await raf.close();
+        if (!await tmp.exists()) return;
+        if (await out.exists()) {
+          await out.delete();
+        }
+        await tmp.rename(path);
+        committed = true;
+      }
 
       final result = peers.length == 1
           ? await svc.downloadContentToFile(
@@ -336,7 +590,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           'size': size,
         }, status: done.timedOut ? 504 : 409);
       }
-      if (done.total != null && size != done.total) {
+      if (expectedSize != null && size != expectedSize) {
         return _json(req, {
           'ok': false,
           'mode': 'plain-file',
@@ -344,9 +598,8 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           'contentId': cid,
           'sources': [for (final p in peers) p.hex],
           'path': path,
-          'error': 'saved file size mismatch',
-          'done': done.done,
-          'total': done.total,
+          'error': 'destination size mismatch',
+          'expectedSize': expectedSize,
           'size': size,
         }, status: 409);
       }
@@ -365,8 +618,19 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     } finally {
       if (!handedOff) {
         try {
-          await raf.close();
+          if (!rafClosed) {
+            rafClosed = true;
+            await raf.close();
+          }
         } catch (_) {}
+        try {
+          await tmp.delete();
+        } catch (_) {}
+        if (committed) {
+          try {
+            await out.delete();
+          } catch (_) {}
+        }
       }
     }
   }
@@ -449,6 +713,22 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       return null;
     }
     return out.values.toList(growable: false);
+  }
+
+  int? _optionalNonnegativeInt(HttpRequest req, String key) {
+    final raw = req.uri.queryParameters[key]?.trim();
+    if (raw == null || raw.isEmpty) return null;
+    final value = int.tryParse(raw);
+    if (value == null || value < 0) {
+      unawaited(
+        _json(req, {
+          'ok': false,
+          'error': '$key must be a non-negative integer',
+        }, status: 400),
+      );
+      return -1;
+    }
+    return value;
   }
 
   NodeId? _peer(HttpRequest req) {
