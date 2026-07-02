@@ -4,15 +4,18 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/ids.dart';
 import '../core/log.dart';
 import '../data/serve_source.dart';
+import '../routing/router.dart';
 import '../state/app_controller.dart';
 import '../state/messaging.dart';
 import '../state/providers.dart';
+import 'ui_driver.dart';
 
 const _debugHookEnabled = bool.fromEnvironment('XVEIL_DEBUG_HOOK');
 const _debugHookPort = int.fromEnvironment(
@@ -42,6 +45,16 @@ const _debugHookPort = int.fromEnvironment(
 ///   `POST/GET /download_file?peer=NODE_HEX|any&cid=CONTENT_ID&path=DEST_PATH
 ///      [&peers=NODE_HEX,NODE_HEX][&timeout_ms=1800000][&expect_size=BYTES]`
 ///
+/// UI-driver endpoints (full remote control of the running UI):
+///   GET  /screenshot[?scale=1.0]      → PNG (scale=1 → logical-pixel coords)
+///   GET  /ui_tree                     → semantics tree, global logical rects
+///   POST /tap?node=ID|label=TEXT[&index=N]|x=&y=  [&long=true]
+///   POST /scroll?dx=&dy=[&x=&y=|&label=TEXT][&steps=16]
+///   POST /enter_text?text=...[&node=ID|label=TEXT]   (or JSON body)
+///   POST /navigate?path=/chat/HEX     GET /route     POST /back
+///   GET  /messages?peer=NODE_HEX[&limit=50]
+///   POST /send_message?peer=NODE_HEX&text=...        (or JSON body)
+///
 /// If [path] is omitted for /download_file, the file is downloaded into the
 /// encrypted app tier. If present, bytes are written unencrypted to that path.
 /// `peer=any` uses all accepted contacts as candidate holders; `peers` can add
@@ -58,6 +71,10 @@ class DebugSoakHookHost extends ConsumerStatefulWidget {
 class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   HttpServer? _server;
   StreamSubscription<HttpRequest>? _sub;
+  final GlobalKey _screenshotKey = GlobalKey();
+  UiDriver? _uiDriver;
+
+  UiDriver get _driver => _uiDriver ??= UiDriver(_screenshotKey);
 
   @override
   void initState() {
@@ -88,13 +105,16 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
 
   @override
   void dispose() {
+    _uiDriver?.dispose();
     unawaited(_sub?.cancel());
     unawaited(_server?.close(force: true));
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => widget.child;
+  Widget build(BuildContext context) => kDebugMode && _debugHookEnabled
+      ? RepaintBoundary(key: _screenshotKey, child: widget.child)
+      : widget.child;
 
   Future<void> _handle(HttpRequest req) async {
     final sw = Stopwatch()..start();
@@ -134,6 +154,36 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/download_file':
           await _downloadFile(req);
+          return;
+        case '/screenshot':
+          await _screenshot(req);
+          return;
+        case '/ui_tree':
+          await _uiTree(req);
+          return;
+        case '/tap':
+          await _tap(req);
+          return;
+        case '/scroll':
+          await _scroll(req);
+          return;
+        case '/enter_text':
+          await _enterText(req);
+          return;
+        case '/navigate':
+          await _navigate(req);
+          return;
+        case '/back':
+          await _back(req);
+          return;
+        case '/route':
+          await _json(req, {'ok': true, 'route': _currentRoute()});
+          return;
+        case '/messages':
+          await _messages(req);
+          return;
+        case '/send_message':
+          await _sendMessage(req);
           return;
         default:
           await _json(req, {'ok': false, 'error': 'not found'}, status: 404);
@@ -666,6 +716,294 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         }
       }
     }
+  }
+
+  // -------------------------------------------------------------- UI driver
+
+  String _currentRoute() {
+    try {
+      return ref
+          .read(routerProvider)
+          .routerDelegate
+          .currentConfiguration
+          .uri
+          .toString();
+    } catch (e) {
+      return 'unknown ($e)';
+    }
+  }
+
+  Future<void> _screenshot(HttpRequest req) async {
+    final scale =
+        double.tryParse(req.uri.queryParameters['scale']?.trim() ?? '') ?? 1.0;
+    final bytes = await _driver.screenshot(scale: scale.clamp(0.1, 4.0));
+    if (bytes == null) {
+      return _json(req, {
+        'ok': false,
+        'error': 'screenshot unavailable',
+      }, status: 409);
+    }
+    req.response.statusCode = 200;
+    req.response.headers.contentType = ContentType('image', 'png');
+    req.response.contentLength = bytes.length;
+    req.response.add(bytes);
+    await req.response.close();
+  }
+
+  Future<void> _uiTree(HttpRequest req) async {
+    final tree = await _driver.uiTree();
+    final view = WidgetsBinding.instance.platformDispatcher.implicitView;
+    final dpr = view?.devicePixelRatio ?? 1.0;
+    final size = view == null ? null : view.physicalSize / dpr;
+    return _json(req, {
+      'ok': tree != null,
+      'route': _currentRoute(),
+      if (size != null)
+        'screen': {'w': size.width, 'h': size.height, 'dpr': dpr},
+      'tree': tree,
+    }, status: tree == null ? 409 : 200);
+  }
+
+  /// Resolves the semantics node addressed by `node=ID` or `label=TEXT[&index=N]`
+  /// query params. Writes the error response itself and returns null on failure.
+  Future<SemanticsNode?> _resolveNode(HttpRequest req) async {
+    final p = req.uri.queryParameters;
+    final nodeId = int.tryParse(p['node'] ?? '');
+    if (nodeId != null) {
+      final node = await _driver.findById(nodeId);
+      if (node == null) {
+        unawaited(
+          _json(req, {
+            'ok': false,
+            'error': 'node $nodeId not found',
+          }, status: 404),
+        );
+      }
+      return node;
+    }
+    final label = p['label']?.trim();
+    if (label == null || label.isEmpty) {
+      unawaited(
+        _json(req, {
+          'ok': false,
+          'error': 'missing node/label/x,y',
+        }, status: 400),
+      );
+      return null;
+    }
+    final matches = await _driver.findByLabel(label);
+    if (matches.isEmpty) {
+      unawaited(
+        _json(req, {
+          'ok': false,
+          'error': 'label not found: $label',
+        }, status: 404),
+      );
+      return null;
+    }
+    final index = int.tryParse(p['index'] ?? '') ?? 0;
+    if (index < 0 || index >= matches.length) {
+      unawaited(
+        _json(req, {
+          'ok': false,
+          'error': 'index $index out of range (found ${matches.length})',
+        }, status: 400),
+      );
+      return null;
+    }
+    return matches[index].node;
+  }
+
+  Future<void> _tap(HttpRequest req) async {
+    final p = req.uri.queryParameters;
+    final long = (p['long'] ?? '').toLowerCase() == 'true';
+    final hold = long
+        ? const Duration(milliseconds: 700)
+        : const Duration(milliseconds: 80);
+    final x = double.tryParse(p['x'] ?? '');
+    final y = double.tryParse(p['y'] ?? '');
+    if (x != null && y != null) {
+      await _driver.tapAt(Offset(x, y), hold: hold);
+      return _json(req, {'ok': true, 'method': 'pointer', 'x': x, 'y': y});
+    }
+    final target = await _resolveNode(req);
+    if (target == null) return; // error response already written
+    final action = long ? SemanticsAction.longPress : SemanticsAction.tap;
+    if (target.getSemanticsData().hasAction(action)) {
+      _driver.performAction(target, action);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      return _json(req, {'ok': true, 'method': 'semantics', 'node': target.id});
+    }
+    final rect = await _driver.globalRectOf(target);
+    if (rect == null || rect.isEmpty) {
+      return _json(req, {
+        'ok': false,
+        'error': 'node has no tappable rect',
+      }, status: 409);
+    }
+    await _driver.tapAt(rect.center, hold: hold);
+    return _json(req, {
+      'ok': true,
+      'method': 'pointer',
+      'node': target.id,
+      'x': rect.center.dx,
+      'y': rect.center.dy,
+    });
+  }
+
+  Future<void> _scroll(HttpRequest req) async {
+    final p = req.uri.queryParameters;
+    final dx = double.tryParse(p['dx'] ?? '') ?? 0;
+    final dy = double.tryParse(p['dy'] ?? '') ?? 0;
+    if (dx == 0 && dy == 0) {
+      return _json(req, {'ok': false, 'error': 'missing dx/dy'}, status: 400);
+    }
+    Offset? start;
+    final x = double.tryParse(p['x'] ?? '');
+    final y = double.tryParse(p['y'] ?? '');
+    if (x != null && y != null) {
+      start = Offset(x, y);
+    } else if ((p['label'] ?? '').trim().isNotEmpty || p['node'] != null) {
+      final target = await _resolveNode(req);
+      if (target == null) return;
+      final rect = await _driver.globalRectOf(target);
+      if (rect != null && !rect.isEmpty) start = rect.center;
+    }
+    if (start == null) {
+      final view = WidgetsBinding.instance.platformDispatcher.implicitView;
+      if (view == null) {
+        return _json(req, {'ok': false, 'error': 'no view'}, status: 409);
+      }
+      final size = view.physicalSize / view.devicePixelRatio;
+      start = Offset(size.width / 2, size.height / 2);
+    }
+    final steps = (int.tryParse(p['steps'] ?? '') ?? 16).clamp(1, 200);
+    await _driver.drag(start, Offset(dx, dy), steps: steps);
+    return _json(req, {
+      'ok': true,
+      'from': {'x': start.dx, 'y': start.dy},
+      'delta': {'dx': dx, 'dy': dy},
+    });
+  }
+
+  Future<void> _enterText(HttpRequest req) async {
+    final params = await _mergedParams(req);
+    final text = params['text'];
+    if (text == null) {
+      return _json(req, {'ok': false, 'error': 'missing text'}, status: 400);
+    }
+    // Optional target (query params only): tap it first to focus the field.
+    final q = req.uri.queryParameters;
+    if ((q['node'] ?? '').isNotEmpty || (q['label'] ?? '').trim().isNotEmpty) {
+      final target = await _resolveNode(req);
+      if (target == null) return;
+      final rect = await _driver.globalRectOf(target);
+      if (rect != null && !rect.isEmpty) {
+        await _driver.tapAt(rect.center);
+      }
+    }
+    if (_driver.enterText(text)) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      return _json(req, {'ok': true, 'text': text});
+    }
+    return _json(req, {
+      'ok': false,
+      'error': 'no editable text field found',
+    }, status: 409);
+  }
+
+  Future<void> _navigate(HttpRequest req) async {
+    final path = _required(req, 'path');
+    if (path == null) return;
+    ref.read(routerProvider).go(path);
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    return _json(req, {'ok': true, 'route': _currentRoute()});
+  }
+
+  Future<void> _back(HttpRequest req) async {
+    final router = ref.read(routerProvider);
+    if (!router.canPop()) {
+      return _json(req, {
+        'ok': false,
+        'error': 'nothing to pop',
+        'route': _currentRoute(),
+      }, status: 409);
+    }
+    router.pop();
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    return _json(req, {'ok': true, 'route': _currentRoute()});
+  }
+
+  Future<void> _messages(HttpRequest req) async {
+    final ready = _requireReady(req);
+    if (!ready) return;
+    final peer = _peer(req);
+    if (peer == null) return;
+    final limit = (int.tryParse(req.uri.queryParameters['limit'] ?? '') ?? 50)
+        .clamp(1, 1000);
+    final all = await ref.read(storageProvider).loadMessages(peer.hex);
+    final tail = all.length > limit ? all.sublist(all.length - limit) : all;
+    return _json(req, {
+      'ok': true,
+      'peer': peer.hex,
+      'total': all.length,
+      'messages': [
+        for (final m in tail)
+          {
+            'id': m.id,
+            'direction': m.direction.name,
+            'body': m.body,
+            'timestamp': m.timestamp.toIso8601String(),
+            'status': m.status.name,
+            'edited': m.edited,
+            if (m.fileName != null) 'fileName': m.fileName,
+            if (m.fileSize != null) 'fileSize': m.fileSize,
+            if (m.fileContentId != null) 'fileContentId': m.fileContentId,
+            if (m.isFile) 'downloaded': m.isDownloaded,
+            if (m.seq != null) 'seq': m.seq,
+          },
+      ],
+    });
+  }
+
+  Future<void> _sendMessage(HttpRequest req) async {
+    final ready = _requireReady(req);
+    if (!ready) return;
+    final params = await _mergedParams(req);
+    final peerHex = params['peer']?.trim();
+    final text = params['text'];
+    if (peerHex == null || peerHex.isEmpty || text == null || text.isEmpty) {
+      return _json(req, {
+        'ok': false,
+        'error': 'missing peer/text',
+      }, status: 400);
+    }
+    final NodeId peer;
+    try {
+      peer = NodeId.fromHex(peerHex);
+    } catch (e) {
+      return _json(req, {'ok': false, 'error': '$e'}, status: 400);
+    }
+    await ref.read(messagingServiceProvider).sendText(peer, text);
+    return _json(req, {'ok': true, 'peer': peer.hex, 'text': text});
+  }
+
+  /// Query params merged with a JSON POST body (body wins on key conflict).
+  Future<Map<String, String>> _mergedParams(HttpRequest req) async {
+    final params = <String, String>{...req.uri.queryParameters};
+    if (req.method == 'POST') {
+      final body = await utf8.decoder.bind(req).join();
+      final trimmed = body.trim();
+      if (trimmed.startsWith('{')) {
+        final decoded = jsonDecode(trimmed);
+        if (decoded is Map<String, dynamic>) {
+          decoded.forEach((k, v) {
+            if (v != null) params[k] = '$v';
+          });
+        }
+      }
+    }
+    return params;
   }
 
   Duration _timeout(HttpRequest req, {required int defaultMs}) {
