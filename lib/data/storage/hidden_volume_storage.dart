@@ -1310,6 +1310,38 @@ class HiddenVolumeStorage implements Storage {
   }
 
   @override
+  Future<int> purgeFileStore() async {
+    // Wholesale namespace erase — the only operation that actually frees
+    // log-index slots (per-record scrubs overwrite in place; see the interface
+    // doc). Scrub afterwards so the erased chunk payloads are reclaimed too.
+    final erased = await _as.eraseNamespace(Ns.fileChunks);
+    await _as.scrub();
+    return erased;
+  }
+
+  @override
+  Future<Map<String, int>> namespaceCounts() async => {
+        'settings': await _as.count(Ns.settings),
+        'contacts': await _as.count(Ns.contacts),
+        'messageLog': await _as.count(Ns.messageLog),
+        'media': await _as.count(Ns.media),
+        'fileChunks': await _as.count(Ns.fileChunks),
+      };
+
+  @override
+  Future<int> purgeMessageLog() async {
+    // Bench-only relief, wholesale like [purgeFileStore]: a soak series
+    // appends thousands of filePost/status/tombstone rows and the per-record
+    // tombstones never free index slots. Per-author `conv_seq` cursors live in
+    // the settings KV and keep advancing across the erase, so the peer never
+    // sees a seq reuse or a gap (our next event is simply high-water + 1).
+    final erased = await _as.eraseNamespace(Ns.messageLog);
+    await _as.scrub();
+    await _invalidateScanCache();
+    return erased;
+  }
+
+  @override
   Future<void> markMessageStatus(
     String conversationId,
     String messageId,
