@@ -14,6 +14,12 @@ import 'package:flutter/foundation.dart';
 /// [kDebugMode], so a worker isolate's diagnostics are silenced in release too —
 /// unlike the `debugPrint = noop` trick, which is isolate-local and would miss
 /// the storage worker.
+/// Compile-time opt-in for a DIAGNOSTIC release build
+/// (`--dart-define=XVEIL_RELEASE_LOG=true`): keeps the release AOT/sandbox
+/// properties while restoring the trace. Distribution builds never set it, so
+/// their logging stays dead-code-eliminated exactly as before.
+const _releaseDiagnosticLog = bool.fromEnvironment('XVEIL_RELEASE_LOG');
+
 void devLog(String Function() message) {
-  if (kDebugMode) debugPrint(message());
+  if (kDebugMode || _releaseDiagnosticLog) debugPrint(message());
 }
