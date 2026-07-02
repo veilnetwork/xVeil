@@ -27,6 +27,13 @@ NAME="${NAME:-}"
 DOWNLOAD_PEER="${DOWNLOAD_PEER:-}"
 DOWNLOAD_PEERS="${DOWNLOAD_PEERS:-}"
 WAIT_READY_MS="${WAIT_READY_MS:-120000}"
+# Best-effort wait for the receiver UI/storage offer before starting
+# /download_file. Set to 0 to skip. A timeout does not fail the transfer: the
+# download hook can fetch the manifest over the reliable stream by cid+peer, but
+# when the manifest-ref offer is observed first the parallel range path starts
+# with fewer partial resumes.
+WAIT_OFFER_MS="${WAIT_OFFER_MS:-15000}"
+WAIT_OFFER_REQUIRED="${WAIT_OFFER_REQUIRED:-0}"
 DOWNLOAD_TIMEOUT_MS="${DOWNLOAD_TIMEOUT_MS:-1800000}"
 EXPECT_SHA256="${EXPECT_SHA256:-}"
 CLEAN_DEST="${CLEAN_DEST:-1}"
@@ -181,8 +188,35 @@ size="$(printf '%s' "$send_body" | json_get size)"
 echo "contentId: $cid"
 echo "advertised size: $size"
 
+if [[ "$WAIT_OFFER_MS" != "0" ]]; then
+  wait_offer_url="$receiver_hook/wait_offer?cid=$(urlencode "$cid")&timeout_ms=$WAIT_OFFER_MS"
+  if [[ -n "$DOWNLOAD_PEERS" ]]; then
+    wait_offer_url="$wait_offer_url&peer=any"
+  else
+    wait_offer_url="$wait_offer_url&peer=$(urlencode "$receiver_peer")"
+  fi
+  echo "waiting for receiver offer"
+  if offer_body="$(get_json "$wait_offer_url")"; then
+    if [[ "$(printf '%s' "$offer_body" | json_get ok || true)" == "true" ]]; then
+      echo "receiver offer observed"
+    elif [[ "$WAIT_OFFER_REQUIRED" == "1" ]]; then
+      require_ok "$offer_body" "wait_offer"
+    else
+      echo "receiver offer not observed; continuing direct download"
+      echo "$offer_body" >&2
+    fi
+  elif [[ "$WAIT_OFFER_REQUIRED" == "1" ]]; then
+    echo "wait_offer failed" >&2
+    exit 1
+  else
+    echo "wait_offer failed; continuing direct download" >&2
+  fi
+else
+  echo "skipping receiver offer wait"
+fi
+
 download_peer="${DOWNLOAD_PEER:-$receiver_peer}"
-download_url="$receiver_hook/download_file?cid=$(urlencode "$cid")&path=$(urlencode "$DEST_PATH")&timeout_ms=$DOWNLOAD_TIMEOUT_MS"
+download_url="$receiver_hook/download_file?cid=$(urlencode "$cid")&path=$(urlencode "$DEST_PATH")&timeout_ms=$DOWNLOAD_TIMEOUT_MS&expect_size=$(urlencode "$size")"
 if [[ -n "$DOWNLOAD_PEERS" ]]; then
   download_url="$download_url&peers=$(urlencode "$DOWNLOAD_PEERS")"
 else

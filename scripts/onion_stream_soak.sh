@@ -5,10 +5,12 @@ set -euo pipefail
 #
 # What it automates:
 #   - stops stale Android/macOS debug app processes;
+#   - optionally rebuilds the local debug Rust native libraries before launch;
 #   - enables the pinned onion-stream circuit mode on Android via setprop;
 #   - launches desktop + Android debug builds with the local Rust dylibs;
 #   - captures Flutter/app/logcat output under one timestamped log directory;
 #   - starts a debug-only loopback command hook on both apps;
+#   - with SOAK_UNLOCK_PASSWORD=..., unlocks both apps through the debug hook;
 #   - with SOAK_AUTO_TRANSFER=1, creates a test payload and drives a full
 #     phone<->desktop send/download through those hooks;
 #   - with SOAK_DOWNLOAD_PEER=any or SOAK_DOWNLOAD_PEERS=hex,hex, makes the
@@ -21,8 +23,8 @@ set -euo pipefail
 #     average throughput with SOAK_MIN_BYTES_PER_SEC / SOAK_MIN_MIB_PER_SEC.
 #
 # What it deliberately does NOT fake:
-#   - unlocking the deniable space. Start from an unlocked/ready app, or unlock
-#     once manually; after that SOAK_TRIGGER_CMD can drive send/download.
+#   - the production UI path. The optional unlock uses the debug-only hook and
+#     posts the password in the request body, not in the URL.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_ID="${APP_ID:-network.veil.xveil}"
@@ -31,6 +33,7 @@ VEIL_CIRCUIT_MODE="${VEIL_CIRCUIT_MODE:-published}"
 LOG_DIR="${LOG_DIR:-$ROOT/scratchpad/soak-$(date +%Y%m%d-%H%M%S)}"
 DESKTOP_DYLIB="${DESKTOP_DYLIB:-$ROOT/third_party/veil/target/debug/libveilclient_ffi.dylib}"
 HV_DYLIB="${HV_DYLIB:-$ROOT/third_party/hidden-volume/target/debug/libhidden_volume_ffi.dylib}"
+SOAK_BUILD_NATIVE="${SOAK_BUILD_NATIVE:-1}"
 DOWNLOAD_PATH="${DOWNLOAD_PATH:-}"
 ANDROID_DOWNLOAD_PATH="${ANDROID_DOWNLOAD_PATH:-}"
 EXPECT_SIZE="${EXPECT_SIZE:-}"
@@ -52,9 +55,61 @@ SOAK_GENERATE_SOURCE="${SOAK_GENERATE_SOURCE:-auto}" # auto|0|1
 SOAK_DOWNLOAD_PEER="${SOAK_DOWNLOAD_PEER:-}"
 SOAK_DOWNLOAD_PEERS="${SOAK_DOWNLOAD_PEERS:-}"
 SOAK_WAIT_READY_MS="${SOAK_WAIT_READY_MS:-120000}"
+SOAK_WAIT_OFFER_MS="${SOAK_WAIT_OFFER_MS:-15000}"
+SOAK_DOWNLOAD_TIMEOUT_MS="${SOAK_DOWNLOAD_TIMEOUT_MS:-}"
+SOAK_UNLOCK_PASSWORD="${SOAK_UNLOCK_PASSWORD:-}"
+SOAK_UNLOCK_TIMEOUT_MS="${SOAK_UNLOCK_TIMEOUT_MS:-$SOAK_WAIT_READY_MS}"
+SOAK_BOOT_WAIT_SEC="${SOAK_BOOT_WAIT_SEC:-}"
+SOAK_HOOK_WAIT_SEC="${SOAK_HOOK_WAIT_SEC:-}"
 SOAK_EXIT_AFTER_TRANSFER="${SOAK_EXIT_AFTER_TRANSFER:-$SOAK_AUTO_TRANSFER}"
 SOAK_CLEAN_DEST="${SOAK_CLEAN_DEST:-1}"
-SOAK_STREAM_RANGE_PARALLELISM="${SOAK_STREAM_RANGE_PARALLELISM:-}"
+SOAK_STREAM_RANGE_ENABLED="${SOAK_STREAM_RANGE_ENABLED:-}"
+# Back-compat/typo guard: several historical scratchpad commands used the
+# shorter SOAK_STREAM_RANGE_PARALLEL name. Treat it as an alias so a requested
+# "p16" run cannot silently fall back to the app default.
+SOAK_STREAM_RANGE_PARALLELISM="${SOAK_STREAM_RANGE_PARALLELISM:-${SOAK_STREAM_RANGE_PARALLEL:-}}"
+SOAK_STREAM_RANGE_TARGET_BYTES="${SOAK_STREAM_RANGE_TARGET_BYTES:-}"
+SOAK_STREAM_RANGE_PAYLOAD_IDLE_MS="${SOAK_STREAM_RANGE_PAYLOAD_IDLE_MS:-}"
+SOAK_STREAM_RANGE_STALL_ABANDON_MS="${SOAK_STREAM_RANGE_STALL_ABANDON_MS:-}"
+SOAK_STREAM_RANGE_HEDGE_MS="${SOAK_STREAM_RANGE_HEDGE_MS:-}"
+SOAK_STREAM_RANGE_OPEN_PACE_MS="${SOAK_STREAM_RANGE_OPEN_PACE_MS:-}"
+SOAK_STREAM_OPEN_WRITE_GRACE_MS="${SOAK_STREAM_OPEN_WRITE_GRACE_MS:-}"
+SOAK_STREAM_REQUEST_TIMEOUT_MS="${SOAK_STREAM_REQUEST_TIMEOUT_MS:-}"
+SOAK_CONTENT_REOFFER_TIMEOUT_MS="${SOAK_CONTENT_REOFFER_TIMEOUT_MS:-}"
+SOAK_ONION_STREAM_DEBUG_SUMMARY_MS="${SOAK_ONION_STREAM_DEBUG_SUMMARY_MS:-}"
+SOAK_ONION_STREAM_INIT_RTO_MS="${SOAK_ONION_STREAM_INIT_RTO_MS:-2000}"
+SOAK_DESKTOP_ONION_STREAM_INIT_RTO_MS="${SOAK_DESKTOP_ONION_STREAM_INIT_RTO_MS:-$SOAK_ONION_STREAM_INIT_RTO_MS}"
+SOAK_ANDROID_ONION_STREAM_INIT_RTO_MS="${SOAK_ANDROID_ONION_STREAM_INIT_RTO_MS:-$SOAK_ONION_STREAM_INIT_RTO_MS}"
+SOAK_ONION_STREAM_MIN_RTO_MS="${SOAK_ONION_STREAM_MIN_RTO_MS:-1000}"
+SOAK_DESKTOP_ONION_STREAM_MIN_RTO_MS="${SOAK_DESKTOP_ONION_STREAM_MIN_RTO_MS:-$SOAK_ONION_STREAM_MIN_RTO_MS}"
+SOAK_ANDROID_ONION_STREAM_MIN_RTO_MS="${SOAK_ANDROID_ONION_STREAM_MIN_RTO_MS:-$SOAK_ONION_STREAM_MIN_RTO_MS}"
+SOAK_ONION_STREAM_MAX_RTO_MS="${SOAK_ONION_STREAM_MAX_RTO_MS:-10000}"
+SOAK_DESKTOP_ONION_STREAM_MAX_RTO_MS="${SOAK_DESKTOP_ONION_STREAM_MAX_RTO_MS:-$SOAK_ONION_STREAM_MAX_RTO_MS}"
+SOAK_ANDROID_ONION_STREAM_MAX_RTO_MS="${SOAK_ANDROID_ONION_STREAM_MAX_RTO_MS:-$SOAK_ONION_STREAM_MAX_RTO_MS}"
+SOAK_ONION_STREAM_MAX_RETRANSMITS="${SOAK_ONION_STREAM_MAX_RETRANSMITS:-}"
+SOAK_DESKTOP_ONION_STREAM_MAX_RETRANSMITS="${SOAK_DESKTOP_ONION_STREAM_MAX_RETRANSMITS:-$SOAK_ONION_STREAM_MAX_RETRANSMITS}"
+SOAK_ANDROID_ONION_STREAM_MAX_RETRANSMITS="${SOAK_ANDROID_ONION_STREAM_MAX_RETRANSMITS:-$SOAK_ONION_STREAM_MAX_RETRANSMITS}"
+SOAK_ONION_STREAM_INIT_CWND_MSS="${SOAK_ONION_STREAM_INIT_CWND_MSS:-}"
+SOAK_DESKTOP_ONION_STREAM_INIT_CWND_MSS="${SOAK_DESKTOP_ONION_STREAM_INIT_CWND_MSS:-$SOAK_ONION_STREAM_INIT_CWND_MSS}"
+SOAK_ANDROID_ONION_STREAM_INIT_CWND_MSS="${SOAK_ANDROID_ONION_STREAM_INIT_CWND_MSS:-$SOAK_ONION_STREAM_INIT_CWND_MSS}"
+SOAK_ONION_STREAM_OUTBOUND_POOL="${SOAK_ONION_STREAM_OUTBOUND_POOL:-}"
+SOAK_DESKTOP_ONION_STREAM_OUTBOUND_POOL="${SOAK_DESKTOP_ONION_STREAM_OUTBOUND_POOL:-$SOAK_ONION_STREAM_OUTBOUND_POOL}"
+SOAK_ANDROID_ONION_STREAM_OUTBOUND_POOL="${SOAK_ANDROID_ONION_STREAM_OUTBOUND_POOL:-$SOAK_ONION_STREAM_OUTBOUND_POOL}"
+SOAK_ONION_STREAM_ACK_OUTBOUND_POOL="${SOAK_ONION_STREAM_ACK_OUTBOUND_POOL:-}"
+SOAK_DESKTOP_ONION_STREAM_ACK_OUTBOUND_POOL="${SOAK_DESKTOP_ONION_STREAM_ACK_OUTBOUND_POOL:-$SOAK_ONION_STREAM_ACK_OUTBOUND_POOL}"
+SOAK_ANDROID_ONION_STREAM_ACK_OUTBOUND_POOL="${SOAK_ANDROID_ONION_STREAM_ACK_OUTBOUND_POOL:-$SOAK_ONION_STREAM_ACK_OUTBOUND_POOL}"
+SOAK_ONION_STREAM_BULK_ROUTE_ACTIVE_LIMIT="${SOAK_ONION_STREAM_BULK_ROUTE_ACTIVE_LIMIT:-}"
+SOAK_DESKTOP_ONION_STREAM_BULK_ROUTE_ACTIVE_LIMIT="${SOAK_DESKTOP_ONION_STREAM_BULK_ROUTE_ACTIVE_LIMIT:-$SOAK_ONION_STREAM_BULK_ROUTE_ACTIVE_LIMIT}"
+SOAK_ANDROID_ONION_STREAM_BULK_ROUTE_ACTIVE_LIMIT="${SOAK_ANDROID_ONION_STREAM_BULK_ROUTE_ACTIVE_LIMIT:-$SOAK_ONION_STREAM_BULK_ROUTE_ACTIVE_LIMIT}"
+SOAK_WAIT_ONION_REGISTRATIONS="${SOAK_WAIT_ONION_REGISTRATIONS:-0}"
+SOAK_WAIT_ONION_REGISTRATIONS_MS="${SOAK_WAIT_ONION_REGISTRATIONS_MS:-60000}"
+SOAK_PLAIN_FILE_STREAM="${SOAK_PLAIN_FILE_STREAM:-}"
+SOAK_BULK_STREAM_TRACE="${SOAK_BULK_STREAM_TRACE:-}"
+SOAK_PREFER_RENDEZVOUS="${SOAK_PREFER_RENDEZVOUS:-}"
+SOAK_CONTENT_SERVE_BATCH="${SOAK_CONTENT_SERVE_BATCH:-}"
+SOAK_CONTENT_PACING_MS="${SOAK_CONTENT_PACING_MS:-}"
+SOAK_ANON_STREAM_READ_CONCURRENCY="${SOAK_ANON_STREAM_READ_CONCURRENCY:-}"
+SOAK_ANON_STREAM_WRITE_CONCURRENCY="${SOAK_ANON_STREAM_WRITE_CONCURRENCY:-}"
 SOAK_MIN_BYTES_PER_SEC="${SOAK_MIN_BYTES_PER_SEC:-}"
 SOAK_MIN_MIB_PER_SEC="${SOAK_MIN_MIB_PER_SEC:-}"
 SOAK_FAULT_AFTER_SEC="${SOAK_FAULT_AFTER_SEC:-}"
@@ -105,10 +160,41 @@ android_file_size() {
     tail -1
 }
 
+local_file_size() {
+  local path="$1"
+  if [[ ! -e "$path" ]]; then
+    echo 0
+    return
+  fi
+  stat -c '%s' "$path" 2>/dev/null ||
+    stat -f '%z' "$path" 2>/dev/null ||
+    echo 0
+}
+
+local_download_size() {
+  local path="$1"
+  local size=0
+  local n
+  n="$(local_file_size "$path")"
+  if [[ "$n" =~ ^[0-9]+$ && "$n" -gt "$size" ]]; then
+    size="$n"
+  fi
+  local part
+  while IFS= read -r part; do
+    n="$(local_file_size "$part")"
+    if [[ "$n" =~ ^[0-9]+$ && "$n" -gt "$size" ]]; then
+      size="$n"
+    fi
+  done < <(compgen -G "${path}.part-*" || true)
+  echo "$size"
+}
+
 auto_source_path=""
 auto_dest_path=""
+auto_local_source=""
 auto_sha256=""
 auto_expected_size=""
+auto_stage_android_source=0
 min_bytes_per_sec=""
 
 resolve_min_speed() {
@@ -133,6 +219,26 @@ validate_nonnegative_int() {
   fi
 }
 
+normalize_dart_bool() {
+  local name="$1"
+  local value="$2"
+  case "${value,,}" in
+    "")
+      return
+      ;;
+    1|true|yes|on)
+      printf true
+      ;;
+    0|false|no|off)
+      printf false
+      ;;
+    *)
+      echo "$name must be a boolean (1/0, true/false, yes/no, on/off)." >&2
+      exit 2
+      ;;
+  esac
+}
+
 prepare_auto_transfer() {
   if [[ "$SOAK_AUTO_TRANSFER" != "1" ]]; then
     return
@@ -150,7 +256,7 @@ prepare_auto_transfer() {
   if [[ -n "$SOAK_SOURCE_PATH" ]]; then
     auto_source_path="$SOAK_SOURCE_PATH"
   elif [[ "$SOAK_SENDER" == "android" ]]; then
-    auto_source_path="/sdcard/Android/data/$APP_ID/files/soak/source-$SOAK_NAME"
+    auto_source_path="/data/user/0/$APP_ID/files/soak/source-$SOAK_NAME"
     source_was_defaulted=1
   else
     auto_source_path="$LOG_DIR/source-$SOAK_NAME"
@@ -178,23 +284,13 @@ prepare_auto_transfer() {
     local local_source="$auto_source_path"
     if [[ "$SOAK_SENDER" == "android" ]]; then
       local_source="${SOAK_SOURCE_LOCAL:-$LOG_DIR/source-$SOAK_NAME}"
+      auto_local_source="$local_source"
+      auto_stage_android_source=1
     fi
 
     echo "generating soak payload: $SOAK_SIZE bytes -> $local_source"
     auto_sha256="$(make_payload "$SOAK_SIZE" "$local_source")"
     auto_expected_size="$SOAK_SIZE"
-
-    if [[ "$SOAK_SENDER" == "android" ]]; then
-      local device_dir="${auto_source_path%/*}"
-      if [[ "$device_dir" == "$auto_source_path" ]]; then
-        device_dir="."
-      fi
-      echo "pushing soak payload to Android: $auto_source_path"
-      adb -s "$ANDROID_SERIAL" shell \
-        "mkdir -p $(android_shell_quote "$device_dir")" >/dev/null
-      adb -s "$ANDROID_SERIAL" push "$local_source" "$auto_source_path" \
-        >"$LOG_DIR/adb-push-source.log"
-    fi
   elif [[ "$generate" != "0" ]]; then
     echo "SOAK_GENERATE_SOURCE must be auto, 0 or 1." >&2
     exit 2
@@ -237,6 +333,134 @@ prepare_auto_transfer() {
   fi
 }
 
+stage_android_auto_source() {
+  if [[ "$auto_stage_android_source" != "1" ]]; then
+    return
+  fi
+  if [[ -z "$auto_local_source" ]]; then
+    echo "internal error: auto_local_source is empty" >&2
+    exit 2
+  fi
+
+  local safe_name
+  safe_name="$(
+    printf '%s' "$SOAK_NAME" |
+      tr -c 'A-Za-z0-9._-' '_'
+  )"
+  local tmp="/data/local/tmp/xveil-soak-$safe_name"
+  echo "staging soak payload inside Android app sandbox: $auto_source_path"
+  adb -s "$ANDROID_SERIAL" push "$auto_local_source" "$tmp" \
+    >"$LOG_DIR/adb-push-source.log"
+  adb -s "$ANDROID_SERIAL" shell "chmod 644 $(android_shell_quote "$tmp")" \
+    >/dev/null
+
+  if [[ "$auto_source_path" == "/data/user/0/$APP_ID/"* ]]; then
+    local rel="${auto_source_path#/data/user/0/$APP_ID/}"
+    local rel_dir="${rel%/*}"
+    if [[ "$rel_dir" == "$rel" ]]; then
+      rel_dir="."
+    fi
+    local script
+    script="mkdir -p $(android_shell_quote "$rel_dir") && cp $(android_shell_quote "$tmp") $(android_shell_quote "$rel") && ls -l $(android_shell_quote "$rel")"
+    adb -s "$ANDROID_SERIAL" shell \
+      "run-as $(android_shell_quote "$APP_ID") sh -c $(android_shell_quote "$script")" \
+      >"$LOG_DIR/adb-stage-source.log"
+  elif [[ "$auto_source_path" == "/data/data/$APP_ID/"* ]]; then
+    local rel="${auto_source_path#/data/data/$APP_ID/}"
+    local rel_dir="${rel%/*}"
+    if [[ "$rel_dir" == "$rel" ]]; then
+      rel_dir="."
+    fi
+    local script
+    script="mkdir -p $(android_shell_quote "$rel_dir") && cp $(android_shell_quote "$tmp") $(android_shell_quote "$rel") && ls -l $(android_shell_quote "$rel")"
+    adb -s "$ANDROID_SERIAL" shell \
+      "run-as $(android_shell_quote "$APP_ID") sh -c $(android_shell_quote "$script")" \
+      >"$LOG_DIR/adb-stage-source.log"
+  else
+    local device_dir="${auto_source_path%/*}"
+    if [[ "$device_dir" == "$auto_source_path" ]]; then
+      device_dir="."
+    fi
+    adb -s "$ANDROID_SERIAL" shell \
+      "mkdir -p $(android_shell_quote "$device_dir") && cp $(android_shell_quote "$tmp") $(android_shell_quote "$auto_source_path") && ls -l $(android_shell_quote "$auto_source_path")" \
+      >"$LOG_DIR/adb-stage-source.log"
+  fi
+}
+
+latest_onion_registration_lines() {
+  local log_file="$1"
+  if [[ -f "$log_file" ]]; then
+    grep -E "PINNED CIRCUIT (opened|refreshed)" "$log_file" 2>/dev/null |
+      tail -5 || true
+  fi
+}
+
+latest_onion_registration_count() {
+  local log_file="$1"
+  if [[ ! -f "$log_file" ]]; then
+    echo 0
+    return
+  fi
+  grep -E "PINNED CIRCUIT (opened|refreshed).*[0-9]+ registration\\(s\\)" "$log_file" 2>/dev/null |
+    sed -E 's/.* ([0-9]+) registration\(s\).*/\1/' |
+    tail -1 || true
+}
+
+wait_onion_registrations() {
+  local target="$1"
+  if [[ -z "$target" || "$target" == "0" ]]; then
+    return
+  fi
+  local timeout_ms="$SOAK_WAIT_ONION_REGISTRATIONS_MS"
+  local timeout_sec=$(((timeout_ms + 999) / 1000))
+  if (( timeout_sec < 1 )); then
+    timeout_sec=1
+  fi
+  local desktop_log="$LOG_DIR/desktop-flutter.log"
+  local android_log="$LOG_DIR/android-flutter.log"
+  echo "waiting for onion inbound registrations: >=${target} on both apps (${timeout_sec}s)"
+  for _ in $(seq 1 "$timeout_sec"); do
+    local desktop_count
+    local android_count
+    desktop_count="$(latest_onion_registration_count "$desktop_log")"
+    android_count="$(latest_onion_registration_count "$android_log")"
+    desktop_count="${desktop_count:-0}"
+    android_count="${android_count:-0}"
+    if (( desktop_count >= target && android_count >= target )); then
+      echo "onion inbound registrations ready: desktop=${desktop_count} android=${android_count} target=${target}"
+      return
+    fi
+    sleep 1
+  done
+  {
+    echo "timed out waiting for onion inbound registrations target=$target"
+    echo "desktop latest PINNED CIRCUIT lines:"
+    latest_onion_registration_lines "$desktop_log"
+    echo "android latest PINNED CIRCUIT lines:"
+    latest_onion_registration_lines "$android_log"
+  } >&2
+  exit 1
+}
+
+warmup_onion_hooks() {
+  if [[ "$SOAK_WAIT_ONION_REGISTRATIONS" == "0" ]]; then
+    return
+  fi
+  if [[ "$ENABLE_DEBUG_HOOK" != "1" ]]; then
+    echo "SOAK_WAIT_ONION_REGISTRATIONS requires ENABLE_DEBUG_HOOK=1." >&2
+    exit 2
+  fi
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "SOAK_WAIT_ONION_REGISTRATIONS requires curl." >&2
+    exit 2
+  fi
+  echo "warming onion stream hubs through debug hooks..."
+  curl -fsS "http://127.0.0.1:$DESKTOP_HOOK_PORT/warmup_onion" \
+    >"$LOG_DIR/desktop-warmup-onion.json"
+  curl -fsS "http://127.0.0.1:$ANDROID_HOST_HOOK_PORT/warmup_onion" \
+    >"$LOG_DIR/android-warmup-onion.json"
+}
+
 if [[ -z "$ANDROID_SERIAL" ]]; then
   ANDROID_SERIAL="$(
     adb devices |
@@ -254,6 +478,72 @@ validate_nonnegative_int SOAK_FAULT_AFTER_SEC "$SOAK_FAULT_AFTER_SEC"
 validate_nonnegative_int SOAK_ANDROID_WIFI_FLAP_AFTER_SEC "$SOAK_ANDROID_WIFI_FLAP_AFTER_SEC"
 validate_nonnegative_int SOAK_ANDROID_WIFI_FLAP_DOWN_SEC "$SOAK_ANDROID_WIFI_FLAP_DOWN_SEC"
 validate_nonnegative_int SOAK_STREAM_RANGE_PARALLELISM "$SOAK_STREAM_RANGE_PARALLELISM"
+validate_nonnegative_int SOAK_WAIT_READY_MS "$SOAK_WAIT_READY_MS"
+validate_nonnegative_int SOAK_WAIT_OFFER_MS "$SOAK_WAIT_OFFER_MS"
+validate_nonnegative_int SOAK_DOWNLOAD_TIMEOUT_MS "$SOAK_DOWNLOAD_TIMEOUT_MS"
+validate_nonnegative_int SOAK_UNLOCK_TIMEOUT_MS "$SOAK_UNLOCK_TIMEOUT_MS"
+validate_nonnegative_int SOAK_BOOT_WAIT_SEC "$SOAK_BOOT_WAIT_SEC"
+validate_nonnegative_int SOAK_HOOK_WAIT_SEC "$SOAK_HOOK_WAIT_SEC"
+validate_nonnegative_int SOAK_CONTENT_SERVE_BATCH "$SOAK_CONTENT_SERVE_BATCH"
+validate_nonnegative_int SOAK_CONTENT_PACING_MS "$SOAK_CONTENT_PACING_MS"
+validate_nonnegative_int SOAK_ANON_STREAM_READ_CONCURRENCY "$SOAK_ANON_STREAM_READ_CONCURRENCY"
+validate_nonnegative_int SOAK_ANON_STREAM_WRITE_CONCURRENCY "$SOAK_ANON_STREAM_WRITE_CONCURRENCY"
+validate_nonnegative_int SOAK_STREAM_RANGE_TARGET_BYTES "$SOAK_STREAM_RANGE_TARGET_BYTES"
+validate_nonnegative_int SOAK_STREAM_RANGE_PAYLOAD_IDLE_MS "$SOAK_STREAM_RANGE_PAYLOAD_IDLE_MS"
+validate_nonnegative_int SOAK_STREAM_RANGE_STALL_ABANDON_MS "$SOAK_STREAM_RANGE_STALL_ABANDON_MS"
+validate_nonnegative_int SOAK_STREAM_RANGE_HEDGE_MS "$SOAK_STREAM_RANGE_HEDGE_MS"
+validate_nonnegative_int SOAK_STREAM_RANGE_OPEN_PACE_MS "$SOAK_STREAM_RANGE_OPEN_PACE_MS"
+validate_nonnegative_int SOAK_STREAM_OPEN_WRITE_GRACE_MS "$SOAK_STREAM_OPEN_WRITE_GRACE_MS"
+validate_nonnegative_int SOAK_STREAM_REQUEST_TIMEOUT_MS "$SOAK_STREAM_REQUEST_TIMEOUT_MS"
+validate_nonnegative_int SOAK_CONTENT_REOFFER_TIMEOUT_MS "$SOAK_CONTENT_REOFFER_TIMEOUT_MS"
+validate_nonnegative_int SOAK_ONION_STREAM_DEBUG_SUMMARY_MS "$SOAK_ONION_STREAM_DEBUG_SUMMARY_MS"
+validate_nonnegative_int SOAK_ONION_STREAM_INIT_RTO_MS "$SOAK_ONION_STREAM_INIT_RTO_MS"
+validate_nonnegative_int SOAK_DESKTOP_ONION_STREAM_INIT_RTO_MS "$SOAK_DESKTOP_ONION_STREAM_INIT_RTO_MS"
+validate_nonnegative_int SOAK_ANDROID_ONION_STREAM_INIT_RTO_MS "$SOAK_ANDROID_ONION_STREAM_INIT_RTO_MS"
+validate_nonnegative_int SOAK_ONION_STREAM_MIN_RTO_MS "$SOAK_ONION_STREAM_MIN_RTO_MS"
+validate_nonnegative_int SOAK_DESKTOP_ONION_STREAM_MIN_RTO_MS "$SOAK_DESKTOP_ONION_STREAM_MIN_RTO_MS"
+validate_nonnegative_int SOAK_ANDROID_ONION_STREAM_MIN_RTO_MS "$SOAK_ANDROID_ONION_STREAM_MIN_RTO_MS"
+validate_nonnegative_int SOAK_ONION_STREAM_MAX_RTO_MS "$SOAK_ONION_STREAM_MAX_RTO_MS"
+validate_nonnegative_int SOAK_DESKTOP_ONION_STREAM_MAX_RTO_MS "$SOAK_DESKTOP_ONION_STREAM_MAX_RTO_MS"
+validate_nonnegative_int SOAK_ANDROID_ONION_STREAM_MAX_RTO_MS "$SOAK_ANDROID_ONION_STREAM_MAX_RTO_MS"
+validate_nonnegative_int SOAK_ONION_STREAM_MAX_RETRANSMITS "$SOAK_ONION_STREAM_MAX_RETRANSMITS"
+validate_nonnegative_int SOAK_DESKTOP_ONION_STREAM_MAX_RETRANSMITS "$SOAK_DESKTOP_ONION_STREAM_MAX_RETRANSMITS"
+validate_nonnegative_int SOAK_ANDROID_ONION_STREAM_MAX_RETRANSMITS "$SOAK_ANDROID_ONION_STREAM_MAX_RETRANSMITS"
+validate_nonnegative_int SOAK_ONION_STREAM_INIT_CWND_MSS "$SOAK_ONION_STREAM_INIT_CWND_MSS"
+validate_nonnegative_int SOAK_DESKTOP_ONION_STREAM_INIT_CWND_MSS "$SOAK_DESKTOP_ONION_STREAM_INIT_CWND_MSS"
+validate_nonnegative_int SOAK_ANDROID_ONION_STREAM_INIT_CWND_MSS "$SOAK_ANDROID_ONION_STREAM_INIT_CWND_MSS"
+validate_nonnegative_int SOAK_ONION_STREAM_OUTBOUND_POOL "$SOAK_ONION_STREAM_OUTBOUND_POOL"
+validate_nonnegative_int SOAK_DESKTOP_ONION_STREAM_OUTBOUND_POOL "$SOAK_DESKTOP_ONION_STREAM_OUTBOUND_POOL"
+validate_nonnegative_int SOAK_ANDROID_ONION_STREAM_OUTBOUND_POOL "$SOAK_ANDROID_ONION_STREAM_OUTBOUND_POOL"
+validate_nonnegative_int SOAK_ONION_STREAM_ACK_OUTBOUND_POOL "$SOAK_ONION_STREAM_ACK_OUTBOUND_POOL"
+validate_nonnegative_int SOAK_DESKTOP_ONION_STREAM_ACK_OUTBOUND_POOL "$SOAK_DESKTOP_ONION_STREAM_ACK_OUTBOUND_POOL"
+validate_nonnegative_int SOAK_ANDROID_ONION_STREAM_ACK_OUTBOUND_POOL "$SOAK_ANDROID_ONION_STREAM_ACK_OUTBOUND_POOL"
+validate_nonnegative_int SOAK_ONION_STREAM_BULK_ROUTE_ACTIVE_LIMIT "$SOAK_ONION_STREAM_BULK_ROUTE_ACTIVE_LIMIT"
+validate_nonnegative_int SOAK_DESKTOP_ONION_STREAM_BULK_ROUTE_ACTIVE_LIMIT "$SOAK_DESKTOP_ONION_STREAM_BULK_ROUTE_ACTIVE_LIMIT"
+validate_nonnegative_int SOAK_ANDROID_ONION_STREAM_BULK_ROUTE_ACTIVE_LIMIT "$SOAK_ANDROID_ONION_STREAM_BULK_ROUTE_ACTIVE_LIMIT"
+validate_nonnegative_int SOAK_WAIT_ONION_REGISTRATIONS "$SOAK_WAIT_ONION_REGISTRATIONS"
+validate_nonnegative_int SOAK_WAIT_ONION_REGISTRATIONS_MS "$SOAK_WAIT_ONION_REGISTRATIONS_MS"
+if [[ "$SOAK_AUTO_TRANSFER" == "1" && -z "$SOAK_PLAIN_FILE_STREAM" ]]; then
+  # The real speed path is reliable stream/range pull. Keep the app default
+  # conservative, but make the soak harness exercise the path it is meant to
+  # validate unless a caller explicitly asks for the legacy chunk/datagram path.
+  SOAK_PLAIN_FILE_STREAM=true
+fi
+SOAK_STREAM_RANGE_ENABLED="$(normalize_dart_bool SOAK_STREAM_RANGE_ENABLED "$SOAK_STREAM_RANGE_ENABLED")"
+SOAK_PLAIN_FILE_STREAM="$(normalize_dart_bool SOAK_PLAIN_FILE_STREAM "$SOAK_PLAIN_FILE_STREAM")"
+SOAK_BULK_STREAM_TRACE="$(normalize_dart_bool SOAK_BULK_STREAM_TRACE "$SOAK_BULK_STREAM_TRACE")"
+if [[ -z "$SOAK_BOOT_WAIT_SEC" ]]; then
+  SOAK_BOOT_WAIT_SEC=$(((SOAK_WAIT_READY_MS + 999) / 1000))
+fi
+if [[ -z "$SOAK_HOOK_WAIT_SEC" ]]; then
+  SOAK_HOOK_WAIT_SEC=$(((SOAK_WAIT_READY_MS + 999) / 1000))
+fi
+if (( SOAK_BOOT_WAIT_SEC < 90 )); then
+  SOAK_BOOT_WAIT_SEC=90
+fi
+if (( SOAK_HOOK_WAIT_SEC < 90 )); then
+  SOAK_HOOK_WAIT_SEC=90
+fi
 prepare_auto_transfer
 
 pids=()
@@ -275,6 +565,7 @@ echo "root: $ROOT"
 echo "logs: $LOG_DIR"
 echo "android: $ANDROID_SERIAL"
 echo "circuit mode: $VEIL_CIRCUIT_MODE"
+echo "build native: $SOAK_BUILD_NATIVE"
 echo "debug hook: $ENABLE_DEBUG_HOOK"
 if [[ "$ENABLE_DEBUG_HOOK" == "1" ]]; then
   echo "desktop hook: http://127.0.0.1:$DESKTOP_HOOK_PORT"
@@ -286,6 +577,99 @@ fi
 if [[ -n "$SOAK_STREAM_RANGE_PARALLELISM" ]]; then
   echo "stream range parallelism: $SOAK_STREAM_RANGE_PARALLELISM"
 fi
+if [[ -n "$SOAK_STREAM_RANGE_ENABLED" ]]; then
+  echo "stream range enabled: $SOAK_STREAM_RANGE_ENABLED"
+fi
+echo "wait receiver offer: ${SOAK_WAIT_OFFER_MS}ms"
+if [[ -n "$SOAK_DOWNLOAD_TIMEOUT_MS" ]]; then
+  echo "download timeout: ${SOAK_DOWNLOAD_TIMEOUT_MS}ms"
+fi
+if [[ -n "$SOAK_STREAM_RANGE_TARGET_BYTES" ]]; then
+  echo "stream range target bytes: $SOAK_STREAM_RANGE_TARGET_BYTES"
+fi
+if [[ -n "$SOAK_STREAM_RANGE_PAYLOAD_IDLE_MS" ]]; then
+  echo "stream range payload idle: ${SOAK_STREAM_RANGE_PAYLOAD_IDLE_MS}ms"
+fi
+if [[ -n "$SOAK_STREAM_RANGE_OPEN_PACE_MS" ]]; then
+  echo "stream range open pace: ${SOAK_STREAM_RANGE_OPEN_PACE_MS}ms"
+fi
+if [[ -n "$SOAK_ONION_STREAM_OUTBOUND_POOL" ]]; then
+  echo "onion stream outbound pool: $SOAK_ONION_STREAM_OUTBOUND_POOL"
+fi
+if [[ -n "$SOAK_DESKTOP_ONION_STREAM_OUTBOUND_POOL" || -n "$SOAK_ANDROID_ONION_STREAM_OUTBOUND_POOL" ]]; then
+  echo "onion stream outbound pool by side: desktop=${SOAK_DESKTOP_ONION_STREAM_OUTBOUND_POOL:-default} android=${SOAK_ANDROID_ONION_STREAM_OUTBOUND_POOL:-default}"
+fi
+if [[ -n "$SOAK_ONION_STREAM_ACK_OUTBOUND_POOL" ]]; then
+  echo "onion stream ACK outbound pool: $SOAK_ONION_STREAM_ACK_OUTBOUND_POOL"
+fi
+if [[ -n "$SOAK_DESKTOP_ONION_STREAM_ACK_OUTBOUND_POOL" || -n "$SOAK_ANDROID_ONION_STREAM_ACK_OUTBOUND_POOL" ]]; then
+  echo "onion stream ACK outbound pool by side: desktop=${SOAK_DESKTOP_ONION_STREAM_ACK_OUTBOUND_POOL:-default} android=${SOAK_ANDROID_ONION_STREAM_ACK_OUTBOUND_POOL:-default}"
+fi
+if [[ -n "$SOAK_ONION_STREAM_BULK_ROUTE_ACTIVE_LIMIT" ]]; then
+  echo "onion stream bulk route active limit: $SOAK_ONION_STREAM_BULK_ROUTE_ACTIVE_LIMIT"
+fi
+if [[ -n "$SOAK_DESKTOP_ONION_STREAM_BULK_ROUTE_ACTIVE_LIMIT" || -n "$SOAK_ANDROID_ONION_STREAM_BULK_ROUTE_ACTIVE_LIMIT" ]]; then
+  echo "onion stream bulk route active limit by side: desktop=${SOAK_DESKTOP_ONION_STREAM_BULK_ROUTE_ACTIVE_LIMIT:-default} android=${SOAK_ANDROID_ONION_STREAM_BULK_ROUTE_ACTIVE_LIMIT:-default}"
+fi
+if [[ -n "$SOAK_ONION_STREAM_INIT_CWND_MSS" ]]; then
+  echo "onion stream initial cwnd: ${SOAK_ONION_STREAM_INIT_CWND_MSS} MSS"
+fi
+if [[ -n "$SOAK_DESKTOP_ONION_STREAM_INIT_CWND_MSS" || -n "$SOAK_ANDROID_ONION_STREAM_INIT_CWND_MSS" ]]; then
+  echo "onion stream initial cwnd by side: desktop=${SOAK_DESKTOP_ONION_STREAM_INIT_CWND_MSS:-default} android=${SOAK_ANDROID_ONION_STREAM_INIT_CWND_MSS:-default}"
+fi
+if [[ "$SOAK_WAIT_ONION_REGISTRATIONS" != "0" ]]; then
+  echo "wait onion registrations: ${SOAK_WAIT_ONION_REGISTRATIONS} (${SOAK_WAIT_ONION_REGISTRATIONS_MS}ms)"
+fi
+if [[ -n "$SOAK_STREAM_OPEN_WRITE_GRACE_MS" ]]; then
+  echo "stream open/write grace: ${SOAK_STREAM_OPEN_WRITE_GRACE_MS}ms"
+fi
+if [[ -n "$SOAK_STREAM_REQUEST_TIMEOUT_MS" ]]; then
+  echo "stream request timeout: ${SOAK_STREAM_REQUEST_TIMEOUT_MS}ms"
+fi
+if [[ -n "$SOAK_CONTENT_REOFFER_TIMEOUT_MS" ]]; then
+  echo "content reoffer timeout: ${SOAK_CONTENT_REOFFER_TIMEOUT_MS}ms"
+fi
+if [[ -n "$SOAK_ONION_STREAM_DEBUG_SUMMARY_MS" ]]; then
+  echo "onion stream debug summary: ${SOAK_ONION_STREAM_DEBUG_SUMMARY_MS}ms"
+fi
+if [[ -n "$SOAK_ONION_STREAM_INIT_RTO_MS" ]]; then
+  echo "onion stream init RTO: ${SOAK_ONION_STREAM_INIT_RTO_MS}ms"
+fi
+if [[ -n "$SOAK_ONION_STREAM_MIN_RTO_MS" ]]; then
+  echo "onion stream min RTO: ${SOAK_ONION_STREAM_MIN_RTO_MS}ms"
+fi
+if [[ -n "$SOAK_ONION_STREAM_MAX_RTO_MS" ]]; then
+  echo "onion stream max RTO: ${SOAK_ONION_STREAM_MAX_RTO_MS}ms"
+fi
+if [[ -n "$SOAK_ONION_STREAM_MAX_RETRANSMITS" ]]; then
+  echo "onion stream max retransmits: $SOAK_ONION_STREAM_MAX_RETRANSMITS"
+fi
+if [[ -n "$SOAK_PLAIN_FILE_STREAM" ]]; then
+  echo "plain file stream: $SOAK_PLAIN_FILE_STREAM"
+fi
+if [[ -n "$SOAK_BULK_STREAM_TRACE" ]]; then
+  echo "bulk stream trace: $SOAK_BULK_STREAM_TRACE"
+fi
+if [[ -n "$SOAK_PREFER_RENDEZVOUS" ]]; then
+  echo "prefer rendezvous: $SOAK_PREFER_RENDEZVOUS"
+fi
+if [[ -n "$SOAK_CONTENT_SERVE_BATCH" ]]; then
+  echo "content serve batch: $SOAK_CONTENT_SERVE_BATCH"
+fi
+if [[ -n "$SOAK_CONTENT_PACING_MS" ]]; then
+  echo "content pacing: ${SOAK_CONTENT_PACING_MS}ms"
+fi
+if [[ -n "$SOAK_ANON_STREAM_READ_CONCURRENCY" ]]; then
+  echo "anon stream read concurrency: $SOAK_ANON_STREAM_READ_CONCURRENCY"
+fi
+if [[ -n "$SOAK_ANON_STREAM_WRITE_CONCURRENCY" ]]; then
+  echo "anon stream write concurrency: $SOAK_ANON_STREAM_WRITE_CONCURRENCY"
+fi
+if [[ -n "$SOAK_UNLOCK_PASSWORD" ]]; then
+  echo "debug hook unlock: enabled"
+fi
+echo "app boot wait: ${SOAK_BOOT_WAIT_SEC}s"
+echo "debug hook wait: ${SOAK_HOOK_WAIT_SEC}s"
 if [[ -n "$SOAK_FAULT_CMD" || -n "$SOAK_ANDROID_WIFI_FLAP_AFTER_SEC" ]]; then
   echo "fault injection: enabled"
 fi
@@ -295,9 +679,86 @@ if [[ "$KILL_OLD" == "1" ]]; then
   pkill -f "build/macos/Build/Products/Debug/xveil.app" >/dev/null 2>&1 || true
   pkill -f "flutter_tools.snapshot run.*-d macos" >/dev/null 2>&1 || true
   pkill -f "flutter_tools.snapshot run.*$ANDROID_SERIAL" >/dev/null 2>&1 || true
+  if command -v lsof >/dev/null 2>&1; then
+    while IFS= read -r pid; do
+      [[ -z "$pid" ]] && continue
+      kill "$pid" >/dev/null 2>&1 || true
+    done < <(lsof -tiTCP:"$DESKTOP_HOOK_PORT" -sTCP:LISTEN 2>/dev/null || true)
+    sleep 1
+    while IFS= read -r pid; do
+      [[ -z "$pid" ]] && continue
+      kill -9 "$pid" >/dev/null 2>&1 || true
+    done < <(lsof -tiTCP:"$DESKTOP_HOOK_PORT" -sTCP:LISTEN 2>/dev/null || true)
+  fi
 fi
 
+if [[ "$SOAK_BUILD_NATIVE" == "1" ]]; then
+  echo "building debug native libraries..."
+  "$ROOT/scripts/build-native.sh" >"$LOG_DIR/build-native.log" 2>&1
+elif [[ "$SOAK_BUILD_NATIVE" != "0" ]]; then
+  echo "SOAK_BUILD_NATIVE must be 0 or 1." >&2
+  exit 2
+fi
+
+for native_lib in "$DESKTOP_DYLIB" "$HV_DYLIB"; do
+  if [[ ! -f "$native_lib" ]]; then
+    echo "missing native library: $native_lib" >&2
+    echo "Run scripts/build-native.sh or set SOAK_BUILD_NATIVE=1." >&2
+    exit 1
+  fi
+done
+
 adb -s "$ANDROID_SERIAL" shell setprop debug.veil.onion_stream_circuit "$VEIL_CIRCUIT_MODE"
+if [[ -n "$SOAK_PREFER_RENDEZVOUS" ]]; then
+  adb -s "$ANDROID_SERIAL" shell setprop debug.veil.onion_stream_prefer_rendezvous "$SOAK_PREFER_RENDEZVOUS"
+else
+  adb -s "$ANDROID_SERIAL" shell setprop debug.veil.onion_stream_prefer_rendezvous none
+fi
+if [[ -n "$SOAK_ONION_STREAM_DEBUG_SUMMARY_MS" ]]; then
+  adb -s "$ANDROID_SERIAL" shell setprop debug.veil.onion_stream_debug_summary_ms "$SOAK_ONION_STREAM_DEBUG_SUMMARY_MS"
+else
+  adb -s "$ANDROID_SERIAL" shell setprop debug.veil.onion_stream_debug_summary_ms 0
+fi
+if [[ -n "$SOAK_ANDROID_ONION_STREAM_INIT_RTO_MS" ]]; then
+  adb -s "$ANDROID_SERIAL" shell setprop debug.veil.onion_stream_init_rto_ms "$SOAK_ANDROID_ONION_STREAM_INIT_RTO_MS"
+else
+  adb -s "$ANDROID_SERIAL" shell setprop debug.veil.onion_stream_init_rto_ms 2000
+fi
+if [[ -n "$SOAK_ANDROID_ONION_STREAM_MIN_RTO_MS" ]]; then
+  adb -s "$ANDROID_SERIAL" shell setprop debug.veil.onion_stream_min_rto_ms "$SOAK_ANDROID_ONION_STREAM_MIN_RTO_MS"
+else
+  adb -s "$ANDROID_SERIAL" shell setprop debug.veil.onion_stream_min_rto_ms 1000
+fi
+if [[ -n "$SOAK_ANDROID_ONION_STREAM_MAX_RTO_MS" ]]; then
+  adb -s "$ANDROID_SERIAL" shell setprop debug.veil.onion_stream_max_rto_ms "$SOAK_ANDROID_ONION_STREAM_MAX_RTO_MS"
+else
+  adb -s "$ANDROID_SERIAL" shell setprop debug.veil.onion_stream_max_rto_ms 10000
+fi
+if [[ -n "$SOAK_ANDROID_ONION_STREAM_MAX_RETRANSMITS" ]]; then
+  adb -s "$ANDROID_SERIAL" shell setprop debug.veil.onion_stream_max_retransmits "$SOAK_ANDROID_ONION_STREAM_MAX_RETRANSMITS"
+else
+  adb -s "$ANDROID_SERIAL" shell setprop debug.veil.onion_stream_max_retransmits 5
+fi
+if [[ -n "$SOAK_ANDROID_ONION_STREAM_INIT_CWND_MSS" ]]; then
+  adb -s "$ANDROID_SERIAL" shell setprop debug.veil.onion_stream_init_cwnd_mss "$SOAK_ANDROID_ONION_STREAM_INIT_CWND_MSS"
+else
+  adb -s "$ANDROID_SERIAL" shell setprop debug.veil.onion_stream_init_cwnd_mss 64
+fi
+if [[ -n "$SOAK_ANDROID_ONION_STREAM_OUTBOUND_POOL" ]]; then
+  adb -s "$ANDROID_SERIAL" shell setprop debug.veil.onion_stream_outbound_pool "$SOAK_ANDROID_ONION_STREAM_OUTBOUND_POOL"
+else
+  adb -s "$ANDROID_SERIAL" shell setprop debug.veil.onion_stream_outbound_pool 3
+fi
+if [[ -n "$SOAK_ANDROID_ONION_STREAM_ACK_OUTBOUND_POOL" ]]; then
+  adb -s "$ANDROID_SERIAL" shell setprop debug.veil.onion_stream_ack_outbound_pool "$SOAK_ANDROID_ONION_STREAM_ACK_OUTBOUND_POOL"
+else
+  adb -s "$ANDROID_SERIAL" shell setprop debug.veil.onion_stream_ack_outbound_pool 1
+fi
+if [[ -n "$SOAK_ANDROID_ONION_STREAM_BULK_ROUTE_ACTIVE_LIMIT" ]]; then
+  adb -s "$ANDROID_SERIAL" shell setprop debug.veil.onion_stream_bulk_route_active_limit "$SOAK_ANDROID_ONION_STREAM_BULK_ROUTE_ACTIVE_LIMIT"
+else
+  adb -s "$ANDROID_SERIAL" shell setprop debug.veil.onion_stream_bulk_route_active_limit 2
+fi
 adb -s "$ANDROID_SERIAL" shell svc power stayon true >/dev/null 2>&1 || true
 adb -s "$ANDROID_SERIAL" logcat -c || true
 if [[ "$ENABLE_DEBUG_HOOK" == "1" ]]; then
@@ -328,12 +789,142 @@ if [[ -n "$SOAK_STREAM_RANGE_PARALLELISM" ]]; then
     "--dart-define=XVEIL_STREAM_RANGE_PARALLELISM=$SOAK_STREAM_RANGE_PARALLELISM"
   )
 fi
+if [[ -n "$SOAK_STREAM_RANGE_ENABLED" ]]; then
+  desktop_defines+=(
+    "--dart-define=XVEIL_STREAM_RANGE_ENABLED=$SOAK_STREAM_RANGE_ENABLED"
+  )
+  android_defines+=(
+    "--dart-define=XVEIL_STREAM_RANGE_ENABLED=$SOAK_STREAM_RANGE_ENABLED"
+  )
+fi
+if [[ -n "$SOAK_STREAM_RANGE_TARGET_BYTES" ]]; then
+  desktop_defines+=(
+    "--dart-define=XVEIL_STREAM_RANGE_TARGET_BYTES=$SOAK_STREAM_RANGE_TARGET_BYTES"
+  )
+  android_defines+=(
+    "--dart-define=XVEIL_STREAM_RANGE_TARGET_BYTES=$SOAK_STREAM_RANGE_TARGET_BYTES"
+  )
+fi
+if [[ -n "$SOAK_STREAM_RANGE_PAYLOAD_IDLE_MS" ]]; then
+  desktop_defines+=(
+    "--dart-define=XVEIL_STREAM_RANGE_PAYLOAD_IDLE_MS=$SOAK_STREAM_RANGE_PAYLOAD_IDLE_MS"
+  )
+  android_defines+=(
+    "--dart-define=XVEIL_STREAM_RANGE_PAYLOAD_IDLE_MS=$SOAK_STREAM_RANGE_PAYLOAD_IDLE_MS"
+  )
+fi
+if [[ -n "$SOAK_STREAM_RANGE_STALL_ABANDON_MS" ]]; then
+  desktop_defines+=(
+    "--dart-define=XVEIL_STREAM_RANGE_STALL_ABANDON_MS=$SOAK_STREAM_RANGE_STALL_ABANDON_MS"
+  )
+  android_defines+=(
+    "--dart-define=XVEIL_STREAM_RANGE_STALL_ABANDON_MS=$SOAK_STREAM_RANGE_STALL_ABANDON_MS"
+  )
+fi
+if [[ -n "$SOAK_STREAM_RANGE_HEDGE_MS" ]]; then
+  desktop_defines+=(
+    "--dart-define=XVEIL_STREAM_RANGE_HEDGE_MS=$SOAK_STREAM_RANGE_HEDGE_MS"
+  )
+  android_defines+=(
+    "--dart-define=XVEIL_STREAM_RANGE_HEDGE_MS=$SOAK_STREAM_RANGE_HEDGE_MS"
+  )
+fi
+if [[ -n "$SOAK_STREAM_RANGE_OPEN_PACE_MS" ]]; then
+  desktop_defines+=(
+    "--dart-define=XVEIL_STREAM_RANGE_OPEN_PACE_MS=$SOAK_STREAM_RANGE_OPEN_PACE_MS"
+  )
+  android_defines+=(
+    "--dart-define=XVEIL_STREAM_RANGE_OPEN_PACE_MS=$SOAK_STREAM_RANGE_OPEN_PACE_MS"
+  )
+fi
+if [[ -n "$SOAK_STREAM_OPEN_WRITE_GRACE_MS" ]]; then
+  desktop_defines+=(
+    "--dart-define=XVEIL_STREAM_OPEN_WRITE_GRACE_MS=$SOAK_STREAM_OPEN_WRITE_GRACE_MS"
+  )
+  android_defines+=(
+    "--dart-define=XVEIL_STREAM_OPEN_WRITE_GRACE_MS=$SOAK_STREAM_OPEN_WRITE_GRACE_MS"
+  )
+fi
+if [[ -n "$SOAK_STREAM_REQUEST_TIMEOUT_MS" ]]; then
+  desktop_defines+=(
+    "--dart-define=XVEIL_STREAM_REQUEST_TIMEOUT_MS=$SOAK_STREAM_REQUEST_TIMEOUT_MS"
+  )
+  android_defines+=(
+    "--dart-define=XVEIL_STREAM_REQUEST_TIMEOUT_MS=$SOAK_STREAM_REQUEST_TIMEOUT_MS"
+  )
+fi
+if [[ -n "$SOAK_CONTENT_REOFFER_TIMEOUT_MS" ]]; then
+  desktop_defines+=(
+    "--dart-define=XVEIL_CONTENT_REOFFER_TIMEOUT_MS=$SOAK_CONTENT_REOFFER_TIMEOUT_MS"
+  )
+  android_defines+=(
+    "--dart-define=XVEIL_CONTENT_REOFFER_TIMEOUT_MS=$SOAK_CONTENT_REOFFER_TIMEOUT_MS"
+  )
+fi
+if [[ -n "$SOAK_PLAIN_FILE_STREAM" ]]; then
+  desktop_defines+=(
+    "--dart-define=XVEIL_PLAIN_FILE_STREAM=$SOAK_PLAIN_FILE_STREAM"
+  )
+  android_defines+=(
+    "--dart-define=XVEIL_PLAIN_FILE_STREAM=$SOAK_PLAIN_FILE_STREAM"
+  )
+fi
+if [[ -n "$SOAK_BULK_STREAM_TRACE" ]]; then
+  desktop_defines+=(
+    "--dart-define=XVEIL_BULK_STREAM_TRACE=$SOAK_BULK_STREAM_TRACE"
+  )
+  android_defines+=(
+    "--dart-define=XVEIL_BULK_STREAM_TRACE=$SOAK_BULK_STREAM_TRACE"
+  )
+fi
+if [[ -n "$SOAK_CONTENT_SERVE_BATCH" ]]; then
+  desktop_defines+=(
+    "--dart-define=XVEIL_CONTENT_SERVE_BATCH=$SOAK_CONTENT_SERVE_BATCH"
+  )
+  android_defines+=(
+    "--dart-define=XVEIL_CONTENT_SERVE_BATCH=$SOAK_CONTENT_SERVE_BATCH"
+  )
+fi
+if [[ -n "$SOAK_CONTENT_PACING_MS" ]]; then
+  desktop_defines+=(
+    "--dart-define=XVEIL_CONTENT_PACING_MS=$SOAK_CONTENT_PACING_MS"
+  )
+  android_defines+=(
+    "--dart-define=XVEIL_CONTENT_PACING_MS=$SOAK_CONTENT_PACING_MS"
+  )
+fi
+if [[ -n "$SOAK_ANON_STREAM_READ_CONCURRENCY" ]]; then
+  desktop_defines+=(
+    "--dart-define=VEIL_ANON_STREAM_READ_CONCURRENCY=$SOAK_ANON_STREAM_READ_CONCURRENCY"
+  )
+  android_defines+=(
+    "--dart-define=VEIL_ANON_STREAM_READ_CONCURRENCY=$SOAK_ANON_STREAM_READ_CONCURRENCY"
+  )
+fi
+if [[ -n "$SOAK_ANON_STREAM_WRITE_CONCURRENCY" ]]; then
+  desktop_defines+=(
+    "--dart-define=VEIL_ANON_STREAM_WRITE_CONCURRENCY=$SOAK_ANON_STREAM_WRITE_CONCURRENCY"
+  )
+  android_defines+=(
+    "--dart-define=VEIL_ANON_STREAM_WRITE_CONCURRENCY=$SOAK_ANON_STREAM_WRITE_CONCURRENCY"
+  )
+fi
 
 (
   cd "$ROOT"
   VEIL_FFI_DYLIB="$DESKTOP_DYLIB" \
     XVEIL_HV_DYLIB="$HV_DYLIB" \
     VEIL_ONION_STREAM_CIRCUIT="$VEIL_CIRCUIT_MODE" \
+    VEIL_ONION_STREAM_PREFER_RENDEZVOUS="$SOAK_PREFER_RENDEZVOUS" \
+    VEIL_ONION_STREAM_DEBUG_SUMMARY_MS="$SOAK_ONION_STREAM_DEBUG_SUMMARY_MS" \
+    VEIL_ONION_STREAM_CIRCUIT_INIT_RTO_MS="$SOAK_DESKTOP_ONION_STREAM_INIT_RTO_MS" \
+    VEIL_ONION_STREAM_CIRCUIT_MIN_RTO_MS="$SOAK_DESKTOP_ONION_STREAM_MIN_RTO_MS" \
+    VEIL_ONION_STREAM_CIRCUIT_MAX_RTO_MS="$SOAK_DESKTOP_ONION_STREAM_MAX_RTO_MS" \
+    VEIL_ONION_STREAM_CIRCUIT_MAX_RETRANSMITS="$SOAK_DESKTOP_ONION_STREAM_MAX_RETRANSMITS" \
+    VEIL_ONION_STREAM_CIRCUIT_INIT_CWND_MSS="$SOAK_DESKTOP_ONION_STREAM_INIT_CWND_MSS" \
+    VEIL_ONION_STREAM_CIRCUIT_OUTBOUND_POOL="$SOAK_DESKTOP_ONION_STREAM_OUTBOUND_POOL" \
+    VEIL_ONION_STREAM_CIRCUIT_ACK_OUTBOUND_POOL="$SOAK_DESKTOP_ONION_STREAM_ACK_OUTBOUND_POOL" \
+    VEIL_ONION_STREAM_CIRCUIT_BULK_ROUTE_ACTIVE_LIMIT="$SOAK_DESKTOP_ONION_STREAM_BULK_ROUTE_ACTIVE_LIMIT" \
     flutter run --no-pub -d macos --debug "${desktop_defines[@]}"
 ) >"$LOG_DIR/desktop-flutter.log" 2>&1 &
 pids+=("$!")
@@ -344,18 +935,24 @@ pids+=("$!")
 ) >"$LOG_DIR/android-flutter.log" 2>&1 &
 pids+=("$!")
 
-echo "waiting for apps to boot..."
-for _ in $(seq 1 90); do
-  if grep -q "onion-stream:" "$LOG_DIR/desktop-flutter.log" 2>/dev/null &&
-     grep -q "onion-stream:" "$LOG_DIR/android-flutter.log" 2>/dev/null; then
-    break
-  fi
-  sleep 1
-done
+if [[ "$ENABLE_DEBUG_HOOK" == "1" ]]; then
+  echo "waiting for apps to expose debug hooks..."
+else
+  echo "waiting for apps to boot..."
+  for _ in $(seq 1 "$SOAK_BOOT_WAIT_SEC"); do
+    if grep -q "onion-stream" "$LOG_DIR/desktop-flutter.log" 2>/dev/null &&
+       grep -q "onion-stream" "$LOG_DIR/android-flutter.log" 2>/dev/null; then
+      break
+    fi
+    sleep 1
+  done
+fi
 
 if [[ "$ENABLE_DEBUG_HOOK" == "1" ]] && command -v curl >/dev/null 2>&1; then
   echo "waiting for debug hooks..."
-  for _ in $(seq 1 90); do
+  desktop_ok=0
+  android_ok=0
+  for _ in $(seq 1 "$SOAK_HOOK_WAIT_SEC"); do
     desktop_ok=0
     android_ok=0
     curl -fsS "http://127.0.0.1:$DESKTOP_HOOK_PORT/health" \
@@ -367,7 +964,49 @@ if [[ "$ENABLE_DEBUG_HOOK" == "1" ]] && command -v curl >/dev/null 2>&1; then
     fi
     sleep 1
   done
+  if [[ "$desktop_ok" != "1" || "$android_ok" != "1" ]]; then
+    {
+      echo "debug hooks did not become ready within ${SOAK_HOOK_WAIT_SEC}s"
+      echo "desktop_hook_ready=$desktop_ok android_hook_ready=$android_ok"
+      echo "desktop health:"
+      cat "$LOG_DIR/desktop-hook-health.json" 2>/dev/null || true
+      echo
+      echo "android health:"
+      cat "$LOG_DIR/android-hook-health.json" 2>/dev/null || true
+      echo
+      echo "desktop flutter tail:"
+      tail -80 "$LOG_DIR/desktop-flutter.log" 2>/dev/null || true
+      echo
+      echo "android flutter tail:"
+      tail -120 "$LOG_DIR/android-flutter.log" 2>/dev/null || true
+    } >&2
+    exit 1
+  fi
 fi
+
+if [[ -n "$SOAK_UNLOCK_PASSWORD" ]]; then
+  if [[ "$ENABLE_DEBUG_HOOK" != "1" ]]; then
+    echo "SOAK_UNLOCK_PASSWORD requires ENABLE_DEBUG_HOOK=1." >&2
+    exit 2
+  fi
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "SOAK_UNLOCK_PASSWORD requires curl." >&2
+    exit 2
+  fi
+  echo "unlocking apps through debug hooks..."
+  printf '%s' "$SOAK_UNLOCK_PASSWORD" |
+    curl -fsS -X POST --data-binary @- \
+      "http://127.0.0.1:$DESKTOP_HOOK_PORT/unlock?timeout_ms=$SOAK_UNLOCK_TIMEOUT_MS" \
+      >"$LOG_DIR/desktop-unlock.json"
+  printf '%s' "$SOAK_UNLOCK_PASSWORD" |
+    curl -fsS -X POST --data-binary @- \
+      "http://127.0.0.1:$ANDROID_HOST_HOOK_PORT/unlock?timeout_ms=$SOAK_UNLOCK_TIMEOUT_MS" \
+      >"$LOG_DIR/android-unlock.json"
+fi
+
+warmup_onion_hooks
+wait_onion_registrations "$SOAK_WAIT_ONION_REGISTRATIONS"
+stage_android_auto_source
 
 trigger_pid=""
 trigger_status_file="$LOG_DIR/trigger.status"
@@ -383,6 +1022,8 @@ if [[ "$SOAK_AUTO_TRANSFER" == "1" ]]; then
         DEST_PATH="$auto_dest_path" \
         NAME="$SOAK_NAME" \
         WAIT_READY_MS="$SOAK_WAIT_READY_MS" \
+        WAIT_OFFER_MS="$SOAK_WAIT_OFFER_MS" \
+        DOWNLOAD_TIMEOUT_MS="${SOAK_DOWNLOAD_TIMEOUT_MS:-1800000}" \
         DOWNLOAD_PEER="$SOAK_DOWNLOAD_PEER" \
         DOWNLOAD_PEERS="$SOAK_DOWNLOAD_PEERS" \
         ANDROID_SERIAL="$ANDROID_SERIAL" \
@@ -484,15 +1125,12 @@ monitor_start_ts="$last_ts"
 final_size=0
 first_byte_ts=""
 last_byte_ts=""
+expected_size_notice=0
 while true; do
   now="$(date +%s)"
   size=0
-  if [[ -n "$DOWNLOAD_PATH" && -e "$DOWNLOAD_PATH" ]]; then
-    size="$(
-      stat -c '%s' "$DOWNLOAD_PATH" 2>/dev/null ||
-        stat -f '%z' "$DOWNLOAD_PATH" 2>/dev/null ||
-        echo 0
-    )"
+  if [[ -n "$DOWNLOAD_PATH" ]]; then
+    size="$(local_download_size "$DOWNLOAD_PATH")"
   elif [[ -n "$ANDROID_DOWNLOAD_PATH" ]]; then
     size="$(android_file_size "$ANDROID_DOWNLOAD_PATH")"
     if [[ -z "$size" || ! "$size" =~ ^[0-9]+$ ]]; then
@@ -511,14 +1149,18 @@ while true; do
       awk '{ print $1 }'
   )"
   desktop_errors="$(
-    grep -E "stream-pull failed|payload idle|driver gone|onion stream reset|Connection reset" \
-      "$LOG_DIR/desktop-flutter.log" 2>/dev/null |
+    {
+      grep -E "stream-pull failed|payload idle|driver gone|onion stream reset|Connection reset" \
+        "$LOG_DIR/desktop-flutter.log" 2>/dev/null || true
+    } |
       tail -1 |
       tr ',' ';'
   )"
   android_errors="$(
-    grep -E "stream-serve failed|driver gone|onion stream reset|Connection reset" \
-      "$LOG_DIR/android-flutter.log" "$LOG_DIR/android-logcat.log" 2>/dev/null |
+    {
+      grep -E "stream-serve failed|driver gone|onion stream reset|Connection reset" \
+        "$LOG_DIR/android-flutter.log" "$LOG_DIR/android-logcat.log" 2>/dev/null || true
+    } |
       tail -1 |
       tr ',' ';'
   )"
@@ -534,18 +1176,27 @@ while true; do
     fi
   fi
 
-  if [[ -n "$EXPECT_SIZE" && "$size" -ge "$EXPECT_SIZE" ]]; then
-    echo "expected size reached: $size >= $EXPECT_SIZE"
-    break
-  fi
+  trigger_done=0
   if [[ -n "$trigger_pid" && -f "$trigger_status_file" ]]; then
     trigger_status="$(cat "$trigger_status_file")"
     if [[ "$trigger_status" != "0" ]]; then
       echo "trigger failed with status $trigger_status; see $LOG_DIR" >&2
       exit "$trigger_status"
     fi
+    trigger_done=1
     if [[ "$SOAK_EXIT_AFTER_TRANSFER" == "1" && -z "$EXPECT_SIZE" ]]; then
       echo "trigger completed"
+      break
+    fi
+  fi
+  if [[ -n "$EXPECT_SIZE" && "$size" -ge "$EXPECT_SIZE" ]]; then
+    if [[ -n "$trigger_pid" && "$trigger_done" != "1" ]]; then
+      if [[ "$expected_size_notice" != "1" ]]; then
+        echo "expected size reached: $size >= $EXPECT_SIZE; waiting for trigger verification"
+        expected_size_notice=1
+      fi
+    else
+      echo "expected size reached: $size >= $EXPECT_SIZE"
       break
     fi
   fi

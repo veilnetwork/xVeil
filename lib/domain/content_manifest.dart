@@ -109,19 +109,33 @@ class ContentManifest {
     int pieceSize = defaultPieceSize,
     int chunkBytes = defaultChunkBytes,
   }) {
-    if (pieceSize <= 0) throw ArgumentError.value(pieceSize, 'pieceSize', '> 0');
-    if (chunkBytes <= 0) throw ArgumentError.value(chunkBytes, 'chunkBytes', '> 0');
-    final count = bytes.isEmpty ? 0 : (bytes.length + pieceSize - 1) ~/ pieceSize;
+    if (pieceSize <= 0) {
+      throw ArgumentError.value(pieceSize, 'pieceSize', '> 0');
+    }
+    if (chunkBytes <= 0) {
+      throw ArgumentError.value(chunkBytes, 'chunkBytes', '> 0');
+    }
+    final count = bytes.isEmpty
+        ? 0
+        : (bytes.length + pieceSize - 1) ~/ pieceSize;
     final hashes = <Uint8List>[
       for (var i = 0; i < count; i++)
-        _hash(Uint8List.sublistView(
-            bytes, i * pieceSize,
+        _hash(
+          Uint8List.sublistView(
+            bytes,
+            i * pieceSize,
             (i * pieceSize + pieceSize) <= bytes.length
                 ? i * pieceSize + pieceSize
-                : bytes.length)),
+                : bytes.length,
+          ),
+        ),
     ];
     final id = computeContentId(
-        name: name, size: bytes.length, pieceSize: pieceSize, pieceHashes: hashes);
+      name: name,
+      size: bytes.length,
+      pieceSize: pieceSize,
+      pieceHashes: hashes,
+    );
     return ContentManifest(
       name: name,
       size: bytes.length,
@@ -148,8 +162,12 @@ class ContentManifest {
     int pieceSize = defaultPieceSize,
     int chunkBytes = defaultChunkBytes,
   }) async {
-    if (pieceSize <= 0) throw ArgumentError.value(pieceSize, 'pieceSize', '> 0');
-    if (chunkBytes <= 0) throw ArgumentError.value(chunkBytes, 'chunkBytes', '> 0');
+    if (pieceSize <= 0) {
+      throw ArgumentError.value(pieceSize, 'pieceSize', '> 0');
+    }
+    if (chunkBytes <= 0) {
+      throw ArgumentError.value(chunkBytes, 'chunkBytes', '> 0');
+    }
     final count = size <= 0 ? 0 : (size + pieceSize - 1) ~/ pieceSize;
     final hashes = <Uint8List>[];
     for (var i = 0; i < count; i++) {
@@ -158,12 +176,17 @@ class ContentManifest {
       final piece = await readRange(start, len);
       if (piece.length != len) {
         throw StateError(
-            'short read at piece $i: got ${piece.length}, want $len');
+          'short read at piece $i: got ${piece.length}, want $len',
+        );
       }
       hashes.add(_hash(piece));
     }
     final id = computeContentId(
-        name: name, size: size, pieceSize: pieceSize, pieceHashes: hashes);
+      name: name,
+      size: size,
+      pieceSize: pieceSize,
+      pieceHashes: hashes,
+    );
     return ContentManifest(
       name: name,
       size: size,
@@ -178,20 +201,23 @@ class ContentManifest {
   /// WITHOUT re-hashing — [contentId] and [pieceHashes] are reused unchanged
   /// (those fields are unbound). Used by the send path to mint the manifest once
   /// (from bytes) then attach the (author,seq) the storage layer just allocated.
-  ContentManifest withEvent(
-          {String? msgId, String? author, int? seq, int? ts}) =>
-      ContentManifest(
-        name: name,
-        size: size,
-        pieceSize: pieceSize,
-        pieceHashes: pieceHashes,
-        contentId: contentId,
-        chunkBytes: chunkBytes,
-        msgId: msgId ?? this.msgId,
-        author: author ?? this.author,
-        seq: seq ?? this.seq,
-        ts: ts ?? this.ts,
-      );
+  ContentManifest withEvent({
+    String? msgId,
+    String? author,
+    int? seq,
+    int? ts,
+  }) => ContentManifest(
+    name: name,
+    size: size,
+    pieceSize: pieceSize,
+    pieceHashes: pieceHashes,
+    contentId: contentId,
+    chunkBytes: chunkBytes,
+    msgId: msgId ?? this.msgId,
+    author: author ?? this.author,
+    seq: seq ?? this.seq,
+    ts: ts ?? this.ts,
+  );
 
   /// Canonical, deterministic content id: hex SHA-256 over
   /// `len(name)|name|size|pieceSize|count|hash0|hash1|…`. Any change to the name,
@@ -220,10 +246,11 @@ class ContentManifest {
   /// [contentId] for the manifest to be trusted (tamper-evident).
   bool get isSelfConsistent =>
       computeContentId(
-          name: name,
-          size: size,
-          pieceSize: pieceSize,
-          pieceHashes: pieceHashes) ==
+        name: name,
+        size: size,
+        pieceSize: pieceSize,
+        pieceHashes: pieceHashes,
+      ) ==
       contentId;
 
   /// True if [pieceBytes] is the genuine piece at [index] (length + hash match).
@@ -248,7 +275,9 @@ class ContentManifest {
     for (var i = 0; i < pieceCount; i++) {
       final start = i * pieceSize;
       final end = start + pieceLength(i);
-      if (!verifyPiece(i, Uint8List.sublistView(bytes, start, end))) return false;
+      if (!verifyPiece(i, Uint8List.sublistView(bytes, start, end))) {
+        return false;
+      }
     }
     return true;
   }
@@ -256,20 +285,20 @@ class ContentManifest {
   /// JSON form for storage / the wire. Piece hashes are concatenated as one hex
   /// blob (32 B each) to keep it compact.
   Map<String, dynamic> toJson() => {
-        'id': contentId,
-        'name': name,
-        'size': size,
-        'ps': pieceSize,
-        'cb': chunkBytes,
-        'ph': _hex(_concatHashes(pieceHashes)),
-        // Event-identity of THIS send (unbound — absent from contentId). Lets the
-        // receiver fold a first-class filePost (author,seq) under a per-send msgId
-        // so a re-send surfaces as a NEW message (A) while bytes dedup by contentId.
-        if (msgId != null) 'mid': msgId,
-        if (author != null) 'au': author,
-        if (seq != null) 'sq': seq,
-        if (ts != null) 'mts': ts,
-      };
+    'id': contentId,
+    'name': name,
+    'size': size,
+    'ps': pieceSize,
+    'cb': chunkBytes,
+    'ph': _hex(_concatHashes(pieceHashes)),
+    // Event-identity of THIS send (unbound — absent from contentId). Lets the
+    // receiver fold a first-class filePost (author,seq) under a per-send msgId
+    // so a re-send surfaces as a NEW message (A) while bytes dedup by contentId.
+    if (msgId != null) 'mid': msgId,
+    if (author != null) 'au': author,
+    if (seq != null) 'sq': seq,
+    if (ts != null) 'mts': ts,
+  };
 
   /// Parse + validate a manifest. Returns null if malformed or NOT self-
   /// consistent (its fields don't hash to its declared id) — never trust an
@@ -292,19 +321,20 @@ class ContentManifest {
           Uint8List.sublistView(blob, i, i + 32),
       ];
       final m = ContentManifest(
-          name: name,
-          size: size,
-          pieceSize: ps,
-          pieceHashes: hashes,
-          contentId: id,
-          chunkBytes: cb,
-          // Unbound event-identity (a legacy sender omits these → null, and the
-          // receiver falls back to the contentId-keyed path). NOT validated by
-          // isSelfConsistent — they don't participate in contentId.
-          msgId: j['mid'] as String?,
-          author: j['au'] as String?,
-          seq: j['sq'] as int?,
-          ts: j['mts'] as int?);
+        name: name,
+        size: size,
+        pieceSize: ps,
+        pieceHashes: hashes,
+        contentId: id,
+        chunkBytes: cb,
+        // Unbound event-identity (a legacy sender omits these → null, and the
+        // receiver falls back to the contentId-keyed path). NOT validated by
+        // isSelfConsistent — they don't participate in contentId.
+        msgId: j['mid'] as String?,
+        author: j['au'] as String?,
+        seq: j['sq'] as int?,
+        ts: j['mts'] as int?,
+      );
       return m.isSelfConsistent ? m : null;
     } catch (_) {
       return null;
@@ -325,8 +355,12 @@ class ContentManifest {
     return out;
   }
 
-  static Uint8List _u32le(int v) =>
-      Uint8List.fromList([v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, (v >> 24) & 0xff]);
+  static Uint8List _u32le(int v) => Uint8List.fromList([
+    v & 0xff,
+    (v >> 8) & 0xff,
+    (v >> 16) & 0xff,
+    (v >> 24) & 0xff,
+  ]);
 
   static Uint8List _u64le(int v) {
     final b = Uint8List(8);

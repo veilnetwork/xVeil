@@ -55,12 +55,12 @@ class PeerInfo {
   bool get isActive => state == PeerState.active;
 
   PeerInfo copyWith({PeerState? state, DateTime? lastSeen}) => PeerInfo(
-        nodeId: nodeId,
-        state: state ?? this.state,
-        direction: direction,
-        transport: transport,
-        lastSeen: lastSeen ?? this.lastSeen,
-      );
+    nodeId: nodeId,
+    state: state ?? this.state,
+    direction: direction,
+    transport: transport,
+    lastSeen: lastSeen ?? this.lastSeen,
+  );
 }
 
 /// Port over the veil overlay network's messaging surface.
@@ -144,6 +144,11 @@ abstract interface class ReliableStream {
 
   /// Close + release the stream (idempotent).
   Future<void> close();
+
+  /// Abort + release the stream (idempotent). Use when cancelling a timed-out
+  /// transfer attempt so a blocked native read wakes promptly. A simple in-memory
+  /// transport may implement this as [close].
+  Future<void> abort();
 }
 
 /// A [VeilTransport] that can also open/accept [ReliableStream]s — the bulk
@@ -157,6 +162,7 @@ abstract interface class StreamTransport {
 
   /// Accept the next inbound stream opened to our chat endpoint, or null on
   /// [timeout] (a server loop polls). The receive side of file streaming.
-  Future<({ReliableStream stream, NodeId src})?> acceptStream(
-      {Duration timeout});
+  Future<({ReliableStream stream, NodeId src})?> acceptStream({
+    Duration timeout,
+  });
 }
