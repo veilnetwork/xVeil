@@ -3296,3 +3296,16 @@ MAX_CELL ↔ MAX_CIRCUIT_INNER.
 Итог дня (одна цепь, один поток): стенд 64M 7.9-18.4s по окнам
 (мгновенно до ~15 MB/s), локальный потолок стека 22.8 MiB/s. Дальше: QUIC
 вместо TCP-over-TCP (большой проект), CPU/число сидов (инфра).
+
+## 42. 2026-07-02 (Fable): reg-keypair fix + circuit keystream BLAKE3-XOF→ChaCha20 + CPU-профиль релея
+
+**veil ffac8f3 — детерминированный onion-service reg_keypair.** register_onion_circuit минтил Ed25519 reg-ключ OsRng per-process → резкий рестарт (crash/kill) в cookie-периоде приходил с тем же derived cookie но ЧУЖИМ reg_pk → first-wins registry отвергал (CookieClaimed) до GC (600s = чёрная дыра live-пути; депозиты всё равно доставляли). Фикс: derive_onion_reg_seed(seed,period) HKDF, period-scoped как cookie → рестарт = same-key refresh. Клиенты пересобраны, register_rejected=0.
+
+**CPU-профиль релея (perf -g + dwarf, 256M).** Релей = симметричная крипта + сетевой стек. В ЗДОРОВОМ прогоне (dwarf caller-view):
+- session/obfs4 AEAD ChaCha20-Poly1305: decrypt входящего ~8% + encrypt исходящего ~7.5% = **~16%** (транспортная hop-by-hop секретность, НЕ трогать);
+- blake3 compress_in_place ~**9-11%** (dedup/адресация; caller не размотан — C-asm без CFI leaf; ранние 40-50% из первых профилей = артефакт перегруженной среды + выборка 1K сэмплов + нестандартная роль сида, ОПРОВЕРГНУТО здоровым прогоном);
+- сетевой softirq ядра (virtnet_poll/napi) ~**6-7%**.
+
+**veil bdd0b46 — circuit keystream BLAKE3-XOF → ChaCha20 (flag-day).** Бенч 16KB на сиде (EPYC Zen2 AES-NI, без avx512): blake3-xof 879 MiB/s/2.17cpb (sse41, у XOF нет avx2-backend) vs chacha20 2020/0.942 (2.3x) vs aes256-ctr 4563/0.417 (5.2x). Выбран ChaCha20 (constant-time везде; AES-CTR быстрее на релее но arm64-software 303 → на телефоне ок т.к. радио-bound, но менее консервативно). Session AEAD НЕ менять: aes-gcm≈chacha-poly на сиде (1145≈1149), а arm64 chacha 2.2x быстрее sw-aes. Все 256-бит PQ-адекватны (Grover→128). Реализация: apply_layer ChaCha20 nonce=[dir_tag||seq_be||0;7], seq не wrap per dir, XOR in-place (убрана per-cell 16KB alloc). +KAT пинит wire. 286+158 тестов; локал 256M byte-perfect; девайс 256M 23.2s CMP-OK; perf подтвердил compress_xof исчез→chacha20 на circuit-роли. НЕ писать свою ChaCha: RustCrypto 0.94cpb near-peak, keystream уже не потолок (2020 MiB/s vs релей ~15MB/s=130x запас), своя крипта=timing-риск.
+
+Итог: крупных чистых CPU-рычагов релея больше нет — доминанта session AEAD (фундамент). blake3 dedup ~10% — минорный необязательный кандидат (нужен keyed anti-DoS). Дальше: QUIC-подложка, инфра (число/толщина сидов). Инструмент бенча: scratchpad/cryptobench.
