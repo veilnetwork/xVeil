@@ -605,6 +605,8 @@ class MessagingService {
     unawaited(_loadFilePolicy()); // this identity's auto-download policy (A1)
     // Serve inbound bulk file streams (S2) when the transport supports them.
     if (_transport is StreamTransport) unawaited(_acceptStreamLoop());
+    // Re-drive downloads that were interrupted before the last shutdown.
+    unawaited(_startDownloadResumer());
   }
 
   /// Set in [dispose]; stops the stream accept loop.
@@ -630,6 +632,12 @@ class MessagingService {
     _lastSyncSentAt.clear();
     _lastSyncActedAt.clear();
     _lastFileNackAt.clear(); // bound the throttle map across reconnects
+    // A (re)connect is exactly when interrupted downloads become resumable
+    // again — reset the failure backoff and probe each pending one.
+    _resumeAttempts.clear();
+    unawaited(
+      _resumeAllPendingDownloads(stagger: const Duration(seconds: 2)),
+    );
     await flushOutbox();
   }
 
@@ -2873,6 +2881,10 @@ class MessagingService {
     );
     _offeredRefs.remove(m.contentId);
 
+    // A durable (cross-restart) pending download exists for this content and
+    // the holder just proved it's online — nudge the auto-resume driver.
+    unawaited(_resumeOnOfferSignal(m.contentId));
+
     // A user download was PARKED waiting for this manifest (re-advertise after a
     // restart) → start it now with its destination (sink for unencrypted-to-file,
     // null for the encrypted tier), regardless of the auto-download policy.
@@ -2992,6 +3004,8 @@ class MessagingService {
       ref: ref,
       peers: {if (existing != null) ...existing.peers, peer.hex: peer},
     );
+    // A durable pending download exists and its holder just showed up online.
+    unawaited(_resumeOnOfferSignal(cid));
     if (_pendingDownload.containsKey(cid)) {
       unawaited(_resumePendingFromManifestRef(peer, cid, ref));
       return;
@@ -3083,6 +3097,11 @@ class MessagingService {
     }
     devLog(() => 'xVeil[content]: user download ${contentId.substring(0, 12)}');
     _markContentDownloadStarted(contentId);
+    _recordPendingDownload(
+      contentId,
+      mode: _PendingDownload.modeStore,
+      peers: [peer],
+    );
     final retryPeers = await _contentSourcePeers(
       preferred: peer,
       contentId: contentId,
@@ -3148,6 +3167,11 @@ class MessagingService {
     final seen = <String>{};
     var attempted = 0;
     _markContentDownloadStarted(contentId);
+    _recordPendingDownload(
+      contentId,
+      mode: _PendingDownload.modeStore,
+      peers: sources,
+    );
     if (offered != null &&
         await _pullSwarmPiecesToCompletion(sources, offered.manifest)) {
       return ContentDownloadResult.started;
@@ -3286,6 +3310,12 @@ class MessagingService {
           ? ContentDownloadResult.started
           : ContentDownloadResult.noOffer;
     }
+    _recordPendingDownload(
+      contentId,
+      mode: _PendingDownload.modeFile,
+      savedPath: savedPath,
+      peers: [peer],
+    );
     final retryPeers = await _contentSourcePeers(
       preferred: peer,
       contentId: contentId,
@@ -3373,6 +3403,12 @@ class MessagingService {
       if (offeredRef != null) ...offeredRef.peers.values,
       ...await _storedContentSourcePeers(contentId),
     ]);
+    _recordPendingDownload(
+      contentId,
+      mode: _PendingDownload.modeFile,
+      savedPath: savedPath,
+      peers: sources,
+    );
     if (offered != null) {
       if (sources.isEmpty && offered.peers.isEmpty) {
         return _requestReofferFromAny(sources, contentId, sink);
@@ -3429,6 +3465,290 @@ class MessagingService {
   void _markContentDownloadStarted(String contentId) {
     if (!_contentProgress.isClosed) {
       _contentProgress.add((contentId: contentId, done: 0, total: 1));
+    }
+  }
+
+  // ------------------------------------------------------------------------
+  // AUTO-RESUME of interrupted downloads (torrent-like).
+  //
+  // Every explicit download request (the four public entry points) writes a
+  // durable record into the settings KV. The record survives restarts; it is
+  // cleared only when the content completes (contentReceived / blob present /
+  // plaintext savedPath recorded). A driver re-issues the download:
+  //   - on service start (post-unlock), staggered;
+  //   - on node (re)connect (reconcileOnConnect);
+  //   - when an offer/manifest for a pending content id arrives (sender came
+  //     back online);
+  //   - after each contentDownloadFailed, with exponential backoff.
+  // The encrypted tier resumes at PIECE granularity for free (verified pieces
+  // persist in the blob store and the swarm skips them). A plain-file download
+  // resumes at the received offset within a session; across a restart it
+  // restarts from byte 0 into the same destination (the file sink keeps no
+  // durable piece bookkeeping — and on sandboxed macOS the NSSavePanel grant
+  // does not survive the restart anyway, in which case the record is dropped).
+
+  static const String _pendingDownloadsKey = 'pending_downloads';
+  Map<String, _PendingDownload>? _pendingResumeCache;
+  Future<void> _pendingResumeWriteChain = Future.value();
+  final Map<String, Timer> _resumeTimers = {};
+  final Map<String, int> _resumeAttempts = {};
+  final Map<String, DateTime> _resumeProgressAt = {};
+  final Set<String> _resumeInFlight = {};
+  StreamSubscription<String>? _resumeFailedSub;
+  StreamSubscription<({String contentId, int done, int total})>?
+  _resumeProgressSub;
+  StreamSubscription<({String contentId, String name, String? savedToPath})>?
+  _resumeReceivedSub;
+
+  /// Tunable delays (tests shrink these; production keeps the defaults).
+  Duration downloadResumeStartDelay = const Duration(seconds: 8);
+  Duration downloadResumeBackoffBase = const Duration(seconds: 10);
+  Duration downloadResumeBackoffCap = const Duration(minutes: 10);
+  Duration downloadResumeLiveGrace = const Duration(seconds: 10);
+
+  /// Pending-download records that should auto-resume (test/UI introspection).
+  Future<List<String>> pendingAutoResumeContentIds() async =>
+      (await _pendingDownloads()).keys.toList(growable: false);
+
+  Future<Map<String, _PendingDownload>> _pendingDownloads() async {
+    final cached = _pendingResumeCache;
+    if (cached != null) return cached;
+    final map = <String, _PendingDownload>{};
+    try {
+      final raw = await _storage.getSetting(_pendingDownloadsKey);
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw);
+        if (decoded is List) {
+          for (final entry in decoded) {
+            final p = entry is Map<String, dynamic>
+                ? _PendingDownload.fromJson(entry)
+                : null;
+            if (p == null) continue;
+            // Age out ancient intents so a long-forgotten request cannot keep
+            // probing the network forever.
+            if (DateTime.now().difference(p.requestedAt) >
+                const Duration(days: 14)) {
+              continue;
+            }
+            map[p.contentId] = p;
+          }
+        }
+      }
+    } catch (_) {
+      // Unparseable registry → start empty (requests re-record themselves).
+    }
+    return _pendingResumeCache = map;
+  }
+
+  /// All registry writes are chained so concurrent async mutations cannot
+  /// interleave a read-modify-write.
+  void _mutatePendingDownloads(
+    void Function(Map<String, _PendingDownload> map) fn,
+  ) {
+    _pendingResumeWriteChain = _pendingResumeWriteChain.then((_) async {
+      final map = await _pendingDownloads();
+      fn(map);
+      try {
+        await _storage.putSetting(
+          _pendingDownloadsKey,
+          jsonEncode([for (final p in map.values) p.toJson()]),
+        );
+      } catch (_) {
+        // Store hiccup: the in-RAM cache still drives this session; the next
+        // successful mutation persists the merged state.
+      }
+    });
+  }
+
+  void _recordPendingDownload(
+    String contentId, {
+    required String mode,
+    String? savedPath,
+    required Iterable<NodeId> peers,
+  }) {
+    if (_disposed) return;
+    final hexes = [for (final p in peers) p.hex];
+    _mutatePendingDownloads((map) {
+      final prior = map[contentId];
+      map[contentId] = _PendingDownload(
+        contentId: contentId,
+        mode: mode,
+        savedPath: savedPath ?? prior?.savedPath,
+        peers: {...?prior?.peers, ...hexes}.toList(growable: false),
+        requestedAt: prior?.requestedAt ?? DateTime.now(),
+      );
+    });
+  }
+
+  void _completePendingDownload(String contentId) {
+    _resumeTimers.remove(contentId)?.cancel();
+    _resumeAttempts.remove(contentId);
+    _resumeProgressAt.remove(contentId);
+    if (_pendingResumeCache?.containsKey(contentId) ?? true) {
+      _mutatePendingDownloads((map) => map.remove(contentId));
+    }
+  }
+
+  Future<void> _startDownloadResumer() async {
+    _resumeFailedSub ??= contentDownloadFailed.listen((cid) async {
+      if ((await _pendingDownloads()).containsKey(cid)) {
+        _scheduleDownloadResume(cid, backoff: true);
+      }
+    });
+    _resumeProgressSub ??= contentProgress.listen((e) async {
+      if ((await _pendingDownloads()).containsKey(e.contentId)) {
+        _resumeProgressAt[e.contentId] = DateTime.now();
+      }
+    });
+    _resumeReceivedSub ??= contentReceived.listen(
+      (e) => _completePendingDownload(e.contentId),
+    );
+    await _resumeAllPendingDownloads(
+      initial: downloadResumeStartDelay,
+      stagger: const Duration(seconds: 2),
+    );
+  }
+
+  Future<void> _resumeAllPendingDownloads({
+    Duration initial = const Duration(seconds: 2),
+    Duration stagger = Duration.zero,
+  }) async {
+    final pending = await _pendingDownloads();
+    var i = 0;
+    for (final cid in pending.keys.toList(growable: false)) {
+      _scheduleDownloadResume(cid, after: initial + stagger * i++);
+    }
+  }
+
+  /// An offer/manifest for a durable-pending content id arrived — the sender
+  /// is provably online, resume soon (the short delay lets an already-running
+  /// pull surface progress, which the liveness check then respects).
+  Future<void> _resumeOnOfferSignal(String contentId) async {
+    if (_disposed) return;
+    if (!(await _pendingDownloads()).containsKey(contentId)) return;
+    if (_resumeTimers.containsKey(contentId)) return; // already queued sooner
+    _scheduleDownloadResume(contentId, after: const Duration(seconds: 3));
+  }
+
+  void _scheduleDownloadResume(
+    String contentId, {
+    Duration? after,
+    bool backoff = false,
+  }) {
+    if (_disposed) return;
+    Duration delay;
+    if (after != null) {
+      delay = after;
+    } else if (backoff) {
+      final n = (_resumeAttempts[contentId] ?? 0) + 1;
+      _resumeAttempts[contentId] = n;
+      final base = downloadResumeBackoffBase * (1 << (n - 1).clamp(0, 6));
+      delay = base > downloadResumeBackoffCap ? downloadResumeBackoffCap : base;
+    } else {
+      delay = Duration.zero;
+    }
+    _resumeTimers[contentId]?.cancel();
+    _resumeTimers[contentId] = Timer(delay, () {
+      _resumeTimers.remove(contentId);
+      if (_resumeInFlight.contains(contentId)) {
+        // An attempt is still running — check back instead of dropping the
+        // wake-up (its failure event may already have consumed this slot).
+        _scheduleDownloadResume(contentId, after: const Duration(seconds: 30));
+      } else {
+        unawaited(_resumeDownload(contentId));
+      }
+    });
+  }
+
+  Future<void> _resumeDownload(String contentId) async {
+    if (_disposed || !_resumeInFlight.add(contentId)) return;
+    final short = contentId.length >= 12
+        ? contentId.substring(0, 12)
+        : contentId;
+    try {
+      final pending = (await _pendingDownloads())[contentId];
+      if (pending == null) return;
+      if (await _storage.hasFile(contentId)) {
+        _completePendingDownload(contentId);
+        return;
+      }
+      if (pending.mode == _PendingDownload.modeFile &&
+          await contentSavedPath(contentId) != null) {
+        _completePendingDownload(contentId);
+        return;
+      }
+      // A transfer for this content is visibly alive — don't stack a second
+      // swarm on it; look again later.
+      final lastProgress = _resumeProgressAt[contentId];
+      if (lastProgress != null &&
+          DateTime.now().difference(lastProgress) < downloadResumeLiveGrace) {
+        _scheduleDownloadResume(contentId, after: downloadResumeLiveGrace * 2);
+        return;
+      }
+      final peers = <NodeId>[];
+      for (final hex in pending.peers) {
+        try {
+          peers.add(NodeId.fromHex(hex));
+        } catch (_) {}
+      }
+      devLog(
+        () =>
+            'xVeil[content]: auto-resume $short '
+            '(mode=${pending.mode}, attempt=${_resumeAttempts[contentId] ?? 0},'
+            ' peers=${peers.length})',
+      );
+      if (pending.mode == _PendingDownload.modeFile &&
+          pending.savedPath != null) {
+        await _resumePlainFileDownload(pending, peers);
+      } else {
+        await downloadContentFromAny(peers, contentId);
+      }
+    } catch (e) {
+      devLog(() => 'xVeil[content]: auto-resume $short failed: $e');
+      _scheduleDownloadResume(contentId, backoff: true);
+    } finally {
+      _resumeInFlight.remove(contentId);
+    }
+  }
+
+  /// Sink opener used to re-drive plain-file downloads (injectable for tests;
+  /// dart:io stays in the data layer).
+  Future<VeilPlainFileSink?> Function(String path) plainFileSinkOpener =
+      veilPlainFileSinkOpener;
+
+  /// Re-drives an unencrypted-to-file download with a service-owned sink.
+  /// The destination is truncated and re-filled: the plain-file sink has no
+  /// durable piece bookkeeping, and writing anywhere except the user-picked
+  /// path is forbidden on sandboxed macOS. If the destination cannot be
+  /// reopened (a sandboxed release after a restart — the NSSavePanel grant is
+  /// gone), the pending record is dropped: the user must re-pick a path.
+  Future<void> _resumePlainFileDownload(
+    _PendingDownload pending,
+    List<NodeId> peers,
+  ) async {
+    final contentId = pending.contentId;
+    final path = pending.savedPath!;
+    final sink = await plainFileSinkOpener(path);
+    if (sink == null) {
+      devLog(
+        () =>
+            'xVeil[content]: auto-resume cannot reopen $path — '
+            'dropping the pending plain-file download',
+      );
+      _completePendingDownload(contentId);
+      return;
+    }
+    final result = await downloadContentToFileFromAny(
+      peers,
+      contentId,
+      path,
+      write: sink.write,
+      close: sink.close,
+    );
+    // Every other outcome hands the sink to the pull/park machinery, which
+    // closes it on completion or reoffer-timeout; a flat "no offer" does not.
+    if (result == ContentDownloadResult.noOffer) {
+      await sink.close();
     }
   }
 
@@ -6460,6 +6780,17 @@ class MessagingService {
     _retryTimer = null;
     _contentTimer?.cancel();
     _contentTimer = null;
+    // Auto-resume driver: timers, event taps, and the registry write chain.
+    for (final t in _resumeTimers.values) {
+      t.cancel();
+    }
+    _resumeTimers.clear();
+    await _resumeFailedSub?.cancel();
+    _resumeFailedSub = null;
+    await _resumeProgressSub?.cancel();
+    _resumeProgressSub = null;
+    await _resumeReceivedSub?.cancel();
+    _resumeReceivedSub = null;
     await _sub?.cancel();
     _sub = null;
     await _clearServingState();
@@ -6477,6 +6808,55 @@ class MessagingService {
     await _contentReceived.close();
     await _contentProgress.close();
     await _contentFailed.close();
+  }
+}
+
+/// A durable record of an explicitly-requested download that has not
+/// completed yet — the unit of the torrent-like auto-resume registry
+/// (settings KV, one JSON list under `pending_downloads`).
+class _PendingDownload {
+  const _PendingDownload({
+    required this.contentId,
+    required this.mode,
+    required this.peers,
+    required this.requestedAt,
+    this.savedPath,
+  });
+
+  static const modeStore = 'store'; // encrypted tier / in-volume
+  static const modeFile = 'file'; // plaintext to a user-picked path
+
+  final String contentId;
+  final String mode;
+  final String? savedPath;
+  final List<String> peers; // node-id hexes known to hold the content
+  final DateTime requestedAt;
+
+  Map<String, Object?> toJson() => {
+    'cid': contentId,
+    'mode': mode,
+    if (savedPath != null) 'path': savedPath,
+    'peers': peers,
+    'at': requestedAt.toIso8601String(),
+  };
+
+  static _PendingDownload? fromJson(Map<String, dynamic> json) {
+    final cid = json['cid'];
+    final mode = json['mode'];
+    if (cid is! String || cid.isEmpty || mode is! String) return null;
+    final peers = json['peers'];
+    return _PendingDownload(
+      contentId: cid,
+      mode: mode == modeFile ? modeFile : modeStore,
+      savedPath: json['path'] as String?,
+      peers: [
+        if (peers is List)
+          for (final p in peers)
+            if (p is String) p,
+      ],
+      requestedAt:
+          DateTime.tryParse(json['at'] as String? ?? '') ?? DateTime.now(),
+    );
   }
 }
 
