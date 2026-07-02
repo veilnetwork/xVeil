@@ -147,8 +147,9 @@ class ContentManifest {
   }
 
   /// Build a manifest by reading the source piece-by-piece via [readRange] —
-  /// never holding more than ONE piece in RAM. For files too large to fit in
-  /// memory (the in-RAM [fromBytes] would OOM first). [readRange] returns exactly
+  /// never holding more than TWO pieces in RAM (the next read is prefetched
+  /// while the current piece hashes). For files too large to fit in memory
+  /// (the in-RAM [fromBytes] would OOM first). [readRange] returns exactly
   /// [length] bytes at byte [offset] of the source; [size] is its total length.
   ///
   /// Produces the SAME [contentId] as [fromBytes] for identical bytes — the id
@@ -170,16 +171,33 @@ class ContentManifest {
     }
     final count = size <= 0 ? 0 : (size + pieceSize - 1) ~/ pieceSize;
     final hashes = <Uint8List>[];
-    for (var i = 0; i < count; i++) {
+    int lengthAt(int i) {
       final start = i * pieceSize;
-      final len = (start + pieceSize <= size) ? pieceSize : size - start;
-      final piece = await readRange(start, len);
-      if (piece.length != len) {
-        throw StateError(
-          'short read at piece $i: got ${piece.length}, want $len',
-        );
+      return (start + pieceSize <= size) ? pieceSize : size - start;
+    }
+
+    // Prefetch the NEXT piece before hashing the current one, so the disk read
+    // (async I/O off the isolate) overlaps the synchronous hash. Holds at most
+    // TWO pieces in RAM. Serialized sources (veilSourceOpener's gate) just
+    // queue the second read; the overlap with hashing is preserved either way.
+    Future<Uint8List>? next = count > 0 ? readRange(0, lengthAt(0)) : null;
+    try {
+      for (var i = 0; i < count; i++) {
+        final len = lengthAt(i);
+        final piece = await next!;
+        next = i + 1 < count
+            ? readRange((i + 1) * pieceSize, lengthAt(i + 1))
+            : null;
+        if (piece.length != len) {
+          throw StateError(
+            'short read at piece $i: got ${piece.length}, want $len',
+          );
+        }
+        hashes.add(_hash(piece));
       }
-      hashes.add(_hash(piece));
+    } catch (_) {
+      next?.ignore(); // orphaned prefetch must not surface as unhandled
+      rethrow;
     }
     final id = computeContentId(
       name: name,
