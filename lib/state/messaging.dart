@@ -4008,13 +4008,23 @@ class MessagingService {
   // while each reliable stream remains pinned to its chosen route. On the
   // phone↔desktop 3-seed stand after the route-RTO/retry-open fixes, p8/p10
   // completed 64 MiB intact around 1.25 MiB/s, while p12+ repeatedly tripped
-  // rendezvous reset/no-progress storms and regressed below 1 MiB/s. Start at
-  // p8 and let the adaptive fanout grow to p10 on clean transfers; higher fanout
+  // rendezvous reset/no-progress storms and regressed below 1 MiB/s. After the
+  // native TX batching work a single stream reaches ~3.5 MiB/s, so fewer,
+  // longer streams beat wide fanout: on-device 64 MiB measured p8/1MiB at
+  // ~2.1 MiB/s vs p4/8MiB at ~3.4 MiB/s (longer DATA runs amortize per-cell
+  // route/pacing/lock work and per-range manifest rounds). Higher fanout
   // remains opt-in via XVEIL_STREAM_RANGE_PARALLELISM for speed experiments.
-  static const int _defaultStreamRangeParallelism = 8;
+  static const int _defaultStreamRangeParallelism = 4;
   static const int _maxStreamRangeParallelism = 32;
-  static const int _defaultStreamRangeTargetBytes = 1024 * 1024;
-  static const int _maxStreamRangeTargetBytes = 2 * 1024 * 1024;
+  static const int _defaultStreamRangeTargetBytes = 8 * 1024 * 1024;
+  // After the native TX batching work a single stream sustains ~6 MiB/s, so
+  // per-range fixed costs (open + request + manifest round) dominate small
+  // ranges: 64 MiB at 1 MiB ranges paid 64 of them (~2.1 MiB/s total) while
+  // 2 MiB ranges reached ~3 MiB/s. Resume stays byte-granular within a range
+  // and verification stays per 256 KiB piece, so coarser ranges do not
+  // meaningfully coarsen recovery; the cap only bounds worst-case hedge
+  // duplication.
+  static const int _maxStreamRangeTargetBytes = 16 * 1024 * 1024;
   static const int _defaultStreamPullMaxAttempts = 24;
   final Duration _streamPayloadIdleTimeout;
   final Duration _streamRangeStallAbandon;
