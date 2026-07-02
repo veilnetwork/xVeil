@@ -4012,8 +4012,14 @@ class MessagingService {
   // native TX batching work a single stream reaches ~3.5 MiB/s, so fewer,
   // longer streams beat wide fanout: on-device 64 MiB measured p8/1MiB at
   // ~2.1 MiB/s vs p4/8MiB at ~3.4 MiB/s (longer DATA runs amortize per-cell
-  // route/pacing/lock work and per-range manifest rounds). Higher fanout
-  // remains opt-in via XVEIL_STREAM_RANGE_PARALLELISM for speed experiments.
+  // route/pacing/lock work and per-range manifest rounds).
+  //
+  // 2026-07-02: re-measured after the 4 KiB cell flag-day + BBR. p8 looked
+  // faster on a 64 MiB file (13s vs 15.7s) but that was start-up noise; a
+  // head-to-head on 256 MiB (both with zero range resumes) showed p4 holds
+  // ~6.24 MiB/s active while p8 drops to ~4.2 — 8 streams contend on the same
+  // 3 rendezvous routes in steady state. p4 stays the default; higher fanout
+  // remains opt-in via XVEIL_STREAM_RANGE_PARALLELISM.
   static const int _defaultStreamRangeParallelism = 4;
   static const int _maxStreamRangeParallelism = 32;
   static const int _defaultStreamRangeTargetBytes = 8 * 1024 * 1024;
