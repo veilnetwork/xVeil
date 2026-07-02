@@ -31,7 +31,17 @@ APP_ID="${APP_ID:-network.veil.xveil}"
 ANDROID_SERIAL="${ANDROID_SERIAL:-}"
 VEIL_CIRCUIT_MODE="${VEIL_CIRCUIT_MODE:-published}"
 LOG_DIR="${LOG_DIR:-$ROOT/scratchpad/soak-$(date +%Y%m%d-%H%M%S)}"
-DESKTOP_DYLIB="${DESKTOP_DYLIB:-$ROOT/third_party/veil/target/debug/libveilclient_ffi.dylib}"
+# The Android .so is always a cargo --release build (gradle), so a debug
+# desktop dylib makes the stand asymmetric: the desktop's per-cell session/
+# stream path runs unoptimized and caps measured throughput. Default to the
+# release dylib for speed work; SOAK_NATIVE_PROFILE=debug restores the old
+# behavior for debugging native code.
+SOAK_NATIVE_PROFILE="${SOAK_NATIVE_PROFILE:-release}"
+if [[ "$SOAK_NATIVE_PROFILE" != "debug" && "$SOAK_NATIVE_PROFILE" != "release" ]]; then
+  echo "SOAK_NATIVE_PROFILE must be debug or release." >&2
+  exit 2
+fi
+DESKTOP_DYLIB="${DESKTOP_DYLIB:-$ROOT/third_party/veil/target/$SOAK_NATIVE_PROFILE/libveilclient_ffi.dylib}"
 HV_DYLIB="${HV_DYLIB:-$ROOT/third_party/hidden-volume/target/debug/libhidden_volume_ffi.dylib}"
 SOAK_BUILD_NATIVE="${SOAK_BUILD_NATIVE:-1}"
 DOWNLOAD_PATH="${DOWNLOAD_PATH:-}"
@@ -92,6 +102,12 @@ SOAK_ANDROID_ONION_STREAM_MAX_RETRANSMITS="${SOAK_ANDROID_ONION_STREAM_MAX_RETRA
 SOAK_ONION_STREAM_INIT_CWND_MSS="${SOAK_ONION_STREAM_INIT_CWND_MSS:-}"
 SOAK_DESKTOP_ONION_STREAM_INIT_CWND_MSS="${SOAK_DESKTOP_ONION_STREAM_INIT_CWND_MSS:-$SOAK_ONION_STREAM_INIT_CWND_MSS}"
 SOAK_ANDROID_ONION_STREAM_INIT_CWND_MSS="${SOAK_ANDROID_ONION_STREAM_INIT_CWND_MSS:-$SOAK_ONION_STREAM_INIT_CWND_MSS}"
+SOAK_ONION_STREAM_MAX_PACING_BATCH="${SOAK_ONION_STREAM_MAX_PACING_BATCH:-}"
+SOAK_DESKTOP_ONION_STREAM_MAX_PACING_BATCH="${SOAK_DESKTOP_ONION_STREAM_MAX_PACING_BATCH:-$SOAK_ONION_STREAM_MAX_PACING_BATCH}"
+SOAK_ANDROID_ONION_STREAM_MAX_PACING_BATCH="${SOAK_ANDROID_ONION_STREAM_MAX_PACING_BATCH:-$SOAK_ONION_STREAM_MAX_PACING_BATCH}"
+SOAK_ONION_STREAM_DATA_PACE_US="${SOAK_ONION_STREAM_DATA_PACE_US:-}"
+SOAK_DESKTOP_ONION_STREAM_DATA_PACE_US="${SOAK_DESKTOP_ONION_STREAM_DATA_PACE_US:-$SOAK_ONION_STREAM_DATA_PACE_US}"
+SOAK_ANDROID_ONION_STREAM_DATA_PACE_US="${SOAK_ANDROID_ONION_STREAM_DATA_PACE_US:-$SOAK_ONION_STREAM_DATA_PACE_US}"
 SOAK_ONION_STREAM_OUTBOUND_POOL="${SOAK_ONION_STREAM_OUTBOUND_POOL:-}"
 SOAK_DESKTOP_ONION_STREAM_OUTBOUND_POOL="${SOAK_DESKTOP_ONION_STREAM_OUTBOUND_POOL:-$SOAK_ONION_STREAM_OUTBOUND_POOL}"
 SOAK_ANDROID_ONION_STREAM_OUTBOUND_POOL="${SOAK_ANDROID_ONION_STREAM_OUTBOUND_POOL:-$SOAK_ONION_STREAM_OUTBOUND_POOL}"
@@ -154,10 +170,25 @@ PY
 
 android_file_size() {
   local path="$1"
-  adb -s "$ANDROID_SERIAL" shell \
-    "if [ -e $(android_shell_quote "$path") ]; then stat -c %s $(android_shell_quote "$path") 2>/dev/null || wc -c < $(android_shell_quote "$path"); else echo 0; fi" |
-    tr -d '\r' |
-    tail -1
+  local size
+  size="$(
+    adb -s "$ANDROID_SERIAL" shell \
+      "if [ -e $(android_shell_quote "$path") ]; then stat -c %s $(android_shell_quote "$path") 2>/dev/null || wc -c < $(android_shell_quote "$path"); else echo 0; fi" |
+      tr -d '\r' |
+      tail -1
+  )"
+  # App-internal paths (/data/user/0/<pkg>/...) are unreadable from the plain
+  # adb shell user; a debug build still exposes them through run-as.
+  if [[ -z "$size" || "$size" == "0" ]]; then
+    local script="if [ -e $(android_shell_quote "$path") ]; then stat -c %s $(android_shell_quote "$path") 2>/dev/null || wc -c < $(android_shell_quote "$path"); else echo 0; fi"
+    size="$(
+      adb -s "$ANDROID_SERIAL" shell \
+        "run-as $(android_shell_quote "$APP_ID") sh -c $(android_shell_quote "$script")" 2>/dev/null |
+        tr -d '\r' |
+        tail -1
+    )"
+  fi
+  echo "${size:-0}"
 }
 
 local_file_size() {
@@ -268,7 +299,10 @@ prepare_auto_transfer() {
   elif [[ "$SOAK_SENDER" == "android" ]]; then
     auto_dest_path="$LOG_DIR/download-$SOAK_NAME"
   else
-    auto_dest_path="/sdcard/Android/data/$APP_ID/files/soak/download-$SOAK_NAME"
+    # Scoped storage denies the raw /sdcard/Android/data path even to the app
+    # itself on current Android; the app-internal files dir works for the app
+    # and is monitorable via run-as (debug build).
+    auto_dest_path="/data/user/0/$APP_ID/files/soak/download-$SOAK_NAME"
   fi
 
   local generate="$SOAK_GENERATE_SOURCE"
@@ -315,8 +349,14 @@ prepare_auto_transfer() {
     if [[ "$SOAK_SENDER" == "android" ]]; then
       rm -f "$auto_dest_path"
     else
+      # App-internal paths need run-as (debug build); fall back to the plain
+      # shell for world-accessible destinations.
       adb -s "$ANDROID_SERIAL" shell \
-        "rm -f $(android_shell_quote "$auto_dest_path")" >/dev/null
+        "run-as $(android_shell_quote "$APP_ID") rm -f $(android_shell_quote "$auto_dest_path")" \
+        >/dev/null 2>&1 ||
+        adb -s "$ANDROID_SERIAL" shell \
+          "rm -f $(android_shell_quote "$auto_dest_path")" >/dev/null 2>&1 ||
+        true
     fi
   fi
 
@@ -512,6 +552,12 @@ validate_nonnegative_int SOAK_ANDROID_ONION_STREAM_MAX_RETRANSMITS "$SOAK_ANDROI
 validate_nonnegative_int SOAK_ONION_STREAM_INIT_CWND_MSS "$SOAK_ONION_STREAM_INIT_CWND_MSS"
 validate_nonnegative_int SOAK_DESKTOP_ONION_STREAM_INIT_CWND_MSS "$SOAK_DESKTOP_ONION_STREAM_INIT_CWND_MSS"
 validate_nonnegative_int SOAK_ANDROID_ONION_STREAM_INIT_CWND_MSS "$SOAK_ANDROID_ONION_STREAM_INIT_CWND_MSS"
+validate_nonnegative_int SOAK_ONION_STREAM_MAX_PACING_BATCH "$SOAK_ONION_STREAM_MAX_PACING_BATCH"
+validate_nonnegative_int SOAK_DESKTOP_ONION_STREAM_MAX_PACING_BATCH "$SOAK_DESKTOP_ONION_STREAM_MAX_PACING_BATCH"
+validate_nonnegative_int SOAK_ANDROID_ONION_STREAM_MAX_PACING_BATCH "$SOAK_ANDROID_ONION_STREAM_MAX_PACING_BATCH"
+validate_nonnegative_int SOAK_ONION_STREAM_DATA_PACE_US "$SOAK_ONION_STREAM_DATA_PACE_US"
+validate_nonnegative_int SOAK_DESKTOP_ONION_STREAM_DATA_PACE_US "$SOAK_DESKTOP_ONION_STREAM_DATA_PACE_US"
+validate_nonnegative_int SOAK_ANDROID_ONION_STREAM_DATA_PACE_US "$SOAK_ANDROID_ONION_STREAM_DATA_PACE_US"
 validate_nonnegative_int SOAK_ONION_STREAM_OUTBOUND_POOL "$SOAK_ONION_STREAM_OUTBOUND_POOL"
 validate_nonnegative_int SOAK_DESKTOP_ONION_STREAM_OUTBOUND_POOL "$SOAK_DESKTOP_ONION_STREAM_OUTBOUND_POOL"
 validate_nonnegative_int SOAK_ANDROID_ONION_STREAM_OUTBOUND_POOL "$SOAK_ANDROID_ONION_STREAM_OUTBOUND_POOL"
@@ -693,8 +739,13 @@ if [[ "$KILL_OLD" == "1" ]]; then
 fi
 
 if [[ "$SOAK_BUILD_NATIVE" == "1" ]]; then
-  echo "building debug native libraries..."
-  "$ROOT/scripts/build-native.sh" >"$LOG_DIR/build-native.log" 2>&1
+  echo "building $SOAK_NATIVE_PROFILE native libraries..."
+  build_native_args=()
+  if [[ "$SOAK_NATIVE_PROFILE" == "release" ]]; then
+    build_native_args+=(--release)
+  fi
+  "$ROOT/scripts/build-native.sh" ${build_native_args[@]+"${build_native_args[@]}"} \
+    >"$LOG_DIR/build-native.log" 2>&1
 elif [[ "$SOAK_BUILD_NATIVE" != "0" ]]; then
   echo "SOAK_BUILD_NATIVE must be 0 or 1." >&2
   exit 2
@@ -758,6 +809,16 @@ if [[ -n "$SOAK_ANDROID_ONION_STREAM_BULK_ROUTE_ACTIVE_LIMIT" ]]; then
   adb -s "$ANDROID_SERIAL" shell setprop debug.veil.onion_stream_bulk_route_active_limit "$SOAK_ANDROID_ONION_STREAM_BULK_ROUTE_ACTIVE_LIMIT"
 else
   adb -s "$ANDROID_SERIAL" shell setprop debug.veil.onion_stream_bulk_route_active_limit 2
+fi
+if [[ -n "$SOAK_ANDROID_ONION_STREAM_MAX_PACING_BATCH" ]]; then
+  adb -s "$ANDROID_SERIAL" shell setprop debug.veil.onion_stream_max_pacing_batch "$SOAK_ANDROID_ONION_STREAM_MAX_PACING_BATCH"
+else
+  adb -s "$ANDROID_SERIAL" shell setprop debug.veil.onion_stream_max_pacing_batch 256
+fi
+if [[ -n "$SOAK_ANDROID_ONION_STREAM_DATA_PACE_US" ]]; then
+  adb -s "$ANDROID_SERIAL" shell setprop debug.veil.onion_stream_data_pace_us "$SOAK_ANDROID_ONION_STREAM_DATA_PACE_US"
+else
+  adb -s "$ANDROID_SERIAL" shell setprop debug.veil.onion_stream_data_pace_us 50
 fi
 adb -s "$ANDROID_SERIAL" shell svc power stayon true >/dev/null 2>&1 || true
 adb -s "$ANDROID_SERIAL" logcat -c || true
@@ -925,6 +986,8 @@ fi
     VEIL_ONION_STREAM_CIRCUIT_OUTBOUND_POOL="$SOAK_DESKTOP_ONION_STREAM_OUTBOUND_POOL" \
     VEIL_ONION_STREAM_CIRCUIT_ACK_OUTBOUND_POOL="$SOAK_DESKTOP_ONION_STREAM_ACK_OUTBOUND_POOL" \
     VEIL_ONION_STREAM_CIRCUIT_BULK_ROUTE_ACTIVE_LIMIT="$SOAK_DESKTOP_ONION_STREAM_BULK_ROUTE_ACTIVE_LIMIT" \
+    VEIL_ONION_STREAM_CIRCUIT_MAX_PACING_BATCH="$SOAK_DESKTOP_ONION_STREAM_MAX_PACING_BATCH" \
+    VEIL_ONION_STREAM_CIRCUIT_DATA_PACE_US="$SOAK_DESKTOP_ONION_STREAM_DATA_PACE_US" \
     flutter run --no-pub -d macos --debug "${desktop_defines[@]}"
 ) >"$LOG_DIR/desktop-flutter.log" 2>&1 &
 pids+=("$!")
