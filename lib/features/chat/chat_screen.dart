@@ -424,12 +424,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       dest = '${(await getApplicationDocumentsDirectory()).path}/$name';
     }
     if (dest == null) return; // cancelled
-    final tmpDest = '$dest.part-${DateTime.now().microsecondsSinceEpoch}';
-    final raf = await File(tmpDest).open(mode: FileMode.write);
+    // Write STRAIGHT to the chosen path — no `.part-` sibling. On a sandboxed
+    // macOS release build the NSSavePanel grants a read-write exception for the
+    // exact selected path ONLY; a sibling temp file (`dest.part-…`) is outside
+    // the sandbox and its open() fails with "Operation not permitted", which
+    // silently stranded every large-file save (worked in the sandbox-off debug
+    // build, hid the bug). A partial file on failure is cleaned by
+    // _watchDownloadFailure(deletePath: dest).
+    final raf = await File(dest).open(mode: FileMode.write);
     if (!mounted) {
       await raf.close();
       try {
-        await File(tmpDest).delete();
+        await File(dest).delete();
       } catch (_) {}
       return;
     }
@@ -437,7 +443,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _watchDownloadFailure(
       cid,
       deletePath: dest,
-      deletePaths: [tmpDest],
     ); // clean up empty/partial files
     // Snackbar once the streamed plaintext file is fully written.
     svc.contentReceived
@@ -458,11 +463,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       },
       close: () async {
         await raf.close();
-        final out = File(dest!);
-        if (await out.exists()) {
-          await out.delete();
-        }
-        await File(tmpDest).rename(dest);
       },
     );
     if (mounted && r == ContentDownloadResult.requestedReoffer) {
