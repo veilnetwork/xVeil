@@ -1077,6 +1077,16 @@ if [[ -n "$SOAK_UNLOCK_PASSWORD" ]]; then
     curl -fsS -X POST --data-binary @- \
       "http://127.0.0.1:$ANDROID_HOST_HOOK_PORT/unlock?timeout_ms=$SOAK_UNLOCK_TIMEOUT_MS" \
       >"$LOG_DIR/android-unlock.json"
+  # Bench hygiene: wholesale-erase the file-blob namespace on both apps.
+  # Every soak run leaves manifests / streamed pieces behind, and per-record
+  # deletes never shrink the hidden-volume log index — after enough runs the
+  # sender wedges on HvException.IndexFull. Best-effort: an older app build
+  # without the hook must not fail the run.
+  echo "purging soak file blobs through debug hooks..."
+  curl -fsS "http://127.0.0.1:$DESKTOP_HOOK_PORT/purge_files" \
+    >"$LOG_DIR/desktop-purge-files.json" 2>/dev/null || true
+  curl -fsS "http://127.0.0.1:$ANDROID_HOST_HOOK_PORT/purge_files" \
+    >"$LOG_DIR/android-purge-files.json" 2>/dev/null || true
 fi
 
 warmup_onion_hooks

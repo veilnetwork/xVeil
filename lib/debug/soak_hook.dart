@@ -126,6 +126,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/wait_offer':
           await _waitOffer(req);
           return;
+        case '/purge_files':
+          await _purgeFiles(req);
+          return;
         case '/send_file':
           await _sendFile(req);
           return;
@@ -390,6 +393,36 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       if (!conv.peer.canMessage) continue;
       await svc.requestContentReoffer(conv.peer.nodeId, cid);
     }
+  }
+
+  /// Bench relief: wholesale-erase the file-blob namespace so a long soak
+  /// series cannot wedge the sender on HvException.IndexFull (per-record
+  /// deletes never shrink the log index). Destroys every stored attachment /
+  /// manifest / streamed piece of the CURRENT space — soak-bench only.
+  Future<void> _purgeFiles(HttpRequest req) async {
+    final ready = _requireReady(req);
+    if (!ready) return;
+    final storage = ref.read(storageProvider);
+    final before = await storage.namespaceCounts();
+    final erased = await storage.purgeFileStore();
+    // The message log fills with filePost/status/tombstone rows one per run;
+    // per-record tombstones never free index slots, so a multi-day soak series
+    // eventually wedges every send on IndexFull. Wipe it too — bench chats are
+    // disposable, contacts and seq cursors survive.
+    final erasedLog = await storage.purgeMessageLog();
+    final after = await storage.namespaceCounts();
+    devLog(
+      () =>
+          'xVeil[debug-hook]: purge_files erased=$erased erasedLog=$erasedLog '
+          'before=$before after=$after',
+    );
+    return _json(req, {
+      'ok': true,
+      'erased': erased,
+      'erasedLog': erasedLog,
+      'before': before,
+      'after': after,
+    });
   }
 
   Future<void> _sendFile(HttpRequest req) async {
