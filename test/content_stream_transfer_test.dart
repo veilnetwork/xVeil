@@ -1413,7 +1413,11 @@ void main() {
       });
       final dest = '${dir.path}/reoffer-plain.bin';
       final raf = await File(dest).open(mode: FileMode.write);
-      tB.openStreamFailures = 1;
+      // Two failures: the pipelined direct-pull attempt eats one and the
+      // manifest probe the other — only then does the plaintext save park
+      // behind the reoffer control path this test exercises. (A single
+      // transient failure now recovers within the same call via the probe.)
+      tB.openStreamFailures = 2;
 
       final got = mB.contentReceived.firstWhere((e) => e.contentId == cid);
       final r = await mB.downloadContentToFile(
@@ -1723,6 +1727,56 @@ void main() {
       await sB.hasFile(cid),
       isFalse,
       reason: 'plaintext-to-file keeps nothing',
+    );
+  });
+
+  test('STREAM download-to-file from ONE holder pipelines manifest+data on a '
+      'single stream (no standalone manifest probe round)', () async {
+    final data = _rnd(600000, 17); // ~3 pieces
+    final cid = ContentManifest.fromBytes('pipe.bin', data).contentId;
+    await mB.setFileDownloadPolicy(
+      mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+    );
+    await mA.sendFileStreaming(
+      b,
+      'pipe.bin',
+      data.length,
+      (o, l) async => Uint8List.sublistView(data, o, o + l),
+      close: () async {},
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+
+    final dir = await Directory.systemTemp.createTemp('xveil-pipeline');
+    addTearDown(() async {
+      if (await dir.exists()) await dir.delete(recursive: true);
+    });
+    final dest = '${dir.path}/pipe.bin';
+    final raf = await File(dest).open(mode: FileMode.write);
+    tB.openStreamAttemptCount = 0;
+    final got = mB.contentReceived.first;
+    final r = await mB.downloadContentToFile(
+      a,
+      cid,
+      dest,
+      write: (offset, bytes) async {
+        await raf.setPosition(offset);
+        await raf.writeFrom(bytes);
+      },
+      close: () async {
+        await raf.close();
+      },
+    );
+    expect(r, ContentDownloadResult.started);
+    final ev = await got.timeout(const Duration(seconds: 20));
+    expect(ev.savedToPath, dest);
+    expect(await File(dest).readAsBytes(), data);
+    expect(
+      tB.openStreamAttemptCount,
+      1,
+      reason:
+          'a single-holder plain-file download must ride ONE stream — the '
+          'manifest arrives as the pull stream header, so a separate '
+          'manifest-probe open is a wasted serialized onion round trip',
     );
   });
 
