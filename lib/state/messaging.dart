@@ -2883,7 +2883,7 @@ class MessagingService {
 
     // A durable (cross-restart) pending download exists for this content and
     // the holder just proved it's online — nudge the auto-resume driver.
-    unawaited(_resumeOnOfferSignal(m.contentId));
+    unawaited(_resumeOnOfferSignal(m.contentId, manifest: m));
 
     // A user download was PARKED waiting for this manifest (re-advertise after a
     // restart) → start it now with its destination (sink for unencrypted-to-file,
@@ -3578,12 +3578,48 @@ class MessagingService {
         requestedAt: prior?.requestedAt ?? DateTime.now(),
       );
     });
+    // Persist the offered manifest alongside the intent: a post-restart resume
+    // re-injects it so the range swarm can run and SKIP already-stored
+    // verified pieces instead of re-pulling the whole file sequentially.
+    final offered = _offered[contentId];
+    if (offered != null) {
+      unawaited(_persistServeManifest(offered.manifest));
+    }
+  }
+
+  /// Persist [m] once if a durable pending download exists for it — offers
+  /// often arrive as manifest-REFS, so the full manifest only becomes known
+  /// mid-pull (stream header / ref resolve); this is what makes a
+  /// piece-granular resume possible after a restart.
+  final Set<String> _persistedPendingManifests = {};
+  Future<void> _persistManifestIfPending(ContentManifest m) async {
+    if (!_persistedPendingManifests.add(m.contentId)) return;
+    if (!(await _pendingDownloads()).containsKey(m.contentId)) {
+      _persistedPendingManifests.remove(m.contentId);
+      return;
+    }
+    await _persistServeManifest(m);
+  }
+
+  Future<ContentManifest?> _loadPersistedManifest(String contentId) async {
+    try {
+      final bytes = await _storage.loadFile('mf:$contentId');
+      if (bytes == null) return null;
+      final m = ContentManifest.fromJson(
+        jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>,
+      );
+      if (m == null || m.contentId != contentId) return null;
+      return m;
+    } catch (_) {
+      return null;
+    }
   }
 
   void _completePendingDownload(String contentId) {
     _resumeTimers.remove(contentId)?.cancel();
     _resumeAttempts.remove(contentId);
     _resumeProgressAt.remove(contentId);
+    _persistedPendingManifests.remove(contentId);
     if (_pendingResumeCache?.containsKey(contentId) ?? true) {
       _mutatePendingDownloads((map) => map.remove(contentId));
     }
@@ -3623,9 +3659,14 @@ class MessagingService {
   /// An offer/manifest for a durable-pending content id arrived — the sender
   /// is provably online, resume soon (the short delay lets an already-running
   /// pull surface progress, which the liveness check then respects).
-  Future<void> _resumeOnOfferSignal(String contentId) async {
+  Future<void> _resumeOnOfferSignal(
+    String contentId, {
+    ContentManifest? manifest,
+  }) async {
     if (_disposed) return;
     if (!(await _pendingDownloads()).containsKey(contentId)) return;
+    // Keep the manifest durable for a piece-granular resume after a restart.
+    if (manifest != null) unawaited(_persistServeManifest(manifest));
     if (_resumeTimers.containsKey(contentId)) return; // already queued sooner
     _scheduleDownloadResume(contentId, after: const Duration(seconds: 3));
   }
@@ -3691,11 +3732,23 @@ class MessagingService {
           peers.add(NodeId.fromHex(hex));
         } catch (_) {}
       }
+      // Re-inject a persisted manifest (lost from RAM across the restart) so
+      // the resume takes the swarm path with piece-granular skip of already
+      // stored data — the torrent behavior — rather than a from-zero pull.
+      if (_offered[contentId] == null && peers.isNotEmpty) {
+        final m = await _loadPersistedManifest(contentId);
+        if (m != null) {
+          _offered[contentId] = (
+            manifest: m,
+            peers: {for (final p in peers) p.hex: p},
+          );
+        }
+      }
       devLog(
         () =>
             'xVeil[content]: auto-resume $short '
             '(mode=${pending.mode}, attempt=${_resumeAttempts[contentId] ?? 0},'
-            ' peers=${peers.length})',
+            ' peers=${peers.length}, manifest=${_offered[contentId] != null})',
       );
       if (pending.mode == _PendingDownload.modeFile &&
           pending.savedPath != null) {
@@ -5274,6 +5327,7 @@ class MessagingService {
     String? savedPath,
   }) async {
     final cid = manifest.contentId;
+    unawaited(_persistManifestIfPending(manifest));
     if (_transport is! StreamTransport ||
         !_streamRangeEnabled ||
         manifest.pieceCount < 2) {
@@ -6187,6 +6241,7 @@ class MessagingService {
             throw StateError('manifest changed across resume');
           }
           resumeManifest ??= m;
+          unawaited(_persistManifestIfPending(m));
           final startPiece = resumeOffset > 0
               ? (resumeOffset ~/ m.pieceSize).clamp(0, m.pieceCount)
               : 0;
