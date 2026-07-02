@@ -32,6 +32,51 @@ Future<VeilServeSource?> veilSourceOpener(String path) async {
   return (read: read, close: raf.close);
 }
 
+/// A plaintext WRITE sink over a destination file — offset writes + close,
+/// the structural shape MessagingService's download-to-file paths take.
+typedef VeilPlainFileSink = ({
+  Future<void> Function(int offset, Uint8List bytes) write,
+  Future<void> Function() close,
+});
+
+/// (Re)open [path] as a write sink for a plain-file download, truncating any
+/// prior partial content. Null when the destination can't be opened — e.g. a
+/// sandboxed macOS release after a restart, where the NSSavePanel grant for
+/// the picked path is gone. Writes are serialized through a gate for the same
+/// single-cursor reason as [veilSourceOpener].
+Future<VeilPlainFileSink?> veilPlainFileSinkOpener(String path) async {
+  final RandomAccessFile raf;
+  try {
+    await File(path).parent.create(recursive: true);
+    raf = await File(path).open(mode: FileMode.write);
+  } catch (_) {
+    return null;
+  }
+  Future<void> gate = Future<void>.value();
+  var closed = false;
+  Future<void> write(int offset, Uint8List bytes) {
+    final r = gate.then((_) async {
+      if (closed) return;
+      await raf.setPosition(offset);
+      await raf.writeFrom(bytes);
+    });
+    gate = r.then((_) {}, onError: (_) {});
+    return r;
+  }
+
+  Future<void> close() {
+    final r = gate.then((_) async {
+      if (closed) return;
+      closed = true;
+      await raf.close();
+    });
+    gate = r.then((_) {}, onError: (_) {});
+    return r;
+  }
+
+  return (write: write, close: close);
+}
+
 /// Read EXACTLY [length] bytes at [offset], looping until satisfied or EOF
 /// ([RandomAccessFile.read] may return fewer than asked on some platforms).
 Future<Uint8List> _readFully(
