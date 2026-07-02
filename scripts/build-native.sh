@@ -27,10 +27,21 @@ echo "==> Building veilclient-ffi ($PROFILE, node-embedded)"
 # node-embedded bundles the in-process node runtime (veil_config_init /
 # veil_node_start_deferred / veil_node_apply_config), required for the deniable
 # in-process boot. It is additive — the client-only symbols are still present.
-( cd "$VEIL" && cargo build -p veilclient-ffi --features node-embedded ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} )
+# Release builds require an explicit seed posture (veil-bootstrap
+# compile_error); mirror the Android gradle build and bake the production
+# seeds in.
+VEIL_FEATURES="node-embedded"
+if [[ "$PROFILE" == "release" ]]; then
+  VEIL_FEATURES="node-embedded,production-seeds"
+fi
+( cd "$VEIL" && cargo build -p veilclient-ffi --features "$VEIL_FEATURES" ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} )
 
 echo "==> Building veil-cli ($PROFILE)"
-( cd "$VEIL" && cargo build -p veil-cli ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} )
+if [[ "$PROFILE" == "release" ]]; then
+  ( cd "$VEIL" && cargo build -p veil-cli --features production-seeds ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} )
+else
+  ( cd "$VEIL" && cargo build -p veil-cli ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} )
+fi
 
 case "$(uname -s)" in
   Darwin) EXT="dylib" ;;
