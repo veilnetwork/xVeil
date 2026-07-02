@@ -2776,3 +2776,56 @@ Single-chain поднят с 1.455 до 2.13-2.80 MiB/s; parallel держит 1
 цели 1.5. Терминальный биндер обеих цифр — per-cell sys-overhead телефона
 (~2x sys vs user CPU при 7-9k cells/s); главный следующий шаг — батчинг
 session-write (несколько клеток за один вызов/TCP-сегмент).
+
+## 31. 2026-07-02: батчинг TX-пути — снятие per-cell потолка телефона
+
+Реализация (продолжение §30, «следующий уровень»):
+
+- `veil-onion-stream::CellDuplex::send_cells` / `CellSender::send_many` —
+  батч-API с дефолтной поклеточной реализацией (sim/datagram пути не меняются).
+- Драйвер собирает ВСЮ эмиссию движка за проход (`poll_transmit` до сухого,
+  кап 512) в FIFO `outbound` и отдаёт carrier'у одним вызовом; WouldBlock
+  оставляет непринятый хвост в очереди (та же ARQ-семантика, что старый
+  одиночный blocked_cell, но пачкой).
+- Hub (`CircuitCells::send_many` + `send_data_run`): ран однотипных DATA-клеток
+  одного stream'а обслуживается ОДНИМ resolve маршрута + staleness-проверкой +
+  pacer-резервом (`StreamDataPacer::wait_n` — один лок и один сон на ран) +
+  одним bookkeeping-проходом. Скалярный путь (SYN/ACK/FIN/RST/интро) не
+  тронут. До этого каждая 318B клетка платила 3-4 async-лока — при 7-9k
+  cells/s это и был sys-доминированный потолок из §30.
+
+Проверки: cargo test veil-onion-stream 40 green; veilclient-ffi lib 56 green;
+flutter 429 green; все device-прогоны CMP-OK.
+
+Замеры (⚠️ в §30/§31 ранние «6.400» от summary — артефакт 10s-гранулярности
+монитора; здесь точные времена из hook-лога):
+
+| конфиг | до батчинга | после |
+| --- | ---: | ---: |
+| single 16 MiB p2d | 2.13-2.80 | **3.82** (4.19s) |
+| single 16 MiB d2p | 2.26-2.50 | **3.76** (4.25s) |
+| single-long 64 MiB | 2.1 | **3.60** (17.8s) |
+| range p8/1MiB 64 MiB | ~2.1 | 2.07-2.13 (range-накладные) |
+| range p4/8MiB 64 MiB | — | **3.44** (18.6s) |
+
+Range-режим с 1 MiB кусками перестал быть быстрым путём (64 manifest-раундов
+на 64 MiB); крупные куски вернули его на уровень single-long при сохранении
+resume/hedge/verify. Пейсер больше не биндер: 25µs не ускорил (2.86), потолок
+теперь ~11-12k cells/s per-cell пути телефона (RX-сторона + остаточный TX).
+
+Дефолты изменены (Dart): `_defaultStreamRangeParallelism` 8 -> 4,
+`_defaultStreamRangeTargetBytes` 1 MiB -> 8 MiB, cap 2 -> 16 MiB.
+
+Валидация новых дефолтов:
+
+| run | результат |
+| --- | --- |
+| 64 MiB default | **3.56 MiB/s** (17.99s hook), CMP-OK, gate pass |
+| 256 MiB long default | active 3.160, hook 138s (~1.86 сквозняком), fault none, CMP-OK |
+
+Динамика за сессию (single-chain, 64 MiB класс): 1.28-1.46 -> 3.4-3.8 MiB/s
+(~x2.5); длинный 256 MiB: active 1.571 -> 3.160.
+
+Остаток потолка: per-cell обработка приёмной стороны (session RX decrypt ->
+dispatcher -> mux inbox -> driver по одной клетке) — зеркальный батчинг RX;
+затем протокольный размер клетки.
