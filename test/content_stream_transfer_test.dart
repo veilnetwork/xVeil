@@ -680,6 +680,9 @@ void main() {
       streamPayloadIdleTimeout: const Duration(seconds: 30),
       streamRangeStallAbandon: const Duration(milliseconds: 300),
       streamRangeHedgeAfter: const Duration(seconds: 60), // isolate stall
+      // Explicit fanout keeps the single-source pull on the range-swarm path
+      // (the default now prefers one sequential stream for one source).
+      streamRangeParallelism: 3,
       streamRangeTargetBytes: ContentManifest.defaultPieceSize,
     )..start();
 
@@ -731,6 +734,8 @@ void main() {
       streamPayloadIdleTimeout: const Duration(seconds: 30),
       streamRangeStallAbandon: const Duration(milliseconds: 300),
       streamRangeHedgeAfter: const Duration(milliseconds: 300),
+      // Explicit fanout keeps the single-source pull on the range-swarm path.
+      streamRangeParallelism: 3,
     )..start();
 
     tA.acceptStreamWrappers.add(
@@ -823,6 +828,8 @@ void main() {
       sB,
       contentPacing: Duration.zero,
       plainFileStream: true,
+      // Explicit fanout keeps the single-source pull on the range-swarm path.
+      streamRangeParallelism: 3,
       streamRangeTargetBytes: ContentManifest.defaultPieceSize,
     )..start();
     final data = _rnd(700000, 53); // 3 pieces at the default 256 KiB.
@@ -1119,6 +1126,9 @@ void main() {
         contentPacing: Duration.zero,
         plainFileStream: true,
         streamPullMaxAttempts: 12,
+        // Explicit fanout keeps the single-source-at-start pull on the
+        // range-swarm path — source refresh mid-download is what's under test.
+        streamRangeParallelism: 3,
       )..start();
       final mD = MessagingService(
         tD,
