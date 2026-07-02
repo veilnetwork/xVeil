@@ -37,10 +37,71 @@ const _streamRangeTargetBytesDartDefine = int.fromEnvironment(
   'XVEIL_STREAM_RANGE_TARGET_BYTES',
   defaultValue: 0,
 );
+const _streamRangeEnabledDartDefine = bool.fromEnvironment(
+  'XVEIL_STREAM_RANGE_ENABLED',
+  defaultValue: true,
+);
+const _streamOpenWriteGraceMsDartDefine = int.fromEnvironment(
+  'XVEIL_STREAM_OPEN_WRITE_GRACE_MS',
+  defaultValue: 0,
+);
+const _streamRangePayloadIdleMsDartDefine = int.fromEnvironment(
+  'XVEIL_STREAM_RANGE_PAYLOAD_IDLE_MS',
+  defaultValue: 0,
+);
+const _streamPayloadIdleMsDartDefine = int.fromEnvironment(
+  'XVEIL_STREAM_PAYLOAD_IDLE_MS',
+  defaultValue: 0,
+);
+const _streamRangeOpenPaceMsDartDefine = int.fromEnvironment(
+  'XVEIL_STREAM_RANGE_OPEN_PACE_MS',
+  defaultValue: 0,
+);
+const _streamRangeStallAbandonMsDartDefine = int.fromEnvironment(
+  'XVEIL_STREAM_RANGE_STALL_ABANDON_MS',
+  defaultValue: 0,
+);
+const _streamRangeHedgeMsDartDefine = int.fromEnvironment(
+  'XVEIL_STREAM_RANGE_HEDGE_MS',
+  defaultValue: 0,
+);
+const _streamRangeRetryOpenMsDartDefine = int.fromEnvironment(
+  'XVEIL_STREAM_RANGE_RETRY_OPEN_MS',
+  defaultValue: 0,
+);
+const _streamRequestTimeoutMsDartDefine = int.fromEnvironment(
+  'XVEIL_STREAM_REQUEST_TIMEOUT_MS',
+  defaultValue: 0,
+);
 const _bulkStreamTraceDartDefine = bool.fromEnvironment(
   'XVEIL_BULK_STREAM_TRACE',
   defaultValue: false,
 );
+const _plainFileStreamDartDefine = bool.fromEnvironment(
+  'XVEIL_PLAIN_FILE_STREAM',
+  defaultValue: false,
+);
+const _contentServeBatchDartDefine = int.fromEnvironment(
+  'XVEIL_CONTENT_SERVE_BATCH',
+  defaultValue: 0,
+);
+const _contentPacingMsDartDefine = int.fromEnvironment(
+  'XVEIL_CONTENT_PACING_MS',
+  defaultValue: 0,
+);
+
+const _defaultContentPacing = Duration(milliseconds: 20);
+const _defaultContentServeBatch = 2;
+
+typedef _ContentManifestRef = ({
+  String contentId,
+  String name,
+  int size,
+  String? msgId,
+  String? author,
+  int? seq,
+  int? ts,
+});
 
 int? xveilConfiguredStreamRangeParallelism() =>
     _streamRangeParallelismDartDefine > 0
@@ -52,8 +113,48 @@ int? xveilConfiguredStreamRangeTargetBytes() =>
     ? _streamRangeTargetBytesDartDefine
     : null;
 
+bool xveilConfiguredStreamRangeEnabled() => _streamRangeEnabledDartDefine;
+
+Duration _configuredStreamOpenWriteGrace() =>
+    _streamOpenWriteGraceMsDartDefine > 0
+    ? Duration(milliseconds: _streamOpenWriteGraceMsDartDefine)
+    : MessagingService._defaultStreamOpenWriteGrace;
+
+Duration _configuredStreamRangeStallAbandon() =>
+    _streamRangeStallAbandonMsDartDefine > 0
+    ? Duration(milliseconds: _streamRangeStallAbandonMsDartDefine)
+    : const Duration(milliseconds: 2500);
+
+Duration _configuredStreamRangeHedgeAfter() => _streamRangeHedgeMsDartDefine > 0
+    ? Duration(milliseconds: _streamRangeHedgeMsDartDefine)
+    : const Duration(milliseconds: 3000);
+
+Duration _configuredStreamRequestTimeout() =>
+    _streamRequestTimeoutMsDartDefine > 0
+    ? Duration(milliseconds: _streamRequestTimeoutMsDartDefine)
+    : MessagingService._defaultStreamRequestTimeout;
+
+Duration _configuredStreamPayloadIdleTimeout() =>
+    _streamPayloadIdleMsDartDefine > 0
+    ? Duration(milliseconds: _streamPayloadIdleMsDartDefine)
+    : MessagingService._defaultStreamPayloadIdleTimeout;
+
 void _bulkStreamLog(String Function() message) {
   if (_bulkStreamTraceDartDefine) devLog(message);
+}
+
+Duration _configuredContentPacing() => _contentPacingMsDartDefine > 0
+    ? Duration(milliseconds: _contentPacingMsDartDefine)
+    : _defaultContentPacing;
+
+int _configuredContentServeBatch() => _contentServeBatchDartDefine > 0
+    ? _clampContentServeBatch(_contentServeBatchDartDefine)
+    : _defaultContentServeBatch;
+
+int _clampContentServeBatch(int value) {
+  if (value < 1) return 1;
+  if (value > 32) return 32;
+  return value;
 }
 
 /// Raw bytes per wire chunk. The anonymous authenticated send (the live path,
@@ -214,15 +315,33 @@ class MessagingService {
     this._storage, {
     this._anonymous = false,
     DateTime Function()? now,
-    this._contentReRequestInterval = const Duration(seconds: 20),
-    this._contentPacing = const Duration(milliseconds: 20),
+    Duration? contentReRequestInterval,
+    Duration? contentPacing,
+    int? contentServeBatch,
+    bool? plainFileStream,
     Duration? streamPayloadIdleTimeout,
+    Duration? streamRangeStallAbandon,
+    Duration? streamRangeHedgeAfter,
     int? streamPullMaxAttempts,
     int? streamRangeParallelism,
     int? streamRangeTargetBytes,
+    bool? streamRangeEnabled,
+    Duration? streamOpenWriteGrace,
+    Duration? streamRequestTimeout,
   }) : _now = now ?? DateTime.now,
+       _contentReRequestInterval =
+           contentReRequestInterval ?? const Duration(seconds: 20),
+       _contentPacing = contentPacing ?? _configuredContentPacing(),
+       _contentServeBatch = _clampContentServeBatch(
+         contentServeBatch ?? _configuredContentServeBatch(),
+       ),
+       _plainFileStream = plainFileStream ?? _plainFileStreamDartDefine,
        _streamPayloadIdleTimeout =
-           streamPayloadIdleTimeout ?? _defaultStreamPayloadIdleTimeout,
+           streamPayloadIdleTimeout ?? _configuredStreamPayloadIdleTimeout(),
+       _streamRangeStallAbandon =
+           streamRangeStallAbandon ?? _configuredStreamRangeStallAbandon(),
+       _streamRangeHedgeAfter =
+           streamRangeHedgeAfter ?? _configuredStreamRangeHedgeAfter(),
        _streamPullMaxAttempts =
            streamPullMaxAttempts ?? _defaultStreamPullMaxAttempts,
        _streamRangeParallelism = _clampStreamRangeParallelism(
@@ -230,7 +349,13 @@ class MessagingService {
        ),
        _streamRangeTargetBytes = _clampStreamRangeTargetBytes(
          streamRangeTargetBytes ?? _defaultStreamRangeTargetBytes,
-       );
+       ),
+       _streamRangeEnabled =
+           streamRangeEnabled ?? _streamRangeEnabledDartDefine,
+       _streamOpenWriteGrace =
+           streamOpenWriteGrace ?? _configuredStreamOpenWriteGrace(),
+       _streamRequestTimeout =
+           streamRequestTimeout ?? _configuredStreamRequestTimeout();
 
   /// Wall-clock source, injectable so stale-transfer eviction is testable
   /// without real delays. Defaults to [DateTime.now].
@@ -952,7 +1077,19 @@ class MessagingService {
       case WireKind.contentManifest:
         // A peer advertises a content manifest (the "torrent"): verify it,
         // register a transfer, request the pieces we lack.
-        if (existing?.status != ContactStatus.accepted) return;
+        if (existing?.status != ContactStatus.accepted) {
+          devLog(
+            () =>
+                'xVeil[content]: manifest DROPPED — ${m.src.short} '
+                'not accepted (status=${existing?.status})',
+          );
+          return;
+        }
+        devLog(
+          () =>
+              'xVeil[content]: manifest frame ${env.body.length}B '
+              '<- ${m.src.short}',
+        );
         await _onContentManifest(m.src, env.body);
         return;
       case WireKind.contentReoffer:
@@ -1643,12 +1780,7 @@ class MessagingService {
                   seq: ev.seq,
                   ts: ev.ts,
                 );
-                await _send(
-                  peer,
-                  contentManifestEnvelope(
-                    jsonEncode(manifest.toJson()),
-                  ).encode(),
-                );
+                await _sendContentManifest(peer, manifest);
                 continue;
               }
               // Legacy small-file event: send a CHEAP probe (no blob load),
@@ -2163,6 +2295,8 @@ class MessagingService {
   /// the OFFER chat message is what persists, this is just the fetch handle.
   final Map<String, ({ContentManifest manifest, Map<String, NodeId> peers})>
   _offered = {};
+  final Map<String, ({_ContentManifestRef ref, Map<String, NodeId> peers})>
+  _offeredRefs = {};
   static const _maxOffered = 256;
 
   /// Per-identity auto-download policy (size cap + blocked types): which incoming
@@ -2259,11 +2393,18 @@ class MessagingService {
   /// anti-burst pace. The serve loop used to send one chunk per [_contentPacing]
   /// (20 ms) — so a ~2250-chunk 1 MiB file spent ~45 s purely pacing. Emitting a
   /// small batch at once ("parallel parts") fills the session TX queue closer to
-  /// the circuit's drain rate for a ~Nx speedup, while staying well under the
-  /// all-at-once burst that trips the LIMIT tx_queue guard. Self-correcting: any
-  /// chunk the queue drops under load is refilled by the chunk-granular
-  /// re-request, so an over-eager batch is never lossy, only (at worst) no faster.
-  static const _serveBatch = 6;
+  /// the circuit's drain rate for a ~Nx speedup, while staying under the native
+  /// auth-deliver verify queue capacity. Device logs showed batch=6 could
+  /// repeatedly fill that queue (`auth-deliver verify queue unavailable`) and
+  /// stall large file-save retries near the tail, so the live default is
+  /// conservative and tunable with `XVEIL_CONTENT_SERVE_BATCH`.
+  final int _contentServeBatch;
+
+  /// Whether explicit plaintext save-to-file should try the fast stream/range
+  /// path before the conservative piece fallback. Production defaults to the
+  /// Dart define so the datagram path stays the baseline; tests and soaks can
+  /// opt in without recompiling the whole app.
+  final bool _plainFileStream;
 
   /// Files larger than this go via the content layer (hash-verified pieces over
   /// the NAT-traversing datagram path) instead of the per-chunk fileMeta push.
@@ -2272,10 +2413,14 @@ class MessagingService {
   // with chunk-granular retries; this includes ordinary camera screenshots.
   static const _contentThreshold = 128 * 1024;
 
-  /// Piece size that keeps the manifest inside one datagram (≤ ~70 pieces — the
-  /// hex piece-hash list dominates the manifest JSON).
+  /// Piece size that keeps the hash-verified unit small for the stream/range
+  /// path. Large manifests no longer need to fit one auth-deliver frame: when
+  /// the full hash list would exceed the inline cap, we advertise a tiny
+  /// manifest-ref and let the receiver fetch the full manifest over a reliable
+  /// stream before pulling ranges. Keep up to a few thousand pieces before
+  /// widening the piece size so very large files do not produce huge manifests.
   static int _adaptivePieceSize(int size) {
-    const maxPieces = 70;
+    const maxPieces = 4096;
     final needed = (size + maxPieces - 1) ~/ maxPieces;
     return needed > ContentManifest.defaultPieceSize
         ? needed
@@ -2314,6 +2459,71 @@ class MessagingService {
   /// user's original file) or — when [source] is null — from the on-disk blob
   /// store keyed by contentId. Shared tail of every advertise path. A prior
   /// [source] for this contentId is closed if we replace it (no leaked handle).
+  static const int _contentManifestInlineEnvelopeLimit = 5600;
+
+  String _contentManifestJson(ContentManifest manifest) =>
+      jsonEncode(manifest.toJson());
+
+  String _contentManifestRefJson(ContentManifest manifest) => jsonEncode({
+    'ref': 1,
+    'id': manifest.contentId,
+    'name': manifest.name,
+    'size': manifest.size,
+    if (manifest.msgId != null) 'mid': manifest.msgId,
+    if (manifest.author != null) 'au': manifest.author,
+    if (manifest.seq != null) 'sq': manifest.seq,
+    if (manifest.ts != null) 'mts': manifest.ts,
+  });
+
+  _ContentManifestRef? _parseContentManifestRef(Map<String, dynamic> j) {
+    try {
+      if (j['ref'] != 1) return null;
+      final id = j['id'] as String;
+      final name = j['name'] as String;
+      final size = j['size'] as int;
+      if (id.length != 64 || size < 0) return null;
+      return (
+        contentId: id,
+        name: name,
+        size: size,
+        msgId: j['mid'] as String?,
+        author: j['au'] as String?,
+        seq: j['sq'] as int?,
+        ts: j['mts'] as int?,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _sendContentManifest(
+    NodeId dst,
+    ContentManifest manifest,
+  ) async {
+    final fullJson = _contentManifestJson(manifest);
+    final fullFrame = contentManifestEnvelope(fullJson).encode();
+    if (fullFrame.length <= _contentManifestInlineEnvelopeLimit) {
+      await _send(dst, fullFrame);
+      devLog(
+        () =>
+            'xVeil[content]: manifest inline '
+            '${manifest.contentId.substring(0, 12)} '
+            'frame=${fullFrame.length}B -> ${dst.short}',
+      );
+      return;
+    }
+    final refJson = _contentManifestRefJson(manifest);
+    final refFrame = contentManifestEnvelope(refJson).encode();
+    await _send(dst, refFrame);
+    devLog(
+      () =>
+          'xVeil[content]: manifest ref '
+          '${manifest.contentId.substring(0, 12)} '
+          'full_frame=${fullFrame.length}B ref_frame=${refFrame.length}B '
+          '-> ${dst.short}',
+    );
+  }
+
   Future<void> _advertiseStored(
     NodeId dst,
     ContentManifest manifest, {
@@ -2332,10 +2542,7 @@ class MessagingService {
     await _persistServeManifest(manifest);
     _evictServing();
     _ensureContentTimer();
-    await _send(
-      dst,
-      contentManifestEnvelope(jsonEncode(manifest.toJson())).encode(),
-    );
+    await _sendContentManifest(dst, manifest);
     final mid = manifest.msgId;
     devLog(
       () =>
@@ -2349,7 +2556,7 @@ class MessagingService {
     try {
       await _storage.storeFile(
         'mf:${manifest.contentId}',
-        Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+        Uint8List.fromList(utf8.encode(_contentManifestJson(manifest))),
         name: 'manifest',
       );
     } catch (e) {
@@ -2492,6 +2699,12 @@ class MessagingService {
       await close(); // not serving this peer → release the handle now
       return null;
     }
+    final sw = Stopwatch()..start();
+    devLog(
+      () =>
+          'xVeil[content]: stream-send start "$name" size=$size '
+          '-> ${dst.short}',
+    );
     // Hash the source piece-by-piece → manifest (contentId + per-piece hashes).
     // Holds at most one piece in RAM; on failure release the handle + surface.
     final ContentManifest base;
@@ -2502,6 +2715,13 @@ class MessagingService {
         pieceSize: _adaptivePieceSize(size),
         chunkBytes: _contentChunkBytes,
         readRange: read,
+      );
+      devLog(
+        () =>
+            'xVeil[content]: stream-send hashed "$name" '
+            'pieces=${base.pieceCount} piece_size=${base.pieceSize} '
+            'cid=${base.contentId.substring(0, 12)} '
+            'in ${sw.elapsedMilliseconds}ms',
       );
     } catch (e) {
       await close();
@@ -2523,6 +2743,11 @@ class MessagingService {
       id: msgId,
       timestamp: _now(),
     );
+    devLog(
+      () =>
+          'xVeil[content]: stream-send stored offer '
+          '${cid.substring(0, 12)} in ${sw.elapsedMilliseconds}ms',
+    );
     _signal();
     final m = base.withEvent(
       msgId: msgId,
@@ -2540,7 +2765,7 @@ class MessagingService {
       try {
         await _storage.storeFile(
           'mf:$cid',
-          Uint8List.fromList(utf8.encode(jsonEncode(m.toJson()))),
+          Uint8List.fromList(utf8.encode(_contentManifestJson(m))),
           name: 'manifest',
         );
         await _storage.putSetting('served:$cid', sourcePath);
@@ -2567,19 +2792,34 @@ class MessagingService {
       // Register the live source + advertise — NO stored copy.
       await _advertiseStored(dst, m, source: (read: read, close: close));
     }
+    devLog(
+      () =>
+          'xVeil[content]: stream-send advertised ${cid.substring(0, 12)} '
+          'in ${sw.elapsedMilliseconds}ms',
+    );
     return cid;
   }
 
   Future<void> _onContentManifest(NodeId peer, String body) async {
-    final m = ContentManifest.fromJson(
-      jsonDecode(body) as Map<String, dynamic>,
-    );
+    final decoded = jsonDecode(body) as Map<String, dynamic>;
+    final ref = _parseContentManifestRef(decoded);
+    if (ref != null) {
+      await _onContentManifestRef(peer, ref);
+      return;
+    }
+    final m = ContentManifest.fromJson(decoded);
     if (m == null) {
       devLog(
         () => 'xVeil[content]: manifest DROPPED (malformed) <- ${peer.short}',
       );
       return; // malformed / not self-consistent → untrusted, drop
     }
+    devLog(
+      () =>
+          'xVeil[content]: manifest parsed ${m.contentId.substring(0, 12)} '
+          'pieces=${m.pieceCount} msg=${m.msgId?.substring(0, 8)} '
+          '<- ${peer.short}',
+    );
     // Surface the file as an OFFER first — metadata only (name/size + the
     // contentId to fetch), NO blob yet — idempotent on the sender's per-send
     // msgId. The receiver decides whether to download (anti-spam + disk control).
@@ -2621,6 +2861,7 @@ class MessagingService {
         peer.hex: peer,
       },
     );
+    _offeredRefs.remove(m.contentId);
 
     // A user download was PARKED waiting for this manifest (re-advertise after a
     // restart) → start it now with its destination (sink for unencrypted-to-file,
@@ -2638,27 +2879,24 @@ class MessagingService {
         contentId: m.contentId,
       );
       if (sink != null) {
-        final savedPath = _fetchSavePath[m.contentId];
-        if (savedPath != null &&
+        // This is an explicit "save plaintext to this path" intent. The default
+        // remains the manifest/piece path: on the real onion circuit the stream
+        // can reset before the manifest arrives, which stranded selected files
+        // at 0 bytes. Speed investigations can opt in to the stream/range path
+        // with XVEIL_PLAIN_FILE_STREAM=1 while keeping the safe default.
+        if (_plainFileStream &&
             await _pullSwarmStreamToFile(
               peer,
               m.contentId,
               m,
               retryPeers,
               sink,
-              savedPath,
+              _fetchSavePath[m.contentId] ?? m.contentId,
             )) {
           return;
         }
-        if (await _pullStream(
-          peer,
-          m.contentId,
-          sink,
-          savedPath: savedPath,
-          retryPeers: retryPeers,
-        )) {
-          return;
-        }
+        await _beginFetch(peer, m, sink: sink);
+        return;
       } else {
         if (await _pullSwarmStream(peer, m.contentId, m, retryPeers)) {
           return;
@@ -2673,6 +2911,21 @@ class MessagingService {
         }
       }
       await _beginFetch(peer, m, sink: sink);
+      return;
+    }
+
+    // A plaintext save/download has already been explicitly requested for this
+    // content id (for example by the desktop save dialog or the soak hook).
+    // Do not let the automatic encrypted-tier fetch race it: if auto-download
+    // wins, the UI may mark the offer as downloaded while the user's chosen
+    // destination file remains empty and waits forever for a savedPath
+    // completion event.
+    if (_fetchSavePath.containsKey(m.contentId)) {
+      devLog(
+        () =>
+            'xVeil[content]: ${m.contentId.substring(0, 12)} '
+            'plain-file download pending — suppressing auto-download',
+      );
       return;
     }
 
@@ -2692,6 +2945,69 @@ class MessagingService {
     }
   }
 
+  Future<void> _onContentManifestRef(
+    NodeId peer,
+    _ContentManifestRef ref,
+  ) async {
+    final cid = ref.contentId;
+    devLog(
+      () =>
+          'xVeil[content]: manifest ref parsed ${cid.substring(0, 12)} '
+          'size=${ref.size} msg=${ref.msgId?.substring(0, 8)} '
+          '<- ${peer.short}',
+    );
+    await _surfaceFileOfferFields(
+      peer,
+      contentId: cid,
+      name: ref.name,
+      size: ref.size,
+      msgId: ref.msgId,
+      seq: ref.seq,
+      ts: ref.ts,
+    );
+
+    if (await _storage.hasFile(cid)) {
+      devLog(
+        () =>
+            'xVeil[content]: ${cid.substring(0, 12)} ALREADY HELD '
+            '<- ${peer.short} (manifest ref only)',
+      );
+      await _send(peer, WireEnvelope.ack(ref.msgId ?? cid).encode());
+      _signal();
+      return;
+    }
+    if (_offeredRefs.length >= _maxOffered && !_offeredRefs.containsKey(cid)) {
+      _offeredRefs.remove(_offeredRefs.keys.first);
+    }
+    final existing = _offeredRefs[cid];
+    _offeredRefs[cid] = (
+      ref: ref,
+      peers: {if (existing != null) ...existing.peers, peer.hex: peer},
+    );
+    if (_pendingDownload.containsKey(cid)) {
+      unawaited(_resumePendingFromManifestRef(peer, cid, ref));
+      return;
+    }
+    if (_fetchSavePath.containsKey(cid)) {
+      devLog(
+        () =>
+            'xVeil[content]: ${cid.substring(0, 12)} '
+            'plain-file download pending — waiting stream manifest',
+      );
+      return;
+    }
+    if (_filePolicy.allowsAuto(ref.size, ref.name)) {
+      unawaited(_beginFetchFromManifestRef(peer, cid, ref, null, null));
+    } else {
+      devLog(
+        () =>
+            'xVeil[content]: ${cid.substring(0, 12)} '
+            '(${ref.size}B "${ref.name}") <- ${peer.short} — '
+            'OFFERED via manifest-ref',
+      );
+    }
+  }
+
   /// Register a fetch for [m] + request all its pieces. Evicts any abandoned
   /// reassembler first (RAM bound). [sink] (non-null) diverts each verified piece
   /// to a plaintext file the user picked, instead of the Storage port. Shared by
@@ -2701,9 +3017,20 @@ class MessagingService {
     ContentManifest m, {
     _FetchSink? sink,
   }) async {
-    if (_fetching.containsKey(m.contentId)) {
+    final existing = _fetching[m.contentId];
+    if (existing != null) {
       if (sink != null) {
-        await sink.close(); // already fetching → drop the dupe sink
+        if (existing.sink == null) {
+          _pendingDownload[m.contentId] = sink;
+          _pendingTimers.remove(m.contentId)?.cancel();
+          devLog(
+            () =>
+                'xVeil[content]: plain-file save parked for '
+                '${m.contentId.substring(0, 12)} — export after active fetch',
+          );
+        } else {
+          await sink.close(); // already fetching to a plaintext sink
+        }
       }
       return;
     }
@@ -2757,8 +3084,21 @@ class MessagingService {
         await _pullSwarmStream(peer, contentId, offered.manifest, retryPeers)) {
       return ContentDownloadResult.started;
     }
-    // Reliable STREAM path (fast + flow-controlled): fetches the manifest itself,
-    // so it works even without a live offer handle (no reoffer dance needed).
+    final offeredRef = _offeredRefs[contentId];
+    if (offeredRef != null &&
+        await _beginFetchFromManifestRef(
+          _offerRefPeer(offeredRef, preferred: peer),
+          contentId,
+          offeredRef.ref,
+          null,
+          null,
+        )) {
+      return ContentDownloadResult.started;
+    }
+    // Legacy reliable STREAM fallback for encrypted/in-store downloads: it can
+    // resume across known sources after a partial payload. Keep this path, but
+    // do not pre-probe the manifest here; the probe consumes a stream open and
+    // can mask the very first failure that this fallback is meant to survive.
     if (await _pullStream(peer, contentId, null, retryPeers: retryPeers)) {
       return ContentDownloadResult.started;
     }
@@ -2789,10 +3129,12 @@ class MessagingService {
       return ContentDownloadResult.started;
     }
     final offered = _offered[contentId];
+    final offeredRef = _offeredRefs[contentId];
     final storedSources = await _storedContentSourcePeers(contentId);
     final sources = _uniquePeers([
       ...peers,
       if (offered != null) ...offered.peers.values,
+      if (offeredRef != null) ...offeredRef.peers.values,
       ...storedSources,
     ]);
     final seen = <String>{};
@@ -2800,6 +3142,17 @@ class MessagingService {
     _markContentDownloadStarted(contentId);
     if (offered != null &&
         await _pullSwarmPiecesToCompletion(sources, offered.manifest)) {
+      return ContentDownloadResult.started;
+    }
+    if (offeredRef != null &&
+        sources.isNotEmpty &&
+        await _beginFetchFromManifestRef(
+          _offerRefPeer(offeredRef, preferred: sources.first),
+          contentId,
+          offeredRef.ref,
+          null,
+          null,
+        )) {
       return ContentDownloadResult.started;
     }
     for (final peer in sources) {
@@ -2848,6 +3201,12 @@ class MessagingService {
     final offered = _offered[contentId];
     if (offered != null) {
       for (final peer in offered.peers.values) {
+        out[peer.hex] = peer;
+      }
+    }
+    final offeredRef = _offeredRefs[contentId];
+    if (offeredRef != null) {
+      for (final peer in offeredRef.peers.values) {
         out[peer.hex] = peer;
       }
     }
@@ -2907,49 +3266,67 @@ class MessagingService {
     required Future<void> Function() close,
   }) async {
     final sink = (write: write, close: close);
+    _fetchSavePath[contentId] = savedPath;
     devLog(
       () =>
           'xVeil[content]: user download-to-file (unencrypted) '
           '${contentId.substring(0, 12)} -> $savedPath',
     );
     _markContentDownloadStarted(contentId);
+    if (await _storage.hasFile(contentId)) {
+      return await _exportStoredContentToSink(contentId, sink, savedPath)
+          ? ContentDownloadResult.started
+          : ContentDownloadResult.noOffer;
+    }
     final retryPeers = await _contentSourcePeers(
       preferred: peer,
       contentId: contentId,
     );
     final offered = _offered[contentId];
-    if (offered != null &&
-        await _pullSwarmStreamToFile(
-          peer,
+    if (offered != null) {
+      if (_plainFileStream &&
+          await _pullSwarmStreamToFile(
+            _offerPeer(offered, preferred: peer),
+            contentId,
+            offered.manifest,
+            retryPeers,
+            sink,
+            savedPath,
+          )) {
+        return ContentDownloadResult.started;
+      }
+      await _beginFetch(
+        _offerPeer(offered, preferred: peer),
+        offered.manifest,
+        sink: sink,
+      );
+      return ContentDownloadResult.started;
+    }
+    final offeredRef = _offeredRefs[contentId];
+    if (offeredRef != null &&
+        await _beginFetchFromManifestRef(
+          _offerRefPeer(offeredRef, preferred: peer),
           contentId,
-          offered.manifest,
-          retryPeers,
+          offeredRef.ref,
           sink,
           savedPath,
         )) {
       return ContentDownloadResult.started;
     }
-    // Reliable STREAM path (fast). Works without a live offer handle.
-    if (await _pullStream(
+    // The caller knows the sender and content id, but the one-shot manifest/ref
+    // announcement may have been lost. Probe the manifest from a reliable stream
+    // and then use the parallel range/swarm path before parking a plaintext save
+    // behind the lossy reoffer control path.
+    if (await _beginFetchFromStreamManifest(
       peer,
       contentId,
       sink,
       savedPath: savedPath,
-      retryPeers: retryPeers,
+      peers: retryPeers,
     )) {
       return ContentDownloadResult.started;
     }
-    // Datagram fallback.
-    _fetchSavePath[contentId] = savedPath;
-    if (offered == null) {
-      return _requestReofferFromAny(retryPeers, contentId, sink);
-    }
-    await _beginFetch(
-      _offerPeer(offered, preferred: peer),
-      offered.manifest,
-      sink: sink,
-    );
-    return ContentDownloadResult.started;
+    return _requestReofferFromAny(retryPeers, contentId, sink);
   }
 
   /// Swarm/group variant of [downloadContentToFile]: write verified plaintext
@@ -2968,66 +3345,74 @@ class MessagingService {
     required Future<void> Function() close,
   }) async {
     final sink = (write: write, close: close);
+    _fetchSavePath[contentId] = savedPath;
     devLog(
       () =>
           'xVeil[content]: user download-to-file-any (unencrypted) '
           '${contentId.substring(0, 12)} -> $savedPath',
     );
     _markContentDownloadStarted(contentId);
+    if (await _storage.hasFile(contentId)) {
+      return await _exportStoredContentToSink(contentId, sink, savedPath)
+          ? ContentDownloadResult.started
+          : ContentDownloadResult.noOffer;
+    }
     final offered = _offered[contentId];
+    final offeredRef = _offeredRefs[contentId];
     final sources = _uniquePeers([
       ...peers,
       if (offered != null) ...offered.peers.values,
+      if (offeredRef != null) ...offeredRef.peers.values,
       ...await _storedContentSourcePeers(contentId),
     ]);
-    if (sources.isEmpty) {
-      try {
-        await sink.close();
-      } catch (_) {}
-      return ContentDownloadResult.noOffer;
-    }
-
-    if (offered != null &&
-        await _pullSwarmStreamToFile(
-          sources.first,
-          contentId,
-          offered.manifest,
-          sources,
-          sink,
-          savedPath,
-        )) {
+    if (offered != null) {
+      if (sources.isEmpty && offered.peers.isEmpty) {
+        return _requestReofferFromAny(sources, contentId, sink);
+      }
+      final preferred = sources.isNotEmpty
+          ? sources.first
+          : offered.peers.values.first;
+      if (_plainFileStream &&
+          await _pullSwarmStreamToFile(
+            preferred,
+            contentId,
+            offered.manifest,
+            sources,
+            sink,
+            savedPath,
+          )) {
+        return ContentDownloadResult.started;
+      }
+      await _beginFetch(
+        _offerPeer(offered, preferred: preferred),
+        offered.manifest,
+        sink: sink,
+      );
       return ContentDownloadResult.started;
     }
-
-    // Reliable STREAM path (fast). Works without a live offer handle because
-    // the sender returns the manifest on the stream.
-    for (final peer in sources) {
-      final contact = await _storage.getContact(peer);
-      if (contact == null || contact.status != ContactStatus.accepted) {
-        continue;
-      }
-      if (await _pullStream(
-        peer,
-        contentId,
-        sink,
-        savedPath: savedPath,
-        retryPeers: _orderedPullPeers(peer, sources),
-      )) {
+    if (offeredRef != null) {
+      if (sources.isNotEmpty &&
+          await _beginFetchFromManifestRef(
+            _offerRefPeer(offeredRef, preferred: sources.first),
+            contentId,
+            offeredRef.ref,
+            sink,
+            savedPath,
+          )) {
         return ContentDownloadResult.started;
       }
     }
-
-    // Datagram fallback.
-    _fetchSavePath[contentId] = savedPath;
-    if (offered == null) {
-      return _requestReofferFromAny(sources, contentId, sink);
+    if (sources.isNotEmpty &&
+        await _beginFetchFromStreamManifest(
+          sources.first,
+          contentId,
+          sink,
+          savedPath: savedPath,
+          peers: sources,
+        )) {
+      return ContentDownloadResult.started;
     }
-    await _beginFetch(
-      _offerPeer(offered, preferred: sources.first),
-      offered.manifest,
-      sink: sink,
-    );
-    return ContentDownloadResult.started;
+    return _requestReofferFromAny(sources, contentId, sink);
   }
 
   /// Surface user intent immediately. The stream path may spend seconds opening
@@ -3049,11 +3434,130 @@ class MessagingService {
   Future<String?> contentSavedPath(String contentId) =>
       _storage.getSetting('saved:$contentId');
 
+  Future<bool> _exportStoredContentToSink(
+    String contentId,
+    _FetchSink sink,
+    String savedPath,
+  ) async {
+    final short = contentId.substring(0, 12);
+    if (!await _storage.hasFile(contentId)) return false;
+    try {
+      final mfBytes = await _storage.loadFile('mf:$contentId');
+      if (mfBytes != null) {
+        final manifest = ContentManifest.fromJson(
+          jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>,
+        );
+        if (manifest == null || manifest.contentId != contentId) {
+          throw StateError('stored manifest does not bind content id');
+        }
+        devLog(
+          () =>
+              'xVeil[content]: exporting stored $short '
+              '(${manifest.size}B) -> $savedPath',
+        );
+        const chunkSize = 1024 * 1024;
+        var offset = 0;
+        while (offset < manifest.size) {
+          var want = manifest.size - offset;
+          if (want > chunkSize) want = chunkSize;
+          final bytes = await _storage.readFileRange(contentId, offset, want);
+          if (bytes == null || bytes.length != want) {
+            throw StateError('stored range missing at $offset+$want');
+          }
+          await sink.write(offset, bytes);
+          offset += want;
+          if (!_contentProgress.isClosed) {
+            _contentProgress.add((
+              contentId: contentId,
+              done: offset,
+              total: manifest.size,
+            ));
+          }
+        }
+        await sink.close();
+        await _storage.putSetting('saved:$contentId', savedPath);
+        _fetchSavePath.remove(contentId);
+        if (!_contentReceived.isClosed) {
+          _contentReceived.add((
+            contentId: contentId,
+            name: manifest.name,
+            savedToPath: savedPath,
+          ));
+        }
+        devLog(
+          () =>
+              'xVeil[content]: COMPLETE $short '
+              '(${manifest.size}B) exported to $savedPath',
+        );
+        return true;
+      }
+
+      // Legacy/small-file fallback: old stores may have the blob but no
+      // persisted stream manifest. This can hold the file in RAM, so the normal
+      // streamed-manifest path above remains the preferred one.
+      final bytes = await _storage.loadFile(contentId);
+      if (bytes == null) return false;
+      devLog(
+        () =>
+            'xVeil[content]: exporting stored $short '
+            '(${bytes.length}B, no manifest) -> $savedPath',
+      );
+      await sink.write(0, bytes);
+      await sink.close();
+      await _storage.putSetting('saved:$contentId', savedPath);
+      _fetchSavePath.remove(contentId);
+      if (!_contentProgress.isClosed) {
+        _contentProgress.add((
+          contentId: contentId,
+          done: bytes.length,
+          total: bytes.length,
+        ));
+      }
+      if (!_contentReceived.isClosed) {
+        _contentReceived.add((
+          contentId: contentId,
+          name: contentId,
+          savedToPath: savedPath,
+        ));
+      }
+      return true;
+    } catch (e) {
+      devLog(() => 'xVeil[content]: export stored $short failed: $e');
+      try {
+        await sink.close();
+      } catch (_) {}
+      _fetchSavePath.remove(contentId);
+      if (!_contentFailed.isClosed) _contentFailed.add(contentId);
+      return false;
+    }
+  }
+
+  Future<bool> _consumeParkedPlainFileSave(String contentId) async {
+    if (!_pendingDownload.containsKey(contentId)) return false;
+    final sink = _pendingDownload.remove(contentId);
+    _pendingTimers.remove(contentId)?.cancel();
+    if (sink == null) return false;
+    final savedPath = _fetchSavePath[contentId];
+    if (savedPath == null) {
+      try {
+        await sink.close();
+      } catch (_) {}
+      return true;
+    }
+    await _exportStoredContentToSink(contentId, sink, savedPath);
+    return true;
+  }
+
   /// Downloads waiting for a re-advertised manifest (contentId → its sink, null
   /// for an encrypted/in-volume download). [_onContentManifest] consumes these.
   final Map<String, _FetchSink?> _pendingDownload = {};
   final Map<String, Timer> _pendingTimers = {};
-  static const _reofferTimeout = Duration(seconds: 20);
+  static final Duration _reofferTimeout = Duration(
+    milliseconds: const int.fromEnvironment(
+      'XVEIL_CONTENT_REOFFER_TIMEOUT_MS',
+      defaultValue: 20000,
+    ),
+  );
 
   /// Ask all known candidate holders to re-advertise [contentId] (we have an
   /// offer message but not the live manifest) and park the download until one
@@ -3096,6 +3600,54 @@ class MessagingService {
     return ContentDownloadResult.requestedReoffer;
   }
 
+  /// Ask [peer] to re-advertise [contentId] without parking or starting a
+  /// download. Used by headless/test waiters that know the content id from the
+  /// sender's /send_file result and only need the one-shot manifest to
+  /// materialise as an OFFER in storage before they trigger an explicit save.
+  Future<bool> requestContentReoffer(NodeId peer, String contentId) async {
+    final contact = await _storage.getContact(peer);
+    if (contact == null || contact.status != ContactStatus.accepted) {
+      return false;
+    }
+    devLog(
+      () =>
+          'xVeil[content]: requesting manifest re-advertise '
+          '${contentId.substring(0, 12)} from ${peer.short}',
+    );
+    await _send(peer, contentReofferEnvelope(contentId).encode());
+    return true;
+  }
+
+  /// Debug/soak helper: materialise a lost one-shot content offer by fetching
+  /// only the manifest over a reliable stream. The normal app path still relies
+  /// on the advertised manifest/ref and reoffer semantics; headless tests know
+  /// the content id from `/send_file`, so they can safely ask the sender for the
+  /// manifest directly and surface the same offer the datagram would have stored.
+  Future<bool> resolveContentOfferViaStream(
+    NodeId peer,
+    String contentId,
+  ) async {
+    final contact = await _storage.getContact(peer);
+    if (contact == null || contact.status != ContactStatus.accepted) {
+      return false;
+    }
+    if (_offered.containsKey(contentId) ||
+        _offeredRefs.containsKey(contentId) ||
+        await _storage.hasFile(contentId)) {
+      return true;
+    }
+    final manifest = await _fetchManifestFromStream(peer, contentId, [peer]);
+    if (manifest == null) return false;
+    await _surfaceFileOffer(peer, manifest);
+    devLog(
+      () =>
+          'xVeil[content]: offer stream-materialized '
+          '${contentId.substring(0, 12)} <- ${peer.short}',
+    );
+    _signal();
+    return true;
+  }
+
   /// A peer asked us to re-advertise [contentId] (their manifest handle is gone).
   /// Re-send the manifest if we are still serving it (refreshing its TTL), or —
   /// DURABLE offer — re-open the persisted source file and re-serve from the
@@ -3115,14 +3667,7 @@ class MessagingService {
             'xVeil[content]: re-advertising ${contentId.substring(0, 12)} '
             '-> ${peer.short} (live serving)',
       );
-      unawaited(
-        _send(
-          peer,
-          contentManifestEnvelope(
-            jsonEncode(served.manifest.toJson()),
-          ).encode(),
-        ),
-      );
+      unawaited(_sendContentManifest(peer, served.manifest));
       return;
     }
     if (sourceOpener == null) {
@@ -3165,9 +3710,7 @@ class MessagingService {
             'xVeil[content]: re-advertising ${contentId.substring(0, 12)} '
             '-> ${peer.short} (DURABLE — re-opened $path)',
       );
-      unawaited(
-        _send(peer, contentManifestEnvelope(jsonEncode(m.toJson())).encode()),
-      );
+      unawaited(_sendContentManifest(peer, m));
     } catch (e) {
       devLog(
         () =>
@@ -3306,7 +3849,7 @@ class MessagingService {
         if (c >= 0 && c < n) coords.add((p: p, c: c));
       }
     }
-    for (var i = 0; i < coords.length; i += _serveBatch) {
+    for (var i = 0; i < coords.length; i += _contentServeBatch) {
       // Stop a long serve the receiver has ABANDONED: if it stopped re-requesting
       // (its fetch completed / went stale), our [_serving] freshness goes stale
       // (refreshed on every pieceRequest). Otherwise the sender grinds out a
@@ -3322,8 +3865,8 @@ class MessagingService {
         );
         return;
       }
-      final end = (i + _serveBatch < coords.length)
-          ? i + _serveBatch
+      final end = (i + _contentServeBatch < coords.length)
+          ? i + _contentServeBatch
           : coords.length;
       // READ the batch sequentially (a serve-from-source RandomAccessFile is a
       // single cursor — concurrent reads would race it; on-disk readFileRange is
@@ -3386,29 +3929,102 @@ class MessagingService {
       256 * 1024; // source read / wire write unit
   static const int _streamRequestBytes =
       48; // fixed request frame: cid + offset + length
-  static const Duration _streamRequestTimeout = Duration(seconds: 20);
+  // The responder may need to wake/reopen its outbound return circuit before a
+  // SYN-ACK/request can complete. Real phone↔desktop logs showed the native
+  // layer reopening a quiet path at ~21s; a 20s app read timeout reset the stream
+  // just before recovery. Keep this above the native quiet-path reopen window.
+  static const Duration _defaultStreamRequestTimeout = Duration(seconds: 60);
   static const Duration _streamManifestTimeout = Duration(seconds: 25);
   static const Duration _streamSourceReadTimeout = Duration(seconds: 30);
-  static const Duration _streamOpenWriteGrace = Duration(milliseconds: 75);
-  static const Duration _defaultStreamPayloadIdleTimeout = Duration(
-    seconds: 60,
+  static const Duration _defaultStreamOpenWriteGrace = Duration(
+    milliseconds: 75,
   );
-  static const Duration _streamRangePayloadIdleTimeout = Duration(seconds: 12);
-  static const Duration _streamPayloadWriteTimeout = Duration(seconds: 120);
-  // Local published-onion file live tests on the 2-relay embedded stand show
-  // the range stream path is reliable at 24 workers with ~1 MiB ranges once the
-  // live-test harness uses the production on-disk blob tier (128 MiB ≈5.6 MiB/s).
-  // 32 workers also passes but is slightly slower on this stand, so keep it as
-  // an explicit stress knob rather than the normal app default.
-  static const int _defaultStreamRangeParallelism = 24;
+  // Receiver-side payload idle. Keep this below the sender's write-idle timeout:
+  // live traces showed the native route layer detecting no-progress within a
+  // few seconds, but the single-stream app pull still waited 60s before retrying
+  // while the sender gave up after 30s. Retrying first preserves the sender's
+  // serving slot/window for resumable pulls instead of waking up to "not
+  // serving" after the old write timed out.
+  static const Duration _defaultStreamPayloadIdleTimeout = Duration(
+    seconds: 20,
+  );
+  // Range streams are independently retryable and verified per piece, but their
+  // idle timer is per worker while all workers share one onion/circuit budget.
+  // At 12 workers a healthy range can legitimately go quiet for several seconds
+  // while other ranges drain; treating that as dead caused resume storms (dozens
+  // of partial 512 KiB ranges timed out at 3s and reopened together). Ten
+  // seconds cuts real zero-progress plateaus quickly enough to avoid long
+  // 64 MiB tail stalls. The current default fanout is p8, not p12, and the
+  // range target is large enough to keep resume storms low: live phone↔desktop
+  // soaks with 1 MiB ranges completed intact above the 1.5 MiB/s target while
+  // 20s left stalled ranges parked too long.
+  static final Duration _streamRangePayloadIdleTimeout =
+      _streamRangePayloadIdleMsDartDefine > 0
+      ? Duration(milliseconds: _streamRangePayloadIdleMsDartDefine)
+      : const Duration(seconds: 10);
+  // Per-stream stall detector for range pulls. The absolute idle timeout above
+  // must stay long enough for a globally quiet circuit (route churn can pause
+  // EVERY stream for seconds), but when OTHER range workers keep receiving
+  // bytes while this stream stays silent, the silence is evidence of a
+  // stalled/black-holed route, not global congestion. Live traces showed the
+  // native layer remapping such a stream after ~2 consecutive RTOs (~3s with
+  // the 1s RTO floor) while the app reader still parked the worker for the
+  // full 10s idle window. Abandoning at 2.5s aborts the read, frees the
+  // sender's serve slot with a RST and resumes from the received byte count on
+  // a fresh stream, which the native pool routes around the cooled relay.
+  static const Duration _streamRangeStallProbe = Duration(milliseconds: 500);
+  // Tail hedging: when the pending queue is empty, an idle worker duplicates
+  // the quietest in-flight range on a fresh stream instead of exiting. At the
+  // tail there may be no "other workers progressing" signal left for the stall
+  // detector, so a single stalled range would otherwise pin the transfer until
+  // its full idle timeout. The duplicate pull also revives the swarm progress
+  // tick, which in turn lets the stalled original abandon early. First result
+  // wins; pieces are verified before write, so a duplicate is byte-identical.
+  static const int _maxStreamRangeHedges = 2;
+  // Experimental: range workers share the same small native route/control pool,
+  // so a future per-route scheduler may want to pace stream opens/retry-opens.
+  // A fixed 25ms default regressed p12 on-device, so keep this opt-in for live
+  // matrix probes instead of production behavior.
+  static final Duration _streamRangeOpenPace =
+      _streamRangeOpenPaceMsDartDefine > 0
+      ? Duration(milliseconds: _streamRangeOpenPaceMsDartDefine)
+      : Duration.zero;
+  // Range workers are already inside a verified, resumable transfer. If a
+  // payload stream died, waiting the full request timeout for every retry-open
+  // turns one bad tail range into a minute-scale completion stall. Keep the
+  // long timeout for initial/sequential opens, but fail range retry-opens fast
+  // so another route/attempt can take over.
+  static final Duration _streamRangeRetryOpenTimeout =
+      _streamRangeRetryOpenMsDartDefine > 0
+      ? Duration(milliseconds: _streamRangeRetryOpenMsDartDefine)
+      : const Duration(seconds: 10);
+  // Sender-side write idle. Keep this close to the receiver's range-idle window:
+  // when a circuit route black-holes, old serve streams can otherwise sit in a
+  // flow-controlled write for minutes and consume all per-content serve slots,
+  // while receiver retry streams see EOF-before-manifest / "not serving".
+  static const Duration _streamPayloadWriteTimeout = Duration(seconds: 30);
+  // The native pinned-circuit backend keeps a small outbound route pool per
+  // peer, so range workers can fan out over multiple receiver rendezvous relays
+  // while each reliable stream remains pinned to its chosen route. On the
+  // phone↔desktop 3-seed stand after the route-RTO/retry-open fixes, p8/p10
+  // completed 64 MiB intact around 1.25 MiB/s, while p12+ repeatedly tripped
+  // rendezvous reset/no-progress storms and regressed below 1 MiB/s. Start at
+  // p8 and let the adaptive fanout grow to p10 on clean transfers; higher fanout
+  // remains opt-in via XVEIL_STREAM_RANGE_PARALLELISM for speed experiments.
+  static const int _defaultStreamRangeParallelism = 8;
   static const int _maxStreamRangeParallelism = 32;
   static const int _defaultStreamRangeTargetBytes = 1024 * 1024;
   static const int _maxStreamRangeTargetBytes = 2 * 1024 * 1024;
   static const int _defaultStreamPullMaxAttempts = 24;
   final Duration _streamPayloadIdleTimeout;
+  final Duration _streamRangeStallAbandon;
+  final Duration _streamRangeHedgeAfter;
   final int _streamPullMaxAttempts;
   final int _streamRangeParallelism;
   final int _streamRangeTargetBytes;
+  final bool _streamRangeEnabled;
+  final Duration _streamOpenWriteGrace;
+  final Duration _streamRequestTimeout;
   bool _acceptingStreams = false;
 
   static int _clampStreamRangeParallelism(int value) {
@@ -3431,9 +4047,13 @@ class MessagingService {
         ..setAll(32, _u64be(offset))
         ..setAll(40, _u64be(length));
 
-  bool _beginStreamServe(String cid) {
+  bool _beginStreamServe(String cid, {int? limit}) {
     final active = _activeStreamServes[cid] ?? 0;
-    if (active >= _streamRangeParallelism) return false;
+    final maxActive = (limit ?? _streamRangeParallelism).clamp(
+      1,
+      _maxStreamRangeParallelism,
+    );
+    if (active >= maxActive) return false;
     _activeStreamServes[cid] = active + 1;
     return true;
   }
@@ -3481,6 +4101,7 @@ class MessagingService {
   Future<void> _serveStream(NodeId peer, ReliableStream stream) async {
     ServeSource? durable; // opened just for this serve (closed in finally)
     String? activeCid;
+    var failed = false;
     try {
       _bulkStreamLog(
         () => 'xVeil[content]: stream-serve accepted <- ${peer.short}',
@@ -3522,15 +4143,6 @@ class MessagingService {
         );
         return;
       }
-      if (!_beginStreamServe(cid)) {
-        devLog(
-          () =>
-              'xVeil[content]: stream-serve too many active '
-              '${cid.substring(0, 12)} <- ${peer.short} (closing retry)',
-        );
-        return;
-      }
-      activeCid = cid;
       ContentManifest? manifest;
       ServeSource? source;
       var canReadStoredBlob = false;
@@ -3575,6 +4187,29 @@ class MessagingService {
         );
         return; // close → receiver sees EOF before the manifest
       }
+      // A single long stream can wedge inside flow-controlled write() until its
+      // write-idle timeout fires. If rangeParallelism is 1, treating that as the
+      // per-content serve limit makes every receiver retry get EOF-before-
+      // manifest while the old stream is still timing out. When we have an
+      // independent per-stream source (durable reopen or stored blob), allow one
+      // extra serve so the retry can resume instead of waiting behind the dead
+      // writer. Shared live sources keep the configured cap to avoid cursor
+      // thrash.
+      final independentSource =
+          durable != null || (source == null && canReadStoredBlob);
+      final serveLimit = independentSource
+          ? (_streamRangeParallelism + 4).clamp(2, _maxStreamRangeParallelism)
+          : _streamRangeParallelism;
+      if (!_beginStreamServe(cid, limit: serveLimit)) {
+        devLog(
+          () =>
+              'xVeil[content]: stream-serve too many active '
+              '${cid.substring(0, 12)} <- ${peer.short} '
+              '(limit=$serveLimit, closing retry)',
+        );
+        return;
+      }
+      activeCid = cid;
       final m = manifest; // promoted non-null (closures need a final)
       final src = source;
       if (src == null) {
@@ -3667,6 +4302,7 @@ class MessagingService {
             '${cid.substring(0, 12)} $off/${size}B -> ${peer.short}',
       );
     } catch (e) {
+      failed = true;
       devLog(() => 'xVeil[content]: stream-serve failed <- ${peer.short}: $e');
     } finally {
       final cid = activeCid;
@@ -3677,7 +4313,11 @@ class MessagingService {
         } catch (_) {}
       }
       try {
-        await stream.close();
+        if (failed) {
+          await stream.abort();
+        } else {
+          await stream.close();
+        }
       } catch (_) {}
     }
   }
@@ -3753,8 +4393,16 @@ class MessagingService {
     ContentManifest manifest,
     Iterable<NodeId> peers,
   ) async {
-    if (_transport is! StreamTransport || manifest.pieceCount < 2) {
+    if (_transport is! StreamTransport) {
       return false;
+    }
+    if (!_streamRangeEnabled || manifest.pieceCount < 2) {
+      devLog(
+        () =>
+            'xVeil[content]: swarm-range disabled '
+            '${cid.substring(0, 12)}, using sequential stream',
+      );
+      return _pullStream(preferred, cid, null, retryPeers: peers);
     }
     final sources = await _acceptedStreamSources(
       _orderedPullPeers(preferred, peers),
@@ -3772,8 +4420,22 @@ class MessagingService {
     _FetchSink sink,
     String savedPath,
   ) async {
-    if (_transport is! StreamTransport || manifest.pieceCount < 2) {
+    if (_transport is! StreamTransport) {
       return false;
+    }
+    if (!_streamRangeEnabled || manifest.pieceCount < 2) {
+      devLog(
+        () =>
+            'xVeil[content]: swarm-range-to-file disabled '
+            '${cid.substring(0, 12)}, using sequential stream',
+      );
+      return _pullStream(
+        preferred,
+        cid,
+        sink,
+        savedPath: savedPath,
+        retryPeers: peers,
+      );
     }
     final sources = await _acceptedStreamSources(
       _orderedPullPeers(preferred, peers),
@@ -3800,6 +4462,266 @@ class MessagingService {
       accepted[peer.hex] = peer;
     }
     return accepted.values.toList(growable: false);
+  }
+
+  NodeId _offerRefPeer(
+    ({_ContentManifestRef ref, Map<String, NodeId> peers}) offered, {
+    required NodeId preferred,
+  }) =>
+      offered.peers[preferred.hex] ??
+      (offered.peers.isNotEmpty ? offered.peers.values.first : preferred);
+
+  Future<ContentManifest?> _fetchManifestFromRef(
+    NodeId preferred,
+    String cid,
+    _ContentManifestRef ref,
+    Iterable<NodeId> peers,
+  ) async {
+    final sources = await _acceptedStreamSources(
+      _orderedPullPeers(preferred, peers),
+    );
+    for (final peer in sources) {
+      final m = await _readManifestOnly(peer, cid, ref);
+      if (m == null) continue;
+      _rememberOfferedManifest(peer, m);
+      return m;
+    }
+    return null;
+  }
+
+  Future<ContentManifest?> _readManifestOnly(
+    NodeId peer,
+    String cid,
+    _ContentManifestRef ref,
+  ) async {
+    final stream = await _openInitialPullStream(peer, cid);
+    if (stream == null) return null;
+    var gracefulClose = false;
+    try {
+      final req = _streamRequest(cid, offset: ref.size);
+      await Future<void>.delayed(_streamOpenWriteGrace);
+      await stream.write(req).timeout(_streamRequestTimeout);
+      final lenB = await _readExactly(
+        stream,
+        4,
+      ).timeout(_streamManifestTimeout, onTimeout: () => null);
+      if (lenB == null) throw StateError('no stream manifest');
+      final mfLen = _readU32be(lenB);
+      if (mfLen <= 0 || mfLen > (1 << 20)) {
+        throw StateError('bad stream manifest len');
+      }
+      final mfBytes = await _readExactly(
+        stream,
+        mfLen,
+      ).timeout(_streamManifestTimeout, onTimeout: () => null);
+      if (mfBytes == null) throw StateError('stream manifest truncated');
+      final m = ContentManifest.fromJson(
+        jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>,
+      );
+      if (m == null ||
+          m.contentId != cid ||
+          m.size != ref.size ||
+          m.name != ref.name) {
+        throw StateError('stream manifest does not bind advertised ref');
+      }
+      devLog(
+        () =>
+            'xVeil[content]: manifest stream-resolved '
+            '${cid.substring(0, 12)} pieces=${m.pieceCount} '
+            'piece_size=${m.pieceSize} <- ${peer.short}',
+      );
+      gracefulClose = true;
+      return m;
+    } catch (e) {
+      devLog(
+        () =>
+            'xVeil[content]: manifest stream-resolve failed '
+            '${cid.substring(0, 12)} <- ${peer.short}: $e',
+      );
+      return null;
+    } finally {
+      try {
+        if (gracefulClose) {
+          await stream.close();
+        } else {
+          await stream.abort();
+        }
+      } catch (_) {}
+    }
+  }
+
+  Future<ContentManifest?> _fetchManifestFromStream(
+    NodeId preferred,
+    String cid,
+    Iterable<NodeId> peers,
+  ) async {
+    final sources = await _acceptedStreamSources(
+      _orderedPullPeers(preferred, peers),
+    );
+    for (final peer in sources) {
+      final m = await _readManifestHeader(peer, cid);
+      if (m == null) continue;
+      _rememberOfferedManifest(peer, m);
+      return m;
+    }
+    return null;
+  }
+
+  Future<ContentManifest?> _readManifestHeader(NodeId peer, String cid) async {
+    final stream = await _openInitialPullStream(peer, cid);
+    if (stream == null) return null;
+    var gracefulClose = false;
+    try {
+      // Ask for the smallest possible payload after the manifest so the sender
+      // can finish this probe cleanly. A length of 0 means "stream the whole
+      // content" in the serve path; closing immediately after the manifest then
+      // trips a noisy write-failure and can perturb the shared onion driver.
+      final req = _streamRequest(cid, length: 1);
+      await Future<void>.delayed(_streamOpenWriteGrace);
+      await stream.write(req).timeout(_streamRequestTimeout);
+      final lenB = await _readExactly(
+        stream,
+        4,
+      ).timeout(_streamManifestTimeout, onTimeout: () => null);
+      if (lenB == null) throw StateError('no stream manifest');
+      final mfLen = _readU32be(lenB);
+      if (mfLen <= 0 || mfLen > (1 << 20)) {
+        throw StateError('bad stream manifest len');
+      }
+      final mfBytes = await _readExactly(
+        stream,
+        mfLen,
+      ).timeout(_streamManifestTimeout, onTimeout: () => null);
+      if (mfBytes == null) throw StateError('stream manifest truncated');
+      final m = ContentManifest.fromJson(
+        jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>,
+      );
+      if (m == null || m.contentId != cid) {
+        throw StateError('stream manifest does not bind requested content');
+      }
+      if (m.size > 0) {
+        await _readExactly(
+          stream,
+          1,
+        ).timeout(_streamManifestTimeout, onTimeout: () => null);
+      }
+      devLog(
+        () =>
+            'xVeil[content]: manifest stream-probed '
+            '${cid.substring(0, 12)} pieces=${m.pieceCount} '
+            'piece_size=${m.pieceSize} <- ${peer.short}',
+      );
+      gracefulClose = true;
+      return m;
+    } catch (e) {
+      devLog(
+        () =>
+            'xVeil[content]: manifest stream-probe failed '
+            '${cid.substring(0, 12)} <- ${peer.short}: $e',
+      );
+      return null;
+    } finally {
+      try {
+        if (gracefulClose) {
+          await stream.close();
+        } else {
+          await stream.abort();
+        }
+      } catch (_) {}
+    }
+  }
+
+  void _rememberOfferedManifest(NodeId peer, ContentManifest manifest) {
+    final cid = manifest.contentId;
+    if (_offered.length >= _maxOffered && !_offered.containsKey(cid)) {
+      _offered.remove(_offered.keys.first);
+    }
+    final existing = _offered[cid];
+    _offered[cid] = (
+      manifest: manifest,
+      peers: {if (existing != null) ...existing.peers, peer.hex: peer},
+    );
+    _offeredRefs.remove(cid);
+  }
+
+  Future<bool> _beginDownloadWithManifest(
+    NodeId peer,
+    String cid,
+    ContentManifest manifest,
+    _FetchSink? sink,
+    String? savedPath,
+  ) async {
+    final retryPeers = await _contentSourcePeers(
+      preferred: peer,
+      contentId: cid,
+    );
+    if (sink != null) {
+      if (_plainFileStream &&
+          await _pullSwarmStreamToFile(
+            peer,
+            cid,
+            manifest,
+            retryPeers,
+            sink,
+            savedPath ?? cid,
+          )) {
+        return true;
+      }
+      await _beginFetch(peer, manifest, sink: sink);
+      return true;
+    }
+    if (await _pullSwarmStream(peer, cid, manifest, retryPeers)) return true;
+    if (await _pullStream(peer, cid, null, retryPeers: retryPeers)) return true;
+    await _beginFetch(peer, manifest);
+    return true;
+  }
+
+  Future<bool> _beginFetchFromManifestRef(
+    NodeId peer,
+    String cid,
+    _ContentManifestRef ref,
+    _FetchSink? sink,
+    String? savedPath,
+  ) async {
+    final offeredRef = _offeredRefs[cid];
+    final sources = _uniquePeers([
+      peer,
+      if (offeredRef != null) ...offeredRef.peers.values,
+      ...await _storedContentSourcePeers(cid),
+    ]);
+    final m = await _fetchManifestFromRef(peer, cid, ref, sources);
+    if (m == null) return false;
+    return _beginDownloadWithManifest(peer, cid, m, sink, savedPath);
+  }
+
+  Future<bool> _beginFetchFromStreamManifest(
+    NodeId peer,
+    String cid,
+    _FetchSink? sink, {
+    String? savedPath,
+    Iterable<NodeId> peers = const [],
+  }) async {
+    final m = await _fetchManifestFromStream(peer, cid, peers);
+    if (m == null) return false;
+    return _beginDownloadWithManifest(peer, cid, m, sink, savedPath);
+  }
+
+  Future<void> _resumePendingFromManifestRef(
+    NodeId peer,
+    String cid,
+    _ContentManifestRef ref,
+  ) async {
+    if (!_pendingDownload.containsKey(cid)) return;
+    final m = await _fetchManifestFromRef(peer, cid, ref, [peer]);
+    if (m == null || !_pendingDownload.containsKey(cid)) return;
+    final sink = _pendingDownload.remove(cid);
+    _pendingTimers.remove(cid)?.cancel();
+    devLog(
+      () =>
+          'xVeil[content]: manifest ref resolved for '
+          '${cid.substring(0, 12)} — resuming the parked download',
+    );
+    await _beginDownloadWithManifest(peer, cid, m, sink, _fetchSavePath[cid]);
   }
 
   Future<void> _runSwarmPullThenFallback(
@@ -3891,7 +4813,11 @@ class MessagingService {
     String? savedPath,
   }) async {
     final cid = manifest.contentId;
-    if (_transport is! StreamTransport || manifest.pieceCount < 2) return false;
+    if (_transport is! StreamTransport ||
+        !_streamRangeEnabled ||
+        manifest.pieceCount < 2) {
+      return false;
+    }
     final initialPeers = peers.toList(growable: false);
     final sourceMap = <String, NodeId>{};
 
@@ -4003,9 +4929,62 @@ class MessagingService {
     var adaptiveRangeTargetBytes = _streamRangeTargetBytes;
     var successfulBytesSinceRangeGrow = 0;
     const rangeGrowAfterBytes = 8 * 1024 * 1024;
+    // Keep the production default conservative (p8), but make explicit
+    // speed-test overrides literal. Otherwise a requested
+    // `XVEIL_STREAM_RANGE_PARALLELISM=12` silently starts at p8 and never
+    // exceeds p10, which hides whether the native route/circuit fixes can
+    // actually sustain higher fanout.
+    final explicitRangeFanout = _streamRangeParallelismDartDefine > 0;
+    final maxAdaptiveWorkerLimit = explicitRangeFanout
+        ? workerCount
+        : (workerCount < _defaultStreamRangeParallelism + 2
+              ? workerCount
+              : _defaultStreamRangeParallelism + 2);
+    var adaptiveWorkerLimit = explicitRangeFanout
+        ? workerCount
+        : (workerCount < _defaultStreamRangeParallelism
+              ? workerCount
+              : _defaultStreamRangeParallelism);
+    var activeRangeWorkers = 0;
+    var successfulBytesSinceFanoutGrow = 0;
+    var consecutiveRangeFailures = 0;
+    const fanoutGrowAfterBytes = 16 * 1024 * 1024;
+    Future<void> rangeOpenTail = Future<void>.value();
+
+    Future<void> paceRangeStreamOpen() {
+      final previous = rangeOpenTail;
+      final gate = Completer<void>();
+      rangeOpenTail = gate.future;
+      return previous.catchError((_) {}).then((_) async {
+        if (_streamRangeOpenPace > Duration.zero) {
+          await Future<void>.delayed(_streamRangeOpenPace);
+        }
+        gate.complete();
+      });
+    }
+
+    final beforeStreamOpen = _streamRangeOpenPace > Duration.zero
+        ? paceRangeStreamOpen
+        : null;
 
     void noteRangeFailure(List<int> pieces) {
       successfulBytesSinceRangeGrow = 0;
+      successfulBytesSinceFanoutGrow = 0;
+      consecutiveRangeFailures++;
+      if (adaptiveWorkerLimit > 1 &&
+          (adaptiveWorkerLimit > _defaultStreamRangeParallelism ||
+              consecutiveRangeFailures >= 3)) {
+        final previousLimit = adaptiveWorkerLimit;
+        adaptiveWorkerLimit--;
+        consecutiveRangeFailures = 0;
+        devLog(
+          () =>
+              'xVeil[content]: swarm-range adapt fanout '
+              '${cid.substring(0, 12)} workers=$previousLimit'
+              '->$adaptiveWorkerLimit after failure '
+              'failed_pieces=${pieces.length}',
+        );
+      }
       final minTarget = manifest.pieceSize < _streamRangeTargetBytes
           ? manifest.pieceSize
           : _streamRangeTargetBytes;
@@ -4023,6 +5002,21 @@ class MessagingService {
     }
 
     void noteRangeSuccess(int bytes) {
+      consecutiveRangeFailures = 0;
+      if (adaptiveWorkerLimit < maxAdaptiveWorkerLimit) {
+        successfulBytesSinceFanoutGrow += bytes;
+        if (successfulBytesSinceFanoutGrow >= fanoutGrowAfterBytes) {
+          final previousLimit = adaptiveWorkerLimit;
+          adaptiveWorkerLimit++;
+          successfulBytesSinceFanoutGrow = 0;
+          devLog(
+            () =>
+                'xVeil[content]: swarm-range adapt fanout '
+                '${cid.substring(0, 12)} workers=$previousLimit'
+                '->$adaptiveWorkerLimit after ${fanoutGrowAfterBytes}B ok',
+          );
+        }
+      }
       if (adaptiveRangeTargetBytes >= _streamRangeTargetBytes) return;
       successfulBytesSinceRangeGrow += bytes;
       if (successfulBytesSinceRangeGrow < rangeGrowAfterBytes) return;
@@ -4097,17 +5091,144 @@ class MessagingService {
       }
     }
 
+    // Swarm-wide payload progress tick plus per-task last-chunk tracking. The
+    // tick lets an individual range reader distinguish "everything is quiet"
+    // (global route churn — keep the long idle timeout) from "only MY stream is
+    // quiet" (stalled route — abandon early and resume on a fresh stream). The
+    // per-task stopwatches let tail hedging pick the quietest in-flight range.
+    var swarmPayloadTick = 0;
+    int swarmTick() => swarmPayloadTick;
+    final activeTasks = <_ActiveRangeTask>{};
+    var activeHedges = 0;
+
+    void emitProgress() {
+      if (_contentProgress.isClosed) return;
+      _contentProgress.add((
+        contentId: cid,
+        done: completedBytes.clamp(0, manifest.size).toInt(),
+        total: manifest.size,
+      ));
+    }
+
+    void recordPulled(
+      ({NodeId peer, ContentManifest manifest, List<int> pieces}) pulled,
+    ) {
+      completionPeer = pulled.peer;
+      completionManifest = pulled.manifest;
+      for (final piece in pulled.pieces) {
+        if (!completed.add(piece)) continue;
+        completedBytes += manifest.pieceLength(piece);
+      }
+      emitProgress();
+    }
+
+    _ActiveRangeTask? takeHedge() {
+      if (activeHedges >= _maxStreamRangeHedges) return null;
+      _ActiveRangeTask? best;
+      for (final task in activeTasks) {
+        if (task.hedges > 0) continue;
+        if (task.lastChunk.elapsed < _streamRangeHedgeAfter) continue;
+        if (best == null || task.lastChunk.elapsed > best.lastChunk.elapsed) {
+          best = task;
+        }
+      }
+      if (best == null) return null;
+      best.hedges++;
+      return best;
+    }
+
+    Future<void> runHedge(_ActiveRangeTask hedge) async {
+      final pieces = hedge.pieces
+          .where((piece) => !completed.contains(piece))
+          .toList(growable: false);
+      if (pieces.isEmpty) return;
+      activeHedges++;
+      activeRangeWorkers++;
+      var hedgeBytes = 0;
+      for (final piece in pieces) {
+        hedgeBytes += manifest.pieceLength(piece);
+      }
+      devLog(
+        () =>
+            'xVeil[content]: swarm-range hedge ${cid.substring(0, 12)} '
+            'p${pieces.first}..${pieces.last} '
+            'silent=${hedge.lastChunk.elapsed.inMilliseconds}ms',
+      );
+      try {
+        final pulled = await _pullPieceRangeToStorage(
+          hedge.peer,
+          manifest,
+          pieces,
+          writePiece: writePiece,
+          beforeStreamOpen: beforeStreamOpen,
+          swarmTick: swarmTick,
+          onPayloadChunk: () => swarmPayloadTick++,
+        );
+        // A failed hedge is not a transfer failure: the original worker still
+        // owns the range's retry/requeue budget, so do not shrink the adaptive
+        // fanout for it either.
+        if (pulled == null) return;
+        noteRangeSuccess(hedgeBytes);
+        recordPulled(pulled);
+      } finally {
+        activeRangeWorkers--;
+        activeHedges--;
+      }
+    }
+
     Future<void> worker(int index) async {
       while (!_disposed && !failed) {
+        while (!_disposed &&
+            !failed &&
+            activeRangeWorkers >= adaptiveWorkerLimit) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
         final task = takeRange();
-        if (task == null) return;
-        final pulled = await _pullPieceRangeToStorage(
-          task.peer,
-          manifest,
-          task.pieces,
-          writePiece: writePiece,
-        );
+        if (task == null) {
+          if (_disposed || failed) return;
+          if (completed.length >= manifest.pieceCount) return;
+          if (pending.isNotEmpty) continue; // requeue raced takeRange
+          // Tail: every remaining piece is in flight on another worker. Hedge
+          // the quietest range on a fresh stream instead of exiting, so one
+          // stalled route cannot pin the transfer until its idle timeout.
+          final hedge = takeHedge();
+          if (hedge != null) {
+            await runHedge(hedge);
+            continue;
+          }
+          if (activeTasks.isEmpty) return;
+          await Future<void>.delayed(const Duration(milliseconds: 200));
+          continue;
+        }
+        final tracked = _ActiveRangeTask(task.pieces, task.peer);
+        activeTasks.add(tracked);
+        activeRangeWorkers++;
+        ({NodeId peer, ContentManifest manifest, List<int> pieces})? pulled;
+        try {
+          pulled = await _pullPieceRangeToStorage(
+            task.peer,
+            manifest,
+            task.pieces,
+            writePiece: writePiece,
+            beforeStreamOpen: beforeStreamOpen,
+            swarmTick: swarmTick,
+            onPayloadChunk: () {
+              swarmPayloadTick++;
+              tracked.lastChunk
+                ..reset()
+                ..start();
+            },
+          );
+        } finally {
+          activeRangeWorkers--;
+          activeTasks.remove(tracked);
+        }
         if (pulled == null) {
+          if (task.pieces.every(completed.contains)) {
+            // A hedge finished this range while the original attempt was
+            // failing — nothing to requeue and no failure to adapt on.
+            continue;
+          }
           noteRangeFailure(task.pieces);
           await requeueAll(task.pieces);
           final nextDelayAttempt = task.pieces.fold<int>(
@@ -4118,20 +5239,8 @@ class MessagingService {
           await Future<void>.delayed(_streamPullRetryDelay(nextDelayAttempt));
           continue;
         }
-        completionPeer = pulled.peer;
-        completionManifest = pulled.manifest;
         noteRangeSuccess(task.bytes);
-        for (final piece in pulled.pieces) {
-          if (!completed.add(piece)) continue;
-          completedBytes += manifest.pieceLength(piece);
-        }
-        if (!_contentProgress.isClosed) {
-          _contentProgress.add((
-            contentId: cid,
-            done: completedBytes.clamp(0, manifest.size).toInt(),
-            total: manifest.size,
-          ));
-        }
+        recordPulled(pulled);
       }
     }
 
@@ -4139,7 +5248,9 @@ class MessagingService {
       () =>
           'xVeil[content]: swarm-range start ${cid.substring(0, 12)} '
           'pieces=${manifest.pieceCount} workers=$workerCount '
+          'active_limit=$adaptiveWorkerLimit '
           'target_bytes=$_streamRangeTargetBytes '
+          'open_pace_ms=${_streamRangeOpenPace.inMilliseconds} '
           'sources=${sourceMap.length} resume=${completed.length} '
           'attempts_per_piece=${maxAttemptsPerPiece()}',
     );
@@ -4179,6 +5290,9 @@ class MessagingService {
     ContentManifest expected,
     List<int> pieceIndices, {
     required Future<void> Function(int pieceIndex, Uint8List piece) writePiece,
+    Future<void> Function()? beforeStreamOpen,
+    int Function()? swarmTick,
+    void Function()? onPayloadChunk,
   }) async {
     final cid = expected.contentId;
     if (pieceIndices.isEmpty) return null;
@@ -4190,47 +5304,27 @@ class MessagingService {
     for (final piece in pieces) {
       rangeLen += expected.pieceLength(piece);
     }
+    if (beforeStreamOpen != null) await beforeStreamOpen();
     final stream = await _openInitialPullStream(peer, cid);
     if (stream == null) return null;
     ReliableStream? current = stream;
+    var failed = false;
     try {
-      final req = _streamRequest(cid, offset: offset, length: rangeLen);
-      // veil_anon_stream_open returns once the local stream FSM exists; on the
-      // datagram-backed anonymous stream the peer accept can trail by a few
-      // milliseconds. A tiny grace before the first DATA frame avoids the
-      // observed open/accept/no-request race without affecting bulk throughput.
-      await Future<void>.delayed(_streamOpenWriteGrace);
-      await current.write(req).timeout(_streamRequestTimeout);
-      final lenB = await _readExactly(
+      final pulled = await _readRangePayloadResumable(
+        peer,
+        expected,
         current,
-        4,
-      ).timeout(_streamManifestTimeout, onTimeout: () => null);
-      if (lenB == null) throw StateError('no manifest (sender not serving)');
-      final mfLen = _readU32be(lenB);
-      if (mfLen <= 0 || mfLen > (1 << 20)) {
-        throw StateError('bad manifest len');
-      }
-      final mfBytes = await _readExactly(
-        current,
-        mfLen,
-      ).timeout(_streamManifestTimeout, onTimeout: () => null);
-      if (mfBytes == null) throw StateError('manifest truncated');
-      final m = ContentManifest.fromJson(
-        jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>,
+        offset: offset,
+        rangeLen: rangeLen,
+        firstPiece: firstPiece,
+        lastPiece: lastPiece,
+        beforeStreamOpen: beforeStreamOpen,
+        swarmTick: swarmTick,
+        onPayloadChunk: onPayloadChunk,
       );
-      if (m == null ||
-          m.contentId != cid ||
-          m.size != expected.size ||
-          m.pieceSize != expected.pieceSize ||
-          m.pieceCount != expected.pieceCount) {
-        throw StateError('manifest does not bind requested piece range');
-      }
-      final range = await _readRangePayload(
-        current,
-        rangeLen,
-        firstPiece,
-        lastPiece,
-      );
+      current = null; // consumed/closed by _readRangePayloadResumable
+      final m = pulled.manifest;
+      final range = pulled.bytes;
       var cursor = 0;
       final verifiedPieces = <({int index, Uint8List bytes})>[];
       for (final pieceIndex in pieces) {
@@ -4247,6 +5341,7 @@ class MessagingService {
       }
       return (peer: peer, manifest: m, pieces: pieces);
     } catch (e) {
+      failed = true;
       devLog(
         () =>
             'xVeil[content]: swarm-range piece failed '
@@ -4256,45 +5351,223 @@ class MessagingService {
       return null;
     } finally {
       try {
-        await current.close();
+        if (failed) {
+          await current?.abort();
+        } else {
+          await current?.close();
+        }
       } catch (_) {}
     }
   }
 
-  Future<Uint8List> _readRangePayload(
-    ReliableStream s,
-    int rangeLen,
-    int firstPiece,
-    int lastPiece,
-  ) async {
+  /// Await one payload chunk while watching for a per-stream stall.
+  ///
+  /// The underlying FFI read blocks a worker isolate until data arrives or the
+  /// stream is aborted, so the read future cannot be cancelled directly. This
+  /// polls the same future in short slices and throws when either the full
+  /// [idle] window elapses ([TimeoutException], same semantics as before) or
+  /// the swarm made progress elsewhere while this stream stayed silent for at
+  /// least [stallAfter] ([_RangeStallTimeout]); the caller then aborts the
+  /// stream, which releases the blocked read.
+  static Future<Uint8List> _awaitPayloadChunk(
+    Future<Uint8List> read, {
+    required Duration idle,
+    required Duration stallAfter,
+    required Stopwatch silence,
+    required int tickAtLastChunk,
+    required int Function()? swarmTick,
+    required String Function(String reason) timeoutLabel,
+  }) async {
+    final chunk = Completer<Uint8List>();
+    read.then(
+      (v) {
+        if (!chunk.isCompleted) chunk.complete(v);
+      },
+      onError: (Object e, StackTrace st) {
+        if (!chunk.isCompleted) chunk.completeError(e, st);
+      },
+    );
+    while (true) {
+      final remaining = idle - silence.elapsed;
+      if (remaining <= Duration.zero) {
+        throw TimeoutException(timeoutLabel('idle'), idle);
+      }
+      final slice = remaining < _streamRangeStallProbe
+          ? remaining
+          : _streamRangeStallProbe;
+      try {
+        return await chunk.future.timeout(slice);
+      } on TimeoutException {
+        final tick = swarmTick?.call();
+        if (tick != null &&
+            tick != tickAtLastChunk &&
+            silence.elapsed >= stallAfter) {
+          throw _RangeStallTimeout(timeoutLabel('stalled'), silence.elapsed);
+        }
+      }
+    }
+  }
+
+  Future<({ContentManifest manifest, Uint8List bytes})>
+  _readRangePayloadResumable(
+    NodeId peer,
+    ContentManifest expected,
+    ReliableStream initialStream, {
+    required int offset,
+    required int rangeLen,
+    required int firstPiece,
+    required int lastPiece,
+    Future<void> Function()? beforeStreamOpen,
+    int Function()? swarmTick,
+    void Function()? onPayloadChunk,
+  }) async {
+    final cid = expected.contentId;
     final idle = _streamPayloadIdleTimeout < _streamRangePayloadIdleTimeout
         ? _streamPayloadIdleTimeout
         : _streamRangePayloadIdleTimeout;
     final out = BytesBuilder(copy: false);
+    ContentManifest? manifest;
+    ReliableStream? current = initialStream;
     var got = 0;
-    while (got < rangeLen) {
-      final remaining = rangeLen - got;
-      final maxBytes = remaining < _streamReadChunk
-          ? remaining
-          : _streamReadChunk;
-      final chunk = await s
-          .read(maxBytes: maxBytes)
-          .timeout(
-            idle,
-            onTimeout: () => throw TimeoutException(
-              'pieces $firstPiece..$lastPiece idle after $got/$rangeLen',
-              idle,
-            ),
-          );
-      if (chunk.isEmpty) {
-        throw StateError(
-          'pieces $firstPiece..$lastPiece EOF after $got/$rangeLen',
+    Object? lastError;
+    for (
+      var attempt = 1;
+      got < rangeLen && attempt <= _streamPullMaxAttempts && !_disposed;
+      attempt++
+    ) {
+      final startGot = got;
+      try {
+        if (current == null && beforeStreamOpen != null) {
+          await beforeStreamOpen();
+        }
+        current ??= await _openRetryStream(
+          peer,
+          cid,
+          attempt,
+          timeout: _streamRangeRetryOpenTimeout,
         );
+        if (current == null) throw StateError('range retry-open unavailable');
+        final remaining = rangeLen - got;
+        final resumeOffset = offset + got;
+        final req = _streamRequest(
+          cid,
+          offset: resumeOffset,
+          length: remaining,
+        );
+        // veil_anon_stream_open returns once the local stream FSM exists; on the
+        // datagram-backed anonymous stream the peer accept can trail by a few
+        // milliseconds. A tiny grace before the first DATA frame avoids the
+        // observed open/accept/no-request race without affecting bulk throughput.
+        await Future<void>.delayed(_streamOpenWriteGrace);
+        await current.write(req).timeout(_streamRequestTimeout);
+        final lenB = await _readExactly(
+          current,
+          4,
+        ).timeout(_streamManifestTimeout, onTimeout: () => null);
+        if (lenB == null) throw StateError('no manifest (sender not serving)');
+        final mfLen = _readU32be(lenB);
+        if (mfLen <= 0 || mfLen > (1 << 20)) {
+          throw StateError('bad manifest len');
+        }
+        final mfBytes = await _readExactly(
+          current,
+          mfLen,
+        ).timeout(_streamManifestTimeout, onTimeout: () => null);
+        if (mfBytes == null) throw StateError('manifest truncated');
+        final m = ContentManifest.fromJson(
+          jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>,
+        );
+        if (m == null ||
+            m.contentId != cid ||
+            m.size != expected.size ||
+            m.pieceSize != expected.pieceSize ||
+            m.pieceCount != expected.pieceCount) {
+          throw StateError('manifest does not bind requested piece range');
+        }
+        final previous = manifest;
+        if (previous != null &&
+            (previous.size != m.size ||
+                previous.pieceSize != m.pieceSize ||
+                previous.pieceCount != m.pieceCount ||
+                previous.contentId != m.contentId)) {
+          throw StateError('manifest changed across range resume');
+        }
+        manifest ??= m;
+        _bulkStreamLog(
+          () =>
+              'xVeil[content]: swarm-range payload '
+              '${cid.substring(0, 12)} p$firstPiece..$lastPiece '
+              '<- ${peer.short} (${got > 0 ? 'resume=$got/' : ''}$rangeLen)',
+        );
+        final silence = Stopwatch()..start();
+        var tickAtLastChunk = swarmTick?.call() ?? 0;
+        while (got < rangeLen) {
+          final nextRemaining = rangeLen - got;
+          final maxBytes = nextRemaining < _streamReadChunk
+              ? nextRemaining
+              : _streamReadChunk;
+          final chunk = await _awaitPayloadChunk(
+            current.read(maxBytes: maxBytes),
+            idle: idle,
+            stallAfter: _streamRangeStallAbandon,
+            silence: silence,
+            tickAtLastChunk: tickAtLastChunk,
+            swarmTick: swarmTick,
+            timeoutLabel: (reason) =>
+                'pieces $firstPiece..$lastPiece $reason after $got/$rangeLen',
+          );
+          if (chunk.isEmpty) {
+            throw StateError(
+              'pieces $firstPiece..$lastPiece EOF after $got/$rangeLen',
+            );
+          }
+          out.add(chunk);
+          got += chunk.length;
+          onPayloadChunk?.call();
+          silence
+            ..reset()
+            ..start();
+          tickAtLastChunk = swarmTick?.call() ?? 0;
+        }
+      } catch (e) {
+        lastError = e;
+        if (got > startGot || got > 0) {
+          devLog(
+            () =>
+                'xVeil[content]: swarm-range resume '
+                '${cid.substring(0, 12)} p$firstPiece..$lastPiece '
+                '<- ${peer.short} got=$got/$rangeLen after: $e',
+          );
+        }
+        try {
+          await current?.abort();
+        } catch (_) {}
+        current = null;
+        // A zero-byte attempt normally means "sender not serving this range" —
+        // fail the range so the swarm can requeue it elsewhere. A stall
+        // abandon is different: the swarm was demonstrably progressing while
+        // this stream sat on a bad route, so retry in place on a fresh stream
+        // even before the first payload byte.
+        if ((got <= 0 && e is! _RangeStallTimeout) ||
+            attempt >= _streamPullMaxAttempts ||
+            _disposed) {
+          break;
+        }
+        await Future<void>.delayed(_streamPullRetryDelay(attempt));
       }
-      out.add(chunk);
-      got += chunk.length;
     }
-    return out.takeBytes();
+    try {
+      await current?.close();
+    } catch (_) {}
+    if (got < rangeLen) {
+      throw lastError ??
+          StateError(
+            'pieces $firstPiece..$lastPiece incomplete $got/$rangeLen',
+          );
+    }
+    final m = manifest;
+    if (m == null) throw StateError('range completed without manifest');
+    return (manifest: m, bytes: out.takeBytes());
   }
 
   Future<ReliableStream?> _openInitialPullStream(
@@ -4375,6 +5648,7 @@ class MessagingService {
         final attemptPeer = attemptStream != null
             ? peer
             : peers[(attempt - 1) % peers.length];
+        var attemptFailed = false;
         try {
           current =
               attemptStream ??
@@ -4552,6 +5826,7 @@ class MessagingService {
           }
           break;
         } catch (e) {
+          attemptFailed = true;
           lastError = e;
           if (payloadStarted && committedPieces > 0) {
             final completed = (resumePiece + committedPieces)
@@ -4585,7 +5860,11 @@ class MessagingService {
         } finally {
           manifestWait?.cancel();
           try {
-            await current?.close();
+            if (attemptFailed) {
+              await current?.abort();
+            } else {
+              await current?.close();
+            }
           } catch (_) {}
         }
 
@@ -4603,6 +5882,7 @@ class MessagingService {
         try {
           await sink.close();
         } catch (_) {}
+        _fetchSavePath.remove(cid);
       }
       if (!ok && emitFailure && !_contentFailed.isClosed) {
         _contentFailed.add(cid);
@@ -4614,8 +5894,9 @@ class MessagingService {
   Future<ReliableStream?> _openRetryStream(
     NodeId peer,
     String cid,
-    int attempt,
-  ) async {
+    int attempt, {
+    Duration? timeout,
+  }) async {
     final t = _transport;
     if (t is! StreamTransport) return null;
     final streamTransport = t as StreamTransport;
@@ -4628,7 +5909,7 @@ class MessagingService {
     try {
       return await streamTransport
           .openStream(peer)
-          .timeout(_streamRequestTimeout, onTimeout: () => null);
+          .timeout(timeout ?? _streamRequestTimeout, onTimeout: () => null);
     } catch (e) {
       devLog(
         () =>
@@ -4671,6 +5952,7 @@ class MessagingService {
           await _storage.putSetting('saved:${m.contentId}', savedPath);
         } catch (_) {}
       }
+      _fetchSavePath.remove(m.contentId);
       devLog(
         () =>
             'xVeil[content]: COMPLETE ${m.contentId.substring(0, 12)} '
@@ -4693,6 +5975,9 @@ class MessagingService {
     );
     final persisted = await _persistReceivedContent(peer, m);
     if (persisted) await _send(peer, WireEnvelope.ack(ackId).encode());
+    if (persisted && await _consumeParkedPlainFileSave(m.contentId)) {
+      return true;
+    }
     if (!_contentReceived.isClosed) {
       _contentReceived.add((
         contentId: m.contentId,
@@ -4875,6 +6160,9 @@ class MessagingService {
       );
       await _send(fetch.peer, WireEnvelope.ack(ackId).encode());
     }
+    if (persisted && await _consumeParkedPlainFileSave(f.contentId)) {
+      return;
+    }
     if (!_contentReceived.isClosed) {
       _contentReceived.add((
         contentId: f.contentId,
@@ -4890,6 +6178,7 @@ class MessagingService {
   /// signal. Returns true (safe to ack = delivered = actually received).
   Future<bool> _persistReceivedContent(NodeId peer, ContentManifest m) async {
     _offered.remove(m.contentId);
+    _offeredRefs.remove(m.contentId);
     await _surfaceFileOffer(peer, m);
     await _persistServeManifest(m);
     _serving[m.contentId] = (manifest: m, source: null, servedAt: _now());
@@ -4906,31 +6195,61 @@ class MessagingService {
   /// event stays gone. The "downloaded" state is derived from hasFile(contentId),
   /// so no message rewrite is needed when the blob later lands.
   Future<void> _surfaceFileOffer(NodeId peer, ContentManifest m) async {
-    final msgId = m.msgId ?? m.contentId; // legacy sender → hash id
-    if (await _hasMessage(peer, msgId) ||
-        await _storage.isMessageDeleted(peer.hex, msgId)) {
+    await _surfaceFileOfferFields(
+      peer,
+      contentId: m.contentId,
+      name: m.name,
+      size: m.size,
+      msgId: m.msgId,
+      seq: m.seq,
+      ts: m.ts,
+    );
+  }
+
+  Future<void> _surfaceFileOfferFields(
+    NodeId peer, {
+    required String contentId,
+    required String name,
+    required int size,
+    String? msgId,
+    int? seq,
+    int? ts,
+  }) async {
+    final msgIdOrContent = msgId ?? contentId; // legacy sender → hash id
+    if (await _hasMessage(peer, msgIdOrContent)) {
+      devLog(
+        () =>
+            'xVeil[content]: offer skip ${contentId.substring(0, 12)} '
+            'msg ${msgIdOrContent.substring(0, 8)} already stored <- ${peer.short}',
+      );
+      return; // already surfaced
+    }
+    if (await _storage.isMessageDeleted(peer.hex, msgIdOrContent)) {
+      devLog(
+        () =>
+            'xVeil[content]: offer skip ${contentId.substring(0, 12)} '
+            'msg ${msgIdOrContent.substring(0, 8)} deleted <- ${peer.short}',
+      );
       return; // already surfaced / deliberately deleted
     }
     await _store(
       peer,
       MessageDirection.incoming,
-      '📎 ${m.name}',
+      '📎 $name',
       MessageStatus.delivered,
-      fileContentId: m.contentId,
-      fileSize: m.size,
-      fileName: m.name,
-      id: msgId,
-      seq: m.seq,
-      timestamp: m.ts != null
-          ? DateTime.fromMillisecondsSinceEpoch(m.ts!)
-          : _now(),
+      fileContentId: contentId,
+      fileSize: size,
+      fileName: name,
+      id: msgIdOrContent,
+      seq: seq,
+      timestamp: ts != null ? DateTime.fromMillisecondsSinceEpoch(ts) : _now(),
     );
-    _emitIncoming(peer, '📎 ${m.name}', isFile: true);
+    _emitIncoming(peer, '📎 $name', isFile: true);
     _signal();
     devLog(
       () =>
-          'xVeil[content]: offered ${m.contentId.substring(0, 12)} as msg '
-          '${msgId.substring(0, 8)} (${m.size}B) <- ${peer.short}',
+          'xVeil[content]: offered ${contentId.substring(0, 12)} as msg '
+          '${msgIdOrContent.substring(0, 8)} (${size}B) <- ${peer.short}',
     );
   }
 
@@ -5046,6 +6365,7 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
     () =>
         'xVeil[messaging]: fallback service (no session pipeline) '
         'anonymous=$anonymous '
+        'streamRangeEnabled=${xveilConfiguredStreamRangeEnabled()} '
         'streamRangeParallelism=${xveilConfiguredStreamRangeParallelism() ?? 'default'} '
         'streamRangeTargetBytes=${xveilConfiguredStreamRangeTargetBytes() ?? 'default'}',
   );
@@ -5279,6 +6599,28 @@ extension _AuditTrailing<T> on Stream<T> {
     );
     return controller.stream;
   }
+}
+
+/// One in-flight swarm-range pull, tracked for tail hedging: [lastChunk]
+/// restarts on every payload chunk the owning worker receives, so an idle
+/// worker can duplicate the quietest range on a fresh stream. [hedges] caps
+/// duplication at one hedge per task.
+class _ActiveRangeTask {
+  _ActiveRangeTask(this.pieces, this.peer) : lastChunk = Stopwatch()..start();
+
+  final List<int> pieces;
+  final NodeId peer;
+  final Stopwatch lastChunk;
+  int hedges = 0;
+}
+
+/// A range payload read abandoned early because the swarm kept receiving
+/// bytes while this stream stayed silent — evidence of a stalled route rather
+/// than a sender that stopped serving. Distinguished from the plain idle
+/// [TimeoutException] so the resume loop retries in place even at zero
+/// received bytes instead of failing the range.
+class _RangeStallTimeout extends TimeoutException {
+  _RangeStallTimeout(String super.message, Duration super.duration);
 }
 
 /// The stored contact (with relationship status) for a peer, refreshed on

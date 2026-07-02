@@ -281,4 +281,7 @@ class _VeilAnonReliableStream implements ReliableStream {
       await _s.close();
     }
   }
+
+  @override
+  Future<void> abort() => _s.abort();
 }

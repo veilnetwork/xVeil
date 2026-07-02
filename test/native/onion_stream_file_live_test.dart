@@ -260,8 +260,10 @@ void main() {
       final sB = await _openTestStorage('b', blobDirs);
       final streamRangeParallelism = xveilConfiguredStreamRangeParallelism();
       final streamRangeTargetBytes = xveilConfiguredStreamRangeTargetBytes();
+      final streamRangeEnabled = xveilConfiguredStreamRangeEnabled();
       stderr.writeln(
-        '[onion-file-live] streamRangeParallelism='
+        '[onion-file-live] streamRangeEnabled=$streamRangeEnabled '
+        'streamRangeParallelism='
         '${streamRangeParallelism ?? 'default'} '
         'streamRangeTargetBytes=${streamRangeTargetBytes ?? 'default'}',
       );
@@ -273,6 +275,7 @@ void main() {
         contentPacing: Duration.zero,
         streamRangeParallelism: streamRangeParallelism,
         streamRangeTargetBytes: streamRangeTargetBytes,
+        streamRangeEnabled: streamRangeEnabled,
       );
       final mB = MessagingService(
         tB,
@@ -281,6 +284,7 @@ void main() {
         contentPacing: Duration.zero,
         streamRangeParallelism: streamRangeParallelism,
         streamRangeTargetBytes: streamRangeTargetBytes,
+        streamRangeEnabled: streamRangeEnabled,
       );
       StreamSubscription<({String contentId, int done, int total})>?
       progressSub;

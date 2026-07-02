@@ -227,6 +227,7 @@ class MultiIdentitySession {
                 storage,
                 anonymous: spec.anonymous,
                 streamRangeParallelism: xveilConfiguredStreamRangeParallelism(),
+                streamRangeEnabled: xveilConfiguredStreamRangeEnabled(),
               )
               ..sourceOpener =
                   veilSourceOpener // DURABLE offers: re-open by path
