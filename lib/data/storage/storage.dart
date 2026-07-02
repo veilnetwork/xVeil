@@ -221,8 +221,29 @@ abstract interface class Storage {
   /// plaintext is no longer recoverable from the container even by a
   /// password-holder. Backed by hidden-volume's vacuum/compact; a no-op on the
   /// in-memory fake (which never persists). MUST be run after edit/delete to
-  /// make erasure deniable rather than merely logical.
+  /// make erasure deniable rather than merely rely on logical tombstones.
   Future<void> scrubDeleted();
+
+  /// Bench/debug relief: erase the file-blob namespace WHOLESALE (every stored
+  /// manifest, attachment and streamed piece), freeing its log-index slots —
+  /// [deleteFile]-style scrubbing overwrites records in place and can never
+  /// shrink the per-namespace index, so a long-running soak bench eventually
+  /// hits the index cap (HvException.IndexFull) even though everything was
+  /// "deleted". Erasing the namespace drops it from the commit roots entirely;
+  /// the next store recreates it fresh. Stale `file:*` KV metadata may survive
+  /// (KV keys are not enumerable) — readers treat the missing chunk runs as
+  /// absent content. Returns the number of erased entries. NOT for product UI.
+  Future<int> purgeFileStore();
+
+  /// Bench/debug: entry counts per storage namespace, for diagnosing which
+  /// namespace is approaching the log-index cap.
+  Future<Map<String, int>> namespaceCounts();
+
+  /// Bench/debug relief: erase the WHOLE message log (every conversation's
+  /// rows) to free its log-index slots. Contacts and the per-author `conv_seq`
+  /// cursors (settings KV) survive, so subsequent events keep gap-free,
+  /// never-reused seqs and peers fold them normally. NOT for product UI.
+  Future<int> purgeMessageLog();
 
   /// Persist a file deniably inside the container under [fileId].
   Future<void> storeFile(String fileId, Uint8List bytes, {String? name});
