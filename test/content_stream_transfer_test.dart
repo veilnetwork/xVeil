@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
@@ -9,6 +10,7 @@ import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
+import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/content_manifest.dart';
 import 'package:xveil/state/messaging.dart';
@@ -69,6 +71,8 @@ class _PipeEnd implements ReliableStream {
   Future<Uint8List> read({int maxBytes = 65536}) => _r.take(maxBytes);
   @override
   Future<void> close() async => _w.close();
+  @override
+  Future<void> abort() async => _w.close();
 }
 
 /// Test fault: after [passBytes] bytes written by this endpoint, the write side
@@ -109,6 +113,9 @@ class _BlackholeWriteStream implements ReliableStream {
     if (_blackholed) return;
     await _inner.close();
   }
+
+  @override
+  Future<void> abort() => _inner.abort();
 }
 
 class _CloseOnWriteStream implements ReliableStream {
@@ -134,6 +141,13 @@ class _CloseOnWriteStream implements ReliableStream {
     _closed = true;
     await _inner.close();
   }
+
+  @override
+  Future<void> abort() async {
+    if (_closed) return;
+    _closed = true;
+    await _inner.abort();
+  }
 }
 
 class _OnCloseStream implements ReliableStream {
@@ -156,6 +170,14 @@ class _OnCloseStream implements ReliableStream {
     _closed = true;
     onClose();
     await _inner.close();
+  }
+
+  @override
+  Future<void> abort() async {
+    if (_closed) return;
+    _closed = true;
+    onClose();
+    await _inner.abort();
   }
 }
 
@@ -197,6 +219,8 @@ class _GateWriteStream implements ReliableStream {
 
   @override
   Future<void> close() => _inner.close();
+  @override
+  Future<void> abort() => _inner.abort();
 }
 
 /// Datagram + reliable-stream loopback link between two peers.
@@ -206,6 +230,7 @@ class _StreamLink implements VeilTransport, StreamTransport {
   final _in = StreamController<InboundMessage>.broadcast();
   _StreamLink? peer;
   final routes = <String, _StreamLink>{};
+  final sentPayloads = <Uint8List>[];
   final _accepts = <({ReliableStream stream, NodeId src})>[];
   final acceptStreamWrappers =
       <ReliableStream Function(ReliableStream stream)>[];
@@ -223,9 +248,13 @@ class _StreamLink implements VeilTransport, StreamTransport {
     NodeId dst,
     Uint8List payload, {
     bool anonymous = false,
-  }) async => (routes[dst.hex] ?? peer)?._in.add(
-    InboundMessage(src: _me, payload: payload),
-  );
+  }) async {
+    sentPayloads.add(Uint8List.fromList(payload));
+    (routes[dst.hex] ?? peer)?._in.add(
+      InboundMessage(src: _me, payload: payload),
+    );
+  }
+
   @override
   Future<void> sendWithReply(NodeId dst, Uint8List payload) =>
       send(dst, payload);
@@ -298,8 +327,18 @@ void main() {
     sB = HiddenVolumeStorage(_mem());
     await sA.open(password: 'a', createIfMissing: true);
     await sB.open(password: 'b', createIfMissing: true);
-    mA = MessagingService(tA, sA, contentPacing: Duration.zero)..start();
-    mB = MessagingService(tB, sB, contentPacing: Duration.zero)..start();
+    mA = MessagingService(
+      tA,
+      sA,
+      contentPacing: Duration.zero,
+      plainFileStream: true,
+    )..start();
+    mB = MessagingService(
+      tB,
+      sB,
+      contentPacing: Duration.zero,
+      plainFileStream: true,
+    )..start();
     await sA.upsertContact(Contact(nodeId: b, status: ContactStatus.accepted));
     await sB.upsertContact(Contact(nodeId: a, status: ContactStatus.accepted));
   });
@@ -341,6 +380,61 @@ void main() {
   );
 
   test(
+    'STREAM download resolves oversized manifest refs over a reliable stream',
+    () async {
+      const pieces = 96;
+      final size = ContentManifest.defaultPieceSize * pieces + 123;
+      final data = Uint8List(size);
+      for (var i = 0; i < data.length; i++) {
+        data[i] = (i * 31 + 7) & 0xff;
+      }
+      final cid = ContentManifest.fromBytes('manifest-ref.bin', data).contentId;
+      await mB.setFileDownloadPolicy(
+        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+      await mA.sendFileStreaming(
+        b,
+        'manifest-ref.bin',
+        data.length,
+        (o, l) async => Uint8List.sublistView(data, o, o + l),
+        close: () async {},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      final manifestBodies = [
+        for (final payload in tA.sentPayloads)
+          if (WireEnvelope.decode(payload).kind == WireKind.contentManifest)
+            jsonDecode(WireEnvelope.decode(payload).body),
+      ];
+      expect(manifestBodies, isNotEmpty);
+      expect(
+        manifestBodies.whereType<Map>().any((j) => j['ref'] == 1),
+        isTrue,
+        reason: 'the full hash list is too large for one auth-deliver frame',
+      );
+      expect(
+        manifestBodies.whereType<Map>().any((j) => j.containsKey('ph')),
+        isFalse,
+        reason: 'oversized manifests must not be sent inline',
+      );
+
+      final got = mB.contentReceived.first;
+      final r = await mB.downloadContent(a, cid);
+      expect(r, ContentDownloadResult.started);
+      final ev = await got.timeout(const Duration(seconds: 20));
+      expect(ev.contentId, cid);
+      expect(await sB.loadFile(cid), data);
+      expect(
+        tB.openedStreamCount,
+        greaterThan(1),
+        reason:
+            'receiver first resolves the manifest, then opens range streams',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
+  );
+
+  test(
     'STREAM range pull coalesces adjacent pieces into wider streams',
     () async {
       await mA.dispose();
@@ -349,6 +443,7 @@ void main() {
         tA,
         sA,
         contentPacing: Duration.zero,
+        plainFileStream: true,
         streamRangeParallelism: 6,
         streamRangeTargetBytes: ContentManifest.defaultPieceSize * 4,
       )..start();
@@ -356,6 +451,7 @@ void main() {
         tB,
         sB,
         contentPacing: Duration.zero,
+        plainFileStream: true,
         streamRangeParallelism: 6,
         streamRangeTargetBytes: ContentManifest.defaultPieceSize * 4,
       )..start();
@@ -393,6 +489,58 @@ void main() {
   );
 
   test(
+    'STREAM range disabled falls back to one sequential reliable stream',
+    () async {
+      await mA.dispose();
+      await mB.dispose();
+      mA = MessagingService(
+        tA,
+        sA,
+        contentPacing: Duration.zero,
+        plainFileStream: true,
+        streamRangeEnabled: false,
+      )..start();
+      mB = MessagingService(
+        tB,
+        sB,
+        contentPacing: Duration.zero,
+        plainFileStream: true,
+        streamRangeEnabled: false,
+      )..start();
+
+      final data = _rnd(ContentManifest.defaultPieceSize * 4 + 12345, 33);
+      final cid = ContentManifest.fromBytes(
+        'single-stream-control.bin',
+        data,
+      ).contentId;
+      await mB.setFileDownloadPolicy(
+        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+      await mA.sendFileStreaming(
+        b,
+        'single-stream-control.bin',
+        data.length,
+        (o, l) async => Uint8List.sublistView(data, o, o + l),
+        close: () async {},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      final got = mB.contentReceived.firstWhere((e) => e.contentId == cid);
+      expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+      await got.timeout(const Duration(seconds: 20));
+
+      expect(await sB.loadFile(cid), data);
+      expect(
+        tB.openedStreamCount,
+        1,
+        reason:
+            'range-disabled diagnostics must use one long stream, not '
+            'parallel or sequential range streams',
+      );
+    },
+  );
+
+  test(
     'STREAM range pull fills a slow per-stream channel in parallel',
     () async {
       await mA.dispose();
@@ -401,6 +549,7 @@ void main() {
         tA,
         sA,
         contentPacing: Duration.zero,
+        plainFileStream: true,
         streamRangeParallelism: 3,
         streamRangeTargetBytes: ContentManifest.defaultPieceSize,
       )..start();
@@ -408,6 +557,7 @@ void main() {
         tB,
         sB,
         contentPacing: Duration.zero,
+        plainFileStream: true,
         streamRangeParallelism: 3,
         streamRangeTargetBytes: ContentManifest.defaultPieceSize,
       )..start();
@@ -465,6 +615,157 @@ void main() {
     },
   );
 
+  test('STREAM range pull resumes a partially read range stream', () async {
+    await mB.dispose();
+    mB = MessagingService(
+      tB,
+      sB,
+      contentPacing: Duration.zero,
+      plainFileStream: true,
+      streamPayloadIdleTimeout: const Duration(milliseconds: 120),
+      streamPullMaxAttempts: 4,
+    )..start();
+
+    // The first accepted range stream delivers manifest + part of the payload,
+    // then blackholes without EOF. The receiver should keep the partial range
+    // bytes and reopen with a byte resume offset instead of re-fetching from 0.
+    tA.acceptStreamWrappers.add(
+      (stream) => _BlackholeWriteStream(stream, passBytes: 380 * 1024),
+    );
+
+    final data = _rnd(700000, 39); // 3 pieces, one coalesced range by default.
+    final cid = ContentManifest.fromBytes('range-resume.bin', data).contentId;
+    final serveOffsets = <int>[];
+    await mB.setFileDownloadPolicy(
+      mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+    );
+    await mA.sendFileStreaming(b, 'range-resume.bin', data.length, (
+      o,
+      l,
+    ) async {
+      serveOffsets.add(o);
+      return Uint8List.sublistView(data, o, o + l);
+    }, close: () async {});
+    serveOffsets.clear(); // ignore manifest hashing reads.
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+
+    final got = mB.contentReceived.firstWhere((e) => e.contentId == cid);
+    expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+    await got.timeout(const Duration(seconds: 8));
+
+    expect(await sB.loadFile(cid), data);
+    expect(
+      tB.openedStreamCount,
+      greaterThanOrEqualTo(2),
+      reason: 'receiver must reopen a fresh stream after payload idle',
+    );
+    expect(
+      serveOffsets.where((offset) => offset == 0).length,
+      1,
+      reason: 'range resume should continue from the partial byte offset',
+    );
+  });
+
+  test('STREAM range pull abandons a stalled stream early while the swarm '
+      'is progressing', () async {
+    await mB.dispose();
+    mB = MessagingService(
+      tB,
+      sB,
+      contentPacing: Duration.zero,
+      plainFileStream: true,
+      // The absolute idle timeout is far beyond the test timeout: only the
+      // stall detector (other workers received bytes while this stream sat
+      // silent) can rescue the blackholed range in time.
+      streamPayloadIdleTimeout: const Duration(seconds: 30),
+      streamRangeStallAbandon: const Duration(milliseconds: 300),
+      streamRangeHedgeAfter: const Duration(seconds: 60), // isolate stall
+      streamRangeTargetBytes: ContentManifest.defaultPieceSize,
+    )..start();
+
+    // First accepted range stream delivers the manifest plus part of the
+    // payload, then blackholes without EOF; the other range streams flow.
+    tA.acceptStreamWrappers.add(
+      (stream) => _BlackholeWriteStream(stream, passBytes: 100 * 1024),
+    );
+
+    final data = _rnd(700000, 61); // 3 pieces => 3 single-piece ranges.
+    final cid = ContentManifest.fromBytes('range-stall.bin', data).contentId;
+    await mB.setFileDownloadPolicy(
+      mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+    );
+    await mA.sendFileStreaming(
+      b,
+      'range-stall.bin',
+      data.length,
+      (o, l) async => Uint8List.sublistView(data, o, o + l),
+      close: () async {},
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+
+    final got = mB.contentReceived.firstWhere((e) => e.contentId == cid);
+    expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+    // Well below the 30s idle timeout: only an early stall abandon + resume
+    // can complete this in time.
+    await got.timeout(const Duration(seconds: 10));
+
+    expect(await sB.loadFile(cid), data);
+    expect(
+      tB.openedStreamCount,
+      greaterThanOrEqualTo(4),
+      reason: 'the stalled range must resume on a fresh stream',
+    );
+  });
+
+  test('STREAM range pull hedges the last stalled in-flight range instead of '
+      'waiting out its idle timeout', () async {
+    await mB.dispose();
+    mB = MessagingService(
+      tB,
+      sB,
+      contentPacing: Duration.zero,
+      plainFileStream: true,
+      // One coalesced range holds every piece, so when its stream stalls
+      // there is no other worker to keep the swarm progress tick alive: the
+      // idle worker must hedge the range on a fresh stream.
+      streamPayloadIdleTimeout: const Duration(seconds: 30),
+      streamRangeStallAbandon: const Duration(milliseconds: 300),
+      streamRangeHedgeAfter: const Duration(milliseconds: 300),
+    )..start();
+
+    tA.acceptStreamWrappers.add(
+      (stream) => _BlackholeWriteStream(stream, passBytes: 100 * 1024),
+    );
+
+    final data = _rnd(700000, 67); // 3 pieces, one coalesced 700 KB range.
+    final cid = ContentManifest.fromBytes('range-hedge.bin', data).contentId;
+    await mB.setFileDownloadPolicy(
+      mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+    );
+    await mA.sendFileStreaming(
+      b,
+      'range-hedge.bin',
+      data.length,
+      (o, l) async => Uint8List.sublistView(data, o, o + l),
+      close: () async {},
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+
+    final got = mB.contentReceived.firstWhere((e) => e.contentId == cid);
+    expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+    // Well below the 30s idle timeout: only a tail hedge (whose payload
+    // chunks then also release the stalled original via the stall detector)
+    // can complete this in time.
+    await got.timeout(const Duration(seconds: 10));
+
+    expect(await sB.loadFile(cid), data);
+    expect(
+      tB.openedStreamCount,
+      greaterThanOrEqualTo(2),
+      reason: 'the stalled range must be duplicated on a hedge stream',
+    );
+  });
+
   test(
     'STREAM range pull resumes from already stored verified pieces',
     () async {
@@ -521,6 +822,7 @@ void main() {
       tB,
       sB,
       contentPacing: Duration.zero,
+      plainFileStream: true,
       streamRangeTargetBytes: ContentManifest.defaultPieceSize,
     )..start();
     final data = _rnd(700000, 53); // 3 pieces at the default 256 KiB.
@@ -564,6 +866,7 @@ void main() {
         tA,
         sA,
         contentPacing: Duration.zero,
+        plainFileStream: true,
         streamRangeParallelism: 6,
         streamRangeTargetBytes: ContentManifest.defaultPieceSize,
       )..start();
@@ -571,6 +874,7 @@ void main() {
         tB,
         sB,
         contentPacing: Duration.zero,
+        plainFileStream: true,
         streamRangeParallelism: 6,
         streamRangeTargetBytes: ContentManifest.defaultPieceSize,
       )..start();
@@ -633,8 +937,12 @@ void main() {
       final tC = _StreamLink(c);
       final sC = HiddenVolumeStorage(_mem());
       await sC.open(password: 'c', createIfMissing: true);
-      final mC = MessagingService(tC, sC, contentPacing: Duration.zero)
-        ..start();
+      final mC = MessagingService(
+        tC,
+        sC,
+        contentPacing: Duration.zero,
+        plainFileStream: true,
+      )..start();
       addTearDown(() async {
         await mC.dispose();
         await sC.close();
@@ -695,12 +1003,21 @@ void main() {
         tC,
         sC,
         contentPacing: Duration.zero,
+        plainFileStream: true,
         streamPullMaxAttempts: 2,
       )..start();
-      final mD = MessagingService(tD, sD, contentPacing: Duration.zero)
-        ..start();
-      final mE = MessagingService(tE, sE, contentPacing: Duration.zero)
-        ..start();
+      final mD = MessagingService(
+        tD,
+        sD,
+        contentPacing: Duration.zero,
+        plainFileStream: true,
+      )..start();
+      final mE = MessagingService(
+        tE,
+        sE,
+        contentPacing: Duration.zero,
+        plainFileStream: true,
+      )..start();
       addTearDown(() async {
         await mC.dispose();
         await mD.dispose();
@@ -800,12 +1117,21 @@ void main() {
         tC,
         sC,
         contentPacing: Duration.zero,
+        plainFileStream: true,
         streamPullMaxAttempts: 12,
       )..start();
-      final mD = MessagingService(tD, sD, contentPacing: Duration.zero)
-        ..start();
-      final mE = MessagingService(tE, sE, contentPacing: Duration.zero)
-        ..start();
+      final mD = MessagingService(
+        tD,
+        sD,
+        contentPacing: Duration.zero,
+        plainFileStream: true,
+      )..start();
+      final mE = MessagingService(
+        tE,
+        sE,
+        contentPacing: Duration.zero,
+        plainFileStream: true,
+      )..start();
       addTearDown(() async {
         await mC.dispose();
         await mD.dispose();
@@ -933,6 +1259,7 @@ void main() {
         tA,
         sA,
         contentPacing: Duration.zero,
+        plainFileStream: true,
         streamRangeParallelism: 1,
         streamRangeTargetBytes: ContentManifest.defaultPieceSize,
         streamPullMaxAttempts: 8,
@@ -941,6 +1268,7 @@ void main() {
         tB,
         sB,
         contentPacing: Duration.zero,
+        plainFileStream: true,
         streamRangeParallelism: 1,
         streamRangeTargetBytes: ContentManifest.defaultPieceSize,
         streamPullMaxAttempts: 8,
@@ -1139,6 +1467,7 @@ void main() {
         tC,
         sC,
         contentPacing: Duration.zero,
+        plainFileStream: true,
         streamPullMaxAttempts: 6,
         streamRangeParallelism: 3,
       )..start();
@@ -1250,6 +1579,7 @@ void main() {
         tC,
         sC,
         contentPacing: Duration.zero,
+        plainFileStream: true,
         streamPayloadIdleTimeout: const Duration(milliseconds: 120),
         streamPullMaxAttempts: 2,
       )..start();
@@ -1422,11 +1752,16 @@ void main() {
         tC,
         sC,
         contentPacing: Duration.zero,
+        plainFileStream: true,
         streamPullMaxAttempts: 6,
         streamRangeParallelism: 3,
       )..start();
-      final mD = MessagingService(tD, sD, contentPacing: Duration.zero)
-        ..start();
+      final mD = MessagingService(
+        tD,
+        sD,
+        contentPacing: Duration.zero,
+        plainFileStream: true,
+      )..start();
       addTearDown(() async {
         await mC.dispose();
         await mD.dispose();
@@ -1526,6 +1861,7 @@ void main() {
         tA,
         sA,
         contentPacing: Duration.zero,
+        plainFileStream: true,
         streamPayloadIdleTimeout: const Duration(milliseconds: 120),
         streamPullMaxAttempts: 1,
         streamRangeParallelism: 2,
@@ -1535,6 +1871,7 @@ void main() {
         tB,
         sB,
         contentPacing: Duration.zero,
+        plainFileStream: true,
         streamPayloadIdleTimeout: const Duration(milliseconds: 120),
         streamPullMaxAttempts: 1,
         streamRangeParallelism: 2,
@@ -1617,6 +1954,7 @@ void main() {
         tA,
         sA,
         contentPacing: Duration.zero,
+        plainFileStream: true,
         streamPayloadIdleTimeout: const Duration(milliseconds: 120),
         streamPullMaxAttempts: 1,
         streamRangeParallelism: 2,
@@ -1626,6 +1964,7 @@ void main() {
         tB,
         sB,
         contentPacing: Duration.zero,
+        plainFileStream: true,
         streamPayloadIdleTimeout: const Duration(milliseconds: 120),
         streamPullMaxAttempts: 1,
         streamRangeParallelism: 2,
@@ -1770,6 +2109,7 @@ void main() {
       tA,
       sA,
       contentPacing: Duration.zero,
+      plainFileStream: true,
       streamPayloadIdleTimeout: const Duration(milliseconds: 120),
       streamPullMaxAttempts: 4,
     )..start();
@@ -1777,6 +2117,7 @@ void main() {
       tB,
       sB,
       contentPacing: Duration.zero,
+      plainFileStream: true,
       streamPayloadIdleTimeout: const Duration(milliseconds: 120),
       streamPullMaxAttempts: 4,
     )..start();
@@ -1809,6 +2150,7 @@ void main() {
       tB,
       sB,
       contentPacing: Duration.zero,
+      plainFileStream: true,
       streamPayloadIdleTimeout: const Duration(milliseconds: 120),
       streamPullMaxAttempts: 4,
     )..start();

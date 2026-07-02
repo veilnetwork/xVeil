@@ -345,8 +345,10 @@ void main() {
       final sC = useThirdPeer ? await _openTestStorage('c', blobDirs) : null;
       final streamRangeParallelism = xveilConfiguredStreamRangeParallelism();
       final streamRangeTargetBytes = xveilConfiguredStreamRangeTargetBytes();
+      final streamRangeEnabled = xveilConfiguredStreamRangeEnabled();
       stderr.writeln(
-        '[onion-swarm-live] streamRangeParallelism='
+        '[onion-swarm-live] streamRangeEnabled=$streamRangeEnabled '
+        'streamRangeParallelism='
         '${streamRangeParallelism ?? 'default'} '
         'streamRangeTargetBytes=${streamRangeTargetBytes ?? 'default'} '
         'rounds=$rounds restartSeeder=$restartSeeder '
@@ -363,6 +365,7 @@ void main() {
         contentPacing: Duration.zero,
         streamRangeParallelism: streamRangeParallelism,
         streamRangeTargetBytes: streamRangeTargetBytes,
+        streamRangeEnabled: streamRangeEnabled,
       );
 
       final mA = makeService(tA, sA);
