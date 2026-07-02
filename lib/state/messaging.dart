@@ -4772,6 +4772,9 @@ class MessagingService {
       if (offeredRef != null) ...offeredRef.peers.values,
       ...await _storedContentSourcePeers(cid),
     ]);
+    if (await _pipelinedPullToFile(peer, cid, sink, savedPath, sources)) {
+      return true;
+    }
     final m = await _fetchManifestFromRef(peer, cid, ref, sources);
     if (m == null) return false;
     return _beginDownloadWithManifest(peer, cid, m, sink, savedPath);
@@ -4784,9 +4787,59 @@ class MessagingService {
     String? savedPath,
     Iterable<NodeId> peers = const [],
   }) async {
+    if (await _pipelinedPullToFile(peer, cid, sink, savedPath, peers)) {
+      return true;
+    }
     final m = await _fetchManifestFromStream(peer, cid, peers);
     if (m == null) return false;
     return _beginDownloadWithManifest(peer, cid, m, sink, savedPath);
+  }
+
+  /// PIPELINE: a plain-file download that would use ONE sequential stream
+  /// anyway skips the standalone manifest probe (open + request + manifest +
+  /// close ≈ two serialized onion RTTs before any payload) and goes straight
+  /// to the pull stream — the serve path sends the manifest as the stream
+  /// header, and that manifest self-authenticates against the requested
+  /// contentId ([ContentManifest.isSelfConsistent] re-derives the id), so the
+  /// probe adds no verification the pull itself lacks. Applies only when the
+  /// swarm cannot be used anyway (range disabled) or would not be chosen
+  /// (single accepted holder, no explicit fanout); sink downloads have no
+  /// locally stored pieces the swarm could skip. Returns false → caller runs
+  /// the classic probe-then-swarm path (which also retries opens).
+  Future<bool> _pipelinedPullToFile(
+    NodeId peer,
+    String cid,
+    _FetchSink? sink,
+    String? savedPath,
+    Iterable<NodeId> peers,
+  ) async {
+    if (sink == null ||
+        !_plainFileStream ||
+        _explicitRangeFanout ||
+        _transport is! StreamTransport) {
+      return false;
+    }
+    final streamSources = await _acceptedStreamSources(
+      _orderedPullPeers(peer, peers),
+    );
+    if (streamSources.isEmpty) return false;
+    if (_streamRangeEnabled && streamSources.length > 1) return false;
+    if (!await _pullStream(
+      streamSources.first,
+      cid,
+      sink,
+      savedPath: savedPath,
+      retryPeers: streamSources,
+    )) {
+      return false; // no stream right now → probing path retries with backoff
+    }
+    devLog(
+      () =>
+          'xVeil[content]: manifest+data pipelined '
+          '${cid.substring(0, 12)} -> ${streamSources.first.short} '
+          '(sequential pull, probe round skipped)',
+    );
+    return true;
   }
 
   Future<void> _resumePendingFromManifestRef(

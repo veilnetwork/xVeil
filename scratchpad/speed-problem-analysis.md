@@ -3309,3 +3309,40 @@ MAX_CELL ↔ MAX_CIRCUIT_INNER.
 **veil bdd0b46 — circuit keystream BLAKE3-XOF → ChaCha20 (flag-day).** Бенч 16KB на сиде (EPYC Zen2 AES-NI, без avx512): blake3-xof 879 MiB/s/2.17cpb (sse41, у XOF нет avx2-backend) vs chacha20 2020/0.942 (2.3x) vs aes256-ctr 4563/0.417 (5.2x). Выбран ChaCha20 (constant-time везде; AES-CTR быстрее на релее но arm64-software 303 → на телефоне ок т.к. радио-bound, но менее консервативно). Session AEAD НЕ менять: aes-gcm≈chacha-poly на сиде (1145≈1149), а arm64 chacha 2.2x быстрее sw-aes. Все 256-бит PQ-адекватны (Grover→128). Реализация: apply_layer ChaCha20 nonce=[dir_tag||seq_be||0;7], seq не wrap per dir, XOR in-place (убрана per-cell 16KB alloc). +KAT пинит wire. 286+158 тестов; локал 256M byte-perfect; девайс 256M 23.2s CMP-OK; perf подтвердил compress_xof исчез→chacha20 на circuit-роли. НЕ писать свою ChaCha: RustCrypto 0.94cpb near-peak, keystream уже не потолок (2020 MiB/s vs релей ~15MB/s=130x запас), своя крипта=timing-риск.
 
 Итог: крупных чистых CPU-рычагов релея больше нет — доминанта session AEAD (фундамент). blake3 dedup ~10% — минорный необязательный кандидат (нужен keyed anti-DoS). Дальше: QUIC-подложка, инфра (число/толщина сидов). Инструмент бенча: scratchpad/cryptobench.
+
+## 43. 2026-07-02 (Fable, сессия 4): kernel-CC сидов — нет эффекта; RACK time-threshold loss detection в движке
+
+**Kernel CC на сидах (cubic vs BBR+restart veil.service между прогонами, интерлив 64M):**
+cubic 10.1/13.4s vs bbr 11.4/14.0s — разницы нет (binder — uplink телефона и
+per-flow TCP узкого звена, не egress сидов). Возвращено cubic. r3 серии
+отравлен собственной правкой veil-исходников во время прогона (gradle собирает
+Android .so из рабочего дерева при старте soak — та самая грабля §36).
+
+**veil bdc99e6 — RACK (RFC 8985 shape) в StreamEngine, circuit-only, default ON.**
+Мотив: SACK-count (IsLost, 3-SACKed-above) + 3-dup-ACK детектор читает ЛЮБОЙ
+реордеринг как потерю — именно это конклюзивно убило страйпинг (§38) и даёт
+spurious no-SACK RTO на джиттере одного маршрута. Теперь потеря объявляется
+только по ВРЕМЕНИ: сегмент потерян, если сегмент, отправленный НЕ РАНЬШЕ,
+уже доставлен, и с (ре)передачи прошло rtt+reorder-window. Reorder window
+адаптивен (наблюдаемый delivery gap обогнанных оригиналов → сходится к
+межпутевой дельте) поверх базы min-RTT/4 + floor из Config::rack_reo_floor_ms
+(carrier-set; auto 1500ms при stripe_routes>1). Ретрансмит может быть
+пере-помечен по времени (repair-of-repair до грубого RTO). RTO — как был,
+tail-fallback. Sender-side only: НЕТ wire-изменений, сиды не трогали.
+Ручки: VEIL_ONION_STREAM_CIRCUIT_RACK(=0 выкл) / debug.veil.onion_stream_rack,
+VEIL_ONION_STREAM_CIRCUIT_RACK_REO_FLOOR_MS / ..._rack_reo_floor_ms.
+
+Sim: новый двухпутевой канал (клетки round-robin 100/500ms one-way — модель
+страйпинга). RACK: byte-perfect, ноль spurious DATA-ресендов с floor'ом,
+ограниченная цена обучения (~15% первых пролётов) без floor'а, mid-stream
+дропы чинятся ДО RTO, паритет на одиночном пути 20% потерь. Попутно починены
+два pre-existing overhead-теста, ставшие мало-N после 16K flag-day (120KB=8
+клеток, 400KB=25 — статистический шум; отмасштабированы в MSS).
+
+**Девайс-регрессия single-path RACK ON (64M, pool1, range off):** r1 флейк
+холодного gradle (ожидаемо), r2 8.3s, r3 6.2s CMP-OK (=10.8 MiB/s avg;
+мгновенно 12.6-14.1 MB/s, bbr_bw до 13.7 MB/s, srtt 0.25-0.55s, rack=true
+rack_reo_floor=0ms в cfg-логе обоих концов). ВАЖНО: в здоровом окне одиночная
+цепь теперь касается per-flow TCP-потолка звеньев тракта (R→desktop — один
+obfs4/TCP-флоу ~12-14 MB/s; phone→hop ~8-17 по состоянию радио). Страйпинг
+выше R не расширяет R→desktop флоу — ожидание от страйпа умеренное.
