@@ -79,18 +79,40 @@ android_shell_quote() {
 
 android_file_size() {
   local path="$1"
-  adb -s "$ANDROID_SERIAL" shell \
-    "if [ -e $(android_shell_quote "$path") ]; then stat -c %s $(android_shell_quote "$path") 2>/dev/null || wc -c < $(android_shell_quote "$path"); else echo MISSING; fi" |
-    tr -d '\r' |
-    tail -1
+  local script="if [ -e $(android_shell_quote "$path") ]; then stat -c %s $(android_shell_quote "$path") 2>/dev/null || wc -c < $(android_shell_quote "$path"); else echo MISSING; fi"
+  local size
+  size="$(
+    adb -s "$ANDROID_SERIAL" shell "$script" | tr -d '\r' | tail -1
+  )"
+  # App-internal paths (/data/user/0/<pkg>/...) are unreadable from the plain
+  # adb shell user; a debug build still exposes them through run-as.
+  if [[ -z "$size" || "$size" == "MISSING" ]]; then
+    size="$(
+      adb -s "$ANDROID_SERIAL" shell \
+        "run-as $(android_shell_quote "$APP_ID") sh -c $(android_shell_quote "$script")" 2>/dev/null |
+        tr -d '\r' |
+        tail -1
+    )"
+  fi
+  echo "${size:-MISSING}"
 }
 
 android_sha256() {
   local path="$1"
-  adb -s "$ANDROID_SERIAL" shell \
-    "sha256sum $(android_shell_quote "$path") 2>/dev/null || toybox sha256sum $(android_shell_quote "$path")" |
-    tr -d '\r' |
-    awk '{print $1; exit}'
+  local script="sha256sum $(android_shell_quote "$path") 2>/dev/null || toybox sha256sum $(android_shell_quote "$path")"
+  local sha
+  sha="$(
+    adb -s "$ANDROID_SERIAL" shell "$script" 2>/dev/null | tr -d '\r' | awk '{print $1; exit}'
+  )"
+  if [[ -z "$sha" ]]; then
+    sha="$(
+      adb -s "$ANDROID_SERIAL" shell \
+        "run-as $(android_shell_quote "$APP_ID") sh -c $(android_shell_quote "$script")" 2>/dev/null |
+        tr -d '\r' |
+        awk '{print $1; exit}'
+    )"
+  fi
+  printf '%s\n' "$sha"
 }
 
 urlencode() {
@@ -170,7 +192,11 @@ else
   receiver_peer="$desktop_node"
   if [[ "$CLEAN_DEST" == "1" ]]; then
     adb -s "$ANDROID_SERIAL" shell \
-      "rm -f $(android_shell_quote "$DEST_PATH")" >/dev/null
+      "run-as $(android_shell_quote "$APP_ID") rm -f $(android_shell_quote "$DEST_PATH")" \
+      >/dev/null 2>&1 ||
+      adb -s "$ANDROID_SERIAL" shell \
+        "rm -f $(android_shell_quote "$DEST_PATH")" >/dev/null 2>&1 ||
+      true
   fi
 fi
 
