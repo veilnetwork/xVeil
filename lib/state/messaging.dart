@@ -77,9 +77,16 @@ const _bulkStreamTraceDartDefine = bool.fromEnvironment(
   'XVEIL_BULK_STREAM_TRACE',
   defaultValue: false,
 );
+// Plain-file saves ride the reliable stream/range path by DEFAULT. This was
+// an opt-in while the pinned circuit could reset before the manifest arrived
+// and strand a chosen file at 0 bytes — that failure mode is gone (stream
+// retries + piece-granular resume + stall-abandon + RACK loss detection, all
+// device-proven), while the "safe" chunk fallback is impractically slow for
+// large files (it was the pre-stream datagram-era path). The define remains
+// an emergency off-switch: --dart-define=XVEIL_PLAIN_FILE_STREAM=false.
 const _plainFileStreamDartDefine = bool.fromEnvironment(
   'XVEIL_PLAIN_FILE_STREAM',
-  defaultValue: false,
+  defaultValue: true,
 );
 const _contentServeBatchDartDefine = int.fromEnvironment(
   'XVEIL_CONTENT_SERVE_BATCH',
@@ -2882,11 +2889,9 @@ class MessagingService {
         contentId: m.contentId,
       );
       if (sink != null) {
-        // This is an explicit "save plaintext to this path" intent. The default
-        // remains the manifest/piece path: on the real onion circuit the stream
-        // can reset before the manifest arrives, which stranded selected files
-        // at 0 bytes. Speed investigations can opt in to the stream/range path
-        // with XVEIL_PLAIN_FILE_STREAM=1 while keeping the safe default.
+        // Explicit "save plaintext to this path" intent — stream it (default;
+        // see _plainFileStreamDartDefine). The piece/chunk fetch below stays
+        // as the automatic fallback when no stream can be opened at all.
         if (_plainFileStream &&
             await _pullSwarmStreamToFile(
               peer,
