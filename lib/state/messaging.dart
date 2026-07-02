@@ -347,6 +347,9 @@ class MessagingService {
        _streamRangeParallelism = _clampStreamRangeParallelism(
          streamRangeParallelism ?? _defaultStreamRangeParallelism,
        ),
+       _explicitRangeFanout =
+           streamRangeParallelism != null ||
+           _streamRangeParallelismDartDefine > 0,
        _streamRangeTargetBytes = _clampStreamRangeTargetBytes(
          streamRangeTargetBytes ?? _defaultStreamRangeTargetBytes,
        ),
@@ -4039,6 +4042,10 @@ class MessagingService {
   final int _streamRangeParallelism;
   final int _streamRangeTargetBytes;
   final bool _streamRangeEnabled;
+  // True when range fanout was requested explicitly (constructor or
+  // XVEIL_STREAM_RANGE_PARALLELISM) — then even a single-source pull uses the
+  // range swarm; the sequential-stream shortcut applies only to the default.
+  final bool _explicitRangeFanout;
   final Duration _streamOpenWriteGrace;
   final Duration _streamRequestTimeout;
   bool _acceptingStreams = false;
@@ -4424,8 +4431,49 @@ class MessagingService {
       _orderedPullPeers(preferred, peers),
     );
     if (sources.isEmpty) return false;
+    if (sources.length < 2 &&
+        !_explicitRangeFanout &&
+        !await _hasStoredPiece(manifest)) {
+      // ONE source and a FRESH download: a single whole-file stream beats the
+      // range swarm — ranges pay per-stream opens + manifest rounds + a fresh
+      // congestion ramp each (measured 64 MiB device A/B: sequential
+      // 11.2-13.7s vs ranged p4 14-21s / p1 23-100s), and the sequential pull
+      // already resumes at piece granularity on retry. The range swarm still
+      // wins when it can fan out over DIFFERENT holders, and still handles a
+      // PARTIALLY stored blob (it skips locally verified pieces; the
+      // sequential stream would re-fetch them). An explicit
+      // XVEIL_STREAM_RANGE_PARALLELISM keeps forcing the swarm path.
+      devLog(
+        () =>
+            'xVeil[content]: swarm-range single-source '
+            '${cid.substring(0, 12)}, using sequential stream',
+      );
+      if (await _pullStream(preferred, cid, null, retryPeers: peers)) {
+        return true;
+      }
+      // No stream could be opened RIGHT NOW (route flap at tap time). The
+      // range swarm keeps retrying opens with backoff, so fall through to it
+      // instead of degrading to the datagram path.
+    }
     unawaited(_runSwarmPullThenFallback(preferred, cid, manifest, sources));
     return true;
+  }
+
+  /// True if ANY piece of [manifest] is already in the blob store (a partial
+  /// earlier download). Cheap for a fresh download: every lookup misses and
+  /// the first stored piece short-circuits.
+  Future<bool> _hasStoredPiece(ContentManifest manifest) async {
+    final cid = manifest.contentId;
+    for (var i = 0; i < manifest.pieceCount; i++) {
+      final len = manifest.pieceLength(i);
+      final existing = await _storage.readFileRange(
+        cid,
+        i * manifest.pieceSize,
+        len,
+      );
+      if (existing != null && existing.length == len) return true;
+    }
+    return false;
   }
 
   Future<bool> _pullSwarmStreamToFile(
@@ -4457,6 +4505,25 @@ class MessagingService {
       _orderedPullPeers(preferred, peers),
     );
     if (sources.isEmpty) return false;
+    if (sources.length < 2 && !_explicitRangeFanout) {
+      // See _pullSwarmStream: one source → sequential whole-file stream (sink
+      // downloads never have partially stored pieces to skip). Falls through
+      // to the range swarm when no stream opens right now.
+      devLog(
+        () =>
+            'xVeil[content]: swarm-range-to-file single-source '
+            '${cid.substring(0, 12)}, using sequential stream',
+      );
+      if (await _pullStream(
+        preferred,
+        cid,
+        sink,
+        savedPath: savedPath,
+        retryPeers: peers,
+      )) {
+        return true;
+      }
+    }
     unawaited(
       _runSwarmFileThenFallback(
         preferred,
