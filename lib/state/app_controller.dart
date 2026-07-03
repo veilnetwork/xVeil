@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -246,6 +247,9 @@ class AppController extends Notifier<AppState> {
       // Single identity space — unchanged path.
       final identity = await storage.loadIdentity() ?? _placeholderIdentity();
       await _enterSession(identity);
+      // Opt-in storage self-maintenance (see [_maybeAutoCompact]); after the
+      // session is up so a compaction failure can never strand the unlock.
+      unawaited(_maybeAutoCompact(password));
     } catch (e) {
       devLog(
         () => 'xVeil[unlock]: post-open classification failed -> lock: $e',
@@ -304,7 +308,84 @@ class AppController extends Notifier<AppState> {
       await unlock(password); // always reopen
     }
     final after = await File(path).length();
+    // Remember the post-compaction size: the auto-compact trigger compares the
+    // current size against it (bloat = mostly-dead padding grows the file a
+    // multiple past the last-known-live size). Best-effort.
+    try {
+      await ref.read(storageProvider).putSetting(_lastCompactSizeKey, '$after');
+    } catch (_) {}
     return (before: before, after: after);
+  }
+
+  static const String _autoCompactKey = 'storage.autocompact.v1';
+  static const String _lastCompactSizeKey = 'storage.lastcompactsize.v1';
+
+  /// Auto-compaction floor: below this on-disk size the padding overhead is
+  /// noise — never worth an unlock-time repack.
+  static const int _autoCompactMinBytes = 16 << 20;
+
+  /// Trigger factor: compact when the container has grown this many times past
+  /// the size it had right after the previous compaction (dead padding
+  /// dominates long before 3× in practice — live data per commit is ≤ a few KB
+  /// while every commit pads to a full 256 KiB bucket).
+  static const int _autoCompactGrowthFactor = 3;
+
+  bool _autoCompactRunning = false;
+
+  /// Whether unlock-time auto-compaction is enabled (opt-in, default OFF).
+  ///
+  /// OFF by default DELIBERATELY: `compact_known` keeps only the spaces whose
+  /// passwords are supplied, and a sibling deniable space added by password
+  /// (no roster — [canCompactStorage] cannot see it BY DESIGN) would be
+  /// silently destroyed. Enabling this is the user's attestation that no other
+  /// hidden identity lives in this container — same contract as the manual
+  /// compact button, made durable.
+  Future<bool> autoCompactEnabled() async {
+    try {
+      return await ref.read(storageProvider).getSetting(_autoCompactKey) == '1';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> setAutoCompactEnabled(bool enabled) async {
+    await ref
+        .read(storageProvider)
+        .putSetting(_autoCompactKey, enabled ? '1' : '0');
+  }
+
+  /// Unlock-time storage self-maintenance: when the opt-in is ON and the
+  /// container has bloated well past its last compacted size, run the same
+  /// teardown→compact→reopen cycle the Settings button drives. Fired AFTER the
+  /// session is ready, so a failure (or a mid-compaction crash — the rewrite is
+  /// atomic) never strands the unlock; the user just sees one more brief
+  /// "opening" phase on the rare unlock that compacts.
+  Future<void> _maybeAutoCompact(String password) async {
+    if (_autoCompactRunning || !canCompactStorage) return;
+    try {
+      if (!await autoCompactEnabled()) return;
+      final size = await containerSizeBytes();
+      if (size == null || size < _autoCompactMinBytes) return;
+      final lastRaw = await ref
+          .read(storageProvider)
+          .getSetting(_lastCompactSizeKey);
+      final last = int.tryParse(lastRaw ?? '') ?? 0;
+      if (last > 0 && size < last * _autoCompactGrowthFactor) return;
+      _autoCompactRunning = true;
+      devLog(
+        () =>
+            'xVeil[storage]: auto-compact triggered (size=$size, '
+            'lastCompacted=$last)',
+      );
+      final r = await compactStorage(password);
+      devLog(
+        () => 'xVeil[storage]: auto-compact done ${r.before} -> ${r.after}',
+      );
+    } catch (e) {
+      devLog(() => 'xVeil[storage]: auto-compact failed (non-fatal): $e');
+    } finally {
+      _autoCompactRunning = false;
+    }
   }
 
   /// Path the compaction worker isolate dlopens the hidden-volume native lib

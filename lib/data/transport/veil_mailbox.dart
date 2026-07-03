@@ -204,10 +204,15 @@ abstract interface class VeilMailboxRelay {
   });
 
   /// Acknowledge (and let the relay drop) the blob [contentId] for [me].
+  ///
+  /// [knownRelays]: the relays this drain fetched from. A deposit fans out to
+  /// SEVERAL replicas, so the ack must reach each of them — a copy left on one
+  /// replica is re-served on every fetch until its 7-day TTL.
   Future<void> ack({
     required NodeId me,
     required Uint8List contentId,
     required Uint8List authCookie,
+    List<NodeId> knownRelays = const [],
   });
 }
 
@@ -253,6 +258,7 @@ class VeilFlutterMailboxRelay implements VeilMailboxRelay {
     required NodeId me,
     required Uint8List contentId,
     required Uint8List authCookie,
+    List<NodeId> knownRelays = const [], // local relay — nothing to fan out to
   }) async {
     await _mailbox.ack(
       receiverId: me.bytes,
@@ -294,6 +300,7 @@ class InMemoryMailboxRelay implements VeilMailboxRelay {
     required NodeId me,
     required Uint8List contentId,
     required Uint8List authCookie,
+    List<NodeId> knownRelays = const [],
   }) async {
     _store[me.hex]?.removeWhere(
       (b) => _bytesEqual(b.contentId, contentId),

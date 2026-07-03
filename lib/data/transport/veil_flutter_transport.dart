@@ -80,6 +80,7 @@ class VeilFlutterTransport implements VeilTransport, StreamTransport {
   Future<MailboxService> buildMailboxService({
     required void Function(InboundMessage) deliver,
     RelayKeyCache? relayKeyCache,
+    PoisonedBlobRegistry? poisonedBlobs,
   }) async {
     final src = await _client.bind(
       namespace: veilChatNamespace,
@@ -106,7 +107,7 @@ class VeilFlutterTransport implements VeilTransport, StreamTransport {
     return MailboxService(
       client: _client,
       me: me,
-      orchestrator: MailboxOrchestrator(crypto, relay),
+      orchestrator: MailboxOrchestrator(crypto, relay, poisoned: poisonedBlobs),
       deliver: deliver,
       relayKeyCache: relayKeyCache,
     );

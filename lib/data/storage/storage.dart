@@ -96,6 +96,28 @@ abstract interface class Storage {
   /// so gap-fill self-heals the log over a best-effort transport.
   Future<ConversationSync> conversationSync(String conversationId);
 
+  /// Raise the durable gap-fill FLOOR for [author]'s stream in
+  /// [conversationId]: [conversationSync] then treats every seq ≤ [floor] as
+  /// consumed (no hole, high-water starts there). Monotonic max-merge.
+  ///
+  /// The floor is the author's own declaration (carried on its sync beacon)
+  /// that nothing at/below it still exists AT THE SOURCE — its early history
+  /// was cleared/erased, so those seqs are unfillable by ANY re-request.
+  /// Without it, a receiver holding only the author's newer events named the
+  /// missing prefix as holes and re-triggered the same futile re-ship on every
+  /// beacon round, forever (the observed sync ping-pong).
+  Future<void> applyAuthorSyncFloor(
+    String conversationId,
+    String author,
+    int floor,
+  );
+
+  /// The floor THIS device can honestly declare for its OWN stream ([author] =
+  /// our identity hex) in [conversationId]: one below the lowest own event
+  /// still stored, or the next-seq counter minus one when nothing is stored —
+  /// i.e. exactly the prefix we can no longer re-ship. 0 = nothing to declare.
+  Future<int> ownSyncFloor(String conversationId, String author);
+
   /// Update the delivery [status] of message [messageId] in conversation
   /// [conversationId] (e.g. `sent → delivered` on an ack). Folded over the
   /// append-log, so it never mutates history in place. Scoped by conversation

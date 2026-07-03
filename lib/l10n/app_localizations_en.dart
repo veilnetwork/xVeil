@@ -451,6 +451,13 @@ class AppL10nEn extends AppL10n {
   String get settingsStorageCompactFailed => 'Couldn\'t compact storage';
 
   @override
+  String get settingsStorageAutoCompact => 'Auto-compact on unlock';
+
+  @override
+  String get settingsStorageAutoCompactBody =>
+      'Compact automatically when the container bloats. Enable ONLY if no other hidden identity lives in this container — compaction keeps just the unlocked space.';
+
+  @override
   String get settingsStoragePasswordHint => 'Your password';
 
   @override

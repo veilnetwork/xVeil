@@ -452,6 +452,13 @@ class AppL10nRu extends AppL10n {
   String get settingsStorageCompactFailed => 'Не удалось сжать хранилище';
 
   @override
+  String get settingsStorageAutoCompact => 'Авто-сжатие при разблокировке';
+
+  @override
+  String get settingsStorageAutoCompactBody =>
+      'Сжимать автоматически, когда контейнер раздувается. Включайте ТОЛЬКО если в этом контейнере нет других скрытых личностей — сжатие сохраняет лишь разблокированное пространство.';
+
+  @override
   String get settingsStoragePasswordHint => 'Ваш пароль';
 
   @override

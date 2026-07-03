@@ -931,6 +931,18 @@ abstract class AppL10n {
   /// **'Couldn\'t compact storage'**
   String get settingsStorageCompactFailed;
 
+  /// No description provided for @settingsStorageAutoCompact.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto-compact on unlock'**
+  String get settingsStorageAutoCompact;
+
+  /// No description provided for @settingsStorageAutoCompactBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Compact automatically when the container bloats. Enable ONLY if no other hidden identity lives in this container — compaction keeps just the unlocked space.'**
+  String get settingsStorageAutoCompactBody;
+
   /// No description provided for @settingsStoragePasswordHint.
   ///
   /// In en, this message translates to:
