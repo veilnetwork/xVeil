@@ -102,6 +102,83 @@ void main() {
     expect((await relay.fetch(me: me, authCookie: cookie)), isEmpty);
   });
 
+  group('drain-until-empty (1-blob-per-fetch relay reply budget)', () {
+    test('one drain() collects a whole queued backlog, oldest-first', () async {
+      final budgeted = _OneBlobPerFetchRelay();
+      final orch = MailboxOrchestrator(
+        LoopbackMailboxCrypto(senderForOpen: peer),
+        budgeted,
+      );
+      for (var i = 0; i < 5; i++) {
+        await orch.stash(
+          me: peer,
+          recipient: me,
+          appId: _appId(1),
+          endpointId: 2,
+          data: Uint8List.fromList([i]),
+          contentId: _cid(0x30 + i),
+        );
+      }
+      final drained = await orch.drain(
+          me: me, authCookie: cookie, ourCertVersion: 1, alreadyHave: never);
+      expect(drained, hasLength(5),
+          reason: 'the documented contract is re-fetch after acking — a '
+              'backlog must not trickle out one blob per drain TICK');
+      expect(drained.map((d) => d.data.single), [0, 1, 2, 3, 4]);
+      expect(await budgeted.fetch(me: me, authCookie: cookie), isEmpty);
+    });
+
+    test('a junk backlog is fully quarantined+acked in one drain — it must '
+        'not look like a live producer of one fresh cid per drain', () async {
+      var opens = 0;
+      final budgeted = _OneBlobPerFetchRelay();
+      final orch = MailboxOrchestrator(
+        _CountingOpenCrypto(
+          LoopbackMailboxCrypto(senderForOpen: peer),
+          onOpen: () => opens++,
+        ),
+        budgeted,
+      );
+      for (var i = 0; i < 4; i++) {
+        await budgeted.put(
+          receiver: me,
+          contentId: _cid(0x60 + i),
+          sender: peer,
+          blob: Uint8List.fromList([0, 1]), // undecryptable
+        );
+      }
+      expect(
+        await orch.drain(
+            me: me, authCookie: cookie, ourCertVersion: 1, alreadyHave: never),
+        isEmpty,
+      );
+      expect(opens, 4, reason: 'each junk blob pays exactly one open');
+      expect(await budgeted.fetch(me: me, authCookie: cookie), isEmpty,
+          reason: 'the whole junk backlog is acked away in one drain');
+    });
+
+    test('an ack-ignoring relay cannot spin the loop forever', () async {
+      final sticky = _AckIgnoringOneBlobRelay();
+      final orch = MailboxOrchestrator(
+        LoopbackMailboxCrypto(senderForOpen: peer),
+        sticky,
+      );
+      await sticky.put(
+        receiver: me,
+        contentId: _cid(0x77),
+        sender: peer,
+        blob: Uint8List.fromList([0, 1]), // undecryptable, never removed
+      );
+      // Must terminate (the same cid is not "fresh" twice within one drain).
+      expect(
+        await orch.drain(
+            me: me, authCookie: cookie, ourCertVersion: 1, alreadyHave: never),
+        isEmpty,
+      );
+      expect(sticky.fetchCalls, lessThanOrEqualTo(2));
+    });
+  });
+
   group('poisoned-blob quarantine', () {
     // Storage stub for the registry (real one rides the settings KV).
     late Map<String, String> settings;
@@ -214,6 +291,36 @@ class _CountingOpenCrypto implements VeilMailboxCrypto {
 /// An [InMemoryMailboxRelay] whose ack is a NO-OP — models the deployed relays
 /// that predate the network ack endpoint and re-serve every blob until TTL.
 class _AckIgnoringRelay extends InMemoryMailboxRelay {
+  @override
+  Future<void> ack({
+    required NodeId me,
+    required Uint8List contentId,
+    required Uint8List authCookie,
+    List<NodeId> knownRelays = const [],
+  }) async {}
+}
+
+/// Models the real relay's reply budget: a FETCH reply fits ONE ~4 KB blob, so
+/// a backlog is served strictly one-at-a-time (oldest first).
+class _OneBlobPerFetchRelay extends InMemoryMailboxRelay {
+  int fetchCalls = 0;
+
+  @override
+  Future<List<StoredMailboxBlob>> fetch({
+    required NodeId me,
+    required Uint8List authCookie,
+    List<NodeId> knownRelays = const [],
+  }) async {
+    fetchCalls++;
+    final all = await super.fetch(
+        me: me, authCookie: authCookie, knownRelays: knownRelays);
+    return all.isEmpty ? const [] : [all.first];
+  }
+}
+
+/// Budget-1 relay that ALSO ignores acks — the worst case the drain loop must
+/// still terminate on (an old relay re-serving the same head blob forever).
+class _AckIgnoringOneBlobRelay extends _OneBlobPerFetchRelay {
   @override
   Future<void> ack({
     required NodeId me,
