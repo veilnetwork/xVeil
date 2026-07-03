@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -11,6 +12,7 @@ NodeId _id(int s) => NodeId(Uint8List.fromList(List.filled(32, s)));
 /// Only the two members MailboxService actually calls are answered; anything
 /// else is a genuine noSuchMethod failure so an unexpected call surfaces.
 class _FakeClient implements VeilClient {
+  final events_ = StreamController<VeilEvent>.broadcast();
   @override
   dynamic noSuchMethod(Invocation i) {
     final name = i.memberName.toString();
@@ -20,6 +22,7 @@ class _FakeClient implements VeilClient {
     if (name.contains('registerRendezvousPublisher')) {
       return Future<void>.value();
     }
+    if (name.contains('events')) return events_.stream;
     return super.noSuchMethod(i);
   }
 }
@@ -123,5 +126,39 @@ void main() {
     svc.nudgeDrain();
     await Future<void>.delayed(const Duration(milliseconds: 200));
     expect(orch.drains - before, greaterThanOrEqualTo(5));
+  });
+
+  test('a MAILBOX_WAKE event drains immediately (no debounce) and opens the '
+      'burst window', () async {
+    final client = _FakeClient();
+    final svc2 = MailboxService(
+      client: client,
+      me: _id(1),
+      orchestrator: orch,
+      deliver: (_) {},
+      drainInterval: const Duration(seconds: 30), // idle tick out of the way
+    )
+      ..hotDrainInterval = const Duration(milliseconds: 10)
+      ..hotWindow = const Duration(milliseconds: 300);
+    addTearDown(() async {
+      await svc2.dispose();
+      await client.events_.close();
+    });
+    await svc2.start(relays: [_id(7)]);
+    // Let start()'s immediate drain settle into idle back-off.
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    final before = orch.drains;
+
+    client.events_.add(
+      VeilEvent(
+        kind: VeilEventKind.mailboxWake,
+        rawKind: 5,
+        payload: Uint8List(0),
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    // One immediate drain + the hot cadence that follows.
+    expect(orch.drains - before, greaterThanOrEqualTo(3),
+        reason: 'wake must drain now and keep the burst cadence');
   });
 }
