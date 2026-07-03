@@ -96,6 +96,7 @@ Future<void> main() async {
 Future<List<Override>> _bootstrapOverrides() async {
   final overrides = <Override>[];
   String? storePath; // the deniable container path, shared with the boot config
+  unawaited(_sweepPickedFileCache());
 
   try {
     if (ensureHiddenVolumeLoaded()) {
@@ -216,6 +217,11 @@ Future<List<Override>> _bootstrapOverrides() async {
     final runtimeDir =
         Platform.environment['XVEIL_RUNTIME_DIR'] ??
         '$runtimeBase/xveil-rt-$pid';
+    // Reap what non-graceful exits leaked (force-stop / OOM-kill / crash skip
+    // the graceful teardown that would remove these): one xveil-rt-<pid> dir
+    // per launch, each holding the node's veil-deferred working dir with a
+    // ~1.5 MB outbox.db — hundreds of launches quietly cost ~100 MB.
+    unawaited(_sweepStaleRuntimeDirs(runtimeBase));
     final port =
         int.tryParse(Platform.environment['XVEIL_LISTEN_PORT'] ?? '') ?? 9000;
     // XVEIL_BOOTSTRAP_PEERS points at a local JSON file (gitignored — a testnet
@@ -332,4 +338,119 @@ Future<List<BootstrapPeerCfg>> _loadBundledSeeds() async {
     // Asset not bundled (clean clone) — degrade to the compiled-in seeds.
   }
   return const [];
+}
+
+/// True when the process with [otherPid] is still alive (POSIX `kill -0`).
+/// Conservative: any error (no `kill` binary, permission) counts as ALIVE so a
+/// sweep never removes a live instance's runtime dir.
+Future<bool> _pidAlive(int otherPid) async {
+  try {
+    final r = await Process.run('kill', ['-0', '$otherPid']);
+    return r.exitCode == 0;
+  } catch (_) {
+    return true;
+  }
+}
+
+/// Most recent mtime under [dir] (the dir itself + every file inside). Errors
+/// on individual entries are skipped — the sweep must never throw.
+Future<DateTime> _newestMtime(Directory dir) async {
+  var newest = DateTime.fromMillisecondsSinceEpoch(0);
+  try {
+    newest = (await dir.stat()).modified;
+    await for (final e in dir.list(recursive: true, followLinks: false)) {
+      try {
+        final m = (await e.stat()).modified;
+        if (m.isAfter(newest)) newest = m;
+      } catch (_) {}
+    }
+  } catch (_) {}
+  return newest;
+}
+
+/// Best-effort reaper for per-run dirs that only a GRACEFUL exit removes:
+///  - `xveil-rt-<pid>` (unix sockets + PSK + the embedded node's nested
+///    `veil-deferred-*` working dir with its preallocated ~1.5 MB outbox.db);
+///  - desktop-only sibling `veil-deferred-*` dirs the node creates directly in
+///    the system temp dir when TMPDIR doesn't point into the runtime dir.
+/// Android force-stop/OOM-kill and stand `kill -9` never run that teardown, so
+/// these accumulate one per launch, forever. An xveil-rt dir is reclaimed when
+/// its pid is dead; a veil-deferred dir when nothing inside has been touched
+/// for a day (a live node keeps writing its outbox.db).
+Future<void> _sweepStaleRuntimeDirs(String runtimeBase) async {
+  const staleAfter = Duration(hours: 24);
+  var removed = 0;
+  try {
+    await for (final e in Directory(runtimeBase).list(followLinks: false)) {
+      if (e is! Directory) continue;
+      final name = e.uri.pathSegments.lastWhere((s) => s.isNotEmpty);
+      try {
+        if (name.startsWith('xveil-rt-')) {
+          final dirPid = int.tryParse(name.substring('xveil-rt-'.length));
+          if (dirPid == null || dirPid == pid) continue;
+          // Mobile runs a single instance per package, so any other pid is a
+          // dead launch. Desktop keeps a dir whose pid is still alive (dev
+          // multi-instance; a recycled pid merely defers the reclaim to the
+          // OS's periodic temp cleanup — never worth risking a live dir).
+          if (!(Platform.isAndroid || Platform.isIOS) &&
+              await _pidAlive(dirPid)) {
+            continue;
+          }
+        } else if (name.startsWith('veil-deferred-')) {
+          // No pid in the name — recency is the only safe signal, measured on
+          // the NEWEST file inside (a live node keeps touching its
+          // mailbox/outbox.db; the dir's own mtime is frozen at creation). A
+          // full day of silence inside means no node owns it.
+          if (DateTime.now().difference(await _newestMtime(e)) < staleAfter) {
+            continue;
+          }
+        } else {
+          continue;
+        }
+        await e.delete(recursive: true);
+        removed++;
+      } catch (_) {
+        // best-effort per entry — a locked/vanished dir must not stop the sweep
+      }
+    }
+  } catch (_) {
+    // base dir unreadable — nothing to sweep
+  }
+  if (removed > 0) {
+    devLog(() => 'xVeil[sweep]: reaped $removed stale runtime dir(s)');
+  }
+}
+
+/// Reap old `file_picker` cache copies. The picker COPIES every attached file
+/// into `<cache>/file_picker/<ts>/` and never cleans up — heavy attach use
+/// costs gigabytes that the user can only reclaim by clearing app data. A copy
+/// is kept for [keep] so a recent attach can still re-serve (durable reoffer
+/// reads from this path); an older reoffer honestly answers content-GONE,
+/// exactly as when the OS itself evicts the cache dir under storage pressure.
+Future<void> _sweepPickedFileCache({
+  Duration keep = const Duration(days: 7),
+}) async {
+  if (!(Platform.isAndroid || Platform.isIOS)) return; // desktop picks in place
+  try {
+    final cache = await getTemporaryDirectory();
+    final dir = Directory('${cache.path}/file_picker');
+    if (!await dir.exists()) return;
+    var removed = 0;
+    await for (final e in dir.list(followLinks: false)) {
+      try {
+        if (DateTime.now().difference((await e.stat()).modified) < keep) {
+          continue;
+        }
+        await e.delete(recursive: true);
+        removed++;
+      } catch (_) {
+        // best-effort per entry
+      }
+    }
+    if (removed > 0) {
+      devLog(() => 'xVeil[sweep]: reaped $removed picked-file cache entries');
+    }
+  } catch (_) {
+    // cache dir unavailable — nothing to sweep
+  }
 }
