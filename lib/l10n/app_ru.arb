@@ -153,6 +153,8 @@
   "settingsStorageCompactBody": "Освободить неиспользуемое место — приложение переоткроется.",
   "settingsStorageCompactDone": "Освобождено",
   "settingsStorageCompactFailed": "Не удалось сжать хранилище",
+  "settingsStorageAutoCompact": "Авто-сжатие при разблокировке",
+  "settingsStorageAutoCompactBody": "Сжимать автоматически, когда контейнер раздувается. Включайте ТОЛЬКО если в этом контейнере нет других скрытых личностей — сжатие сохраняет лишь разблокированное пространство.",
   "settingsStoragePasswordHint": "Ваш пароль",
   "settingsNetwork": "Сеть и узлы",
   "settingsAppearance": "Оформление",

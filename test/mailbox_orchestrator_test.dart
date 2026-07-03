@@ -101,4 +101,124 @@ void main() {
     expect(drained.single.data, Uint8List.fromList([42]));
     expect((await relay.fetch(me: me, authCookie: cookie)), isEmpty);
   });
+
+  group('poisoned-blob quarantine', () {
+    // Storage stub for the registry (real one rides the settings KV).
+    late Map<String, String> settings;
+    PoisonedBlobRegistry freshRegistry() => PoisonedBlobRegistry(
+          getSetting: (k) async => settings[k],
+          putSetting: (k, v) async => settings[k] = v,
+        );
+
+    setUp(() => settings = {});
+
+    test(
+        'an undecryptable blob is opened ONCE, quarantined durably, and '
+        'skipped on every later drain (relay that ignores acks)', () async {
+      var opens = 0;
+      final counting = _CountingOpenCrypto(
+        LoopbackMailboxCrypto(senderForOpen: peer),
+        onOpen: () => opens++,
+      );
+      // A relay that ignores acks — models today's deployed relays (no ack
+      // endpoint): the poisoned blob is re-served on EVERY fetch.
+      final stickyRelay = _AckIgnoringRelay();
+      final orch = MailboxOrchestrator(
+        counting,
+        stickyRelay,
+        poisoned: freshRegistry(),
+      );
+      await stickyRelay.put(
+        receiver: me,
+        contentId: _cid(0xDE),
+        sender: peer,
+        blob: Uint8List.fromList([0, 1, 2]), // undecryptable forever
+      );
+
+      expect(
+        await orch.drain(
+            me: me, authCookie: cookie, ourCertVersion: 1, alreadyHave: never),
+        isEmpty,
+      );
+      expect(opens, 1, reason: 'first sighting pays the open');
+
+      for (var i = 0; i < 3; i++) {
+        expect(
+          await orch.drain(
+              me: me,
+              authCookie: cookie,
+              ourCertVersion: 1,
+              alreadyHave: never),
+          isEmpty,
+        );
+      }
+      expect(opens, 1,
+          reason: 'quarantined cid must never be decrypt-attempted again');
+
+      // Durable: a NEW orchestrator over the SAME settings (app relaunch)
+      // still skips the decrypt.
+      final orch2 = MailboxOrchestrator(
+        counting,
+        stickyRelay,
+        poisoned: freshRegistry(),
+      );
+      await orch2.drain(
+          me: me, authCookie: cookie, ourCertVersion: 1, alreadyHave: never);
+      expect(opens, 1, reason: 'quarantine survives a relaunch');
+    });
+
+    test('quarantine is FIFO-capped so junk deposits cannot grow the registry',
+        () async {
+      final reg = freshRegistry();
+      for (var i = 0; i < 80; i++) {
+        await reg.add(_cid(i));
+      }
+      // Oldest evicted, newest kept (cap = 64).
+      expect(await reg.contains(_cid(0)), isFalse);
+      expect(await reg.contains(_cid(79)), isTrue);
+      final stored = settings['mailbox.poisoned.v1']!;
+      expect(RegExp('"').allMatches(stored).length ~/ 2, 64);
+    });
+  });
+}
+
+/// Counts decrypt attempts so tests can prove the quarantine short-circuits.
+class _CountingOpenCrypto implements VeilMailboxCrypto {
+  _CountingOpenCrypto(this._inner, {required this.onOpen});
+  final VeilMailboxCrypto _inner;
+  final void Function() onOpen;
+
+  @override
+  Future<Uint8List> seal({
+    required NodeId recipient,
+    required Uint8List appId,
+    required int endpointId,
+    required Uint8List data,
+  }) =>
+      _inner.seal(
+          recipient: recipient,
+          appId: appId,
+          endpointId: endpointId,
+          data: data);
+
+  @override
+  Future<OpenedMailboxMessage> open({
+    required Uint8List blob,
+    required int ourCertVersion,
+  }) {
+    onOpen();
+    return _inner.open(blob: blob, ourCertVersion: ourCertVersion);
+  }
+}
+
+/// An [InMemoryMailboxRelay] whose ack is a NO-OP — models the deployed relays
+/// that predate the network ack endpoint and re-serve every blob until TTL.
+class _AckIgnoringRelay extends InMemoryMailboxRelay {
+  @override
+  Future<void> ack({
+    required NodeId me,
+    required Uint8List contentId,
+    required Uint8List authCookie,
+    List<NodeId> knownRelays = const [],
+  }) async {}
 }

@@ -24,6 +24,7 @@ import '../domain/event.dart';
 import '../domain/file_download_policy.dart';
 import '../domain/file_transfer.dart';
 import 'app_controller.dart';
+import 'mailbox_orchestrator.dart';
 import 'mailbox_service.dart';
 import 'providers.dart';
 import 'package:xveil/core/log.dart';
@@ -1696,6 +1697,16 @@ class MessagingService {
       return;
     }
     _lastSyncSentAt[peer.hex] = now;
+    // Declare our own stream's FLOOR: the prefix we can no longer re-ship
+    // (cleared/erased at the source). Persisting it locally first makes our own
+    // hw/holes honest too; the beacon carries it so the peer stops naming that
+    // prefix as holes and re-requesting it forever. Cheap: the underlying
+    // putSetting is a no-op while the floor is unchanged.
+    final selfHex = await _selfHex();
+    final ownFloor = await _storage.ownSyncFloor(peer.hex, selfHex);
+    if (ownFloor > 0) {
+      await _storage.applyAuthorSyncFloor(peer.hex, selfHex, ownFloor);
+    }
     final sync = await _storage.conversationSync(peer.hex);
     // Records don't JSON-encode → flatten each hole tuple to a [lo, hi] list.
     final holes = <String, List<List<int>>>{
@@ -1707,6 +1718,8 @@ class MessagingService {
     final body = jsonEncode({
       'hw': sync.highWater,
       if (holes.isNotEmpty) 'holes': holes,
+      // Own-stream floor (see above). Old builds ignore the unknown key.
+      if (ownFloor > 0) 'fl': {selfHex: ownFloor},
       'ep': now.millisecondsSinceEpoch,
     });
     devLog(
@@ -1751,6 +1764,18 @@ class MessagingService {
     final hw = j['hw'];
     if (hw is! Map) return;
     final selfHex = await _selfHex();
+    // The peer's declared FLOOR for ITS OWN stream: "nothing of mine exists at
+    // or below F any more — stop treating that prefix as holes". Accepted ONLY
+    // for the authenticated sender's own author stream (an author is always
+    // entitled to void its own history; it could equally just never have sent
+    // it), so a peer cannot suppress gap-fill of anyone else's events.
+    final fl = j['fl'];
+    if (fl is Map) {
+      final declared = fl[peer.hex];
+      if (declared is int && declared > 0) {
+        await _storage.applyAuthorSyncFloor(peer.hex, peer.hex, declared);
+      }
+    }
     // The peer's high-water for OUR author stream = how far it has folded us.
     final claimed = hw[selfHex];
     var peerHw = claimed is int && claimed >= 0 ? claimed : 0;
@@ -7215,6 +7240,13 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
         .buildMailboxService(
           deliver: service.deliverInbound,
           relayKeyCache: relayKeyCache,
+          // Durable quarantine for permanently-undecryptable deposits — without
+          // it one poisoned blob kept the drain at max cadence for its whole
+          // 7-day relay TTL (re-fetch + re-fail + backoff reset every tick).
+          poisonedBlobs: PoisonedBlobRegistry(
+            getSetting: storage.getSetting,
+            putSetting: storage.putSetting,
+          ),
         )
         .then((m) {
           if (providerDisposed) {
