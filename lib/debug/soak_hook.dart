@@ -185,6 +185,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/send_message':
           await _sendMessage(req);
           return;
+        case '/delete_message':
+          await _deleteMessage(req);
+          return;
         default:
           await _json(req, {'ok': false, 'error': 'not found'}, status: 404);
           return;
@@ -986,6 +989,22 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     }
     await ref.read(messagingServiceProvider).sendText(peer, text);
     return _json(req, {'ok': true, 'peer': peer.hex, 'text': text});
+  }
+
+  Future<void> _deleteMessage(HttpRequest req) async {
+    final ready = _requireReady(req);
+    if (!ready) return;
+    final id = _required(req, 'id');
+    if (id == null) return;
+    final forEveryone =
+        (req.uri.queryParameters['for_everyone'] ?? '').toLowerCase() == 'true';
+    final svc = ref.read(messagingServiceProvider);
+    if (forEveryone) {
+      await svc.deleteForEveryone(id);
+    } else {
+      await svc.deleteMessageLocally(id);
+    }
+    return _json(req, {'ok': true, 'id': id, 'forEveryone': forEveryone});
   }
 
   /// Query params merged with a JSON POST body (body wins on key conflict).

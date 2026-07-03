@@ -1351,7 +1351,7 @@ Future<bool> _savedFileLooksComplete(String path, {int? expectedSize}) async {
 
 /// What a file bubble's trailing icon + tap do: download an offer, save a held
 /// blob out, or open a file already saved unencrypted to disk.
-enum _FileAffordance { download, save, open }
+enum _FileAffordance { download, save, open, gone }
 
 class _Bubble extends ConsumerWidget {
   const _Bubble({required this.message, this.onTapFile, this.onLongPress});
@@ -1390,6 +1390,16 @@ class _Bubble extends ConsumerWidget {
           )) {
         return _FileAffordance.open;
       }
+      // Every known holder said the bytes are gone — render the terminal
+      // "ask the sender to re-send" state. A tap still retries (the download
+      // entry point clears the mark; a live holder then re-offers).
+      try {
+        if (await ref
+            .read(messagingServiceProvider)
+            .isContentUnavailable(cid)) {
+          return _FileAffordance.gone;
+        }
+      } catch (_) {}
     }
     return _FileAffordance.download;
   }
@@ -1436,80 +1446,107 @@ class _Bubble extends ConsumerWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               if (message.isFile)
-                InkWell(
-                  onTap: onTapFile == null ? null : () => onTapFile!(message),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.insert_drive_file_outlined,
-                        size: 20,
-                        color: scheme.onSurfaceVariant,
-                      ),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              message.fileName ?? message.body,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            // Show "Downloading NN%" while a transfer is in
-                            // flight, else the file size.
-                            if (progress != null)
-                              Text(
-                                '${l.fileDownloading} ${(progress * 100).round()}%',
-                                style: Theme.of(context).textTheme.labelSmall
-                                    ?.copyWith(color: scheme.onSurfaceVariant),
-                              )
-                            else if (message.fileSize != null)
-                              Text(
-                                _formatBytes(message.fileSize!),
-                                style: Theme.of(context).textTheme.labelSmall
-                                    ?.copyWith(color: scheme.onSurfaceVariant),
-                              ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      // While downloading: a ring at the current fraction. Else a
-                      // download icon for an un-fetched OFFER, or a save icon once
-                      // the blob is local (tap then writes it out).
-                      if (progress != null)
-                        SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            value: progress == 0 ? null : progress,
-                            strokeWidth: 2,
+                FutureBuilder<_FileAffordance>(
+                  future: _affordance(ref),
+                  builder: (context, snap) {
+                    final a =
+                        snap.data ??
+                        (message.fileId != null
+                            ? _FileAffordance.save
+                            : _FileAffordance.download);
+                    // Terminal state only renders when nothing is in flight —
+                    // a live retry's spinner wins over the stale mark.
+                    final gone = progress == null && a == _FileAffordance.gone;
+                    return InkWell(
+                      onTap: onTapFile == null
+                          ? null
+                          : () => onTapFile!(message),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.insert_drive_file_outlined,
+                            size: 20,
                             color: scheme.onSurfaceVariant,
                           ),
-                        )
-                      else
-                        FutureBuilder<_FileAffordance>(
-                          future: _affordance(ref),
-                          builder: (_, snap) {
-                            final a =
-                                snap.data ??
-                                (message.fileId != null
-                                    ? _FileAffordance.save
-                                    : _FileAffordance.download);
-                            return Icon(
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  message.fileName ?? message.body,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                // Subtitle: "Downloading NN%" while a transfer
+                                // is in flight; the ask-to-re-send notice when
+                                // every holder said GONE; else the file size.
+                                if (progress != null)
+                                  Text(
+                                    '${l.fileDownloading} ${(progress * 100).round()}%',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelSmall
+                                        ?.copyWith(
+                                          color: scheme.onSurfaceVariant,
+                                        ),
+                                  )
+                                else if (gone)
+                                  Text(
+                                    l.fileGoneAskResend,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelSmall
+                                        ?.copyWith(color: scheme.error),
+                                  )
+                                else if (message.fileSize != null)
+                                  Text(
+                                    _formatBytes(message.fileSize!),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelSmall
+                                        ?.copyWith(
+                                          color: scheme.onSurfaceVariant,
+                                        ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          // While downloading: a ring at the current fraction.
+                          // Else an icon per affordance: download an offer,
+                          // save a held blob, open a saved file, or the
+                          // crossed-out download of the GONE state.
+                          if (progress != null)
+                            SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                value: progress == 0 ? null : progress,
+                                strokeWidth: 2,
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            )
+                          else
+                            Icon(
                               switch (a) {
                                 _FileAffordance.save => Icons.save_alt_outlined,
                                 _FileAffordance.open => Icons.open_in_new,
+                                _FileAffordance.gone =>
+                                  Icons.file_download_off_outlined,
                                 _FileAffordance.download =>
                                   Icons.download_outlined,
                               },
                               size: 16,
-                              color: scheme.onSurfaceVariant,
-                            );
-                          },
-                        ),
-                    ],
-                  ),
+                              color: gone
+                                  ? scheme.error
+                                  : scheme.onSurfaceVariant,
+                            ),
+                        ],
+                      ),
+                    );
+                  },
                 )
               else
                 Text(message.body),

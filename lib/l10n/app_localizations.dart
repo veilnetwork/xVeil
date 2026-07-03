@@ -1123,6 +1123,12 @@ abstract class AppL10n {
   /// **'Requesting the file from the sender…'**
   String get fileRequestingResend;
 
+  /// No description provided for @fileGoneAskResend.
+  ///
+  /// In en, this message translates to:
+  /// **'The sender no longer has this file — ask them to send it again.'**
+  String get fileGoneAskResend;
+
   /// No description provided for @fileReofferFailed.
   ///
   /// In en, this message translates to:
