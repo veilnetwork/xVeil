@@ -280,6 +280,45 @@ void main() {
   );
 
   test(
+    'auto-resume does not stack a second pull while the original transfer '
+    'is still owned (no duplicate sink, pending record survives)',
+    () async {
+      final data = _rnd(200000, 23);
+      final cid = await offerToB(data, 'park.bin');
+      _shrinkResumeDelays(mB);
+      var opens = 0;
+      mB.plainFileSinkOpener = (path) async {
+        opens++;
+        return null;
+      };
+
+      // Network dies AFTER the offer, then the user asks for a plain-file
+      // save: the call keeps ownership of the transfer (a datagram fetch or
+      // a reoffer park) while it waits.
+      cutLink();
+      await mB.downloadContentToFile(
+        a,
+        cid,
+        '/nonexistent/park.bin',
+        write: (o, b) async {},
+        close: () async {},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(await mB.pendingAutoResumeContentIds(), contains(cid));
+
+      // Force resume ticks while the original still owns the transfer.
+      await mB.reconcileOnConnect();
+      await Future<void>.delayed(const Duration(seconds: 4));
+
+      // The driver must NOT have re-driven with its own sink, and must not
+      // have dropped the durable record.
+      expect(opens, 0);
+      expect(await mB.pendingAutoResumeContentIds(), contains(cid));
+    },
+    timeout: const Timeout(Duration(minutes: 1)),
+  );
+
+  test(
     'plain-file download interrupted by shutdown re-drives to the SAME '
     'destination path across a service restart',
     () async {

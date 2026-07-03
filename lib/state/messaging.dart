@@ -3587,6 +3587,31 @@ class MessagingService {
     }
   }
 
+  /// Per-content count of pull executions currently in flight (sequential
+  /// [_runPull] / the range swarm). The auto-resume driver consults it so it
+  /// never stacks a second concurrent pull onto a live one — a duplicate
+  /// wastes bandwidth and makes the shared progress channel oscillate.
+  final Map<String, int> _activePullCount = {};
+
+  void _pullStarted(String contentId) =>
+      _activePullCount[contentId] = (_activePullCount[contentId] ?? 0) + 1;
+
+  void _pullEnded(String contentId) {
+    final n = (_activePullCount[contentId] ?? 1) - 1;
+    if (n <= 0) {
+      _activePullCount.remove(contentId);
+    } else {
+      _activePullCount[contentId] = n;
+    }
+  }
+
+  /// True while ANYONE owns a transfer for [contentId]: an executing pull, a
+  /// datagram fetch, or a parked download awaiting a re-advertised manifest.
+  bool _pullActive(String contentId) =>
+      (_activePullCount[contentId] ?? 0) > 0 ||
+      _fetching.containsKey(contentId) ||
+      _pendingDownload.containsKey(contentId);
+
   /// Persist [m] once if a durable pending download exists for it — offers
   /// often arrive as manifest-REFS, so the full manifest only becomes known
   /// mid-pull (stream header / ref resolve); this is what makes a
@@ -3718,8 +3743,14 @@ class MessagingService {
         _completePendingDownload(contentId);
         return;
       }
-      // A transfer for this content is visibly alive — don't stack a second
-      // swarm on it; look again later.
+      // Someone still owns a transfer for this content (an executing pull, a
+      // datagram fetch, or a parked plain-file save) — never stack a second
+      // one; its terminal failure event reschedules us. The progress-recency
+      // check below stays as a belt for paths without pull bookkeeping.
+      if (_pullActive(contentId)) {
+        _scheduleDownloadResume(contentId, after: downloadResumeLiveGrace * 2);
+        return;
+      }
       final lastProgress = _resumeProgressAt[contentId];
       if (lastProgress != null &&
           DateTime.now().difference(lastProgress) < downloadResumeLiveGrace) {
@@ -5326,6 +5357,25 @@ class MessagingService {
     _FetchSink? sink,
     String? savedPath,
   }) async {
+    _pullStarted(manifest.contentId);
+    try {
+      return await _pullSwarmPiecesToCompletionInner(
+        peers,
+        manifest,
+        sink: sink,
+        savedPath: savedPath,
+      );
+    } finally {
+      _pullEnded(manifest.contentId);
+    }
+  }
+
+  Future<bool> _pullSwarmPiecesToCompletionInner(
+    Iterable<NodeId> peers,
+    ContentManifest manifest, {
+    _FetchSink? sink,
+    String? savedPath,
+  }) async {
     final cid = manifest.contentId;
     unawaited(_persistManifestIfPending(manifest));
     if (_transport is! StreamTransport ||
@@ -6151,6 +6201,7 @@ class MessagingService {
         : _streamPullMaxAttempts;
     ContentManifest? resumeManifest;
     var resumePiece = 0;
+    _pullStarted(cid);
     try {
       for (var attempt = 1; attempt <= maxAttempts && !_disposed; attempt++) {
         var payloadStarted = false;
@@ -6387,6 +6438,7 @@ class MessagingService {
         await Future<void>.delayed(_streamPullRetryDelay(attempt));
       }
     } finally {
+      _pullEnded(cid);
       if (!ok && lastError != null) {
         devLog(
           () =>
@@ -7030,21 +7082,45 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
 /// shortly after the final emit so the file bubble flips to its downloaded/saved
 /// state instead of lingering at 100%.
 class ContentProgressNotifier extends StateNotifier<Map<String, double>> {
-  ContentProgressNotifier(MessagingService svc) : super(const {}) {
-    _sub = svc.contentProgress.listen((e) {
+  ContentProgressNotifier(MessagingService svc)
+    : this.forStreams(svc.contentProgress, svc.contentDownloadFailed);
+
+  @visibleForTesting
+  ContentProgressNotifier.forStreams(
+    Stream<({String contentId, int done, int total})> progress,
+    Stream<String> failed,
+  ) : super(const {}) {
+    _sub = progress.listen((e) {
       final frac = e.total <= 0 ? 0.0 : e.done / e.total;
+      // Late echoes of a transfer that already completed (a duplicate pull
+      // draining out) must not resurrect the bar.
+      final doneAt = _completedAt[e.contentId];
+      if (doneAt != null) {
+        if (DateTime.now().difference(doneAt) < const Duration(seconds: 30)) {
+          return;
+        }
+        _completedAt.remove(e.contentId);
+      }
+      // Monotonic latch: several emitters share this per-contentId channel
+      // (restart markers are 0/1; retries and concurrent pulls count from
+      // their own resume baselines) — the bar only ever moves forward. The
+      // entry resets only via the completion cleanup / failure listener.
+      final prev = state[e.contentId];
+      if (prev != null && frac < prev) return;
       state = {...state, e.contentId: frac};
       if (e.done >= e.total) {
+        _completedAt[e.contentId] = DateTime.now();
         Future<void>.delayed(const Duration(milliseconds: 800), () {
           if (mounted) state = {...state}..remove(e.contentId);
         });
       }
     });
-    _failedSub = svc.contentDownloadFailed.listen((contentId) {
+    _failedSub = failed.listen((contentId) {
       state = {...state}..remove(contentId);
     });
   }
 
+  final Map<String, DateTime> _completedAt = {};
   StreamSubscription<({String contentId, int done, int total})>? _sub;
   StreamSubscription<String>? _failedSub;
 
