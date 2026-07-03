@@ -170,12 +170,16 @@ void main() {
         blob: Uint8List.fromList([0, 1]), // undecryptable, never removed
       );
       // Must terminate (the same cid is not "fresh" twice within one drain).
+      // A relay re-serving an already-handled blob triggers a bounded set of
+      // ack-settle retries (the throughput fix that lets a correct relay's
+      // whole backlog clear in one drain) — an ack-IGNORING relay just exhausts
+      // that small budget and stops, never spinning forever.
       expect(
         await orch.drain(
             me: me, authCookie: cookie, ourCertVersion: 1, alreadyHave: never),
         isEmpty,
       );
-      expect(sticky.fetchCalls, lessThanOrEqualTo(2));
+      expect(sticky.fetchCalls, lessThanOrEqualTo(9));
     });
   });
 
