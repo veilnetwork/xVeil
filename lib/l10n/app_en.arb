@@ -153,6 +153,8 @@
   "settingsStorageCompactBody": "Reclaim unused space — the app re-opens.",
   "settingsStorageCompactDone": "Reclaimed",
   "settingsStorageCompactFailed": "Couldn't compact storage",
+  "settingsStorageAutoCompact": "Auto-compact on unlock",
+  "settingsStorageAutoCompactBody": "Compact automatically when the container bloats. Enable ONLY if no other hidden identity lives in this container — compaction keeps just the unlocked space.",
   "settingsStoragePasswordHint": "Your password",
   "settingsNetwork": "Network & nodes",
   "settingsAppearance": "Appearance",

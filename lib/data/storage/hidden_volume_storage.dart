@@ -634,13 +634,25 @@ class HiddenVolumeStorage implements Storage {
     }
     final highWater = <String, int>{};
     final holes = <String, List<(int, int)>>{};
-    seqsByAuthor.forEach((author, seqs) {
-      // Contiguous high-water: the longest gap-free prefix 1..hw.
-      var hw = 0;
+    // Authors to consider: everyone with rows, plus the conversation peer (in a
+    // 1:1 chat the conv id IS the peer's author hex) — a peer whose rows were
+    // all cleared can still carry a declared floor that must surface as its
+    // high-water, or its next live message re-opens the phantom-hole loop.
+    final authors = <String>{...seqsByAuthor.keys, conv};
+    for (final author in authors) {
+      final seqs = seqsByAuthor[author] ?? const <int>{};
+      // The author's declared gap-fill floor: seqs ≤ floor no longer exist at
+      // the source (history cleared/erased there) — they are consumed by
+      // definition, NOT holes. See [applyAuthorSyncFloor].
+      final floor = await _syncFloor(conv, author);
+      if (seqs.isEmpty && floor <= 0) continue;
+      // Contiguous high-water: the longest gap-free prefix above the floor.
+      var hw = floor;
       while (seqs.contains(hw + 1)) {
         hw++;
       }
       highWater[author] = hw;
+      if (seqs.isEmpty) continue;
       // Interior holes: the missing seqs strictly between the high-water and the
       // highest observed seq, coalesced into ranges. (Nothing above max is a
       // "hole" — those unseen seqs are covered by the high-water "ship me newer"
@@ -657,9 +669,51 @@ class HiddenVolumeStorage implements Storage {
         }
       }
       if (ranges.isNotEmpty) holes[author] = ranges;
-    });
+    }
     return (highWater: highWater, holes: holes);
   }
+
+  String _syncFloorKey(String conv, String author) => 'sync_floor:$conv:$author';
+
+  Future<int> _syncFloor(String conv, String author) async {
+    final raw = await _as.get(Ns.settings, _sk('set:${_syncFloorKey(conv, author)}'));
+    if (raw == null) return 0;
+    return int.tryParse(utf8.decode(raw, allowMalformed: true)) ?? 0;
+  }
+
+  @override
+  Future<void> applyAuthorSyncFloor(
+    String conversationId,
+    String author,
+    int floor,
+  ) async {
+    if (floor <= 0) return;
+    // Monotonic max-merge; putSetting's no-change shield makes re-applies free.
+    if (await _syncFloor(conversationId, author) >= floor) return;
+    await putSetting(_syncFloorKey(conversationId, author), '$floor');
+  }
+
+  @override
+  Future<int> ownSyncFloor(String conversationId, String author) =>
+      _serialized(() async {
+        // Lowest own event still stored → floor is one below it; nothing stored
+        // at all → everything ever emitted (next-seq counter − 1) is gone.
+        int? minSeq;
+        final entries = await _as.iterLogRange(
+          namespace: Ns.messageLog,
+          limit: _logScanLimit,
+        );
+        for (final e in entries) {
+          final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
+          if (m['c'] != conversationId || m['op'] == 'status') continue;
+          if (m['au'] != author) continue;
+          final sq = m['sq'];
+          if (sq is! int || sq <= 0) continue;
+          if (minSeq == null || sq < minSeq) minSeq = sq;
+        }
+        if (minSeq != null) return minSeq - 1;
+        return await _nextConvSeq(conversationId, author) - 1;
+      });
 
   @override
   Future<List<LogEvent>> loadEventsSince(

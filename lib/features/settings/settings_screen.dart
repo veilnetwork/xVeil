@@ -35,29 +35,48 @@ class SettingsScreen extends ConsumerWidget {
   ) async {
     final ctrl = ref.read(appControllerProvider.notifier);
     final size = await ctrl.containerSizeBytes();
+    var autoCompact = await ctrl.autoCompactEnabled();
     if (!context.mounted) return;
     await showModalBottomSheet<void>(
       context: context,
       builder: (sheet) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.sd_storage_outlined),
-              title: Text(l.settingsStorage),
-              subtitle: Text(size == null ? '—' : _fmtBytes(size)),
-            ),
-            if (ctrl.canCompactStorage)
+        child: StatefulBuilder(
+          builder: (sheet, setSheetState) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
               ListTile(
-                leading: const Icon(Icons.compress),
-                title: Text(l.settingsStorageCompact),
-                subtitle: Text(l.settingsStorageCompactBody),
-                onTap: () {
-                  Navigator.of(sheet).pop();
-                  _compact(context, ref, l);
-                },
+                leading: const Icon(Icons.sd_storage_outlined),
+                title: Text(l.settingsStorage),
+                subtitle: Text(size == null ? '—' : _fmtBytes(size)),
               ),
-          ],
+              if (ctrl.canCompactStorage)
+                ListTile(
+                  leading: const Icon(Icons.compress),
+                  title: Text(l.settingsStorageCompact),
+                  subtitle: Text(l.settingsStorageCompactBody),
+                  onTap: () {
+                    Navigator.of(sheet).pop();
+                    _compact(context, ref, l);
+                  },
+                ),
+              if (ctrl.canCompactStorage)
+                // Opt-in ONLY: auto-compaction keeps just the unlocked space,
+                // so flipping this is the user's attestation that no other
+                // hidden identity lives in this container (same contract as the
+                // manual compact above — see AppController.autoCompactEnabled).
+                SwitchListTile(
+                  secondary: const Icon(Icons.compress_outlined),
+                  title: Text(l.settingsStorageAutoCompact),
+                  subtitle: Text(l.settingsStorageAutoCompactBody),
+                  isThreeLine: true,
+                  value: autoCompact,
+                  onChanged: (v) {
+                    setSheetState(() => autoCompact = v);
+                    ctrl.setAutoCompactEnabled(v);
+                  },
+                ),
+            ],
+          ),
         ),
       ),
     );

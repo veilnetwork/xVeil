@@ -28,6 +28,11 @@ final Uint8List kMailboxAppId = Uint8List.fromList(const [
 const int kMailboxPutEndpointId = 1;
 const int kMailboxFetchEndpointId = 2;
 
+/// Receiver-authenticated ACK: "drop my blob `content_id`". Relays older than
+/// the endpoint simply have nothing bound there and drop the deliver — the ack
+/// is fire-and-forget, so mixed fleets degrade to the old TTL-only behavior.
+const int kMailboxAckEndpointId = 3;
+
 /// Encode a `MailboxPutPayload` (veil-proto `ipc.rs`) for the network PUT wire:
 ///   receiver_id(32) | content_id(32) | sender_id(32) | blob_len(u32 BE) | blob
 ///   | push_env_len(u16) | cap_token_len(u16) | wake_env_len(u16)
@@ -451,9 +456,49 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     required NodeId me,
     required Uint8List contentId,
     required Uint8List authCookie,
+    List<NodeId> knownRelays = const [],
   }) async {
-    // No-op: the network mailbox has no ack endpoint. FETCH is non-destructive
-    // (blobs age out via the relay's quota / validity window); de-duplication
-    // is receiver-side by contentId. See the class doc.
+    // Authenticated fire-and-forget ACK to every relay this drain fetched from
+    // (a deposit fans out to several replicas — each holds its own copy). The
+    // relay verifies the sender identity exactly like FETCH (the verified
+    // src_node_id IS the receiver whose blob is dropped), so no cookie. A relay
+    // predating the ack endpoint silently drops the deliver — the blob then
+    // just ages out via its 7-day TTL as before; the receiver-side dedup /
+    // poisoned-blob quarantine keeps the drain correct either way.
+    if (contentId.length != 32) return;
+    for (final relay in knownRelays) {
+      Uint8List? relayKemPk;
+      try {
+        relayKemPk = await _relayKeyCache?.get(relay);
+      } catch (_) {
+        relayKemPk = null;
+      }
+      try {
+        if (relayKemPk != null && relayKemPk.length == 32) {
+          // KEM-key-given (the same routing that makes FETCH reliable). The
+          // one-time reply block goes unused — the ack handler doesn't answer —
+          // but only the Direct* variant offers the key-given routing.
+          await _fetchApp.sendAnonymousAuthenticatedDirectWithReply(
+            dstNodeId: relay.bytes,
+            dstX25519Pk: relayKemPk,
+            dstAppId: kMailboxAppId,
+            dstEndpointId: kMailboxAckEndpointId,
+            replyEndpointId: _replyEndpointId,
+            data: contentId,
+          );
+        } else {
+          await _fetchApp.sendAnonymousAuthenticated(
+            dstNodeId: relay.bytes,
+            dstAppId: kMailboxAppId,
+            dstEndpointId: kMailboxAckEndpointId,
+            data: contentId,
+          );
+        }
+      } catch (e) {
+        // Best-effort: a lost ack only delays the drop to the blob's TTL.
+        devLog(() =>
+            'xVeil[drain]: ack to ${relay.short} failed (non-fatal): $e');
+      }
+    }
   }
 }

@@ -346,4 +346,64 @@ void main() {
         contains('b-lost'),
         reason: "A recovered B's lost message via the beacon-back");
   });
+
+  test(
+      'peers whose early history was erased at the source CONVERGE via the '
+      'beacon floor instead of an endless holes/reship ping-pong', () async {
+    await mA.sendText(b, 'old-1');
+    await mA.sendText(b, 'old-2');
+    await mB.sendText(a, 'old-b1');
+    await _settle();
+
+    // Wholesale log erase on BOTH ends while the per-author seq counters keep
+    // advancing (the bench /purge_files state — the same shape as any lost
+    // early history). The erased prefix no longer exists at its AUTHOR, so no
+    // re-request can ever fill it.
+    await sA.purgeMessageLog();
+    await sB.purgeMessageLog();
+
+    await mA.sendText(b, 'new-a'); // A's stream: rows {3} everywhere
+    await _settle();
+
+    // Without the floor, B saw A:{3} as hw=0 + hole [1..2] and every beacon
+    // round re-triggered the same futile reship of 'new-a', forever.
+    await mB.reconcileOnConnect();
+    await _settle();
+
+    final syncB = await sB.conversationSync(a.hex);
+    expect(syncB.highWater[a.hex], 3,
+        reason: "A's beacon floor closes the erased prefix — hw reaches the "
+            'live message');
+    expect(syncB.holes, isEmpty,
+        reason: 'nothing left to re-request: the ping-pong driver is gone');
+
+    final syncA = await sA.conversationSync(b.hex);
+    expect(syncA.holes, isEmpty,
+        reason: "the beacon-back carries B's floor so A converges too");
+
+    // The live message itself is intact.
+    expect(
+        (await sB.loadMessages(a.hex)).map((m) => m.body), contains('new-a'));
+  });
+
+  test(
+      'a declared floor only silences the SENDER-OWN stream — a forged floor '
+      'for another author is ignored', () async {
+    await mA.sendText(b, 'a-1');
+    await _settle();
+
+    // Inject into A a beacon from B declaring a floor for A's OWN stream. The
+    // handler only accepts fl[src.hex] (an author may void only its own
+    // history), so A's stream state must not move.
+    tA.inject(
+      b,
+      WireEnvelope.sync('{"hw":{},"fl":{"${a.hex}":99},"ep":1}').encode(),
+    );
+    await _settle();
+
+    final syncA = await sA.conversationSync(b.hex);
+    // Had the forged floor been applied, A's own hw would have jumped to 99.
+    expect(syncA.highWater[a.hex] ?? 0, lessThan(99),
+        reason: "a peer must not be able to void another author's stream");
+  });
 }
