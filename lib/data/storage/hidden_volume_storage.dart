@@ -167,6 +167,15 @@ class HiddenVolumeStorage implements Storage {
 
   @override
   Future<void> putSetting(String key, String value) async {
+    // Idempotent-write chokepoint: every commit is padded to a full bucket
+    // (256 KiB) that the append-only container NEVER reclaims until a manual
+    // compaction, so re-persisting an unchanged value (retry drivers, reoffer
+    // rounds, per-launch re-puts whose in-RAM guards reset) permanently grows
+    // the container. Skipping the no-op write here shields ALL callers at once.
+    final existing = await _as.get(Ns.settings, _sk('set:$key'));
+    if (existing != null && utf8.decode(existing, allowMalformed: true) == value) {
+      return;
+    }
     await _as.commit([PutOp(Ns.settings, _sk('set:$key'), _sk(value))]);
   }
 
@@ -180,6 +189,13 @@ class HiddenVolumeStorage implements Storage {
   // entry, so it inherits the space's deniability — no plaintext config file.
   @override
   Future<void> saveNodeConfig(String configToml) async {
+    // Same no-op-write shield as putSetting: the config is re-saved on every
+    // node (re)start, almost always byte-identical.
+    final existing = await _as.get(Ns.settings, _sk('node:config'));
+    if (existing != null &&
+        utf8.decode(existing, allowMalformed: true) == configToml) {
+      return;
+    }
     await _as.commit([PutOp(Ns.settings, _sk('node:config'), _sk(configToml))]);
   }
 
@@ -1347,6 +1363,20 @@ class HiddenVolumeStorage implements Storage {
     String messageId,
     MessageStatus status,
   ) async {
+    // Idempotent vs the STORED fold: peers re-ack once per launch for as long
+    // as their relay blob lives, and the caller's once-per-id guard is in-RAM
+    // only — without this check every launch appended a duplicate status row
+    // (a padded commit + a log record, forever). Same-status = true no-op.
+    try {
+      for (final m in await _scanLog()) {
+        if (m.id == messageId && m.conversationId == conversationId) {
+          if (m.status == status) return;
+          break;
+        }
+      }
+    } catch (_) {
+      // Best-effort: an unreadable scan falls through to the normal append.
+    }
     // Append-only log can't mutate a row, so record a status OP that [_scanLog]
     // folds onto the message (latest wins). Drives the outbox: an ack flips a
     // message to `delivered` so it is no longer re-sent. The op carries the
