@@ -164,6 +164,10 @@ class MailboxService implements MailboxSink {
   // down seed) doesn't trigger a resolve every tick forever. ~2 min at 10s.
   int _warmAttempts = 0;
   static const int _maxWarmAttempts = 12;
+  // Bounds the "cover the REMAINING candidates with a KEM publisher" retries
+  // after the first registration stuck — same rationale as the warm bound.
+  int _registerAttempts = 0;
+  static const int _maxRegisterAttempts = 12;
   // Rotates through the unwarmed candidates so a down one doesn't starve warming
   // of the others (we warm only ONE per tick to keep the UI isolate responsive).
   int _warmCursor = 0;
@@ -258,16 +262,25 @@ class MailboxService implements MailboxSink {
     });
   }
 
-  /// One pass over the relay candidates, registering at the first that resolves.
+  /// Relays where a KEM-bearing publisher entry was registered THIS session.
+  /// Registering at EVERY resolvable candidate (not just the first) makes
+  /// every published ad slot carry our relay KEM key — so a sender that can
+  /// only resolve SOME slots after our restart still finds a deposit-capable
+  /// ad, instead of hitting usable(KEM)=0 until the preferred slot propagates.
+  final Set<String> _publisherRegistered = {};
+
+  /// One pass over the relay candidates, registering at EVERY one that
+  /// resolves. The FIRST success stays the drain anchor ([_registeredRelay] /
+  /// preferred-relay persistence); the rest only add KEM-bearing publisher
+  /// entries (the node's built-in refresh keeps them alive, preserving KEM).
   Future<void> _tryRegister() async {
     for (final relay in _relays) {
-      if (_registered) break;
       await _register(relay);
     }
   }
 
   Future<void> _register(NodeId relay) async {
-    if (_registered) return;
+    if (_publisherRegistered.contains(relay.hex)) return;
     // Prefer a FRESH, verified resolve — now a one-hop fast path straight to the
     // connected relay (see veil's connected-peer resolver), so it succeeds even
     // on a cold routing table right after a restart. Only if that genuinely
@@ -300,10 +313,13 @@ class MailboxService implements MailboxSink {
         relayKemAlgo: 0,
         relayKemPk: kem,
       );
-      _registered = true;
-      _registeredRelay = relay; // drain fetches straight from here (no DHT re-resolve)
-      // Remember this relay so the next session re-picks it first (Fix 4).
-      unawaited(_relayKeyCache?.setPreferredRelay(relay) ?? Future.value());
+      _publisherRegistered.add(relay.hex);
+      if (!_registered) {
+        _registered = true;
+        _registeredRelay = relay; // drain anchor (no DHT re-resolve per poll)
+        // Remember this relay so the next session re-picks it first (Fix 4).
+        unawaited(_relayKeyCache?.setPreferredRelay(relay) ?? Future.value());
+      }
       if (fromFresh) {
         // Persist the freshly-verified key for a future cold start.
         unawaited(_relayKeyCache?.put(relay, kem) ?? Future.value());
@@ -456,8 +472,14 @@ class MailboxService implements MailboxSink {
       // Keep trying to advertise a mailbox relay until one resolves — a relay's
       // published key can appear well after we first connect, so this persistent
       // retry (every drain interval) is what makes us reachable by node_id once
-      // a relay is actually resolvable.
-      if (!_registered && _relays.isNotEmpty) {
+      // a relay is actually resolvable. Once ONE stuck we are reachable; keep
+      // (bounded) trying to cover the REMAINING candidates too, so every ad
+      // slot carries our KEM key (see [_publisherRegistered]).
+      if (_relays.isNotEmpty &&
+          (!_registered ||
+              (_publisherRegistered.length < _relays.length &&
+                  _registerAttempts < _maxRegisterAttempts))) {
+        if (_registered) _registerAttempts++;
         await _tryRegister();
       }
       // Deduped union: the relay we registered at + the candidate relays whose

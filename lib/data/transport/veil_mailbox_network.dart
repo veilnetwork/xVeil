@@ -245,12 +245,46 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
   }) async {
     final replicas =
         await _client.mailbox.lookupRendezvousReplicas(receiver.bytes);
-    final usable = replicas
-        .where((r) => r.rendezvousKemPk.length == 32)
-        .take(_putReplicaFanout)
-        .toList();
+    // A usable deposit target = the replica's relay + that relay's public
+    // X25519 (the PUT's seal target). Prefer the key carried by the ad itself
+    // (v5 KEM field); when the ad is KEM-LESS — e.g. the recipient's node
+    // republished its slots after a restart before the app layer re-attached
+    // the relay key — the ad still NAMES the relay, and the relay's key is a
+    // public value we usually already hold (the drain warms every candidate
+    // into the relay-key cache) or can fetch with a one-hop relay-dir lookup.
+    // Without this fallback a recipient restart black-holed deposits for as
+    // long as no KEM-bearing ad was resolvable (observed ~19 min on the
+    // stand): texts AND file offers from the peer silently stopped arriving.
+    final usable = <({Uint8List relayNodeId, Uint8List kemPk})>[];
+    final seenRelays = <String>{};
+    var filledFromCache = 0;
+    for (final r in replicas) {
+      if (usable.length >= _putReplicaFanout) break;
+      final relay = NodeId(Uint8List.fromList(r.relayNodeId));
+      if (!seenRelays.add(relay.hex)) continue;
+      if (r.rendezvousKemPk.length == 32) {
+        usable.add((
+          relayNodeId: r.relayNodeId,
+          kemPk: Uint8List.fromList(r.rendezvousKemPk),
+        ));
+        continue;
+      }
+      var kem = await _relayKeyCache?.get(relay);
+      if (kem == null || kem.length != 32) {
+        try {
+          kem = await _client.lookupRelayX25519(relay.bytes);
+        } catch (_) {
+          kem = null; // best-effort — the replica is simply skipped
+        }
+      }
+      if (kem != null && kem.length == 32) {
+        usable.add((relayNodeId: relay.bytes, kemPk: kem));
+        filledFromCache++;
+      }
+    }
     devLog(() => 'xVeil[stash-put]: dst=${receiver.hex.substring(0, 8)} '
-        'replicas_resolved=${replicas.length} usable(KEM)=${usable.length}');
+        'replicas_resolved=${replicas.length} usable(KEM)=${usable.length}'
+        '${filledFromCache > 0 ? ' (kem_filled=$filledFromCache)' : ''}');
     if (usable.isEmpty) {
       throw StateError(
           'no rendezvous replica with a usable KEM key for ${receiver.hex} — '
@@ -276,7 +310,7 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
         for (final chunk in chunks) {
           await _client.sendAnonymousDirect(
             targetNodeId: r.relayNodeId,
-            targetX25519Pk: Uint8List.fromList(r.rendezvousKemPk),
+            targetX25519Pk: r.kemPk,
             targetAppId: kMailboxAppId,
             targetEndpointId: kMailboxPutEndpointId,
             srcAppId: _srcAppId,
