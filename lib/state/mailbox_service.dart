@@ -3,7 +3,6 @@
 // libraries), so an explicit initializer list is required.
 // ignore_for_file: prefer_initializing_formals
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:veil_flutter/veil_flutter.dart';
@@ -30,6 +29,12 @@ abstract interface class MailboxSink {
   /// arrived), so any mail it stashed should be drained promptly rather than on
   /// the idle back-off. Best-effort + debounced; see [MailboxService.nudgeDrain].
   void nudgeDrain();
+
+  /// Hint that a conversation is ACTIVE right now (the user just sent
+  /// something, or mail just arrived), so a reply is likely to land at the
+  /// relay within seconds — poll at the fast burst cadence for a bounded
+  /// window instead of the idle interval. See [MailboxService.noteActivity].
+  void noteActivity();
 }
 
 /// Runs the offline-delivery side of messaging alongside [MessagingService]:
@@ -95,6 +100,30 @@ class MailboxService implements MailboxSink {
 
   Timer? _drainTimer;
   bool _draining = false;
+  // ---- Conversation burst window ("hot" mode) ----------------------------
+  // Dialogs are bursty: after one message, the next usually follows within
+  // seconds. While hot, the drain polls at [hotDrainInterval] and empty drains
+  // do NOT escalate the idle back-off; the window is (re)armed by real
+  // conversation activity only — mail actually drained, a live inbound frame
+  // (nudgeDrain), or the user sending something (noteActivity) — and expires on
+  // its own, so a genuinely idle client never pays the fast cadence. This is
+  // the battery guard: cost is strictly proportional to user-visible activity.
+  DateTime? _hotUntil;
+
+  /// Fast poll cadence while a conversation is active. Mutable for tests.
+  Duration hotDrainInterval = const Duration(seconds: 3);
+
+  /// How long one activity signal keeps the fast cadence armed. Each new
+  /// signal re-arms the full window, so an ongoing dialog stays hot; two
+  /// minutes of silence returns to the idle interval + exponential back-off.
+  Duration hotWindow = const Duration(minutes: 2);
+
+  bool get _isHot {
+    final until = _hotUntil;
+    return until != null && DateTime.now().isBefore(until);
+  }
+
+  void _heat() => _hotUntil = DateTime.now().add(hotWindow);
   // Back off draining a relay that keeps returning nothing (e.g. one that never
   // answers FETCH): its per-drain timeout periodically stalled the shared IPC
   // and froze the UI. After an empty/failed drain we skip the next 2^streak
@@ -186,8 +215,25 @@ class MailboxService implements MailboxSink {
       await _tryRegister();
     }
     devLog(() => 'xVeil[mailbox]: start done — registered=$_registered');
-    _drainTimer ??= Timer.periodic(_drainInterval, (_) => _drainTick());
+    if (_drainTimer == null) _armDrainLoop();
     unawaited(_drainTick()); // don't wait a full interval for the first drain
+  }
+
+  /// (Re)arm the self-scheduling drain loop at the CURRENT cadence — the hot
+  /// burst interval while a conversation window is open, the idle interval
+  /// otherwise. Self-scheduling (vs a fixed [Timer.periodic]) is what lets the
+  /// cadence follow the hot window without stacking timers; the loop stops
+  /// whenever [_drainTimer] is cleared (dispose / dead handle).
+  void _armDrainLoop() {
+    if (_handleDead) return;
+    _drainTimer?.cancel();
+    _drainTimer = Timer(_isHot ? hotDrainInterval : _drainInterval, () {
+      unawaited(
+        _drainTick().whenComplete(() {
+          if (_drainTimer != null && !_handleDead) _armDrainLoop();
+        }),
+      );
+    });
   }
 
   /// One pass over the relay candidates, registering at the first that resolves.
@@ -267,6 +313,7 @@ class MailboxService implements MailboxSink {
   /// [recipient] under [contentId] (the message uuid) and deposit it at the
   /// recipient's advertised relay. Best-effort: throws on no-route / no relay so
   /// the caller's outbox retries.
+  @override
   Future<void> stash({
     required NodeId recipient,
     required Uint8List payload,
@@ -327,8 +374,13 @@ class MailboxService implements MailboxSink {
   /// message surfaces only on the next idle drain (~30 s on the stand); with it,
   /// within the debounce window (~seconds). Cheap + self-limiting: one fetch
   /// round, debounced, and a no-op while a drain is already in flight.
+  @override
   void nudgeDrain() {
     if (_handleDead || _drainTimer == null) return;
+    // A live frame = an active conversation: open the burst window so the
+    // NEXT few polls run at the fast cadence too, not just this one.
+    _heat();
+    _armDrainLoop();
     final now = DateTime.now();
     final last = _lastNudge;
     if (last != null && now.difference(last) < _nudgeDebounce) return;
@@ -338,6 +390,23 @@ class MailboxService implements MailboxSink {
     _drainSkips = 0;
     _emptyDrainStreak = 0;
     unawaited(_drainTick());
+  }
+
+  /// The user just SENT something (message / file / request): a reply tends to
+  /// follow within seconds, but it almost always arrives as mailbox mail here
+  /// (the live introduce toward us may be down — that's the whole point), so
+  /// poll fast for [hotWindow]. No immediate drain: the reply physically can't
+  /// be at the relay yet; the first hot tick a few seconds out is the earliest
+  /// useful probe. Bounded battery cost: the window only exists around real
+  /// user actions and expires on silence.
+  @override
+  void noteActivity() {
+    if (_handleDead || _drainTimer == null) return;
+    _heat();
+    _drainSkips = 0;
+    _emptyDrainStreak = 0;
+    _armDrainLoop(); // re-arm NOW at the hot cadence (a pending idle-interval
+    // timer would otherwise delay the first fast poll by up to _drainInterval)
   }
 
   Future<void> _drainTick() async {
@@ -414,15 +483,25 @@ class MailboxService implements MailboxSink {
       _draining = false;
       if (gotMail) {
         // Mail delivered — clear all back-off and re-poll promptly (more may be
-        // queued at the relay).
+        // queued at the relay), and open the burst window: an incoming message
+        // is the strongest predictor that another follows within seconds.
+        _heat();
         _emptyDrainStreak = 0;
         _drainSkips = 0;
+        if (_drainTimer != null) _armDrainLoop(); // switch to the hot cadence NOW
       } else if (unreachable) {
         // Transient: bounded retry. Don't touch the idle streak (a relay never
         // confirmed empty), and cap the skip low so pending mail is stranded for
         // seconds, not minutes — while still spacing the (up to fetch-timeout)
         // IPC sends enough not to stall the UI every tick.
         _drainSkips = _failureBackoffSkips;
+      } else if (_isHot) {
+        // Empty, but a conversation window is open: keep polling every hot
+        // tick — "empty right now" is expected while we WAIT for the reply,
+        // so it must not count toward the idle back-off. The window's own
+        // expiry is the bound (then the branch below resumes escalating).
+        _emptyDrainStreak = 0;
+        _drainSkips = 0;
       } else {
         // A relay authoritatively answered with an empty mailbox — genuinely
         // idle, so the exponential back-off is appropriate here.

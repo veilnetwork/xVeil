@@ -105,6 +105,12 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     if (state == AppLifecycleState.resumed) {
       // Back in the app — the unread is visible in-app; clear posted alerts.
       unawaited(ref.read(notificationServiceProvider).cancelAll());
+      // And drain the mailbox promptly: after a background stint the idle
+      // back-off can be minutes deep, and "open the app" is exactly when the
+      // user expects parked messages to appear. Guarded: locked → no service.
+      try {
+        ref.read(messagingServiceProvider).onAppResumed();
+      } catch (_) {}
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
       // Minimized — surface every conversation that still has unread (so a
