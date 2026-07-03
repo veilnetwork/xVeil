@@ -6685,13 +6685,24 @@ class MessagingService {
       if (savedPath != null) {
         try {
           await _storage.putSetting('saved:${m.contentId}', savedPath);
+          // Serve the saved plaintext back on demand (content-addressed): the
+          // ORIGINAL SENDER can recover a file they deleted, and any accepted
+          // holder can re-seed. Mirrors the sender's serve-from-source model —
+          // persist the manifest + the serve path so a stream request / reoffer
+          // reopens the file. If the user later moves or deletes this plain
+          // file, the reopen fails and the peer gets an honest content-GONE.
+          await _persistServeManifest(m);
+          await _storage.putSetting('served:${m.contentId}', savedPath);
+          // Durable-only (no RAM _serving entry): every serve/reoffer reopens
+          // the file from served:<cid>, so a since-moved/deleted plain file is
+          // detected and answered with content-GONE instead of a false offer.
         } catch (_) {}
       }
       _fetchSavePath.remove(m.contentId);
       devLog(
         () =>
             'xVeil[content]: COMPLETE ${m.contentId.substring(0, 12)} '
-            '(${m.size}B) saved to $savedPath',
+            '(${m.size}B) saved to $savedPath (serveable)',
       );
       await _send(peer, WireEnvelope.ack(ackId).encode());
       if (!_contentReceived.isClosed) {
