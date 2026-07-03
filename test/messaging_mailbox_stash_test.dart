@@ -145,6 +145,29 @@ void main() {
     );
   });
 
+  test('a file OFFER (content manifest) is deposited at the recipient mailbox '
+      'so it survives a down live path like a text message does', () async {
+    await mA.acceptContact(b);
+    sink.stashed.clear();
+    // A file above the content threshold goes through the content layer as a
+    // manifest offer. Before the fix this was live-only, so on a flaky link the
+    // offer vanished while texts (which stash) still arrived. The manifest
+    // frame must now be deposited too, keyed by the send's msgId.
+    await mA.sendFile(
+        b,
+        Uint8List.fromList(List.generate(200000, (i) => i & 0xff)),
+        'photo.bin');
+    await pumpEventQueue();
+    expect(
+      sink.stashed.any((s) {
+        final env = WireEnvelope.decode(s.$2);
+        return s.$1 == b && env.kind == WireKind.contentManifest;
+      }),
+      isTrue,
+      reason: 'the file offer manifest should be deposited for offline delivery',
+    );
+  });
+
   test('a fast-path (reply-circuit) ACK is NOT deposited — no needless traffic',
       () async {
     await mA.acceptContact(b);
