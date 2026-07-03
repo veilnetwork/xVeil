@@ -33,22 +33,48 @@ Future<VeilServeSource?> veilSourceOpener(String path) async {
 }
 
 /// A plaintext WRITE sink over a destination file — offset writes + close,
-/// the structural shape MessagingService's download-to-file paths take.
+/// plus an optional [read] for RESUME verification (read a piece back and
+/// hash-check it so a restart skips already-written pieces). [read] is null on
+/// a fresh (truncating) open — there is nothing prior to trust.
 typedef VeilPlainFileSink = ({
   Future<void> Function(int offset, Uint8List bytes) write,
   Future<void> Function() close,
+  Future<Uint8List?> Function(int offset, int length)? read,
 });
 
-/// (Re)open [path] as a write sink for a plain-file download, truncating any
-/// prior partial content. Null when the destination can't be opened — e.g. a
-/// sandboxed macOS release after a restart, where the NSSavePanel grant for
-/// the picked path is gone. Writes are serialized through a gate for the same
-/// single-cursor reason as [veilSourceOpener].
-Future<VeilPlainFileSink?> veilPlainFileSinkOpener(String path) async {
+/// (Re)open [path] as a write sink for a plain-file download.
+///
+/// [resume]=false (default): TRUNCATE any prior content and start clean — a
+/// fresh user-initiated download. No [read] (nothing to verify).
+///
+/// [resume]=true: do NOT truncate — keep the bytes a previous run wrote so the
+/// swarm can hash-verify each piece off disk and skip the ones already present
+/// (byte-level resume across a restart). Exposes [read] backed by a second
+/// read-only handle (Dart's write handle can't also read). Best-effort: a
+/// missing file just yields an empty one and every piece re-pulls.
+///
+/// Null when the destination can't be opened — e.g. a sandboxed macOS release
+/// after a restart, where the NSSavePanel grant for the picked path is gone.
+/// Writes are serialized through a gate for the same single-cursor reason as
+/// [veilSourceOpener].
+Future<VeilPlainFileSink?> veilPlainFileSinkOpener(
+  String path, {
+  bool resume = false,
+}) async {
   final RandomAccessFile raf;
+  RandomAccessFile? readRaf;
   try {
     await File(path).parent.create(recursive: true);
-    raf = await File(path).open(mode: FileMode.write);
+    // append = write + create + NO truncate (preserves prior bytes); write =
+    // truncate. Reads need a separate handle — a write handle is write-only.
+    raf = await File(path).open(mode: resume ? FileMode.append : FileMode.write);
+    if (resume) {
+      try {
+        readRaf = await File(path).open(mode: FileMode.read);
+      } catch (_) {
+        readRaf = null; // no reader → resume simply re-pulls every piece
+      }
+    }
   } catch (_) {
     return null;
   }
@@ -64,17 +90,44 @@ Future<VeilPlainFileSink?> veilPlainFileSinkOpener(String path) async {
     return r;
   }
 
+  Future<Uint8List?> Function(int offset, int length)? readFn;
+  if (readRaf != null) {
+    final rr = readRaf;
+    readFn = (int offset, int length) async {
+      // Serialize reads on the write gate too, so a concurrent write's
+      // setPosition can't interleave with a read's (shared file, and the read
+      // handle is independent — the gate is the single cursor of record).
+      Uint8List? out;
+      final r = gate.then((_) async {
+        if (closed) return;
+        try {
+          out = await _readFully(rr, offset, length);
+        } catch (_) {
+          out = null;
+        }
+      });
+      gate = r.then((_) {}, onError: (_) {});
+      await r;
+      return out;
+    };
+  }
+
   Future<void> close() {
     final r = gate.then((_) async {
       if (closed) return;
       closed = true;
       await raf.close();
+      if (readRaf != null) {
+        try {
+          await readRaf.close();
+        } catch (_) {}
+      }
     });
     gate = r.then((_) {}, onError: (_) {});
     return r;
   }
 
-  return (write: write, close: close);
+  return (write: write, close: close, read: readFn);
 }
 
 /// Read EXACTLY [length] bytes at [offset], looping until satisfied or EOF

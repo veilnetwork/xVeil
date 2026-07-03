@@ -821,6 +821,71 @@ void main() {
     },
   );
 
+  test(
+    'PLAIN-FILE download resumes byte-level: pieces already on disk are '
+    'hash-verified via the sink reader and NOT re-fetched',
+    () async {
+      final data = _rnd(700000, 61); // 3 pieces at the default 256 KiB.
+      final manifest = ContentManifest.fromBytes('plain-resume.bin', data);
+      final cid = manifest.contentId;
+
+      await mB.setFileDownloadPolicy(
+        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+      final serveOffsets = <int>[];
+      await mA.sendFileStreaming(b, 'plain-resume.bin', data.length, (
+        o,
+        l,
+      ) async {
+        serveOffsets.add(o);
+        return Uint8List.sublistView(data, o, o + l);
+      }, close: () async {});
+      serveOffsets.clear(); // ignore manifest hashing reads.
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      // A plain-file destination that ALREADY holds pieces 0 and 1 (a prior run
+      // wrote them before a restart). The sink exposes read() — the resume path.
+      final onDisk = <int, Uint8List>{};
+      void seed(int i) => onDisk[i * manifest.pieceSize] =
+          Uint8List.sublistView(
+            data,
+            i * manifest.pieceSize,
+            i * manifest.pieceSize + manifest.pieceLength(i),
+          );
+      seed(0);
+      seed(1);
+
+      final got = mB.contentReceived.firstWhere((e) => e.contentId == cid);
+      final r = await mB.downloadContentToFileFromAny(
+        [a],
+        cid,
+        '/virtual/plain-resume.bin',
+        write: (offset, bytes) async => onDisk[offset] = bytes,
+        read: (offset, length) async {
+          final b = onDisk[offset];
+          if (b == null || b.length != length) return null;
+          return b;
+        },
+        close: () async {},
+      );
+      expect(r, ContentDownloadResult.started);
+      await got.timeout(const Duration(seconds: 20));
+
+      // The whole file is now assembled at the destination…
+      final assembled = BytesBuilder();
+      for (var i = 0; i < manifest.pieceCount; i++) {
+        assembled.add(onDisk[i * manifest.pieceSize]!);
+      }
+      expect(assembled.toBytes(), data);
+      // …but pieces 0 and 1 were already on disk, so only piece 2's offset was
+      // fetched from the holder.
+      expect(serveOffsets, isNot(contains(0)));
+      expect(serveOffsets, isNot(contains(manifest.pieceSize)));
+      expect(serveOffsets, contains(2 * manifest.pieceSize),
+          reason: 'only the missing piece is re-fetched on resume');
+    },
+  );
+
   test('STREAM range pull survives a transient stream-open outage', () async {
     await mB.dispose();
     mB = MessagingService(
