@@ -1135,6 +1135,12 @@ abstract class AppL10n {
   /// **'Requesting the file from the sender…'**
   String get fileRequestingResend;
 
+  /// No description provided for @fileResuming.
+  ///
+  /// In en, this message translates to:
+  /// **'Resuming…'**
+  String get fileResuming;
+
   /// No description provided for @fileGoneAskResend.
   ///
   /// In en, this message translates to:

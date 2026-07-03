@@ -310,6 +310,11 @@ typedef ServeSource = ({
 typedef _FetchSink = ({
   Future<void> Function(int offset, Uint8List bytes) write,
   Future<void> Function() close,
+  // Non-null only on a RESUME reopen of a plain file: reads a piece back so the
+  // swarm can hash-verify it off disk and skip the ones a previous run already
+  // wrote (byte-level restart resume). Null on a fresh download / encrypted
+  // tier (nothing prior to trust).
+  Future<Uint8List?> Function(int offset, int length)? read,
 });
 
 /// Wires the [VeilTransport] inbound stream into [Storage] and exposes a send
@@ -601,7 +606,17 @@ class MessagingService {
   Stream<IncomingNotice> get incoming => _incoming.stream;
 
   void start() {
-    _sub ??= _transport.messages().listen(_onInbound);
+    // LIVE transport frames only (the mailbox drain feeds [deliverInbound]
+    // directly, not this). A frame from a peer proves it is reachable NOW, so
+    // nudge the mailbox to drain promptly: on the desktop→phone path the live
+    // rendezvous introduce is often dropped (cookie_unknown) while the sender's
+    // other live frames (acks / sync beacons) still land — without the nudge the
+    // stashed message surfaces only on the next idle drain (~30 s measured);
+    // with it, within the debounce window. Debounced + no-op without a mailbox.
+    _sub ??= _transport.messages().listen((m) {
+      _mailbox?.nudgeDrain();
+      _onInbound(m);
+    });
     _retryTimer ??= Timer.periodic(_retryInterval, (_) => _retryFlush());
     unawaited(_loadFilePolicy()); // this identity's auto-download policy (A1)
     // Serve inbound bulk file streams (S2) when the transport supports them.
@@ -3387,7 +3402,7 @@ class MessagingService {
     required Future<void> Function(int offset, Uint8List bytes) write,
     required Future<void> Function() close,
   }) async {
-    final sink = (write: write, close: close);
+    final sink = (write: write, close: close, read: null);
     _fetchSavePath[contentId] = savedPath;
     devLog(
       () =>
@@ -3472,8 +3487,11 @@ class MessagingService {
     String savedPath, {
     required Future<void> Function(int offset, Uint8List bytes) write,
     required Future<void> Function() close,
+    // Non-null on a RESUME: reads pieces back off disk so the swarm skips the
+    // ones already written (see [_FetchSink.read]).
+    Future<Uint8List?> Function(int offset, int length)? read,
   }) async {
-    final sink = (write: write, close: close);
+    final sink = (write: write, close: close, read: read);
     _fetchSavePath[contentId] = savedPath;
     devLog(
       () =>
@@ -3651,7 +3669,28 @@ class MessagingService {
         // Store hiccup: the in-RAM cache still drives this session; the next
         // successful mutation persists the merged state.
       }
+      _emitResuming(map.keys.toSet());
     });
+  }
+
+  /// contentIds with a durable auto-resume record right now (queued / retrying
+  /// in the background — the sender may be offline). Distinct from
+  /// [contentProgress], which fires only while a pull is ACTIVELY moving bytes;
+  /// a parked resume shows no progress, so the UI would otherwise look idle.
+  /// The UI shows "resuming…" when a cid is here but has no live progress.
+  final _contentResuming = StreamController<Set<String>>.broadcast();
+  Stream<Set<String>> get contentResuming => _contentResuming.stream;
+  Set<String> _lastResuming = const {};
+
+  void _emitResuming(Set<String> pending) {
+    if (_contentResuming.isClosed) return;
+    // Cheap set-equality gate so a no-change registry rewrite is not an event.
+    if (pending.length == _lastResuming.length &&
+        pending.containsAll(_lastResuming)) {
+      return;
+    }
+    _lastResuming = pending;
+    _contentResuming.add(pending);
   }
 
   void _recordPendingDownload(
@@ -3905,13 +3944,15 @@ class MessagingService {
   }
 
   /// Sink opener used to re-drive plain-file downloads (injectable for tests;
-  /// dart:io stays in the data layer).
-  Future<VeilPlainFileSink?> Function(String path) plainFileSinkOpener =
-      veilPlainFileSinkOpener;
+  /// dart:io stays in the data layer). [resume]=true reopens WITHOUT truncating
+  /// and exposes a reader so already-written pieces are hash-verified + skipped.
+  Future<VeilPlainFileSink?> Function(String path, {bool resume})
+      plainFileSinkOpener = veilPlainFileSinkOpener;
 
   /// Re-drives an unencrypted-to-file download with a service-owned sink.
-  /// The destination is truncated and re-filled: the plain-file sink has no
-  /// durable piece bookkeeping, and writing anywhere except the user-picked
+  /// Reopened NON-truncating (resume): the swarm hash-verifies each piece off
+  /// disk and re-pulls only the missing ones, so a restart mid-download does
+  /// not re-fetch bytes already saved. Writing anywhere except the user-picked
   /// path is forbidden on sandboxed macOS. If the destination cannot be
   /// reopened (a sandboxed release after a restart — the NSSavePanel grant is
   /// gone), the pending record is dropped: the user must re-pick a path.
@@ -3921,7 +3962,7 @@ class MessagingService {
   ) async {
     final contentId = pending.contentId;
     final path = pending.savedPath!;
-    final sink = await plainFileSinkOpener(path);
+    final sink = await plainFileSinkOpener(path, resume: true);
     if (sink == null) {
       devLog(
         () =>
@@ -3937,6 +3978,7 @@ class MessagingService {
       path,
       write: sink.write,
       close: sink.close,
+      read: sink.read, // resume: hash-verify + skip already-written pieces
     );
     // Every other outcome hands the sink to the pull/park machinery, which
     // closes it on completion or reoffer-timeout; a flat "no offer" does not.
@@ -4548,6 +4590,15 @@ class MessagingService {
   // just before recovery. Keep this above the native quiet-path reopen window.
   static const Duration _defaultStreamRequestTimeout = Duration(seconds: 60);
   static const Duration _streamManifestTimeout = Duration(seconds: 25);
+  // Short "did this source even START answering" bound on the manifest read: a
+  // holder that hasn't sent the 4-byte length prefix within this window is
+  // treated as dead so [_fetchManifestFromStream] moves to the NEXT source
+  // immediately, instead of blocking the whole 25s manifest cap on one silent
+  // peer. This is the manifest-phase analogue of the range/data stall-abandon
+  // detector — without it a resume whose first-tried holder is offline stalled
+  // up to 25s per attempt (masked by hedging, but real added latency). The
+  // full 25s cap still governs a manifest that HAS started streaming. Tunable.
+  Duration streamManifestFirstByteTimeout = const Duration(seconds: 8);
   static const Duration _streamSourceReadTimeout = Duration(seconds: 30);
   static const Duration _defaultStreamOpenWriteGrace = Duration(
     milliseconds: 75,
@@ -5115,10 +5166,15 @@ class MessagingService {
       _orderedPullPeers(preferred, peers),
     );
     if (sources.isEmpty) return false;
-    if (sources.length < 2 && !_explicitRangeFanout) {
-      // See _pullSwarmStream: one source → sequential whole-file stream (sink
-      // downloads never have partially stored pieces to skip). Falls through
-      // to the range swarm when no stream opens right now.
+    // A RESUME (sink.read != null) MUST take the range path even for one
+    // source: only the range swarm hash-verifies pieces off disk and skips the
+    // ones already written. The sequential stream would re-fetch from byte 0,
+    // defeating the resume.
+    final isResume = sink.read != null;
+    if (sources.length < 2 && !_explicitRangeFanout && !isResume) {
+      // See _pullSwarmStream: one source → sequential whole-file stream (a FRESH
+      // sink download has no partially stored pieces to skip). Falls through to
+      // the range swarm when no stream opens right now.
       devLog(
         () =>
             'xVeil[content]: swarm-range-to-file single-source '
@@ -5272,10 +5328,17 @@ class MessagingService {
       final req = _streamRequest(cid, length: 1);
       await Future<void>.delayed(_streamOpenWriteGrace);
       await stream.write(req).timeout(_streamRequestTimeout);
+      // First-byte stall: a source that never sends the length prefix is dead —
+      // abandon it fast (the shorter of the two bounds) so the caller tries the
+      // next holder rather than eating the full 25s cap on one silent peer.
+      final firstByteTimeout =
+          streamManifestFirstByteTimeout < _streamManifestTimeout
+              ? streamManifestFirstByteTimeout
+              : _streamManifestTimeout;
       final lenB = await _readExactly(
         stream,
         4,
-      ).timeout(_streamManifestTimeout, onTimeout: () => null);
+      ).timeout(firstByteTimeout, onTimeout: () => null);
       if (lenB == null) throw StateError('no stream manifest');
       final mfLen = _readU32be(lenB);
       if (mfLen <= 0 || mfLen > (1 << 20)) {
@@ -5616,13 +5679,22 @@ class MessagingService {
     final pending = <int>[];
     final completed = <int>{};
     var completedBytes = 0;
+    // A RESUME reopen of a plain file provides a reader; read each piece back
+    // off disk and hash-verify it (mirror of the encrypted-tier skip below), so
+    // a restart re-pulls only the MISSING pieces instead of the whole file. A
+    // fresh download / encrypted tier: sink.read is null → nothing to skip.
+    final sinkRead = sink?.read;
     for (var i = 0; i < manifest.pieceCount; i++) {
       final len = manifest.pieceLength(i);
-      final existing = sink == null
-          ? await _storage.readFileRange(cid, i * manifest.pieceSize, len)
-          : null;
-      if (sink == null &&
-          existing != null &&
+      final Uint8List? existing;
+      if (sink == null) {
+        existing = await _storage.readFileRange(cid, i * manifest.pieceSize, len);
+      } else if (sinkRead != null) {
+        existing = await sinkRead(i * manifest.pieceSize, len);
+      } else {
+        existing = null;
+      }
+      if (existing != null &&
           existing.length == len &&
           manifest.verifyPiece(i, existing)) {
         completed.add(i);
@@ -7127,6 +7199,7 @@ class MessagingService {
     await _contentReceived.close();
     await _contentProgress.close();
     await _contentFailed.close();
+    await _contentResuming.close();
   }
 }
 
@@ -7355,6 +7428,34 @@ class ContentProgressNotifier extends StateNotifier<Map<String, double>> {
 final contentProgressProvider =
     StateNotifierProvider<ContentProgressNotifier, Map<String, double>>(
       (ref) => ContentProgressNotifier(ref.watch(messagingServiceProvider)),
+    );
+
+/// The set of contentIds with a background auto-resume record (queued /
+/// retrying — the sender may be offline). Drives the file bubble's "resuming…"
+/// hint for a parked download, which shows NO [contentProgress] until a pull
+/// actually starts moving bytes.
+class ContentResumingNotifier extends StateNotifier<Set<String>> {
+  ContentResumingNotifier(MessagingService svc)
+    : this.forStream(svc.contentResuming);
+
+  @visibleForTesting
+  ContentResumingNotifier.forStream(Stream<Set<String>> resuming)
+    : super(const {}) {
+    _sub = resuming.listen((s) => state = s);
+  }
+
+  StreamSubscription<Set<String>>? _sub;
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+}
+
+final contentResumingProvider =
+    StateNotifierProvider<ContentResumingNotifier, Set<String>>(
+      (ref) => ContentResumingNotifier(ref.watch(messagingServiceProvider)),
     );
 
 /// Candidate mailbox-relay node_ids derived from configured bootstrap peers: a
