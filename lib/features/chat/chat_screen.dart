@@ -258,7 +258,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       await _saveFile(m);
       return;
     }
-    final cid = m.fileContentId;
+    // The content hash used to REQUEST the bytes. For an OFFERED incoming file
+    // it's fileContentId; for our OWN sent file (served from a source that is
+    // now gone) it's fileId — falling back lets us pull our own file back from
+    // the recipient (content-addressed: they still hold the identical bytes).
+    final cid = m.fileContentId ?? m.fileId;
     if (cid == null) return;
     // Already downloaded UNENCRYPTED to a plain file → OPEN it (it isn't in the
     // app store, so hasFile is false — don't re-offer).
@@ -1378,7 +1382,7 @@ class _Bubble extends ConsumerWidget {
     } catch (_) {
       if (message.fileId != null) return _FileAffordance.save;
     }
-    final cid = message.fileContentId;
+    final cid = message.fileContentId ?? message.fileId;
     if (cid != null) {
       final saved = await ref
           .read(messagingServiceProvider)
@@ -1409,8 +1413,10 @@ class _Bubble extends ConsumerWidget {
     final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
     final outgoing = message.direction == MessageDirection.outgoing;
-    // In-flight download fraction for this file (null = not downloading).
-    final cid = message.fileContentId;
+    // In-flight download fraction for this file (null = not downloading). Falls
+    // back to fileId so our OWN re-download (pulling a deleted sent file back
+    // from the recipient) shows progress too.
+    final cid = message.fileContentId ?? message.fileId;
     final progress = cid == null
         ? null
         : ref.watch(contentProgressProvider.select((m) => m[cid]));
