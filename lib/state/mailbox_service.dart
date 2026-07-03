@@ -216,7 +216,29 @@ class MailboxService implements MailboxSink {
     }
     devLog(() => 'xVeil[mailbox]: start done — registered=$_registered');
     if (_drainTimer == null) _armDrainLoop();
+    // In-network deposit wake: a mailbox relay that just STORED a deposit for
+    // us pings our live session (MAILBOX_WAKE event) — drain immediately
+    // instead of waiting out the poll schedule. Best-effort; relay-debounced.
+    _wakeSub ??= _client.events().listen((ev) {
+      if (ev.kind == VeilEventKind.mailboxWake) onDepositWake();
+    });
     unawaited(_drainTick()); // don't wait a full interval for the first drain
+  }
+
+  StreamSubscription<VeilEvent>? _wakeSub;
+
+  /// A relay told us a deposit just landed ([VeilEventKind.mailboxWake]) —
+  /// authoritative "you have mail", so drain NOW (no nudge debounce; the relay
+  /// already debounces per receiver) and open the burst window for the rest of
+  /// the exchange. A drain already in flight is respected by [_drainTick].
+  void onDepositWake() {
+    if (_handleDead || _drainTimer == null) return;
+    devLog(() => 'xVeil[mailbox]: deposit wake — draining now');
+    _heat();
+    _drainSkips = 0;
+    _emptyDrainStreak = 0;
+    _armDrainLoop();
+    unawaited(_drainTick());
   }
 
   /// (Re)arm the self-scheduling drain loop at the CURRENT cadence — the hot
@@ -514,6 +536,8 @@ class MailboxService implements MailboxSink {
   Future<void> dispose() async {
     _drainTimer?.cancel();
     _drainTimer = null;
+    await _wakeSub?.cancel();
+    _wakeSub = null;
   }
 
   /// Stable per-identity rendezvous cookie: the two halves of the 32-byte
