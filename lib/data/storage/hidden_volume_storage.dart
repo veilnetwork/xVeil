@@ -475,6 +475,38 @@ class HiddenVolumeStorage implements Storage {
   Future<void> _putOdMeta(String cid, Map<String, dynamic> m) =>
       _as.commit([PutOp(Ns.settings, _sk('ondisk:$cid'), _sk(jsonEncode(m)))]);
 
+  /// Forward-secrecy scrub ops for the ON-DISK tier of [fileId]. The per-blob
+  /// key lives ONLY in the `ondisk:` row — deleting that row in the SAME commit
+  /// as the message tombstone makes the on-disk ciphertext permanently
+  /// unreadable, exactly like the in-container chunk zeroing. The opaque blob
+  /// name is collected into [blobNamesOut] so the caller removes the ciphertext
+  /// files AFTER the commit (an FS delete can't join the volume commit
+  /// atomically, and never needs to: it only reclaims space — confidentiality
+  /// rests on the key scrub). Empty for a file that never hit the on-disk tier.
+  Future<List<KvLogOp>> _onDiskScrubOps(
+    String fileId,
+    List<String> blobNamesOut,
+  ) async {
+    final meta = await _odMeta(fileId);
+    if (meta == null) return const [];
+    final fn = meta['fn'];
+    if (fn is String) blobNamesOut.add(fn);
+    return [DeleteOp(Ns.settings, _sk('ondisk:$fileId'))];
+  }
+
+  /// Best-effort ciphertext removal AFTER the key scrub committed. Failures are
+  /// swallowed: without its key the blob is unreadable garbage either way; a
+  /// later [eraseSpace] (or the OS) reclaims what a transient FS error leaves.
+  Future<void> _deleteBlobFiles(List<String> names) async {
+    final blobs = _blobs;
+    if (blobs == null || names.isEmpty) return;
+    for (final n in names) {
+      try {
+        await blobs.delete(n);
+      } catch (_) {}
+    }
+  }
+
   @override
   Future<Uint8List?> loadFile(String fileId) async {
     final meta = await _odMeta(fileId);
@@ -493,7 +525,14 @@ class HiddenVolumeStorage implements Storage {
   Future<bool> hasFile(String fileId) async {
     final meta = await _odMeta(fileId);
     if (meta != null) {
-      return (meta['st'] as List).length >= (meta['pc'] as int);
+      // Piece presence comes from the FILESYSTEM (atomic per-piece files) —
+      // the old per-piece `st` index list in the meta row meant one padded
+      // commit per received piece AND capped the piece count at the ~4 KB
+      // chunk payload (~700 pieces). Old metas may still carry `st`; ignored.
+      final blobs = _blobs;
+      if (blobs == null) return false;
+      return await blobs.piecesPresent(meta['fn'] as String) >=
+          (meta['pc'] as int);
     }
     return AsyncFileStore(_as).hasFile(fileId);
   }
@@ -518,21 +557,26 @@ class HiddenVolumeStorage implements Storage {
   /// concurrent pieces agree on ONE blob, and each piece records itself in `st`.
   Future<void> _storeFilePieceOnDisk(String cid, int pieceIndex, int pieceCount,
       int pieceSize, int totalSize, Uint8List bytes, String? name) async {
-    final meta = await _odMeta(cid) ??
-        <String, dynamic>{
-          'fn': base64Url.encode(_randomBytes(12)), // opaque, FS-safe name
-          'k': base64.encode(_randomBytes(32)), // per-blob AEAD key
-          'sz': totalSize,
-          'ps': pieceSize,
-          'pc': pieceCount,
-          'name': name,
-          'st': <int>[],
-        };
+    var meta = await _odMeta(cid);
+    if (meta == null) {
+      // First piece mints the blob identity — ONE constant-size meta row per
+      // file. Piece presence is read from the FS ([OnDiskBlobStore
+      // .piecesPresent]), NOT re-written here: the old per-piece meta rewrite
+      // cost a padded commit PER PIECE (pure container bloat) and its growing
+      // index list hit the ~4 KB chunk-payload cap at ~700 pieces — the hard
+      // ceiling that kept the tier from TB-scale files.
+      meta = <String, dynamic>{
+        'fn': base64Url.encode(_randomBytes(12)), // opaque, FS-safe name
+        'k': base64.encode(_randomBytes(32)), // per-blob AEAD key
+        'sz': totalSize,
+        'ps': pieceSize,
+        'pc': pieceCount,
+        'name': name,
+      };
+      await _putOdMeta(cid, meta);
+    }
     await _blobs!.storePiece(
         meta['fn'] as String, base64.decode(meta['k'] as String), pieceIndex, bytes);
-    final st = (meta['st'] as List).cast<int>().toSet()..add(pieceIndex);
-    meta['st'] = st.toList()..sort();
-    await _putOdMeta(cid, meta);
   }
 
   @override
@@ -1039,11 +1083,23 @@ class HiddenVolumeStorage implements Storage {
     final editVoids = hit.message.edited
         ? await _voidEditRowsOps(conversationId, targets: {messageId})
         : const <KvLogOp>[];
+    // Large-file tier: scrub the per-blob key in the SAME commit (forward
+    // secrecy — see _onDiskScrubOps); the ciphertext files go after the commit.
+    final blobNames = <String>[];
+    final onDiskOps =
+        fileId != null ? await _onDiskScrubOps(fileId, blobNames) : const <KvLogOp>[];
     await _as.commit([
       AppendLogOp(Ns.messageLog, hit.logId, _sk(tomb)),
       if (fileId != null) ...await AsyncFileStore(_as).deleteFileOps(fileId),
+      ...onDiskOps,
       ...editVoids,
     ]);
+    if (blobNames.isNotEmpty) {
+      await _deleteBlobFiles(blobNames);
+      // Vacuum promptly so the orphaned chunk holding the (now-deleted) key row
+      // is truly erased, not just unlinked — the key IS the file's secrecy.
+      await scrubDeleted();
+    }
     // The tombstone reuses an EXISTING log_id without bumping the next-id, so the
     // incremental fold won't re-read it. Patch the warm fold: drop the message
     // and record it as deleted (so it never resurfaces — a deniability hole — and
@@ -1114,7 +1170,7 @@ class HiddenVolumeStorage implements Storage {
   /// high-leverage cut for storage bloat. Voiding the edit rows ensures no
   /// superseded edit plaintext survives a clear (forensic, with the scrub).
   Future<List<KvLogOp>> _tombstoneAllOps(NodeId peer,
-      {Map<String, int>? upTo}) async {
+      {Map<String, int>? upTo, required List<String> blobNamesOut}) async {
     final ops = <KvLogOp>[];
     final cleared = <String>{};
     for (final m in await loadMessages(peer.hex)) {
@@ -1146,6 +1202,9 @@ class HiddenVolumeStorage implements Storage {
       final fileId = hit.message.fileId;
       if (fileId != null) {
         ops.addAll(await AsyncFileStore(_as).deleteFileOps(fileId));
+        // Large-file tier: fold the key scrub into the same batch; the caller
+        // removes the ciphertext files after committing (see _onDiskScrubOps).
+        ops.addAll(await _onDiskScrubOps(fileId, blobNamesOut));
       }
     }
     // Scrub edit rows: ALL of them for a full local clear; only the cleared
@@ -1158,7 +1217,8 @@ class HiddenVolumeStorage implements Storage {
 
   @override
   Future<void> removeConversation(NodeId peer) async {
-    final ops = await _tombstoneAllOps(peer);
+    final blobNames = <String>[];
+    final ops = await _tombstoneAllOps(peer, blobNamesOut: blobNames);
     final index = await _contactIndex();
     index.remove(peer.hex);
     ops.add(DeleteOp(Ns.contacts, peer.bytes));
@@ -1169,6 +1229,7 @@ class HiddenVolumeStorage implements Storage {
     // resurrect a tombstoned row; the tombstones are durable in the log, so
     // isMessageDeleted still answers true after the rebuild.
     await scrubDeleted();
+    await _deleteBlobFiles(blobNames);
   }
 
   @override
@@ -1190,6 +1251,7 @@ class HiddenVolumeStorage implements Storage {
       limit: _logScanLimit,
     );
     final ops = <KvLogOp>[];
+    final blobNames = <String>[];
     for (final e in entries) {
       final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
       if (m['c'] != peer.hex) continue;
@@ -1228,12 +1290,14 @@ class HiddenVolumeStorage implements Storage {
         final fileId = m['fi'] as String?;
         if (fileId != null) {
           ops.addAll(await AsyncFileStore(_as).deleteFileOps(fileId));
+          ops.addAll(await _onDiskScrubOps(fileId, blobNames));
         }
       }
     }
     if (ops.isEmpty) return 0;
     await _commitBatched(ops);
     await scrubDeleted();
+    await _deleteBlobFiles(blobNames);
     return old.length;
   }
 
@@ -1241,10 +1305,12 @@ class HiddenVolumeStorage implements Storage {
   Future<void> clearMessages(NodeId peer) async {
     // Same per-message tombstone+scrub as removeConversation, but the contact
     // record and chat-list index entry stay — the conversation remains (empty).
-    final ops = await _tombstoneAllOps(peer);
+    final blobNames = <String>[];
+    final ops = await _tombstoneAllOps(peer, blobNamesOut: blobNames);
     if (ops.isEmpty) return; // nothing stored — keep the chat untouched
     await _commitBatched(ops);
     await scrubDeleted();
+    await _deleteBlobFiles(blobNames);
   }
 
   @override
@@ -1260,7 +1326,9 @@ class HiddenVolumeStorage implements Storage {
     final conv = peer.hex;
     final sync = await conversationSync(conv);
     final wm = Map<String, int>.from(sync.highWater);
-    final tombstones = await _tombstoneAllOps(peer); // all current (== <= wm)
+    final blobNames = <String>[];
+    final tombstones = // all current (== <= wm)
+        await _tombstoneAllOps(peer, blobNamesOut: blobNames);
     final seq = await _nextConvSeq(conv, selfHex);
     await _commitAtNextLogId((logId) => [
       AppendLogOp(
@@ -1280,6 +1348,7 @@ class HiddenVolumeStorage implements Storage {
     ]);
     if (tombstones.isNotEmpty) await _commitBatched(tombstones);
     await scrubDeleted();
+    await _deleteBlobFiles(blobNames);
     await _patchCache(() {}); // refold → watermark + tombstones land
     return (author: selfHex, seq: seq, watermark: wm);
   }
@@ -1306,7 +1375,9 @@ class HiddenVolumeStorage implements Storage {
     }
     // Gather scrub+tombstone ops BEFORE the clear row sets the fold watermark, so
     // loadMessages still lists the to-be-cleared messages.
-    final tombstones = await _tombstoneAllOps(peer, upTo: watermark);
+    final blobNames = <String>[];
+    final tombstones =
+        await _tombstoneAllOps(peer, upTo: watermark, blobNamesOut: blobNames);
     await _commitAtNextLogId((logId) => [
       AppendLogOp(
         Ns.messageLog,
@@ -1323,6 +1394,7 @@ class HiddenVolumeStorage implements Storage {
     ]);
     if (tombstones.isNotEmpty) await _commitBatched(tombstones);
     await scrubDeleted();
+    await _deleteBlobFiles(blobNames);
     await _patchCache(() {});
   }
 
@@ -1363,6 +1435,13 @@ class HiddenVolumeStorage implements Storage {
       await _as.eraseNamespace(ns);
     }
     await _as.scrub();
+    // The on-disk LARGE-FILE tier: every per-blob key just went with the
+    // settings namespace (the ciphertext is already unreadable), so remove the
+    // ciphertext files too — an erased identity must not leave a directory of
+    // its blob sizes behind. Best-effort: an FS error can't un-erase the keys.
+    try {
+      await _blobs?.deleteAll();
+    } catch (_) {}
     // The message log is gone — drop the in-memory fold or a later loadMessages
     // would resurrect the erased conversation from cache.
     await _invalidateScanCache();

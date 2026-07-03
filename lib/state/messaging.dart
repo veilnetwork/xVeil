@@ -2507,12 +2507,21 @@ class MessagingService {
   /// manifest-ref and let the receiver fetch the full manifest over a reliable
   /// stream before pulling ranges. Keep up to a few thousand pieces before
   /// widening the piece size so very large files do not produce huge manifests.
-  static int _adaptivePieceSize(int size) {
+  ///
+  /// The piece is ALSO capped: it is the RAM-resident unit on every hop
+  /// (hashing, verify, per-piece AEAD in the on-disk tier), so letting it
+  /// scale unbounded turned "TB file" into "256 MB piece in phone RAM". Past
+  /// the cap the piece COUNT grows instead — the ceiling then comes from the
+  /// durable manifest (~3.6 MB storeFile cap ≈ 32 K piece hashes), i.e. ~1 TB.
+  @visibleForTesting
+  static int adaptivePieceSize(int size) {
     const maxPieces = 4096;
+    const maxPieceBytes = 32 * 1024 * 1024;
     final needed = (size + maxPieces - 1) ~/ maxPieces;
-    return needed > ContentManifest.defaultPieceSize
-        ? needed
-        : ContentManifest.defaultPieceSize;
+    if (needed <= ContentManifest.defaultPieceSize) {
+      return ContentManifest.defaultPieceSize;
+    }
+    return needed > maxPieceBytes ? maxPieceBytes : needed;
   }
 
   /// Persist [bytes] as a streamed (uncapped) blob keyed by the manifest's
@@ -2702,7 +2711,7 @@ class MessagingService {
     final manifest = ContentManifest.fromBytes(
       name,
       bytes,
-      pieceSize: _adaptivePieceSize(bytes.length),
+      pieceSize: adaptivePieceSize(bytes.length),
       chunkBytes: _contentChunkBytes,
     );
     final contact = await _storage.getContact(dst);
@@ -2722,7 +2731,7 @@ class MessagingService {
     final base = ContentManifest.fromBytes(
       name,
       bytes,
-      pieceSize: _adaptivePieceSize(bytes.length),
+      pieceSize: adaptivePieceSize(bytes.length),
       chunkBytes: _contentChunkBytes,
     );
     final cid = base.contentId;
@@ -2800,7 +2809,7 @@ class MessagingService {
       base = await ContentManifest.fromReader(
         name: name,
         size: size,
-        pieceSize: _adaptivePieceSize(size),
+        pieceSize: adaptivePieceSize(size),
         chunkBytes: _contentChunkBytes,
         readRange: read,
       );

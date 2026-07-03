@@ -125,10 +125,32 @@ class OnDiskBlobStore {
   /// tracked by the caller (the volume metadata counts stored pieces).
   Future<bool> exists(String name) => _blobDir(name).exists();
 
+  /// Number of durably stored pieces (atomic-renamed `p<idx>` files; a
+  /// half-written `.tmp` never counts). The FILESYSTEM is the piece-presence
+  /// source of truth — tracking indices in a volume row meant one padded
+  /// commit per piece AND an ever-growing value that hit the ~4 KB chunk cap
+  /// around ~700 pieces (the real ceiling behind "TB needs chunked manifest").
+  Future<int> piecesPresent(String name) async {
+    final d = _blobDir(name);
+    if (!await d.exists()) return 0;
+    var n = 0;
+    await for (final e in d.list(followLinks: false)) {
+      final base = e.uri.pathSegments.last;
+      if (e is File && RegExp(r'^p\d+$').hasMatch(base)) n++;
+    }
+    return n;
+  }
+
   /// Remove every piece of the blob. Confidentiality rests on the in-volume key
   /// scrub (the ciphertext is useless without it); this reclaims the space.
   Future<void> delete(String name) async {
     final d = _blobDir(name);
     if (await d.exists()) await d.delete(recursive: true);
+  }
+
+  /// Remove EVERY blob (identity erase): the keys are already gone with the
+  /// volume, so this only reclaims space + removes the size-shaped traces.
+  Future<void> deleteAll() async {
+    if (await _root.exists()) await _root.delete(recursive: true);
   }
 }
