@@ -581,6 +581,12 @@ class MessagingService {
   /// built with [deliverInbound] as its drain sink, so it must exist first).
   void attachMailbox(MailboxSink mailbox) => _mailbox = mailbox;
 
+  /// The app just returned to the foreground: the user is looking at the
+  /// screen, so anything parked at the mailbox relay should surface NOW, not on
+  /// the idle back-off (which can be minutes deep after a long background
+  /// stint). One debounced drain + a short burst window; a no-op when locked.
+  void onAppResumed() => _mailbox?.nudgeDrain();
+
   /// Route a message recovered from our mailbox through the normal inbound
   /// path — it is a `WireEnvelope`, so [_dispatch] decodes it, applies the
   /// consent gate, stores it, acks, and dedups by id against any live delivery.
@@ -1327,6 +1333,7 @@ class MessagingService {
       id: id,
       sentAtMs: sentAt.millisecondsSinceEpoch,
     ).encode();
+    _mailbox?.noteActivity(); // expect the accept/decline back as mailbox mail
     await _send(dst, wire);
     // Also deposit the request at the recipient's mailbox relay so a NAT'd /
     // offline peer receives it. The live send above only lands if they're
@@ -1560,6 +1567,10 @@ class MessagingService {
           'xVeil[timeline]: send id=$id '
           't0=${sentAt.millisecondsSinceEpoch} wantReply=true',
     );
+    // A user send opens the mailbox burst window: the reply usually comes back
+    // as drained mail (the live introduce toward us may be down), so poll fast
+    // for a bounded window instead of the idle back-off.
+    _mailbox?.noteActivity();
     await _send(dst, wire, wantReply: true);
     // Deposit at the peer's mailbox as a BACKGROUND fallback (don't await): the
     // seal+put is a slow onion round-trip, and blocking the send on it made every
@@ -2107,6 +2118,7 @@ class MessagingService {
   Future<void> sendFile(NodeId dst, Uint8List bytes, String name) async {
     final contact = await _storage.getContact(dst);
     if (contact == null || contact.status != ContactStatus.accepted) return;
+    _mailbox?.noteActivity(); // user action → mailbox burst window
     // Large files take the content layer (hash-verified pieces over datagrams —
     // the path that actually crosses NAT) instead of the per-chunk fileMeta push.
     if (bytes.length > _contentThreshold) {
@@ -2811,6 +2823,7 @@ class MessagingService {
       await close(); // not serving this peer → release the handle now
       return null;
     }
+    _mailbox?.noteActivity(); // user action → mailbox burst window
     final sw = Stopwatch()..start();
     devLog(
       () =>

@@ -68,6 +68,9 @@ class _BlockingMailboxSink implements MailboxSink {
 
   @override
   void nudgeDrain() {}
+
+  @override
+  void noteActivity() {}
 }
 
 SpaceOpener _memOpener() {
