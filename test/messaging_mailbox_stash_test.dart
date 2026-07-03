@@ -61,6 +61,10 @@ class _RecordingSink implements MailboxSink {
 
   @override
   void nudgeDrain() => nudges++;
+
+  int activityNotes = 0;
+  @override
+  void noteActivity() => activityNotes++;
 }
 
 SpaceOpener _memOpener() {
