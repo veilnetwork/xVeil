@@ -1116,6 +1116,13 @@ class MessagingService {
         if (existing?.status != ContactStatus.accepted) return;
         await _onContentReoffer(m.src, env.body);
         return;
+      case WireKind.contentGone:
+        // A holder answered a reoffer with "I no longer have those bytes" —
+        // stop retrying against them and, once no source remains, surface the
+        // terminal ask-for-a-re-send state instead of spinning forever.
+        if (existing?.status != ContactStatus.accepted) return;
+        await _onContentGone(m.src, env.body);
+        return;
       case WireKind.pieceRequest:
         // A peer asks for pieces of content we serve — send the requested
         // pieces as chunks (paced).
@@ -1947,7 +1954,45 @@ class MessagingService {
     // Scrub immediately: the whole point is the text is gone NOW, before any
     // coercion — not merely hidden behind a tombstone.
     await _storage.scrubDeleted();
+    // Deleting our file message must also stop SERVING those bytes, or the
+    // durable served:/mf: records keep answering reoffers as if nothing
+    // happened and the delete is a lie. Peers then get an honest content-GONE
+    // on their next reoffer instead of an eternal spinner.
+    await _releaseServeStateFor(msg);
     _signal();
+  }
+
+  /// Drop live + durable serve state for [msg]'s content, unless the same
+  /// content is still referenced by another (undeleted) message — the store is
+  /// content-addressed, so one blob can back several chat messages.
+  Future<void> _releaseServeStateFor(Message msg) async {
+    final cid = msg.fileContentId ?? msg.fileId;
+    if (cid == null) return;
+    try {
+      if (await _contentReferencedByAnyMessage(cid)) return;
+      final live = _serving.remove(cid);
+      if (live?.source != null) unawaited(live!.source!.close());
+      // No Storage.removeSetting exists — an empty value is the tombstone; the
+      // reoffer/stream-serve readers treat it as absent. The leftover mf: blob
+      // is inert without a source or stored bytes.
+      await _storage.putSetting('served:$cid', '');
+      devLog(
+        () =>
+            'xVeil[content]: released serve state for '
+            '${cid.substring(0, 12)} (message deleted)',
+      );
+    } catch (e) {
+      devLog(() => 'xVeil[content]: release serve state failed: $e');
+    }
+  }
+
+  Future<bool> _contentReferencedByAnyMessage(String contentId) async {
+    for (final conv in await _storage.loadConversations()) {
+      for (final m in await _storage.loadMessages(conv.id)) {
+        if (m.fileContentId == contentId || m.fileId == contentId) return true;
+      }
+    }
+    return false;
   }
 
   /// Delete one of OUR sent messages here AND ask the recipient to delete their
@@ -2881,6 +2926,9 @@ class MessagingService {
     );
     _offeredRefs.remove(m.contentId);
 
+    // A fresh manifest proves the content is obtainable again — clear any
+    // terminal "gone" mark before the resume driver looks at it.
+    unawaited(_clearContentGone(m.contentId));
     // A durable (cross-restart) pending download exists for this content and
     // the holder just proved it's online — nudge the auto-resume driver.
     unawaited(_resumeOnOfferSignal(m.contentId, manifest: m));
@@ -3004,6 +3052,8 @@ class MessagingService {
       ref: ref,
       peers: {if (existing != null) ...existing.peers, peer.hex: peer},
     );
+    // A fresh ref proves the content is obtainable again.
+    unawaited(_clearContentGone(cid));
     // A durable pending download exists and its holder just showed up online.
     unawaited(_resumeOnOfferSignal(cid));
     if (_pendingDownload.containsKey(cid)) {
@@ -3096,6 +3146,9 @@ class MessagingService {
       return ContentDownloadResult.started;
     }
     devLog(() => 'xVeil[content]: user download ${contentId.substring(0, 12)}');
+    // An explicit user retry overrides a terminal "gone" mark — if the bytes
+    // are still gone everywhere, the next reoffer round re-marks it.
+    unawaited(_clearContentGone(contentId));
     _markContentDownloadStarted(contentId);
     _recordPendingDownload(
       contentId,
@@ -3158,12 +3211,15 @@ class MessagingService {
     final offered = _offered[contentId];
     final offeredRef = _offeredRefs[contentId];
     final storedSources = await _storedContentSourcePeers(contentId);
-    final sources = _uniquePeers([
-      ...peers,
-      if (offered != null) ...offered.peers.values,
-      if (offeredRef != null) ...offeredRef.peers.values,
-      ...storedSources,
-    ]);
+    final sources = _filterGoneSources(
+      contentId,
+      _uniquePeers([
+        ...peers,
+        if (offered != null) ...offered.peers.values,
+        if (offeredRef != null) ...offeredRef.peers.values,
+        ...storedSources,
+      ]),
+    );
     final seen = <String>{};
     var attempted = 0;
     _markContentDownloadStarted(contentId);
@@ -3259,7 +3315,7 @@ class MessagingService {
     for (final peer in await _storedContentSourcePeers(contentId)) {
       out[peer.hex] = peer;
     }
-    return out.values.toList(growable: false);
+    return _filterGoneSources(contentId, out.values);
   }
 
   Future<List<NodeId>> _storedContentSourcePeers(String contentId) async {
@@ -3304,6 +3360,7 @@ class MessagingService {
           'xVeil[content]: user download-to-file (unencrypted) '
           '${contentId.substring(0, 12)} -> $savedPath',
     );
+    unawaited(_clearContentGone(contentId));
     _markContentDownloadStarted(contentId);
     if (await _storage.hasFile(contentId)) {
       return await _exportStoredContentToSink(contentId, sink, savedPath)
@@ -3397,12 +3454,15 @@ class MessagingService {
     }
     final offered = _offered[contentId];
     final offeredRef = _offeredRefs[contentId];
-    final sources = _uniquePeers([
-      ...peers,
-      if (offered != null) ...offered.peers.values,
-      if (offeredRef != null) ...offeredRef.peers.values,
-      ...await _storedContentSourcePeers(contentId),
-    ]);
+    final sources = _filterGoneSources(
+      contentId,
+      _uniquePeers([
+        ...peers,
+        if (offered != null) ...offered.peers.values,
+        if (offeredRef != null) ...offeredRef.peers.values,
+        ...await _storedContentSourcePeers(contentId),
+      ]),
+    );
     _recordPendingDownload(
       contentId,
       mode: _PendingDownload.modeFile,
@@ -3738,6 +3798,12 @@ class MessagingService {
         _completePendingDownload(contentId);
         return;
       }
+      // Every known holder said content-GONE — retrying is pointless until a
+      // fresh offer clears the mark; drop the durable intent.
+      if (await isContentUnavailable(contentId)) {
+        _completePendingDownload(contentId);
+        return;
+      }
       if (pending.mode == _PendingDownload.modeFile &&
           await contentSavedPath(contentId) != null) {
         _completePendingDownload(contentId);
@@ -3781,6 +3847,15 @@ class MessagingService {
             '(mode=${pending.mode}, attempt=${_resumeAttempts[contentId] ?? 0},'
             ' peers=${peers.length}, manifest=${_offered[contentId] != null})',
       );
+      // After a failed round, ask the holders to re-advertise before pulling
+      // again: a live holder revives the offer (and the resume proceeds), a
+      // holder that LOST the bytes answers content-GONE — which is what turns
+      // an endless retry loop into the terminal ask-for-a-re-send state.
+      if ((_resumeAttempts[contentId] ?? 0) >= 1) {
+        for (final p in peers) {
+          unawaited(requestContentReoffer(p, contentId));
+        }
+      }
       if (pending.mode == _PendingDownload.modeFile &&
           pending.savedPath != null) {
         await _resumePlainFileDownload(pending, peers);
@@ -4088,23 +4163,28 @@ class MessagingService {
             'xVeil[content]: reoffer for UNSERVED '
             '${contentId.substring(0, 12)} <- ${peer.short} (no opener — re-send)',
       );
+      unawaited(_replyContentGone(peer, contentId));
       return;
     }
     try {
       final path = await _storage.getSetting('served:$contentId');
       final mfBytes = await _storage.loadFile('mf:$contentId');
-      if (path == null || mfBytes == null) {
+      if (path == null || path.isEmpty || mfBytes == null) {
         devLog(
           () =>
               'xVeil[content]: reoffer ${contentId.substring(0, 12)} — no '
               'durable record <- ${peer.short} (re-send)',
         );
+        unawaited(_replyContentGone(peer, contentId));
         return;
       }
       final m = ContentManifest.fromJson(
         jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>,
       );
-      if (m == null) return;
+      if (m == null) {
+        unawaited(_replyContentGone(peer, contentId));
+        return;
+      }
       final src = await sourceOpener!(path);
       if (src == null) {
         devLog(
@@ -4112,6 +4192,7 @@ class MessagingService {
               'xVeil[content]: reoffer ${contentId.substring(0, 12)} — '
               'source GONE ($path) <- ${peer.short} (re-send)',
         );
+        unawaited(_replyContentGone(peer, contentId));
         return;
       }
       _serving[contentId] = (manifest: m, source: src, servedAt: _now());
@@ -4129,6 +4210,92 @@ class MessagingService {
             'xVeil[content]: durable reoffer failed for '
             '${contentId.substring(0, 12)}: $e',
       );
+    }
+  }
+
+  /// Per-content set of peer hexes that explicitly answered content-GONE this
+  /// session — excluded from source unions so retries stop knocking on them.
+  final Map<String, Set<String>> _goneSources = {};
+
+  /// True when every known holder of [contentId] said GONE — persisted, so the
+  /// chat bubble can render "ask the sender to re-send" across restarts.
+  Future<bool> isContentUnavailable(String contentId) async =>
+      ((await _storage.getSetting('gone:$contentId')) ?? '').isNotEmpty;
+
+  List<NodeId> _filterGoneSources(String contentId, Iterable<NodeId> peers) {
+    final gone = _goneSources[contentId];
+    if (gone == null || gone.isEmpty) return peers.toList(growable: false);
+    return [
+      for (final p in peers)
+        if (!gone.contains(p.hex)) p,
+    ];
+  }
+
+  Future<void> _onContentGone(NodeId peer, String contentId) async {
+    if (contentId.isEmpty) return;
+    if (await _storage.hasFile(contentId)) return; // already complete locally
+    devLog(
+      () =>
+          'xVeil[content]: content-GONE '
+          '${contentId.substring(0, 12)} <- ${peer.short}',
+    );
+    (_goneSources[contentId] ??= {}).add(peer.hex);
+    _offered[contentId]?.peers.remove(peer.hex);
+    _offeredRefs[contentId]?.peers.remove(peer.hex);
+    final remaining = _filterGoneSources(
+      contentId,
+      await _contentSourcePeers(preferred: peer, contentId: contentId),
+    );
+    if (remaining.isNotEmpty) {
+      devLog(
+        () =>
+            'xVeil[content]: ${contentId.substring(0, 12)} still has '
+            '${remaining.length} candidate holder(s) — keep trying',
+      );
+      return;
+    }
+    // Terminal: nobody we know still has the bytes. Persist the mark, stop the
+    // auto-resume driver, release any parked sink, and clear the spinner.
+    await _storage.putSetting(
+      'gone:$contentId',
+      _now().toIso8601String(),
+    );
+    _completePendingDownload(contentId);
+    final parked = _pendingDownload.remove(contentId);
+    _pendingTimers.remove(contentId)?.cancel();
+    if (parked != null) unawaited(parked.close());
+    _fetching.remove(contentId);
+    _fetchSavePath.remove(contentId);
+    if (!_contentFailed.isClosed) _contentFailed.add(contentId);
+    _signal();
+  }
+
+  /// A fresh offer/manifest proves the content is obtainable again (the sender
+  /// re-sent it) — clear the terminal mark and this session's gone set.
+  Future<void> _clearContentGone(String contentId) async {
+    _goneSources.remove(contentId);
+    if (((await _storage.getSetting('gone:$contentId')) ?? '').isNotEmpty) {
+      await _storage.putSetting('gone:$contentId', '');
+      _signal();
+    }
+  }
+
+  /// Honest negative reoffer reply: we provably can no longer produce the
+  /// bytes for [contentId] (deleted message / vanished source, and no stored
+  /// blob either) — say so, instead of leaving the requester to spin forever
+  /// against its 20 s reoffer timeouts. The stored-blob guard keeps this
+  /// truthful for a receiver-held copy that could still stream-serve.
+  Future<void> _replyContentGone(NodeId peer, String contentId) async {
+    try {
+      if (await _storage.hasFile(contentId)) return;
+      devLog(
+        () =>
+            'xVeil[content]: reply content-GONE '
+            '${contentId.substring(0, 12)} -> ${peer.short}',
+      );
+      await _send(peer, contentGoneEnvelope(contentId).encode());
+    } catch (_) {
+      // Best-effort: silence just means the requester keeps its old behavior.
     }
   }
 
@@ -4588,7 +4755,7 @@ class MessagingService {
         // handle is independent and is closed in this method's finally.
         if (sourceOpener != null) {
           final path = await _storage.getSetting('served:$cid');
-          if (path != null) {
+          if (path != null && path.isNotEmpty) {
             source = durable = await sourceOpener!(path);
           }
         }
@@ -4604,7 +4771,7 @@ class MessagingService {
       }
       if (source == null && sourceOpener != null) {
         final path = await _storage.getSetting('served:$cid');
-        if (path != null) {
+        if (path != null && path.isNotEmpty) {
           source = durable = await sourceOpener!(path);
         }
       }

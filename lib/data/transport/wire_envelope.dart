@@ -54,6 +54,7 @@ enum WireKind {
   pieceChunk,
   clear,
   contentReoffer,
+  contentGone,
   unknown,
 }
 
@@ -267,6 +268,16 @@ WireEnvelope contentManifestEnvelope(String manifestJson) =>
 /// manifest iff it is still serving that content.
 WireEnvelope contentReofferEnvelope(String contentId) =>
     WireEnvelope(WireKind.contentReoffer, contentId);
+
+/// The honest NEGATIVE reply to [contentReofferEnvelope]: this peer no longer
+/// HAS [contentId] (the file message was deleted / the source file vanished
+/// and no stored blob remains) — the receiver should stop retrying against
+/// this peer and, once no other holder is known, tell the user to ask for a
+/// re-send. Sent only on an explicit reoffer request, so it leaks nothing a
+/// serve attempt wouldn't (offline-vs-wiped stays ambiguous for silence; this
+/// is an EXPLICIT statement by a peer that chose to answer).
+WireEnvelope contentGoneEnvelope(String contentId) =>
+    WireEnvelope(WireKind.contentGone, contentId);
 
 /// Request content the receiver lacks. Two granularities, both optional:
 ///   `idx:[pieces]`  — whole pieces (absent ⇒ "all pieces"); used for the FIRST
