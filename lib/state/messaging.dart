@@ -2620,7 +2620,10 @@ class MessagingService {
     }
   }
 
-  Future<void> _sendContentManifest(
+  /// Live-send the manifest frame for [manifest] and return the exact bytes
+  /// sent (inline full manifest when it fits, else the compact ref frame) so
+  /// the caller can also deposit them for offline delivery.
+  Future<Uint8List> _sendContentManifest(
     NodeId dst,
     ContentManifest manifest,
   ) async {
@@ -2634,7 +2637,7 @@ class MessagingService {
             '${manifest.contentId.substring(0, 12)} '
             'frame=${fullFrame.length}B -> ${dst.short}',
       );
-      return;
+      return fullFrame;
     }
     final refJson = _contentManifestRefJson(manifest);
     final refFrame = contentManifestEnvelope(refJson).encode();
@@ -2646,6 +2649,7 @@ class MessagingService {
           'full_frame=${fullFrame.length}B ref_frame=${refFrame.length}B '
           '-> ${dst.short}',
     );
+    return refFrame;
   }
 
   Future<void> _advertiseStored(
@@ -2666,8 +2670,19 @@ class MessagingService {
     await _persistServeManifest(manifest);
     _evictServing();
     _ensureContentTimer();
-    await _sendContentManifest(dst, manifest);
+    final frame = await _sendContentManifest(dst, manifest);
     final mid = manifest.msgId;
+    // Offline fallback for the OFFER itself. The manifest was previously
+    // live-only: on a flaky/down live path a plain text (which stashes) still
+    // arrived while the file offer silently vanished — the reported "file
+    // never came, other messages did". Deposit the exact manifest frame at the
+    // recipient's mailbox, keyed by THIS send's msgId so a live + drained copy
+    // dedup by event identity. Only for real event sends (msgId present) — the
+    // bare content API advertises without an event and must not spam mailboxes.
+    // Best-effort + non-blocking, exactly like the text path.
+    if (mid != null) {
+      unawaited(_maybeStash(dst, 'mf:$mid', frame));
+    }
     devLog(
       () =>
           'xVeil[content]: advertise ${manifest.contentId.substring(0, 12)} '
