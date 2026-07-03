@@ -160,6 +160,24 @@ class MailboxOrchestrator {
   /// round-trips; the rest continues next tick.
   static const int _maxDrainRounds = 16;
 
+  /// When a fetch re-serves only blobs already handled THIS drain (their ack
+  /// removal is still in flight), wait this long before re-fetching so the
+  /// relay has a chance to apply the removal and serve the NEXT oldest blob.
+  /// The ack is an onion send: the relay applies the removal ~one round-trip
+  /// AFTER we send it (~1-2 s observed on the prod relays), so the poll has to
+  /// span that — a sub-second budget exited before the removal landed, which
+  /// bounced the backlog to the next (3 s-interval) tick, the ~1-blob-per-tick
+  /// recovery. 700 ms × the retry cap below ≈ 4 s covers the observed window.
+  static const Duration _ackSettleDelay = Duration(milliseconds: 700);
+
+  /// Bound on consecutive ack-settle waits before giving up the drain — so a
+  /// relay that never removes (e.g. a pre-ack-endpoint build) cannot spin the
+  /// loop. ~4 s total (× [_ackSettleDelay]) covers a prod relay's ack-removal
+  /// latency so the whole backlog clears in ONE drain; a relay that still
+  /// re-serves after that drops the remainder to the next tick (bounded, no
+  /// spin). Only spent while actively draining — an empty relay breaks first.
+  static const int _maxAckSettleRetries = 6;
+
   /// Fetch our pending blobs, open + verify each, skip (but still ack) ones we
   /// [alreadyHave] (dedup against live delivery), and return the newly-recovered
   /// messages. A blob that fails to open + verify is acked + skipped so one
@@ -173,8 +191,11 @@ class MailboxOrchestrator {
   /// receiver returning from days offline got its queued mail at one message
   /// per drain TICK, and an old junk-blob backlog surfaced one "fresh"
   /// undecryptable cid per drain, forever — indistinguishable from a live
-  /// junk producer. Stops as soon as a round returns nothing new, so the
-  /// common empty/one-message drain costs at most one extra fetch round.
+  /// junk producer. A round that re-serves only already-handled blobs is an
+  /// ack-in-flight window, not an empty relay: the loop waits [_ackSettleDelay]
+  /// and re-fetches (bounded by [_maxAckSettleRetries]) so the whole backlog
+  /// clears in ONE drain, instead of one blob per interval-delayed tick. It
+  /// stops only when a fetch returns NOTHING (relays truly empty).
   Future<List<DrainedMessage>> drain({
     required NodeId me,
     required Uint8List authCookie,
@@ -184,12 +205,34 @@ class MailboxOrchestrator {
   }) async {
     final delivered = <DrainedMessage>[];
     final seenThisDrain = <String>{};
+    // A relay's FETCH reply fits only ~1 blob (a ~4 KB blob overflows the
+    // one-AuthDeliver budget), so a backlog drains one blob per round. The ACK
+    // that removes a handled blob is a fire-and-forget onion send: for a short
+    // window AFTER we ack, the relay STILL serves that same oldest blob, so the
+    // next fetch returns only cids we've already handled this drain (`fresh`
+    // empty) even though MORE blobs are queued behind it. Ending the drain there
+    // deferred the rest of the backlog to the next (interval-delayed) tick — the
+    // observed ~1-blob-per-7s recovery after churn. Distinguish the two cases:
+    //   * `blobs` empty        → relays are truly drained; stop.
+    //   * `blobs` non-empty but all-seen → ack removal hasn't landed yet; wait a
+    //     beat for it and re-fetch so the NEXT oldest surfaces THIS drain.
+    var ackSettleRetries = 0;
     for (var round = 0; round < _maxDrainRounds; round++) {
       final blobs = await _relay.fetch(
           me: me, authCookie: authCookie, knownRelays: knownRelays);
+      if (blobs.isEmpty) break; // relays truly empty — done
       final fresh =
           blobs.where((b) => seenThisDrain.add(_cidHex(b.contentId))).toList();
-      if (fresh.isEmpty) break; // relays are drained (or only re-serving acked)
+      if (fresh.isEmpty) {
+        // Relays re-serving only blobs we've handled — their ack removal is
+        // still in flight. Wait briefly and retry rather than deferring the
+        // backlog to the next tick. Bounded so a relay that never removes
+        // (pre-ack build) can't spin the loop: give up after a few settles.
+        if (ackSettleRetries++ >= _maxAckSettleRetries) break;
+        await Future<void>.delayed(_ackSettleDelay);
+        continue;
+      }
+      ackSettleRetries = 0; // progress made — reset the settle budget
       await _drainRound(
         fresh,
         me: me,
