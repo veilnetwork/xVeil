@@ -188,6 +188,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/delete_message':
           await _deleteMessage(req);
           return;
+        case '/has_file':
+          await _hasFile(req);
+          return;
+        case '/compact':
+          await _compact(req);
+          return;
         default:
           await _json(req, {'ok': false, 'error': 'not found'}, status: 404);
           return;
@@ -989,6 +995,53 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     }
     await ref.read(messagingServiceProvider).sendText(peer, text);
     return _json(req, {'ok': true, 'peer': peer.hex, 'text': text});
+  }
+
+  Future<void> _hasFile(HttpRequest req) async {
+    final ready = _requireReady(req);
+    if (!ready) return;
+    final cid = _required(req, 'cid');
+    if (cid == null) return;
+    final storage = ref.read(storageProvider);
+    return _json(req, {
+      'ok': true,
+      'cid': cid,
+      'hasFile': await storage.hasFile(cid),
+      'namespaces': await storage.namespaceCounts(),
+    });
+  }
+
+  Future<void> _compact(HttpRequest req) async {
+    final ready = _requireReady(req);
+    if (!ready) return;
+    final params = await _mergedParams(req);
+    final password = params['password']?.trim() ?? '';
+    if (password.isEmpty) {
+      return _json(req, {
+        'ok': false,
+        'error': 'missing password',
+      }, status: 400);
+    }
+    final ctrl = ref.read(appControllerProvider.notifier);
+    if (!ctrl.canCompactStorage) {
+      return _json(req, {
+        'ok': false,
+        'error': 'compaction unavailable for this identity',
+      }, status: 409);
+    }
+    final r = await ctrl.compactStorage(password);
+    // Wait for the app to come back to ready (compaction tears down + reopens).
+    final deadline = DateTime.now().add(const Duration(seconds: 120));
+    while (mounted && DateTime.now().isBefore(deadline)) {
+      if (ref.read(appControllerProvider).phase == AppPhase.ready) break;
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
+    return _json(req, {
+      'ok': true,
+      'before': r.before,
+      'after': r.after,
+      'phase': ref.read(appControllerProvider).phase.name,
+    });
   }
 
   Future<void> _deleteMessage(HttpRequest req) async {

@@ -1521,9 +1521,12 @@ class _Bubble extends ConsumerWidget {
                           ),
                           const SizedBox(width: 8),
                           // While downloading: a ring at the current fraction.
-                          // Else an icon per affordance: download an offer,
-                          // save a held blob, open a saved file, or the
-                          // crossed-out download of the GONE state.
+                          // Else an icon per affordance. A HELD blob shows the
+                          // "downloaded ✓" mark (NOT a plain down-arrow — that
+                          // reads as "still needs downloading", the exact
+                          // confusion users hit after storage compaction, which
+                          // keeps the file but the bubble looked un-fetched);
+                          // tapping it still exports/saves.
                           if (progress != null)
                             SizedBox(
                               width: 16,
@@ -1537,7 +1540,8 @@ class _Bubble extends ConsumerWidget {
                           else
                             Icon(
                               switch (a) {
-                                _FileAffordance.save => Icons.save_alt_outlined,
+                                _FileAffordance.save =>
+                                  Icons.download_done_outlined,
                                 _FileAffordance.open => Icons.open_in_new,
                                 _FileAffordance.gone =>
                                   Icons.file_download_off_outlined,
@@ -1545,9 +1549,11 @@ class _Bubble extends ConsumerWidget {
                                   Icons.download_outlined,
                               },
                               size: 16,
-                              color: gone
-                                  ? scheme.error
-                                  : scheme.onSurfaceVariant,
+                              color: switch (a) {
+                                _FileAffordance.gone => scheme.error,
+                                _FileAffordance.save => scheme.primary,
+                                _ => scheme.onSurfaceVariant,
+                              },
                             ),
                         ],
                       ),
