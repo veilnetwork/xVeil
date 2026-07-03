@@ -155,11 +155,26 @@ class MailboxOrchestrator {
     );
   }
 
+  /// Cap on ack-then-refetch rounds within ONE drain (see [drain]). 16 rounds
+  /// x ~4 KB/blob clears a decent backlog per drain while bounding the onion
+  /// round-trips; the rest continues next tick.
+  static const int _maxDrainRounds = 16;
+
   /// Fetch our pending blobs, open + verify each, skip (but still ack) ones we
   /// [alreadyHave] (dedup against live delivery), and return the newly-recovered
   /// messages. A blob that fails to open + verify is acked + skipped so one
   /// corrupt/forged blob can't wedge the inbox. Every blob we resolve is acked
   /// so the relay can drop it.
+  ///
+  /// Drains until EMPTY (bounded): the relay's FETCH reply must fit one signed
+  /// AuthDeliver (~6 KB), so a backlog is served roughly ONE ~4 KB blob per
+  /// fetch — the protocol's documented contract is "the receiver re-fetches
+  /// after acking to drain more", which this loop implements. Without it a
+  /// receiver returning from days offline got its queued mail at one message
+  /// per drain TICK, and an old junk-blob backlog surfaced one "fresh"
+  /// undecryptable cid per drain, forever — indistinguishable from a live
+  /// junk producer. Stops as soon as a round returns nothing new, so the
+  /// common empty/one-message drain costs at most one extra fetch round.
   Future<List<DrainedMessage>> drain({
     required NodeId me,
     required Uint8List authCookie,
@@ -167,9 +182,36 @@ class MailboxOrchestrator {
     required Future<bool> Function(Uint8List contentId) alreadyHave,
     List<NodeId> knownRelays = const [],
   }) async {
-    final blobs =
-        await _relay.fetch(me: me, authCookie: authCookie, knownRelays: knownRelays);
     final delivered = <DrainedMessage>[];
+    final seenThisDrain = <String>{};
+    for (var round = 0; round < _maxDrainRounds; round++) {
+      final blobs = await _relay.fetch(
+          me: me, authCookie: authCookie, knownRelays: knownRelays);
+      final fresh =
+          blobs.where((b) => seenThisDrain.add(_cidHex(b.contentId))).toList();
+      if (fresh.isEmpty) break; // relays are drained (or only re-serving acked)
+      await _drainRound(
+        fresh,
+        me: me,
+        authCookie: authCookie,
+        ourCertVersion: ourCertVersion,
+        alreadyHave: alreadyHave,
+        knownRelays: knownRelays,
+        delivered: delivered,
+      );
+    }
+    return delivered;
+  }
+
+  Future<void> _drainRound(
+    List<StoredMailboxBlob> blobs, {
+    required NodeId me,
+    required Uint8List authCookie,
+    required int ourCertVersion,
+    required Future<bool> Function(Uint8List contentId) alreadyHave,
+    required List<NodeId> knownRelays,
+    required List<DrainedMessage> delivered,
+  }) async {
     for (final b in blobs) {
       // Quarantined: this cid already failed open PERMANENTLY (decryption is
       // deterministic). Skip the decrypt — but keep acking so a relay that
@@ -226,7 +268,6 @@ class MailboxOrchestrator {
       ));
       await _ack(me, b.contentId, authCookie, knownRelays);
     }
-    return delivered;
   }
 
   Future<void> _ack(
