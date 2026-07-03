@@ -13,6 +13,7 @@ NodeId _id(int s) => NodeId(Uint8List.fromList(List.filled(32, s)));
 /// else is a genuine noSuchMethod failure so an unexpected call surfaces.
 class _FakeClient implements VeilClient {
   final events_ = StreamController<VeilEvent>.broadcast();
+  final registeredRelays = <String>[];
   @override
   dynamic noSuchMethod(Invocation i) {
     final name = i.memberName.toString();
@@ -20,6 +21,12 @@ class _FakeClient implements VeilClient {
       return Future<Uint8List?>.value(Uint8List(32));
     }
     if (name.contains('registerRendezvousPublisher')) {
+      final id = i.namedArguments[#rendezvousNodeId];
+      if (id is Uint8List) {
+        registeredRelays.add(
+          id.map((b) => b.toRadixString(16).padLeft(2, '0')).join(),
+        );
+      }
       return Future<void>.value();
     }
     if (name.contains('events')) return events_.stream;
@@ -126,6 +133,30 @@ void main() {
     svc.nudgeDrain();
     await Future<void>.delayed(const Duration(milliseconds: 200));
     expect(orch.drains - before, greaterThanOrEqualTo(5));
+  });
+
+  test('a KEM publisher is registered at EVERY resolvable relay candidate '
+      '(not just the first) so every ad slot is deposit-capable', () async {
+    final client = _FakeClient();
+    final svc2 = MailboxService(
+      client: client,
+      me: _id(1),
+      orchestrator: orch,
+      deliver: (_) {},
+      drainInterval: const Duration(seconds: 30),
+    );
+    addTearDown(() async {
+      await svc2.dispose();
+      await client.events_.close();
+    });
+    await svc2.start(relays: [_id(7), _id(8), _id(9)]);
+    expect(client.registeredRelays.toSet(), {
+      _id(7).hex,
+      _id(8).hex,
+      _id(9).hex,
+    });
+    // Idempotent within the session: no duplicate registrations per relay.
+    expect(client.registeredRelays.length, 3);
   });
 
   test('a MAILBOX_WAKE event drains immediately (no debounce) and opens the '
