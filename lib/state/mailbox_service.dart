@@ -25,6 +25,11 @@ abstract interface class MailboxSink {
     required Uint8List payload,
     required Uint8List contentId,
   });
+
+  /// Hint that a peer is live-reachable right now (an inbound frame just
+  /// arrived), so any mail it stashed should be drained promptly rather than on
+  /// the idle back-off. Best-effort + debounced; see [MailboxService.nudgeDrain].
+  void nudgeDrain();
 }
 
 /// Runs the offline-delivery side of messaging alongside [MessagingService]:
@@ -305,6 +310,34 @@ class MailboxService implements MailboxSink {
     } catch (_) {
       // best-effort — fetch() skips a relay without a known key
     }
+  }
+
+  // Debounce so a burst of inbound frames triggers at most one extra drain per
+  // window (a live chat exchange is many small frames a second).
+  DateTime? _lastNudge;
+  static const Duration _nudgeDebounce = Duration(seconds: 2);
+
+  /// A peer is provably LIVE-reachable right now (we just received a frame from
+  /// it), so a message it stashed for us is likely already sitting at the relay
+  /// — drain NOW instead of waiting out the idle exponential back-off.
+  ///
+  /// This is the latency lever for the desktop→phone case where the live
+  /// rendezvous introduce is being dropped (`cookie_unknown`) but the sender's
+  /// other live frames (acks, sync beacons) still arrive: without it the stashed
+  /// message surfaces only on the next idle drain (~30 s on the stand); with it,
+  /// within the debounce window (~seconds). Cheap + self-limiting: one fetch
+  /// round, debounced, and a no-op while a drain is already in flight.
+  void nudgeDrain() {
+    if (_handleDead || _drainTimer == null) return;
+    final now = DateTime.now();
+    final last = _lastNudge;
+    if (last != null && now.difference(last) < _nudgeDebounce) return;
+    _lastNudge = now;
+    // Clear the idle back-off so the tick below actually runs its body (a
+    // drain in progress is respected — _drainTick early-returns on _draining).
+    _drainSkips = 0;
+    _emptyDrainStreak = 0;
+    unawaited(_drainTick());
   }
 
   Future<void> _drainTick() async {

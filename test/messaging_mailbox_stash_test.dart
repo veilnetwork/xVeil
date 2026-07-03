@@ -49,6 +49,7 @@ class _BlackholeTransport implements VeilTransport {
 /// Records every stash so we can assert the offline-deposit path fired.
 class _RecordingSink implements MailboxSink {
   final stashed = <(NodeId, Uint8List)>[];
+  int nudges = 0;
   @override
   Future<void> stash({
     required NodeId recipient,
@@ -57,6 +58,9 @@ class _RecordingSink implements MailboxSink {
   }) async {
     stashed.add((recipient, payload));
   }
+
+  @override
+  void nudgeDrain() => nudges++;
 }
 
 SpaceOpener _memOpener() {
@@ -308,5 +312,27 @@ void main() {
     expect(stored.length, lessThanOrEqualTo(kMaxPreConsentIntros),
         reason: 'serialized handling must hold the pre-consent cap under a '
             'concurrent burst (got ${stored.length})');
+  });
+
+  test('a LIVE inbound frame nudges the mailbox to drain (cut the idle-drain '
+      'latency when the peer is reachable but the introduce is dropped)',
+      () async {
+    // A live frame over the transport proves the peer is reachable now — the
+    // service must kick a drain so a message it stashed surfaces promptly
+    // instead of on the ~30s idle back-off. The mailbox drain path
+    // (deliverInbound) must NOT nudge (it is not the live transport).
+    final wire = WireEnvelope.message('hello',
+            id: 'live1', sentAtMs: DateTime.now().millisecondsSinceEpoch)
+        .encode();
+    tA.inject(InboundMessage(src: b, payload: wire));
+    await pumpEventQueue();
+    expect(sink.nudges, greaterThanOrEqualTo(1),
+        reason: 'a live transport frame nudges the drain');
+
+    final before = sink.nudges;
+    await mA.deliverInbound(InboundMessage(src: b, payload: wire));
+    await pumpEventQueue();
+    expect(sink.nudges, before,
+        reason: 'a mailbox-drained frame must NOT nudge (it is not live)');
   });
 }

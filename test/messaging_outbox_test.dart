@@ -65,6 +65,9 @@ class _BlockingMailboxSink implements MailboxSink {
   void release() {
     if (!_release.isCompleted) _release.complete();
   }
+
+  @override
+  void nudgeDrain() {}
 }
 
 SpaceOpener _memOpener() {

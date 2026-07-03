@@ -72,4 +72,29 @@ void main() {
     expect(notifier.state['c1'], 0.5);
     expect(notifier.state['c2'], 0.1);
   });
+
+  group('ContentResumingNotifier', () {
+    test('mirrors the set of queued/retrying auto-resume contentIds', () async {
+      final resuming = StreamController<Set<String>>.broadcast();
+      final n = ContentResumingNotifier.forStream(resuming.stream);
+      addTearDown(() async {
+        n.dispose();
+        await resuming.close();
+      });
+      expect(n.state, isEmpty);
+
+      resuming.add({'a', 'b'});
+      await Future<void>.delayed(Duration.zero);
+      expect(n.state, {'a', 'b'});
+
+      // 'a' completed / started progressing → drops out of the parked set.
+      resuming.add({'b'});
+      await Future<void>.delayed(Duration.zero);
+      expect(n.state, {'b'});
+
+      resuming.add(const {});
+      await Future<void>.delayed(Duration.zero);
+      expect(n.state, isEmpty);
+    });
+  });
 }

@@ -187,6 +187,7 @@
   "fileSizeMb": "Size in MB",
   "fileDownloading": "Downloading",
   "fileRequestingResend": "Requesting the file from the sender…",
+  "fileResuming": "Resuming…",
   "fileGoneAskResend": "The sender no longer has this file — ask them to send it again.",
   "fileReofferFailed": "Couldn't get the file — ask the sender to re-send it.",
   "addIdentityTitle": "Add identity",

@@ -287,7 +287,7 @@ void main() {
       final cid = await offerToB(data, 'park.bin');
       _shrinkResumeDelays(mB);
       var opens = 0;
-      mB.plainFileSinkOpener = (path) async {
+      mB.plainFileSinkOpener = (path, {bool resume = false}) async {
         opens++;
         return null;
       };

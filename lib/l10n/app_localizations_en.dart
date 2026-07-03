@@ -558,6 +558,9 @@ class AppL10nEn extends AppL10n {
   String get fileRequestingResend => 'Requesting the file from the sender…';
 
   @override
+  String get fileResuming => 'Resuming…';
+
+  @override
   String get fileGoneAskResend =>
       'The sender no longer has this file — ask them to send it again.';
 

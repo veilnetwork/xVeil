@@ -1420,6 +1420,11 @@ class _Bubble extends ConsumerWidget {
     final progress = cid == null
         ? null
         : ref.watch(contentProgressProvider.select((m) => m[cid]));
+    // A parked auto-resume shows NO progress until a pull moves bytes; surface
+    // it as "resuming…" so a queued/retrying download does not look idle.
+    final resuming = cid != null &&
+        progress == null &&
+        ref.watch(contentResumingProvider.select((s) => s.contains(cid)));
     return Align(
       alignment: outgoing ? Alignment.centerRight : Alignment.centerLeft,
       child: GestureDetector(
@@ -1498,6 +1503,16 @@ class _Bubble extends ConsumerWidget {
                                           color: scheme.onSurfaceVariant,
                                         ),
                                   )
+                                else if (resuming)
+                                  Text(
+                                    l.fileResuming,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelSmall
+                                        ?.copyWith(
+                                          color: scheme.onSurfaceVariant,
+                                        ),
+                                  )
                                 else if (gone)
                                   Text(
                                     l.fileGoneAskResend,
@@ -1533,6 +1548,16 @@ class _Bubble extends ConsumerWidget {
                               height: 16,
                               child: CircularProgressIndicator(
                                 value: progress == 0 ? null : progress,
+                                strokeWidth: 2,
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            )
+                          else if (resuming)
+                            // Indeterminate: a parked resume has no fraction yet.
+                            SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
                                 strokeWidth: 2,
                                 color: scheme.onSurfaceVariant,
                               ),
