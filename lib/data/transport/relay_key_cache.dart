@@ -86,6 +86,26 @@ class StorageRelayKeyCache implements RelayKeyCache {
     }
   }
 
+  /// Seed the in-memory shadow from the STORED entry so the half-TTL skip also
+  /// holds across launches. Without this, the first put() of every process
+  /// re-committed an identical key with a fresh expiry (values differ only in
+  /// the timestamp, so no storage-level dedup can catch it) — ~one padded
+  /// commit per relay per launch of pure container bloat.
+  Future<void> _seedShadow(NodeId relay) async {
+    if (_shadow.containsKey(relay.hex)) return;
+    try {
+      final raw = await _storage.getSetting(_settingKey(relay));
+      if (raw == null || raw.isEmpty) return;
+      final dot = raw.lastIndexOf('.');
+      if (dot <= 0) return;
+      final expiry = int.tryParse(raw.substring(dot + 1));
+      if (expiry == null) return;
+      _shadow[relay.hex] = (key64: raw.substring(0, dot), expiry: expiry);
+    } catch (_) {
+      // best-effort: an unreadable entry just means the put persists normally
+    }
+  }
+
   @override
   Future<void> put(NodeId relay, Uint8List key) async {
     if (key.length != 32) return;
@@ -94,6 +114,7 @@ class StorageRelayKeyCache implements RelayKeyCache {
     // Skip the persist when the SAME key is already stored with more than half
     // its TTL left — this is what collapses a re-resolve storm to ~one write
     // per relay per half-TTL instead of one commit per resolve.
+    await _seedShadow(relay);
     final s = _shadow[relay.hex];
     if (s != null && s.key64 == key64 && (s.expiry - now) > _ttlMs ~/ 2) return;
     final expiry = now + _ttlMs;
@@ -131,6 +152,18 @@ class StorageRelayKeyCache implements RelayKeyCache {
   @override
   Future<void> setPreferredRelay(NodeId relay) async {
     if (_preferredShadow == relay.hex) return; // unchanged — skip the commit
+    // Cross-launch guard: the same relay is re-registered every session; read
+    // the stored preference before burning a padded commit on an identical one.
+    if (_preferredShadow == null) {
+      try {
+        if (await _storage.getSetting(_preferredKey) == relay.hex) {
+          _preferredShadow = relay.hex;
+          return;
+        }
+      } catch (_) {
+        // best-effort — fall through to the normal persist
+      }
+    }
     _preferredShadow = relay.hex;
     try {
       await _storage.putSetting(_preferredKey, relay.hex);

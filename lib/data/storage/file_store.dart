@@ -20,6 +20,16 @@ const int _kStoreRecord = 3800;
 /// the split recursion's work while staying well under MAX_RECORDS_PER_BATCH=1024.
 const int _kChunksPerCommit = 64;
 
+/// Constant-work byte compare for the idempotent re-store check (not
+/// secret-dependent — just avoids allocating).
+bool _sameBytes(Uint8List a, Uint8List b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
+
 /// Max chunk records a stored file may occupy. A file must be deletable in ONE
 /// atomic commit (zero every chunk + drop metadata together so a deleted blob
 /// can't linger half-scrubbed), and a commit holds ≤ 1024 records
@@ -84,6 +94,14 @@ class FileStore {
       throw ArgumentError.value(
           bytes.length, 'bytes', 'file exceeds $kMaxStoredFileBytes-byte cap');
     }
+    // Re-storing an id is common on chatty paths (a serve-manifest re-persisted
+    // per advertise/reoffer round) while every commit permanently grows the
+    // append-only container by a full padding bucket. An identical blob is a
+    // NO-OP; a changed one purges the old chunks first so they don't linger as
+    // unreachable dead records (new metadata would orphan, never reclaim them).
+    final prior = loadFile(fileId);
+    if (prior != null && _sameBytes(prior, bytes)) return fileId;
+    if (prior != null) deleteFile(fileId);
     final base = _nextLogId();
     for (var start = 0; start < chunks.length; start += _kChunksPerCommit) {
       final end = start + _kChunksPerCommit < chunks.length
@@ -200,6 +218,13 @@ class AsyncFileStore {
     if (chunks.length > _kMaxStoredChunks) {
       throw ArgumentError.value(
           bytes.length, 'bytes', 'file exceeds $kMaxStoredFileBytes-byte cap');
+    }
+    // Same idempotent-re-store shield as the sync twin (see FileStore.storeFile).
+    final prior = await loadFile(fileId);
+    if (prior != null && _sameBytes(prior, bytes)) return fileId;
+    if (prior != null) {
+      final purge = await deleteFileOps(fileId);
+      if (purge.isNotEmpty) await _store.commit(purge);
     }
     final base = await _nextLogId();
     for (var start = 0; start < chunks.length; start += _kChunksPerCommit) {
