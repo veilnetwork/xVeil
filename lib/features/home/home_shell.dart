@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../chat/chats_screen.dart';
@@ -6,27 +7,26 @@ import '../chat/notification_binder.dart';
 import '../network/network_screen.dart';
 import '../settings/settings_screen.dart';
 
+/// The active bottom-nav tab of [HomeShell] (0 chats, 1 network, 2 settings).
+/// A provider (not local State) so the chats screen's Telegram-style drawer
+/// can jump to Network/Settings from inside tab 0.
+final homeTabProvider = StateProvider<int>((_) => 0);
+
 /// The main authenticated surface. Messenger is the primary tab; network and
 /// settings are secondary, per the "messenger-first" product direction.
-class HomeShell extends StatefulWidget {
+class HomeShell extends ConsumerWidget {
   const HomeShell({super.key});
 
   @override
-  State<HomeShell> createState() => _HomeShellState();
-}
-
-class _HomeShellState extends State<HomeShell> {
-  int _index = 0;
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final l = AppL10n.of(context);
+    final index = ref.watch(homeTabProvider);
     // Alive for the whole authenticated session (stays mounted under pushed
     // chat routes), so OS notifications fire whenever a message arrives.
     return NotificationBinder(
         child: Scaffold(
       body: IndexedStack(
-        index: _index,
+        index: index,
         children: const [
           ChatsScreen(),
           NetworkScreen(),
@@ -34,8 +34,9 @@ class _HomeShellState extends State<HomeShell> {
         ],
       ),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
+        selectedIndex: index,
+        onDestinationSelected: (i) =>
+            ref.read(homeTabProvider.notifier).state = i,
         destinations: [
           NavigationDestination(
             icon: const Icon(Icons.chat_bubble_outline),
