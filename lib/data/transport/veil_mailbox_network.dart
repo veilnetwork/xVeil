@@ -381,58 +381,29 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     // node's built-in receiver task's relay, or simply a relay the SENDER
     // resolved that differs from the one relay we registered+drained. We used to
     // fetch only the FIRST relay that answered and return, stranding deposits made
-    // to the others (the exact desktop->phone offline-edit black hole). Now we
-    // fetch each known relay, dedup blobs by content_id, and return the union.
+    // to the others (the exact desktop->phone offline-edit black hole).
+    //
+    // The relays are queried in PARALLEL. Sequentially each relay cost a full
+    // onion RTT (send + reply through the anonymous path), so a 3-relay drain
+    // was ~3×RTT even when all relays answered instantly — the dominant term of
+    // the post-restart backlog latency (one ~4 KB blob per FETCH reply × several
+    // sequential rounds). Replies arrive on the shared reply endpoint with
+    // src_node_id zeroed (anonymous path), so they are NOT attributable to a
+    // relay — but each relay sends EXACTLY ONE reply per FETCH, so counting
+    // replies is enough: collect until every sent fetch answered or the window
+    // closes. Blob attribution is unnecessary — the union dedups by content_id.
     Object? lastErr;
     var anyAttempted = false;
-    var anyAnswered = false;
     final seen = <String>{};
     final aggregated = <StoredMailboxBlob>[];
-    for (final relayId in relayIds) {
-      anyAttempted = true;
-      final completer = Completer<veil.IncomingMessage>();
-      final sub = _fetchApp.messages().listen((m) {
-        if (!completer.isCompleted) completer.complete(m);
-      });
-      // Prefer the relay's KNOWN KEM key (no flaky self-resolve): the resolved
-      // replica carries it (deposit-equivalent), else the relay-key cache. The
-      // key is a public, network-published value, so holding it leaks nothing —
-      // it just lets the onion route straight to the relay.
-      Uint8List? relayKemPk = kemByRelay[NodeId(relayId).hex];
-      if (relayKemPk == null) {
-        try {
-          relayKemPk = await _relayKeyCache?.get(NodeId(relayId));
-        } catch (_) {
-          relayKemPk = null; // cache is best-effort; a miss → self-resolve below
-        }
-      }
-      final viaKeyGiven = relayKemPk != null && relayKemPk.length == 32;
-      devLog(() => 'xVeil[drain]: relay ${NodeId(relayId).short} fetch via '
-          '${viaKeyGiven ? "DIRECT(key-given)" : "self-resolve(fallback)"}');
+    var replies = 0;
+    FormatException? malformed;
+    var expected = 0;
+    var allSent = false;
+    final window = Completer<void>();
+    final sub = _fetchApp.messages().listen((m) {
       try {
-        if (viaKeyGiven) {
-          // KEM-key-given mailbox FETCH: straight to (relayId, relayKemPk).
-          await _fetchApp.sendAnonymousAuthenticatedDirectWithReply(
-            dstNodeId: relayId,
-            dstX25519Pk: relayKemPk,
-            dstAppId: kMailboxAppId,
-            dstEndpointId: kMailboxFetchEndpointId,
-            replyEndpointId: _replyEndpointId,
-            data: Uint8List(0),
-          );
-        } else {
-          // No known key — fall back to the self-resolving authenticated send.
-          await _fetchApp.sendAnonymousAuthenticatedWithReply(
-            dstNodeId: relayId,
-            dstAppId: kMailboxAppId,
-            dstEndpointId: kMailboxFetchEndpointId,
-            replyEndpointId: _replyEndpointId,
-            data: Uint8List(0),
-          );
-        }
-        final reply = await completer.future.timeout(_fetchTimeout);
-        final blobs = decodeMailboxFetchResp(reply.data);
-        anyAnswered = true;
+        final blobs = decodeMailboxFetchResp(m.data);
         // Union by content_id: the deposit fans out to several replicas, so the
         // SAME blob can sit on more than one relay — keep the first copy only.
         var fresh = 0;
@@ -442,31 +413,92 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
             fresh++;
           }
         }
-        devLog(() => 'xVeil[drain]: fetched ${blobs.length} blob(s) ($fresh new) '
-            'from relay ${NodeId(relayId).short}');
-        // Do NOT stop here — keep going so a deposit to a DIFFERENT advertised
-        // relay is still collected this drain.
-      } on FormatException {
-        // A malformed reply IS a real fault (not a transient) — surface it.
-        rethrow;
-      } catch (e) {
-        // Transient (send threw / no reply in window) — try the next relay.
-        // Do NOT evict the relay's KEM key here: a fetch timeout is a TRANSPORT
-        // hiccup (session churn, a busy relay, a lost onion cell), NOT evidence
-        // the key is stale — and an always-on relay's key is long-lived
-        // (identity-derived, not rotated). Evicting on a transient dropped the
-        // valid key after a single timeout and stranded the drain on the
-        // self-resolving fallback (which can't resolve a relay's own ad), so the
-        // drain never recovered. Registration re-resolves fresh if the relay ever
-        // genuinely rotates.
-        lastErr = e;
-        devLog(() => 'xVeil[drain]: relay ${NodeId(relayId).short} no reply '
-            '($e) — trying next');
-        continue;
-      } finally {
-        await sub.cancel();
+        replies++;
+        devLog(() =>
+            'xVeil[drain]: fetch reply $replies/$expected — ${blobs.length} '
+            'blob(s) ($fresh new)');
+      } on FormatException catch (e) {
+        // A malformed reply IS a real fault (not a transient) — surface it
+        // after the window closes (can't rethrow out of a stream callback).
+        malformed = e;
+        replies++;
       }
+      if (allSent && replies >= expected && !window.isCompleted) {
+        window.complete();
+      }
+    });
+    try {
+      // Fire every relay's FETCH concurrently; count successful sends.
+      await Future.wait(relayIds.map((relayId) async {
+        anyAttempted = true;
+        // Prefer the relay's KNOWN KEM key (no flaky self-resolve): the resolved
+        // replica carries it (deposit-equivalent), else the relay-key cache. The
+        // key is a public, network-published value, so holding it leaks nothing —
+        // it just lets the onion route straight to the relay.
+        Uint8List? relayKemPk = kemByRelay[NodeId(relayId).hex];
+        if (relayKemPk == null) {
+          try {
+            relayKemPk = await _relayKeyCache?.get(NodeId(relayId));
+          } catch (_) {
+            relayKemPk = null; // cache is best-effort; miss → self-resolve below
+          }
+        }
+        final viaKeyGiven = relayKemPk != null && relayKemPk.length == 32;
+        devLog(() => 'xVeil[drain]: relay ${NodeId(relayId).short} fetch via '
+            '${viaKeyGiven ? "DIRECT(key-given)" : "self-resolve(fallback)"}');
+        try {
+          if (viaKeyGiven) {
+            // KEM-key-given mailbox FETCH: straight to (relayId, relayKemPk).
+            await _fetchApp.sendAnonymousAuthenticatedDirectWithReply(
+              dstNodeId: relayId,
+              dstX25519Pk: relayKemPk,
+              dstAppId: kMailboxAppId,
+              dstEndpointId: kMailboxFetchEndpointId,
+              replyEndpointId: _replyEndpointId,
+              data: Uint8List(0),
+            );
+          } else {
+            // No known key — fall back to the self-resolving authenticated send.
+            await _fetchApp.sendAnonymousAuthenticatedWithReply(
+              dstNodeId: relayId,
+              dstAppId: kMailboxAppId,
+              dstEndpointId: kMailboxFetchEndpointId,
+              replyEndpointId: _replyEndpointId,
+              data: Uint8List(0),
+            );
+          }
+          expected++;
+        } catch (e) {
+          // Send itself failed — that relay contributes no reply this drain.
+          // Do NOT evict the relay's KEM key here: a fetch failure is a
+          // TRANSPORT hiccup (session churn, a busy relay, a lost onion cell),
+          // NOT evidence the key is stale — and an always-on relay's key is
+          // long-lived (identity-derived, not rotated). Evicting on a transient
+          // dropped the valid key after a single timeout and stranded the drain
+          // on the self-resolving fallback (which can't resolve a relay's own
+          // ad), so the drain never recovered. Registration re-resolves fresh
+          // if the relay ever genuinely rotates.
+          lastErr = e;
+          devLog(() => 'xVeil[drain]: relay ${NodeId(relayId).short} send '
+              'failed ($e)');
+        }
+      }));
+      allSent = true;
+      if (expected > 0 && replies < expected) {
+        // Same per-relay reply window as the old sequential path — but shared,
+        // so the whole drain costs ~1 RTT instead of ~relays×RTT.
+        try {
+          await window.future.timeout(_fetchTimeout);
+        } on TimeoutException {
+          devLog(() => 'xVeil[drain]: reply window closed with '
+              '$replies/$expected replies');
+        }
+      }
+    } finally {
+      await sub.cancel();
     }
+    if (malformed != null) throw malformed!;
+    final anyAnswered = replies > 0;
     // At least one relay ANSWERED (even if every answer was an empty mailbox) —
     // the union is authoritative for this drain.
     if (anyAnswered) return aggregated;
