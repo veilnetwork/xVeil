@@ -100,9 +100,29 @@ class _DesktopTrayHostState extends ConsumerState<DesktopTrayHost>
     super.dispose();
   }
 
+  /// Serializes + debounces window restores. A tray-icon DOUBLE-click fires
+  /// two mouse-down events back-to-back; two overlapping native show()/focus()
+  /// calls crashed the app on macOS (device-observed), so drop any request
+  /// that arrives while one is in flight or within the debounce window.
+  bool _showInFlight = false;
+  DateTime _lastShowAt = DateTime.fromMillisecondsSinceEpoch(0);
+
   Future<void> _show() async {
-    await windowManager.show();
-    await windowManager.focus();
+    final now = DateTime.now();
+    if (_showInFlight ||
+        now.difference(_lastShowAt) < const Duration(milliseconds: 400)) {
+      return;
+    }
+    _showInFlight = true;
+    _lastShowAt = now;
+    try {
+      await windowManager.show();
+      await windowManager.focus();
+    } catch (e) {
+      devLog(() => 'xVeil[tray]: show/focus FAILED: $e');
+    } finally {
+      _showInFlight = false;
+    }
   }
 
   // ── WindowListener ────────────────────────────────────────────────────────
