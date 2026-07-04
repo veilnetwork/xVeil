@@ -259,6 +259,22 @@ class AppL10nEn extends AppL10n {
       'How many recent messages a chat loads; older ones load on demand';
 
   @override
+  String get settingsCloseToTray => 'Close to tray';
+
+  @override
+  String get settingsCloseToTrayHint =>
+      'Closing the window hides it to the system tray and keeps running, so messages and notifications keep arriving. Off = closing quits.';
+
+  @override
+  String get trayShow => 'Show';
+
+  @override
+  String get trayHide => 'Hide';
+
+  @override
+  String get trayQuit => 'Quit';
+
+  @override
   String get chatListDelete => 'Delete chat';
 
   @override
