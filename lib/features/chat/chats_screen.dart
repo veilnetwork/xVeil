@@ -12,6 +12,7 @@ import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/messaging.dart';
 import 'chat_actions.dart';
+import '../../state/folder_panel_controller.dart';
 import '../../state/providers.dart';
 import '../contacts/invite_exchange_sheet.dart';
 
@@ -32,12 +33,32 @@ class ChatsScreen extends ConsumerWidget {
     ref.watch(appControllerProvider.select((s) => s.activeIdentity));
     final anon = ref.read(appControllerProvider.notifier).activeIsAnonymous;
     final scheme = Theme.of(context).colorScheme;
+    // Folder state lives at Scaffold level so the drawer variants can render
+    // it independently of the conversation list's async state.
+    final panelPos = ref.watch(folderPanelPositionProvider);
+    final folders = ref.watch(chatFoldersProvider).valueOrNull ?? const [];
+    var selectedFolder = ref.watch(selectedFolderProvider);
+    // If the selected folder was deleted, fall back to All.
+    if (selectedFolder != null &&
+        !folders.any((f) => f.id == selectedFolder)) {
+      selectedFolder = null;
+    }
+    final folder = selectedFolder == null
+        ? null
+        : folders.firstWhere((f) => f.id == selectedFolder);
+    final folderDrawer = _FolderDrawer(folders: folders, selected: selectedFolder);
     return Scaffold(
+      // With a drawer placement the panel is collapsible: Scaffold puts the
+      // hamburger in the app bar (leading for left, trailing for right).
+      drawer: panelPos == FolderPanelPosition.left ? folderDrawer : null,
+      endDrawer: panelPos == FolderPanelPosition.right ? folderDrawer : null,
       appBar: AppBar(
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(l.navChats),
+            // When filtered through a drawer (no always-visible chips), the
+            // title is the only place that shows WHICH folder is active.
+            Text(folder == null ? l.navChats : folder.name),
             if (anon) ...[
               const SizedBox(width: 8),
               Icon(Icons.shield_moon, size: 20, color: scheme.primary),
@@ -84,16 +105,6 @@ class ChatsScreen extends ConsumerWidget {
           if (list.isEmpty) {
             return _EmptyState(l: l, onStart: () => _addByInvite(context, ref));
           }
-          final folders = ref.watch(chatFoldersProvider).valueOrNull ?? const [];
-          var selectedFolder = ref.watch(selectedFolderProvider);
-          // If the selected folder was deleted, fall back to All.
-          if (selectedFolder != null &&
-              !folders.any((f) => f.id == selectedFolder)) {
-            selectedFolder = null;
-          }
-          final folder = selectedFolder == null
-              ? null
-              : folders.firstWhere((f) => f.id == selectedFolder);
           // Filter to the selected folder's members (All = everything).
           final scoped = folder == null
               ? list
@@ -109,10 +120,13 @@ class ChatsScreen extends ConsumerWidget {
               scoped.where((c) => c.peer.archived).toList(growable: false);
           return Column(
             children: [
-              // Always shown (even with zero folders): the "+" chip is the way
-              // to create the FIRST folder — hiding the bar until one existed
-              // made the whole feature undiscoverable.
-              _FolderBar(folders: folders, selected: selectedFolder),
+              // Top placement only; drawer placements render the folders in
+              // the Scaffold drawer above. Always shown there (even with zero
+              // folders): the "+" chip is the way to create the FIRST folder —
+              // hiding the bar until one existed made the feature
+              // undiscoverable.
+              if (panelPos == FolderPanelPosition.top)
+                _FolderBar(folders: folders, selected: selectedFolder),
               Expanded(
                 child: (active.isEmpty && archived.isEmpty)
                     ? Center(child: Text(l.chatsFolderEmpty))
@@ -208,6 +222,64 @@ class ChatsScreen extends ConsumerWidget {
   }
 }
 
+/// Collapsible folder navigation for the drawer placements (left/right).
+/// Same model as [_FolderBar]: "All" + one tile per folder + "new folder";
+/// long-press / right-click a folder for rename/delete. Selecting closes the
+/// drawer — the app-bar title then names the active folder.
+class _FolderDrawer extends ConsumerWidget {
+  const _FolderDrawer({required this.folders, required this.selected});
+  final List<ChatFolder> folders;
+  final String? selected;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l = AppL10n.of(context);
+    void select(String? id) {
+      ref.read(selectedFolderProvider.notifier).state = id;
+      Navigator.of(context).pop(); // close the drawer
+    }
+
+    return Drawer(
+      child: SafeArea(
+        child: ListView(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                l.chatMenuFolders,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.forum_outlined),
+              title: Text(l.chatsFolderAll),
+              selected: selected == null,
+              onTap: () => select(null),
+            ),
+            for (final f in folders)
+              GestureDetector(
+                onSecondaryTap: () => folderMenu(context, ref, f),
+                child: ListTile(
+                  leading: const Icon(Icons.folder_outlined),
+                  title: Text(f.name.isEmpty ? l.chatsFolderUnnamed : f.name),
+                  selected: selected == f.id,
+                  onTap: () => select(f.id),
+                  onLongPress: () => folderMenu(context, ref, f),
+                ),
+              ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.add),
+              title: Text(l.chatsFolderNew),
+              onTap: () => createFolderDialog(context, ref),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// Horizontal folder selector under the app bar: "All" + one chip per folder,
 /// plus a manage (⋯) chip. Tapping a chip switches the filter; long-press on a
 /// folder chip opens its rename/delete menu.
@@ -238,8 +310,8 @@ class _FolderBar extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
               child: GestureDetector(
-                onLongPress: () => _folderMenu(context, ref, f),
-                onSecondaryTap: () => _folderMenu(context, ref, f),
+                onLongPress: () => folderMenu(context, ref, f),
+                onSecondaryTap: () => folderMenu(context, ref, f),
                 child: ChoiceChip(
                   label: Text(f.name.isEmpty ? l.chatsFolderUnnamed : f.name),
                   selected: selected == f.id,
@@ -261,44 +333,46 @@ class _FolderBar extends ConsumerWidget {
     );
   }
 
-  Future<void> _folderMenu(
-    BuildContext context,
-    WidgetRef ref,
-    ChatFolder f,
-  ) async {
-    final l = AppL10n.of(context);
-    await showModalBottomSheet<void>(
-      context: context,
-      builder: (sheet) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.edit_outlined),
-              title: Text(l.chatsFolderRename),
-              onTap: () async {
-                Navigator.of(sheet).pop();
-                final name = await _promptFolderName(context, f.name);
-                if (name != null) {
-                  await ref
-                      .read(messagingServiceProvider)
-                      .renameFolder(f.id, name);
-                }
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete_outline),
-              title: Text(l.chatsFolderDelete),
-              onTap: () async {
-                Navigator.of(sheet).pop();
-                await ref.read(messagingServiceProvider).deleteFolder(f.id);
-              },
-            ),
-          ],
-        ),
+}
+
+/// Rename/delete menu for one folder. Shared by the chip bar and the drawer.
+Future<void> folderMenu(
+  BuildContext context,
+  WidgetRef ref,
+  ChatFolder f,
+) async {
+  final l = AppL10n.of(context);
+  await showModalBottomSheet<void>(
+    context: context,
+    builder: (sheet) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.edit_outlined),
+            title: Text(l.chatsFolderRename),
+            onTap: () async {
+              Navigator.of(sheet).pop();
+              final name = await _promptFolderName(context, f.name);
+              if (name != null) {
+                await ref
+                    .read(messagingServiceProvider)
+                    .renameFolder(f.id, name);
+              }
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.delete_outline),
+            title: Text(l.chatsFolderDelete),
+            onTap: () async {
+              Navigator.of(sheet).pop();
+              await ref.read(messagingServiceProvider).deleteFolder(f.id);
+            },
+          ),
+        ],
       ),
-    );
-  }
+    ),
+  );
 }
 
 /// Prompt for a new folder name and create it. Shared with the "+" chip.

@@ -7,6 +7,7 @@ import '../../desktop/desktop_tray.dart';
 import '../../state/app_controller.dart';
 import '../../state/chat_page_size_controller.dart';
 import '../../state/close_to_tray_controller.dart';
+import '../../state/folder_panel_controller.dart';
 import '../../state/keep_all_online_controller.dart';
 import '../../state/locale_controller.dart';
 import '../../state/notifications.dart';
@@ -181,6 +182,36 @@ class SettingsScreen extends ConsumerWidget {
     );
     if (choice == null) return;
     await ref.read(chatPageSizeProvider.notifier).set(choice);
+  }
+
+  String _folderPanelLabel(AppL10n l, FolderPanelPosition p) => switch (p) {
+    FolderPanelPosition.left => l.folderPanelLeft,
+    FolderPanelPosition.right => l.folderPanelRight,
+    FolderPanelPosition.top => l.folderPanelTop,
+  };
+
+  Future<void> _pickFolderPanel(
+    BuildContext context,
+    WidgetRef ref,
+    AppL10n l,
+  ) async {
+    final current = ref.read(folderPanelPositionProvider);
+    final choice = await showDialog<FolderPanelPosition>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: Text(l.settingsFolderPanel),
+        children: [
+          for (final p in FolderPanelPosition.values)
+            ListTile(
+              title: Text(_folderPanelLabel(l, p)),
+              trailing: current == p ? const Icon(Icons.check) : null,
+              onTap: () => Navigator.of(context).pop(p),
+            ),
+        ],
+      ),
+    );
+    if (choice == null) return;
+    await ref.read(folderPanelPositionProvider.notifier).set(choice);
   }
 
   Future<void> _pickLanguage(
@@ -491,6 +522,17 @@ class SettingsScreen extends ConsumerWidget {
               style: Theme.of(context).textTheme.titleMedium,
             ),
             onTap: () => _pickChatPageSize(context, ref, l),
+          ),
+          // Where the chat-folder navigation lives: collapsible left/right
+          // drawer or the always-visible top chip bar.
+          ListTile(
+            leading: const Icon(Icons.folder_open_outlined),
+            title: Text(l.settingsFolderPanel),
+            subtitle: Text(l.settingsFolderPanelHint),
+            trailing: Text(
+              _folderPanelLabel(l, ref.watch(folderPanelPositionProvider)),
+            ),
+            onTap: () => _pickFolderPanel(context, ref, l),
           ),
           ListTile(
             leading: const Icon(Icons.badge_outlined),
