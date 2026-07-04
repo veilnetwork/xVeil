@@ -954,6 +954,86 @@ class MessagingService {
     }
   }
 
+  // ── Durable send pipeline ──────────────────────────────────────────────────
+  //
+  // One reliable egress for any CONTROL frame that must reach a peer. Chat
+  // messages have their own durable path (the persisted message log + outbox
+  // flush); this gives everything else the same "never silently lost" guarantee
+  // by construction, so a new feature can't reintroduce the class of bug where a
+  // one-shot live send vanishes on the lossy first attempt.
+  //
+  // Guarantee: persist to the durable outbox → live-send (fast path) →
+  // mailbox-deposit (survives an offline/NAT'd/stalled peer). The receiver acks
+  // by the frame's id; the flush re-drives every un-acked frame (across restarts)
+  // until that ack retires it. Both sides dedup, so re-drives are harmless.
+
+  /// Live-send re-drive throttle per outbox frame id.
+  final Map<String, DateTime> _outboxLiveAt = {};
+
+  /// Frame ids already processed this session (dedup for durable re-drives).
+  /// Bounded — oldest evicted past [_seenFramesCap] (a re-process of a very old
+  /// frame is harmless: durable handlers are idempotent).
+  final _seenFrames = <String>{};
+  static const _seenFramesCap = 4096;
+
+  /// Best-effort ack of a durable frame so the sender retires it from its
+  /// outbox. Lossy-tolerant by design: a lost ack just triggers one more
+  /// re-drive, which we dedup + re-ack.
+  Future<void> _ackFrame(NodeId peer, String frameId) async {
+    if (_seenFrames.length > _seenFramesCap) {
+      _seenFrames.remove(_seenFrames.first); // evict oldest (insertion order)
+    }
+    try {
+      await _send(peer, WireEnvelope.ack(frameId).encode());
+    } catch (_) {
+      // Best-effort — a re-drive will prompt another ack.
+    }
+  }
+
+  /// Send [env] to [peer] durably under [frameId] (see the section comment). The
+  /// receiver echoes [frameId] in its ack to retire the frame.
+  Future<void> sendDurable(NodeId peer, String frameId, WireEnvelope env) async {
+    final wire = env.withFrameId(frameId).encode();
+    await _storage.enqueueOutboxFrame(frameId, peer.hex, wire);
+    _outboxLiveAt[frameId] = _now();
+    try {
+      await _send(peer, wire);
+    } catch (_) {
+      // Live path down — the mailbox copy + flush re-drive still deliver.
+    }
+    unawaited(_maybeStash(peer, frameId, wire));
+  }
+
+  /// Re-drive un-acked durable frames: re-deposit at the mailbox (idempotent via
+  /// the stash dedup) and, throttled, re-send live. Called from [flushOutbox].
+  Future<void> _flushOutboxFrames() async {
+    final List<OutboxFrame> pending;
+    try {
+      pending = await _storage.pendingOutboxFrames();
+    } catch (_) {
+      return;
+    }
+    for (final f in pending) {
+      final peer = NodeId.fromHex(f.peerHex);
+      // The mailbox copy is the durable carrier — always re-attempt it (its own
+      // _stashed/backoff guards make this cheap once deposited).
+      unawaited(_maybeStash(peer, f.frameId, f.wire));
+      // A live re-send is a latency optimisation; throttle it so a persistently
+      // un-acked frame doesn't hammer the onion path every flush tick.
+      final last = _outboxLiveAt[f.frameId];
+      if (last == null || _now().difference(last) >= _outboxLiveResend) {
+        _outboxLiveAt[f.frameId] = _now();
+        try {
+          await _send(peer, f.wire);
+        } catch (_) {
+          // Best-effort.
+        }
+      }
+    }
+  }
+
+  static const _outboxLiveResend = Duration(seconds: 20);
+
   // ── Opt-in authorship attestation (the "request signature" feature) ────────
   //
   // Deniable-by-default: nothing is signed unless a recipient explicitly asks
@@ -996,36 +1076,15 @@ class MessagingService {
   }
 
   /// Ask [peer] (the author) to attest authorship of message [msgId] whose text
-  /// is [body]. Marks our local copy `requested` so the UI shows a pending state.
-  ///
-  /// Durable by design: a one-shot live send is exactly what the lossy first
-  /// live attempt eats (device-observed: the request silently vanished), so the
-  /// frame is also re-sent on a short ladder AND deposited at the peer's
-  /// mailbox for the offline case. The author side dedups prompts, and a
-  /// duplicate request re-triggers the response — which self-heals a LOST
-  /// response too.
+  /// is [body]. Marks our local copy `requested`, then sends the request through
+  /// the DURABLE pipeline so it reaches the author even across a lost first live
+  /// attempt / offline peer / restart (see [sendDurable]).
   Future<void> requestSignature(NodeId peer, String msgId, String body) async {
     await _storage.markMessageSignature(
         peer.hex, msgId, MessageSignature.requested);
     _signal();
-    final wire = WireEnvelope.signRequest(msgId, body).encode();
-    await _send(peer, wire);
-    unawaited(_maybeStash(peer, 'sigreq:$msgId', wire));
-    unawaited(_resendSignFrame(peer, wire));
-  }
-
-  /// Short fire-and-forget re-send ladder for attestation frames (request and
-  /// response). Both sides dedup, so extra copies are harmless.
-  Future<void> _resendSignFrame(NodeId peer, Uint8List wire) async {
-    for (final delay in const [Duration(seconds: 5), Duration(seconds: 15)]) {
-      await Future<void>.delayed(delay);
-      if (_disposed) return;
-      try {
-        await _send(peer, wire);
-      } catch (_) {
-        // Best-effort — the mailbox copy covers a persistently dead live path.
-      }
-    }
+    await sendDurable(
+        peer, 'sigreq:$msgId', WireEnvelope.signRequest(msgId, body));
   }
 
   /// Prompt dedup for re-sent requests: (peer|msgId) recently surfaced → skip.
@@ -1091,12 +1150,10 @@ class MessagingService {
         'sig': base64.encode(res.signature),
         'pk': base64.encode(res.publicKey),
       });
-      final wire = WireEnvelope.signResponse(payload).encode();
-      await _send(requester, wire);
-      // Same durability as the request (see requestSignature). The stash id
-      // encodes the OUTCOME so a later opposite answer isn't dedup-skipped.
-      unawaited(_maybeStash(requester, 'sigresp:ok:$msgId', wire));
-      unawaited(_resendSignFrame(requester, wire));
+      // Durable: the id encodes the OUTCOME so a later opposite answer isn't
+      // dedup-skipped by the outbox/stash.
+      await sendDurable(
+          requester, 'sigresp:ok:$msgId', WireEnvelope.signResponse(payload));
       devLog(() => 'xVeil[sign]: signed + responded mid=$msgId');
     } catch (e) {
       devLog(() => 'xVeil[sign]: sign+respond failed for $msgId: $e');
@@ -1105,10 +1162,8 @@ class MessagingService {
 
   Future<void> _sendSignRefusal(NodeId requester, String msgId) async {
     final payload = jsonEncode({'mid': msgId, 'refused': true});
-    final wire = WireEnvelope.signResponse(payload).encode();
-    await _send(requester, wire);
-    unawaited(_maybeStash(requester, 'sigresp:no:$msgId', wire));
-    unawaited(_resendSignFrame(requester, wire));
+    await sendDurable(
+        requester, 'sigresp:no:$msgId', WireEnvelope.signResponse(payload));
     devLog(() => 'xVeil[sign]: refused mid=$msgId');
   }
 
@@ -1181,6 +1236,17 @@ class MessagingService {
     final env = WireEnvelope.decode(m.payload);
     final existing = await _storage.getContact(m.src);
     if (existing?.status == ContactStatus.blocked) return; // drop blocked
+
+    // Durable-frame ack + dedup (generic, any kind): a frame sent via
+    // [sendDurable] carries a frameId. Ack it so the sender retires it from its
+    // outbox, and process it only ONCE — a re-drive (the sender never got our
+    // ack, or we restarted) is re-acked but not re-processed. Consent-gated:
+    // only accepted peers reach the durable handlers below.
+    final fid = env.frameId;
+    if (fid != null && existing?.status == ContactStatus.accepted) {
+      await _ackFrame(m.src, fid);
+      if (!_seenFrames.add(fid)) return; // already processed — re-acked above
+    }
 
     switch (env.kind) {
       case WireKind.request:
@@ -1271,6 +1337,12 @@ class MessagingService {
         // The peer confirms delivery of our message [env.id] — stop re-sending.
         final ackId = env.id;
         if (ackId != null) {
+          // Retire a durable control frame the peer just confirmed (sign/…):
+          // stop re-driving + re-stashing it. ackOutboxFrame is a no-op when
+          // ackId is an ordinary message id (not in the outbox).
+          _stashed.remove(ackId);
+          _outboxLiveAt.remove(ackId);
+          unawaited(_storage.ackOutboxFrame(ackId));
           _retryBackoff.remove(ackId); // stop backing off a delivered message
           // The peer is reachable + still holds us — reset the reconnect throttle.
           _lastReconnectAt.remove(m.src.hex);
@@ -2011,6 +2083,10 @@ class MessagingService {
   /// app-start so messages composed while offline are delivered on reconnect;
   /// the receiver dedups by id, so re-sending an already-delivered one is safe.
   Future<void> flushOutbox() async {
+    // Durable control frames (sign, …) re-driven first — independent of any
+    // per-conversation message state, so they flow even for a peer with no
+    // pending chat messages.
+    await _flushOutboxFrames();
     final convs = await _storage.loadConversations();
     for (final conv in convs) {
       if (conv.peer.status != ContactStatus.accepted) continue;

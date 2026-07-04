@@ -73,7 +73,12 @@ enum WireKind {
 /// receiver can **ack** by referencing it.
 class WireEnvelope {
   const WireEnvelope(this.kind, this.body,
-      {this.id, this.sentAtMs, this.seq, this.replyTo, this.forwardedFrom});
+      {this.id,
+      this.sentAtMs,
+      this.seq,
+      this.replyTo,
+      this.forwardedFrom,
+      this.frameId});
 
   final WireKind kind;
   final String body;
@@ -89,6 +94,12 @@ class WireEnvelope {
   /// FORWARDED from (free text, never a node id — see Message.forwardedFrom).
   /// Optional key ('fw'); older decoders ignore it.
   final String? forwardedFrom;
+
+  /// Durable-outbox frame id ('fid'), present on frames sent via the durable
+  /// pipeline. The receiver echoes it in a [WireKind.ack] so the sender can
+  /// retire the frame from its persistent outbox, and dedups re-deliveries by
+  /// it. Optional — older decoders ignore it.
+  final String? frameId;
 
   /// The SENDER's send time (Unix ms). Travels so the receiver orders messages
   /// by when they were SENT, not when they happened to arrive — the live /
@@ -166,6 +177,19 @@ class WireEnvelope {
   /// un-upgraded decoder DROPS them (RULE WC) instead of mis-rendering as chat.
   bool get _isV2 => kind.index >= WireKind.sync.index;
 
+  /// A copy carrying [fid] as its durable-outbox [frameId] (the id the receiver
+  /// echoes in its ack). Used by the durable send pipeline.
+  WireEnvelope withFrameId(String fid) => WireEnvelope(
+        kind,
+        body,
+        id: id,
+        sentAtMs: sentAtMs,
+        seq: seq,
+        replyTo: replyTo,
+        forwardedFrom: forwardedFrom,
+        frameId: fid,
+      );
+
   Uint8List encode() => Uint8List.fromList(utf8.encode(jsonEncode({
         't': kind.index,
         'b': body,
@@ -174,6 +198,7 @@ class WireEnvelope {
         if (seq != null) 'q': seq,
         if (replyTo != null) 'r': replyTo,
         if (forwardedFrom != null) 'fw': forwardedFrom,
+        if (frameId != null) 'fid': frameId,
         if (_isV2) 'v': 2,
       })));
 
@@ -201,6 +226,8 @@ class WireEnvelope {
             replyTo: decoded['r'] is String ? decoded['r'] as String : null,
             forwardedFrom:
                 decoded['fw'] is String ? decoded['fw'] as String : null,
+            frameId:
+                decoded['fid'] is String ? decoded['fid'] as String : null,
           );
         }
         // Out of this build's range. A structured v:2 frame (a kind a newer build
