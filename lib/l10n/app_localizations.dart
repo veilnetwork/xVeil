@@ -835,6 +835,48 @@ abstract class AppL10n {
   /// **'No folders yet'**
   String get chatsFolderNoneYet;
 
+  /// No description provided for @settingsKeepNodeBackground.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep running in background'**
+  String get settingsKeepNodeBackground;
+
+  /// No description provided for @settingsKeepNodeBackgroundHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Keeps receiving messages when the app is minimised or the screen is off. Shows a persistent notification and uses more battery.'**
+  String get settingsKeepNodeBackgroundHint;
+
+  /// No description provided for @settingsFolderPanel.
+  ///
+  /// In en, this message translates to:
+  /// **'Folders panel'**
+  String get settingsFolderPanel;
+
+  /// No description provided for @settingsFolderPanelHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Where chat folders are shown'**
+  String get settingsFolderPanelHint;
+
+  /// No description provided for @folderPanelLeft.
+  ///
+  /// In en, this message translates to:
+  /// **'Left drawer'**
+  String get folderPanelLeft;
+
+  /// No description provided for @folderPanelRight.
+  ///
+  /// In en, this message translates to:
+  /// **'Right drawer'**
+  String get folderPanelRight;
+
+  /// No description provided for @folderPanelTop.
+  ///
+  /// In en, this message translates to:
+  /// **'Top bar'**
+  String get folderPanelTop;
+
   /// No description provided for @mute30m.
   ///
   /// In en, this message translates to:
