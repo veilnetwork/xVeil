@@ -130,6 +130,14 @@ abstract interface class Storage {
     MessageStatus status,
   );
 
+  /// Update the opt-in attestation state of a message (the "request signature"
+  /// feature). Folded onto the message like a status op — latest wins.
+  Future<void> markMessageSignature(
+    String conversationId,
+    String messageId,
+    MessageSignature signature,
+  );
+
   /// Append a new edit event for message [messageId] in conversation
   /// [conversationId] with [newBody]; the fold collapses to the latest text and
   /// the prior versions stay as history until a scrub reclaims them. Scoped by

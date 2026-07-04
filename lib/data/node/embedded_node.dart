@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
+import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
@@ -84,6 +85,20 @@ typedef _ApplyConfigNative = Int32 Function(
     Pointer<Void>, Pointer<Uint8>, IntPtr, Pointer<Pointer<Utf8>>);
 typedef _ApplyConfigDart = int Function(
     Pointer<Void>, Pointer<Uint8>, int, Pointer<Pointer<Utf8>>);
+// Opt-in message-signature FFI (stateless; no VeilNode handle):
+//   int veil_identity_sign(const uint8_t* toml, size_t, const uint8_t* msg,
+//                          size_t, uint8_t out_sig[64], uint8_t out_pk[32],
+//                          char** err_out);
+//   int veil_identity_verify(const uint8_t node_id[32], const uint8_t pk[32],
+//                            const uint8_t* msg, size_t, const uint8_t sig[64]);
+typedef _SignNative = Int32 Function(Pointer<Uint8>, IntPtr, Pointer<Uint8>,
+    IntPtr, Pointer<Uint8>, Pointer<Uint8>, Pointer<Pointer<Utf8>>);
+typedef _SignDart = int Function(Pointer<Uint8>, int, Pointer<Uint8>, int,
+    Pointer<Uint8>, Pointer<Uint8>, Pointer<Pointer<Utf8>>);
+typedef _VerifyNative = Int32 Function(
+    Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, IntPtr, Pointer<Uint8>);
+typedef _VerifyDart = int Function(
+    Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, int, Pointer<Uint8>);
 
 /// True when the loaded veil dylib exposes the embedded-node FFI (i.e. it was
 /// built `--features node-embedded`). Lets the app pick the in-process deniable
@@ -410,6 +425,90 @@ class EmbeddedNode {
     } finally {
       calloc.free(pathPtr);
       calloc.free(errOut);
+    }
+  }
+
+  /// Sign [message] with the Ed25519 identity in [identityToml] (the config the
+  /// app holds in its deniable container). Stateless pure crypto — no running
+  /// node needed. Returns the 64-byte signature + 32-byte public key; throws on
+  /// failure (e.g. a non-Ed25519 identity or malformed TOML).
+  static ({Uint8List signature, Uint8List publicKey}) signMessage(
+    String identityToml,
+    Uint8List message, {
+    DynamicLibrary? lib,
+  }) {
+    final dl = lib ?? _veilLib();
+    final signFn =
+        dl.lookupFunction<_SignNative, _SignDart>('veil_identity_sign');
+    final freeStr =
+        dl.lookupFunction<_FreeStrNative, _FreeStrDart>('veil_free_string');
+    final tomlBytes = utf8.encode(identityToml);
+    final tomlPtr = calloc<Uint8>(tomlBytes.length);
+    // from_raw_parts needs a non-null ptr even for len 0 — allocate at least 1.
+    final msgPtr = calloc<Uint8>(message.isEmpty ? 1 : message.length);
+    final sigOut = calloc<Uint8>(64);
+    final pkOut = calloc<Uint8>(32);
+    final errOut = calloc<Pointer<Utf8>>();
+    try {
+      tomlPtr.asTypedList(tomlBytes.length).setAll(0, tomlBytes);
+      if (message.isNotEmpty) {
+        msgPtr.asTypedList(message.length).setAll(0, message);
+      }
+      final rc = signFn(tomlPtr, tomlBytes.length, msgPtr, message.length,
+          sigOut, pkOut, errOut);
+      if (rc != 0) {
+        final err = errOut.value;
+        final msg = err == nullptr ? 'unknown error' : err.toDartString();
+        if (err != nullptr) freeStr(err);
+        throw StateError('veil_identity_sign failed: $msg');
+      }
+      return (
+        signature: Uint8List.fromList(sigOut.asTypedList(64)),
+        publicKey: Uint8List.fromList(pkOut.asTypedList(32)),
+      );
+    } finally {
+      calloc.free(tomlPtr);
+      calloc.free(msgPtr);
+      calloc.free(sigOut);
+      calloc.free(pkOut);
+      calloc.free(errOut);
+    }
+  }
+
+  /// Verify [signature] over [message] by [publicKey], bound to [nodeId]
+  /// (checks node_id == BLAKE3(publicKey) AND the Ed25519 signature). Returns
+  /// true iff authentic. Stateless pure crypto.
+  static bool verifyMessage({
+    required Uint8List nodeId,
+    required Uint8List publicKey,
+    required Uint8List message,
+    required Uint8List signature,
+    DynamicLibrary? lib,
+  }) {
+    if (nodeId.length != 32 || publicKey.length != 32 || signature.length != 64) {
+      return false;
+    }
+    final dl = lib ?? _veilLib();
+    final verifyFn =
+        dl.lookupFunction<_VerifyNative, _VerifyDart>('veil_identity_verify');
+    final nidPtr = calloc<Uint8>(32);
+    final pkPtr = calloc<Uint8>(32);
+    final msgPtr = calloc<Uint8>(message.isEmpty ? 1 : message.length);
+    final sigPtr = calloc<Uint8>(64);
+    try {
+      nidPtr.asTypedList(32).setAll(0, nodeId);
+      pkPtr.asTypedList(32).setAll(0, publicKey);
+      if (message.isNotEmpty) {
+        msgPtr.asTypedList(message.length).setAll(0, message);
+      }
+      sigPtr.asTypedList(64).setAll(0, signature);
+      final rc = verifyFn(nidPtr, pkPtr, msgPtr, message.length, sigPtr);
+      return rc == 0; // 0 == VERIFY_VALID
+    } finally {
+      calloc.free(nidPtr);
+      calloc.free(pkPtr);
+      calloc.free(msgPtr);
+      calloc.free(sigPtr);
     }
   }
 

@@ -835,6 +835,84 @@ abstract class AppL10n {
   /// **'No folders yet'**
   String get chatsFolderNoneYet;
 
+  /// No description provided for @chatMsgRequestSignature.
+  ///
+  /// In en, this message translates to:
+  /// **'Request signature'**
+  String get chatMsgRequestSignature;
+
+  /// No description provided for @chatSignatureRequested.
+  ///
+  /// In en, this message translates to:
+  /// **'Signature requested'**
+  String get chatSignatureRequested;
+
+  /// No description provided for @chatSignaturePending.
+  ///
+  /// In en, this message translates to:
+  /// **'Awaiting the author\'s signature'**
+  String get chatSignaturePending;
+
+  /// No description provided for @chatSignatureVerified.
+  ///
+  /// In en, this message translates to:
+  /// **'Authorship verified'**
+  String get chatSignatureVerified;
+
+  /// No description provided for @chatSignatureRefused.
+  ///
+  /// In en, this message translates to:
+  /// **'The author declined to sign'**
+  String get chatSignatureRefused;
+
+  /// No description provided for @chatSignatureFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Signature did not verify'**
+  String get chatSignatureFailed;
+
+  /// No description provided for @signatureAskTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'{who} asks you to confirm you wrote the message below'**
+  String signatureAskTitle(String who);
+
+  /// No description provided for @signatureAskConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign'**
+  String get signatureAskConfirm;
+
+  /// No description provided for @settingsSignaturePolicy.
+  ///
+  /// In en, this message translates to:
+  /// **'Signature requests'**
+  String get settingsSignaturePolicy;
+
+  /// No description provided for @settingsSignaturePolicyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'How to answer when a contact asks you to prove you wrote a message'**
+  String get settingsSignaturePolicyHint;
+
+  /// No description provided for @signaturePolicyAsk.
+  ///
+  /// In en, this message translates to:
+  /// **'Ask each time'**
+  String get signaturePolicyAsk;
+
+  /// No description provided for @signaturePolicyAuto.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign automatically'**
+  String get signaturePolicyAuto;
+
+  /// No description provided for @signaturePolicyRefuse.
+  ///
+  /// In en, this message translates to:
+  /// **'Always refuse'**
+  String get signaturePolicyRefuse;
+
   /// No description provided for @settingsKeepNodeBackground.
   ///
   /// In en, this message translates to:

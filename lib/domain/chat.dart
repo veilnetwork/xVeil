@@ -107,6 +107,21 @@ enum MessageDirection { outgoing, incoming }
 /// delivered to peer (or stored in their mailbox) → failed.
 enum MessageStatus { sending, sent, delivered, failed }
 
+/// State of an opt-in authorship attestation for one message (the "request the
+/// sender to sign" feature). Deniable-by-default: a message is [none] unless a
+/// signature was explicitly requested. On the REQUESTER's incoming message:
+/// [requested] → asked, waiting; [verified] → author signed and the signature
+/// checks out; [refused] → author declined; [failed] → a response arrived but
+/// the signature did not verify (tampered / wrong key). Never set on the
+/// author's own outgoing copy.
+enum MessageSignature { none, requested, verified, refused, failed }
+
+/// How this device answers an incoming "please sign this message" request from a
+/// peer (the author side of the attestation feature). [ask] prompts each time
+/// (default); [auto] signs silently; [refuse] declines every request. A pure
+/// author-side choice — it never affects our ability to REQUEST signatures.
+enum SignaturePolicy { ask, auto, refuse }
+
 class Message {
   const Message({
     required this.id,
@@ -125,6 +140,7 @@ class Message {
     this.seq,
     this.replyToId,
     this.forwardedFrom,
+    this.signature = MessageSignature.none,
   });
 
   final String id;
@@ -183,6 +199,9 @@ class Message {
   /// Renders as a "Forwarded from X" caption on the bubble.
   final String? forwardedFrom;
 
+  /// Opt-in authorship-attestation state (see [MessageSignature]).
+  final MessageSignature signature;
+
   /// A file message — whether already downloaded ([fileId]) or merely OFFERED
   /// ([fileContentId], awaiting an opt-in download).
   bool get isFile => fileId != null || fileContentId != null;
@@ -194,7 +213,8 @@ class Message {
           {MessageStatus? status,
           String? body,
           bool? edited,
-          String? fileId}) =>
+          String? fileId,
+          MessageSignature? signature}) =>
       Message(
         id: id,
         conversationId: conversationId,
@@ -212,6 +232,7 @@ class Message {
         seq: seq,
         replyToId: replyToId,
         forwardedFrom: forwardedFrom,
+        signature: signature ?? this.signature,
       );
 }
 

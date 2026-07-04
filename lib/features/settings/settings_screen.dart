@@ -9,9 +9,11 @@ import '../../l10n/app_localizations.dart';
 import '../../desktop/desktop_tray.dart';
 import '../../state/app_controller.dart';
 import '../../state/chat_page_size_controller.dart';
+import '../../domain/chat.dart' show SignaturePolicy;
 import '../../state/background_node_controller.dart';
 import '../../state/close_to_tray_controller.dart';
 import '../../state/folder_panel_controller.dart';
+import '../../state/signature_policy_controller.dart';
 import '../../state/keep_all_online_controller.dart';
 import '../../state/locale_controller.dart';
 import '../../state/notifications.dart';
@@ -202,6 +204,36 @@ class SettingsScreen extends ConsumerWidget {
     if (!value) return;
     final exempt = await VeilBackground.isIgnoringBatteryOptimizations();
     if (!exempt) await VeilBackground.requestIgnoreBatteryOptimizations();
+  }
+
+  String _signaturePolicyLabel(AppL10n l, SignaturePolicy p) => switch (p) {
+    SignaturePolicy.ask => l.signaturePolicyAsk,
+    SignaturePolicy.auto => l.signaturePolicyAuto,
+    SignaturePolicy.refuse => l.signaturePolicyRefuse,
+  };
+
+  Future<void> _pickSignaturePolicy(
+    BuildContext context,
+    WidgetRef ref,
+    AppL10n l,
+  ) async {
+    final current = ref.read(signaturePolicyProvider);
+    final choice = await showDialog<SignaturePolicy>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: Text(l.settingsSignaturePolicy),
+        children: [
+          for (final p in SignaturePolicy.values)
+            ListTile(
+              title: Text(_signaturePolicyLabel(l, p)),
+              trailing: current == p ? const Icon(Icons.check) : null,
+              onTap: () => Navigator.of(context).pop(p),
+            ),
+        ],
+      ),
+    );
+    if (choice == null) return;
+    await ref.read(signaturePolicyProvider.notifier).set(choice);
   }
 
   String _folderPanelLabel(AppL10n l, FolderPanelPosition p) => switch (p) {
@@ -557,6 +589,17 @@ class SettingsScreen extends ConsumerWidget {
               style: Theme.of(context).textTheme.titleMedium,
             ),
             onTap: () => _pickChatPageSize(context, ref, l),
+          ),
+          // Author-side answer to "please sign this message" requests from
+          // peers: ask each time / sign automatically / always refuse.
+          ListTile(
+            leading: const Icon(Icons.verified_user_outlined),
+            title: Text(l.settingsSignaturePolicy),
+            subtitle: Text(l.settingsSignaturePolicyHint),
+            trailing: Text(
+              _signaturePolicyLabel(l, ref.watch(signaturePolicyProvider)),
+            ),
+            onTap: () => _pickSignaturePolicy(context, ref, l),
           ),
           // Where the chat-folder navigation lives: collapsible left/right
           // drawer or the always-visible top chip bar.

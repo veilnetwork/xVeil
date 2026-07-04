@@ -17,6 +17,20 @@ void main() {
     }
   });
 
+  test('signature request/response round-trip (attestation feature)', () {
+    final req = WireEnvelope.decode(
+        const WireEnvelope.signRequest('m-42', 'the disputed text').encode());
+    expect(req.kind, WireKind.signRequest);
+    expect(req.id, 'm-42'); // msgId
+    expect(req.body, 'the disputed text');
+
+    final resp = WireEnvelope.decode(
+        const WireEnvelope.signResponse('{"mid":"m-42","refused":true}')
+            .encode());
+    expect(resp.kind, WireKind.signResponse);
+    expect(resp.body, '{"mid":"m-42","refused":true}');
+  });
+
   test('a non-envelope payload decodes as a plain message', () {
     final raw = Uint8List.fromList(utf8.encode('legacy plain text'));
     final out = WireEnvelope.decode(raw);
