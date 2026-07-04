@@ -400,6 +400,28 @@ class AppL10nEn extends AppL10n {
   String get chatsFolderNoneYet => 'No folders yet';
 
   @override
+  String get settingsKeepNodeBackground => 'Keep running in background';
+
+  @override
+  String get settingsKeepNodeBackgroundHint =>
+      'Keeps receiving messages when the app is minimised or the screen is off. Shows a persistent notification and uses more battery.';
+
+  @override
+  String get settingsFolderPanel => 'Folders panel';
+
+  @override
+  String get settingsFolderPanelHint => 'Where chat folders are shown';
+
+  @override
+  String get folderPanelLeft => 'Left drawer';
+
+  @override
+  String get folderPanelRight => 'Right drawer';
+
+  @override
+  String get folderPanelTop => 'Top bar';
+
+  @override
   String get mute30m => '30 minutes';
 
   @override

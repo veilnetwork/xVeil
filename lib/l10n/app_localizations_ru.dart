@@ -401,6 +401,28 @@ class AppL10nRu extends AppL10n {
   String get chatsFolderNoneYet => 'Папок пока нет';
 
   @override
+  String get settingsKeepNodeBackground => 'Работать в фоне';
+
+  @override
+  String get settingsKeepNodeBackgroundHint =>
+      'Продолжает получать сообщения, когда приложение свёрнуто или экран погашен. Показывает постоянное уведомление и расходует больше батареи.';
+
+  @override
+  String get settingsFolderPanel => 'Панель папок';
+
+  @override
+  String get settingsFolderPanelHint => 'Где показывать папки чатов';
+
+  @override
+  String get folderPanelLeft => 'Слева (выдвижная)';
+
+  @override
+  String get folderPanelRight => 'Справа (выдвижная)';
+
+  @override
+  String get folderPanelTop => 'Сверху (полоса)';
+
+  @override
   String get mute30m => '30 минут';
 
   @override

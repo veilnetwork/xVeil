@@ -134,6 +134,8 @@
   "chatsFolderUnnamed": "Untitled",
   "chatsFolderEmpty": "No chats in this folder",
   "chatsFolderNoneYet": "No folders yet",
+  "settingsKeepNodeBackground": "Keep running in background",
+  "settingsKeepNodeBackgroundHint": "Keeps receiving messages when the app is minimised or the screen is off. Shows a persistent notification and uses more battery.",
   "settingsFolderPanel": "Folders panel",
   "settingsFolderPanelHint": "Where chat folders are shown",
   "folderPanelLeft": "Left drawer",
