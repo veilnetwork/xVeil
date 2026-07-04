@@ -515,8 +515,15 @@ class MessagingService {
   /// send (sendText) and the first re-send are unchanged, so a transient loss
   /// still recovers in seconds; only a persistently-undeliverable message stops
   /// hammering. Cleared when the message is acked (delivered).
-  final Map<String, ({int count, DateTime nextAt})> _retryBackoff = {};
+  final Map<String, ({int count, DateTime nextAt, String peer})>
+  _retryBackoff = {};
   static const _maxRetryBackoff = Duration(seconds: 24);
+
+  /// Peer-alive nudge throttle: [_nudgeRetries] rewinds a peer's pending
+  /// re-sends on EVERY inbound from them, so an active peer must not turn
+  /// that into a re-send per received message — at most one nudge per peer
+  /// per [_retryInterval].
+  final Map<String, DateTime> _lastNudgeAt = {};
 
   /// Message ids we've seen a DELIVERED ack for this session. A peer's mailbox
   /// drain re-acks every cycle until its relay blob ages out, so duplicate acks
@@ -660,6 +667,29 @@ class MessagingService {
     } finally {
       _flushing = false;
     }
+  }
+
+  /// Peer-alive nudge. ANY inbound from a peer proves the live path is healthy
+  /// RIGHT NOW, so sitting out an exponential backoff window (up to 24s) on
+  /// messages we still owe them stretches a healed transport stall into
+  /// user-visible latency (device-measured: a ~10s stall became a 30-60s
+  /// delivery because the next re-send was 24s away). Rewind their pending
+  /// re-sends to due-now and kick a flush; the backoff COUNT is kept, so if
+  /// the path is one-way-broken the doubling resumes on the next miss.
+  void _nudgeRetries(String peerHex) {
+    final now = DateTime.now();
+    final last = _lastNudgeAt[peerHex];
+    if (last != null && now.difference(last) < _retryInterval) return;
+    _lastNudgeAt[peerHex] = now;
+    var nudged = false;
+    for (final id in _retryBackoff.keys.toList()) {
+      final bo = _retryBackoff[id]!;
+      if (bo.peer == peerHex && bo.nextAt.isAfter(now)) {
+        _retryBackoff[id] = (count: bo.count, nextAt: now, peer: bo.peer);
+        nudged = true;
+      }
+    }
+    if (nudged) unawaited(_retryFlush());
   }
 
   /// Our node (re)connected — reconcile now. Clear the per-peer gap-fill throttle
@@ -896,6 +926,7 @@ class MessagingService {
     );
     // The peer answered SOMETHING — return its sync beacon to base cadence.
     _syncUnanswered.remove(m.src.hex);
+    _nudgeRetries(m.src.hex);
     try {
       await _dispatch(m);
     } catch (e) {
@@ -1772,6 +1803,7 @@ class MessagingService {
           _retryBackoff[m.id] = (
             count: count,
             nextAt: now.add(Duration(milliseconds: delayMs)),
+            peer: conv.peer.nodeId.hex,
           );
           // Re-send with the ORIGINAL send time AND seq so a message recovered
           // via the outbox retry (not gap-fill) folds under OUR (author, seq) on
