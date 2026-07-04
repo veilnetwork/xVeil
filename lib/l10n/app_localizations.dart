@@ -553,6 +553,18 @@ abstract class AppL10n {
   /// **'Load earlier messages'**
   String get chatLoadEarlier;
 
+  /// No description provided for @settingsChatPageSize.
+  ///
+  /// In en, this message translates to:
+  /// **'Messages per page'**
+  String get settingsChatPageSize;
+
+  /// No description provided for @settingsChatPageSizeHint.
+  ///
+  /// In en, this message translates to:
+  /// **'How many recent messages a chat loads; older ones load on demand'**
+  String get settingsChatPageSizeHint;
+
   /// No description provided for @chatListDelete.
   ///
   /// In en, this message translates to:

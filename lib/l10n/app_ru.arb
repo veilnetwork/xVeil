@@ -84,6 +84,8 @@
   "chatMsgCopy": "Копировать текст",
   "chatMsgCopied": "Скопировано",
   "chatLoadEarlier": "Загрузить ранние сообщения",
+  "settingsChatPageSize": "Сообщений на страницу",
+  "settingsChatPageSizeHint": "Сколько последних сообщений загружает чат; более ранние — по запросу",
   "chatListDelete": "Удалить чат",
   "chatDeleteChatTitle": "Удалить этот чат?",
   "chatDeleteChatBody": "Переписка и все сообщения удаляются с этого устройства. Собеседник не уведомляется.",

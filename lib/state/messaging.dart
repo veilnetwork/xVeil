@@ -24,6 +24,7 @@ import '../domain/event.dart';
 import '../domain/file_download_policy.dart';
 import '../domain/file_transfer.dart';
 import 'app_controller.dart';
+import 'chat_page_size_controller.dart';
 import 'mailbox_orchestrator.dart';
 import 'mailbox_service.dart';
 import 'providers.dart';
@@ -7540,21 +7541,15 @@ final conversationsProvider = StreamProvider<List<Conversation>>((ref) async* {
   }
 });
 
-/// Chat pagination: the number of newest messages a chat loads initially and
-/// the step "load earlier" grows the visible window by. (A per-chat setting can
-/// override this later — the user asked for it to be configurable; a const is
-/// the v1.)
-const int kInitialMessageWindow = 100;
-const int kMessageWindowStep = 100;
-
 /// The current visible window (a newest-N count) for a chat, grown by the chat
-/// screen's "load earlier" action. `autoDispose` so it resets to
-/// [kInitialMessageWindow] each time the chat is (re)opened — reopening lands on
-/// the latest page, not a previously-expanded one. Reading it inside
-/// [messagesProvider] makes the window reactive: growing it re-yields a larger
-/// tail without re-subscribing the changes stream by hand.
+/// screen's "load earlier" action. The initial size (and the grow step) is the
+/// user-configurable [chatPageSizeProvider]. `autoDispose` so it resets each
+/// time the chat is (re)opened — reopening lands on the latest page, not a
+/// previously-expanded one. Reading it inside [messagesProvider] makes the
+/// window reactive: growing it re-yields a larger tail without re-subscribing
+/// the changes stream by hand.
 final chatWindowProvider = StateProvider.autoDispose.family<int, String>(
-  (ref, _) => kInitialMessageWindow,
+  (ref, _) => ref.watch(chatPageSizeProvider),
 );
 
 final messagesProvider = StreamProvider.autoDispose.family<List<Message>, String>((

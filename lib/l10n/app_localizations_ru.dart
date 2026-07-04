@@ -253,6 +253,13 @@ class AppL10nRu extends AppL10n {
   String get chatLoadEarlier => 'Загрузить ранние сообщения';
 
   @override
+  String get settingsChatPageSize => 'Сообщений на страницу';
+
+  @override
+  String get settingsChatPageSizeHint =>
+      'Сколько последних сообщений загружает чат; более ранние — по запросу';
+
+  @override
   String get chatListDelete => 'Удалить чат';
 
   @override
