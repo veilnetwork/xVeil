@@ -138,6 +138,22 @@ abstract interface class Storage {
     MessageSignature signature,
   );
 
+  // ── Durable frame outbox ───────────────────────────────────────────────────
+  // Persist a control frame that MUST reach a peer so a flush re-drives it (live
+  // + mailbox) across restarts until acked. Chat messages have their own durable
+  // path; this covers everything else (sign, edit, delete, clear, accept, …).
+
+  /// Persist [wire] addressed to [peerHex] under [frameId]. Idempotent on
+  /// [frameId] — enqueueing the same id twice keeps one pending entry.
+  Future<void> enqueueOutboxFrame(
+      String frameId, String peerHex, Uint8List wire);
+
+  /// Mark [frameId] delivered (recipient acked) so the flush stops re-driving it.
+  Future<void> ackOutboxFrame(String frameId);
+
+  /// The frames still awaiting delivery (enqueued and not yet acked).
+  Future<List<OutboxFrame>> pendingOutboxFrames();
+
   /// Append a new edit event for message [messageId] in conversation
   /// [conversationId] with [newBody]; the fold collapses to the latest text and
   /// the prior versions stay as history until a scrub reclaims them. Scoped by
@@ -301,4 +317,22 @@ abstract interface class Storage {
 
   /// Lock the space and zeroize in-memory key material.
   Future<void> close();
+}
+
+/// One persisted, not-yet-delivered control frame in the durable outbox.
+class OutboxFrame {
+  const OutboxFrame({
+    required this.frameId,
+    required this.peerHex,
+    required this.wire,
+  });
+
+  /// Caller-chosen id (e.g. `sigreq:<msgId>`); also the ack key.
+  final String frameId;
+
+  /// Recipient node-id hex.
+  final String peerHex;
+
+  /// The exact bytes to (re-)send / (re-)stash.
+  final Uint8List wire;
 }

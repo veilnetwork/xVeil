@@ -12,6 +12,13 @@ class Ns {
   /// ~2KB, so large files live here as <=8KiB log records — deniable, in the
   /// container, not plaintext on disk).
   static const int fileChunks = 5;
+
+  /// Append-log namespace for the DURABLE FRAME OUTBOX: control frames (sign
+  /// request/response, edit, delete, clear, accept, reconnect) that must reach a
+  /// peer are persisted here so a post-restart flush re-drives them until the
+  /// recipient acks. Chat messages have their own durability via [messageLog];
+  /// this gives everything else the same guarantee by construction.
+  static const int outbox = 6;
 }
 
 /// A single write in an atomic [KvLogStore.commit] batch. Mirrors

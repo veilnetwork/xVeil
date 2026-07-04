@@ -1595,6 +1595,85 @@ class HiddenVolumeStorage implements Storage {
     ]);
   }
 
+  // ── Durable frame outbox (Ns.outbox append-log) ────────────────────────────
+  // A tiny append-log: an `enqueue` record adds a pending frame, an `ack` record
+  // removes it. The set is small (in-flight control frames), so each read folds
+  // the whole namespace — no incremental cursor. Reuses the shared monotonic
+  // log-id allocator; ids are unique per namespace so there is no collision with
+  // the message log.
+
+  @override
+  Future<void> enqueueOutboxFrame(
+      String frameId, String peerHex, Uint8List wire) async {
+    // Idempotent: skip if an un-acked entry for this id already exists.
+    for (final f in await pendingOutboxFrames()) {
+      if (f.frameId == frameId) return;
+    }
+    final payload = jsonEncode({
+      'id': frameId,
+      'p': peerHex,
+      'w': base64.encode(wire),
+    });
+    await _commitAtNextLogId((logId) => [
+      AppendLogOp(Ns.outbox, logId, _sk(payload)),
+    ]);
+  }
+
+  @override
+  Future<void> ackOutboxFrame(String frameId) async {
+    // Guard: only append an ack for a frame actually pending. Message acks reuse
+    // the same wire id space (a uuid), so an unguarded append would grow the
+    // outbox log for every chat-message ack. If this was the last pending frame,
+    // compact the whole namespace instead of tombstoning.
+    final pending = await pendingOutboxFrames();
+    if (!pending.any((f) => f.frameId == frameId)) return;
+    if (pending.length == 1) {
+      try {
+        await _as.eraseNamespace(Ns.outbox);
+        return;
+      } catch (_) {
+        // Fall through to a tombstone append if the wholesale erase fails.
+      }
+    }
+    final payload = jsonEncode({'op': 'ack', 'id': frameId});
+    await _commitAtNextLogId((logId) => [
+      AppendLogOp(Ns.outbox, logId, _sk(payload)),
+    ]);
+  }
+
+  @override
+  Future<List<OutboxFrame>> pendingOutboxFrames() async {
+    final byId = <String, OutboxFrame>{};
+    try {
+      final entries = await _as.iterLogRange(
+        namespace: Ns.outbox,
+        start: null,
+        limit: _logScanLimit,
+      );
+      for (final e in entries) {
+        final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
+        final id = m['id'] as String?;
+        if (id == null) continue;
+        if (m['op'] == 'ack') {
+          byId.remove(id);
+          continue;
+        }
+        final p = m['p'] as String?;
+        final w = m['w'] as String?;
+        if (p == null || w == null) continue;
+        byId[id] = OutboxFrame(
+          frameId: id,
+          peerHex: p,
+          wire: base64.decode(w),
+        );
+      }
+    } catch (_) {
+      // Unreadable outbox → treat as empty (the mailbox copy still covers most
+      // cases); never throw into the flush loop.
+    }
+    return byId.values.toList(growable: false);
+  }
+
   /// Scan the log, building messages and folding status OPs onto them. Base
   /// rows carry the message; `{op:'status'}` rows update an existing id.
   // INCREMENTAL reduction of the append-only message log. The full scan DECRYPTS
