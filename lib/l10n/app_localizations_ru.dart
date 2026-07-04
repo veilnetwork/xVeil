@@ -260,6 +260,22 @@ class AppL10nRu extends AppL10n {
       'Сколько последних сообщений загружает чат; более ранние — по запросу';
 
   @override
+  String get settingsCloseToTray => 'Сворачивать в трей';
+
+  @override
+  String get settingsCloseToTrayHint =>
+      'Закрытие окна прячет его в системный трей и не выключает приложение — сообщения и уведомления продолжают приходить. Выключено — закрытие завершает работу.';
+
+  @override
+  String get trayShow => 'Показать';
+
+  @override
+  String get trayHide => 'Скрыть';
+
+  @override
+  String get trayQuit => 'Выход';
+
+  @override
   String get chatListDelete => 'Удалить чат';
 
   @override
