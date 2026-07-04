@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../desktop/desktop_tray.dart';
 import '../../state/app_controller.dart';
 import '../../state/chat_page_size_controller.dart';
+import '../../state/close_to_tray_controller.dart';
 import '../../state/keep_all_online_controller.dart';
 import '../../state/locale_controller.dart';
 import '../../state/notifications.dart';
@@ -467,6 +469,17 @@ class SettingsScreen extends ConsumerWidget {
               );
             },
           ),
+          // Desktop only: close the window to the tray (keep the node running)
+          // vs quit. Hidden on mobile, where there is no desktop window.
+          if (isDesktopTrayPlatform)
+            SwitchListTile(
+              secondary: const Icon(Icons.dock_outlined),
+              title: Text(l.settingsCloseToTray),
+              subtitle: Text(l.settingsCloseToTrayHint),
+              isThreeLine: true,
+              value: ref.watch(closeToTrayProvider),
+              onChanged: (v) => ref.read(closeToTrayProvider.notifier).set(v),
+            ),
           // Chat pagination: how many recent messages a chat loads initially
           // (and the "load earlier" step). Bounds decrypt + list-build work.
           ListTile(

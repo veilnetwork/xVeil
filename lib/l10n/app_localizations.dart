@@ -565,6 +565,36 @@ abstract class AppL10n {
   /// **'How many recent messages a chat loads; older ones load on demand'**
   String get settingsChatPageSizeHint;
 
+  /// No description provided for @settingsCloseToTray.
+  ///
+  /// In en, this message translates to:
+  /// **'Close to tray'**
+  String get settingsCloseToTray;
+
+  /// No description provided for @settingsCloseToTrayHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Closing the window hides it to the system tray and keeps running, so messages and notifications keep arriving. Off = closing quits.'**
+  String get settingsCloseToTrayHint;
+
+  /// No description provided for @trayShow.
+  ///
+  /// In en, this message translates to:
+  /// **'Show'**
+  String get trayShow;
+
+  /// No description provided for @trayHide.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide'**
+  String get trayHide;
+
+  /// No description provided for @trayQuit.
+  ///
+  /// In en, this message translates to:
+  /// **'Quit'**
+  String get trayQuit;
+
   /// No description provided for @chatListDelete.
   ///
   /// In en, this message translates to:

@@ -12,6 +12,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:veil_flutter/veil_flutter.dart' as veil;
 
 import 'app.dart';
+import 'desktop/desktop_tray.dart';
 import 'domain/content_manifest.dart';
 import 'data/node/embedded_node.dart';
 import 'data/node/node_controller.dart';
@@ -37,6 +38,10 @@ Future<void> main() async {
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+
+      // Desktop: arm window_manager so the close button can hide to tray
+      // (DesktopTrayHost decides) instead of quitting. No-op on mobile.
+      await initDesktopWindow();
 
       // Content hashing on the native digest (~30-50x the pure-Dart rate):
       // with package:crypto a 64 MiB attachment spent ~1.8 s hashing before
@@ -77,7 +82,9 @@ Future<void> main() async {
       runApp(
         ProviderScope(
           overrides: await _bootstrapOverrides(),
-          child: const DebugSoakHookHost(child: XVeilApp()),
+          child: const DesktopTrayHost(
+            child: DebugSoakHookHost(child: XVeilApp()),
+          ),
         ),
       );
     },
