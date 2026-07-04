@@ -374,6 +374,33 @@ class AppL10nRu extends AppL10n {
   String get chatsArchiveSection => 'Архив';
 
   @override
+  String get chatMenuFolders => 'Папки';
+
+  @override
+  String get chatsFolderAll => 'Все';
+
+  @override
+  String get chatsFolderNew => 'Новая папка';
+
+  @override
+  String get chatsFolderName => 'Название папки';
+
+  @override
+  String get chatsFolderRename => 'Переименовать папку';
+
+  @override
+  String get chatsFolderDelete => 'Удалить папку';
+
+  @override
+  String get chatsFolderUnnamed => 'Без названия';
+
+  @override
+  String get chatsFolderEmpty => 'В этой папке нет чатов';
+
+  @override
+  String get chatsFolderNoneYet => 'Папок пока нет';
+
+  @override
   String get mute30m => '30 минут';
 
   @override

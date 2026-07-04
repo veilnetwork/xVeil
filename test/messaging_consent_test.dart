@@ -189,6 +189,37 @@ void main() {
     expect((await sA.getContact(b))!.label, b.short);
   });
 
+  test('chat folders: create, multi-membership, move, delete', () async {
+    final b2 = NodeId.fromHex('03' * 32);
+    // Two folders.
+    final work = await mA.createFolder('Work');
+    final fam = await mA.createFolder('Family');
+    expect((await mA.loadFolders()).length, 2);
+
+    // b is in BOTH folders (multi-membership); b2 only in Family.
+    await mA.setFolderMembership(work.id, b.hex, true);
+    await mA.setFolderMembership(fam.id, b.hex, true);
+    await mA.setFolderMembership(fam.id, b2.hex, true);
+    var folders = await mA.loadFolders();
+    expect(folders.firstWhere((f) => f.id == work.id).memberHexes, [b.hex]);
+    expect(folders.firstWhere((f) => f.id == fam.id).memberHexes,
+        containsAll([b.hex, b2.hex]));
+
+    // Move b out of Work (idempotent remove).
+    await mA.setFolderMembership(work.id, b.hex, false);
+    folders = await mA.loadFolders();
+    expect(folders.firstWhere((f) => f.id == work.id).contains(b.hex), isFalse);
+    expect(folders.firstWhere((f) => f.id == fam.id).contains(b.hex), isTrue);
+
+    // Rename + delete.
+    await mA.renameFolder(fam.id, 'Kin');
+    expect((await mA.loadFolders()).firstWhere((f) => f.id == fam.id).name, 'Kin');
+    await mA.deleteFolder(work.id);
+    final left = await mA.loadFolders();
+    expect(left.length, 1);
+    expect(left.single.id, fam.id);
+  });
+
   test('forbidding peer-delete makes their unsend keep our copy', () async {
     // A and B become mutual contacts.
     await mA.sendRequest(b, 'hi');
