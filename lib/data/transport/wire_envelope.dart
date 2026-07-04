@@ -55,6 +55,12 @@ enum WireKind {
   clear,
   contentReoffer,
   contentGone,
+  // Opt-in authorship attestation. signRequest: recipient → author, id=msgId,
+  // body=the message text to attest. signResponse: author → recipient, body=JSON
+  // {mid, sig, pk} (or {mid, refused:true}). Added before `unknown` so an older
+  // decoder maps these (out-of-range) indices to `unknown` and ignores them.
+  signRequest,
+  signResponse,
   unknown,
 }
 
@@ -140,6 +146,17 @@ class WireEnvelope {
   /// it no longer holds us as a contact (recovery handshake, §15.7).
   const WireEnvelope.reconnect(String greeting)
       : this(WireKind.reconnect, greeting);
+
+  /// Opt-in attestation request: [id] is the message id to attest, [body] is
+  /// the exact text the requester wants the author to sign (so the author can
+  /// review it before consenting).
+  const WireEnvelope.signRequest(String msgId, String body)
+      : this(WireKind.signRequest, body, id: msgId);
+
+  /// Attestation response: [body] is JSON `{mid, sig, pk}` (base64 sig+pubkey)
+  /// when signed, or `{mid, refused:true}` when the author declined.
+  const WireEnvelope.signResponse(String bodyJson)
+      : this(WireKind.signResponse, bodyJson);
 
   /// The decode-only sentinel for a structured (v:2) frame whose kind this build
   /// does not know — the dispatcher drops it (RULE WC).

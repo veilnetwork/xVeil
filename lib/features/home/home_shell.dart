@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../l10n/app_localizations.dart';
 import '../chat/chats_screen.dart';
 import '../chat/notification_binder.dart';
+import '../chat/signature_ask_host.dart';
 import '../network/network_screen.dart';
 import '../settings/settings_screen.dart';
 
@@ -24,6 +25,7 @@ class HomeShell extends ConsumerWidget {
     // Alive for the whole authenticated session (stays mounted under pushed
     // chat routes), so OS notifications fire whenever a message arrives.
     return NotificationBinder(
+        child: SignatureAskHost(
         child: Scaffold(
       body: IndexedStack(
         index: index,
@@ -55,6 +57,6 @@ class HomeShell extends ConsumerWidget {
           ),
         ],
       ),
-    ));
+    )));
   }
 }

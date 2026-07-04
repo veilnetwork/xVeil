@@ -683,7 +683,7 @@ class HiddenVolumeStorage implements Storage {
       if (m['c'] != conv) continue;
       // A status op carries no (author, seq) and consumes no seq — skip it. Every
       // other row (post / edit / void / seq-bearing del tombstone) carries au+sq.
-      if (m['op'] == 'status') continue;
+      if (m['op'] == 'status' || m['op'] == 'sig') continue;
       final au = m['au'];
       final sq = m['sq'];
       // A legacy pre-event-log row (or a tombstone of one) has no au/sq → it
@@ -764,7 +764,11 @@ class HiddenVolumeStorage implements Storage {
         );
         for (final e in entries) {
           final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
-          if (m['c'] != conversationId || m['op'] == 'status') continue;
+          if (m['c'] != conversationId ||
+              m['op'] == 'status' ||
+              m['op'] == 'sig') {
+            continue;
+          }
           if (m['au'] != author) continue;
           final sq = m['sq'];
           if (sq is! int || sq <= 0) continue;
@@ -804,7 +808,7 @@ class HiddenVolumeStorage implements Storage {
     final events = <LogEvent>[];
     for (final e in entries) {
       final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
-      if (m['c'] != conv || m['op'] == 'status') continue;
+      if (m['c'] != conv || m['op'] == 'status' || m['op'] == 'sig') continue;
       final au = m['au'];
       final sq = m['sq'];
       if (au != author || sq is! int || sq <= fromSeq) continue;
@@ -884,7 +888,8 @@ class HiddenVolumeStorage implements Storage {
       if (m['c'] == conversationId &&
           m['au'] == author &&
           m['sq'] == seq &&
-          m['op'] != 'status') {
+          m['op'] != 'status' &&
+          m['op'] != 'sig') {
         return; // slot present — nothing to do
       }
     }
@@ -903,6 +908,15 @@ class HiddenVolumeStorage implements Storage {
       ),
     ]);
     await _patchCache(() {});
+  }
+
+  /// Decode a persisted attestation-state index safely (absent / out-of-range →
+  /// [MessageSignature.none], so legacy rows and forward-compat both hold).
+  static MessageSignature _sigFromIndex(Object? raw) {
+    if (raw is int && raw >= 0 && raw < MessageSignature.values.length) {
+      return MessageSignature.values[raw];
+    }
+    return MessageSignature.none;
   }
 
   String _encodeMessage(Message m) => jsonEncode({
@@ -934,6 +948,8 @@ class HiddenVolumeStorage implements Storage {
     if (m.fileExternal) 'fx': 1, // blob in the external store, not in-container
     if (m.replyToId != null) 'rt': m.replyToId,
     if (m.forwardedFrom != null) 'fw': m.forwardedFrom,
+    // Opt-in attestation state (omitted when `none` so legacy rows stay clean).
+    if (m.signature != MessageSignature.none) 'sig': m.signature.index,
   });
 
   Future<int> _nextLogId() async {
@@ -1039,7 +1055,7 @@ class HiddenVolumeStorage implements Storage {
     for (final e in entries) {
       final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
       if (m['c'] != conversationId) continue;
-      if (m['op'] == 'status' || m['op'] == 'del') continue; // side-channel rows
+      if (m['op'] == 'status' || m['op'] == 'del' || m['op'] == 'sig') continue; // side-channel rows
       final k = m['k'] as int?;
       MessageVersion? v;
       if (k == EventKind.edit.index && m['tg'] == messageId) {
@@ -1278,7 +1294,7 @@ class HiddenVolumeStorage implements Storage {
     for (final e in entries) {
       final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
       if (m['c'] != peer.hex) continue;
-      if (m['op'] == 'status' || m['op'] == 'del') continue;
+      if (m['op'] == 'status' || m['op'] == 'del' || m['op'] == 'sig') continue;
       final k = m['k'] as int?;
       if (k == EventKind.edit.index && old.contains(m['tg'])) {
         ops.add(AppendLogOp(
@@ -1392,7 +1408,8 @@ class HiddenVolumeStorage implements Storage {
       if (m['c'] == conv &&
           m['au'] == author &&
           m['sq'] == seq &&
-          m['op'] != 'status') {
+          m['op'] != 'status' &&
+          m['op'] != 'sig') {
         return; // slot present — already applied
       }
     }
@@ -1549,6 +1566,35 @@ class HiddenVolumeStorage implements Storage {
     ]);
   }
 
+  @override
+  Future<void> markMessageSignature(
+    String conversationId,
+    String messageId,
+    MessageSignature signature,
+  ) async {
+    // Idempotent vs the stored fold (mirror of markMessageStatus): a re-arriving
+    // response would otherwise append a duplicate sig row every time.
+    try {
+      for (final m in await _scanLog()) {
+        if (m.id == messageId && m.conversationId == conversationId) {
+          if (m.signature == signature) return;
+          break;
+        }
+      }
+    } catch (_) {
+      // Best-effort — fall through to the append.
+    }
+    final payload = jsonEncode({
+      'op': 'sig',
+      'id': messageId,
+      'c': conversationId,
+      'sig': signature.index,
+    });
+    await _commitAtNextLogId((logId) => [
+      AppendLogOp(Ns.messageLog, logId, _sk(payload)),
+    ]);
+  }
+
   /// Scan the log, building messages and folding status OPs onto them. Base
   /// rows carry the message; `{op:'status'}` rows update an existing id.
   // INCREMENTAL reduction of the append-only message log. The full scan DECRYPTS
@@ -1587,6 +1633,8 @@ class HiddenVolumeStorage implements Storage {
   final Map<String, MessageStatus> _scanStatusOps = {};
   // Legacy (pre-scoping) status ops had no conversation; applied by bare id.
   final Map<String, MessageStatus> _scanStatusLegacy = {};
+  // Composite key -> latest attestation state (op:'sig' rows, conversation-scoped).
+  final Map<String, MessageSignature> _scanSigOps = {};
   // Composite key -> the winning (highest) edit seq applied to that post, so the
   // fold honours a strictly-newer edit only (R5): deterministic last-writer-wins
   // with NO old body kept in state (superseded bodies live only in the log rows,
@@ -1679,6 +1727,7 @@ class HiddenVolumeStorage implements Storage {
     _scanDeletedLegacyIds.clear();
     _scanStatusOps.clear();
     _scanStatusLegacy.clear();
+    _scanSigOps.clear();
     _scanEditWinSeq.clear();
     _clearedWatermark.clear();
     _scanFoldedUpTo = 0;
@@ -1718,7 +1767,10 @@ class HiddenVolumeStorage implements Storage {
           // Status by composite (conversation-scoped) key; fall back to a legacy
           // by-id op for messages whose status predates conversation scoping.
           final s = _scanStatusOps[k] ?? _scanStatusLegacy[msg.id];
-          return s != null ? msg.copyWith(status: s) : msg;
+          final sig = _scanSigOps[k];
+          var out = s != null ? msg.copyWith(status: s) : msg;
+          if (sig != null) out = out.copyWith(signature: sig);
+          return out;
         })
         .toList(growable: false);
     _scanResult = result;
@@ -1765,6 +1817,15 @@ class HiddenVolumeStorage implements Storage {
         } else {
           _scanStatusLegacy[id] = s; // pre-scoping op — applied by bare id
         }
+        continue;
+      }
+      if (m['op'] == 'sig') {
+        // Attestation-state op (conversation-scoped), folded onto the message
+        // like a status op — latest wins.
+        final id = m['id'] as String;
+        final c = m['c'] as String?;
+        final sig = _sigFromIndex(m['sig']);
+        if (c != null) _scanSigOps[_msgKey(c, id)] = sig;
         continue;
       }
       if (m['op'] == 'del') {
@@ -1885,6 +1946,7 @@ class HiddenVolumeStorage implements Storage {
         seq: m['sq'] as int?,
         replyToId: m['rt'] as String?,
         forwardedFrom: m['fw'] as String?,
+        signature: _sigFromIndex(m['sig']),
       );
       _scanLogIds[k] = e.logId;
       _scanDeletedKeys.remove(
