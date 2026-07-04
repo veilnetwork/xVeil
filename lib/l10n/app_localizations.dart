@@ -781,6 +781,60 @@ abstract class AppL10n {
   /// **'Archive'**
   String get chatsArchiveSection;
 
+  /// No description provided for @chatMenuFolders.
+  ///
+  /// In en, this message translates to:
+  /// **'Folders'**
+  String get chatMenuFolders;
+
+  /// No description provided for @chatsFolderAll.
+  ///
+  /// In en, this message translates to:
+  /// **'All'**
+  String get chatsFolderAll;
+
+  /// No description provided for @chatsFolderNew.
+  ///
+  /// In en, this message translates to:
+  /// **'New folder'**
+  String get chatsFolderNew;
+
+  /// No description provided for @chatsFolderName.
+  ///
+  /// In en, this message translates to:
+  /// **'Folder name'**
+  String get chatsFolderName;
+
+  /// No description provided for @chatsFolderRename.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename folder'**
+  String get chatsFolderRename;
+
+  /// No description provided for @chatsFolderDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete folder'**
+  String get chatsFolderDelete;
+
+  /// No description provided for @chatsFolderUnnamed.
+  ///
+  /// In en, this message translates to:
+  /// **'Untitled'**
+  String get chatsFolderUnnamed;
+
+  /// No description provided for @chatsFolderEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No chats in this folder'**
+  String get chatsFolderEmpty;
+
+  /// No description provided for @chatsFolderNoneYet.
+  ///
+  /// In en, this message translates to:
+  /// **'No folders yet'**
+  String get chatsFolderNoneYet;
+
   /// No description provided for @mute30m.
   ///
   /// In en, this message translates to:

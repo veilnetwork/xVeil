@@ -140,6 +140,14 @@ Future<void> showConversationActions(
               },
             ),
           ListTile(
+            leading: const Icon(Icons.folder_outlined),
+            title: Text(l.chatMenuFolders),
+            onTap: () {
+              Navigator.of(sheet).pop();
+              pickFolders(context, ref, peer.hex);
+            },
+          ),
+          ListTile(
             leading: const Icon(Icons.cleaning_services_outlined),
             title: Text(l.chatMenuClearHistory),
             onTap: () {
@@ -159,6 +167,91 @@ Future<void> showConversationActions(
       ),
     ),
   );
+}
+
+/// Folder membership editor for [peerHex]: a checkbox per folder (a chat can be
+/// in ANY number of folders), plus "new folder" (which adds this chat to it).
+/// Local-only. Rebuilds live off [chatFoldersProvider] so a toggle reflects at
+/// once.
+Future<void> pickFolders(
+  BuildContext context,
+  WidgetRef ref,
+  String peerHex,
+) async {
+  final l = AppL10n.of(context);
+  await showModalBottomSheet<void>(
+    context: context,
+    builder: (sheet) => SafeArea(
+      child: Consumer(
+        builder: (ctx, r, _) {
+          final folders = r.watch(chatFoldersProvider).valueOrNull ?? const [];
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                title: Text(l.chatMenuFolders,
+                    style: Theme.of(ctx).textTheme.titleMedium),
+              ),
+              if (folders.isEmpty)
+                ListTile(title: Text(l.chatsFolderNoneYet))
+              else
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      for (final f in folders)
+                        CheckboxListTile(
+                          title: Text(
+                            f.name.isEmpty ? l.chatsFolderUnnamed : f.name,
+                          ),
+                          value: f.contains(peerHex),
+                          onChanged: (v) => r
+                              .read(messagingServiceProvider)
+                              .setFolderMembership(f.id, peerHex, v ?? false),
+                        ),
+                    ],
+                  ),
+                ),
+              ListTile(
+                leading: const Icon(Icons.create_new_folder_outlined),
+                title: Text(l.chatsFolderNew),
+                onTap: () async {
+                  final name = await _promptNewFolderName(ctx);
+                  if (name != null && name.isNotEmpty) {
+                    await r
+                        .read(messagingServiceProvider)
+                        .createFolder(name, members: [peerHex]);
+                  }
+                },
+              ),
+            ],
+          );
+        },
+      ),
+    ),
+  );
+}
+
+Future<String?> _promptNewFolderName(BuildContext context) {
+  final l = AppL10n.of(context);
+  final ctl = TextEditingController();
+  return showDialog<String>(
+    context: context,
+    builder: (dialog) => AlertDialog(
+      title: Text(l.chatsFolderName),
+      content: TextField(controller: ctl, autofocus: true),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialog).pop(),
+          child: Text(l.actionCancel),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(dialog).pop(ctl.text.trim()),
+          child: Text(l.actionSave),
+        ),
+      ],
+    ),
+  ).whenComplete(ctl.dispose);
 }
 
 /// Pick how long to mute [peer]: presets from 30 minutes to a month, forever,

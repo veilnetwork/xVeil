@@ -373,6 +373,33 @@ class AppL10nEn extends AppL10n {
   String get chatsArchiveSection => 'Archive';
 
   @override
+  String get chatMenuFolders => 'Folders';
+
+  @override
+  String get chatsFolderAll => 'All';
+
+  @override
+  String get chatsFolderNew => 'New folder';
+
+  @override
+  String get chatsFolderName => 'Folder name';
+
+  @override
+  String get chatsFolderRename => 'Rename folder';
+
+  @override
+  String get chatsFolderDelete => 'Delete folder';
+
+  @override
+  String get chatsFolderUnnamed => 'Untitled';
+
+  @override
+  String get chatsFolderEmpty => 'No chats in this folder';
+
+  @override
+  String get chatsFolderNoneYet => 'No folders yet';
+
+  @override
   String get mute30m => '30 minutes';
 
   @override

@@ -7,12 +7,18 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/ids.dart';
 import '../../domain/chat.dart';
+import '../../domain/chat_folder.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/messaging.dart';
 import 'chat_actions.dart';
 import '../../state/providers.dart';
 import '../contacts/invite_exchange_sheet.dart';
+
+/// The chat-list folder filter: null = "All", else a [ChatFolder.id]. A plain
+/// StateProvider so switching folders survives list rebuilds. Reset to All if
+/// the selected folder is later deleted (handled in the build).
+final selectedFolderProvider = StateProvider<String?>((_) => null);
 
 class ChatsScreen extends ConsumerWidget {
   const ChatsScreen({super.key});
@@ -78,14 +84,37 @@ class ChatsScreen extends ConsumerWidget {
           if (list.isEmpty) {
             return _EmptyState(l: l, onStart: () => _addByInvite(context, ref));
           }
+          final folders = ref.watch(chatFoldersProvider).valueOrNull ?? const [];
+          var selectedFolder = ref.watch(selectedFolderProvider);
+          // If the selected folder was deleted, fall back to All.
+          if (selectedFolder != null &&
+              !folders.any((f) => f.id == selectedFolder)) {
+            selectedFolder = null;
+          }
+          final folder = selectedFolder == null
+              ? null
+              : folders.firstWhere((f) => f.id == selectedFolder);
+          // Filter to the selected folder's members (All = everything).
+          final scoped = folder == null
+              ? list
+              : list
+                  .where((c) => folder.contains(c.peer.nodeId.hex))
+                  .toList(growable: false);
           // Archived conversations collapse into a section at the bottom —
           // they keep receiving messages (and unread badges) but stay out of
           // the main list until unarchived.
           final active =
-              list.where((c) => !c.peer.archived).toList(growable: false);
+              scoped.where((c) => !c.peer.archived).toList(growable: false);
           final archived =
-              list.where((c) => c.peer.archived).toList(growable: false);
-          return ListView(
+              scoped.where((c) => c.peer.archived).toList(growable: false);
+          return Column(
+            children: [
+              if (folders.isNotEmpty)
+                _FolderBar(folders: folders, selected: selectedFolder),
+              Expanded(
+                child: (active.isEmpty && archived.isEmpty)
+                    ? Center(child: Text(l.chatsFolderEmpty))
+                    : ListView(
             children: [
               for (final (i, c) in active.indexed) ...[
                 if (i > 0) const Divider(height: 1, indent: 72),
@@ -101,6 +130,9 @@ class ChatsScreen extends ConsumerWidget {
                     for (final c in archived) _ConversationTile(conversation: c),
                   ],
                 ),
+            ],
+          ),
+              ),
             ],
           );
         },
@@ -172,6 +204,128 @@ class ChatsScreen extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// Horizontal folder selector under the app bar: "All" + one chip per folder,
+/// plus a manage (⋯) chip. Tapping a chip switches the filter; long-press on a
+/// folder chip opens its rename/delete menu.
+class _FolderBar extends ConsumerWidget {
+  const _FolderBar({required this.folders, required this.selected});
+  final List<ChatFolder> folders;
+  final String? selected;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l = AppL10n.of(context);
+    return SizedBox(
+      height: 48,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+            child: ChoiceChip(
+              label: Text(l.chatsFolderAll),
+              selected: selected == null,
+              onSelected: (_) =>
+                  ref.read(selectedFolderProvider.notifier).state = null,
+            ),
+          ),
+          for (final f in folders)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+              child: GestureDetector(
+                onLongPress: () => _folderMenu(context, ref, f),
+                onSecondaryTap: () => _folderMenu(context, ref, f),
+                child: ChoiceChip(
+                  label: Text(f.name.isEmpty ? l.chatsFolderUnnamed : f.name),
+                  selected: selected == f.id,
+                  onSelected: (_) =>
+                      ref.read(selectedFolderProvider.notifier).state = f.id,
+                ),
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+            child: ActionChip(
+              avatar: const Icon(Icons.add, size: 18),
+              label: Text(l.chatsFolderNew),
+              onPressed: () => createFolderDialog(context, ref),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _folderMenu(
+    BuildContext context,
+    WidgetRef ref,
+    ChatFolder f,
+  ) async {
+    final l = AppL10n.of(context);
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (sheet) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: Text(l.chatsFolderRename),
+              onTap: () async {
+                Navigator.of(sheet).pop();
+                final name = await _promptFolderName(context, f.name);
+                if (name != null) {
+                  await ref
+                      .read(messagingServiceProvider)
+                      .renameFolder(f.id, name);
+                }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: Text(l.chatsFolderDelete),
+              onTap: () async {
+                Navigator.of(sheet).pop();
+                await ref.read(messagingServiceProvider).deleteFolder(f.id);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Prompt for a new folder name and create it. Shared with the "+" chip.
+Future<void> createFolderDialog(BuildContext context, WidgetRef ref) async {
+  final name = await _promptFolderName(context, '');
+  if (name == null || name.isEmpty) return;
+  await ref.read(messagingServiceProvider).createFolder(name);
+}
+
+Future<String?> _promptFolderName(BuildContext context, String initial) {
+  final l = AppL10n.of(context);
+  final ctl = TextEditingController(text: initial);
+  return showDialog<String>(
+    context: context,
+    builder: (dialog) => AlertDialog(
+      title: Text(l.chatsFolderName),
+      content: TextField(controller: ctl, autofocus: true),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialog).pop(),
+          child: Text(l.actionCancel),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(dialog).pop(ctl.text.trim()),
+          child: Text(l.actionSave),
+        ),
+      ],
+    ),
+  ).whenComplete(ctl.dispose);
 }
 
 class _EmptyState extends StatelessWidget {
