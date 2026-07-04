@@ -248,6 +248,81 @@ void main() {
       expect(opens, 1, reason: 'quarantine survives a relaunch');
     });
 
+    test(
+        'an IPC-timeout open is NOT acked away — the blob survives at the '
+        'relay and delivers once the node answers', () async {
+      // Models the observed loss: the node's mailbox_open IPC times out while
+      // the runtime is busy/starting. The old path quarantined + ACKed on ANY
+      // open exception — the ack dropped the relay's only copy, permanently
+      // destroying a legitimate message ("blob fetched+ACKed yet the message
+      // never surfaced").
+      var timeoutsLeft = 2;
+      var opens = 0;
+      final inner = LoopbackMailboxCrypto(senderForOpen: peer);
+      final flaky = _FlakyOpenCrypto(
+        inner,
+        onOpen: () => opens++,
+        shouldFail: () => timeoutsLeft-- > 0,
+      );
+      final sticky = InMemoryMailboxRelay();
+      final orch2 = MailboxOrchestrator(flaky, sticky, poisoned: freshRegistry());
+      final data = Uint8List.fromList([42]);
+      final blob = await inner.seal(
+          recipient: me, appId: _appId(0xAB), endpointId: 7, data: data);
+      await sticky.put(
+          receiver: me, contentId: _cid(0xAB), sender: peer, blob: blob);
+
+      // Two drains hit the timeout: nothing delivered, nothing acked away.
+      for (var i = 0; i < 2; i++) {
+        expect(
+          await orch2.drain(
+              me: me, authCookie: cookie, ourCertVersion: 1, alreadyHave: never),
+          isEmpty,
+        );
+        expect(await sticky.fetch(me: me, authCookie: cookie), hasLength(1),
+            reason: 'a TRANSIENT open failure must not ack the blob away');
+      }
+      // Node answers now — the message is recovered intact.
+      final got = await orch2.drain(
+          me: me, authCookie: cookie, ourCertVersion: 1, alreadyHave: never);
+      expect(got, hasLength(1));
+      expect(got.single.data, data);
+      expect(await sticky.fetch(me: me, authCookie: cookie), isEmpty,
+          reason: 'acked only after the successful open');
+      expect(opens, 3);
+    });
+
+    test('opens that time out forever still terminate (bounded → quarantine)',
+        () async {
+      var opens = 0;
+      final inner = LoopbackMailboxCrypto(senderForOpen: peer);
+      final flaky = _FlakyOpenCrypto(
+        inner,
+        onOpen: () => opens++,
+        shouldFail: () => true, // never recovers
+      );
+      final sticky = InMemoryMailboxRelay();
+      final orch2 = MailboxOrchestrator(flaky, sticky, poisoned: freshRegistry());
+      final blob = await inner.seal(
+          recipient: me, appId: _appId(0xAC), endpointId: 7,
+          data: Uint8List.fromList([1]));
+      await sticky.put(
+          receiver: me, contentId: _cid(0xAC), sender: peer, blob: blob);
+
+      // Retried across drains up to the cap, then treated as permanent.
+      for (var i = 0; i < 6; i++) {
+        await orch2.drain(
+            me: me, authCookie: cookie, ourCertVersion: 1, alreadyHave: never);
+      }
+      expect(await sticky.fetch(me: me, authCookie: cookie), isEmpty,
+          reason: 'after the transient cap the blob is quarantined + acked');
+      final opensAtCap = opens;
+      await orch2.drain(
+          me: me, authCookie: cookie, ourCertVersion: 1, alreadyHave: never);
+      expect(opens, opensAtCap,
+          reason: 'quarantined cid is never decrypt-attempted again');
+    });
+
     test('quarantine is FIFO-capped so junk deposits cannot grow the registry',
         () async {
       final reg = freshRegistry();
@@ -261,6 +336,43 @@ void main() {
       expect(RegExp('"').allMatches(stored).length ~/ 2, 64);
     });
   });
+}
+
+/// Open fails with the node's IPC-timeout error while [shouldFail] says so —
+/// models a busy/starting runtime that doesn't answer `mailbox_open` (the
+/// error TEXT carries the "timeout" discriminant the orchestrator keys on).
+class _FlakyOpenCrypto implements VeilMailboxCrypto {
+  _FlakyOpenCrypto(this._inner, {required this.onOpen, required this.shouldFail});
+  final VeilMailboxCrypto _inner;
+  final void Function() onOpen;
+  final bool Function() shouldFail;
+
+  @override
+  Future<Uint8List> seal({
+    required NodeId recipient,
+    required Uint8List appId,
+    required int endpointId,
+    required Uint8List data,
+  }) =>
+      _inner.seal(
+          recipient: recipient,
+          appId: appId,
+          endpointId: endpointId,
+          data: data);
+
+  @override
+  Future<OpenedMailboxMessage> open({
+    required Uint8List blob,
+    required int ourCertVersion,
+  }) {
+    onOpen();
+    if (shouldFail()) {
+      throw Exception(
+          'mailbox_open failed: protocol error: timeout waiting for '
+          'mailbox_open reply');
+    }
+    return _inner.open(blob: blob, ourCertVersion: ourCertVersion);
+  }
 }
 
 /// Counts decrypt attempts so tests can prove the quarantine short-circuits.

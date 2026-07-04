@@ -130,6 +130,17 @@ class MailboxOrchestrator {
   /// must not be able to grow the container one commit per blob.
   final Set<String> _openFailedOnce = {};
 
+  /// Per-cid count of TRANSIENT open failures (the node's IPC didn't answer —
+  /// "timeout waiting for mailbox_open reply" — which says nothing about the
+  /// blob itself). Such a blob is retried on later drains WITHOUT acking, so
+  /// the relay keeps its copy; only after [_transientOpenCap] consecutive
+  /// timeouts is it treated as permanently poisoned. In-RAM only (a restart
+  /// retries from zero — correct for a node-side transient). Bounded so junk
+  /// cannot grow it.
+  final Map<String, int> _transientOpenFails = {};
+  static const _transientOpenCap = 6;
+  static const _transientOpenFailsMax = 512;
+
   /// Seal [data] for offline [recipient]'s ([appId], [endpointId]) and deposit
   /// it at the relay under [contentId] (the message uuid, so the recipient can
   /// dedup against a later live delivery of the same message).
@@ -283,21 +294,43 @@ class MailboxOrchestrator {
           ourCertVersion: ourCertVersion,
         );
       } catch (e) {
-        // Open failed — unverifiable / corrupt / forged / stale-identity blob.
-        // The exception text already carries the native status discriminant
-        // (`PeerUnresolved` = sender/recipient identity document unresolvable
-        // from the DHT; `Failed` = AEAD / signature / decrypt mismatch). A
-        // swallowed open is an invisible "message never arrived" — so LOG it
-        // (the single fact needed to tell a reachability gap from a key gap),
-        // QUARANTINE the cid (an undecryptable blob never becomes decryptable,
-        // and before the registry it was re-fetched + re-failed every drain
-        // tick for its whole relay TTL), then ack and move on.
+        // TRANSIENT failure first: an IPC timeout ("timeout waiting for
+        // mailbox_open reply" — the node was busy/starting and simply didn't
+        // answer) says NOTHING about the blob. Quarantining + acking here
+        // DESTROYS a legitimate message: the ack drops the relay's only copy,
+        // observed as "blob fetched+ACKed yet the message never surfaced".
+        // Skip WITHOUT acking so the relay keeps it and a later drain retries;
+        // a bounded per-cid counter still terminates a blob whose opens time
+        // out forever.
+        if ('$e'.contains('timeout')) {
+          final n = (_transientOpenFails[cidHex] ?? 0) + 1;
+          if (n < _transientOpenCap) {
+            if (_transientOpenFails.length >= _transientOpenFailsMax) {
+              _transientOpenFails.remove(_transientOpenFails.keys.first);
+            }
+            _transientOpenFails[cidHex] = n;
+            devLog(() =>
+                'xVeil[drain]: open TIMED OUT contentId=${_shortHex(b.contentId)} '
+                '(attempt $n/$_transientOpenCap) — NOT acked, will retry: $e');
+            continue;
+          }
+          // Cap reached — fall through to the permanent path below.
+        }
+        // Open failed PERMANENTLY — unverifiable / corrupt / forged /
+        // stale-identity blob. The exception text carries the native status
+        // discriminant (`PeerUnresolved` = sender/recipient identity document
+        // unresolvable; `Failed` = AEAD / signature / decrypt mismatch;
+        // decryption is deterministic, so retrying cannot help). A swallowed
+        // open is an invisible "message never arrived" — so LOG it, QUARANTINE
+        // the cid (before the registry it was re-fetched + re-failed every
+        // drain tick for its whole relay TTL), then ack and move on.
         devLog(() => 'xVeil[drain]: OPEN FAILED contentId=${_shortHex(b.contentId)} '
             'senderHint=${b.senderId.short} — $e');
         _openFailedOnce.add(cidHex); // durable only on a re-sighting (above)
         await _ack(me, b.contentId, authCookie, knownRelays);
         continue;
       }
+      _transientOpenFails.remove(cidHex); // opened fine — forget old timeouts
       delivered.add(DrainedMessage(
         // The CRYPTO-VERIFIED sender, recovered from the blob's sidecar and
         // confirmed by the auth-deliver signature — NOT the relay-supplied wire
