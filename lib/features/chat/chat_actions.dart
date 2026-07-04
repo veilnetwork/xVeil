@@ -62,7 +62,7 @@ Future<void> showConversationActions(
               title: Text(l.chatMenuUnmute),
               onTap: () {
                 Navigator.of(sheet).pop();
-                svc.setContactMuted(peer, false);
+                svc.setContactMutedUntil(peer, null);
               },
             )
           else
@@ -71,7 +71,33 @@ Future<void> showConversationActions(
               title: Text(l.chatMenuMute),
               onTap: () {
                 Navigator.of(sheet).pop();
-                svc.setContactMuted(peer, true);
+                pickMuteDuration(context, ref, peer);
+              },
+            ),
+          ListTile(
+            leading: const Icon(Icons.mark_chat_read_outlined),
+            title: Text(l.chatMenuMarkRead),
+            onTap: () {
+              Navigator.of(sheet).pop();
+              svc.markRead(peer.hex);
+            },
+          ),
+          if (contact.archived)
+            ListTile(
+              leading: const Icon(Icons.unarchive_outlined),
+              title: Text(l.chatMenuUnarchive),
+              onTap: () {
+                Navigator.of(sheet).pop();
+                svc.setContactArchived(peer, false);
+              },
+            )
+          else
+            ListTile(
+              leading: const Icon(Icons.archive_outlined),
+              title: Text(l.chatMenuArchive),
+              onTap: () {
+                Navigator.of(sheet).pop();
+                svc.setContactArchived(peer, true);
               },
             ),
           ListTile(
@@ -120,6 +146,54 @@ Future<void> showConversationActions(
       ),
     ),
   );
+}
+
+/// Pick how long to mute [peer]: presets from 30 minutes to a month, forever,
+/// or a custom hour count. The deadline is stored (not a flag), so a timed
+/// mute expires on its own — see [Contact.mutedUntil]. Shared by the in-chat
+/// menu and the chats-list sheet.
+Future<void> pickMuteDuration(
+  BuildContext context,
+  WidgetRef ref,
+  NodeId peer,
+) async {
+  final l = AppL10n.of(context);
+  // (label, duration); null duration = forever, -1h sentinel = custom.
+  final presets = <(String, Duration?)>[
+    (l.mute30m, const Duration(minutes: 30)),
+    (l.mute1h, const Duration(hours: 1)),
+    (l.mute8h, const Duration(hours: 8)),
+    (l.mute3d, const Duration(days: 3)),
+    (l.mute1w, const Duration(days: 7)),
+    (l.mute1mo, const Duration(days: 30)),
+    (l.muteForever, null),
+    (l.muteCustom, const Duration(hours: -1)),
+  ];
+  final picked = await showDialog<(String, Duration?)>(
+    context: context,
+    builder: (dialog) => SimpleDialog(
+      title: Text(l.chatMenuMute),
+      children: [
+        for (final o in presets)
+          SimpleDialogOption(
+            onPressed: () => Navigator.of(dialog).pop(o),
+            child: Text(o.$1),
+          ),
+      ],
+    ),
+  );
+  if (picked == null || !context.mounted) return;
+  Duration? d = picked.$2;
+  if (d != null && d.isNegative) {
+    final hours = await showDialog<int>(
+      context: context,
+      builder: (_) => _HoursDialog(),
+    );
+    if (hours == null || !context.mounted) return;
+    d = Duration(hours: hours);
+  }
+  final until = d == null ? kMuteForever : DateTime.now().add(d);
+  await ref.read(messagingServiceProvider).setContactMutedUntil(peer, until);
 }
 
 /// Pick [peer]'s auto-delete window — the existing presets PLUS a custom day
@@ -270,6 +344,50 @@ Future<void> _confirmDelete(
   if (ok != true) return;
   await ref.read(messagingServiceProvider).deleteConversation(peer);
   onDeleted?.call();
+}
+
+/// Number-of-hours input dialog for the custom mute window (owns its
+/// controller, same disposal rationale as [_DaysDialog]).
+class _HoursDialog extends StatefulWidget {
+  @override
+  State<_HoursDialog> createState() => _HoursDialogState();
+}
+
+class _HoursDialogState extends State<_HoursDialog> {
+  final _ctl = TextEditingController();
+
+  @override
+  void dispose() {
+    _ctl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    return AlertDialog(
+      title: Text(l.muteCustomTitle),
+      content: TextField(
+        controller: _ctl,
+        autofocus: true,
+        keyboardType: TextInputType.number,
+        decoration: InputDecoration(suffixText: l.muteHoursSuffix),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(l.actionCancel),
+        ),
+        FilledButton(
+          onPressed: () {
+            final n = int.tryParse(_ctl.text.trim());
+            Navigator.of(context).pop(n != null && n > 0 ? n : null);
+          },
+          child: Text(l.actionSave),
+        ),
+      ],
+    );
+  }
 }
 
 /// Number-of-days input dialog (StatefulWidget so the controller is disposed in

@@ -345,6 +345,48 @@ class AppL10nEn extends AppL10n {
   String get chatMenuUnmute => 'Unmute notifications';
 
   @override
+  String get chatMenuMarkRead => 'Mark as read';
+
+  @override
+  String get chatMenuArchive => 'Archive';
+
+  @override
+  String get chatMenuUnarchive => 'Unarchive';
+
+  @override
+  String get chatsArchiveSection => 'Archive';
+
+  @override
+  String get mute30m => '30 minutes';
+
+  @override
+  String get mute1h => '1 hour';
+
+  @override
+  String get mute8h => '8 hours';
+
+  @override
+  String get mute3d => '3 days';
+
+  @override
+  String get mute1w => '1 week';
+
+  @override
+  String get mute1mo => '1 month';
+
+  @override
+  String get muteForever => 'Until I turn it back on';
+
+  @override
+  String get muteCustom => 'Custom…';
+
+  @override
+  String get muteCustomTitle => 'Mute for how long?';
+
+  @override
+  String get muteHoursSuffix => 'hours';
+
+  @override
   String get chatMenuUnblock => 'Unblock';
 
   @override

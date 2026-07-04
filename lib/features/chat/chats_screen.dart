@@ -78,10 +78,30 @@ class ChatsScreen extends ConsumerWidget {
           if (list.isEmpty) {
             return _EmptyState(l: l, onStart: () => _addByInvite(context, ref));
           }
-          return ListView.separated(
-            itemCount: list.length,
-            separatorBuilder: (_, _) => const Divider(height: 1, indent: 72),
-            itemBuilder: (_, i) => _ConversationTile(conversation: list[i]),
+          // Archived conversations collapse into a section at the bottom —
+          // they keep receiving messages (and unread badges) but stay out of
+          // the main list until unarchived.
+          final active =
+              list.where((c) => !c.peer.archived).toList(growable: false);
+          final archived =
+              list.where((c) => c.peer.archived).toList(growable: false);
+          return ListView(
+            children: [
+              for (final (i, c) in active.indexed) ...[
+                if (i > 0) const Divider(height: 1, indent: 72),
+                _ConversationTile(conversation: c),
+              ],
+              if (archived.isNotEmpty)
+                ExpansionTile(
+                  leading: const Icon(Icons.archive_outlined),
+                  title: Text(
+                    '${l.chatsArchiveSection} (${archived.length})',
+                  ),
+                  children: [
+                    for (final c in archived) _ConversationTile(conversation: c),
+                  ],
+                ),
+            ],
           );
         },
       ),

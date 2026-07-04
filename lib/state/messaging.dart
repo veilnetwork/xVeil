@@ -1435,21 +1435,38 @@ class MessagingService {
         nodeId: existing.nodeId,
         name: (trimmed == null || trimmed.isEmpty) ? null : trimmed,
         status: existing.status,
-        muted: existing.muted,
+        mutedUntil: existing.mutedUntil,
         pinned: existing.pinned,
+        archived: existing.archived,
+        retentionDays: existing.retentionDays,
       ),
     );
     _signal();
   }
 
-  /// Mute (or unmute) notifications for [peer]'s conversation. Local-only — the
-  /// flag lives in the encrypted contact record and is never sent. The
-  /// notification layer reads it to suppress alerts; messages still arrive and
-  /// store as normal. No-op if we hold no contact for the peer.
-  Future<void> setContactMuted(NodeId peer, bool muted) async {
+  /// Mute notifications for [peer]'s conversation until [until] ([kMuteForever]
+  /// = until manually unmuted; null = unmute now). Local-only — the deadline
+  /// lives in the encrypted contact record and is never sent. The notification
+  /// layer reads the computed [Contact.muted] to suppress alerts; messages
+  /// still arrive and store as normal. No-op if we hold no contact for the peer.
+  Future<void> setContactMutedUntil(NodeId peer, DateTime? until) async {
     final existing = await _storage.getContact(peer);
     if (existing == null) return;
-    await _storage.upsertContact(existing.copyWith(muted: muted));
+    await _storage.upsertContact(existing.copyWith(mutedUntil: until));
+    _signal();
+  }
+
+  /// Boolean mute compat shim: true = mute forever, false = unmute now.
+  Future<void> setContactMuted(NodeId peer, bool muted) =>
+      setContactMutedUntil(peer, muted ? kMuteForever : null);
+
+  /// Archive (or unarchive) [peer]'s conversation — it collapses into the
+  /// archive section of the chat list. Local-only, stored in the encrypted
+  /// contact record. No-op if unknown.
+  Future<void> setContactArchived(NodeId peer, bool archived) async {
+    final existing = await _storage.getContact(peer);
+    if (existing == null) return;
+    await _storage.upsertContact(existing.copyWith(archived: archived));
     _signal();
   }
 
@@ -1475,8 +1492,9 @@ class MessagingService {
         nodeId: existing.nodeId,
         name: existing.name,
         status: existing.status,
-        muted: existing.muted,
+        mutedUntil: existing.mutedUntil,
         pinned: existing.pinned,
+        archived: existing.archived,
         retentionDays: window,
       ),
     );
