@@ -67,7 +67,7 @@ enum WireKind {
 /// receiver can **ack** by referencing it.
 class WireEnvelope {
   const WireEnvelope(this.kind, this.body,
-      {this.id, this.sentAtMs, this.seq, this.replyTo});
+      {this.id, this.sentAtMs, this.seq, this.replyTo, this.forwardedFrom});
 
   final WireKind kind;
   final String body;
@@ -78,6 +78,11 @@ class WireEnvelope {
   /// resolves identically on both sides. Optional JSON key — an older decoder
   /// simply ignores it (the message renders un-quoted), so no version bump.
   final String? replyTo;
+
+  /// For a [WireKind.message]: display label of whom this message was
+  /// FORWARDED from (free text, never a node id — see Message.forwardedFrom).
+  /// Optional key ('fw'); older decoders ignore it.
+  final String? forwardedFrom;
 
   /// The SENDER's send time (Unix ms). Travels so the receiver orders messages
   /// by when they were SENT, not when they happened to arrive — the live /
@@ -98,9 +103,17 @@ class WireEnvelope {
       : this(WireKind.request, greeting, id: id, sentAtMs: sentAtMs);
   const WireEnvelope.accept() : this(WireKind.accept, '');
   const WireEnvelope.message(String text,
-      {String? id, int? sentAtMs, int? seq, String? replyTo})
+      {String? id,
+      int? sentAtMs,
+      int? seq,
+      String? replyTo,
+      String? forwardedFrom})
       : this(WireKind.message, text,
-            id: id, sentAtMs: sentAtMs, seq: seq, replyTo: replyTo);
+            id: id,
+            sentAtMs: sentAtMs,
+            seq: seq,
+            replyTo: replyTo,
+            forwardedFrom: forwardedFrom);
   const WireEnvelope.ack(String id) : this(WireKind.ack, '', id: id);
   const WireEnvelope.edit(String id, String newText, {int? seq})
       : this(WireKind.edit, newText, id: id, seq: seq);
@@ -143,6 +156,7 @@ class WireEnvelope {
         if (sentAtMs != null) 's': sentAtMs,
         if (seq != null) 'q': seq,
         if (replyTo != null) 'r': replyTo,
+        if (forwardedFrom != null) 'fw': forwardedFrom,
         if (_isV2) 'v': 2,
       })));
 
@@ -168,6 +182,8 @@ class WireEnvelope {
             sentAtMs: decoded['s'] is int ? decoded['s'] as int : null,
             seq: decoded['q'] is int ? decoded['q'] as int : null,
             replyTo: decoded['r'] is String ? decoded['r'] as String : null,
+            forwardedFrom:
+                decoded['fw'] is String ? decoded['fw'] as String : null,
           );
         }
         // Out of this build's range. A structured v:2 frame (a kind a newer build

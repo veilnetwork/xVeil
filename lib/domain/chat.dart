@@ -124,6 +124,7 @@ class Message {
     this.author,
     this.seq,
     this.replyToId,
+    this.forwardedFrom,
   });
 
   final String id;
@@ -175,6 +176,13 @@ class Message {
   /// to a deleted/cleared message degrades to a generic "quoted message" stub.
   final String? replyToId;
 
+  /// Display label of whom this message was FORWARDED from, or null for an
+  /// original message. Free text (the forwarder's local alias for the source,
+  /// or "you"), deliberately NOT a node id: attaching the source's routable
+  /// identity to a forward would leak more than the user chose to share.
+  /// Renders as a "Forwarded from X" caption on the bubble.
+  final String? forwardedFrom;
+
   /// A file message — whether already downloaded ([fileId]) or merely OFFERED
   /// ([fileContentId], awaiting an opt-in download).
   bool get isFile => fileId != null || fileContentId != null;
@@ -203,6 +211,7 @@ class Message {
         author: author,
         seq: seq,
         replyToId: replyToId,
+        forwardedFrom: forwardedFrom,
       );
 }
 

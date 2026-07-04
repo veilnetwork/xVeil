@@ -50,6 +50,73 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final Set<String> _selected = <String>{};
   bool get _selecting => _selected.isNotEmpty;
 
+  /// Whether the user has scrolled far enough up that a "jump to latest"
+  /// button should appear (reading history, then getting back is a long drag).
+  bool _awayFromBottom = false;
+
+  void _onScrollChanged() {
+    if (!_scroll.hasClients) return;
+    final away = _scroll.position.maxScrollExtent - _scroll.position.pixels >
+        _kAwayFromBottomPx;
+    if (away != _awayFromBottom) setState(() => _awayFromBottom = away);
+  }
+
+  /// How far (px) from the bottom counts as "away" — roughly a screenful, so
+  /// the button never flickers during normal near-bottom reading.
+  static const double _kAwayFromBottomPx = 600;
+
+  /// Per-message keys so "jump to the quoted message" can ensureVisible its
+  /// bubble. Keyed by message id; entries are cheap and bounded by the loaded
+  /// window (the map is rebuilt keys-on-demand, stale ids just linger unused).
+  final Map<String, GlobalKey> _bubbleKeys = <String, GlobalKey>{};
+  GlobalKey _bubbleKey(String id) => _bubbleKeys[id] ??= GlobalKey();
+
+  /// Scroll the chat so the message [id] is on screen. The list is lazy, so an
+  /// off-screen target has no context yet — step upward a couple of viewports
+  /// at a time until its bubble mounts, then ensureVisible. If the id is not in
+  /// the loaded window at all, grow the window (one page) and retry briefly.
+  Future<void> _jumpToMessage(String id) async {
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final list =
+          ref.read(messagesProvider(widget.peerHex)).valueOrNull ?? const [];
+      if (list.any((m) => m.id == id)) {
+        if (await _scrollUntilVisible(id)) return;
+        return; // in the window but never mounted — give up quietly
+      }
+      // Not in the window: load one more page of history and retry.
+      ref.read(chatWindowProvider(widget.peerHex).notifier).state +=
+          ref.read(chatPageSizeProvider);
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      if (!mounted) return;
+    }
+    if (mounted) _snack(AppL10n.of(context).chatQuoteUnavailable);
+  }
+
+  /// Step the scroll position upward until [id]'s bubble is built, then align
+  /// it. Bounded (~80 viewport-steps) so a pathological state can't spin.
+  Future<bool> _scrollUntilVisible(String id) async {
+    for (var i = 0; i < 80; i++) {
+      final ctx = _bubbleKeys[id]?.currentContext;
+      if (ctx != null && ctx.mounted) {
+        await Scrollable.ensureVisible(
+          ctx,
+          alignment: 0.3,
+          duration: const Duration(milliseconds: 150),
+        );
+        return true;
+      }
+      if (!_scroll.hasClients || _scroll.position.pixels <= 0) return false;
+      _scroll.jumpTo(
+        (_scroll.position.pixels - _scroll.position.viewportDimension * 2)
+            .clamp(0.0, _scroll.position.maxScrollExtent),
+      );
+      // Let the lazy list build the newly-exposed rows.
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return false;
+    }
+    return false;
+  }
+
   void _toggleSelected(Message m) {
     setState(() {
       if (!_selected.remove(m.id)) _selected.add(m.id);
@@ -61,6 +128,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    // Show/hide the "jump to latest" button as the user scrolls.
+    _scroll.addListener(_onScrollChanged);
     // Opening the chat clears its unread badge (marks read up to the latest
     // message). Deferred so the first frame isn't blocked.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -705,18 +774,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
-  /// Forward [msgs] (text only) to a conversation the user picks. Anonymity: a
-  /// forward is sent as a fresh normal message — no "forwarded from" origin
-  /// attribution travels, so it leaks nothing about where it came from. Sends in
-  /// on-screen order to the chosen peer.
+  /// Forward [msgs] (text only) to a conversation the user picks, marked
+  /// "forwarded from X". X is a display LABEL (this chat's local alias for an
+  /// incoming message, "you" for our own) — deliberately not a node id, so the
+  /// forward reveals only what the user chose to say, never a routable
+  /// identity. Sends in on-screen order to the chosen peer.
   Future<void> _forwardMessages(List<Message> msgs) async {
-    final texts = msgs.where((m) => !m.isFile).map((m) => m.body).toList();
-    if (texts.isEmpty) return;
+    final l = AppL10n.of(context);
+    final toForward = msgs.where((m) => !m.isFile).toList(growable: false);
+    if (toForward.isEmpty) return;
+    final sourceLabel =
+        ref.read(contactProvider(widget.peerHex)).value?.label ?? _peer.short;
     final target = await _pickForwardTarget();
     if (target == null || !mounted) return;
     final svc = ref.read(messagingServiceProvider);
-    for (final t in texts) {
-      await svc.sendText(target, t);
+    for (final m in toForward) {
+      await svc.sendText(
+        target,
+        m.body,
+        forwardedFrom: m.direction == MessageDirection.outgoing
+            ? l.chatYou
+            : sourceLabel,
+      );
     }
     _clearSelection();
     if (mounted) {
@@ -1300,6 +1379,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ),
         ],
       ),
+      // "Jump to latest": appears once the user is a screenful+ away from the
+      // bottom (getting back from deep history is otherwise a long drag).
+      floatingActionButton: _awayFromBottom
+          ? FloatingActionButton.small(
+              onPressed: () => _scrollToBottom(force: true),
+              child: const Icon(Icons.keyboard_double_arrow_down),
+            )
+          : null,
       body: Column(
         children: [
           Expanded(
@@ -1342,6 +1429,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     }
                     final m = list[hasMore ? i - 1 : i];
                     return _Bubble(
+                      key: _bubbleKey(m.id),
                       message: m,
                       quoted: m.replyToId == null ? null : byId[m.replyToId],
                       selected: _selected.contains(m.id),
@@ -1349,6 +1437,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       onTapFile: _onTapFile,
                       onLongPress: _showMessageActions,
                       onTap: _selecting ? () => _toggleSelected(m) : null,
+                      onTapQuote: m.replyToId == null
+                          ? null
+                          : () => _jumpToMessage(m.replyToId!),
                     );
                   },
                 );
@@ -1715,6 +1806,7 @@ enum _FileAffordance { download, save, open, gone }
 
 class _Bubble extends ConsumerWidget {
   const _Bubble({
+    super.key,
     required this.message,
     this.quoted,
     this.selected = false,
@@ -1722,6 +1814,7 @@ class _Bubble extends ConsumerWidget {
     this.onTapFile,
     this.onLongPress,
     this.onTap,
+    this.onTapQuote,
   });
   final Message message;
 
@@ -1736,6 +1829,10 @@ class _Bubble extends ConsumerWidget {
   final void Function(Message message)? onTapFile;
   final void Function(Message message)? onLongPress;
   final VoidCallback? onTap;
+
+  /// Tap on the quoted-reply block — the chat screen jumps to the quoted
+  /// message.
+  final VoidCallback? onTapQuote;
 
   /// Whether the file blob is locally available (bubble shows "save" vs
   /// "download"). Resilient: a not-yet-open / erroring store falls back to the
@@ -1835,10 +1932,42 @@ class _Bubble extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             mainAxisSize: MainAxisSize.min,
             children: [
+              // "Forwarded from X" caption — the label travelled with the
+              // message (never a node id; see Message.forwardedFrom).
+              if (message.forwardedFrom != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.forward, size: 13,
+                          color: scheme.onSurfaceVariant),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(
+                          l.chatForwardedFrom(message.forwardedFrom!),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context)
+                              .textTheme
+                              .labelSmall
+                              ?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                                fontStyle: FontStyle.italic,
+                              ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               // Quoted reply preview (a reference to a deleted/out-of-window
-              // message shows a generic stub).
+              // message shows a generic stub). Tapping it jumps to the quoted
+              // message.
               if (message.replyToId != null)
-                _QuoteBlock(quoted: quoted, outgoing: outgoing),
+                GestureDetector(
+                  onTap: onTapQuote,
+                  child: _QuoteBlock(quoted: quoted, outgoing: outgoing),
+                ),
               if (message.isFile)
                 FutureBuilder<_FileAffordance>(
                   future: _affordance(ref),

@@ -1,10 +1,12 @@
 import 'dart:io';
+import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../core/log.dart';
 import '../l10n/app_localizations.dart';
 import '../state/close_to_tray_controller.dart';
 
@@ -53,15 +55,21 @@ class _DesktopTrayHostState extends ConsumerState<DesktopTrayHost>
     if (!_enabled) return;
     windowManager.addListener(this);
     trayManager.addListener(this);
-    // Build the tray asynchronously after the first frame so the l10n context
-    // is available for the menu labels.
     WidgetsBinding.instance.addPostFrameCallback((_) => _initTray());
   }
 
   Future<void> _initTray() async {
     if (!mounted) return;
-    final l = AppL10n.of(context);
+    // This host sits ABOVE MaterialApp (no Localizations in scope), so the
+    // menu labels come from the generated lookup keyed by the OS locale —
+    // AppL10n.of(context) here threw and killed the whole tray init (the
+    // "closed to nothing, no icon" bug).
+    final l = lookupAppL10n(PlatformDispatcher.instance.locale);
     try {
+      // Re-arm close interception from a live frame too: the pre-runApp call
+      // in initDesktopWindow is the designed path, but re-asserting here makes
+      // close-to-tray survive any init-order regression.
+      await windowManager.setPreventClose(true);
       // PNG works for macOS/Linux; Windows tray prefers an .ico but falls back
       // acceptably — a device pass can point Windows at app_icon.ico if needed.
       await trayManager.setIcon('assets/icon/app_icon.png');
@@ -73,9 +81,13 @@ class _DesktopTrayHostState extends ConsumerState<DesktopTrayHost>
           MenuItem(key: _kQuit, label: l.trayQuit),
         ]),
       );
-    } catch (_) {
+      final armed = await windowManager.isPreventClose();
+      devLog(() => 'xVeil[tray]: icon+menu installed (preventClose=$armed)');
+    } catch (e) {
       // A tray init failure (no tray available, headless CI) must never crash
-      // the app — the window just behaves normally (close quits).
+      // the app — the window just behaves normally. LOUD in the log: a silent
+      // catch here previously hid the l10n crash entirely.
+      devLog(() => 'xVeil[tray]: init FAILED: $e');
     }
   }
 
@@ -99,6 +111,8 @@ class _DesktopTrayHostState extends ConsumerState<DesktopTrayHost>
     // preventClose is armed (initDesktopWindow), so the window won't close on
     // its own — we decide. Close-to-tray on → hide; off → really quit.
     final closeToTray = ref.read(closeToTrayProvider);
+    devLog(() => 'xVeil[tray]: window close intercepted, '
+        'closeToTray=$closeToTray');
     if (closeToTray) {
       await windowManager.hide();
     } else {

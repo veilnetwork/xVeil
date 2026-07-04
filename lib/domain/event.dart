@@ -61,6 +61,9 @@ typedef LogEvent = ({
   // The id of the message this post replies to (see Message.replyToId) — rides
   // gap-fill re-ships so a healed copy keeps its quote. Null on non-posts.
   String? replyTo,
+  // Display label of whom the post was forwarded from (Message.forwardedFrom)
+  // — rides re-ships so a healed copy keeps its caption. Null on non-posts.
+  String? forwardedFrom,
 });
 
 /// Encode a [LogEvent] to the wire/JSON body. A [EventKind.void_] event drops
@@ -75,6 +78,7 @@ Map<String, dynamic> encodeEventBody(LogEvent e) => {
       if (e.target != null) 'tg': e.target,
       if (e.body != null) 'b': e.body,
       if (e.replyTo != null) 'rt': e.replyTo,
+      if (e.forwardedFrom != null) 'fw': e.forwardedFrom,
       'ts': e.ts,
     };
 
@@ -116,6 +120,7 @@ LogEvent? decodeEventBody(Map<String, dynamic> j) {
   final tg = j['tg'];
   final b = j['b'];
   final rt = j['rt'];
+  final fw = j['fw'];
   return (
     kind: EventKind.values[k],
     author: a,
@@ -125,5 +130,6 @@ LogEvent? decodeEventBody(Map<String, dynamic> j) {
     body: b is String ? b : null,
     ts: ts,
     replyTo: rt is String ? rt : null,
+    forwardedFrom: fw is String ? fw : null,
   );
 }
