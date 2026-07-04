@@ -727,6 +727,90 @@ abstract class AppL10n {
   /// **'Unmute notifications'**
   String get chatMenuUnmute;
 
+  /// No description provided for @chatMenuMarkRead.
+  ///
+  /// In en, this message translates to:
+  /// **'Mark as read'**
+  String get chatMenuMarkRead;
+
+  /// No description provided for @chatMenuArchive.
+  ///
+  /// In en, this message translates to:
+  /// **'Archive'**
+  String get chatMenuArchive;
+
+  /// No description provided for @chatMenuUnarchive.
+  ///
+  /// In en, this message translates to:
+  /// **'Unarchive'**
+  String get chatMenuUnarchive;
+
+  /// No description provided for @chatsArchiveSection.
+  ///
+  /// In en, this message translates to:
+  /// **'Archive'**
+  String get chatsArchiveSection;
+
+  /// No description provided for @mute30m.
+  ///
+  /// In en, this message translates to:
+  /// **'30 minutes'**
+  String get mute30m;
+
+  /// No description provided for @mute1h.
+  ///
+  /// In en, this message translates to:
+  /// **'1 hour'**
+  String get mute1h;
+
+  /// No description provided for @mute8h.
+  ///
+  /// In en, this message translates to:
+  /// **'8 hours'**
+  String get mute8h;
+
+  /// No description provided for @mute3d.
+  ///
+  /// In en, this message translates to:
+  /// **'3 days'**
+  String get mute3d;
+
+  /// No description provided for @mute1w.
+  ///
+  /// In en, this message translates to:
+  /// **'1 week'**
+  String get mute1w;
+
+  /// No description provided for @mute1mo.
+  ///
+  /// In en, this message translates to:
+  /// **'1 month'**
+  String get mute1mo;
+
+  /// No description provided for @muteForever.
+  ///
+  /// In en, this message translates to:
+  /// **'Until I turn it back on'**
+  String get muteForever;
+
+  /// No description provided for @muteCustom.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom…'**
+  String get muteCustom;
+
+  /// No description provided for @muteCustomTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Mute for how long?'**
+  String get muteCustomTitle;
+
+  /// No description provided for @muteHoursSuffix.
+  ///
+  /// In en, this message translates to:
+  /// **'hours'**
+  String get muteHoursSuffix;
+
   /// No description provided for @chatMenuUnblock.
   ///
   /// In en, this message translates to:

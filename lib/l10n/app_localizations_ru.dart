@@ -346,6 +346,48 @@ class AppL10nRu extends AppL10n {
   String get chatMenuUnmute => 'Включить уведомления';
 
   @override
+  String get chatMenuMarkRead => 'Пометить прочитанным';
+
+  @override
+  String get chatMenuArchive => 'В архив';
+
+  @override
+  String get chatMenuUnarchive => 'Из архива';
+
+  @override
+  String get chatsArchiveSection => 'Архив';
+
+  @override
+  String get mute30m => '30 минут';
+
+  @override
+  String get mute1h => '1 час';
+
+  @override
+  String get mute8h => '8 часов';
+
+  @override
+  String get mute3d => '3 дня';
+
+  @override
+  String get mute1w => 'Неделя';
+
+  @override
+  String get mute1mo => 'Месяц';
+
+  @override
+  String get muteForever => 'Пока не включу обратно';
+
+  @override
+  String get muteCustom => 'Своё время…';
+
+  @override
+  String get muteCustomTitle => 'На сколько отключить?';
+
+  @override
+  String get muteHoursSuffix => 'часов';
+
+  @override
   String get chatMenuUnblock => 'Разблокировать';
 
   @override

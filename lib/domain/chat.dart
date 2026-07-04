@@ -8,14 +8,19 @@ import '../core/ids.dart';
 /// - [blocked]: their messages are dropped.
 enum ContactStatus { pendingOutgoing, pendingIncoming, accepted, blocked }
 
+/// Sentinel "muted forever" instant for [Contact.mutedUntil] — far enough out
+/// that it never expires in practice, and encodable as a plain ms-epoch.
+final DateTime kMuteForever = DateTime.utc(9999);
+
 /// A remote party the user can message.
 class Contact {
   const Contact({
     required this.nodeId,
     this.name,
     this.status = ContactStatus.accepted,
-    this.muted = false,
+    this.mutedUntil,
     this.pinned = false,
+    this.archived = false,
     this.retentionDays,
   });
 
@@ -23,11 +28,22 @@ class Contact {
   final String? name;
   final ContactStatus status;
 
-  /// Local notification-mute for this conversation. Stored in the encrypted
-  /// contact record (never on the wire) — a per-peer flag is low-sensitivity but
-  /// still belongs in the deniable store, not plaintext prefs (a muted-peer list
+  /// Local notification-mute deadline for this conversation: null = not muted,
+  /// [kMuteForever] = muted until manually unmuted, anything else = timed mute
+  /// that silently expires when the instant passes (no unmute event needed —
+  /// [muted] is computed against the clock). Stored in the encrypted contact
+  /// record (never on the wire) — a per-peer flag is low-sensitivity but still
+  /// belongs in the deniable store, not plaintext prefs (a muted-peer list
   /// would otherwise leak the contact set on a seized device).
-  final bool muted;
+  final DateTime? mutedUntil;
+
+  /// Whether notifications are muted RIGHT NOW (mute deadline in the future).
+  bool get muted => mutedUntil != null && DateTime.now().isBefore(mutedUntil!);
+
+  /// Local archive flag — archived conversations collapse into a separate
+  /// section at the bottom of the chat list. Encrypted + local-only, same
+  /// rationale as [mutedUntil].
+  final bool archived;
 
   /// Local pin — pinned conversations sort to the top of the list. Encrypted
   /// + local-only, same rationale as [muted].
@@ -45,19 +61,27 @@ class Contact {
   /// Free messaging is only allowed once the relationship is accepted.
   bool get canMessage => status == ContactStatus.accepted;
 
+  static const Object _unset = Object();
+
   Contact copyWith({
     String? name,
     ContactStatus? status,
-    bool? muted,
+    // Nullable-field update: distinguish "leave as is" (omitted) from
+    // "clear the mute" (explicit null) via a sentinel default.
+    Object? mutedUntil = _unset,
     bool? pinned,
+    bool? archived,
     int? retentionDays,
   }) =>
       Contact(
         nodeId: nodeId,
         name: name ?? this.name,
         status: status ?? this.status,
-        muted: muted ?? this.muted,
+        mutedUntil: identical(mutedUntil, _unset)
+            ? this.mutedUntil
+            : mutedUntil as DateTime?,
         pinned: pinned ?? this.pinned,
+        archived: archived ?? this.archived,
         retentionDays: retentionDays ?? this.retentionDays,
       );
 }
