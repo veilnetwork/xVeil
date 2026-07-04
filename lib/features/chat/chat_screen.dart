@@ -15,6 +15,7 @@ import 'chat_actions.dart';
 import '../../domain/chat.dart';
 import '../../domain/file_download_policy.dart';
 import '../../l10n/app_localizations.dart';
+import '../../state/app_controller.dart';
 import '../../state/chat_page_size_controller.dart';
 import '../../state/messaging.dart';
 import '../../state/notifications.dart';
@@ -774,27 +775,32 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
-  /// Forward [msgs] (text only) to a conversation the user picks, marked
-  /// "forwarded from X". X is a display LABEL (this chat's local alias for an
-  /// incoming message, "you" for our own) — deliberately not a node id, so the
-  /// forward reveals only what the user chose to say, never a routable
-  /// identity. Sends in on-screen order to the chosen peer.
+  /// Forward [msgs] (text only) to a conversation the user picks, attributed to
+  /// the ORIGINAL AUTHOR's node id — NOT my private alias for them. The wire
+  /// carries the author's node-id hex; each viewer resolves it through THEIR OWN
+  /// contacts (their name, or a short id) so my local naming never leaks and the
+  /// forward still honestly says WHO wrote it. Attribution only — deliberately
+  /// no cryptographic signature (that would make authorship non-repudiable and
+  /// break veil's deniability). Sends in on-screen order to the chosen peer.
   Future<void> _forwardMessages(List<Message> msgs) async {
-    final l = AppL10n.of(context);
     final toForward = msgs.where((m) => !m.isFile).toList(growable: false);
     if (toForward.isEmpty) return;
-    final sourceLabel =
-        ref.read(contactProvider(widget.peerHex)).value?.label ?? _peer.short;
+    final myHex = ref.read(appControllerProvider).identity?.nodeId.hex;
     final target = await _pickForwardTarget();
     if (target == null || !mounted) return;
     final svc = ref.read(messagingServiceProvider);
     for (final m in toForward) {
+      // Preserve the true origin when re-forwarding an already-forwarded
+      // message; else the author is me (outgoing) or the conversation peer /
+      // recorded event-log author (incoming).
+      final originHex = m.forwardedFrom ??
+          (m.direction == MessageDirection.outgoing
+              ? (myHex ?? widget.peerHex)
+              : (m.author ?? widget.peerHex));
       await svc.sendText(
         target,
         m.body,
-        forwardedFrom: m.direction == MessageDirection.outgoing
-            ? l.chatYou
-            : sourceLabel,
+        forwardedFrom: originHex,
       );
     }
     _clearSelection();
@@ -1804,6 +1810,23 @@ class _QuoteBlock extends StatelessWidget {
 /// blob out, or open a file already saved unencrypted to disk.
 enum _FileAffordance { download, save, open, gone }
 
+/// Resolve a forwarded message's origin (the original author's node-id hex on
+/// the wire) to a display name using MY OWN contacts: "you" for my identity, my
+/// contact name for a known peer, else a short node id. Legacy forwards that
+/// stored a display label (pre node-id attribution) are shown as-is.
+String _resolveForwardAuthor(WidgetRef ref, AppL10n l, String origin) {
+  final NodeId id;
+  try {
+    id = NodeId.fromHex(origin);
+  } catch (_) {
+    return origin; // not a node id — an old label-based forward
+  }
+  final myHex = ref.read(appControllerProvider).identity?.nodeId.hex;
+  if (myHex != null && id.hex == myHex) return l.chatYou;
+  final contact = ref.watch(contactProvider(id.hex)).value;
+  return contact?.name ?? id.short;
+}
+
 class _Bubble extends ConsumerWidget {
   const _Bubble({
     super.key,
@@ -1932,8 +1955,9 @@ class _Bubble extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             mainAxisSize: MainAxisSize.min,
             children: [
-              // "Forwarded from X" caption — the label travelled with the
-              // message (never a node id; see Message.forwardedFrom).
+              // "Forwarded from X" caption. The wire carries the original
+              // author's node-id hex; resolve it through MY OWN contacts here so
+              // the sender's private alias never leaked (see _forwardMessages).
               if (message.forwardedFrom != null)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 4),
@@ -1945,7 +1969,8 @@ class _Bubble extends ConsumerWidget {
                       const SizedBox(width: 4),
                       Flexible(
                         child: Text(
-                          l.chatForwardedFrom(message.forwardedFrom!),
+                          l.chatForwardedFrom(
+                              _resolveForwardAuthor(ref, l, message.forwardedFrom!)),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: Theme.of(context)
