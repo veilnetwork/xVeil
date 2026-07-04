@@ -560,6 +560,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   _copyMessage(m);
                 },
               ),
+            if (!m.isFile)
+              ListTile(
+                leading: const Icon(Icons.copy_all_outlined),
+                title: Text(l.chatMsgCopyMeta),
+                onTap: () {
+                  Navigator.of(sheet).pop();
+                  _copyMessage(m, withMetadata: true);
+                },
+              ),
             if (own && !m.isFile)
               ListTile(
                 leading: const Icon(Icons.edit_outlined),
@@ -611,11 +620,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   /// Copy a text message's body to the clipboard. Local-only — nothing leaves
   /// the device, so it carries no anonymity/deniability cost (the user already
-  /// holds the plaintext).
-  Future<void> _copyMessage(Message m) async {
+  /// holds the plaintext). With [withMetadata], a bracketed header line carries
+  /// the message's metadata (time, direction, status, author/seq, id) above the
+  /// body — pasteable evidence of what was said, when, by whom.
+  Future<void> _copyMessage(Message m, {bool withMetadata = false}) async {
     final l = AppL10n.of(context);
     final messenger = ScaffoldMessenger.of(context);
-    await Clipboard.setData(ClipboardData(text: m.body));
+    final own = m.direction == MessageDirection.outgoing;
+    final text = !withMetadata
+        ? m.body
+        : [
+            '[${l.msgInfoTime}: ${formatDateTime(m.timestamp.toLocal())}'
+                ' | ${l.msgInfoDirection}: ${own ? l.dirOutgoing : l.dirIncoming}'
+                '${own ? ' | ${l.msgInfoStatus}: ${_statusLabel(l, m.status)}' : ''}'
+                '${m.edited ? ' | ${l.msgInfoEdited.toLowerCase()}' : ''}'
+                '${m.author != null ? ' | ${l.msgInfoAuthor}: ${m.author}' : ''}'
+                '${m.seq != null ? ' | ${l.msgInfoSeq}: ${m.seq}' : ''}'
+                ' | ${l.msgInfoId}: ${m.id}]',
+            m.body,
+          ].join('\n');
+    await Clipboard.setData(ClipboardData(text: text));
     if (!mounted) return;
     messenger.showSnackBar(
       SnackBar(
@@ -819,8 +843,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   label: l.msgInfoStatus,
                   value: _statusLabel(l, m.status),
                 ),
+              if (m.edited) _InfoRow(label: l.msgInfoEdited, value: l.msgInfoYes),
               if (m.isFile && m.fileName != null)
                 _InfoRow(label: l.msgInfoFile, value: m.fileName!),
+              if (m.fileSize != null)
+                _InfoRow(label: l.msgInfoSize, value: formatBytes(m.fileSize!)),
+              // Event-log identity: the authenticated originator + its per-author
+              // sequence — the convergent cross-device key (§15). Null on legacy
+              // rows written before the event-log foundation.
+              if (m.author != null)
+                _InfoRow(label: l.msgInfoAuthor, value: m.author!),
+              if (m.seq != null)
+                _InfoRow(label: l.msgInfoSeq, value: '${m.seq}'),
               _InfoRow(label: l.msgInfoId, value: m.id),
             ],
           ),

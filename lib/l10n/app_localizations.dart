@@ -823,6 +823,42 @@ abstract class AppL10n {
   /// **'File'**
   String get msgInfoFile;
 
+  /// No description provided for @msgInfoSize.
+  ///
+  /// In en, this message translates to:
+  /// **'Size'**
+  String get msgInfoSize;
+
+  /// No description provided for @msgInfoAuthor.
+  ///
+  /// In en, this message translates to:
+  /// **'Author'**
+  String get msgInfoAuthor;
+
+  /// No description provided for @msgInfoSeq.
+  ///
+  /// In en, this message translates to:
+  /// **'Sequence'**
+  String get msgInfoSeq;
+
+  /// No description provided for @msgInfoEdited.
+  ///
+  /// In en, this message translates to:
+  /// **'Edited'**
+  String get msgInfoEdited;
+
+  /// No description provided for @msgInfoYes.
+  ///
+  /// In en, this message translates to:
+  /// **'Yes'**
+  String get msgInfoYes;
+
+  /// No description provided for @chatMsgCopyMeta.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy with metadata'**
+  String get chatMsgCopyMeta;
+
   /// No description provided for @dirIncoming.
   ///
   /// In en, this message translates to:
