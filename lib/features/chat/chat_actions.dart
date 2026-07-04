@@ -26,7 +26,12 @@ Future<void> showConversationActions(
   final peer = contact.nodeId;
   await showModalBottomSheet<void>(
     context: context,
+    // Scrollable: rename/pin/mute/mark-read/archive/retention/peer-delete/
+    // folders/block/clear/delete no longer fit a short sheet (the phone showed
+    // "bottom overflowed by 243px" and the tail actions were unreachable).
+    isScrollControlled: true,
     builder: (sheet) => SafeArea(
+      child: SingleChildScrollView(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -164,6 +169,7 @@ Future<void> showConversationActions(
             },
           ),
         ],
+      ),
       ),
     ),
   );

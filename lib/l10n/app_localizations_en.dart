@@ -531,6 +531,14 @@ class AppL10nEn extends AppL10n {
   String get chatForwarded => 'Forwarded';
 
   @override
+  String get chatYou => 'you';
+
+  @override
+  String chatForwardedFrom(String name) {
+    return 'Forwarded from $name';
+  }
+
+  @override
   String get chatForwardTo => 'Forward to';
 
   @override
