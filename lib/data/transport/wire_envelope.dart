@@ -67,11 +67,17 @@ enum WireKind {
 /// receiver can **ack** by referencing it.
 class WireEnvelope {
   const WireEnvelope(this.kind, this.body,
-      {this.id, this.sentAtMs, this.seq});
+      {this.id, this.sentAtMs, this.seq, this.replyTo});
 
   final WireKind kind;
   final String body;
   final String? id;
+
+  /// For a [WireKind.message]: the id of the message this one REPLIES to (the
+  /// quoted message). Ids already travel for dedup/ack, so the reference
+  /// resolves identically on both sides. Optional JSON key — an older decoder
+  /// simply ignores it (the message renders un-quoted), so no version bump.
+  final String? replyTo;
 
   /// The SENDER's send time (Unix ms). Travels so the receiver orders messages
   /// by when they were SENT, not when they happened to arrive — the live /
@@ -91,8 +97,10 @@ class WireEnvelope {
   const WireEnvelope.request(String greeting, {String? id, int? sentAtMs})
       : this(WireKind.request, greeting, id: id, sentAtMs: sentAtMs);
   const WireEnvelope.accept() : this(WireKind.accept, '');
-  const WireEnvelope.message(String text, {String? id, int? sentAtMs, int? seq})
-      : this(WireKind.message, text, id: id, sentAtMs: sentAtMs, seq: seq);
+  const WireEnvelope.message(String text,
+      {String? id, int? sentAtMs, int? seq, String? replyTo})
+      : this(WireKind.message, text,
+            id: id, sentAtMs: sentAtMs, seq: seq, replyTo: replyTo);
   const WireEnvelope.ack(String id) : this(WireKind.ack, '', id: id);
   const WireEnvelope.edit(String id, String newText, {int? seq})
       : this(WireKind.edit, newText, id: id, seq: seq);
@@ -134,6 +142,7 @@ class WireEnvelope {
         if (id != null) 'i': id,
         if (sentAtMs != null) 's': sentAtMs,
         if (seq != null) 'q': seq,
+        if (replyTo != null) 'r': replyTo,
         if (_isV2) 'v': 2,
       })));
 
@@ -158,6 +167,7 @@ class WireEnvelope {
             id: decoded['i'] is String ? decoded['i'] as String : null,
             sentAtMs: decoded['s'] is int ? decoded['s'] as int : null,
             seq: decoded['q'] is int ? decoded['q'] as int : null,
+            replyTo: decoded['r'] is String ? decoded['r'] as String : null,
           );
         }
         // Out of this build's range. A structured v:2 frame (a kind a newer build

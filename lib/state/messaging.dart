@@ -711,6 +711,7 @@ class MessagingService {
     String? id,
     DateTime? timestamp,
     int? seq,
+    String? replyToId,
   }) async {
     final msgId = id ?? _uuid.v4();
     return _storage.appendMessage(
@@ -718,6 +719,7 @@ class MessagingService {
         id: msgId,
         conversationId: peer.hex,
         direction: dir,
+        replyToId: replyToId,
         body: body,
         // Incoming messages carry the SENDER's send time (env.sentAtMs) so the
         // conversation orders by send-order, not the scrambled arrival order.
@@ -975,6 +977,7 @@ class MessagingService {
           MessageStatus.delivered,
           id: id,
           timestamp: _wireSentAt(env),
+          replyToId: env.replyTo,
           // Fold under the SENDER's seq (R4) so the (author, seq) is identical on
           // both devices — the basis for gap detection. Null from an older sender
           // → storage allocates locally (no cross-device convergence for them).
@@ -1563,7 +1566,7 @@ class MessagingService {
     }
   }
 
-  Future<void> sendText(NodeId dst, String text) async {
+  Future<void> sendText(NodeId dst, String text, {String? replyToId}) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
     // Consent gate — only free-message an accepted contact.
@@ -1579,6 +1582,7 @@ class MessagingService {
       trimmed,
       MessageStatus.sent,
       timestamp: sentAt,
+      replyToId: replyToId,
     );
     final id = stored.id;
     _signal();
@@ -1591,6 +1595,7 @@ class MessagingService {
       id: id,
       sentAtMs: sentAt.millisecondsSinceEpoch,
       seq: stored.seq,
+      replyTo: replyToId,
     ).encode();
     // wantReply: embed a one-time reply path so the peer's delivery-ACK comes
     // back over THIS circuit (fast), flipping us to "delivered" without a full
@@ -1671,6 +1676,7 @@ class MessagingService {
             id: m.id,
             sentAtMs: m.timestamp.millisecondsSinceEpoch,
             seq: m.seq,
+            replyTo: m.replyToId,
           ).encode();
           // Re-sends do NOT request a reply: the first send already attached one
           // (sendText), and building a fresh one-time reply circuit on EVERY 3s
@@ -1925,6 +1931,7 @@ class MessagingService {
                 id: ev.id,
                 sentAtMs: ev.ts,
                 seq: ev.seq,
+                replyTo: ev.replyTo,
               ).encode(),
             );
           case EventKind.edit:

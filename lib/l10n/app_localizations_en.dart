@@ -454,6 +454,44 @@ class AppL10nEn extends AppL10n {
   String get chatMsgCopyMeta => 'Copy with metadata';
 
   @override
+  String get chatMsgReply => 'Reply';
+
+  @override
+  String get chatMsgForward => 'Forward';
+
+  @override
+  String get chatMsgSelect => 'Select';
+
+  @override
+  String get chatMsgDelete => 'Delete';
+
+  @override
+  String get chatMsgDeleteTitle => 'Delete messages?';
+
+  @override
+  String get chatReplyingTo => 'Replying to';
+
+  @override
+  String get chatQuoteUnavailable => 'Quoted message';
+
+  @override
+  String get chatFileLabel => 'File';
+
+  @override
+  String get chatForwarded => 'Forwarded';
+
+  @override
+  String get chatForwardTo => 'Forward to';
+
+  @override
+  String get chatForwardNoTargets => 'No accepted contacts to forward to';
+
+  @override
+  String chatMsgDeleteSelectedBody(int count) {
+    return 'Delete $count selected message(s)?';
+  }
+
+  @override
   String get dirIncoming => 'Received';
 
   @override

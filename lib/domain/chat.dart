@@ -111,6 +111,7 @@ class Message {
     this.edited = false,
     this.author,
     this.seq,
+    this.replyToId,
   });
 
   final String id;
@@ -155,6 +156,13 @@ class Message {
   final String? author;
   final int? seq;
 
+  /// The id of the message this one replies to, or null for a plain message.
+  /// Message ids travel on the wire (dedup/ack already rely on that), so both
+  /// sides hold the SAME id for the quoted message — the reference resolves
+  /// identically on sender and receiver. Renders as a quoted block; a reference
+  /// to a deleted/cleared message degrades to a generic "quoted message" stub.
+  final String? replyToId;
+
   /// A file message — whether already downloaded ([fileId]) or merely OFFERED
   /// ([fileContentId], awaiting an opt-in download).
   bool get isFile => fileId != null || fileContentId != null;
@@ -182,6 +190,7 @@ class Message {
         edited: edited ?? this.edited,
         author: author,
         seq: seq,
+        replyToId: replyToId,
       );
 }
 

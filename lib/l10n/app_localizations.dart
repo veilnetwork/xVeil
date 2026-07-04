@@ -943,6 +943,78 @@ abstract class AppL10n {
   /// **'Copy with metadata'**
   String get chatMsgCopyMeta;
 
+  /// No description provided for @chatMsgReply.
+  ///
+  /// In en, this message translates to:
+  /// **'Reply'**
+  String get chatMsgReply;
+
+  /// No description provided for @chatMsgForward.
+  ///
+  /// In en, this message translates to:
+  /// **'Forward'**
+  String get chatMsgForward;
+
+  /// No description provided for @chatMsgSelect.
+  ///
+  /// In en, this message translates to:
+  /// **'Select'**
+  String get chatMsgSelect;
+
+  /// No description provided for @chatMsgDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get chatMsgDelete;
+
+  /// No description provided for @chatMsgDeleteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete messages?'**
+  String get chatMsgDeleteTitle;
+
+  /// No description provided for @chatReplyingTo.
+  ///
+  /// In en, this message translates to:
+  /// **'Replying to'**
+  String get chatReplyingTo;
+
+  /// No description provided for @chatQuoteUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Quoted message'**
+  String get chatQuoteUnavailable;
+
+  /// No description provided for @chatFileLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'File'**
+  String get chatFileLabel;
+
+  /// No description provided for @chatForwarded.
+  ///
+  /// In en, this message translates to:
+  /// **'Forwarded'**
+  String get chatForwarded;
+
+  /// No description provided for @chatForwardTo.
+  ///
+  /// In en, this message translates to:
+  /// **'Forward to'**
+  String get chatForwardTo;
+
+  /// No description provided for @chatForwardNoTargets.
+  ///
+  /// In en, this message translates to:
+  /// **'No accepted contacts to forward to'**
+  String get chatForwardNoTargets;
+
+  /// No description provided for @chatMsgDeleteSelectedBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete {count} selected message(s)?'**
+  String chatMsgDeleteSelectedBody(int count);
+
   /// No description provided for @dirIncoming.
   ///
   /// In en, this message translates to:

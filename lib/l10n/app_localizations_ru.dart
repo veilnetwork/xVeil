@@ -455,6 +455,44 @@ class AppL10nRu extends AppL10n {
   String get chatMsgCopyMeta => 'Скопировать с метаданными';
 
   @override
+  String get chatMsgReply => 'Ответить';
+
+  @override
+  String get chatMsgForward => 'Переслать';
+
+  @override
+  String get chatMsgSelect => 'Выбрать';
+
+  @override
+  String get chatMsgDelete => 'Удалить';
+
+  @override
+  String get chatMsgDeleteTitle => 'Удалить сообщения?';
+
+  @override
+  String get chatReplyingTo => 'Ответ на';
+
+  @override
+  String get chatQuoteUnavailable => 'Цитируемое сообщение';
+
+  @override
+  String get chatFileLabel => 'Файл';
+
+  @override
+  String get chatForwarded => 'Переслано';
+
+  @override
+  String get chatForwardTo => 'Переслать в';
+
+  @override
+  String get chatForwardNoTargets => 'Нет принятых контактов для пересылки';
+
+  @override
+  String chatMsgDeleteSelectedBody(int count) {
+    return 'Удалить $count выбранных сообщений?';
+  }
+
+  @override
   String get dirIncoming => 'Получено';
 
   @override
