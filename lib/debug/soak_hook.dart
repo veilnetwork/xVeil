@@ -17,11 +17,25 @@ import '../state/messaging.dart';
 import '../state/providers.dart';
 import 'ui_driver.dart';
 
-const _debugHookEnabled = bool.fromEnvironment('XVEIL_DEBUG_HOOK');
-const _debugHookPort = int.fromEnvironment(
-  'XVEIL_DEBUG_HOOK_PORT',
-  defaultValue: 38765,
+// Default-ON so a `flutter build macos` that forgets the --dart-define can no
+// longer silently compile the hook out (a stand launched from such a build
+// looks exactly like "the node won't bootstrap": health polling burns its
+// full window, unlock never happens). Safe because the hook is additionally
+// gated on [kDebugMode] at every use site — release/profile builds dead-code
+// eliminate it regardless of this value. Explicit opt-out stays available
+// via --dart-define=XVEIL_DEBUG_HOOK=false.
+const _debugHookEnabled = bool.fromEnvironment(
+  'XVEIL_DEBUG_HOOK',
+  defaultValue: true,
 );
+// 0 = "define absent" (a real hook port is never 0): fall through to the
+// stand's per-platform convention — desktop 38765, phone 38766 — so an APK
+// built without the PORT define no longer silently binds the desktop port
+// (adb forward tcp:38766 then reaches nothing, which reads as a dead phone).
+const _debugHookPortDefine = int.fromEnvironment('XVEIL_DEBUG_HOOK_PORT');
+int get _debugHookPort => _debugHookPortDefine != 0
+    ? _debugHookPortDefine
+    : ((Platform.isAndroid || Platform.isIOS) ? 38766 : 38765);
 
 /// Debug-only loopback HTTP hook for automated soak tests.
 ///
