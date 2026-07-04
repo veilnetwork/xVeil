@@ -251,8 +251,12 @@ class HiddenVolumeStorage implements Storage {
       'n': contact.nodeId.hex,
       'name': contact.name,
       's': contact.status.index,
-      if (contact.muted) 'm': true,
+      // 'mu' (ms epoch deadline) supersedes the legacy boolean 'm'; a legacy
+      // record's 'm':true reads back as muted-forever (see _contactFor).
+      if (contact.mutedUntil != null)
+        'mu': contact.mutedUntil!.millisecondsSinceEpoch,
       if (contact.pinned) 'p': true,
+      if (contact.archived) 'a': true,
       if (contact.retentionDays != null) 'rd': contact.retentionDays,
     });
     // Maintain a contacts index (hidden-volume has no KV key enumeration) so
@@ -288,8 +292,11 @@ class HiddenVolumeStorage implements Storage {
       status: s != null && s >= 0 && s < ContactStatus.values.length
           ? ContactStatus.values[s]
           : ContactStatus.accepted,
-      muted: m['m'] as bool? ?? false,
+      mutedUntil: m['mu'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(m['mu'] as int)
+          : (m['m'] == true ? kMuteForever : null),
       pinned: m['p'] as bool? ?? false,
+      archived: m['a'] as bool? ?? false,
       retentionDays: m['rd'] as int?,
     );
   }

@@ -715,9 +715,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       case _ChatMenuAction.unpin:
         await svc.setContactPinned(_peer, false);
       case _ChatMenuAction.mute:
-        await svc.setContactMuted(_peer, true);
+        if (mounted) await pickMuteDuration(context, ref, _peer);
       case _ChatMenuAction.unmute:
-        await svc.setContactMuted(_peer, false);
+        await svc.setContactMutedUntil(_peer, null);
       case _ChatMenuAction.retention:
         await _pickRetention();
       case _ChatMenuAction.block:
