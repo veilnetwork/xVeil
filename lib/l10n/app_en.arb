@@ -130,6 +130,8 @@
   "muteCustom": "Custom…",
   "muteCustomTitle": "Mute for how long?",
   "muteHoursSuffix": "hours",
+  "chatMenuAllowPeerDelete": "Let this contact delete at me",
+  "chatMenuAllowPeerDeleteHint": "When on, their unsend or clear removes your copy too. Off keeps your copies even if they delete for everyone.",
   "chatMenuUnblock": "Unblock",
   "chatMenuClearHistory": "Clear history",
   "chatMenuDeleteConversation": "Delete conversation",

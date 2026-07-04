@@ -258,6 +258,8 @@ class HiddenVolumeStorage implements Storage {
       if (contact.pinned) 'p': true,
       if (contact.archived) 'a': true,
       if (contact.retentionDays != null) 'rd': contact.retentionDays,
+      // Written only when DISALLOWED — absence reads back as the default (allow).
+      if (!contact.allowPeerDelete) 'apd': false,
     });
     // Maintain a contacts index (hidden-volume has no KV key enumeration) so
     // the chat list can show contacts that have no messages yet.
@@ -298,6 +300,7 @@ class HiddenVolumeStorage implements Storage {
       pinned: m['p'] as bool? ?? false,
       archived: m['a'] as bool? ?? false,
       retentionDays: m['rd'] as int?,
+      allowPeerDelete: m['apd'] as bool? ?? true,
     );
   }
 

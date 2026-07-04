@@ -130,6 +130,8 @@
   "muteCustom": "Своё время…",
   "muteCustomTitle": "На сколько отключить?",
   "muteHoursSuffix": "часов",
+  "chatMenuAllowPeerDelete": "Разрешить собеседнику удалять у меня",
+  "chatMenuAllowPeerDeleteHint": "Когда включено, его удаление или очистка убирают и вашу копию. Выключено — ваши копии остаются, даже если он удалил у всех.",
   "chatMenuUnblock": "Разблокировать",
   "chatMenuClearHistory": "Очистить историю",
   "chatMenuDeleteConversation": "Удалить переписку",

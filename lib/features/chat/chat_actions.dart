@@ -108,6 +108,19 @@ Future<void> showConversationActions(
               pickRetention(context, ref, peer, contact.retentionDays);
             },
           ),
+          // Receiver policy: may this contact delete-for-everyone / clear our
+          // local copies? ON (default) = the peer's unsend removes our copy too.
+          SwitchListTile(
+            secondary: const Icon(Icons.delete_sweep_outlined),
+            title: Text(l.chatMenuAllowPeerDelete),
+            subtitle: Text(l.chatMenuAllowPeerDeleteHint),
+            isThreeLine: true,
+            value: contact.allowPeerDelete,
+            onChanged: (v) {
+              Navigator.of(sheet).pop();
+              svc.setContactAllowPeerDelete(peer, v);
+            },
+          ),
           if (contact.status == ContactStatus.blocked)
             ListTile(
               leading: const Icon(Icons.lock_open_outlined),

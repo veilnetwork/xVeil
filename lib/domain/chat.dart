@@ -22,6 +22,7 @@ class Contact {
     this.pinned = false,
     this.archived = false,
     this.retentionDays,
+    this.allowPeerDelete = true,
   });
 
   final NodeId nodeId;
@@ -49,6 +50,15 @@ class Contact {
   /// + local-only, same rationale as [muted].
   final bool pinned;
 
+  /// Whether THIS peer is allowed to delete-for-everyone (or clear) messages in
+  /// OUR local copy of the conversation. Default true = the existing behavior (a
+  /// peer's unsend/clear removes our copy too). When false, an incoming
+  /// delete-for-everyone / clear from this peer is DECLINED — our copies stay,
+  /// and we keep a local tombstone-block so a re-delivered delete never removes
+  /// them either. Encrypted + local-only (a receiver-side policy — the peer is
+  /// never told whether it was honored, matching the no-oracle model).
+  final bool allowPeerDelete;
+
   /// Per-conversation message-retention window in DAYS, or null for unlimited
   /// (the default — never auto-delete). When set, a compaction pass forensically
   /// deletes messages whose ORIGINAL post time is older than this many days
@@ -72,6 +82,7 @@ class Contact {
     bool? pinned,
     bool? archived,
     int? retentionDays,
+    bool? allowPeerDelete,
   }) =>
       Contact(
         nodeId: nodeId,
@@ -83,6 +94,7 @@ class Contact {
         pinned: pinned ?? this.pinned,
         archived: archived ?? this.archived,
         retentionDays: retentionDays ?? this.retentionDays,
+        allowPeerDelete: allowPeerDelete ?? this.allowPeerDelete,
       );
 }
 

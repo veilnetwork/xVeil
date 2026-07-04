@@ -1046,6 +1046,11 @@ class MessagingService {
         // The peer unsent a message THEY sent us — purge + scrub our copy too.
         // Same authorization gate: only their incoming messages, never ours.
         if (existing?.status != ContactStatus.accepted) return;
+        // Receiver policy: a contact we've forbidden from deleting-at-us has its
+        // unsend DECLINED — our copy stays. Buffering is skipped too, so an
+        // out-of-order del can't apply once the message lands. No oracle: the
+        // peer is never told the delete was ignored.
+        if (existing?.allowPeerDelete == false) return;
         final delId = env.id;
         if (delId == null) break;
         if (await _isIncomingFrom(m.src, delId)) {
@@ -1082,6 +1087,8 @@ class MessagingService {
         // per-contact toggle can decline it; and once multi-device lands, a clear
         // from our OWN identity is authoritative for our devices the same way.
         if (existing?.status != ContactStatus.accepted) return;
+        // Same receiver policy as del: a forbidden contact can't clear our copy.
+        if (existing?.allowPeerDelete == false) return;
         final cseq = env.seq;
         if (cseq != null) {
           Map<String, int> wm;
@@ -1470,6 +1477,17 @@ class MessagingService {
     final existing = await _storage.getContact(peer);
     if (existing == null) return;
     await _storage.upsertContact(existing.copyWith(archived: archived));
+    _signal();
+  }
+
+  /// Allow (or forbid) [peer] to delete-for-everyone / clear messages in OUR
+  /// copy of the conversation. Receiver-side policy (see
+  /// [Contact.allowPeerDelete]); local-only, the peer is never told. No-op if
+  /// we hold no contact for the peer.
+  Future<void> setContactAllowPeerDelete(NodeId peer, bool allow) async {
+    final existing = await _storage.getContact(peer);
+    if (existing == null) return;
+    await _storage.upsertContact(existing.copyWith(allowPeerDelete: allow));
     _signal();
   }
 
