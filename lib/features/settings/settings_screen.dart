@@ -1,11 +1,15 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 
 import '../../l10n/app_localizations.dart';
 import '../../desktop/desktop_tray.dart';
 import '../../state/app_controller.dart';
 import '../../state/chat_page_size_controller.dart';
+import '../../state/background_node_controller.dart';
 import '../../state/close_to_tray_controller.dart';
 import '../../state/folder_panel_controller.dart';
 import '../../state/keep_all_online_controller.dart';
@@ -182,6 +186,22 @@ class SettingsScreen extends ConsumerWidget {
     );
     if (choice == null) return;
     await ref.read(chatPageSizeProvider.notifier).set(choice);
+  }
+
+  /// Toggle the keep-node-in-background service. On enable, also nudge the user
+  /// to grant the Doze battery exemption (the foreground service alone is not
+  /// enough on Doze + aggressive OEMs); when already ignoring optimisations, the
+  /// request is a no-op. On disable, just stop the service.
+  Future<void> _setKeepNodeBackground(
+    BuildContext context,
+    WidgetRef ref,
+    AppL10n l,
+    bool value,
+  ) async {
+    await ref.read(backgroundNodeProvider.notifier).set(value);
+    if (!value) return;
+    final exempt = await VeilBackground.isIgnoringBatteryOptimizations();
+    if (!exempt) await VeilBackground.requestIgnoreBatteryOptimizations();
   }
 
   String _folderPanelLabel(AppL10n l, FolderPanelPosition p) => switch (p) {
@@ -510,6 +530,21 @@ class SettingsScreen extends ConsumerWidget {
               isThreeLine: true,
               value: ref.watch(closeToTrayProvider),
               onChanged: (v) => ref.read(closeToTrayProvider.notifier).set(v),
+            ),
+          // Android only: keep the embedded node running when the app is
+          // backgrounded / the screen is off. Runs a foreground service (holds a
+          // wake lock + a persistent notification) and asks for the Doze battery
+          // exemption — without it Android freezes the socket and messages stall
+          // until you reopen the app. Off by default: the visible notification
+          // advertises the app is running (a deniability trade-off).
+          if (Platform.isAndroid)
+            SwitchListTile(
+              secondary: const Icon(Icons.cloud_sync_outlined),
+              title: Text(l.settingsKeepNodeBackground),
+              subtitle: Text(l.settingsKeepNodeBackgroundHint),
+              isThreeLine: true,
+              value: ref.watch(backgroundNodeProvider),
+              onChanged: (v) => _setKeepNodeBackground(context, ref, l, v),
             ),
           // Chat pagination: how many recent messages a chat loads initially
           // (and the "load earlier" step). Bounds decrypt + list-build work.

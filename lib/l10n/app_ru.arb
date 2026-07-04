@@ -134,6 +134,8 @@
   "chatsFolderUnnamed": "Без названия",
   "chatsFolderEmpty": "В этой папке нет чатов",
   "chatsFolderNoneYet": "Папок пока нет",
+  "settingsKeepNodeBackground": "Работать в фоне",
+  "settingsKeepNodeBackgroundHint": "Продолжает получать сообщения, когда приложение свёрнуто или экран погашен. Показывает постоянное уведомление и расходует больше батареи.",
   "settingsFolderPanel": "Панель папок",
   "settingsFolderPanelHint": "Где показывать папки чатов",
   "folderPanelLeft": "Слева (выдвижная)",
