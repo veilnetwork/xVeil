@@ -109,8 +109,10 @@ class ChatsScreen extends ConsumerWidget {
               scoped.where((c) => c.peer.archived).toList(growable: false);
           return Column(
             children: [
-              if (folders.isNotEmpty)
-                _FolderBar(folders: folders, selected: selectedFolder),
+              // Always shown (even with zero folders): the "+" chip is the way
+              // to create the FIRST folder — hiding the bar until one existed
+              // made the whole feature undiscoverable.
+              _FolderBar(folders: folders, selected: selectedFolder),
               Expanded(
                 child: (active.isEmpty && archived.isEmpty)
                     ? Center(child: Text(l.chatsFolderEmpty))

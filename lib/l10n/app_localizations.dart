@@ -1093,6 +1093,18 @@ abstract class AppL10n {
   /// **'Forwarded'**
   String get chatForwarded;
 
+  /// No description provided for @chatYou.
+  ///
+  /// In en, this message translates to:
+  /// **'you'**
+  String get chatYou;
+
+  /// No description provided for @chatForwardedFrom.
+  ///
+  /// In en, this message translates to:
+  /// **'Forwarded from {name}'**
+  String chatForwardedFrom(String name);
+
   /// No description provided for @chatForwardTo.
   ///
   /// In en, this message translates to:

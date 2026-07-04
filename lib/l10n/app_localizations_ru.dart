@@ -532,6 +532,14 @@ class AppL10nRu extends AppL10n {
   String get chatForwarded => 'Переслано';
 
   @override
+  String get chatYou => 'вы';
+
+  @override
+  String chatForwardedFrom(String name) {
+    return 'Переслано от $name';
+  }
+
+  @override
   String get chatForwardTo => 'Переслать в';
 
   @override
