@@ -625,6 +625,10 @@ class HiddenVolumeStorage implements Storage {
             edited: message.edited,
             fileId: message.fileId,
             fileName: message.fileName,
+            fileSize: message.fileSize,
+            fileContentId: message.fileContentId,
+            fileExternal: message.fileExternal,
+            replyToId: message.replyToId,
             author: author,
             seq: seq,
           );
@@ -816,6 +820,7 @@ class HiddenVolumeStorage implements Storage {
           target: null,
           body: null,
           ts: ts,
+          replyTo: null,
         ));
       } else if (m['k'] == EventKind.edit.index) {
         events.add((
@@ -826,6 +831,7 @@ class HiddenVolumeStorage implements Storage {
           target: m['tg'] as String?,
           body: m['b'] as String?,
           ts: ts,
+          replyTo: null,
         ));
       } else {
         final k = m['k'] as int?;
@@ -839,6 +845,7 @@ class HiddenVolumeStorage implements Storage {
           target: null,
           body: m['b'] as String?,
           ts: ts,
+          replyTo: m['rt'] as String?,
         ));
       }
     }
@@ -918,6 +925,7 @@ class HiddenVolumeStorage implements Storage {
     if (m.fileSize != null) 'fs': m.fileSize,
     if (m.fileContentId != null) 'fc': m.fileContentId,
     if (m.fileExternal) 'fx': 1, // blob in the external store, not in-container
+    if (m.replyToId != null) 'rt': m.replyToId,
   });
 
   Future<int> _nextLogId() async {
@@ -1867,6 +1875,7 @@ class HiddenVolumeStorage implements Storage {
         fileExternal: m['fx'] == 1,
         author: m['au'] as String?,
         seq: m['sq'] as int?,
+        replyToId: m['rt'] as String?,
       );
       _scanLogIds[k] = e.logId;
       _scanDeletedKeys.remove(

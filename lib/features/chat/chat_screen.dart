@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/format.dart';
@@ -39,6 +40,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _didInitialScroll = false;
 
   late final NodeId _peer = NodeId.fromHex(widget.peerHex);
+
+  /// The message being replied to (composer shows a quote banner; the next send
+  /// carries its id). Null = a normal send.
+  Message? _replyingTo;
+
+  /// Multi-select mode: the set of selected message ids. Non-empty ⇒ the app bar
+  /// switches to the selection bar (count + bulk copy/forward/delete).
+  final Set<String> _selected = <String>{};
+  bool get _selecting => _selected.isNotEmpty;
+
+  void _toggleSelected(Message m) {
+    setState(() {
+      if (!_selected.remove(m.id)) _selected.add(m.id);
+    });
+  }
+
+  void _clearSelection() => setState(_selected.clear);
 
   @override
   void initState() {
@@ -93,12 +111,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final text = _input.text;
     if (text.trim().isEmpty) return;
     _input.clear();
+    // Consume the reply target (if any) for THIS send only.
+    final replyToId = _replyingTo?.id;
+    if (_replyingTo != null) setState(() => _replyingTo = null);
     // Re-grab focus immediately (before the async send) so typing the next
     // message never requires clicking back into the field.
     _inputFocus.requestFocus();
     final svc = ref.read(messagingServiceProvider);
     if (status == ContactStatus.accepted) {
-      await svc.sendText(_peer, text);
+      await svc.sendText(_peer, text, replyToId: replyToId);
     } else {
       // No contact yet / not accepted — the first message is the request.
       await svc.sendRequest(_peer, text);
@@ -107,6 +128,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (mounted) {
       _inputFocus.requestFocus(); // and again after the await settles
     }
+  }
+
+  void _startReply(Message m) {
+    setState(() => _replyingTo = m);
+    _inputFocus.requestFocus();
   }
 
   Future<void> _accept() =>
@@ -547,10 +573,39 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final own = m.direction == MessageDirection.outgoing;
     await showModalBottomSheet<void>(
       context: context,
+      // Scrollable: with reply/forward/select/copy/edit/delete/history/info the
+      // action list can exceed a short sheet (small screens / large text).
+      isScrollControlled: true,
       builder: (sheet) => SafeArea(
+        child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            ListTile(
+              leading: const Icon(Icons.reply_outlined),
+              title: Text(l.chatMsgReply),
+              onTap: () {
+                Navigator.of(sheet).pop();
+                _startReply(m);
+              },
+            ),
+            if (!m.isFile)
+              ListTile(
+                leading: const Icon(Icons.forward_outlined),
+                title: Text(l.chatMsgForward),
+                onTap: () {
+                  Navigator.of(sheet).pop();
+                  _forwardMessages([m]);
+                },
+              ),
+            ListTile(
+              leading: const Icon(Icons.checklist_outlined),
+              title: Text(l.chatMsgSelect),
+              onTap: () {
+                Navigator.of(sheet).pop();
+                _toggleSelected(m);
+              },
+            ),
             if (!m.isFile)
               ListTile(
                 leading: const Icon(Icons.copy_outlined),
@@ -614,6 +669,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
           ],
         ),
+        ),
       ),
     );
   }
@@ -647,6 +703,133 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         duration: const Duration(seconds: 1),
       ),
     );
+  }
+
+  /// Forward [msgs] (text only) to a conversation the user picks. Anonymity: a
+  /// forward is sent as a fresh normal message — no "forwarded from" origin
+  /// attribution travels, so it leaks nothing about where it came from. Sends in
+  /// on-screen order to the chosen peer.
+  Future<void> _forwardMessages(List<Message> msgs) async {
+    final texts = msgs.where((m) => !m.isFile).map((m) => m.body).toList();
+    if (texts.isEmpty) return;
+    final target = await _pickForwardTarget();
+    if (target == null || !mounted) return;
+    final svc = ref.read(messagingServiceProvider);
+    for (final t in texts) {
+      await svc.sendText(target, t);
+    }
+    _clearSelection();
+    if (mounted) {
+      _snack(AppL10n.of(context).chatForwarded);
+      // Jump to the target conversation so the user sees it landed.
+      if (target.hex != widget.peerHex) context.push('/chat/${target.hex}');
+    }
+  }
+
+  /// Pick an accepted contact to forward to (a simple searchable list is a later
+  /// polish — the accepted set is small). Returns the chosen peer or null.
+  Future<NodeId?> _pickForwardTarget() async {
+    final l = AppL10n.of(context);
+    final convs = await ref.read(storageProvider).loadConversations();
+    if (!mounted) return null;
+    final accepted = convs
+        .where((c) => c.peer.status == ContactStatus.accepted)
+        .toList(growable: false);
+    return showModalBottomSheet<NodeId>(
+      context: context,
+      builder: (sheet) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: Text(l.chatForwardTo,
+                  style: Theme.of(sheet).textTheme.titleMedium),
+            ),
+            if (accepted.isEmpty)
+              ListTile(title: Text(l.chatForwardNoTargets))
+            else
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (final c in accepted)
+                      ListTile(
+                        leading: CircleAvatar(
+                          child: Text(
+                            c.peer.label.characters.first.toUpperCase(),
+                          ),
+                        ),
+                        title: Text(c.peer.label),
+                        onTap: () => Navigator.of(sheet).pop(c.peer.nodeId),
+                      ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Copy every selected text message (newline-joined, on-screen order) to the
+  /// clipboard, then leave selection mode.
+  Future<void> _copySelected(List<Message> all) async {
+    final l = AppL10n.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    final text = all
+        .where((m) => _selected.contains(m.id) && !m.isFile)
+        .map((m) => m.body)
+        .join('\n');
+    if (text.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: text));
+    _clearSelection();
+    if (!mounted) return;
+    messenger.showSnackBar(
+      SnackBar(content: Text(l.chatMsgCopied), duration: const Duration(seconds: 1)),
+    );
+  }
+
+  /// Delete every selected message. Own messages offer "for everyone"; others
+  /// only "for me". A mixed selection asks once and applies the broadest each
+  /// message allows (own → for-everyone when chosen; incoming → for-me).
+  Future<void> _deleteSelected(List<Message> all) async {
+    final l = AppL10n.of(context);
+    final chosen =
+        all.where((m) => _selected.contains(m.id)).toList(growable: false);
+    if (chosen.isEmpty) return;
+    final anyOwn = chosen.any((m) => m.direction == MessageDirection.outgoing);
+    final forEveryone = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text(l.chatMsgDeleteTitle),
+        content: Text(l.chatMsgDeleteSelectedBody(chosen.length)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialog).pop(null),
+            child: Text(l.actionCancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialog).pop(false),
+            child: Text(l.chatMsgDeleteForMe),
+          ),
+          if (anyOwn)
+            FilledButton(
+              onPressed: () => Navigator.of(dialog).pop(true),
+              child: Text(l.chatMsgDeleteForEveryone),
+            ),
+        ],
+      ),
+    );
+    if (forEveryone == null) return;
+    final svc = ref.read(messagingServiceProvider);
+    for (final m in chosen) {
+      if (forEveryone && m.direction == MessageDirection.outgoing) {
+        await svc.deleteForEveryone(m.id);
+      } else {
+        await svc.deleteMessageLocally(m.id);
+      }
+    }
+    _clearSelection();
   }
 
   Future<void> _editMessage(Message m) async {
@@ -1014,8 +1197,41 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final title = contact?.label ?? _peer.short;
     ref.listen(messagesProvider(widget.peerHex), (_, _) => _scrollToBottom());
 
+    final selectionBar = _selecting
+        ? AppBar(
+            leading: IconButton(
+              icon: const Icon(Icons.close),
+              onPressed: _clearSelection,
+            ),
+            title: Text('${_selected.length}'),
+            actions: [
+              IconButton(
+                tooltip: l.chatMsgCopy,
+                icon: const Icon(Icons.copy_outlined),
+                onPressed: () => _copySelected(messages.valueOrNull ?? const []),
+              ),
+              IconButton(
+                tooltip: l.chatMsgForward,
+                icon: const Icon(Icons.forward_outlined),
+                onPressed: () => _forwardMessages(
+                  (messages.valueOrNull ?? const [])
+                      .where((m) => _selected.contains(m.id))
+                      .toList(),
+                ),
+              ),
+              IconButton(
+                tooltip: l.chatMsgDelete,
+                icon: const Icon(Icons.delete_outline),
+                onPressed: () =>
+                    _deleteSelected(messages.valueOrNull ?? const []),
+              ),
+            ],
+          )
+        : null;
+
     return Scaffold(
-      appBar: AppBar(
+      appBar: selectionBar ??
+          AppBar(
         title: Row(
           children: [
             CircleAvatar(
@@ -1105,6 +1321,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 // "load earlier" as the first item. (Heuristic: if fewer than a
                 // full window returned, this is the whole conversation.)
                 final hasMore = list.length >= window;
+                // id → message, so a reply bubble can resolve + render its quote.
+                final byId = {for (final m in list) m.id: m};
                 return ListView.builder(
                   controller: _scroll,
                   padding: const EdgeInsets.all(12),
@@ -1122,10 +1340,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         ),
                       );
                     }
+                    final m = list[hasMore ? i - 1 : i];
                     return _Bubble(
-                      message: list[hasMore ? i - 1 : i],
+                      message: m,
+                      quoted: m.replyToId == null ? null : byId[m.replyToId],
+                      selected: _selected.contains(m.id),
+                      selecting: _selecting,
                       onTapFile: _onTapFile,
                       onLongPress: _showMessageActions,
+                      onTap: _selecting ? () => _toggleSelected(m) : null,
                     );
                   },
                 );
@@ -1153,12 +1376,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       case ContactStatus.blocked:
         return _Banner(icon: Icons.block, text: l.chatBlockedContact);
       case ContactStatus.accepted:
-        return _Composer(
-          controller: _input,
-          focusNode: _inputFocus,
-          hint: l.chatNewMessageHint,
-          onSend: () => _submit(status),
-          onAttach: _attach,
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_replyingTo != null)
+              _ReplyBanner(
+                message: _replyingTo!,
+                onCancel: () => setState(() => _replyingTo = null),
+              ),
+            _Composer(
+              controller: _input,
+              focusNode: _inputFocus,
+              hint: l.chatNewMessageHint,
+              onSend: () => _submit(status),
+              onAttach: _attach,
+            ),
+          ],
         );
       case null:
         return _Composer(
@@ -1388,15 +1621,121 @@ Future<bool> _savedFileLooksComplete(String path, {int? expectedSize}) async {
   }
 }
 
+/// The one-line preview text for a quoted/replied message (file → its name).
+String _quotePreview(AppL10n l, Message m) =>
+    m.isFile ? (m.fileName ?? l.chatFileLabel) : m.body;
+
+/// Banner above the composer while replying: a leading accent bar, the quoted
+/// preview, and an X to cancel the reply.
+class _ReplyBanner extends StatelessWidget {
+  const _ReplyBanner({required this.message, required this.onCancel});
+  final Message message;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 6, 4, 6),
+        child: Row(
+          children: [
+            Icon(Icons.reply, size: 18, color: scheme.primary),
+            const SizedBox(width: 8),
+            Container(width: 3, height: 32, color: scheme.primary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    l.chatReplyingTo,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: scheme.primary,
+                    ),
+                  ),
+                  Text(
+                    _quotePreview(l, message),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close, size: 18),
+              onPressed: onCancel,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The quoted-message preview shown INSIDE a reply bubble (accent bar + one
+/// line). [quoted] is null when the referenced message is deleted or scrolled
+/// out of the loaded window — then a generic stub renders.
+class _QuoteBlock extends StatelessWidget {
+  const _QuoteBlock({required this.quoted, required this.outgoing});
+  final Message? quoted;
+  final bool outgoing;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final accent = outgoing ? scheme.onPrimaryContainer : scheme.primary;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.only(left: 8),
+      decoration: BoxDecoration(
+        border: Border(left: BorderSide(color: accent, width: 3)),
+      ),
+      child: Text(
+        quoted == null ? l.chatQuoteUnavailable : _quotePreview(l, quoted!),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: scheme.onSurfaceVariant,
+          fontStyle: quoted == null ? FontStyle.italic : null,
+        ),
+      ),
+    );
+  }
+}
+
 /// What a file bubble's trailing icon + tap do: download an offer, save a held
 /// blob out, or open a file already saved unencrypted to disk.
 enum _FileAffordance { download, save, open, gone }
 
 class _Bubble extends ConsumerWidget {
-  const _Bubble({required this.message, this.onTapFile, this.onLongPress});
+  const _Bubble({
+    required this.message,
+    this.quoted,
+    this.selected = false,
+    this.selecting = false,
+    this.onTapFile,
+    this.onLongPress,
+    this.onTap,
+  });
   final Message message;
+
+  /// The message this one replies to, resolved from the visible window (null if
+  /// it's not a reply, or the quoted message is out of the window / deleted).
+  final Message? quoted;
+
+  /// Multi-select rendering: [selected] tints the row; [selecting] means a plain
+  /// tap toggles selection (via [onTap]) instead of doing nothing.
+  final bool selected;
+  final bool selecting;
   final void Function(Message message)? onTapFile;
   final void Function(Message message)? onLongPress;
+  final VoidCallback? onTap;
 
   /// Whether the file blob is locally available (bubble shows "save" vs
   /// "download"). Resilient: a not-yet-open / erroring store falls back to the
@@ -1460,12 +1799,17 @@ class _Bubble extends ConsumerWidget {
     final resuming = cid != null &&
         progress == null &&
         ref.watch(contentResumingProvider.select((s) => s.contains(cid)));
-    return Align(
+    return Container(
+      // Selected rows get a full-width tint so the selection reads at a glance.
+      color: selected ? scheme.primary.withValues(alpha: 0.12) : null,
+      child: Align(
       alignment: outgoing ? Alignment.centerRight : Alignment.centerLeft,
       child: GestureDetector(
         // Long-press (touch) AND secondary-tap (desktop right-click) both open
         // the message actions — without the latter the menu is unreachable on
-        // desktop, where there is no long-press.
+        // desktop, where there is no long-press. In select mode a plain tap
+        // toggles the row instead.
+        onTap: onTap,
         onLongPress: onLongPress == null ? null : () => onLongPress!(message),
         onSecondaryTap: onLongPress == null
             ? null
@@ -1491,6 +1835,10 @@ class _Bubble extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Quoted reply preview (a reference to a deleted/out-of-window
+              // message shows a generic stub).
+              if (message.replyToId != null)
+                _QuoteBlock(quoted: quoted, outgoing: outgoing),
               if (message.isFile)
                 FutureBuilder<_FileAffordance>(
                   future: _affordance(ref),
@@ -1655,6 +2003,7 @@ class _Bubble extends ConsumerWidget {
             ],
           ),
         ),
+      ),
       ),
     );
   }
