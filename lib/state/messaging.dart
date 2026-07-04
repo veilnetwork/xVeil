@@ -17,6 +17,7 @@ import '../data/transport/veil_flutter_transport.dart';
 import '../data/transport/veil_transport.dart';
 import '../data/transport/wire_envelope.dart';
 import '../domain/chat.dart';
+import '../domain/chat_folder.dart';
 import '../domain/content_manifest.dart';
 import '../domain/content_transfer.dart';
 import '../data/serve_source.dart';
@@ -1549,7 +1550,84 @@ class MessagingService {
   Future<void> deleteConversation(NodeId peer) async {
     await _storage.removeConversation(peer);
     _peerUnresolvedBackoff.remove(peer.hex);
+    await _removeFromAllFolders(peer.hex);
     _signal();
+  }
+
+  // ── Chat folders (local-only groupings, §Telegram-style) ─────────────────
+  static const _kFoldersKey = 'chat_folders';
+
+  /// The user's chat folders (empty when none created). Read from the encrypted
+  /// settings KV; nothing about folders ever goes on the wire.
+  Future<List<ChatFolder>> loadFolders() async {
+    try {
+      return ChatFolder.decodeList(await _storage.getSetting(_kFoldersKey));
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> _saveFolders(List<ChatFolder> folders) async {
+    await _storage.putSetting(_kFoldersKey, ChatFolder.encodeList(folders));
+    _signal();
+  }
+
+  /// Create a folder (optionally seeded with [members]) and return it.
+  Future<ChatFolder> createFolder(String name, {List<String> members = const []}) async {
+    final folders = List<ChatFolder>.from(await loadFolders());
+    final folder = ChatFolder(id: _uuid.v4(), name: name.trim(), memberHexes: members);
+    folders.add(folder);
+    await _saveFolders(folders);
+    return folder;
+  }
+
+  Future<void> renameFolder(String folderId, String name) async {
+    final folders = await loadFolders();
+    await _saveFolders([
+      for (final f in folders)
+        if (f.id == folderId) f.copyWith(name: name.trim()) else f,
+    ]);
+  }
+
+  Future<void> deleteFolder(String folderId) async {
+    final folders = await loadFolders();
+    await _saveFolders(folders.where((f) => f.id != folderId).toList());
+  }
+
+  /// Add or remove [peerHex] to/from [folderId] (idempotent). Membership is a
+  /// set — a conversation can live in any number of folders.
+  Future<void> setFolderMembership(
+    String folderId,
+    String peerHex,
+    bool member,
+  ) async {
+    final folders = await loadFolders();
+    await _saveFolders([
+      for (final f in folders)
+        if (f.id != folderId)
+          f
+        else
+          f.copyWith(
+            memberHexes: member
+                ? (f.contains(peerHex)
+                    ? f.memberHexes
+                    : [...f.memberHexes, peerHex])
+                : f.memberHexes.where((h) => h != peerHex).toList(),
+          ),
+    ]);
+  }
+
+  /// Drop [peerHex] from EVERY folder (called when a conversation is deleted so
+  /// no folder keeps a dangling member).
+  Future<void> _removeFromAllFolders(String peerHex) async {
+    final folders = await loadFolders();
+    if (!folders.any((f) => f.contains(peerHex))) return;
+    await _saveFolders([
+      for (final f in folders)
+        f.copyWith(
+          memberHexes: f.memberHexes.where((h) => h != peerHex).toList(),
+        ),
+    ]);
   }
 
   /// Clear the message HISTORY of [peer]'s conversation but keep the contact —
@@ -7581,6 +7659,16 @@ final conversationsProvider = StreamProvider<List<Conversation>>((ref) async* {
   yield await storage.loadConversations();
   await for (final _ in service.changes) {
     yield await storage.loadConversations();
+  }
+});
+
+/// The user's chat folders, re-loaded whenever the service signals a change
+/// (folders are mutated through the service, which signals on every write).
+final chatFoldersProvider = StreamProvider<List<ChatFolder>>((ref) async* {
+  final service = ref.watch(messagingServiceProvider);
+  yield await service.loadFolders();
+  await for (final _ in service.changes) {
+    yield await service.loadFolders();
   }
 });
 
