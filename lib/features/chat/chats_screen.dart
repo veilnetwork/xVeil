@@ -15,6 +15,7 @@ import 'chat_actions.dart';
 import '../../state/folder_panel_controller.dart';
 import '../../state/providers.dart';
 import '../contacts/invite_exchange_sheet.dart';
+import '../home/home_shell.dart';
 
 /// The chat-list folder filter: null = "All", else a [ChatFolder.id]. A plain
 /// StateProvider so switching folders survives list rebuilds. Reset to All if
@@ -95,7 +96,7 @@ class ChatsScreen extends ConsumerWidget {
         ],
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () => _addByInvite(context, ref),
+        onPressed: () => showAddContactSheet(context, ref),
         child: const Icon(Icons.person_add_alt_1),
       ),
       body: convos.when(
@@ -103,7 +104,8 @@ class ChatsScreen extends ConsumerWidget {
         error: (e, _) => Center(child: Text('$e')),
         data: (list) {
           if (list.isEmpty) {
-            return _EmptyState(l: l, onStart: () => _addByInvite(context, ref));
+            return _EmptyState(
+                l: l, onStart: () => showAddContactSheet(context, ref));
           }
           // Filter to the selected folder's members (All = everything).
           final scoped = folder == null
@@ -165,11 +167,15 @@ class ChatsScreen extends ConsumerWidget {
     context.push('/chat/$hex');
   }
 
-  /// Add a contact by exchanging veil bootstrap invites. Persists the peer and
-  /// opens the chat. (When the real veil stack is active this also redeems the
-  /// invite via veilBootstrapJoin; in loopback it just records the contact.)
-  Future<void> _addByInvite(BuildContext context, WidgetRef ref) async {
-    await showModalBottomSheet<void>(
+}
+
+/// Add a contact by exchanging veil bootstrap invites. Persists the peer and
+/// opens the chat. (When the real veil stack is active this also redeems the
+/// invite via veilBootstrapJoin; in loopback it just records the contact.)
+/// Top-level so the FAB, the empty-state, AND the Telegram-style drawer menu
+/// all open the same sheet.
+Future<void> showAddContactSheet(BuildContext context, WidgetRef ref) async {
+  await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -219,13 +225,13 @@ class ChatsScreen extends ConsumerWidget {
         },
       ),
     );
-  }
 }
 
-/// Collapsible folder navigation for the drawer placements (left/right).
-/// Same model as [_FolderBar]: "All" + one tile per folder + "new folder";
-/// long-press / right-click a folder for rename/delete. Selecting closes the
-/// drawer — the app-bar title then names the active folder.
+/// Telegram-style main drawer for the drawer placements (left/right):
+/// identity header, then the FOLDERS (All + one tile per folder + new
+/// folder; long-press / right-click a folder for rename/delete), then the
+/// app MENU (add contact / network / settings). Selecting a folder closes
+/// the drawer — the app-bar title then names the active folder.
 class _FolderDrawer extends ConsumerWidget {
   const _FolderDrawer({required this.folders, required this.selected});
   final List<ChatFolder> folders;
@@ -234,22 +240,54 @@ class _FolderDrawer extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppL10n.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final app = ref.watch(appControllerProvider);
+    final anon = ref.read(appControllerProvider.notifier).activeIsAnonymous;
+    final label =
+        app.activeIdentity ?? app.identity?.nodeId.short ?? l.navChats;
     void select(String? id) {
       ref.read(selectedFolderProvider.notifier).state = id;
       Navigator.of(context).pop(); // close the drawer
     }
 
+    void go(int tab) {
+      Navigator.of(context).pop();
+      ref.read(homeTabProvider.notifier).state = tab;
+    }
+
     return Drawer(
       child: SafeArea(
         child: ListView(
+          padding: EdgeInsets.zero,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Text(
-                l.chatMenuFolders,
-                style: Theme.of(context).textTheme.titleMedium,
+            // Identity header, Telegram-style: who am I right now (and
+            // whether this identity routes anonymously).
+            Container(
+              color: scheme.surfaceContainerHighest,
+              padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 24,
+                    child: Text(
+                      label.characters.first.toUpperCase(),
+                      style: const TextStyle(fontSize: 20),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: Theme.of(context).textTheme.titleMedium,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (anon)
+                    Icon(Icons.shield_moon, size: 20, color: scheme.primary),
+                ],
               ),
             ),
+            // Folders — the chat filter this drawer replaces the chip bar for.
             ListTile(
               leading: const Icon(Icons.forum_outlined),
               title: Text(l.chatsFolderAll),
@@ -267,11 +305,30 @@ class _FolderDrawer extends ConsumerWidget {
                   onLongPress: () => folderMenu(context, ref, f),
                 ),
               ),
-            const Divider(),
             ListTile(
-              leading: const Icon(Icons.add),
+              leading: const Icon(Icons.create_new_folder_outlined),
               title: Text(l.chatsFolderNew),
               onTap: () => createFolderDialog(context, ref),
+            ),
+            const Divider(),
+            // App menu.
+            ListTile(
+              leading: const Icon(Icons.person_add_alt_1_outlined),
+              title: Text(l.inviteAddContact),
+              onTap: () {
+                Navigator.of(context).pop();
+                showAddContactSheet(context, ref);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.hub_outlined),
+              title: Text(l.navNetwork),
+              onTap: () => go(1),
+            ),
+            ListTile(
+              leading: const Icon(Icons.settings_outlined),
+              title: Text(l.navSettings),
+              onTap: () => go(2),
             ),
           ],
         ),

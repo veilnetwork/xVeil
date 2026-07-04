@@ -71,6 +71,10 @@ void main() {
     final l = AppL10n.of(tester.element(find.byType(ChatsScreen)));
     expect(find.text(l.chatsFolderAll), findsOneWidget);
     expect(find.text('Work'), findsOneWidget);
+    // Telegram-style: the drawer also carries the app menu.
+    expect(find.text(l.inviteAddContact), findsOneWidget);
+    expect(find.text(l.navNetwork), findsOneWidget);
+    expect(find.text(l.navSettings), findsOneWidget);
 
     // Selecting a folder closes the drawer, filters the list, and names the
     // active folder in the app bar title.
