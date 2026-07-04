@@ -252,6 +252,13 @@ class AppL10nEn extends AppL10n {
   String get chatLoadEarlier => 'Load earlier messages';
 
   @override
+  String get settingsChatPageSize => 'Messages per page';
+
+  @override
+  String get settingsChatPageSizeHint =>
+      'How many recent messages a chat loads; older ones load on demand';
+
+  @override
   String get chatListDelete => 'Delete chat';
 
   @override

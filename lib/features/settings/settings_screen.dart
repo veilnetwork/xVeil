@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
+import '../../state/chat_page_size_controller.dart';
 import '../../state/keep_all_online_controller.dart';
 import '../../state/locale_controller.dart';
 import '../../state/notifications.dart';
@@ -154,6 +155,30 @@ class SettingsScreen extends ConsumerWidget {
     );
     if (choice == null) return;
     await ref.read(notificationSettingsProvider.notifier).setPreview(choice);
+  }
+
+  Future<void> _pickChatPageSize(
+    BuildContext context,
+    WidgetRef ref,
+    AppL10n l,
+  ) async {
+    final current = ref.read(chatPageSizeProvider);
+    final choice = await showDialog<int>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: Text(l.settingsChatPageSize),
+        children: [
+          for (final n in kChatPageSizeChoices)
+            ListTile(
+              title: Text('$n'),
+              trailing: current == n ? const Icon(Icons.check) : null,
+              onTap: () => Navigator.of(context).pop(n),
+            ),
+        ],
+      ),
+    );
+    if (choice == null) return;
+    await ref.read(chatPageSizeProvider.notifier).set(choice);
   }
 
   Future<void> _pickLanguage(
@@ -441,6 +466,18 @@ class SettingsScreen extends ConsumerWidget {
                 ],
               );
             },
+          ),
+          // Chat pagination: how many recent messages a chat loads initially
+          // (and the "load earlier" step). Bounds decrypt + list-build work.
+          ListTile(
+            leading: const Icon(Icons.format_list_numbered_outlined),
+            title: Text(l.settingsChatPageSize),
+            subtitle: Text(l.settingsChatPageSizeHint),
+            trailing: Text(
+              '${ref.watch(chatPageSizeProvider)}',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            onTap: () => _pickChatPageSize(context, ref, l),
           ),
           ListTile(
             leading: const Icon(Icons.badge_outlined),
