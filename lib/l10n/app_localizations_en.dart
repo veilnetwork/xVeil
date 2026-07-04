@@ -387,6 +387,13 @@ class AppL10nEn extends AppL10n {
   String get muteHoursSuffix => 'hours';
 
   @override
+  String get chatMenuAllowPeerDelete => 'Let this contact delete at me';
+
+  @override
+  String get chatMenuAllowPeerDeleteHint =>
+      'When on, their unsend or clear removes your copy too. Off keeps your copies even if they delete for everyone.';
+
+  @override
   String get chatMenuUnblock => 'Unblock';
 
   @override

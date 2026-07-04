@@ -388,6 +388,13 @@ class AppL10nRu extends AppL10n {
   String get muteHoursSuffix => 'часов';
 
   @override
+  String get chatMenuAllowPeerDelete => 'Разрешить собеседнику удалять у меня';
+
+  @override
+  String get chatMenuAllowPeerDeleteHint =>
+      'Когда включено, его удаление или очистка убирают и вашу копию. Выключено — ваши копии остаются, даже если он удалил у всех.';
+
+  @override
   String get chatMenuUnblock => 'Разблокировать';
 
   @override
