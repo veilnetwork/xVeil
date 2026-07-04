@@ -400,6 +400,48 @@ class AppL10nEn extends AppL10n {
   String get chatsFolderNoneYet => 'No folders yet';
 
   @override
+  String get chatMsgRequestSignature => 'Request signature';
+
+  @override
+  String get chatSignatureRequested => 'Signature requested';
+
+  @override
+  String get chatSignaturePending => 'Awaiting the author\'s signature';
+
+  @override
+  String get chatSignatureVerified => 'Authorship verified';
+
+  @override
+  String get chatSignatureRefused => 'The author declined to sign';
+
+  @override
+  String get chatSignatureFailed => 'Signature did not verify';
+
+  @override
+  String signatureAskTitle(String who) {
+    return '$who asks you to confirm you wrote the message below';
+  }
+
+  @override
+  String get signatureAskConfirm => 'Sign';
+
+  @override
+  String get settingsSignaturePolicy => 'Signature requests';
+
+  @override
+  String get settingsSignaturePolicyHint =>
+      'How to answer when a contact asks you to prove you wrote a message';
+
+  @override
+  String get signaturePolicyAsk => 'Ask each time';
+
+  @override
+  String get signaturePolicyAuto => 'Sign automatically';
+
+  @override
+  String get signaturePolicyRefuse => 'Always refuse';
+
+  @override
   String get settingsKeepNodeBackground => 'Keep running in background';
 
   @override

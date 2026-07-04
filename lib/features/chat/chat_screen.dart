@@ -729,6 +729,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   _showMessageHistory(m);
                 },
               ),
+            // Ask the AUTHOR to attest they wrote this incoming message. Only
+            // for a peer's text message that isn't already verified.
+            if (!own &&
+                !m.isFile &&
+                m.signature != MessageSignature.verified)
+              ListTile(
+                leading: const Icon(Icons.verified_user_outlined),
+                title: Text(l.chatMsgRequestSignature),
+                onTap: () {
+                  Navigator.of(sheet).pop();
+                  _requestSignature(m);
+                },
+              ),
             ListTile(
               leading: const Icon(Icons.info_outline),
               title: Text(l.chatMsgInfo),
@@ -740,6 +753,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ],
         ),
         ),
+      ),
+    );
+  }
+
+  /// Ask the message's author to prove they wrote it (opt-in attestation). The
+  /// peer's device answers per their policy (prompt / auto / refuse); the result
+  /// lands back on this message as a verified/refused/failed badge.
+  Future<void> _requestSignature(Message m) async {
+    final l = AppL10n.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    await ref
+        .read(messagingServiceProvider)
+        .requestSignature(_peer, m.id, m.body);
+    if (!mounted) return;
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(l.chatSignatureRequested),
+        duration: const Duration(seconds: 2),
       ),
     );
   }
@@ -2152,6 +2183,7 @@ class _Bubble extends ConsumerWidget {
                       color: scheme.onSurfaceVariant,
                     ),
                   ],
+                  ..._signatureBadge(context, l, scheme),
                 ],
               ),
             ],
@@ -2160,6 +2192,43 @@ class _Bubble extends ConsumerWidget {
       ),
       ),
     );
+  }
+
+  /// Attestation badge for the "request signature" feature — an icon + tooltip
+  /// reflecting [Message.signature]. Empty for [MessageSignature.none].
+  List<Widget> _signatureBadge(
+      BuildContext context, AppL10n l, ColorScheme scheme) {
+    final (IconData icon, Color color, String tip) = switch (message.signature) {
+      MessageSignature.none => (Icons.circle, Colors.transparent, ''),
+      MessageSignature.requested => (
+          Icons.hourglass_empty,
+          scheme.onSurfaceVariant,
+          l.chatSignaturePending,
+        ),
+      MessageSignature.verified => (
+          Icons.verified,
+          Colors.green,
+          l.chatSignatureVerified,
+        ),
+      MessageSignature.refused => (
+          Icons.gpp_bad_outlined,
+          scheme.onSurfaceVariant,
+          l.chatSignatureRefused,
+        ),
+      MessageSignature.failed => (
+          Icons.error_outline,
+          scheme.error,
+          l.chatSignatureFailed,
+        ),
+    };
+    if (message.signature == MessageSignature.none) return const [];
+    return [
+      const SizedBox(width: 4),
+      Tooltip(
+        message: tip,
+        child: Icon(icon, size: 13, color: color),
+      ),
+    ];
   }
 
   static IconData _statusIcon(MessageStatus s) => switch (s) {

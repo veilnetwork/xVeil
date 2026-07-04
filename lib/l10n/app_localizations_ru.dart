@@ -401,6 +401,48 @@ class AppL10nRu extends AppL10n {
   String get chatsFolderNoneYet => 'Папок пока нет';
 
   @override
+  String get chatMsgRequestSignature => 'Запросить подпись';
+
+  @override
+  String get chatSignatureRequested => 'Подпись запрошена';
+
+  @override
+  String get chatSignaturePending => 'Ожидание подписи автора';
+
+  @override
+  String get chatSignatureVerified => 'Авторство подтверждено';
+
+  @override
+  String get chatSignatureRefused => 'Автор отказался подписывать';
+
+  @override
+  String get chatSignatureFailed => 'Подпись не прошла проверку';
+
+  @override
+  String signatureAskTitle(String who) {
+    return '$who просит подтвердить, что сообщение ниже написали вы';
+  }
+
+  @override
+  String get signatureAskConfirm => 'Подписать';
+
+  @override
+  String get settingsSignaturePolicy => 'Запросы подписи';
+
+  @override
+  String get settingsSignaturePolicyHint =>
+      'Как отвечать, когда контакт просит подтвердить, что вы написали сообщение';
+
+  @override
+  String get signaturePolicyAsk => 'Спрашивать каждый раз';
+
+  @override
+  String get signaturePolicyAuto => 'Подписывать автоматически';
+
+  @override
+  String get signaturePolicyRefuse => 'Всегда отказывать';
+
+  @override
   String get settingsKeepNodeBackground => 'Работать в фоне';
 
   @override

@@ -8,7 +8,7 @@ import 'package:uuid/uuid.dart';
 
 import '../core/ids.dart';
 import '../crypto/blake3.dart';
-import '../data/node/embedded_node.dart' show BootstrapPeerCfg;
+import '../data/node/embedded_node.dart' show BootstrapPeerCfg, EmbeddedNode;
 import '../data/node/node_controller.dart';
 import '../data/storage/file_store.dart' show kMaxStoredFileBytes;
 import '../data/storage/storage.dart';
@@ -29,6 +29,7 @@ import 'chat_page_size_controller.dart';
 import 'mailbox_orchestrator.dart';
 import 'mailbox_service.dart';
 import 'providers.dart';
+import 'signature_policy_controller.dart';
 import 'package:xveil/core/log.dart';
 
 const _uuid = Uuid();
@@ -276,6 +277,21 @@ class IncomingNotice {
   final NodeId from;
   final String preview;
   final bool isFile;
+}
+
+/// An author-side prompt: [peer] asked us to attest authorship of message
+/// [msgId] whose text is [body]. Surfaced on [MessagingService.signatureAsks]
+/// under [SignaturePolicy.ask]; resolved via
+/// [MessagingService.resolveSignatureAsk].
+class SignatureAsk {
+  const SignatureAsk({
+    required this.peer,
+    required this.msgId,
+    required this.body,
+  });
+  final NodeId peer;
+  final String msgId;
+  final String body;
 }
 
 /// Outcome of a user-initiated download ([MessagingService.downloadContent] /
@@ -938,6 +954,166 @@ class MessagingService {
     }
   }
 
+  // ── Opt-in authorship attestation (the "request signature" feature) ────────
+  //
+  // Deniable-by-default: nothing is signed unless a recipient explicitly asks
+  // AND the author consents (per prompt, or a standing auto/refuse policy). The
+  // signed bytes bind author ‖ recipient ‖ msgId ‖ body, so an attestation
+  // proves "this author wrote THIS to THIS recipient" and cannot be transplanted.
+
+  /// Author-side answer to incoming requests. Wired by the app from settings
+  /// (like [sourceOpener]); null → [SignaturePolicy.ask].
+  SignaturePolicy Function()? signaturePolicyResolver;
+
+  final StreamController<SignatureAsk> _signatureAsks =
+      StreamController<SignatureAsk>.broadcast();
+
+  /// Author-side prompts awaiting a decision (surfaced only under
+  /// [SignaturePolicy.ask]). The UI listens and calls [resolveSignatureAsk].
+  Stream<SignatureAsk> get signatureAsks => _signatureAsks.stream;
+
+  /// Canonical bytes both sides sign/verify. Length-prefixed fields so a body
+  /// containing the separator can't be confused for a field boundary.
+  static Uint8List _attestCanonical({
+    required String authorHex,
+    required String recipientHex,
+    required String msgId,
+    required String body,
+  }) {
+    final out = BytesBuilder();
+    out.add(utf8.encode('veil-msg-attest-v1'));
+    void field(List<int> b) {
+      final len = ByteData(4)..setUint32(0, b.length, Endian.big);
+      out.add(len.buffer.asUint8List());
+      out.add(b);
+    }
+
+    field(utf8.encode(authorHex));
+    field(utf8.encode(recipientHex));
+    field(utf8.encode(msgId));
+    field(utf8.encode(body));
+    return out.toBytes();
+  }
+
+  /// Ask [peer] (the author) to attest authorship of message [msgId] whose text
+  /// is [body]. Marks our local copy `requested` so the UI shows a pending state.
+  Future<void> requestSignature(NodeId peer, String msgId, String body) async {
+    await _storage.markMessageSignature(
+        peer.hex, msgId, MessageSignature.requested);
+    _signal();
+    await _send(peer, WireEnvelope.signRequest(msgId, body).encode());
+  }
+
+  Future<void> _onSignRequest(NodeId src, WireEnvelope env) async {
+    final msgId = env.id;
+    if (msgId == null || msgId.isEmpty) return;
+    final policy = signaturePolicyResolver?.call() ?? SignaturePolicy.ask;
+    switch (policy) {
+      case SignaturePolicy.refuse:
+        await _sendSignRefusal(src, msgId);
+      case SignaturePolicy.auto:
+        await _signAndRespond(src, msgId, env.body);
+      case SignaturePolicy.ask:
+        if (!_signatureAsks.isClosed) {
+          _signatureAsks.add(
+            SignatureAsk(peer: src, msgId: msgId, body: env.body),
+          );
+        }
+    }
+  }
+
+  /// Resolve an author-side prompt: sign + respond, or decline.
+  Future<void> resolveSignatureAsk(SignatureAsk ask,
+      {required bool approve}) async {
+    if (approve) {
+      await _signAndRespond(ask.peer, ask.msgId, ask.body);
+    } else {
+      await _sendSignRefusal(ask.peer, ask.msgId);
+    }
+  }
+
+  Future<void> _signAndRespond(NodeId requester, String msgId, String body) async {
+    try {
+      final toml = await _storage.loadNodeConfig();
+      if (toml == null) return; // no identity config → cannot sign
+      final selfHex = await _selfHex();
+      final canonical = _attestCanonical(
+        authorHex: selfHex,
+        recipientHex: requester.hex,
+        msgId: msgId,
+        body: body,
+      );
+      final res = EmbeddedNode.signMessage(toml, canonical);
+      final payload = jsonEncode({
+        'mid': msgId,
+        'sig': base64.encode(res.signature),
+        'pk': base64.encode(res.publicKey),
+      });
+      await _send(requester, WireEnvelope.signResponse(payload).encode());
+    } catch (e) {
+      devLog(() => 'xVeil[sign]: sign+respond failed for $msgId: $e');
+    }
+  }
+
+  Future<void> _sendSignRefusal(NodeId requester, String msgId) async {
+    final payload = jsonEncode({'mid': msgId, 'refused': true});
+    await _send(requester, WireEnvelope.signResponse(payload).encode());
+  }
+
+  Future<void> _onSignResponse(NodeId src, WireEnvelope env) async {
+    Map<String, dynamic> j;
+    try {
+      j = jsonDecode(env.body) as Map<String, dynamic>;
+    } catch (_) {
+      return;
+    }
+    final msgId = j['mid'] as String?;
+    if (msgId == null || msgId.isEmpty) return;
+    if (j['refused'] == true) {
+      await _storage.markMessageSignature(
+          src.hex, msgId, MessageSignature.refused);
+      _signal();
+      return;
+    }
+    final sigB64 = j['sig'] as String?;
+    final pkB64 = j['pk'] as String?;
+    if (sigB64 == null || pkB64 == null) return;
+    // Verify against OUR stored copy of the message (the exact bytes we hold).
+    final msgs = await _storage.loadMessages(src.hex);
+    Message? target;
+    for (final mm in msgs) {
+      if (mm.id == msgId) {
+        target = mm;
+        break;
+      }
+    }
+    if (target == null) return; // message gone (deleted/cleared) — ignore
+    final selfHex = await _selfHex();
+    final canonical = _attestCanonical(
+      authorHex: src.hex, // the author is the peer who sent us the message
+      recipientHex: selfHex,
+      msgId: msgId,
+      body: target.body,
+    );
+    var ok = false;
+    try {
+      ok = EmbeddedNode.verifyMessage(
+        nodeId: src.bytes,
+        publicKey: base64.decode(pkB64),
+        message: canonical,
+        signature: base64.decode(sigB64),
+      );
+    } catch (e) {
+      devLog(() => 'xVeil[sign]: verify threw for $msgId: $e');
+    }
+    await _storage.markMessageSignature(
+      src.hex,
+      msgId,
+      ok ? MessageSignature.verified : MessageSignature.failed,
+    );
+    _signal();
+  }
+
   Future<void> _dispatch(InboundMessage m) async {
     final env = WireEnvelope.decode(m.payload);
     final existing = await _storage.getContact(m.src);
@@ -1218,6 +1394,17 @@ class MessagingService {
         // transfer when every piece is verified.
         if (existing?.status != ContactStatus.accepted) return;
         await _onPieceChunk(parsePieceChunk(env.body));
+        return;
+      case WireKind.signRequest:
+        // A peer asks us to attest authorship of one of OUR messages. Consent-
+        // gated; the policy (ask / auto / refuse) decides what happens next.
+        if (existing?.status != ContactStatus.accepted) return;
+        await _onSignRequest(m.src, env);
+        return;
+      case WireKind.signResponse:
+        // The author answered our signature request — verify + record.
+        if (existing?.status != ContactStatus.accepted) return;
+        await _onSignResponse(m.src, env);
         return;
       case WireKind.unknown:
         // A structured (v:2) frame from a NEWER build whose kind we don't know —
@@ -7412,6 +7599,7 @@ class MessagingService {
     _pendingDownload.clear();
     await _changes.close();
     await _incoming.close();
+    await _signatureAsks.close();
     await _contentReceived.close();
     await _contentProgress.close();
     await _contentFailed.close();
@@ -7506,6 +7694,8 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
     streamRangeTargetBytes: xveilConfiguredStreamRangeTargetBytes(),
   );
   service.sourceOpener = veilSourceOpener; // DURABLE offers: re-open by path
+  // Author-side answer to incoming signature requests, read live from settings.
+  service.signaturePolicyResolver = () => ref.read(signaturePolicyProvider);
   service.start();
 
   // Offline delivery: over the real veil transport, advertise a mailbox relay
