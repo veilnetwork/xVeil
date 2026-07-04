@@ -395,6 +395,24 @@ class AppL10nRu extends AppL10n {
   String get msgInfoFile => 'Файл';
 
   @override
+  String get msgInfoSize => 'Размер';
+
+  @override
+  String get msgInfoAuthor => 'Автор';
+
+  @override
+  String get msgInfoSeq => 'Порядковый номер';
+
+  @override
+  String get msgInfoEdited => 'Изменено';
+
+  @override
+  String get msgInfoYes => 'Да';
+
+  @override
+  String get chatMsgCopyMeta => 'Скопировать с метаданными';
+
+  @override
   String get dirIncoming => 'Получено';
 
   @override

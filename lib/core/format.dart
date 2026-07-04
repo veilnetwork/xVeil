@@ -9,3 +9,11 @@ String formatDateTime(DateTime t) {
   return '${t.year}-${two(t.month)}-${two(t.day)} '
       '${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
 }
+
+/// Human-readable byte size (B/KB/MB/GB, one decimal above KB).
+String formatBytes(int b) {
+  if (b >= 1 << 30) return '${(b / (1 << 30)).toStringAsFixed(1)} GB';
+  if (b >= 1 << 20) return '${(b / (1 << 20)).toStringAsFixed(1)} MB';
+  if (b >= 1 << 10) return '${(b / (1 << 10)).toStringAsFixed(0)} KB';
+  return '$b B';
+}
