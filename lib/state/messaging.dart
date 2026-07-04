@@ -546,6 +546,20 @@ class MessagingService {
   final Map<String, DateTime> _lastSyncSentAt = {};
   final Map<String, DateTime> _lastSyncActedAt = {};
   static const _syncSendInterval = Duration(seconds: 20);
+
+  /// Per-peer count of consecutive sync beacons that got NO inbound of any
+  /// kind from that peer in between. Every accepted conversation used to
+  /// beacon at the base cadence FOREVER — a peer that is simply gone (dead
+  /// identity, device offline for days) received an anonymous onion send
+  /// every 20s indefinitely: pure node load, network noise, and misleading
+  /// `live send dst=&lt;ghost&gt;` lines in every diagnostic session. The beacon
+  /// interval now doubles per unanswered beacon (20s → … → [_syncBackoffCap]);
+  /// ANY inbound from the peer resets it, so a peer that comes back gets the
+  /// base cadence again within one message. `force` (reconnect) bypasses the
+  /// interval as before but does not reset the streak — only the peer
+  /// actually ANSWERING does.
+  final Map<String, int> _syncUnanswered = {};
+  static const _syncBackoffCap = Duration(minutes: 10);
   static const _syncActInterval = Duration(seconds: 5);
   static const _syncReshipCap = 100;
 
@@ -874,6 +888,8 @@ class MessagingService {
       () =>
           'xVeil[recv]: INBOUND from=${m.src.short} bytes=${m.payload.length}',
     );
+    // The peer answered SOMETHING — return its sync beacon to base cadence.
+    _syncUnanswered.remove(m.src.hex);
     try {
       await _dispatch(m);
     } catch (e) {
@@ -1719,10 +1735,16 @@ class MessagingService {
   Future<void> _sendSyncTo(NodeId peer, {bool force = false}) async {
     final now = DateTime.now();
     final last = _lastSyncSentAt[peer.hex];
-    if (!force && last != null && now.difference(last) < _syncSendInterval) {
+    // Escalating interval for a peer that never answers (see
+    // [_syncUnanswered]): base × 2^streak, capped.
+    final streak = _syncUnanswered[peer.hex] ?? 0;
+    var interval = _syncSendInterval * (1 << (streak > 5 ? 5 : streak));
+    if (interval > _syncBackoffCap) interval = _syncBackoffCap;
+    if (!force && last != null && now.difference(last) < interval) {
       return;
     }
     _lastSyncSentAt[peer.hex] = now;
+    _syncUnanswered[peer.hex] = streak + 1; // any inbound from peer resets
     // Declare our own stream's FLOOR: the prefix we can no longer re-ship
     // (cleared/erased at the source). Persisting it locally first makes our own
     // hw/holes honest too; the beacon carries it so the peer stops naming that
