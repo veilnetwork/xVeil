@@ -14,6 +14,7 @@ import 'chat_actions.dart';
 import '../../domain/chat.dart';
 import '../../domain/file_download_policy.dart';
 import '../../l10n/app_localizations.dart';
+import '../../state/chat_page_size_controller.dart';
 import '../../state/messaging.dart';
 import '../../state/notifications.dart';
 import '../../state/providers.dart';
@@ -945,7 +946,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ? _scroll.position.maxScrollExtent - _scroll.position.pixels
         : null;
     ref.read(chatWindowProvider(widget.peerHex).notifier).state +=
-        kMessageWindowStep;
+        ref.read(chatPageSizeProvider);
     if (fromBottom != null) _restoreFromBottom(fromBottom);
   }
 

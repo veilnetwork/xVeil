@@ -84,6 +84,8 @@
   "chatMsgCopy": "Copy text",
   "chatMsgCopied": "Copied",
   "chatLoadEarlier": "Load earlier messages",
+  "settingsChatPageSize": "Messages per page",
+  "settingsChatPageSizeHint": "How many recent messages a chat loads; older ones load on demand",
   "chatListDelete": "Delete chat",
   "chatDeleteChatTitle": "Delete this chat?",
   "chatDeleteChatBody": "The conversation and all its messages are erased from this device. The other person is not notified.",
