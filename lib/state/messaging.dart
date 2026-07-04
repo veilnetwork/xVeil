@@ -997,23 +997,65 @@ class MessagingService {
 
   /// Ask [peer] (the author) to attest authorship of message [msgId] whose text
   /// is [body]. Marks our local copy `requested` so the UI shows a pending state.
+  ///
+  /// Durable by design: a one-shot live send is exactly what the lossy first
+  /// live attempt eats (device-observed: the request silently vanished), so the
+  /// frame is also re-sent on a short ladder AND deposited at the peer's
+  /// mailbox for the offline case. The author side dedups prompts, and a
+  /// duplicate request re-triggers the response — which self-heals a LOST
+  /// response too.
   Future<void> requestSignature(NodeId peer, String msgId, String body) async {
     await _storage.markMessageSignature(
         peer.hex, msgId, MessageSignature.requested);
     _signal();
-    await _send(peer, WireEnvelope.signRequest(msgId, body).encode());
+    final wire = WireEnvelope.signRequest(msgId, body).encode();
+    await _send(peer, wire);
+    unawaited(_maybeStash(peer, 'sigreq:$msgId', wire));
+    unawaited(_resendSignFrame(peer, wire));
   }
+
+  /// Short fire-and-forget re-send ladder for attestation frames (request and
+  /// response). Both sides dedup, so extra copies are harmless.
+  Future<void> _resendSignFrame(NodeId peer, Uint8List wire) async {
+    for (final delay in const [Duration(seconds: 5), Duration(seconds: 15)]) {
+      await Future<void>.delayed(delay);
+      if (_disposed) return;
+      try {
+        await _send(peer, wire);
+      } catch (_) {
+        // Best-effort — the mailbox copy covers a persistently dead live path.
+      }
+    }
+  }
+
+  /// Prompt dedup for re-sent requests: (peer|msgId) recently surfaced → skip.
+  final Map<String, DateTime> _recentSignAsks = {};
 
   Future<void> _onSignRequest(NodeId src, WireEnvelope env) async {
     final msgId = env.id;
     if (msgId == null || msgId.isEmpty) return;
     final policy = signaturePolicyResolver?.call() ?? SignaturePolicy.ask;
+    devLog(
+      () =>
+          'xVeil[sign]: request received from=${src.short} mid=$msgId '
+          'policy=${policy.name}',
+    );
     switch (policy) {
       case SignaturePolicy.refuse:
+        // Always respond, even to a duplicate — a re-request usually means our
+        // previous response was lost.
         await _sendSignRefusal(src, msgId);
       case SignaturePolicy.auto:
         await _signAndRespond(src, msgId, env.body);
       case SignaturePolicy.ask:
+        // Dedup the PROMPT only (the request frame is re-sent by design).
+        final key = '${src.hex}|$msgId';
+        final now = _now();
+        final last = _recentSignAsks[key];
+        if (last != null && now.difference(last) < const Duration(minutes: 2)) {
+          return;
+        }
+        _recentSignAsks[key] = now;
         if (!_signatureAsks.isClosed) {
           _signatureAsks.add(
             SignatureAsk(peer: src, msgId: msgId, body: env.body),
@@ -1049,7 +1091,13 @@ class MessagingService {
         'sig': base64.encode(res.signature),
         'pk': base64.encode(res.publicKey),
       });
-      await _send(requester, WireEnvelope.signResponse(payload).encode());
+      final wire = WireEnvelope.signResponse(payload).encode();
+      await _send(requester, wire);
+      // Same durability as the request (see requestSignature). The stash id
+      // encodes the OUTCOME so a later opposite answer isn't dedup-skipped.
+      unawaited(_maybeStash(requester, 'sigresp:ok:$msgId', wire));
+      unawaited(_resendSignFrame(requester, wire));
+      devLog(() => 'xVeil[sign]: signed + responded mid=$msgId');
     } catch (e) {
       devLog(() => 'xVeil[sign]: sign+respond failed for $msgId: $e');
     }
@@ -1057,7 +1105,11 @@ class MessagingService {
 
   Future<void> _sendSignRefusal(NodeId requester, String msgId) async {
     final payload = jsonEncode({'mid': msgId, 'refused': true});
-    await _send(requester, WireEnvelope.signResponse(payload).encode());
+    final wire = WireEnvelope.signResponse(payload).encode();
+    await _send(requester, wire);
+    unawaited(_maybeStash(requester, 'sigresp:no:$msgId', wire));
+    unawaited(_resendSignFrame(requester, wire));
+    devLog(() => 'xVeil[sign]: refused mid=$msgId');
   }
 
   Future<void> _onSignResponse(NodeId src, WireEnvelope env) async {
@@ -1069,16 +1121,8 @@ class MessagingService {
     }
     final msgId = j['mid'] as String?;
     if (msgId == null || msgId.isEmpty) return;
-    if (j['refused'] == true) {
-      await _storage.markMessageSignature(
-          src.hex, msgId, MessageSignature.refused);
-      _signal();
-      return;
-    }
-    final sigB64 = j['sig'] as String?;
-    final pkB64 = j['pk'] as String?;
-    if (sigB64 == null || pkB64 == null) return;
-    // Verify against OUR stored copy of the message (the exact bytes we hold).
+    // Resolve OUR stored copy first (the exact bytes we hold) — needed both to
+    // verify and to guard state transitions.
     final msgs = await _storage.loadMessages(src.hex);
     Message? target;
     for (final mm in msgs) {
@@ -1088,6 +1132,20 @@ class MessagingService {
       }
     }
     if (target == null) return; // message gone (deleted/cleared) — ignore
+    if (j['refused'] == true) {
+      // `verified` is terminal: attestation frames are re-sent/mailboxed for
+      // durability, so a STALE refusal can arrive after a successful signature
+      // — it must not downgrade the badge.
+      if (target.signature == MessageSignature.verified) return;
+      devLog(() => 'xVeil[sign]: refusal received mid=$msgId');
+      await _storage.markMessageSignature(
+          src.hex, msgId, MessageSignature.refused);
+      _signal();
+      return;
+    }
+    final sigB64 = j['sig'] as String?;
+    final pkB64 = j['pk'] as String?;
+    if (sigB64 == null || pkB64 == null) return;
     final selfHex = await _selfHex();
     final canonical = _attestCanonical(
       authorHex: src.hex, // the author is the peer who sent us the message
@@ -1106,6 +1164,11 @@ class MessagingService {
     } catch (e) {
       devLog(() => 'xVeil[sign]: verify threw for $msgId: $e');
     }
+    // A re-sent/mailboxed response can arrive again after we already verified —
+    // don't let a later copy that fails (e.g. the message was edited locally in
+    // between) downgrade a good verdict.
+    if (!ok && target.signature == MessageSignature.verified) return;
+    devLog(() => 'xVeil[sign]: response verified=$ok mid=$msgId');
     await _storage.markMessageSignature(
       src.hex,
       msgId,
