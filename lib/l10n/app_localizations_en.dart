@@ -394,6 +394,24 @@ class AppL10nEn extends AppL10n {
   String get msgInfoFile => 'File';
 
   @override
+  String get msgInfoSize => 'Size';
+
+  @override
+  String get msgInfoAuthor => 'Author';
+
+  @override
+  String get msgInfoSeq => 'Sequence';
+
+  @override
+  String get msgInfoEdited => 'Edited';
+
+  @override
+  String get msgInfoYes => 'Yes';
+
+  @override
+  String get chatMsgCopyMeta => 'Copy with metadata';
+
+  @override
   String get dirIncoming => 'Received';
 
   @override
