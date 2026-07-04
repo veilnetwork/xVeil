@@ -811,6 +811,18 @@ abstract class AppL10n {
   /// **'hours'**
   String get muteHoursSuffix;
 
+  /// No description provided for @chatMenuAllowPeerDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'Let this contact delete at me'**
+  String get chatMenuAllowPeerDelete;
+
+  /// No description provided for @chatMenuAllowPeerDeleteHint.
+  ///
+  /// In en, this message translates to:
+  /// **'When on, their unsend or clear removes your copy too. Off keeps your copies even if they delete for everyone.'**
+  String get chatMenuAllowPeerDeleteHint;
+
   /// No description provided for @chatMenuUnblock.
   ///
   /// In en, this message translates to:

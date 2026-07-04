@@ -189,6 +189,43 @@ void main() {
     expect((await sA.getContact(b))!.label, b.short);
   });
 
+  test('forbidding peer-delete makes their unsend keep our copy', () async {
+    // A and B become mutual contacts.
+    await mA.sendRequest(b, 'hi');
+    await _pump();
+    await mB.acceptContact(a);
+    await _pump();
+
+    // A sends B a message; B holds it.
+    await mA.sendText(b, 'keep me');
+    await _pump();
+    final held =
+        (await sB.loadMessages(a.hex)).firstWhere((m) => m.body == 'keep me');
+
+    // B forbids A from deleting at B (default is allow).
+    expect((await sB.getContact(a))!.allowPeerDelete, isTrue);
+    await mB.setContactAllowPeerDelete(a, false);
+    expect((await sB.getContact(a))!.allowPeerDelete, isFalse);
+
+    // A unsends it for everyone — B's copy must SURVIVE (policy declines it).
+    await mA.deleteForEveryone(held.id);
+    await _pump();
+    expect((await sB.loadMessages(a.hex)).any((m) => m.body == 'keep me'), isTrue,
+        reason: 'a forbidden contact cannot delete at us');
+
+    // Re-allow, send + delete another: now it IS removed (default behavior).
+    await mB.setContactAllowPeerDelete(a, true);
+    await mA.sendText(b, 'delete me');
+    await _pump();
+    final del2 =
+        (await sB.loadMessages(a.hex)).firstWhere((m) => m.body == 'delete me');
+    await mA.deleteForEveryone(del2.id);
+    await _pump();
+    expect((await sB.loadMessages(a.hex)).any((m) => m.body == 'delete me'),
+        isFalse,
+        reason: 'an allowed contact deletes at us as before');
+  });
+
   test('muting a contact persists, survives a rename, and is local-only',
       () async {
     await mA.sendRequest(b, 'hi');
