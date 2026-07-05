@@ -705,6 +705,17 @@ class MessagingService {
         nudged = true;
       }
     }
+    // Durable control frames get the same alive-now rewind as messages: an
+    // edit/accept/reconnect parked deep in its re-drive backoff would otherwise
+    // stretch a healed path into minutes of latency. Count kept, like above.
+    final fnow = _now();
+    for (final id in _outboxLiveBackoff.keys.toList()) {
+      final bo = _outboxLiveBackoff[id]!;
+      if (bo.peer == peerHex && bo.nextAt.isAfter(fnow)) {
+        _outboxLiveBackoff[id] = (count: bo.count, nextAt: fnow, peer: bo.peer);
+        nudged = true;
+      }
+    }
     if (nudged) unawaited(_retryFlush());
   }
 
@@ -891,13 +902,22 @@ class MessagingService {
     ContactStatus? status,
   ) async {
     if (status == ContactStatus.accepted) {
-      final accept = const WireEnvelope.accept().encode();
-      await _send(m.src, accept);
-      _stashed.remove('accept:${m.src.hex}'); // force a fresh deposit
-      await _maybeStash(m.src, 'accept:${m.src.hex}', accept);
+      // They re-requested/re-intro'd because they never saw our accept — re-send
+      // it DURABLY (see [sendDurable]): the accept is a control frame that must
+      // land, and this retry proves the first copy didn't. Force a fresh
+      // mailbox deposit too — the previous one may have aged out at the relay.
+      _stashed.remove('accept:${m.src.hex}');
+      await sendDurable(
+          m.src, 'accept:${m.src.hex}', const WireEnvelope.accept());
       return;
     }
-    await _setStatus(m.src, ContactStatus.pendingIncoming);
+    // Re-drives of a durable request/reconnect land here on every backoff tick
+    // while the intro sits undecided (the durable gate only dedups ACCEPTED
+    // senders) — only the FIRST arrival should write the contact record; the
+    // rewrite is pure storage churn on every later copy.
+    if (status != ContactStatus.pendingIncoming) {
+      await _setStatus(m.src, ContactStatus.pendingIncoming);
+    }
     if (env.body.isNotEmpty &&
         !(env.id != null &&
             await _storage.isMessageDeleted(m.src.hex, env.id!))) {
@@ -967,8 +987,16 @@ class MessagingService {
   // by the frame's id; the flush re-drives every un-acked frame (across restarts)
   // until that ack retires it. Both sides dedup, so re-drives are harmless.
 
-  /// Live-send re-drive throttle per outbox frame id.
-  final Map<String, DateTime> _outboxLiveAt = {};
+  /// Per-frame live re-drive backoff (the frame twin of [_retryBackoff]): the
+  /// first re-drive fires [_outboxLiveResend] after the send, then doubles per
+  /// attempt up to [_outboxLiveResendCap]. Durable frames have NO give-up (the
+  /// outbox holds them until acked), so without the doubling every un-acked
+  /// frame — a reconnect to a peer that is GONE, an edit to a wiped identity —
+  /// would hit the onion path every 20s forever: the exact ghost-load class the
+  /// message path already backs off. Any inbound from the peer rewinds its
+  /// frames to due-now ([_nudgeRetries]); an ack retires the entry.
+  final Map<String, ({int count, DateTime nextAt, String peer})>
+      _outboxLiveBackoff = {};
 
   /// Frame ids already processed this session (dedup for durable re-drives).
   /// Bounded — oldest evicted past [_seenFramesCap] (a re-process of a very old
@@ -977,14 +1005,17 @@ class MessagingService {
   static const _seenFramesCap = 4096;
 
   /// Best-effort ack of a durable frame so the sender retires it from its
-  /// outbox. Lossy-tolerant by design: a lost ack just triggers one more
-  /// re-drive, which we dedup + re-ack.
-  Future<void> _ackFrame(NodeId peer, String frameId) async {
+  /// outbox. Rides [_ackTo]: a live send PLUS a mailbox deposit (`ack:<fid>`)
+  /// — the sender of a durable frame is often exactly the NAT'd peer whose
+  /// live path toward us is down, and a live-only ack would leave it
+  /// re-driving forever. Lossy-tolerant regardless: a lost ack just triggers
+  /// one more re-drive, which we dedup + re-ack.
+  Future<void> _ackFrame(InboundMessage m, String frameId) async {
     if (_seenFrames.length > _seenFramesCap) {
       _seenFrames.remove(_seenFrames.first); // evict oldest (insertion order)
     }
     try {
-      await _send(peer, WireEnvelope.ack(frameId).encode());
+      await _ackTo(m, frameId);
     } catch (_) {
       // Best-effort — a re-drive will prompt another ack.
     }
@@ -995,7 +1026,8 @@ class MessagingService {
   Future<void> sendDurable(NodeId peer, String frameId, WireEnvelope env) async {
     final wire = env.withFrameId(frameId).encode();
     await _storage.enqueueOutboxFrame(frameId, peer.hex, wire);
-    _outboxLiveAt[frameId] = _now();
+    _outboxLiveBackoff[frameId] =
+        (count: 1, nextAt: _now().add(_outboxLiveResend), peer: peer.hex);
     try {
       await _send(peer, wire);
     } catch (_) {
@@ -1005,7 +1037,8 @@ class MessagingService {
   }
 
   /// Re-drive un-acked durable frames: re-deposit at the mailbox (idempotent via
-  /// the stash dedup) and, throttled, re-send live. Called from [flushOutbox].
+  /// the stash dedup) and, backed off per frame, re-send live. Called from
+  /// [flushOutbox].
   Future<void> _flushOutboxFrames() async {
     final List<OutboxFrame> pending;
     try {
@@ -1015,24 +1048,68 @@ class MessagingService {
     }
     for (final f in pending) {
       final peer = NodeId.fromHex(f.peerHex);
+      // A frame to a peer we no longer hold AT ALL (conversation removed) is
+      // moot — retire it. A BLOCKED peer only PAUSES it, mirroring the message
+      // flush: unblocking resumes delivery instead of having silently lost it.
+      final Contact? contact;
+      try {
+        contact = await _storage.getContact(peer);
+      } catch (_) {
+        continue;
+      }
+      if (contact == null) {
+        _retireOutboxFrame(f.frameId);
+        continue;
+      }
+      if (contact.status == ContactStatus.blocked) continue;
+      // A peer whose identity can't be resolved at all is backed off wholesale
+      // (same gate the message flush applies) — don't hammer resolve/seal.
+      final pb = _peerUnresolvedBackoff[f.peerHex];
+      if (pb != null && _now().isBefore(pb.nextAt)) continue;
       // The mailbox copy is the durable carrier — always re-attempt it (its own
       // _stashed/backoff guards make this cheap once deposited).
       unawaited(_maybeStash(peer, f.frameId, f.wire));
-      // A live re-send is a latency optimisation; throttle it so a persistently
-      // un-acked frame doesn't hammer the onion path every flush tick.
-      final last = _outboxLiveAt[f.frameId];
-      if (last == null || _now().difference(last) >= _outboxLiveResend) {
-        _outboxLiveAt[f.frameId] = _now();
-        try {
-          await _send(peer, f.wire);
-        } catch (_) {
-          // Best-effort.
-        }
+      // A live re-send is a latency optimisation; exponential per-frame backoff
+      // (20s → … → 10min cap) so a persistently un-acked frame stops hammering
+      // the onion path. The shift exponent is clamped — counts keep growing for
+      // a frame with no give-up, and an unclamped 1<<63 wraps the delay to 0.
+      final now = _now();
+      final bo = _outboxLiveBackoff[f.frameId];
+      if (bo != null && now.isBefore(bo.nextAt)) continue;
+      final count = (bo?.count ?? 0) + 1;
+      final delayMs = (_outboxLiveResend.inMilliseconds *
+              (1 << (count - 1).clamp(0, 10)))
+          .clamp(0, _outboxLiveResendCap.inMilliseconds);
+      _outboxLiveBackoff[f.frameId] = (
+        count: count,
+        nextAt: now.add(Duration(milliseconds: delayMs)),
+        peer: f.peerHex,
+      );
+      devLog(
+        () =>
+            'xVeil[durable]: re-drive fid=${f.frameId} dst=${peer.short} '
+            'attempt=$count t=${DateTime.now().millisecondsSinceEpoch}',
+      );
+      try {
+        await _send(peer, f.wire);
+      } catch (_) {
+        // Best-effort.
       }
     }
   }
 
   static const _outboxLiveResend = Duration(seconds: 20);
+  static const _outboxLiveResendCap = Duration(minutes: 10);
+
+  /// Locally retire a durable frame (acked, or moot): stop re-driving and
+  /// re-stashing it, and drop it from the persistent outbox. [ackOutboxFrame]
+  /// is a no-op for an id that is not in the outbox, so this is safe to call
+  /// with an ordinary message id too.
+  void _retireOutboxFrame(String frameId) {
+    _stashed.remove(frameId);
+    _outboxLiveBackoff.remove(frameId);
+    unawaited(_storage.ackOutboxFrame(frameId));
+  }
 
   // ── Opt-in authorship attestation (the "request signature" feature) ────────
   //
@@ -1244,7 +1321,7 @@ class MessagingService {
     // only accepted peers reach the durable handlers below.
     final fid = env.frameId;
     if (fid != null && existing?.status == ContactStatus.accepted) {
-      await _ackFrame(m.src, fid);
+      await _ackFrame(m, fid);
       if (!_seenFrames.add(fid)) return; // already processed — re-acked above
     }
 
@@ -1255,6 +1332,15 @@ class MessagingService {
         // Only honour an accept for a request we actually sent.
         if (existing?.status == ContactStatus.pendingOutgoing) {
           await _setStatus(m.src, ContactStatus.accepted);
+          // The durable-frame gate above only acks ACCEPTED senders — but an
+          // accept is the very frame that CREATES that state, so the honoured
+          // accept is acked here instead: the accepting side retires it from
+          // its outbox. (A later duplicate finds us accepted and takes the
+          // generic gate: re-acked + deduped there.)
+          if (fid != null) {
+            _seenFrames.add(fid);
+            await _ackFrame(m, fid);
+          }
         } else {
           return;
         }
@@ -1337,12 +1423,10 @@ class MessagingService {
         // The peer confirms delivery of our message [env.id] — stop re-sending.
         final ackId = env.id;
         if (ackId != null) {
-          // Retire a durable control frame the peer just confirmed (sign/…):
-          // stop re-driving + re-stashing it. ackOutboxFrame is a no-op when
-          // ackId is an ordinary message id (not in the outbox).
-          _stashed.remove(ackId);
-          _outboxLiveAt.remove(ackId);
-          unawaited(_storage.ackOutboxFrame(ackId));
+          // Retire a durable control frame the peer just confirmed (sign, edit,
+          // del, clear, accept, reconnect): stop re-driving + re-stashing it.
+          // A no-op when ackId is an ordinary message id (not in the outbox).
+          _retireOutboxFrame(ackId);
           _retryBackoff.remove(ackId); // stop backing off a delivered message
           // The peer is reachable + still holds us — reset the reconnect throttle.
           _lastReconnectAt.remove(m.src.hex);
@@ -1764,12 +1848,12 @@ class MessagingService {
   Future<void> acceptContact(NodeId peer) async {
     await _setStatus(peer, ContactStatus.accepted);
     _signal();
-    final wire = const WireEnvelope.accept().encode();
-    await _send(peer, wire);
-    // The requester is likely NAT'd too — deposit the accept at their mailbox
-    // so they learn they were accepted (and can start free-messaging) even if
-    // they aren't directly reachable. Stable id keys relay dedup per peer.
-    await _maybeStash(peer, 'accept:${peer.hex}', wire);
+    // DURABLE (see [sendDurable]): the requester is likely NAT'd/offline, and
+    // an accept that dies on the lossy first live attempt (or our restart)
+    // strands the whole relationship — they never learn they were accepted.
+    // The pipeline live-sends, deposits at their mailbox, and re-drives until
+    // their ack retires it. Stable id keys relay dedup per peer.
+    await sendDurable(peer, 'accept:${peer.hex}', const WireEnvelope.accept());
   }
 
   /// Decline / block an incoming request — their messages are dropped.
@@ -1997,12 +2081,17 @@ class MessagingService {
     // the same emptied state on replay. Only the watermark travels (no oracle).
     final selfHex = await _selfHex();
     final ev = await _storage.emitClearConversation(peer, selfHex);
-    final wire = WireEnvelope.clear(
-      jsonEncode(ev.watermark),
-      seq: ev.seq,
-    ).encode();
-    await _send(peer, wire);
-    unawaited(_maybeStash(peer, 'clear:${ev.seq}', wire)); // offline carrier
+    // DURABLE (see [sendDurable]): a clear-for-everyone that dies on the lossy
+    // first live attempt leaves the two sides PERMANENTLY diverged — there is
+    // no later traffic whose absence would flag it. The frame id is PEER-scoped:
+    // seqs are per-(conversation, author), so clears of two different
+    // conversations can both sit at seq N and must not collide in the outbox.
+    // applyRemoteClear is slot-idempotent, so re-drives are harmless.
+    await sendDurable(
+      peer,
+      'clear:${peer.hex}:${ev.seq}',
+      WireEnvelope.clear(jsonEncode(ev.watermark), seq: ev.seq),
+    );
     _signal();
   }
 
@@ -2124,7 +2213,10 @@ class MessagingService {
           final bo = _retryBackoff[m.id];
           if (bo != null && now.isBefore(bo.nextAt)) continue;
           final count = (bo?.count ?? 0) + 1;
-          final delayMs = (_retryInterval.inMilliseconds * (1 << (count - 1)))
+          // Shift exponent clamped: count keeps growing while un-acked, and an
+          // unclamped 1<<63 wraps the delay to 0 — silently un-backing-off.
+          final delayMs = (_retryInterval.inMilliseconds *
+                  (1 << (count - 1).clamp(0, 10)))
               .clamp(0, _maxRetryBackoff.inMilliseconds);
           _retryBackoff[m.id] = (
             count: count,
@@ -2200,8 +2292,18 @@ class MessagingService {
       }
     }
     if (failedAny) _signal();
+    final reconnectFid = 'reconnect:${peer.hex}';
     if (!anyTrying) {
-      _lastReconnectAt.remove(peer.hex); // nothing left to re-intro → reset
+      // Nothing left to re-intro for — reset the throttle AND retire a
+      // still-pending durable reconnect: the messages it was trying to revive
+      // are done (delivered or terminally failed), so re-driving it forever at
+      // a peer that plainly isn't coming back is pure ghost load. The map
+      // check keeps this free of a storage round-trip on the common idle tick
+      // (post-restart, _flushOutboxFrames re-seeds the map before this runs).
+      if (_lastReconnectAt.remove(peer.hex) != null ||
+          _outboxLiveBackoff.containsKey(reconnectFid)) {
+        _retireOutboxFrame(reconnectFid);
+      }
       return;
     }
     final last = _lastReconnectAt[peer.hex];
@@ -2209,11 +2311,12 @@ class MessagingService {
     _lastReconnectAt[peer.hex] = now;
     // Re-intro with an empty greeting — the contact only needs to surface as a
     // pending intro on a peer that forgot us; the user accepting heals delivery.
-    final wire = const WireEnvelope.reconnect('').encode();
-    await _send(peer, wire);
-    final id = 'reconnect:${peer.hex}';
-    _stashed.remove(id); // allow a fresh deposit each attempt
-    unawaited(_maybeStash(peer, id, wire));
+    // DURABLE (see [sendDurable]) as ONE logical frame per peer: the pipeline
+    // re-drives it on its own backoff between our 15-min attempts, and each
+    // attempt forces a fresh mailbox deposit (the relay copy may have aged out
+    // while the peer was away).
+    _stashed.remove(reconnectFid);
+    await sendDurable(peer, reconnectFid, const WireEnvelope.reconnect(''));
     devLog(() => 'xVeil[reconnect]: -> ${peer.short}');
   }
 
@@ -2569,17 +2672,13 @@ class MessagingService {
     if (msg == null || msg.direction != MessageDirection.outgoing) return;
     final dst = NodeId.fromHex(msg.conversationId);
     await deleteMessageLocally(messageId);
-    final wire = WireEnvelope.del(messageId).encode();
-    await _send(dst, wire);
-    // Offline fallback (mirrors sendText): the live _send above only lands if
-    // the peer is ONLINE — without this an unsend made while they are offline
-    // is lost. Deposit it at the peer's mailbox relay so they purge their copy
-    // on their next drain. Distinct stash id ('del:') so the relay does not
-    // dedup it against the original message's deposit; cleared first so it
-    // re-attempts a fresh deposit if a prior try is still recorded.
-    final stashId = 'del:$messageId';
-    _stashed.remove(stashId);
-    unawaited(_maybeStash(dst, stashId, wire));
+    // DURABLE (see [sendDurable]): an unsend is a deniability action — it must
+    // reach the peer across a lost live attempt, their offline window, AND our
+    // restart, or their copy silently survives. Distinct 'del:' id so the
+    // relay does not dedup the deposit against the original message's; the
+    // receive side is idempotent (a deleted id stays deleted, and a re-drive
+    // for an already-purged message is a no-op).
+    await sendDurable(dst, 'del:$messageId', WireEnvelope.del(messageId));
   }
 
   /// Edit the body of one of OUR sent messages: replace the stored text in
@@ -2601,17 +2700,18 @@ class MessagingService {
     await _storage.scrubDeleted();
     _signal();
     final dst = NodeId.fromHex(msg.conversationId);
-    final wire = WireEnvelope.edit(messageId, trimmed, seq: editSeq).encode();
-    await _send(dst, wire);
-    // Offline fallback (mirrors sendText): the live _send above only lands if
-    // the peer is ONLINE — without this an edit made while they are offline is
-    // lost. Deposit it at the peer's mailbox relay so they apply the new text
-    // on their next drain. Distinct stash id ('edit:') so the relay does not
-    // dedup it against the original message's deposit; cleared first so a
-    // re-edit of the same message re-attempts a fresh deposit.
-    final stashId = 'edit:$messageId';
-    _stashed.remove(stashId);
-    unawaited(_maybeStash(dst, stashId, wire));
+    // DURABLE (see [sendDurable]). The frame id carries the edit's SEQ so each
+    // re-edit is a DISTINCT durable frame: the receiver dedups re-drives by
+    // frame id, so one id per message would eat every edit after the first —
+    // and distinct ids also give each edit its own mailbox deposit instead of
+    // overwriting the previous one at the relay. Out-of-order delivery is safe:
+    // the receiver folds edits strictly-newer-by-seq (R5), so a stale re-drive
+    // can never regress the text, and a duplicate is slot-idempotent.
+    await sendDurable(
+      dst,
+      'edit:$messageId:${editSeq ?? _uuid.v4()}',
+      WireEnvelope.edit(messageId, trimmed, seq: editSeq),
+    );
   }
 
   /// Locate a stored message by id across conversations (used before an
