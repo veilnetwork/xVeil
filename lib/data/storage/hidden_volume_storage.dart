@@ -1005,6 +1005,27 @@ class HiddenVolumeStorage implements Storage {
     // allocates the next gap-free value for the editing author and bumps that
     // author's cursor.
     final editSeq = seq ?? await _nextConvSeq(conversationId, author);
+    // A WIRE edit is idempotent on its (author, seq) slot, like applyRemoteVoid /
+    // applyRemoteClear: the durable pipeline re-drives frames across restarts, and
+    // without this each re-drive would append a duplicate k:edit row — log bloat
+    // plus a duplicated version in loadMessageHistory. Slot occupied ⇒ applied.
+    // (A LOCAL edit allocates a fresh seq above, so it can never collide.)
+    if (seq != null) {
+      final entries = await _as.iterLogRange(
+        namespace: Ns.messageLog,
+        limit: _logScanLimit,
+      );
+      for (final e in entries) {
+        final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
+        if (m['c'] == conversationId &&
+            m['au'] == author &&
+            m['sq'] == seq &&
+            m['op'] != 'status' &&
+            m['op'] != 'sig') {
+          return editSeq; // slot present — already applied
+        }
+      }
+    }
     await _commitAtNextLogId((logId) => [
       AppendLogOp(
         Ns.messageLog,
