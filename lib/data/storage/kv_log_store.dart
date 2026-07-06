@@ -55,8 +55,7 @@ class KvLogEntry {
 
 /// Thin port over a single unlocked hidden-volume space (KV + append-log,
 /// atomic batched commits). The production adapter wraps `HvSpace`; the fake
-/// is pure in-memory. Note: hidden-volume exposes no KV key enumeration —
-/// callers must derive listings from the iterable append-log.
+/// is pure in-memory.
 abstract interface class KvLogStore {
   /// Apply a batch atomically; returns the new commit sequence.
   int commit(List<KvLogOp> ops);
@@ -73,6 +72,13 @@ abstract interface class KvLogStore {
   });
 
   int count(int namespace);
+
+  /// Keys of every KV entry in [namespace], sorted ascending (values are not
+  /// transferred). Exists for settings-namespace garbage collection: a
+  /// hidden-volume namespace's 2-level B+ index has a hard entry budget
+  /// (`IndexFull`), so orphaned bookkeeping keys must be enumerable to be
+  /// deletable. Maps to `HvSpace.kvKeys`.
+  List<Uint8List> kvKeys(int namespace);
 
   /// Erase EVERY entry in [namespace] (KV keys or log records). Returns the
   /// number erased. Used to forensically delete an identity's data; pair with

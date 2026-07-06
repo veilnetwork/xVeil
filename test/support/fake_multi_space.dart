@@ -52,6 +52,9 @@ class FakeMultiSpaceBacking implements MultiSpaceBacking {
   int count(int id, int namespace) => _s(id).count(namespace);
 
   @override
+  List<Uint8List> kvKeys(int id, int namespace) => _s(id).kvKeys(namespace);
+
+  @override
   Uint8List exportKeys(int id) => _s(id).exportKeys();
 
   @override
