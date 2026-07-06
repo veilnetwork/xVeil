@@ -963,6 +963,8 @@ class MessagingService {
     // The peer answered SOMETHING — return its sync beacon to base cadence.
     _syncUnanswered.remove(m.src.hex);
     _nudgeRetries(m.src.hex);
+    // ...and revive any parked downloads that list it as a holder.
+    noteInboundFromPeer(m.src);
     try {
       await _dispatch(m);
     } catch (e) {
@@ -3305,6 +3307,85 @@ class MessagingService {
     );
   }
 
+  /// Parsed `served:$cid` record. Legacy records are a bare path string; new
+  /// ones are JSON `{path,size,pieceSize,name}` so the manifest can be
+  /// rebuilt from the source file when the mf: blob is missing (its persist
+  /// dies first on a bloated store — IndexFull).
+  ({String path, int? size, int? pieceSize, String? name})?
+  _parseServedRecord(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    if (!raw.startsWith('{')) {
+      return (path: raw, size: null, pieceSize: null, name: null);
+    }
+    try {
+      final m = jsonDecode(raw) as Map<String, dynamic>;
+      final path = m['path'] as String?;
+      if (path == null || path.isEmpty) return null;
+      return (
+        path: path,
+        size: (m['size'] as num?)?.toInt(),
+        pieceSize: (m['pieceSize'] as num?)?.toInt(),
+        name: m['name'] as String?,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Rebuild the manifest of a durable offer by re-hashing the source file at
+  /// [rec]'s path (one RAM-bounded pass — the same work the original send
+  /// did, ~150 ms for 20 MB). Used when the mf: blob is missing: its persist
+  /// is the first casualty of a bloated store (IndexFull), and without this a
+  /// restarted sender answered UNSERVED/GONE forever while the bytes sat on
+  /// disk. Returns null when the record lacks hashing params (legacy bare
+  /// path), the file is gone, or its bytes changed (contentId mismatch).
+  Future<ContentManifest?> _rebuildManifestFromServedRecord(
+    String cid,
+    ({String path, int? size, int? pieceSize, String? name}) rec,
+  ) async {
+    final opener = sourceOpener;
+    final size = rec.size;
+    final pieceSize = rec.pieceSize;
+    if (opener == null || size == null || pieceSize == null) return null;
+    final src = await opener(rec.path);
+    if (src == null) return null;
+    try {
+      final m = await ContentManifest.fromReader(
+        name: rec.name ?? 'file',
+        size: size,
+        pieceSize: pieceSize,
+        chunkBytes: _contentChunkBytes,
+        readRange: src.read,
+      );
+      if (m.contentId != cid) {
+        devLog(
+          () =>
+              'xVeil[content]: served source at ${rec.path} no longer '
+              'matches ${cid.substring(0, 12)} — treating as gone',
+        );
+        return null;
+      }
+      devLog(
+        () =>
+            'xVeil[content]: manifest rebuilt from source for '
+            '${cid.substring(0, 12)} (${m.pieceCount} pieces)',
+      );
+      unawaited(_persistServeManifest(m)); // best-effort re-persist
+      return m;
+    } catch (e) {
+      devLog(
+        () =>
+            'xVeil[content]: manifest rebuild failed for '
+            '${cid.substring(0, 12)}: $e',
+      );
+      return null;
+    } finally {
+      try {
+        await src.close();
+      } catch (_) {}
+    }
+  }
+
   Future<void> _persistServeManifest(ContentManifest manifest) async {
     try {
       await _storage.storeFile(
@@ -3516,13 +3597,33 @@ class MessagingService {
     // restart can re-open the file and re-serve (best-effort; the file must still
     // be at that path). The manifest exceeds the KV value cap → file store.
     if (sourcePath != null && activeSource == null) {
+      // The path record and the manifest blob are persisted INDEPENDENTLY: on
+      // a bloated store the file-store write dies with IndexFull while the
+      // small KV setting still lands. The setting now carries the hashing
+      // params too, so a post-restart serve can rebuild the manifest straight
+      // from the source file when the mf: blob never made it (one RAM-bounded
+      // hashing pass — the same work the original send did).
+      try {
+        await _storage.putSetting(
+          'served:$cid',
+          jsonEncode({
+            'path': sourcePath,
+            'size': size,
+            'pieceSize': base.pieceSize,
+            'name': name,
+          }),
+        );
+      } catch (e) {
+        devLog(
+          () => 'xVeil[content]: durable-offer path persist failed for $cid: $e',
+        );
+      }
       try {
         await _storage.storeFile(
           'mf:$cid',
           Uint8List.fromList(utf8.encode(_contentManifestJson(m))),
           name: 'manifest',
         );
-        await _storage.putSetting('served:$cid', sourcePath);
       } catch (e) {
         devLog(
           () => 'xVeil[content]: durable-offer persist failed for $cid: $e',
@@ -4260,6 +4361,26 @@ class MessagingService {
   Duration downloadResumeBackoffCap = const Duration(minutes: 10);
   Duration downloadResumeLiveGrace = const Duration(seconds: 10);
 
+  /// Cancel every durable auto-resume: stop the timers, forget the parked
+  /// set + attempt counters, and wipe the persisted registry. Used by the
+  /// bench purge hook to clear zombie pulls (a dead ephemeral holder never
+  /// answers content-GONE, so they otherwise linger the whole 14-day window).
+  /// Returns how many pending downloads were dropped.
+  Future<int> clearPendingDownloads() async {
+    final pending = await _pendingDownloads();
+    final n = pending.length;
+    for (final t in _resumeTimers.values) {
+      t.cancel();
+    }
+    _resumeTimers.clear();
+    _resumeAttempts.clear();
+    _resumeProgressAt.clear();
+    _parkedDownloads.clear();
+    _persistedPendingManifests.clear();
+    _mutatePendingDownloads((map) => map.clear());
+    return n;
+  }
+
   /// Pending-download records that should auto-resume (test/UI introspection).
   Future<List<String>> pendingAutoResumeContentIds() async =>
       (await _pendingDownloads()).keys.toList(growable: false);
@@ -4419,6 +4540,7 @@ class MessagingService {
     _resumeTimers.remove(contentId)?.cancel();
     _resumeAttempts.remove(contentId);
     _resumeProgressAt.remove(contentId);
+    _parkedDownloads.remove(contentId);
     _persistedPendingManifests.remove(contentId);
     if (_pendingResumeCache?.containsKey(contentId) ?? true) {
       _mutatePendingDownloads((map) => map.remove(contentId));
@@ -4434,6 +4556,10 @@ class MessagingService {
     _resumeProgressSub ??= contentProgress.listen((e) async {
       if ((await _pendingDownloads()).containsKey(e.contentId)) {
         _resumeProgressAt[e.contentId] = DateTime.now();
+        // Bytes are flowing — the holder is provably alive, so the fruitless
+        // streak (and any parking) no longer describes reality.
+        _resumeAttempts.remove(e.contentId);
+        _parkedDownloads.remove(e.contentId);
       }
     });
     _resumeReceivedSub ??= contentReceived.listen(
@@ -4467,8 +4593,39 @@ class MessagingService {
     if (!(await _pendingDownloads()).containsKey(contentId)) return;
     // Keep the manifest durable for a piece-granular resume after a restart.
     if (manifest != null) unawaited(_persistServeManifest(manifest));
+    // A live offer proves the holder is back: un-park and forget the fruitless
+    // rounds so the next failure starts the backoff ladder from the bottom.
+    _parkedDownloads.remove(contentId);
+    _resumeAttempts.remove(contentId);
     if (_resumeTimers.containsKey(contentId)) return; // already queued sooner
     _scheduleDownloadResume(contentId, after: const Duration(seconds: 3));
+  }
+
+  /// Any inbound traffic from [peer] proves it is online: revive every PARKED
+  /// pending download that lists it as a holder. Cheap no-op on the hot path
+  /// when nothing is parked (the common case).
+  void noteInboundFromPeer(NodeId peer) {
+    if (_disposed || _parkedDownloads.isEmpty) return;
+    final hex = peer.hex;
+    unawaited(() async {
+      final pending = await _pendingDownloads();
+      for (final cid in _parkedDownloads.toList(growable: false)) {
+        final p = pending[cid];
+        if (p == null) {
+          _parkedDownloads.remove(cid);
+          continue;
+        }
+        if (!p.peers.contains(hex)) continue;
+        _parkedDownloads.remove(cid);
+        _resumeAttempts.remove(cid);
+        devLog(
+          () =>
+              'xVeil[content]: holder ${peer.short} is alive — un-parking '
+              '${cid.substring(0, 12)}',
+        );
+        _scheduleDownloadResume(cid, after: const Duration(seconds: 2));
+      }
+    }());
   }
 
   void _scheduleDownloadResume(
@@ -4483,6 +4640,22 @@ class MessagingService {
     } else if (backoff) {
       final n = (_resumeAttempts[contentId] ?? 0) + 1;
       _resumeAttempts[contentId] = n;
+      if (n >= _resumeParkAfterAttempts) {
+        // The holder has not produced a manifest, a byte of progress, or a
+        // content-GONE across every backoff round — stop burning circuits on
+        // a timer and wait for a liveness EVENT instead. The durable intent
+        // stays in pending_downloads, so an offer or inbound from the holder
+        // revives the transfer exactly where it left off.
+        _parkedDownloads.add(contentId);
+        _resumeTimers.remove(contentId)?.cancel();
+        devLog(
+          () =>
+              'xVeil[content]: auto-resume PARKED '
+              '${contentId.substring(0, 12)} after $n fruitless attempts — '
+              'will retry on the next offer/inbound from a holder',
+        );
+        return;
+      }
       final base = downloadResumeBackoffBase * (1 << (n - 1).clamp(0, 6));
       delay = base > downloadResumeBackoffCap ? downloadResumeBackoffCap : base;
     } else {
@@ -4584,6 +4757,23 @@ class MessagingService {
       _resumeInFlight.remove(contentId);
     }
   }
+
+  /// Attempts after which a durable pending download stops TIMER-driven
+  /// retries and goes event-driven only ("parked"). A holder that is simply
+  /// gone (dead ephemeral identity, wiped store, offline for days) never
+  /// answers content-GONE, so the explicit-GONE give-up never fires — before
+  /// this cap such zombies retried on the 10-minute backoff for the whole
+  /// 14-day registry window, each retry opening stream circuits that crowd
+  /// out live transfers (device-observed: a handful of zombie pulls kept the
+  /// outbound circuit pool churning for hours). A parked download revives on
+  /// the next offer/advertise from any holder ([_resumeOnOfferSignal]) or on
+  /// any inbound message from one ([noteInboundFromPeer]) — both reset the
+  /// attempt counter, so a sender coming back online resumes the transfer
+  /// without user action.
+  static const int _resumeParkAfterAttempts = 8;
+
+  /// contentIds parked after [_resumeParkAfterAttempts] fruitless rounds.
+  final Set<String> _parkedDownloads = {};
 
   /// Sink opener used to re-drive plain-file downloads (injectable for tests;
   /// dart:io stays in the data layer). [resume]=true reopens WITHOUT truncating
@@ -4885,9 +5075,11 @@ class MessagingService {
       return;
     }
     try {
-      final path = await _storage.getSetting('served:$contentId');
+      final rec = _parseServedRecord(
+        await _storage.getSetting('served:$contentId'),
+      );
       final mfBytes = await _storage.loadFile('mf:$contentId');
-      if (path == null || path.isEmpty || mfBytes == null) {
+      if (rec == null) {
         devLog(
           () =>
               'xVeil[content]: reoffer ${contentId.substring(0, 12)} — no '
@@ -4896,19 +5088,26 @@ class MessagingService {
         unawaited(_replyContentGone(peer, contentId));
         return;
       }
-      final m = ContentManifest.fromJson(
-        jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>,
-      );
+      ContentManifest? m;
+      if (mfBytes != null) {
+        m = ContentManifest.fromJson(
+          jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>,
+        );
+      }
+      // The mf: blob is the first casualty of a bloated store (IndexFull) —
+      // rebuild it from the source file rather than answering a false GONE
+      // (the bytes are right there on disk).
+      m ??= await _rebuildManifestFromServedRecord(contentId, rec);
       if (m == null) {
         unawaited(_replyContentGone(peer, contentId));
         return;
       }
-      final src = await sourceOpener!(path);
+      final src = await sourceOpener!(rec.path);
       if (src == null) {
         devLog(
           () =>
               'xVeil[content]: reoffer ${contentId.substring(0, 12)} — '
-              'source GONE ($path) <- ${peer.short} (re-send)',
+              'source GONE (${rec.path}) <- ${peer.short} (re-send)',
         );
         unawaited(_replyContentGone(peer, contentId));
         return;
@@ -4919,7 +5118,7 @@ class MessagingService {
       devLog(
         () =>
             'xVeil[content]: re-advertising ${contentId.substring(0, 12)} '
-            '-> ${peer.short} (DURABLE — re-opened $path)',
+            '-> ${peer.short} (DURABLE — re-opened ${rec.path})',
       );
       unawaited(_sendContentManifest(peer, m));
     } catch (e) {
@@ -5481,9 +5680,11 @@ class MessagingService {
         // replacement could close it mid-transfer ("File closed"). A reopened
         // handle is independent and is closed in this method's finally.
         if (sourceOpener != null) {
-          final path = await _storage.getSetting('served:$cid');
-          if (path != null && path.isNotEmpty) {
-            source = durable = await sourceOpener!(path);
+          final rec = _parseServedRecord(
+            await _storage.getSetting('served:$cid'),
+          );
+          if (rec != null) {
+            source = durable = await sourceOpener!(rec.path);
           }
         }
         source ??= live.source;
@@ -5497,9 +5698,22 @@ class MessagingService {
         }
       }
       if (source == null && sourceOpener != null) {
-        final path = await _storage.getSetting('served:$cid');
-        if (path != null && path.isNotEmpty) {
-          source = durable = await sourceOpener!(path);
+        final rec = _parseServedRecord(
+          await _storage.getSetting('served:$cid'),
+        );
+        if (rec != null) {
+          source = durable = await sourceOpener!(rec.path);
+        }
+      }
+      // No mf: blob (its persist is the first casualty of a bloated store —
+      // IndexFull) but the served: record carries the hashing params: rebuild
+      // the manifest from the source file instead of answering UNSERVED.
+      if (manifest == null) {
+        final rec = _parseServedRecord(
+          await _storage.getSetting('served:$cid'),
+        );
+        if (rec != null) {
+          manifest = await _rebuildManifestFromServedRecord(cid, rec);
         }
       }
       if (source == null && manifest != null) {
@@ -7440,7 +7654,18 @@ class MessagingService {
           // reopens the file. If the user later moves or deletes this plain
           // file, the reopen fails and the peer gets an honest content-GONE.
           await _persistServeManifest(m);
-          await _storage.putSetting('served:${m.contentId}', savedPath);
+          // JSON record with the hashing params, so a missing mf: blob
+          // (IndexFull) can be rebuilt from the saved file — same contract as
+          // the sender-side durable offer.
+          await _storage.putSetting(
+            'served:${m.contentId}',
+            jsonEncode({
+              'path': savedPath,
+              'size': m.size,
+              'pieceSize': m.pieceSize,
+              'name': m.name,
+            }),
+          );
           // Durable-only (no RAM _serving entry): every serve/reoffer reopens
           // the file from served:<cid>, so a since-moved/deleted plain file is
           // detected and answered with content-GONE instead of a false offer.

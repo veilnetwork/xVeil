@@ -483,16 +483,24 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     // eventually wedges every send on IndexFull. Wipe it too — bench chats are
     // disposable, contacts and seq cursors survive.
     final erasedLog = await storage.purgeMessageLog();
+    // Clear the durable auto-resume registry too: a zombie download whose
+    // holder is gone (dead ephemeral serve identity → never answers
+    // content-GONE) otherwise lingers the whole 14-day window, re-opening
+    // stream circuits that crowd out live transfers.
+    final erasedPending = await ref
+        .read(messagingServiceProvider)
+        .clearPendingDownloads();
     final after = await storage.namespaceCounts();
     devLog(
       () =>
           'xVeil[debug-hook]: purge_files erased=$erased erasedLog=$erasedLog '
-          'before=$before after=$after',
+          'erasedPending=$erasedPending before=$before after=$after',
     );
     return _json(req, {
       'ok': true,
       'erased': erased,
       'erasedLog': erasedLog,
+      'erasedPending': erasedPending,
       'before': before,
       'after': after,
     });
