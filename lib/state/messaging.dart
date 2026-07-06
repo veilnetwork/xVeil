@@ -2755,6 +2755,9 @@ class MessagingService {
     final contact = await _storage.getContact(dst);
     if (contact == null || contact.status != ContactStatus.accepted) return;
     _mailbox?.noteActivity(); // user action → mailbox burst window
+    // The recipient will pull from us shortly — open our serve pool now so
+    // its first attempt doesn't die on a cold-pool manifest timeout.
+    _warmStreamPeer(dst);
     // Large files take the content layer (hash-verified pieces over datagrams —
     // the path that actually crosses NAT) instead of the per-chunk fileMeta push.
     if (bytes.length > _contentThreshold) {
@@ -3554,6 +3557,9 @@ class MessagingService {
       return null;
     }
     _mailbox?.noteActivity(); // user action → mailbox burst window
+    // The recipient will pull from us shortly — open our serve pool now, in
+    // parallel with the piece hashing below.
+    _warmStreamPeer(dst);
     final sw = Stopwatch()..start();
     devLog(
       () =>
@@ -3958,6 +3964,7 @@ class MessagingService {
       return ContentDownloadResult.started;
     }
     devLog(() => 'xVeil[content]: user download ${contentId.substring(0, 12)}');
+    _warmStreamPeer(peer);
     // An explicit user retry overrides a terminal "gone" mark — if the bytes
     // are still gone everywhere, the next reoffer round re-marks it.
     unawaited(_clearContentGone(contentId));
@@ -4172,6 +4179,7 @@ class MessagingService {
           'xVeil[content]: user download-to-file (unencrypted) '
           '${contentId.substring(0, 12)} -> $savedPath',
     );
+    _warmStreamPeer(peer);
     unawaited(_clearContentGone(contentId));
     _markContentDownloadStarted(contentId);
     if (await _storage.hasFile(contentId)) {
@@ -4596,10 +4604,32 @@ class MessagingService {
     Duration stagger = Duration.zero,
   }) async {
     final pending = await _pendingDownloads();
+    // Pre-warm the outbound path to every known holder in parallel with the
+    // staggered pull schedule: the cold circuit pool otherwise costs the
+    // first attempt its whole manifest window after a restart.
+    final warmed = <String>{};
+    for (final p in pending.values) {
+      for (final hex in p.peers) {
+        if (warmed.add(hex)) _warmStreamPeer(NodeId.fromHex(hex));
+      }
+    }
     var i = 0;
     for (final cid in pending.keys.toList(growable: false)) {
       _scheduleDownloadResume(cid, after: initial + stagger * i++);
     }
+  }
+
+  /// Best-effort pre-warm of the outbound stream path toward [peer] (see
+  /// [StreamTransport.warmStreamPeer]). Fire-and-forget: never blocks the
+  /// caller and never throws.
+  void _warmStreamPeer(NodeId peer) {
+    final t = _transport;
+    if (t is! StreamTransport) return;
+    unawaited(
+      (t as StreamTransport).warmStreamPeer(peer).catchError((Object e) {
+        devLog(() => 'xVeil[stream]: warm ${peer.short} failed: $e');
+      }),
+    );
   }
 
   /// An offer/manifest for a durable-pending content id arrived — the sender

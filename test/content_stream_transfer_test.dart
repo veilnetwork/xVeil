@@ -268,6 +268,9 @@ class _StreamLink implements VeilTransport, StreamTransport {
   Future<void> dispose() async => _in.close();
 
   @override
+  Future<void> warmStreamPeer(NodeId dst) async {}
+
+  @override
   Future<ReliableStream?> openStream(NodeId dst) async {
     openStreamAttemptCount++;
     if (openStreamFailures > 0) {

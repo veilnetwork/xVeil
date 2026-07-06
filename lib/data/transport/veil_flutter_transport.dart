@@ -184,6 +184,20 @@ class VeilFlutterTransport implements VeilTransport, StreamTransport {
     }
   }
 
+  /// Kick the native outbound circuit-pool open toward [dst] in the
+  /// background so the next openStream/serve skips the cold-pool latency
+  /// (first serve attempt after a restart died on the peer's 25 s manifest
+  /// timeout while the pool was still opening). Best-effort: failures only
+  /// mean the next stream pays the old cold-start price.
+  @override
+  Future<void> warmStreamPeer(NodeId dst) async {
+    try {
+      await _client.warmAnonStreamPeer(dstNodeId: dst.bytes);
+    } catch (e) {
+      devLog(() => 'xVeil[stream]: warmStreamPeer(${dst.short}) failed: $e');
+    }
+  }
+
   /// Accept the next inbound anonymous stream a peer opened to us, or null on
   /// [timeout] (so a server loop polls). The receive side of file streaming.
   @override
