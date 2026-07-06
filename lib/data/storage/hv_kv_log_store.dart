@@ -54,6 +54,9 @@ class HvKvLogStore implements KvLogStore {
   int count(int namespace) => _space.count(namespace);
 
   @override
+  List<Uint8List> kvKeys(int namespace) => _space.kvKeys(namespace);
+
+  @override
   int eraseNamespace(int namespace) => _space.eraseNamespace(namespace);
 
   @override
@@ -198,6 +201,10 @@ class HvMultiSpaceBacking implements MultiSpaceBacking {
 
   @override
   int count(int id, int namespace) => _multi.count(id, namespace);
+
+  @override
+  List<Uint8List> kvKeys(int id, int namespace) =>
+      _multi.kvKeys(id, namespace);
 
   @override
   Uint8List exportKeys(int id) => _multi.spaceKeys(id);

@@ -33,6 +33,7 @@ abstract interface class AsyncKvLogStore {
     required int limit,
   });
   Future<int> count(int namespace);
+  Future<List<Uint8List>> kvKeys(int namespace);
   Future<int> eraseNamespace(int namespace);
   Future<void> scrub();
   Future<Uint8List> exportKeys();
@@ -69,6 +70,10 @@ class SyncWrappedAsyncKvLogStore implements AsyncKvLogStore {
           namespace: namespace, start: start, end: end, limit: limit);
   @override
   Future<int> count(int namespace) async => _inner.count(namespace);
+
+  @override
+  Future<List<Uint8List>> kvKeys(int namespace) async =>
+      _inner.kvKeys(namespace);
   @override
   Future<int> eraseNamespace(int namespace) async =>
       _inner.eraseNamespace(namespace);
@@ -128,6 +133,11 @@ class _IterReq extends _Req {
   final int? start;
   final int? end;
   final int limit;
+}
+
+class _KvKeysReq extends _Req {
+  const _KvKeysReq(this.namespace, super.reply);
+  final int namespace;
 }
 
 class _CountReq extends _Req {
@@ -227,6 +237,8 @@ void _workerEntry(_OpenConfig cfg) {
             namespace: namespace, start: start, end: end, limit: limit));
       case _CountReq(:final namespace):
         run(() => store.count(namespace));
+      case _KvKeysReq(:final namespace):
+        run(() => store.kvKeys(namespace));
       case _EraseReq(:final namespace):
         run(() => store.eraseNamespace(namespace));
       case _ScrubReq():
@@ -324,6 +336,10 @@ class WorkerKvLogStore implements AsyncKvLogStore {
   @override
   Future<int> count(int namespace) =>
       _call<int>((reply) => _CountReq(namespace, reply));
+
+  @override
+  Future<List<Uint8List>> kvKeys(int namespace) =>
+      _call<List<Uint8List>>((reply) => _KvKeysReq(namespace, reply));
   @override
   Future<int> eraseNamespace(int namespace) =>
       _call<int>((reply) => _EraseReq(namespace, reply));

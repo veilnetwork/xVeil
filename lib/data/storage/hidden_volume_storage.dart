@@ -1530,6 +1530,89 @@ class HiddenVolumeStorage implements Storage {
   }
 
   @override
+  Future<List<String>> settingsKeys() async {
+    final keys = await _as.kvKeys(Ns.settings);
+    return [for (final k in keys) utf8.decode(k, allowMalformed: true)];
+  }
+
+  /// Key families in the settings namespace that describe content which can
+  /// disappear out from under them; everything else (identity, config,
+  /// cursors, app settings) is never swept.
+  static bool _isLegacyGarbage(String key) =>
+      // Global message-id index, replaced by the conversation-scoped log scan
+      // (see _liveEntryFor) — nothing writes or reads it anymore, but aged
+      // stores carry hundreds of entries.
+      key.startsWith('msgidx:');
+
+  @override
+  Future<int> sweepSettingsGarbage({bool wholesale = false}) async {
+    final keys = await settingsKeys();
+    final doomed = <String>[];
+    Set<String>? liveContent;
+    if (!wholesale) {
+      // Per-content bookkeeping is only reachable through a message that
+      // still names its content id; collect the live ids once per sweep.
+      final live = <String>{};
+      for (final m in await _scanLog()) {
+        final cid = m.fileContentId;
+        if (cid != null) live.add(cid);
+        final fid = m.fileId;
+        if (fid != null) live.add(fid);
+      }
+      liveContent = live;
+    }
+    // Per-content families keyed `<prefix><cid>`: dead once no live message
+    // references the cid. On aged senders `set:served:`/`file:mf:` dominate
+    // (one per file ever offered); on aged receivers it is `set:saved:`.
+    // Dropping a served/manifest record for content whose message is gone
+    // also WITHDRAWS the offer on this side — deliberate: a deleted message
+    // must not keep serving its bytes from a deniable store.
+    const perContent = ['set:saved:', 'set:served:', 'set:gone:', 'file:mf:'];
+    for (final key in keys) {
+      if (_isLegacyGarbage(key)) {
+        doomed.add(key);
+        continue;
+      }
+      final prefix = perContent.firstWhere(
+        key.startsWith,
+        orElse: () => '',
+      );
+      if (prefix.isNotEmpty) {
+        final cid = key.substring(prefix.length);
+        if (wholesale || !(liveContent!.contains(cid))) doomed.add(key);
+        continue;
+      }
+      if (key.startsWith('filepiece:')) {
+        // `filepiece:<cid>:<n>` — piece→log-id mapping; dead with its cid.
+        final rest = key.substring('filepiece:'.length);
+        final cut = rest.lastIndexOf(':');
+        final cid = cut > 0 ? rest.substring(0, cut) : rest;
+        if (wholesale || !(liveContent!.contains(cid))) doomed.add(key);
+        continue;
+      }
+      if (wholesale && key.startsWith('file:')) {
+        // After a wholesale purge (file chunks + message log erased) the
+        // remaining file-store records describe data that no longer exists.
+        // `ondisk:*` is kept: its blob files live outside the container and
+        // deleting only the refs would orphan them.
+        doomed.add(key);
+      }
+    }
+    // Batched deletes: each commit costs one padded bucket, so don't emit one
+    // per key — but keep batches bounded so a huge sweep stays well under any
+    // single-commit budget.
+    const batch = 128;
+    for (var i = 0; i < doomed.length; i += batch) {
+      final ops = <KvLogOp>[
+        for (final key in doomed.skip(i).take(batch))
+          DeleteOp(Ns.settings, _sk(key)),
+      ];
+      await _as.commit(ops);
+    }
+    return doomed.length;
+  }
+
+  @override
   Future<Map<String, int>> namespaceCounts() async => {
         'settings': await _as.count(Ns.settings),
         'contacts': await _as.count(Ns.contacts),

@@ -208,6 +208,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/compact':
           await _compact(req);
           return;
+        case '/settings_keys':
+          await _settingsKeys(req);
+          return;
         default:
           await _json(req, {'ok': false, 'error': 'not found'}, status: 404);
           return;
@@ -490,17 +493,23 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final erasedPending = await ref
         .read(messagingServiceProvider)
         .clearPendingDownloads();
+    // The wholesale erases above drop the CHUNK/LOG namespaces but leave their
+    // per-content bookkeeping keys in settings; those keys are what eventually
+    // wedge the settings B+ index on IndexFull. Sweep them in the same call.
+    final sweptSettings = await storage.sweepSettingsGarbage(wholesale: true);
     final after = await storage.namespaceCounts();
     devLog(
       () =>
           'xVeil[debug-hook]: purge_files erased=$erased erasedLog=$erasedLog '
-          'erasedPending=$erasedPending before=$before after=$after',
+          'erasedPending=$erasedPending sweptSettings=$sweptSettings '
+          'before=$before after=$after',
     );
     return _json(req, {
       'ok': true,
       'erased': erased,
       'erasedLog': erasedLog,
       'erasedPending': erasedPending,
+      'sweptSettings': sweptSettings,
       'before': before,
       'after': after,
     });
@@ -1063,6 +1072,25 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'before': r.before,
       'after': r.after,
       'phase': ref.read(appControllerProvider).phase.name,
+    });
+  }
+
+  /// Diagnostic: raw settings-namespace keys + a sweep dry-run summary, for
+  /// auditing what occupies the B+ index budget on an aged store.
+  Future<void> _settingsKeys(HttpRequest req) async {
+    final ready = _requireReady(req);
+    if (!ready) return;
+    final keys = await ref.read(storageProvider).settingsKeys();
+    final byClass = <String, int>{};
+    for (final k in keys) {
+      final parts = k.split(':');
+      final klass = parts.length > 1 ? '${parts[0]}:${parts[1].length > 12 ? '#' : parts[1]}' : k;
+      byClass[klass] = (byClass[klass] ?? 0) + 1;
+    }
+    return _json(req, {
+      'ok': true,
+      'count': keys.length,
+      'byClass': byClass,
     });
   }
 

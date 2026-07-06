@@ -27,6 +27,8 @@ class _CountingStore implements KvLogStore {
   @override
   Uint8List? get(int namespace, Uint8List key) => _inner.get(namespace, key);
   @override
+  List<Uint8List> kvKeys(int namespace) => _inner.kvKeys(namespace);
+  @override
   Uint8List? readLog(int namespace, int logId) =>
       _inner.readLog(namespace, logId);
   @override

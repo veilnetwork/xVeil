@@ -668,6 +668,26 @@ class MessagingService {
     if (_transport is StreamTransport) unawaited(_acceptStreamLoop());
     // Re-drive downloads that were interrupted before the last shutdown.
     unawaited(_startDownloadResumer());
+    // Settings-namespace GC, once per unlock and off the hot path: aged stores
+    // accumulate per-content bookkeeping keys (legacy msgidx:*, saved:<cid>
+    // for messages long deleted) until the namespace's B+ index budget is
+    // exhausted and EVERY new file-piece persist dies with
+    // HvException.IndexFull — device-observed as downloads failing on a
+    // storage that looks nearly empty. Delayed so unlock/scan latency is
+    // untouched; failures are non-fatal (the next unlock retries).
+    unawaited(
+      Future<void>.delayed(const Duration(seconds: 20)).then((_) async {
+        if (_disposed) return;
+        try {
+          final swept = await _storage.sweepSettingsGarbage();
+          if (swept > 0) {
+            devLog(() => 'xVeil[storage]: settings GC swept $swept dead keys');
+          }
+        } catch (e) {
+          devLog(() => 'xVeil[storage]: settings GC failed: $e');
+        }
+      }),
+    );
   }
 
   /// Set in [dispose]; stops the stream accept loop.
