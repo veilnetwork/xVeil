@@ -89,6 +89,9 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
   Future<int> count(int id, int namespace) =>
       _call<int>((reply) => _MCount(id, namespace, reply));
   @override
+  Future<List<Uint8List>> kvKeys(int id, int namespace) =>
+      _call<List<Uint8List>>((reply) => _MKvKeys(id, namespace, reply));
+  @override
   Future<Uint8List> exportKeys(int id) =>
       _call<Uint8List>((reply) => _MExportKeys(id, reply));
   @override
@@ -172,6 +175,12 @@ class _MCount extends _MReq {
   final int namespace;
 }
 
+class _MKvKeys extends _MReq {
+  const _MKvKeys(this.id, this.namespace, super.reply);
+  final int id;
+  final int namespace;
+}
+
 class _MExportKeys extends _MReq {
   const _MExportKeys(this.id, super.reply);
   final int id;
@@ -247,6 +256,8 @@ void _multiWorkerEntry(_MOpenConfig cfg) {
             namespace: namespace, start: start, end: end, limit: limit));
       case _MCount(:final id, :final namespace):
         run(() => backing.count(id, namespace));
+      case _MKvKeys(:final id, :final namespace):
+        run(() => backing.kvKeys(id, namespace));
       case _MExportKeys(:final id):
         run(() => backing.exportKeys(id));
       case _MScrub(:final id):

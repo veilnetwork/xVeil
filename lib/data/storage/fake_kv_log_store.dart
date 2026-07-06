@@ -84,6 +84,22 @@ class FakeKvLogStore implements KvLogStore {
   int count(int namespace) => _kv[namespace]?.length ?? 0;
 
   @override
+  List<Uint8List> kvKeys(int namespace) {
+    // Internal map keys are hex-encoded ([_hexKey]); decode back to bytes.
+    // Hex order == byte order, so sorting the hex strings is byte-wise sort.
+    final hexKeys = (_kv[namespace]?.keys ?? const Iterable<String>.empty())
+        .toList()
+      ..sort();
+    return [
+      for (final h in hexKeys)
+        Uint8List.fromList([
+          for (var i = 0; i < h.length; i += 2)
+            int.parse(h.substring(i, i + 2), radix: 16),
+        ]),
+    ];
+  }
+
+  @override
   int eraseNamespace(int namespace) {
     final n = (_kv[namespace]?.length ?? 0) + (_log[namespace]?.length ?? 0);
     _kv.remove(namespace);

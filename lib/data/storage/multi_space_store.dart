@@ -27,6 +27,7 @@ abstract interface class MultiSpaceBacking {
     required int limit,
   });
   int count(int id, int namespace);
+  List<Uint8List> kvKeys(int id, int namespace);
   Uint8List exportKeys(int id);
   void scrub(int id);
 
@@ -70,6 +71,9 @@ class MultiSpaceKvLogStore implements KvLogStore {
   int count(int namespace) => _backing.count(_id, namespace);
 
   @override
+  List<Uint8List> kvKeys(int namespace) => _backing.kvKeys(_id, namespace);
+
+  @override
   int eraseNamespace(int namespace) =>
       // Deleting an identity tears the all-online session down and erases via
       // the single-space path (HvKvLogStore), so this multi-space view never
@@ -110,6 +114,7 @@ abstract interface class AsyncMultiSpaceBacking {
     required int limit,
   });
   Future<int> count(int id, int namespace);
+  Future<List<Uint8List>> kvKeys(int id, int namespace);
   Future<Uint8List> exportKeys(int id);
   Future<void> scrub(int id);
 
@@ -151,6 +156,10 @@ class AsyncMultiSpaceKvLogStore implements AsyncKvLogStore {
 
   @override
   Future<int> count(int namespace) => _backing.count(_id, namespace);
+
+  @override
+  Future<List<Uint8List>> kvKeys(int namespace) =>
+      _backing.kvKeys(_id, namespace);
 
   @override
   Future<int> eraseNamespace(int namespace) =>
@@ -203,6 +212,9 @@ class SyncWrappedAsyncMultiSpaceBacking implements AsyncMultiSpaceBacking {
           namespace: namespace, start: start, end: end, limit: limit);
   @override
   Future<int> count(int id, int namespace) async => _inner.count(id, namespace);
+  @override
+  Future<List<Uint8List>> kvKeys(int id, int namespace) async =>
+      _inner.kvKeys(id, namespace);
   @override
   Future<Uint8List> exportKeys(int id) async => _inner.exportKeys(id);
   @override

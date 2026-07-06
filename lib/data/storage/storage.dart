@@ -276,14 +276,32 @@ abstract interface class Storage {
   /// shrink the per-namespace index, so a long-running soak bench eventually
   /// hits the index cap (HvException.IndexFull) even though everything was
   /// "deleted". Erasing the namespace drops it from the commit roots entirely;
-  /// the next store recreates it fresh. Stale `file:*` KV metadata may survive
-  /// (KV keys are not enumerable) — readers treat the missing chunk runs as
-  /// absent content. Returns the number of erased entries. NOT for product UI.
+  /// the next store recreates it fresh. Stale `file:*` KV metadata is dropped by
+  /// [sweepSettingsGarbage] (wholesale). Returns the number of erased entries.
+  /// NOT for product UI.
   Future<int> purgeFileStore();
 
   /// Bench/debug: entry counts per storage namespace, for diagnosing which
   /// namespace is approaching the log-index cap.
   Future<Map<String, int>> namespaceCounts();
+
+  /// Raw keys of the settings namespace (every key family: `set:*`, `file:*`,
+  /// `conv_seq:*`, …), for diagnostics and garbage-collection audits.
+  Future<List<String>> settingsKeys();
+
+  /// Garbage-collect dead bookkeeping keys from the settings namespace. The
+  /// namespace's B+ index has a hard entry budget (HvException.IndexFull), and
+  /// several per-content key families (`set:saved:<cid>`, legacy `msgidx:*`)
+  /// outlive the data they describe, so an aged store wedges every new file
+  /// piece write. Always drops `msgidx:*` (a legacy message index nothing
+  /// reads anymore) and `set:saved:<cid>` records whose content id no message
+  /// references. With [wholesale] (after purgeFileStore+purgeMessageLog) also
+  /// drops the file-store bookkeeping families (`file:*`, `filepiece:*`,
+  /// `set:served:*`, `set:gone:*`) that describe the just-erased namespaces.
+  /// Cursors (`conv_seq:*`, `set:sync_floor:*`, `msg_next_id`,
+  /// `file_next_log`) and identity/config records are never touched.
+  /// Returns the number of keys deleted.
+  Future<int> sweepSettingsGarbage({bool wholesale = false});
 
   /// Bench/debug relief: erase the WHOLE message log (every conversation's
   /// rows) to free its log-index slots. Contacts and the per-author `conv_seq`
