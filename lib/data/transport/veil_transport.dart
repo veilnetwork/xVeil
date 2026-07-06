@@ -165,4 +165,10 @@ abstract interface class StreamTransport {
   Future<({ReliableStream stream, NodeId src})?> acceptStream({
     Duration timeout,
   });
+
+  /// Pre-warm the transport's outbound path toward [dst] so the next
+  /// [openStream] / serve to that peer skips the cold-start (circuit-pool
+  /// open) latency. Best-effort fire-and-forget; a no-op where the transport
+  /// has no warmable state (in-memory test pipes).
+  Future<void> warmStreamPeer(NodeId dst);
 }
