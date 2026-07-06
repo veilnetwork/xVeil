@@ -65,6 +65,14 @@ TEST_TIMEOUT="${ONION_STREAM_LIVE_TEST_TIMEOUT:-10m}"
 FORCE_CLEAN="${ONION_STREAM_LIVE_FORCE_CLEAN:-0}"
 REUSE_IDENTITIES="${ONION_STREAM_LIVE_REUSE_IDENTITIES:-1}"
 MINT_DIFFICULTY="${VEIL_MINT_DIFFICULTY:-24}"
+# tcp (default) or obfs4-tcp — the latter reproduces the production transport
+# locally; all nodes share one generated PSK file (see mk_node).
+LISTEN_SCHEME="${ONION_STREAM_LIVE_LISTEN_SCHEME:-tcp}"
+OBFS4_PSK_FILE="$NODES/obfs4.psk"
+if [[ "$LISTEN_SCHEME" == "obfs4-tcp" ]]; then
+  mkdir -p "$NODES"
+  [[ -f "$OBFS4_PSK_FILE" ]] || head -c 32 /dev/urandom | base64 > "$OBFS4_PSK_FILE"
+fi
 if [[ -n "${ONION_STREAM_LIVE_RUST_LOG:-}" ]]; then
   LOG_LEVEL="$ONION_STREAM_LIVE_RUST_LOG"
 elif [[ "$NODE_MODE" == "embedded-endpoints" ]]; then
@@ -221,7 +229,18 @@ mk_node() {
   }
   strip_local_runtime_blocks "$cfg"
   "$BIN" -c "$cfg" key info >/dev/null
-  "$BIN" -c "$cfg" listen add "tcp://127.0.0.1:$port" >/dev/null 2>&1 || true
+  "$BIN" -c "$cfg" listen add "${LISTEN_SCHEME}://127.0.0.1:$port" >/dev/null 2>&1 || true
+  # obfs4 repro mode: every node (listener and dialer) shares one PSK file so
+  # the local mesh exercises the production obfs4-tcp transport end to end.
+  # `config set` has no schema entry for this key, so inject the TOML line
+  # directly under [transport] (idempotent via the marker comment).
+  if [[ "$LISTEN_SCHEME" == "obfs4-tcp" ]] && ! grep -q obfs4_psk_file "$cfg"; then
+    awk -v psk="$OBFS4_PSK_FILE" '
+      { print }
+      /^\[transport\][[:space:]]*$/ { print "obfs4_psk_file = \"" psk "\" # local-live obfs4 repro" }
+    ' "$cfg" >"$cfg.tmp"
+    mv "$cfg.tmp" "$cfg"
+  fi
   if [[ -n "$CONFIG_LOG_LEVEL" ]]; then
     set_config_log_level "$cfg" "$CONFIG_LOG_LEVEL"
   elif [[ "$NODE_MODE" == "embedded-endpoints" ]]; then
