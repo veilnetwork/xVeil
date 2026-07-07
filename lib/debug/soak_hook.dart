@@ -11,6 +11,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/ids.dart';
 import '../core/log.dart';
 import '../data/serve_source.dart';
+import 'package:veil_media/veil_media.dart';
+
 import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call_signal.dart';
 import '../routing/router.dart';
@@ -201,6 +203,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/media_close':
           await _mediaClose(req);
+          return;
+        case '/media_engine_version':
+          await _mediaEngineVersion(req);
           return;
         case '/screenshot':
           await _screenshot(req);
@@ -1420,6 +1425,18 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final chan = _mediaChannels.remove(peer.hex);
     if (chan != null) t.closeMediaChannel(chan);
     await _json(req, {'ok': true, 'peer': peer.hex, 'closed': chan != null});
+  }
+
+  // ---- media engine (Phase 3: libwebrtc over the veil channel) -------------
+  // Loads libveil_media.dylib via FFI. This endpoint just resolves the version
+  // symbol — proves the dylib is bundled + loaded + the C ABI is callable.
+  Future<void> _mediaEngineVersion(HttpRequest req) async {
+    try {
+      await _json(req, {'ok': true, 'version': VeilMediaEngine.version()});
+    } catch (e) {
+      await _json(req, {'ok': false, 'error': 'veil_media unavailable: $e'},
+          status: 500);
+    }
   }
 }
 

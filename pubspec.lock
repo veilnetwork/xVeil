@@ -816,6 +816,13 @@ packages:
       relative: true
     source: path
     version: "0.4.0"
+  veil_media:
+    dependency: "direct main"
+    description:
+      path: "third_party/veil/flutter/veil_media"
+      relative: true
+    source: path
+    version: "0.0.1"
   vm_service:
     dependency: transitive
     description:
