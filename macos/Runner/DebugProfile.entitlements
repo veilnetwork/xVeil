@@ -25,5 +25,11 @@
 	     already has this key. -->
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
+	<!-- Calls (Phase 3): microphone capture for the veil audio engine. On the
+	     non-sandboxed debug build mic access is TCC-gated (see the Info.plist
+	     NSMicrophoneUsageDescription); this key matters for the sandboxed
+	     release build. -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
 </dict>
 </plist>
