@@ -61,6 +61,12 @@ enum WireKind {
   // decoder maps these (out-of-range) indices to `unknown` and ignores them.
   signRequest,
   signResponse,
+  /// Call control plane (voice / video / screen share). Body = `CallSignal`
+  /// JSON (offer/answer/reject/cancel/busy/end/renegotiate/transportInfo — see
+  /// lib/domain/call_signal.dart). Added before [unknown] so an older decoder
+  /// maps this out-of-range index to [unknown] and ignores it (RULE WC). The
+  /// media itself flows on a separately-negotiated path; this only sets it up.
+  callSignal,
   unknown,
 }
 
@@ -168,6 +174,13 @@ class WireEnvelope {
   /// when signed, or `{mid, refused:true}` when the author declined.
   const WireEnvelope.signResponse(String bodyJson)
       : this(WireKind.signResponse, bodyJson);
+
+  /// Call control-plane frame: [body] is the `CallSignal` JSON (see
+  /// lib/domain/call_signal.dart). Reliable/acked frames (ring/accept/reject/
+  /// end) go via the durable pipeline; low-latency ones (transportInfo) may go
+  /// via the plain live send.
+  const WireEnvelope.callSignal(String bodyJson)
+      : this(WireKind.callSignal, bodyJson);
 
   /// The decode-only sentinel for a structured (v:2) frame whose kind this build
   /// does not know — the dispatcher drops it (RULE WC).
