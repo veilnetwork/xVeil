@@ -4,9 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/ids.dart';
+import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call.dart';
 import '../domain/call_signal.dart';
 import 'messaging.dart';
+import 'providers.dart';
+import 'veil_call_media.dart';
 
 const _uuid = Uuid();
 
@@ -37,17 +40,35 @@ CallTransportKind negotiateCallTransport({
   return CallTransportKind.relay;
 }
 
+/// Media-plane hook for the call FSM. Started when a call reaches
+/// [CallStatus.connecting]; the FSM promotes to [CallStatus.active] once [start]
+/// succeeds. Injected (nullable) so the control-plane FSM stays fully testable
+/// without any media/native dependency — the real impl (VeilCallMediaController)
+/// opens the veil media channel + drives the libwebrtc engine.
+abstract class CallMediaController {
+  /// Bring up the media session for [call] (open the veil media datagram
+  /// channel + start the audio engine). Returns true if media is up.
+  Future<bool> start(Call call);
+
+  /// Tear down any running media session. Idempotent.
+  Future<void> stop();
+}
+
 /// The call-session state machine (control plane). One active call at a time.
 /// Subscribes to [MessagingService.onCallSignal] for inbound offers/answers/…
-/// and sends outbound signals via [MessagingService.sendCallSignal]. Media
-/// (Phase 2+) is layered onto the [CallStatus.connecting] state later; nothing
-/// here touches audio/video.
+/// and sends outbound signals via [MessagingService.sendCallSignal]. Media is
+/// layered on via an optional [CallMediaController]: it starts when the call
+/// reaches [CallStatus.connecting] and promotes the call to
+/// [CallStatus.active].
 class CallService {
-  CallService(this._messaging, {DateTime Function()? now})
-      : _now = now ?? DateTime.now;
+  CallService(this._messaging, {DateTime Function()? now, CallMediaController? media})
+      : _now = now ?? DateTime.now,
+        // ignore: prefer_initializing_formals — public `media:` param → private field.
+        _media = media;
 
   final MessagingService _messaging;
   final DateTime Function() _now;
+  final CallMediaController? _media;
 
   final _changes = StreamController<Call?>.broadcast();
   void Function(NodeId, CallSignal)? _handler;
@@ -137,7 +158,7 @@ class CallService {
         transport: CallTransportProposal(transport),
       ),
     );
-    // Phase 2+ establishes the media path → CallStatus.active.
+    unawaited(_startMedia());
   }
 
   /// Reject the ringing incoming call.
@@ -253,7 +274,7 @@ class CallService {
       transport: transport,
       connectedAt: _now(),
     ));
-    // Phase 2+ establishes the media path → CallStatus.active.
+    unawaited(_startMedia());
   }
 
   void _onRemoteEnd(NodeId peer, CallSignal sig, CallEndReason reason) {
@@ -298,8 +319,34 @@ class CallService {
     if (!_changes.isClosed) _changes.add(call);
   }
 
+  /// Bring up media for the currently-connecting call, then promote it to
+  /// [CallStatus.active]. No-op (call stays `connecting`) when there is no media
+  /// controller or media fails to start. Guards against races: only promotes if
+  /// the same call is still connecting when `start` returns.
+  Future<void> _startMedia() async {
+    final media = _media;
+    if (media == null) return;
+    final c = _current;
+    if (c == null || c.status != CallStatus.connecting) return;
+    final callId = c.callId;
+    bool ok = false;
+    try {
+      ok = await media.start(c);
+    } catch (_) {
+      ok = false;
+    }
+    final cur = _current;
+    if (ok &&
+        cur != null &&
+        cur.callId == callId &&
+        cur.status == CallStatus.connecting) {
+      _set(cur.copyWith(status: CallStatus.active));
+    }
+  }
+
   void _end(CallEndReason reason) {
     _cancelRingTimeout();
+    unawaited(_media?.stop());
     final c = _current;
     if (c != null && !_changes.isClosed) {
       // Emit the terminal snapshot (so the UI can show "call ended" / reason),
@@ -323,7 +370,13 @@ class CallService {
 /// identity switch / node reboot.
 final callServiceProvider = Provider<CallService>((ref) {
   final messaging = ref.watch(messagingServiceProvider);
-  final svc = CallService(messaging)..start();
+  // Media plane: drive the libwebrtc engine over veil when the concrete
+  // embedded transport is available (macOS/desktop with libveil_media.dylib).
+  final transport = ref.read(veilTransportProvider);
+  final media = transport is VeilFlutterTransport
+      ? VeilCallMediaController(transport)
+      : null;
+  final svc = CallService(messaging, media: media)..start();
   ref.onDispose(svc.dispose);
   return svc;
 });
