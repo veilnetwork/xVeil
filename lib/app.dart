@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'features/calls/call_overlay.dart';
 import 'l10n/app_localizations.dart';
 import 'routing/router.dart';
 import 'state/locale_controller.dart';
@@ -23,6 +24,13 @@ class XVeilApp extends ConsumerWidget {
       localizationsDelegates: AppL10n.localizationsDelegates,
       supportedLocales: AppL10n.supportedLocales,
       routerConfig: router,
+      // Float the call UI (incoming ring / in-call) above every route.
+      builder: (context, child) => Stack(
+        children: [
+          ?child,
+          const CallOverlay(),
+        ],
+      ),
     );
   }
 }

@@ -2796,6 +2796,138 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Chat with a demo peer'**
   String get demoChatWith;
+
+  /// No description provided for @callStartTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Call'**
+  String get callStartTooltip;
+
+  /// No description provided for @callAudio.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio call'**
+  String get callAudio;
+
+  /// No description provided for @callVideo.
+  ///
+  /// In en, this message translates to:
+  /// **'Video call'**
+  String get callVideo;
+
+  /// No description provided for @callScreen.
+  ///
+  /// In en, this message translates to:
+  /// **'Screen share'**
+  String get callScreen;
+
+  /// No description provided for @callIncoming.
+  ///
+  /// In en, this message translates to:
+  /// **'Incoming call'**
+  String get callIncoming;
+
+  /// No description provided for @callDialing.
+  ///
+  /// In en, this message translates to:
+  /// **'Calling…'**
+  String get callDialing;
+
+  /// No description provided for @callConnecting.
+  ///
+  /// In en, this message translates to:
+  /// **'Connecting…'**
+  String get callConnecting;
+
+  /// No description provided for @callActive.
+  ///
+  /// In en, this message translates to:
+  /// **'In call'**
+  String get callActive;
+
+  /// No description provided for @callAccept.
+  ///
+  /// In en, this message translates to:
+  /// **'Accept'**
+  String get callAccept;
+
+  /// No description provided for @callDecline.
+  ///
+  /// In en, this message translates to:
+  /// **'Decline'**
+  String get callDecline;
+
+  /// No description provided for @callEnd.
+  ///
+  /// In en, this message translates to:
+  /// **'End call'**
+  String get callEnd;
+
+  /// No description provided for @callCancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get callCancel;
+
+  /// No description provided for @callEnded.
+  ///
+  /// In en, this message translates to:
+  /// **'Call ended'**
+  String get callEnded;
+
+  /// No description provided for @callMicOn.
+  ///
+  /// In en, this message translates to:
+  /// **'Mic on'**
+  String get callMicOn;
+
+  /// No description provided for @callMicOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Mic off'**
+  String get callMicOff;
+
+  /// No description provided for @callCameraOn.
+  ///
+  /// In en, this message translates to:
+  /// **'Camera on'**
+  String get callCameraOn;
+
+  /// No description provided for @callCameraOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Camera off'**
+  String get callCameraOff;
+
+  /// No description provided for @callScreenOn.
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing screen'**
+  String get callScreenOn;
+
+  /// No description provided for @callScreenOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Share screen'**
+  String get callScreenOff;
+
+  /// No description provided for @callPathOnion.
+  ///
+  /// In en, this message translates to:
+  /// **'Anonymous (onion)'**
+  String get callPathOnion;
+
+  /// No description provided for @callPathRelay.
+  ///
+  /// In en, this message translates to:
+  /// **'Relayed'**
+  String get callPathRelay;
+
+  /// No description provided for @callPathP2P.
+  ///
+  /// In en, this message translates to:
+  /// **'Direct (P2P)'**
+  String get callPathP2P;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

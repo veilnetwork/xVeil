@@ -16,6 +16,7 @@ import '../data/transport/relay_key_cache.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../data/transport/veil_transport.dart';
 import '../data/transport/wire_envelope.dart';
+import '../domain/call_signal.dart';
 import '../domain/chat.dart';
 import '../domain/chat_folder.dart';
 import '../domain/content_manifest.dart';
@@ -405,6 +406,18 @@ class MessagingService {
   /// location. An undeliverable frame stays un-acked and is retried, never
   /// degraded to a clearnet send (see [VeilTransport.send]).
   final bool _anonymous;
+
+  /// This identity's local anonymity posture (per-identity boot flag). The call
+  /// negotiator reads it to choose the media path — see [CallSignal] and the
+  /// design doc's transport matrix (anon → onion, mixed → relay, direct → P2P).
+  bool get isAnonymousIdentity => _anonymous;
+
+  /// Set by the call service to receive inbound [WireKind.callSignal] frames
+  /// (offer/answer/reject/cancel/busy/end/renegotiate/transportInfo). Fires only
+  /// for accepted contacts; a durable signal is already acked+deduped by the
+  /// generic durable-frame gate before this runs. Null when no call service is
+  /// attached — the signal is then dropped.
+  void Function(NodeId peer, CallSignal signal)? onCallSignal;
 
   /// Single egress point so every outbound frame honours [_anonymous]. The real
   /// transport routes over an onion circuit when anonymous (and never falls back
@@ -1058,6 +1071,30 @@ class MessagingService {
     unawaited(_maybeStash(peer, frameId, wire));
   }
 
+  /// Send a call control-plane [signal] to [peer]. Ring/accept/reject/cancel/
+  /// busy/end/renegotiate go via the durable pipeline — keyed `call:<id>:<type>`
+  /// so a dropped frame re-drives and a re-delivery is acked+processed once.
+  /// Best-effort [CallSignalType.transportInfo] (late reachability candidates)
+  /// goes via the plain live send (low latency; the next candidate supersedes a
+  /// lost one). Consent-gated to accepted contacts, like every other send.
+  Future<void> sendCallSignal(NodeId peer, CallSignal signal) async {
+    final contact = await _storage.getContact(peer);
+    if (contact == null || contact.status != ContactStatus.accepted) return;
+    final stamped = signal.sentAtMs == null
+        ? signal.copyWith(sentAtMs: _now().millisecondsSinceEpoch)
+        : signal;
+    final env = WireEnvelope.callSignal(stamped.encode());
+    if (stamped.type == CallSignalType.transportInfo) {
+      try {
+        await _send(peer, env.encode());
+      } catch (_) {
+        // Live path down — a follow-up candidate or the durable offer covers it.
+      }
+      return;
+    }
+    await sendDurable(peer, 'call:${signal.callId}:${signal.type.name}', env);
+  }
+
   /// Re-drive un-acked durable frames: re-deposit at the mailbox (idempotent via
   /// the stash dedup) and, backed off per frame, re-send live. Called from
   /// [flushOutbox].
@@ -1646,6 +1683,15 @@ class MessagingService {
         // The author answered our signature request — verify + record.
         if (existing?.status != ContactStatus.accepted) return;
         await _onSignResponse(m.src, env);
+        return;
+      case WireKind.callSignal:
+        // Call control plane (voice/video/screen). Consent-gated; a durable
+        // signal was already acked+deduped by the generic frame gate above.
+        // Forward the decoded signal to the attached call service (dropped when
+        // none is attached — e.g. a headless/loopback context).
+        if (existing?.status != ContactStatus.accepted) return;
+        final callSig = CallSignal.tryDecode(env.body);
+        if (callSig != null) onCallSignal?.call(m.src, callSig);
         return;
       case WireKind.unknown:
         // A structured (v:2) frame from a NEWER build whose kind we don't know —

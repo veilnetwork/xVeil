@@ -1470,4 +1470,70 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get demoChatWith => 'Чат с демо-узлом';
+
+  @override
+  String get callStartTooltip => 'Позвонить';
+
+  @override
+  String get callAudio => 'Аудиозвонок';
+
+  @override
+  String get callVideo => 'Видеозвонок';
+
+  @override
+  String get callScreen => 'Демонстрация экрана';
+
+  @override
+  String get callIncoming => 'Входящий звонок';
+
+  @override
+  String get callDialing => 'Вызов…';
+
+  @override
+  String get callConnecting => 'Соединение…';
+
+  @override
+  String get callActive => 'В звонке';
+
+  @override
+  String get callAccept => 'Принять';
+
+  @override
+  String get callDecline => 'Отклонить';
+
+  @override
+  String get callEnd => 'Завершить';
+
+  @override
+  String get callCancel => 'Отменить';
+
+  @override
+  String get callEnded => 'Звонок завершён';
+
+  @override
+  String get callMicOn => 'Микрофон вкл';
+
+  @override
+  String get callMicOff => 'Микрофон выкл';
+
+  @override
+  String get callCameraOn => 'Камера вкл';
+
+  @override
+  String get callCameraOff => 'Камера выкл';
+
+  @override
+  String get callScreenOn => 'Показ экрана';
+
+  @override
+  String get callScreenOff => 'Показать экран';
+
+  @override
+  String get callPathOnion => 'Анонимно (onion)';
+
+  @override
+  String get callPathRelay => 'Через реле';
+
+  @override
+  String get callPathP2P => 'Напрямую (P2P)';
 }

@@ -1463,4 +1463,70 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get demoChatWith => 'Chat with a demo peer';
+
+  @override
+  String get callStartTooltip => 'Call';
+
+  @override
+  String get callAudio => 'Audio call';
+
+  @override
+  String get callVideo => 'Video call';
+
+  @override
+  String get callScreen => 'Screen share';
+
+  @override
+  String get callIncoming => 'Incoming call';
+
+  @override
+  String get callDialing => 'Calling…';
+
+  @override
+  String get callConnecting => 'Connecting…';
+
+  @override
+  String get callActive => 'In call';
+
+  @override
+  String get callAccept => 'Accept';
+
+  @override
+  String get callDecline => 'Decline';
+
+  @override
+  String get callEnd => 'End call';
+
+  @override
+  String get callCancel => 'Cancel';
+
+  @override
+  String get callEnded => 'Call ended';
+
+  @override
+  String get callMicOn => 'Mic on';
+
+  @override
+  String get callMicOff => 'Mic off';
+
+  @override
+  String get callCameraOn => 'Camera on';
+
+  @override
+  String get callCameraOff => 'Camera off';
+
+  @override
+  String get callScreenOn => 'Sharing screen';
+
+  @override
+  String get callScreenOff => 'Share screen';
+
+  @override
+  String get callPathOnion => 'Anonymous (onion)';
+
+  @override
+  String get callPathRelay => 'Relayed';
+
+  @override
+  String get callPathP2P => 'Direct (P2P)';
 }
