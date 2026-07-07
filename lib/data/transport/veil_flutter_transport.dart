@@ -52,6 +52,26 @@ class VeilFlutterTransport implements VeilTransport, StreamTransport {
     return r.uri;
   }
 
+  // ── Media datagram channel (calls: Phase 2 lossy RTP/RTCP probe) ───────────
+  // Concrete-only helpers (not on the VeilTransport/StreamTransport interface):
+  // the debug soak hook casts to VeilFlutterTransport to drive the two-node
+  // datagram test. Per-packet media is native↔native in production.
+
+  /// Open a lossy media datagram channel to [dstNode] (32 bytes). Returns the
+  /// channel id used by [sendMediaDatagram]/[closeMediaChannel].
+  Future<int> openMediaChannel(Uint8List dstNode) =>
+      _client.openMediaChannel(dstNodeId: dstNode);
+
+  /// Enqueue one media datagram on [chan]. 0 queued / 1 dropped / -1 invalid.
+  int sendMediaDatagram(int chan, Uint8List payload) =>
+      _client.sendMediaDatagram(chan, payload);
+
+  /// Inbound media datagrams received from [peerNode] (32 bytes) since start.
+  int mediaRecvCount(Uint8List peerNode) => _client.mediaRecvCount(peerNode);
+
+  /// Close a media channel.
+  void closeMediaChannel(int chan) => _client.closeMediaChannel(chan);
+
   /// Redeem a peer's invite on the running node (adds the bootstrap peer + dials
   /// it) over IPC — replaces the `veil-cli bootstrap join` shell-out.
   Future<void> joinInvite(String uri) async {
