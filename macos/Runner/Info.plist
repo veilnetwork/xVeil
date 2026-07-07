@@ -28,5 +28,11 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<!-- Calls (Phase 3): required for microphone capture by the veil audio
+	     engine — macOS crashes on mic access without a usage description. -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>xVeil uses the microphone for anonymous voice and video calls.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>xVeil uses the camera for anonymous video calls.</string>
 </dict>
 </plist>

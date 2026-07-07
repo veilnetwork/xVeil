@@ -207,6 +207,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/media_engine_version':
           await _mediaEngineVersion(req);
           return;
+        case '/media_engine_selftest':
+          await _mediaEngineSelftest(req);
+          return;
         case '/screenshot':
           await _screenshot(req);
           return;
@@ -1435,6 +1438,36 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       await _json(req, {'ok': true, 'version': VeilMediaEngine.version()});
     } catch (e) {
       await _json(req, {'ok': false, 'error': 'veil_media unavailable: $e'},
+          status: 500);
+    }
+  }
+
+  // Construct the full engine (webrtc::Call + ADM + AudioState) and enumerate
+  // audio devices — proves the WebRTC stack builds in the real app context.
+  // No mic capture, so no TCC prompt. Uses a dummy channel (0).
+  Future<void> _mediaEngineSelftest(HttpRequest req) async {
+    try {
+      final local = Uint8List(32)..[0] = 1;
+      final peer = Uint8List(32)..[0] = 2;
+      final e = VeilMediaEngine.create(veilChan: 0, localId: local, peerId: peer);
+      if (e == null) {
+        await _json(req, {'ok': false, 'error': 'engine create returned null'},
+            status: 500);
+        return;
+      }
+      final mics = e.listAudioInputs();
+      final spk = e.listAudioOutputs();
+      e.dispose();
+      await _json(req, {
+        'ok': true,
+        'created': true,
+        'mics': mics.length,
+        'speakers': spk.length,
+        'mic_labels': [for (final m in mics) m.label],
+        'speaker_labels': [for (final s in spk) s.label],
+      });
+    } catch (ex, st) {
+      await _json(req, {'ok': false, 'error': '$ex', 'stack': '$st'},
           status: 500);
     }
   }
