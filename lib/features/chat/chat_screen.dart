@@ -12,10 +12,12 @@ import '../../core/ids.dart';
 import '../../data/serve_source.dart';
 import '../../core/log.dart';
 import 'chat_actions.dart';
+import '../../domain/call_signal.dart';
 import '../../domain/chat.dart';
 import '../../domain/file_download_policy.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
+import '../../state/call_service.dart';
 import '../../state/chat_page_size_controller.dart';
 import '../../state/messaging.dart';
 import '../../state/notifications.dart';
@@ -1359,6 +1361,41 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ],
         ),
         actions: [
+          // Start a call — only an accepted contact can be dialled. Picks the
+          // media set; the CallService FSM sends the offer + negotiates the path.
+          if (status == ContactStatus.accepted)
+            PopupMenuButton<CallMedia>(
+              icon: const Icon(Icons.call),
+              tooltip: l.callStartTooltip,
+              onSelected: (m) =>
+                  ref.read(callServiceProvider).placeCall(_peer, m),
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: const CallMedia(audio: true),
+                  child: Row(children: [
+                    const Icon(Icons.call, size: 18),
+                    const SizedBox(width: 12),
+                    Text(l.callAudio),
+                  ]),
+                ),
+                PopupMenuItem(
+                  value: const CallMedia(audio: true, video: true),
+                  child: Row(children: [
+                    const Icon(Icons.videocam, size: 18),
+                    const SizedBox(width: 12),
+                    Text(l.callVideo),
+                  ]),
+                ),
+                PopupMenuItem(
+                  value: const CallMedia(audio: true, screen: true),
+                  child: Row(children: [
+                    const Icon(Icons.screen_share, size: 18),
+                    const SizedBox(width: 12),
+                    Text(l.callScreen),
+                  ]),
+                ),
+              ],
+            ),
           PopupMenuButton<_ChatMenuAction>(
             onSelected: (a) => _onMenuAction(a, status),
             itemBuilder: (_) => [
