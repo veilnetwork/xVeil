@@ -11,6 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/ids.dart';
 import '../core/log.dart';
 import '../data/serve_source.dart';
+import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call_signal.dart';
 import '../routing/router.dart';
 import '../state/app_controller.dart';
@@ -89,6 +90,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   StreamSubscription<HttpRequest>? _sub;
   final GlobalKey _screenshotKey = GlobalKey();
   UiDriver? _uiDriver;
+
+  /// Open media datagram channels keyed by peer node hex (Phase 2 probe).
+  final Map<String, int> _mediaChannels = {};
 
   UiDriver get _driver => _uiDriver ??= UiDriver(_screenshotKey);
 
@@ -185,6 +189,18 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/call_state':
           await _callState(req);
+          return;
+        case '/media_open':
+          await _mediaOpen(req);
+          return;
+        case '/media_send':
+          await _mediaSend(req);
+          return;
+        case '/media_recv_count':
+          await _mediaRecvCount(req);
+          return;
+        case '/media_close':
+          await _mediaClose(req);
           return;
         case '/screenshot':
           await _screenshot(req);
@@ -1306,6 +1322,104 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
               'endReason': c.endReason?.name,
             },
     });
+  }
+
+  // ---- media datagram probe (Phase 2: lossy RTP/RTCP over the anon circuit) --
+  // Drives veil_media_* through the embedded VeilFlutterTransport. The RECEIVER
+  // measures delivery via /media_recv_count (no callback needed — the native
+  // inbound feed counts every media datagram from a peer). The SENDER opens a
+  // channel (warms the circuit) then pumps N RTP-sized datagrams.
+
+  VeilFlutterTransport? _mediaTransport(HttpRequest req) {
+    final t = ref.read(veilTransportProvider);
+    if (t is VeilFlutterTransport) return t;
+    unawaited(_json(req,
+        {'ok': false, 'error': 'media unavailable (no embedded transport)'},
+        status: 400));
+    return null;
+  }
+
+  Future<void> _mediaOpen(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final peer = _peer(req);
+    if (peer == null) return;
+    final t = _mediaTransport(req);
+    if (t == null) return;
+    final chan = await t.openMediaChannel(peer.bytes);
+    _mediaChannels[peer.hex] = chan;
+    await _json(req, {'ok': true, 'peer': peer.hex, 'chan': chan});
+  }
+
+  Future<void> _mediaSend(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final peer = _peer(req);
+    if (peer == null) return;
+    final t = _mediaTransport(req);
+    if (t == null) return;
+    final n = int.tryParse(req.uri.queryParameters['n'] ?? '') ?? 100;
+    final size = int.tryParse(req.uri.queryParameters['size'] ?? '') ?? 200;
+    final gapMs = int.tryParse(req.uri.queryParameters['gap_ms'] ?? '') ?? 5;
+    var chan = _mediaChannels[peer.hex];
+    if (chan == null) {
+      chan = await t.openMediaChannel(peer.bytes);
+      _mediaChannels[peer.hex] = chan;
+    }
+    // rc from sendMediaDatagram: 0 queued (accepted into the drain queue),
+    // 1 dropped (queue full), -1 invalid. Actual on-wire delivery is measured
+    // by the RECEIVER's /media_recv_count — the queue rarely rejects.
+    var queued = 0, dropped = 0, invalid = 0;
+    final payload = Uint8List(size);
+    for (var i = 0; i < n; i++) {
+      // 4-byte big-endian sequence header so a future callback probe can spot
+      // gaps; the remainder is zero-filled RTP-sized padding.
+      payload[0] = (i >> 24) & 0xff;
+      payload[1] = (i >> 16) & 0xff;
+      payload[2] = (i >> 8) & 0xff;
+      payload[3] = i & 0xff;
+      final rc = t.sendMediaDatagram(chan, payload);
+      if (rc == 0) {
+        queued++;
+      } else if (rc == 1) {
+        dropped++;
+      } else {
+        invalid++;
+      }
+      if (gapMs > 0 && i < n - 1) {
+        await Future<void>.delayed(Duration(milliseconds: gapMs));
+      }
+    }
+    await _json(req, {
+      'ok': true,
+      'peer': peer.hex,
+      'chan': chan,
+      'sent': n,
+      'size': size,
+      'gap_ms': gapMs,
+      'queued': queued,
+      'queue_dropped': dropped,
+      'invalid': invalid,
+    });
+  }
+
+  Future<void> _mediaRecvCount(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final peer = _peer(req);
+    if (peer == null) return;
+    final t = _mediaTransport(req);
+    if (t == null) return;
+    await _json(
+        req, {'ok': true, 'peer': peer.hex, 'count': t.mediaRecvCount(peer.bytes)});
+  }
+
+  Future<void> _mediaClose(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final peer = _peer(req);
+    if (peer == null) return;
+    final t = _mediaTransport(req);
+    if (t == null) return;
+    final chan = _mediaChannels.remove(peer.hex);
+    if (chan != null) t.closeMediaChannel(chan);
+    await _json(req, {'ok': true, 'peer': peer.hex, 'closed': chan != null});
   }
 }
 
