@@ -7438,10 +7438,23 @@ class MessagingService {
                   '(attempt $attempt)',
             );
           });
+          // First-byte stall (length prefix): a sender that never emits the
+          // 4-byte manifest length is not serving on this stream — the request
+          // never landed (flaky/stale first circuit) or the serve source is
+          // absent. Abandon it on the SHORTER bound so we retry-open (a fresh
+          // circuit, often a different route) fast instead of eating the full
+          // 25s cap on a silent first attempt — device-observed as ~25s "долго
+          // перед скачиванием" before attempt 2 succeeds. Once the length
+          // prefix arrives the manifest BODY keeps the full timeout (patient
+          // once bytes actually flow). Mirrors the probe path (_readManifestHeader).
+          final firstByteTimeout =
+              streamManifestFirstByteTimeout < _streamManifestTimeout
+              ? streamManifestFirstByteTimeout
+              : _streamManifestTimeout;
           final lenB = await _readExactly(
             current,
             4,
-          ).timeout(_streamManifestTimeout, onTimeout: () => null);
+          ).timeout(firstByteTimeout, onTimeout: () => null);
           manifestWait.cancel();
           manifestWait = null;
           if (lenB == null) {
