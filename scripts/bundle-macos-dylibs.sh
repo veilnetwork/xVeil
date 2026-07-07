@@ -41,8 +41,21 @@ fi
 
 mkdir -p "$APP/Contents/Frameworks"
 cp -f "$HV" "$VC" "$APP/Contents/Frameworks/"
+
+# Call media engine (codec-stripped libwebrtc + the veil Transport shim) — an
+# OPTIONAL dylib built separately from a WebRTC checkout by
+# veil_media/macos/build_veil_media_dylib.sh. Bundle it if present; a build
+# without it simply has no calls-media capability (Dart guards the FFI).
+VM="$ROOT/third_party/veil/flutter/veil_media/macos/Frameworks/libveil_media.dylib"
+if [ -f "$VM" ]; then
+  cp -f "$VM" "$APP/Contents/Frameworks/"
+  echo "bundled libveil_media.dylib (calls media engine)"
+else
+  echo "note: $VM absent — building without calls-media (run build_veil_media_dylib.sh to add it)"
+fi
+
 echo "bundled into $APP/Contents/Frameworks:"
-ls -la "$APP/Contents/Frameworks/" | grep -E 'hidden_volume|veilclient'
+ls -la "$APP/Contents/Frameworks/" | grep -E 'hidden_volume|veilclient|veil_media'
 
 # Swapping a dylib invalidates the .app's code-signature seal (its CodeResources
 # still references the OLD dylib hash), so a strict launch — `flutter run`, or

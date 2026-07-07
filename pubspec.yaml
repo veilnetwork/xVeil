@@ -85,6 +85,10 @@ dependencies:
   # runtime until live-node wiring lands.
   veil_flutter:
     path: third_party/veil/flutter/veil_flutter
+  # Call media engine (audio/video/screen over veil): Dart control surface for
+  # libveil_media.dylib (codec-stripped libwebrtc), loaded via process().
+  veil_media:
+    path: third_party/veil/flutter/veil_media
   file_picker: ^11.0.2
   flutter_local_notifications: ^18.0.1
   # Desktop (macOS/Linux/Windows) system-tray + window control: close-to-tray so
