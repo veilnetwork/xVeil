@@ -11,8 +11,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/ids.dart';
 import '../core/log.dart';
 import '../data/serve_source.dart';
+import '../domain/call_signal.dart';
 import '../routing/router.dart';
 import '../state/app_controller.dart';
+import '../state/call_service.dart';
 import '../state/messaging.dart';
 import '../state/providers.dart';
 import 'ui_driver.dart';
@@ -168,6 +170,21 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/download_file':
           await _downloadFile(req);
+          return;
+        case '/call_place':
+          await _callPlace(req);
+          return;
+        case '/call_accept':
+          await _callAction(req, (svc) => svc.accept());
+          return;
+        case '/call_reject':
+          await _callAction(req, (svc) => svc.reject());
+          return;
+        case '/call_hangup':
+          await _callAction(req, (svc) => svc.hangup());
+          return;
+        case '/call_state':
+          await _callState(req);
           return;
         case '/screenshot':
           await _screenshot(req);
@@ -1240,6 +1257,55 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     if (value != null && value.isNotEmpty) return value;
     unawaited(_json(req, {'ok': false, 'error': 'missing $key'}, status: 400));
     return null;
+  }
+
+  // ---- call control (debug driver for the Phase-1 control plane) ----------
+
+  Future<void> _callPlace(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final peer = _peer(req);
+    if (peer == null) return;
+    final media = req.uri.queryParameters['media']?.trim() ?? 'audio';
+    await ref.read(callServiceProvider).placeCall(
+          peer,
+          CallMedia(
+            audio: true,
+            video: media == 'video',
+            screen: media == 'screen',
+          ),
+        );
+    await _callState(req);
+  }
+
+  Future<void> _callAction(
+      HttpRequest req, Future<void> Function(CallService) action) async {
+    if (!_requireReady(req)) return;
+    await action(ref.read(callServiceProvider));
+    await _callState(req);
+  }
+
+  Future<void> _callState(HttpRequest req) async {
+    final c = ref.read(currentCallProvider);
+    await _json(req, {
+      'ok': true,
+      'call': c == null
+          ? null
+          : {
+              'callId': c.callId,
+              'peer': c.peer.hex,
+              'direction': c.direction.name,
+              'status': c.status.name,
+              'media': {
+                'audio': c.media.audio,
+                'video': c.media.video,
+                'screen': c.media.screen,
+              },
+              'localPosture': c.localPosture.name,
+              'peerPosture': c.peerPosture?.name,
+              'transport': c.transport?.name,
+              'endReason': c.endReason?.name,
+            },
+    });
   }
 }
 
