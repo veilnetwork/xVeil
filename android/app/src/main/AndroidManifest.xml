@@ -5,6 +5,9 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- Local notifications for incoming messages (Android 13+ runtime grant). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Microphone for calls (veil audio engine, AAudio capture). Runtime grant;
+         requested when a call goes active, not at startup. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Battery-optimisation exemption: lets the keep-alive foreground service
          actually keep the node receiving in the background (Doze + aggressive
          OEMs suspend the process otherwise). Requested only when the user opts
