@@ -15,7 +15,10 @@ class MacMediaPermissions {
   static Future<String> microphoneStatus() => _status('audio');
 
   static Future<bool> _request(String type) async {
-    if (!Platform.isMacOS) return true;
+    // macOS + Android drive the native xveil/media_permissions channel
+    // (AVCaptureDevice / ActivityCompat.requestPermissions). Other platforms
+    // have no runtime gate here → treat as granted.
+    if (!Platform.isMacOS && !Platform.isAndroid) return true;
     try {
       return (await _ch.invokeMethod<bool>('request', {'type': type})) ?? false;
     } catch (_) {
@@ -24,7 +27,7 @@ class MacMediaPermissions {
   }
 
   static Future<String> _status(String type) async {
-    if (!Platform.isMacOS) return 'unsupported';
+    if (!Platform.isMacOS && !Platform.isAndroid) return 'unsupported';
     try {
       return (await _ch.invokeMethod<String>('status', {'type': type})) ??
           'unknown';
