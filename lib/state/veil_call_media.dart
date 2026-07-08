@@ -97,6 +97,14 @@ class VeilCallMediaController implements CallMediaController {
     // driven by the built-in test source under VEIL_MEDIA_TEST_VIDEO meanwhile.
     if (call.media.video || call.media.screen) {
       engine.startVideo(send: true, recv: true);
+      // Drive the send stream from the real camera for a video call (screen
+      // capture is a separate path). No-op where there's no camera backend
+      // (e.g. Android for now) — that side just receives/renders.
+      if (call.media.video) {
+        try {
+          engine.startCamera();
+        } catch (_) {}
+      }
       // Pump decoded remote frames (~20fps) into the shared notifier for the UI.
       _frameTimer?.cancel();
       _frameTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
