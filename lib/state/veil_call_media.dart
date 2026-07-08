@@ -33,6 +33,12 @@ class VeilCallMediaController implements CallMediaController {
   String? _chanPeer; // hex of the peer _chan was opened for
   Timer? _frameTimer; // pulls decoded remote frames at the display rate
   AndroidCameraCapture? _androidCam; // Dart camera SEND path (Android only)
+  Timer? _statsTimer; // polls rx_pkts for the call-liveness signal
+  DateTime? _lastRxAt; // wall-clock when rx_pkts last increased
+  int _lastRxPkts = 0;
+
+  @override
+  DateTime? get lastMediaRxAt => _lastRxAt;
 
   @override
   Future<void> prewarm(Call call) async {
@@ -94,6 +100,21 @@ class VeilCallMediaController implements CallMediaController {
       return false;
     }
     _engine = engine;
+    // Liveness signal for the call FSM: poll rx_pkts so it can tell the peer's
+    // media is still arriving even when the durable signaling heartbeat lags.
+    _statsTimer?.cancel();
+    _lastRxAt = null;
+    _lastRxPkts = 0;
+    _statsTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_engine != engine) return;
+      try {
+        final rx = (engine.getStats()['rx_pkts'] as num?)?.toInt() ?? 0;
+        if (rx > _lastRxPkts) {
+          _lastRxPkts = rx;
+          _lastRxAt = DateTime.now();
+        }
+      } catch (_) {}
+    });
     final audioOk = engine.startAudio(send: true, recv: true);
     // VP8 video over the same veil channel when the call requests video/screen.
     // Capture/render wiring lands with the platform capturer; the pipeline is
@@ -140,6 +161,10 @@ class VeilCallMediaController implements CallMediaController {
   Future<void> stop() async {
     _frameTimer?.cancel();
     _frameTimer = null;
+    _statsTimer?.cancel();
+    _statsTimer = null;
+    _lastRxAt = null;
+    _lastRxPkts = 0;
     remoteVideoFrame.value = null;
     final cam = _androidCam;
     _androidCam = null;

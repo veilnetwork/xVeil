@@ -69,6 +69,13 @@ abstract class CallMediaController {
 
   /// Tear down any running media session. Idempotent.
   Future<void> stop();
+
+  /// Wall-clock of the last time media packets were seen ARRIVING from the peer
+  /// (rx_pkts increased), or null if none yet / no media. The FSM treats this as
+  /// proof of life for the liveness timeout: while the peer's media is flowing,
+  /// the call is alive even if the (flakier) durable signaling heartbeat is
+  /// delayed — signaling silence alone must not drop a call that's clearly up.
+  DateTime? get lastMediaRxAt => null;
 }
 
 /// The call-session state machine (control plane). One active call at a time.
@@ -367,10 +374,17 @@ class CallService {
         _cancelHeartbeat();
         return;
       }
-      final last = _lastPeerSignalAt;
-      if (last != null && _now().difference(last) > kCallLivenessTimeout) {
-        // Peer went silent → best-effort tell them (harmless if already gone),
-        // then end locally so the UI leaves the call instead of hanging.
+      // Proof of life = the most recent of (a signal from the peer) OR (media
+      // packets arriving from the peer). Media is the RELIABLE liveness signal;
+      // the durable signaling heartbeat is only a backstop for the pre-media
+      // (connecting) window — it must never, on its own, drop a call whose
+      // media is plainly flowing (the durable channel is exactly what's flaky).
+      DateTime? alive = _lastPeerSignalAt;
+      final rx = _media?.lastMediaRxAt;
+      if (rx != null && (alive == null || rx.isAfter(alive))) alive = rx;
+      if (alive != null && _now().difference(alive) > kCallLivenessTimeout) {
+        // Peer went silent on BOTH media and signaling → tell them (harmless if
+        // already gone), then end locally so the UI leaves instead of hanging.
         unawaited(_sendControl(
             c.peer, c.callId, CallSignalType.end, CallEndReason.timeout));
         _end(CallEndReason.timeout);
