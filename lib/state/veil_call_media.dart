@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:veil_media/veil_media.dart';
 
 import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call.dart';
+import 'android_camera_capture.dart';
 import 'call_service.dart';
 import 'mac_media_permissions.dart';
 
@@ -30,6 +32,7 @@ class VeilCallMediaController implements CallMediaController {
   int? _chan;
   String? _chanPeer; // hex of the peer _chan was opened for
   Timer? _frameTimer; // pulls decoded remote frames at the display rate
+  AndroidCameraCapture? _androidCam; // Dart camera SEND path (Android only)
 
   @override
   Future<void> prewarm(Call call) async {
@@ -98,12 +101,27 @@ class VeilCallMediaController implements CallMediaController {
     if (call.media.video || call.media.screen) {
       engine.startVideo(send: true, recv: true);
       // Drive the send stream from the real camera for a video call (screen
-      // capture is a separate path). No-op where there's no camera backend
-      // (e.g. Android for now) — that side just receives/renders.
+      // capture is a separate path). macOS captures natively inside the engine
+      // (AVCaptureSession); Android streams via the `camera` plugin and pushes
+      // I420 frames in from Dart.
       if (call.media.video) {
-        try {
-          engine.startCamera();
-        } catch (_) {}
+        if (Platform.isAndroid) {
+          final cam = AndroidCameraCapture();
+          _androidCam = cam;
+          final ok = await cam.start((y, u, v, w, h) {
+            if (_engine != engine) return;
+            try {
+              engine.pushVideoFrame(y, u, v, w, h);
+            } catch (_) {}
+          });
+          if (!ok) {
+            _androidCam = null;
+          }
+        } else {
+          try {
+            engine.startCamera();
+          } catch (_) {}
+        }
       }
       // Pump decoded remote frames (~20fps) into the shared notifier for the UI.
       _frameTimer?.cancel();
@@ -123,6 +141,13 @@ class VeilCallMediaController implements CallMediaController {
     _frameTimer?.cancel();
     _frameTimer = null;
     remoteVideoFrame.value = null;
+    final cam = _androidCam;
+    _androidCam = null;
+    if (cam != null) {
+      try {
+        await cam.stop();
+      } catch (_) {}
+    }
     final e = _engine;
     _engine = null;
     if (e != null) {

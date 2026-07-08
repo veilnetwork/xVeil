@@ -65,6 +65,10 @@ dependencies:
   # version veil_flutter already pulls in (transitively) to avoid a resolver
   # conflict.
   mobile_scanner: ^5.2.3
+  # Camera frame capture for the video-call SEND path on Android (macOS uses a
+  # native AVCaptureSession inside libveil_media). startImageStream gives YUV420
+  # planes that a Dart capturer converts to I420 and pushes into the engine.
+  camera: ^0.11.0+2
   # Pure-Dart SSH client for "My nodes" — connect to a server you run and
   # provision/check a veil node over SSH (no native code).
   dartssh2: ^2.9.0
