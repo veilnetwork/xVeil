@@ -1474,13 +1474,21 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       // startAudio -> wait so the ADM records + the delayed send-stream stats
       // diag fires (see /tmp/veil_media_diag.log) -> stop -> dispose.
       final started = e.startAudio();
+      // ?video=1 also exercises the VP8 video pipeline (create send/recv streams
+      // + the built-in test source under VEIL_MEDIA_TEST_VIDEO) so a runtime
+      // crash surfaces here without a peer. RTP goes to the dummy channel.
+      final wantVideo = req.uri.queryParameters['video'] == '1';
+      bool videoStarted = false;
+      if (wantVideo) videoStarted = e.startVideo(send: true, recv: true);
       await Future<void>.delayed(const Duration(seconds: 5));
+      if (wantVideo) e.stopVideo();
       e.stopAudio();
       e.dispose();
       await _json(req, {
         'ok': true,
         'created': true,
         'audio_started': started,
+        'video_started': videoStarted,
         'mics': mics.length,
         'speakers': spk.length,
         'mic_labels': [for (final m in mics) m.label],
