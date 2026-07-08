@@ -44,7 +44,16 @@ enum CallSignalType {
   /// offer/answer (ICE-like late candidate for the P2P path).
   transportInfo,
 
+  /// Either side, mid-call: a liveness heartbeat. Sent periodically once a call
+  /// is connecting/active; receiving ANY signal (this one included) resets the
+  /// peer-liveness timer, so a call whose peer vanishes (crash, kill, network
+  /// drop — no graceful `end`) is torn down instead of hanging in "in call"
+  /// forever. Carries only callId (+ sentAtMs); no state change on receipt.
+  health,
+
   /// Decode-only sentinel for a type this build doesn't know. Never encoded.
+  /// (Added enum values go ABOVE this one; an older peer decodes a newer type's
+  /// index as its own `unknown` and ignores it — see _enumFromIndex.)
   unknown,
 }
 

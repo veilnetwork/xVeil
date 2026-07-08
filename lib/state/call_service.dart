@@ -17,6 +17,17 @@ const _uuid = Uuid();
 /// answer" and the callee's "missed call").
 const Duration kCallRingTimeout = Duration(seconds: 45);
 
+/// Once a call is connecting/active, each side sends a [CallSignalType.health]
+/// heartbeat this often.
+const Duration kCallHeartbeatInterval = Duration(seconds: 5);
+
+/// …and if NOTHING is heard from the peer for this long, the call is torn down
+/// with [CallEndReason.timeout] — the peer vanished (crash, kill, network drop)
+/// without a graceful `end`, so the UI must not hang on "in call" forever.
+/// Generous vs the heartbeat interval (≈4 missed beats) so ordinary signaling
+/// jitter over the durable channel never drops a still-live call.
+const Duration kCallLivenessTimeout = Duration(seconds: 20);
+
 /// Pure transport negotiation: given both parties' postures (+ P2P consent and
 /// reachability for the direct case), pick the media path per the design matrix.
 /// **Anonymity is never sacrificed** — if EITHER side is anonymous the media
@@ -80,6 +91,8 @@ class CallService {
   void Function(NodeId, CallSignal)? _handler;
   Call? _current;
   Timer? _ringTimer;
+  Timer? _heartbeatTimer;
+  DateTime? _lastPeerSignalAt;
   bool _started = false;
 
   /// The single active (or just-ended) call, or null when idle.
@@ -157,6 +170,7 @@ class CallService {
       transport: transport,
       connectedAt: _now(),
     ));
+    _startHeartbeat();
     await _messaging.sendCallSignal(
       c.peer,
       CallSignal(
@@ -211,6 +225,15 @@ class CallService {
   // ---- inbound signal handling -------------------------------------------
 
   void _onSignal(NodeId peer, CallSignal sig) {
+    // Any signal from the current call's peer is proof of life — refresh the
+    // liveness deadline before dispatching (covers offer/answer/health/… alike).
+    final live = _current;
+    if (live != null &&
+        live.isLive &&
+        live.callId == sig.callId &&
+        live.peer == peer) {
+      _lastPeerSignalAt = _now();
+    }
     switch (sig.type) {
       case CallSignalType.offer:
         _onOffer(peer, sig);
@@ -224,6 +247,9 @@ class CallService {
         _onRemoteEnd(peer, sig, CallEndReason.cancelled);
       case CallSignalType.end:
         _onRemoteEnd(peer, sig, sig.reason ?? CallEndReason.hangup);
+      case CallSignalType.health:
+        // Liveness already refreshed above; a heartbeat carries no state change.
+        break;
       case CallSignalType.renegotiate:
       case CallSignalType.transportInfo:
       case CallSignalType.unknown:
@@ -286,6 +312,7 @@ class CallService {
       transport: transport,
       connectedAt: _now(),
     ));
+    _startHeartbeat();
     unawaited(_startMedia());
   }
 
@@ -326,6 +353,46 @@ class CallService {
     _ringTimer = null;
   }
 
+  /// Start the mid-call liveness heartbeat once a call reaches `connecting`.
+  /// Each tick sends a [CallSignalType.health] beat to the peer and, if the peer
+  /// has been silent past [kCallLivenessTimeout], tears the call down — this is
+  /// what stops a call hanging on "in call" when the peer crashed / was killed /
+  /// dropped off the network without sending a graceful `end`.
+  void _startHeartbeat() {
+    _cancelHeartbeat();
+    _lastPeerSignalAt = _now();
+    _heartbeatTimer = Timer.periodic(kCallHeartbeatInterval, (_) {
+      final c = _current;
+      if (c == null || !c.isLive) {
+        _cancelHeartbeat();
+        return;
+      }
+      final last = _lastPeerSignalAt;
+      if (last != null && _now().difference(last) > kCallLivenessTimeout) {
+        // Peer went silent → best-effort tell them (harmless if already gone),
+        // then end locally so the UI leaves the call instead of hanging.
+        unawaited(_sendControl(
+            c.peer, c.callId, CallSignalType.end, CallEndReason.timeout));
+        _end(CallEndReason.timeout);
+        return;
+      }
+      unawaited(_messaging.sendCallSignal(
+        c.peer,
+        CallSignal(
+          callId: c.callId,
+          type: CallSignalType.health,
+          sentAtMs: _now().millisecondsSinceEpoch,
+        ),
+      ));
+    });
+  }
+
+  void _cancelHeartbeat() {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
+    _lastPeerSignalAt = null;
+  }
+
   void _set(Call call) {
     _current = call;
     if (!_changes.isClosed) _changes.add(call);
@@ -358,6 +425,7 @@ class CallService {
 
   void _end(CallEndReason reason) {
     _cancelRingTimeout();
+    _cancelHeartbeat();
     unawaited(_media?.stop());
     final c = _current;
     if (c != null && !_changes.isClosed) {
@@ -372,6 +440,7 @@ class CallService {
 
   void dispose() {
     _cancelRingTimeout();
+    _cancelHeartbeat();
     if (_messaging.onCallSignal == _handler) _messaging.onCallSignal = null;
     _changes.close();
   }
