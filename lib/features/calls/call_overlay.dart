@@ -234,15 +234,25 @@ class _Controls extends StatelessWidget {
           onTap: svc.cancel,
         );
       default:
-        // connecting / active — media toggles are inert stubs until Phases 3–5.
+        // connecting / active — live media toggles wired to the engine.
         return Column(
           children: [
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                _MiniToggle(Icons.mic, l.callMicOn, enabled: false),
+                _MiniToggle(
+                  call.micOn ? Icons.mic : Icons.mic_off,
+                  call.micOn ? l.callMicOn : l.callMicOff,
+                  enabled: true,
+                  onTap: () => svc.setMicEnabled(!call.micOn),
+                ),
                 if (call.media.video)
-                  _MiniToggle(Icons.videocam, l.callCameraOn, enabled: false),
+                  _MiniToggle(
+                    call.cameraOn ? Icons.videocam : Icons.videocam_off,
+                    call.cameraOn ? l.callCameraOn : l.callCameraOff,
+                    enabled: true,
+                    onTap: () => svc.setCameraEnabled(!call.cameraOn),
+                  ),
                 if (call.media.screen)
                   _MiniToggle(Icons.screen_share, l.callScreenOn, enabled: false),
               ],
@@ -408,27 +418,32 @@ class _Scrim extends StatelessWidget {
 }
 
 class _MiniToggle extends StatelessWidget {
-  const _MiniToggle(this.icon, this.label, {required this.enabled});
+  const _MiniToggle(this.icon, this.label, {required this.enabled, this.onTap});
   final IconData icon;
   final String label;
   final bool enabled;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final color = enabled ? Colors.white : Colors.white38;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          CircleAvatar(
-            radius: 24,
-            backgroundColor: Colors.white12,
-            child: Icon(icon, color: color),
-          ),
-          const SizedBox(height: 6),
-          Text(label, style: TextStyle(color: color, fontSize: 11)),
-        ],
+      child: GestureDetector(
+        onTap: enabled ? onTap : null,
+        behavior: HitTestBehavior.opaque,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircleAvatar(
+              radius: 24,
+              backgroundColor: Colors.white12,
+              child: Icon(icon, color: color),
+            ),
+            const SizedBox(height: 6),
+            Text(label, style: TextStyle(color: color, fontSize: 11)),
+          ],
+        ),
       ),
     );
   }
