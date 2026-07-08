@@ -127,17 +127,7 @@ class VeilCallMediaController implements CallMediaController {
       // I420 frames in from Dart.
       if (call.media.video) {
         if (Platform.isAndroid) {
-          final cam = AndroidCameraCapture();
-          _androidCam = cam;
-          final ok = await cam.start((y, u, v, w, h) {
-            if (_engine != engine) return;
-            try {
-              engine.pushVideoFrame(y, u, v, w, h);
-            } catch (_) {}
-          });
-          if (!ok) {
-            _androidCam = null;
-          }
+          await _startAndroidCam(engine);
         } else {
           try {
             engine.startCamera();
@@ -194,5 +184,54 @@ class VeilCallMediaController implements CallMediaController {
         _transport.closeMediaChannel(ch);
       } catch (_) {}
     }
+  }
+
+  @override
+  Future<void> setMicMuted(bool muted) async {
+    try {
+      _engine?.setMicMuted(muted);
+    } catch (_) {}
+  }
+
+  @override
+  Future<void> setCameraEnabled(bool enabled) async {
+    final engine = _engine;
+    if (engine == null) return;
+    if (Platform.isAndroid) {
+      if (enabled) {
+        await _startAndroidCam(engine);
+      } else {
+        final cam = _androidCam;
+        _androidCam = null;
+        if (cam != null) {
+          try {
+            await cam.stop();
+          } catch (_) {}
+        }
+      }
+    } else {
+      try {
+        if (enabled) {
+          engine.startCamera();
+        } else {
+          engine.stopCamera();
+        }
+      } catch (_) {}
+    }
+  }
+
+  /// Start the Dart-side Android camera capture (camera plugin -> pushVideoFrame).
+  /// Idempotent; used by both start() and setCameraEnabled().
+  Future<void> _startAndroidCam(VeilMediaEngine engine) async {
+    if (_androidCam != null) return;
+    final cam = AndroidCameraCapture();
+    _androidCam = cam;
+    final ok = await cam.start((y, u, v, w, h) {
+      if (_engine != engine) return;
+      try {
+        engine.pushVideoFrame(y, u, v, w, h);
+      } catch (_) {}
+    });
+    if (!ok) _androidCam = null;
   }
 }

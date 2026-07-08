@@ -70,6 +70,14 @@ abstract class CallMediaController {
   /// Tear down any running media session. Idempotent.
   Future<void> stop();
 
+  /// Mute/unmute the local mic mid-call (stop/resume transmitting). No-op if no
+  /// media session is running.
+  Future<void> setMicMuted(bool muted) async {}
+
+  /// Enable/disable the local camera mid-call (start/stop capturing + sending
+  /// video). No-op if no media session is running or the call has no video.
+  Future<void> setCameraEnabled(bool enabled) async {}
+
   /// Wall-clock of the last time media packets were seen ARRIVING from the peer
   /// (rx_pkts increased), or null if none yet / no media. The FSM treats this as
   /// proof of life for the liveness timeout: while the peer's media is flowing,
@@ -227,6 +235,22 @@ class CallService {
     await _sendControl(
         c.peer, c.callId, CallSignalType.end, CallEndReason.hangup);
     _end(CallEndReason.hangup);
+  }
+
+  /// Toggle the local mic on/off during a live call (the in-call mic button).
+  Future<void> setMicEnabled(bool on) async {
+    final c = _current;
+    if (c == null || !c.isLive || c.micOn == on) return;
+    _set(c.copyWith(micOn: on)); // reflect immediately; the UI watches Call
+    await _media?.setMicMuted(!on);
+  }
+
+  /// Toggle the local camera on/off during a live video call (camera button).
+  Future<void> setCameraEnabled(bool on) async {
+    final c = _current;
+    if (c == null || !c.isLive || !c.media.video || c.cameraOn == on) return;
+    _set(c.copyWith(cameraOn: on));
+    await _media?.setCameraEnabled(on);
   }
 
   // ---- inbound signal handling -------------------------------------------
