@@ -1,11 +1,15 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:veil_media/veil_media.dart' show VeilVideoFrame;
 
 import '../../domain/call.dart';
 import '../../domain/call_signal.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/call_service.dart';
+import '../../state/veil_call_media.dart' show remoteVideoFrame;
 
 /// Full-screen call UI that floats above every route. Mounted once from
 /// [MaterialApp.router]'s `builder`, it watches [currentCallProvider] and shows
@@ -45,6 +49,18 @@ class _CallBody extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppL10n.of(context);
     final svc = ref.read(callServiceProvider);
+    // Once a video/screen call is up, the remote frame fills the surface with
+    // the peer info + controls floated over it; audio-only (and pre-connect)
+    // stays with the centered avatar layout.
+    final hasVideo = call.media.video || call.media.screen;
+    final videoStage = hasVideo &&
+        (call.status == CallStatus.active ||
+            call.status == CallStatus.connecting);
+    if (videoStage) return _videoLayout(context, l, svc);
+    return _audioLayout(context, l, svc);
+  }
+
+  Widget _audioLayout(BuildContext context, AppL10n l, CallService svc) {
     return Column(
       children: [
         const Spacer(),
@@ -74,6 +90,51 @@ class _CallBody extends ConsumerWidget {
         const Spacer(),
         _Controls(call: call, svc: svc, l: l),
         const SizedBox(height: 36),
+      ],
+    );
+  }
+
+  Widget _videoLayout(BuildContext context, AppL10n l, CallService svc) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        const ColoredBox(color: Colors.black, child: _RemoteVideoView()),
+        // Scrims so the white text/controls stay legible over any frame.
+        const _Scrim(top: true),
+        const _Scrim(top: false),
+        Positioned(
+          top: 16,
+          left: 16,
+          right: 16,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(call.peer.short,
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(color: Colors.white),
+                  overflow: TextOverflow.ellipsis),
+              const SizedBox(height: 2),
+              Row(
+                children: [
+                  Text(_statusLabel(l, call.status),
+                      style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                  if (call.transport != null) ...[
+                    const SizedBox(width: 12),
+                    _TransportBadge(call.transport!),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 36,
+          child: _Controls(call: call, svc: svc, l: l),
+        ),
       ],
     );
   }
@@ -231,6 +292,117 @@ class _RoundButton extends StatelessWidget {
         const SizedBox(height: 8),
         Text(label, style: const TextStyle(color: Colors.white70)),
       ],
+    );
+  }
+}
+
+/// Renders the decoded remote video frames from [remoteVideoFrame]. Each new
+/// RGBA frame is turned into a `ui.Image` off the widget tree; decodes are
+/// coalesced (only the latest pending frame is decoded) so a slow decode drops
+/// frames instead of queuing stale ones.
+class _RemoteVideoView extends StatefulWidget {
+  const _RemoteVideoView();
+
+  @override
+  State<_RemoteVideoView> createState() => _RemoteVideoViewState();
+}
+
+class _RemoteVideoViewState extends State<_RemoteVideoView> {
+  ui.Image? _image;
+  VeilVideoFrame? _pending; // newest frame awaiting decode
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    remoteVideoFrame.addListener(_onFrame);
+    _onFrame();
+  }
+
+  @override
+  void dispose() {
+    remoteVideoFrame.removeListener(_onFrame);
+    _image?.dispose();
+    super.dispose();
+  }
+
+  void _onFrame() {
+    final f = remoteVideoFrame.value;
+    if (f == null) {
+      _pending = null;
+      if (_image != null && mounted) {
+        setState(() {
+          _image?.dispose();
+          _image = null;
+        });
+      }
+      return;
+    }
+    _pending = f;
+    if (!_busy) _drain();
+  }
+
+  void _drain() {
+    final f = _pending;
+    if (f == null) {
+      _busy = false;
+      return;
+    }
+    _pending = null;
+    _busy = true;
+    ui.decodeImageFromPixels(
+      f.rgba,
+      f.width,
+      f.height,
+      ui.PixelFormat.rgba8888,
+      (img) {
+        if (!mounted) {
+          img.dispose();
+          return;
+        }
+        setState(() {
+          _image?.dispose();
+          _image = img;
+        });
+        _drain(); // pick up whatever arrived while decoding
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final img = _image;
+    if (img == null) {
+      return Center(
+        child: Text(
+          '…',
+          style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 40),
+        ),
+      );
+    }
+    return RawImage(image: img, fit: BoxFit.contain);
+  }
+}
+
+/// A top or bottom gradient scrim that keeps overlaid controls legible.
+class _Scrim extends StatelessWidget {
+  const _Scrim({required this.top});
+  final bool top;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: top ? Alignment.topCenter : Alignment.bottomCenter,
+      child: Container(
+        height: 140,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: top ? Alignment.topCenter : Alignment.bottomCenter,
+            end: top ? Alignment.bottomCenter : Alignment.topCenter,
+            colors: [Colors.black.withValues(alpha: 0.55), Colors.transparent],
+          ),
+        ),
+      ),
     );
   }
 }
