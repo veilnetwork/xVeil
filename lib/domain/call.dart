@@ -41,6 +41,8 @@ class Call {
     this.endReason,
     this.connectedAt,
     this.endedAt,
+    this.micOn = true,
+    this.cameraOn = true,
   });
 
   /// Stable id shared with the peer for the whole call (see [CallSignal.callId]).
@@ -79,6 +81,13 @@ class Call {
   /// When it reached [ended].
   final DateTime? endedAt;
 
+  /// Local mic on (transmitting) — toggled by the in-call mic button.
+  final bool micOn;
+
+  /// Local camera on (capturing + sending video) — toggled by the in-call
+  /// camera button. Only meaningful on a video call.
+  final bool cameraOn;
+
   bool get isIncoming => direction == CallDirection.incoming;
   bool get isOutgoing => direction == CallDirection.outgoing;
 
@@ -99,6 +108,8 @@ class Call {
     CallEndReason? endReason,
     DateTime? connectedAt,
     DateTime? endedAt,
+    bool? micOn,
+    bool? cameraOn,
   }) =>
       Call(
         callId: callId,
@@ -113,6 +124,8 @@ class Call {
         endReason: endReason ?? this.endReason,
         connectedAt: connectedAt ?? this.connectedAt,
         endedAt: endedAt ?? this.endedAt,
+        micOn: micOn ?? this.micOn,
+        cameraOn: cameraOn ?? this.cameraOn,
       );
 
   @override
