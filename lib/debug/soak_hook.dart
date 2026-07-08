@@ -18,6 +18,7 @@ import '../domain/call_signal.dart';
 import '../routing/router.dart';
 import '../state/app_controller.dart';
 import '../state/call_service.dart';
+import '../state/mac_media_permissions.dart';
 import '../state/messaging.dart';
 import '../state/providers.dart';
 import 'ui_driver.dart';
@@ -209,6 +210,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/media_engine_selftest':
           await _mediaEngineSelftest(req);
+          return;
+        case '/media_request_mic':
+          await _mediaRequestMic(req);
           return;
         case '/screenshot':
           await _screenshot(req);
@@ -1442,6 +1446,15 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     }
   }
 
+  // Trigger the macOS microphone TCC prompt via AVCaptureDevice.requestAccess.
+  Future<void> _mediaRequestMic(HttpRequest req) async {
+    final before = await MacMediaPermissions.microphoneStatus();
+    final granted = await MacMediaPermissions.requestMicrophone();
+    final after = await MacMediaPermissions.microphoneStatus();
+    await _json(req,
+        {'ok': true, 'granted': granted, 'before': before, 'after': after});
+  }
+
   // Construct the full engine (webrtc::Call + ADM + AudioState) and enumerate
   // audio devices — proves the WebRTC stack builds in the real app context.
   // No mic capture, so no TCC prompt. Uses a dummy channel (0).
@@ -1457,10 +1470,17 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       }
       final mics = e.listAudioInputs();
       final spk = e.listAudioOutputs();
+      // Exercise the audio pipeline in isolation (no call/circuit): create ->
+      // startAudio -> wait so the ADM records + the delayed send-stream stats
+      // diag fires (see /tmp/veil_media_diag.log) -> stop -> dispose.
+      final started = e.startAudio();
+      await Future<void>.delayed(const Duration(seconds: 5));
+      e.stopAudio();
       e.dispose();
       await _json(req, {
         'ok': true,
         'created': true,
+        'audio_started': started,
         'mics': mics.length,
         'speakers': spk.length,
         'mic_labels': [for (final m in mics) m.label],
