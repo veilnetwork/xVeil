@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/semantics.dart';
@@ -20,6 +21,7 @@ import '../state/app_controller.dart';
 import '../state/call_service.dart';
 import '../state/mac_media_permissions.dart';
 import '../state/messaging.dart';
+import '../state/veil_call_media.dart' show remoteVideoFrame;
 import '../state/providers.dart';
 import 'ui_driver.dart';
 
@@ -211,6 +213,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/media_engine_selftest':
           await _mediaEngineSelftest(req);
           return;
+        case '/media_last_frame':
+          await _mediaLastFrame(req);
+          break;
         case '/media_request_mic':
           await _mediaRequestMic(req);
           return;
@@ -1458,6 +1463,37 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   // Construct the full engine (webrtc::Call + ADM + AudioState) and enumerate
   // audio devices — proves the WebRTC stack builds in the real app context.
   // No mic capture, so no TCC prompt. Uses a dummy channel (0).
+  // Serve the latest decoded remote video frame as PNG — lets the stand verify
+  // the decode+render path (I420 -> RGBA -> displayable) over veil without
+  // eyeballing the device.
+  Future<void> _mediaLastFrame(HttpRequest req) async {
+    final f = remoteVideoFrame.value;
+    if (f == null) {
+      await _json(req, {'ok': false, 'error': 'no frame yet'}, status: 404);
+      return;
+    }
+    try {
+      final c = Completer<ui.Image>();
+      ui.decodeImageFromPixels(
+          f.rgba, f.width, f.height, ui.PixelFormat.rgba8888, c.complete);
+      final img = await c.future;
+      final png = await img.toByteData(format: ui.ImageByteFormat.png);
+      img.dispose();
+      if (png == null) {
+        await _json(req, {'ok': false, 'error': 'png encode failed'},
+            status: 500);
+        return;
+      }
+      req.response
+        ..statusCode = 200
+        ..headers.contentType = ContentType('image', 'png')
+        ..add(png.buffer.asUint8List());
+      await req.response.close();
+    } catch (ex) {
+      await _json(req, {'ok': false, 'error': '$ex'}, status: 500);
+    }
+  }
+
   Future<void> _mediaEngineSelftest(HttpRequest req) async {
     try {
       final local = Uint8List(32)..[0] = 1;
