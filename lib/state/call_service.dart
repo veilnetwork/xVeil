@@ -50,6 +50,12 @@ abstract class CallMediaController {
   /// channel + start the audio engine). Returns true if media is up.
   Future<bool> start(Call call);
 
+  /// Optionally pre-open the media channel toward the peer so the onion circuit
+  /// is warming while the call is still ringing/connecting — otherwise the first
+  /// seconds of audio are dropped on a cold circuit (or lost entirely if the
+  /// call is short). Default no-op; idempotent; safe to call repeatedly.
+  Future<void> prewarm(Call call) async {}
+
   /// Tear down any running media session. Idempotent.
   Future<void> stop();
 }
@@ -127,6 +133,9 @@ class CallService {
         // mediaKey (SRTP keying) is filled in Phase 3 — control plane only now.
       ),
     );
+    // Start warming the media circuit to the peer now (while it rings), so audio
+    // flows the instant the call is answered instead of after a cold-circuit wait.
+    unawaited(_media?.prewarm(_current!));
     _armRingTimeout();
   }
 
@@ -250,6 +259,9 @@ class CallService {
       peerPosture: sig.posture,
       startedAt: _now(),
     ));
+    // Warm the media circuit back toward the caller while we ring, so audio is
+    // ready the moment the user accepts.
+    unawaited(_media?.prewarm(_current!));
     _armRingTimeout();
   }
 
