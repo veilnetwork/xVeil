@@ -1,9 +1,19 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:veil_media/veil_media.dart';
 
 import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call.dart';
 import 'call_service.dart';
 import 'mac_media_permissions.dart';
+
+/// Latest decoded remote video frame for the active call (RGBA), or null. The
+/// media controller pumps it at the display rate; the call UI (and the debug
+/// hook) watch it. Global so the render surface can find it without threading
+/// the controller through the widget tree.
+final ValueNotifier<VeilVideoFrame?> remoteVideoFrame =
+    ValueNotifier<VeilVideoFrame?>(null);
 
 /// The real [CallMediaController]: opens a veil media datagram channel to the
 /// call peer and drives the libwebrtc audio engine (libveil_media.dylib) over
@@ -19,6 +29,7 @@ class VeilCallMediaController implements CallMediaController {
   VeilMediaEngine? _engine;
   int? _chan;
   String? _chanPeer; // hex of the peer _chan was opened for
+  Timer? _frameTimer; // pulls decoded remote frames at the display rate
 
   @override
   Future<void> prewarm(Call call) async {
@@ -86,12 +97,24 @@ class VeilCallMediaController implements CallMediaController {
     // driven by the built-in test source under VEIL_MEDIA_TEST_VIDEO meanwhile.
     if (call.media.video || call.media.screen) {
       engine.startVideo(send: true, recv: true);
+      // Pump decoded remote frames (~20fps) into the shared notifier for the UI.
+      _frameTimer?.cancel();
+      _frameTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
+        if (_engine != engine) return;
+        try {
+          final f = engine.getVideoFrame();
+          if (f != null) remoteVideoFrame.value = f;
+        } catch (_) {}
+      });
     }
     return audioOk;
   }
 
   @override
   Future<void> stop() async {
+    _frameTimer?.cancel();
+    _frameTimer = null;
+    remoteVideoFrame.value = null;
     final e = _engine;
     _engine = null;
     if (e != null) {
