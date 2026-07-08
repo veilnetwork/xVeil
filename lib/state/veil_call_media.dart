@@ -80,8 +80,14 @@ class VeilCallMediaController implements CallMediaController {
       return false;
     }
     _engine = engine;
-    // Audio both directions for now; video/screen ride later phases.
-    return engine.startAudio(send: true, recv: true);
+    final audioOk = engine.startAudio(send: true, recv: true);
+    // VP8 video over the same veil channel when the call requests video/screen.
+    // Capture/render wiring lands with the platform capturer; the pipeline is
+    // driven by the built-in test source under VEIL_MEDIA_TEST_VIDEO meanwhile.
+    if (call.media.video || call.media.screen) {
+      engine.startVideo(send: true, recv: true);
+    }
+    return audioOk;
   }
 
   @override
@@ -89,6 +95,9 @@ class VeilCallMediaController implements CallMediaController {
     final e = _engine;
     _engine = null;
     if (e != null) {
+      try {
+        e.stopVideo();
+      } catch (_) {}
       try {
         e.stopAudio();
       } catch (_) {}
