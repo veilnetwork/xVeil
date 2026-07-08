@@ -1,6 +1,11 @@
+import 'package:clock/clock.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/core/ids.dart';
+import 'package:xveil/domain/call.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/state/call_service.dart';
+import 'package:xveil/state/messaging.dart';
 
 void main() {
   group('negotiateCallTransport — anonymity matrix', () {
@@ -137,4 +142,96 @@ void main() {
       expect(CallSignal.tryDecode('{"no":"callId"}'), isNull);
     });
   });
+
+  group('CallService liveness heartbeat', () {
+    final peer = NodeId.fromHex('a' * 64);
+
+    CallSignal offer(String id) => CallSignal(
+          callId: id,
+          type: CallSignalType.offer,
+          media: const CallMedia(audio: true),
+          posture: CallPosture.direct,
+        );
+
+    test('a connected call whose peer goes silent ends with timeout', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final svc = CallService(fake, now: () => clock.now())..start();
+        final seen = <Call?>[];
+        svc.changes.listen(seen.add);
+
+        fake.onCallSignal!(peer, offer('call-1'));
+        svc.accept(); // → connecting; no media controller, so it rests there
+        async.flushMicrotasks();
+        expect(svc.current?.status, CallStatus.connecting);
+
+        // Peer never sends anything again → past the deadline it tears down.
+        async.elapse(const Duration(seconds: 30));
+        async.flushMicrotasks();
+
+        expect(svc.current, isNull); // slot cleared
+        final terminal =
+            seen.lastWhere((c) => c?.status == CallStatus.ended, orElse: () => null);
+        expect(terminal?.endReason, CallEndReason.timeout);
+      });
+    });
+
+    test('inbound heartbeats keep the call alive past the timeout', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final svc = CallService(fake, now: () => clock.now())..start();
+        fake.onCallSignal!(peer, offer('call-2'));
+        svc.accept();
+        async.flushMicrotasks();
+        expect(svc.current?.status, CallStatus.connecting);
+
+        // Peer beats every 5s for 60s — well past the 20s liveness timeout.
+        for (var i = 0; i < 12; i++) {
+          async.elapse(const Duration(seconds: 5));
+          fake.onCallSignal!(
+              peer, const CallSignal(callId: 'call-2', type: CallSignalType.health));
+        }
+        async.flushMicrotasks();
+        expect(svc.current?.status, CallStatus.connecting); // still live
+      });
+    });
+
+    test('we emit periodic health beats while connected', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final svc = CallService(fake, now: () => clock.now())..start();
+        fake.onCallSignal!(peer, offer('call-3'));
+        svc.accept();
+        async.flushMicrotasks();
+        fake.sent.clear(); // drop the answer signal
+
+        async.elapse(const Duration(seconds: 16)); // ticks at 5, 10, 15
+        final beats =
+            fake.sent.where((s) => s.type == CallSignalType.health).length;
+        expect(beats, greaterThanOrEqualTo(3));
+      });
+    });
+  });
+}
+
+/// Minimal [MessagingService] stand-in: only the three members [CallService]
+/// touches (isAnonymousIdentity, onCallSignal, sendCallSignal) are real;
+/// everything else routes to noSuchMethod (never hit by the control-plane FSM).
+class _FakeMessaging implements MessagingService {
+  bool anon = false;
+  final List<CallSignal> sent = [];
+
+  @override
+  bool get isAnonymousIdentity => anon;
+
+  @override
+  void Function(NodeId peer, CallSignal signal)? onCallSignal;
+
+  @override
+  Future<void> sendCallSignal(NodeId peer, CallSignal signal) async {
+    sent.add(signal);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
