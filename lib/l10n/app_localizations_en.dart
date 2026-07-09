@@ -272,6 +272,12 @@ class AppL10nEn extends AppL10n {
   String get trayHide => 'Hide';
 
   @override
+  String get trayIdentities => 'Identities';
+
+  @override
+  String get trayLock => 'Lock';
+
+  @override
   String get trayQuit => 'Quit';
 
   @override

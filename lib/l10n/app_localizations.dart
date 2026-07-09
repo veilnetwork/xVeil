@@ -589,6 +589,18 @@ abstract class AppL10n {
   /// **'Hide'**
   String get trayHide;
 
+  /// No description provided for @trayIdentities.
+  ///
+  /// In en, this message translates to:
+  /// **'Identities'**
+  String get trayIdentities;
+
+  /// No description provided for @trayLock.
+  ///
+  /// In en, this message translates to:
+  /// **'Lock'**
+  String get trayLock;
+
   /// No description provided for @trayQuit.
   ///
   /// In en, this message translates to:
