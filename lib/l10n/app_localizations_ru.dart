@@ -279,6 +279,35 @@ class AppL10nRu extends AppL10n {
   String get comingSoon => 'Скоро';
 
   @override
+  String get settingsCatAccount => 'Личности и аккаунт';
+
+  @override
+  String get settingsCatAccountHint =>
+      'Смена, добавление, управление, анонимность';
+
+  @override
+  String get settingsCatPrivacy => 'Приватность';
+
+  @override
+  String get settingsCatPrivacyHint => 'P2P-политика, запросы подписи';
+
+  @override
+  String get settingsCatChats => 'Чаты и уведомления';
+
+  @override
+  String get settingsCatChatsHint =>
+      'Уведомления, фоновая доставка, размер страницы';
+
+  @override
+  String get settingsCatData => 'Данные и хранилище';
+
+  @override
+  String get settingsCatDataHint => 'Размер контейнера, компакция, файлы';
+
+  @override
+  String get settingsCatAppearanceHint => 'Язык, панель папок';
+
+  @override
   String get trayShow => 'Показать';
 
   @override
