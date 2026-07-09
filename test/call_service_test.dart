@@ -12,7 +12,9 @@ void main() {
     test('anon ↔ anon → full onion', () {
       expect(
         negotiateCallTransport(
-            local: CallPosture.anonymous, peer: CallPosture.anonymous),
+          local: CallPosture.anonymous,
+          peer: CallPosture.anonymous,
+        ),
         CallTransportKind.onion,
       );
     });
@@ -20,12 +22,16 @@ void main() {
     test('mixed (anon ↔ direct) → relay, both orderings', () {
       expect(
         negotiateCallTransport(
-            local: CallPosture.anonymous, peer: CallPosture.direct),
+          local: CallPosture.anonymous,
+          peer: CallPosture.direct,
+        ),
         CallTransportKind.relay,
       );
       expect(
         negotiateCallTransport(
-            local: CallPosture.direct, peer: CallPosture.anonymous),
+          local: CallPosture.direct,
+          peer: CallPosture.anonymous,
+        ),
         CallTransportKind.relay,
       );
     });
@@ -43,34 +49,39 @@ void main() {
       );
     });
 
-    test('direct ↔ direct falls back to relay without consent/reachability', () {
-      // no consent
-      expect(
-        negotiateCallTransport(
-            local: CallPosture.direct, peer: CallPosture.direct),
-        CallTransportKind.relay,
-      );
-      // one-sided consent
-      expect(
-        negotiateCallTransport(
-          local: CallPosture.direct,
-          peer: CallPosture.direct,
-          localConsentsP2P: true,
-          peerReachable: true,
-        ),
-        CallTransportKind.relay,
-      );
-      // both consent but unreachable
-      expect(
-        negotiateCallTransport(
-          local: CallPosture.direct,
-          peer: CallPosture.direct,
-          localConsentsP2P: true,
-          peerConsentsP2P: true,
-        ),
-        CallTransportKind.relay,
-      );
-    });
+    test(
+      'direct ↔ direct falls back to relay without consent/reachability',
+      () {
+        // no consent
+        expect(
+          negotiateCallTransport(
+            local: CallPosture.direct,
+            peer: CallPosture.direct,
+          ),
+          CallTransportKind.relay,
+        );
+        // one-sided consent
+        expect(
+          negotiateCallTransport(
+            local: CallPosture.direct,
+            peer: CallPosture.direct,
+            localConsentsP2P: true,
+            peerReachable: true,
+          ),
+          CallTransportKind.relay,
+        );
+        // both consent but unreachable
+        expect(
+          negotiateCallTransport(
+            local: CallPosture.direct,
+            peer: CallPosture.direct,
+            localConsentsP2P: true,
+            peerConsentsP2P: true,
+          ),
+          CallTransportKind.relay,
+        );
+      },
+    );
 
     test('INVARIANT: an anonymous party is NEVER put on P2P, even with every '
         'consent/reachability flag set', () {
@@ -86,8 +97,11 @@ void main() {
           peerConsentsP2P: true,
           peerReachable: true,
         );
-        expect(t, isNot(CallTransportKind.p2p),
-            reason: 'anonymity must never yield a location-revealing P2P path');
+        expect(
+          t,
+          isNot(CallTransportKind.p2p),
+          reason: 'anonymity must never yield a location-revealing P2P path',
+        );
       }
     });
   });
@@ -129,8 +143,7 @@ void main() {
 
     test('an out-of-range enum index decodes to the .unknown sentinel', () {
       // Simulate a newer peer's added type/posture (indices past this build).
-      final body =
-          '{"c":"id","k":9999,"p":9999,"t":{"k":9999},"v":1}';
+      final body = '{"c":"id","k":9999,"p":9999,"t":{"k":9999},"v":1}';
       final back = CallSignal.tryDecode(body)!;
       expect(back.type, CallSignalType.unknown);
       expect(back.posture, CallPosture.unknown);
@@ -143,15 +156,100 @@ void main() {
     });
   });
 
+  group('CallService P2P policy negotiation', () {
+    final peer = NodeId.fromHex('b' * 64);
+
+    test('outgoing direct call proposes p2p only when local policy and '
+        'reachability allow it', () async {
+      final fake = _FakeMessaging();
+      final svc = CallService(
+        fake,
+        localAllowsP2P: (_) async => true,
+        peerReachableForP2P: (_) async => true,
+      )..start();
+
+      await svc.placeCall(peer, const CallMedia(audio: true, video: true));
+
+      expect(fake.sent.single.type, CallSignalType.offer);
+      expect(fake.sent.single.transport?.kind, CallTransportKind.p2p);
+    });
+
+    test('anonymous outgoing call never proposes p2p', () async {
+      final fake = _FakeMessaging()..anon = true;
+      final svc = CallService(
+        fake,
+        localAllowsP2P: (_) async => true,
+        peerReachableForP2P: (_) async => true,
+      )..start();
+
+      await svc.placeCall(peer, const CallMedia(audio: true));
+
+      expect(fake.sent.single.transport?.kind, CallTransportKind.onion);
+    });
+
+    test('incoming p2p offer is accepted as p2p only with local consent and '
+        'reachability', () async {
+      final fake = _FakeMessaging();
+      final svc = CallService(
+        fake,
+        localAllowsP2P: (_) async => true,
+        peerReachableForP2P: (_) async => true,
+      )..start();
+      fake.onCallSignal!(
+        peer,
+        const CallSignal(
+          callId: 'p2p-in',
+          type: CallSignalType.offer,
+          media: CallMedia(audio: true),
+          posture: CallPosture.direct,
+          transport: CallTransportProposal(CallTransportKind.p2p),
+        ),
+      );
+
+      await svc.accept();
+
+      expect(svc.current?.transport, CallTransportKind.p2p);
+      expect(fake.sent.single.type, CallSignalType.answer);
+      expect(fake.sent.single.transport?.kind, CallTransportKind.p2p);
+    });
+
+    test(
+      'incoming p2p offer falls back to relay when local policy denies',
+      () async {
+        final fake = _FakeMessaging();
+        final svc = CallService(
+          fake,
+          localAllowsP2P: (_) async => false,
+          peerReachableForP2P: (_) async => true,
+        )..start();
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'p2p-denied',
+            type: CallSignalType.offer,
+            media: CallMedia(audio: true),
+            posture: CallPosture.direct,
+            transport: CallTransportProposal(CallTransportKind.p2p),
+          ),
+        );
+
+        await svc.accept();
+
+        expect(svc.current?.transport, CallTransportKind.relay);
+        expect(fake.sent.single.transport?.kind, CallTransportKind.relay);
+      },
+    );
+  });
+
   group('CallService liveness heartbeat', () {
     final peer = NodeId.fromHex('a' * 64);
 
     CallSignal offer(String id) => CallSignal(
-          callId: id,
-          type: CallSignalType.offer,
-          media: const CallMedia(audio: true),
-          posture: CallPosture.direct,
-        );
+      callId: id,
+      type: CallSignalType.offer,
+      media: const CallMedia(audio: true),
+      posture: CallPosture.direct,
+    );
 
     test('a connected call whose peer goes silent ends with timeout', () {
       fakeAsync((async) {
@@ -170,8 +268,10 @@ void main() {
         async.flushMicrotasks();
 
         expect(svc.current, isNull); // slot cleared
-        final terminal =
-            seen.lastWhere((c) => c?.status == CallStatus.ended, orElse: () => null);
+        final terminal = seen.lastWhere(
+          (c) => c?.status == CallStatus.ended,
+          orElse: () => null,
+        );
         expect(terminal?.endReason, CallEndReason.timeout);
       });
     });
@@ -189,7 +289,9 @@ void main() {
         for (var i = 0; i < 12; i++) {
           async.elapse(const Duration(seconds: 5));
           fake.onCallSignal!(
-              peer, const CallSignal(callId: 'call-2', type: CallSignalType.health));
+            peer,
+            const CallSignal(callId: 'call-2', type: CallSignalType.health),
+          );
         }
         async.flushMicrotasks();
         expect(svc.current?.status, CallStatus.connecting); // still live
@@ -206,8 +308,9 @@ void main() {
         fake.sent.clear(); // drop the answer signal
 
         async.elapse(const Duration(seconds: 16)); // ticks at 5, 10, 15
-        final beats =
-            fake.sent.where((s) => s.type == CallSignalType.health).length;
+        final beats = fake.sent
+            .where((s) => s.type == CallSignalType.health)
+            .length;
         expect(beats, greaterThanOrEqualTo(3));
       });
     });

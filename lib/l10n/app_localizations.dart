@@ -895,6 +895,54 @@ abstract class AppL10n {
   /// **'How to answer when a contact asks you to prove you wrote a message'**
   String get settingsSignaturePolicyHint;
 
+  /// No description provided for @settingsCommunication.
+  ///
+  /// In en, this message translates to:
+  /// **'Communication'**
+  String get settingsCommunication;
+
+  /// No description provided for @settingsP2PPolicy.
+  ///
+  /// In en, this message translates to:
+  /// **'P2P policy'**
+  String get settingsP2PPolicy;
+
+  /// No description provided for @settingsP2PPolicyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Allows direct transport for calls, large media, files, and device-to-device exchange when both sides consent.'**
+  String get settingsP2PPolicyHint;
+
+  /// No description provided for @settingsP2PPolicyAnonymousHint.
+  ///
+  /// In en, this message translates to:
+  /// **'P2P is disabled while this identity uses anonymous routing.'**
+  String get settingsP2PPolicyAnonymousHint;
+
+  /// No description provided for @p2pPolicyAllowAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow everyone'**
+  String get p2pPolicyAllowAll;
+
+  /// No description provided for @p2pPolicyContacts.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow contacts'**
+  String get p2pPolicyContacts;
+
+  /// No description provided for @p2pPolicySelected.
+  ///
+  /// In en, this message translates to:
+  /// **'Only selected contacts'**
+  String get p2pPolicySelected;
+
+  /// No description provided for @p2pPolicyDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'Deny'**
+  String get p2pPolicyDenied;
+
   /// No description provided for @signaturePolicyAsk.
   ///
   /// In en, this message translates to:
@@ -1014,6 +1062,36 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'hours'**
   String get muteHoursSuffix;
+
+  /// No description provided for @chatMenuCommunicationSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Communication settings'**
+  String get chatMenuCommunicationSettings;
+
+  /// No description provided for @chatMenuP2P.
+  ///
+  /// In en, this message translates to:
+  /// **'P2P connection'**
+  String get chatMenuP2P;
+
+  /// No description provided for @contactP2PFollowGlobal.
+  ///
+  /// In en, this message translates to:
+  /// **'Follow global policy'**
+  String get contactP2PFollowGlobal;
+
+  /// No description provided for @contactP2PAllow.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow'**
+  String get contactP2PAllow;
+
+  /// No description provided for @contactP2PDeny.
+  ///
+  /// In en, this message translates to:
+  /// **'Deny'**
+  String get contactP2PDeny;
 
   /// No description provided for @chatMenuAllowPeerDelete.
   ///
@@ -1374,6 +1452,18 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Compact automatically when the container bloats. Enable ONLY if no other hidden identity lives in this container — compaction keeps just the unlocked space.'**
   String get settingsStorageAutoCompactBody;
+
+  /// No description provided for @settingsStorageLeanPadding.
+  ///
+  /// In en, this message translates to:
+  /// **'Save storage space'**
+  String get settingsStorageLeanPadding;
+
+  /// No description provided for @settingsStorageLeanPaddingBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Enabled by default: future writes use less padding, so the container grows much less. Turn off for stronger size-change masking. Applies after the app reopens.'**
+  String get settingsStorageLeanPaddingBody;
 
   /// No description provided for @settingsStoragePasswordHint.
   ///

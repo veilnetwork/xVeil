@@ -25,15 +25,18 @@ import '../data/serve_source.dart';
 import '../domain/event.dart';
 import '../domain/file_download_policy.dart';
 import '../domain/file_transfer.dart';
+import '../domain/p2p_policy.dart';
 import 'app_controller.dart';
 import 'chat_page_size_controller.dart';
 import 'mailbox_orchestrator.dart';
 import 'mailbox_service.dart';
+import 'p2p_policy_controller.dart';
 import 'providers.dart';
 import 'signature_policy_controller.dart';
 import 'package:xveil/core/log.dart';
 
 const _uuid = Uuid();
+Future<bool> _denyP2PStream(NodeId peer) async => false;
 const _streamRangeParallelismDartDefine = int.fromEnvironment(
   'XVEIL_STREAM_RANGE_PARALLELISM',
   defaultValue: 0,
@@ -360,6 +363,7 @@ class MessagingService {
     bool? streamRangeEnabled,
     Duration? streamOpenWriteGrace,
     Duration? streamRequestTimeout,
+    Future<bool> Function(NodeId peer)? p2pStreamAllowed,
   }) : _now = now ?? DateTime.now,
        _contentReRequestInterval =
            contentReRequestInterval ?? const Duration(seconds: 20),
@@ -390,7 +394,9 @@ class MessagingService {
        _streamOpenWriteGrace =
            streamOpenWriteGrace ?? _configuredStreamOpenWriteGrace(),
        _streamRequestTimeout =
-           streamRequestTimeout ?? _configuredStreamRequestTimeout();
+           streamRequestTimeout ?? _configuredStreamRequestTimeout(),
+       _p2pStreamsEnabled = p2pStreamAllowed != null,
+       _p2pStreamAllowed = p2pStreamAllowed ?? _denyP2PStream;
 
   /// Wall-clock source, injectable so stale-transfer eviction is testable
   /// without real delays. Defaults to [DateTime.now].
@@ -398,6 +404,8 @@ class MessagingService {
 
   final VeilTransport _transport;
   final Storage _storage;
+  final bool _p2pStreamsEnabled;
+  final Future<bool> Function(NodeId peer) _p2pStreamAllowed;
 
   /// Whether this identity routes over the onion rendezvous (sender-location
   /// hidden). Fixed per identity at boot from its roster `anonymous` flag — an
@@ -544,8 +552,8 @@ class MessagingService {
   /// send (sendText) and the first re-send are unchanged, so a transient loss
   /// still recovers in seconds; only a persistently-undeliverable message stops
   /// hammering. Cleared when the message is acked (delivered).
-  final Map<String, ({int count, DateTime nextAt, String peer})>
-  _retryBackoff = {};
+  final Map<String, ({int count, DateTime nextAt, String peer})> _retryBackoff =
+      {};
   static const _maxRetryBackoff = Duration(seconds: 24);
 
   /// Peer-alive nudge throttle: [_nudgeRetries] rewinds a peer's pending
@@ -763,9 +771,7 @@ class MessagingService {
     // A (re)connect is exactly when interrupted downloads become resumable
     // again — reset the failure backoff and probe each pending one.
     _resumeAttempts.clear();
-    unawaited(
-      _resumeAllPendingDownloads(stagger: const Duration(seconds: 2)),
-    );
+    unawaited(_resumeAllPendingDownloads(stagger: const Duration(seconds: 2)));
     await flushOutbox();
   }
 
@@ -941,7 +947,10 @@ class MessagingService {
       // mailbox deposit too — the previous one may have aged out at the relay.
       _stashed.remove('accept:${m.src.hex}');
       await sendDurable(
-          m.src, 'accept:${m.src.hex}', const WireEnvelope.accept());
+        m.src,
+        'accept:${m.src.hex}',
+        const WireEnvelope.accept(),
+      );
       return;
     }
     // Re-drives of a durable request/reconnect land here on every backoff tick
@@ -1031,7 +1040,7 @@ class MessagingService {
   /// message path already backs off. Any inbound from the peer rewinds its
   /// frames to due-now ([_nudgeRetries]); an ack retires the entry.
   final Map<String, ({int count, DateTime nextAt, String peer})>
-      _outboxLiveBackoff = {};
+  _outboxLiveBackoff = {};
 
   /// Frame ids already processed this session (dedup for durable re-drives).
   /// Bounded — oldest evicted past [_seenFramesCap] (a re-process of a very old
@@ -1058,11 +1067,18 @@ class MessagingService {
 
   /// Send [env] to [peer] durably under [frameId] (see the section comment). The
   /// receiver echoes [frameId] in its ack to retire the frame.
-  Future<void> sendDurable(NodeId peer, String frameId, WireEnvelope env) async {
+  Future<void> sendDurable(
+    NodeId peer,
+    String frameId,
+    WireEnvelope env,
+  ) async {
     final wire = env.withFrameId(frameId).encode();
     await _storage.enqueueOutboxFrame(frameId, peer.hex, wire);
-    _outboxLiveBackoff[frameId] =
-        (count: 1, nextAt: _now().add(_outboxLiveResend), peer: peer.hex);
+    _outboxLiveBackoff[frameId] = (
+      count: 1,
+      nextAt: _now().add(_outboxLiveResend),
+      peer: peer.hex,
+    );
     try {
       await _send(peer, wire);
     } catch (_) {
@@ -1139,9 +1155,9 @@ class MessagingService {
       final bo = _outboxLiveBackoff[f.frameId];
       if (bo != null && now.isBefore(bo.nextAt)) continue;
       final count = (bo?.count ?? 0) + 1;
-      final delayMs = (_outboxLiveResend.inMilliseconds *
-              (1 << (count - 1).clamp(0, 10)))
-          .clamp(0, _outboxLiveResendCap.inMilliseconds);
+      final delayMs =
+          (_outboxLiveResend.inMilliseconds * (1 << (count - 1).clamp(0, 10)))
+              .clamp(0, _outboxLiveResendCap.inMilliseconds);
       _outboxLiveBackoff[f.frameId] = (
         count: count,
         nextAt: now.add(Duration(milliseconds: delayMs)),
@@ -1244,10 +1260,16 @@ class MessagingService {
   /// attempt / offline peer / restart (see [sendDurable]).
   Future<void> requestSignature(NodeId peer, String msgId, String body) async {
     await _storage.markMessageSignature(
-        peer.hex, msgId, MessageSignature.requested);
+      peer.hex,
+      msgId,
+      MessageSignature.requested,
+    );
     _signal();
     await sendDurable(
-        peer, 'sigreq:$msgId', WireEnvelope.signRequest(msgId, body));
+      peer,
+      'sigreq:$msgId',
+      WireEnvelope.signRequest(msgId, body),
+    );
   }
 
   /// Prompt dedup for re-sent requests: (peer|msgId) recently surfaced → skip.
@@ -1287,8 +1309,10 @@ class MessagingService {
   }
 
   /// Resolve an author-side prompt: sign + respond, or decline.
-  Future<void> resolveSignatureAsk(SignatureAsk ask,
-      {required bool approve}) async {
+  Future<void> resolveSignatureAsk(
+    SignatureAsk ask, {
+    required bool approve,
+  }) async {
     if (approve) {
       await _signAndRespond(ask.peer, ask.msgId, ask.body);
     } else {
@@ -1296,7 +1320,11 @@ class MessagingService {
     }
   }
 
-  Future<void> _signAndRespond(NodeId requester, String msgId, String body) async {
+  Future<void> _signAndRespond(
+    NodeId requester,
+    String msgId,
+    String body,
+  ) async {
     try {
       final toml = await _storage.loadNodeConfig();
       if (toml == null) return; // no identity config → cannot sign
@@ -1316,7 +1344,10 @@ class MessagingService {
       // Durable: the id encodes the OUTCOME so a later opposite answer isn't
       // dedup-skipped by the outbox/stash.
       await sendDurable(
-          requester, 'sigresp:ok:$msgId', WireEnvelope.signResponse(payload));
+        requester,
+        'sigresp:ok:$msgId',
+        WireEnvelope.signResponse(payload),
+      );
       devLog(() => 'xVeil[sign]: signed + responded mid=$msgId');
     } catch (e) {
       devLog(() => 'xVeil[sign]: sign+respond failed for $msgId: $e');
@@ -1326,7 +1357,10 @@ class MessagingService {
   Future<void> _sendSignRefusal(NodeId requester, String msgId) async {
     final payload = jsonEncode({'mid': msgId, 'refused': true});
     await sendDurable(
-        requester, 'sigresp:no:$msgId', WireEnvelope.signResponse(payload));
+      requester,
+      'sigresp:no:$msgId',
+      WireEnvelope.signResponse(payload),
+    );
     devLog(() => 'xVeil[sign]: refused mid=$msgId');
   }
 
@@ -1357,7 +1391,10 @@ class MessagingService {
       if (target.signature == MessageSignature.verified) return;
       devLog(() => 'xVeil[sign]: refusal received mid=$msgId');
       await _storage.markMessageSignature(
-          src.hex, msgId, MessageSignature.refused);
+        src.hex,
+        msgId,
+        MessageSignature.refused,
+      );
       _signal();
       return;
     }
@@ -1434,6 +1471,10 @@ class MessagingService {
         // Consent gate: only deliver from accepted peers; drop the rest.
         if (existing?.status != ContactStatus.accepted) return;
         final id = env.id;
+        if (_isServiceEchoText(env.body)) {
+          if (id != null) await _ackTo(m, id, direct: true);
+          return;
+        }
         // [timeline] inbound receipt: id + whether it carried a reply path. id +
         // replyId only (no body) — lets us separate receive-latency from the ACK
         // round-trip when reading a session's logs.
@@ -1985,6 +2026,8 @@ class MessagingService {
         pinned: existing.pinned,
         archived: existing.archived,
         retentionDays: existing.retentionDays,
+        allowPeerDelete: existing.allowPeerDelete,
+        p2pOverride: existing.p2pOverride,
       ),
     );
     _signal();
@@ -2027,6 +2070,18 @@ class MessagingService {
     _signal();
   }
 
+  /// Per-contact direct P2P override. Local-only and receiver-side: it only
+  /// decides whether THIS device may reveal/use a direct path with [peer].
+  Future<void> setContactP2POverride(
+    NodeId peer,
+    ContactP2POverride value,
+  ) async {
+    final existing = await _storage.getContact(peer);
+    if (existing == null) return;
+    await _storage.upsertContact(existing.copyWith(p2pOverride: value));
+    _signal();
+  }
+
   /// Pin (or unpin) [peer]'s conversation to the top of the chat list.
   /// Local-only, stored in the encrypted contact record. No-op if unknown.
   Future<void> setContactPinned(NodeId peer, bool pinned) async {
@@ -2053,6 +2108,8 @@ class MessagingService {
         pinned: existing.pinned,
         archived: existing.archived,
         retentionDays: window,
+        allowPeerDelete: existing.allowPeerDelete,
+        p2pOverride: existing.p2pOverride,
       ),
     );
     _signal();
@@ -2108,9 +2165,16 @@ class MessagingService {
   }
 
   /// Create a folder (optionally seeded with [members]) and return it.
-  Future<ChatFolder> createFolder(String name, {List<String> members = const []}) async {
+  Future<ChatFolder> createFolder(
+    String name, {
+    List<String> members = const [],
+  }) async {
     final folders = List<ChatFolder>.from(await loadFolders());
-    final folder = ChatFolder(id: _uuid.v4(), name: name.trim(), memberHexes: members);
+    final folder = ChatFolder(
+      id: _uuid.v4(),
+      name: name.trim(),
+      memberHexes: members,
+    );
     folders.add(folder);
     await _saveFolders(folders);
     return folder;
@@ -2145,8 +2209,8 @@ class MessagingService {
           f.copyWith(
             memberHexes: member
                 ? (f.contains(peerHex)
-                    ? f.memberHexes
-                    : [...f.memberHexes, peerHex])
+                      ? f.memberHexes
+                      : [...f.memberHexes, peerHex])
                 : f.memberHexes.where((h) => h != peerHex).toList(),
           ),
     ]);
@@ -2310,9 +2374,9 @@ class MessagingService {
           final count = (bo?.count ?? 0) + 1;
           // Shift exponent clamped: count keeps growing while un-acked, and an
           // unclamped 1<<63 wraps the delay to 0 — silently un-backing-off.
-          final delayMs = (_retryInterval.inMilliseconds *
-                  (1 << (count - 1).clamp(0, 10)))
-              .clamp(0, _maxRetryBackoff.inMilliseconds);
+          final delayMs =
+              (_retryInterval.inMilliseconds * (1 << (count - 1).clamp(0, 10)))
+                  .clamp(0, _maxRetryBackoff.inMilliseconds);
           _retryBackoff[m.id] = (
             count: count,
             nextAt: now.add(Duration(milliseconds: delayMs)),
@@ -3407,8 +3471,9 @@ class MessagingService {
   /// ones are JSON `{path,size,pieceSize,name}` so the manifest can be
   /// rebuilt from the source file when the mf: blob is missing (its persist
   /// dies first on a bloated store — IndexFull).
-  ({String path, int? size, int? pieceSize, String? name})?
-  _parseServedRecord(String? raw) {
+  ({String path, int? size, int? pieceSize, String? name})? _parseServedRecord(
+    String? raw,
+  ) {
     if (raw == null || raw.isEmpty) return null;
     if (!raw.startsWith('{')) {
       return (path: raw, size: null, pieceSize: null, name: null);
@@ -3714,7 +3779,8 @@ class MessagingService {
         );
       } catch (e) {
         devLog(
-          () => 'xVeil[content]: durable-offer path persist failed for $cid: $e',
+          () =>
+              'xVeil[content]: durable-offer path persist failed for $cid: $e',
         );
       }
       try {
@@ -4902,7 +4968,7 @@ class MessagingService {
   /// dart:io stays in the data layer). [resume]=true reopens WITHOUT truncating
   /// and exposes a reader so already-written pieces are hash-verified + skipped.
   Future<VeilPlainFileSink?> Function(String path, {bool resume})
-      plainFileSinkOpener = veilPlainFileSinkOpener;
+  plainFileSinkOpener = veilPlainFileSinkOpener;
 
   /// Re-drives an unencrypted-to-file download with a service-owned sink.
   /// Reopened NON-truncating (resume): the swarm hash-verifies each piece off
@@ -5296,10 +5362,7 @@ class MessagingService {
     }
     // Terminal: nobody we know still has the bytes. Persist the mark, stop the
     // auto-resume driver, release any parked sink, and clear the spinner.
-    await _storage.putSetting(
-      'gone:$contentId',
-      _now().toIso8601String(),
-    );
+    await _storage.putSetting('gone:$contentId', _now().toIso8601String());
     _completePendingDownload(contentId);
     final parked = _pendingDownload.remove(contentId);
     _pendingTimers.remove(contentId)?.cancel();
@@ -5729,10 +5792,31 @@ class MessagingService {
     final st = _transport as StreamTransport;
     while (!_disposed) {
       try {
+        if (_p2pStreamsEnabled && _transport is P2PStreamTransport) {
+          final p2p = await (_transport as P2PStreamTransport).acceptP2PStream(
+            timeout: const Duration(milliseconds: 250),
+          );
+          if (p2p != null) {
+            if (await _p2pStreamAllowed(p2p.src)) {
+              _bulkStreamLog(
+                () => 'xVeil[content]: stream-accept p2p <- ${p2p.src.short}',
+              );
+              unawaited(_serveStream(p2p.src, p2p.stream));
+            } else {
+              devLog(
+                () =>
+                    'xVeil[content]: stream-accept p2p DENIED '
+                    '<- ${p2p.src.short}',
+              );
+              unawaited(p2p.stream.close());
+            }
+            continue;
+          }
+        }
         final r = await st.acceptStream(timeout: const Duration(seconds: 2));
         if (r != null) {
           _bulkStreamLog(
-            () => 'xVeil[content]: stream-accept <- ${r.src.short}',
+            () => 'xVeil[content]: stream-accept anon <- ${r.src.short}',
           );
           unawaited(_serveStream(r.src, r.stream));
         }
@@ -6312,8 +6396,8 @@ class MessagingService {
       // next holder rather than eating the full 25s cap on one silent peer.
       final firstByteTimeout =
           streamManifestFirstByteTimeout < _streamManifestTimeout
-              ? streamManifestFirstByteTimeout
-              : _streamManifestTimeout;
+          ? streamManifestFirstByteTimeout
+          : _streamManifestTimeout;
       final lenB = await _readExactly(
         stream,
         4,
@@ -6667,7 +6751,11 @@ class MessagingService {
       final len = manifest.pieceLength(i);
       final Uint8List? existing;
       if (sink == null) {
-        existing = await _storage.readFileRange(cid, i * manifest.pieceSize, len);
+        existing = await _storage.readFileRange(
+          cid,
+          i * manifest.pieceSize,
+          len,
+        );
       } else if (sinkRead != null) {
         existing = await sinkRead(i * manifest.pieceSize, len);
       } else {
@@ -7394,10 +7482,15 @@ class MessagingService {
     final t = _transport;
     if (t is! StreamTransport) return null;
     final sw = Stopwatch()..start();
+    final useP2P =
+        _p2pStreamsEnabled &&
+        !_anonymous &&
+        t is P2PStreamTransport &&
+        await _p2pStreamAllowed(peer);
     _bulkStreamLog(
       () =>
           'xVeil[content]: stream-open ${cid.substring(0, 12)} '
-          '-> ${peer.short}',
+          '-> ${peer.short} (${useP2P ? 'p2p' : 'anon'})',
     );
     final slowLog = Timer(const Duration(seconds: 5), () {
       devLog(
@@ -7409,7 +7502,10 @@ class MessagingService {
     });
     ReliableStream? stream;
     try {
-      stream = await (t as StreamTransport).openStream(peer);
+      if (useP2P) {
+        stream = await (t as P2PStreamTransport).openP2PStream(peer);
+      }
+      stream ??= await (t as StreamTransport).openStream(peer);
     } finally {
       slowLog.cancel();
     }
@@ -7425,7 +7521,8 @@ class MessagingService {
     _bulkStreamLog(
       () =>
           'xVeil[content]: stream-open ok ${cid.substring(0, 12)} '
-          '-> ${peer.short} (${sw.elapsedMilliseconds}ms)',
+          '-> ${peer.short} (${sw.elapsedMilliseconds}ms, '
+          '${useP2P && stream != null ? 'p2p-or-fallback' : 'anon'})',
     );
     return stream;
   }
@@ -7733,16 +7830,28 @@ class MessagingService {
     final t = _transport;
     if (t is! StreamTransport) return null;
     final streamTransport = t as StreamTransport;
+    final useP2P =
+        _p2pStreamsEnabled &&
+        !_anonymous &&
+        t is P2PStreamTransport &&
+        await _p2pStreamAllowed(peer);
     devLog(
       () =>
           'xVeil[content]: stream-pull retry-open '
           '${cid.substring(0, 12)} -> ${peer.short} '
-          '(attempt $attempt)',
+          '(attempt $attempt, ${useP2P ? 'p2p' : 'anon'})',
     );
     try {
-      return await streamTransport
-          .openStream(peer)
-          .timeout(timeout ?? _streamRequestTimeout, onTimeout: () => null);
+      ReliableStream? stream;
+      if (useP2P) {
+        stream = await (t as P2PStreamTransport)
+            .openP2PStream(peer)
+            .timeout(timeout ?? _streamRequestTimeout, onTimeout: () => null);
+      }
+      return stream ??
+          await streamTransport
+              .openStream(peer)
+              .timeout(timeout ?? _streamRequestTimeout, onTimeout: () => null);
     } catch (e) {
       devLog(
         () =>
@@ -8292,6 +8401,8 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
     anonymous: anonymous,
     streamRangeParallelism: xveilConfiguredStreamRangeParallelism(),
     streamRangeTargetBytes: xveilConfiguredStreamRangeTargetBytes(),
+    p2pStreamAllowed: (peer) =>
+        ref.read(p2pPolicyProvider.notifier).allowsPeer(peer),
   );
   service.sourceOpener = veilSourceOpener; // DURABLE offers: re-open by path
   // Author-side answer to incoming signature requests, read live from settings.
@@ -8526,7 +8637,9 @@ final messagesProvider = StreamProvider.autoDispose.family<List<Message>, String
   // Load only the newest `window` messages, not the whole conversation — bounds
   // the decrypt + the ListView build to the page the user actually sees.
   final window = ref.watch(chatWindowProvider(conversationId));
-  yield await storage.loadMessages(conversationId, limit: window);
+  yield _visibleChatMessages(
+    await storage.loadMessages(conversationId, limit: window),
+  );
   // Each `changes` tick re-loads + DECRYPTS the conversation window from the
   // container and rebuilds the ListView (+ auto-scroll). A burst of state
   // signals (sends, inbound re-sends, status flips) therefore thrashed the UI
@@ -8536,9 +8649,30 @@ final messagesProvider = StreamProvider.autoDispose.family<List<Message>, String
   await for (final _ in service.changes.auditTrailing(
     const Duration(milliseconds: 200),
   )) {
-    yield await storage.loadMessages(conversationId, limit: window);
+    yield _visibleChatMessages(
+      await storage.loadMessages(conversationId, limit: window),
+    );
   }
 });
+
+List<Message> _visibleChatMessages(List<Message> messages) =>
+    messages.where((m) => !_isServiceEchoText(m.body)).toList(growable: false);
+
+bool _isServiceEchoText(String body) {
+  final text = body.trimLeft();
+  if (!text.startsWith('↩︎ echo:')) return false;
+  final payload = text.substring('↩︎ echo:'.length).trimLeft();
+  try {
+    final decoded = jsonDecode(payload);
+    if (decoded is! Map) return false;
+    final t = decoded['t'];
+    return t == WireKind.sync.index ||
+        t == WireKind.voidSeq.index ||
+        t == WireKind.callSignal.index;
+  } catch (_) {
+    return false;
+  }
+}
 
 extension _AuditTrailing<T> on Stream<T> {
   /// Trailing-edge throttle: collapses a burst of events into a single

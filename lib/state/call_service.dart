@@ -3,15 +3,18 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import '../core/log.dart';
 import '../core/ids.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call.dart';
 import '../domain/call_signal.dart';
 import 'messaging.dart';
+import 'p2p_policy_controller.dart';
 import 'providers.dart';
 import 'veil_call_media.dart';
 
 const _uuid = Uuid();
+Future<bool> _neverP2P(NodeId peer) async => false;
 
 /// How long an unanswered call rings before it auto-ends (the caller's "no
 /// answer" and the callee's "missed call").
@@ -93,14 +96,23 @@ abstract class CallMediaController {
 /// reaches [CallStatus.connecting] and promotes the call to
 /// [CallStatus.active].
 class CallService {
-  CallService(this._messaging, {DateTime Function()? now, CallMediaController? media})
-      : _now = now ?? DateTime.now,
-        // ignore: prefer_initializing_formals — public `media:` param → private field.
-        _media = media;
+  CallService(
+    this._messaging, {
+    DateTime Function()? now,
+    CallMediaController? media,
+    Future<bool> Function(NodeId peer)? localAllowsP2P,
+    Future<bool> Function(NodeId peer)? peerReachableForP2P,
+  }) : _now = now ?? DateTime.now,
+       // ignore: prefer_initializing_formals — public `media:` param → private field.
+       _media = media,
+       _localAllowsP2P = localAllowsP2P ?? _neverP2P,
+       _peerReachableForP2P = peerReachableForP2P ?? _neverP2P;
 
   final MessagingService _messaging;
   final DateTime Function() _now;
   final CallMediaController? _media;
+  final Future<bool> Function(NodeId peer) _localAllowsP2P;
+  final Future<bool> Function(NodeId peer) _peerReachableForP2P;
 
   final _changes = StreamController<Call?>.broadcast();
   void Function(NodeId, CallSignal)? _handler;
@@ -136,20 +148,28 @@ class CallService {
     if (media.isEmpty) return;
     final callId = _uuid.v4();
     final posture = _localPosture;
-    _set(Call(
-      callId: callId,
-      peer: peer,
-      direction: CallDirection.outgoing,
-      media: media,
-      status: CallStatus.dialing,
-      localPosture: posture,
-      startedAt: _now(),
-    ));
+    _set(
+      Call(
+        callId: callId,
+        peer: peer,
+        direction: CallDirection.outgoing,
+        media: media,
+        status: CallStatus.dialing,
+        localPosture: posture,
+        startedAt: _now(),
+      ),
+    );
     // Advisory proposal from our side; the answer finalizes the path once the
     // callee knows both postures. An anonymous caller is never P2P.
-    final proposal = CallTransportProposal(posture == CallPosture.anonymous
-        ? CallTransportKind.onion
-        : CallTransportKind.relay);
+    final mayOfferP2P =
+        posture == CallPosture.direct &&
+        await _localAllowsP2P(peer) &&
+        await _peerReachableForP2P(peer);
+    final proposal = CallTransportProposal(
+      posture == CallPosture.anonymous
+          ? CallTransportKind.onion
+          : (mayOfferP2P ? CallTransportKind.p2p : CallTransportKind.relay),
+    );
     await _messaging.sendCallSignal(
       peer,
       CallSignal(
@@ -176,15 +196,21 @@ class CallService {
       return;
     }
     _cancelRingTimeout();
+    final peerProposedP2P = c.transport == CallTransportKind.p2p;
     final transport = negotiateCallTransport(
       local: c.localPosture,
       peer: c.peerPosture ?? CallPosture.anonymous,
+      localConsentsP2P: await _localAllowsP2P(c.peer),
+      peerConsentsP2P: peerProposedP2P,
+      peerReachable: peerProposedP2P && await _peerReachableForP2P(c.peer),
     );
-    _set(c.copyWith(
-      status: CallStatus.connecting,
-      transport: transport,
-      connectedAt: _now(),
-    ));
+    _set(
+      c.copyWith(
+        status: CallStatus.connecting,
+        transport: transport,
+        connectedAt: _now(),
+      ),
+    );
     _startHeartbeat();
     await _messaging.sendCallSignal(
       c.peer,
@@ -208,7 +234,11 @@ class CallService {
       return;
     }
     await _sendControl(
-        c.peer, c.callId, CallSignalType.reject, CallEndReason.declined);
+      c.peer,
+      c.callId,
+      CallSignalType.reject,
+      CallEndReason.declined,
+    );
     _end(CallEndReason.declined);
   }
 
@@ -221,7 +251,11 @@ class CallService {
       return;
     }
     await _sendControl(
-        c.peer, c.callId, CallSignalType.cancel, CallEndReason.cancelled);
+      c.peer,
+      c.callId,
+      CallSignalType.cancel,
+      CallEndReason.cancelled,
+    );
     _end(CallEndReason.cancelled);
   }
 
@@ -233,7 +267,11 @@ class CallService {
     if (c.status == CallStatus.dialing) return cancel();
     if (c.status == CallStatus.ringing) return reject();
     await _sendControl(
-        c.peer, c.callId, CallSignalType.end, CallEndReason.hangup);
+      c.peer,
+      c.callId,
+      CallSignalType.end,
+      CallEndReason.hangup,
+    );
     _end(CallEndReason.hangup);
   }
 
@@ -295,27 +333,37 @@ class CallService {
       // Glare: we each offered at the same time. Deterministic tie-break — the
       // lexicographically-smaller callId wins as the caller; the loser adopts
       // the winner's offer. Any other busy case → tell them we're busy.
-      final glare = existing.peer == peer &&
+      final glare =
+          existing.peer == peer &&
           existing.direction == CallDirection.outgoing &&
           existing.status == CallStatus.dialing;
       if (glare && sig.callId.compareTo(existing.callId) < 0) {
         _cancelRingTimeout(); // our outgoing offer loses; adopt their incoming
       } else {
-        unawaited(_sendControl(
-            peer, sig.callId, CallSignalType.busy, CallEndReason.busy));
+        unawaited(
+          _sendControl(
+            peer,
+            sig.callId,
+            CallSignalType.busy,
+            CallEndReason.busy,
+          ),
+        );
         return;
       }
     }
-    _set(Call(
-      callId: sig.callId,
-      peer: peer,
-      direction: CallDirection.incoming,
-      media: sig.media ?? const CallMedia(audio: true),
-      status: CallStatus.ringing,
-      localPosture: _localPosture,
-      peerPosture: sig.posture,
-      startedAt: _now(),
-    ));
+    _set(
+      Call(
+        callId: sig.callId,
+        peer: peer,
+        direction: CallDirection.incoming,
+        media: sig.media ?? const CallMedia(audio: true),
+        status: CallStatus.ringing,
+        localPosture: _localPosture,
+        peerPosture: sig.posture,
+        startedAt: _now(),
+        transport: sig.transport?.kind,
+      ),
+    );
     // Warm the media circuit back toward the caller while we ring, so audio is
     // ready the moment the user accepts.
     unawaited(_media?.prewarm(_current!));
@@ -332,17 +380,20 @@ class CallService {
       return;
     }
     _cancelRingTimeout();
-    final transport = sig.transport?.kind ??
+    final transport =
+        sig.transport?.kind ??
         negotiateCallTransport(
           local: c.localPosture,
           peer: sig.posture ?? CallPosture.anonymous,
         );
-    _set(c.copyWith(
-      status: CallStatus.connecting,
-      peerPosture: sig.posture,
-      transport: transport,
-      connectedAt: _now(),
-    ));
+    _set(
+      c.copyWith(
+        status: CallStatus.connecting,
+        peerPosture: sig.posture,
+        transport: transport,
+        connectedAt: _now(),
+      ),
+    );
     _startHeartbeat();
     unawaited(_startMedia());
   }
@@ -356,7 +407,11 @@ class CallService {
   // ---- helpers ------------------------------------------------------------
 
   Future<void> _sendControl(
-      NodeId peer, String callId, CallSignalType type, CallEndReason reason) {
+    NodeId peer,
+    String callId,
+    CallSignalType type,
+    CallEndReason reason,
+  ) {
     return _messaging.sendCallSignal(
       peer,
       CallSignal(callId: callId, type: type, reason: reason),
@@ -369,12 +424,14 @@ class CallService {
       final c = _current;
       if (c == null || !c.isLive) return;
       // Auto-end an unanswered call, telling the peer so their side stops ringing.
-      unawaited(_sendControl(
-        c.peer,
-        c.callId,
-        c.isOutgoing ? CallSignalType.cancel : CallSignalType.reject,
-        CallEndReason.timeout,
-      ));
+      unawaited(
+        _sendControl(
+          c.peer,
+          c.callId,
+          c.isOutgoing ? CallSignalType.cancel : CallSignalType.reject,
+          CallEndReason.timeout,
+        ),
+      );
       _end(CallEndReason.timeout);
     });
   }
@@ -409,19 +466,27 @@ class CallService {
       if (alive != null && _now().difference(alive) > kCallLivenessTimeout) {
         // Peer went silent on BOTH media and signaling → tell them (harmless if
         // already gone), then end locally so the UI leaves instead of hanging.
-        unawaited(_sendControl(
-            c.peer, c.callId, CallSignalType.end, CallEndReason.timeout));
+        unawaited(
+          _sendControl(
+            c.peer,
+            c.callId,
+            CallSignalType.end,
+            CallEndReason.timeout,
+          ),
+        );
         _end(CallEndReason.timeout);
         return;
       }
-      unawaited(_messaging.sendCallSignal(
-        c.peer,
-        CallSignal(
-          callId: c.callId,
-          type: CallSignalType.health,
-          sentAtMs: _now().millisecondsSinceEpoch,
+      unawaited(
+        _messaging.sendCallSignal(
+          c.peer,
+          CallSignal(
+            callId: c.callId,
+            type: CallSignalType.health,
+            sentAtMs: _now().millisecondsSinceEpoch,
+          ),
         ),
-      ));
+      );
     });
   }
 
@@ -442,14 +507,33 @@ class CallService {
   /// the same call is still connecting when `start` returns.
   Future<void> _startMedia() async {
     final media = _media;
-    if (media == null) return;
+    if (media == null) {
+      devLog(() => 'xVeil[call-media]: no media controller');
+      return;
+    }
     final c = _current;
     if (c == null || c.status != CallStatus.connecting) return;
     final callId = c.callId;
     bool ok = false;
     try {
-      ok = await media.start(c);
-    } catch (_) {
+      devLog(
+        () =>
+            'xVeil[call-media]: start call=${c.callId} '
+            'media=a${c.media.audio ? 1 : 0}v${c.media.video ? 1 : 0}'
+            's${c.media.screen ? 1 : 0}',
+      );
+      ok = await media
+          .start(c)
+          .timeout(
+            const Duration(seconds: 8),
+            onTimeout: () {
+              devLog(() => 'xVeil[call-media]: start timeout call=$callId');
+              return c.media.video || c.media.screen;
+            },
+          );
+      devLog(() => 'xVeil[call-media]: start result call=$callId ok=$ok');
+    } catch (e) {
+      devLog(() => 'xVeil[call-media]: start failed call=$callId: $e');
       ok = false;
     }
     final cur = _current;
@@ -470,7 +554,12 @@ class CallService {
       // Emit the terminal snapshot (so the UI can show "call ended" / reason),
       // then clear the slot with a trailing null so a new call can start.
       _changes.add(
-          c.copyWith(status: CallStatus.ended, endReason: reason, endedAt: _now()));
+        c.copyWith(
+          status: CallStatus.ended,
+          endReason: reason,
+          endedAt: _now(),
+        ),
+      );
     }
     _current = null;
     if (!_changes.isClosed) _changes.add(null);
@@ -495,7 +584,24 @@ final callServiceProvider = Provider<CallService>((ref) {
   final media = transport is VeilFlutterTransport
       ? VeilCallMediaController(transport)
       : null;
-  final svc = CallService(messaging, media: media)..start();
+  final svc = CallService(
+    messaging,
+    media: media,
+    localAllowsP2P: (peer) =>
+        ref.read(p2pPolicyProvider.notifier).allowsPeer(peer),
+    peerReachableForP2P: (peer) async {
+      final transport = ref.read(veilTransportProvider);
+      final peers = await transport.peers();
+      if (peers.any((p) => p.nodeId == peer && p.isActive)) return true;
+      // In the embedded runtime `peers()` reports live transport sessions, not
+      // every accepted chat identity. A contact can still be reachable for app
+      // datagrams (the same path that delivered this call offer/answer) without
+      // appearing there, so policy consent is enough to attempt P2P media. The
+      // media controller falls back to the anonymous channel if direct open
+      // fails.
+      return ref.read(p2pPolicyProvider.notifier).allowsPeer(peer);
+    },
+  )..start();
   ref.onDispose(svc.dispose);
   return svc;
 });
