@@ -315,6 +315,15 @@ class AppL10nEn extends AppL10n {
   String get searchNoResults => 'No results';
 
   @override
+  String get chatMsgPin => 'Pin';
+
+  @override
+  String get chatMsgUnpin => 'Unpin';
+
+  @override
+  String get chatPinnedLabel => 'Pinned message';
+
+  @override
   String get trayShow => 'Show';
 
   @override

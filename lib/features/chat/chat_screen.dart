@@ -95,6 +95,79 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   String? _highlightId;
   Timer? _highlightTimer;
 
+  // ── Pinned message (LOCAL, one per conversation) ────────────────────────────
+  // Stored in the settings KV as JSON {id, t} — the snippet travels with the
+  // id so the banner renders even when the message is outside the loaded
+  // window. Local-only, like the chat pin / alias / mute (no wire frame).
+  PinnedRef? _pinned;
+
+  Future<void> _loadPin() async {
+    try {
+      final raw = await ref
+          .read(storageProvider)
+          .getSetting('pin:${widget.peerHex}');
+      final rec = decodePinned(raw);
+      if (rec != null && mounted) setState(() => _pinned = rec);
+    } catch (_) {
+      // Corrupt/absent pin — leave unpinned.
+    }
+  }
+
+  Future<void> _setPin(Message m) async {
+    final body = m.body.isNotEmpty ? m.body : (m.fileName ?? '');
+    final encoded = encodePinned(m.id, body);
+    setState(() => _pinned = decodePinned(encoded));
+    try {
+      await ref
+          .read(storageProvider)
+          .putSetting('pin:${widget.peerHex}', encoded);
+    } catch (_) {}
+  }
+
+  Future<void> _clearPin() async {
+    setState(() => _pinned = null);
+    try {
+      await ref.read(storageProvider).putSetting('pin:${widget.peerHex}', '');
+    } catch (_) {}
+  }
+
+  Widget _pinnedBanner(AppL10n l) {
+    final scheme = Theme.of(context).colorScheme;
+    final p = _pinned!;
+    return Material(
+      color: scheme.surfaceContainerHighest,
+      child: InkWell(
+        onTap: () => _jumpToMessage(p.id, maxAttempts: 40),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            children: [
+              Icon(Icons.push_pin_outlined, size: 18, color: scheme.primary),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l.chatPinnedLabel,
+                      style: TextStyle(fontSize: 11, color: scheme.primary),
+                    ),
+                    Text(p.text, maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close, size: 18),
+                tooltip: l.chatMsgUnpin,
+                onPressed: _clearPin,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   void _flash(String id) {
     _highlightTimer?.cancel();
     setState(() => _highlightId = id);
@@ -266,6 +339,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         // Mark this chat as the one on screen so the notification layer
         // suppresses alerts for it while it's open + foreground.
         ref.read(activeConversationProvider.notifier).state = widget.peerHex;
+        unawaited(_loadPin());
       }
     });
   }
@@ -790,6 +864,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     _forwardMessages([m]);
                   },
                 ),
+              ListTile(
+                leading: Icon(
+                  _pinned?.id == m.id
+                      ? Icons.push_pin
+                      : Icons.push_pin_outlined,
+                ),
+                title: Text(
+                  _pinned?.id == m.id ? l.chatMsgUnpin : l.chatMsgPin,
+                ),
+                onTap: () {
+                  Navigator.of(sheet).pop();
+                  if (_pinned?.id == m.id) {
+                    _clearPin();
+                  } else {
+                    _setPin(m);
+                  }
+                },
+              ),
               ListTile(
                 leading: const Icon(Icons.checklist_outlined),
                 title: Text(l.chatMsgSelect),
@@ -1609,6 +1701,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           : null,
       body: Column(
         children: [
+          if (_pinned != null) _pinnedBanner(l),
           Expanded(
             child: messages.when(
               loading: () => const Center(child: CircularProgressIndicator()),

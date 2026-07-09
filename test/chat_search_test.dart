@@ -54,6 +54,27 @@ void main() {
     });
   });
 
+  group('pinned message encode/decode', () {
+    test('round-trips id and snippet', () {
+      final rec = decodePinned(encodePinned('m1', 'hello world'));
+      expect(rec?.id, 'm1');
+      expect(rec?.text, 'hello world');
+    });
+
+    test('caps a long snippet with an ellipsis', () {
+      final rec = decodePinned(encodePinned('m2', 'x' * 500));
+      expect(rec!.text.length, lessThan(500));
+      expect(rec.text.endsWith('…'), isTrue);
+    });
+
+    test('blank / null / corrupt decode to null', () {
+      expect(decodePinned(null), isNull);
+      expect(decodePinned(''), isNull);
+      expect(decodePinned('not json'), isNull);
+      expect(decodePinned('{"t":"no id"}'), isNull);
+    });
+  });
+
   test('filterConversationsByName matches label and name', () {
     final convos = [
       Conversation(peer: Contact(nodeId: _id(1), name: 'Alice')),
