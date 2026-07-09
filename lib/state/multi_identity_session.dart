@@ -15,6 +15,8 @@ import '../data/storage/multi_space_store.dart';
 import '../data/storage/storage.dart';
 import '../data/transport/veil_transport.dart';
 import '../data/veil_stack.dart';
+import '../domain/chat.dart';
+import '../domain/p2p_policy.dart';
 import '../domain/roster.dart';
 import 'messaging.dart';
 
@@ -228,6 +230,21 @@ class MultiIdentitySession {
                 anonymous: spec.anonymous,
                 streamRangeParallelism: xveilConfiguredStreamRangeParallelism(),
                 streamRangeEnabled: xveilConfiguredStreamRangeEnabled(),
+                p2pStreamAllowed: (peer) async {
+                  final contact = await storage.getContact(peer);
+                  final global = p2pGlobalPolicyFromName(
+                    await storage.getSetting(kP2PGlobalPolicySettingKey),
+                  );
+                  return p2pPolicyAllows(
+                    global: global,
+                    override:
+                        contact?.p2pOverride ?? kDefaultContactP2POverride,
+                    contactKnown: contact != null,
+                    contactAccepted: contact?.status == ContactStatus.accepted,
+                    contactBlocked: contact?.status == ContactStatus.blocked,
+                    localAnonymous: spec.anonymous,
+                  );
+                },
               )
               ..sourceOpener =
                   veilSourceOpener // DURABLE offers: re-open by path

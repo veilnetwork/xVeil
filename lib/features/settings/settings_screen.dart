@@ -17,7 +17,9 @@ import '../../state/signature_policy_controller.dart';
 import '../../state/keep_all_online_controller.dart';
 import '../../state/locale_controller.dart';
 import '../../state/notifications.dart';
+import '../../state/p2p_policy_controller.dart';
 import '../../state/providers.dart';
+import '../../domain/p2p_policy.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -46,6 +48,7 @@ class SettingsScreen extends ConsumerWidget {
     final ctrl = ref.read(appControllerProvider.notifier);
     final size = await ctrl.containerSizeBytes();
     var autoCompact = await ctrl.autoCompactEnabled();
+    var leanPadding = await ctrl.leanStoragePaddingEnabled();
     if (!context.mounted) return;
     await showModalBottomSheet<void>(
       context: context,
@@ -85,6 +88,17 @@ class SettingsScreen extends ConsumerWidget {
                     ctrl.setAutoCompactEnabled(v);
                   },
                 ),
+              SwitchListTile(
+                secondary: const Icon(Icons.speed_outlined),
+                title: Text(l.settingsStorageLeanPadding),
+                subtitle: Text(l.settingsStorageLeanPaddingBody),
+                isThreeLine: true,
+                value: leanPadding,
+                onChanged: (v) {
+                  setSheetState(() => leanPadding = v);
+                  ctrl.setLeanStoragePaddingEnabled(v);
+                },
+              ),
             ],
           ),
         ),
@@ -211,6 +225,37 @@ class SettingsScreen extends ConsumerWidget {
     SignaturePolicy.auto => l.signaturePolicyAuto,
     SignaturePolicy.refuse => l.signaturePolicyRefuse,
   };
+
+  String _p2pPolicyLabel(AppL10n l, P2PGlobalPolicy p) => switch (p) {
+    P2PGlobalPolicy.allowAll => l.p2pPolicyAllowAll,
+    P2PGlobalPolicy.contacts => l.p2pPolicyContacts,
+    P2PGlobalPolicy.selected => l.p2pPolicySelected,
+    P2PGlobalPolicy.denied => l.p2pPolicyDenied,
+  };
+
+  Future<void> _pickP2PPolicy(
+    BuildContext context,
+    WidgetRef ref,
+    AppL10n l,
+  ) async {
+    final current = ref.read(p2pPolicyProvider);
+    final choice = await showDialog<P2PGlobalPolicy>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: Text(l.settingsP2PPolicy),
+        children: [
+          for (final p in P2PGlobalPolicy.values)
+            ListTile(
+              title: Text(_p2pPolicyLabel(l, p)),
+              trailing: current == p ? const Icon(Icons.check) : null,
+              onTap: () => Navigator.of(context).pop(p),
+            ),
+        ],
+      ),
+    );
+    if (choice == null) return;
+    await ref.read(p2pPolicyProvider.notifier).set(choice);
+  }
 
   Future<void> _pickSignaturePolicy(
     BuildContext context,
@@ -600,6 +645,23 @@ class SettingsScreen extends ConsumerWidget {
               _signaturePolicyLabel(l, ref.watch(signaturePolicyProvider)),
             ),
             onTap: () => _pickSignaturePolicy(context, ref, l),
+          ),
+          Builder(
+            builder: (_) {
+              final p2p = ref.watch(p2pPolicyProvider);
+              final anon = ref.read(p2pPolicyProvider.notifier).localAnonymous;
+              return ListTile(
+                leading: const Icon(Icons.link_outlined),
+                title: Text(l.settingsCommunication),
+                subtitle: Text(
+                  anon
+                      ? l.settingsP2PPolicyAnonymousHint
+                      : l.settingsP2PPolicyHint,
+                ),
+                trailing: Text(_p2pPolicyLabel(l, p2p)),
+                onTap: () => _pickP2PPolicy(context, ref, l),
+              );
+            },
           ),
           // Where the chat-folder navigation lives: collapsible left/right
           // drawer or the always-visible top chip bar.

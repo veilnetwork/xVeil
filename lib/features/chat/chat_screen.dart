@@ -59,7 +59,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   void _onScrollChanged() {
     if (!_scroll.hasClients) return;
-    final away = _scroll.position.maxScrollExtent - _scroll.position.pixels >
+    final away =
+        _scroll.position.maxScrollExtent - _scroll.position.pixels >
         _kAwayFromBottomPx;
     if (away != _awayFromBottom) setState(() => _awayFromBottom = away);
   }
@@ -87,8 +88,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         return; // in the window but never mounted — give up quietly
       }
       // Not in the window: load one more page of history and retry.
-      ref.read(chatWindowProvider(widget.peerHex).notifier).state +=
-          ref.read(chatPageSizeProvider);
+      ref.read(chatWindowProvider(widget.peerHex).notifier).state += ref.read(
+        chatPageSizeProvider,
+      );
       await Future<void>.delayed(const Duration(milliseconds: 250));
       if (!mounted) return;
     }
@@ -438,10 +440,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         .contentDownloadFailed
         .firstWhere((c) => c == cid)
         .then((_) async {
-          for (final path in [
-            if (deletePath != null) deletePath,
-            ...deletePaths,
-          ]) {
+          for (final path in [?deletePath, ...deletePaths]) {
             try {
               await File(path).delete();
             } catch (_) {
@@ -650,110 +649,108 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       isScrollControlled: true,
       builder: (sheet) => SafeArea(
         child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.reply_outlined),
-              title: Text(l.chatMsgReply),
-              onTap: () {
-                Navigator.of(sheet).pop();
-                _startReply(m);
-              },
-            ),
-            if (!m.isFile)
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
               ListTile(
-                leading: const Icon(Icons.forward_outlined),
-                title: Text(l.chatMsgForward),
+                leading: const Icon(Icons.reply_outlined),
+                title: Text(l.chatMsgReply),
                 onTap: () {
                   Navigator.of(sheet).pop();
-                  _forwardMessages([m]);
+                  _startReply(m);
                 },
               ),
-            ListTile(
-              leading: const Icon(Icons.checklist_outlined),
-              title: Text(l.chatMsgSelect),
-              onTap: () {
-                Navigator.of(sheet).pop();
-                _toggleSelected(m);
-              },
-            ),
-            if (!m.isFile)
+              if (!m.isFile)
+                ListTile(
+                  leading: const Icon(Icons.forward_outlined),
+                  title: Text(l.chatMsgForward),
+                  onTap: () {
+                    Navigator.of(sheet).pop();
+                    _forwardMessages([m]);
+                  },
+                ),
               ListTile(
-                leading: const Icon(Icons.copy_outlined),
-                title: Text(l.chatMsgCopy),
+                leading: const Icon(Icons.checklist_outlined),
+                title: Text(l.chatMsgSelect),
                 onTap: () {
                   Navigator.of(sheet).pop();
-                  _copyMessage(m);
+                  _toggleSelected(m);
                 },
               ),
-            if (!m.isFile)
+              if (!m.isFile)
+                ListTile(
+                  leading: const Icon(Icons.copy_outlined),
+                  title: Text(l.chatMsgCopy),
+                  onTap: () {
+                    Navigator.of(sheet).pop();
+                    _copyMessage(m);
+                  },
+                ),
+              if (!m.isFile)
+                ListTile(
+                  leading: const Icon(Icons.copy_all_outlined),
+                  title: Text(l.chatMsgCopyMeta),
+                  onTap: () {
+                    Navigator.of(sheet).pop();
+                    _copyMessage(m, withMetadata: true);
+                  },
+                ),
+              if (own && !m.isFile)
+                ListTile(
+                  leading: const Icon(Icons.edit_outlined),
+                  title: Text(l.chatMsgEdit),
+                  onTap: () {
+                    Navigator.of(sheet).pop();
+                    _editMessage(m);
+                  },
+                ),
+              if (own)
+                ListTile(
+                  leading: const Icon(Icons.delete_forever_outlined),
+                  title: Text(l.chatMsgDeleteForEveryone),
+                  onTap: () {
+                    Navigator.of(sheet).pop();
+                    _deleteMessage(m, forEveryone: true);
+                  },
+                ),
               ListTile(
-                leading: const Icon(Icons.copy_all_outlined),
-                title: Text(l.chatMsgCopyMeta),
+                leading: const Icon(Icons.delete_outline),
+                title: Text(l.chatMsgDeleteForMe),
                 onTap: () {
                   Navigator.of(sheet).pop();
-                  _copyMessage(m, withMetadata: true);
+                  _deleteMessage(m, forEveryone: false);
                 },
               ),
-            if (own && !m.isFile)
+              if (m.edited && !m.isFile)
+                ListTile(
+                  leading: const Icon(Icons.history),
+                  title: Text(l.chatMsgHistory),
+                  onTap: () {
+                    Navigator.of(sheet).pop();
+                    _showMessageHistory(m);
+                  },
+                ),
+              // Ask the AUTHOR to attest they wrote this incoming message. Only
+              // for a peer's text message that isn't already verified.
+              if (!own && !m.isFile && m.signature != MessageSignature.verified)
+                ListTile(
+                  leading: const Icon(Icons.verified_user_outlined),
+                  title: Text(l.chatMsgRequestSignature),
+                  onTap: () {
+                    Navigator.of(sheet).pop();
+                    _requestSignature(m);
+                  },
+                ),
               ListTile(
-                leading: const Icon(Icons.edit_outlined),
-                title: Text(l.chatMsgEdit),
+                leading: const Icon(Icons.info_outline),
+                title: Text(l.chatMsgInfo),
                 onTap: () {
                   Navigator.of(sheet).pop();
-                  _editMessage(m);
+                  _showMessageInfo(m);
                 },
               ),
-            if (own)
-              ListTile(
-                leading: const Icon(Icons.delete_forever_outlined),
-                title: Text(l.chatMsgDeleteForEveryone),
-                onTap: () {
-                  Navigator.of(sheet).pop();
-                  _deleteMessage(m, forEveryone: true);
-                },
-              ),
-            ListTile(
-              leading: const Icon(Icons.delete_outline),
-              title: Text(l.chatMsgDeleteForMe),
-              onTap: () {
-                Navigator.of(sheet).pop();
-                _deleteMessage(m, forEveryone: false);
-              },
-            ),
-            if (m.edited && !m.isFile)
-              ListTile(
-                leading: const Icon(Icons.history),
-                title: Text(l.chatMsgHistory),
-                onTap: () {
-                  Navigator.of(sheet).pop();
-                  _showMessageHistory(m);
-                },
-              ),
-            // Ask the AUTHOR to attest they wrote this incoming message. Only
-            // for a peer's text message that isn't already verified.
-            if (!own &&
-                !m.isFile &&
-                m.signature != MessageSignature.verified)
-              ListTile(
-                leading: const Icon(Icons.verified_user_outlined),
-                title: Text(l.chatMsgRequestSignature),
-                onTap: () {
-                  Navigator.of(sheet).pop();
-                  _requestSignature(m);
-                },
-              ),
-            ListTile(
-              leading: const Icon(Icons.info_outline),
-              title: Text(l.chatMsgInfo),
-              onTap: () {
-                Navigator.of(sheet).pop();
-                _showMessageInfo(m);
-              },
-            ),
-          ],
-        ),
+            ],
+          ),
         ),
       ),
     );
@@ -826,15 +823,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Preserve the true origin when re-forwarding an already-forwarded
       // message; else the author is me (outgoing) or the conversation peer /
       // recorded event-log author (incoming).
-      final originHex = m.forwardedFrom ??
+      final originHex =
+          m.forwardedFrom ??
           (m.direction == MessageDirection.outgoing
               ? (myHex ?? widget.peerHex)
               : (m.author ?? widget.peerHex));
-      await svc.sendText(
-        target,
-        m.body,
-        forwardedFrom: originHex,
-      );
+      await svc.sendText(target, m.body, forwardedFrom: originHex);
     }
     _clearSelection();
     if (mounted) {
@@ -860,8 +854,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              title: Text(l.chatForwardTo,
-                  style: Theme.of(sheet).textTheme.titleMedium),
+              title: Text(
+                l.chatForwardTo,
+                style: Theme.of(sheet).textTheme.titleMedium,
+              ),
             ),
             if (accepted.isEmpty)
               ListTile(title: Text(l.chatForwardNoTargets))
@@ -903,7 +899,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _clearSelection();
     if (!mounted) return;
     messenger.showSnackBar(
-      SnackBar(content: Text(l.chatMsgCopied), duration: const Duration(seconds: 1)),
+      SnackBar(
+        content: Text(l.chatMsgCopied),
+        duration: const Duration(seconds: 1),
+      ),
     );
   }
 
@@ -912,8 +911,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// message allows (own → for-everyone when chosen; incoming → for-me).
   Future<void> _deleteSelected(List<Message> all) async {
     final l = AppL10n.of(context);
-    final chosen =
-        all.where((m) => _selected.contains(m.id)).toList(growable: false);
+    final chosen = all
+        .where((m) => _selected.contains(m.id))
+        .toList(growable: false);
     if (chosen.isEmpty) return;
     final anyOwn = chosen.any((m) => m.direction == MessageDirection.outgoing);
     final forEveryone = await showDialog<bool>(
@@ -1021,6 +1021,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         await svc.setContactMutedUntil(_peer, null);
       case _ChatMenuAction.retention:
         await _pickRetention();
+      case _ChatMenuAction.communication:
+        final contact = ref.read(contactProvider(widget.peerHex)).value;
+        if (contact != null && mounted) {
+          await showConversationActions(context, ref, contact);
+        }
       case _ChatMenuAction.block:
         await svc.blockContact(_peer);
       case _ChatMenuAction.unblock:
@@ -1144,7 +1149,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   label: l.msgInfoStatus,
                   value: _statusLabel(l, m.status),
                 ),
-              if (m.edited) _InfoRow(label: l.msgInfoEdited, value: l.msgInfoYes),
+              if (m.edited)
+                _InfoRow(label: l.msgInfoEdited, value: l.msgInfoYes),
               if (m.isFile && m.fileName != null)
                 _InfoRow(label: l.msgInfoFile, value: m.fileName!),
               if (m.fileSize != null)
@@ -1280,8 +1286,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final fromBottom = _scroll.hasClients
         ? _scroll.position.maxScrollExtent - _scroll.position.pixels
         : null;
-    ref.read(chatWindowProvider(widget.peerHex).notifier).state +=
-        ref.read(chatPageSizeProvider);
+    ref.read(chatWindowProvider(widget.peerHex).notifier).state += ref.read(
+      chatPageSizeProvider,
+    );
     if (fromBottom != null) _restoreFromBottom(fromBottom);
   }
 
@@ -1326,7 +1333,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               IconButton(
                 tooltip: l.chatMsgCopy,
                 icon: const Icon(Icons.copy_outlined),
-                onPressed: () => _copySelected(messages.valueOrNull ?? const []),
+                onPressed: () =>
+                    _copySelected(messages.valueOrNull ?? const []),
               ),
               IconButton(
                 tooltip: l.chatMsgForward,
@@ -1348,111 +1356,122 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         : null;
 
     return Scaffold(
-      appBar: selectionBar ??
+      appBar:
+          selectionBar ??
           AppBar(
-        title: Row(
-          children: [
-            CircleAvatar(
-              radius: 16,
-              child: Text(title.characters.first.toUpperCase()),
-            ),
-            const SizedBox(width: 12),
-            Expanded(child: Text(title, overflow: TextOverflow.ellipsis)),
-          ],
-        ),
-        actions: [
-          // Start a call — only an accepted contact can be dialled. Picks the
-          // media set; the CallService FSM sends the offer + negotiates the path.
-          if (status == ContactStatus.accepted)
-            PopupMenuButton<CallMedia>(
-              icon: const Icon(Icons.call),
-              tooltip: l.callStartTooltip,
-              onSelected: (m) =>
-                  ref.read(callServiceProvider).placeCall(_peer, m),
-              itemBuilder: (_) => [
-                PopupMenuItem(
-                  value: const CallMedia(audio: true),
-                  child: Row(children: [
-                    const Icon(Icons.call, size: 18),
-                    const SizedBox(width: 12),
-                    Text(l.callAudio),
-                  ]),
+            title: Row(
+              children: [
+                CircleAvatar(
+                  radius: 16,
+                  child: Text(title.characters.first.toUpperCase()),
                 ),
-                PopupMenuItem(
-                  value: const CallMedia(audio: true, video: true),
-                  child: Row(children: [
-                    const Icon(Icons.videocam, size: 18),
-                    const SizedBox(width: 12),
-                    Text(l.callVideo),
-                  ]),
-                ),
-                PopupMenuItem(
-                  value: const CallMedia(audio: true, screen: true),
-                  child: Row(children: [
-                    const Icon(Icons.screen_share, size: 18),
-                    const SizedBox(width: 12),
-                    Text(l.callScreen),
-                  ]),
-                ),
+                const SizedBox(width: 12),
+                Expanded(child: Text(title, overflow: TextOverflow.ellipsis)),
               ],
             ),
-          PopupMenuButton<_ChatMenuAction>(
-            onSelected: (a) => _onMenuAction(a, status),
-            itemBuilder: (_) => [
-              PopupMenuItem(
-                value: _ChatMenuAction.rename,
-                child: Text(l.chatMenuRename),
-              ),
-              // Pin/unpin this conversation to the top of the chat list.
-              if (contact?.pinned ?? false)
-                PopupMenuItem(
-                  value: _ChatMenuAction.unpin,
-                  child: Text(l.chatMenuUnpin),
-                )
-              else
-                PopupMenuItem(
-                  value: _ChatMenuAction.pin,
-                  child: Text(l.chatMenuPin),
+            actions: [
+              // Start a call — only an accepted contact can be dialled. Picks the
+              // media set; the CallService FSM sends the offer + negotiates the path.
+              if (status == ContactStatus.accepted)
+                PopupMenuButton<CallMedia>(
+                  icon: const Icon(Icons.call),
+                  tooltip: l.callStartTooltip,
+                  onSelected: (m) =>
+                      ref.read(callServiceProvider).placeCall(_peer, m),
+                  itemBuilder: (_) => [
+                    PopupMenuItem(
+                      value: const CallMedia(audio: true),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.call, size: 18),
+                          const SizedBox(width: 12),
+                          Text(l.callAudio),
+                        ],
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: const CallMedia(audio: true, video: true),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.videocam, size: 18),
+                          const SizedBox(width: 12),
+                          Text(l.callVideo),
+                        ],
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: const CallMedia(audio: true, screen: true),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.screen_share, size: 18),
+                          const SizedBox(width: 12),
+                          Text(l.callScreen),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-              // Mute/unmute local notifications for this conversation.
-              if (contact?.muted ?? false)
-                PopupMenuItem(
-                  value: _ChatMenuAction.unmute,
-                  child: Text(l.chatMenuUnmute),
-                )
-              else
-                PopupMenuItem(
-                  value: _ChatMenuAction.mute,
-                  child: Text(l.chatMenuMute),
-                ),
-              PopupMenuItem(
-                value: _ChatMenuAction.retention,
-                child: Text(l.chatMenuRetention),
-              ),
-              // Block an accepted contact (their messages get dropped) or lift
-              // an existing block — local-only, the peer is never told either way.
-              if (status == ContactStatus.blocked)
-                PopupMenuItem(
-                  value: _ChatMenuAction.unblock,
-                  child: Text(l.chatMenuUnblock),
-                )
-              else
-                PopupMenuItem(
-                  value: _ChatMenuAction.block,
-                  child: Text(l.actionBlock),
-                ),
-              PopupMenuItem(
-                value: _ChatMenuAction.clear,
-                child: Text(l.chatMenuClearHistory),
-              ),
-              PopupMenuItem(
-                value: _ChatMenuAction.delete,
-                child: Text(l.chatMenuDeleteConversation),
+              PopupMenuButton<_ChatMenuAction>(
+                onSelected: (a) => _onMenuAction(a, status),
+                itemBuilder: (_) => [
+                  PopupMenuItem(
+                    value: _ChatMenuAction.rename,
+                    child: Text(l.chatMenuRename),
+                  ),
+                  // Pin/unpin this conversation to the top of the chat list.
+                  if (contact?.pinned ?? false)
+                    PopupMenuItem(
+                      value: _ChatMenuAction.unpin,
+                      child: Text(l.chatMenuUnpin),
+                    )
+                  else
+                    PopupMenuItem(
+                      value: _ChatMenuAction.pin,
+                      child: Text(l.chatMenuPin),
+                    ),
+                  // Mute/unmute local notifications for this conversation.
+                  if (contact?.muted ?? false)
+                    PopupMenuItem(
+                      value: _ChatMenuAction.unmute,
+                      child: Text(l.chatMenuUnmute),
+                    )
+                  else
+                    PopupMenuItem(
+                      value: _ChatMenuAction.mute,
+                      child: Text(l.chatMenuMute),
+                    ),
+                  PopupMenuItem(
+                    value: _ChatMenuAction.retention,
+                    child: Text(l.chatMenuRetention),
+                  ),
+                  PopupMenuItem(
+                    value: _ChatMenuAction.communication,
+                    child: Text(l.chatMenuCommunicationSettings),
+                  ),
+                  // Block an accepted contact (their messages get dropped) or lift
+                  // an existing block — local-only, the peer is never told either way.
+                  if (status == ContactStatus.blocked)
+                    PopupMenuItem(
+                      value: _ChatMenuAction.unblock,
+                      child: Text(l.chatMenuUnblock),
+                    )
+                  else
+                    PopupMenuItem(
+                      value: _ChatMenuAction.block,
+                      child: Text(l.actionBlock),
+                    ),
+                  PopupMenuItem(
+                    value: _ChatMenuAction.clear,
+                    child: Text(l.chatMenuClearHistory),
+                  ),
+                  PopupMenuItem(
+                    value: _ChatMenuAction.delete,
+                    child: Text(l.chatMenuDeleteConversation),
+                  ),
+                ],
               ),
             ],
           ),
-        ],
-      ),
       // "Jump to latest": appears once the user is a screenful+ away from the
       // bottom (getting back from deep history is otherwise a long drag).
       floatingActionButton: _awayFromBottom
@@ -1724,6 +1743,7 @@ enum _ChatMenuAction {
   mute,
   unmute,
   retention,
+  communication,
   block,
   unblock,
   clear,
@@ -1818,9 +1838,9 @@ class _ReplyBanner extends StatelessWidget {
                 children: [
                   Text(
                     l.chatReplyingTo,
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: scheme.primary,
-                    ),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.labelSmall?.copyWith(color: scheme.primary),
                   ),
                   Text(
                     _quotePreview(l, message),
@@ -1984,249 +2004,257 @@ class _Bubble extends ConsumerWidget {
         : ref.watch(contentProgressProvider.select((m) => m[cid]));
     // A parked auto-resume shows NO progress until a pull moves bytes; surface
     // it as "resuming…" so a queued/retrying download does not look idle.
-    final resuming = cid != null &&
+    final resuming =
+        cid != null &&
         progress == null &&
         ref.watch(contentResumingProvider.select((s) => s.contains(cid)));
     return Container(
       // Selected rows get a full-width tint so the selection reads at a glance.
       color: selected ? scheme.primary.withValues(alpha: 0.12) : null,
       child: Align(
-      alignment: outgoing ? Alignment.centerRight : Alignment.centerLeft,
-      child: GestureDetector(
-        // Long-press (touch) AND secondary-tap (desktop right-click) both open
-        // the message actions — without the latter the menu is unreachable on
-        // desktop, where there is no long-press. In select mode a plain tap
-        // toggles the row instead.
-        onTap: onTap,
-        onLongPress: onLongPress == null ? null : () => onLongPress!(message),
-        onSecondaryTap: onLongPress == null
-            ? null
-            : () => onLongPress!(message),
-        child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 4),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(context).size.width * 0.75,
-          ),
-          decoration: BoxDecoration(
-            color: outgoing
-                ? scheme.primaryContainer
-                : scheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.only(
-              topLeft: const Radius.circular(16),
-              topRight: const Radius.circular(16),
-              bottomLeft: Radius.circular(outgoing ? 16 : 4),
-              bottomRight: Radius.circular(outgoing ? 4 : 16),
+        alignment: outgoing ? Alignment.centerRight : Alignment.centerLeft,
+        child: GestureDetector(
+          // Long-press (touch) AND secondary-tap (desktop right-click) both open
+          // the message actions — without the latter the menu is unreachable on
+          // desktop, where there is no long-press. In select mode a plain tap
+          // toggles the row instead.
+          onTap: onTap,
+          onLongPress: onLongPress == null ? null : () => onLongPress!(message),
+          onSecondaryTap: onLongPress == null
+              ? null
+              : () => onLongPress!(message),
+          child: Container(
+            margin: const EdgeInsets.symmetric(vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.75,
             ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // "Forwarded from X" caption. The wire carries the original
-              // author's node-id hex; resolve it through MY OWN contacts here so
-              // the sender's private alias never leaked (see _forwardMessages).
-              if (message.forwardedFrom != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.forward, size: 13,
-                          color: scheme.onSurfaceVariant),
-                      const SizedBox(width: 4),
-                      Flexible(
-                        child: Text(
-                          l.chatForwardedFrom(
-                              _resolveForwardAuthor(ref, l, message.forwardedFrom!)),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context)
-                              .textTheme
-                              .labelSmall
-                              ?.copyWith(
-                                color: scheme.onSurfaceVariant,
-                                fontStyle: FontStyle.italic,
+            decoration: BoxDecoration(
+              color: outgoing
+                  ? scheme.primaryContainer
+                  : scheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.only(
+                topLeft: const Radius.circular(16),
+                topRight: const Radius.circular(16),
+                bottomLeft: Radius.circular(outgoing ? 16 : 4),
+                bottomRight: Radius.circular(outgoing ? 4 : 16),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // "Forwarded from X" caption. The wire carries the original
+                // author's node-id hex; resolve it through MY OWN contacts here so
+                // the sender's private alias never leaked (see _forwardMessages).
+                if (message.forwardedFrom != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.forward,
+                          size: 13,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            l.chatForwardedFrom(
+                              _resolveForwardAuthor(
+                                ref,
+                                l,
+                                message.forwardedFrom!,
                               ),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(
+                                  color: scheme.onSurfaceVariant,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                // Quoted reply preview (a reference to a deleted/out-of-window
+                // message shows a generic stub). Tapping it jumps to the quoted
+                // message.
+                if (message.replyToId != null)
+                  GestureDetector(
+                    onTap: onTapQuote,
+                    child: _QuoteBlock(quoted: quoted, outgoing: outgoing),
+                  ),
+                if (message.isFile)
+                  FutureBuilder<_FileAffordance>(
+                    future: _affordance(ref),
+                    builder: (context, snap) {
+                      final a =
+                          snap.data ??
+                          (message.fileId != null
+                              ? _FileAffordance.save
+                              : _FileAffordance.download);
+                      // Terminal state only renders when nothing is in flight —
+                      // a live retry's spinner wins over the stale mark.
+                      final gone =
+                          progress == null && a == _FileAffordance.gone;
+                      return InkWell(
+                        onTap: onTapFile == null
+                            ? null
+                            : () => onTapFile!(message),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.insert_drive_file_outlined,
+                              size: 20,
+                              color: scheme.onSurfaceVariant,
+                            ),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    message.fileName ?? message.body,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  // Subtitle: "Downloading NN%" while a transfer
+                                  // is in flight; the ask-to-re-send notice when
+                                  // every holder said GONE; else the file size.
+                                  if (progress != null)
+                                    Text(
+                                      '${l.fileDownloading} ${(progress * 100).round()}%',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .labelSmall
+                                          ?.copyWith(
+                                            color: scheme.onSurfaceVariant,
+                                          ),
+                                    )
+                                  else if (resuming)
+                                    Text(
+                                      l.fileResuming,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .labelSmall
+                                          ?.copyWith(
+                                            color: scheme.onSurfaceVariant,
+                                          ),
+                                    )
+                                  else if (gone)
+                                    Text(
+                                      l.fileGoneAskResend,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .labelSmall
+                                          ?.copyWith(color: scheme.error),
+                                    )
+                                  else if (message.fileSize != null)
+                                    Text(
+                                      _formatBytes(message.fileSize!),
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .labelSmall
+                                          ?.copyWith(
+                                            color: scheme.onSurfaceVariant,
+                                          ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            // While downloading: a ring at the current fraction.
+                            // Else an icon per affordance. A HELD blob shows the
+                            // "downloaded ✓" mark (NOT a plain down-arrow — that
+                            // reads as "still needs downloading", the exact
+                            // confusion users hit after storage compaction, which
+                            // keeps the file but the bubble looked un-fetched);
+                            // tapping it still exports/saves.
+                            if (progress != null)
+                              SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  value: progress == 0 ? null : progress,
+                                  strokeWidth: 2,
+                                  color: scheme.onSurfaceVariant,
+                                ),
+                              )
+                            else if (resuming)
+                              // Indeterminate: a parked resume has no fraction yet.
+                              SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: scheme.onSurfaceVariant,
+                                ),
+                              )
+                            else
+                              Icon(
+                                switch (a) {
+                                  _FileAffordance.save =>
+                                    Icons.download_done_outlined,
+                                  _FileAffordance.open => Icons.open_in_new,
+                                  _FileAffordance.gone =>
+                                    Icons.file_download_off_outlined,
+                                  _FileAffordance.download =>
+                                    Icons.download_outlined,
+                                },
+                                size: 16,
+                                color: switch (a) {
+                                  _FileAffordance.gone => scheme.error,
+                                  _FileAffordance.save => scheme.primary,
+                                  _ => scheme.onSurfaceVariant,
+                                },
+                              ),
+                          ],
+                        ),
+                      );
+                    },
+                  )
+                else
+                  Text(message.body),
+                const SizedBox(height: 2),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (message.edited) ...[
+                      Text(
+                        l.chatEdited,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                          fontStyle: FontStyle.italic,
                         ),
                       ),
+                      const SizedBox(width: 4),
                     ],
-                  ),
-                ),
-              // Quoted reply preview (a reference to a deleted/out-of-window
-              // message shows a generic stub). Tapping it jumps to the quoted
-              // message.
-              if (message.replyToId != null)
-                GestureDetector(
-                  onTap: onTapQuote,
-                  child: _QuoteBlock(quoted: quoted, outgoing: outgoing),
-                ),
-              if (message.isFile)
-                FutureBuilder<_FileAffordance>(
-                  future: _affordance(ref),
-                  builder: (context, snap) {
-                    final a =
-                        snap.data ??
-                        (message.fileId != null
-                            ? _FileAffordance.save
-                            : _FileAffordance.download);
-                    // Terminal state only renders when nothing is in flight —
-                    // a live retry's spinner wins over the stale mark.
-                    final gone = progress == null && a == _FileAffordance.gone;
-                    return InkWell(
-                      onTap: onTapFile == null
-                          ? null
-                          : () => onTapFile!(message),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.insert_drive_file_outlined,
-                            size: 20,
-                            color: scheme.onSurfaceVariant,
-                          ),
-                          const SizedBox(width: 8),
-                          Flexible(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  message.fileName ?? message.body,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                // Subtitle: "Downloading NN%" while a transfer
-                                // is in flight; the ask-to-re-send notice when
-                                // every holder said GONE; else the file size.
-                                if (progress != null)
-                                  Text(
-                                    '${l.fileDownloading} ${(progress * 100).round()}%',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .labelSmall
-                                        ?.copyWith(
-                                          color: scheme.onSurfaceVariant,
-                                        ),
-                                  )
-                                else if (resuming)
-                                  Text(
-                                    l.fileResuming,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .labelSmall
-                                        ?.copyWith(
-                                          color: scheme.onSurfaceVariant,
-                                        ),
-                                  )
-                                else if (gone)
-                                  Text(
-                                    l.fileGoneAskResend,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .labelSmall
-                                        ?.copyWith(color: scheme.error),
-                                  )
-                                else if (message.fileSize != null)
-                                  Text(
-                                    _formatBytes(message.fileSize!),
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .labelSmall
-                                        ?.copyWith(
-                                          color: scheme.onSurfaceVariant,
-                                        ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          // While downloading: a ring at the current fraction.
-                          // Else an icon per affordance. A HELD blob shows the
-                          // "downloaded ✓" mark (NOT a plain down-arrow — that
-                          // reads as "still needs downloading", the exact
-                          // confusion users hit after storage compaction, which
-                          // keeps the file but the bubble looked un-fetched);
-                          // tapping it still exports/saves.
-                          if (progress != null)
-                            SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                value: progress == 0 ? null : progress,
-                                strokeWidth: 2,
-                                color: scheme.onSurfaceVariant,
-                              ),
-                            )
-                          else if (resuming)
-                            // Indeterminate: a parked resume has no fraction yet.
-                            SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: scheme.onSurfaceVariant,
-                              ),
-                            )
-                          else
-                            Icon(
-                              switch (a) {
-                                _FileAffordance.save =>
-                                  Icons.download_done_outlined,
-                                _FileAffordance.open => Icons.open_in_new,
-                                _FileAffordance.gone =>
-                                  Icons.file_download_off_outlined,
-                                _FileAffordance.download =>
-                                  Icons.download_outlined,
-                              },
-                              size: 16,
-                              color: switch (a) {
-                                _FileAffordance.gone => scheme.error,
-                                _FileAffordance.save => scheme.primary,
-                                _ => scheme.onSurfaceVariant,
-                              },
-                            ),
-                        ],
-                      ),
-                    );
-                  },
-                )
-              else
-                Text(message.body),
-              const SizedBox(height: 2),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (message.edited) ...[
                     Text(
-                      l.chatEdited,
+                      formatHhmm(message.timestamp),
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
                         color: scheme.onSurfaceVariant,
-                        fontStyle: FontStyle.italic,
                       ),
                     ),
-                    const SizedBox(width: 4),
+                    if (outgoing) ...[
+                      const SizedBox(width: 4),
+                      Icon(
+                        _statusIcon(message.status),
+                        size: 13,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ],
+                    ..._signatureBadge(context, l, scheme),
                   ],
-                  Text(
-                    formatHhmm(message.timestamp),
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                  if (outgoing) ...[
-                    const SizedBox(width: 4),
-                    Icon(
-                      _statusIcon(message.status),
-                      size: 13,
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ],
-                  ..._signatureBadge(context, l, scheme),
-                ],
-              ),
-            ],
+                ),
+              ],
+            ),
           ),
         ),
-      ),
       ),
     );
   }
@@ -2234,29 +2262,36 @@ class _Bubble extends ConsumerWidget {
   /// Attestation badge for the "request signature" feature — an icon + tooltip
   /// reflecting [Message.signature]. Empty for [MessageSignature.none].
   List<Widget> _signatureBadge(
-      BuildContext context, AppL10n l, ColorScheme scheme) {
-    final (IconData icon, Color color, String tip) = switch (message.signature) {
+    BuildContext context,
+    AppL10n l,
+    ColorScheme scheme,
+  ) {
+    final (
+      IconData icon,
+      Color color,
+      String tip,
+    ) = switch (message.signature) {
       MessageSignature.none => (Icons.circle, Colors.transparent, ''),
       MessageSignature.requested => (
-          Icons.hourglass_empty,
-          scheme.onSurfaceVariant,
-          l.chatSignaturePending,
-        ),
+        Icons.hourglass_empty,
+        scheme.onSurfaceVariant,
+        l.chatSignaturePending,
+      ),
       MessageSignature.verified => (
-          Icons.verified,
-          Colors.green,
-          l.chatSignatureVerified,
-        ),
+        Icons.verified,
+        Colors.green,
+        l.chatSignatureVerified,
+      ),
       MessageSignature.refused => (
-          Icons.gpp_bad_outlined,
-          scheme.onSurfaceVariant,
-          l.chatSignatureRefused,
-        ),
+        Icons.gpp_bad_outlined,
+        scheme.onSurfaceVariant,
+        l.chatSignatureRefused,
+      ),
       MessageSignature.failed => (
-          Icons.error_outline,
-          scheme.error,
-          l.chatSignatureFailed,
-        ),
+        Icons.error_outline,
+        scheme.error,
+        l.chatSignatureFailed,
+      ),
     };
     if (message.signature == MessageSignature.none) return const [];
     return [

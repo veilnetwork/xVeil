@@ -61,3 +61,12 @@ const veilStreamEndpointId = 12;
 /// for an anonymous reliable stream to that peer.
 Uint8List streamAppIdFor(NodeId peer) =>
     deriveAppId(peer, veilChatNamespace, veilStreamName);
+
+/// The dedicated direct-P2P media endpoint for realtime call RTP/RTCP
+/// datagrams. Kept separate from chat and bulk streams so media never enters
+/// the durable-message inbox.
+const veilMediaName = 'media';
+const veilMediaEndpointId = 13;
+
+Uint8List mediaAppIdFor(NodeId peer) =>
+    deriveAppId(peer, veilChatNamespace, veilMediaName);

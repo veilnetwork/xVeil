@@ -172,3 +172,17 @@ abstract interface class StreamTransport {
   /// has no warmable state (in-memory test pipes).
   Future<void> warmStreamPeer(NodeId dst);
 }
+
+/// Optional direct P2P bulk stream surface.
+///
+/// Implementations expose this only when the native node can bridge AppOpen /
+/// AppData directly over an active peer session. Callers must gate usage with
+/// user P2P policy and anonymity posture; anonymous identities must never call
+/// this surface.
+abstract interface class P2PStreamTransport {
+  Future<ReliableStream?> openP2PStream(NodeId dst);
+
+  Future<({ReliableStream stream, NodeId src})?> acceptP2PStream({
+    Duration timeout,
+  });
+}

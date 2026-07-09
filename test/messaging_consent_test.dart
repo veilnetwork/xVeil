@@ -9,6 +9,7 @@ import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/p2p_policy.dart';
 import 'package:xveil/state/messaging.dart';
 
 NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
@@ -32,7 +33,11 @@ class _FakeTransport implements VeilTransport {
   @override
   Future<void> sendReply(int replyId, Uint8List payload) async {}
   @override
-  Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) async {
+  Future<void> send(
+    NodeId dst,
+    Uint8List payload, {
+    bool anonymous = false,
+  }) async {
     peer?._inbound.add(InboundMessage(src: _me, payload: payload));
   }
 
@@ -72,31 +77,36 @@ void main() {
     mB = MessagingService(tB, sB)..start();
   });
 
-  test('request -> accept -> message; gating blocks pre-accept and strangers',
-      () async {
-    // A requests B with a greeting.
-    await mA.sendRequest(b, 'hi, can we connect?');
-    await _pump();
-    expect((await sA.getContact(b))!.status, ContactStatus.pendingOutgoing);
-    expect((await sB.getContact(a))!.status, ContactStatus.pendingIncoming);
-    expect((await sB.loadMessages(a.hex)).single.body, 'hi, can we connect?');
+  test(
+    'request -> accept -> message; gating blocks pre-accept and strangers',
+    () async {
+      // A requests B with a greeting.
+      await mA.sendRequest(b, 'hi, can we connect?');
+      await _pump();
+      expect((await sA.getContact(b))!.status, ContactStatus.pendingOutgoing);
+      expect((await sB.getContact(a))!.status, ContactStatus.pendingIncoming);
+      expect((await sB.loadMessages(a.hex)).single.body, 'hi, can we connect?');
 
-    // A cannot free-message before B accepts.
-    await mA.sendText(b, 'let me in');
-    await _pump();
-    expect((await sB.loadMessages(a.hex)).length, 1); // greeting only
+      // A cannot free-message before B accepts.
+      await mA.sendText(b, 'let me in');
+      await _pump();
+      expect((await sB.loadMessages(a.hex)).length, 1); // greeting only
 
-    // B accepts -> both accepted.
-    await mB.acceptContact(a);
-    await _pump();
-    expect((await sB.getContact(a))!.status, ContactStatus.accepted);
-    expect((await sA.getContact(b))!.status, ContactStatus.accepted);
+      // B accepts -> both accepted.
+      await mB.acceptContact(a);
+      await _pump();
+      expect((await sB.getContact(a))!.status, ContactStatus.accepted);
+      expect((await sA.getContact(b))!.status, ContactStatus.accepted);
 
-    // Now free messaging works both ways.
-    await mA.sendText(b, 'hello');
-    await _pump();
-    expect((await sB.loadMessages(a.hex)).map((m) => m.body), contains('hello'));
-  });
+      // Now free messaging works both ways.
+      await mA.sendText(b, 'hello');
+      await _pump();
+      expect(
+        (await sB.loadMessages(a.hex)).map((m) => m.body),
+        contains('hello'),
+      );
+    },
+  );
 
   test('a plain message from a stranger is dropped (no auto-add)', () async {
     // B never requested/accepted A; A sends a raw message.
@@ -108,31 +118,39 @@ void main() {
     expect(await sB.loadMessages(a.hex), isEmpty);
   });
 
-  test('a message carries its seq; both devices fold under the same (author,seq)',
-      () async {
-    await mA.sendRequest(b, 'hi');
-    await _pump();
-    await mB.acceptContact(a);
-    await _pump();
-    await mA.sendText(b, 'one');
-    await _pump();
-    await mA.sendText(b, 'two');
-    await _pump();
+  test(
+    'a message carries its seq; both devices fold under the same (author,seq)',
+    () async {
+      await mA.sendRequest(b, 'hi');
+      await _pump();
+      await mB.acceptContact(a);
+      await _pump();
+      await mA.sendText(b, 'one');
+      await _pump();
+      await mA.sendText(b, 'two');
+      await _pump();
 
-    final aMsgs = {for (final m in await sA.loadMessages(b.hex)) m.body: m};
-    final bMsgs = {for (final m in await sB.loadMessages(a.hex)) m.body: m};
-    // The sender's (author, seq) travels on the wire, so the receiver stores the
-    // SAME identity — the basis for a convergent log + gap detection.
-    for (final body in ['one', 'two']) {
-      expect(bMsgs[body]!.author, aMsgs[body]!.author,
-          reason: 'author identical on both devices ($body)');
-      expect(bMsgs[body]!.seq, aMsgs[body]!.seq,
-          reason: 'seq identical on both devices ($body)');
-    }
-    // Author is A's own node id on both sides (R1 — not inferred from direction).
-    expect(aMsgs['one']!.author, a.hex);
-    expect(bMsgs['one']!.author, a.hex);
-  });
+      final aMsgs = {for (final m in await sA.loadMessages(b.hex)) m.body: m};
+      final bMsgs = {for (final m in await sB.loadMessages(a.hex)) m.body: m};
+      // The sender's (author, seq) travels on the wire, so the receiver stores the
+      // SAME identity — the basis for a convergent log + gap detection.
+      for (final body in ['one', 'two']) {
+        expect(
+          bMsgs[body]!.author,
+          aMsgs[body]!.author,
+          reason: 'author identical on both devices ($body)',
+        );
+        expect(
+          bMsgs[body]!.seq,
+          aMsgs[body]!.seq,
+          reason: 'seq identical on both devices ($body)',
+        );
+      }
+      // Author is A's own node id on both sides (R1 — not inferred from direction).
+      expect(aMsgs['one']!.author, a.hex);
+      expect(bMsgs['one']!.author, a.hex);
+    },
+  );
 
   test('blocking drops subsequent messages', () async {
     await mA.sendRequest(b, 'hi');
@@ -142,8 +160,10 @@ void main() {
     await mB.blockContact(a);
     await mA.sendText(b, 'after block');
     await _pump();
-    expect((await sB.loadMessages(a.hex)).any((m) => m.body == 'after block'),
-        isFalse);
+    expect(
+      (await sB.loadMessages(a.hex)).any((m) => m.body == 'after block'),
+      isFalse,
+    );
   });
 
   test('unblocking restores delivery', () async {
@@ -154,40 +174,46 @@ void main() {
     await mB.blockContact(a);
     await mA.sendText(b, 'while blocked');
     await _pump();
-    expect((await sB.loadMessages(a.hex)).any((m) => m.body == 'while blocked'),
-        isFalse);
+    expect(
+      (await sB.loadMessages(a.hex)).any((m) => m.body == 'while blocked'),
+      isFalse,
+    );
 
     // Lift the block — the contact is accepted again and new messages deliver.
     await mB.unblockContact(a);
     expect((await sB.getContact(a))!.status, ContactStatus.accepted);
     await mA.sendText(b, 'after unblock');
     await _pump();
-    expect((await sB.loadMessages(a.hex)).any((m) => m.body == 'after unblock'),
-        isTrue,
-        reason: 'unblock restores accepted status so messages flow again');
+    expect(
+      (await sB.loadMessages(a.hex)).any((m) => m.body == 'after unblock'),
+      isTrue,
+      reason: 'unblock restores accepted status so messages flow again',
+    );
   });
 
-  test('a local contact alias is set, trimmed, cleared — never sent on the wire',
-      () async {
-    await mA.sendRequest(b, 'hi');
-    await _pump();
-    await mB.acceptContact(a);
-    await _pump();
+  test(
+    'a local contact alias is set, trimmed, cleared — never sent on the wire',
+    () async {
+      await mA.sendRequest(b, 'hi');
+      await _pump();
+      await mB.acceptContact(a);
+      await _pump();
 
-    // A names B locally; the alias is trimmed and becomes the display label.
-    await mA.setContactName(b, '  Alice  ');
-    expect((await sA.getContact(b))!.name, 'Alice');
-    expect((await sA.getContact(b))!.label, 'Alice');
+      // A names B locally; the alias is trimmed and becomes the display label.
+      await mA.setContactName(b, '  Alice  ');
+      expect((await sA.getContact(b))!.name, 'Alice');
+      expect((await sA.getContact(b))!.label, 'Alice');
 
-    // B never learns the alias — it is local-only, nothing went on the wire.
-    await _pump();
-    expect((await sB.getContact(a))?.name, isNull);
+      // B never learns the alias — it is local-only, nothing went on the wire.
+      await _pump();
+      expect((await sB.getContact(a))?.name, isNull);
 
-    // Blank input clears it back to the node-id label.
-    await mA.setContactName(b, '   ');
-    expect((await sA.getContact(b))!.name, isNull);
-    expect((await sA.getContact(b))!.label, b.short);
-  });
+      // Blank input clears it back to the node-id label.
+      await mA.setContactName(b, '   ');
+      expect((await sA.getContact(b))!.name, isNull);
+      expect((await sA.getContact(b))!.label, b.short);
+    },
+  );
 
   test('chat folders: create, multi-membership, move, delete', () async {
     final b2 = NodeId.fromHex('03' * 32);
@@ -202,8 +228,10 @@ void main() {
     await mA.setFolderMembership(fam.id, b2.hex, true);
     var folders = await mA.loadFolders();
     expect(folders.firstWhere((f) => f.id == work.id).memberHexes, [b.hex]);
-    expect(folders.firstWhere((f) => f.id == fam.id).memberHexes,
-        containsAll([b.hex, b2.hex]));
+    expect(
+      folders.firstWhere((f) => f.id == fam.id).memberHexes,
+      containsAll([b.hex, b2.hex]),
+    );
 
     // Move b out of Work (idempotent remove).
     await mA.setFolderMembership(work.id, b.hex, false);
@@ -213,7 +241,10 @@ void main() {
 
     // Rename + delete.
     await mA.renameFolder(fam.id, 'Kin');
-    expect((await mA.loadFolders()).firstWhere((f) => f.id == fam.id).name, 'Kin');
+    expect(
+      (await mA.loadFolders()).firstWhere((f) => f.id == fam.id).name,
+      'Kin',
+    );
     await mA.deleteFolder(work.id);
     final left = await mA.loadFolders();
     expect(left.length, 1);
@@ -230,8 +261,9 @@ void main() {
     // A sends B a message; B holds it.
     await mA.sendText(b, 'keep me');
     await _pump();
-    final held =
-        (await sB.loadMessages(a.hex)).firstWhere((m) => m.body == 'keep me');
+    final held = (await sB.loadMessages(
+      a.hex,
+    )).firstWhere((m) => m.body == 'keep me');
 
     // B forbids A from deleting at B (default is allow).
     expect((await sB.getContact(a))!.allowPeerDelete, isTrue);
@@ -241,46 +273,84 @@ void main() {
     // A unsends it for everyone — B's copy must SURVIVE (policy declines it).
     await mA.deleteForEveryone(held.id);
     await _pump();
-    expect((await sB.loadMessages(a.hex)).any((m) => m.body == 'keep me'), isTrue,
-        reason: 'a forbidden contact cannot delete at us');
+    expect(
+      (await sB.loadMessages(a.hex)).any((m) => m.body == 'keep me'),
+      isTrue,
+      reason: 'a forbidden contact cannot delete at us',
+    );
 
     // Re-allow, send + delete another: now it IS removed (default behavior).
     await mB.setContactAllowPeerDelete(a, true);
     await mA.sendText(b, 'delete me');
     await _pump();
-    final del2 =
-        (await sB.loadMessages(a.hex)).firstWhere((m) => m.body == 'delete me');
+    final del2 = (await sB.loadMessages(
+      a.hex,
+    )).firstWhere((m) => m.body == 'delete me');
     await mA.deleteForEveryone(del2.id);
     await _pump();
-    expect((await sB.loadMessages(a.hex)).any((m) => m.body == 'delete me'),
+    expect(
+      (await sB.loadMessages(a.hex)).any((m) => m.body == 'delete me'),
+      isFalse,
+      reason: 'an allowed contact deletes at us as before',
+    );
+  });
+
+  test(
+    'per-contact P2P override persists without clobbering other policies',
+    () async {
+      await mA.sendRequest(b, 'hi');
+      await _pump();
+      await mB.acceptContact(a);
+      await _pump();
+
+      await mB.setContactAllowPeerDelete(a, false);
+      await mB.setContactP2POverride(a, ContactP2POverride.allow);
+      var contact = (await sB.getContact(a))!;
+      expect(contact.p2pOverride, ContactP2POverride.allow);
+      expect(
+        contact.allowPeerDelete,
         isFalse,
-        reason: 'an allowed contact deletes at us as before');
-  });
+        reason: 'saving P2P override must not reset peer-delete policy',
+      );
 
-  test('muting a contact persists, survives a rename, and is local-only',
-      () async {
-    await mA.sendRequest(b, 'hi');
-    await _pump();
-    await mB.acceptContact(a);
-    await _pump();
+      await mB.setContactRetention(a, 30);
+      contact = (await sB.getContact(a))!;
+      expect(contact.retentionDays, 30);
+      expect(
+        contact.p2pOverride,
+        ContactP2POverride.allow,
+        reason: 'saving retention must not reset P2P override',
+      );
+      expect(contact.allowPeerDelete, isFalse);
+    },
+  );
 
-    expect((await sA.getContact(b))!.muted, isFalse); // default
-    await mA.setContactMuted(b, true);
-    expect((await sA.getContact(b))!.muted, isTrue);
+  test(
+    'muting a contact persists, survives a rename, and is local-only',
+    () async {
+      await mA.sendRequest(b, 'hi');
+      await _pump();
+      await mB.acceptContact(a);
+      await _pump();
 
-    // A later rename must preserve the mute flag (setContactName rebuilds the
-    // record directly, so it has to carry muted across).
-    await mA.setContactName(b, 'B');
-    final c = await sA.getContact(b);
-    expect(c!.muted, isTrue);
-    expect(c.name, 'B');
+      expect((await sA.getContact(b))!.muted, isFalse); // default
+      await mA.setContactMuted(b, true);
+      expect((await sA.getContact(b))!.muted, isTrue);
 
-    await mA.setContactMuted(b, false);
-    expect((await sA.getContact(b))!.muted, isFalse);
+      // A later rename must preserve the mute flag (setContactName rebuilds the
+      // record directly, so it has to carry muted across).
+      await mA.setContactName(b, 'B');
+      final c = await sA.getContact(b);
+      expect(c!.muted, isTrue);
+      expect(c.name, 'B');
 
-    // B never sees A's mute — it is purely local.
-    expect((await sB.getContact(a))?.muted ?? false, isFalse);
-  });
+      await mA.setContactMuted(b, false);
+      expect((await sA.getContact(b))!.muted, isFalse);
+
+      // B never sees A's mute — it is purely local.
+      expect((await sB.getContact(a))?.muted ?? false, isFalse);
+    },
+  );
 
   test('pre-consent intro spam is capped, keeping the most recent', () async {
     // A hostile peer mints a FRESH id per request so the dedup-by-id path does
@@ -295,62 +365,80 @@ void main() {
     }
 
     final msgs = await sB.loadMessages(a.hex);
-    expect(msgs.length, kMaxPreConsentIntros,
-        reason: 'pre-consent intros must be bounded to the cap');
+    expect(
+      msgs.length,
+      kMaxPreConsentIntros,
+      reason: 'pre-consent intros must be bounded to the cap',
+    );
     final bodies = msgs.map((m) => m.body).toSet();
     for (var i = 0; i < total; i++) {
       final survived = i >= total - kMaxPreConsentIntros; // most recent N kept
-      expect(bodies.contains('intro $i'), survived,
-          reason: 'intro $i ${survived ? "must survive" : "must be evicted"}');
+      expect(
+        bodies.contains('intro $i'),
+        survived,
+        reason: 'intro $i ${survived ? "must survive" : "must be evicted"}',
+      );
     }
     // The peer is still pending — the cap is anti-spam, not a consent change.
     expect((await sB.getContact(a))!.status, ContactStatus.pendingIncoming);
   });
 
-  test('a same-id re-request overwrites in place and does not consume the cap',
-      () async {
-    // Re-sending the SAME request id (e.g. an outbox retry) must overwrite, not
-    // accumulate, and must never evict — so a legit single intro is preserved.
-    for (var i = 0; i < 3; i++) {
-      await tA.send(b, WireEnvelope.request('intro v$i', id: 'same').encode());
+  test(
+    'a same-id re-request overwrites in place and does not consume the cap',
+    () async {
+      // Re-sending the SAME request id (e.g. an outbox retry) must overwrite, not
+      // accumulate, and must never evict — so a legit single intro is preserved.
+      for (var i = 0; i < 3; i++) {
+        await tA.send(
+          b,
+          WireEnvelope.request('intro v$i', id: 'same').encode(),
+        );
+        await _pump();
+      }
+      final msgs = await sB.loadMessages(a.hex);
+      expect(msgs.length, 1, reason: 'same id => one stored copy');
+      expect(msgs.single.body, 'intro v2', reason: 'last write wins');
+    },
+  );
+
+  test(
+    'a re-request never evicts an accepted peer\'s real conversation',
+    () async {
+      // Guard: the cap counts incoming messages, which for an accepted peer
+      // includes real chat. A later re-request must NOT evict that history.
+      await mA.sendRequest(b, 'hi');
       await _pump();
-    }
-    final msgs = await sB.loadMessages(a.hex);
-    expect(msgs.length, 1, reason: 'same id => one stored copy');
-    expect(msgs.single.body, 'intro v2', reason: 'last write wins');
-  });
-
-  test('a re-request never evicts an accepted peer\'s real conversation',
-      () async {
-    // Guard: the cap counts incoming messages, which for an accepted peer
-    // includes real chat. A later re-request must NOT evict that history.
-    await mA.sendRequest(b, 'hi');
-    await _pump();
-    await mB.acceptContact(a);
-    await _pump();
-    for (var i = 0; i < kMaxPreConsentIntros + 3; i++) {
-      await mA.sendText(b, 'msg $i');
+      await mB.acceptContact(a);
       await _pump();
-    }
-    final before = (await sB.loadMessages(a.hex)).length;
-    expect(before, greaterThan(kMaxPreConsentIntros));
+      for (var i = 0; i < kMaxPreConsentIntros + 3; i++) {
+        await mA.sendText(b, 'msg $i');
+        await _pump();
+      }
+      final before = (await sB.loadMessages(a.hex)).length;
+      expect(before, greaterThan(kMaxPreConsentIntros));
 
-    // A reconnects and re-sends a request (some clients do on resume).
-    await tA.send(b, WireEnvelope.request('re-hi', id: 'rereq').encode());
-    await _pump();
+      // A reconnects and re-sends a request (some clients do on resume).
+      await tA.send(b, WireEnvelope.request('re-hi', id: 'rereq').encode());
+      await _pump();
 
-    final after = await sB.loadMessages(a.hex);
-    expect(after.length, greaterThanOrEqualTo(before),
-        reason: 'an accepted peer\'s history is never evicted by a re-request');
-    expect(after.any((m) => m.body == 'msg 0'), isTrue,
-        reason: 'the oldest real message must survive');
-  });
+      final after = await sB.loadMessages(a.hex);
+      expect(
+        after.length,
+        greaterThanOrEqualTo(before),
+        reason: 'an accepted peer\'s history is never evicted by a re-request',
+      );
+      expect(
+        after.any((m) => m.body == 'msg 0'),
+        isTrue,
+        reason: 'the oldest real message must survive',
+      );
+    },
+  );
 }
 
 /// Tiny helper to craft a raw message payload in the stranger test.
 class WireEnvelopeMessage {
   const WireEnvelopeMessage(this.text);
   final String text;
-  Uint8List get bytes =>
-      Uint8List.fromList('{"t":2,"b":"$text"}'.codeUnits);
+  Uint8List get bytes => Uint8List.fromList('{"t":2,"b":"$text"}'.codeUnits);
 }
