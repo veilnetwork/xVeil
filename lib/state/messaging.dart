@@ -796,6 +796,65 @@ class MessagingService {
   Future<String> _selfHex() async =>
       _selfHexCache ??= (await _transport.nodeId()).hex;
 
+  // ── Reactions ──────────────────────────────────────────────────────────────
+  // A side annotation store, kept OUT of the message event-log (no seq/R6
+  // concerns): `rx:<convId>` KV holds JSON `{msgId: {reactorHex: emoji}}`.
+  // The UI overlays it on bubbles; delivery is a durable WireKind.reaction.
+
+  /// Load all reactions for a conversation: msgId → (reactorHex → emoji).
+  Future<Map<String, Map<String, String>>> loadReactions(String convId) async {
+    try {
+      final raw = await _storage.getSetting('rx:$convId');
+      if (raw == null || raw.isEmpty) return {};
+      final j = jsonDecode(raw);
+      if (j is! Map) return {};
+      return {
+        for (final e in j.entries)
+          if (e.value is Map)
+            e.key as String: {
+              for (final r in (e.value as Map).entries)
+                r.key as String: r.value as String,
+            },
+      };
+    } catch (_) {
+      return {};
+    }
+  }
+
+  /// Apply one reaction to the store (empty [emoji] removes this reactor's).
+  Future<void> _applyReaction(
+    String convId,
+    String msgId,
+    String reactorHex,
+    String emoji,
+  ) async {
+    final all = await loadReactions(convId);
+    final forMsg = all[msgId] ?? <String, String>{};
+    if (emoji.isEmpty) {
+      forMsg.remove(reactorHex);
+    } else {
+      forMsg[reactorHex] = emoji;
+    }
+    if (forMsg.isEmpty) {
+      all.remove(msgId);
+    } else {
+      all[msgId] = forMsg;
+    }
+    await _storage.putSetting('rx:$convId', jsonEncode(all));
+  }
+
+  /// React to [msgId] in [peer]'s chat with [emoji] (empty removes ours). The
+  /// reaction is applied locally and delivered durably so it survives offline.
+  Future<void> sendReaction(NodeId peer, String msgId, String emoji) async {
+    final selfHex = await _selfHex();
+    await _applyReaction(peer.hex, msgId, selfHex, emoji);
+    _signal();
+    // Saved Messages (peer == self) is local-only — never put a reaction to
+    // ourselves on the wire.
+    if (peer.hex == selfHex) return;
+    await sendDurable(peer, 'rx:$msgId', WireEnvelope.reaction(msgId, emoji));
+  }
+
   /// The conversation id of "Saved Messages" — a chat with yourself. It's the
   /// local node id, so when multi-device lands this log naturally becomes the
   /// "my devices" group log (ROADMAP). Local-only: notes never touch the wire.
@@ -1787,6 +1846,16 @@ class MessagingService {
         if (existing?.status != ContactStatus.accepted) return;
         final callSig = CallSignal.tryDecode(env.body);
         if (callSig != null) onCallSignal?.call(m.src, callSig);
+        return;
+      case WireKind.reaction:
+        // The peer reacted to a message in THIS conversation. A side annotation
+        // (not an event-log event); the durable frame was already acked+deduped
+        // by the generic gate above. Reactor = the authenticated sender.
+        if (existing?.status != ContactStatus.accepted) return;
+        final targetId = env.id;
+        if (targetId == null) return;
+        await _applyReaction(m.src.hex, targetId, m.src.hex, env.body);
+        _signal();
         return;
       case WireKind.unknown:
         // A structured (v:2) frame from a NEWER build whose kind we don't know —
@@ -8633,6 +8702,18 @@ final conversationsProvider = StreamProvider<List<Conversation>>((ref) async* {
     yield await storage.loadConversations();
   }
 });
+
+/// Reactions overlay for one conversation: msgId → (reactorHex → emoji).
+/// Reloaded on every service change so a new reaction (local or inbound)
+/// re-renders the affected bubble. `autoDispose` — scoped to an open chat.
+final reactionsProvider = StreamProvider.autoDispose
+    .family<Map<String, Map<String, String>>, String>((ref, convId) async* {
+      final service = ref.watch(messagingServiceProvider);
+      yield await service.loadReactions(convId);
+      await for (final _ in service.changes) {
+        yield await service.loadReactions(convId);
+      }
+    });
 
 /// The user's chat folders, re-loaded whenever the service signals a change
 /// (folders are mutated through the service, which signals on every write).

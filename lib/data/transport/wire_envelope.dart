@@ -61,12 +61,20 @@ enum WireKind {
   // decoder maps these (out-of-range) indices to `unknown` and ignores them.
   signRequest,
   signResponse,
+
   /// Call control plane (voice / video / screen share). Body = `CallSignal`
   /// JSON (offer/answer/reject/cancel/busy/end/renegotiate/transportInfo — see
   /// lib/domain/call_signal.dart). Added before [unknown] so an older decoder
   /// maps this out-of-range index to [unknown] and ignores it (RULE WC). The
   /// media itself flows on a separately-negotiated path; this only sets it up.
   callSignal,
+
+  /// A reaction to a message. [id] = the target message id; [body] = the emoji,
+  /// or EMPTY to remove this reactor's reaction. A side annotation (NOT an
+  /// event-log event — no seq), delivered durably like edit/del. Added before
+  /// [unknown] so an older decoder maps this out-of-range index to [unknown]
+  /// and drops it (RULE WC).
+  reaction,
   unknown,
 }
 
@@ -102,13 +110,16 @@ bool isServiceEchoBody(String body) {
 /// **dedup** re-sent messages (the local outbox re-sends un-acked ones) and the
 /// receiver can **ack** by referencing it.
 class WireEnvelope {
-  const WireEnvelope(this.kind, this.body,
-      {this.id,
-      this.sentAtMs,
-      this.seq,
-      this.replyTo,
-      this.forwardedFrom,
-      this.frameId});
+  const WireEnvelope(
+    this.kind,
+    this.body, {
+    this.id,
+    this.sentAtMs,
+    this.seq,
+    this.replyTo,
+    this.forwardedFrom,
+    this.frameId,
+  });
 
   final WireKind kind;
   final String body;
@@ -147,25 +158,29 @@ class WireEnvelope {
   final int? seq;
 
   const WireEnvelope.request(String greeting, {String? id, int? sentAtMs})
-      : this(WireKind.request, greeting, id: id, sentAtMs: sentAtMs);
+    : this(WireKind.request, greeting, id: id, sentAtMs: sentAtMs);
   const WireEnvelope.accept() : this(WireKind.accept, '');
-  const WireEnvelope.message(String text,
-      {String? id,
-      int? sentAtMs,
-      int? seq,
-      String? replyTo,
-      String? forwardedFrom})
-      : this(WireKind.message, text,
-            id: id,
-            sentAtMs: sentAtMs,
-            seq: seq,
-            replyTo: replyTo,
-            forwardedFrom: forwardedFrom);
+  const WireEnvelope.message(
+    String text, {
+    String? id,
+    int? sentAtMs,
+    int? seq,
+    String? replyTo,
+    String? forwardedFrom,
+  }) : this(
+         WireKind.message,
+         text,
+         id: id,
+         sentAtMs: sentAtMs,
+         seq: seq,
+         replyTo: replyTo,
+         forwardedFrom: forwardedFrom,
+       );
   const WireEnvelope.ack(String id) : this(WireKind.ack, '', id: id);
   const WireEnvelope.edit(String id, String newText, {int? seq})
-      : this(WireKind.edit, newText, id: id, seq: seq);
+    : this(WireKind.edit, newText, id: id, seq: seq);
   const WireEnvelope.del(String id, {int? seq})
-      : this(WireKind.del, '', id: id, seq: seq);
+    : this(WireKind.del, '', id: id, seq: seq);
 
   /// Event-log gap-fill beacon (§15, 3c): [body] is the JSON sync summary
   /// `{hw:{author:hw}, holes:{author:[[lo,hi]]}, ep:epoch}`.
@@ -180,31 +195,35 @@ class WireEnvelope {
   /// event. Carries NO cleared message id or text — only the per-author
   /// watermark (no oracle). v:2, so an un-upgraded peer drops it (RULE WC).
   const WireEnvelope.clear(String watermarkJson, {int? seq})
-      : this(WireKind.clear, watermarkJson, seq: seq);
+    : this(WireKind.clear, watermarkJson, seq: seq);
 
   /// "We were connected — please re-establish" (body = optional greeting). Sent
   /// when a message stays un-acked past a threshold; the receiver re-intros it if
   /// it no longer holds us as a contact (recovery handshake, §15.7).
   const WireEnvelope.reconnect(String greeting)
-      : this(WireKind.reconnect, greeting);
+    : this(WireKind.reconnect, greeting);
 
   /// Opt-in attestation request: [id] is the message id to attest, [body] is
   /// the exact text the requester wants the author to sign (so the author can
   /// review it before consenting).
   const WireEnvelope.signRequest(String msgId, String body)
-      : this(WireKind.signRequest, body, id: msgId);
+    : this(WireKind.signRequest, body, id: msgId);
 
   /// Attestation response: [body] is JSON `{mid, sig, pk}` (base64 sig+pubkey)
   /// when signed, or `{mid, refused:true}` when the author declined.
   const WireEnvelope.signResponse(String bodyJson)
-      : this(WireKind.signResponse, bodyJson);
+    : this(WireKind.signResponse, bodyJson);
 
   /// Call control-plane frame: [body] is the `CallSignal` JSON (see
   /// lib/domain/call_signal.dart). Reliable/acked frames (ring/accept/reject/
   /// end) go via the durable pipeline; low-latency ones (transportInfo) may go
   /// via the plain live send.
   const WireEnvelope.callSignal(String bodyJson)
-      : this(WireKind.callSignal, bodyJson);
+    : this(WireKind.callSignal, bodyJson);
+
+  /// React to message [targetMsgId] with [emoji] (empty = remove the reaction).
+  const WireEnvelope.reaction(String targetMsgId, String emoji)
+    : this(WireKind.reaction, emoji, id: targetMsgId);
 
   /// The decode-only sentinel for a structured (v:2) frame whose kind this build
   /// does not know — the dispatcher drops it (RULE WC).
@@ -217,17 +236,19 @@ class WireEnvelope {
   /// A copy carrying [fid] as its durable-outbox [frameId] (the id the receiver
   /// echoes in its ack). Used by the durable send pipeline.
   WireEnvelope withFrameId(String fid) => WireEnvelope(
-        kind,
-        body,
-        id: id,
-        sentAtMs: sentAtMs,
-        seq: seq,
-        replyTo: replyTo,
-        forwardedFrom: forwardedFrom,
-        frameId: fid,
-      );
+    kind,
+    body,
+    id: id,
+    sentAtMs: sentAtMs,
+    seq: seq,
+    replyTo: replyTo,
+    forwardedFrom: forwardedFrom,
+    frameId: fid,
+  );
 
-  Uint8List encode() => Uint8List.fromList(utf8.encode(jsonEncode({
+  Uint8List encode() => Uint8List.fromList(
+    utf8.encode(
+      jsonEncode({
         't': kind.index,
         'b': body,
         if (id != null) 'i': id,
@@ -237,7 +258,9 @@ class WireEnvelope {
         if (forwardedFrom != null) 'fw': forwardedFrom,
         if (frameId != null) 'fid': frameId,
         if (_isV2) 'v': 2,
-      })));
+      }),
+    ),
+  );
 
   /// Decode a payload. A well-formed frame whose `t` this build KNOWS decodes to
   /// that kind. A structured `v:2` frame from a NEWER build (a `t` out of range,
@@ -261,10 +284,10 @@ class WireEnvelope {
             sentAtMs: decoded['s'] is int ? decoded['s'] as int : null,
             seq: decoded['q'] is int ? decoded['q'] as int : null,
             replyTo: decoded['r'] is String ? decoded['r'] as String : null,
-            forwardedFrom:
-                decoded['fw'] is String ? decoded['fw'] as String : null,
-            frameId:
-                decoded['fid'] is String ? decoded['fid'] as String : null,
+            forwardedFrom: decoded['fw'] is String
+                ? decoded['fw'] as String
+                : null,
+            frameId: decoded['fid'] is String ? decoded['fid'] as String : null,
           );
         }
         // Out of this build's range. A structured v:2 frame (a kind a newer build
@@ -275,7 +298,10 @@ class WireEnvelope {
     } catch (_) {
       // fall through to plain-message fallback
     }
-    return WireEnvelope(WireKind.message, utf8.decode(bytes, allowMalformed: true));
+    return WireEnvelope(
+      WireKind.message,
+      utf8.decode(bytes, allowMalformed: true),
+    );
   }
 }
 
@@ -297,7 +323,12 @@ typedef FileMetaFrame = ({
 });
 
 /// Parsed body of a [WireKind.fileChunk] frame: one piece of a transfer.
-typedef FileChunkFrame = ({String transferId, int index, int total, Uint8List data});
+typedef FileChunkFrame = ({
+  String transferId,
+  int index,
+  int total,
+  Uint8List data,
+});
 
 /// The file-transfer frame wire format (key names, base64 of chunk bytes)
 /// lives here as the single source of truth, so the send and receive sides
@@ -311,18 +342,17 @@ WireEnvelope fileMetaEnvelope({
   int? count,
   int? seq,
   int? sentAtMs,
-}) =>
-    WireEnvelope(
-      WireKind.fileMeta,
-      jsonEncode({
-        'tid': transferId,
-        'name': ?name,
-        'size': ?size,
-        'count': ?count,
-        'seq': ?seq,
-        's': ?sentAtMs,
-      }),
-    );
+}) => WireEnvelope(
+  WireKind.fileMeta,
+  jsonEncode({
+    'tid': transferId,
+    'name': ?name,
+    'size': ?size,
+    'count': ?count,
+    'seq': ?seq,
+    's': ?sentAtMs,
+  }),
+);
 
 /// Start of a STREAMED (large, > the small-file threshold) file transfer. Same
 /// body shape as [fileMetaEnvelope] (parse with [parseFileMeta]; `count` is
@@ -336,17 +366,16 @@ WireEnvelope fileStreamEnvelope({
   int? size,
   int? seq,
   int? sentAtMs,
-}) =>
-    WireEnvelope(
-      WireKind.fileStream,
-      jsonEncode({
-        'tid': transferId,
-        'name': ?name,
-        'size': ?size,
-        'seq': ?seq,
-        's': ?sentAtMs,
-      }),
-    );
+}) => WireEnvelope(
+  WireKind.fileStream,
+  jsonEncode({
+    'tid': transferId,
+    'name': ?name,
+    'size': ?size,
+    'seq': ?seq,
+    's': ?sentAtMs,
+  }),
+);
 
 FileMetaFrame parseFileMeta(String body) {
   final j = jsonDecode(body) as Map<String, dynamic>;
@@ -404,18 +433,18 @@ WireEnvelope pieceRequestEnvelope({
   required String contentId,
   List<int>? indices,
   Map<int, Uint8List>? bitmaps,
-}) =>
-    WireEnvelope(
-      WireKind.pieceRequest,
-      jsonEncode({
-        'cid': contentId,
-        if (indices != null) 'idx': indices,
-        if (bitmaps != null && bitmaps.isNotEmpty)
-          'bm': {
-            for (final e in bitmaps.entries) e.key.toString(): base64.encode(e.value),
-          },
-      }),
-    );
+}) => WireEnvelope(
+  WireKind.pieceRequest,
+  jsonEncode({
+    'cid': contentId,
+    if (indices != null) 'idx': indices,
+    if (bitmaps != null && bitmaps.isNotEmpty)
+      'bm': {
+        for (final e in bitmaps.entries)
+          e.key.toString(): base64.encode(e.value),
+      },
+  }),
+);
 
 PieceRequestFrame parsePieceRequest(String body) {
   final j = jsonDecode(body) as Map<String, dynamic>;
@@ -454,17 +483,16 @@ WireEnvelope pieceChunkEnvelope({
   required int chunkIndex,
   required int chunkCount,
   required Uint8List data,
-}) =>
-    WireEnvelope(
-      WireKind.pieceChunk,
-      jsonEncode({
-        'cid': contentId,
-        'p': pieceIndex,
-        'c': chunkIndex,
-        'n': chunkCount,
-        'd': base64.encode(data),
-      }),
-    );
+}) => WireEnvelope(
+  WireKind.pieceChunk,
+  jsonEncode({
+    'cid': contentId,
+    'p': pieceIndex,
+    'c': chunkIndex,
+    'n': chunkCount,
+    'd': base64.encode(data),
+  }),
+);
 
 PieceChunkFrame parsePieceChunk(String body) {
   final j = jsonDecode(body) as Map<String, dynamic>;
@@ -486,16 +514,10 @@ WireEnvelope fileQueryEnvelope({
   String? name,
   int? seq,
   int? sentAtMs,
-}) =>
-    WireEnvelope(
-      WireKind.fileQuery,
-      jsonEncode({
-        'tid': transferId,
-        'name': ?name,
-        'seq': ?seq,
-        's': ?sentAtMs,
-      }),
-    );
+}) => WireEnvelope(
+  WireKind.fileQuery,
+  jsonEncode({'tid': transferId, 'name': ?name, 'seq': ?seq, 's': ?sentAtMs}),
+);
 
 /// Parsed body of a [WireKind.fileNack]: which chunks of [transferId] the
 /// receiver still needs. [missing] == null means "send me ALL of them" — a
@@ -506,14 +528,10 @@ typedef FileNackFrame = ({String transferId, List<int>? missing});
 WireEnvelope fileNackEnvelope({
   required String transferId,
   required List<int>? missing,
-}) =>
-    WireEnvelope(
-      WireKind.fileNack,
-      jsonEncode({
-        'tid': transferId,
-        if (missing != null) 'm': missing,
-      }),
-    );
+}) => WireEnvelope(
+  WireKind.fileNack,
+  jsonEncode({'tid': transferId, if (missing != null) 'm': missing}),
+);
 
 FileNackFrame parseFileNack(String body) {
   final j = jsonDecode(body) as Map<String, dynamic>;
@@ -529,16 +547,15 @@ WireEnvelope fileChunkEnvelope({
   required int index,
   required int total,
   required Uint8List data,
-}) =>
-    WireEnvelope(
-      WireKind.fileChunk,
-      jsonEncode({
-        'tid': transferId,
-        'i': index,
-        'total': total,
-        'd': base64.encode(data),
-      }),
-    );
+}) => WireEnvelope(
+  WireKind.fileChunk,
+  jsonEncode({
+    'tid': transferId,
+    'i': index,
+    'total': total,
+    'd': base64.encode(data),
+  }),
+);
 
 FileChunkFrame parseFileChunk(String body) {
   final j = jsonDecode(body) as Map<String, dynamic>;
