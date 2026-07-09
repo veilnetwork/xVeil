@@ -7,6 +7,7 @@ import '../../core/ids.dart';
 import '../../domain/chat.dart';
 import '../../domain/event.dart';
 import '../../domain/identity.dart';
+import '../../domain/p2p_policy.dart';
 import '../../domain/roster.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 
@@ -23,6 +24,14 @@ import 'package:xveil/core/log.dart';
 const _logScanLimit = 100000;
 
 Uint8List _sk(String key) => Uint8List.fromList(utf8.encode(key));
+
+bool _bytesEqual(List<int>? a, List<int> b) {
+  if (a == null || a.length != b.length) return false;
+  for (var i = 0; i < b.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
 
 /// Opener for [HiddenVolumeStorage.fromStore], where the store is already open
 /// and [HiddenVolumeStorage.open] is never called.
@@ -141,7 +150,10 @@ class HiddenVolumeStorage implements Storage {
       'dn': identity.displayName,
       'u': identity.username,
     });
-    await _as.commit([PutOp(Ns.settings, _sk('identity'), _sk(json))]);
+    final bytes = _sk(json);
+    final existing = await _as.get(Ns.settings, _sk('identity'));
+    if (_bytesEqual(existing, bytes)) return;
+    await _as.commit([PutOp(Ns.settings, _sk('identity'), bytes)]);
   }
 
   @override
@@ -173,7 +185,8 @@ class HiddenVolumeStorage implements Storage {
     // rounds, per-launch re-puts whose in-RAM guards reset) permanently grows
     // the container. Skipping the no-op write here shields ALL callers at once.
     final existing = await _as.get(Ns.settings, _sk('set:$key'));
-    if (existing != null && utf8.decode(existing, allowMalformed: true) == value) {
+    if (existing != null &&
+        utf8.decode(existing, allowMalformed: true) == value) {
       return;
     }
     await _as.commit([PutOp(Ns.settings, _sk('set:$key'), _sk(value))]);
@@ -218,7 +231,10 @@ class HiddenVolumeStorage implements Storage {
           if (e.anonymous) 'a': 1,
         },
     ]);
-    await _as.commit([PutOp(Ns.settings, _sk('master:roster'), _sk(json))]);
+    final bytes = _sk(json);
+    final existing = await _as.get(Ns.settings, _sk('master:roster'));
+    if (_bytesEqual(existing, bytes)) return;
+    await _as.commit([PutOp(Ns.settings, _sk('master:roster'), bytes)]);
   }
 
   @override
@@ -260,14 +276,24 @@ class HiddenVolumeStorage implements Storage {
       if (contact.retentionDays != null) 'rd': contact.retentionDays,
       // Written only when DISALLOWED — absence reads back as the default (allow).
       if (!contact.allowPeerDelete) 'apd': false,
+      if (contact.p2pOverride != kDefaultContactP2POverride)
+        'p2p': contact.p2pOverride.index,
     });
+    final contactBytes = _sk(json);
+    final existingContact = await _as.get(Ns.contacts, contact.nodeId.bytes);
     // Maintain a contacts index (hidden-volume has no KV key enumeration) so
     // the chat list can show contacts that have no messages yet.
     final index = await _contactIndex();
+    final oldIndexJson = jsonEncode(index);
     if (!index.contains(contact.nodeId.hex)) index.add(contact.nodeId.hex);
+    final indexJson = jsonEncode(index);
+    if (_bytesEqual(existingContact, contactBytes) &&
+        oldIndexJson == indexJson) {
+      return;
+    }
     await _as.commit([
-      PutOp(Ns.contacts, contact.nodeId.bytes, _sk(json)),
-      PutOp(Ns.settings, _sk('contacts:index'), _sk(jsonEncode(index))),
+      PutOp(Ns.contacts, contact.nodeId.bytes, contactBytes),
+      PutOp(Ns.settings, _sk('contacts:index'), _sk(indexJson)),
     ]);
   }
 
@@ -301,7 +327,16 @@ class HiddenVolumeStorage implements Storage {
       archived: m['a'] as bool? ?? false,
       retentionDays: m['rd'] as int?,
       allowPeerDelete: m['apd'] as bool? ?? true,
+      p2pOverride: _contactP2POverride(m['p2p']),
     );
+  }
+
+  ContactP2POverride _contactP2POverride(Object? raw) {
+    final i = raw is int ? raw : null;
+    if (i == null || i < 0 || i >= ContactP2POverride.values.length) {
+      return kDefaultContactP2POverride;
+    }
+    return ContactP2POverride.values[i];
   }
 
   // --- Conversations & messages -----------------------------------------
@@ -315,6 +350,8 @@ class HiddenVolumeStorage implements Storage {
         if (ms > latest) latest = ms;
       }
     }
+    final existing = await _readMarker(conversationId);
+    if (existing >= latest) return;
     await _as.commit([
       PutOp(Ns.settings, _sk('read:$conversationId'), _sk('$latest')),
     ]);
@@ -384,7 +421,9 @@ class HiddenVolumeStorage implements Storage {
     int? limit,
   }) async {
     final all = await _scanLog();
-    final sorted = all.where((m) => m.conversationId == conversationId).toList();
+    final sorted = all
+        .where((m) => m.conversationId == conversationId)
+        .toList();
     // DETERMINISTIC, cross-device-stable display order (EVENT-LOG-SYNC-DESIGN.md
     // §15.1 R-ORDER): sort by (effective_ts, author, seq), id as the final
     // tiebreak. Now that (author, seq) travels on the wire and is identical on
@@ -439,7 +478,8 @@ class HiddenVolumeStorage implements Storage {
       // Serialize against other stores so the multi-commit read-base/bump-last
       // sequence can't interleave and collide chunk log-ids (see [_fileGate]).
       _fileSerialized(
-          () => AsyncFileStore(_as).storeFile(fileId, bytes, name: name));
+        () => AsyncFileStore(_as).storeFile(fileId, bytes, name: name),
+      );
 
   // ── Large-file tier (Phase B) ────────────────────────────────────────────
   // A blob at/above [_kOnDiskTierMinBytes] can't fit the hidden-volume index
@@ -525,8 +565,14 @@ class HiddenVolumeStorage implements Storage {
       final size = meta['sz'] as int;
       // Whole-file read — large-file callers should STREAM via [readFileRange]
       // instead (this holds the whole blob in RAM). Used for small/medium blobs.
-      return _blobs!.readRange(meta['fn'] as String,
-          base64.decode(meta['k'] as String), 0, size, meta['ps'] as int, size);
+      return _blobs!.readRange(
+        meta['fn'] as String,
+        base64.decode(meta['k'] as String),
+        0,
+        size,
+        meta['ps'] as int,
+        size,
+      );
     }
     return AsyncFileStore(_as).loadFile(fileId);
   }
@@ -548,25 +594,56 @@ class HiddenVolumeStorage implements Storage {
   }
 
   @override
-  Future<void> storeFilePiece(String fileId, int pieceIndex, int pieceCount,
-      int pieceSize, int totalSize, Uint8List bytes, {String? name}) {
+  Future<void> storeFilePiece(
+    String fileId,
+    int pieceIndex,
+    int pieceCount,
+    int pieceSize,
+    int totalSize,
+    Uint8List bytes, {
+    String? name,
+  }) {
     // Route by size — but a file already known on-disk stays on-disk even if a
     // (re)store passes a smaller-looking total, so reads remain consistent.
     if (_blobs != null && totalSize > _onDiskMinBytes) {
-      return _fileSerialized(() => _storeFilePieceOnDisk(
-          fileId, pieceIndex, pieceCount, pieceSize, totalSize, bytes, name));
+      return _fileSerialized(
+        () => _storeFilePieceOnDisk(
+          fileId,
+          pieceIndex,
+          pieceCount,
+          pieceSize,
+          totalSize,
+          bytes,
+          name,
+        ),
+      );
     }
-    return _fileSerialized(() => AsyncFileStore(_as).storeFilePiece(
-        fileId, pieceIndex, pieceCount, pieceSize, totalSize, bytes,
-        name: name));
+    return _fileSerialized(
+      () => AsyncFileStore(_as).storeFilePiece(
+        fileId,
+        pieceIndex,
+        pieceCount,
+        pieceSize,
+        totalSize,
+        bytes,
+        name: name,
+      ),
+    );
   }
 
   /// Store one piece of a large blob in the on-disk encrypted tier. Runs under
   /// [_fileSerialized] (no nested gate): the metadata read-modify-write — first
   /// piece mints a random opaque name + per-blob key — is serialized so
   /// concurrent pieces agree on ONE blob, and each piece records itself in `st`.
-  Future<void> _storeFilePieceOnDisk(String cid, int pieceIndex, int pieceCount,
-      int pieceSize, int totalSize, Uint8List bytes, String? name) async {
+  Future<void> _storeFilePieceOnDisk(
+    String cid,
+    int pieceIndex,
+    int pieceCount,
+    int pieceSize,
+    int totalSize,
+    Uint8List bytes,
+    String? name,
+  ) async {
     var meta = await _odMeta(cid);
     if (meta == null) {
       // First piece mints the blob identity — ONE constant-size meta row per
@@ -586,17 +663,30 @@ class HiddenVolumeStorage implements Storage {
       await _putOdMeta(cid, meta);
     }
     await _blobs!.storePiece(
-        meta['fn'] as String, base64.decode(meta['k'] as String), pieceIndex, bytes);
+      meta['fn'] as String,
+      base64.decode(meta['k'] as String),
+      pieceIndex,
+      bytes,
+    );
   }
 
   @override
-  Future<Uint8List?> readFileRange(String fileId, int offset, int length) async {
+  Future<Uint8List?> readFileRange(
+    String fileId,
+    int offset,
+    int length,
+  ) async {
     final meta = await _odMeta(fileId);
     if (meta != null) {
       if (_blobs == null) return null;
-      return _blobs!.readRange(meta['fn'] as String,
-          base64.decode(meta['k'] as String), offset, length,
-          meta['ps'] as int, meta['sz'] as int);
+      return _blobs!.readRange(
+        meta['fn'] as String,
+        base64.decode(meta['k'] as String),
+        offset,
+        length,
+        meta['ps'] as int,
+        meta['sz'] as int,
+      );
     }
     return AsyncFileStore(_as).readFileRange(fileId, offset, length);
   }
@@ -636,18 +726,20 @@ class HiddenVolumeStorage implements Storage {
             author: author,
             seq: seq,
           );
-    await _commitAtNextLogId((logId) => [
-      AppendLogOp(Ns.messageLog, logId, _sk(_encodeMessage(stored))),
-      // Advance the per-(conv,author) seq cursor ONLY when we ALLOCATED it (a
-      // wire event with its own seq must not bump our local counter — the two
-      // streams are independent and reconciled by the fold/sync, not here).
-      if (message.seq == null)
-        PutOp(
-          Ns.settings,
-          _sk('conv_seq:${message.conversationId}:$author'),
-          _sk('${seq + 1}'),
-        ),
-    ]);
+    await _commitAtNextLogId(
+      (logId) => [
+        AppendLogOp(Ns.messageLog, logId, _sk(_encodeMessage(stored))),
+        // Advance the per-(conv,author) seq cursor ONLY when we ALLOCATED it (a
+        // wire event with its own seq must not bump our local counter — the two
+        // streams are independent and reconciled by the fold/sync, not here).
+        if (message.seq == null)
+          PutOp(
+            Ns.settings,
+            _sk('conv_seq:${message.conversationId}:$author'),
+            _sk('${seq + 1}'),
+          ),
+      ],
+    );
     return stored;
   }
 
@@ -732,10 +824,14 @@ class HiddenVolumeStorage implements Storage {
     return (highWater: highWater, holes: holes);
   }
 
-  String _syncFloorKey(String conv, String author) => 'sync_floor:$conv:$author';
+  String _syncFloorKey(String conv, String author) =>
+      'sync_floor:$conv:$author';
 
   Future<int> _syncFloor(String conv, String author) async {
-    final raw = await _as.get(Ns.settings, _sk('set:${_syncFloorKey(conv, author)}'));
+    final raw = await _as.get(
+      Ns.settings,
+      _sk('set:${_syncFloorKey(conv, author)}'),
+    );
     if (raw == null) return 0;
     return int.tryParse(utf8.decode(raw, allowMalformed: true)) ?? 0;
   }
@@ -784,10 +880,9 @@ class HiddenVolumeStorage implements Storage {
     String author,
     int fromSeq, {
     int limit = 200,
-  }) =>
-      _serialized(
-        () => _loadEventsSinceCritical(conversationId, author, fromSeq, limit),
-      );
+  }) => _serialized(
+    () => _loadEventsSinceCritical(conversationId, author, fromSeq, limit),
+  );
 
   /// Raw-scan the conversation log for forward events authored by [author] with
   /// seq > [fromSeq] (the gap-fill re-ship batch, §15 3c). A live post/edit
@@ -893,20 +988,24 @@ class HiddenVolumeStorage implements Storage {
         return; // slot present — nothing to do
       }
     }
-    await _commitAtNextLogId((logId) => [
-      AppendLogOp(
-        Ns.messageLog,
-        logId,
-        // An inert void slot: no id/tg/body (§12.1) — the fold renders nothing,
-        // conversationSync counts (au, sq) so the per-author high-water advances.
-        _sk(jsonEncode({
-          'k': EventKind.void_.index,
-          'c': conversationId,
-          'au': author,
-          'sq': seq,
-        })),
-      ),
-    ]);
+    await _commitAtNextLogId(
+      (logId) => [
+        AppendLogOp(
+          Ns.messageLog,
+          logId,
+          // An inert void slot: no id/tg/body (§12.1) — the fold renders nothing,
+          // conversationSync counts (au, sq) so the per-author high-water advances.
+          _sk(
+            jsonEncode({
+              'k': EventKind.void_.index,
+              'c': conversationId,
+              'au': author,
+              'sq': seq,
+            }),
+          ),
+        ),
+      ],
+    );
     await _patchCache(() {});
   }
 
@@ -1026,30 +1125,34 @@ class HiddenVolumeStorage implements Storage {
         }
       }
     }
-    await _commitAtNextLogId((logId) => [
-      AppendLogOp(
-        Ns.messageLog,
-        logId,
-        _sk(jsonEncode({
-          'k': EventKind.edit.index,
-          'id': '$messageId~e$editSeq', // synthetic edit-event id (unique)
-          'c': conversationId,
-          'tg': messageId,
-          'au': author,
-          'sq': editSeq,
-          'b': newBody,
-          't': DateTime.now().millisecondsSinceEpoch,
-        })),
-      ),
-      // Advance the per-(conv, author) cursor ONLY for a locally-allocated edit
-      // (seq == null); a wire edit keeps the editor's seq, like appendMessage.
-      if (seq == null)
-        PutOp(
-          Ns.settings,
-          _sk('conv_seq:$conversationId:$author'),
-          _sk('${editSeq + 1}'),
+    await _commitAtNextLogId(
+      (logId) => [
+        AppendLogOp(
+          Ns.messageLog,
+          logId,
+          _sk(
+            jsonEncode({
+              'k': EventKind.edit.index,
+              'id': '$messageId~e$editSeq', // synthetic edit-event id (unique)
+              'c': conversationId,
+              'tg': messageId,
+              'au': author,
+              'sq': editSeq,
+              'b': newBody,
+              't': DateTime.now().millisecondsSinceEpoch,
+            }),
+          ),
         ),
-    ]);
+        // Advance the per-(conv, author) cursor ONLY for a locally-allocated edit
+        // (seq == null); a wire edit keeps the editor's seq, like appendMessage.
+        if (seq == null)
+          PutOp(
+            Ns.settings,
+            _sk('conv_seq:$conversationId:$author'),
+            _sk('${editSeq + 1}'),
+          ),
+      ],
+    );
     // The new row bumps next-id, so the next incremental fold reads + applies it
     // (the k:edit arm). Drop only the materialised result so loadMessages
     // re-folds; keep the rest of the warm fold.
@@ -1076,7 +1179,9 @@ class HiddenVolumeStorage implements Storage {
     for (final e in entries) {
       final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
       if (m['c'] != conversationId) continue;
-      if (m['op'] == 'status' || m['op'] == 'del' || m['op'] == 'sig') continue; // side-channel rows
+      if (m['op'] == 'status' || m['op'] == 'del' || m['op'] == 'sig') {
+        continue; // side-channel rows
+      }
       final k = m['k'] as int?;
       MessageVersion? v;
       if (k == EventKind.edit.index && m['tg'] == messageId) {
@@ -1146,8 +1251,9 @@ class HiddenVolumeStorage implements Storage {
     // Large-file tier: scrub the per-blob key in the SAME commit (forward
     // secrecy — see _onDiskScrubOps); the ciphertext files go after the commit.
     final blobNames = <String>[];
-    final onDiskOps =
-        fileId != null ? await _onDiskScrubOps(fileId, blobNames) : const <KvLogOp>[];
+    final onDiskOps = fileId != null
+        ? await _onDiskScrubOps(fileId, blobNames)
+        : const <KvLogOp>[];
     await _as.commit([
       AppendLogOp(Ns.messageLog, hit.logId, _sk(tomb)),
       if (fileId != null) ...await AsyncFileStore(_as).deleteFileOps(fileId),
@@ -1191,7 +1297,10 @@ class HiddenVolumeStorage implements Storage {
   /// forensically erases it — without this, deleting/clearing an EDITED message
   /// would leave its old plaintext on disk (a deniability hole introduced by
   /// keeping edit history). Returns ops to fold into the caller's commit.
-  Future<List<KvLogOp>> _voidEditRowsOps(String conv, {Set<String>? targets}) async {
+  Future<List<KvLogOp>> _voidEditRowsOps(
+    String conv, {
+    Set<String>? targets,
+  }) async {
     final entries = await _as.iterLogRange(
       namespace: Ns.messageLog,
       limit: _logScanLimit,
@@ -1202,23 +1311,27 @@ class HiddenVolumeStorage implements Storage {
       if (m['c'] != conv) continue;
       if (m['k'] != EventKind.edit.index) continue;
       if (targets != null && !targets.contains(m['tg'])) continue;
-      ops.add(AppendLogOp(
-        Ns.messageLog,
-        e.logId,
-        _sk(jsonEncode({
-          'k': EventKind.void_.index,
-          'c': conv,
-          'tg': m['tg'],
-          'id': m['id'],
-          // The void IS the seq-preserving placeholder (R-VOID): carry the
-          // voided edit's (author, seq) so its slot survives the reclaim and the
-          // contiguous high-water (conversationSync) advances past it instead of
-          // stalling on a phantom hole (R4). Body-less either way → the scrub
-          // still erases the orphaned plaintext.
-          if (m['au'] is String) 'au': m['au'],
-          if (m['sq'] is int) 'sq': m['sq'],
-        })),
-      ));
+      ops.add(
+        AppendLogOp(
+          Ns.messageLog,
+          e.logId,
+          _sk(
+            jsonEncode({
+              'k': EventKind.void_.index,
+              'c': conv,
+              'tg': m['tg'],
+              'id': m['id'],
+              // The void IS the seq-preserving placeholder (R-VOID): carry the
+              // voided edit's (author, seq) so its slot survives the reclaim and the
+              // contiguous high-water (conversationSync) advances past it instead of
+              // stalling on a phantom hole (R4). Body-less either way → the scrub
+              // still erases the orphaned plaintext.
+              if (m['au'] is String) 'au': m['au'],
+              if (m['sq'] is int) 'sq': m['sq'],
+            }),
+          ),
+        ),
+      );
     }
     return ops;
   }
@@ -1229,8 +1342,11 @@ class HiddenVolumeStorage implements Storage {
   /// caller ALSO drops the contact record. Coalescing to a single commit is the
   /// high-leverage cut for storage bloat. Voiding the edit rows ensures no
   /// superseded edit plaintext survives a clear (forensic, with the scrub).
-  Future<List<KvLogOp>> _tombstoneAllOps(NodeId peer,
-      {Map<String, int>? upTo, required List<String> blobNamesOut}) async {
+  Future<List<KvLogOp>> _tombstoneAllOps(
+    NodeId peer, {
+    Map<String, int>? upTo,
+    required List<String> blobNamesOut,
+  }) async {
     final ops = <KvLogOp>[];
     final cleared = <String>{};
     for (final m in await loadMessages(peer.hex)) {
@@ -1250,13 +1366,15 @@ class HiddenVolumeStorage implements Storage {
           hit.logId,
           // Preserve (author, seq) so the seq slot survives the tombstone (R4) —
           // same gap-free rule as deleteMessage.
-          _sk(jsonEncode({
-            'op': 'del',
-            'id': m.id,
-            'c': peer.hex,
-            if (hit.message.author != null) 'au': hit.message.author,
-            if (hit.message.seq != null) 'sq': hit.message.seq,
-          })),
+          _sk(
+            jsonEncode({
+              'op': 'del',
+              'id': m.id,
+              'c': peer.hex,
+              if (hit.message.author != null) 'au': hit.message.author,
+              if (hit.message.seq != null) 'sq': hit.message.seq,
+            }),
+          ),
         ),
       );
       final fileId = hit.message.fileId;
@@ -1270,8 +1388,9 @@ class HiddenVolumeStorage implements Storage {
     // Scrub edit rows: ALL of them for a full local clear; only the cleared
     // messages' for a bounded (remote) clear, so a kept newer message keeps its
     // edit history.
-    ops.addAll(await _voidEditRowsOps(peer.hex,
-        targets: upTo == null ? null : cleared));
+    ops.addAll(
+      await _voidEditRowsOps(peer.hex, targets: upTo == null ? null : cleared),
+    );
     return ops;
   }
 
@@ -1318,35 +1437,43 @@ class HiddenVolumeStorage implements Storage {
       if (m['op'] == 'status' || m['op'] == 'del' || m['op'] == 'sig') continue;
       final k = m['k'] as int?;
       if (k == EventKind.edit.index && old.contains(m['tg'])) {
-        ops.add(AppendLogOp(
-          Ns.messageLog,
-          e.logId,
-          _sk(jsonEncode({
-            'k': EventKind.void_.index,
-            'c': peer.hex,
-            'tg': m['tg'],
-            'id': m['id'],
-            // Keep the voided edit's seq slot (R4 / R-VOID) — see _voidEditRowsOps.
-            if (m['au'] is String) 'au': m['au'],
-            if (m['sq'] is int) 'sq': m['sq'],
-          })),
-        ));
+        ops.add(
+          AppendLogOp(
+            Ns.messageLog,
+            e.logId,
+            _sk(
+              jsonEncode({
+                'k': EventKind.void_.index,
+                'c': peer.hex,
+                'tg': m['tg'],
+                'id': m['id'],
+                // Keep the voided edit's seq slot (R4 / R-VOID) — see _voidEditRowsOps.
+                if (m['au'] is String) 'au': m['au'],
+                if (m['sq'] is int) 'sq': m['sq'],
+              }),
+            ),
+          ),
+        );
       } else if (old.contains(m['id']) &&
           (k == null ||
               k == EventKind.post.index ||
               k == EventKind.filePost.index)) {
-        ops.add(AppendLogOp(
-          Ns.messageLog,
-          e.logId,
-          // Preserve (author, seq) so the seq slot survives the tombstone (R4).
-          _sk(jsonEncode({
-            'op': 'del',
-            'id': m['id'],
-            'c': peer.hex,
-            if (m['au'] is String) 'au': m['au'],
-            if (m['sq'] is int) 'sq': m['sq'],
-          })),
-        ));
+        ops.add(
+          AppendLogOp(
+            Ns.messageLog,
+            e.logId,
+            // Preserve (author, seq) so the seq slot survives the tombstone (R4).
+            _sk(
+              jsonEncode({
+                'op': 'del',
+                'id': m['id'],
+                'c': peer.hex,
+                if (m['au'] is String) 'au': m['au'],
+                if (m['sq'] is int) 'sq': m['sq'],
+              }),
+            ),
+          ),
+        );
         final fileId = m['fi'] as String?;
         if (fileId != null) {
           ops.addAll(await AsyncFileStore(_as).deleteFileOps(fileId));
@@ -1375,7 +1502,7 @@ class HiddenVolumeStorage implements Storage {
 
   @override
   Future<({String author, int seq, Map<String, int> watermark})>
-      emitClearConversation(NodeId peer, String selfHex) async {
+  emitClearConversation(NodeId peer, String selfHex) async {
     // Clear locally AND record a propagatable + replayable clear EVENT: a
     // per-author seq WATERMARK (= the current contiguous high-water) under
     // [selfHex]'s next seq. The per-message scrub + tombstone still runs (forensic
@@ -1388,24 +1515,31 @@ class HiddenVolumeStorage implements Storage {
     final wm = Map<String, int>.from(sync.highWater);
     final blobNames = <String>[];
     final tombstones = // all current (== <= wm)
-        await _tombstoneAllOps(peer, blobNamesOut: blobNames);
+    await _tombstoneAllOps(
+      peer,
+      blobNamesOut: blobNames,
+    );
     final seq = await _nextConvSeq(conv, selfHex);
-    await _commitAtNextLogId((logId) => [
-      AppendLogOp(
-        Ns.messageLog,
-        logId,
-        // ONLY the watermark travels/persists — never a cleared id or text.
-        _sk(jsonEncode({
-          'k': EventKind.clear.index,
-          'c': conv,
-          'au': selfHex,
-          'sq': seq,
-          't': DateTime.now().millisecondsSinceEpoch,
-          'wm': wm,
-        })),
-      ),
-      PutOp(Ns.settings, _sk('conv_seq:$conv:$selfHex'), _sk('${seq + 1}')),
-    ]);
+    await _commitAtNextLogId(
+      (logId) => [
+        AppendLogOp(
+          Ns.messageLog,
+          logId,
+          // ONLY the watermark travels/persists — never a cleared id or text.
+          _sk(
+            jsonEncode({
+              'k': EventKind.clear.index,
+              'c': conv,
+              'au': selfHex,
+              'sq': seq,
+              't': DateTime.now().millisecondsSinceEpoch,
+              'wm': wm,
+            }),
+          ),
+        ),
+        PutOp(Ns.settings, _sk('conv_seq:$conv:$selfHex'), _sk('${seq + 1}')),
+      ],
+    );
     if (tombstones.isNotEmpty) await _commitBatched(tombstones);
     await scrubDeleted();
     await _deleteBlobFiles(blobNames);
@@ -1415,15 +1549,21 @@ class HiddenVolumeStorage implements Storage {
 
   @override
   Future<void> applyRemoteClear(
-      NodeId peer, String author, int seq, Map<String, int> watermark) async {
+    NodeId peer,
+    String author,
+    int seq,
+    Map<String, int> watermark,
+  ) async {
     // Apply a clear received from [author]. Record the watermark, scrub +
     // tombstone every local message AT/BELOW it (keep anything newer), and occupy
     // the clear's own (author, seq) slot so the per-author stream stays gap-free.
     // Idempotent on (author, seq). The caller (messaging) decides WHETHER to apply
     // a peer's clear (policy); this is the apply mechanism.
     final conv = peer.hex;
-    final entries =
-        await _as.iterLogRange(namespace: Ns.messageLog, limit: _logScanLimit);
+    final entries = await _as.iterLogRange(
+      namespace: Ns.messageLog,
+      limit: _logScanLimit,
+    );
     for (final e in entries) {
       final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
       if (m['c'] == conv &&
@@ -1437,22 +1577,29 @@ class HiddenVolumeStorage implements Storage {
     // Gather scrub+tombstone ops BEFORE the clear row sets the fold watermark, so
     // loadMessages still lists the to-be-cleared messages.
     final blobNames = <String>[];
-    final tombstones =
-        await _tombstoneAllOps(peer, upTo: watermark, blobNamesOut: blobNames);
-    await _commitAtNextLogId((logId) => [
-      AppendLogOp(
-        Ns.messageLog,
-        logId,
-        _sk(jsonEncode({
-          'k': EventKind.clear.index,
-          'c': conv,
-          'au': author,
-          'sq': seq,
-          't': DateTime.now().millisecondsSinceEpoch,
-          'wm': watermark,
-        })),
-      ),
-    ]);
+    final tombstones = await _tombstoneAllOps(
+      peer,
+      upTo: watermark,
+      blobNamesOut: blobNames,
+    );
+    await _commitAtNextLogId(
+      (logId) => [
+        AppendLogOp(
+          Ns.messageLog,
+          logId,
+          _sk(
+            jsonEncode({
+              'k': EventKind.clear.index,
+              'c': conv,
+              'au': author,
+              'sq': seq,
+              't': DateTime.now().millisecondsSinceEpoch,
+              'wm': watermark,
+            }),
+          ),
+        ),
+      ],
+    );
     if (tombstones.isNotEmpty) await _commitBatched(tombstones);
     await scrubDeleted();
     await _deleteBlobFiles(blobNames);
@@ -1548,6 +1695,7 @@ class HiddenVolumeStorage implements Storage {
   Future<int> sweepSettingsGarbage({bool wholesale = false}) async {
     final keys = await settingsKeys();
     final doomed = <String>[];
+    final blobNames = <String>[];
     Set<String>? liveContent;
     if (!wholesale) {
       // Per-content bookkeeping is only reachable through a message that
@@ -1573,10 +1721,7 @@ class HiddenVolumeStorage implements Storage {
         doomed.add(key);
         continue;
       }
-      final prefix = perContent.firstWhere(
-        key.startsWith,
-        orElse: () => '',
-      );
+      final prefix = perContent.firstWhere(key.startsWith, orElse: () => '');
       if (prefix.isNotEmpty) {
         final cid = key.substring(prefix.length);
         if (wholesale || !(liveContent!.contains(cid))) doomed.add(key);
@@ -1590,11 +1735,22 @@ class HiddenVolumeStorage implements Storage {
         if (wholesale || !(liveContent!.contains(cid))) doomed.add(key);
         continue;
       }
+      if (key.startsWith('ondisk:')) {
+        // On-disk encrypted blobs are keyed by the content id. Once no live
+        // message references that id, remove BOTH the in-volume key row and the
+        // ciphertext directory so app-private storage does not grow forever.
+        final cid = key.substring('ondisk:'.length);
+        if (wholesale || !(liveContent!.contains(cid))) {
+          final meta = await _odMeta(cid);
+          final fn = meta?['fn'];
+          if (fn is String) blobNames.add(fn);
+          doomed.add(key);
+        }
+        continue;
+      }
       if (wholesale && key.startsWith('file:')) {
         // After a wholesale purge (file chunks + message log erased) the
         // remaining file-store records describe data that no longer exists.
-        // `ondisk:*` is kept: its blob files live outside the container and
-        // deleting only the refs would orphan them.
         doomed.add(key);
       }
     }
@@ -1609,17 +1765,18 @@ class HiddenVolumeStorage implements Storage {
       ];
       await _as.commit(ops);
     }
+    await _deleteBlobFiles(blobNames);
     return doomed.length;
   }
 
   @override
   Future<Map<String, int>> namespaceCounts() async => {
-        'settings': await _as.count(Ns.settings),
-        'contacts': await _as.count(Ns.contacts),
-        'messageLog': await _as.count(Ns.messageLog),
-        'media': await _as.count(Ns.media),
-        'fileChunks': await _as.count(Ns.fileChunks),
-      };
+    'settings': await _as.count(Ns.settings),
+    'contacts': await _as.count(Ns.contacts),
+    'messageLog': await _as.count(Ns.messageLog),
+    'media': await _as.count(Ns.media),
+    'fileChunks': await _as.count(Ns.fileChunks),
+  };
 
   @override
   Future<int> purgeMessageLog() async {
@@ -1665,9 +1822,9 @@ class HiddenVolumeStorage implements Storage {
       'c': conversationId,
       's': status.index,
     });
-    await _commitAtNextLogId((logId) => [
-      AppendLogOp(Ns.messageLog, logId, _sk(payload)),
-    ]);
+    await _commitAtNextLogId(
+      (logId) => [AppendLogOp(Ns.messageLog, logId, _sk(payload))],
+    );
   }
 
   @override
@@ -1694,9 +1851,9 @@ class HiddenVolumeStorage implements Storage {
       'c': conversationId,
       'sig': signature.index,
     });
-    await _commitAtNextLogId((logId) => [
-      AppendLogOp(Ns.messageLog, logId, _sk(payload)),
-    ]);
+    await _commitAtNextLogId(
+      (logId) => [AppendLogOp(Ns.messageLog, logId, _sk(payload))],
+    );
   }
 
   // ── Durable frame outbox (Ns.outbox append-log) ────────────────────────────
@@ -1708,7 +1865,10 @@ class HiddenVolumeStorage implements Storage {
 
   @override
   Future<void> enqueueOutboxFrame(
-      String frameId, String peerHex, Uint8List wire) async {
+    String frameId,
+    String peerHex,
+    Uint8List wire,
+  ) async {
     // Idempotent: skip if an un-acked entry for this id already exists.
     for (final f in await pendingOutboxFrames()) {
       if (f.frameId == frameId) return;
@@ -1718,9 +1878,9 @@ class HiddenVolumeStorage implements Storage {
       'p': peerHex,
       'w': base64.encode(wire),
     });
-    await _commitAtNextLogId((logId) => [
-      AppendLogOp(Ns.outbox, logId, _sk(payload)),
-    ]);
+    await _commitAtNextLogId(
+      (logId) => [AppendLogOp(Ns.outbox, logId, _sk(payload))],
+    );
   }
 
   @override
@@ -1740,9 +1900,9 @@ class HiddenVolumeStorage implements Storage {
       }
     }
     final payload = jsonEncode({'op': 'ack', 'id': frameId});
-    await _commitAtNextLogId((logId) => [
-      AppendLogOp(Ns.outbox, logId, _sk(payload)),
-    ]);
+    await _commitAtNextLogId(
+      (logId) => [AppendLogOp(Ns.outbox, logId, _sk(payload))],
+    );
   }
 
   @override
@@ -1765,11 +1925,7 @@ class HiddenVolumeStorage implements Storage {
         final p = m['p'] as String?;
         final w = m['w'] as String?;
         if (p == null || w == null) continue;
-        byId[id] = OutboxFrame(
-          frameId: id,
-          peerHex: p,
-          wire: base64.decode(w),
-        );
+        byId[id] = OutboxFrame(frameId: id, peerHex: p, wire: base64.decode(w));
       }
     } catch (_) {
       // Unreadable outbox → treat as empty (the mailbox copy still covers most
@@ -2080,14 +2236,17 @@ class HiddenVolumeStorage implements Storage {
         if (post != null) {
           final editAuthor = m['au'] as String?;
           final editSeq = m['sq'] as int?;
-          final authorOk = post.author == null ||
+          final authorOk =
+              post.author == null ||
               editAuthor == null ||
               post.author == editAuthor;
           final win = _scanEditWinSeq[tk];
           final newer = editSeq == null || win == null || editSeq > win;
           if (authorOk && newer) {
-            _scanById[tk] =
-                post.copyWith(body: m['b'] as String? ?? post.body, edited: true);
+            _scanById[tk] = post.copyWith(
+              body: m['b'] as String? ?? post.body,
+              edited: true,
+            );
             if (editSeq != null) _scanEditWinSeq[tk] = editSeq;
           }
         }
@@ -2103,7 +2262,9 @@ class HiddenVolumeStorage implements Storage {
       // arm above already purged the ones folded before it.
       final pAu = m['au'] as String?;
       final pSq = m['sq'] as int?;
-      if (pAu != null && pSq != null && pSq <= (_clearedWatermark[c]?[pAu] ?? -1)) {
+      if (pAu != null &&
+          pSq != null &&
+          pSq <= (_clearedWatermark[c]?[pAu] ?? -1)) {
         final dk = _msgKey(c, id);
         _scanById.remove(dk);
         _scanOrder.remove(dk);
