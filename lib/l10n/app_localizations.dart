@@ -601,6 +601,60 @@ abstract class AppL10n {
   /// **'Coming soon'**
   String get comingSoon;
 
+  /// No description provided for @settingsCatAccount.
+  ///
+  /// In en, this message translates to:
+  /// **'Identities & account'**
+  String get settingsCatAccount;
+
+  /// No description provided for @settingsCatAccountHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch, add, manage, anonymity'**
+  String get settingsCatAccountHint;
+
+  /// No description provided for @settingsCatPrivacy.
+  ///
+  /// In en, this message translates to:
+  /// **'Privacy'**
+  String get settingsCatPrivacy;
+
+  /// No description provided for @settingsCatPrivacyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'P2P policy, signature requests'**
+  String get settingsCatPrivacyHint;
+
+  /// No description provided for @settingsCatChats.
+  ///
+  /// In en, this message translates to:
+  /// **'Chats & notifications'**
+  String get settingsCatChats;
+
+  /// No description provided for @settingsCatChatsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Notifications, background delivery, page size'**
+  String get settingsCatChatsHint;
+
+  /// No description provided for @settingsCatData.
+  ///
+  /// In en, this message translates to:
+  /// **'Data & storage'**
+  String get settingsCatData;
+
+  /// No description provided for @settingsCatDataHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Container size, compaction, files'**
+  String get settingsCatDataHint;
+
+  /// No description provided for @settingsCatAppearanceHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Language, folders panel'**
+  String get settingsCatAppearanceHint;
+
   /// No description provided for @trayShow.
   ///
   /// In en, this message translates to:

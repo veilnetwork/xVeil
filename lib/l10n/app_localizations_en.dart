@@ -278,6 +278,34 @@ class AppL10nEn extends AppL10n {
   String get comingSoon => 'Coming soon';
 
   @override
+  String get settingsCatAccount => 'Identities & account';
+
+  @override
+  String get settingsCatAccountHint => 'Switch, add, manage, anonymity';
+
+  @override
+  String get settingsCatPrivacy => 'Privacy';
+
+  @override
+  String get settingsCatPrivacyHint => 'P2P policy, signature requests';
+
+  @override
+  String get settingsCatChats => 'Chats & notifications';
+
+  @override
+  String get settingsCatChatsHint =>
+      'Notifications, background delivery, page size';
+
+  @override
+  String get settingsCatData => 'Data & storage';
+
+  @override
+  String get settingsCatDataHint => 'Container size, compaction, files';
+
+  @override
+  String get settingsCatAppearanceHint => 'Language, folders panel';
+
+  @override
   String get trayShow => 'Show';
 
   @override
