@@ -19,9 +19,13 @@ import 'multi_space_store.dart';
 /// synchronous `SessionBuilder` can construct this without awaiting — the open
 /// (and any error) surfaces on the first `await` instead. Drop with [close].
 class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
-  WorkerMultiSpaceBacking(this._path);
+  WorkerMultiSpaceBacking(
+    this._path, {
+    this.paddingPreset = hv.PaddingPreset.bucket256KiB,
+  });
 
   final String _path;
+  final hv.PaddingPreset paddingPreset;
   Isolate? _isolate;
   SendPort? _toWorker;
   Future<SendPort>? _ready;
@@ -33,7 +37,11 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
     final boot = ReceivePort();
     final isolate = await Isolate.spawn<_MOpenConfig>(
       _multiWorkerEntry,
-      _MOpenConfig(path: _path, reply: boot.sendPort),
+      _MOpenConfig(
+        path: _path,
+        paddingPresetTag: paddingPreset.tag,
+        reply: boot.sendPort,
+      ),
       errorsAreFatal: true,
     );
     final first = await boot.first;
@@ -48,7 +56,9 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
         return _toWorker!;
       default:
         isolate.kill(priority: Isolate.immediate);
-        throw StateError('multi-space worker sent an unexpected bootstrap reply');
+        throw StateError(
+          'multi-space worker sent an unexpected bootstrap reply',
+        );
     }
   }
 
@@ -82,9 +92,9 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
     int? start,
     int? end,
     required int limit,
-  }) =>
-      _call<List<KvLogEntry>>(
-          (reply) => _MIter(id, namespace, start, end, limit, reply));
+  }) => _call<List<KvLogEntry>>(
+    (reply) => _MIter(id, namespace, start, end, limit, reply),
+  );
   @override
   Future<int> count(int id, int namespace) =>
       _call<int>((reply) => _MCount(id, namespace, reply));
@@ -109,8 +119,10 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
     final reply = ReceivePort();
     try {
       port.send(_MClose(reply.sendPort));
-      await reply.first
-          .timeout(const Duration(seconds: 5), onTimeout: () => const _MOk(null));
+      await reply.first.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => const _MOk(null),
+      );
     } finally {
       reply.close();
       _isolate?.kill(priority: Isolate.immediate);
@@ -124,9 +136,21 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
 // payloads are plain sendable data (ints, byte lists, the sealed value types).
 
 class _MOpenConfig {
-  const _MOpenConfig({required this.path, required this.reply});
+  const _MOpenConfig({
+    required this.path,
+    required this.paddingPresetTag,
+    required this.reply,
+  });
   final String path;
+  final int paddingPresetTag;
   final SendPort reply;
+}
+
+hv.PaddingPreset _paddingPresetFromTag(int tag) {
+  for (final preset in hv.PaddingPreset.values) {
+    if (preset.tag == tag) return preset;
+  }
+  return hv.PaddingPreset.bucket256KiB;
 }
 
 sealed class _MReq {
@@ -160,8 +184,14 @@ class _MReadLog extends _MReq {
 }
 
 class _MIter extends _MReq {
-  const _MIter(this.id, this.namespace, this.start, this.end, this.limit, SendPort reply)
-      : super(reply);
+  const _MIter(
+    this.id,
+    this.namespace,
+    this.start,
+    this.end,
+    this.limit,
+    SendPort reply,
+  ) : super(reply);
   final int id;
   final int namespace;
   final int? start;
@@ -218,7 +248,10 @@ void _multiWorkerEntry(_MOpenConfig cfg) {
 
   final MultiSpaceBacking backing;
   try {
-    backing = HvMultiSpaceBacking.open(cfg.path);
+    backing = HvMultiSpaceBacking.open(
+      cfg.path,
+      paddingPreset: _paddingPresetFromTag(cfg.paddingPresetTag),
+    );
   } on hv.HvException catch (e) {
     cfg.reply.send(_MErr(e.kind, e.message));
     return;
@@ -251,9 +284,22 @@ void _multiWorkerEntry(_MOpenConfig cfg) {
         run(() => backing.get(id, namespace, key));
       case _MReadLog(:final id, :final namespace, :final logId):
         run(() => backing.readLog(id, namespace, logId));
-      case _MIter(:final id, :final namespace, :final start, :final end, :final limit):
-        run(() => backing.iterLogRange(id,
-            namespace: namespace, start: start, end: end, limit: limit));
+      case _MIter(
+        :final id,
+        :final namespace,
+        :final start,
+        :final end,
+        :final limit,
+      ):
+        run(
+          () => backing.iterLogRange(
+            id,
+            namespace: namespace,
+            start: start,
+            end: end,
+            limit: limit,
+          ),
+        );
       case _MCount(:final id, :final namespace):
         run(() => backing.count(id, namespace));
       case _MKvKeys(:final id, :final namespace):

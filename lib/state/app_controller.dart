@@ -18,6 +18,7 @@ import 'background_node_controller.dart';
 import 'keep_all_online_controller.dart';
 import 'proxy_routing_controller.dart';
 import 'providers.dart';
+import 'storage_preferences.dart';
 import 'package:xveil/core/log.dart';
 
 /// Top-level lifecycle of the app, used by the router to gate screens.
@@ -245,11 +246,9 @@ class AppController extends Notifier<AppState> {
         return;
       }
       // Single identity space — unchanged path.
+      await _maybeAutoCompactBeforeSession(password);
       final identity = await storage.loadIdentity() ?? _placeholderIdentity();
       await _enterSession(identity);
-      // Opt-in storage self-maintenance (see [_maybeAutoCompact]); after the
-      // session is up so a compaction failure can never strand the unlock.
-      unawaited(_maybeAutoCompact(password));
     } catch (e) {
       devLog(
         () => 'xVeil[unlock]: post-open classification failed -> lock: $e',
@@ -354,35 +353,64 @@ class AppController extends Notifier<AppState> {
         .putSetting(_autoCompactKey, enabled ? '1' : '0');
   }
 
-  /// Unlock-time storage self-maintenance: when the opt-in is ON and the
-  /// container has bloated well past its last compacted size, run the same
-  /// teardown→compact→reopen cycle the Settings button drives. Fired AFTER the
-  /// session is ready, so a failure (or a mid-compaction crash — the rewrite is
-  /// atomic) never strands the unlock; the user just sees one more brief
-  /// "opening" phase on the rare unlock that compacts.
-  Future<void> _maybeAutoCompact(String password) async {
+  Future<bool> leanStoragePaddingEnabled() async {
+    try {
+      final prefs = await ref.read(prefsProvider.future);
+      return prefs.getBool(kStorageLeanPaddingPref) ??
+          kStorageLeanPaddingDefault;
+    } catch (_) {
+      return kStorageLeanPaddingDefault;
+    }
+  }
+
+  Future<void> setLeanStoragePaddingEnabled(bool enabled) async {
+    final prefs = await ref.read(prefsProvider.future);
+    await prefs.setBool(kStorageLeanPaddingPref, enabled);
+  }
+
+  /// Same trigger as [_maybeAutoCompact], but it runs before booting the node.
+  /// This matters for badly bloated containers: boot reads node/messaging state
+  /// and can spend minutes in [AppPhase.preparingNode], so a post-ready compact
+  /// never gets a chance to fire. Only runs for single-identity spaces with the
+  /// existing opt-in setting enabled.
+  Future<void> _maybeAutoCompactBeforeSession(String password) async {
     if (_autoCompactRunning || !canCompactStorage) return;
+    final storage = ref.read(storageProvider);
+    final path = ref.read(deniableBootProvider)?.storePath;
+    if (path == null) return;
     try {
       if (!await autoCompactEnabled()) return;
-      final size = await containerSizeBytes();
-      if (size == null || size < _autoCompactMinBytes) return;
-      final lastRaw = await ref
-          .read(storageProvider)
-          .getSetting(_lastCompactSizeKey);
+      final size = await File(path).length();
+      if (size < _autoCompactMinBytes) return;
+      final lastRaw = await storage.getSetting(_lastCompactSizeKey);
       final last = int.tryParse(lastRaw ?? '') ?? 0;
       if (last > 0 && size < last * _autoCompactGrowthFactor) return;
       _autoCompactRunning = true;
       devLog(
         () =>
-            'xVeil[storage]: auto-compact triggered (size=$size, '
-            'lastCompacted=$last)',
+            'xVeil[storage]: pre-session auto-compact triggered '
+            '(size=$size, lastCompacted=$last)',
       );
-      final r = await compactStorage(password);
+      await storage.close(); // release LOCK_EX before compact_known.
+      await hv.compactKnownAsync(path, [
+        Uint8List.fromList(utf8.encode(password)),
+      ], dylibPath: _hvDylibPath());
+      final reopened = await storage.open(password: password);
+      if (!reopened) {
+        throw StateError('container did not reopen after compaction');
+      }
+      final after = await File(path).length();
+      await storage.putSetting(_lastCompactSizeKey, '$after');
       devLog(
-        () => 'xVeil[storage]: auto-compact done ${r.before} -> ${r.after}',
+        () => 'xVeil[storage]: pre-session auto-compact done $size -> $after',
       );
     } catch (e) {
-      devLog(() => 'xVeil[storage]: auto-compact failed (non-fatal): $e');
+      devLog(() => 'xVeil[storage]: pre-session auto-compact failed: $e');
+      if (!storage.isOpen) {
+        try {
+          await storage.open(password: password);
+        } catch (_) {}
+      }
     } finally {
       _autoCompactRunning = false;
     }
@@ -411,6 +439,7 @@ class AppController extends Notifier<AppState> {
       phase: AppPhase.preparingNode,
       preparingReason: PreparingReason.unlocking,
     );
+    final leanPadding = await leanStoragePaddingEnabled();
     final session = ref.read(sessionBuilderProvider)(
       storePath: boot.storePath!,
       runtimeDir: boot.runtimeDir,
@@ -422,6 +451,9 @@ class AppController extends Notifier<AppState> {
       obfs4Psk: boot.obfs4Psk,
       lazyMining: _singleLazyMining,
       proxy: ref.read(proxyRoutingProvider),
+      paddingPreset: leanPadding
+          ? hv.PaddingPreset.none
+          : hv.PaddingPreset.bucket256KiB,
     );
     await session.bootAll(roster);
     await ref.read(backgroundNodeProvider.notifier).applyIfNodeUp(nodeUp: true);

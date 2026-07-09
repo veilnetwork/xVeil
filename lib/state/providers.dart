@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/transport/bootstrap_invite.dart';
@@ -53,14 +54,16 @@ final singleSpaceStorageProvider = Provider<Storage>((ref) {
 /// Builds an all-online [MultiIdentitySession] over the real native container.
 /// Overridden in tests with a fake backing/boot so the AppController branch is
 /// testable without a node.
-typedef SessionBuilder = MultiIdentitySession Function({
-  required String storePath,
-  required String runtimeDir,
-  required int listenPort,
-  String? obfs4Psk,
-  bool lazyMining,
-  ProxyRouting proxy,
-});
+typedef SessionBuilder =
+    MultiIdentitySession Function({
+      required String storePath,
+      required String runtimeDir,
+      required int listenPort,
+      String? obfs4Psk,
+      required bool lazyMining,
+      required ProxyRouting proxy,
+      required hv.PaddingPreset paddingPreset,
+    });
 
 MultiIdentitySession _realSessionBuilder({
   required String storePath,
@@ -69,23 +72,24 @@ MultiIdentitySession _realSessionBuilder({
   String? obfs4Psk,
   bool lazyMining = false,
   ProxyRouting proxy = ProxyRouting.disabled,
-}) =>
-    MultiIdentitySession(
-      // Off-isolate: the shared multi-space container is owned by a worker
-      // isolate (lazy-spawned on the first openSpace), so every always-online
-      // identity's get/commit/scan runs off the UI thread.
-      WorkerMultiSpaceBacking(storePath),
-      runtimeDirBase: runtimeDir,
-      listenPortBase: listenPort,
-      // Lockstep with the single-identity boot so always-online nodes join the
-      // same (obfs4-protected) network and honour the same mining/routing config.
-      obfs4Psk: obfs4Psk,
-      lazyMining: lazyMining,
-      proxy: proxy,
-    );
+  hv.PaddingPreset paddingPreset = hv.PaddingPreset.bucket256KiB,
+}) => MultiIdentitySession(
+  // Off-isolate: the shared multi-space container is owned by a worker
+  // isolate (lazy-spawned on the first openSpace), so every always-online
+  // identity's get/commit/scan runs off the UI thread.
+  WorkerMultiSpaceBacking(storePath, paddingPreset: paddingPreset),
+  runtimeDirBase: runtimeDir,
+  listenPortBase: listenPort,
+  // Lockstep with the single-identity boot so always-online nodes join the
+  // same (obfs4-protected) network and honour the same mining/routing config.
+  obfs4Psk: obfs4Psk,
+  lazyMining: lazyMining,
+  proxy: proxy,
+);
 
-final sessionBuilderProvider =
-    Provider<SessionBuilder>((ref) => _realSessionBuilder);
+final sessionBuilderProvider = Provider<SessionBuilder>(
+  (ref) => _realSessionBuilder,
+);
 
 /// The "all identities online" session, set by [AppController] when a master is
 /// unlocked with `keepAllOnline`; null otherwise (single / one-active mode).
@@ -265,8 +269,7 @@ final peersProvider = StreamProvider<List<PeerInfo>>((ref) async* {
       seenNow.add(key);
       final prev = tracked[key];
       // Stamp last-seen only while active; otherwise carry the prior stamp.
-      tracked[key] =
-          p.copyWith(lastSeen: p.isActive ? now : prev?.lastSeen);
+      tracked[key] = p.copyWith(lastSeen: p.isActive ? now : prev?.lastSeen);
     }
     // Peers absent from this snapshot: keep them, but mark closed.
     for (final key in tracked.keys.toList()) {

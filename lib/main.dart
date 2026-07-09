@@ -8,7 +8,9 @@ import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:veil_flutter/veil_flutter.dart' as veil;
 
 import 'app.dart';
@@ -24,6 +26,7 @@ import 'data/transport/veil_native.dart';
 import 'data/veil_stack.dart';
 import 'debug/soak_hook.dart';
 import 'state/providers.dart';
+import 'state/storage_preferences.dart';
 import 'package:xveil/core/log.dart';
 
 Future<void> main() async {
@@ -114,6 +117,12 @@ Future<List<Override>> _bootstrapOverrides() async {
       final path = (override != null && override.isNotEmpty)
           ? override
           : '${dir.path}/xveil.store';
+      final prefs = await SharedPreferences.getInstance();
+      final leanPadding =
+          prefs.getBool(kStorageLeanPaddingPref) ?? kStorageLeanPaddingDefault;
+      final paddingPreset = leanPadding
+          ? hv.PaddingPreset.none
+          : hv.PaddingPreset.bucket256KiB;
       storePath = path;
       overrides.add(
         singleSpaceStorageProvider.overrideWith((ref) {
@@ -127,12 +136,17 @@ Future<List<Override>> _bootstrapOverrides() async {
           final mobile = Platform.isAndroid || Platform.isIOS;
           final storage = mobile
               ? HiddenVolumeStorage(
-                  hvSpaceOpener(path),
-                  keysOpener: hvKeysSpaceOpener(path),
+                  hvSpaceOpener(path, paddingPreset: paddingPreset),
+                  keysOpener: hvKeysSpaceOpener(
+                    path,
+                    paddingPreset: paddingPreset,
+                  ),
                 )
               : HiddenVolumeStorage.async(
-                  workerSpaceOpener(path),
-                  keysOpener: syncWrappedKeysOpener(hvKeysSpaceOpener(path)),
+                  workerSpaceOpener(path, paddingPreset: paddingPreset),
+                  keysOpener: syncWrappedKeysOpener(
+                    hvKeysSpaceOpener(path, paddingPreset: paddingPreset),
+                  ),
                 );
           // Large-file tier (Phase B): blobs too big for the hidden-volume index
           // are stored ENCRYPTED here (per-blob key + opaque name kept in the
@@ -435,20 +449,41 @@ Future<void> _sweepStaleRuntimeDirs(String runtimeBase) async {
 /// reads from this path); an older reoffer honestly answers content-GONE,
 /// exactly as when the OS itself evicts the cache dir under storage pressure.
 Future<void> _sweepPickedFileCache({
-  Duration keep = const Duration(days: 7),
+  Duration keep = const Duration(hours: 24),
+  int maxBytes = 512 * 1024 * 1024,
 }) async {
   if (!(Platform.isAndroid || Platform.isIOS)) return; // desktop picks in place
   try {
     final cache = await getTemporaryDirectory();
     final dir = Directory('${cache.path}/file_picker');
     if (!await dir.exists()) return;
+    final entries =
+        <({FileSystemEntity entity, DateTime modified, int bytes})>[];
     var removed = 0;
     await for (final e in dir.list(followLinks: false)) {
       try {
-        if (DateTime.now().difference((await e.stat()).modified) < keep) {
+        final stat = await e.stat();
+        if (DateTime.now().difference(stat.modified) < keep) {
+          entries.add((
+            entity: e,
+            modified: stat.modified,
+            bytes: await _treeSizeBytes(e),
+          ));
           continue;
         }
         await e.delete(recursive: true);
+        removed++;
+      } catch (_) {
+        // best-effort per entry
+      }
+    }
+    entries.sort((a, b) => b.modified.compareTo(a.modified)); // newest first
+    var total = entries.fold<int>(0, (sum, e) => sum + e.bytes);
+    for (final e in entries.reversed) {
+      if (total <= maxBytes) break;
+      try {
+        await e.entity.delete(recursive: true);
+        total -= e.bytes;
         removed++;
       } catch (_) {
         // best-effort per entry
@@ -459,5 +494,25 @@ Future<void> _sweepPickedFileCache({
     }
   } catch (_) {
     // cache dir unavailable — nothing to sweep
+  }
+}
+
+Future<int> _treeSizeBytes(FileSystemEntity entity) async {
+  try {
+    final stat = await entity.stat();
+    if (entity is File) return stat.size;
+    if (entity is! Directory) return 0;
+    var total = 0;
+    await for (final child in entity.list(
+      recursive: true,
+      followLinks: false,
+    )) {
+      try {
+        if (child is File) total += (await child.stat()).size;
+      } catch (_) {}
+    }
+    return total;
+  } catch (_) {
+    return 0;
   }
 }
