@@ -9,6 +9,7 @@ import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
+import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/state/messaging.dart';
 
@@ -402,6 +403,47 @@ void main() {
           (await sA.pendingOutboxFrames()).map((f) => f.frameId),
           isNot(contains('accept:${c.hex}')),
           reason: "C's ack (sent from the accept arm) retired the frame");
+    });
+
+    test('call health heartbeat is live-only and never enters durable outbox',
+        () async {
+      tA.online = false;
+      await mA.sendCallSignal(
+        b,
+        const CallSignal(callId: 'call-live', type: CallSignalType.health),
+      );
+      await _settle();
+
+      expect(await sA.pendingOutboxFrames(), isEmpty,
+          reason: 'liveness beats are superseded by the next beat and must not '
+              'survive as restart/outbox work');
+    });
+
+    test('stale durable call offer is retired instead of re-driven forever',
+        () async {
+      tA.online = false;
+      await mA.sendCallSignal(
+        b,
+        CallSignal(
+          callId: 'call-stale',
+          type: CallSignalType.offer,
+          media: const CallMedia(audio: true, video: true),
+          posture: CallPosture.direct,
+        ),
+      );
+      await _settle();
+      expect(
+          (await sA.pendingOutboxFrames()).map((f) => f.frameId),
+          contains('call:call-stale:offer'));
+
+      tA.online = true;
+      clock = clock.add(const Duration(minutes: 3));
+      await flushA();
+
+      expect(await sA.pendingOutboxFrames(), isEmpty,
+          reason: 'a missed real-time call is no longer useful minutes later');
+      expect(await sB.pendingOutboxFrames(), isEmpty,
+          reason: 'the stale offer was not delivered to B');
     });
 
     test('RECONNECT to a wiped peer is durable: re-intro survives the lost '
