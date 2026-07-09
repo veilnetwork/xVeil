@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -12,6 +13,7 @@ import '../../core/ids.dart';
 import '../../data/serve_source.dart';
 import '../../core/log.dart';
 import 'chat_actions.dart';
+import 'chat_search.dart';
 import '../../domain/call_signal.dart';
 import '../../domain/chat.dart';
 import '../../domain/file_download_policy.dart';
@@ -79,6 +81,118 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final Map<String, GlobalKey> _bubbleKeys = <String, GlobalKey>{};
   GlobalKey _bubbleKey(String id) => _bubbleKeys[id] ??= GlobalKey();
 
+  // ── In-chat search ─────────────────────────────────────────────────────────
+  // The scan covers the WHOLE conversation (not just the loaded window);
+  // navigation reuses the quote-jump machinery, so stepping to an old match
+  // grows the window as needed.
+  final _chatSearchCtl = TextEditingController();
+  Timer? _chatSearchDebounce;
+  bool _chatSearching = false;
+  List<String> _chatMatches = const []; // message ids, oldest → newest
+  int _chatMatchIdx = -1;
+
+  /// Flash highlight of a just-landed message (search hit / quote jump).
+  String? _highlightId;
+  Timer? _highlightTimer;
+
+  void _flash(String id) {
+    _highlightTimer?.cancel();
+    setState(() => _highlightId = id);
+    _highlightTimer = Timer(const Duration(milliseconds: 1600), () {
+      if (mounted) setState(() => _highlightId = null);
+    });
+  }
+
+  void _enterChatSearch() => setState(() => _chatSearching = true);
+
+  void _exitChatSearch() {
+    _chatSearchDebounce?.cancel();
+    _chatSearchCtl.clear();
+    setState(() {
+      _chatSearching = false;
+      _chatMatches = const [];
+      _chatMatchIdx = -1;
+    });
+  }
+
+  void _onChatQueryChanged(String q) {
+    _chatSearchDebounce?.cancel();
+    _chatSearchDebounce = Timer(
+      const Duration(milliseconds: 300),
+      () => _scanChat(q),
+    );
+  }
+
+  /// Full-conversation match scan; lands on the newest match.
+  Future<void> _scanChat(String q) async {
+    final needle = q.trim().toLowerCase();
+    if (needle.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _chatMatches = const [];
+          _chatMatchIdx = -1;
+        });
+      }
+      return;
+    }
+    List<Message> msgs;
+    try {
+      msgs = await ref.read(storageProvider).loadMessages(widget.peerHex);
+    } catch (_) {
+      return;
+    }
+    final ids = [
+      for (final m in msgs)
+        if (messageMatchesQuery(m, needle)) m.id,
+    ];
+    if (!mounted) return;
+    setState(() {
+      _chatMatches = ids;
+      _chatMatchIdx = ids.isEmpty ? -1 : ids.length - 1;
+    });
+    if (ids.isNotEmpty) _jumpToMessage(ids.last, maxAttempts: 40);
+  }
+
+  /// Step to the previous (-1, older) / next (+1, newer) match.
+  void _stepChatMatch(int delta) {
+    if (_chatMatches.isEmpty) return;
+    final next = (_chatMatchIdx + delta).clamp(0, _chatMatches.length - 1);
+    if (next == _chatMatchIdx) return;
+    setState(() => _chatMatchIdx = next);
+    _jumpToMessage(_chatMatches[next], maxAttempts: 40);
+  }
+
+  AppBar _chatSearchBar(AppL10n l) {
+    final n = _chatMatches.length;
+    final pos = n == 0 ? 0 : _chatMatchIdx + 1;
+    return AppBar(
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back),
+        onPressed: _exitChatSearch,
+      ),
+      title: TextField(
+        controller: _chatSearchCtl,
+        autofocus: true,
+        decoration: InputDecoration(
+          hintText: l.searchHint,
+          border: InputBorder.none,
+        ),
+        onChanged: _onChatQueryChanged,
+      ),
+      actions: [
+        Center(child: Text('$pos/$n')),
+        IconButton(
+          icon: const Icon(Icons.keyboard_arrow_up),
+          onPressed: n == 0 ? null : () => _stepChatMatch(-1),
+        ),
+        IconButton(
+          icon: const Icon(Icons.keyboard_arrow_down),
+          onPressed: n == 0 ? null : () => _stepChatMatch(1),
+        ),
+      ],
+    );
+  }
+
   /// Scroll the chat so the message [id] is on screen. The list is lazy, so an
   /// off-screen target has no context yet — step upward a couple of viewports
   /// at a time until its bubble mounts, then ensureVisible. If the id is not in
@@ -88,8 +202,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       final list =
           ref.read(messagesProvider(widget.peerHex)).valueOrNull ?? const [];
       if (list.any((m) => m.id == id)) {
-        if (await _scrollUntilVisible(id)) return;
-        return; // in the window but never mounted — give up quietly
+        if (await _scrollUntilVisible(id) && mounted) _flash(id);
+        return; // flashed, or in the window but never mounted — stop either way
       }
       // Not in the window: load one more page of history and retry.
       ref.read(chatWindowProvider(widget.peerHex).notifier).state += ref.read(
@@ -179,6 +293,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   @override
   void dispose() {
+    _chatSearchDebounce?.cancel();
+    _highlightTimer?.cancel();
+    _chatSearchCtl.dispose();
     _input.dispose();
     _inputFocus.dispose();
     _scroll.dispose();
@@ -1362,6 +1479,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return Scaffold(
       appBar:
           selectionBar ??
+          (_chatSearching ? _chatSearchBar(l) : null) ??
           AppBar(
             title: Row(
               children: [
@@ -1374,6 +1492,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ],
             ),
             actions: [
+              IconButton(
+                icon: const Icon(Icons.search),
+                tooltip: l.searchHint,
+                onPressed: _enterChatSearch,
+              ),
               // Start a call — only an accepted contact can be dialled. Picks the
               // media set; the CallService FSM sends the offer + negotiates the path.
               if (status == ContactStatus.accepted)
@@ -1535,7 +1658,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       );
                     }
                     final m = list[hasMore ? i - 1 : i];
-                    return _Bubble(
+                    final bubble = _Bubble(
                       key: _bubbleKey(m.id),
                       message: m,
                       quoted: m.replyToId == null ? null : byId[m.replyToId],
@@ -1547,6 +1670,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       onTapQuote: m.replyToId == null
                           ? null
                           : () => _jumpToMessage(m.replyToId!),
+                    );
+                    // Flash the just-landed message (search hit / quote jump)
+                    // so the eye finds it; fades back via AnimatedContainer.
+                    return AnimatedContainer(
+                      duration: const Duration(milliseconds: 400),
+                      color: m.id == _highlightId
+                          ? Theme.of(
+                              context,
+                            ).colorScheme.primary.withValues(alpha: 0.14)
+                          : Colors.transparent,
+                      child: bubble,
                     );
                   },
                 );
