@@ -1471,7 +1471,7 @@ class MessagingService {
         // Consent gate: only deliver from accepted peers; drop the rest.
         if (existing?.status != ContactStatus.accepted) return;
         final id = env.id;
-        if (_isServiceEchoText(env.body)) {
+        if (isServiceEchoBody(env.body)) {
           if (id != null) await _ackTo(m, id, direct: true);
           return;
         }
@@ -8655,24 +8655,9 @@ final messagesProvider = StreamProvider.autoDispose.family<List<Message>, String
   }
 });
 
-List<Message> _visibleChatMessages(List<Message> messages) =>
-    messages.where((m) => !_isServiceEchoText(m.body)).toList(growable: false);
-
-bool _isServiceEchoText(String body) {
-  final text = body.trimLeft();
-  if (!text.startsWith('↩︎ echo:')) return false;
-  final payload = text.substring('↩︎ echo:'.length).trimLeft();
-  try {
-    final decoded = jsonDecode(payload);
-    if (decoded is! Map) return false;
-    final t = decoded['t'];
-    return t == WireKind.sync.index ||
-        t == WireKind.voidSeq.index ||
-        t == WireKind.callSignal.index;
-  } catch (_) {
-    return false;
-  }
-}
+List<Message> _visibleChatMessages(List<Message> messages) => messages
+    .where((m) => !isServiceEchoBody(m.body))
+    .toList(growable: false);
 
 extension _AuditTrailing<T> on Stream<T> {
   /// Trailing-edge throttle: collapses a burst of events into a single
