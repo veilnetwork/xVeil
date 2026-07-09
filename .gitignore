@@ -1,6 +1,8 @@
 temp
 the index tool-out
 scratchpad/
+# Local planning notes, deliberately untracked.
+ROADMAP.md
 # Miscellaneous
 *.class
 *.log
