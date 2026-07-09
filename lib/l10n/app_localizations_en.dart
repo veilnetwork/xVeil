@@ -330,6 +330,27 @@ class AppL10nEn extends AppL10n {
   String get savedNoteHint => 'Note to self…';
 
   @override
+  String get chatFormatTooltip => 'Formatting';
+
+  @override
+  String get chatFormatBold => 'Bold';
+
+  @override
+  String get chatFormatItalic => 'Italic';
+
+  @override
+  String get chatFormatUnderline => 'Underline';
+
+  @override
+  String get chatFormatStrike => 'Strikethrough';
+
+  @override
+  String get chatFormatCode => 'Code';
+
+  @override
+  String get chatFormatSpoiler => 'Spoiler';
+
+  @override
   String get p2pSelectedTitle => 'Selected contacts';
 
   @override

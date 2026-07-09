@@ -2630,9 +2630,53 @@ class _Composer extends StatelessWidget {
   /// When set (accepted contacts only), shows a file-attach button.
   final VoidCallback? onAttach;
 
+  /// Wrap the current selection (or insert at the cursor) with a formatting
+  /// marker, keeping focus + the wrapped selection so the user can keep typing
+  /// or stack another format.
+  void _wrap(String marker) {
+    final v = controller.value;
+    final r = applyMarker(v.text, v.selection, marker);
+    controller.value = v.copyWith(
+      text: r.text,
+      selection: r.selection,
+      composing: TextRange.empty,
+    );
+    focusNode.requestFocus();
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
+    // Desktop formatting hotkeys: Cmd/Ctrl + B / I / U (and E for inline code).
+    final field = CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyB, meta: true): () =>
+            _wrap('**'),
+        const SingleActivator(LogicalKeyboardKey.keyB, control: true): () =>
+            _wrap('**'),
+        const SingleActivator(LogicalKeyboardKey.keyI, meta: true): () =>
+            _wrap('*'),
+        const SingleActivator(LogicalKeyboardKey.keyI, control: true): () =>
+            _wrap('*'),
+        const SingleActivator(LogicalKeyboardKey.keyU, meta: true): () =>
+            _wrap('__'),
+        const SingleActivator(LogicalKeyboardKey.keyU, control: true): () =>
+            _wrap('__'),
+        const SingleActivator(LogicalKeyboardKey.keyE, meta: true): () =>
+            _wrap('`'),
+        const SingleActivator(LogicalKeyboardKey.keyE, control: true): () =>
+            _wrap('`'),
+      },
+      child: TextField(
+        controller: controller,
+        focusNode: focusNode,
+        minLines: 1,
+        maxLines: 5,
+        textInputAction: TextInputAction.send,
+        onSubmitted: (_) => onSend(),
+        decoration: InputDecoration(hintText: hint),
+      ),
+    );
     return SafeArea(
       top: false,
       child: Padding(
@@ -2645,17 +2689,55 @@ class _Composer extends StatelessWidget {
                 icon: const Icon(Icons.attach_file),
                 tooltip: l.chatAttachTooltip,
               ),
-            Expanded(
-              child: TextField(
-                controller: controller,
-                focusNode: focusNode,
-                minLines: 1,
-                maxLines: 5,
-                textInputAction: TextInputAction.send,
-                onSubmitted: (_) => onSend(),
-                decoration: InputDecoration(hintText: hint),
-              ),
+            // Formatting menu — the mobile counterpart to the desktop hotkeys.
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.text_format),
+              tooltip: l.chatFormatTooltip,
+              onSelected: _wrap,
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: '**',
+                  child: Text(
+                    l.chatFormatBold,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: '*',
+                  child: Text(
+                    l.chatFormatItalic,
+                    style: const TextStyle(fontStyle: FontStyle.italic),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: '__',
+                  child: Text(
+                    l.chatFormatUnderline,
+                    style: const TextStyle(
+                      decoration: TextDecoration.underline,
+                    ),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: '~~',
+                  child: Text(
+                    l.chatFormatStrike,
+                    style: const TextStyle(
+                      decoration: TextDecoration.lineThrough,
+                    ),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: '`',
+                  child: Text(
+                    l.chatFormatCode,
+                    style: const TextStyle(fontFamily: 'monospace'),
+                  ),
+                ),
+                PopupMenuItem(value: '||', child: Text(l.chatFormatSpoiler)),
+              ],
             ),
+            Expanded(child: field),
             const SizedBox(width: 8),
             IconButton.filled(onPressed: onSend, icon: const Icon(Icons.send)),
           ],

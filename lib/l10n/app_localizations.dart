@@ -703,6 +703,48 @@ abstract class AppL10n {
   /// **'Note to self…'**
   String get savedNoteHint;
 
+  /// No description provided for @chatFormatTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Formatting'**
+  String get chatFormatTooltip;
+
+  /// No description provided for @chatFormatBold.
+  ///
+  /// In en, this message translates to:
+  /// **'Bold'**
+  String get chatFormatBold;
+
+  /// No description provided for @chatFormatItalic.
+  ///
+  /// In en, this message translates to:
+  /// **'Italic'**
+  String get chatFormatItalic;
+
+  /// No description provided for @chatFormatUnderline.
+  ///
+  /// In en, this message translates to:
+  /// **'Underline'**
+  String get chatFormatUnderline;
+
+  /// No description provided for @chatFormatStrike.
+  ///
+  /// In en, this message translates to:
+  /// **'Strikethrough'**
+  String get chatFormatStrike;
+
+  /// No description provided for @chatFormatCode.
+  ///
+  /// In en, this message translates to:
+  /// **'Code'**
+  String get chatFormatCode;
+
+  /// No description provided for @chatFormatSpoiler.
+  ///
+  /// In en, this message translates to:
+  /// **'Spoiler'**
+  String get chatFormatSpoiler;
+
   /// No description provided for @p2pSelectedTitle.
   ///
   /// In en, this message translates to:

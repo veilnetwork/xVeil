@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/features/chat/message_markdown.dart';
 
@@ -52,6 +53,37 @@ void main() {
       expect(parseFormatted('`a*b*c`'), [
         const FmtToken(FmtKind.code, 'a*b*c'),
       ]);
+    });
+  });
+
+  group('applyMarker', () {
+    test('wraps a selection and keeps it selected', () {
+      final r = applyMarker(
+        'hello world',
+        const TextSelection(baseOffset: 6, extentOffset: 11),
+        '**',
+      );
+      expect(r.text, 'hello **world**');
+      expect(r.selection.start, 8);
+      expect(r.selection.end, 13);
+      expect(r.text.substring(r.selection.start, r.selection.end), 'world');
+    });
+
+    test('collapsed cursor inserts marker pair with cursor between', () {
+      final r = applyMarker(
+        'ab',
+        const TextSelection.collapsed(offset: 1),
+        '*',
+      );
+      expect(r.text, 'a**b');
+      expect(r.selection.isCollapsed, isTrue);
+      expect(r.selection.start, 2); // between the two '*'
+    });
+
+    test('invalid selection appends at end', () {
+      final r = applyMarker('x', const TextSelection.collapsed(offset: -1), '~~');
+      expect(r.text, 'x~~~~');
+      expect(r.selection.start, 3);
     });
   });
 }
