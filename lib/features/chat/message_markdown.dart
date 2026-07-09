@@ -1,9 +1,27 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../../l10n/app_localizations.dart';
 
 /// Inline formatting a message run can carry. Non-nested in v1: the content of
 /// a styled span is literal (no formatting inside `code`, and styles don't
 /// stack) — robust and covers the common cases; nesting can come later.
-enum FmtKind { plain, bold, italic, underline, strike, code, codeBlock, spoiler }
+enum FmtKind {
+  plain,
+  bold,
+  italic,
+  underline,
+  strike,
+  code,
+  codeBlock,
+  spoiler,
+  link,
+}
+
+/// http/https URLs, terminated at whitespace. Trailing sentence punctuation is
+/// trimmed by [_splitLinks] so "see https://x.org." doesn't swallow the dot.
+final _urlPattern = RegExp(r'https?://[^\s]+', caseSensitive: false);
 
 /// One parsed run of a message body.
 class FmtToken {
@@ -68,6 +86,41 @@ List<FmtToken> parseFormatted(String body) {
     i++;
   }
   flushPlain();
+  // Split http(s) URLs out of plain runs into tappable link tokens. Done as a
+  // post-pass so a URL inside `code` (already a non-plain run) stays literal.
+  final withLinks = <FmtToken>[];
+  for (final t in out) {
+    if (t.kind != FmtKind.plain) {
+      withLinks.add(t);
+      continue;
+    }
+    withLinks.addAll(_splitLinks(t.text));
+  }
+  return withLinks;
+}
+
+/// Split a plain string into plain/link runs on [_urlPattern], trimming a URL's
+/// trailing sentence punctuation back into the following plain run.
+List<FmtToken> _splitLinks(String text) {
+  final out = <FmtToken>[];
+  var last = 0;
+  for (final m in _urlPattern.allMatches(text)) {
+    var url = m.group(0)!;
+    var end = m.end;
+    // Trailing . , ) ! ? : ; belong to the sentence, not the URL.
+    while (url.isNotEmpty && '.,)!?:;'.contains(url[url.length - 1])) {
+      url = url.substring(0, url.length - 1);
+      end--;
+    }
+    if (m.start > last) {
+      out.add(FmtToken(FmtKind.plain, text.substring(last, m.start)));
+    }
+    out.add(FmtToken(FmtKind.link, url));
+    last = end;
+  }
+  if (last < text.length) {
+    out.add(FmtToken(FmtKind.plain, text.substring(last)));
+  }
   return out;
 }
 
@@ -118,9 +171,31 @@ class FormattedText extends StatefulWidget {
 class _FormattedTextState extends State<FormattedText> {
   // Indices of spoiler tokens the user has revealed (by tap).
   final _revealed = <int>{};
+  // Tap recognizers for link spans — rebuilt each build, disposed here.
+  final _recognizers = <TapGestureRecognizer>[];
+
+  @override
+  void dispose() {
+    for (final r in _recognizers) {
+      r.dispose();
+    }
+    super.dispose();
+  }
+
+  void _copyLink(String url) {
+    Clipboard.setData(ClipboardData(text: url));
+    final l = AppL10n.of(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(l.chatLinkCopied), duration: const Duration(seconds: 1)),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    for (final r in _recognizers) {
+      r.dispose();
+    }
+    _recognizers.clear();
     final tokens = parseFormatted(widget.body);
     final base = widget.style ?? DefaultTextStyle.of(context).style;
     final scheme = Theme.of(context).colorScheme;
@@ -165,6 +240,21 @@ class _FormattedTextState extends State<FormattedText> {
         case FmtKind.code:
         case FmtKind.codeBlock:
           spans.add(TextSpan(text: t.text, style: mono));
+        case FmtKind.link:
+          final recognizer = TapGestureRecognizer()
+            ..onTap = () => _copyLink(t.text);
+          _recognizers.add(recognizer);
+          spans.add(
+            TextSpan(
+              text: t.text,
+              style: base.copyWith(
+                color: scheme.primary,
+                decoration: TextDecoration.underline,
+                decorationColor: scheme.primary,
+              ),
+              recognizer: recognizer,
+            ),
+          );
         case FmtKind.spoiler:
           final shown = _revealed.contains(idx);
           spans.add(
