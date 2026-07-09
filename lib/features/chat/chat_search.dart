@@ -1,3 +1,4 @@
+import '../../data/transport/wire_envelope.dart' show isServiceEchoBody;
 import '../../domain/chat.dart';
 
 /// Pure matchers/formatters behind the chats-screen search — kept
@@ -12,7 +13,7 @@ import '../../domain/chat.dart';
 /// never match.
 bool messageMatchesQuery(Message m, String lowerQuery) {
   if (lowerQuery.isEmpty) return false;
-  if (m.body.trimLeft().startsWith('↩︎ echo:')) return false;
+  if (isServiceEchoBody(m.body)) return false;
   if (m.body.toLowerCase().contains(lowerQuery)) return true;
   final fn = m.fileName;
   return fn != null && fn.toLowerCase().contains(lowerQuery);
