@@ -2230,6 +2230,88 @@ class _QuoteBlock extends StatelessWidget {
 
 /// What a file bubble's trailing icon + tap do: download an offer, save a held
 /// blob out, or open a file already saved unencrypted to disk.
+/// True when [name] looks like an image we can render inline (by extension).
+bool isImageFileName(String? name) {
+  if (name == null) return false;
+  final n = name.toLowerCase();
+  return n.endsWith('.jpg') ||
+      n.endsWith('.jpeg') ||
+      n.endsWith('.png') ||
+      n.endsWith('.gif') ||
+      n.endsWith('.webp') ||
+      n.endsWith('.bmp');
+}
+
+/// Inline preview for a downloaded image file: a rounded, bounded thumbnail
+/// that opens a full-screen zoomable viewer on tap. Bytes come from the
+/// encrypted container (loadFile), so nothing hits disk in the clear.
+class _ImagePreview extends ConsumerWidget {
+  const _ImagePreview({required this.fileId, required this.name});
+  final String fileId;
+  final String name;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return FutureBuilder<Uint8List?>(
+      future: ref.read(storageProvider).loadFile(fileId),
+      builder: (context, snap) {
+        final bytes = snap.data;
+        if (bytes == null) {
+          return const SizedBox(
+            height: 120,
+            width: 120,
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        return GestureDetector(
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => _FullscreenImage(bytes: bytes, name: name),
+            ),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 240, maxWidth: 280),
+              child: Image.memory(
+                bytes,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Full-screen zoomable image viewer (pinch/scroll to zoom, drag to pan).
+class _FullscreenImage extends StatelessWidget {
+  const _FullscreenImage({required this.bytes, required this.name});
+  final Uint8List bytes;
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: Text(name, overflow: TextOverflow.ellipsis),
+      ),
+      body: Center(
+        child: InteractiveViewer(
+          minScale: 0.5,
+          maxScale: 5,
+          child: Image.memory(bytes),
+        ),
+      ),
+    );
+  }
+}
+
 enum _FileAffordance { download, save, open, gone }
 
 /// Resolve a forwarded message's origin (the original author's node-id hex on
@@ -2422,7 +2504,14 @@ class _Bubble extends ConsumerWidget {
                     onTap: onTapQuote,
                     child: _QuoteBlock(quoted: quoted, outgoing: outgoing),
                   ),
-                if (message.isFile)
+                if (message.isFile &&
+                    isImageFileName(message.fileName) &&
+                    message.fileId != null)
+                  _ImagePreview(
+                    fileId: message.fileId!,
+                    name: message.fileName ?? '',
+                  )
+                else if (message.isFile)
                   FutureBuilder<_FileAffordance>(
                     future: _affordance(ref),
                     builder: (context, snap) {
