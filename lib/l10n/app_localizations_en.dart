@@ -306,6 +306,15 @@ class AppL10nEn extends AppL10n {
   String get settingsCatAppearanceHint => 'Language, folders panel';
 
   @override
+  String get searchHint => 'Search';
+
+  @override
+  String get searchMessagesSection => 'Messages';
+
+  @override
+  String get searchNoResults => 'No results';
+
+  @override
   String get trayShow => 'Show';
 
   @override

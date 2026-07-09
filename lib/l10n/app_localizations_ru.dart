@@ -308,6 +308,15 @@ class AppL10nRu extends AppL10n {
   String get settingsCatAppearanceHint => 'Язык, панель папок';
 
   @override
+  String get searchHint => 'Поиск';
+
+  @override
+  String get searchMessagesSection => 'Сообщения';
+
+  @override
+  String get searchNoResults => 'Ничего не найдено';
+
+  @override
   String get trayShow => 'Показать';
 
   @override
