@@ -26,6 +26,9 @@ import '../../state/messaging.dart';
 import '../../state/notifications.dart';
 import '../../state/providers.dart';
 
+/// The quick-react emoji bar shown atop the message-actions sheet.
+const kQuickReactions = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key, required this.peerHex, this.initialJumpTo});
   final String peerHex;
@@ -410,6 +413,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void _startReply(Message m) {
     setState(() => _replyingTo = m);
     _inputFocus.requestFocus();
+  }
+
+  /// Toggle a reaction to [m]: tapping the emoji you already set removes it.
+  Future<void> _react(Message m, String emoji) async {
+    final myHex = ref.read(appControllerProvider).identity?.nodeId.hex;
+    final current = ref.read(reactionsProvider(widget.peerHex)).valueOrNull;
+    final mine = myHex == null ? null : current?[m.id]?[myHex];
+    await ref
+        .read(messagingServiceProvider)
+        .sendReaction(_peer, m.id, mine == emoji ? '' : emoji);
   }
 
   Future<void> _accept() =>
@@ -855,6 +868,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Quick-react bar: tap an emoji to (toggle) react to this message.
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    for (final e in kQuickReactions)
+                      IconButton(
+                        icon: Text(e, style: const TextStyle(fontSize: 24)),
+                        onPressed: () {
+                          Navigator.of(sheet).pop();
+                          _react(m, e);
+                        },
+                      ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
               ListTile(
                 leading: const Icon(Icons.reply_outlined),
                 title: Text(l.chatMsgReply),
@@ -2523,6 +2554,45 @@ class _Bubble extends ConsumerWidget {
                   )
                 else
                   FormattedText(message.body),
+                // Reaction chips: aggregated emoji → count for this message.
+                Builder(
+                  builder: (context) {
+                    final forMsg = ref
+                        .watch(reactionsProvider(message.conversationId))
+                        .valueOrNull?[message.id];
+                    if (forMsg == null || forMsg.isEmpty) {
+                      return const SizedBox.shrink();
+                    }
+                    final counts = <String, int>{};
+                    for (final e in forMsg.values) {
+                      counts[e] = (counts[e] ?? 0) + 1;
+                    }
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Wrap(
+                        spacing: 4,
+                        runSpacing: 4,
+                        children: [
+                          for (final entry in counts.entries)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: scheme.surfaceContainerHighest,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                '${entry.key} ${entry.value}',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
                 const SizedBox(height: 2),
                 Row(
                   mainAxisSize: MainAxisSize.min,

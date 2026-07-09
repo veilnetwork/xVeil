@@ -286,4 +286,22 @@ void main() {
         Uint8List.fromList(utf8.encode('{"t":${WireKind.unknown.index},"b":"x"}'));
     expect(WireEnvelope.decode(raw).kind, WireKind.message);
   });
+
+  test('reaction round-trips: target id in `i`, emoji in `b`, v:2', () {
+    final raw = const WireEnvelope.reaction('msg-1', '👍').encode();
+    final out = WireEnvelope.decode(raw);
+    expect(out.kind, WireKind.reaction);
+    expect(out.id, 'msg-1');
+    expect(out.body, '👍');
+    // v:2 so a build predating reactions drops it, never shows it as chat.
+    expect((jsonDecode(utf8.decode(raw)) as Map)['v'], 2);
+  });
+
+  test('an empty-body reaction (removal) round-trips', () {
+    final out =
+        WireEnvelope.decode(const WireEnvelope.reaction('m', '').encode());
+    expect(out.kind, WireKind.reaction);
+    expect(out.id, 'm');
+    expect(out.body, '');
+  });
 }
