@@ -116,6 +116,7 @@
   "chatFormatStrike": "Strikethrough",
   "chatFormatCode": "Code",
   "chatFormatSpoiler": "Spoiler",
+  "chatLinkCopied": "Link copied",
   "p2pSelectedTitle": "Selected contacts",
   "p2pSelectedHint": "Contacts allowed direct P2P under the \"Only selected\" policy. Turn one on to grant it; off follows the global policy.",
   "p2pSelectedEmpty": "No accepted contacts yet",

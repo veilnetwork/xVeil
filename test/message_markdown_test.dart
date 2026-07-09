@@ -56,6 +56,30 @@ void main() {
     });
   });
 
+  group('link detection', () {
+    test('splits an http(s) URL into a link token', () {
+      expect(parseFormatted('see https://veil.im now'), [
+        const FmtToken(FmtKind.plain, 'see '),
+        const FmtToken(FmtKind.link, 'https://veil.im'),
+        const FmtToken(FmtKind.plain, ' now'),
+      ]);
+    });
+
+    test('trailing sentence punctuation stays out of the link', () {
+      expect(parseFormatted('go to https://veil.im.'), [
+        const FmtToken(FmtKind.plain, 'go to '),
+        const FmtToken(FmtKind.link, 'https://veil.im'),
+        const FmtToken(FmtKind.plain, '.'),
+      ]);
+    });
+
+    test('a URL inside code stays literal (not a link)', () {
+      expect(parseFormatted('`https://veil.im`'), [
+        const FmtToken(FmtKind.code, 'https://veil.im'),
+      ]);
+    });
+  });
+
   group('applyMarker', () {
     test('wraps a selection and keeps it selected', () {
       final r = applyMarker(
