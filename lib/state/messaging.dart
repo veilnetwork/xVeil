@@ -1075,8 +1075,9 @@ class MessagingService {
   /// busy/end/renegotiate go via the durable pipeline — keyed `call:<id>:<type>`
   /// so a dropped frame re-drives and a re-delivery is acked+processed once.
   /// Best-effort [CallSignalType.transportInfo] (late reachability candidates)
-  /// goes via the plain live send (low latency; the next candidate supersedes a
-  /// lost one). Consent-gated to accepted contacts, like every other send.
+  /// and [CallSignalType.health] (liveness heartbeat) go via the plain live send
+  /// only: they are real-time hints, and persisting them would create stale
+  /// outbox/mailbox work after a call has already ended.
   Future<void> sendCallSignal(NodeId peer, CallSignal signal) async {
     final contact = await _storage.getContact(peer);
     if (contact == null || contact.status != ContactStatus.accepted) return;
@@ -1084,11 +1085,12 @@ class MessagingService {
         ? signal.copyWith(sentAtMs: _now().millisecondsSinceEpoch)
         : signal;
     final env = WireEnvelope.callSignal(stamped.encode());
-    if (stamped.type == CallSignalType.transportInfo) {
+    if (stamped.type == CallSignalType.transportInfo ||
+        stamped.type == CallSignalType.health) {
       try {
         await _send(peer, env.encode());
       } catch (_) {
-        // Live path down — a follow-up candidate or the durable offer covers it.
+        // Live path down — the next heartbeat/candidate supersedes this one.
       }
       return;
     }
@@ -1106,6 +1108,7 @@ class MessagingService {
       return;
     }
     for (final f in pending) {
+      if (_retireExpiredCallOutboxFrame(f)) continue;
       final peer = NodeId.fromHex(f.peerHex);
       // A frame to a peer we no longer hold AT ALL (conversation removed) is
       // moot — retire it. A BLOCKED peer only PAUSES it, mirroring the message
@@ -1159,6 +1162,30 @@ class MessagingService {
 
   static const _outboxLiveResend = Duration(seconds: 20);
   static const _outboxLiveResendCap = Duration(minutes: 10);
+  static const _callSignalOutboxTtl = Duration(minutes: 2);
+
+  bool _retireExpiredCallOutboxFrame(OutboxFrame frame) {
+    if (!frame.frameId.startsWith('call:')) return false;
+    try {
+      final env = WireEnvelope.decode(frame.wire);
+      if (env.kind != WireKind.callSignal) return false;
+      final signal = CallSignal.tryDecode(env.body);
+      final sentAtMs = signal?.sentAtMs ?? env.sentAtMs;
+      if (sentAtMs == null) return false;
+      final sentAt = DateTime.fromMillisecondsSinceEpoch(sentAtMs);
+      final age = _now().difference(sentAt);
+      if (age <= _callSignalOutboxTtl) return false;
+      devLog(
+        () =>
+            'xVeil[durable]: retire stale call frame '
+            'fid=${frame.frameId} age=${age.inSeconds}s',
+      );
+      _retireOutboxFrame(frame.frameId);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 
   /// Locally retire a durable frame (acked, or moot): stop re-driving and
   /// re-stashing it, and drop it from the persistent outbox. [ackOutboxFrame]
