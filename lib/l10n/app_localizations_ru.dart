@@ -267,6 +267,18 @@ class AppL10nRu extends AppL10n {
       'Закрытие окна прячет его в системный трей и не выключает приложение — сообщения и уведомления продолжают приходить. Выключено — закрытие завершает работу.';
 
   @override
+  String get navChannels => 'Каналы';
+
+  @override
+  String get navStorage => 'Хранилище';
+
+  @override
+  String get navMenuTiles => 'Меню';
+
+  @override
+  String get comingSoon => 'Скоро';
+
+  @override
   String get trayShow => 'Показать';
 
   @override

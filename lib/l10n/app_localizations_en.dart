@@ -266,6 +266,18 @@ class AppL10nEn extends AppL10n {
       'Closing the window hides it to the system tray and keeps running, so messages and notifications keep arriving. Off = closing quits.';
 
   @override
+  String get navChannels => 'Channels';
+
+  @override
+  String get navStorage => 'Storage';
+
+  @override
+  String get navMenuTiles => 'Menu';
+
+  @override
+  String get comingSoon => 'Coming soon';
+
+  @override
   String get trayShow => 'Show';
 
   @override

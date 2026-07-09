@@ -10,11 +10,13 @@ import '../features/identity/identity_picker_screen.dart';
 import '../features/identity/manage_identities_screen.dart';
 import '../features/lock/lock_screen.dart';
 import '../features/network/managed_nodes_screen.dart';
+import '../features/network/network_screen.dart';
 import '../features/network/peers_screen.dart';
 import '../features/network/proxy_routing_screen.dart';
 import '../features/onboarding/onboarding_screen.dart';
 import '../features/preparing/preparing_screen.dart';
 import '../features/settings/file_settings_screen.dart';
+import '../features/settings/settings_screen.dart';
 import '../features/splash/splash_screen.dart';
 import '../state/app_controller.dart';
 
@@ -92,6 +94,10 @@ final routerProvider = Provider<GoRouter>((ref) {
         pageBuilder: (_, _) => const NoTransitionPage(child: PreparingScreen()),
       ),
       GoRoute(path: '/home', builder: (_, _) => const HomeShell()),
+      // Network and Settings are pushed from the drawer app-menu (they left
+      // the bottom bar when it became Chats + reserved future sections).
+      GoRoute(path: '/network', builder: (_, _) => const NetworkScreen()),
+      GoRoute(path: '/settings', builder: (_, _) => const SettingsScreen()),
       GoRoute(
         path: '/add-identity',
         builder: (_, _) => const AddIdentityScreen(),

@@ -15,7 +15,6 @@ import 'chat_actions.dart';
 import '../../state/folder_panel_controller.dart';
 import '../../state/providers.dart';
 import '../contacts/invite_exchange_sheet.dart';
-import '../home/home_shell.dart';
 
 /// The chat-list folder filter: null = "All", else a [ChatFolder.id]. A plain
 /// StateProvider so switching folders survives list rebuilds. Reset to All if
@@ -92,6 +91,17 @@ class ChatsScreen extends ConsumerWidget {
               icon: const Icon(Icons.science_outlined),
               tooltip: l.demoChatTooltip,
               onPressed: () => _newChat(context),
+            ),
+          // With the right-side placement the AppBar only auto-adds an
+          // endDrawer toggle when it has NO other actions — so in debug builds
+          // the panel used to be unopenable. Always provide the button.
+          if (panelPos == FolderPanelPosition.right)
+            Builder(
+              builder: (ctx) => IconButton(
+                icon: const Icon(Icons.folder_open_outlined),
+                tooltip: l.chatMenuFolders,
+                onPressed: () => Scaffold.of(ctx).openEndDrawer(),
+              ),
             ),
         ],
       ),
@@ -241,6 +251,8 @@ class _FolderDrawer extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
+    final convos =
+        ref.watch(conversationsProvider).valueOrNull ?? const <Conversation>[];
     final app = ref.watch(appControllerProvider);
     final anon = ref.read(appControllerProvider.notifier).activeIsAnonymous;
     final label =
@@ -250,9 +262,9 @@ class _FolderDrawer extends ConsumerWidget {
       Navigator.of(context).pop(); // close the drawer
     }
 
-    void go(int tab) {
+    void go(String path) {
       Navigator.of(context).pop();
-      ref.read(homeTabProvider.notifier).state = tab;
+      context.push(path);
     }
 
     return Drawer(
@@ -288,10 +300,12 @@ class _FolderDrawer extends ConsumerWidget {
               ),
             ),
             // Folders — the chat filter this drawer replaces the chip bar for.
+            // Each carries the sum of unread messages in its conversations.
             ListTile(
               leading: const Icon(Icons.forum_outlined),
               title: Text(l.chatsFolderAll),
               selected: selected == null,
+              trailing: _badgeOrNull(folderUnreadCount(convos, null)),
               onTap: () => select(null),
             ),
             for (final f in folders)
@@ -301,6 +315,7 @@ class _FolderDrawer extends ConsumerWidget {
                   leading: const Icon(Icons.folder_outlined),
                   title: Text(f.name.isEmpty ? l.chatsFolderUnnamed : f.name),
                   selected: selected == f.id,
+                  trailing: _badgeOrNull(folderUnreadCount(convos, f)),
                   onTap: () => select(f.id),
                   onLongPress: () => folderMenu(context, ref, f),
                 ),
@@ -323,12 +338,12 @@ class _FolderDrawer extends ConsumerWidget {
             ListTile(
               leading: const Icon(Icons.hub_outlined),
               title: Text(l.navNetwork),
-              onTap: () => go(1),
+              onTap: () => go('/network'),
             ),
             ListTile(
               leading: const Icon(Icons.settings_outlined),
               title: Text(l.navSettings),
-              onTap: () => go(2),
+              onTap: () => go('/settings'),
             ),
           ],
         ),
@@ -348,6 +363,8 @@ class _FolderBar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppL10n.of(context);
+    final convos =
+        ref.watch(conversationsProvider).valueOrNull ?? const <Conversation>[];
     return SizedBox(
       height: 48,
       child: ListView(
@@ -357,7 +374,7 @@ class _FolderBar extends ConsumerWidget {
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
             child: ChoiceChip(
-              label: Text(l.chatsFolderAll),
+              label: _chipLabel(l.chatsFolderAll, folderUnreadCount(convos, null)),
               selected: selected == null,
               onSelected: (_) =>
                   ref.read(selectedFolderProvider.notifier).state = null,
@@ -370,7 +387,10 @@ class _FolderBar extends ConsumerWidget {
                 onLongPress: () => folderMenu(context, ref, f),
                 onSecondaryTap: () => folderMenu(context, ref, f),
                 child: ChoiceChip(
-                  label: Text(f.name.isEmpty ? l.chatsFolderUnnamed : f.name),
+                  label: _chipLabel(
+                    f.name.isEmpty ? l.chatsFolderUnnamed : f.name,
+                    folderUnreadCount(convos, f),
+                  ),
                   selected: selected == f.id,
                   onSelected: (_) =>
                       ref.read(selectedFolderProvider.notifier).state = f.id,
@@ -390,6 +410,47 @@ class _FolderBar extends ConsumerWidget {
     );
   }
 
+}
+
+/// Chip content for the folder bar: name + unread badge when non-zero.
+Widget _chipLabel(String name, int unread) => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(name),
+        if (unread > 0) ...[
+          const SizedBox(width: 6),
+          _UnreadBadge(unread),
+        ],
+      ],
+    );
+
+Widget? _badgeOrNull(int count) => count == 0 ? null : _UnreadBadge(count);
+
+/// Rounded unread counter shared by the folder drawer tiles and chip bar
+/// (sum of unread MESSAGES in the folder, capped at "999+").
+class _UnreadBadge extends StatelessWidget {
+  const _UnreadBadge(this.count);
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: scheme.primary,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        unreadBadgeText(count),
+        style: TextStyle(
+          color: scheme.onPrimary,
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
 }
 
 /// Rename/delete menu for one folder. Shared by the chip bar and the drawer.

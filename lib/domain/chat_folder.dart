@@ -1,5 +1,22 @@
 import 'dart:convert';
 
+import 'chat.dart';
+
+/// Sum of unread messages across the conversations shown by [folder]
+/// (null = the "All" view). Pure so the badge math is unit-testable.
+int folderUnreadCount(List<Conversation> conversations, ChatFolder? folder) {
+  var total = 0;
+  for (final c in conversations) {
+    if (folder == null || folder.contains(c.peer.nodeId.hex)) {
+      total += c.unread;
+    }
+  }
+  return total;
+}
+
+/// Badge display cap: anything past 999 reads as "999+".
+String unreadBadgeText(int count) => count > 999 ? '999+' : '$count';
+
 /// A local-only grouping of conversations (like Telegram folders). A
 /// conversation may belong to ANY number of folders. Membership is stored by
 /// peer node-id hex. Purely local + encrypted (in the settings KV) — nothing
