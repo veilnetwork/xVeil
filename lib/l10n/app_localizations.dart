@@ -577,6 +577,30 @@ abstract class AppL10n {
   /// **'Closing the window hides it to the system tray and keeps running, so messages and notifications keep arriving. Off = closing quits.'**
   String get settingsCloseToTrayHint;
 
+  /// No description provided for @navChannels.
+  ///
+  /// In en, this message translates to:
+  /// **'Channels'**
+  String get navChannels;
+
+  /// No description provided for @navStorage.
+  ///
+  /// In en, this message translates to:
+  /// **'Storage'**
+  String get navStorage;
+
+  /// No description provided for @navMenuTiles.
+  ///
+  /// In en, this message translates to:
+  /// **'Menu'**
+  String get navMenuTiles;
+
+  /// No description provided for @comingSoon.
+  ///
+  /// In en, this message translates to:
+  /// **'Coming soon'**
+  String get comingSoon;
+
   /// No description provided for @trayShow.
   ///
   /// In en, this message translates to:
