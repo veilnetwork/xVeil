@@ -324,6 +324,16 @@ class AppL10nEn extends AppL10n {
   String get chatPinnedLabel => 'Pinned message';
 
   @override
+  String get p2pSelectedTitle => 'Selected contacts';
+
+  @override
+  String get p2pSelectedHint =>
+      'Contacts allowed direct P2P under the \"Only selected\" policy. Turn one on to grant it; off follows the global policy.';
+
+  @override
+  String get p2pSelectedEmpty => 'No accepted contacts yet';
+
+  @override
   String get trayShow => 'Show';
 
   @override

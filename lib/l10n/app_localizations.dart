@@ -691,6 +691,24 @@ abstract class AppL10n {
   /// **'Pinned message'**
   String get chatPinnedLabel;
 
+  /// No description provided for @p2pSelectedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Selected contacts'**
+  String get p2pSelectedTitle;
+
+  /// No description provided for @p2pSelectedHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Contacts allowed direct P2P under the \"Only selected\" policy. Turn one on to grant it; off follows the global policy.'**
+  String get p2pSelectedHint;
+
+  /// No description provided for @p2pSelectedEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No accepted contacts yet'**
+  String get p2pSelectedEmpty;
+
   /// No description provided for @trayShow.
   ///
   /// In en, this message translates to:

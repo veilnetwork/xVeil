@@ -326,6 +326,16 @@ class AppL10nRu extends AppL10n {
   String get chatPinnedLabel => 'Закреплённое сообщение';
 
   @override
+  String get p2pSelectedTitle => 'Избранные контакты';
+
+  @override
+  String get p2pSelectedHint =>
+      'Кому разрешён прямой P2P при политике «Только выбранные». Включите тумблер, чтобы разрешить; выключено — по глобальной политике.';
+
+  @override
+  String get p2pSelectedEmpty => 'Пока нет принятых контактов';
+
+  @override
   String get trayShow => 'Показать';
 
   @override

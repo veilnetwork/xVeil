@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../domain/chat.dart' show SignaturePolicy;
 import '../../domain/p2p_policy.dart';
@@ -97,6 +98,17 @@ class PrivacySettingsScreen extends ConsumerWidget {
               );
             },
           ),
+          // Manage the "Only selected" contact set. Shown only under that
+          // policy — for the others the per-contact override in each chat is
+          // the finer control (this screen just batches it).
+          if (ref.watch(p2pPolicyProvider) == P2PGlobalPolicy.selected)
+            ListTile(
+              leading: const Icon(Icons.checklist_outlined),
+              title: Text(l.p2pSelectedTitle),
+              subtitle: Text(l.p2pSelectedHint),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/settings/p2p-selected'),
+            ),
           // Author-side answer to "please sign this message" requests from
           // peers: ask each time / sign automatically / always refuse.
           ListTile(
