@@ -14,6 +14,7 @@ import '../../data/serve_source.dart';
 import '../../core/log.dart';
 import 'chat_actions.dart';
 import 'chat_search.dart';
+import 'message_markdown.dart';
 import '../../domain/call_signal.dart';
 import '../../domain/chat.dart';
 import '../../domain/file_download_policy.dart';
@@ -2521,7 +2522,7 @@ class _Bubble extends ConsumerWidget {
                     },
                   )
                 else
-                  Text(message.body),
+                  FormattedText(message.body),
                 const SizedBox(height: 2),
                 Row(
                   mainAxisSize: MainAxisSize.min,
