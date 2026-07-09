@@ -65,9 +65,12 @@ class SyncWrappedAsyncKvLogStore implements AsyncKvLogStore {
     int? start,
     int? end,
     required int limit,
-  }) async =>
-      _inner.iterLogRange(
-          namespace: namespace, start: start, end: end, limit: limit);
+  }) async => _inner.iterLogRange(
+    namespace: namespace,
+    start: start,
+    end: end,
+    limit: limit,
+  );
   @override
   Future<int> count(int namespace) async => _inner.count(namespace);
 
@@ -96,12 +99,21 @@ class _OpenConfig {
     required this.path,
     required this.password,
     required this.create,
+    required this.paddingPresetTag,
     required this.reply,
   });
   final String path;
   final Uint8List password;
   final bool create;
+  final int paddingPresetTag;
   final SendPort reply;
+}
+
+hv.PaddingPreset _paddingPresetFromTag(int tag) {
+  for (final preset in hv.PaddingPreset.values) {
+    if (preset.tag == tag) return preset;
+  }
+  return hv.PaddingPreset.bucket256KiB;
 }
 
 sealed class _Req {
@@ -127,8 +139,13 @@ class _ReadLogReq extends _Req {
 }
 
 class _IterReq extends _Req {
-  const _IterReq(this.namespace, this.start, this.end, this.limit, SendPort reply)
-      : super(reply);
+  const _IterReq(
+    this.namespace,
+    this.start,
+    this.end,
+    this.limit,
+    SendPort reply,
+  ) : super(reply);
   final int namespace;
   final int? start;
   final int? end;
@@ -195,8 +212,10 @@ void _workerEntry(_OpenConfig cfg) {
 
   final KvLogStore store;
   try {
-    final opened =
-        hvSpaceOpener(cfg.path)(password: cfg.password, create: cfg.create);
+    final opened = hvSpaceOpener(
+      cfg.path,
+      paddingPreset: _paddingPresetFromTag(cfg.paddingPresetTag),
+    )(password: cfg.password, create: cfg.create);
     if (opened == null) {
       cfg.reply.send(const _Null()); // AuthFailed → no/ wrong space
       return;
@@ -233,8 +252,14 @@ void _workerEntry(_OpenConfig cfg) {
       case _ReadLogReq(:final namespace, :final logId):
         run(() => store.readLog(namespace, logId));
       case _IterReq(:final namespace, :final start, :final end, :final limit):
-        run(() => store.iterLogRange(
-            namespace: namespace, start: start, end: end, limit: limit));
+        run(
+          () => store.iterLogRange(
+            namespace: namespace,
+            start: start,
+            end: end,
+            limit: limit,
+          ),
+        );
       case _CountReq(:final namespace):
         run(() => store.count(namespace));
       case _KvKeysReq(:final namespace):
@@ -280,12 +305,18 @@ class WorkerKvLogStore implements AsyncKvLogStore {
     required String path,
     required Uint8List password,
     required bool create,
+    required hv.PaddingPreset paddingPreset,
   }) async {
     final boot = ReceivePort();
     final isolate = await Isolate.spawn<_OpenConfig>(
       _workerEntry,
       _OpenConfig(
-          path: path, password: password, create: create, reply: boot.sendPort),
+        path: path,
+        password: password,
+        create: create,
+        paddingPresetTag: paddingPreset.tag,
+        reply: boot.sendPort,
+      ),
       errorsAreFatal: true,
     );
     final first = await boot.first;
@@ -330,9 +361,9 @@ class WorkerKvLogStore implements AsyncKvLogStore {
     int? start,
     int? end,
     required int limit,
-  }) =>
-      _call<List<KvLogEntry>>(
-          (reply) => _IterReq(namespace, start, end, limit, reply));
+  }) => _call<List<KvLogEntry>>(
+    (reply) => _IterReq(namespace, start, end, limit, reply),
+  );
   @override
   Future<int> count(int namespace) =>
       _call<int>((reply) => _CountReq(namespace, reply));
@@ -356,8 +387,10 @@ class WorkerKvLogStore implements AsyncKvLogStore {
     final reply = ReceivePort();
     try {
       _toWorker.send(_CloseReq(reply.sendPort));
-      await reply.first
-          .timeout(const Duration(seconds: 5), onTimeout: () => const _Ok(null));
+      await reply.first.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => const _Ok(null),
+      );
     } finally {
       reply.close();
       _isolate.kill(priority: Isolate.immediate);
@@ -367,10 +400,11 @@ class WorkerKvLogStore implements AsyncKvLogStore {
 
 /// Opens (or creates) the space for [password] OFF the UI isolate. The async
 /// analogue of [SpaceOpener] — production wiring spawns a [WorkerKvLogStore].
-typedef AsyncSpaceOpener = Future<AsyncKvLogStore?> Function({
-  required Uint8List password,
-  required bool create,
-});
+typedef AsyncSpaceOpener =
+    Future<AsyncKvLogStore?> Function({
+      required Uint8List password,
+      required bool create,
+    });
 
 /// Once the worker isolate is proven unable to open a space (e.g. a spawned
 /// isolate that can't load the native lib — observed on Android), stop spawning
@@ -388,26 +422,40 @@ bool _workerOpenUsable = true;
 /// (`ensureHiddenVolumeLoaded`). Off-isolate is forfeited for the rest of the
 /// run, but the user can still UNLOCK — critical: a worker that can't load the
 /// lib otherwise surfaces as "wrong password" and locks the user out.
-AsyncSpaceOpener workerSpaceOpener(String path) {
+AsyncSpaceOpener workerSpaceOpener(
+  String path, {
+  hv.PaddingPreset paddingPreset = hv.PaddingPreset.bucket256KiB,
+}) {
   return ({required Uint8List password, required bool create}) async {
     if (_workerOpenUsable) {
       try {
         return await WorkerKvLogStore.open(
-            path: path, password: password, create: create);
+          path: path,
+          password: password,
+          create: create,
+          paddingPreset: paddingPreset,
+        );
       } on hv.HvException catch (e) {
         _workerOpenUsable = false;
-        devLog(() => 'xVeil[storage]: worker open FAILED (${e.kind}: ${e.message}) — '
-            'falling back to INLINE storage (off-isolate disabled this run)');
+        devLog(
+          () =>
+              'xVeil[storage]: worker open FAILED (${e.kind}: ${e.message}) — '
+              'falling back to INLINE storage (off-isolate disabled this run)',
+        );
       }
     }
-    final inline = hvSpaceOpener(path)(password: password, create: create);
+    final inline = hvSpaceOpener(path, paddingPreset: paddingPreset)(
+      password: password,
+      create: create,
+    );
     return inline == null ? null : SyncWrappedAsyncKvLogStore(inline);
   };
 }
 
 /// Async analogue of [KeysSpaceOpener] — opens a space directly from its
 /// pre-derived 64-byte `SpaceKeys` (master mode), off the UI isolate.
-typedef AsyncKeysSpaceOpener = Future<AsyncKvLogStore?> Function(Uint8List keys);
+typedef AsyncKeysSpaceOpener =
+    Future<AsyncKvLogStore?> Function(Uint8List keys);
 
 /// Lifts a synchronous [SpaceOpener] to an [AsyncSpaceOpener] by running it
 /// INLINE (no worker) and wrapping the result in a [SyncWrappedAsyncKvLogStore].

@@ -23,6 +23,9 @@ class _LockScreenState extends ConsumerState<LockScreen> {
 
   Future<void> _unlock() async {
     if (_busy) return;
+    if (_ctrl.text.trim().isEmpty) {
+      return;
+    }
     setState(() => _busy = true);
     await ref.read(appControllerProvider.notifier).unlock(_ctrl.text);
     if (mounted) setState(() => _busy = false);
@@ -45,7 +48,8 @@ class _LockScreenState extends ConsumerState<LockScreen> {
           // would otherwise never find the corner-tucked wipe.
           TextButton(
             style: TextButton.styleFrom(
-                foregroundColor: Theme.of(ctx).colorScheme.error),
+              foregroundColor: Theme.of(ctx).colorScheme.error,
+            ),
             onPressed: () => Navigator.of(ctx).pop(_StartOverChoice.delete),
             child: Text(l.lockWipe),
           ),
@@ -118,7 +122,8 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                     ? const SizedBox(
                         height: 20,
                         width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2))
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
                     : Text(l.lockUnlock),
               ),
               const SizedBox(height: 8),
@@ -133,15 +138,22 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                 alignment: Alignment.bottomRight,
                 child: TextButton.icon(
                   onPressed: _busy ? null : _wipe,
-                  icon: Icon(Icons.delete_forever_outlined,
-                      size: 16, color: scheme.error.withValues(alpha: 0.7)),
-                  label: Text(l.lockWipe,
-                      style: TextStyle(
-                          fontSize: 12,
-                          color: scheme.error.withValues(alpha: 0.7))),
+                  icon: Icon(
+                    Icons.delete_forever_outlined,
+                    size: 16,
+                    color: scheme.error.withValues(alpha: 0.7),
+                  ),
+                  label: Text(
+                    l.lockWipe,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: scheme.error.withValues(alpha: 0.7),
+                    ),
+                  ),
                   style: TextButton.styleFrom(
-                      visualDensity: VisualDensity.compact,
-                      padding: const EdgeInsets.symmetric(horizontal: 8)),
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
                 ),
               ),
             ],
@@ -191,12 +203,18 @@ class _WipeConfirmDialogState extends State<_WipeConfirmDialog> {
           children: [
             Text(l.lockWipeBody),
             const SizedBox(height: 16),
-            Text(l.lockWipeTypePrompt,
-                style: Theme.of(context).textTheme.bodySmall),
+            Text(
+              l.lockWipeTypePrompt,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
             const SizedBox(height: 4),
-            Text('"$phrase"',
-                style:
-                    TextStyle(fontWeight: FontWeight.bold, color: scheme.error)),
+            Text(
+              '"$phrase"',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: scheme.error,
+              ),
+            ),
             const SizedBox(height: 8),
             TextField(
               controller: _typed,

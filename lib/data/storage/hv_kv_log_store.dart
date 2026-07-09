@@ -8,16 +8,24 @@ import 'package:xveil/core/log.dart';
 /// Map domain [KvLogOp]s to the plugin's `HvWriteOp`s (1:1). Shared by the
 /// single-space and multi-space backings.
 List<hv.HvWriteOp> _toHvOps(List<KvLogOp> ops) => ops.map<hv.HvWriteOp>((op) {
-      return switch (op) {
-        PutOp(:final namespace, :final key, :final value) =>
-          hv.HvWriteOpPut(namespace: namespace, key: key, value: value),
-        DeleteOp(:final namespace, :final key) =>
-          hv.HvWriteOpDelete(namespace: namespace, key: key),
-        AppendLogOp(:final namespace, :final logId, :final payload) =>
-          hv.HvWriteOpAppendLog(
-              namespace: namespace, logId: logId, payload: payload),
-      };
-    }).toList();
+  return switch (op) {
+    PutOp(:final namespace, :final key, :final value) => hv.HvWriteOpPut(
+      namespace: namespace,
+      key: key,
+      value: value,
+    ),
+    DeleteOp(:final namespace, :final key) => hv.HvWriteOpDelete(
+      namespace: namespace,
+      key: key,
+    ),
+    AppendLogOp(:final namespace, :final logId, :final payload) =>
+      hv.HvWriteOpAppendLog(
+        namespace: namespace,
+        logId: logId,
+        payload: payload,
+      ),
+  };
+}).toList();
 
 /// Production [KvLogStore] backed by a real unlocked `HvSpace` from the
 /// hidden-volume plugin. The mapping is 1:1, so the domain storage layer
@@ -43,12 +51,10 @@ class HvKvLogStore implements KvLogStore {
     int? start,
     int? end,
     required int limit,
-  }) =>
-      _space
-          .iterLogRange(
-              namespace: namespace, start: start, end: end, limit: limit)
-          .map((e) => KvLogEntry(e.logId, e.payload))
-          .toList();
+  }) => _space
+      .iterLogRange(namespace: namespace, start: start, end: end, limit: limit)
+      .map((e) => KvLogEntry(e.logId, e.payload))
+      .toList();
 
   @override
   int count(int namespace) => _space.count(namespace);
@@ -80,14 +86,12 @@ class HvKvLogStore implements KvLogStore {
 /// raises `SpaceAlreadyExists`). `AuthFailed` — which deliberately conflates
 /// wrong-password and no-such-space — maps to null so the lock screen cannot
 /// leak the difference.
-/// Pad future commits to 256 KiB buckets instead of the 1 MiB header default —
-/// a RUNTIME override (in-memory `set_padding_policy`, no write), applied on
-/// every open so it also governs existing containers without a format change.
-/// 4x less per-commit padding bloat; deniability-safe (identical uniform-random
-/// garbage chunks). Best-effort: a failure here must never block opening.
-hv.HvSpace _withLightPadding(hv.HvSpace space) {
+/// Runtime padding override (in-memory `set_padding_policy`, no write), applied
+/// on every open so it also governs existing containers without a format change.
+/// Best-effort: a failure here must never block opening.
+hv.HvSpace _withPadding(hv.HvSpace space, hv.PaddingPreset preset) {
   try {
-    space.setPaddingPolicy(hv.PaddingPreset.bucket256KiB);
+    space.setPaddingPolicy(preset);
   } catch (_) {}
   return space;
 }
@@ -95,13 +99,14 @@ hv.HvSpace _withLightPadding(hv.HvSpace space) {
 SpaceOpener hvSpaceOpener(
   String path, {
   hv.ArgonPreset argon = hv.ArgonPreset.heavy,
+  hv.PaddingPreset paddingPreset = hv.PaddingPreset.bucket256KiB,
 }) {
   return ({required Uint8List password, required bool create}) {
     try {
       final space = create
           ? _createOrOpen(path, password, argon)
           : hv.HvSpace.open(path: path, password: password);
-      return HvKvLogStore(_withLightPadding(space));
+      return HvKvLogStore(_withPadding(space, paddingPreset));
     } on hv.HvException catch (e) {
       if (e.kind == 'AuthFailed') return null;
       rethrow;
@@ -112,11 +117,18 @@ SpaceOpener hvSpaceOpener(
 /// Builds a real [KeysSpaceOpener] over the container at [path] — a master
 /// opening one of its children directly from stored `SpaceKeys`, no password.
 /// `AuthFailed` (keys match no space) maps to null, same as the password path.
-KeysSpaceOpener hvKeysSpaceOpener(String path) {
+KeysSpaceOpener hvKeysSpaceOpener(
+  String path, {
+  hv.PaddingPreset paddingPreset = hv.PaddingPreset.bucket256KiB,
+}) {
   return (Uint8List keys) {
     try {
       return HvKvLogStore(
-          _withLightPadding(hv.HvSpace.openWithKeys(path: path, keys: keys)));
+        _withPadding(
+          hv.HvSpace.openWithKeys(path: path, keys: keys),
+          paddingPreset,
+        ),
+      );
     } on hv.HvException catch (e) {
       if (e.kind == 'AuthFailed') return null;
       rethrow;
@@ -139,7 +151,11 @@ KeysSpaceOpener hvKeysSpaceOpener(String path) {
 /// we try the non-destructive `add_space` FIRST and only `create` when that
 /// fails because there is genuinely no container at `path`. A container on disk
 /// is thus NEVER re-created.
-hv.HvSpace _createOrOpen(String path, Uint8List password, hv.ArgonPreset argon) {
+hv.HvSpace _createOrOpen(
+  String path,
+  Uint8List password,
+  hv.ArgonPreset argon,
+) {
   try {
     return hv.HvSpace.addSpace(path: path, password: password);
   } on hv.HvException catch (e) {
@@ -151,8 +167,11 @@ hv.HvSpace _createOrOpen(String path, Uint8List password, hv.ArgonPreset argon) 
     // No usable container at `path` (missing / not a hidden-volume file) — the
     // only case where bootstrapping a fresh one is correct.
     if (e.kind == 'Io' || e.kind == 'Malformed') {
-      devLog(() => 'xVeil[storage]: bootstrapping FRESH container at $path'
-          ' (add_space failed: ${e.kind}) — expected ONLY on first run');
+      devLog(
+        () =>
+            'xVeil[storage]: bootstrapping FRESH container at $path'
+            ' (add_space failed: ${e.kind}) — expected ONLY on first run',
+      );
       return hv.HvSpace.create(path: path, password: password, argon: argon);
     }
     rethrow;
@@ -168,8 +187,16 @@ class HvMultiSpaceBacking implements MultiSpaceBacking {
   final hv.HvMultiSpace _multi;
 
   /// Open the container at [path] for multi-space hosting (takes its lock).
-  factory HvMultiSpaceBacking.open(String path) =>
-      HvMultiSpaceBacking(hv.HvMultiSpace.open(path: path));
+  factory HvMultiSpaceBacking.open(
+    String path, {
+    hv.PaddingPreset paddingPreset = hv.PaddingPreset.bucket256KiB,
+  }) {
+    final multi = hv.HvMultiSpace.open(path: path);
+    try {
+      multi.setPaddingPolicy(paddingPreset);
+    } catch (_) {}
+    return HvMultiSpaceBacking(multi);
+  }
 
   @override
   int openSpace(Uint8List keys) => _multi.openSpace(keys);
@@ -192,19 +219,22 @@ class HvMultiSpaceBacking implements MultiSpaceBacking {
     int? start,
     int? end,
     required int limit,
-  }) =>
-      _multi
-          .iterLogRange(
-              id: id, namespace: namespace, start: start, end: end, limit: limit)
-          .map((e) => KvLogEntry(e.logId, e.payload))
-          .toList();
+  }) => _multi
+      .iterLogRange(
+        id: id,
+        namespace: namespace,
+        start: start,
+        end: end,
+        limit: limit,
+      )
+      .map((e) => KvLogEntry(e.logId, e.payload))
+      .toList();
 
   @override
   int count(int id, int namespace) => _multi.count(id, namespace);
 
   @override
-  List<Uint8List> kvKeys(int id, int namespace) =>
-      _multi.kvKeys(id, namespace);
+  List<Uint8List> kvKeys(int id, int namespace) => _multi.kvKeys(id, namespace);
 
   @override
   Uint8List exportKeys(int id) => _multi.spaceKeys(id);
