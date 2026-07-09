@@ -95,6 +95,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   String? _highlightId;
   Timer? _highlightTimer;
 
+  /// True when this is the Saved Messages chat (peer == our own node id) —
+  /// set at the top of build, read by _submit / _bottom / the app bar.
+  bool _saved = false;
+
   // ── Pinned message (LOCAL, one per conversation) ────────────────────────────
   // Stored in the settings KV as JSON {id, t} — the snippet travels with the
   // id so the banner renders even when the message is outside the loaded
@@ -387,7 +391,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // message never requires clicking back into the field.
     _inputFocus.requestFocus();
     final svc = ref.read(messagingServiceProvider);
-    if (status == ContactStatus.accepted) {
+    if (_saved) {
+      // Saved Messages: a purely local note to self, never the wire.
+      await svc.saveNote(text, replyToId: replyToId);
+    } else if (status == ContactStatus.accepted) {
       await svc.sendText(_peer, text, replyToId: replyToId);
     } else {
       // No contact yet / not accepted — the first message is the request.
@@ -1032,6 +1039,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final target = await _pickForwardTarget();
     if (target == null || !mounted) return;
     final svc = ref.read(messagingServiceProvider);
+    final toSaved = myHex != null && target.hex == myHex;
     for (final m in toForward) {
       // Preserve the true origin when re-forwarding an already-forwarded
       // message; else the author is me (outgoing) or the conversation peer /
@@ -1041,7 +1049,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           (m.direction == MessageDirection.outgoing
               ? (myHex ?? widget.peerHex)
               : (m.author ?? widget.peerHex));
-      await svc.sendText(target, m.body, forwardedFrom: originHex);
+      if (toSaved) {
+        await svc.saveNote(m.body, forwardedFrom: originHex);
+      } else {
+        await svc.sendText(target, m.body, forwardedFrom: originHex);
+      }
     }
     _clearSelection();
     if (mounted) {
@@ -1057,8 +1069,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final l = AppL10n.of(context);
     final convs = await ref.read(storageProvider).loadConversations();
     if (!mounted) return null;
+    final myHex = ref.read(appControllerProvider).identity?.nodeId.hex;
     final accepted = convs
-        .where((c) => c.peer.status == ContactStatus.accepted)
+        .where(
+          (c) =>
+              c.peer.status == ContactStatus.accepted &&
+              c.peer.nodeId.hex != myHex,
+        )
         .toList(growable: false);
     return showModalBottomSheet<NodeId>(
       context: context,
@@ -1072,7 +1089,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 style: Theme.of(sheet).textTheme.titleMedium,
               ),
             ),
-            if (accepted.isEmpty)
+            // Saved Messages is always a target (forward to self, local).
+            if (myHex != null)
+              ListTile(
+                leading: const CircleAvatar(
+                  child: Icon(Icons.bookmark_outline, size: 18),
+                ),
+                title: Text(l.savedMessages),
+                onTap: () => Navigator.of(sheet).pop(NodeId.fromHex(myHex)),
+              ),
+            if (accepted.isEmpty && myHex == null)
               ListTile(title: Text(l.chatForwardNoTargets))
             else
               Flexible(
@@ -1531,8 +1557,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final window = ref.watch(chatWindowProvider(widget.peerHex));
     final contact = ref.watch(contactProvider(widget.peerHex)).value;
     final status = contact?.status;
+    // Saved Messages = a chat with yourself (peer == our own node id). Purely
+    // local: notes append without the wire, and the consent/call UI is hidden.
+    final myHex = ref.watch(
+      appControllerProvider.select((s) => s.identity?.nodeId.hex),
+    );
+    _saved = myHex != null && myHex == widget.peerHex;
     // Show the local alias when set, else the short node id (Contact.label).
-    final title = contact?.label ?? _peer.short;
+    final title = _saved ? l.savedMessages : (contact?.label ?? _peer.short);
     ref.listen(messagesProvider(widget.peerHex), (_, _) => _scrollToBottom());
 
     final selectionBar = _selecting
@@ -1577,7 +1609,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               children: [
                 CircleAvatar(
                   radius: 16,
-                  child: Text(title.characters.first.toUpperCase()),
+                  child: _saved
+                      ? const Icon(Icons.bookmark_outline, size: 18)
+                      : Text(title.characters.first.toUpperCase()),
                 ),
                 const SizedBox(width: 12),
                 Expanded(child: Text(title, overflow: TextOverflow.ellipsis)),
@@ -1589,9 +1623,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 tooltip: l.searchHint,
                 onPressed: _enterChatSearch,
               ),
-              // Start a call — only an accepted contact can be dialled. Picks the
-              // media set; the CallService FSM sends the offer + negotiates the path.
-              if (status == ContactStatus.accepted)
+              // Start a call — only an accepted contact can be dialled (never
+              // in Saved Messages). Picks the media set; the CallService FSM
+              // sends the offer + negotiates the path.
+              if (!_saved && status == ContactStatus.accepted)
                 PopupMenuButton<CallMedia>(
                   icon: const Icon(Icons.call),
                   tooltip: l.callStartTooltip,
@@ -1630,65 +1665,69 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     ),
                   ],
                 ),
-              PopupMenuButton<_ChatMenuAction>(
-                onSelected: (a) => _onMenuAction(a, status),
-                itemBuilder: (_) => [
-                  PopupMenuItem(
-                    value: _ChatMenuAction.rename,
-                    child: Text(l.chatMenuRename),
-                  ),
-                  // Pin/unpin this conversation to the top of the chat list.
-                  if (contact?.pinned ?? false)
+              // No rename/block/mute/delete-conversation on Saved Messages —
+              // there's no peer to act on. "Clear history" stays useful but
+              // the whole menu is hidden for a clean self-chat in v1.
+              if (!_saved)
+                PopupMenuButton<_ChatMenuAction>(
+                  onSelected: (a) => _onMenuAction(a, status),
+                  itemBuilder: (_) => [
                     PopupMenuItem(
-                      value: _ChatMenuAction.unpin,
-                      child: Text(l.chatMenuUnpin),
-                    )
-                  else
-                    PopupMenuItem(
-                      value: _ChatMenuAction.pin,
-                      child: Text(l.chatMenuPin),
+                      value: _ChatMenuAction.rename,
+                      child: Text(l.chatMenuRename),
                     ),
-                  // Mute/unmute local notifications for this conversation.
-                  if (contact?.muted ?? false)
+                    // Pin/unpin this conversation to the top of the chat list.
+                    if (contact?.pinned ?? false)
+                      PopupMenuItem(
+                        value: _ChatMenuAction.unpin,
+                        child: Text(l.chatMenuUnpin),
+                      )
+                    else
+                      PopupMenuItem(
+                        value: _ChatMenuAction.pin,
+                        child: Text(l.chatMenuPin),
+                      ),
+                    // Mute/unmute local notifications for this conversation.
+                    if (contact?.muted ?? false)
+                      PopupMenuItem(
+                        value: _ChatMenuAction.unmute,
+                        child: Text(l.chatMenuUnmute),
+                      )
+                    else
+                      PopupMenuItem(
+                        value: _ChatMenuAction.mute,
+                        child: Text(l.chatMenuMute),
+                      ),
                     PopupMenuItem(
-                      value: _ChatMenuAction.unmute,
-                      child: Text(l.chatMenuUnmute),
-                    )
-                  else
-                    PopupMenuItem(
-                      value: _ChatMenuAction.mute,
-                      child: Text(l.chatMenuMute),
+                      value: _ChatMenuAction.retention,
+                      child: Text(l.chatMenuRetention),
                     ),
-                  PopupMenuItem(
-                    value: _ChatMenuAction.retention,
-                    child: Text(l.chatMenuRetention),
-                  ),
-                  PopupMenuItem(
-                    value: _ChatMenuAction.communication,
-                    child: Text(l.chatMenuCommunicationSettings),
-                  ),
-                  // Block an accepted contact (their messages get dropped) or lift
-                  // an existing block — local-only, the peer is never told either way.
-                  if (status == ContactStatus.blocked)
                     PopupMenuItem(
-                      value: _ChatMenuAction.unblock,
-                      child: Text(l.chatMenuUnblock),
-                    )
-                  else
-                    PopupMenuItem(
-                      value: _ChatMenuAction.block,
-                      child: Text(l.actionBlock),
+                      value: _ChatMenuAction.communication,
+                      child: Text(l.chatMenuCommunicationSettings),
                     ),
-                  PopupMenuItem(
-                    value: _ChatMenuAction.clear,
-                    child: Text(l.chatMenuClearHistory),
-                  ),
-                  PopupMenuItem(
-                    value: _ChatMenuAction.delete,
-                    child: Text(l.chatMenuDeleteConversation),
-                  ),
-                ],
-              ),
+                    // Block an accepted contact (their messages get dropped) or lift
+                    // an existing block — local-only, the peer is never told either way.
+                    if (status == ContactStatus.blocked)
+                      PopupMenuItem(
+                        value: _ChatMenuAction.unblock,
+                        child: Text(l.chatMenuUnblock),
+                      )
+                    else
+                      PopupMenuItem(
+                        value: _ChatMenuAction.block,
+                        child: Text(l.actionBlock),
+                      ),
+                    PopupMenuItem(
+                      value: _ChatMenuAction.clear,
+                      child: Text(l.chatMenuClearHistory),
+                    ),
+                    PopupMenuItem(
+                      value: _ChatMenuAction.delete,
+                      child: Text(l.chatMenuDeleteConversation),
+                    ),
+                  ],
+                ),
             ],
           ),
       // "Jump to latest": appears once the user is a screenful+ away from the
@@ -1787,6 +1826,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Widget _bottom(ContactStatus? status, AppL10n l) {
+    // Saved Messages: always a plain composer (no consent flow) — notes append
+    // locally via _submit's _saved branch.
+    if (_saved) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_replyingTo != null)
+            _ReplyBanner(
+              message: _replyingTo!,
+              onCancel: () => setState(() => _replyingTo = null),
+            ),
+          _Composer(
+            controller: _input,
+            focusNode: _inputFocus,
+            hint: l.savedNoteHint,
+            onSend: () => _submit(status),
+            // v1 notes are text-only (matches forward-to-saved, which skips
+            // files); file notes land with the media-message work.
+          ),
+        ],
+      );
+    }
     switch (status) {
       case ContactStatus.pendingOutgoing:
         return _PendingOutgoingActions(
