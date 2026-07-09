@@ -1,4 +1,5 @@
 import '../core/ids.dart';
+import 'p2p_policy.dart';
 
 /// Relationship state with a peer — gates messaging so strangers can't write
 /// without consent.
@@ -23,6 +24,7 @@ class Contact {
     this.archived = false,
     this.retentionDays,
     this.allowPeerDelete = true,
+    this.p2pOverride = kDefaultContactP2POverride,
   });
 
   final NodeId nodeId;
@@ -59,6 +61,11 @@ class Contact {
   /// never told whether it was honored, matching the no-oracle model).
   final bool allowPeerDelete;
 
+  /// Whether direct P2P transport is allowed for this peer on THIS device.
+  /// Local-only and encrypted. It gates location-revealing direct paths for
+  /// calls, large media/file transfer, and future device-to-device sync.
+  final ContactP2POverride p2pOverride;
+
   /// Per-conversation message-retention window in DAYS, or null for unlimited
   /// (the default — never auto-delete). When set, a compaction pass forensically
   /// deletes messages whose ORIGINAL post time is older than this many days
@@ -83,19 +90,20 @@ class Contact {
     bool? archived,
     int? retentionDays,
     bool? allowPeerDelete,
-  }) =>
-      Contact(
-        nodeId: nodeId,
-        name: name ?? this.name,
-        status: status ?? this.status,
-        mutedUntil: identical(mutedUntil, _unset)
-            ? this.mutedUntil
-            : mutedUntil as DateTime?,
-        pinned: pinned ?? this.pinned,
-        archived: archived ?? this.archived,
-        retentionDays: retentionDays ?? this.retentionDays,
-        allowPeerDelete: allowPeerDelete ?? this.allowPeerDelete,
-      );
+    ContactP2POverride? p2pOverride,
+  }) => Contact(
+    nodeId: nodeId,
+    name: name ?? this.name,
+    status: status ?? this.status,
+    mutedUntil: identical(mutedUntil, _unset)
+        ? this.mutedUntil
+        : mutedUntil as DateTime?,
+    pinned: pinned ?? this.pinned,
+    archived: archived ?? this.archived,
+    retentionDays: retentionDays ?? this.retentionDays,
+    allowPeerDelete: allowPeerDelete ?? this.allowPeerDelete,
+    p2pOverride: p2pOverride ?? this.p2pOverride,
+  );
 }
 
 /// Direction of a message relative to the local user.
@@ -209,31 +217,31 @@ class Message {
   /// The blob is present locally (downloaded / stored), not just offered.
   bool get isDownloaded => fileId != null;
 
-  Message copyWith(
-          {MessageStatus? status,
-          String? body,
-          bool? edited,
-          String? fileId,
-          MessageSignature? signature}) =>
-      Message(
-        id: id,
-        conversationId: conversationId,
-        direction: direction,
-        body: body ?? this.body,
-        timestamp: timestamp,
-        status: status ?? this.status,
-        fileId: fileId ?? this.fileId,
-        fileName: fileName,
-        fileSize: fileSize,
-        fileContentId: fileContentId,
-        fileExternal: fileExternal,
-        edited: edited ?? this.edited,
-        author: author,
-        seq: seq,
-        replyToId: replyToId,
-        forwardedFrom: forwardedFrom,
-        signature: signature ?? this.signature,
-      );
+  Message copyWith({
+    MessageStatus? status,
+    String? body,
+    bool? edited,
+    String? fileId,
+    MessageSignature? signature,
+  }) => Message(
+    id: id,
+    conversationId: conversationId,
+    direction: direction,
+    body: body ?? this.body,
+    timestamp: timestamp,
+    status: status ?? this.status,
+    fileId: fileId ?? this.fileId,
+    fileName: fileName,
+    fileSize: fileSize,
+    fileContentId: fileContentId,
+    fileExternal: fileExternal,
+    edited: edited ?? this.edited,
+    author: author,
+    seq: seq,
+    replyToId: replyToId,
+    forwardedFrom: forwardedFrom,
+    signature: signature ?? this.signature,
+  );
 }
 
 /// One version of a message in its edit history (event-log §15): the original
@@ -271,11 +279,7 @@ class MessageVersion {
 /// entries in the SINGLE shared MESSAGE_LOG append-log (NOT a per-conversation
 /// namespace partition — see doc/EVENT-LOG-SYNC-DESIGN.md §14.2).
 class Conversation {
-  const Conversation({
-    required this.peer,
-    this.lastMessage,
-    this.unread = 0,
-  });
+  const Conversation({required this.peer, this.lastMessage, this.unread = 0});
 
   final Contact peer;
   final Message? lastMessage;
