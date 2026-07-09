@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart' show kDebugMode;
@@ -12,6 +13,7 @@ import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/messaging.dart';
 import 'chat_actions.dart';
+import 'chat_search.dart';
 import '../../state/folder_panel_controller.dart';
 import '../../state/providers.dart';
 import '../contacts/invite_exchange_sheet.dart';
@@ -21,11 +23,152 @@ import '../contacts/invite_exchange_sheet.dart';
 /// the selected folder is later deleted (handled in the build).
 final selectedFolderProvider = StateProvider<String?>((_) => null);
 
-class ChatsScreen extends ConsumerWidget {
+class ChatsScreen extends ConsumerStatefulWidget {
   const ChatsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ChatsScreen> createState() => _ChatsScreenState();
+}
+
+class _ChatsScreenState extends ConsumerState<ChatsScreen> {
+  // ── Search mode ───────────────────────────────────────────────────────────
+  // The chats filter is instant (in-memory names); the message scan decrypts
+  // conversation-by-conversation off the query debounce, appending hits
+  // progressively. No on-disk index by design (ROADMAP: no plaintext-derived
+  // artifacts) — a linear scan over the encrypted store.
+  final _searchCtl = TextEditingController();
+  Timer? _searchDebounce;
+  bool _searching = false;
+  String _query = '';
+  List<(Conversation, Message)> _msgHits = const [];
+  bool _scanning = false;
+  int _scanGen = 0;
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchCtl.dispose();
+    super.dispose();
+  }
+
+  void _enterSearch() => setState(() => _searching = true);
+
+  void _exitSearch() {
+    _scanGen++; // cancel any in-flight scan
+    _searchDebounce?.cancel();
+    _searchCtl.clear();
+    setState(() {
+      _searching = false;
+      _query = '';
+      _msgHits = const [];
+      _scanning = false;
+    });
+  }
+
+  void _onQueryChanged(String q) {
+    setState(() => _query = q);
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(
+      const Duration(milliseconds: 350),
+      () => _scanMessages(q),
+    );
+  }
+
+  /// Linear scan of every conversation's messages for [q]. Progressive: hits
+  /// append per-conversation so first results show while the rest decrypts.
+  /// A generation counter cancels superseded scans (typing, exit).
+  Future<void> _scanMessages(String q) async {
+    final gen = ++_scanGen;
+    final needle = q.trim().toLowerCase();
+    if (needle.isEmpty) {
+      setState(() {
+        _msgHits = const [];
+        _scanning = false;
+      });
+      return;
+    }
+    setState(() {
+      _scanning = true;
+      _msgHits = const [];
+    });
+    final storage = ref.read(storageProvider);
+    final convos =
+        ref.read(conversationsProvider).valueOrNull ?? const <Conversation>[];
+    const cap = 100;
+    final hits = <(Conversation, Message)>[];
+    for (final c in convos) {
+      if (gen != _scanGen || !mounted) return;
+      List<Message> msgs;
+      try {
+        msgs = await storage.loadMessages(c.peer.nodeId.hex);
+      } catch (_) {
+        continue; // storage mid-switch — skip this conversation
+      }
+      for (final m in msgs) {
+        if (messageMatchesQuery(m, needle)) hits.add((c, m));
+        if (hits.length >= cap) break;
+      }
+      if (gen != _scanGen || !mounted) return;
+      final sorted = List.of(hits)
+        ..sort((a, b) => b.$2.timestamp.compareTo(a.$2.timestamp));
+      setState(() => _msgHits = sorted);
+      if (hits.length >= cap) break;
+    }
+    if (gen == _scanGen && mounted) setState(() => _scanning = false);
+  }
+
+  Widget _searchResults(
+    AppL10n l,
+    List<Conversation> convos,
+    ColorScheme scheme,
+  ) {
+    final needle = _query.trim().toLowerCase();
+    final chatHits = filterConversationsByName(convos, needle);
+    final empty = chatHits.isEmpty && _msgHits.isEmpty && !_scanning;
+    return ListView(
+      children: [
+        if (_scanning) const LinearProgressIndicator(minHeight: 2),
+        if (empty)
+          Padding(
+            padding: const EdgeInsets.all(32),
+            child: Center(child: Text(l.searchNoResults)),
+          ),
+        if (chatHits.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Text(l.navChats, style: TextStyle(color: scheme.primary)),
+          ),
+        for (final c in chatHits) _ConversationTile(conversation: c),
+        if (_msgHits.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Text(
+              l.searchMessagesSection,
+              style: TextStyle(color: scheme.primary),
+            ),
+          ),
+        for (final (c, m) in _msgHits)
+          ListTile(
+            leading: CircleAvatar(
+              child: Text(c.peer.label.characters.first.toUpperCase()),
+            ),
+            title: Text(c.peer.label),
+            subtitle: Text(
+              searchSnippet(
+                m.body.isNotEmpty ? m.body : (m.fileName ?? ''),
+                needle,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            onTap: () => context.push('/chat/${c.peer.nodeId.hex}?msg=${m.id}'),
+          ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final convos = ref.watch(conversationsProvider);
     // Rebuild on identity switch; the active identity's anonymity then shows in
@@ -39,32 +182,51 @@ class ChatsScreen extends ConsumerWidget {
     final folders = ref.watch(chatFoldersProvider).valueOrNull ?? const [];
     var selectedFolder = ref.watch(selectedFolderProvider);
     // If the selected folder was deleted, fall back to All.
-    if (selectedFolder != null &&
-        !folders.any((f) => f.id == selectedFolder)) {
+    if (selectedFolder != null && !folders.any((f) => f.id == selectedFolder)) {
       selectedFolder = null;
     }
     final folder = selectedFolder == null
         ? null
         : folders.firstWhere((f) => f.id == selectedFolder);
-    final folderDrawer = _FolderDrawer(folders: folders, selected: selectedFolder);
+    final folderDrawer = _FolderDrawer(
+      folders: folders,
+      selected: selectedFolder,
+    );
     return Scaffold(
       // With a drawer placement the panel is collapsible: Scaffold puts the
       // hamburger in the app bar (leading for left, trailing for right).
       drawer: panelPos == FolderPanelPosition.left ? folderDrawer : null,
       endDrawer: panelPos == FolderPanelPosition.right ? folderDrawer : null,
       appBar: AppBar(
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // When filtered through a drawer (no always-visible chips), the
-            // title is the only place that shows WHICH folder is active.
-            Text(folder == null ? l.navChats : folder.name),
-            if (anon) ...[
-              const SizedBox(width: 8),
-              Icon(Icons.shield_moon, size: 20, color: scheme.primary),
-            ],
-          ],
-        ),
+        leading: _searching
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: _exitSearch,
+              )
+            : null,
+        title: _searching
+            ? TextField(
+                controller: _searchCtl,
+                autofocus: true,
+                decoration: InputDecoration(
+                  hintText: l.searchHint,
+                  border: InputBorder.none,
+                ),
+                onChanged: _onQueryChanged,
+              )
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // When filtered through a drawer (no always-visible chips),
+                  // the title is the only place that shows WHICH folder is
+                  // active.
+                  Text(folder == null ? l.navChats : folder.name),
+                  if (anon) ...[
+                    const SizedBox(width: 8),
+                    Icon(Icons.shield_moon, size: 20, color: scheme.primary),
+                  ],
+                ],
+              ),
         bottom: anon
             ? PreferredSize(
                 preferredSize: const Size.fromHeight(22),
@@ -84,9 +246,15 @@ class ChatsScreen extends ConsumerWidget {
               )
             : null,
         actions: [
+          if (!_searching)
+            IconButton(
+              icon: const Icon(Icons.search),
+              tooltip: l.searchHint,
+              onPressed: _enterSearch,
+            ),
           // Dev-only affordance (debug builds): start a chat by raw node id or
           // a demo peer. Hidden in release so it can't ship to users.
-          if (kDebugMode)
+          if (!_searching && kDebugMode)
             IconButton(
               icon: const Icon(Icons.science_outlined),
               tooltip: l.demoChatTooltip,
@@ -95,7 +263,7 @@ class ChatsScreen extends ConsumerWidget {
           // With the right-side placement the AppBar only auto-adds an
           // endDrawer toggle when it has NO other actions — so in debug builds
           // the panel used to be unopenable. Always provide the button.
-          if (panelPos == FolderPanelPosition.right)
+          if (!_searching && panelPos == FolderPanelPosition.right)
             Builder(
               builder: (ctx) => IconButton(
                 icon: const Icon(Icons.folder_open_outlined),
@@ -105,66 +273,76 @@ class ChatsScreen extends ConsumerWidget {
             ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => showAddContactSheet(context, ref),
-        child: const Icon(Icons.person_add_alt_1),
-      ),
-      body: convos.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('$e')),
-        data: (list) {
-          if (list.isEmpty) {
-            return _EmptyState(
-                l: l, onStart: () => showAddContactSheet(context, ref));
-          }
-          // Filter to the selected folder's members (All = everything).
-          final scoped = folder == null
-              ? list
-              : list
-                  .where((c) => folder.contains(c.peer.nodeId.hex))
-                  .toList(growable: false);
-          // Archived conversations collapse into a section at the bottom —
-          // they keep receiving messages (and unread badges) but stay out of
-          // the main list until unarchived.
-          final active =
-              scoped.where((c) => !c.peer.archived).toList(growable: false);
-          final archived =
-              scoped.where((c) => c.peer.archived).toList(growable: false);
-          return Column(
-            children: [
-              // Top placement only; drawer placements render the folders in
-              // the Scaffold drawer above. Always shown there (even with zero
-              // folders): the "+" chip is the way to create the FIRST folder —
-              // hiding the bar until one existed made the feature
-              // undiscoverable.
-              if (panelPos == FolderPanelPosition.top)
-                _FolderBar(folders: folders, selected: selectedFolder),
-              Expanded(
-                child: (active.isEmpty && archived.isEmpty)
-                    ? Center(child: Text(l.chatsFolderEmpty))
-                    : ListView(
-            children: [
-              for (final (i, c) in active.indexed) ...[
-                if (i > 0) const Divider(height: 1, indent: 72),
-                _ConversationTile(conversation: c),
-              ],
-              if (archived.isNotEmpty)
-                ExpansionTile(
-                  leading: const Icon(Icons.archive_outlined),
-                  title: Text(
-                    '${l.chatsArchiveSection} (${archived.length})',
-                  ),
+      floatingActionButton: _searching
+          ? null
+          : FloatingActionButton(
+              onPressed: () => showAddContactSheet(context, ref),
+              child: const Icon(Icons.person_add_alt_1),
+            ),
+      body: _searching && _query.trim().isNotEmpty
+          ? _searchResults(l, convos.valueOrNull ?? const [], scheme)
+          : convos.when(
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (e, _) => Center(child: Text('$e')),
+              data: (list) {
+                if (list.isEmpty) {
+                  return _EmptyState(
+                    l: l,
+                    onStart: () => showAddContactSheet(context, ref),
+                  );
+                }
+                // Filter to the selected folder's members (All = everything).
+                final scoped = folder == null
+                    ? list
+                    : list
+                          .where((c) => folder.contains(c.peer.nodeId.hex))
+                          .toList(growable: false);
+                // Archived conversations collapse into a section at the bottom —
+                // they keep receiving messages (and unread badges) but stay out of
+                // the main list until unarchived.
+                final active = scoped
+                    .where((c) => !c.peer.archived)
+                    .toList(growable: false);
+                final archived = scoped
+                    .where((c) => c.peer.archived)
+                    .toList(growable: false);
+                return Column(
                   children: [
-                    for (final c in archived) _ConversationTile(conversation: c),
+                    // Top placement only; drawer placements render the folders in
+                    // the Scaffold drawer above. Always shown there (even with zero
+                    // folders): the "+" chip is the way to create the FIRST folder —
+                    // hiding the bar until one existed made the feature
+                    // undiscoverable.
+                    if (panelPos == FolderPanelPosition.top)
+                      _FolderBar(folders: folders, selected: selectedFolder),
+                    Expanded(
+                      child: (active.isEmpty && archived.isEmpty)
+                          ? Center(child: Text(l.chatsFolderEmpty))
+                          : ListView(
+                              children: [
+                                for (final (i, c) in active.indexed) ...[
+                                  if (i > 0)
+                                    const Divider(height: 1, indent: 72),
+                                  _ConversationTile(conversation: c),
+                                ],
+                                if (archived.isNotEmpty)
+                                  ExpansionTile(
+                                    leading: const Icon(Icons.archive_outlined),
+                                    title: Text(
+                                      '${l.chatsArchiveSection} (${archived.length})',
+                                    ),
+                                    children: [
+                                      for (final c in archived)
+                                        _ConversationTile(conversation: c),
+                                    ],
+                                  ),
+                              ],
+                            ),
+                    ),
                   ],
-                ),
-            ],
-          ),
-              ),
-            ],
-          );
-        },
-      ),
+                );
+              },
+            ),
     );
   }
 
@@ -176,7 +354,6 @@ class ChatsScreen extends ConsumerWidget {
     if (hex == null || !context.mounted) return;
     context.push('/chat/$hex');
   }
-
 }
 
 /// Add a contact by exchanging veil bootstrap invites. Persists the peer and
@@ -186,55 +363,55 @@ class ChatsScreen extends ConsumerWidget {
 /// all open the same sheet.
 Future<void> showAddContactSheet(BuildContext context, WidgetRef ref) async {
   await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (sheetCtx) => InviteExchangeSheet(
-        myInvite: ref.read(myInviteProvider),
-        onAddContact: (invite) async {
-          // Guard: redeeming your OWN invite would silently open a nonsensical
-          // self-chat. Tell the user instead of pretending it worked.
-          final me = ref.read(appControllerProvider).identity?.nodeId;
-          if (me != null && invite.nodeId == me) {
-            if (sheetCtx.mounted) Navigator.of(sheetCtx).pop();
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(AppL10n.of(context).inviteIsSelf)),
-              );
-            }
-            return;
-          }
-          // In real mode, redeem the invite so our node can dial the peer
-          // (a redeem failure, e.g. already known, must not block the flow).
-          try {
-            await ref.read(realStackProvider)?.addContact(invite);
-          } catch (_) {}
-          // No contact is recorded yet — opening the chat lets the user send a
-          // connection request (the first message becomes the greeting).
-          if (sheetCtx.mounted) Navigator.of(sheetCtx).pop();
-          if (context.mounted) context.push('/chat/${invite.nodeId.hex}');
-        },
-        onImportPeers: (peers) async {
-          // A `veil:peers?` entry-node share: add each as a bootstrap peer (it
-          // carries a real transport, so addContact dials it) — NO contact, NO
-          // chat. Failures (already known) must not block the rest.
-          final stack = ref.read(realStackProvider);
-          var added = 0;
-          for (final p in peers) {
-            try {
-              await stack?.addContact(p);
-              added++;
-            } catch (_) {}
-          }
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (sheetCtx) => InviteExchangeSheet(
+      myInvite: ref.read(myInviteProvider),
+      onAddContact: (invite) async {
+        // Guard: redeeming your OWN invite would silently open a nonsensical
+        // self-chat. Tell the user instead of pretending it worked.
+        final me = ref.read(appControllerProvider).identity?.nodeId;
+        if (me != null && invite.nodeId == me) {
           if (sheetCtx.mounted) Navigator.of(sheetCtx).pop();
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(AppL10n.of(context).peersImported(added))),
+              SnackBar(content: Text(AppL10n.of(context).inviteIsSelf)),
             );
           }
-        },
-      ),
-    );
+          return;
+        }
+        // In real mode, redeem the invite so our node can dial the peer
+        // (a redeem failure, e.g. already known, must not block the flow).
+        try {
+          await ref.read(realStackProvider)?.addContact(invite);
+        } catch (_) {}
+        // No contact is recorded yet — opening the chat lets the user send a
+        // connection request (the first message becomes the greeting).
+        if (sheetCtx.mounted) Navigator.of(sheetCtx).pop();
+        if (context.mounted) context.push('/chat/${invite.nodeId.hex}');
+      },
+      onImportPeers: (peers) async {
+        // A `veil:peers?` entry-node share: add each as a bootstrap peer (it
+        // carries a real transport, so addContact dials it) — NO contact, NO
+        // chat. Failures (already known) must not block the rest.
+        final stack = ref.read(realStackProvider);
+        var added = 0;
+        for (final p in peers) {
+          try {
+            await stack?.addContact(p);
+            added++;
+          } catch (_) {}
+        }
+        if (sheetCtx.mounted) Navigator.of(sheetCtx).pop();
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(AppL10n.of(context).peersImported(added))),
+          );
+        }
+      },
+    ),
+  );
 }
 
 /// Telegram-style main drawer for the drawer placements (left/right):
@@ -374,7 +551,10 @@ class _FolderBar extends ConsumerWidget {
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
             child: ChoiceChip(
-              label: _chipLabel(l.chatsFolderAll, folderUnreadCount(convos, null)),
+              label: _chipLabel(
+                l.chatsFolderAll,
+                folderUnreadCount(convos, null),
+              ),
               selected: selected == null,
               onSelected: (_) =>
                   ref.read(selectedFolderProvider.notifier).state = null,
@@ -409,20 +589,16 @@ class _FolderBar extends ConsumerWidget {
       ),
     );
   }
-
 }
 
 /// Chip content for the folder bar: name + unread badge when non-zero.
 Widget _chipLabel(String name, int unread) => Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(name),
-        if (unread > 0) ...[
-          const SizedBox(width: 6),
-          _UnreadBadge(unread),
-        ],
-      ],
-    );
+  mainAxisSize: MainAxisSize.min,
+  children: [
+    Text(name),
+    if (unread > 0) ...[const SizedBox(width: 6), _UnreadBadge(unread)],
+  ],
+);
 
 Widget? _badgeOrNull(int count) => count == 0 ? null : _UnreadBadge(count);
 
@@ -533,15 +709,20 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.forum_outlined,
-              size: 64, color: Theme.of(context).colorScheme.outline),
+          Icon(
+            Icons.forum_outlined,
+            size: 64,
+            color: Theme.of(context).colorScheme.outline,
+          ),
           const SizedBox(height: 16),
           Text(l.chatsEmpty, style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
-          Text(l.chatsEmptyHint,
-              style: Theme.of(context).textTheme.bodyMedium),
+          Text(l.chatsEmptyHint, style: Theme.of(context).textTheme.bodyMedium),
           const SizedBox(height: 24),
-          FilledButton.tonal(onPressed: onStart, child: Text(l.chatNewMessageHint)),
+          FilledButton.tonal(
+            onPressed: onStart,
+            child: Text(l.chatNewMessageHint),
+          ),
         ],
       ),
     );
@@ -568,7 +749,10 @@ class _ConversationTile extends ConsumerWidget {
 
     final (String? hint, Color? hintColor) = switch (status) {
       ContactStatus.pendingIncoming => ('● wants to connect', scheme.primary),
-      ContactStatus.pendingOutgoing => ('request sent', scheme.onSurfaceVariant),
+      ContactStatus.pendingOutgoing => (
+        'request sent',
+        scheme.onSurfaceVariant,
+      ),
       ContactStatus.blocked => ('blocked', scheme.error),
       ContactStatus.accepted => (null, null),
     };
@@ -584,31 +768,43 @@ class _ConversationTile extends ConsumerWidget {
             if (conversation.peer.pinned)
               Padding(
                 padding: const EdgeInsets.only(right: 4),
-                child: Icon(Icons.push_pin,
-                    size: 14, color: scheme.onSurfaceVariant),
+                child: Icon(
+                  Icons.push_pin,
+                  size: 14,
+                  color: scheme.onSurfaceVariant,
+                ),
               ),
             Flexible(
-              child: Text(conversation.peer.label,
-                  overflow: TextOverflow.ellipsis),
+              child: Text(
+                conversation.peer.label,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
             if (conversation.peer.muted)
               Padding(
                 padding: const EdgeInsets.only(left: 4),
-                child: Icon(Icons.notifications_off,
-                    size: 14, color: scheme.onSurfaceVariant),
+                child: Icon(
+                  Icons.notifications_off,
+                  size: 14,
+                  color: scheme.onSurfaceVariant,
+                ),
               ),
           ],
         ),
         subtitle: hint != null
             ? Text(hint, style: TextStyle(color: hintColor))
             : (last == null
-                ? null
-                : Text(last.body, maxLines: 1, overflow: TextOverflow.ellipsis)),
+                  ? null
+                  : Text(
+                      last.body,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    )),
         trailing: status == ContactStatus.pendingIncoming
             ? Icon(Icons.fiber_new, color: scheme.primary)
             : (conversation.unread > 0
-                ? Badge(label: Text('${conversation.unread}'))
-                : null),
+                  ? Badge(label: Text('${conversation.unread}'))
+                  : null),
         onTap: () => context.push('/chat/${conversation.peer.nodeId.hex}'),
         onLongPress: () => _showActions(context, ref),
       ),

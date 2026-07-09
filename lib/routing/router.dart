@@ -137,8 +137,11 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/chat/:peerHex',
-        builder: (_, state) =>
-            ChatScreen(peerHex: state.pathParameters['peerHex']!),
+        builder: (_, state) => ChatScreen(
+          peerHex: state.pathParameters['peerHex']!,
+          // ?msg=<id>: land on a specific message (global-search hit).
+          initialJumpTo: state.uri.queryParameters['msg'],
+        ),
       ),
       GoRoute(path: '/peers', builder: (_, _) => const PeersScreen()),
       GoRoute(path: '/route', builder: (_, _) => const ProxyRoutingScreen()),

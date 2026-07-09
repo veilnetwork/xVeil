@@ -24,8 +24,12 @@ import '../../state/notifications.dart';
 import '../../state/providers.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
-  const ChatScreen({super.key, required this.peerHex});
+  const ChatScreen({super.key, required this.peerHex, this.initialJumpTo});
   final String peerHex;
+
+  /// Message id to land on after the first load (a global-search hit or a
+  /// pinned/quoted reference from outside the chat). Null = land at bottom.
+  final String? initialJumpTo;
 
   @override
   ConsumerState<ChatScreen> createState() => _ChatScreenState();
@@ -79,8 +83,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// off-screen target has no context yet — step upward a couple of viewports
   /// at a time until its bubble mounts, then ensureVisible. If the id is not in
   /// the loaded window at all, grow the window (one page) and retry briefly.
-  Future<void> _jumpToMessage(String id) async {
-    for (var attempt = 0; attempt < 3; attempt++) {
+  Future<void> _jumpToMessage(String id, {int maxAttempts = 3}) async {
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
       final list =
           ref.read(messagesProvider(widget.peerHex)).valueOrNull ?? const [];
       if (list.any((m) => m.id == id)) {
@@ -1496,6 +1500,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 if (!_didInitialScroll && list.isNotEmpty) {
                   _didInitialScroll = true;
                   _scrollToBottom(force: true);
+                  // A search hit (or external reference) to land on: give the
+                  // bottom-scroll a frame, then walk back to the target. A
+                  // deep hit may live many pages up — allow a generous but
+                  // bounded number of window growths.
+                  final target = widget.initialJumpTo;
+                  if (target != null) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) _jumpToMessage(target, maxAttempts: 40);
+                    });
+                  }
                 }
                 // A full page came back ⇒ older messages likely exist ⇒ offer
                 // "load earlier" as the first item. (Heuristic: if fewer than a

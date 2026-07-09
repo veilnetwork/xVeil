@@ -655,6 +655,24 @@ abstract class AppL10n {
   /// **'Language, folders panel'**
   String get settingsCatAppearanceHint;
 
+  /// No description provided for @searchHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Search'**
+  String get searchHint;
+
+  /// No description provided for @searchMessagesSection.
+  ///
+  /// In en, this message translates to:
+  /// **'Messages'**
+  String get searchMessagesSection;
+
+  /// No description provided for @searchNoResults.
+  ///
+  /// In en, this message translates to:
+  /// **'No results'**
+  String get searchNoResults;
+
   /// No description provided for @trayShow.
   ///
   /// In en, this message translates to:
