@@ -324,6 +324,12 @@ class AppL10nEn extends AppL10n {
   String get chatPinnedLabel => 'Pinned message';
 
   @override
+  String get savedMessages => 'Saved Messages';
+
+  @override
+  String get savedNoteHint => 'Note to self…';
+
+  @override
   String get p2pSelectedTitle => 'Selected contacts';
 
   @override

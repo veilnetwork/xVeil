@@ -691,6 +691,18 @@ abstract class AppL10n {
   /// **'Pinned message'**
   String get chatPinnedLabel;
 
+  /// No description provided for @savedMessages.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved Messages'**
+  String get savedMessages;
+
+  /// No description provided for @savedNoteHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Note to self…'**
+  String get savedNoteHint;
+
   /// No description provided for @p2pSelectedTitle.
   ///
   /// In en, this message translates to:

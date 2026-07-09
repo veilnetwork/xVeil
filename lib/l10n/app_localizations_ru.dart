@@ -326,6 +326,12 @@ class AppL10nRu extends AppL10n {
   String get chatPinnedLabel => 'Закреплённое сообщение';
 
   @override
+  String get savedMessages => 'Избранное';
+
+  @override
+  String get savedNoteHint => 'Заметка себе…';
+
+  @override
   String get p2pSelectedTitle => 'Избранные контакты';
 
   @override

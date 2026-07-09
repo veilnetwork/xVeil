@@ -107,6 +107,8 @@
   "chatMsgPin": "Pin",
   "chatMsgUnpin": "Unpin",
   "chatPinnedLabel": "Pinned message",
+  "savedMessages": "Saved Messages",
+  "savedNoteHint": "Note to self…",
   "p2pSelectedTitle": "Selected contacts",
   "p2pSelectedHint": "Contacts allowed direct P2P under the \"Only selected\" policy. Turn one on to grant it; off follows the global policy.",
   "p2pSelectedEmpty": "No accepted contacts yet",

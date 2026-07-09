@@ -796,6 +796,33 @@ class MessagingService {
   Future<String> _selfHex() async =>
       _selfHexCache ??= (await _transport.nodeId()).hex;
 
+  /// The conversation id of "Saved Messages" — a chat with yourself. It's the
+  /// local node id, so when multi-device lands this log naturally becomes the
+  /// "my devices" group log (ROADMAP). Local-only: notes never touch the wire.
+  Future<String> savedSelfHex() => _selfHex();
+
+  /// Append a note to Saved Messages — a purely LOCAL write (no transport, no
+  /// consent gate, no mailbox). Used for notes-to-self and forward-to-saved.
+  Future<void> saveNote(
+    String text, {
+    String? replyToId,
+    String? forwardedFrom,
+  }) async {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return;
+    final selfId = NodeId.fromHex(await _selfHex());
+    await _store(
+      selfId,
+      MessageDirection.outgoing,
+      trimmed,
+      MessageStatus.sent,
+      replyToId: replyToId,
+      forwardedFrom: forwardedFrom,
+      timestamp: _now(),
+    );
+    _signal();
+  }
+
   Future<Message> _store(
     NodeId peer,
     MessageDirection dir,
@@ -8655,9 +8682,8 @@ final messagesProvider = StreamProvider.autoDispose.family<List<Message>, String
   }
 });
 
-List<Message> _visibleChatMessages(List<Message> messages) => messages
-    .where((m) => !isServiceEchoBody(m.body))
-    .toList(growable: false);
+List<Message> _visibleChatMessages(List<Message> messages) =>
+    messages.where((m) => !isServiceEchoBody(m.body)).toList(growable: false);
 
 extension _AuditTrailing<T> on Stream<T> {
   /// Trailing-edge throttle: collapses a burst of events into a single
