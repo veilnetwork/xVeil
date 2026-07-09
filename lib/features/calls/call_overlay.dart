@@ -1,5 +1,6 @@
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:veil_media/veil_media.dart' show VeilVideoFrame;
@@ -9,7 +10,8 @@ import '../../domain/call_signal.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/call_service.dart';
-import '../../state/veil_call_media.dart' show remoteVideoFrame;
+import '../../state/veil_call_media.dart'
+    show localVideoFrame, remoteVideoFrame;
 
 /// Full-screen call UI that floats above every route. Mounted once from
 /// [MaterialApp.router]'s `builder`, it watches [currentCallProvider] and shows
@@ -17,33 +19,119 @@ import '../../state/veil_call_media.dart' show remoteVideoFrame;
 /// / in-call surface. Phase 1 is control-plane only: the media toggles are
 /// present but inert (wired to real capture in Phases 3–5); End/Accept/Reject/
 /// Cancel drive the [CallService] FSM.
-class CallOverlay extends ConsumerWidget {
+enum _OverlayMode { full, mini, hidden }
+
+class CallOverlay extends ConsumerStatefulWidget {
   const CallOverlay({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<CallOverlay> createState() => _CallOverlayState();
+}
+
+class _CallOverlayState extends ConsumerState<CallOverlay>
+    with WidgetsBindingObserver {
+  _OverlayMode _mode = _OverlayMode.full;
+  Offset _miniOffset = const Offset(16, 92);
+  String? _callId;
+  bool _autoMiniAfterConnect = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused) {
+      if (mounted) setState(() => _mode = _OverlayMode.mini);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     // Only engage the call stack once the node is ready — reading the call
     // provider before unlock would eagerly spin up the messaging pipeline on
     // the splash/lock screens.
     final ready = ref.watch(
-        appControllerProvider.select((s) => s.phase == AppPhase.ready));
+      appControllerProvider.select((s) => s.phase == AppPhase.ready),
+    );
     if (!ready) return const SizedBox.shrink();
     final call = ref.watch(currentCallProvider);
     if (call == null || call.status == CallStatus.ended) {
+      _callId = null;
+      _autoMiniAfterConnect = false;
       return const SizedBox.shrink();
     }
-    return Positioned.fill(
-      child: Material(
-        color: const Color(0xF20E1116),
-        child: SafeArea(child: _CallBody(call)),
-      ),
+    final isNewCall = _callId != call.callId;
+    if (isNewCall) {
+      _callId = call.callId;
+      _autoMiniAfterConnect = false;
+      _mode = _OverlayMode.full;
+    }
+    final videoStage = _isVideoStage(call);
+    if (videoStage && !_autoMiniAfterConnect) {
+      _autoMiniAfterConnect = true;
+      _mode = _OverlayMode.mini;
+    }
+    if (!videoStage || _mode == _OverlayMode.full) {
+      return Positioned.fill(
+        child: Material(
+          color: const Color(0xF20E1116),
+          child: SafeArea(
+            child: _CallBody(
+              call,
+              onMinimize: videoStage
+                  ? () => setState(() => _mode = _OverlayMode.mini)
+                  : null,
+            ),
+          ),
+        ),
+      );
+    }
+    if (_mode == _OverlayMode.hidden) {
+      return _HiddenCallTab(
+        call: call,
+        onShow: () => setState(() => _mode = _OverlayMode.mini),
+      );
+    }
+    return _FloatingCallTile(
+      call: call,
+      offset: _miniOffset,
+      onDrag: (delta) {
+        final size = MediaQuery.sizeOf(context);
+        setState(() {
+          _miniOffset = Offset(
+            (_miniOffset.dx + delta.dx).clamp(8.0, size.width - 196.0),
+            (_miniOffset.dy + delta.dy).clamp(8.0, size.height - 168.0),
+          );
+        });
+      },
+      onExpand: () => setState(() => _mode = _OverlayMode.full),
+      onHide: () => setState(() => _mode = _OverlayMode.hidden),
     );
+  }
+
+  static bool _isVideoStage(Call call) {
+    final hasVideo = call.media.video || call.media.screen;
+    return hasVideo &&
+        (call.status == CallStatus.active ||
+            call.status == CallStatus.connecting);
   }
 }
 
 class _CallBody extends ConsumerWidget {
-  const _CallBody(this.call);
+  const _CallBody(this.call, {this.onMinimize});
   final Call call;
+  final VoidCallback? onMinimize;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -53,7 +141,8 @@ class _CallBody extends ConsumerWidget {
     // the peer info + controls floated over it; audio-only (and pre-connect)
     // stays with the centered avatar layout.
     final hasVideo = call.media.video || call.media.screen;
-    final videoStage = hasVideo &&
+    final videoStage =
+        hasVideo &&
         (call.status == CallStatus.active ||
             call.status == CallStatus.connecting);
     if (videoStage) return _videoLayout(context, l, svc);
@@ -72,15 +161,18 @@ class _CallBody extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: 16),
-        Text(call.peer.short,
-            style: Theme.of(context).textTheme.titleLarge,
-            overflow: TextOverflow.ellipsis),
+        Text(
+          call.peer.short,
+          style: Theme.of(context).textTheme.titleLarge,
+          overflow: TextOverflow.ellipsis,
+        ),
         const SizedBox(height: 8),
-        Text(_statusLabel(l, call.status),
-            style: Theme.of(context)
-                .textTheme
-                .bodyLarge
-                ?.copyWith(color: Colors.white70)),
+        Text(
+          _statusLabel(l, call.status),
+          style: Theme.of(
+            context,
+          ).textTheme.bodyLarge?.copyWith(color: Colors.white70),
+        ),
         const SizedBox(height: 12),
         _MediaChips(call.media),
         if (call.transport != null) ...[
@@ -98,28 +190,34 @@ class _CallBody extends ConsumerWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        const ColoredBox(color: Colors.black, child: _RemoteVideoView()),
+        ColoredBox(
+          color: Colors.black,
+          child: _VideoFrameView(frameListenable: remoteVideoFrame),
+        ),
         // Scrims so the white text/controls stay legible over any frame.
         const _Scrim(top: true),
         const _Scrim(top: false),
         Positioned(
           top: 16,
           left: 16,
-          right: 16,
+          right: onMinimize == null ? 16 : 64,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(call.peer.short,
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(color: Colors.white),
-                  overflow: TextOverflow.ellipsis),
+              Text(
+                call.peer.short,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(color: Colors.white),
+                overflow: TextOverflow.ellipsis,
+              ),
               const SizedBox(height: 2),
               Row(
                 children: [
-                  Text(_statusLabel(l, call.status),
-                      style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                  Text(
+                    _statusLabel(l, call.status),
+                    style: const TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
                   if (call.transport != null) ...[
                     const SizedBox(width: 12),
                     _TransportBadge(call.transport!),
@@ -129,6 +227,17 @@ class _CallBody extends ConsumerWidget {
             ],
           ),
         ),
+        if (onMinimize != null)
+          Positioned(
+            top: 8,
+            right: 8,
+            child: IconButton(
+              tooltip: 'Minimize',
+              icon: const Icon(Icons.picture_in_picture_alt),
+              color: Colors.white,
+              onPressed: onMinimize,
+            ),
+          ),
         Positioned(
           left: 0,
           right: 0,
@@ -140,12 +249,12 @@ class _CallBody extends ConsumerWidget {
   }
 
   static String _statusLabel(AppL10n l, CallStatus s) => switch (s) {
-        CallStatus.dialing => l.callDialing,
-        CallStatus.ringing => l.callIncoming,
-        CallStatus.connecting => l.callConnecting,
-        CallStatus.active => l.callActive,
-        CallStatus.ended => l.callEnded,
-      };
+    CallStatus.dialing => l.callDialing,
+    CallStatus.ringing => l.callIncoming,
+    CallStatus.connecting => l.callConnecting,
+    CallStatus.active => l.callActive,
+    CallStatus.ended => l.callEnded,
+  };
 }
 
 class _MediaChips extends StatelessWidget {
@@ -166,13 +275,13 @@ class _MediaChips extends StatelessWidget {
   }
 
   Widget _chip(IconData icon, String label) => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        child: Chip(
-          avatar: Icon(icon, size: 16),
-          label: Text(label),
-          visualDensity: VisualDensity.compact,
-        ),
-      );
+    padding: const EdgeInsets.symmetric(horizontal: 4),
+    child: Chip(
+      avatar: Icon(icon, size: 16),
+      label: Text(label),
+      visualDensity: VisualDensity.compact,
+    ),
+  );
 }
 
 class _TransportBadge extends StatelessWidget {
@@ -183,10 +292,26 @@ class _TransportBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final (IconData icon, String label, Color color) = switch (kind) {
-      CallTransportKind.onion => (Icons.shield, l.callPathOnion, Colors.tealAccent),
-      CallTransportKind.relay => (Icons.alt_route, l.callPathRelay, Colors.amberAccent),
-      CallTransportKind.p2p => (Icons.bolt, l.callPathP2P, Colors.lightBlueAccent),
-      CallTransportKind.unknown => (Icons.lock, l.callPathRelay, Colors.white54),
+      CallTransportKind.onion => (
+        Icons.shield,
+        l.callPathOnion,
+        Colors.tealAccent,
+      ),
+      CallTransportKind.relay => (
+        Icons.alt_route,
+        l.callPathRelay,
+        Colors.amberAccent,
+      ),
+      CallTransportKind.p2p => (
+        Icons.bolt,
+        l.callPathP2P,
+        Colors.lightBlueAccent,
+      ),
+      CallTransportKind.unknown => (
+        Icons.lock,
+        l.callPathRelay,
+        Colors.white54,
+      ),
     };
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -195,6 +320,199 @@ class _TransportBadge extends StatelessWidget {
         const SizedBox(width: 6),
         Text(label, style: TextStyle(color: color, fontSize: 13)),
       ],
+    );
+  }
+}
+
+class _FloatingCallTile extends ConsumerWidget {
+  const _FloatingCallTile({
+    required this.call,
+    required this.offset,
+    required this.onDrag,
+    required this.onExpand,
+    required this.onHide,
+  });
+
+  final Call call;
+  final Offset offset;
+  final ValueChanged<Offset> onDrag;
+  final VoidCallback onExpand;
+  final VoidCallback onHide;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l = AppL10n.of(context);
+    final svc = ref.read(callServiceProvider);
+    return Positioned(
+      left: offset.dx,
+      top: offset.dy,
+      width: 188,
+      height: 154,
+      child: GestureDetector(
+        onPanUpdate: (d) => onDrag(d.delta),
+        child: Material(
+          color: Colors.black.withValues(alpha: 0.88),
+          elevation: 10,
+          borderRadius: BorderRadius.circular(8),
+          clipBehavior: Clip.antiAlias,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              _VideoFrameView(frameListenable: localVideoFrame),
+              if (!call.cameraOn)
+                const ColoredBox(
+                  color: Colors.black54,
+                  child: Center(
+                    child: Icon(
+                      Icons.videocam_off,
+                      color: Colors.white70,
+                      size: 32,
+                    ),
+                  ),
+                ),
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.bottomCenter,
+                      end: Alignment.topCenter,
+                      colors: [
+                        Colors.black.withValues(alpha: 0.72),
+                        Colors.transparent,
+                        Colors.black.withValues(alpha: 0.36),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 4,
+                right: 4,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _TileIconButton(
+                      icon: Icons.open_in_full,
+                      tooltip: 'Expand',
+                      onTap: onExpand,
+                    ),
+                    _TileIconButton(
+                      icon: Icons.keyboard_arrow_down,
+                      tooltip: 'Hide',
+                      onTap: onHide,
+                    ),
+                  ],
+                ),
+              ),
+              Positioned(
+                left: 8,
+                right: 8,
+                bottom: 8,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        call.peer.short,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    _TileIconButton(
+                      icon: call.micOn ? Icons.mic : Icons.mic_off,
+                      tooltip: call.micOn ? l.callMicOn : l.callMicOff,
+                      onTap: () {
+                        svc.setMicEnabled(!call.micOn);
+                      },
+                    ),
+                    _TileIconButton(
+                      icon: call.cameraOn ? Icons.videocam : Icons.videocam_off,
+                      tooltip: call.cameraOn ? l.callCameraOn : l.callCameraOff,
+                      onTap: () {
+                        svc.setCameraEnabled(!call.cameraOn);
+                      },
+                    ),
+                    _TileIconButton(
+                      icon: Icons.call_end,
+                      tooltip: l.callEnd,
+                      color: Colors.redAccent,
+                      onTap: () {
+                        svc.hangup();
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HiddenCallTab extends StatelessWidget {
+  const _HiddenCallTab({required this.call, required this.onShow});
+
+  final Call call;
+  final VoidCallback onShow;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      right: 12,
+      bottom: 92,
+      child: Material(
+        color: Colors.black.withValues(alpha: 0.86),
+        elevation: 8,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onShow,
+          child: SizedBox.square(
+            dimension: 48,
+            child: Icon(
+              call.media.video ? Icons.videocam : Icons.call,
+              color: Colors.white,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TileIconButton extends StatelessWidget {
+  const _TileIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+    this.color = Colors.white,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onTap;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.black.withValues(alpha: 0.28),
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: SizedBox.square(
+            dimension: 30,
+            child: Icon(icon, size: 17, color: color),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -254,7 +572,11 @@ class _Controls extends StatelessWidget {
                     onTap: () => svc.setCameraEnabled(!call.cameraOn),
                   ),
                 if (call.media.screen)
-                  _MiniToggle(Icons.screen_share, l.callScreenOn, enabled: false),
+                  _MiniToggle(
+                    Icons.screen_share,
+                    l.callScreenOn,
+                    enabled: false,
+                  ),
               ],
             ),
             const SizedBox(height: 20),
@@ -306,18 +628,19 @@ class _RoundButton extends StatelessWidget {
   }
 }
 
-/// Renders the decoded remote video frames from [remoteVideoFrame]. Each new
-/// RGBA frame is turned into a `ui.Image` off the widget tree; decodes are
-/// coalesced (only the latest pending frame is decoded) so a slow decode drops
-/// frames instead of queuing stale ones.
-class _RemoteVideoView extends StatefulWidget {
-  const _RemoteVideoView();
+/// Renders decoded RGBA video frames from a [ValueListenable]. Each new frame is
+/// turned into a `ui.Image` off the widget tree; decodes are coalesced so a slow
+/// decode drops stale frames instead of queuing them.
+class _VideoFrameView extends StatefulWidget {
+  const _VideoFrameView({required this.frameListenable});
+
+  final ValueListenable<VeilVideoFrame?> frameListenable;
 
   @override
-  State<_RemoteVideoView> createState() => _RemoteVideoViewState();
+  State<_VideoFrameView> createState() => _VideoFrameViewState();
 }
 
-class _RemoteVideoViewState extends State<_RemoteVideoView> {
+class _VideoFrameViewState extends State<_VideoFrameView> {
   ui.Image? _image;
   VeilVideoFrame? _pending; // newest frame awaiting decode
   bool _busy = false;
@@ -325,19 +648,28 @@ class _RemoteVideoViewState extends State<_RemoteVideoView> {
   @override
   void initState() {
     super.initState();
-    remoteVideoFrame.addListener(_onFrame);
+    widget.frameListenable.addListener(_onFrame);
+    _onFrame();
+  }
+
+  @override
+  void didUpdateWidget(covariant _VideoFrameView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.frameListenable == widget.frameListenable) return;
+    oldWidget.frameListenable.removeListener(_onFrame);
+    widget.frameListenable.addListener(_onFrame);
     _onFrame();
   }
 
   @override
   void dispose() {
-    remoteVideoFrame.removeListener(_onFrame);
+    widget.frameListenable.removeListener(_onFrame);
     _image?.dispose();
     super.dispose();
   }
 
   void _onFrame() {
-    final f = remoteVideoFrame.value;
+    final f = widget.frameListenable.value;
     if (f == null) {
       _pending = null;
       if (_image != null && mounted) {
@@ -386,7 +718,10 @@ class _RemoteVideoViewState extends State<_RemoteVideoView> {
       return Center(
         child: Text(
           '…',
-          style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 40),
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.5),
+            fontSize: 40,
+          ),
         ),
       );
     }

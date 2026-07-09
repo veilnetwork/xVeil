@@ -17,6 +17,11 @@ import 'mac_media_permissions.dart';
 final ValueNotifier<VeilVideoFrame?> remoteVideoFrame =
     ValueNotifier<VeilVideoFrame?>(null);
 
+/// Latest local camera frame for the active video call (RGBA), or null. Used by
+/// the draggable self-preview tile.
+final ValueNotifier<VeilVideoFrame?> localVideoFrame =
+    ValueNotifier<VeilVideoFrame?>(null);
+
 /// The real [CallMediaController]: opens a veil media datagram channel to the
 /// call peer and drives the libwebrtc audio engine (libveil_media.dylib) over
 /// it. Per-packet RTP/RTCP flows native↔native (the C++ Transport shim calls
@@ -73,12 +78,16 @@ class VeilCallMediaController implements CallMediaController {
     // prompt block the call FSM: bound the wait, and proceed regardless (the
     // engine still comes up; capture starts once permission lands).
     if (call.media.audio) {
-      await MacMediaPermissions.requestMicrophone()
-          .timeout(const Duration(seconds: 5), onTimeout: () => false);
+      await MacMediaPermissions.requestMicrophone().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => false,
+      );
     }
     if (call.media.video) {
-      await MacMediaPermissions.requestCamera()
-          .timeout(const Duration(seconds: 5), onTimeout: () => false);
+      await MacMediaPermissions.requestCamera().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => false,
+      );
     }
     final localId = (await _transport.nodeId()).bytes;
     final peerId = call.peer.bytes;
@@ -141,6 +150,8 @@ class VeilCallMediaController implements CallMediaController {
         try {
           final f = engine.getVideoFrame();
           if (f != null) remoteVideoFrame.value = f;
+          final local = engine.getLocalVideoFrame();
+          if (local != null) localVideoFrame.value = local;
         } catch (_) {}
       });
     }
@@ -156,6 +167,7 @@ class VeilCallMediaController implements CallMediaController {
     _lastRxAt = null;
     _lastRxPkts = 0;
     remoteVideoFrame.value = null;
+    localVideoFrame.value = null;
     final cam = _androidCam;
     _androidCam = null;
     if (cam != null) {
