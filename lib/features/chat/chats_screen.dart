@@ -504,6 +504,21 @@ class _FolderDrawer extends ConsumerWidget {
             ),
             const Divider(),
             // App menu.
+            Builder(
+              builder: (_) {
+                final myHex = ref
+                    .watch(appControllerProvider)
+                    .identity
+                    ?.nodeId
+                    .hex;
+                if (myHex == null) return const SizedBox.shrink();
+                return ListTile(
+                  leading: const Icon(Icons.bookmark_outline),
+                  title: Text(l.savedMessages),
+                  onTap: () => go('/chat/$myHex'),
+                );
+              },
+            ),
             ListTile(
               leading: const Icon(Icons.person_add_alt_1_outlined),
               title: Text(l.inviteAddContact),
@@ -743,9 +758,14 @@ class _ConversationTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
     final last = conversation.lastMessage;
     final status = conversation.peer.status;
+    // Saved Messages = the conversation with our own node id.
+    final myHex = ref.watch(appControllerProvider).identity?.nodeId.hex;
+    final isSaved = myHex != null && conversation.peer.nodeId.hex == myHex;
+    final label = isSaved ? l.savedMessages : conversation.peer.label;
 
     final (String? hint, Color? hintColor) = switch (status) {
       ContactStatus.pendingIncoming => ('● wants to connect', scheme.primary),
@@ -761,7 +781,9 @@ class _ConversationTile extends ConsumerWidget {
       onSecondaryTap: () => _showActions(context, ref),
       child: ListTile(
         leading: CircleAvatar(
-          child: Text(conversation.peer.label.characters.first.toUpperCase()),
+          child: isSaved
+              ? const Icon(Icons.bookmark_outline, size: 20)
+              : Text(label.characters.first.toUpperCase()),
         ),
         title: Row(
           children: [
@@ -774,12 +796,7 @@ class _ConversationTile extends ConsumerWidget {
                   color: scheme.onSurfaceVariant,
                 ),
               ),
-            Flexible(
-              child: Text(
-                conversation.peer.label,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
+            Flexible(child: Text(label, overflow: TextOverflow.ellipsis)),
             if (conversation.peer.muted)
               Padding(
                 padding: const EdgeInsets.only(left: 4),
