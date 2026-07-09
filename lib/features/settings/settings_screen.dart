@@ -1,456 +1,20 @@
-import 'dart:io' show Platform;
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 
 import '../../l10n/app_localizations.dart';
-import '../../desktop/desktop_tray.dart';
 import '../../state/app_controller.dart';
-import '../../state/chat_page_size_controller.dart';
-import '../../domain/chat.dart' show SignaturePolicy;
-import '../../state/background_node_controller.dart';
-import '../../state/close_to_tray_controller.dart';
-import '../../state/folder_panel_controller.dart';
-import '../../state/signature_policy_controller.dart';
-import '../../state/keep_all_online_controller.dart';
-import '../../state/locale_controller.dart';
-import '../../state/notifications.dart';
-import '../../state/p2p_policy_controller.dart';
-import '../../state/providers.dart';
-import '../../domain/p2p_policy.dart';
 
+/// Settings root: the identity card + one tile per category (each a pushed
+/// subpage), then About and the lock action. The categories own the actual
+/// controls — see account/privacy/chats/storage/appearance_settings_screen.
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
-
-  String _languageLabel(AppL10n l, Locale? locale) =>
-      switch (locale?.languageCode) {
-        'ru' => l.languageRussian,
-        'en' => l.languageEnglish,
-        _ => l.languageSystem,
-      };
-
-  static String _fmtBytes(int b) {
-    if (b >= 1 << 30) return '${(b / (1 << 30)).toStringAsFixed(1)} GB';
-    if (b >= 1 << 20) return '${(b / (1 << 20)).toStringAsFixed(1)} MB';
-    if (b >= 1 << 10) return '${(b / (1 << 10)).toStringAsFixed(0)} KB';
-    return '$b B';
-  }
-
-  /// Storage maintenance: show the container size and (single-identity only)
-  /// offer compaction to reclaim the log-structured store's dead padding.
-  Future<void> _openStorage(
-    BuildContext context,
-    WidgetRef ref,
-    AppL10n l,
-  ) async {
-    final ctrl = ref.read(appControllerProvider.notifier);
-    final size = await ctrl.containerSizeBytes();
-    var autoCompact = await ctrl.autoCompactEnabled();
-    var leanPadding = await ctrl.leanStoragePaddingEnabled();
-    if (!context.mounted) return;
-    await showModalBottomSheet<void>(
-      context: context,
-      builder: (sheet) => SafeArea(
-        child: StatefulBuilder(
-          builder: (sheet, setSheetState) => Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.sd_storage_outlined),
-                title: Text(l.settingsStorage),
-                subtitle: Text(size == null ? '—' : _fmtBytes(size)),
-              ),
-              if (ctrl.canCompactStorage)
-                ListTile(
-                  leading: const Icon(Icons.compress),
-                  title: Text(l.settingsStorageCompact),
-                  subtitle: Text(l.settingsStorageCompactBody),
-                  onTap: () {
-                    Navigator.of(sheet).pop();
-                    _compact(context, ref, l);
-                  },
-                ),
-              if (ctrl.canCompactStorage)
-                // Opt-in ONLY: auto-compaction keeps just the unlocked space,
-                // so flipping this is the user's attestation that no other
-                // hidden identity lives in this container (same contract as the
-                // manual compact above — see AppController.autoCompactEnabled).
-                SwitchListTile(
-                  secondary: const Icon(Icons.compress_outlined),
-                  title: Text(l.settingsStorageAutoCompact),
-                  subtitle: Text(l.settingsStorageAutoCompactBody),
-                  isThreeLine: true,
-                  value: autoCompact,
-                  onChanged: (v) {
-                    setSheetState(() => autoCompact = v);
-                    ctrl.setAutoCompactEnabled(v);
-                  },
-                ),
-              SwitchListTile(
-                secondary: const Icon(Icons.speed_outlined),
-                title: Text(l.settingsStorageLeanPadding),
-                subtitle: Text(l.settingsStorageLeanPaddingBody),
-                isThreeLine: true,
-                value: leanPadding,
-                onChanged: (v) {
-                  setSheetState(() => leanPadding = v);
-                  ctrl.setLeanStoragePaddingEnabled(v);
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _compact(BuildContext context, WidgetRef ref, AppL10n l) async {
-    final pw = await _promptPassword(context, l);
-    if (pw == null || pw.isEmpty) return;
-    if (!context.mounted) return;
-    // Capture the ROOT messenger BEFORE the await — compactStorage tears the
-    // session down and re-opens (navigating away), so the settings context may
-    // be unmounted by the time the result is ready.
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final r = await ref
-          .read(appControllerProvider.notifier)
-          .compactStorage(pw);
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(
-            '${l.settingsStorageCompactDone}: ${_fmtBytes(r.before)} → ${_fmtBytes(r.after)}',
-          ),
-        ),
-      );
-    } catch (_) {
-      messenger.showSnackBar(
-        SnackBar(content: Text(l.settingsStorageCompactFailed)),
-      );
-    }
-  }
-
-  Future<String?> _promptPassword(BuildContext context, AppL10n l) {
-    // The dialog content is a StatefulWidget so its TextEditingController
-    // is disposed in State.dispose() — which runs only when the route is
-    // fully removed (AFTER the close transition completes). Disposing the
-    // controller inline right after `showDialog` returns (the previous
-    // approach) races the exit animation: the heavy teardown+reopen that
-    // compaction triggers can rebuild the still-animating TextField
-    // against the just-disposed controller, throwing "TextEditingController
-    // used after being disposed" (and a cascading framework
-    // `_dependents.isEmpty` assertion) — the transient red screen.
-    return showDialog<String>(
-      context: context,
-      builder: (d) => _CompactPasswordDialog(
-        title: l.settingsStorageCompact,
-        hint: l.settingsStoragePasswordHint,
-        confirmLabel: l.settingsStorageCompact,
-        cancelLabel: l.actionCancel,
-      ),
-    );
-  }
-
-  Future<void> _pickPreview(
-    BuildContext context,
-    WidgetRef ref,
-    AppL10n l,
-  ) async {
-    final current = ref.read(notificationSettingsProvider).preview;
-    final choice = await showDialog<NotificationPreview>(
-      context: context,
-      builder: (context) => SimpleDialog(
-        title: Text(l.notificationsPreview),
-        children: [
-          for (final entry in <(NotificationPreview, String)>[
-            (NotificationPreview.hidden, l.notificationsPreviewHidden),
-            (NotificationPreview.full, l.notificationsPreviewFull),
-          ])
-            ListTile(
-              title: Text(entry.$2),
-              trailing: current == entry.$1 ? const Icon(Icons.check) : null,
-              onTap: () => Navigator.of(context).pop(entry.$1),
-            ),
-        ],
-      ),
-    );
-    if (choice == null) return;
-    await ref.read(notificationSettingsProvider.notifier).setPreview(choice);
-  }
-
-  Future<void> _pickChatPageSize(
-    BuildContext context,
-    WidgetRef ref,
-    AppL10n l,
-  ) async {
-    final current = ref.read(chatPageSizeProvider);
-    final choice = await showDialog<int>(
-      context: context,
-      builder: (context) => SimpleDialog(
-        title: Text(l.settingsChatPageSize),
-        children: [
-          for (final n in kChatPageSizeChoices)
-            ListTile(
-              title: Text('$n'),
-              trailing: current == n ? const Icon(Icons.check) : null,
-              onTap: () => Navigator.of(context).pop(n),
-            ),
-        ],
-      ),
-    );
-    if (choice == null) return;
-    await ref.read(chatPageSizeProvider.notifier).set(choice);
-  }
-
-  /// Toggle the keep-node-in-background service. On enable, also nudge the user
-  /// to grant the Doze battery exemption (the foreground service alone is not
-  /// enough on Doze + aggressive OEMs); when already ignoring optimisations, the
-  /// request is a no-op. On disable, just stop the service.
-  Future<void> _setKeepNodeBackground(
-    BuildContext context,
-    WidgetRef ref,
-    AppL10n l,
-    bool value,
-  ) async {
-    await ref.read(backgroundNodeProvider.notifier).set(value);
-    if (!value) return;
-    final exempt = await VeilBackground.isIgnoringBatteryOptimizations();
-    if (!exempt) await VeilBackground.requestIgnoreBatteryOptimizations();
-  }
-
-  String _signaturePolicyLabel(AppL10n l, SignaturePolicy p) => switch (p) {
-    SignaturePolicy.ask => l.signaturePolicyAsk,
-    SignaturePolicy.auto => l.signaturePolicyAuto,
-    SignaturePolicy.refuse => l.signaturePolicyRefuse,
-  };
-
-  String _p2pPolicyLabel(AppL10n l, P2PGlobalPolicy p) => switch (p) {
-    P2PGlobalPolicy.allowAll => l.p2pPolicyAllowAll,
-    P2PGlobalPolicy.contacts => l.p2pPolicyContacts,
-    P2PGlobalPolicy.selected => l.p2pPolicySelected,
-    P2PGlobalPolicy.denied => l.p2pPolicyDenied,
-  };
-
-  Future<void> _pickP2PPolicy(
-    BuildContext context,
-    WidgetRef ref,
-    AppL10n l,
-  ) async {
-    final current = ref.read(p2pPolicyProvider);
-    final choice = await showDialog<P2PGlobalPolicy>(
-      context: context,
-      builder: (context) => SimpleDialog(
-        title: Text(l.settingsP2PPolicy),
-        children: [
-          for (final p in P2PGlobalPolicy.values)
-            ListTile(
-              title: Text(_p2pPolicyLabel(l, p)),
-              trailing: current == p ? const Icon(Icons.check) : null,
-              onTap: () => Navigator.of(context).pop(p),
-            ),
-        ],
-      ),
-    );
-    if (choice == null) return;
-    await ref.read(p2pPolicyProvider.notifier).set(choice);
-  }
-
-  Future<void> _pickSignaturePolicy(
-    BuildContext context,
-    WidgetRef ref,
-    AppL10n l,
-  ) async {
-    final current = ref.read(signaturePolicyProvider);
-    final choice = await showDialog<SignaturePolicy>(
-      context: context,
-      builder: (context) => SimpleDialog(
-        title: Text(l.settingsSignaturePolicy),
-        children: [
-          for (final p in SignaturePolicy.values)
-            ListTile(
-              title: Text(_signaturePolicyLabel(l, p)),
-              trailing: current == p ? const Icon(Icons.check) : null,
-              onTap: () => Navigator.of(context).pop(p),
-            ),
-        ],
-      ),
-    );
-    if (choice == null) return;
-    await ref.read(signaturePolicyProvider.notifier).set(choice);
-  }
-
-  String _folderPanelLabel(AppL10n l, FolderPanelPosition p) => switch (p) {
-    FolderPanelPosition.left => l.folderPanelLeft,
-    FolderPanelPosition.right => l.folderPanelRight,
-    FolderPanelPosition.top => l.folderPanelTop,
-  };
-
-  Future<void> _pickFolderPanel(
-    BuildContext context,
-    WidgetRef ref,
-    AppL10n l,
-  ) async {
-    final current = ref.read(folderPanelPositionProvider);
-    final choice = await showDialog<FolderPanelPosition>(
-      context: context,
-      builder: (context) => SimpleDialog(
-        title: Text(l.settingsFolderPanel),
-        children: [
-          for (final p in FolderPanelPosition.values)
-            ListTile(
-              title: Text(_folderPanelLabel(l, p)),
-              trailing: current == p ? const Icon(Icons.check) : null,
-              onTap: () => Navigator.of(context).pop(p),
-            ),
-        ],
-      ),
-    );
-    if (choice == null) return;
-    await ref.read(folderPanelPositionProvider.notifier).set(choice);
-  }
-
-  Future<void> _pickLanguage(
-    BuildContext context,
-    WidgetRef ref,
-    AppL10n l,
-  ) async {
-    final current = ref.read(localeProvider) ?? #system;
-    final choice = await showDialog<Object?>(
-      context: context,
-      builder: (context) => SimpleDialog(
-        title: Text(l.settingsLanguage),
-        children: [
-          for (final entry in <(Object?, String)>[
-            (#system, l.languageSystem),
-            (const Locale('ru'), l.languageRussian),
-            (const Locale('en'), l.languageEnglish),
-          ])
-            ListTile(
-              title: Text(entry.$2),
-              trailing: current == entry.$1 ? const Icon(Icons.check) : null,
-              onTap: () => Navigator.of(context).pop(entry.$1),
-            ),
-        ],
-      ),
-    );
-    if (choice == null) return; // dismissed
-    await ref
-        .read(localeProvider.notifier)
-        .setLocale(choice is Locale ? choice : null);
-  }
-
-  /// Bottom-sheet identity switcher (master mode). Tapping an identity calls
-  /// switchIdentity — a fast view re-point in all-online mode, a node swap in
-  /// one-active mode. The active identity is marked and a no-op.
-  Future<void> _switchIdentity(BuildContext context, WidgetRef ref) async {
-    final state = ref.read(appControllerProvider);
-    // All-online: every identity's storage is open, so we can show each one's
-    // unread total — the signal for which identity to switch to.
-    final session = ref.read(sessionProvider);
-    final unread = <String, int>{};
-    if (session != null) {
-      for (final label in state.identities) {
-        final st = session.storageFor(label);
-        if (st != null) {
-          unread[label] = (await st.loadConversations()).fold<int>(
-            0,
-            (sum, c) => sum + c.unread,
-          );
-        }
-      }
-    }
-    if (!context.mounted) return;
-    final l = AppL10n.of(context);
-    final ctrl = ref.read(appControllerProvider.notifier);
-    await showModalBottomSheet<void>(
-      context: context,
-      builder: (sheet) => SafeArea(
-        // StatefulBuilder so an in-place anonymity toggle re-renders the row.
-        child: StatefulBuilder(
-          builder: (ctx, setSheetState) => Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              for (final label in state.identities)
-                ListTile(
-                  leading: CircleAvatar(
-                    child: Text(label.characters.first.toUpperCase()),
-                  ),
-                  title: Text(label),
-                  subtitle: ctrl.isIdentityAnonymous(label)
-                      ? Text(
-                          l.settingsAnonymousRouting,
-                          style: TextStyle(
-                            color: Theme.of(ctx).colorScheme.primary,
-                          ),
-                        )
-                      : null,
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (label == state.activeIdentity)
-                        const Icon(Icons.check)
-                      else if ((unread[label] ?? 0) > 0)
-                        Badge(label: Text('${unread[label]}')),
-                      IconButton(
-                        tooltip: l.settingsAnonymousRouting,
-                        icon: Icon(
-                          ctrl.isIdentityAnonymous(label)
-                              ? Icons.shield_moon
-                              : Icons.shield_moon_outlined,
-                        ),
-                        color: ctrl.isIdentityAnonymous(label)
-                            ? Theme.of(ctx).colorScheme.primary
-                            : null,
-                        onPressed: () async {
-                          final next = !ctrl.isIdentityAnonymous(label);
-                          bool ok = false;
-                          try {
-                            ok = await ctrl.setIdentityAnonymous(label, next);
-                          } catch (_) {
-                            ok = false;
-                          }
-                          // The toggle reboots the node → flips to the
-                          // preparing route → tears this modal sheet down.
-                          // Guard mounted BEFORE touching setSheetState (a
-                          // disposed StateSetter throws the _dependents red
-                          // screen — same class as the password-dialog fix).
-                          if (!ctx.mounted) return;
-                          setSheetState(() {});
-                          if (!ok) return;
-                          final hint = next
-                              ? l.settingsAnonymousEnabledHint
-                              : l.settingsAnonymousDisabledHint;
-                          ScaffoldMessenger.of(ctx).showSnackBar(
-                            SnackBar(content: Text('$label — $hint')),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                  onTap: () {
-                    Navigator.of(sheet).pop();
-                    if (label != state.activeIdentity) {
-                      ctrl.switchIdentity(label);
-                    }
-                  },
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppL10n.of(context);
-    final locale = ref.watch(localeProvider);
     final identity = ref.watch(appControllerProvider.select((s) => s.identity));
-    final master = ref.watch(
-      appControllerProvider.select((s) => (s.isMaster, s.activeIdentity)),
-    );
     return Scaffold(
       appBar: AppBar(title: Text(l.settingsTitle)),
       body: ListView(
@@ -476,245 +40,55 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               ),
             ),
-          // Anonymity toggle for the ACTIVE identity — the SAME control in single
-          // and master modes (in master it routes the change to the active
-          // identity). Reboots the node under the new routing; the home banner +
-          // node id refresh when it returns.
-          Builder(
-            builder: (_) {
-              final ctrl = ref.read(appControllerProvider.notifier);
-              final isMaster = master.$1;
-              final active = master.$2;
-              final anon = isMaster
-                  ? (active != null && ctrl.isIdentityAnonymous(active))
-                  : ctrl.singleIdentityAnonymous;
-              return SwitchListTile(
-                secondary: const Icon(Icons.shield_moon_outlined),
-                title: Text(l.settingsAnonymousRouting),
-                subtitle: Text(
-                  anon
-                      ? l.settingsAnonymousEnabledHint
-                      : l.settingsAnonymousDisabledHint,
-                ),
-                isThreeLine: true,
-                value: anon,
-                onChanged: (isMaster && active == null)
-                    ? null
-                    : (v) => isMaster
-                          ? ctrl.setIdentityAnonymous(active!, v)
-                          : ctrl.setSingleIdentityAnonymous(v),
-              );
-            },
-          ),
-          // Lazy-mining toggle — single-identity mode only. Default OFF (opt-in):
-          // raising this identity's anti-sybil difficulty is a CPU-heavy
-          // background grind that competes with the node's runtime, so it's gated
-          // behind a setting. Reboots the node under the new preference.
-          if (!master.$1)
-            Builder(
-              builder: (_) {
-                final ctrl = ref.read(appControllerProvider.notifier);
-                final on = ctrl.activeLazyMining;
-                return SwitchListTile(
-                  secondary: const Icon(Icons.memory_outlined),
-                  title: Text(l.settingsLazyMining),
-                  subtitle: Text(
-                    on
-                        ? l.settingsLazyMiningEnabledHint
-                        : l.settingsLazyMiningDisabledHint,
-                  ),
-                  isThreeLine: true,
-                  value: on,
-                  onChanged: (v) => ctrl.setSingleLazyMining(v),
-                );
-              },
-            ),
-          if (master.$1)
-            ListTile(
-              leading: const Icon(Icons.switch_account_outlined),
-              title: Text(l.settingsSwitchIdentity),
-              subtitle: master.$2 != null ? Text(master.$2!) : null,
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => _switchIdentity(context, ref),
-            ),
           ListTile(
-            leading: const Icon(Icons.person_add_alt_1_outlined),
-            title: Text(l.settingsAddIdentity),
+            leading: const Icon(Icons.manage_accounts_outlined),
+            title: Text(l.settingsCatAccount),
+            subtitle: Text(l.settingsCatAccountHint),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () => context.push('/add-identity'),
-          ),
-          if (master.$1)
-            ListTile(
-              leading: const Icon(Icons.manage_accounts_outlined),
-              title: Text(l.settingsManageIdentities),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => context.push('/manage-identities'),
-            ),
-          if (master.$1)
-            ListTile(
-              leading: const Icon(Icons.theater_comedy_outlined),
-              title: Text(l.settingsDecoyMaster),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => context.push('/decoy-master'),
-            ),
-          if (master.$1)
-            SwitchListTile(
-              secondary: const Icon(Icons.wifi_tethering_outlined),
-              title: Text(l.settingsKeepAllOnline),
-              subtitle: Text(l.settingsKeepAllOnlineHint),
-              isThreeLine: true,
-              value: ref.watch(keepAllOnlineProvider),
-              onChanged: (v) => ref.read(keepAllOnlineProvider.notifier).set(v),
-            ),
-          // Notifications: a deniability messenger defaults to HIDDEN previews
-          // (no sender/text on the lock screen); the preview level is its own row.
-          Builder(
-            builder: (_) {
-              final ns = ref.watch(notificationSettingsProvider);
-              return Column(
-                children: [
-                  SwitchListTile(
-                    secondary: const Icon(Icons.notifications_outlined),
-                    title: Text(l.notificationsEnabled),
-                    value: ns.enabled,
-                    onChanged: (v) => ref
-                        .read(notificationSettingsProvider.notifier)
-                        .setEnabled(v),
-                  ),
-                  if (ns.enabled)
-                    ListTile(
-                      leading: const Icon(Icons.visibility_off_outlined),
-                      title: Text(l.notificationsPreview),
-                      subtitle: Text(
-                        ns.preview == NotificationPreview.full
-                            ? l.notificationsPreviewFull
-                            : l.notificationsPreviewHidden,
-                      ),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () => _pickPreview(context, ref, l),
-                    ),
-                ],
-              );
-            },
-          ),
-          // Desktop only: close the window to the tray (keep the node running)
-          // vs quit. Hidden on mobile, where there is no desktop window.
-          if (isDesktopTrayPlatform)
-            SwitchListTile(
-              secondary: const Icon(Icons.dock_outlined),
-              title: Text(l.settingsCloseToTray),
-              subtitle: Text(l.settingsCloseToTrayHint),
-              isThreeLine: true,
-              value: ref.watch(closeToTrayProvider),
-              onChanged: (v) => ref.read(closeToTrayProvider.notifier).set(v),
-            ),
-          // Android only: keep the embedded node running when the app is
-          // backgrounded / the screen is off. Runs a foreground service (holds a
-          // wake lock + a persistent notification) and asks for the Doze battery
-          // exemption — without it Android freezes the socket and messages stall
-          // until you reopen the app. Off by default: the visible notification
-          // advertises the app is running (a deniability trade-off).
-          if (Platform.isAndroid)
-            SwitchListTile(
-              secondary: const Icon(Icons.cloud_sync_outlined),
-              title: Text(l.settingsKeepNodeBackground),
-              subtitle: Text(l.settingsKeepNodeBackgroundHint),
-              isThreeLine: true,
-              value: ref.watch(backgroundNodeProvider),
-              onChanged: (v) => _setKeepNodeBackground(context, ref, l, v),
-            ),
-          // Chat pagination: how many recent messages a chat loads initially
-          // (and the "load earlier" step). Bounds decrypt + list-build work.
-          ListTile(
-            leading: const Icon(Icons.format_list_numbered_outlined),
-            title: Text(l.settingsChatPageSize),
-            subtitle: Text(l.settingsChatPageSizeHint),
-            trailing: Text(
-              '${ref.watch(chatPageSizeProvider)}',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            onTap: () => _pickChatPageSize(context, ref, l),
-          ),
-          // Author-side answer to "please sign this message" requests from
-          // peers: ask each time / sign automatically / always refuse.
-          ListTile(
-            leading: const Icon(Icons.verified_user_outlined),
-            title: Text(l.settingsSignaturePolicy),
-            subtitle: Text(l.settingsSignaturePolicyHint),
-            trailing: Text(
-              _signaturePolicyLabel(l, ref.watch(signaturePolicyProvider)),
-            ),
-            onTap: () => _pickSignaturePolicy(context, ref, l),
-          ),
-          Builder(
-            builder: (_) {
-              final p2p = ref.watch(p2pPolicyProvider);
-              final anon = ref.read(p2pPolicyProvider.notifier).localAnonymous;
-              return ListTile(
-                leading: const Icon(Icons.link_outlined),
-                title: Text(l.settingsCommunication),
-                subtitle: Text(
-                  anon
-                      ? l.settingsP2PPolicyAnonymousHint
-                      : l.settingsP2PPolicyHint,
-                ),
-                trailing: Text(_p2pPolicyLabel(l, p2p)),
-                onTap: () => _pickP2PPolicy(context, ref, l),
-              );
-            },
-          ),
-          // Where the chat-folder navigation lives: collapsible left/right
-          // drawer or the always-visible top chip bar.
-          ListTile(
-            leading: const Icon(Icons.folder_open_outlined),
-            title: Text(l.settingsFolderPanel),
-            subtitle: Text(l.settingsFolderPanelHint),
-            trailing: Text(
-              _folderPanelLabel(l, ref.watch(folderPanelPositionProvider)),
-            ),
-            onTap: () => _pickFolderPanel(context, ref, l),
+            onTap: () => context.push('/settings/account'),
           ),
           ListTile(
-            leading: const Icon(Icons.badge_outlined),
-            title: Text(l.settingsIdentity),
+            leading: const Icon(Icons.lock_person_outlined),
+            title: Text(l.settingsCatPrivacy),
+            subtitle: Text(l.settingsCatPrivacyHint),
             trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push('/settings/privacy'),
           ),
           ListTile(
-            leading: const Icon(Icons.lock_outline),
-            title: Text(l.settingsStorage),
+            leading: const Icon(Icons.chat_outlined),
+            title: Text(l.settingsCatChats),
+            subtitle: Text(l.settingsCatChatsHint),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () => _openStorage(context, ref, l),
+            onTap: () => context.push('/settings/chats'),
           ),
           ListTile(
-            leading: const Icon(Icons.download_outlined),
-            title: Text(l.settingsFiles),
-            subtitle: Text(l.settingsFilesHint),
+            leading: const Icon(Icons.sd_storage_outlined),
+            title: Text(l.settingsCatData),
+            subtitle: Text(l.settingsCatDataHint),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () => context.push('/file-settings'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.hub_outlined),
-            title: Text(l.settingsNetwork),
-            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push('/settings/storage'),
           ),
           ListTile(
             leading: const Icon(Icons.palette_outlined),
             title: Text(l.settingsAppearance),
+            subtitle: Text(l.settingsCatAppearanceHint),
             trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push('/settings/appearance'),
           ),
-          ListTile(
-            leading: const Icon(Icons.translate_outlined),
-            title: Text(l.settingsLanguage),
-            subtitle: Text(_languageLabel(l, locale)),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _pickLanguage(context, ref, l),
-          ),
+          const Divider(),
           ListTile(
             leading: const Icon(Icons.info_outline),
             title: Text(l.settingsAbout),
             trailing: const Icon(Icons.chevron_right),
+            onTap: () => showAboutDialog(
+              context: context,
+              applicationName: 'xVeil',
+              applicationIcon: const Padding(
+                padding: EdgeInsets.all(4),
+                child: Icon(Icons.shield_moon, size: 36),
+              ),
+            ),
           ),
-          const Divider(),
           ListTile(
             leading: Icon(
               Icons.lock,
@@ -728,64 +102,6 @@ class SettingsScreen extends ConsumerWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-/// Password-entry dialog for storage compaction. A `StatefulWidget` so its
-/// [TextEditingController] is owned by the element and disposed in
-/// [State.dispose] — which runs only once the dialog route is fully removed
-/// (after the close transition). This avoids the "TextEditingController used
-/// after being disposed" / `_dependents.isEmpty` red screen that an
-/// inline-disposed controller hits when the caller (compaction) tears the
-/// widget tree down while the dialog is still animating out.
-class _CompactPasswordDialog extends StatefulWidget {
-  const _CompactPasswordDialog({
-    required this.title,
-    required this.hint,
-    required this.confirmLabel,
-    required this.cancelLabel,
-  });
-
-  final String title;
-  final String hint;
-  final String confirmLabel;
-  final String cancelLabel;
-
-  @override
-  State<_CompactPasswordDialog> createState() => _CompactPasswordDialogState();
-}
-
-class _CompactPasswordDialogState extends State<_CompactPasswordDialog> {
-  final _ctl = TextEditingController();
-
-  @override
-  void dispose() {
-    _ctl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.title),
-      content: TextField(
-        controller: _ctl,
-        obscureText: true,
-        autofocus: true,
-        decoration: InputDecoration(labelText: widget.hint),
-        onSubmitted: (v) => Navigator.of(context).pop(v),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(widget.cancelLabel),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(context).pop(_ctl.text),
-          child: Text(widget.confirmLabel),
-        ),
-      ],
     );
   }
 }
