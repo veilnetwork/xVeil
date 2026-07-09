@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../../data/transport/wire_envelope.dart' show isServiceEchoBody;
 import '../../domain/chat.dart';
 
@@ -34,6 +36,29 @@ String searchSnippet(String body, String lowerQuery, {int radius = 40}) {
   final prefix = start > 0 ? '…' : '';
   final suffix = end < body.length ? '…' : '';
   return '$prefix${body.substring(start, end)}$suffix';
+}
+
+/// A locally-pinned message: its id plus a display snippet (so the pinned
+/// banner renders even when the message is outside the loaded window).
+typedef PinnedRef = ({String id, String text});
+
+/// Serialize a pin for the settings KV: `{id, t}` with the snippet capped so a
+/// huge message doesn't bloat the setting.
+String encodePinned(String id, String body) {
+  final snippet = body.length > 120 ? '${body.substring(0, 120)}…' : body;
+  return jsonEncode({'id': id, 't': snippet});
+}
+
+/// Parse a pin from the settings KV, or null when absent/blank/corrupt.
+PinnedRef? decodePinned(String? raw) {
+  if (raw == null || raw.isEmpty) return null;
+  try {
+    final j = jsonDecode(raw);
+    if (j is Map && j['id'] is String) {
+      return (id: j['id'] as String, text: (j['t'] as String?) ?? '');
+    }
+  } catch (_) {}
+  return null;
 }
 
 /// Conversations whose contact matches [lowerQuery] by local alias (label)
