@@ -317,6 +317,15 @@ class AppL10nRu extends AppL10n {
   String get searchNoResults => 'Ничего не найдено';
 
   @override
+  String get chatMsgPin => 'Закрепить';
+
+  @override
+  String get chatMsgUnpin => 'Открепить';
+
+  @override
+  String get chatPinnedLabel => 'Закреплённое сообщение';
+
+  @override
   String get trayShow => 'Показать';
 
   @override

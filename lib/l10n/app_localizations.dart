@@ -673,6 +673,24 @@ abstract class AppL10n {
   /// **'No results'**
   String get searchNoResults;
 
+  /// No description provided for @chatMsgPin.
+  ///
+  /// In en, this message translates to:
+  /// **'Pin'**
+  String get chatMsgPin;
+
+  /// No description provided for @chatMsgUnpin.
+  ///
+  /// In en, this message translates to:
+  /// **'Unpin'**
+  String get chatMsgUnpin;
+
+  /// No description provided for @chatPinnedLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Pinned message'**
+  String get chatPinnedLabel;
+
   /// No description provided for @trayShow.
   ///
   /// In en, this message translates to:
