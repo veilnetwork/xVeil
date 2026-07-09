@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:ui' as ui;
+import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -12,6 +14,7 @@ import '../../state/app_controller.dart';
 import '../../state/call_service.dart';
 import '../../state/veil_call_media.dart'
     show localVideoFrame, remoteVideoFrame;
+import 'call_lifecycle_bridge.dart' show callPipMode;
 
 /// Full-screen call UI that floats above every route. Mounted once from
 /// [MaterialApp.router]'s `builder`, it watches [currentCallProvider] and shows
@@ -32,23 +35,41 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
     with WidgetsBindingObserver {
   _OverlayMode _mode = _OverlayMode.full;
   Offset _miniOffset = const Offset(16, 92);
+  Offset _selfPreviewOffset = Offset.zero;
+  Size _selfPreviewSize = _SelfPreview.defaultSize;
   String? _callId;
   bool _autoMiniAfterConnect = false;
+  bool _selfPreviewHidden = false;
+  bool _pipActive = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _pipActive = callPipMode.value;
+    callPipMode.addListener(_onPipModeChanged);
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    callPipMode.removeListener(_onPipModeChanged);
     super.dispose();
+  }
+
+  void _onPipModeChanged() {
+    if (!mounted) return;
+    setState(() => _pipActive = callPipMode.value);
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (Platform.isAndroid &&
+        (state == AppLifecycleState.inactive ||
+            state == AppLifecycleState.hidden ||
+            state == AppLifecycleState.paused)) {
+      return;
+    }
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused) {
@@ -75,9 +96,16 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
     if (isNewCall) {
       _callId = call.callId;
       _autoMiniAfterConnect = false;
+      final size = MediaQuery.sizeOf(context);
+      _selfPreviewSize = _SelfPreview.defaultSizeFor(size);
+      _selfPreviewOffset = Offset(size.width - _selfPreviewSize.width - 12, 64);
+      _selfPreviewHidden = false;
       _mode = _OverlayMode.full;
     }
     final videoStage = _isVideoStage(call);
+    if (_pipActive && videoStage) {
+      return const Positioned.fill(child: _PipVideoView());
+    }
     if (videoStage && !_autoMiniAfterConnect) {
       _autoMiniAfterConnect = true;
       _mode = _OverlayMode.mini;
@@ -92,6 +120,49 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
               onMinimize: videoStage
                   ? () => setState(() => _mode = _OverlayMode.mini)
                   : null,
+              selfPreviewOffset: _selfPreviewOffset,
+              selfPreviewSize: _selfPreviewSize,
+              selfPreviewHidden: _selfPreviewHidden,
+              onSelfPreviewDrag: (delta) {
+                final size = MediaQuery.sizeOf(context);
+                setState(() {
+                  _selfPreviewOffset = Offset(
+                    (_selfPreviewOffset.dx + delta.dx).clamp(
+                      8.0,
+                      size.width - _selfPreviewSize.width - 8.0,
+                    ),
+                    (_selfPreviewOffset.dy + delta.dy).clamp(
+                      8.0,
+                      size.height - _selfPreviewSize.height - 8.0,
+                    ),
+                  );
+                });
+              },
+              onSelfPreviewResize: (delta) {
+                final viewSize = MediaQuery.sizeOf(context);
+                setState(() {
+                  final next = _SelfPreview.clampSize(
+                    _selfPreviewSize.width + delta.dx,
+                  );
+                  _selfPreviewSize = next;
+                  _selfPreviewOffset = Offset(
+                    _selfPreviewOffset.dx.clamp(
+                      8.0,
+                      viewSize.width - next.width - 8.0,
+                    ),
+                    _selfPreviewOffset.dy.clamp(
+                      8.0,
+                      viewSize.height - next.height - 8.0,
+                    ),
+                  );
+                });
+              },
+              onSelfPreviewHide: () {
+                setState(() => _selfPreviewHidden = true);
+              },
+              onSelfPreviewShow: () {
+                setState(() => _selfPreviewHidden = false);
+              },
             ),
           ),
         ),
@@ -110,8 +181,14 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
         final size = MediaQuery.sizeOf(context);
         setState(() {
           _miniOffset = Offset(
-            (_miniOffset.dx + delta.dx).clamp(8.0, size.width - 196.0),
-            (_miniOffset.dy + delta.dy).clamp(8.0, size.height - 168.0),
+            (_miniOffset.dx + delta.dx).clamp(
+              8.0,
+              size.width - _FloatingCallTile._width - 8.0,
+            ),
+            (_miniOffset.dy + delta.dy).clamp(
+              8.0,
+              size.height - _FloatingCallTile._height - 8.0,
+            ),
           );
         });
       },
@@ -129,9 +206,26 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
 }
 
 class _CallBody extends ConsumerWidget {
-  const _CallBody(this.call, {this.onMinimize});
+  const _CallBody(
+    this.call, {
+    this.onMinimize,
+    required this.selfPreviewOffset,
+    required this.selfPreviewSize,
+    required this.selfPreviewHidden,
+    required this.onSelfPreviewDrag,
+    required this.onSelfPreviewResize,
+    required this.onSelfPreviewHide,
+    required this.onSelfPreviewShow,
+  });
   final Call call;
   final VoidCallback? onMinimize;
+  final Offset selfPreviewOffset;
+  final Size selfPreviewSize;
+  final bool selfPreviewHidden;
+  final ValueChanged<Offset> onSelfPreviewDrag;
+  final ValueChanged<Offset> onSelfPreviewResize;
+  final VoidCallback onSelfPreviewHide;
+  final VoidCallback onSelfPreviewShow;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -231,18 +325,47 @@ class _CallBody extends ConsumerWidget {
           Positioned(
             top: 8,
             right: 8,
-            child: IconButton(
-              tooltip: 'Minimize',
-              icon: const Icon(Icons.picture_in_picture_alt),
-              color: Colors.white,
-              onPressed: onMinimize,
+            child: Material(
+              color: Colors.black.withValues(alpha: 0.28),
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: onMinimize,
+                child: const SizedBox.square(
+                  dimension: 44,
+                  child: Icon(
+                    Icons.picture_in_picture_alt,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
             ),
           ),
+        if (call.media.video && !selfPreviewHidden)
+          Positioned(
+            left: selfPreviewOffset.dx,
+            top: selfPreviewOffset.dy,
+            child: GestureDetector(
+              onPanUpdate: (d) => onSelfPreviewDrag(d.delta),
+              child: _SelfPreview(
+                call: call,
+                size: selfPreviewSize,
+                onHide: onSelfPreviewHide,
+                onResize: onSelfPreviewResize,
+              ),
+            ),
+          ),
+        if (call.media.video && selfPreviewHidden)
+          Positioned(
+            top: 64,
+            right: 12,
+            child: _ShowSelfPreviewButton(onTap: onSelfPreviewShow),
+          ),
         Positioned(
-          left: 0,
-          right: 0,
-          bottom: 36,
-          child: _Controls(call: call, svc: svc, l: l),
+          left: 12,
+          right: 12,
+          bottom: 18,
+          child: _VideoControlsBar(call: call, svc: svc),
         ),
       ],
     );
@@ -255,6 +378,18 @@ class _CallBody extends ConsumerWidget {
     CallStatus.active => l.callActive,
     CallStatus.ended => l.callEnded,
   };
+}
+
+class _PipVideoView extends StatelessWidget {
+  const _PipVideoView();
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: Colors.black,
+      child: _VideoFrameView(frameListenable: remoteVideoFrame),
+    );
+  }
 }
 
 class _MediaChips extends StatelessWidget {
@@ -339,15 +474,17 @@ class _FloatingCallTile extends ConsumerWidget {
   final VoidCallback onExpand;
   final VoidCallback onHide;
 
+  static const double _width = 188;
+  static const double _height = 154;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final l = AppL10n.of(context);
     final svc = ref.read(callServiceProvider);
     return Positioned(
       left: offset.dx,
       top: offset.dy,
-      width: 188,
-      height: 154,
+      width: _width,
+      height: _height,
       child: GestureDetector(
         onPanUpdate: (d) => onDrag(d.delta),
         child: Material(
@@ -358,18 +495,7 @@ class _FloatingCallTile extends ConsumerWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              _VideoFrameView(frameListenable: localVideoFrame),
-              if (!call.cameraOn)
-                const ColoredBox(
-                  color: Colors.black54,
-                  child: Center(
-                    child: Icon(
-                      Icons.videocam_off,
-                      color: Colors.white70,
-                      size: 32,
-                    ),
-                  ),
-                ),
+              _VideoFrameView(frameListenable: remoteVideoFrame),
               Positioned.fill(
                 child: DecoratedBox(
                   decoration: BoxDecoration(
@@ -391,14 +517,9 @@ class _FloatingCallTile extends ConsumerWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    _TileIconButton(
-                      icon: Icons.open_in_full,
-                      tooltip: 'Expand',
-                      onTap: onExpand,
-                    ),
+                    _TileIconButton(icon: Icons.open_in_full, onTap: onExpand),
                     _TileIconButton(
                       icon: Icons.keyboard_arrow_down,
-                      tooltip: 'Hide',
                       onTap: onHide,
                     ),
                   ],
@@ -406,43 +527,45 @@ class _FloatingCallTile extends ConsumerWidget {
               ),
               Positioned(
                 left: 8,
-                right: 8,
+                top: 8,
+                right: 76,
+                child: Text(
+                  call.peer.short,
+                  style: const TextStyle(color: Colors.white, fontSize: 12),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                ),
+              ),
+              Positioned(
+                left: 8,
                 bottom: 8,
                 child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Expanded(
-                      child: Text(
-                        call.peer.short,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
                     _TileIconButton(
                       icon: call.micOn ? Icons.mic : Icons.mic_off,
-                      tooltip: call.micOn ? l.callMicOn : l.callMicOff,
                       onTap: () {
                         svc.setMicEnabled(!call.micOn);
                       },
                     ),
                     _TileIconButton(
                       icon: call.cameraOn ? Icons.videocam : Icons.videocam_off,
-                      tooltip: call.cameraOn ? l.callCameraOn : l.callCameraOff,
                       onTap: () {
                         svc.setCameraEnabled(!call.cameraOn);
                       },
                     ),
-                    _TileIconButton(
-                      icon: Icons.call_end,
-                      tooltip: l.callEnd,
-                      color: Colors.redAccent,
-                      onTap: () {
-                        svc.hangup();
-                      },
-                    ),
                   ],
+                ),
+              ),
+              Positioned(
+                right: 8,
+                bottom: 8,
+                child: _TileIconButton(
+                  icon: Icons.call_end,
+                  color: Colors.redAccent,
+                  onTap: () {
+                    svc.hangup();
+                  },
                 ),
               ),
             ],
@@ -487,30 +610,211 @@ class _HiddenCallTab extends StatelessWidget {
 class _TileIconButton extends StatelessWidget {
   const _TileIconButton({
     required this.icon,
-    required this.tooltip,
     required this.onTap,
     this.color = Colors.white,
   });
 
   final IconData icon;
-  final String tooltip;
   final VoidCallback? onTap;
   final Color color;
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: Colors.black.withValues(alpha: 0.28),
-        shape: const CircleBorder(),
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: onTap,
-          child: SizedBox.square(
-            dimension: 30,
-            child: Icon(icon, size: 17, color: color),
-          ),
+    return Material(
+      color: Colors.black.withValues(alpha: 0.28),
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: SizedBox.square(
+          dimension: 30,
+          child: Icon(icon, size: 17, color: color),
+        ),
+      ),
+    );
+  }
+}
+
+class _SelfPreview extends StatelessWidget {
+  const _SelfPreview({
+    required this.call,
+    required this.size,
+    required this.onHide,
+    required this.onResize,
+  });
+
+  static const double _width = 118;
+  static const double _height = 88;
+  static const double _aspect = _width / _height;
+  static const double _minWidth = 118;
+  static const double _maxWidth = 320;
+  static const Size defaultSize = Size(_width, _height);
+
+  static Size defaultSizeFor(Size viewport) =>
+      viewport.width >= 700 ? clampSize(220) : defaultSize;
+
+  static Size clampSize(double width) {
+    final w = width.clamp(_minWidth, _maxWidth).toDouble();
+    return Size(w, w / _aspect);
+  }
+
+  final Call call;
+  final Size size;
+  final VoidCallback onHide;
+  final ValueChanged<Offset> onResize;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.black.withValues(alpha: 0.88),
+      elevation: 8,
+      borderRadius: BorderRadius.circular(8),
+      clipBehavior: Clip.antiAlias,
+      child: SizedBox(
+        width: size.width,
+        height: size.height,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            _VideoFrameView(frameListenable: localVideoFrame),
+            if (!call.cameraOn)
+              const ColoredBox(
+                color: Colors.black54,
+                child: Center(
+                  child: Icon(
+                    Icons.videocam_off,
+                    color: Colors.white70,
+                    size: 28,
+                  ),
+                ),
+              ),
+            Positioned(
+              top: 4,
+              right: 4,
+              child: _TileIconButton(
+                icon: Icons.keyboard_arrow_down,
+                onTap: onHide,
+              ),
+            ),
+            Positioned(
+              right: 0,
+              bottom: 0,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onPanUpdate: (d) => onResize(d.delta),
+                child: Container(
+                  width: 32,
+                  height: 32,
+                  alignment: Alignment.bottomRight,
+                  padding: const EdgeInsets.all(5),
+                  child: Icon(
+                    Icons.open_in_full,
+                    color: Colors.white.withValues(alpha: 0.86),
+                    size: 16,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ShowSelfPreviewButton extends StatelessWidget {
+  const _ShowSelfPreviewButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.black.withValues(alpha: 0.72),
+      elevation: 6,
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: const SizedBox.square(
+          dimension: 44,
+          child: Icon(Icons.account_box, color: Colors.white, size: 22),
+        ),
+      ),
+    );
+  }
+}
+
+class _VideoControlsBar extends StatelessWidget {
+  const _VideoControlsBar({required this.call, required this.svc});
+
+  final Call call;
+  final CallService svc;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.black.withValues(alpha: 0.54),
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            _CallBarButton(
+              icon: call.micOn ? Icons.mic : Icons.mic_off,
+              active: call.micOn,
+              onTap: () => svc.setMicEnabled(!call.micOn),
+            ),
+            if (call.media.video) ...[
+              const SizedBox(width: 8),
+              _CallBarButton(
+                icon: call.cameraOn ? Icons.videocam : Icons.videocam_off,
+                active: call.cameraOn,
+                onTap: () => svc.setCameraEnabled(!call.cameraOn),
+              ),
+            ],
+            const Spacer(),
+            Material(
+              color: Colors.red,
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: () => svc.hangup(),
+                child: const SizedBox.square(
+                  dimension: 48,
+                  child: Icon(Icons.call_end, color: Colors.white, size: 24),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CallBarButton extends StatelessWidget {
+  const _CallBarButton({
+    required this.icon,
+    required this.active,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: active ? Colors.white12 : Colors.white24,
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: SizedBox.square(
+          dimension: 44,
+          child: Icon(icon, color: Colors.white, size: 22),
         ),
       ),
     );
@@ -641,9 +945,13 @@ class _VideoFrameView extends StatefulWidget {
 }
 
 class _VideoFrameViewState extends State<_VideoFrameView> {
+  static const _minDecodeInterval = Duration(milliseconds: 66);
+
   ui.Image? _image;
   VeilVideoFrame? _pending; // newest frame awaiting decode
   bool _busy = false;
+  Timer? _decodeTimer;
+  DateTime? _lastDecodeAt;
 
   @override
   void initState() {
@@ -664,6 +972,7 @@ class _VideoFrameViewState extends State<_VideoFrameView> {
   @override
   void dispose() {
     widget.frameListenable.removeListener(_onFrame);
+    _decodeTimer?.cancel();
     _image?.dispose();
     super.dispose();
   }
@@ -681,7 +990,25 @@ class _VideoFrameViewState extends State<_VideoFrameView> {
       return;
     }
     _pending = f;
-    if (!_busy) _drain();
+    _scheduleDrain();
+  }
+
+  void _scheduleDrain() {
+    if (_busy || _decodeTimer != null) return;
+    final last = _lastDecodeAt;
+    if (last == null) {
+      _drain();
+      return;
+    }
+    final elapsed = DateTime.now().difference(last);
+    if (elapsed >= _minDecodeInterval) {
+      _drain();
+      return;
+    }
+    _decodeTimer = Timer(_minDecodeInterval - elapsed, () {
+      _decodeTimer = null;
+      if (mounted) _drain();
+    });
   }
 
   void _drain() {
@@ -692,6 +1019,7 @@ class _VideoFrameViewState extends State<_VideoFrameView> {
     }
     _pending = null;
     _busy = true;
+    _lastDecodeAt = DateTime.now();
     ui.decodeImageFromPixels(
       f.rgba,
       f.width,
@@ -706,7 +1034,8 @@ class _VideoFrameViewState extends State<_VideoFrameView> {
           _image?.dispose();
           _image = img;
         });
-        _drain(); // pick up whatever arrived while decoding
+        _busy = false;
+        if (_pending != null) _scheduleDrain();
       },
     );
   }
