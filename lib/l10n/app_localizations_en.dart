@@ -433,6 +433,32 @@ class AppL10nEn extends AppL10n {
       'How to answer when a contact asks you to prove you wrote a message';
 
   @override
+  String get settingsCommunication => 'Communication';
+
+  @override
+  String get settingsP2PPolicy => 'P2P policy';
+
+  @override
+  String get settingsP2PPolicyHint =>
+      'Allows direct transport for calls, large media, files, and device-to-device exchange when both sides consent.';
+
+  @override
+  String get settingsP2PPolicyAnonymousHint =>
+      'P2P is disabled while this identity uses anonymous routing.';
+
+  @override
+  String get p2pPolicyAllowAll => 'Allow everyone';
+
+  @override
+  String get p2pPolicyContacts => 'Allow contacts';
+
+  @override
+  String get p2pPolicySelected => 'Only selected contacts';
+
+  @override
+  String get p2pPolicyDenied => 'Deny';
+
+  @override
   String get signaturePolicyAsk => 'Ask each time';
 
   @override
@@ -492,6 +518,21 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get muteHoursSuffix => 'hours';
+
+  @override
+  String get chatMenuCommunicationSettings => 'Communication settings';
+
+  @override
+  String get chatMenuP2P => 'P2P connection';
+
+  @override
+  String get contactP2PFollowGlobal => 'Follow global policy';
+
+  @override
+  String get contactP2PAllow => 'Allow';
+
+  @override
+  String get contactP2PDeny => 'Deny';
 
   @override
   String get chatMenuAllowPeerDelete => 'Let this contact delete at me';
@@ -683,6 +724,13 @@ class AppL10nEn extends AppL10n {
   @override
   String get settingsStorageAutoCompactBody =>
       'Compact automatically when the container bloats. Enable ONLY if no other hidden identity lives in this container — compaction keeps just the unlocked space.';
+
+  @override
+  String get settingsStorageLeanPadding => 'Save storage space';
+
+  @override
+  String get settingsStorageLeanPaddingBody =>
+      'Enabled by default: future writes use less padding, so the container grows much less. Turn off for stronger size-change masking. Applies after the app reopens.';
 
   @override
   String get settingsStoragePasswordHint => 'Your password';

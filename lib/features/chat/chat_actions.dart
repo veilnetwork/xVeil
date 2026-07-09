@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/ids.dart';
 import '../../core/log.dart';
 import '../../domain/chat.dart';
+import '../../domain/p2p_policy.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/messaging.dart';
 
@@ -32,147 +33,187 @@ Future<void> showConversationActions(
     isScrollControlled: true,
     builder: (sheet) => SafeArea(
       child: SingleChildScrollView(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ListTile(
-            leading: const Icon(Icons.edit_outlined),
-            title: Text(l.chatMenuRename),
-            onTap: () {
-              Navigator.of(sheet).pop();
-              _renameContact(context, ref, contact);
-            },
-          ),
-          if (contact.pinned)
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
             ListTile(
-              leading: const Icon(Icons.push_pin_outlined),
-              title: Text(l.chatMenuUnpin),
+              leading: const Icon(Icons.edit_outlined),
+              title: Text(l.chatMenuRename),
               onTap: () {
                 Navigator.of(sheet).pop();
-                svc.setContactPinned(peer, false);
-              },
-            )
-          else
-            ListTile(
-              leading: const Icon(Icons.push_pin),
-              title: Text(l.chatMenuPin),
-              onTap: () {
-                Navigator.of(sheet).pop();
-                svc.setContactPinned(peer, true);
+                _renameContact(context, ref, contact);
               },
             ),
-          if (contact.muted)
+            if (contact.pinned)
+              ListTile(
+                leading: const Icon(Icons.push_pin_outlined),
+                title: Text(l.chatMenuUnpin),
+                onTap: () {
+                  Navigator.of(sheet).pop();
+                  svc.setContactPinned(peer, false);
+                },
+              )
+            else
+              ListTile(
+                leading: const Icon(Icons.push_pin),
+                title: Text(l.chatMenuPin),
+                onTap: () {
+                  Navigator.of(sheet).pop();
+                  svc.setContactPinned(peer, true);
+                },
+              ),
+            if (contact.muted)
+              ListTile(
+                leading: const Icon(Icons.notifications_active_outlined),
+                title: Text(l.chatMenuUnmute),
+                onTap: () {
+                  Navigator.of(sheet).pop();
+                  svc.setContactMutedUntil(peer, null);
+                },
+              )
+            else
+              ListTile(
+                leading: const Icon(Icons.notifications_off_outlined),
+                title: Text(l.chatMenuMute),
+                onTap: () {
+                  Navigator.of(sheet).pop();
+                  pickMuteDuration(context, ref, peer);
+                },
+              ),
             ListTile(
-              leading: const Icon(Icons.notifications_active_outlined),
-              title: Text(l.chatMenuUnmute),
+              leading: const Icon(Icons.mark_chat_read_outlined),
+              title: Text(l.chatMenuMarkRead),
               onTap: () {
                 Navigator.of(sheet).pop();
-                svc.setContactMutedUntil(peer, null);
-              },
-            )
-          else
-            ListTile(
-              leading: const Icon(Icons.notifications_off_outlined),
-              title: Text(l.chatMenuMute),
-              onTap: () {
-                Navigator.of(sheet).pop();
-                pickMuteDuration(context, ref, peer);
-              },
-            ),
-          ListTile(
-            leading: const Icon(Icons.mark_chat_read_outlined),
-            title: Text(l.chatMenuMarkRead),
-            onTap: () {
-              Navigator.of(sheet).pop();
-              svc.markRead(peer.hex);
-            },
-          ),
-          if (contact.archived)
-            ListTile(
-              leading: const Icon(Icons.unarchive_outlined),
-              title: Text(l.chatMenuUnarchive),
-              onTap: () {
-                Navigator.of(sheet).pop();
-                svc.setContactArchived(peer, false);
-              },
-            )
-          else
-            ListTile(
-              leading: const Icon(Icons.archive_outlined),
-              title: Text(l.chatMenuArchive),
-              onTap: () {
-                Navigator.of(sheet).pop();
-                svc.setContactArchived(peer, true);
-              },
-            ),
-          ListTile(
-            leading: const Icon(Icons.auto_delete_outlined),
-            title: Text(l.chatMenuRetention),
-            onTap: () {
-              Navigator.of(sheet).pop();
-              pickRetention(context, ref, peer, contact.retentionDays);
-            },
-          ),
-          // Receiver policy: may this contact delete-for-everyone / clear our
-          // local copies? ON (default) = the peer's unsend removes our copy too.
-          SwitchListTile(
-            secondary: const Icon(Icons.delete_sweep_outlined),
-            title: Text(l.chatMenuAllowPeerDelete),
-            subtitle: Text(l.chatMenuAllowPeerDeleteHint),
-            isThreeLine: true,
-            value: contact.allowPeerDelete,
-            onChanged: (v) {
-              Navigator.of(sheet).pop();
-              svc.setContactAllowPeerDelete(peer, v);
-            },
-          ),
-          if (contact.status == ContactStatus.blocked)
-            ListTile(
-              leading: const Icon(Icons.lock_open_outlined),
-              title: Text(l.chatMenuUnblock),
-              onTap: () {
-                Navigator.of(sheet).pop();
-                svc.unblockContact(peer);
-              },
-            )
-          else
-            ListTile(
-              leading: const Icon(Icons.block),
-              title: Text(l.actionBlock),
-              onTap: () {
-                Navigator.of(sheet).pop();
-                svc.blockContact(peer);
+                svc.markRead(peer.hex);
               },
             ),
-          ListTile(
-            leading: const Icon(Icons.folder_outlined),
-            title: Text(l.chatMenuFolders),
-            onTap: () {
-              Navigator.of(sheet).pop();
-              pickFolders(context, ref, peer.hex);
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.cleaning_services_outlined),
-            title: Text(l.chatMenuClearHistory),
-            onTap: () {
-              Navigator.of(sheet).pop();
-              _confirmClear(context, ref, peer);
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.delete_outline),
-            title: Text(l.chatMenuDeleteConversation),
-            onTap: () {
-              Navigator.of(sheet).pop();
-              _confirmDelete(context, ref, peer, onDeleted);
-            },
-          ),
-        ],
-      ),
+            if (contact.archived)
+              ListTile(
+                leading: const Icon(Icons.unarchive_outlined),
+                title: Text(l.chatMenuUnarchive),
+                onTap: () {
+                  Navigator.of(sheet).pop();
+                  svc.setContactArchived(peer, false);
+                },
+              )
+            else
+              ListTile(
+                leading: const Icon(Icons.archive_outlined),
+                title: Text(l.chatMenuArchive),
+                onTap: () {
+                  Navigator.of(sheet).pop();
+                  svc.setContactArchived(peer, true);
+                },
+              ),
+            ListTile(
+              leading: const Icon(Icons.auto_delete_outlined),
+              title: Text(l.chatMenuRetention),
+              onTap: () {
+                Navigator.of(sheet).pop();
+                pickRetention(context, ref, peer, contact.retentionDays);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.link_outlined),
+              title: Text(l.chatMenuP2P),
+              subtitle: Text(_contactP2PLabel(l, contact.p2pOverride)),
+              onTap: () {
+                Navigator.of(sheet).pop();
+                pickContactP2P(context, ref, peer, contact.p2pOverride);
+              },
+            ),
+            // Receiver policy: may this contact delete-for-everyone / clear our
+            // local copies? ON (default) = the peer's unsend removes our copy too.
+            SwitchListTile(
+              secondary: const Icon(Icons.delete_sweep_outlined),
+              title: Text(l.chatMenuAllowPeerDelete),
+              subtitle: Text(l.chatMenuAllowPeerDeleteHint),
+              isThreeLine: true,
+              value: contact.allowPeerDelete,
+              onChanged: (v) {
+                Navigator.of(sheet).pop();
+                svc.setContactAllowPeerDelete(peer, v);
+              },
+            ),
+            if (contact.status == ContactStatus.blocked)
+              ListTile(
+                leading: const Icon(Icons.lock_open_outlined),
+                title: Text(l.chatMenuUnblock),
+                onTap: () {
+                  Navigator.of(sheet).pop();
+                  svc.unblockContact(peer);
+                },
+              )
+            else
+              ListTile(
+                leading: const Icon(Icons.block),
+                title: Text(l.actionBlock),
+                onTap: () {
+                  Navigator.of(sheet).pop();
+                  svc.blockContact(peer);
+                },
+              ),
+            ListTile(
+              leading: const Icon(Icons.folder_outlined),
+              title: Text(l.chatMenuFolders),
+              onTap: () {
+                Navigator.of(sheet).pop();
+                pickFolders(context, ref, peer.hex);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.cleaning_services_outlined),
+              title: Text(l.chatMenuClearHistory),
+              onTap: () {
+                Navigator.of(sheet).pop();
+                _confirmClear(context, ref, peer);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: Text(l.chatMenuDeleteConversation),
+              onTap: () {
+                Navigator.of(sheet).pop();
+                _confirmDelete(context, ref, peer, onDeleted);
+              },
+            ),
+          ],
+        ),
       ),
     ),
   );
+}
+
+String _contactP2PLabel(AppL10n l, ContactP2POverride value) => switch (value) {
+  ContactP2POverride.followGlobal => l.contactP2PFollowGlobal,
+  ContactP2POverride.allow => l.contactP2PAllow,
+  ContactP2POverride.deny => l.contactP2PDeny,
+};
+
+Future<void> pickContactP2P(
+  BuildContext context,
+  WidgetRef ref,
+  NodeId peer,
+  ContactP2POverride current,
+) async {
+  final l = AppL10n.of(context);
+  final choice = await showDialog<ContactP2POverride>(
+    context: context,
+    builder: (context) => SimpleDialog(
+      title: Text(l.chatMenuP2P),
+      children: [
+        for (final v in ContactP2POverride.values)
+          ListTile(
+            title: Text(_contactP2PLabel(l, v)),
+            trailing: current == v ? const Icon(Icons.check) : null,
+            onTap: () => Navigator.of(context).pop(v),
+          ),
+      ],
+    ),
+  );
+  if (choice == null) return;
+  await ref.read(messagingServiceProvider).setContactP2POverride(peer, choice);
 }
 
 /// Folder membership editor for [peerHex]: a checkbox per folder (a chat can be
@@ -195,8 +236,10 @@ Future<void> pickFolders(
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
-                title: Text(l.chatMenuFolders,
-                    style: Theme.of(ctx).textTheme.titleMedium),
+                title: Text(
+                  l.chatMenuFolders,
+                  style: Theme.of(ctx).textTheme.titleMedium,
+                ),
               ),
               if (folders.isEmpty)
                 ListTile(title: Text(l.chatsFolderNoneYet))
@@ -361,21 +404,24 @@ Future<void> pickRetention(
   await ref.read(messagingServiceProvider).setContactRetention(peer, days);
   if (days != null && days > 0) {
     messenger.showSnackBar(
-      SnackBar(content: Text(l.retentionApplied), duration: const Duration(seconds: 1)),
+      SnackBar(
+        content: Text(l.retentionApplied),
+        duration: const Duration(seconds: 1),
+      ),
     );
   }
 }
 
 Widget _radioRow(String label, bool selected) => Row(
-      children: [
-        Icon(
-          selected ? Icons.radio_button_checked : Icons.radio_button_off,
-          size: 18,
-        ),
-        const SizedBox(width: 12),
-        Expanded(child: Text(label)),
-      ],
-    );
+  children: [
+    Icon(
+      selected ? Icons.radio_button_checked : Icons.radio_button_off,
+      size: 18,
+    ),
+    const SizedBox(width: 12),
+    Expanded(child: Text(label)),
+  ],
+);
 
 Future<void> _renameContact(
   BuildContext context,
@@ -393,7 +439,9 @@ Future<void> _renameContact(
     ),
   );
   if (newName == null || !context.mounted) return;
-  await ref.read(messagingServiceProvider).setContactName(contact.nodeId, newName);
+  await ref
+      .read(messagingServiceProvider)
+      .setContactName(contact.nodeId, newName);
 }
 
 Future<void> _confirmClear(
@@ -409,11 +457,13 @@ Future<void> _confirmClear(
       content: Text(l.chatClearHistoryBody),
       actions: [
         TextButton(
-            onPressed: () => Navigator.of(dialog).pop(false),
-            child: Text(l.actionCancel)),
+          onPressed: () => Navigator.of(dialog).pop(false),
+          child: Text(l.actionCancel),
+        ),
         FilledButton(
-            onPressed: () => Navigator.of(dialog).pop(true),
-            child: Text(l.chatClearHistoryConfirm)),
+          onPressed: () => Navigator.of(dialog).pop(true),
+          child: Text(l.chatClearHistoryConfirm),
+        ),
       ],
     ),
   );
@@ -427,7 +477,9 @@ Future<void> _confirmClear(
   } catch (e, st) {
     // Surface the failure instead of a silent no-op (a too-large commit threw
     // PayloadTooLarge and the clear aborted, leaving the history intact).
-    devLog(() => 'xVeil[clear]: clearConversation FAILED for ${peer.short}: $e\n$st');
+    devLog(
+      () => 'xVeil[clear]: clearConversation FAILED for ${peer.short}: $e\n$st',
+    );
   }
 }
 
@@ -445,11 +497,13 @@ Future<void> _confirmDelete(
       content: Text(l.chatDeleteChatBody),
       actions: [
         TextButton(
-            onPressed: () => Navigator.of(dialog).pop(false),
-            child: Text(l.actionCancel)),
+          onPressed: () => Navigator.of(dialog).pop(false),
+          child: Text(l.actionCancel),
+        ),
         FilledButton(
-            onPressed: () => Navigator.of(dialog).pop(true),
-            child: Text(l.chatDeleteConfirm)),
+          onPressed: () => Navigator.of(dialog).pop(true),
+          child: Text(l.chatDeleteConfirm),
+        ),
       ],
     ),
   );
@@ -512,8 +566,9 @@ class _DaysDialog extends StatefulWidget {
 }
 
 class _DaysDialogState extends State<_DaysDialog> {
-  late final TextEditingController _ctl =
-      TextEditingController(text: widget.initial?.toString() ?? '');
+  late final TextEditingController _ctl = TextEditingController(
+    text: widget.initial?.toString() ?? '',
+  );
 
   @override
   void dispose() {
@@ -567,8 +622,9 @@ class _TextDialog extends StatefulWidget {
 }
 
 class _TextDialogState extends State<_TextDialog> {
-  late final TextEditingController _ctl =
-      TextEditingController(text: widget.initial);
+  late final TextEditingController _ctl = TextEditingController(
+    text: widget.initial,
+  );
 
   @override
   void dispose() {
@@ -578,17 +634,17 @@ class _TextDialogState extends State<_TextDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        title: Text(widget.title),
-        content: TextField(controller: _ctl, autofocus: true),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(widget.cancelLabel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(_ctl.text),
-            child: Text(widget.saveLabel),
-          ),
-        ],
-      );
+    title: Text(widget.title),
+    content: TextField(controller: _ctl, autofocus: true),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: Text(widget.cancelLabel),
+      ),
+      FilledButton(
+        onPressed: () => Navigator.of(context).pop(_ctl.text),
+        child: Text(widget.saveLabel),
+      ),
+    ],
+  );
 }

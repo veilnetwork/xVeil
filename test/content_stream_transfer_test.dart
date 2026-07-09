@@ -224,7 +224,8 @@ class _GateWriteStream implements ReliableStream {
 }
 
 /// Datagram + reliable-stream loopback link between two peers.
-class _StreamLink implements VeilTransport, StreamTransport {
+class _StreamLink
+    implements VeilTransport, StreamTransport, P2PStreamTransport {
   _StreamLink(this._me);
   final NodeId _me;
   final _in = StreamController<InboundMessage>.broadcast();
@@ -232,12 +233,16 @@ class _StreamLink implements VeilTransport, StreamTransport {
   final routes = <String, _StreamLink>{};
   final sentPayloads = <Uint8List>[];
   final _accepts = <({ReliableStream stream, NodeId src})>[];
+  final _p2pAccepts = <({ReliableStream stream, NodeId src})>[];
   final acceptStreamWrappers =
       <ReliableStream Function(ReliableStream stream)>[];
   int openStreamFailures = 0;
   int openStreamAttemptCount = 0;
   int openedStreamCount = 0;
+  int p2pOpenStreamAttemptCount = 0;
+  int p2pOpenedStreamCount = 0;
   Completer<void>? _acceptWaiter;
+  Completer<void>? _p2pAcceptWaiter;
 
   @override
   Future<NodeId> nodeId() async => _me;
@@ -294,6 +299,24 @@ class _StreamLink implements VeilTransport, StreamTransport {
   }
 
   @override
+  Future<ReliableStream?> openP2PStream(NodeId dst) async {
+    p2pOpenStreamAttemptCount++;
+    final p = routes[dst.hex] ?? peer;
+    if (p == null) return null;
+    p2pOpenedStreamCount++;
+    final aToB = _Chan(), bToA = _Chan();
+    ReliableStream peerStream = _PipeEnd(bToA, aToB);
+    if (p.acceptStreamWrappers.isNotEmpty) {
+      peerStream = p.acceptStreamWrappers.removeAt(0)(peerStream);
+    }
+    p._p2pAccepts.add((stream: peerStream, src: _me));
+    final w = p._p2pAcceptWaiter;
+    p._p2pAcceptWaiter = null;
+    w?.complete();
+    return _PipeEnd(aToB, bToA);
+  }
+
+  @override
   Future<({ReliableStream stream, NodeId src})?> acceptStream({
     Duration timeout = const Duration(seconds: 2),
   }) async {
@@ -305,6 +328,20 @@ class _StreamLink implements VeilTransport, StreamTransport {
       }
     }
     return _accepts.isEmpty ? null : _accepts.removeAt(0);
+  }
+
+  @override
+  Future<({ReliableStream stream, NodeId src})?> acceptP2PStream({
+    Duration timeout = const Duration(milliseconds: 250),
+  }) async {
+    if (_p2pAccepts.isEmpty) {
+      try {
+        await (_p2pAcceptWaiter = Completer<void>()).future.timeout(timeout);
+      } catch (_) {
+        return null;
+      }
+    }
+    return _p2pAccepts.isEmpty ? null : _p2pAccepts.removeAt(0);
   }
 }
 
@@ -350,6 +387,25 @@ void main() {
     await mB.dispose();
   });
 
+  Future<String> advertiseFromA(
+    Uint8List data, {
+    String name = 'movie.bin',
+  }) async {
+    final cid = ContentManifest.fromBytes(name, data).contentId;
+    await mB.setFileDownloadPolicy(
+      mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+    );
+    await mA.sendFileStreaming(
+      b,
+      name,
+      data.length,
+      (o, l) async => Uint8List.sublistView(data, o, o + l),
+      close: () async {},
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    return cid;
+  }
+
   test(
     'STREAM download: receiver pulls a multi-piece file over a reliable '
     'stream, verifies every piece, stores it (no datagram chunk/re-request)',
@@ -379,6 +435,56 @@ void main() {
         data,
         reason: 'pulled + verified the whole',
       );
+    },
+  );
+
+  test('P2P policy allowed: bulk download opens direct stream first', () async {
+    await mA.dispose();
+    await mB.dispose();
+    mA = MessagingService(
+      tA,
+      sA,
+      contentPacing: Duration.zero,
+      plainFileStream: true,
+      p2pStreamAllowed: (_) async => true,
+    )..start();
+    mB = MessagingService(
+      tB,
+      sB,
+      contentPacing: Duration.zero,
+      plainFileStream: true,
+      p2pStreamAllowed: (_) async => true,
+    )..start();
+
+    final data = _rnd(180000, 71);
+    final cid = await advertiseFromA(data, name: 'p2p.bin');
+    final got = mB.contentReceived.first;
+
+    expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+    await got.timeout(const Duration(seconds: 20));
+
+    expect(await sB.loadFile(cid), data);
+    expect(tB.p2pOpenStreamAttemptCount, greaterThanOrEqualTo(1));
+    expect(
+      tB.openStreamAttemptCount,
+      0,
+      reason: 'allowed P2P should not fall back to anonymous stream',
+    );
+  });
+
+  test(
+    'P2P policy denied: bulk download uses anonymous stream fallback',
+    () async {
+      final data = _rnd(180000, 72);
+      final cid = await advertiseFromA(data, name: 'anon.bin');
+      final got = mB.contentReceived.first;
+
+      expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+      await got.timeout(const Duration(seconds: 20));
+
+      expect(await sB.loadFile(cid), data);
+      expect(tB.p2pOpenStreamAttemptCount, 0);
+      expect(tB.openStreamAttemptCount, greaterThanOrEqualTo(1));
     },
   );
 
@@ -824,70 +930,69 @@ void main() {
     },
   );
 
-  test(
-    'PLAIN-FILE download resumes byte-level: pieces already on disk are '
-    'hash-verified via the sink reader and NOT re-fetched',
-    () async {
-      final data = _rnd(700000, 61); // 3 pieces at the default 256 KiB.
-      final manifest = ContentManifest.fromBytes('plain-resume.bin', data);
-      final cid = manifest.contentId;
+  test('PLAIN-FILE download resumes byte-level: pieces already on disk are '
+      'hash-verified via the sink reader and NOT re-fetched', () async {
+    final data = _rnd(700000, 61); // 3 pieces at the default 256 KiB.
+    final manifest = ContentManifest.fromBytes('plain-resume.bin', data);
+    final cid = manifest.contentId;
 
-      await mB.setFileDownloadPolicy(
-        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
-      );
-      final serveOffsets = <int>[];
-      await mA.sendFileStreaming(b, 'plain-resume.bin', data.length, (
-        o,
-        l,
-      ) async {
-        serveOffsets.add(o);
-        return Uint8List.sublistView(data, o, o + l);
-      }, close: () async {});
-      serveOffsets.clear(); // ignore manifest hashing reads.
-      await Future<void>.delayed(const Duration(milliseconds: 80));
+    await mB.setFileDownloadPolicy(
+      mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+    );
+    final serveOffsets = <int>[];
+    await mA.sendFileStreaming(b, 'plain-resume.bin', data.length, (
+      o,
+      l,
+    ) async {
+      serveOffsets.add(o);
+      return Uint8List.sublistView(data, o, o + l);
+    }, close: () async {});
+    serveOffsets.clear(); // ignore manifest hashing reads.
+    await Future<void>.delayed(const Duration(milliseconds: 80));
 
-      // A plain-file destination that ALREADY holds pieces 0 and 1 (a prior run
-      // wrote them before a restart). The sink exposes read() — the resume path.
-      final onDisk = <int, Uint8List>{};
-      void seed(int i) => onDisk[i * manifest.pieceSize] =
-          Uint8List.sublistView(
-            data,
-            i * manifest.pieceSize,
-            i * manifest.pieceSize + manifest.pieceLength(i),
-          );
-      seed(0);
-      seed(1);
+    // A plain-file destination that ALREADY holds pieces 0 and 1 (a prior run
+    // wrote them before a restart). The sink exposes read() — the resume path.
+    final onDisk = <int, Uint8List>{};
+    void seed(int i) => onDisk[i * manifest.pieceSize] = Uint8List.sublistView(
+      data,
+      i * manifest.pieceSize,
+      i * manifest.pieceSize + manifest.pieceLength(i),
+    );
+    seed(0);
+    seed(1);
 
-      final got = mB.contentReceived.firstWhere((e) => e.contentId == cid);
-      final r = await mB.downloadContentToFileFromAny(
-        [a],
-        cid,
-        '/virtual/plain-resume.bin',
-        write: (offset, bytes) async => onDisk[offset] = bytes,
-        read: (offset, length) async {
-          final b = onDisk[offset];
-          if (b == null || b.length != length) return null;
-          return b;
-        },
-        close: () async {},
-      );
-      expect(r, ContentDownloadResult.started);
-      await got.timeout(const Duration(seconds: 20));
+    final got = mB.contentReceived.firstWhere((e) => e.contentId == cid);
+    final r = await mB.downloadContentToFileFromAny(
+      [a],
+      cid,
+      '/virtual/plain-resume.bin',
+      write: (offset, bytes) async => onDisk[offset] = bytes,
+      read: (offset, length) async {
+        final b = onDisk[offset];
+        if (b == null || b.length != length) return null;
+        return b;
+      },
+      close: () async {},
+    );
+    expect(r, ContentDownloadResult.started);
+    await got.timeout(const Duration(seconds: 20));
 
-      // The whole file is now assembled at the destination…
-      final assembled = BytesBuilder();
-      for (var i = 0; i < manifest.pieceCount; i++) {
-        assembled.add(onDisk[i * manifest.pieceSize]!);
-      }
-      expect(assembled.toBytes(), data);
-      // …but pieces 0 and 1 were already on disk, so only piece 2's offset was
-      // fetched from the holder.
-      expect(serveOffsets, isNot(contains(0)));
-      expect(serveOffsets, isNot(contains(manifest.pieceSize)));
-      expect(serveOffsets, contains(2 * manifest.pieceSize),
-          reason: 'only the missing piece is re-fetched on resume');
-    },
-  );
+    // The whole file is now assembled at the destination…
+    final assembled = BytesBuilder();
+    for (var i = 0; i < manifest.pieceCount; i++) {
+      assembled.add(onDisk[i * manifest.pieceSize]!);
+    }
+    expect(assembled.toBytes(), data);
+    // …but pieces 0 and 1 were already on disk, so only piece 2's offset was
+    // fetched from the holder.
+    expect(serveOffsets, isNot(contains(0)));
+    expect(serveOffsets, isNot(contains(manifest.pieceSize)));
+    expect(
+      serveOffsets,
+      contains(2 * manifest.pieceSize),
+      reason: 'only the missing piece is re-fetched on resume',
+    );
+  });
 
   test('STREAM range pull survives a transient stream-open outage', () async {
     await mB.dispose();

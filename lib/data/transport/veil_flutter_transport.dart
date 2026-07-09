@@ -16,11 +16,30 @@ import 'veil_transport.dart';
 /// Production [VeilTransport] over veil_flutter. Binds the shared `xveil/inbox`
 /// named endpoint, so a peer is addressable from its node id alone (its app_id
 /// is derived — see [chatAppIdFor], verified against the native bindNamed).
-class VeilFlutterTransport implements VeilTransport, StreamTransport {
-  VeilFlutterTransport._(this._client, this._app);
+class VeilFlutterTransport
+    implements VeilTransport, StreamTransport, P2PStreamTransport {
+  VeilFlutterTransport._(this._client, this._app, this._mediaApp) {
+    _mediaMessages = _mediaApp.messages().listen((m) {
+      final src = NodeId(m.srcNodeId);
+      if (!_bytesEqual(m.srcAppId, mediaAppIdFor(src))) {
+        devLog(
+          () =>
+              'xVeil[media-p2p]: drop direct media from ${src.short} '
+              '(unexpected app id)',
+        );
+        return;
+      }
+      _client.dispatchDirectMediaDatagram(
+        srcNodeId: m.srcNodeId,
+        payload: m.data,
+      );
+    });
+  }
 
   final VeilClient _client;
   final AppHandle _app;
+  final AppHandle _mediaApp;
+  StreamSubscription<dynamic>? _mediaMessages;
 
   /// Connect to a running node's app IPC socket and bind the chat endpoint.
   static Future<VeilFlutterTransport> connect(String socketPath) async {
@@ -31,7 +50,12 @@ class VeilFlutterTransport implements VeilTransport, StreamTransport {
         name: veilChatName,
         endpointId: veilChatEndpointId,
       );
-      return VeilFlutterTransport._(client, app);
+      final mediaApp = await client.bindNamed(
+        namespace: veilChatNamespace,
+        name: veilMediaName,
+        endpointId: veilMediaEndpointId,
+      );
+      return VeilFlutterTransport._(client, app, mediaApp);
     } catch (_) {
       await client.close();
       rethrow;
@@ -59,8 +83,15 @@ class VeilFlutterTransport implements VeilTransport, StreamTransport {
 
   /// Open a lossy media datagram channel to [dstNode] (32 bytes). Returns the
   /// channel id used by [sendMediaDatagram]/[closeMediaChannel].
-  Future<int> openMediaChannel(Uint8List dstNode) =>
-      _client.openMediaChannel(dstNodeId: dstNode);
+  Future<int> openMediaChannel(Uint8List dstNode, {bool direct = false}) async {
+    if (!direct) return _client.openMediaChannel(dstNodeId: dstNode);
+    final peer = NodeId(dstNode);
+    return _mediaApp.openDirectMediaChannel(
+      dstNodeId: dstNode,
+      dstAppId: mediaAppIdFor(peer),
+      dstEndpointId: veilMediaEndpointId,
+    );
+  }
 
   /// Enqueue one media datagram on [chan]. 0 queued / 1 dropped / -1 invalid.
   int sendMediaDatagram(int chan, Uint8List payload) =>
@@ -204,6 +235,25 @@ class VeilFlutterTransport implements VeilTransport, StreamTransport {
     }
   }
 
+  @override
+  Future<ReliableStream?> openP2PStream(NodeId dst) async {
+    try {
+      final s = await _app.openStream(
+        dstNodeId: dst.bytes,
+        dstAppId: chatAppIdFor(dst),
+        dstEndpointId: veilChatEndpointId,
+      );
+      return _VeilReliableStream(s);
+    } catch (e) {
+      devLog(
+        () =>
+            'xVeil[stream-p2p]: openStream(${dst.short}) failed, '
+            'falling back if possible: $e',
+      );
+      return null;
+    }
+  }
+
   /// Kick the native outbound circuit-pool open toward [dst] in the
   /// background so the next openStream/serve skips the cold-pool latency
   /// (first serve attempt after a restart died on the peer's 25 s manifest
@@ -230,6 +280,15 @@ class VeilFlutterTransport implements VeilTransport, StreamTransport {
       stream: _VeilAnonReliableStream(r.stream),
       src: NodeId(r.srcNodeId),
     );
+  }
+
+  @override
+  Future<({ReliableStream stream, NodeId src})?> acceptP2PStream({
+    Duration timeout = const Duration(milliseconds: 250),
+  }) async {
+    final r = await _app.acceptStream(timeout: timeout);
+    if (r == null) return null;
+    return (stream: _VeilReliableStream(r.stream), src: NodeId(r.srcNodeId));
   }
 
   @override
@@ -289,14 +348,44 @@ class VeilFlutterTransport implements VeilTransport, StreamTransport {
 
   @override
   Future<void> dispose() async {
+    final mediaMessages = _mediaMessages;
+    _mediaMessages = null;
+    await mediaMessages?.cancel();
+    await _mediaApp.close();
     await _app.close();
     await _client.close();
   }
 }
 
+bool _bytesEqual(Uint8List a, Uint8List b) {
+  if (a.length != b.length) return false;
+  var diff = 0;
+  for (var i = 0; i < a.length; i++) {
+    diff |= a[i] ^ b[i];
+  }
+  return diff == 0;
+}
+
 /// Adapts veil_flutter's [VeilStream] to the transport-agnostic [ReliableStream]
 /// port, so the messaging layer drives bulk transfers without depending on
 /// veil_flutter directly (and a fake pipe can stand in for tests).
+class _VeilReliableStream implements ReliableStream {
+  _VeilReliableStream(this._s);
+  final VeilStream _s;
+
+  @override
+  Future<void> write(Uint8List data) => _s.write(data);
+
+  @override
+  Future<Uint8List> read({int maxBytes = 65536}) => _s.read(maxBytes: maxBytes);
+
+  @override
+  Future<void> close() => _s.close();
+
+  @override
+  Future<void> abort() => _s.close();
+}
+
 class _VeilAnonReliableStream implements ReliableStream {
   _VeilAnonReliableStream(this._s);
   final VeilAnonStream _s;

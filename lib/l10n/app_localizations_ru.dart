@@ -434,6 +434,32 @@ class AppL10nRu extends AppL10n {
       'Как отвечать, когда контакт просит подтвердить, что вы написали сообщение';
 
   @override
+  String get settingsCommunication => 'Связь';
+
+  @override
+  String get settingsP2PPolicy => 'Политика P2P';
+
+  @override
+  String get settingsP2PPolicyHint =>
+      'Разрешает прямой транспорт для звонков, больших медиа, файлов и обмена между устройствами, когда обе стороны согласны.';
+
+  @override
+  String get settingsP2PPolicyAnonymousHint =>
+      'P2P отключён, пока эта личность использует анонимную маршрутизацию.';
+
+  @override
+  String get p2pPolicyAllowAll => 'Разрешить всем';
+
+  @override
+  String get p2pPolicyContacts => 'Разрешить контактам';
+
+  @override
+  String get p2pPolicySelected => 'Только указанным';
+
+  @override
+  String get p2pPolicyDenied => 'Запретить';
+
+  @override
   String get signaturePolicyAsk => 'Спрашивать каждый раз';
 
   @override
@@ -493,6 +519,21 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get muteHoursSuffix => 'часов';
+
+  @override
+  String get chatMenuCommunicationSettings => 'Настройки общения';
+
+  @override
+  String get chatMenuP2P => 'Связь P2P';
+
+  @override
+  String get contactP2PFollowGlobal => 'Следовать общей политике';
+
+  @override
+  String get contactP2PAllow => 'Разрешить';
+
+  @override
+  String get contactP2PDeny => 'Запретить';
 
   @override
   String get chatMenuAllowPeerDelete => 'Разрешить собеседнику удалять у меня';
@@ -684,6 +725,13 @@ class AppL10nRu extends AppL10n {
   @override
   String get settingsStorageAutoCompactBody =>
       'Сжимать автоматически, когда контейнер раздувается. Включайте ТОЛЬКО если в этом контейнере нет других скрытых личностей — сжатие сохраняет лишь разблокированное пространство.';
+
+  @override
+  String get settingsStorageLeanPadding => 'Экономить место';
+
+  @override
+  String get settingsStorageLeanPaddingBody =>
+      'Включено по умолчанию: будущие записи используют меньше padding, поэтому контейнер растет намного меньше. Отключите для более сильной маскировки изменения размера. Применится после переоткрытия приложения.';
 
   @override
   String get settingsStoragePasswordHint => 'Ваш пароль';

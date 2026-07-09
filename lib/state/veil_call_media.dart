@@ -4,8 +4,10 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:veil_media/veil_media.dart';
 
+import '../core/log.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call.dart';
+import '../domain/call_signal.dart';
 import 'android_camera_capture.dart';
 import 'call_service.dart';
 import 'mac_media_permissions.dart';
@@ -53,7 +55,7 @@ class VeilCallMediaController implements CallMediaController {
     final peerHex = call.peer.hex;
     if (_chan != null && _chanPeer == peerHex) return;
     try {
-      final chan = await _transport.openMediaChannel(call.peer.bytes);
+      final chan = await _openMediaChannelFor(call);
       // start() may have raced ahead and opened its own channel; don't clobber.
       if (_chan == null) {
         _chan = chan;
@@ -68,6 +70,10 @@ class VeilCallMediaController implements CallMediaController {
 
   @override
   Future<bool> start(Call call) async {
+    devLog(
+      () =>
+          'xVeil[call-media]: controller start platform=${Platform.operatingSystem}',
+    );
     // Reuse the channel prewarm() opened for this peer (its circuit is already
     // warming); only tear down a stale session for a different peer.
     if (_engine != null || (_chan != null && _chanPeer != call.peer.hex)) {
@@ -78,23 +84,31 @@ class VeilCallMediaController implements CallMediaController {
     // prompt block the call FSM: bound the wait, and proceed regardless (the
     // engine still comes up; capture starts once permission lands).
     if (call.media.audio) {
-      await MacMediaPermissions.requestMicrophone().timeout(
+      final granted = await MacMediaPermissions.requestMicrophone().timeout(
         const Duration(seconds: 5),
         onTimeout: () => false,
       );
+      devLog(() => 'xVeil[call-media]: mic permission=$granted');
     }
     if (call.media.video) {
-      await MacMediaPermissions.requestCamera().timeout(
+      final granted = await MacMediaPermissions.requestCamera().timeout(
         const Duration(seconds: 5),
         onTimeout: () => false,
       );
+      devLog(() => 'xVeil[call-media]: camera permission=$granted');
     }
     final localId = (await _transport.nodeId()).bytes;
     final peerId = call.peer.bytes;
     // Reuse the prewarmed channel if present (circuit already warming); else open.
+    final direct = call.transport == CallTransportKind.p2p;
     final chan = (_chan != null && _chanPeer == call.peer.hex)
         ? _chan!
-        : await _transport.openMediaChannel(peerId);
+        : await _openMediaChannelFor(call);
+    devLog(
+      () =>
+          'xVeil[call-media]: media channel=$chan '
+          '(${direct ? 'p2p-direct' : 'anon'})',
+    );
     _chan = chan;
     _chanPeer = call.peer.hex;
     final engine = VeilMediaEngine.create(
@@ -103,6 +117,7 @@ class VeilCallMediaController implements CallMediaController {
       peerId: peerId,
     );
     if (engine == null) {
+      devLog(() => 'xVeil[call-media]: engine create failed');
       _transport.closeMediaChannel(chan);
       _chan = null;
       _chanPeer = null;
@@ -125,18 +140,24 @@ class VeilCallMediaController implements CallMediaController {
       } catch (_) {}
     });
     final audioOk = engine.startAudio(send: true, recv: true);
+    devLog(() => 'xVeil[call-media]: startAudio=$audioOk');
+    var videoOk = false;
     // VP8 video over the same veil channel when the call requests video/screen.
     // Capture/render wiring lands with the platform capturer; the pipeline is
     // driven by the built-in test source under VEIL_MEDIA_TEST_VIDEO meanwhile.
     if (call.media.video || call.media.screen) {
-      engine.startVideo(send: true, recv: true);
+      videoOk = engine.startVideo(send: true, recv: true);
+      devLog(() => 'xVeil[call-media]: startVideo=$videoOk');
       // Drive the send stream from the real camera for a video call (screen
       // capture is a separate path). macOS captures natively inside the engine
       // (AVCaptureSession); Android streams via the `camera` plugin and pushes
       // I420 frames in from Dart.
       if (call.media.video) {
         if (Platform.isAndroid) {
-          await _startAndroidCam(engine);
+          // Do not hold the call FSM in `connecting` while the camera plugin
+          // opens or waits for permission; the native video pipeline is already
+          // mounted, and frames will start flowing once capture is ready.
+          unawaited(_startAndroidCam(engine));
         } else {
           try {
             engine.startCamera();
@@ -155,7 +176,9 @@ class VeilCallMediaController implements CallMediaController {
         } catch (_) {}
       });
     }
-    return audioOk;
+    final ok = audioOk || videoOk;
+    devLog(() => 'xVeil[call-media]: controller start result=$ok');
+    return ok;
   }
 
   @override
@@ -196,6 +219,21 @@ class VeilCallMediaController implements CallMediaController {
         _transport.closeMediaChannel(ch);
       } catch (_) {}
     }
+  }
+
+  Future<int> _openMediaChannelFor(Call call) async {
+    if (call.transport == CallTransportKind.p2p) {
+      try {
+        return await _transport.openMediaChannel(call.peer.bytes, direct: true);
+      } catch (e) {
+        devLog(
+          () =>
+              'xVeil[call-media]: direct media open failed for '
+              '${call.peer.short}, falling back to anon: $e',
+        );
+      }
+    }
+    return _transport.openMediaChannel(call.peer.bytes);
   }
 
   @override
