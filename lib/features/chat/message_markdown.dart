@@ -79,6 +79,30 @@ bool _startsWith(String s, int at, String marker) {
   return true;
 }
 
+/// Wrap the current [selection] of [text] in [marker] (e.g. `**` for bold),
+/// returning the new text and the selection to restore. With a real selection
+/// the wrapped content stays selected; with a collapsed cursor the markers are
+/// inserted and the cursor lands between them. Pure — unit-tested.
+({String text, TextSelection selection}) applyMarker(
+  String text,
+  TextSelection selection,
+  String marker,
+) {
+  final start = selection.isValid ? selection.start : text.length;
+  final end = selection.isValid ? selection.end : text.length;
+  final before = text.substring(0, start);
+  final middle = text.substring(start, end);
+  final after = text.substring(end);
+  final newText = '$before$marker$middle$marker$after';
+  return (
+    text: newText,
+    selection: TextSelection(
+      baseOffset: start + marker.length,
+      extentOffset: end + marker.length,
+    ),
+  );
+}
+
 /// Renders a message body with the [parseFormatted] subset. Bold / italic /
 /// underline / strikethrough / inline `code` / ``` code blocks / ||spoiler||.
 /// Spoilers are tap-to-reveal.

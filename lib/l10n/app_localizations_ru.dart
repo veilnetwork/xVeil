@@ -332,6 +332,27 @@ class AppL10nRu extends AppL10n {
   String get savedNoteHint => 'Заметка себе…';
 
   @override
+  String get chatFormatTooltip => 'Форматирование';
+
+  @override
+  String get chatFormatBold => 'Жирный';
+
+  @override
+  String get chatFormatItalic => 'Курсив';
+
+  @override
+  String get chatFormatUnderline => 'Подчёркнутый';
+
+  @override
+  String get chatFormatStrike => 'Зачёркнутый';
+
+  @override
+  String get chatFormatCode => 'Код';
+
+  @override
+  String get chatFormatSpoiler => 'Спойлер';
+
+  @override
   String get p2pSelectedTitle => 'Избранные контакты';
 
   @override
