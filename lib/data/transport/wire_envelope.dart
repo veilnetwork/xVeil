@@ -70,6 +70,30 @@ enum WireKind {
   unknown,
 }
 
+/// The loopback dev transport echoes every wire frame back prefixed with this,
+/// so `↩︎ echo: {"t":..}` bodies land in the log. Echoes of CONTROL frames
+/// (accept/sync/ack/…) are pure noise; only echoes of user content
+/// ([WireKind.message] / [WireKind.fileMeta]) are the visible loopback copy.
+const String _echoPrefix = '↩︎ echo:';
+
+/// True when [body] is a loopback echo of a NON-content wire frame — noise that
+/// must not appear as a chat message, a list preview, or an unread count.
+/// Whitelist by inner `t`: an echo of `message`/`fileMeta` is real content and
+/// returns false; every other echoed kind (and any malformed echo) is service
+/// noise and returns true. A non-echo body always returns false.
+bool isServiceEchoBody(String body) {
+  final text = body.trimLeft();
+  if (!text.startsWith(_echoPrefix)) return false;
+  try {
+    final decoded = jsonDecode(text.substring(_echoPrefix.length).trimLeft());
+    if (decoded is! Map) return true;
+    final t = decoded['t'];
+    return t != WireKind.message.index && t != WireKind.fileMeta.index;
+  } catch (_) {
+    return true; // an echo we can't parse is not user content
+  }
+}
+
 /// Typed wrapper over the raw transport payload, so the receiver can tell a
 /// connection request from a chat message (the consent gate). Serialised as
 /// compact JSON `{"t": <kind index>, "b": <body>, "i": <message id?>}`.

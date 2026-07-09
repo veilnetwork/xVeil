@@ -9,6 +9,7 @@ import '../../domain/event.dart';
 import '../../domain/identity.dart';
 import '../../domain/p2p_policy.dart';
 import '../../domain/roster.dart';
+import '../transport/wire_envelope.dart' show isServiceEchoBody;
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 
 import 'async_kv_log_store.dart';
@@ -370,6 +371,10 @@ class HiddenVolumeStorage implements Storage {
     final unread = <String, int>{};
     final readMarkers = <String, int>{}; // cache: one KV read per conversation
     for (final entry in await _scanLog()) {
+      // Loopback echoes of control frames (accept/sync/ack/…) are service
+      // noise — they must not become a conversation's preview or unread count
+      // (the in-chat window filters them the same way via isServiceEchoBody).
+      if (isServiceEchoBody(entry.body)) continue;
       final existing = byConv[entry.conversationId];
       if (existing == null || entry.timestamp.isAfter(existing.timestamp)) {
         byConv[entry.conversationId] = entry;
