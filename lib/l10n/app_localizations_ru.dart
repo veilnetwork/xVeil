@@ -273,6 +273,12 @@ class AppL10nRu extends AppL10n {
   String get trayHide => 'Скрыть';
 
   @override
+  String get trayIdentities => 'Личности';
+
+  @override
+  String get trayLock => 'Заблокировать';
+
+  @override
   String get trayQuit => 'Выход';
 
   @override

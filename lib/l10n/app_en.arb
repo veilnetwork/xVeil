@@ -90,6 +90,8 @@
   "settingsCloseToTrayHint": "Closing the window hides it to the system tray and keeps running, so messages and notifications keep arriving. Off = closing quits.",
   "trayShow": "Show",
   "trayHide": "Hide",
+  "trayIdentities": "Identities",
+  "trayLock": "Lock",
   "trayQuit": "Quit",
   "chatListDelete": "Delete chat",
   "chatDeleteChatTitle": "Delete this chat?",
