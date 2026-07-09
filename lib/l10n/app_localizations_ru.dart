@@ -353,6 +353,9 @@ class AppL10nRu extends AppL10n {
   String get chatFormatSpoiler => 'Спойлер';
 
   @override
+  String get chatLinkCopied => 'Ссылка скопирована';
+
+  @override
   String get p2pSelectedTitle => 'Избранные контакты';
 
   @override
