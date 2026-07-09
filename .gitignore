@@ -1,6 +1,8 @@
 temp
 graphify-out
 scratchpad/
+# Local planning notes, deliberately untracked.
+ROADMAP.md
 # Miscellaneous
 *.class
 *.log
