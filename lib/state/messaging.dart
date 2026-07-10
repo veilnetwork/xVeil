@@ -35,6 +35,7 @@ import 'providers.dart';
 import 'signature_policy_controller.dart';
 import 'thumbnail.dart';
 import 'video_thumb.dart';
+import 'vnote_message.dart';
 import 'voice_message.dart';
 import 'package:xveil/core/log.dart';
 
@@ -3808,6 +3809,24 @@ class MessagingService {
     // the spoken language, not their own locale.
     final sidecar = encodeVoiceSidecar(durationMs, waveform, lang: lang);
     final name = '${_uuid.v4()}$kVoiceFileExt';
+    await _sendAsContent(dst, bytes, name, thumbOverride: sidecar);
+  }
+
+  /// Send a VIDEO NOTE (round message): the VNOTE1 clip [bytes] ride the
+  /// content layer like a small file, named `.vnote` so both ends render the
+  /// round bubble. Duration + the first-frame micro-thumb travel in the same
+  /// `thumb` sidecar (tagged `vn1:`) — the receiver renders BEFORE/without
+  /// downloading. Gated to accepted contacts inside [_sendAsContent].
+  Future<void> sendVideoNote(
+    NodeId dst,
+    Uint8List bytes,
+    int durationMs, {
+    String? thumbB64,
+  }) async {
+    _mailbox?.noteActivity(); // user action → mailbox burst window
+    _warmStreamPeer(dst);
+    final sidecar = encodeVnoteSidecar(durationMs, thumbB64);
+    final name = '${_uuid.v4()}$kVnoteFileExt';
     await _sendAsContent(dst, bytes, name, thumbOverride: sidecar);
   }
 

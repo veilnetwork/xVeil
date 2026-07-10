@@ -11,7 +11,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:veil_media/veil_media.dart' show VeilVideoFrame;
+import 'package:veil_media/veil_media.dart'
+    show VeilVideoFrame, VeilVnotePlayer;
 
 import '../../core/format.dart';
 import '../../core/ids.dart';
@@ -34,6 +35,7 @@ import '../../state/providers.dart';
 import '../../state/thumbnail.dart';
 import '../../state/transcription_controller.dart';
 import '../../state/voice_message.dart';
+import '../../state/vnote_message.dart';
 import '../../state/vnote_record_controller.dart';
 import '../../state/voice_play_controller.dart';
 import '../../state/voice_record_controller.dart';
@@ -633,6 +635,31 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           // Tag the note with our UI language so the receiver transcribes it
           // in the language it was spoken in.
           lang: ui.PlatformDispatcher.instance.locale.languageCode,
+        );
+    _scrollToBottom(force: true);
+  }
+
+  /// Send a recorded round video note: grab the first frame as the sidecar
+  /// micro-thumb (the receiver renders the circle before downloading), then
+  /// ship the clip through the content path.
+  Future<void> _sendVnoteClip(VnoteClip clip) async {
+    String? thumb;
+    final player = VeilVnotePlayer.create(clip.bytes);
+    if (player != null) {
+      try {
+        final f = player.frameAt(0);
+        if (f != null) {
+          thumb = await makeRgbaThumbB64(f.rgba, f.width, f.height);
+        }
+      } finally {
+        player.dispose();
+      }
+    }
+    await ref.read(messagingServiceProvider).sendVideoNote(
+          _peer,
+          clip.bytes,
+          clip.durationMs,
+          thumbB64: thumb,
         );
     _scrollToBottom(force: true);
   }
@@ -2042,6 +2069,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               onSend: () => _submit(status),
               onAttach: _attach,
               onVoice: _sendVoiceClip,
+              onVideoNote: _sendVnoteClip,
             ),
           ],
         );
@@ -2397,6 +2425,98 @@ Uint8List? _decodeThumbB64(String? tb) {
     return base64Decode(tb);
   } catch (_) {
     return null;
+  }
+}
+
+/// Round video note: the first-frame micro-thumb in a circle (rendered from
+/// the `vn1:` sidecar BEFORE/without downloading) + duration below, with a
+/// download / progress / play affordance in the middle. Playback is the next
+/// brick — the play control is a live tap with a "coming soon" toast, not a
+/// dead circle.
+class _VnoteBubble extends StatelessWidget {
+  const _VnoteBubble({
+    required this.sidecar,
+    required this.outgoing,
+    required this.downloaded,
+    this.progress,
+    this.onDownload,
+  });
+
+  final VnoteSidecar? sidecar;
+  final bool outgoing;
+  final bool downloaded;
+  final double? progress;
+  final VoidCallback? onDownload;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final onBubble = outgoing ? scheme.onPrimary : scheme.onSurface;
+    final thumb = _decodeThumbB64(sidecar?.thumbB64);
+    final l = AppL10n.of(context);
+
+    void onTap() {
+      if (!downloaded) {
+        onDownload?.call();
+        return;
+      }
+      // Playback lands with the player brick.
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(l.comingSoon)));
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        GestureDetector(
+          onTap: onTap,
+          child: ClipOval(
+            child: SizedBox(
+              width: 180,
+              height: 180,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (thumb != null)
+                    Image.memory(thumb,
+                        fit: BoxFit.cover, filterQuality: FilterQuality.low)
+                  else
+                    ColoredBox(color: scheme.surfaceContainerHighest),
+                  // Dim + the center affordance.
+                  ColoredBox(color: Colors.black.withValues(alpha: 0.18)),
+                  Center(
+                    child: progress != null
+                        ? SizedBox(
+                            width: 36,
+                            height: 36,
+                            child: CircularProgressIndicator(
+                              value: progress == 0 ? null : progress,
+                              strokeWidth: 3,
+                              color: Colors.white,
+                            ),
+                          )
+                        : Icon(
+                            downloaded ? Icons.play_arrow : Icons.download,
+                            color: Colors.white,
+                            size: 44,
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          formatVoiceDuration(sidecar?.duration),
+          style: Theme.of(context)
+              .textTheme
+              .labelSmall
+              ?.copyWith(color: onBubble.withValues(alpha: 0.8)),
+        ),
+      ],
+    );
   }
 }
 
@@ -3320,7 +3440,28 @@ class _Bubble extends ConsumerWidget {
                     onTap: onTapQuote,
                     child: _QuoteBlock(quoted: quoted, outgoing: outgoing),
                   ),
-                if (message.isFile && isVoiceFileName(message.fileName))
+                if (message.isFile && isVnoteFileName(message.fileName))
+                  FutureBuilder<_FileAffordance>(
+                    future: _affordance(ref),
+                    builder: (context, snap) {
+                      final a = snap.data ??
+                          (message.fileId != null
+                              ? _FileAffordance.save
+                              : _FileAffordance.download);
+                      final downloaded = progress == null &&
+                          a == _FileAffordance.save;
+                      return _VnoteBubble(
+                        sidecar: decodeVnoteSidecar(message.thumb),
+                        outgoing: outgoing,
+                        downloaded: downloaded,
+                        progress: progress,
+                        onDownload: (!downloaded && onTapFile != null)
+                            ? () => onTapFile!(message)
+                            : null,
+                      );
+                    },
+                  )
+                else if (message.isFile && isVoiceFileName(message.fileName))
                   FutureBuilder<_FileAffordance>(
                     future: _affordance(ref),
                     builder: (context, snap) {
@@ -3736,7 +3877,6 @@ class _Composer extends ConsumerStatefulWidget {
     required this.onSend,
     this.onAttach,
     this.onVoice,
-    // ignore: unused_element_parameter
     this.onVideoNote,
   });
   final TextEditingController controller;
@@ -3752,10 +3892,7 @@ class _Composer extends ConsumerStatefulWidget {
   final void Function(VoiceClip clip)? onVoice;
 
   /// When set, the capture button gains a mic↔camera mode toggle and the
-  /// camera mode records a round video note ([VnoteClip]). Wired by the
-  /// send-path brick — until then the toggle stays hidden (null).
-  // Staged: brick 4 (sendVideoNote) passes it.
-  // ignore: unused_element_parameter
+  /// camera mode records a round video note ([VnoteClip]).
   final void Function(VnoteClip clip)? onVideoNote;
 
   @override

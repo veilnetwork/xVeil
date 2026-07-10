@@ -9,6 +9,7 @@
 // anything undecodable (not an image, corrupt) or still over budget — a thumb
 // is always OPTIONAL, the message works without it.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -49,6 +50,50 @@ bool isImageFileName(String? name) {
 /// preview (the UI upscales + blurs it); photographic PNGs at 32 px are
 /// usually 1.5–3 KB, so the smaller rungs are the fallback for noisy images.
 const List<int> _thumbDims = [32, 24, 16];
+
+/// Encode a micro-thumbnail from a RAW RGBA frame (a video-note first frame —
+/// there is no encoded source file to hand to the codec ladder). Scales to
+/// the same ladder rungs and returns base64 PNG under the same byte budget,
+/// or null when nothing fits / the frame is empty.
+Future<String?> makeRgbaThumbB64(Uint8List rgba, int width, int height) async {
+  if (rgba.isEmpty || width <= 0 || height <= 0) return null;
+  final completer = Completer<ui.Image>();
+  ui.decodeImageFromPixels(
+      rgba, width, height, ui.PixelFormat.rgba8888, completer.complete);
+  final src = await completer.future;
+  try {
+    for (final dim in _thumbDims) {
+      final scale = dim / math.max(width, height);
+      final tw = scale >= 1 ? width : math.max(1, (width * scale).round());
+      final th = scale >= 1 ? height : math.max(1, (height * scale).round());
+      final recorder = ui.PictureRecorder();
+      final canvas = ui.Canvas(recorder);
+      canvas.drawImageRect(
+        src,
+        ui.Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
+        ui.Rect.fromLTWH(0, 0, tw.toDouble(), th.toDouble()),
+        ui.Paint()..filterQuality = ui.FilterQuality.medium,
+      );
+      final picture = recorder.endRecording();
+      final img = await picture.toImage(tw, th);
+      picture.dispose();
+      try {
+        final data = await img.toByteData(format: ui.ImageByteFormat.png);
+        if (data != null && data.lengthInBytes <= kThumbMaxRawBytes) {
+          return base64Encode(data.buffer.asUint8List(0, data.lengthInBytes));
+        }
+      } finally {
+        img.dispose();
+      }
+      if (scale >= 1) break;
+    }
+    return null;
+  } catch (_) {
+    return null;
+  } finally {
+    src.dispose();
+  }
+}
 
 /// Encode a micro-thumbnail for [bytes] (an image file's full contents) as
 /// base64 PNG, or null when [bytes] is not a decodable image or no ladder
