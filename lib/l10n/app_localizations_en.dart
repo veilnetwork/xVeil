@@ -219,6 +219,21 @@ class AppL10nEn extends AppL10n {
   String get chatAttachTooltip => 'Attach a file';
 
   @override
+  String get chatVoiceHold => 'Hold to record a voice message';
+
+  @override
+  String get chatVoiceSlideCancel => 'Slide to cancel';
+
+  @override
+  String get chatVoiceReleaseCancel => 'Release to cancel';
+
+  @override
+  String get chatVoiceMicDenied => 'Microphone access denied';
+
+  @override
+  String get chatVoiceRecordFailed => 'Couldn\'t record — try again';
+
+  @override
   String get chatFileSave => 'Save';
 
   @override

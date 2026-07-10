@@ -30,6 +30,7 @@ import '../../state/notifications.dart';
 import '../../state/providers.dart';
 import '../../state/thumbnail.dart';
 import '../../state/voice_message.dart';
+import '../../state/voice_record_controller.dart';
 import 'voice_waveform.dart';
 import 'emoji_panel.dart';
 import 'video_player_screen.dart';
@@ -620,6 +621,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// for now the bubble's play control acknowledges (so it's never a dead tap).
   void _playVoice(Message m) {
     _snack(AppL10n.of(context).comingSoon);
+  }
+
+  /// Send a recorded voice clip (from the composer's hold-to-record button).
+  void _sendVoiceClip(VoiceClip clip) {
+    ref
+        .read(messagingServiceProvider)
+        .sendVoice(_peer, clip.bytes, clip.durationMs, clip.waveform);
+    _scrollToBottom(force: true);
   }
 
   /// Tap on a file bubble: if we already hold the blob, save it out. For an OFFER
@@ -2027,6 +2036,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               hint: l.chatNewMessageHint,
               onSend: () => _submit(status),
               onAttach: _attach,
+              onVoice: _sendVoiceClip,
             ),
           ],
         );
@@ -3516,13 +3526,14 @@ class _Bubble extends ConsumerWidget {
   };
 }
 
-class _Composer extends StatelessWidget {
+class _Composer extends ConsumerStatefulWidget {
   const _Composer({
     required this.controller,
     required this.focusNode,
     required this.hint,
     required this.onSend,
     this.onAttach,
+    this.onVoice,
   });
   final TextEditingController controller;
   final FocusNode focusNode;
@@ -3531,6 +3542,28 @@ class _Composer extends StatelessWidget {
 
   /// When set (accepted contacts only), shows a file-attach button.
   final VoidCallback? onAttach;
+
+  /// When set (accepted contacts only), shows a hold-to-record mic button on
+  /// an empty field; releasing sends the recorded [VoiceClip].
+  final void Function(VoiceClip clip)? onVoice;
+
+  @override
+  ConsumerState<_Composer> createState() => _ComposerState();
+}
+
+class _ComposerState extends ConsumerState<_Composer> {
+  TextEditingController get controller => widget.controller;
+  FocusNode get focusNode => widget.focusNode;
+  VoidCallback get onSend => widget.onSend;
+  VoidCallback? get onAttach => widget.onAttach;
+
+  /// Rolling recent capture levels, painted as the live waveform while
+  /// recording. Fed from the record controller's poll ticks.
+  final List<double> _liveLevels = [];
+
+  /// True once the in-progress recording has been dragged past the cancel
+  /// threshold — releasing then discards instead of sending.
+  bool _cancelling = false;
 
   /// Wrap the current selection (or insert at the cursor) with a formatting
   /// marker, keeping focus + the wrapped selection so the user can keep typing
@@ -3592,9 +3625,51 @@ class _Composer extends StatelessWidget {
     focusNode.requestFocus();
   }
 
+  Future<void> _startRecording() async {
+    _cancelling = false;
+    _liveLevels.clear();
+    await ref.read(voiceRecordControllerProvider.notifier).start();
+  }
+
+  void _finishRecording() {
+    final ctrl = ref.read(voiceRecordControllerProvider.notifier);
+    if (_cancelling) {
+      ctrl.cancel();
+      return;
+    }
+    final clip = ctrl.stop();
+    if (clip != null) widget.onVoice?.call(clip);
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
+    // Feed the live waveform + surface permission/record failures.
+    ref.listen<VoiceRecordState>(voiceRecordControllerProvider, (prev, next) {
+      if (next.phase == VoiceRecordPhase.recording) {
+        setState(() {
+          _liveLevels.add(next.level);
+          if (_liveLevels.length > 44) _liveLevels.removeAt(0);
+        });
+      } else if (_liveLevels.isNotEmpty) {
+        setState(_liveLevels.clear);
+      }
+      if (next.phase == VoiceRecordPhase.denied) {
+        _showComposerSnack(l.chatVoiceMicDenied);
+      } else if (next.phase == VoiceRecordPhase.error) {
+        _showComposerSnack(l.chatVoiceRecordFailed);
+      }
+    });
+    final rec = ref.watch(voiceRecordControllerProvider);
+    if (rec.isRecording) {
+      return SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+          child: _recordingBar(context, l, rec),
+        ),
+      );
+    }
     // Desktop formatting hotkeys: Cmd/Ctrl + B / I / U (and E for inline code).
     final field = CallbackShortcuts(
       bindings: {
@@ -3634,7 +3709,7 @@ class _Composer extends StatelessWidget {
         maxLines: 5,
         textInputAction: TextInputAction.newline,
         keyboardType: TextInputType.multiline,
-        decoration: InputDecoration(hintText: hint),
+        decoration: InputDecoration(hintText: widget.hint),
       ),
     );
     return SafeArea(
@@ -3722,11 +3797,97 @@ class _Composer extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 4),
-            IconButton.filled(onPressed: onSend, icon: const Icon(Icons.send)),
+            // Empty field + voice enabled → hold-to-record mic; otherwise send.
+            if (widget.onVoice != null)
+              ValueListenableBuilder<TextEditingValue>(
+                valueListenable: controller,
+                builder: (_, value, child) => value.text.trim().isEmpty
+                    ? _micButton(context, l)
+                    : IconButton.filled(
+                        onPressed: onSend, icon: const Icon(Icons.send)),
+              )
+            else
+              IconButton.filled(
+                  onPressed: onSend, icon: const Icon(Icons.send)),
           ],
         ),
       ),
     );
+  }
+
+  /// Hold-to-record mic button. Long-press starts capture; dragging left past a
+  /// threshold arms cancel; release sends (or cancels). A short tap just hints.
+  Widget _micButton(BuildContext context, AppL10n l) {
+    final scheme = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: () => _showComposerSnack(l.chatVoiceHold),
+      onLongPressStart: (_) => _startRecording(),
+      onLongPressMoveUpdate: (d) {
+        final cancelling = d.offsetFromOrigin.dx < -60;
+        if (cancelling != _cancelling) setState(() => _cancelling = cancelling);
+      },
+      onLongPressEnd: (_) => _finishRecording(),
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: scheme.primary,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(Icons.mic, color: scheme.onPrimary),
+      ),
+    );
+  }
+
+  Widget _recordingBar(BuildContext context, AppL10n l, VoiceRecordState rec) {
+    final scheme = Theme.of(context).colorScheme;
+    final elapsed = formatVoiceDuration(Duration(milliseconds: rec.elapsedMs));
+    return Row(
+      children: [
+        // Pulsing record dot + elapsed time.
+        Icon(Icons.fiber_manual_record, color: scheme.error, size: 14),
+        const SizedBox(width: 8),
+        SizedBox(
+          width: 44,
+          child: Text(elapsed,
+              style: Theme.of(context).textTheme.labelMedium),
+        ),
+        Expanded(
+          child: SizedBox(
+            height: 28,
+            child: _liveLevels.isEmpty
+                ? const SizedBox.shrink()
+                : VoiceWaveform(
+                    bars: _liveLevels,
+                    playedColor: scheme.primary,
+                    unplayedColor: scheme.primary,
+                  ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          _cancelling ? l.chatVoiceReleaseCancel : l.chatVoiceSlideCancel,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: _cancelling ? scheme.error : scheme.onSurfaceVariant,
+              ),
+        ),
+        const SizedBox(width: 8),
+        // A cancel button as a keyboard/pointer-friendly complement to the drag.
+        IconButton(
+          icon: Icon(Icons.delete_outline, color: scheme.error),
+          tooltip: l.actionCancel,
+          onPressed: () =>
+              ref.read(voiceRecordControllerProvider.notifier).cancel(),
+        ),
+      ],
+    );
+  }
+
+  void _showComposerSnack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(msg)));
   }
 }
 
