@@ -240,6 +240,13 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
   /// only when this changes, not on every pass (log-noise budget).
   int? _lastLoggedKnownRelayCount;
 
+  /// Last drain pass's reply outcome (`replies/expected`), for change-only
+  /// logging: one slow/dead relay makes EVERY pass time out with the same
+  /// shortfall, and a line per pass is pure idle noise. Log when the outcome
+  /// CHANGES — including the recovery back to a full window, which the
+  /// per-pass timeout line never showed at all.
+  String? _lastReplyOutcome;
+
   @override
   Future<void> put({
     required NodeId receiver,
@@ -509,9 +516,20 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
         try {
           await window.future.timeout(_fetchTimeout);
         } on TimeoutException {
-          devLog(() => 'xVeil[drain]: reply window closed with '
-              '$replies/$expected replies');
+          // Change-only: a persistently slow relay repeats the same shortfall
+          // every pass (see _lastReplyOutcome).
+          final outcome = '$replies/$expected';
+          if (outcome != _lastReplyOutcome) {
+            _lastReplyOutcome = outcome;
+            devLog(() => 'xVeil[drain]: reply window closed with '
+                '$outcome replies');
+          }
         }
+      }
+      if (expected > 0 && replies >= expected && _lastReplyOutcome != null) {
+        _lastReplyOutcome = null;
+        devLog(() =>
+            'xVeil[drain]: reply window recovered ($replies/$expected)');
       }
     } finally {
       await sub.cancel();
