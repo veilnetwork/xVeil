@@ -234,6 +234,15 @@ class AppL10nEn extends AppL10n {
   String get chatVoiceRecordFailed => 'Couldn\'t record — try again';
 
   @override
+  String get chatVoiceTranscribe => 'Transcribe';
+
+  @override
+  String get chatVoiceTranscribing => 'Transcribing…';
+
+  @override
+  String get chatVoiceTranscribeFailed => 'Couldn\'t transcribe';
+
+  @override
   String get chatFileSave => 'Save';
 
   @override
