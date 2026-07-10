@@ -170,6 +170,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/record_voice':
           await _recordVoice(req);
           return;
+        case '/send_voice':
+          await _sendVoice(req);
+          return;
         case '/identity':
           await _identity(req);
           return;
@@ -397,6 +400,49 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'sampleRate': sampleRate,
       'packetCount': packetCount,
       'waveform': clip.waveform.map((v) => (v * 100).round()).toList(),
+    });
+  }
+
+  /// Record `?ms=` (default 2000) then send it as a voice message to `?peer=`.
+  /// Smoke-drives brick 4 (sendVoice) end-to-end so the wire crossing + the
+  /// receiver's voice bubble can be verified without the composer UI.
+  Future<void> _sendVoice(HttpRequest req) async {
+    final rawPeer = req.uri.queryParameters['peer']?.trim();
+    if (rawPeer == null || rawPeer.isEmpty) {
+      return _json(req, {'ok': false, 'error': 'peer required'}, status: 400);
+    }
+    NodeId peer;
+    try {
+      peer = NodeId.fromHex(rawPeer);
+    } catch (e) {
+      return _json(req, {'ok': false, 'error': '$e'}, status: 400);
+    }
+    final ms = int.tryParse(req.uri.queryParameters['ms'] ?? '') ?? 2000;
+    final rec = VeilAudioRecorder.create();
+    if (rec == null) {
+      return _json(req, {'ok': false, 'error': 'recorder unavailable'},
+          status: 500);
+    }
+    await MacMediaPermissions.requestMicrophone()
+        .timeout(const Duration(seconds: 5), onTimeout: () => false);
+    if (!rec.start()) {
+      rec.dispose();
+      return _json(req, {'ok': false, 'error': 'start failed'}, status: 500);
+    }
+    await Future<void>.delayed(Duration(milliseconds: ms));
+    final clip = rec.stop();
+    rec.dispose();
+    if (clip == null) {
+      return _json(req, {'ok': false, 'error': 'empty clip'});
+    }
+    await ref
+        .read(messagingServiceProvider)
+        .sendVoice(peer, clip.bytes, clip.durationMs, clip.waveform);
+    return _json(req, {
+      'ok': true,
+      'peer': peer.hex,
+      'bytes': clip.bytes.length,
+      'durationMs': clip.durationMs,
     });
   }
 
