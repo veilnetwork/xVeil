@@ -3875,14 +3875,30 @@ class MessagingService {
       rethrow;
     }
     final cid = base.contentId;
-    // Micro-thumb for a streamed IMAGE: the source isn't in RAM, so read it
-    // once (bounded — image decode needs the whole file anyway) purely for
-    // thumb generation. Reads are serialized by the source's gate; the buffer
-    // is transient. Over-cap images just skip the thumb — it is optional.
+    // Streamed IMAGE extras — the source isn't in RAM, so read it once
+    // (bounded; image decode needs the whole file anyway) and reuse the
+    // buffer twice. Reads are serialized by the source's gate.
+    // 1. Micro-thumb for the message (optional — over-cap images skip it).
+    // 2. A LOCAL piece-store copy, so the SENDER's own bubble renders the
+    //    inline preview (loadFile(cid) → pieces) instead of a dead
+    //    thumb-with-download-affordance: the no-local-copy rule exists for
+    //    TB attachments, but an image under the cap costs pennies and its
+    //    own preview is the whole point (user-reported: outgoing images
+    //    showed as chips / perpetual blurred thumb on desktop). Also keeps
+    //    the serve alive even if the source file later moves away.
     String? thumb;
     if (isImageFileName(name) && size <= kThumbSourceReadCapBytes) {
       try {
-        thumb = await makeMessageThumbB64(await read(0, size));
+        final imageBytes = await read(0, size);
+        thumb = await makeMessageThumbB64(imageBytes);
+        try {
+          await _storeServedBlob(base, imageBytes);
+        } catch (e) {
+          devLog(
+            () => 'xVeil[content]: stream-send local copy skipped for '
+                '$name: $e',
+          );
+        }
       } catch (e) {
         devLog(() => 'xVeil[content]: stream-send thumb skipped for $name: $e');
       }

@@ -3160,6 +3160,23 @@ class _Composer extends StatelessWidget {
     focusNode.requestFocus();
   }
 
+  /// Insert a newline at the cursor (replacing any selection). Bound to
+  /// Shift+Enter: Flutter maps no default editing action to it, so without an
+  /// explicit binding the keystroke would do NOTHING once plain Enter is
+  /// claimed by the send shortcut.
+  void _insertNewline() {
+    final v = controller.value;
+    final sel = v.selection;
+    final start = sel.isValid ? sel.start : v.text.length;
+    final end = sel.isValid ? sel.end : v.text.length;
+    controller.value = v.copyWith(
+      text: v.text.replaceRange(start, end, '\n'),
+      selection: TextSelection.collapsed(offset: start + 1),
+      composing: TextRange.empty,
+    );
+    focusNode.requestFocus();
+  }
+
   /// Prefix every line spanned by the selection (or the cursor's line) with
   /// `> `, turning it into a block quote. Line-level, so it can't reuse the
   /// marker-wrap path — the region is expanded to whole lines first.
@@ -3207,14 +3224,26 @@ class _Composer extends StatelessWidget {
             _wrap('`'),
         const SingleActivator(LogicalKeyboardKey.keyE, control: true): () =>
             _wrap('`'),
+        // Telegram convention: Enter SENDS, Shift+Enter inserts a newline.
+        // Both are explicit bindings: plain Enter is claimed by send, and
+        // Flutter maps no default editing action to Shift+Enter, so the
+        // newline must be inserted by hand. On mobile the IME return key is
+        // a plain newline (textInputAction: newline) and sending is the
+        // send button.
+        const SingleActivator(LogicalKeyboardKey.enter): onSend,
+        const SingleActivator(LogicalKeyboardKey.numpadEnter): onSend,
+        const SingleActivator(LogicalKeyboardKey.enter, shift: true):
+            _insertNewline,
+        const SingleActivator(LogicalKeyboardKey.numpadEnter, shift: true):
+            _insertNewline,
       },
       child: TextField(
         controller: controller,
         focusNode: focusNode,
         minLines: 1,
         maxLines: 5,
-        textInputAction: TextInputAction.send,
-        onSubmitted: (_) => onSend(),
+        textInputAction: TextInputAction.newline,
+        keyboardType: TextInputType.multiline,
         decoration: InputDecoration(hintText: hint),
       ),
     );
