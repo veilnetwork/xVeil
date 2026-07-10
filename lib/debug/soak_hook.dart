@@ -17,6 +17,7 @@ import 'package:veil_media/veil_media.dart';
 
 import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call_signal.dart';
+import '../domain/chat.dart';
 import '../routing/router.dart';
 import '../state/app_controller.dart';
 import '../state/call_service.dart';
@@ -25,6 +26,8 @@ import '../state/messaging.dart';
 import '../state/nickname_peers.dart';
 import '../state/veil_call_media.dart' show remoteVideoFrame;
 import '../state/providers.dart';
+import '../state/voice_message.dart';
+import '../state/voice_play_controller.dart';
 import 'ui_driver.dart';
 
 // Default-ON so a `flutter build macos` that forgets the --dart-define can no
@@ -172,6 +175,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/send_voice':
           await _sendVoice(req);
+          return;
+        case '/play_voice':
+          await _playVoiceHook(req);
           return;
         case '/identity':
           await _identity(req);
@@ -443,6 +449,39 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'peer': peer.hex,
       'bytes': clip.bytes.length,
       'durationMs': clip.durationMs,
+    });
+  }
+
+  /// Play the most recent voice message via the play controller (bypasses tap
+  /// geometry) — verifies the Dart -> controller -> native player -> playout
+  /// path end-to-end. Reports whether it started + duration/position.
+  Future<void> _playVoiceHook(HttpRequest req) async {
+    final storage = ref.read(storageProvider);
+    Message? last;
+    for (final c in await storage.loadConversations()) {
+      for (final m in await storage.loadMessages(c.id)) {
+        if (isVoiceFileName(m.fileName) &&
+            (m.fileId ?? m.fileContentId) != null) {
+          last = m;
+        }
+      }
+    }
+    if (last == null) {
+      return _json(req, {'ok': false, 'error': 'no voice message'});
+    }
+    final fileKey = last.fileId ?? last.fileContentId!;
+    await ref
+        .read(voicePlayControllerProvider.notifier)
+        .toggle(last.id, fileKey);
+    await Future<void>.delayed(const Duration(milliseconds: 700));
+    final st = ref.read(voicePlayControllerProvider);
+    return _json(req, {
+      'ok': st.isActive(last.id),
+      'messageId': last.id,
+      'durationMs': st.durationMs,
+      'positionMs': st.positionMs,
+      'playing': st.isPlaying(last.id),
+      'speed': st.speed,
     });
   }
 
