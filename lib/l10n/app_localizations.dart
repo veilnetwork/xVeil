@@ -2365,12 +2365,6 @@ abstract class AppL10n {
   /// **'Scan QR with camera'**
   String get inviteScanTooltip;
 
-  /// No description provided for @inviteScanComingSoon.
-  ///
-  /// In en, this message translates to:
-  /// **'Camera scanning coming soon'**
-  String get inviteScanComingSoon;
-
   /// No description provided for @scanTitle.
   ///
   /// In en, this message translates to:
@@ -2418,12 +2412,6 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Route traffic (Proxy / VPN)'**
   String get networkRouteTitle;
-
-  /// No description provided for @networkRouteSub.
-  ///
-  /// In en, this message translates to:
-  /// **'oproxy / ogate — coming soon'**
-  String get networkRouteSub;
 
   /// No description provided for @networkRouteSubActive.
   ///

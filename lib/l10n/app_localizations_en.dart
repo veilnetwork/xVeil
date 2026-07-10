@@ -1214,9 +1214,6 @@ class AppL10nEn extends AppL10n {
   String get inviteScanTooltip => 'Scan QR with camera';
 
   @override
-  String get inviteScanComingSoon => 'Camera scanning coming soon';
-
-  @override
   String get scanTitle => 'Scan invite';
 
   @override
@@ -1239,9 +1236,6 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get networkRouteTitle => 'Route traffic (Proxy / VPN)';
-
-  @override
-  String get networkRouteSub => 'oproxy / ogate — coming soon';
 
   @override
   String get networkRouteSubActive => 'Routing active';
