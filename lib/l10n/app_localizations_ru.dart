@@ -247,6 +247,18 @@ class AppL10nRu extends AppL10n {
   String get stickerEmpty => 'Пока нет стикеров — импортируйте свои картинки';
 
   @override
+  String get stickerSharePack => 'Поделиться паком';
+
+  @override
+  String get stickerPackTitle => 'Пак стикеров';
+
+  @override
+  String get stickerPackDownload => 'Скачать';
+
+  @override
+  String get stickerPackInstall => 'Установить';
+
+  @override
   String stickerImported(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

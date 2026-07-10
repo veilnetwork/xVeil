@@ -246,6 +246,18 @@ class AppL10nEn extends AppL10n {
   String get stickerEmpty => 'No stickers yet — import your own pictures';
 
   @override
+  String get stickerSharePack => 'Share pack';
+
+  @override
+  String get stickerPackTitle => 'Sticker pack';
+
+  @override
+  String get stickerPackDownload => 'Download';
+
+  @override
+  String get stickerPackInstall => 'Install';
+
+  @override
   String stickerImported(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

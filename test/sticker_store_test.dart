@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 // (foundation import removed — Uint8List via typed_data)
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -56,6 +57,35 @@ void main() {
     addTearDown(c2.dispose);
     final reloaded = await c2.read(stickerControllerProvider.future);
     expect(reloaded.single.items, packs.single.items);
+  });
+
+  test('packToBlob -> installPack round-trips into a new pack', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final c = ProviderContainer(
+        overrides: [singleSpaceStorageProvider.overrideWithValue(storage)]);
+    addTearDown(c.dispose);
+    final ctrl = c.read(stickerControllerProvider.notifier);
+    await c.read(stickerControllerProvider.future);
+    await ctrl.importImages([_png1x1, _png1x1]);
+
+    final blob = await ctrl.packToBlob('my');
+    expect(blob, isNotNull);
+
+    // A fresh library (new storage) installs the shared pack.
+    final storage2 = FakeHvContainer().storage();
+    await storage2.open(password: 'pw', createIfMissing: true);
+    final c2 = ProviderContainer(
+        overrides: [singleSpaceStorageProvider.overrideWithValue(storage2)]);
+    addTearDown(c2.dispose);
+    final ctrl2 = c2.read(stickerControllerProvider.notifier);
+    await c2.read(stickerControllerProvider.future);
+    final n = await ctrl2.installPack(blob!);
+    expect(n, 2);
+    final packs = c2.read(stickerControllerProvider).value!;
+    expect(packs.single.items.length, 2);
+    // Malformed blob installs nothing.
+    expect(await ctrl2.installPack(Uint8List.fromList([1, 2, 3])), 0);
   });
 
   test('removeSticker drops the item from its pack', () async {

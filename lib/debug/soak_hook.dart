@@ -29,6 +29,7 @@ import '../state/messaging.dart';
 import '../state/nickname_peers.dart';
 import '../state/veil_call_media.dart' show remoteVideoFrame;
 import '../state/providers.dart';
+import '../state/sticker_message.dart';
 import '../state/sticker_store.dart';
 import '../state/vnote_message.dart';
 import '../state/vnote_record_controller.dart' show NativeVnoteRecorder;
@@ -193,6 +194,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/import_sticker':
           await _importStickerHook(req);
+          return;
+        case '/share_pack':
+          await _sharePackHook(req);
+          return;
+        case '/install_last_pack':
+          await _installLastPackHook(req);
           return;
         case '/play_vnote':
           await _playVnoteHook(req);
@@ -489,6 +496,59 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'positionMs': st.positionMs,
       'paused': st.paused,
       'frameW': ctrl.frame.value?.width ?? 0,
+    });
+  }
+
+  /// Share the default sticker pack to ?peer= (drives packToBlob +
+  /// sendStickerPack, the panel'"'"'s share path).
+  Future<void> _sharePackHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final peer = _peer(req);
+    if (peer == null) return;
+    final ctrl = ref.read(stickerControllerProvider.notifier);
+    final blob = await ctrl.packToBlob('my');
+    if (blob == null) {
+      return _json(req, {'ok': false, 'error': 'empty/unknown pack'});
+    }
+    final bundle = decodeStickerPack(blob);
+    await ref.read(messagingServiceProvider).sendStickerPack(peer, blob);
+    return _json(req, {
+      'ok': true,
+      'bytes': blob.length,
+      'items': bundle?.images.length ?? 0,
+    });
+  }
+
+  /// Install the most recent received .stkpack into the library (drives
+  /// installPack) — verifies the receive+install path without tap geometry.
+  Future<void> _installLastPackHook(HttpRequest req) async {
+    final storage = ref.read(storageProvider);
+    Message? last;
+    for (final c in await storage.loadConversations()) {
+      for (final m in await storage.loadMessages(c.id)) {
+        if (isStickerPackFileName(m.fileName) &&
+            (m.fileId ?? m.fileContentId) != null) {
+          last = m;
+        }
+      }
+    }
+    if (last == null) {
+      return _json(req, {'ok': false, 'error': 'no pack message'});
+    }
+    final bytes =
+        await storage.loadFile(last.fileId ?? last.fileContentId!);
+    if (bytes == null) {
+      return _json(req, {'ok': false, 'error': 'blob missing (not downloaded)'});
+    }
+    final n = await ref
+        .read(stickerControllerProvider.notifier)
+        .installPack(bytes);
+    final packs = ref.read(stickerControllerProvider).valueOrNull ?? const [];
+    return _json(req, {
+      'ok': n > 0,
+      'installed': n,
+      'packs': packs.length,
+      'library': [for (final p in packs) ...p.items].length,
     });
   }
 
