@@ -124,7 +124,8 @@ void main() {
         .pumpWidget(_host(_c(ContactStatus.accepted), messages: [fileMsg]));
     await tester.pump();
     expect(find.text('report.pdf'), findsOneWidget);
-    expect(find.byIcon(Icons.insert_drive_file_outlined), findsOneWidget);
+    // Type-specific document icon (media epic): .pdf renders the PDF glyph.
+    expect(find.byIcon(Icons.picture_as_pdf_outlined), findsOneWidget);
     // A held file (fileId set / hasFile) shows the "downloaded ✓" affordance —
     // unmistakable from the plain down-arrow of an un-fetched OFFER
     // (Icons.download_outlined). tap still exports/saves it.
