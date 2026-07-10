@@ -102,7 +102,7 @@ enum ControlOp {
 /// entry, or empty for their first), bound to the [policyVersion] it was
 /// authored against, and signed ([signature] over [canonicalBytes]).
 class ControlEntry {
-  const ControlEntry({
+  ControlEntry({
     required this.author,
     required this.seq,
     required this.prevHash,
@@ -112,7 +112,8 @@ class ControlEntry {
     required this.policyVersion,
     required this.createdAtMs,
     required this.signature,
-  });
+    Uint8List? authorPubKey,
+  }) : authorPubKey = authorPubKey ?? Uint8List(0);
 
   final NodeId author;
   final int seq;
@@ -123,6 +124,24 @@ class ControlEntry {
   final int policyVersion;
   final int createdAtMs;
   final Uint8List signature; // ed25519 over canonicalBytes (verified app-side)
+
+  /// The author's 32-byte ed25519 public key, carried so a receiver can
+  /// verify (the verifier binds it: node_id == BLAKE3(authorPubKey)). NOT part
+  /// of [canonicalBytes] — the binding is enforced outside the signed payload.
+  final Uint8List authorPubKey;
+
+  ControlEntry withSignature(Uint8List sig, Uint8List pubKey) => ControlEntry(
+        author: author,
+        seq: seq,
+        prevHash: prevHash,
+        op: op,
+        target: target,
+        role: role,
+        policyVersion: policyVersion,
+        createdAtMs: createdAtMs,
+        signature: sig,
+        authorPubKey: pubKey,
+      );
 
   /// The exact bytes the author signs — a canonical (stable field order) JSON
   /// of everything BUT the signature. Both ends must reproduce this identically
@@ -151,6 +170,7 @@ class ControlEntry {
         'pv': policyVersion,
         'ts': createdAtMs,
         'sig': base64Encode(signature),
+        if (authorPubKey.isNotEmpty) 'apk': base64Encode(authorPubKey),
       };
 
   static ControlEntry? fromJson(Object? j) {
@@ -181,6 +201,9 @@ class ControlEntry {
         policyVersion: pv,
         createdAtMs: ts,
         signature: Uint8List.fromList(base64Decode(sig)),
+        authorPubKey: j['apk'] is String
+            ? Uint8List.fromList(base64Decode(j['apk'] as String))
+            : null,
       );
     } catch (_) {
       return null;
