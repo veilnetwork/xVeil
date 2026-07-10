@@ -874,7 +874,10 @@ class MessagingService {
       selfId,
       MessageDirection.outgoing,
       trimmed,
-      MessageStatus.sent,
+      // Delivered, not sent: a note to self has no peer to ack — leaving it
+      // `sent` made _maybeReconnect fire a reconnect AT ourselves, which
+      // created a bogus pendingIncoming self-contact ("Saved wants to connect").
+      MessageStatus.delivered,
       replyToId: replyToId,
       forwardedFrom: forwardedFrom,
       timestamp: _now(),
@@ -1026,6 +1029,10 @@ class MessagingService {
     WireEnvelope env,
     ContactStatus? status,
   ) async {
+    // You can't send yourself a connection request. Drop a self-addressed
+    // request/reconnect so it never creates a bogus pendingIncoming
+    // self-contact (Saved Messages is a chat with yourself, always accepted).
+    if (m.src.hex == await _selfHex()) return;
     if (status == ContactStatus.accepted) {
       // They re-requested/re-intro'd because they never saw our accept — re-send
       // it DURABLY (see [sendDurable]): the accept is a control frame that must
