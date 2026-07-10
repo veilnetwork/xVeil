@@ -29,6 +29,7 @@ import '../state/messaging.dart';
 import '../state/nickname_peers.dart';
 import '../state/veil_call_media.dart' show remoteVideoFrame;
 import '../state/providers.dart';
+import '../state/sticker_store.dart';
 import '../state/vnote_message.dart';
 import '../state/vnote_record_controller.dart' show NativeVnoteRecorder;
 import '../state/vnote_play_controller.dart';
@@ -189,6 +190,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/send_sticker':
           await _sendStickerHook(req);
+          return;
+        case '/import_sticker':
+          await _importStickerHook(req);
           return;
         case '/play_vnote':
           await _playVnoteHook(req);
@@ -486,6 +490,27 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'paused': st.paused,
       'frameW': ctrl.frame.value?.width ?? 0,
     });
+  }
+
+  /// Import the POST body (an image) into the sticker library — drives the
+  /// normalize + store + manifest path the panel'"'"'s import uses.
+  Future<void> _importStickerHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final builder = BytesBuilder(copy: false);
+    await for (final chunk in req) {
+      builder.add(chunk);
+    }
+    final bytes = builder.takeBytes();
+    if (bytes.isEmpty) {
+      return _json(req, {'ok': false, 'error': 'empty body'}, status: 400);
+    }
+    final n = await ref
+        .read(stickerControllerProvider.notifier)
+        .importImages([bytes]);
+    final packs = ref.read(stickerControllerProvider).valueOrNull ?? const [];
+    final items = [for (final p in packs) ...p.items];
+    return _json(req,
+        {'ok': n > 0, 'added': n, 'library': items.length});
   }
 
   /// Send the POST body (an image) as a STICKER to ?peer= — drives the
