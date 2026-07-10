@@ -36,6 +36,7 @@ import '../../state/thumbnail.dart';
 import '../../state/transcription_controller.dart';
 import '../../state/voice_message.dart';
 import '../../state/vnote_message.dart';
+import '../../state/vnote_play_controller.dart';
 import '../../state/vnote_record_controller.dart';
 import '../../state/voice_play_controller.dart';
 import '../../state/voice_record_controller.dart';
@@ -2428,13 +2429,15 @@ Uint8List? _decodeThumbB64(String? tb) {
   }
 }
 
-/// Round video note: the first-frame micro-thumb in a circle (rendered from
-/// the `vn1:` sidecar BEFORE/without downloading) + duration below, with a
-/// download / progress / play affordance in the middle. Playback is the next
-/// brick — the play control is a live tap with a "coming soon" toast, not a
-/// dead circle.
-class _VnoteBubble extends StatelessWidget {
+/// Round video note. Before download: the first-frame micro-thumb from the
+/// `vn1:` sidecar in a circle + a download affordance. Downloaded: tap plays
+/// INLINE — live frames fill the circle (pulled at the audio position), a
+/// progress ring runs around it, tap again pauses. Duration below turns into
+/// a live clock while active.
+class _VnoteBubble extends ConsumerWidget {
   const _VnoteBubble({
+    required this.messageId,
+    required this.fileKey,
     required this.sidecar,
     required this.outgoing,
     required this.downloaded,
@@ -2442,6 +2445,8 @@ class _VnoteBubble extends StatelessWidget {
     this.onDownload,
   });
 
+  final String messageId;
+  final String fileKey;
   final VnoteSidecar? sidecar;
   final bool outgoing;
   final bool downloaded;
@@ -2449,20 +2454,20 @@ class _VnoteBubble extends StatelessWidget {
   final VoidCallback? onDownload;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final onBubble = outgoing ? scheme.onPrimary : scheme.onSurface;
     final thumb = _decodeThumbB64(sidecar?.thumbB64);
-    final l = AppL10n.of(context);
+    final play = ref.watch(vnotePlayControllerProvider);
+    final active = downloaded && play.isActive(messageId);
+    final playing = downloaded && play.isPlaying(messageId);
 
     void onTap() {
       if (!downloaded) {
         onDownload?.call();
         return;
       }
-      // Playback lands with the player brick.
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(l.comingSoon)));
+      ref.read(vnotePlayControllerProvider.notifier).toggle(messageId, fileKey);
     }
 
     return Column(
@@ -2471,45 +2476,76 @@ class _VnoteBubble extends StatelessWidget {
       children: [
         GestureDetector(
           onTap: onTap,
-          child: ClipOval(
-            child: SizedBox(
-              width: 180,
-              height: 180,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (thumb != null)
-                    Image.memory(thumb,
-                        fit: BoxFit.cover, filterQuality: FilterQuality.low)
-                  else
-                    ColoredBox(color: scheme.surfaceContainerHighest),
-                  // Dim + the center affordance.
-                  ColoredBox(color: Colors.black.withValues(alpha: 0.18)),
-                  Center(
-                    child: progress != null
-                        ? SizedBox(
-                            width: 36,
-                            height: 36,
-                            child: CircularProgressIndicator(
-                              value: progress == 0 ? null : progress,
-                              strokeWidth: 3,
-                              color: Colors.white,
-                            ),
+          child: SizedBox(
+            width: 184,
+            height: 184,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(2),
+                  child: ClipOval(
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (active)
+                          _VnotePreview(
+                            frameListenable: ref
+                                .read(vnotePlayControllerProvider.notifier)
+                                .frame,
                           )
-                        : Icon(
-                            downloaded ? Icons.play_arrow : Icons.download,
-                            color: Colors.white,
-                            size: 44,
+                        else if (thumb != null)
+                          Image.memory(thumb,
+                              fit: BoxFit.cover,
+                              filterQuality: FilterQuality.low)
+                        else
+                          ColoredBox(color: scheme.surfaceContainerHighest),
+                        // Dim + center affordance only when NOT playing (the
+                        // playing circle is clean video, Telegram-style).
+                        if (!playing) ...[
+                          ColoredBox(
+                              color: Colors.black.withValues(alpha: 0.18)),
+                          Center(
+                            child: progress != null
+                                ? SizedBox(
+                                    width: 36,
+                                    height: 36,
+                                    child: CircularProgressIndicator(
+                                      value: progress == 0 ? null : progress,
+                                      strokeWidth: 3,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : Icon(
+                                    downloaded
+                                        ? Icons.play_arrow
+                                        : Icons.download,
+                                    color: Colors.white,
+                                    size: 44,
+                                  ),
                           ),
+                        ],
+                      ],
+                    ),
                   ),
-                ],
-              ),
+                ),
+                // Playback progress ring around the circle.
+                if (active)
+                  CircularProgressIndicator(
+                    value: play.progress,
+                    strokeWidth: 2.5,
+                    color: scheme.primary,
+                    backgroundColor: onBubble.withValues(alpha: 0.15),
+                  ),
+              ],
             ),
           ),
         ),
         const SizedBox(height: 4),
         Text(
-          formatVoiceDuration(sidecar?.duration),
+          active
+              ? formatVoiceDuration(Duration(milliseconds: play.positionMs))
+              : formatVoiceDuration(sidecar?.duration),
           style: Theme.of(context)
               .textTheme
               .labelSmall
@@ -3451,6 +3487,8 @@ class _Bubble extends ConsumerWidget {
                       final downloaded = progress == null &&
                           a == _FileAffordance.save;
                       return _VnoteBubble(
+                        messageId: message.id,
+                        fileKey: message.fileId ?? message.fileContentId ?? '',
                         sidecar: decodeVnoteSidecar(message.thumb),
                         outgoing: outgoing,
                         downloaded: downloaded,
