@@ -757,6 +757,12 @@ abstract class AppL10n {
   /// **'Link copied'**
   String get chatLinkCopied;
 
+  /// No description provided for @chatCodeCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'Code copied'**
+  String get chatCodeCopied;
+
   /// No description provided for @p2pSelectedTitle.
   ///
   /// In en, this message translates to:

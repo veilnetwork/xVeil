@@ -359,6 +359,9 @@ class AppL10nRu extends AppL10n {
   String get chatLinkCopied => 'Ссылка скопирована';
 
   @override
+  String get chatCodeCopied => 'Код скопирован';
+
+  @override
   String get p2pSelectedTitle => 'Избранные контакты';
 
   @override

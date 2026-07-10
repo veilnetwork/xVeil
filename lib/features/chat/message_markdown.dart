@@ -159,7 +159,7 @@ bool _startsWith(String s, int at, String marker) {
 /// A body splits into block-level runs before inline parsing: normal text and
 /// block quotes (`>` line prefix). A quote renders with a left rule; its inner
 /// text still flows through [parseFormatted].
-enum MdBlockKind { normal, quote }
+enum MdBlockKind { normal, quote, code }
 
 class MdBlock {
   const MdBlock(this.kind, this.text);
@@ -177,62 +177,61 @@ class MdBlock {
   String toString() => 'MdBlock($kind, ${text.replaceAll("\n", "\\n")})';
 }
 
-/// Char ranges `[start, end)` covered by ``` fenced code spans, paired the same
-/// way [parseFormatted] pairs them (an open ``` to the next ```). An
-/// unterminated fence yields no span — its ``` stays literal, matching inline
-/// parsing.
-List<(int, int)> _fencedSpans(String body) {
-  final spans = <(int, int)>[];
-  var i = 0;
-  while (true) {
-    final open = body.indexOf('```', i);
-    if (open < 0) break;
-    final close = body.indexOf('```', open + 3);
-    if (close < 0) break;
-    spans.add((open, close + 3));
-    i = close + 3;
-  }
-  return spans;
-}
+/// A line opens a fenced code block when its trimmed text starts with ``` and
+/// carries no second ``` on the same line — so `\`\`\`dart` (a language tag)
+/// opens a block, but a self-closed inline `\`\`\`x\`\`\`` does not.
+bool _opensFence(String trimmedLine) =>
+    trimmedLine.startsWith('```') && !trimmedLine.substring(3).contains('```');
 
-/// Split [body] into normal and block-quote blocks. A quote block is a maximal
-/// run of lines whose first non-space char is `>` and whose start lies outside
-/// a ``` fence (so `>` inside a code block stays literal). The `>` and one
-/// optional following space are stripped from each quoted line; a non-quote
-/// line ends the quote. Pure — unit-tested.
+/// Split [body] into block-level runs: normal text, block quotes (`>` line
+/// prefix), and fenced ``` code blocks. A code block runs from an opening fence
+/// line to the next line whose trimmed text starts with ``` — its inner lines
+/// are literal (a `>` inside is code, not a quote). An unterminated fence stays
+/// literal text. Quote markers (`>` + one optional space) are stripped. Pure —
+/// unit-tested.
 List<MdBlock> parseBlocks(String body) {
-  final fences = _fencedSpans(body);
-  bool inFence(int offset) {
-    for (final (s, e) in fences) {
-      if (offset >= s && offset < e) return true;
-    }
-    return false;
-  }
-
+  final lines = body.split('\n');
   final blocks = <MdBlock>[];
   final buf = StringBuffer();
   var kind = MdBlockKind.normal;
-  var offset = 0;
   void flush() {
     if (buf.isEmpty) return;
     blocks.add(MdBlock(kind, buf.toString()));
     buf.clear();
   }
 
-  for (final line in body.split('\n')) {
-    final isQuote = line.trimLeft().startsWith('>') && !inFence(offset);
+  var i = 0;
+  while (i < lines.length) {
+    final line = lines[i];
+    final trimmed = line.trimLeft();
+    if (_opensFence(trimmed)) {
+      // Seek the closing fence; only form a code block if one exists.
+      var j = i + 1;
+      while (j < lines.length && !lines[j].trimLeft().startsWith('```')) {
+        j++;
+      }
+      if (j < lines.length) {
+        flush();
+        blocks.add(MdBlock(MdBlockKind.code, lines.sublist(i + 1, j).join('\n')));
+        kind = MdBlockKind.normal;
+        i = j + 1;
+        continue;
+      }
+      // No close: fall through and treat this line as ordinary text.
+    }
+    final isQuote = trimmed.startsWith('>');
     final lineKind = isQuote ? MdBlockKind.quote : MdBlockKind.normal;
     if (buf.isNotEmpty && lineKind != kind) flush();
     if (buf.isNotEmpty) buf.write('\n');
     kind = lineKind;
     if (isQuote) {
-      var content = line.trimLeft().substring(1);
+      var content = trimmed.substring(1);
       if (content.startsWith(' ')) content = content.substring(1);
       buf.write(content);
     } else {
       buf.write(line);
     }
-    offset += line.length + 1;
+    i++;
   }
   flush();
   return blocks;
@@ -311,6 +310,14 @@ class _FormattedTextState extends State<FormattedText> {
     final l = AppL10n.of(context);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(l.chatLinkCopied), duration: const Duration(seconds: 1)),
+    );
+  }
+
+  void _copyCode(String code) {
+    Clipboard.setData(ClipboardData(text: code));
+    final l = AppL10n.of(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(l.chatCodeCopied), duration: const Duration(seconds: 1)),
     );
   }
 
@@ -405,9 +412,9 @@ class _FormattedTextState extends State<FormattedText> {
     final hlColor = scheme.tertiary.withValues(alpha: 0.55);
 
     final blocks = parseBlocks(widget.body);
-    // No quotes: one Text.rich over the whole body — preserves blank lines and
-    // matches the pre-quote behaviour exactly.
-    if (!blocks.any((b) => b.kind == MdBlockKind.quote)) {
+    // All-normal: one Text.rich over the whole body — preserves blank lines and
+    // matches the pre-block behaviour exactly.
+    if (blocks.every((b) => b.kind == MdBlockKind.normal)) {
       final (spans, _) = _spansFor(widget.body, 0, base, mono, scheme, hlQuery, hlColor);
       return Text.rich(TextSpan(children: spans));
     }
@@ -415,6 +422,10 @@ class _FormattedTextState extends State<FormattedText> {
     var indexBase = 0;
     final children = <Widget>[];
     for (final b in blocks) {
+      if (b.kind == MdBlockKind.code) {
+        children.add(_codeBox(b.text, mono, scheme, hlQuery, hlColor));
+        continue;
+      }
       final blockBase = b.kind == MdBlockKind.quote
           ? base.copyWith(color: scheme.onSurfaceVariant)
           : base;
@@ -441,6 +452,52 @@ class _FormattedTextState extends State<FormattedText> {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: children,
+    );
+  }
+
+  /// A fenced code block: a rounded box with the code (horizontally scrollable
+  /// so long lines don't wrap) and a copy button. Search hits inside the code
+  /// still get the highlight background via [highlightSpans].
+  Widget _codeBox(
+    String code,
+    TextStyle mono,
+    ColorScheme scheme,
+    String? hlQuery,
+    Color hlColor,
+  ) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(vertical: 3),
+      padding: const EdgeInsets.fromLTRB(10, 8, 6, 8),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Text.rich(
+                TextSpan(children: highlightSpans(code, mono, hlQuery, hlColor)),
+              ),
+            ),
+          ),
+          InkWell(
+            onTap: () => _copyCode(code),
+            borderRadius: BorderRadius.circular(4),
+            child: Padding(
+              padding: const EdgeInsets.all(2),
+              child: Icon(
+                Icons.content_copy,
+                size: 16,
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
