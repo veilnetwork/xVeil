@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:veil_flutter/veil_flutter.dart' as veil;
 
 import '../core/ids.dart';
 import '../core/log.dart';
@@ -248,6 +249,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/send_message':
           await _sendMessage(req);
+          return;
+        case '/nickname_claim':
+          await _nicknameClaim(req);
+          return;
+        case '/nickname_resolve':
+          await _nicknameResolve(req);
           return;
         case '/delete_message':
           await _deleteMessage(req);
@@ -1076,6 +1083,105 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     }
     await ref.read(messagingServiceProvider).sendText(peer, text);
     return _json(req, {'ok': true, 'peer': peer.hex, 'text': text});
+  }
+
+  /// POST/GET /nickname_claim?name=X[&max_hashes=N] — mine (bounded) + sign
+  /// with the sovereign key + publish. Smoke driver for the nicknames epic:
+  /// use LONG names in tests (low per-length floor → ms of mining).
+  Future<void> _nicknameClaim(HttpRequest req) async {
+    final ready = _requireReady(req);
+    if (!ready) return;
+    final params = await _mergedParams(req);
+    final name = params['name']?.trim();
+    if (name == null || name.isEmpty) {
+      return _json(req, {'ok': false, 'error': 'missing name'}, status: 400);
+    }
+    final maxHashes = int.tryParse(params['max_hashes'] ?? '') ?? 50_000_000;
+    try {
+      final selfHex = await ref.read(messagingServiceProvider).savedSelfHex();
+      final self = NodeId.fromHex(selfHex).bytes;
+      final norm = veil.normalizeNickname(name);
+      final floor = veil.nicknameLengthFloor(norm);
+      // Current owner (if any) raises the bar: strictly-greater displaces.
+      final current = await Isolate.run(
+        () => veil.resolveNickname(
+          selfNodeId: self,
+          name: norm,
+          timeoutMs: 10 * 1000,
+        ),
+      );
+      final target =
+          current == null ? floor : (current.weight * 2).clamp(floor, 1 << 62);
+      final mined = await Isolate.run(
+        () => veil.mineNicknameChunk(
+          name: norm,
+          ownerNodeId: self,
+          targetWeight: target,
+          maxHashes: maxHashes,
+        ),
+      );
+      if (!mined.hitTarget) {
+        return _json(req, {
+          'ok': false,
+          'error': 'mining budget exhausted',
+          'weight': mined.weight,
+          'target': target,
+          'hashes': mined.hashesDone,
+        }, status: 409);
+      }
+      final seeds = mined.seeds;
+      final weight = await Isolate.run(
+        () => veil.claimNickname(
+          ownerNodeId: self,
+          name: norm,
+          seeds: seeds,
+          timeoutMs: 15 * 1000,
+        ),
+      );
+      return _json(req, {
+        'ok': true,
+        'name': norm,
+        'weight': weight,
+        'hashes': mined.hashesDone,
+        'owner': selfHex,
+      });
+    } catch (e) {
+      return _json(req, {'ok': false, 'error': '$e'}, status: 500);
+    }
+  }
+
+  /// GET /nickname_resolve?name=X — verified resolve via the embedded node.
+  Future<void> _nicknameResolve(HttpRequest req) async {
+    final ready = _requireReady(req);
+    if (!ready) return;
+    final params = await _mergedParams(req);
+    final name = params['name']?.trim();
+    if (name == null || name.isEmpty) {
+      return _json(req, {'ok': false, 'error': 'missing name'}, status: 400);
+    }
+    try {
+      final selfHex = await ref.read(messagingServiceProvider).savedSelfHex();
+      final self = NodeId.fromHex(selfHex).bytes;
+      final resolved = await Isolate.run(
+        () => veil.resolveNickname(
+          selfNodeId: self,
+          name: name,
+          timeoutMs: 10 * 1000,
+        ),
+      );
+      if (resolved == null) {
+        return _json(req, {'ok': true, 'found': false});
+      }
+      return _json(req, {
+        'ok': true,
+        'found': true,
+        'owner': NodeId(resolved.ownerNodeId).hex,
+        'weight': resolved.weight,
+        'issuedAt': resolved.issuedAtUnix,
+      });
+    } catch (e) {
+      return _json(req, {'ok': false, 'error': '$e'}, status: 500);
+    }
   }
 
   Future<void> _hasFile(HttpRequest req) async {

@@ -1712,4 +1712,62 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get callPathP2P => 'Напрямую (P2P)';
+
+  @override
+  String get settingsNickname => 'Никнейм';
+
+  @override
+  String get settingsNicknameHint => 'Занять @имя, по которому вас найдут';
+
+  @override
+  String get nicknameTitle => 'Никнейм';
+
+  @override
+  String get nicknameIntro =>
+      'Никнейм — публичное @имя в сети veil, указывающее на эту личность. Занятие имени требует доказательства работы: короткие имена стоят заметно дороже. Имя можно перехватить строго бо́льшей работой, поэтому своё можно усиливать в любой момент.';
+
+  @override
+  String get nicknameFieldLabel => 'Имя (a–z, 0–9, _)';
+
+  @override
+  String get nicknameCheck => 'Проверить доступность';
+
+  @override
+  String get nicknameFree => 'Свободно';
+
+  @override
+  String get nicknameMineVerdict => 'Уже ваше';
+
+  @override
+  String nicknameTakenWeight(String weight) {
+    return 'Занято — вес защиты $weight';
+  }
+
+  @override
+  String get nicknameClaim => 'Занять имя';
+
+  @override
+  String get nicknameMiningLabel => 'Майнинг доказательства работы…';
+
+  @override
+  String nicknameMiningStats(String weight, String target, String hashes) {
+    return 'вес $weight / $target · $hashes хешей';
+  }
+
+  @override
+  String get nicknamePublishing => 'Публикация…';
+
+  @override
+  String get nicknameOwnedTitle => 'Ваше имя';
+
+  @override
+  String nicknameOwnedWeight(String weight) {
+    return 'Вес защиты $weight';
+  }
+
+  @override
+  String get nicknameTopUp => 'Усилить (майнить ещё)';
+
+  @override
+  String get nicknameClaimed => 'Имя опубликовано';
 }
