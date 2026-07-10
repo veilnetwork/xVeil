@@ -3277,6 +3277,18 @@ abstract class AppL10n {
   /// **'Claim an @name others can find you by'**
   String get settingsNicknameHint;
 
+  /// No description provided for @emojiSearchHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Search emoji'**
+  String get emojiSearchHint;
+
+  /// No description provided for @chatEmojiTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Emoji'**
+  String get chatEmojiTooltip;
+
   /// No description provided for @nicknameTitle.
   ///
   /// In en, this message translates to:

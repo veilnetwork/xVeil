@@ -1720,6 +1720,12 @@ class AppL10nRu extends AppL10n {
   String get settingsNicknameHint => 'Занять @имя, по которому вас найдут';
 
   @override
+  String get emojiSearchHint => 'Поиск эмодзи';
+
+  @override
+  String get chatEmojiTooltip => 'Эмодзи';
+
+  @override
   String get nicknameTitle => 'Никнейм';
 
   @override

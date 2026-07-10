@@ -1712,6 +1712,12 @@ class AppL10nEn extends AppL10n {
   String get settingsNicknameHint => 'Claim an @name others can find you by';
 
   @override
+  String get emojiSearchHint => 'Search emoji';
+
+  @override
+  String get chatEmojiTooltip => 'Emoji';
+
+  @override
   String get nicknameTitle => 'Nickname';
 
   @override
