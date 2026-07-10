@@ -1720,6 +1720,9 @@ class AppL10nRu extends AppL10n {
   String get settingsNicknameHint => 'Занять @имя, по которому вас найдут';
 
   @override
+  String get videoPlayError => 'Не удалось воспроизвести видео';
+
+  @override
   String get emojiSearchHint => 'Поиск эмодзи';
 
   @override

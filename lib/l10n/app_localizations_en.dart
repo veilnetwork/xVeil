@@ -1712,6 +1712,9 @@ class AppL10nEn extends AppL10n {
   String get settingsNicknameHint => 'Claim an @name others can find you by';
 
   @override
+  String get videoPlayError => 'Could not play this video';
+
+  @override
   String get emojiSearchHint => 'Search emoji';
 
   @override

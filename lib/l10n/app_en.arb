@@ -571,6 +571,7 @@
   "callPathP2P": "Direct (P2P)",
   "settingsNickname": "Nickname",
   "settingsNicknameHint": "Claim an @name others can find you by",
+  "videoPlayError": "Could not play this video",
   "emojiSearchHint": "Search emoji",
   "chatEmojiTooltip": "Emoji",
   "nicknameTitle": "Nickname",

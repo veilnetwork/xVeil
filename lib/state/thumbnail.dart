@@ -18,6 +18,18 @@ import 'dart:ui' as ui;
 /// ref advert (~300 B) + thumb comfortably under the inline envelope limit.
 const int kThumbMaxRawBytes = 2500;
 
+/// True when [name] looks like a video the in-app player can open (by
+/// extension; the containers ExoPlayer/AVPlayer overlap on).
+bool isVideoFileName(String? name) {
+  if (name == null) return false;
+  final n = name.toLowerCase();
+  return n.endsWith('.mp4') ||
+      n.endsWith('.m4v') ||
+      n.endsWith('.mov') ||
+      n.endsWith('.webm') ||
+      n.endsWith('.mkv');
+}
+
 /// True when [name] looks like an image we can render inline (by extension).
 /// Shared by the chat UI (inline previews) and the send path (thumb
 /// generation) — one definition so they cannot disagree.
