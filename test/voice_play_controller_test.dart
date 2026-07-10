@@ -14,7 +14,7 @@ class _FakePlayer implements VoicePlayer {
   bool paused = false;
   double speed = 1.0;
   int _pos = 0;
-  int _dur = 2000;
+  final int _dur = 2000;
   bool _playing = true;
 
   void advance(int ms) => _pos += ms;
@@ -24,35 +24,35 @@ class _FakePlayer implements VoicePlayer {
   }
 
   @override
-  bool start() {
+  Future<bool> start() async {
     started = startOk;
     return startOk;
   }
 
   @override
-  void pause() {
+  Future<void> pause() async {
     paused = true;
     _playing = false;
   }
 
   @override
-  void resume() {
+  Future<void> resume() async {
     paused = false;
     _playing = true;
   }
 
   @override
-  void seekMs(int ms) => _pos = ms;
+  Future<void> seekMs(int ms) async => _pos = ms;
   @override
-  void setSpeed(double s) => speed = s;
+  Future<void> setSpeed(double s) async => speed = s;
   @override
-  int get positionMs => _pos;
+  Future<int> positionMs() async => _pos;
   @override
   int get durationMs => _dur;
   @override
   bool get isPlaying => _playing;
   @override
-  void dispose() => disposed = true;
+  Future<void> dispose() async => disposed = true;
 }
 
 Future<ProviderContainer> _container(_FakePlayer? player) async {
@@ -62,7 +62,7 @@ Future<ProviderContainer> _container(_FakePlayer? player) async {
   await storage.storeFile('vkey', Uint8List.fromList([1, 2, 3]), name: 'v.opus');
   return ProviderContainer(overrides: [
     singleSpaceStorageProvider.overrideWithValue(storage),
-    voicePlayerFactoryProvider.overrideWithValue((_) => player),
+    voicePlayerFactoryProvider.overrideWithValue((_) async => player),
   ]);
 }
 
@@ -133,6 +133,24 @@ void main() {
     await c.read(voicePlayControllerProvider.notifier).toggle('m1', 'vkey');
     expect(c.read(voicePlayControllerProvider).playingId, isNull);
     expect(p.disposed, isTrue);
+  });
+
+  test('seekTo maps a fraction to ms on the active clip only', () async {
+    final p = _FakePlayer();
+    final c = await _container(p);
+    addTearDown(c.dispose);
+    final ctrl = c.read(voicePlayControllerProvider.notifier);
+    await ctrl.toggle('m1', 'vkey');
+
+    await ctrl.seekTo('m1', 0.5);
+    expect(await p.positionMs(), 1000);
+    expect(c.read(voicePlayControllerProvider).positionMs, 1000);
+
+    // Fraction is clamped and other clips are ignored.
+    await ctrl.seekTo('m1', 1.5);
+    expect(await p.positionMs(), 2000);
+    await ctrl.seekTo('other', 0.25);
+    expect(await p.positionMs(), 2000);
   });
 
   test('progress fraction is position/duration clamped', () {

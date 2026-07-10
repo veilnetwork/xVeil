@@ -2483,11 +2483,24 @@ class _VoiceBubble extends ConsumerWidget {
                       child: Icon(Icons.graphic_eq,
                           size: 20, color: onBubble.withValues(alpha: 0.5)),
                     )
-                  : VoiceWaveform(
-                      bars: bars,
-                      progress: active ? play.progress : 0,
-                      playedColor: onBubble,
-                      unplayedColor: onBubble.withValues(alpha: 0.4),
+                  // Tap anywhere on the waveform of the ACTIVE clip to seek to
+                  // that fraction of the clip.
+                  : LayoutBuilder(
+                      builder: (context, box) => GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTapDown: active && box.maxWidth > 0
+                            ? (d) => ref
+                                .read(voicePlayControllerProvider.notifier)
+                                .seekTo(messageId,
+                                    d.localPosition.dx / box.maxWidth)
+                            : null,
+                        child: VoiceWaveform(
+                          bars: bars,
+                          progress: active ? play.progress : 0,
+                          playedColor: onBubble,
+                          unplayedColor: onBubble.withValues(alpha: 0.4),
+                        ),
+                      ),
                     ),
             ),
           ),

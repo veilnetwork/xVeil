@@ -27,7 +27,7 @@ class _NoopNode implements NodeController {
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  testWidgets('shows the identity and locks via "Lock now"', (tester) async {
+  testWidgets('shows the identity of the ready session', (tester) async {
     late ProviderContainer container;
     await tester.pumpWidget(ProviderScope(
       overrides: [nodeControllerProvider.overrideWithValue(_NoopNode())],
@@ -55,13 +55,8 @@ void main() {
     expect(find.text('Nat'), findsOneWidget);
     expect(find.text(id.nodeId.short), findsWidgets);
 
-    // "Lock now" locks the session (scroll it into view — the lazy ListView only
-    // builds it once near the viewport; scrollUntilVisible is robust to how many
-    // tiles precede it).
-    await tester.scrollUntilVisible(find.text('Lock now'), 300);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Lock now'));
-    await tester.pump();
-    expect(container.read(appControllerProvider).phase, AppPhase.locked);
+    // "Lock now" moved to the navigation drawer (see folder_panel_test) — the
+    // settings screen must NOT offer it anymore.
+    expect(find.text('Lock now'), findsNothing);
   });
 }
