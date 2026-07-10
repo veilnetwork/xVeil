@@ -316,6 +316,19 @@ class _CallBody extends ConsumerWidget {
                     const SizedBox(width: 12),
                     _TransportBadge(call.transport!),
                   ],
+                  // The PEER is sharing their screen (media.screen arrives via
+                  // renegotiate; when WE share, screenOn is true instead).
+                  if (call.media.screen && !call.screenOn) ...[
+                    const SizedBox(width: 12),
+                    const Icon(Icons.screen_share,
+                        color: Colors.white70, size: 14),
+                    const SizedBox(width: 4),
+                    Text(
+                      l.callScreenOn,
+                      style:
+                          const TextStyle(color: Colors.white70, fontSize: 13),
+                    ),
+                  ],
                 ],
               ),
             ],
