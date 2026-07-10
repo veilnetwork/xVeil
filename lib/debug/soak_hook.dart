@@ -518,8 +518,25 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       return _json(req, {'ok': false, 'error': 'no voice message'});
     }
     final fileKey = last.fileId ?? last.fileContentId!;
+    // Direct (cache-bypassing) transcribe with an optional forced language, for
+    // diagnosing detection/config issues.
+    final lang = req.uri.queryParameters['lang']?.trim();
+    if (lang != null && lang.isNotEmpty) {
+      final bytes = await ref.read(storageProvider).loadFile(fileKey);
+      if (bytes == null) {
+        return _json(req, {'ok': false, 'error': 'blob missing'});
+      }
+      final text = await ref.read(voiceTranscriberProvider)(bytes, lang: lang);
+      return _json(req, {
+        'ok': text != null,
+        'messageId': last.id,
+        'lang': lang,
+        'text': text,
+      });
+    }
     final ctrl = ref.read(transcriptionControllerProvider.notifier);
-    await ctrl.transcribe(last.id, fileKey);
+    await ctrl.transcribe(last.id, fileKey,
+        senderLang: decodeVoiceSidecar(last.thumb)?.lang);
     final entry = ctrl.entryFor(last.id);
     return _json(req, {
       'ok': entry.isDone,

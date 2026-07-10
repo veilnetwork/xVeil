@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/state/voice_message.dart';
 
@@ -25,6 +28,23 @@ void main() {
       for (var i = 0; i < bars.length; i++) {
         expect((dec.bars[i] - bars[i]).abs(), lessThan(1 / 255 + 1e-9));
       }
+    });
+
+    test('carries the sender language; legacy 2-field form decodes lang=null',
+        () {
+      final enc = encodeVoiceSidecar(2000, [0.5, 0.5], lang: 'ru');
+      final dec = decodeVoiceSidecar(enc);
+      expect(dec!.lang, 'ru');
+      expect(dec.durationMs, 2000);
+      expect(dec.bars.length, 2);
+      // Empty lang → null on decode.
+      expect(decodeVoiceSidecar(encodeVoiceSidecar(1000, [0.5]))!.lang, isNull);
+      // Legacy 2-field sidecar (no lang segment) still decodes.
+      final legacy = 'vw1:1500:${base64Encode(Uint8List.fromList([128]))}';
+      final ld = decodeVoiceSidecar(legacy);
+      expect(ld!.durationMs, 1500);
+      expect(ld.lang, isNull);
+      expect(ld.bars.length, 1);
     });
 
     test('decode rejects non-voice / malformed / null without throwing', () {
