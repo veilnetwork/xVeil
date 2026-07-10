@@ -3264,6 +3264,108 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Direct (P2P)'**
   String get callPathP2P;
+
+  /// No description provided for @settingsNickname.
+  ///
+  /// In en, this message translates to:
+  /// **'Nickname'**
+  String get settingsNickname;
+
+  /// No description provided for @settingsNicknameHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Claim an @name others can find you by'**
+  String get settingsNicknameHint;
+
+  /// No description provided for @nicknameTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Nickname'**
+  String get nicknameTitle;
+
+  /// No description provided for @nicknameIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'A nickname is a public @name on the veil network that resolves to this identity. Claiming costs proof-of-work: short names cost much more. A name can be taken over by strictly more work, so you can reinforce yours anytime.'**
+  String get nicknameIntro;
+
+  /// No description provided for @nicknameFieldLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Name (a–z, 0–9, _)'**
+  String get nicknameFieldLabel;
+
+  /// No description provided for @nicknameCheck.
+  ///
+  /// In en, this message translates to:
+  /// **'Check availability'**
+  String get nicknameCheck;
+
+  /// No description provided for @nicknameFree.
+  ///
+  /// In en, this message translates to:
+  /// **'Available'**
+  String get nicknameFree;
+
+  /// No description provided for @nicknameMineVerdict.
+  ///
+  /// In en, this message translates to:
+  /// **'Already yours'**
+  String get nicknameMineVerdict;
+
+  /// No description provided for @nicknameTakenWeight.
+  ///
+  /// In en, this message translates to:
+  /// **'Taken — protection weight {weight}'**
+  String nicknameTakenWeight(String weight);
+
+  /// No description provided for @nicknameClaim.
+  ///
+  /// In en, this message translates to:
+  /// **'Claim name'**
+  String get nicknameClaim;
+
+  /// No description provided for @nicknameMiningLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Mining proof-of-work…'**
+  String get nicknameMiningLabel;
+
+  /// No description provided for @nicknameMiningStats.
+  ///
+  /// In en, this message translates to:
+  /// **'weight {weight} / {target} · {hashes} hashes'**
+  String nicknameMiningStats(String weight, String target, String hashes);
+
+  /// No description provided for @nicknamePublishing.
+  ///
+  /// In en, this message translates to:
+  /// **'Publishing…'**
+  String get nicknamePublishing;
+
+  /// No description provided for @nicknameOwnedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Your name'**
+  String get nicknameOwnedTitle;
+
+  /// No description provided for @nicknameOwnedWeight.
+  ///
+  /// In en, this message translates to:
+  /// **'Protection weight {weight}'**
+  String nicknameOwnedWeight(String weight);
+
+  /// No description provided for @nicknameTopUp.
+  ///
+  /// In en, this message translates to:
+  /// **'Reinforce (mine more)'**
+  String get nicknameTopUp;
+
+  /// No description provided for @nicknameClaimed.
+  ///
+  /// In en, this message translates to:
+  /// **'Name published'**
+  String get nicknameClaimed;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

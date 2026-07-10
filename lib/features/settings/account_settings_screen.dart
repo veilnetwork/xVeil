@@ -184,6 +184,27 @@ class AccountSettingsScreen extends ConsumerWidget {
               trailing: const Icon(Icons.chevron_right),
               onTap: () => _switchIdentity(context, ref),
             ),
+          // Nickname (public @name) — SOVEREIGN identities only: a public
+          // name is a linkability signal, so the entry is hidden for an
+          // anonymous active identity (same policy as the P2P gate).
+          Builder(
+            builder: (_) {
+              final ctrl = ref.read(appControllerProvider.notifier);
+              final isMaster = master.$1;
+              final active = master.$2;
+              final anon = isMaster
+                  ? (active == null || ctrl.isIdentityAnonymous(active))
+                  : ctrl.singleIdentityAnonymous;
+              if (anon) return const SizedBox.shrink();
+              return ListTile(
+                leading: const Icon(Icons.alternate_email),
+                title: Text(l.settingsNickname),
+                subtitle: Text(l.settingsNicknameHint),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.push('/settings/nickname'),
+              );
+            },
+          ),
           ListTile(
             leading: const Icon(Icons.person_add_alt_1_outlined),
             title: Text(l.settingsAddIdentity),

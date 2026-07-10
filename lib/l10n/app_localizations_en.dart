@@ -1704,4 +1704,62 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get callPathP2P => 'Direct (P2P)';
+
+  @override
+  String get settingsNickname => 'Nickname';
+
+  @override
+  String get settingsNicknameHint => 'Claim an @name others can find you by';
+
+  @override
+  String get nicknameTitle => 'Nickname';
+
+  @override
+  String get nicknameIntro =>
+      'A nickname is a public @name on the veil network that resolves to this identity. Claiming costs proof-of-work: short names cost much more. A name can be taken over by strictly more work, so you can reinforce yours anytime.';
+
+  @override
+  String get nicknameFieldLabel => 'Name (a–z, 0–9, _)';
+
+  @override
+  String get nicknameCheck => 'Check availability';
+
+  @override
+  String get nicknameFree => 'Available';
+
+  @override
+  String get nicknameMineVerdict => 'Already yours';
+
+  @override
+  String nicknameTakenWeight(String weight) {
+    return 'Taken — protection weight $weight';
+  }
+
+  @override
+  String get nicknameClaim => 'Claim name';
+
+  @override
+  String get nicknameMiningLabel => 'Mining proof-of-work…';
+
+  @override
+  String nicknameMiningStats(String weight, String target, String hashes) {
+    return 'weight $weight / $target · $hashes hashes';
+  }
+
+  @override
+  String get nicknamePublishing => 'Publishing…';
+
+  @override
+  String get nicknameOwnedTitle => 'Your name';
+
+  @override
+  String nicknameOwnedWeight(String weight) {
+    return 'Protection weight $weight';
+  }
+
+  @override
+  String get nicknameTopUp => 'Reinforce (mine more)';
+
+  @override
+  String get nicknameClaimed => 'Name published';
 }
