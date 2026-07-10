@@ -9,14 +9,14 @@
 // * Ownership is contestable by cumulative PoW weight: to displace a foreign
 //   owner the new record's weight must be STRICTLY greater; we mine to
 //   max(length floor, 2x the incumbent's weight) for a clear moat.
-// * Mining runs in bounded chunks (each `Isolate.run` computes at most
-//   [_chunkHashes] hashes), the running best seed set is persisted to the
-//   identity's encrypted settings KV after every chunk — so a restart
-//   RESUMES instead of restarting, and cancel is just "stop looping".
+// * Mining runs in bounded chunks (each mineNicknameChunkAsync computes at
+//   most [_chunkHashes] hashes on a background isolate), the running best
+//   seed set is persisted to the identity's encrypted settings KV after
+//   every chunk — so a restart RESUMES instead of restarting, and cancel is
+//   just "stop looping".
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -113,7 +113,7 @@ class NicknameState {
 const _kClaimedKey = 'nickname:claimed';
 const _kMiningKey = 'nickname:mining';
 
-/// Hashes per mining chunk — one `Isolate.run` unit. ~0.5–2 s of work: small
+/// Hashes per mining chunk — one background-isolate unit. ~0.5–2 s of work: small
 /// enough for smooth progress + prompt cancel, big enough to amortize the
 /// isolate hop.
 const _chunkHashes = 2 * 1000 * 1000;
@@ -184,12 +184,10 @@ class NicknameController extends StateNotifier<NicknameState> {
     );
     try {
       final self = await _selfNodeId();
-      final resolved = await Isolate.run(
-        () => veil.resolveNickname(
-          selfNodeId: self,
-          name: norm,
-          timeoutMs: _netTimeoutMs,
-        ),
+      final resolved = await veil.resolveNicknameAsync(
+        selfNodeId: self,
+        name: norm,
+        timeoutMs: _netTimeoutMs,
       );
       if (_disposed) return;
       if (resolved == null) {
@@ -251,12 +249,10 @@ class NicknameController extends StateNotifier<NicknameState> {
       // Current owner decides the target: free → the length floor; ours →
       // top-up to 2× our record; foreign → 2× theirs (strictly-greater is
       // the displacement rule; 2× buys a moat).
-      final resolved = await Isolate.run(
-        () => veil.resolveNickname(
-          selfNodeId: self,
-          name: norm,
-          timeoutMs: _netTimeoutMs,
-        ),
+      final resolved = await veil.resolveNicknameAsync(
+        selfNodeId: self,
+        name: norm,
+        timeoutMs: _netTimeoutMs,
       );
       if (_disposed || _cancel) {
         state = state.copyWith(phase: NicknamePhase.idle);
@@ -328,14 +324,12 @@ class NicknameController extends StateNotifier<NicknameState> {
     );
     while (!_cancel && !_disposed) {
       final prior = seeds;
-      final out = await Isolate.run(
-        () => veil.mineNicknameChunk(
-          name: norm,
-          ownerNodeId: self,
-          targetWeight: target,
-          maxHashes: _chunkHashes,
-          priorSeeds: prior,
-        ),
+      final out = await veil.mineNicknameChunkAsync(
+        name: norm,
+        ownerNodeId: self,
+        targetWeight: target,
+        maxHashes: _chunkHashes,
+        priorSeeds: prior,
       );
       if (_disposed) return;
       seeds = out.seeds;
@@ -355,13 +349,11 @@ class NicknameController extends StateNotifier<NicknameState> {
     }
 
     state = state.copyWith(phase: NicknamePhase.publishing);
-    final published = await Isolate.run(
-      () => veil.claimNickname(
-        ownerNodeId: self,
-        name: norm,
-        seeds: seeds,
-        timeoutMs: _netTimeoutMs,
-      ),
+    final published = await veil.claimNicknameAsync(
+      ownerNodeId: self,
+      name: norm,
+      seeds: seeds,
+      timeoutMs: _netTimeoutMs,
     );
     if (_disposed) return;
     await _storage.putSetting(

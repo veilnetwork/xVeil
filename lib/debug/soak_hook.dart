@@ -1103,22 +1103,18 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       final norm = veil.normalizeNickname(name);
       final floor = veil.nicknameLengthFloor(norm);
       // Current owner (if any) raises the bar: strictly-greater displaces.
-      final current = await Isolate.run(
-        () => veil.resolveNickname(
-          selfNodeId: self,
-          name: norm,
-          timeoutMs: 10 * 1000,
-        ),
+      final current = await veil.resolveNicknameAsync(
+        selfNodeId: self,
+        name: norm,
+        timeoutMs: 10 * 1000,
       );
       final target =
           current == null ? floor : (current.weight * 2).clamp(floor, 1 << 62);
-      final mined = await Isolate.run(
-        () => veil.mineNicknameChunk(
-          name: norm,
-          ownerNodeId: self,
-          targetWeight: target,
-          maxHashes: maxHashes,
-        ),
+      final mined = await veil.mineNicknameChunkAsync(
+        name: norm,
+        ownerNodeId: self,
+        targetWeight: target,
+        maxHashes: maxHashes,
       );
       if (!mined.hitTarget) {
         return _json(req, {
@@ -1130,13 +1126,11 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         }, status: 409);
       }
       final seeds = mined.seeds;
-      final weight = await Isolate.run(
-        () => veil.claimNickname(
-          ownerNodeId: self,
-          name: norm,
-          seeds: seeds,
-          timeoutMs: 15 * 1000,
-        ),
+      final weight = await veil.claimNicknameAsync(
+        ownerNodeId: self,
+        name: norm,
+        seeds: seeds,
+        timeoutMs: 15 * 1000,
       );
       return _json(req, {
         'ok': true,
@@ -1162,12 +1156,10 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     try {
       final selfHex = await ref.read(messagingServiceProvider).savedSelfHex();
       final self = NodeId.fromHex(selfHex).bytes;
-      final resolved = await Isolate.run(
-        () => veil.resolveNickname(
-          selfNodeId: self,
-          name: name,
-          timeoutMs: 10 * 1000,
-        ),
+      final resolved = await veil.resolveNicknameAsync(
+        selfNodeId: self,
+        name: name,
+        timeoutMs: 10 * 1000,
       );
       if (resolved == null) {
         return _json(req, {'ok': true, 'found': false});
