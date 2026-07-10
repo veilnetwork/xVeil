@@ -34,7 +34,11 @@ import '../state/app_controller.dart';
 /// location except `/lock` redirects to `/lock`, and a deep link into `/chat`
 /// while locked bounces to `/lock`. Extracted so this invariant is unit-testable
 /// without pumping a full router.
-String? redirectForPhase(AppPhase phase, String location) {
+String? redirectForPhase(
+  AppPhase phase,
+  String location, {
+  String? resumeTo,
+}) {
   switch (phase) {
     case AppPhase.bootstrapping:
       return location == '/splash' ? null : '/splash';
@@ -53,13 +57,16 @@ String? redirectForPhase(AppPhase phase, String location) {
       return location == '/preparing' ? null : '/preparing';
     case AppPhase.ready:
       // Bounce the gate screens to home; allow everything else (chat, settings,
-      // add-identity, decoy).
+      // add-identity, decoy). Leaving /preparing honours [resumeTo] — the
+      // location the user was bounced OUT of when a node-config change
+      // restarted the node (e.g. the lazy-mining toggle in settings): they
+      // return to the same page instead of being dumped into chats.
       if (location == '/splash' ||
           location == '/lock' ||
           location == '/onboarding' ||
           location == '/pick-identity' ||
           location == '/preparing') {
-        return '/home';
+        return (location == '/preparing' ? resumeTo : null) ?? '/home';
       }
       return null;
   }
@@ -77,11 +84,29 @@ final routerProvider = Provider<GoRouter>((ref) {
     fireImmediately: true,
   );
 
+  // The location a node-restarting settings change bounced the user OUT of
+  // (→ /preparing). Restored on the next `ready` so a config toggle doesn't
+  // dump the user into chats. SETTINGS pages only — they are identity-generic,
+  // so resuming is safe even when the restart switched the active identity.
+  String? resumeAfterPrepare;
+
   return GoRouter(
     initialLocation: '/splash',
     refreshListenable: refresh,
-    redirect: (context, state) => redirectForPhase(
-        ref.read(appControllerProvider).phase, state.matchedLocation),
+    redirect: (context, state) {
+      final phase = ref.read(appControllerProvider).phase;
+      final location = state.matchedLocation;
+      if (phase == AppPhase.preparingNode &&
+          location.startsWith('/settings')) {
+        resumeAfterPrepare = location; // about to be bounced to /preparing
+      }
+      final resume = resumeAfterPrepare;
+      final target = redirectForPhase(phase, location, resumeTo: resume);
+      if (phase == AppPhase.ready && location == '/preparing') {
+        resumeAfterPrepare = null; // consumed (or defaulted to /home)
+      }
+      return target;
+    },
     routes: [
       GoRoute(path: '/splash', builder: (_, _) => const SplashScreen()),
       GoRoute(

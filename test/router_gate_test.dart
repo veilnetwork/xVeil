@@ -49,4 +49,27 @@ void main() {
           reason: '$app should be allowed once ready');
     }
   });
+
+  test('ready resumes the pre-restart settings page from /preparing', () {
+    // A node-restarting settings toggle bounced the user out of settings:
+    // leaving /preparing honours resumeTo instead of dumping to /home.
+    expect(
+      redirectForPhase(AppPhase.ready, '/preparing',
+          resumeTo: '/settings/account'),
+      '/settings/account',
+    );
+    // Without a resume target the old behavior stands.
+    expect(redirectForPhase(AppPhase.ready, '/preparing'), '/home');
+    // resumeTo never hijacks the OTHER gate screens (lock → home as before).
+    expect(
+      redirectForPhase(AppPhase.ready, '/lock', resumeTo: '/settings/account'),
+      '/home',
+    );
+    // And never fires while still preparing.
+    expect(
+      redirectForPhase(AppPhase.preparingNode, '/settings/account',
+          resumeTo: '/settings/account'),
+      '/preparing',
+    );
+  });
 }
