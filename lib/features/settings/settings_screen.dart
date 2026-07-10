@@ -89,17 +89,8 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ),
           ),
-          ListTile(
-            leading: Icon(
-              Icons.lock,
-              color: Theme.of(context).colorScheme.error,
-            ),
-            title: Text(
-              l.settingsLockNow,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
-            onTap: () => ref.read(appControllerProvider.notifier).lock(),
-          ),
+          // "Lock now" moved to the navigation drawer's bottom menu (user
+          // request): locking is a session action, not a setting.
         ],
       ),
     );
