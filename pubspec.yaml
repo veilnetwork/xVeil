@@ -108,6 +108,11 @@ dependencies:
   # / androidx.browser 1.9 which demand AGP 8.9.1+, but we're pinned to AGP
   # 8.7.3 (see memory mobile-builds). This older impl keeps androidx ≤ what
   # 8.7.3 allows. Revisit the pin if/when the AGP pin moves.
+  # In-chat video playback (media epic). Latest floats: probed 2026-07-10 —
+  # media3 1.9.2 needs only compileSdk 35 (minAGP 1.0), so the AGP 8.7.3 pin
+  # holds WITHOUT a platform-package pin (unlike url_launcher_android).
+  # Linux has no official implementation — video is desktop-macOS/mobile v1.
+  video_player: ^2.11.0
   url_launcher: ^6.3.0
   url_launcher_android: 6.3.14
 

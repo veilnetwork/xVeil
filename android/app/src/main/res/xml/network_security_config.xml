@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cleartext (plain HTTP) is DENIED everywhere by default (base-config) —
+     the app's real network is the encrypted veil overlay, never plaintext
+     HTTP. The ONLY exception is the on-device loopback media server
+     (127.0.0.1): in-chat video playback decrypts a blob to RAM and serves it
+     to ExoPlayer over loopback HTTP, so nothing plaintext touches disk. The
+     traffic never leaves the device, so cleartext here leaks nothing. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+    </domain-config>
+</network-security-config>
