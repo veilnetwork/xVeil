@@ -2831,6 +2831,31 @@ class _Composer extends StatelessWidget {
     focusNode.requestFocus();
   }
 
+  /// Prefix every line spanned by the selection (or the cursor's line) with
+  /// `> `, turning it into a block quote. Line-level, so it can't reuse the
+  /// marker-wrap path — the region is expanded to whole lines first.
+  void _prefixQuote() {
+    final v = controller.value;
+    final text = v.text;
+    final sel = v.selection;
+    final start = sel.isValid ? sel.start : text.length;
+    final end = sel.isValid ? sel.end : text.length;
+    final lineStart = text.lastIndexOf('\n', start - 1) + 1;
+    var lineEnd = text.indexOf('\n', end);
+    if (lineEnd < 0) lineEnd = text.length;
+    final region = text.substring(lineStart, lineEnd);
+    final quoted = region.split('\n').map((l) => '> $l').join('\n');
+    final newText = text.substring(0, lineStart) + quoted + text.substring(lineEnd);
+    controller.value = v.copyWith(
+      text: newText,
+      selection: TextSelection.collapsed(
+        offset: lineEnd + (quoted.length - region.length),
+      ),
+      composing: TextRange.empty,
+    );
+    focusNode.requestFocus();
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
@@ -2880,7 +2905,7 @@ class _Composer extends StatelessWidget {
             PopupMenuButton<String>(
               icon: const Icon(Icons.text_format),
               tooltip: l.chatFormatTooltip,
-              onSelected: _wrap,
+              onSelected: (v) => v == '>' ? _prefixQuote() : _wrap(v),
               itemBuilder: (_) => [
                 PopupMenuItem(
                   value: '**',
@@ -2922,6 +2947,17 @@ class _Composer extends StatelessWidget {
                   ),
                 ),
                 PopupMenuItem(value: '||', child: Text(l.chatFormatSpoiler)),
+                PopupMenuItem(
+                  value: '>',
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.format_quote, size: 18),
+                      const SizedBox(width: 8),
+                      Text(l.chatFormatQuote),
+                    ],
+                  ),
+                ),
               ],
             ),
             Expanded(child: field),

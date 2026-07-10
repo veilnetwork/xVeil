@@ -116,6 +116,7 @@
   "chatFormatStrike": "Зачёркнутый",
   "chatFormatCode": "Код",
   "chatFormatSpoiler": "Спойлер",
+  "chatFormatQuote": "Цитата",
   "chatLinkCopied": "Ссылка скопирована",
   "p2pSelectedTitle": "Избранные контакты",
   "p2pSelectedHint": "Кому разрешён прямой P2P при политике «Только выбранные». Включите тумблер, чтобы разрешить; выключено — по глобальной политике.",

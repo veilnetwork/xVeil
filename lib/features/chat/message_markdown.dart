@@ -156,9 +156,91 @@ bool _startsWith(String s, int at, String marker) {
   );
 }
 
+/// A body splits into block-level runs before inline parsing: normal text and
+/// block quotes (`>` line prefix). A quote renders with a left rule; its inner
+/// text still flows through [parseFormatted].
+enum MdBlockKind { normal, quote }
+
+class MdBlock {
+  const MdBlock(this.kind, this.text);
+  final MdBlockKind kind;
+  final String text;
+
+  @override
+  bool operator ==(Object other) =>
+      other is MdBlock && other.kind == kind && other.text == text;
+
+  @override
+  int get hashCode => Object.hash(kind, text);
+
+  @override
+  String toString() => 'MdBlock($kind, ${text.replaceAll("\n", "\\n")})';
+}
+
+/// Char ranges `[start, end)` covered by ``` fenced code spans, paired the same
+/// way [parseFormatted] pairs them (an open ``` to the next ```). An
+/// unterminated fence yields no span — its ``` stays literal, matching inline
+/// parsing.
+List<(int, int)> _fencedSpans(String body) {
+  final spans = <(int, int)>[];
+  var i = 0;
+  while (true) {
+    final open = body.indexOf('```', i);
+    if (open < 0) break;
+    final close = body.indexOf('```', open + 3);
+    if (close < 0) break;
+    spans.add((open, close + 3));
+    i = close + 3;
+  }
+  return spans;
+}
+
+/// Split [body] into normal and block-quote blocks. A quote block is a maximal
+/// run of lines whose first non-space char is `>` and whose start lies outside
+/// a ``` fence (so `>` inside a code block stays literal). The `>` and one
+/// optional following space are stripped from each quoted line; a non-quote
+/// line ends the quote. Pure — unit-tested.
+List<MdBlock> parseBlocks(String body) {
+  final fences = _fencedSpans(body);
+  bool inFence(int offset) {
+    for (final (s, e) in fences) {
+      if (offset >= s && offset < e) return true;
+    }
+    return false;
+  }
+
+  final blocks = <MdBlock>[];
+  final buf = StringBuffer();
+  var kind = MdBlockKind.normal;
+  var offset = 0;
+  void flush() {
+    if (buf.isEmpty) return;
+    blocks.add(MdBlock(kind, buf.toString()));
+    buf.clear();
+  }
+
+  for (final line in body.split('\n')) {
+    final isQuote = line.trimLeft().startsWith('>') && !inFence(offset);
+    final lineKind = isQuote ? MdBlockKind.quote : MdBlockKind.normal;
+    if (buf.isNotEmpty && lineKind != kind) flush();
+    if (buf.isNotEmpty) buf.write('\n');
+    kind = lineKind;
+    if (isQuote) {
+      var content = line.trimLeft().substring(1);
+      if (content.startsWith(' ')) content = content.substring(1);
+      buf.write(content);
+    } else {
+      buf.write(line);
+    }
+    offset += line.length + 1;
+  }
+  flush();
+  return blocks;
+}
+
 /// Renders a message body with the [parseFormatted] subset. Bold / italic /
-/// underline / strikethrough / inline `code` / ``` code blocks / ||spoiler||.
-/// Spoilers are tap-to-reveal.
+/// underline / strikethrough / inline `code` / ``` code blocks / ||spoiler|| /
+/// `>` block quotes. Spoilers are tap-to-reveal.
 class FormattedText extends StatefulWidget {
   const FormattedText(this.body, {super.key, this.style});
   final String body;
@@ -190,22 +272,21 @@ class _FormattedTextState extends State<FormattedText> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    for (final r in _recognizers) {
-      r.dispose();
-    }
-    _recognizers.clear();
-    final tokens = parseFormatted(widget.body);
-    final base = widget.style ?? DefaultTextStyle.of(context).style;
-    final scheme = Theme.of(context).colorScheme;
-    final mono = base.copyWith(
-      fontFamily: 'monospace',
-      backgroundColor: scheme.surfaceContainerHighest,
-    );
+  /// Build inline spans for [text]. [indexBase] offsets spoiler keys so their
+  /// reveal state stays unique across the blocks of one body. Returns the spans
+  /// and the token count consumed (to advance [indexBase] for the next block).
+  (List<InlineSpan>, int) _spansFor(
+    String text,
+    int indexBase,
+    TextStyle base,
+    TextStyle mono,
+    ColorScheme scheme,
+  ) {
+    final tokens = parseFormatted(text);
     final spans = <InlineSpan>[];
     for (var idx = 0; idx < tokens.length; idx++) {
       final t = tokens[idx];
+      final key = indexBase + idx;
       switch (t.kind) {
         case FmtKind.plain:
           spans.add(TextSpan(text: t.text, style: base));
@@ -256,13 +337,13 @@ class _FormattedTextState extends State<FormattedText> {
             ),
           );
         case FmtKind.spoiler:
-          final shown = _revealed.contains(idx);
+          final shown = _revealed.contains(key);
           spans.add(
             WidgetSpan(
               alignment: PlaceholderAlignment.baseline,
               baseline: TextBaseline.alphabetic,
               child: GestureDetector(
-                onTap: shown ? null : () => setState(() => _revealed.add(idx)),
+                onTap: shown ? null : () => setState(() => _revealed.add(key)),
                 child: Container(
                   color: shown ? null : scheme.onSurface,
                   child: Text(
@@ -277,6 +358,58 @@ class _FormattedTextState extends State<FormattedText> {
           );
       }
     }
-    return Text.rich(TextSpan(children: spans));
+    return (spans, tokens.length);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    for (final r in _recognizers) {
+      r.dispose();
+    }
+    _recognizers.clear();
+    final base = widget.style ?? DefaultTextStyle.of(context).style;
+    final scheme = Theme.of(context).colorScheme;
+    final mono = base.copyWith(
+      fontFamily: 'monospace',
+      backgroundColor: scheme.surfaceContainerHighest,
+    );
+
+    final blocks = parseBlocks(widget.body);
+    // No quotes: one Text.rich over the whole body — preserves blank lines and
+    // matches the pre-quote behaviour exactly.
+    if (!blocks.any((b) => b.kind == MdBlockKind.quote)) {
+      final (spans, _) = _spansFor(widget.body, 0, base, mono, scheme);
+      return Text.rich(TextSpan(children: spans));
+    }
+
+    var indexBase = 0;
+    final children = <Widget>[];
+    for (final b in blocks) {
+      final blockBase = b.kind == MdBlockKind.quote
+          ? base.copyWith(color: scheme.onSurfaceVariant)
+          : base;
+      final (spans, count) = _spansFor(b.text, indexBase, blockBase, mono, scheme);
+      indexBase += count;
+      final rich = Text.rich(TextSpan(children: spans));
+      children.add(
+        b.kind == MdBlockKind.quote
+            ? Container(
+                margin: const EdgeInsets.symmetric(vertical: 2),
+                padding: const EdgeInsets.only(left: 10),
+                decoration: BoxDecoration(
+                  border: Border(
+                    left: BorderSide(color: scheme.primary, width: 3),
+                  ),
+                ),
+                child: rich,
+              )
+            : rich,
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: children,
+    );
   }
 }
