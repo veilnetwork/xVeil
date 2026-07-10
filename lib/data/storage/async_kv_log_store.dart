@@ -385,16 +385,47 @@ class WorkerKvLogStore implements AsyncKvLogStore {
     if (_closed) return;
     _closed = true;
     final reply = ReceivePort();
-    try {
-      _toWorker.send(_CloseReq(reply.sendPort));
-      await reply.first.timeout(
-        const Duration(seconds: 5),
-        onTimeout: () => const _Ok(null),
-      );
-    } finally {
+    final done = reply.first; // single-subscription: capture exactly once
+    _toWorker.send(_CloseReq(reply.sendPort));
+    final r = await done.timeout(
+      const Duration(seconds: 5),
+      // The worker never replies a bare null (_Ok/_Err are objects), so null
+      // unambiguously means the timeout fired.
+      onTimeout: () => null,
+    );
+    if (r != null) {
       reply.close();
       _isolate.kill(priority: Isolate.immediate);
+      return;
     }
+    // Timed out — the worker is almost certainly blocked inside a long
+    // synchronous FFI op (a big commit/scan) with our close queued behind it.
+    // KILLING IT HERE WOULD LEAK THE NATIVE CONTAINER HANDLE: an isolate kill
+    // cannot interrupt or unwind an FFI frame, so the store would never close,
+    // the container's exclusive flock would stay held by THIS PROCESS, and
+    // every later open of the container would fail Busy until an app restart —
+    // the "correct password but won't unlock" trap. Return now so the caller
+    // (lock/switch) isn't stuck, but let the worker drain and close in the
+    // background; it kills itself after serving _CloseReq.
+    devLog(
+      () =>
+          'xVeil[storage]: worker close timed out (>5s) — waiting in '
+          'background for the store to finish closing (flock still held)',
+    );
+    unawaited(
+      done
+          .then(
+            (_) => devLog(
+              () =>
+                  'xVeil[storage]: late worker close completed — container '
+                  'handle released',
+            ),
+          )
+          .catchError((Object e) {
+            devLog(() => 'xVeil[storage]: late worker close failed: $e');
+          })
+          .whenComplete(reply.close),
+    );
   }
 }
 
@@ -436,12 +467,29 @@ AsyncSpaceOpener workerSpaceOpener(
           paddingPreset: paddingPreset,
         );
       } on hv.HvException catch (e) {
-        _workerOpenUsable = false;
         devLog(
           () =>
               'xVeil[storage]: worker open FAILED (${e.kind}: ${e.message}) — '
-              'falling back to INLINE storage (off-isolate disabled this run)',
+              'trying INLINE open',
         );
+        // A CONTAINER-level failure (Busy from a still-held flock, a corrupt
+        // file) hits the inline path identically — it throws out of here to the
+        // caller (which must surface it, not report "wrong password"), and the
+        // worker path stays enabled for the next attempt. Only when the inline
+        // open SUCCEEDS where the worker failed is the worker itself proven
+        // defective (e.g. a spawned isolate that can't load the native lib —
+        // observed on Android) — then disable it for the rest of the run.
+        final inline = hvSpaceOpener(path, paddingPreset: paddingPreset)(
+          password: password,
+          create: create,
+        );
+        _workerOpenUsable = false;
+        devLog(
+          () =>
+              'xVeil[storage]: INLINE open worked where the worker failed — '
+              'off-isolate storage disabled for the rest of this run',
+        );
+        return inline == null ? null : SyncWrappedAsyncKvLogStore(inline);
       }
     }
     final inline = hvSpaceOpener(path, paddingPreset: paddingPreset)(

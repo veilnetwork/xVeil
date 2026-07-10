@@ -107,20 +107,46 @@ class HiddenVolumeStorage implements Storage {
   @override
   bool get isOpen => _store != null;
 
+  /// Every legitimate flow closes the previous space before opening the next
+  /// (switchIdentity, roster edits, compaction all call [close] explicitly), so
+  /// a still-set [_store] here means a handle LEAKED past a failed path. It
+  /// must be closed BEFORE the new open, not after: the old handle holds the
+  /// container's exclusive flock, so opening the same container over it fails
+  /// `Busy` — and since a failed open used to leave the stale handle in place,
+  /// every retry failed the same way until an app restart ("correct password
+  /// but won't unlock"). Closing first makes the retry self-healing.
+  ///
+  /// Callers guard with `if (_store != null)` instead of awaiting
+  /// unconditionally: in the common no-stale case open() must reach its opener
+  /// WITHOUT yielding to the event loop, so a Busy container still fails the
+  /// caller synchronously-first (semantics some callers/tests rely on).
+  Future<void> _closeStaleStoreBeforeOpen(String who) async {
+    final stale = _store;
+    if (stale == null) return;
+    _store = null;
+    devLog(
+      () =>
+          'xVeil[storage]: $who called while a space is still open — '
+          'closing the stale handle first (leaked by an earlier failure?)',
+    );
+    try {
+      await stale.close();
+    } catch (e) {
+      devLog(() => 'xVeil[storage]: stale-handle close failed: $e');
+    }
+  }
+
   @override
   Future<bool> open({
     required String password,
     bool createIfMissing = false,
   }) async {
+    if (_store != null) await _closeStaleStoreBeforeOpen('open()');
     final store = await _opener(
       password: Uint8List.fromList(utf8.encode(password)),
       create: createIfMissing,
     );
     if (store == null) return false;
-    // Close any previously-open space before adopting the new one. Without this
-    // a re-open (e.g. switching identities) would leak the old handle and keep
-    // its exclusive flock, so the NEXT open of that container fails with `Busy`.
-    await _store?.close();
     _store = store;
     await _invalidateScanCache(); // adopting a different space — drop the old fold
     return true;
@@ -131,9 +157,10 @@ class HiddenVolumeStorage implements Storage {
   /// keys-opener configured.
   @override
   Future<bool> openWithKeys(Uint8List keys) async {
+    if (keysOpener == null) return false;
+    if (_store != null) await _closeStaleStoreBeforeOpen('openWithKeys()');
     final store = await keysOpener?.call(keys);
     if (store == null) return false;
-    await _store?.close();
     _store = store;
     await _invalidateScanCache(); // adopting a different space — drop the old fold
     return true;
@@ -2319,8 +2346,17 @@ class HiddenVolumeStorage implements Storage {
 
   @override
   Future<void> close() async {
-    await _store?.close();
+    final s = _store;
+    // Clear the handle FIRST: a throwing native close must never leave a stale
+    // _store behind — that would wedge every later open of the same container
+    // behind its exclusive flock until an app restart. The error itself is
+    // logged and swallowed (callers close best-effort on teardown paths).
     _store = null;
+    try {
+      await s?.close();
+    } catch (e) {
+      devLog(() => 'xVeil[storage]: close failed (handle dropped anyway): $e');
+    }
     await _invalidateScanCache();
   }
 }
