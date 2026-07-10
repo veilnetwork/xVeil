@@ -584,5 +584,9 @@
   "nicknameOwnedWeight": "Вес защиты {weight}",
   "@nicknameOwnedWeight": {"placeholders": {"weight": {"type": "String"}}},
   "nicknameTopUp": "Усилить (майнить ещё)",
-  "nicknameClaimed": "Имя опубликовано"
+  "nicknameClaimed": "Имя опубликовано",
+  "newChatPeerOrNickname": "Node id (hex) или @имя",
+  "nicknameNotFound": "Имя не найдено в сети",
+  "nicknameIsSelf": "Это имя указывает на вас",
+  "nicknameOwnerChanged": "Имя сменило владельца в сети. Контакт по-прежнему указывает на человека, которого вы добавили."
 }

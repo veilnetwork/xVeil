@@ -1770,4 +1770,17 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get nicknameClaimed => 'Имя опубликовано';
+
+  @override
+  String get newChatPeerOrNickname => 'Node id (hex) или @имя';
+
+  @override
+  String get nicknameNotFound => 'Имя не найдено в сети';
+
+  @override
+  String get nicknameIsSelf => 'Это имя указывает на вас';
+
+  @override
+  String get nicknameOwnerChanged =>
+      'Имя сменило владельца в сети. Контакт по-прежнему указывает на человека, которого вы добавили.';
 }
