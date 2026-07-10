@@ -1,14 +1,17 @@
 import 'dart:async';
 import 'dart:convert' show base64Decode;
 import 'dart:io';
-import 'dart:ui' as ui show ImageFilter, PlatformDispatcher;
+import 'dart:ui' as ui
+    show ImageFilter, PlatformDispatcher, Image, PixelFormat, decodeImageFromPixels;
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:veil_media/veil_media.dart' show VeilVideoFrame;
 
 import '../../core/format.dart';
 import '../../core/ids.dart';
@@ -31,6 +34,7 @@ import '../../state/providers.dart';
 import '../../state/thumbnail.dart';
 import '../../state/transcription_controller.dart';
 import '../../state/voice_message.dart';
+import '../../state/vnote_record_controller.dart';
 import '../../state/voice_play_controller.dart';
 import '../../state/voice_record_controller.dart';
 import 'voice_waveform.dart';
@@ -3664,6 +3668,66 @@ class _Bubble extends ConsumerWidget {
   };
 }
 
+/// Live round self-preview while recording a video note: converts the
+/// controller's latest RGBA frame to a [ui.Image], coalescing decodes (a slow
+/// frame is skipped, never queued) — the calls' remote-video pattern.
+class _VnotePreview extends StatefulWidget {
+  const _VnotePreview({required this.frameListenable});
+  final ValueListenable<VeilVideoFrame?> frameListenable;
+
+  @override
+  State<_VnotePreview> createState() => _VnotePreviewState();
+}
+
+class _VnotePreviewState extends State<_VnotePreview> {
+  ui.Image? _image;
+  bool _decoding = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.frameListenable.addListener(_onFrame);
+    _onFrame();
+  }
+
+  @override
+  void dispose() {
+    widget.frameListenable.removeListener(_onFrame);
+    _image?.dispose();
+    super.dispose();
+  }
+
+  void _onFrame() {
+    final f = widget.frameListenable.value;
+    if (f == null || _decoding) return;
+    _decoding = true;
+    ui.decodeImageFromPixels(f.rgba, f.width, f.height, ui.PixelFormat.rgba8888,
+        (img) {
+      _decoding = false;
+      if (!mounted) {
+        img.dispose();
+        return;
+      }
+      setState(() {
+        _image?.dispose();
+        _image = img;
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final img = _image;
+    if (img == null) {
+      return const ColoredBox(
+        color: Colors.black26,
+        child: Center(child: Icon(Icons.videocam, size: 28)),
+      );
+    }
+    return RawImage(image: img, fit: BoxFit.cover);
+  }
+}
+
 class _Composer extends ConsumerStatefulWidget {
   const _Composer({
     required this.controller,
@@ -3672,6 +3736,8 @@ class _Composer extends ConsumerStatefulWidget {
     required this.onSend,
     this.onAttach,
     this.onVoice,
+    // ignore: unused_element_parameter
+    this.onVideoNote,
   });
   final TextEditingController controller;
   final FocusNode focusNode;
@@ -3684,6 +3750,13 @@ class _Composer extends ConsumerStatefulWidget {
   /// When set (accepted contacts only), shows a hold-to-record mic button on
   /// an empty field; releasing sends the recorded [VoiceClip].
   final void Function(VoiceClip clip)? onVoice;
+
+  /// When set, the capture button gains a mic↔camera mode toggle and the
+  /// camera mode records a round video note ([VnoteClip]). Wired by the
+  /// send-path brick — until then the toggle stays hidden (null).
+  // Staged: brick 4 (sendVideoNote) passes it.
+  // ignore: unused_element_parameter
+  final void Function(VnoteClip clip)? onVideoNote;
 
   @override
   ConsumerState<_Composer> createState() => _ComposerState();
@@ -3698,6 +3771,9 @@ class _ComposerState extends ConsumerState<_Composer> {
   /// Rolling recent capture levels, painted as the live waveform while
   /// recording. Fed from the record controller's poll ticks.
   final List<double> _liveLevels = [];
+
+  /// Capture mode of the empty-field button: false = voice, true = video note.
+  bool _vnoteMode = false;
 
   /// Wrap the current selection (or insert at the cursor) with a formatting
   /// marker, keeping focus + the wrapped selection so the user can keep typing
@@ -3770,6 +3846,15 @@ class _ComposerState extends ConsumerState<_Composer> {
     if (clip != null) widget.onVoice?.call(clip);
   }
 
+  Future<void> _startVnoteRecording() async {
+    await ref.read(vnoteRecordControllerProvider.notifier).start();
+  }
+
+  void _sendVnoteRecording() {
+    final clip = ref.read(vnoteRecordControllerProvider.notifier).stop();
+    if (clip != null) widget.onVideoNote?.call(clip);
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
@@ -3789,6 +3874,19 @@ class _ComposerState extends ConsumerState<_Composer> {
         _showCenterToast(l.chatVoiceRecordFailed);
       }
     });
+    // Video-note phases: toasts on failure + pick up the 60s auto-stop clip.
+    ref.listen<VnoteRecordState>(vnoteRecordControllerProvider, (prev, next) {
+      if (next.phase == VnoteRecordPhase.denied) {
+        _showCenterToast(l.chatVnoteDenied);
+      } else if (next.phase == VnoteRecordPhase.error) {
+        _showCenterToast(l.chatVoiceRecordFailed);
+      }
+      if (prev?.isRecording == true && next.phase == VnoteRecordPhase.idle) {
+        final auto =
+            ref.read(vnoteRecordControllerProvider.notifier).takeAutoStopped();
+        if (auto != null) widget.onVideoNote?.call(auto);
+      }
+    });
     final rec = ref.watch(voiceRecordControllerProvider);
     if (rec.isRecording) {
       return SafeArea(
@@ -3796,6 +3894,16 @@ class _ComposerState extends ConsumerState<_Composer> {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
           child: _recordingBar(context, l, rec),
+        ),
+      );
+    }
+    final vnoteRec = ref.watch(vnoteRecordControllerProvider);
+    if (vnoteRec.isRecording) {
+      return SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+          child: _vnoteRecordingBar(context, l, vnoteRec),
         ),
       );
     }
@@ -3926,12 +4034,21 @@ class _ComposerState extends ConsumerState<_Composer> {
               ),
             ),
             const SizedBox(width: 4),
-            // Empty field + voice enabled → tap-to-record mic; otherwise send.
+            // Empty field + voice enabled → tap-to-record capture button (mic
+            // or, with the toggle, a round video note); otherwise send.
             if (widget.onVoice != null)
               ValueListenableBuilder<TextEditingValue>(
                 valueListenable: controller,
                 builder: (_, value, child) => value.text.trim().isEmpty
-                    ? _micButton(context)
+                    ? Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (widget.onVideoNote != null) _modeToggle(context, l),
+                          _vnoteMode && widget.onVideoNote != null
+                              ? _vnoteButton(context)
+                              : _micButton(context),
+                        ],
+                      )
                     : IconButton.filled(
                         onPressed: onSend, icon: const Icon(Icons.send)),
               )
@@ -3953,6 +4070,68 @@ class _ComposerState extends ConsumerState<_Composer> {
       onPressed: _startRecording,
       icon: const Icon(Icons.mic),
       color: scheme.onPrimary,
+    );
+  }
+
+  /// Tap-to-record round-video button (the camera mode of the capture toggle).
+  Widget _vnoteButton(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return IconButton.filled(
+      onPressed: _startVnoteRecording,
+      icon: const Icon(Icons.videocam),
+      color: scheme.onPrimary,
+    );
+  }
+
+  /// Switches the capture button between voice and round-video mode (shows
+  /// the mode you'd switch TO, Telegram-desktop style).
+  Widget _modeToggle(BuildContext context, AppL10n l) {
+    return IconButton(
+      icon: Icon(_vnoteMode ? Icons.mic_none : Icons.videocam_outlined),
+      tooltip: _vnoteMode ? l.chatVoiceTooltip : l.chatVnoteTooltip,
+      onPressed: () => setState(() => _vnoteMode = !_vnoteMode),
+    );
+  }
+
+  /// While recording a video note: Cancel + live round self-preview + elapsed
+  /// + Send. The preview repaints off the controller's frame notifier, not the
+  /// widget state (12 fps repaints must not rebuild the whole composer).
+  Widget _vnoteRecordingBar(
+      BuildContext context, AppL10n l, VnoteRecordState rec) {
+    final scheme = Theme.of(context).colorScheme;
+    final ctrl = ref.read(vnoteRecordControllerProvider.notifier);
+    final elapsed = formatVoiceDuration(Duration(milliseconds: rec.elapsedMs));
+    return Row(
+      children: [
+        IconButton(
+          icon: Icon(Icons.delete_outline, color: scheme.error),
+          tooltip: l.actionCancel,
+          onPressed: ctrl.cancel,
+        ),
+        Icon(Icons.fiber_manual_record, color: scheme.error, size: 14),
+        const SizedBox(width: 8),
+        SizedBox(
+          width: 44,
+          child:
+              Text(elapsed, style: Theme.of(context).textTheme.labelMedium),
+        ),
+        Expanded(
+          child: Center(
+            child: ClipOval(
+              child: SizedBox(
+                width: 96,
+                height: 96,
+                child: _VnotePreview(frameListenable: ctrl.preview),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 4),
+        IconButton.filled(
+          onPressed: _sendVnoteRecording,
+          icon: const Icon(Icons.send),
+        ),
+      ],
     );
   }
 
