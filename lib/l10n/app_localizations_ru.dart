@@ -362,6 +362,18 @@ class AppL10nRu extends AppL10n {
   String get chatCodeCopied => 'Код скопирован';
 
   @override
+  String get linkDialogTitle => 'Открыть ссылку?';
+
+  @override
+  String get linkOpen => 'Открыть';
+
+  @override
+  String get linkCopy => 'Копировать';
+
+  @override
+  String get linkOpenFailed => 'Не удалось открыть ссылку';
+
+  @override
   String get p2pSelectedTitle => 'Избранные контакты';
 
   @override
