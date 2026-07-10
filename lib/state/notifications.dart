@@ -115,7 +115,12 @@ final notificationServiceProvider = Provider<NotificationService>((ref) {
   svc.init(
     onTap: (payload) {
       if (payload != null && payload.isNotEmpty) {
-        ref.read(routerProvider).go('/chat/$payload');
+        // go() alone REPLACES the stack: the chat would open with no back
+        // button (user-reported on desktop). Root the stack at home first,
+        // then push — back leads to the chat list, like a normal open.
+        ref.read(routerProvider)
+          ..go('/home')
+          ..push('/chat/$payload');
       }
     },
     onReply: (payload, text) {
@@ -128,7 +133,10 @@ final notificationServiceProvider = Provider<NotificationService>((ref) {
       try {
         final peer = NodeId.fromHex(payload);
         unawaited(ref.read(messagingServiceProvider).sendText(peer, text));
-        ref.read(routerProvider).go('/chat/$payload');
+        // Same stack-rooting as onTap: never land in a chat with no way back.
+        ref.read(routerProvider)
+          ..go('/home')
+          ..push('/chat/$payload');
       } catch (e) {
         devLog(() => 'xVeil[notify]: inline reply failed: $e');
       }
