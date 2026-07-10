@@ -419,6 +419,36 @@ void main() {
               'survive as restart/outbox work');
     });
 
+    test('repeated renegotiates enqueue DISTINCT durable frames (a type-only '
+        'id would dedup the second toggle away)', () async {
+      tA.online = false;
+      await mA.sendCallSignal(
+        b,
+        const CallSignal(
+          callId: 'reneg',
+          type: CallSignalType.renegotiate,
+          media: CallMedia(audio: true, video: true, screen: true),
+        ),
+      );
+      clock = clock.add(const Duration(seconds: 1));
+      await mA.sendCallSignal(
+        b,
+        const CallSignal(
+          callId: 'reneg',
+          type: CallSignalType.renegotiate,
+          media: CallMedia(audio: true, video: true),
+        ),
+      );
+      await _settle();
+
+      final ids = (await sA.pendingOutboxFrames())
+          .map((f) => f.frameId)
+          .where((x) => x.startsWith('call:reneg:renegotiate:'))
+          .toList();
+      expect(ids.length, 2);
+      expect(ids.toSet().length, 2, reason: 'sentAt-keyed ids must differ');
+    });
+
     test('stale durable call offer is retired instead of re-driven forever',
         () async {
       tA.online = false;

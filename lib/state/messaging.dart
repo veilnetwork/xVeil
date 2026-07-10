@@ -1250,7 +1250,14 @@ class MessagingService {
       }
       return;
     }
-    await sendDurable(peer, 'call:${signal.callId}:${signal.type.name}', env);
+    // Renegotiate repeats per call (screen share on/off/on…): a type-only id
+    // would collide with the PREVIOUS toggle still in the outbox and the
+    // receiver would dedup the new state away — key it by sentAt too. The
+    // receiver folds strictly-newer-by-sentAt, so re-drives stay idempotent.
+    final fid = stamped.type == CallSignalType.renegotiate
+        ? 'call:${signal.callId}:${signal.type.name}:${stamped.sentAtMs}'
+        : 'call:${signal.callId}:${signal.type.name}';
+    await sendDurable(peer, fid, env);
   }
 
   /// Re-drive un-acked durable frames: re-deposit at the mailbox (idempotent via

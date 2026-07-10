@@ -391,6 +391,71 @@ void main() {
       });
     });
 
+    test('toggling the share tells the peer via renegotiate with the updated '
+        'media set', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia();
+        final svc = CallService(fake, now: () => clock.now(), media: media)
+          ..start();
+        fake.onCallSignal!(peer, videoOffer('call-r'));
+        svc.accept();
+        async.flushMicrotasks();
+        fake.sent.clear();
+
+        svc.setScreenShareEnabled(true);
+        async.flushMicrotasks();
+        var renegs =
+            fake.sent.where((s) => s.type == CallSignalType.renegotiate);
+        expect(renegs.single.media?.screen, isTrue);
+        expect(svc.current?.media.screen, isTrue);
+
+        svc.setScreenShareEnabled(false);
+        async.flushMicrotasks();
+        renegs = fake.sent.where((s) => s.type == CallSignalType.renegotiate);
+        expect(renegs.last.media?.screen, isFalse);
+        expect(svc.current?.media.screen, isFalse);
+      });
+    });
+
+    test('peer renegotiate folds strictly-newer media; a stale re-drive '
+        'never regresses it', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia();
+        final svc = CallService(fake, now: () => clock.now(), media: media)
+          ..start();
+        fake.onCallSignal!(peer, videoOffer('call-n'));
+        svc.accept();
+        async.flushMicrotasks();
+        expect(svc.current?.status, CallStatus.active);
+
+        CallSignal reneg(bool screen, int atMs) => CallSignal(
+          callId: 'call-n',
+          type: CallSignalType.renegotiate,
+          media: CallMedia(audio: true, video: true, screen: screen),
+          sentAtMs: atMs,
+        );
+
+        // Newer applies.
+        fake.onCallSignal!(peer, reneg(true, 1000));
+        async.flushMicrotasks();
+        expect(svc.current?.media.screen, isTrue);
+
+        // A stale or duplicate re-drive (older/equal sentAt) is ignored.
+        fake.onCallSignal!(peer, reneg(false, 900));
+        fake.onCallSignal!(peer, reneg(false, 1000));
+        async.flushMicrotasks();
+        expect(svc.current?.media.screen, isTrue,
+            reason: 'older sentAt must not overwrite the newer set');
+
+        // The genuinely newer OFF lands.
+        fake.onCallSignal!(peer, reneg(false, 1100));
+        async.flushMicrotasks();
+        expect(svc.current?.media.screen, isFalse);
+      });
+    });
+
     test('share is a no-op on an audio-only call', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();
