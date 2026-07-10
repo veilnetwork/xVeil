@@ -3771,11 +3771,14 @@ class MessagingService {
     NodeId dst,
     Uint8List bytes,
     int durationMs,
-    List<double> waveform,
-  ) async {
+    List<double> waveform, {
+    String? lang,
+  }) async {
     _mailbox?.noteActivity(); // user action → mailbox burst window
     _warmStreamPeer(dst);
-    final sidecar = encodeVoiceSidecar(durationMs, waveform);
+    // Carry the SENDER's language in the sidecar so the receiver transcribes in
+    // the spoken language, not their own locale.
+    final sidecar = encodeVoiceSidecar(durationMs, waveform, lang: lang);
     final name = '${_uuid.v4()}$kVoiceFileExt';
     await _sendAsContent(dst, bytes, name, thumbOverride: sidecar);
   }

@@ -3,7 +3,9 @@
 // store (keyed by the clip's blob key) so it never re-runs and never leaks the
 // text to plaintext. By button only (CPU cost + privacy), never automatic.
 
+import 'dart:io';
 import 'dart:typed_data';
+import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -41,7 +43,17 @@ class TranscriptionController extends Notifier<Map<String, TranscriptEntry>> {
   @override
   Map<String, TranscriptEntry> build() => const {};
 
-  static String _cacheKey(String fileKey) => 'voice.transcript.v1:$fileKey';
+  static String _cacheKey(String fileKey) => 'voice.transcript.v2:$fileKey';
+
+  /// The language to transcribe in. whisper's auto-detect is unreliable on the
+  /// small quantized model (it silently returns empty), so we use the user's
+  /// UI/device language as a strong prior — voice notes are almost always in it.
+  static String _lang() {
+    final code = PlatformDispatcher.instance.locale.languageCode;
+    if (code.isNotEmpty) return code;
+    final os = Platform.localeName.split(RegExp('[_-]')).first;
+    return os.isNotEmpty ? os : 'en';
+  }
 
   TranscriptEntry entryFor(String messageId) =>
       state[messageId] ?? const TranscriptEntry();
@@ -60,9 +72,14 @@ class TranscriptionController extends Notifier<Map<String, TranscriptEntry>> {
     } catch (_) {/* store not open / transient — leave as none */}
   }
 
-  /// Transcribe the clip [fileKey] and cache the result. No-op while already
-  /// running or done.
-  Future<void> transcribe(String messageId, String fileKey) async {
+  /// Transcribe the clip [fileKey] and cache the result. [senderLang] (from the
+  /// message's sidecar) is preferred over the local device language — a note is
+  /// in the SENDER's language. No-op while already running or done.
+  Future<void> transcribe(
+    String messageId,
+    String fileKey, {
+    String? senderLang,
+  }) async {
     final cur = entryFor(messageId);
     if (cur.isRunning || cur.isDone) return;
     _set(messageId, const TranscriptEntry(phase: TranscriptPhase.running));
@@ -72,18 +89,23 @@ class TranscriptionController extends Notifier<Map<String, TranscriptEntry>> {
         _set(messageId, const TranscriptEntry(phase: TranscriptPhase.failed));
         return;
       }
-      final text = await ref.read(voiceTranscriberProvider)(bytes);
+      final lang = (senderLang != null && senderLang.isNotEmpty)
+          ? senderLang
+          : _lang();
+      final text = await ref.read(voiceTranscriberProvider)(bytes, lang: lang);
       if (text == null) {
         _set(messageId, const TranscriptEntry(phase: TranscriptPhase.failed));
         return;
       }
-      // Cache (best-effort) so it survives a rebuild + never re-runs.
-      try {
-        await ref
-            .read(storageProvider)
-            .putSetting(_cacheKey(fileKey), text);
-      } catch (e) {
-        devLog(() => 'xVeil[transcript]: cache write failed: $e');
+      // Cache non-empty results (best-effort) so they survive a rebuild + never
+      // re-run. An empty result (silence / a mis-detect) is NOT cached, so the
+      // Transcribe button stays available to retry across sessions.
+      if (text.isNotEmpty) {
+        try {
+          await ref.read(storageProvider).putSetting(_cacheKey(fileKey), text);
+        } catch (e) {
+          devLog(() => 'xVeil[transcript]: cache write failed: $e');
+        }
       }
       _set(messageId, TranscriptEntry(phase: TranscriptPhase.done, text: text));
     } catch (e) {
