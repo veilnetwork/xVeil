@@ -473,14 +473,19 @@ class MessagingService {
     InboundMessage m,
     String id, {
     bool direct = false,
+    bool repeat = false,
   }) async {
     final ack = WireEnvelope.ack(id).encode();
     final viaReply = !direct && m.replyId != 0;
     // [timeline] which ACK path we took (reply = fast one-time circuit; direct =
-    // durable resolve+circuit). id + path enum only — no body/keys.
+    // durable resolve+circuit). id + path enum only — no body/keys. A repeat
+    // (re-delivery of an already-processed frame: sender re-drive, mailbox
+    // replica fan-out landing across drain passes) is labeled `re-ack` so the
+    // log reads as the EXPECTED duplicate it is, not as reprocessing.
     devLog(
       () =>
-          'xVeil[timeline]: ack id=$id via=${viaReply ? 'reply' : 'direct'} '
+          'xVeil[timeline]: ${repeat ? 're-ack' : 'ack'} id=$id '
+          'via=${viaReply ? 'reply' : 'direct'} '
           't=${DateTime.now().millisecondsSinceEpoch}',
     );
     if (viaReply) {
@@ -1170,7 +1175,9 @@ class MessagingService {
       _seenFrames.remove(_seenFrames.first); // evict oldest (insertion order)
     }
     try {
-      await _ackTo(m, frameId);
+      // A frame we already processed is an expected re-delivery — labeled
+      // `re-ack` in the timeline so duplicates read as protocol, not noise.
+      await _ackTo(m, frameId, repeat: _seenFrames.contains(frameId));
     } catch (_) {
       // Best-effort — a re-drive will prompt another ack.
     }
@@ -1984,7 +1991,7 @@ class MessagingService {
         // text path has). Re-ack either way so the sender stops re-sending.
         if (await _hasMessage(m.src, tid) ||
             await _storage.isMessageDeleted(m.src.hex, tid)) {
-          await _ackTo(m, tid, direct: true);
+          await _ackTo(m, tid, direct: true, repeat: true);
           return;
         }
         // Store the blob under a LOCALLY-minted id, NOT the sender-chosen
@@ -3118,7 +3125,7 @@ class MessagingService {
     // mistaken for file completion.
     if (await _hasMessage(m.src, tid) ||
         await _storage.isMessageDeleted(m.src.hex, tid)) {
-      await _ackTo(m, tid, direct: true);
+      await _ackTo(m, tid, direct: true, repeat: true);
       return;
     }
     var inc = _inFlight[tid];
