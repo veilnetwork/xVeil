@@ -32,6 +32,7 @@ import '../../state/messaging.dart';
 import '../../state/nickname_peers.dart';
 import '../../state/notifications.dart';
 import '../../state/providers.dart';
+import '../../state/sticker_message.dart';
 import '../../state/thumbnail.dart';
 import '../../state/transcription_controller.dart';
 import '../../state/voice_message.dart';
@@ -2429,6 +2430,78 @@ Uint8List? _decodeThumbB64(String? tb) {
   }
 }
 
+/// A sticker: the image itself, naked (the bubble adds no chrome for sticker
+/// messages). Until the blob lands, the blurred sidecar micro-thumb (or a
+/// progress ring) stands in — stickers are small and auto-download, so this
+/// is a blink. Animated WebP animates for free via Image.memory.
+class _StickerContent extends ConsumerWidget {
+  const _StickerContent({
+    required this.fileKey,
+    required this.thumbB64,
+    this.progress,
+  });
+
+  final String fileKey;
+  final String? thumbB64;
+  final double? progress;
+
+  static const double _side = 160;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final thumb = _decodeThumbB64(thumbB64);
+    return SizedBox(
+      width: _side,
+      height: _side,
+      child: fileKey.isEmpty
+          ? _placeholder(context, thumb)
+          : FutureBuilder<Uint8List?>(
+              future: ref.read(storageProvider).loadFile(fileKey),
+              builder: (context, snap) {
+                final bytes = snap.data;
+                if (bytes == null) return _placeholder(context, thumb);
+                return Image.memory(
+                  bytes,
+                  fit: BoxFit.contain,
+                  gaplessPlayback: true,
+                  filterQuality: FilterQuality.medium,
+                  errorBuilder: (_, _, _) => _placeholder(context, thumb),
+                );
+              },
+            ),
+    );
+  }
+
+  Widget _placeholder(BuildContext context, Uint8List? thumb) {
+    return Stack(
+      fit: StackFit.expand,
+      alignment: Alignment.center,
+      children: [
+        if (thumb != null)
+          ImageFiltered(
+            imageFilter: ui.ImageFilter.blur(sigmaX: 6, sigmaY: 6),
+            child: Image.memory(thumb, fit: BoxFit.contain),
+          )
+        else
+          ColoredBox(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          ),
+        if (progress != null)
+          Center(
+            child: SizedBox(
+              width: 32,
+              height: 32,
+              child: CircularProgressIndicator(
+                value: progress == 0 ? null : progress,
+                strokeWidth: 3,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 /// Round video note. Before download: the first-frame micro-thumb from the
 /// `vn1:` sidecar in a circle + a download affordance. Downloaded: tap plays
 /// INLINE — live frames fill the circle (pulled at the audio position), a
@@ -3383,6 +3456,7 @@ class _Bubble extends ConsumerWidget {
     final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
     final outgoing = message.direction == MessageDirection.outgoing;
+    final naked = message.isFile && isStickerFileName(message.fileName);
     // In-flight download fraction for this file (null = not downloading). Falls
     // back to fileId so our OWN re-download (pulling a deleted sent file back
     // from the recipient) shows progress too.
@@ -3413,21 +3487,27 @@ class _Bubble extends ConsumerWidget {
               : () => onLongPress!(message),
           child: Container(
             margin: const EdgeInsets.symmetric(vertical: 4),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            // A sticker renders NAKED (no bubble chrome), Telegram-style —
+            // just the image with the meta row under it.
+            padding: naked
+                ? EdgeInsets.zero
+                : const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             constraints: BoxConstraints(
               maxWidth: MediaQuery.of(context).size.width * 0.75,
             ),
-            decoration: BoxDecoration(
-              color: outgoing
-                  ? scheme.primaryContainer
-                  : scheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.only(
-                topLeft: const Radius.circular(16),
-                topRight: const Radius.circular(16),
-                bottomLeft: Radius.circular(outgoing ? 16 : 4),
-                bottomRight: Radius.circular(outgoing ? 4 : 16),
-              ),
-            ),
+            decoration: naked
+                ? null
+                : BoxDecoration(
+                    color: outgoing
+                        ? scheme.primaryContainer
+                        : scheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.only(
+                      topLeft: const Radius.circular(16),
+                      topRight: const Radius.circular(16),
+                      bottomLeft: Radius.circular(outgoing ? 16 : 4),
+                      bottomRight: Radius.circular(outgoing ? 4 : 16),
+                    ),
+                  ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               mainAxisSize: MainAxisSize.min,
@@ -3476,7 +3556,13 @@ class _Bubble extends ConsumerWidget {
                     onTap: onTapQuote,
                     child: _QuoteBlock(quoted: quoted, outgoing: outgoing),
                   ),
-                if (message.isFile && isVnoteFileName(message.fileName))
+                if (message.isFile && isStickerFileName(message.fileName))
+                  _StickerContent(
+                    fileKey: message.fileId ?? message.fileContentId ?? '',
+                    thumbB64: message.thumb,
+                    progress: progress,
+                  )
+                else if (message.isFile && isVnoteFileName(message.fileName))
                   FutureBuilder<_FileAffordance>(
                     future: _affordance(ref),
                     builder: (context, snap) {
