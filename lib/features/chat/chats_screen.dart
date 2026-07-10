@@ -592,6 +592,20 @@ class _FolderDrawer extends ConsumerWidget {
               title: Text(l.navSettings),
               onTap: () => go('/settings'),
             ),
+            // Lock the app (moved here from settings — a session action, not a
+            // setting). Error-tinted like other destructive/exit affordances.
+            ListTile(
+              leading: Icon(
+                Icons.lock,
+                color: Theme.of(context).colorScheme.error,
+              ),
+              title: Text(
+                l.settingsLockNow,
+                style:
+                    TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+              onTap: () => ref.read(appControllerProvider.notifier).lock(),
+            ),
           ],
         ),
       ),

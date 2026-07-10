@@ -65,6 +65,17 @@ else
   echo "note: $VW absent — building without voice transcription"
 fi
 
+# The ggml model whisper needs (~57MB). Dart looks in Contents/Resources; the
+# dev source is the out-of-repo whisper.cpp checkout (override with
+# XVEIL_WHISPER_MODEL_SRC). Without it the Transcribe affordance stays hidden.
+WM="${XVEIL_WHISPER_MODEL_SRC:-$HOME/Projects/veilnetwork/whisper.cpp/models/ggml-base-q5_1.bin}"
+if [ -f "$WM" ]; then
+  cp -f "$WM" "$APP/Contents/Resources/"
+  echo "bundled $(basename "$WM") (whisper model)"
+else
+  echo "note: $WM absent — transcription needs XVEIL_WHISPER_MODEL env at runtime"
+fi
+
 echo "bundled into $APP/Contents/Frameworks:"
 ls -la "$APP/Contents/Frameworks/" | grep -E 'hidden_volume|veilclient|veil_media'
 
