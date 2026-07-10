@@ -824,7 +824,7 @@ class _ConversationTile extends ConsumerWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     )),
-        trailing: status == ContactStatus.pendingIncoming
+        trailing: (!isSaved && status == ContactStatus.pendingIncoming)
             ? Icon(Icons.fiber_new, color: scheme.primary)
             : (conversation.unread > 0
                   ? Badge(label: Text('${conversation.unread}'))
