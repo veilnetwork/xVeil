@@ -178,8 +178,32 @@ class AppController extends Notifier<AppState> {
     await _enterSession(identity);
   }
 
+  /// Guards [unlock] against overlapping runs (UI double-submit racing the
+  /// debug hook's /unlock): two concurrent opens of the same container make the
+  /// second fail `Busy` and the interleaved state writes can end on `locked`
+  /// while the container is actually open — a stuck "wrong password" until
+  /// restart. One unlock at a time; latecomers are dropped (the in-flight run
+  /// ends in ready/locked either way).
+  bool _unlockInFlight = false;
+
   /// Returning user: try to unlock the space with [password].
   Future<void> unlock(String password) async {
+    if (_unlockInFlight) {
+      devLog(() => 'xVeil[unlock]: ignored — an unlock is already in flight');
+      return;
+    }
+    _unlockInFlight = true;
+    try {
+      await _unlockInner(password);
+    } finally {
+      _unlockInFlight = false;
+    }
+  }
+
+  Future<void> _unlockInner(String password) async {
+    final t0 = DateTime.now();
+    int ms() => DateTime.now().difference(t0).inMilliseconds;
+    devLog(() => 'xVeil[unlock]: begin (phase=${state.phase.name})');
     // Show the loading screen BEFORE the heavy work: opening the real container
     // runs Argon2 (and, in keep-all-online, boots every node) on this isolate,
     // which freezes the UI. Switch to the preparing screen and yield a frame so
@@ -198,9 +222,15 @@ class AppController extends Notifier<AppState> {
     bool ok;
     try {
       ok = await storage.open(password: password);
-    } catch (_) {
-      // Wrong password, missing or corrupt container — never let unlock throw
-      // (that would freeze the lock screen's spinner). Surface as an error.
+      devLog(() => 'xVeil[unlock]: container open -> $ok (+${ms()}ms)');
+    } catch (e) {
+      // Missing or corrupt container, a Busy flock, an FFI/worker fault — never
+      // let unlock throw (that would freeze the lock screen's spinner). Surface
+      // as an error, but LOG THE REAL CAUSE: a swallowed detail here is exactly
+      // how "container won't unlock with the correct password" stays
+      // undiagnosable in the field. (A genuine wrong password is ok=false, not
+      // a throw.)
+      devLog(() => 'xVeil[unlock]: container open THREW (+${ms()}ms): $e');
       ok = false;
     }
     if (!ok) {
@@ -218,6 +248,12 @@ class AppController extends Notifier<AppState> {
     // lock screen so the user retries cleanly.
     try {
       final roster = await storage.loadRoster();
+      devLog(
+        () =>
+            'xVeil[unlock]: classified as '
+            '${roster == null || roster.isEmpty ? 'single identity' : 'master (${roster.length} identities)'} '
+            '(+${ms()}ms)',
+      );
       if (roster != null && roster.isNotEmpty) {
         _pendingRoster = roster;
         // Cache the master's keys so roster edits can reopen it without a
@@ -249,9 +285,14 @@ class AppController extends Notifier<AppState> {
       await _maybeAutoCompactBeforeSession(password);
       final identity = await storage.loadIdentity() ?? _placeholderIdentity();
       await _enterSession(identity);
-    } catch (e) {
       devLog(
-        () => 'xVeil[unlock]: post-open classification failed -> lock: $e',
+        () => 'xVeil[unlock]: done, phase=${state.phase.name} (+${ms()}ms)',
+      );
+    } catch (e, st) {
+      devLog(
+        () =>
+            'xVeil[unlock]: post-open classification failed -> lock '
+            '(+${ms()}ms): $e\n$st',
       );
       try {
         await ref.read(storageProvider).close();
@@ -1193,6 +1234,11 @@ class AppController extends Notifier<AppState> {
       // will mine the identity (the slow, one-time 24-bit PoW). Flag it so the
       // screen says "creating identity" rather than the generic "preparing".
       final firstRun = await ref.read(storageProvider).loadNodeConfig() == null;
+      devLog(
+        () =>
+            'xVeil[unlock]: preparingNode '
+            '(${firstRun ? 'first-run mining' : 'node boot'})',
+      );
       state = state.copyWith(
         phase: AppPhase.preparingNode,
         preparingReason: firstRun
@@ -1274,11 +1320,19 @@ class AppController extends Notifier<AppState> {
   }
 
   Future<void> lock() async {
+    // Timestamped phases: a lock that takes seconds points at whichever step
+    // stalled (a busy storage worker on close is the prime suspect for the
+    // "won't unlock until restart" report — see WorkerKvLogStore.close).
+    final t0 = DateTime.now();
+    int ms() => DateTime.now().difference(t0).inMilliseconds;
+    devLog(() => 'xVeil[lock]: begin');
     await _teardownSession(); // all-online: stop every node + release the lock
     await _teardownRealStack();
+    devLog(() => 'xVeil[lock]: node/session torn down (+${ms()}ms)');
     await _stopBackgroundService();
     await _cleanRuntimeBase();
     await ref.read(storageProvider).close();
+    devLog(() => 'xVeil[lock]: storage closed (+${ms()}ms)');
     _clearMasterSession();
     state = const AppState(AppPhase.locked);
   }

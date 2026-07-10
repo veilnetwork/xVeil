@@ -161,6 +161,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/unlock':
           await _unlock(req);
           return;
+        case '/lock':
+          await _lock(req);
+          return;
         case '/warmup_onion':
           await _warmupOnion(req);
           return;
@@ -320,6 +323,20 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'phase': state.phase.name,
       'identity': _identityJson(state),
     }, status: 409);
+  }
+
+  /// Lock the app (tear the session down, close the container). Smoke-driver
+  /// counterpart of /unlock — enables automated lock→unlock cycling to chase
+  /// the intermittent "won't unlock until restart" class (ROADMAP bug #9).
+  Future<void> _lock(HttpRequest req) async {
+    if (req.method != 'POST') {
+      return _json(req, {'ok': false, 'error': 'POST required'}, status: 405);
+    }
+    await ref.read(appControllerProvider.notifier).lock();
+    return _json(req, {
+      'ok': true,
+      'phase': ref.read(appControllerProvider).phase.name,
+    });
   }
 
   Future<void> _unlock(HttpRequest req) async {
