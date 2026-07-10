@@ -108,19 +108,22 @@ void main() {
 
   testWidgets('a file message renders with its name + a save affordance',
       (tester) async {
+    // A NON-image: images render as inline previews (the _ImagePreview
+    // branch) since the media epic — the classic file row + save affordance
+    // is the document path.
     final fileMsg = Message(
       id: 'f1',
       conversationId: _hex,
       direction: MessageDirection.incoming,
-      body: '📎 photo.png',
+      body: '📎 report.pdf',
       timestamp: DateTime(2026, 1, 1),
       fileId: 'fid',
-      fileName: 'photo.png',
+      fileName: 'report.pdf',
     );
     await tester
         .pumpWidget(_host(_c(ContactStatus.accepted), messages: [fileMsg]));
     await tester.pump();
-    expect(find.text('photo.png'), findsOneWidget);
+    expect(find.text('report.pdf'), findsOneWidget);
     expect(find.byIcon(Icons.insert_drive_file_outlined), findsOneWidget);
     // A held file (fileId set / hasFile) shows the "downloaded ✓" affordance —
     // unmistakable from the plain down-arrow of an un-fetched OFFER

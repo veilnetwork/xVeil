@@ -87,14 +87,15 @@ void main() {
       seedRaw('filepiece:cid-a:0', '17');
       seedRaw('file:record-1');
       seedRaw('msgidx:dead-1');
-      seedRaw('ondisk:cid-a'); // blob refs stay: their files live outside
+      seedRaw('ondisk:cid-a'); // swept too since 78e7cab (forward secrecy:
+      // no live reference -> drop the key row AND the ciphertext dir)
       seedRaw('conv_seq:aa:bb', '9');
       seedRaw('file_next_log', '42');
       seedRaw('msg_next_id', '7');
       await storage.putSetting('sync_floor:aa:bb', '3');
 
       final swept = await storage.sweepSettingsGarbage(wholesale: true);
-      expect(swept, 7);
+      expect(swept, 8);
 
       final keys = await storage.settingsKeys();
       expect(keys, isNot(contains('set:saved:cid-a')));
@@ -104,7 +105,7 @@ void main() {
       expect(keys, isNot(contains('filepiece:cid-a:0')));
       expect(keys, isNot(contains('file:record-1')));
       expect(keys, isNot(contains('msgidx:dead-1')));
-      expect(keys, contains('ondisk:cid-a'));
+      expect(keys, isNot(contains('ondisk:cid-a')));
       expect(keys, contains('conv_seq:aa:bb'));
       expect(keys, contains('file_next_log'));
       expect(keys, contains('msg_next_id'));
