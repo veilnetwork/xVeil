@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:xveil/features/chat/chat_screen.dart';
+import 'package:xveil/state/thumbnail.dart';
 
 void main() {
   test('isImageFileName recognizes common image extensions', () {
