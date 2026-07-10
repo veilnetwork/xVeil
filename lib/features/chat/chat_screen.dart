@@ -2341,7 +2341,7 @@ IconData documentIcon(String? name) {
 /// Inline preview for a downloaded image file: a rounded, bounded thumbnail
 /// that opens a full-screen zoomable viewer on tap. Bytes come from the
 /// encrypted container (loadFile), so nothing hits disk in the clear.
-class _ImagePreview extends ConsumerWidget {
+class _ImagePreview extends ConsumerStatefulWidget {
   const _ImagePreview({
     required this.fileKey,
     required this.name,
@@ -2364,10 +2364,40 @@ class _ImagePreview extends ConsumerWidget {
   final VoidCallback? onOpen;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_ImagePreview> createState() => _ImagePreviewState();
+}
+
+class _ImagePreviewState extends ConsumerState<_ImagePreview> {
+  /// Memoized ONCE per fileKey. Creating the future inline in build() made
+  /// every list rebuild (messagesProvider re-yields on each mailbox/drain
+  /// signal) restart the load: bubbles flip-flopped spinner↔image and the
+  /// whole chat visibly jittered (user-reported: «чат дрожит, скролл лечит»).
+  late Future<Uint8List?> _bytes;
+
+  @override
+  void initState() {
+    super.initState();
+    _bytes = ref.read(storageProvider).loadFile(widget.fileKey);
+  }
+
+  @override
+  void didUpdateWidget(covariant _ImagePreview old) {
+    super.didUpdateWidget(old);
+    if (old.fileKey != widget.fileKey) {
+      _bytes = ref.read(storageProvider).loadFile(widget.fileKey);
+    }
+  }
+
+  String get name => widget.name;
+  String? get thumbB64 => widget.thumbB64;
+  VoidCallback? get onOpen => widget.onOpen;
+  VoidCallback? get onView => widget.onView;
+
+  @override
+  Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return FutureBuilder<Uint8List?>(
-      future: ref.read(storageProvider).loadFile(fileKey),
+      future: _bytes,
       builder: (context, snap) {
         // Still loading → spinner. Loaded-but-absent (not in store) → a
         // tappable file chip (download/open), NEVER a perpetual spinner.
@@ -2533,6 +2563,14 @@ class _MediaGalleryState extends ConsumerState<_MediaGallery> {
   );
   late int _current = widget.initialIndex;
 
+  /// Per-key memoized loads — a page rebuild (every swipe setState) must not
+  /// restart the read and flash a spinner (same jitter class as the bubble
+  /// preview).
+  final Map<String, Future<Uint8List?>> _loads = {};
+
+  Future<Uint8List?> _load(String fileKey) =>
+      _loads[fileKey] ??= ref.read(storageProvider).loadFile(fileKey);
+
   @override
   void dispose() {
     _page.dispose();
@@ -2570,7 +2608,7 @@ class _MediaGalleryState extends ConsumerState<_MediaGallery> {
         itemBuilder: (context, i) {
           final it = widget.items[i];
           return FutureBuilder<Uint8List?>(
-            future: ref.read(storageProvider).loadFile(it.fileKey),
+            future: _load(it.fileKey),
             builder: (context, snap) {
               if (snap.connectionState != ConnectionState.done) {
                 return const Center(child: CircularProgressIndicator());
