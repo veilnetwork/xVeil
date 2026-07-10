@@ -127,6 +127,7 @@
   "trayIdentities": "Личности",
   "trayLock": "Заблокировать",
   "trayQuit": "Выход",
+  "trayUnread": "Непрочитанных: {count}",
   "chatListDelete": "Удалить чат",
   "chatDeleteChatTitle": "Удалить этот чат?",
   "chatDeleteChatBody": "Переписка и все сообщения удаляются с этого устройства. Собеседник не уведомляется.",

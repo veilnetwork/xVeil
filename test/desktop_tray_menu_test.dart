@@ -60,4 +60,38 @@ void main() {
     expect(keys(menu), contains(kTrayLockKey));
     expect(menu.items!.any((i) => i.submenu != null), isFalse);
   });
+
+  group('trayTooltip', () {
+    test('locked → app name', () {
+      expect(trayTooltip(const AppState(AppPhase.locked)), 'xVeil');
+    });
+    test('ready with an active identity → its name', () {
+      expect(
+        trayTooltip(const AppState(AppPhase.ready, activeIdentity: 'work')),
+        'work',
+      );
+    });
+    test('ready without an identity → app name', () {
+      expect(trayTooltip(const AppState(AppPhase.ready)), 'xVeil');
+    });
+  });
+
+  group('tray unread line', () {
+    test('no unread → no count item', () {
+      final menu = buildTrayMenu(l, const AppState(AppPhase.ready));
+      expect(keys(menu), isNot(contains(kTrayUnreadKey)));
+    });
+    test('unread → a disabled count item on top', () {
+      final menu = buildTrayMenu(l, const AppState(AppPhase.ready), unread: 5);
+      expect(menu.items!.first.key, kTrayUnreadKey);
+      expect(menu.items!.first.disabled, isTrue);
+      expect(menu.items!.first.label, contains('5'));
+    });
+    test('count caps at 999+', () {
+      final menu =
+          buildTrayMenu(l, const AppState(AppPhase.ready), unread: 1500);
+      final item = menu.items!.firstWhere((i) => i.key == kTrayUnreadKey);
+      expect(item.label, contains('999+'));
+    });
+  });
 }

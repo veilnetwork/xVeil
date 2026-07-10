@@ -385,6 +385,11 @@ class AppL10nEn extends AppL10n {
   String get trayQuit => 'Quit';
 
   @override
+  String trayUnread(String count) {
+    return '$count unread';
+  }
+
+  @override
   String get chatListDelete => 'Delete chat';
 
   @override
