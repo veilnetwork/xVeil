@@ -114,6 +114,12 @@ class AppController extends Notifier<AppState> {
   /// single-identity mode).
   String? _activeLabel;
 
+  /// One-active listen-port offset, alternated on every real-stack teardown:
+  /// rebinding the port a just-stopped node held stalls the next boot for up
+  /// to ~90s (its teardown lingers in the kernel) — the dominant cost of a
+  /// slow identity switch in one-active mode (audit #3).
+  int _oneActivePortOffset = 0;
+
   /// A SINGLE (non-master) identity's anonymity preference, persisted per-space
   /// under the `anonymous` setting and loaded at session entry. Defaults to
   /// FALSE: a plain identity routes directly (no onion overhead) unless the user
@@ -576,8 +582,22 @@ class AppController extends Notifier<AppState> {
       }
     }
     if (entry == null) return;
+    // Timestamped phases (like _unlockInner/lock): a switch that takes seconds
+    // names the step that stalled — teardown, lock release, space open, or the
+    // node boot inside _enterSession (whose own laps are in veil_stack).
+    final sw = Stopwatch()..start();
+    int lap0 = 0;
+    int lap() {
+      final t = sw.elapsedMilliseconds;
+      final d = t - lap0;
+      lap0 = t;
+      return d;
+    }
+
     await _teardownRealStack(); // stop the current identity's node
+    final tTeardown = lap();
     await ref.read(storageProvider).close(); // release the lock
+    final tClose = lap();
     state = state.copyWith(phase: AppPhase.preparingNode);
     try {
       final storage = ref.read(storageProvider);
@@ -585,9 +605,16 @@ class AppController extends Notifier<AppState> {
         state = const AppState(AppPhase.locked, unlockError: true);
         return;
       }
+      final tOpen = lap();
       _activeLabel = label;
       final identity = await storage.loadIdentity() ?? _placeholderIdentity();
       await _enterSession(identity);
+      devLog(
+        () =>
+            'xVeil[identity]: switch done in ${sw.elapsedMilliseconds}ms '
+            '(teardown ${tTeardown}ms, close ${tClose}ms, open ${tOpen}ms, '
+            'session ${lap()}ms)',
+      );
     } catch (e) {
       // A throw here (FFI fault on close/open, corrupt identity blob) after the
       // session was torn down would leave the UI wedged on the preparing
@@ -1281,7 +1308,9 @@ class AppController extends Notifier<AppState> {
       final stack = await RealVeilStack.startDeniable(
         storage: ref.read(storageProvider),
         runtimeDir: boot.runtimeDir,
-        listenPort: boot.listenPort,
+        // Offset alternates after every teardown (see _teardownRealStack) so
+        // a switch/relock never rebinds the just-freed port.
+        listenPort: boot.listenPort + _oneActivePortOffset,
         anonymous: _activeAnonymous(),
         lazyMining: _singleLazyMining,
         // Deliberately DON'T inject `[[bootstrap_peers]]` into the node config:
@@ -1358,6 +1387,12 @@ class AppController extends Notifier<AppState> {
     if (stack != null) {
       await stack.dispose();
       ref.read(realStackProvider.notifier).state = null;
+      // The port this node held is now in lingering teardown — the NEXT boot
+      // must not rebind it or it can stall for ~90s (the same trap all-online
+      // avoids with its +1+i offsets). Alternate between two ports well clear
+      // of the all-online range. The listen address is composed fresh per
+      // boot and exchanged in-band, so nothing persisted goes stale.
+      _oneActivePortOffset = _oneActivePortOffset == 0 ? 64 : 0;
     }
   }
 
