@@ -28,6 +28,8 @@ import '../state/messaging.dart';
 import '../state/nickname_peers.dart';
 import '../state/veil_call_media.dart' show remoteVideoFrame;
 import '../state/providers.dart';
+import '../state/vnote_message.dart';
+import '../state/vnote_play_controller.dart';
 import '../state/voice_message.dart';
 import '../state/transcription_controller.dart';
 import '../state/whisper_ffi.dart';
@@ -182,6 +184,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/send_vnote':
           await _sendVnote(req);
+          return;
+        case '/play_vnote':
+          await _playVnoteHook(req);
+          return;
+        case '/vnote_state':
+          await _vnoteStateHook(req);
           return;
         case '/send_voice':
           await _sendVoice(req);
@@ -424,6 +432,52 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           ? (b[20] | (b[21] << 8) | (b[22] << 16) | (b[23] << 24))
           : 0,
       'previewW': preview?.width ?? 0,
+    });
+  }
+
+  /// Play the most recent VIDEO NOTE via the play controller (bypasses tap
+  /// geometry) — verifies bytes -> VNOTE1 player -> audio (voice path) +
+  /// frame pulls end to end.
+  Future<void> _playVnoteHook(HttpRequest req) async {
+    final storage = ref.read(storageProvider);
+    Message? last;
+    for (final c in await storage.loadConversations()) {
+      for (final m in await storage.loadMessages(c.id)) {
+        if (isVnoteFileName(m.fileName) &&
+            (m.fileId ?? m.fileContentId) != null) {
+          last = m;
+        }
+      }
+    }
+    if (last == null) {
+      return _json(req, {'ok': false, 'error': 'no video note'});
+    }
+    final fileKey = last.fileId ?? last.fileContentId!;
+    final ctrl = ref.read(vnotePlayControllerProvider.notifier);
+    await ctrl.toggle(last.id, fileKey);
+    await Future<void>.delayed(const Duration(milliseconds: 700));
+    final st = ref.read(vnotePlayControllerProvider);
+    return _json(req, {
+      'ok': st.isActive(last.id),
+      'messageId': last.id,
+      'durationMs': st.durationMs,
+      'positionMs': st.positionMs,
+      'playing': st.isPlaying(last.id),
+      'frameW': ctrl.frame.value?.width ?? 0,
+    });
+  }
+
+  /// Snapshot of the video-note play controller (poll to watch position).
+  Future<void> _vnoteStateHook(HttpRequest req) async {
+    final ctrl = ref.read(vnotePlayControllerProvider.notifier);
+    final st = ref.read(vnotePlayControllerProvider);
+    return _json(req, {
+      'ok': true,
+      'playingId': st.playingId,
+      'durationMs': st.durationMs,
+      'positionMs': st.positionMs,
+      'paused': st.paused,
+      'frameW': ctrl.frame.value?.width ?? 0,
     });
   }
 
