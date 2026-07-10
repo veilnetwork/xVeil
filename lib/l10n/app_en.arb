@@ -127,6 +127,8 @@
   "trayIdentities": "Identities",
   "trayLock": "Lock",
   "trayQuit": "Quit",
+  "trayUnread": "{count} unread",
+  "@trayUnread": { "placeholders": { "count": { "type": "String" } } },
   "chatListDelete": "Delete chat",
   "chatDeleteChatTitle": "Delete this chat?",
   "chatDeleteChatBody": "The conversation and all its messages are erased from this device. The other person is not notified.",

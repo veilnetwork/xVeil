@@ -8,9 +8,12 @@ import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../core/log.dart';
+import '../domain/chat.dart' show Conversation;
+import '../domain/chat_folder.dart' show folderUnreadCount, unreadBadgeText;
 import '../l10n/app_localizations.dart';
 import '../state/app_controller.dart';
 import '../state/close_to_tray_controller.dart';
+import '../state/messaging.dart' show conversationsProvider;
 
 /// True on the three desktop platforms that have a window + a system tray.
 bool get isDesktopTrayPlatform =>
@@ -31,18 +34,38 @@ const kTrayShowKey = 'show';
 const kTrayHideKey = 'hide';
 const kTrayLockKey = 'lock';
 const kTrayQuitKey = 'quit';
+const kTrayUnreadKey = 'unread';
 const kTrayIdentityKeyPrefix = 'identity:';
+
+/// Tray hover tooltip: the active identity's name while unlocked, else the app
+/// name. Pure — unit-tested.
+String trayTooltip(AppState app) {
+  final id = app.activeIdentity;
+  if (app.phase == AppPhase.ready && id != null && id.isNotEmpty) return id;
+  return 'xVeil';
+}
 
 /// The tray context menu for [app]. Pure (no tray/plugin calls) so the
 /// platform-independent shape is unit-testable: identity switching appears
 /// only for an unlocked master with something to switch to, lock only while
-/// a space is actually open.
-Menu buildTrayMenu(AppL10n l, AppState app) {
+/// a space is actually open. [unread] > 0 adds a disabled count line on top.
+Menu buildTrayMenu(AppL10n l, AppState app, {int unread = 0}) {
   final ready = app.phase == AppPhase.ready;
-  final items = <MenuItem>[
-    MenuItem(key: kTrayShowKey, label: l.trayShow),
-    MenuItem(key: kTrayHideKey, label: l.trayHide),
-  ];
+  final items = <MenuItem>[];
+  if (unread > 0) {
+    items
+      ..add(
+        MenuItem(
+          key: kTrayUnreadKey,
+          label: l.trayUnread(unreadBadgeText(unread)),
+          disabled: true,
+        ),
+      )
+      ..add(MenuItem.separator());
+  }
+  items
+    ..add(MenuItem(key: kTrayShowKey, label: l.trayShow))
+    ..add(MenuItem(key: kTrayHideKey, label: l.trayHide));
   if (ready && app.identities.length > 1) {
     items
       ..add(MenuItem.separator())
@@ -136,12 +159,25 @@ class _DesktopTrayHostState extends ConsumerState<DesktopTrayHost>
     if (!mounted) return;
     final l = lookupAppL10n(PlatformDispatcher.instance.locale);
     final app = ref.read(appControllerProvider);
+    _lastUnread = _totalUnread();
     try {
-      await trayManager.setContextMenu(buildTrayMenu(l, app));
+      await trayManager.setContextMenu(buildTrayMenu(l, app, unread: _lastUnread));
+      await trayManager.setToolTip(trayTooltip(app));
     } catch (e) {
       devLog(() => 'xVeil[tray]: menu refresh FAILED: $e');
     }
   }
+
+  /// Total unread across all conversations (0 when the roster stream has no
+  /// value yet, e.g. while locked).
+  int _totalUnread() => folderUnreadCount(
+        ref.read(conversationsProvider).valueOrNull ?? const <Conversation>[],
+        null,
+      );
+
+  // Last unread total pushed to the tray — the roster stream ticks often, so
+  // the menu is only rebuilt when this actually changes.
+  int _lastUnread = 0;
 
   @override
   void dispose() {
@@ -235,6 +271,16 @@ class _DesktopTrayHostState extends ConsumerState<DesktopTrayHost>
             !listEquals(prev?.identities, next.identities)) {
           _refreshMenu();
         }
+      });
+      // Unread total also drives the menu's count line — refresh only when it
+      // changes, since the roster stream emits far more often than the count
+      // moves.
+      ref.listen(conversationsProvider, (_, next) {
+        final now = folderUnreadCount(
+          next.valueOrNull ?? const <Conversation>[],
+          null,
+        );
+        if (now != _lastUnread) _refreshMenu();
       });
     }
     return widget.child;

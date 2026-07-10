@@ -811,6 +811,12 @@ abstract class AppL10n {
   /// **'Quit'**
   String get trayQuit;
 
+  /// No description provided for @trayUnread.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} unread'**
+  String trayUnread(String count);
+
   /// No description provided for @chatListDelete.
   ///
   /// In en, this message translates to:
