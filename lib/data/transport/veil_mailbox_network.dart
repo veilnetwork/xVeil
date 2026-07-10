@@ -236,6 +236,10 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
   final Duration _fetchTimeout;
   final RelayKeyCache? _relayKeyCache;
 
+  /// Last logged known-relay count — the steady-state drain plan is logged
+  /// only when this changes, not on every pass (log-noise budget).
+  int? _lastLoggedKnownRelayCount;
+
   @override
   Future<void> put({
     required NodeId receiver,
@@ -350,8 +354,13 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     final Map<String, Uint8List> kemByRelay = {};
     if (knownRelays.isNotEmpty) {
       relayIds = knownRelays.map((r) => r.bytes).toList();
-      devLog(() => 'xVeil[drain]: fetch via ${relayIds.length} KNOWN relay(s) '
-          '(skip DHT self-resolve)');
+      // Steady-state path — log only when the relay set SIZE changes, not on
+      // every drain pass (this line alone was ~1K lines/hour of idle noise).
+      if (relayIds.length != _lastLoggedKnownRelayCount) {
+        _lastLoggedKnownRelayCount = relayIds.length;
+        devLog(() => 'xVeil[drain]: fetch via ${relayIds.length} KNOWN '
+            'relay(s) (skip DHT self-resolve)');
+      }
     } else {
       // Cold path (not yet registered): resolve our own ad to find a relay.
       final List<veil.RendezvousReplica> replicas;
@@ -414,9 +423,14 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
           }
         }
         replies++;
-        devLog(() =>
-            'xVeil[drain]: fetch reply $replies/$expected — ${blobs.length} '
-            'blob(s) ($fresh new)');
+        // An EMPTY reply is the idle steady state (one per relay per pass) —
+        // silent. Log only replies that actually carried mail; `fresh` still
+        // distinguishes new blobs from cross-relay duplicates of the fan-out.
+        if (blobs.isNotEmpty) {
+          devLog(() =>
+              'xVeil[drain]: fetch reply $replies/$expected — ${blobs.length} '
+              'blob(s) ($fresh new)');
+        }
       } on FormatException catch (e) {
         // A malformed reply IS a real fault (not a transient) — surface it
         // after the window closes (can't rethrow out of a stream callback).
@@ -444,8 +458,13 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
           }
         }
         final viaKeyGiven = relayKemPk != null && relayKemPk.length == 32;
-        devLog(() => 'xVeil[drain]: relay ${NodeId(relayId).short} fetch via '
-            '${viaKeyGiven ? "DIRECT(key-given)" : "self-resolve(fallback)"}');
+        // DIRECT(key-given) is the routine happy path (one line per relay per
+        // pass — pure noise). The FALLBACK is the anomaly worth seeing: a
+        // relay's own ad can't self-resolve, so this send will likely fail.
+        if (!viaKeyGiven) {
+          devLog(() => 'xVeil[drain]: relay ${NodeId(relayId).short} fetch '
+              'via self-resolve(fallback) — no KEM key');
+        }
         try {
           if (viaKeyGiven) {
             // KEM-key-given mailbox FETCH: straight to (relayId, relayKemPk).
