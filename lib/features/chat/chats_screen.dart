@@ -767,15 +767,22 @@ class _ConversationTile extends ConsumerWidget {
     final isSaved = myHex != null && conversation.peer.nodeId.hex == myHex;
     final label = isSaved ? l.savedMessages : conversation.peer.label;
 
-    final (String? hint, Color? hintColor) = switch (status) {
-      ContactStatus.pendingIncoming => ('● wants to connect', scheme.primary),
-      ContactStatus.pendingOutgoing => (
-        'request sent',
-        scheme.onSurfaceVariant,
-      ),
-      ContactStatus.blocked => ('blocked', scheme.error),
-      ContactStatus.accepted => (null, null),
-    };
+    // Saved Messages is a chat with yourself — never a consent state, even if
+    // an older build left a stale pendingIncoming self-contact behind.
+    final (String? hint, Color? hintColor) = isSaved
+        ? (null, null)
+        : switch (status) {
+            ContactStatus.pendingIncoming => (
+              '● wants to connect',
+              scheme.primary,
+            ),
+            ContactStatus.pendingOutgoing => (
+              'request sent',
+              scheme.onSurfaceVariant,
+            ),
+            ContactStatus.blocked => ('blocked', scheme.error),
+            ContactStatus.accepted => (null, null),
+          };
 
     return GestureDetector(
       onSecondaryTap: () => _showActions(context, ref),
