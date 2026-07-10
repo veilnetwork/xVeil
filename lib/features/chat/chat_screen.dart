@@ -30,6 +30,7 @@ import '../../state/notifications.dart';
 import '../../state/providers.dart';
 import '../../state/thumbnail.dart';
 import '../../state/voice_message.dart';
+import '../../state/voice_play_controller.dart';
 import '../../state/voice_record_controller.dart';
 import 'voice_waveform.dart';
 import 'emoji_panel.dart';
@@ -615,12 +616,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ),
       ),
     );
-  }
-
-  /// Play a held voice message. Native Opus playback lands in the next brick;
-  /// for now the bubble's play control acknowledges (so it's never a dead tap).
-  void _playVoice(Message m) {
-    _snack(AppL10n.of(context).comingSoon);
   }
 
   /// Send a recorded voice clip (from the composer's hold-to-record button).
@@ -1953,7 +1948,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       onTapFile: _onTapFile,
                       onOpenImage: _openImageGallery,
                       onPlayVideo: _openVideoPlayer,
-                      onPlayVoice: _playVoice,
                       onLongPress: _showMessageActions,
                       onTap: _selecting ? () => _toggleSelected(m) : null,
                       onTapQuote: m.replyToId == null
@@ -2400,37 +2394,53 @@ Uint8List? _decodeThumbB64(String? tb) {
 /// needed to show it). Play is enabled only once the small Opus blob is held
 /// (it auto-downloads under the cap); while fetching it shows a progress ring,
 /// otherwise a download affordance.
-class _VoiceBubble extends StatelessWidget {
+class _VoiceBubble extends ConsumerWidget {
   const _VoiceBubble({
+    required this.messageId,
+    required this.fileKey,
     required this.sidecar,
     required this.outgoing,
     required this.downloaded,
     this.progress,
-    this.onPlay,
     this.onDownload,
   });
 
+  final String messageId;
+  final String fileKey;
   final VoiceSidecar? sidecar;
   final bool outgoing;
   final bool downloaded;
   final double? progress;
-  final VoidCallback? onPlay;
   final VoidCallback? onDownload;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final onBubble = outgoing ? scheme.onPrimary : scheme.onSurface;
     final bars = sidecar?.bars ?? const <double>[];
-    final duration = formatVoiceDuration(sidecar?.duration);
-    final tapping = downloaded ? onPlay : onDownload;
+    final play = ref.watch(voicePlayControllerProvider);
+    final active = downloaded && play.isActive(messageId);
+    final playing = downloaded && play.isPlaying(messageId);
+    // Show the playback clock when active, else the total clip length.
+    final label = active
+        ? formatVoiceDuration(Duration(milliseconds: play.positionMs))
+        : formatVoiceDuration(sidecar?.duration);
+
+    void onLead() {
+      if (!downloaded) {
+        onDownload?.call();
+        return;
+      }
+      ref.read(voicePlayControllerProvider.notifier).toggle(messageId, fileKey);
+    }
+
     return SizedBox(
-      width: 220,
+      width: 232,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           GestureDetector(
-            onTap: tapping,
+            onTap: onLead,
             child: SizedBox(
               width: 36,
               height: 36,
@@ -2444,9 +2454,9 @@ class _VoiceBubble extends StatelessWidget {
                       ),
                     )
                   : Icon(
-                      downloaded
-                          ? Icons.play_arrow
-                          : Icons.download,
+                      !downloaded
+                          ? Icons.download
+                          : (playing ? Icons.pause : Icons.play_arrow),
                       color: onBubble,
                       size: 32,
                     ),
@@ -2464,23 +2474,50 @@ class _VoiceBubble extends StatelessWidget {
                     )
                   : VoiceWaveform(
                       bars: bars,
+                      progress: active ? play.progress : 0,
                       playedColor: onBubble,
                       unplayedColor: onBubble.withValues(alpha: 0.4),
                     ),
             ),
           ),
           const SizedBox(width: 8),
-          Text(
-            duration,
-            style: Theme.of(context)
-                .textTheme
-                .labelSmall
-                ?.copyWith(color: onBubble.withValues(alpha: 0.8)),
-          ),
+          // While active, a speed chip (1×/1.5×/2×) cycles playback rate;
+          // otherwise just the duration.
+          if (active)
+            GestureDetector(
+              onTap: () =>
+                  ref.read(voicePlayControllerProvider.notifier).cycleSpeed(),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: onBubble.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '${_speedLabel(play.speed)}×',
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelSmall
+                      ?.copyWith(color: onBubble),
+                ),
+              ),
+            )
+          else
+            Text(
+              label,
+              style: Theme.of(context)
+                  .textTheme
+                  .labelSmall
+                  ?.copyWith(color: onBubble.withValues(alpha: 0.8)),
+            ),
         ],
       ),
     );
   }
+
+  static String _speedLabel(double s) =>
+      s == s.roundToDouble() ? s.toStringAsFixed(0) : s.toStringAsFixed(1);
 }
 
 /// Video message with an embedded preview frame: the media-box rendering
@@ -2996,7 +3033,6 @@ class _Bubble extends ConsumerWidget {
     this.onTapQuote,
     this.onOpenImage,
     this.onPlayVideo,
-    this.onPlayVoice,
     this.highlight,
   });
   final Message message;
@@ -3009,10 +3045,6 @@ class _Bubble extends ConsumerWidget {
   /// Tap on a HELD video file row — the chat screen opens the in-app player
   /// (loopback-streamed; null = the row keeps the plain save behavior).
   final void Function(Message message)? onPlayVideo;
-
-  /// Tap play on a HELD voice message — the chat screen plays the Opus clip
-  /// via the native decoder (null until playback is wired / not downloaded).
-  final void Function(Message message)? onPlayVoice;
 
   /// Active in-chat search query — occurrences in the body get a highlight
   /// background (null when not searching).
@@ -3188,13 +3220,12 @@ class _Bubble extends ConsumerWidget {
                       final downloaded = progress == null &&
                           a == _FileAffordance.save;
                       return _VoiceBubble(
+                        messageId: message.id,
+                        fileKey: message.fileId ?? message.fileContentId ?? '',
                         sidecar: decodeVoiceSidecar(message.thumb),
                         outgoing: outgoing,
                         downloaded: downloaded,
                         progress: progress,
-                        onPlay: (downloaded && onPlayVoice != null)
-                            ? () => onPlayVoice!(message)
-                            : null,
                         onDownload: (!downloaded && onTapFile != null)
                             ? () => onTapFile!(message)
                             : null,
