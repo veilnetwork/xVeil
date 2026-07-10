@@ -21,6 +21,9 @@ import '../state/thumbnail.dart' show makeRgbaThumbB64;
 import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call_signal.dart';
 import '../domain/chat.dart';
+import '../domain/group.dart';
+import '../domain/group_policy.dart';
+import '../state/group_crypto.dart';
 import '../routing/router.dart';
 import '../state/app_controller.dart';
 import '../state/call_service.dart';
@@ -200,6 +203,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/install_last_pack':
           await _installLastPackHook(req);
+          return;
+        case '/group_selftest':
+          await _groupSelftestHook(req);
           return;
         case '/play_vnote':
           await _playVnoteHook(req);
@@ -496,6 +502,70 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'positionMs': st.positionMs,
       'paused': st.paused,
       'frameW': ctrl.frame.value?.width ?? 0,
+    });
+  }
+
+  /// End-to-end group crypto self-test with the REAL identity: mint a group
+  /// with self as owner, sign an addMember control entry, verify it, fold it,
+  /// then confirm a TAMPERED entry fails verification and is dropped by the
+  /// fold. Proves the native ed25519 sign/verify + policy spine.
+  Future<void> _groupSelftestHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final me = ref.read(appControllerProvider).identity?.nodeId;
+    final toml = await ref.read(storageProvider).loadNodeConfig();
+    if (me == null || toml == null) {
+      return _json(req, {'ok': false, 'error': 'no identity'});
+    }
+    final other = NodeId(Uint8List.fromList(List.filled(32, 0xAB)));
+    // Owner adds `other` as a member.
+    final unsigned = ControlEntry(
+      author: me,
+      seq: 0,
+      prevHash: '',
+      op: ControlOp.addMember,
+      target: other,
+      role: GroupRole.member,
+      policyVersion: 0,
+      createdAtMs: DateTime.now().millisecondsSinceEpoch,
+      signature: Uint8List(0),
+    );
+    final signed = signControlEntry(identityToml: toml, unsigned: unsigned);
+    final verifyOk = verifyControlEntry(signed);
+
+    // Tamper: change the target AFTER signing → signature must not verify.
+    final tampered = ControlEntry(
+      author: signed.author,
+      seq: signed.seq,
+      prevHash: signed.prevHash,
+      op: signed.op,
+      target: NodeId(Uint8List.fromList(List.filled(32, 0xCD))),
+      role: signed.role,
+      policyVersion: signed.policyVersion,
+      createdAtMs: signed.createdAtMs,
+      signature: signed.signature,
+      authorPubKey: signed.authorPubKey,
+    );
+    final tamperRejected = !verifyControlEntry(tampered);
+
+    final fold = foldControlLog(
+      owner: me,
+      entries: [signed],
+      verify: (e) => verifyControlEntry(e),
+    );
+    final applied = fold.state.isMember(other);
+
+    // A round-trip through JSON must preserve verifiability.
+    final rt = ControlEntry.fromJson(signed.toJson());
+    final jsonOk = rt != null && verifyControlEntry(rt);
+
+    return _json(req, {
+      'ok': verifyOk && tamperRejected && applied && jsonOk,
+      'verify': verifyOk,
+      'tamperRejected': tamperRejected,
+      'applied': applied,
+      'jsonRoundTrip': jsonOk,
+      'members': fold.state.members.length,
+      'pkLen': signed.authorPubKey.length,
     });
   }
 
