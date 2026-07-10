@@ -3349,6 +3349,18 @@ abstract class AppL10n {
   /// **'Your name'**
   String get nicknameOwnedTitle;
 
+  /// No description provided for @nicknameWeightExplain.
+  ///
+  /// In en, this message translates to:
+  /// **'Protection weight is the cumulative proof-of-work pinned to the name — the value shown is the live network weight. Taking the name over requires strictly more work; Reinforce raises that price.'**
+  String get nicknameWeightExplain;
+
+  /// No description provided for @nicknameOwnedTakenOver.
+  ///
+  /// In en, this message translates to:
+  /// **'The name was taken over with heavier work (rival weight {weight}). Reinforce wins it back by mining strictly more.'**
+  String nicknameOwnedTakenOver(String weight);
+
   /// No description provided for @nicknameOwnedWeight.
   ///
   /// In en, this message translates to:
