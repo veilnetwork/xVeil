@@ -128,6 +128,11 @@ class CallService {
   DateTime? _lastPeerSignalAt;
   bool _started = false;
 
+  /// sentAtMs of the newest peer renegotiate applied to the current call —
+  /// re-drives and out-of-order deliveries fold strictly-newer (an old
+  /// re-driven media set must never regress a newer one). Reset per call.
+  int _lastRenegotiateAtMs = 0;
+
   /// The single active (or just-ended) call, or null when idle.
   Call? get current => _current;
 
@@ -303,17 +308,30 @@ class CallService {
   /// Toggle sharing the local screen as the call's video source (screen
   /// button, desktop). The screen replaces the camera on the same VP8 track;
   /// ending the share restores the camera if [Call.cameraOn] still wants it.
+  /// The peer is told via a renegotiate signal carrying the updated media set
+  /// (advisory — its UI can badge the share; the video content changes anyway).
   Future<void> setScreenShareEnabled(bool on) async {
     final c = _current;
     if (c == null || !c.isLive || !c.media.video || c.screenOn == on) return;
     if (on) {
       final ok = await _media?.setScreenShareEnabled(true) ?? false;
       if (!ok) return; // no backend / capture failed — state stays camera
-      _set(c.copyWith(screenOn: true));
+      _set(c.copyWith(screenOn: true, media: c.media.copyWith(screen: true)));
     } else {
       await _media?.setScreenShareEnabled(false);
-      _set(c.copyWith(screenOn: false));
+      _set(c.copyWith(screenOn: false, media: c.media.copyWith(screen: false)));
       if (c.cameraOn) await _media?.setCameraEnabled(true);
+    }
+    final cur = _current;
+    if (cur != null && cur.isLive) {
+      await _messaging.sendCallSignal(
+        cur.peer,
+        CallSignal(
+          callId: cur.callId,
+          type: CallSignalType.renegotiate,
+          media: cur.media,
+        ),
+      );
     }
   }
 
@@ -346,11 +364,30 @@ class CallService {
         // Liveness already refreshed above; a heartbeat carries no state change.
         break;
       case CallSignalType.renegotiate:
+        _onRenegotiate(peer, sig);
       case CallSignalType.transportInfo:
       case CallSignalType.unknown:
-        // Phase 2+/6 (mid-call media & path changes) — ignored for now.
+        // Phase 6 (mid-call path changes) — ignored for now.
         break;
     }
+  }
+
+  /// Mid-call media change from the peer (their screen share started/ended).
+  /// Advisory: folds the new media set into the call so the UI reflects it.
+  /// Durable re-drives / out-of-order deliveries apply strictly-newer-by-
+  /// sentAt only ([_lastRenegotiateAtMs]) — a re-driven stale set must never
+  /// overwrite a newer one.
+  void _onRenegotiate(NodeId peer, CallSignal sig) {
+    final c = _current;
+    if (c == null || !c.isLive || c.callId != sig.callId || c.peer != peer) {
+      return;
+    }
+    final media = sig.media;
+    final at = sig.sentAtMs;
+    if (media == null || media.isEmpty || at == null) return;
+    if (at <= _lastRenegotiateAtMs) return; // stale or duplicate re-drive
+    _lastRenegotiateAtMs = at;
+    _set(c.copyWith(media: media));
   }
 
   void _onOffer(NodeId peer, CallSignal sig) {
@@ -523,6 +560,7 @@ class CallService {
   }
 
   void _set(Call call) {
+    if (_current?.callId != call.callId) _lastRenegotiateAtMs = 0;
     _current = call;
     if (!_changes.isClosed) _changes.add(call);
   }
