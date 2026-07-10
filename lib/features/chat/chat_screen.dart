@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert' show base64Decode;
 import 'dart:io';
+import 'dart:ui' as ui show ImageFilter;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -26,6 +28,7 @@ import '../../state/messaging.dart';
 import '../../state/nickname_peers.dart';
 import '../../state/notifications.dart';
 import '../../state/providers.dart';
+import '../../state/thumbnail.dart';
 
 /// The quick-react emoji bar shown atop the message-actions sheet.
 const kQuickReactions = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
@@ -2292,19 +2295,8 @@ class _QuoteBlock extends StatelessWidget {
   }
 }
 
-/// What a file bubble's trailing icon + tap do: download an offer, save a held
-/// blob out, or open a file already saved unencrypted to disk.
-/// True when [name] looks like an image we can render inline (by extension).
-bool isImageFileName(String? name) {
-  if (name == null) return false;
-  final n = name.toLowerCase();
-  return n.endsWith('.jpg') ||
-      n.endsWith('.jpeg') ||
-      n.endsWith('.png') ||
-      n.endsWith('.gif') ||
-      n.endsWith('.webp') ||
-      n.endsWith('.bmp');
-}
+// isImageFileName moved to state/thumbnail.dart (shared with the send path's
+// thumb generation) and re-exported via the import above.
 
 /// Inline preview for a downloaded image file: a rounded, bounded thumbnail
 /// that opens a full-screen zoomable viewer on tap. Bytes come from the
@@ -2313,10 +2305,15 @@ class _ImagePreview extends ConsumerWidget {
   const _ImagePreview({
     required this.fileKey,
     required this.name,
+    this.thumbB64,
     this.onOpen,
   });
   final String fileKey;
   final String name;
+
+  /// Embedded micro-thumb (base64 PNG travelling IN the message) — rendered
+  /// blurred/upscaled while the blob itself is not yet downloaded.
+  final String? thumbB64;
 
   /// Fallback tap (download/open) when the bytes aren't in the store yet.
   final VoidCallback? onOpen;
@@ -2338,6 +2335,73 @@ class _ImagePreview extends ConsumerWidget {
         }
         final bytes = snap.data;
         if (bytes == null) {
+          // Not downloaded yet. With an embedded micro-thumb → an instant
+          // blurred preview (tap = the same download affordance); without →
+          // the compact file chip.
+          Uint8List? thumb;
+          final tb = thumbB64;
+          if (tb != null) {
+            try {
+              thumb = base64Decode(tb);
+            } catch (_) {
+              thumb = null; // hostile/corrupt field — fall back to the chip
+            }
+          }
+          if (thumb != null) {
+            return GestureDetector(
+              onTap: onOpen,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                // Fixed preview box: a 32-px micro-thumb has a tiny intrinsic
+                // size, and max-constraints alone would render it (and the
+                // bubble) postage-stamp small — size the box, cover-fit the
+                // upscaled thumb into it.
+                child: SizedBox(
+                  width: 260,
+                  height: 170,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    fit: StackFit.expand,
+                    children: [
+                      // The micro-thumb upscaled; the blur hides the pixels
+                      // (Telegram-style) and reads as "loading", not "final".
+                      ImageFiltered(
+                        imageFilter: ui.ImageFilter.blur(
+                          sigmaX: 2.5,
+                          sigmaY: 2.5,
+                          tileMode: TileMode.decal,
+                        ),
+                        child: Image.memory(
+                          thumb,
+                          fit: BoxFit.cover,
+                          filterQuality: FilterQuality.medium,
+                          gaplessPlayback: true,
+                        ),
+                      ),
+                      // Download affordance over the preview (Center keeps it
+                      // intrinsic-sized under StackFit.expand).
+                      Center(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.35),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Padding(
+                            padding: EdgeInsets.all(8),
+                            child: Icon(
+                              Icons.download,
+                              size: 24,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }
           return InkWell(
             onTap: onOpen,
             child: Row(
@@ -2604,6 +2668,7 @@ class _Bubble extends ConsumerWidget {
                   _ImagePreview(
                     fileKey: (message.fileId ?? message.fileContentId)!,
                     name: message.fileName ?? '',
+                    thumbB64: message.thumb,
                     onOpen: onTapFile == null
                         ? null
                         : () => onTapFile!(message),

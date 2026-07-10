@@ -726,6 +726,7 @@ class HiddenVolumeStorage implements Storage {
             fileSize: message.fileSize,
             fileContentId: message.fileContentId,
             fileExternal: message.fileExternal,
+            thumb: message.thumb,
             replyToId: message.replyToId,
             forwardedFrom: message.forwardedFrom,
             author: author,
@@ -1050,6 +1051,8 @@ class HiddenVolumeStorage implements Storage {
     if (m.fileSize != null) 'fs': m.fileSize,
     if (m.fileContentId != null) 'fc': m.fileContentId,
     if (m.fileExternal) 'fx': 1, // blob in the external store, not in-container
+    // Embedded micro-thumb (b64 PNG) — additive; old builds ignore the key.
+    if (m.thumb != null) 'tb': m.thumb,
     if (m.replyToId != null) 'rt': m.replyToId,
     if (m.forwardedFrom != null) 'fw': m.forwardedFrom,
     // Opt-in attestation state (omitted when `none` so legacy rows stay clean).
@@ -2291,6 +2294,7 @@ class HiddenVolumeStorage implements Storage {
         fileSize: m['fs'] as int?,
         fileContentId: m['fc'] as String?,
         fileExternal: m['fx'] == 1,
+        thumb: m['tb'] as String?,
         author: m['au'] as String?,
         seq: m['sq'] as int?,
         replyToId: m['rt'] as String?,
