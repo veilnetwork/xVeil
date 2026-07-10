@@ -398,7 +398,6 @@
   "identityAlgo": "алгоритм",
   "invitePasteTheirs": "Вставьте инвайт собеседника",
   "inviteScanTooltip": "Сканировать QR камерой",
-  "inviteScanComingSoon": "Сканирование камерой скоро",
   "scanTitle": "Сканировать инвайт",
   "scanHint": "Наведите камеру на QR-код инвайта собеседника",
   "scanUnavailable": "Камера недоступна — вставьте инвайт вручную",
@@ -408,7 +407,6 @@
   "inviteInvalid": "Это не похоже на инвайт xVeil",
 
   "networkRouteTitle": "Маршрутизация трафика (Proxy / VPN)",
-  "networkRouteSub": "oproxy / ogate — скоро",
   "networkRouteSubActive": "Маршрутизация включена",
   "networkRouteSubIdle": "Пустить трафик через veil",
 

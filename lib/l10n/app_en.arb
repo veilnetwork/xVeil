@@ -399,7 +399,6 @@
   "identityAlgo": "algorithm",
   "invitePasteTheirs": "Paste their invite",
   "inviteScanTooltip": "Scan QR with camera",
-  "inviteScanComingSoon": "Camera scanning coming soon",
   "scanTitle": "Scan invite",
   "scanHint": "Point the camera at a contact's invite QR code",
   "scanUnavailable": "Camera unavailable — paste the invite instead",
@@ -409,7 +408,6 @@
   "inviteInvalid": "That is not a valid xVeil invite",
 
   "networkRouteTitle": "Route traffic (Proxy / VPN)",
-  "networkRouteSub": "oproxy / ogate — coming soon",
   "networkRouteSubActive": "Routing active",
   "networkRouteSubIdle": "Route your traffic through veil",
 
