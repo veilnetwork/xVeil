@@ -3277,6 +3277,12 @@ abstract class AppL10n {
   /// **'Claim an @name others can find you by'**
   String get settingsNicknameHint;
 
+  /// No description provided for @videoPlayError.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not play this video'**
+  String get videoPlayError;
+
   /// No description provided for @emojiSearchHint.
   ///
   /// In en, this message translates to:

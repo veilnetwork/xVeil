@@ -567,6 +567,7 @@
   "callPathP2P": "Напрямую (P2P)",
   "settingsNickname": "Никнейм",
   "settingsNicknameHint": "Занять @имя, по которому вас найдут",
+  "videoPlayError": "Не удалось воспроизвести видео",
   "emojiSearchHint": "Поиск эмодзи",
   "chatEmojiTooltip": "Эмодзи",
   "nicknameTitle": "Никнейм",

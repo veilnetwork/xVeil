@@ -30,6 +30,7 @@ import '../../state/notifications.dart';
 import '../../state/providers.dart';
 import '../../state/thumbnail.dart';
 import 'emoji_panel.dart';
+import 'video_player_screen.dart';
 
 /// The quick-react emoji bar shown atop the message-actions sheet.
 const kQuickReactions = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
@@ -587,6 +588,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => _MediaGallery(items: items, initialIndex: initial),
+      ),
+    );
+  }
+
+  /// Tap on a HELD video row: the in-app player (decrypted to RAM, served
+  /// over the loopback media server — plaintext never touches disk).
+  void _openVideoPlayer(Message m) {
+    final key = m.fileId ?? m.fileContentId;
+    if (key == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => VideoPlayerScreen(
+          fileKey: key,
+          name: m.fileName ?? '',
+        ),
       ),
     );
   }
@@ -1912,6 +1928,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       selecting: _selecting,
                       onTapFile: _onTapFile,
                       onOpenImage: _openImageGallery,
+                      onPlayVideo: _openVideoPlayer,
                       onLongPress: _showMessageActions,
                       onTap: _selecting ? () => _toggleSelected(m) : null,
                       onTapQuote: m.replyToId == null
@@ -2721,6 +2738,7 @@ class _Bubble extends ConsumerWidget {
     this.onTap,
     this.onTapQuote,
     this.onOpenImage,
+    this.onPlayVideo,
     this.highlight,
   });
   final Message message;
@@ -2729,6 +2747,10 @@ class _Bubble extends ConsumerWidget {
   /// media gallery positioned on this message (null = fall back to the
   /// single-image viewer).
   final void Function(Message message)? onOpenImage;
+
+  /// Tap on a HELD video file row — the chat screen opens the in-app player
+  /// (loopback-streamed; null = the row keeps the plain save behavior).
+  final void Function(Message message)? onPlayVideo;
 
   /// Active in-chat search query — occurrences in the body get a highlight
   /// background (null when not searching).
@@ -2920,17 +2942,28 @@ class _Bubble extends ConsumerWidget {
                       // a live retry's spinner wins over the stale mark.
                       final gone =
                           progress == null && a == _FileAffordance.gone;
+                      // A HELD video plays on tap (the in-app player over the
+                      // loopback stream); save moves to the trailing button.
+                      final playable = onPlayVideo != null &&
+                          a == _FileAffordance.save &&
+                          isVideoFileName(message.fileName);
                       return InkWell(
-                        onTap: onTapFile == null
-                            ? null
-                            : () => onTapFile!(message),
+                        onTap: playable
+                            ? () => onPlayVideo!(message)
+                            : (onTapFile == null
+                                ? null
+                                : () => onTapFile!(message)),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(
-                              documentIcon(message.fileName),
+                              playable
+                                  ? Icons.play_circle_outline
+                                  : documentIcon(message.fileName),
                               size: 20,
-                              color: scheme.onSurfaceVariant,
+                              color: playable
+                                  ? scheme.primary
+                                  : scheme.onSurfaceVariant,
                             ),
                             const SizedBox(width: 8),
                             Flexible(
@@ -3012,6 +3045,18 @@ class _Bubble extends ConsumerWidget {
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
                                   color: scheme.onSurfaceVariant,
+                                ),
+                              )
+                            else if (playable)
+                              // Row-tap plays; saving the video moved here.
+                              InkWell(
+                                onTap: onTapFile == null
+                                    ? null
+                                    : () => onTapFile!(message),
+                                child: Icon(
+                                  Icons.download_done_outlined,
+                                  size: 16,
+                                  color: scheme.primary,
                                 ),
                               )
                             else

@@ -3875,24 +3875,27 @@ class MessagingService {
       rethrow;
     }
     final cid = base.contentId;
-    // Streamed IMAGE extras — the source isn't in RAM, so read it once
-    // (bounded; image decode needs the whole file anyway) and reuse the
-    // buffer twice. Reads are serialized by the source's gate.
-    // 1. Micro-thumb for the message (optional — over-cap images skip it).
-    // 2. A LOCAL piece-store copy, so the SENDER's own bubble renders the
-    //    inline preview (loadFile(cid) → pieces) instead of a dead
-    //    thumb-with-download-affordance: the no-local-copy rule exists for
-    //    TB attachments, but an image under the cap costs pennies and its
-    //    own preview is the whole point (user-reported: outgoing images
-    //    showed as chips / perpetual blurred thumb on desktop). Also keeps
-    //    the serve alive even if the source file later moves away.
+    // Streamed MEDIA extras — the source isn't in RAM, so read it once
+    // (bounded) and reuse the buffer. Reads are serialized by the source's
+    // gate.
+    // 1. Micro-thumb for the message (images only, optional).
+    // 2. A LOCAL piece-store copy for images AND videos under the cap, so
+    //    the SENDER's own bubble works (inline preview / in-app playback —
+    //    loadFile(cid) → pieces) instead of a dead download affordance: the
+    //    no-local-copy rule exists for TB attachments, but sub-cap media
+    //    costs pennies and viewing your own send is the whole point. Also
+    //    keeps the serve alive even if the source file later moves away.
     String? thumb;
-    if (isImageFileName(name) && size <= kThumbSourceReadCapBytes) {
+    final mediaCopy = (isImageFileName(name) || isVideoFileName(name)) &&
+        size <= kThumbSourceReadCapBytes;
+    if (mediaCopy) {
       try {
-        final imageBytes = await read(0, size);
-        thumb = await makeMessageThumbB64(imageBytes);
+        final mediaBytes = await read(0, size);
+        if (isImageFileName(name)) {
+          thumb = await makeMessageThumbB64(mediaBytes);
+        }
         try {
-          await _storeServedBlob(base, imageBytes);
+          await _storeServedBlob(base, mediaBytes);
         } catch (e) {
           devLog(
             () => 'xVeil[content]: stream-send local copy skipped for '
