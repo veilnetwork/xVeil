@@ -387,6 +387,11 @@ class AppL10nRu extends AppL10n {
   String get trayQuit => 'Выход';
 
   @override
+  String trayUnread(String count) {
+    return 'Непрочитанных: $count';
+  }
+
+  @override
   String get chatListDelete => 'Удалить чат';
 
   @override
