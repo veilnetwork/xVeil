@@ -29,6 +29,7 @@ import '../state/nickname_peers.dart';
 import '../state/veil_call_media.dart' show remoteVideoFrame;
 import '../state/providers.dart';
 import '../state/vnote_message.dart';
+import '../state/vnote_record_controller.dart' show NativeVnoteRecorder;
 import '../state/vnote_play_controller.dart';
 import '../state/voice_message.dart';
 import '../state/transcription_controller.dart';
@@ -397,7 +398,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   /// VN01 header fields — verifies the whole native capture chain in-app.
   Future<void> _recordVnote(HttpRequest req) async {
     final ms = int.tryParse(req.uri.queryParameters['ms'] ?? '') ?? 2000;
-    final rec = VeilVnoteRecorder.create();
+    // NativeVnoteRecorder (not the raw FFI class) so Android runs the Dart
+    // camera capturer — the hook exercises exactly what the UI does.
+    final rec = NativeVnoteRecorder.create();
     if (rec == null) {
       return _json(req, {'ok': false, 'error': 'recorder unavailable'},
           status: 500);
@@ -406,7 +409,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         .timeout(const Duration(seconds: 5), onTimeout: () => false);
     await MacMediaPermissions.requestCamera()
         .timeout(const Duration(seconds: 5), onTimeout: () => false);
-    if (!rec.start()) {
+    if (!await rec.start()) {
       rec.dispose();
       return _json(req, {'ok': false, 'error': 'start failed'}, status: 500);
     }
@@ -488,7 +491,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final peer = _peer(req);
     if (peer == null) return;
     final ms = int.tryParse(req.uri.queryParameters['ms'] ?? '') ?? 2500;
-    final rec = VeilVnoteRecorder.create();
+    final rec = NativeVnoteRecorder.create();
     if (rec == null) {
       return _json(req, {'ok': false, 'error': 'recorder unavailable'},
           status: 500);
@@ -497,7 +500,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         .timeout(const Duration(seconds: 5), onTimeout: () => false);
     await MacMediaPermissions.requestCamera()
         .timeout(const Duration(seconds: 5), onTimeout: () => false);
-    if (!rec.start()) {
+    if (!await rec.start()) {
       rec.dispose();
       return _json(req, {'ok': false, 'error': 'start failed'}, status: 500);
     }

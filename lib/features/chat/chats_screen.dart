@@ -17,6 +17,8 @@ import '../../state/nickname_peers.dart';
 import 'chat_actions.dart';
 import 'chat_search.dart';
 import '../../state/folder_panel_controller.dart';
+import '../../state/vnote_message.dart';
+import '../../state/voice_message.dart';
 import '../../state/providers.dart';
 import '../contacts/invite_exchange_sheet.dart';
 
@@ -889,7 +891,13 @@ class _ConversationTile extends ConsumerWidget {
             : (last == null
                   ? null
                   : Text(
-                      last.body,
+                      // Voice/video notes are sent under opaque uuid filenames —
+                      // the preview line shows the human kind instead.
+                      isVnoteFileName(last.fileName)
+                          ? l.chatVnoteTooltip
+                          : (isVoiceFileName(last.fileName)
+                              ? l.chatVoiceTooltip
+                              : last.body),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     )),

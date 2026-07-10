@@ -17,7 +17,7 @@ class _FakeRecorder implements VnoteRecorder {
   int framesServed = 0;
 
   @override
-  bool start() {
+  Future<bool> start() async {
     started = startOk;
     return startOk;
   }
