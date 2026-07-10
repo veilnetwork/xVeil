@@ -13,6 +13,7 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../data/native_libs.dart';
 
@@ -97,10 +98,45 @@ class WhisperTranscriber {
   static const _modelEnv = 'XVEIL_WHISPER_MODEL';
   static const _modelFile = 'ggml-base-q5_1.bin';
 
-  /// First existing path for a bundled/dev whisper model, or null.
+  /// Cached model path resolved by [ensureResolved] (Android needs an async
+  /// path_provider lookup — a raw /storage path is blocked by scoped storage).
+  static String? _resolvedModel;
+  static bool _resolvedOnce = false;
+
+  /// Resolve the model path once. On Android this queries the app-specific
+  /// external + support dirs (the only accessible model locations); elsewhere
+  /// it is synchronous so this is a cheap no-op. Safe to call repeatedly.
+  static Future<void> ensureResolved() async {
+    if (_resolvedOnce) return;
+    _resolvedModel = _syncModelPath();
+    if (_resolvedModel == null && Platform.isAndroid) {
+      for (final dir in [
+        await getExternalStorageDirectory(),
+        await getApplicationSupportDirectory(),
+      ]) {
+        if (dir == null) continue;
+        final p = '${dir.path}/$_modelFile';
+        if (File(p).existsSync()) {
+          _resolvedModel = p;
+          break;
+        }
+      }
+    }
+    _resolvedOnce = true;
+  }
+
+  /// The resolved model path, or null if absent. On Android call [ensureResolved]
+  /// first (the UI does via [transcriptionAvailableProvider]).
   static String? modelPath() {
+    if (_resolvedOnce) return _resolvedModel;
+    return _syncModelPath();
+  }
+
+  /// Synchronous lookup: env override + desktop bundle/dev locations.
+  static String? _syncModelPath() {
     final env = Platform.environment[_modelEnv];
     if (env != null && env.isNotEmpty && File(env).existsSync()) return env;
+    if (Platform.isAndroid) return null; // resolved async in ensureResolved
     try {
       final exeDir = File(Platform.resolvedExecutable).parent.path;
       for (final p in [
@@ -114,26 +150,51 @@ class WhisperTranscriber {
     return null;
   }
 
-  /// First existing lib path for [base], or null.
-  static String? _libPath(String base) {
+  /// A reference to [base] the isolate can DynamicLibrary.open: the bare soname
+  /// on Android (the dynamic linker resolves it from the APK's lib dir — there
+  /// is no absolute file to stat), else the first existing absolute path.
+  static String? _libRef(String base) {
+    if (Platform.isAndroid) return nativeLibFileName(base);
     for (final p in nativeLibCandidates(base)) {
       if (File(p).existsSync()) return p;
     }
     return null;
   }
 
+  static bool _canOpen(String base) {
+    try {
+      DynamicLibrary.open(nativeLibFileName(base));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Diagnostic: "ok" or the dlopen error string (debug hook only).
+  static String debugCanOpen(String base) {
+    try {
+      DynamicLibrary.open(nativeLibFileName(base));
+      return 'ok';
+    } catch (e) {
+      return '$e';
+    }
+  }
+
   /// True when the native libs + a model are present (drives whether the UI
   /// shows a Transcribe affordance).
-  static bool available() =>
-      _libPath('veil_media') != null &&
-      _libPath('veil_whisper') != null &&
-      modelPath() != null;
+  static bool available() {
+    if (modelPath() == null) return false;
+    if (Platform.isAndroid) {
+      return _canOpen('veil_media') && _canOpen('veil_whisper');
+    }
+    return _libRef('veil_media') != null && _libRef('veil_whisper') != null;
+  }
 
   /// Transcribe [opus] (a stored VOICE_OPUS clip). [lang] is a whisper code or
   /// "auto". Null if the native layer/model is missing or the run failed.
   Future<String?> transcribe(Uint8List opus, {String lang = 'auto'}) async {
-    final media = _libPath('veil_media');
-    final whisper = _libPath('veil_whisper');
+    final media = _libRef('veil_media');
+    final whisper = _libRef('veil_whisper');
     final model = modelPath();
     if (media == null || whisper == null || model == null) return null;
     return Isolate.run(() => transcribeVoiceOpus(WhisperJob(
