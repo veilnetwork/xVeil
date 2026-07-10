@@ -270,6 +270,23 @@ class VeilCallMediaController implements CallMediaController {
     }
   }
 
+  @override
+  Future<bool> setScreenShareEnabled(bool enabled) async {
+    final engine = _engine;
+    if (engine == null) return false;
+    // Native backend is macOS-only for now (AVCaptureScreenInput). Android
+    // needs the MediaProjection consent flow (a future brick); the engine
+    // returns an error there rather than crashing, but don't even try where
+    // we know there is no backend — the UI hides the button anyway.
+    if (!Platform.isMacOS) return false;
+    try {
+      if (enabled) return engine.startScreen();
+      return engine.stopScreen();
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Start the Dart-side Android camera capture (camera plugin -> pushVideoFrame).
   /// Idempotent; used by both start() and setCameraEnabled().
   Future<void> _startAndroidCam(VeilMediaEngine engine) async {
