@@ -71,16 +71,44 @@ class _NicknameScreenState extends ConsumerState<NicknameScreen> {
           const SizedBox(height: 16),
           if (st.ownedName != null) ...[
             Card(
-              child: ListTile(
-                leading: const Icon(Icons.alternate_email),
-                title: Text('@${st.ownedName}'),
-                subtitle: Text(l.nicknameOwnedWeight('${st.ownedWeight}')),
-                trailing: st.busy
-                    ? null
-                    : TextButton(
-                        onPressed: ctrl.topUp,
-                        child: Text(l.nicknameTopUp),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ListTile(
+                    leading: st.ownedTakenOver
+                        ? Icon(
+                            Icons.warning_amber_rounded,
+                            color: theme.colorScheme.error,
+                          )
+                        : const Icon(Icons.alternate_email),
+                    title: Text('@${st.ownedName}'),
+                    subtitle: Text(
+                      st.ownedTakenOver
+                          ? l.nicknameOwnedTakenOver('${st.ownedWeight}')
+                          : l.nicknameOwnedWeight('${st.ownedWeight}'),
+                      style: st.ownedTakenOver
+                          ? TextStyle(color: theme.colorScheme.error)
+                          : null,
+                    ),
+                    trailing: st.busy
+                        ? null
+                        : TextButton(
+                            onPressed: ctrl.topUp,
+                            child: Text(l.nicknameTopUp),
+                          ),
+                  ),
+                  // What the number MEANS (user remark #5: "вес защиты — это
+                  // что?"): the anti-takeover explanation lives right under it.
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    child: Text(
+                      l.nicknameWeightExplain,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
                       ),
+                    ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 16),

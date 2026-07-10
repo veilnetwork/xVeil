@@ -484,10 +484,13 @@ class _FolderDrawer extends ConsumerWidget {
       context.push(path);
     }
 
+    // Layout (user remark #4, 2026-07-10): header and SAVED MESSAGES pinned
+    // at the top, the folder block alone scrolls when it outgrows the space,
+    // and the app menu (add contact / network / settings) stays pinned at
+    // the bottom — many folders must never push the menu off-screen.
     return Drawer(
       child: SafeArea(
-        child: ListView(
-          padding: EdgeInsets.zero,
+        child: Column(
           children: [
             // Identity header, Telegram-style: who am I right now (and
             // whether this identity routes anonymously).
@@ -516,34 +519,7 @@ class _FolderDrawer extends ConsumerWidget {
                 ],
               ),
             ),
-            // Folders — the chat filter this drawer replaces the chip bar for.
-            // Each carries the sum of unread messages in its conversations.
-            ListTile(
-              leading: const Icon(Icons.forum_outlined),
-              title: Text(l.chatsFolderAll),
-              selected: selected == null,
-              trailing: _badgeOrNull(folderUnreadCount(convos, null)),
-              onTap: () => select(null),
-            ),
-            for (final f in folders)
-              GestureDetector(
-                onSecondaryTap: () => folderMenu(context, ref, f),
-                child: ListTile(
-                  leading: const Icon(Icons.folder_outlined),
-                  title: Text(f.name.isEmpty ? l.chatsFolderUnnamed : f.name),
-                  selected: selected == f.id,
-                  trailing: _badgeOrNull(folderUnreadCount(convos, f)),
-                  onTap: () => select(f.id),
-                  onLongPress: () => folderMenu(context, ref, f),
-                ),
-              ),
-            ListTile(
-              leading: const Icon(Icons.create_new_folder_outlined),
-              title: Text(l.chatsFolderNew),
-              onTap: () => createFolderDialog(context, ref),
-            ),
-            const Divider(),
-            // App menu.
+            // Saved Messages — always first, always visible.
             Builder(
               builder: (_) {
                 final myHex = ref
@@ -559,6 +535,45 @@ class _FolderDrawer extends ConsumerWidget {
                 );
               },
             ),
+            const Divider(height: 1),
+            // Folders — the chat filter this drawer replaces the chip bar
+            // for. Each carries the sum of unread messages in its
+            // conversations. This block alone scrolls.
+            Expanded(
+              child: ListView(
+                padding: EdgeInsets.zero,
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.forum_outlined),
+                    title: Text(l.chatsFolderAll),
+                    selected: selected == null,
+                    trailing: _badgeOrNull(folderUnreadCount(convos, null)),
+                    onTap: () => select(null),
+                  ),
+                  for (final f in folders)
+                    GestureDetector(
+                      onSecondaryTap: () => folderMenu(context, ref, f),
+                      child: ListTile(
+                        leading: const Icon(Icons.folder_outlined),
+                        title: Text(
+                          f.name.isEmpty ? l.chatsFolderUnnamed : f.name,
+                        ),
+                        selected: selected == f.id,
+                        trailing: _badgeOrNull(folderUnreadCount(convos, f)),
+                        onTap: () => select(f.id),
+                        onLongPress: () => folderMenu(context, ref, f),
+                      ),
+                    ),
+                  ListTile(
+                    leading: const Icon(Icons.create_new_folder_outlined),
+                    title: Text(l.chatsFolderNew),
+                    onTap: () => createFolderDialog(context, ref),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            // App menu — pinned to the bottom.
             ListTile(
               leading: const Icon(Icons.person_add_alt_1_outlined),
               title: Text(l.inviteAddContact),
