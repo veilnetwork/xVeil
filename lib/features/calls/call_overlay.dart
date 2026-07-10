@@ -772,6 +772,18 @@ class _VideoControlsBar extends StatelessWidget {
                 active: call.cameraOn,
                 onTap: () => svc.setCameraEnabled(!call.cameraOn),
               ),
+              // Screen share replaces the camera as the video source; the
+              // capture backend is macOS-only for now.
+              if (defaultTargetPlatform == TargetPlatform.macOS) ...[
+                const SizedBox(width: 8),
+                _CallBarButton(
+                  icon: call.screenOn
+                      ? Icons.stop_screen_share
+                      : Icons.screen_share,
+                  active: call.screenOn,
+                  onTap: () => svc.setScreenShareEnabled(!call.screenOn),
+                ),
+              ],
             ],
             const Spacer(),
             Material(
@@ -875,11 +887,15 @@ class _Controls extends StatelessWidget {
                     enabled: true,
                     onTap: () => svc.setCameraEnabled(!call.cameraOn),
                   ),
-                if (call.media.screen)
+                if (call.media.video &&
+                    defaultTargetPlatform == TargetPlatform.macOS)
                   _MiniToggle(
-                    Icons.screen_share,
-                    l.callScreenOn,
-                    enabled: false,
+                    call.screenOn
+                        ? Icons.stop_screen_share
+                        : Icons.screen_share,
+                    call.screenOn ? l.callScreenOn : l.callScreenOff,
+                    enabled: true,
+                    onTap: () => svc.setScreenShareEnabled(!call.screenOn),
                   ),
               ],
             ),

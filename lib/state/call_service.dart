@@ -81,6 +81,12 @@ abstract class CallMediaController {
   /// video). No-op if no media session is running or the call has no video.
   Future<void> setCameraEnabled(bool enabled) async {}
 
+  /// Start/stop sharing the local screen as the call's video source (replaces
+  /// the camera while on — single VP8 track). Returns false when this
+  /// platform has no screen backend or capture can't start; a no-op false if
+  /// no media session is running.
+  Future<bool> setScreenShareEnabled(bool enabled) async => false;
+
   /// Wall-clock of the last time media packets were seen ARRIVING from the peer
   /// (rx_pkts increased), or null if none yet / no media. The FSM treats this as
   /// proof of life for the liveness timeout: while the peer's media is flowing,
@@ -284,11 +290,31 @@ class CallService {
   }
 
   /// Toggle the local camera on/off during a live video call (camera button).
+  /// While a screen share is running the camera stays off at the source (the
+  /// share owns the single video track) — only the INTENT flag flips, and
+  /// ending the share restores whatever it says.
   Future<void> setCameraEnabled(bool on) async {
     final c = _current;
     if (c == null || !c.isLive || !c.media.video || c.cameraOn == on) return;
     _set(c.copyWith(cameraOn: on));
-    await _media?.setCameraEnabled(on);
+    if (!c.screenOn) await _media?.setCameraEnabled(on);
+  }
+
+  /// Toggle sharing the local screen as the call's video source (screen
+  /// button, desktop). The screen replaces the camera on the same VP8 track;
+  /// ending the share restores the camera if [Call.cameraOn] still wants it.
+  Future<void> setScreenShareEnabled(bool on) async {
+    final c = _current;
+    if (c == null || !c.isLive || !c.media.video || c.screenOn == on) return;
+    if (on) {
+      final ok = await _media?.setScreenShareEnabled(true) ?? false;
+      if (!ok) return; // no backend / capture failed — state stays camera
+      _set(c.copyWith(screenOn: true));
+    } else {
+      await _media?.setScreenShareEnabled(false);
+      _set(c.copyWith(screenOn: false));
+      if (c.cameraOn) await _media?.setCameraEnabled(true);
+    }
   }
 
   // ---- inbound signal handling -------------------------------------------
