@@ -2246,21 +2246,46 @@ bool isImageFileName(String? name) {
 /// that opens a full-screen zoomable viewer on tap. Bytes come from the
 /// encrypted container (loadFile), so nothing hits disk in the clear.
 class _ImagePreview extends ConsumerWidget {
-  const _ImagePreview({required this.fileId, required this.name});
-  final String fileId;
+  const _ImagePreview({
+    required this.fileKey,
+    required this.name,
+    this.onOpen,
+  });
+  final String fileKey;
   final String name;
+
+  /// Fallback tap (download/open) when the bytes aren't in the store yet.
+  final VoidCallback? onOpen;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
     return FutureBuilder<Uint8List?>(
-      future: ref.read(storageProvider).loadFile(fileId),
+      future: ref.read(storageProvider).loadFile(fileKey),
       builder: (context, snap) {
-        final bytes = snap.data;
-        if (bytes == null) {
+        // Still loading → spinner. Loaded-but-absent (not in store) → a
+        // tappable file chip (download/open), NEVER a perpetual spinner.
+        if (snap.connectionState != ConnectionState.done) {
           return const SizedBox(
             height: 120,
             width: 120,
             child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        final bytes = snap.data;
+        if (bytes == null) {
+          return InkWell(
+            onTap: onOpen,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.image_outlined, size: 20, color: scheme.primary),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(name, overflow: TextOverflow.ellipsis),
+                ),
+              ],
+            ),
           );
         }
         return GestureDetector(
@@ -2506,10 +2531,13 @@ class _Bubble extends ConsumerWidget {
                   ),
                 if (message.isFile &&
                     isImageFileName(message.fileName) &&
-                    message.fileId != null)
+                    (message.fileId ?? message.fileContentId) != null)
                   _ImagePreview(
-                    fileId: message.fileId!,
+                    fileKey: (message.fileId ?? message.fileContentId)!,
                     name: message.fileName ?? '',
+                    onOpen: onTapFile == null
+                        ? null
+                        : () => onTapFile!(message),
                   )
                 else if (message.isFile)
                   FutureBuilder<_FileAffordance>(
