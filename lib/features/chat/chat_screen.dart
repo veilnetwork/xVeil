@@ -94,6 +94,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _chatSearching = false;
   List<String> _chatMatches = const []; // message ids, oldest → newest
   int _chatMatchIdx = -1;
+  // The scanned needle, mirrored so bubbles highlight exactly what matched
+  // (empty = no highlight). Tracks _chatMatches, not the raw controller text.
+  String _chatSearchNeedle = '';
 
   /// Flash highlight of a just-landed message (search hit / quote jump).
   String? _highlightId;
@@ -193,6 +196,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       _chatSearching = false;
       _chatMatches = const [];
       _chatMatchIdx = -1;
+      _chatSearchNeedle = '';
     });
   }
 
@@ -212,6 +216,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         setState(() {
           _chatMatches = const [];
           _chatMatchIdx = -1;
+          _chatSearchNeedle = '';
         });
       }
       return;
@@ -230,6 +235,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     setState(() {
       _chatMatches = ids;
       _chatMatchIdx = ids.isEmpty ? -1 : ids.length - 1;
+      _chatSearchNeedle = q.trim();
     });
     if (ids.isNotEmpty) _jumpToMessage(ids.last, maxAttempts: 40);
   }
@@ -1834,6 +1840,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       onTapQuote: m.replyToId == null
                           ? null
                           : () => _jumpToMessage(m.replyToId!),
+                      highlight: _chatSearchNeedle.isEmpty
+                          ? null
+                          : _chatSearchNeedle,
                     );
                     // Flash the just-landed message (search hit / quote jump)
                     // so the eye finds it; fades back via AnimatedContainer.
@@ -2367,8 +2376,13 @@ class _Bubble extends ConsumerWidget {
     this.onLongPress,
     this.onTap,
     this.onTapQuote,
+    this.highlight,
   });
   final Message message;
+
+  /// Active in-chat search query — occurrences in the body get a highlight
+  /// background (null when not searching).
+  final String? highlight;
 
   /// The message this one replies to, resolved from the visible window (null if
   /// it's not a reply, or the quoted message is out of the window / deleted).
@@ -2670,7 +2684,7 @@ class _Bubble extends ConsumerWidget {
                     },
                   )
                 else
-                  FormattedText(message.body),
+                  FormattedText(message.body, highlight: highlight),
                 // Reaction chips: aggregated emoji → count for this message.
                 Builder(
                   builder: (context) {

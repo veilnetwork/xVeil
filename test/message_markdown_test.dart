@@ -166,4 +166,58 @@ void main() {
       ]);
     });
   });
+
+  group('highlightSpans', () {
+    const style = TextStyle();
+    const hl = Color(0xFFFFFF00);
+    // Shape each span as (text, isHighlighted) for readable assertions.
+    List<(String, bool)> shape(List<TextSpan> spans) => [
+      for (final s in spans) (s.text ?? '', s.style?.backgroundColor == hl),
+    ];
+
+    test('no query → single plain span', () {
+      expect(shape(highlightSpans('hello', style, null, hl)), [
+        ('hello', false),
+      ]);
+      expect(shape(highlightSpans('hello', style, '', hl)), [('hello', false)]);
+    });
+
+    test('single match splits into before / match / after', () {
+      expect(shape(highlightSpans('foobarbaz', style, 'bar', hl)), [
+        ('foo', false),
+        ('bar', true),
+        ('baz', false),
+      ]);
+    });
+
+    test('case-insensitive; original case preserved in output', () {
+      expect(shape(highlightSpans('Hello WORLD', style, 'world', hl)), [
+        ('Hello ', false),
+        ('WORLD', true),
+      ]);
+    });
+
+    test('match at the very start has no leading span', () {
+      expect(shape(highlightSpans('barbaz', style, 'bar', hl)), [
+        ('bar', true),
+        ('baz', false),
+      ]);
+    });
+
+    test('every occurrence is highlighted', () {
+      expect(shape(highlightSpans('a x a x a', style, 'a', hl)), [
+        ('a', true),
+        (' x ', false),
+        ('a', true),
+        (' x ', false),
+        ('a', true),
+      ]);
+    });
+
+    test('no match → single plain span', () {
+      expect(shape(highlightSpans('hello', style, 'zzz', hl)), [
+        ('hello', false),
+      ]);
+    });
+  });
 }
