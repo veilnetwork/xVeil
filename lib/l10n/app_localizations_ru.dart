@@ -220,6 +220,22 @@ class AppL10nRu extends AppL10n {
   String get chatAttachTooltip => 'Прикрепить файл';
 
   @override
+  String get chatVoiceHold => 'Удерживайте для записи голосового';
+
+  @override
+  String get chatVoiceSlideCancel => 'Проведите для отмены';
+
+  @override
+  String get chatVoiceReleaseCancel => 'Отпустите для отмены';
+
+  @override
+  String get chatVoiceMicDenied => 'Доступ к микрофону запрещён';
+
+  @override
+  String get chatVoiceRecordFailed =>
+      'Не удалось записать — попробуйте ещё раз';
+
+  @override
   String get chatFileSave => 'Сохранить';
 
   @override

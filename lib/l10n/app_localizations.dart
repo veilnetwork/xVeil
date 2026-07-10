@@ -487,6 +487,36 @@ abstract class AppL10n {
   /// **'Attach a file'**
   String get chatAttachTooltip;
 
+  /// No description provided for @chatVoiceHold.
+  ///
+  /// In en, this message translates to:
+  /// **'Hold to record a voice message'**
+  String get chatVoiceHold;
+
+  /// No description provided for @chatVoiceSlideCancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Slide to cancel'**
+  String get chatVoiceSlideCancel;
+
+  /// No description provided for @chatVoiceReleaseCancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Release to cancel'**
+  String get chatVoiceReleaseCancel;
+
+  /// No description provided for @chatVoiceMicDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'Microphone access denied'**
+  String get chatVoiceMicDenied;
+
+  /// No description provided for @chatVoiceRecordFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t record — try again'**
+  String get chatVoiceRecordFailed;
+
   /// No description provided for @chatFileSave.
   ///
   /// In en, this message translates to:
