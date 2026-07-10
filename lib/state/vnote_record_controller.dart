@@ -13,7 +13,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:veil_media/veil_media.dart';
 
+import 'dart:io' show Platform;
+
 import '../core/log.dart';
+import 'android_camera_capture.dart';
 import 'mac_media_permissions.dart';
 import 'voice_record_controller.dart' show micPermissionProvider;
 
@@ -27,7 +30,7 @@ class VnoteClip {
 /// Minimal recorder surface the controller drives — the real impl wraps the
 /// native [VeilVnoteRecorder]; tests supply a fake.
 abstract class VnoteRecorder {
-  bool start();
+  Future<bool> start();
   double get level;
   int get elapsedMs;
 
@@ -43,6 +46,7 @@ abstract class VnoteRecorder {
 class NativeVnoteRecorder implements VnoteRecorder {
   NativeVnoteRecorder(this._rec);
   final VeilVnoteRecorder _rec;
+  AndroidCameraCapture? _cam;
 
   static NativeVnoteRecorder? create() {
     final rec = VeilVnoteRecorder.create();
@@ -50,7 +54,25 @@ class NativeVnoteRecorder implements VnoteRecorder {
   }
 
   @override
-  bool start() => _rec.start();
+  Future<bool> start() async {
+    if (!_rec.start()) return false;
+    // Android has no native camera backend — the calls' Dart capturer feeds
+    // frames through the push ABI (front lens, upright, ~12 fps). A capture
+    // failure degrades to audio-only, mirroring the native mic policy.
+    if (Platform.isAndroid) {
+      final cam = AndroidCameraCapture();
+      _cam = cam;
+      final ok = await cam.start((y, u, v, w, h) {
+        if (_cam != cam) return;
+        _rec.pushFrame(y, u, v, w, h);
+      });
+      if (!ok) {
+        _cam = null;
+        devLog(() => 'xVeil[vnote]: android camera start failed — audio-only');
+      }
+    }
+    return true;
+  }
   @override
   double get level => _rec.level;
   @override
@@ -59,13 +81,21 @@ class NativeVnoteRecorder implements VnoteRecorder {
   VeilVideoFrame? frame() => _rec.frame();
   @override
   VnoteClip? stop() {
+    final cam = _cam;
+    _cam = null;
+    if (cam != null) unawaited(cam.stop());
     final r = _rec.stop();
     if (r == null) return null;
     return VnoteClip(bytes: r.bytes, durationMs: r.durationMs);
   }
 
   @override
-  void dispose() => _rec.dispose();
+  void dispose() {
+    final cam = _cam;
+    _cam = null;
+    if (cam != null) unawaited(cam.stop());
+    _rec.dispose();
+  }
 }
 
 /// Factory the controller uses to build a recorder; overridden in tests.
@@ -141,7 +171,7 @@ class VnoteRecordController extends Notifier<VnoteRecordState> {
       return;
     }
     final rec = ref.read(vnoteRecorderFactoryProvider)();
-    if (rec == null || !rec.start()) {
+    if (rec == null || !await rec.start()) {
       rec?.dispose();
       devLog(() => 'xVeil[vnote]: recorder start failed');
       state = const VnoteRecordState(phase: VnoteRecordPhase.error);
