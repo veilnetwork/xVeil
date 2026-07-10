@@ -238,6 +238,27 @@ class AppL10nRu extends AppL10n {
   String get chatVnoteTooltip => 'Видео-сообщение';
 
   @override
+  String get stickerTitle => 'Стикеры';
+
+  @override
+  String get stickerImport => 'Импорт из фото';
+
+  @override
+  String get stickerEmpty => 'Пока нет стикеров — импортируйте свои картинки';
+
+  @override
+  String stickerImported(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Добавлено $count стикеров',
+      few: 'Добавлено $count стикера',
+      one: 'Добавлен 1 стикер',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get chatVnoteDenied => 'Нет доступа к камере или микрофону';
 
   @override

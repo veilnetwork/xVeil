@@ -523,6 +523,30 @@ abstract class AppL10n {
   /// **'Video message'**
   String get chatVnoteTooltip;
 
+  /// No description provided for @stickerTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Stickers'**
+  String get stickerTitle;
+
+  /// No description provided for @stickerImport.
+  ///
+  /// In en, this message translates to:
+  /// **'Import from photos'**
+  String get stickerImport;
+
+  /// No description provided for @stickerEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No stickers yet — import your own pictures'**
+  String get stickerEmpty;
+
+  /// No description provided for @stickerImported.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 sticker added} other{{count} stickers added}}'**
+  String stickerImported(int count);
+
   /// No description provided for @chatVnoteDenied.
   ///
   /// In en, this message translates to:

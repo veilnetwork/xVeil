@@ -237,6 +237,26 @@ class AppL10nEn extends AppL10n {
   String get chatVnoteTooltip => 'Video message';
 
   @override
+  String get stickerTitle => 'Stickers';
+
+  @override
+  String get stickerImport => 'Import from photos';
+
+  @override
+  String get stickerEmpty => 'No stickers yet — import your own pictures';
+
+  @override
+  String stickerImported(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count stickers added',
+      one: '1 sticker added',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get chatVnoteDenied => 'Camera or microphone access denied';
 
   @override

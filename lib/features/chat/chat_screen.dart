@@ -33,6 +33,7 @@ import '../../state/nickname_peers.dart';
 import '../../state/notifications.dart';
 import '../../state/providers.dart';
 import '../../state/sticker_message.dart';
+import '../../state/sticker_store.dart';
 import '../../state/thumbnail.dart';
 import '../../state/transcription_controller.dart';
 import '../../state/voice_message.dart';
@@ -43,6 +44,7 @@ import '../../state/voice_play_controller.dart';
 import '../../state/voice_record_controller.dart';
 import 'voice_waveform.dart';
 import 'emoji_panel.dart';
+import 'sticker_panel.dart';
 import 'video_player_screen.dart';
 
 /// The quick-react emoji bar shown atop the message-actions sheet.
@@ -663,6 +665,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           clip.durationMs,
           thumbB64: thumb,
         );
+    _scrollToBottom(force: true);
+  }
+
+  /// Send a sticker picked from the panel: load its bytes from the library and
+  /// ship it through the sticker content path.
+  Future<void> _sendSticker(String itemId) async {
+    final bytes =
+        await ref.read(storageProvider).loadFile(stickerFileKey(itemId));
+    if (bytes == null) return;
+    await ref.read(messagingServiceProvider).sendSticker(_peer, bytes);
     _scrollToBottom(force: true);
   }
 
@@ -2072,6 +2084,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               onAttach: _attach,
               onVoice: _sendVoiceClip,
               onVideoNote: _sendVnoteClip,
+              onSticker: _sendSticker,
             ),
           ],
         );
@@ -4002,6 +4015,7 @@ class _Composer extends ConsumerStatefulWidget {
     this.onAttach,
     this.onVoice,
     this.onVideoNote,
+    this.onSticker,
   });
   final TextEditingController controller;
   final FocusNode focusNode;
@@ -4018,6 +4032,10 @@ class _Composer extends ConsumerStatefulWidget {
   /// When set, the capture button gains a mic↔camera mode toggle and the
   /// camera mode records a round video note ([VnoteClip]).
   final void Function(VnoteClip clip)? onVideoNote;
+
+  /// When set, a sticker button opens the sticker panel; picking one passes
+  /// its store item id here to send.
+  final void Function(String itemId)? onSticker;
 
   @override
   ConsumerState<_Composer> createState() => _ComposerState();
@@ -4294,6 +4312,19 @@ class _ComposerState extends ConsumerState<_Composer> {
                 },
               ),
             ),
+            // Sticker panel — only where the note/sticker send path is wired
+            // (accepted contacts), same gate as voice/video.
+            if (widget.onSticker != null)
+              Builder(
+                builder: (context) => IconButton(
+                  tooltip: l.stickerTitle,
+                  icon: const Icon(Icons.sticky_note_2_outlined),
+                  onPressed: () async {
+                    final itemId = await showStickerPanel(context);
+                    if (itemId != null) widget.onSticker!(itemId);
+                  },
+                ),
+              ),
             const SizedBox(width: 4),
             // Empty field + voice enabled → tap-to-record capture button (mic
             // or, with the toggle, a round video note); otherwise send.
