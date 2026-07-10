@@ -510,6 +510,10 @@ class MessagingService {
   final _incoming = StreamController<IncomingNotice>.broadcast();
   StreamSubscription<InboundMessage>? _sub;
   Timer? _retryTimer;
+
+  /// The one-shot post-unlock settings-GC delay — cancellable so dispose()
+  /// (provider teardown, widget tests) retracts it; see [start].
+  Timer? _settingsGcTimer;
   bool _flushing = false;
   final Map<String, _Incoming> _inFlight = {};
 
@@ -703,9 +707,13 @@ class MessagingService {
     // exhausted and EVERY new file-piece persist dies with
     // HvException.IndexFull — device-observed as downloads failing on a
     // storage that looks nearly empty. Delayed so unlock/scan latency is
-    // untouched; failures are non-fatal (the next unlock retries).
-    unawaited(
-      Future<void>.delayed(const Duration(seconds: 20)).then((_) async {
+    // untouched; failures are non-fatal (the next unlock retries). A
+    // CANCELLABLE Timer, not Future.delayed: dispose() must be able to
+    // retract the pending delay itself, or every widget test that touches the
+    // service dies on "A Timer is still pending" at teardown (the _disposed
+    // guard silences the callback but not the timer).
+    _settingsGcTimer = Timer(const Duration(seconds: 20), () {
+      unawaited(() async {
         if (_disposed) return;
         try {
           final swept = await _storage.sweepSettingsGarbage();
@@ -715,8 +723,8 @@ class MessagingService {
         } catch (e) {
           devLog(() => 'xVeil[storage]: settings GC failed: $e');
         }
-      }),
-    );
+      }());
+    });
   }
 
   /// Set in [dispose]; stops the stream accept loop.
@@ -8428,6 +8436,8 @@ class MessagingService {
     _disposed = true; // stops the stream accept loop
     _retryTimer?.cancel();
     _retryTimer = null;
+    _settingsGcTimer?.cancel();
+    _settingsGcTimer = null;
     _contentTimer?.cancel();
     _contentTimer = null;
     // Auto-resume driver: timers, event taps, and the registry write chain.
