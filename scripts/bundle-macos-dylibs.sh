@@ -54,6 +54,17 @@ else
   echo "note: $VM absent — building without calls-media (run build_veil_media_dylib.sh to add it)"
 fi
 
+# On-device speech-to-text (whisper.cpp) — OPTIONAL, built by
+# native/whisper/build_veil_whisper_macos.sh. Absent = no voice transcription
+# (Dart guards the FFI + hides the affordance).
+VW="$ROOT/native/whisper/Frameworks/libveil_whisper.dylib"
+if [ -f "$VW" ]; then
+  cp -f "$VW" "$APP/Contents/Frameworks/"
+  echo "bundled libveil_whisper.dylib (voice transcription)"
+else
+  echo "note: $VW absent — building without voice transcription"
+fi
+
 echo "bundled into $APP/Contents/Frameworks:"
 ls -la "$APP/Contents/Frameworks/" | grep -E 'hidden_volume|veilclient|veil_media'
 
