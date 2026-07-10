@@ -110,4 +110,60 @@ void main() {
       expect(r.selection.start, 3);
     });
   });
+
+  group('parseBlocks', () {
+    test('plain body is a single normal block', () {
+      expect(parseBlocks('hello\nworld'), [
+        const MdBlock(MdBlockKind.normal, 'hello\nworld'),
+      ]);
+    });
+
+    test('a quoted run becomes one quote block, markers stripped', () {
+      expect(parseBlocks('> a\n> b'), [
+        const MdBlock(MdBlockKind.quote, 'a\nb'),
+      ]);
+    });
+
+    test('quote then normal splits into two blocks', () {
+      expect(parseBlocks('> quoted\nreply'), [
+        const MdBlock(MdBlockKind.quote, 'quoted'),
+        const MdBlock(MdBlockKind.normal, 'reply'),
+      ]);
+    });
+
+    test('normal, quote, normal — three blocks in order', () {
+      expect(parseBlocks('intro\n> mid\nend'), [
+        const MdBlock(MdBlockKind.normal, 'intro'),
+        const MdBlock(MdBlockKind.quote, 'mid'),
+        const MdBlock(MdBlockKind.normal, 'end'),
+      ]);
+    });
+
+    test('only the first following space is stripped', () {
+      expect(parseBlocks('>  two spaces'), [
+        const MdBlock(MdBlockKind.quote, ' two spaces'),
+      ]);
+      expect(parseBlocks('>nospace'), [
+        const MdBlock(MdBlockKind.quote, 'nospace'),
+      ]);
+    });
+
+    test('leading indentation before > still marks a quote', () {
+      expect(parseBlocks('  > indented'), [
+        const MdBlock(MdBlockKind.quote, 'indented'),
+      ]);
+    });
+
+    test('> inside a fenced code block stays literal (normal)', () {
+      const body = '```\n> not a quote\n```';
+      expect(parseBlocks(body), [const MdBlock(MdBlockKind.normal, body)]);
+    });
+
+    test('a real quote after a closed fence is still recognised', () {
+      expect(parseBlocks('```\ncode\n```\n> q'), [
+        const MdBlock(MdBlockKind.normal, '```\ncode\n```'),
+        const MdBlock(MdBlockKind.quote, 'q'),
+      ]);
+    });
+  });
 }

@@ -351,6 +351,9 @@ class AppL10nEn extends AppL10n {
   String get chatFormatSpoiler => 'Spoiler';
 
   @override
+  String get chatFormatQuote => 'Quote';
+
+  @override
   String get chatLinkCopied => 'Link copied';
 
   @override
