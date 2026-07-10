@@ -1,0 +1,50 @@
+// Group control-entry signing/verification (groups epic, phase 0, brick 2):
+// bridges the pure domain (group.dart / group_policy.dart) to the native
+// ed25519 identity crypto. Signing uses the app's deniable identity TOML;
+// verification binds the author's public key to their node id
+// (node_id == BLAKE3(pubKey)) inside the native verifier, so a forged key
+// cannot impersonate a member.
+
+import 'dart:ffi';
+
+import '../data/node/embedded_node.dart';
+import '../domain/group.dart';
+
+/// Sign [unsigned] with the identity in [identityToml], returning a copy with
+/// its signature + author public key filled. The signature is over
+/// [ControlEntry.canonicalBytes]. Throws on a crypto failure.
+ControlEntry signControlEntry({
+  required String identityToml,
+  required ControlEntry unsigned,
+  DynamicLibrary? lib,
+}) {
+  final res = EmbeddedNode.signMessage(
+    identityToml,
+    unsigned.canonicalBytes(),
+    lib: lib,
+  );
+  return unsigned.withSignature(res.signature, res.publicKey);
+}
+
+/// Verify a control entry: the ed25519 signature over its canonical bytes by
+/// [ControlEntry.authorPubKey], AND that the key hashes to the author node id.
+/// Returns false on any mismatch / missing key — never throws (safe as the
+/// injected `verify` for [foldControlLog]).
+bool verifyControlEntry(ControlEntry e, {DynamicLibrary? lib}) {
+  if (e.authorPubKey.length != 32 || e.signature.length != 64) return false;
+  try {
+    return EmbeddedNode.verifyMessage(
+      nodeId: e.author.bytes,
+      publicKey: e.authorPubKey,
+      message: e.canonicalBytes(),
+      signature: e.signature,
+      lib: lib,
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+/// A [foldControlLog]-compatible verifier bound to the native library.
+bool Function(ControlEntry) nativeControlVerifier({DynamicLibrary? lib}) =>
+    (e) => verifyControlEntry(e, lib: lib);

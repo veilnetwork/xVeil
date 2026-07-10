@@ -184,14 +184,37 @@ void main() {
     expect(back.groupId, _owner);
     expect(back.genesisPubKey.length, 32);
 
-    final e = _e(_owner, 5, ControlOp.setRole,
-        target: _bob, role: GroupRole.admin);
+    final e = ControlEntry(
+      author: _owner,
+      seq: 5,
+      prevHash: '',
+      op: ControlOp.setRole,
+      target: _bob,
+      role: GroupRole.admin,
+      policyVersion: 0,
+      createdAtMs: 1,
+      signature: Uint8List(64),
+      authorPubKey: Uint8List.fromList(List.filled(32, 5)),
+    );
     final eBack = ControlEntry.fromJson(e.toJson())!;
     expect(eBack.seq, 5);
     expect(eBack.op, ControlOp.setRole);
     expect(eBack.role, GroupRole.admin);
     expect(eBack.target, _bob);
+    expect(eBack.authorPubKey.length, 32, reason: 'pubKey survives json');
+    expect(eBack.signature.length, 64);
     expect(GroupManifest.fromJson('nope'), isNull);
     expect(ControlEntry.fromJson({'seq': 'x'}), isNull);
+  });
+
+  test('withSignature fills sig + pubKey, leaving canonicalBytes stable', () {
+    final unsigned =
+        _e(_owner, 0, ControlOp.addMember, target: _bob, role: GroupRole.member);
+    final before = unsigned.canonicalBytes();
+    final signed = unsigned.withSignature(
+        Uint8List(64), Uint8List.fromList(List.filled(32, 9)));
+    expect(signed.canonicalBytes(), before,
+        reason: 'the pubKey is NOT in the signed payload');
+    expect(signed.authorPubKey.length, 32);
   });
 }
