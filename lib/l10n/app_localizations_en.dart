@@ -360,6 +360,18 @@ class AppL10nEn extends AppL10n {
   String get chatCodeCopied => 'Code copied';
 
   @override
+  String get linkDialogTitle => 'Open link?';
+
+  @override
+  String get linkOpen => 'Open';
+
+  @override
+  String get linkCopy => 'Copy';
+
+  @override
+  String get linkOpenFailed => 'Couldn\'t open the link';
+
+  @override
   String get p2pSelectedTitle => 'Selected contacts';
 
   @override

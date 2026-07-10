@@ -100,6 +100,16 @@ dependencies:
   # No-op on mobile — guarded by Platform.isMacOS/Linux/Windows at every call.
   tray_manager: ^0.5.0
   window_manager: ^0.5.1
+  # Opening http(s) links from message text — ONLY ever behind an explicit
+  # tap → confirm dialog (never auto-open), so the user consciously hands the
+  # URL to the system browser. Privacy: opening leaks the URL to the browser +
+  # destination, hence the deliberate consent step. The android impl is PINNED
+  # below 6.3.16 on purpose: newer url_launcher_android pulls androidx.core 1.17
+  # / androidx.browser 1.9 which demand AGP 8.9.1+, but we're pinned to AGP
+  # 8.7.3 (see memory mobile-builds). This older impl keeps androidx ≤ what
+  # 8.7.3 allows. Revisit the pin if/when the AGP pin moves.
+  url_launcher: ^6.3.0
+  url_launcher_android: 6.3.14
 
 dev_dependencies:
   flutter_test:

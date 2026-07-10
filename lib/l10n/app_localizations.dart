@@ -763,6 +763,30 @@ abstract class AppL10n {
   /// **'Code copied'**
   String get chatCodeCopied;
 
+  /// No description provided for @linkDialogTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Open link?'**
+  String get linkDialogTitle;
+
+  /// No description provided for @linkOpen.
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get linkOpen;
+
+  /// No description provided for @linkCopy.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy'**
+  String get linkCopy;
+
+  /// No description provided for @linkOpenFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t open the link'**
+  String get linkOpenFailed;
+
   /// No description provided for @p2pSelectedTitle.
   ///
   /// In en, this message translates to:

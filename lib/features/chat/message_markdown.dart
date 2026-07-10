@@ -1,6 +1,7 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../l10n/app_localizations.dart';
 
@@ -313,6 +314,62 @@ class _FormattedTextState extends State<FormattedText> {
     );
   }
 
+  /// Tapping a link never navigates on its own (privacy): it opens a dialog
+  /// showing the full URL with Open / Copy / Cancel, so handing the URL to the
+  /// system browser is always a conscious choice.
+  Future<void> _onTapLink(String url) async {
+    final l = AppL10n.of(context);
+    final action = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l.linkDialogTitle),
+        content: SelectableText(url),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(l.actionCancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'copy'),
+            child: Text(l.linkCopy),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'open'),
+            child: Text(l.linkOpen),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (action == 'copy') {
+      _copyLink(url);
+    } else if (action == 'open') {
+      await _openLink(url);
+    }
+  }
+
+  Future<void> _openLink(String url) async {
+    final l = AppL10n.of(context);
+    final uri = Uri.tryParse(url);
+    var ok = false;
+    if (uri != null) {
+      try {
+        ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } catch (_) {
+        ok = false;
+      }
+    }
+    if (!mounted) return;
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(l.linkOpenFailed),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
   void _copyCode(String code) {
     Clipboard.setData(ClipboardData(text: code));
     final l = AppL10n.of(context);
@@ -356,7 +413,7 @@ class _FormattedTextState extends State<FormattedText> {
           addText(t.text, mono);
         case FmtKind.link:
           final recognizer = TapGestureRecognizer()
-            ..onTap = () => _copyLink(t.text);
+            ..onTap = () => _onTapLink(t.text);
           _recognizers.add(recognizer);
           spans.add(
             TextSpan(
