@@ -775,8 +775,16 @@ class MessagingService {
     final fnow = _now();
     for (final id in _outboxLiveBackoff.keys.toList()) {
       final bo = _outboxLiveBackoff[id]!;
+      // Just-sent frames are skipped (ack in flight, see _outboxNudgeGrace) —
+      // rewinding them only produced duplicate re-drives, not latency wins.
+      if (fnow.difference(bo.lastSentAt) < _outboxNudgeGrace) continue;
       if (bo.peer == peerHex && bo.nextAt.isAfter(fnow)) {
-        _outboxLiveBackoff[id] = (count: bo.count, nextAt: fnow, peer: bo.peer);
+        _outboxLiveBackoff[id] = (
+          count: bo.count,
+          nextAt: fnow,
+          peer: bo.peer,
+          lastSentAt: bo.lastSentAt,
+        );
         nudged = true;
       }
     }
@@ -1157,8 +1165,19 @@ class MessagingService {
   /// would hit the onion path every 20s forever: the exact ghost-load class the
   /// message path already backs off. Any inbound from the peer rewinds its
   /// frames to due-now ([_nudgeRetries]); an ack retires the entry.
-  final Map<String, ({int count, DateTime nextAt, String peer})>
+  /// `lastSentAt` records the most recent LIVE send of the frame: the nudge
+  /// skips frames inside [_outboxNudgeGrace] of it — during a call the peer's
+  /// steady health/transportInfo inbound would otherwise rewind a call frame
+  /// whose ack is merely in flight, re-driving it every nudge throttle window
+  /// (the duplicate `re-drive fid=call:…` lines in the P2P smoke).
+  final Map<String, ({int count, DateTime nextAt, String peer, DateTime lastSentAt})>
   _outboxLiveBackoff = {};
+
+  /// A frame live-sent this recently is presumed in flight (ack pending) —
+  /// the peer-alive nudge must not rewind it into a duplicate send. Half the
+  /// base [_outboxLiveResend]: long enough for any live ack round-trip, short
+  /// enough that a genuinely stalled frame still heals fast on inbound.
+  static const _outboxNudgeGrace = Duration(seconds: 10);
 
   /// Frame ids already processed this session (dedup for durable re-drives).
   /// Bounded — oldest evicted past [_seenFramesCap] (a re-process of a very old
@@ -1198,6 +1217,7 @@ class MessagingService {
       count: 1,
       nextAt: _now().add(_outboxLiveResend),
       peer: peer.hex,
+      lastSentAt: _now(),
     );
     try {
       await _send(peer, wire);
@@ -1282,6 +1302,7 @@ class MessagingService {
         count: count,
         nextAt: now.add(Duration(milliseconds: delayMs)),
         peer: f.peerHex,
+        lastSentAt: now,
       );
       devLog(
         () =>

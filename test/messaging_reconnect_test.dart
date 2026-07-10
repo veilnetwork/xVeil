@@ -114,7 +114,6 @@ void main() {
 
     await mA.sendText(b, 'are you there?');
     await _settle();
-    final id = (await sA.loadMessages(b.hex)).single.id;
     expect((await sA.loadMessages(b.hex)).single.status, MessageStatus.sent);
 
     // Drive the bounded reconnect: each flush past the interval re-intros; once
