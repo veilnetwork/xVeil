@@ -43,6 +43,7 @@ class Call {
     this.endedAt,
     this.micOn = true,
     this.cameraOn = true,
+    this.screenOn = false,
   });
 
   /// Stable id shared with the peer for the whole call (see [CallSignal.callId]).
@@ -88,6 +89,12 @@ class Call {
   /// camera button. Only meaningful on a video call.
   final bool cameraOn;
 
+  /// Local screen share on: our display replaces the camera as THE video
+  /// source (single VP8 track; the peer renders it unchanged). [cameraOn]
+  /// keeps the user's camera INTENT while sharing — ending the share restores
+  /// the camera when it is still true. Desktop-only for now.
+  final bool screenOn;
+
   bool get isIncoming => direction == CallDirection.incoming;
   bool get isOutgoing => direction == CallDirection.outgoing;
 
@@ -110,6 +117,7 @@ class Call {
     DateTime? endedAt,
     bool? micOn,
     bool? cameraOn,
+    bool? screenOn,
   }) =>
       Call(
         callId: callId,
@@ -126,6 +134,7 @@ class Call {
         endedAt: endedAt ?? this.endedAt,
         micOn: micOn ?? this.micOn,
         cameraOn: cameraOn ?? this.cameraOn,
+        screenOn: screenOn ?? this.screenOn,
       );
 
   @override

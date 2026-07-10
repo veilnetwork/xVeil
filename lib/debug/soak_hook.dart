@@ -223,6 +223,14 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/call_hangup':
           await _callAction(req, (svc) => svc.hangup());
           return;
+        case '/call_screen':
+          await _callAction(
+            req,
+            (svc) => svc.setScreenShareEnabled(
+              req.uri.queryParameters['on'] != '0',
+            ),
+          );
+          return;
         case '/call_state':
           await _callState(req);
           return;
@@ -1754,6 +1762,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
               'peerPosture': c.peerPosture?.name,
               'transport': c.transport?.name,
               'endReason': c.endReason?.name,
+              'micOn': c.micOn,
+              'cameraOn': c.cameraOn,
+              'screenOn': c.screenOn,
             },
     });
   }

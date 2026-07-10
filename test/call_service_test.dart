@@ -315,6 +315,132 @@ void main() {
       });
     });
   });
+
+  group('CallService screen share orchestration', () {
+    final peer = NodeId.fromHex('a' * 64);
+
+    CallSignal videoOffer(String id) => CallSignal(
+      callId: id,
+      type: CallSignalType.offer,
+      media: const CallMedia(audio: true, video: true),
+      posture: CallPosture.direct,
+    );
+
+    /// A live video call with [media] attached, inside [async]'s zone.
+    (CallService, _FakeMedia) liveVideoCall(FakeAsync async) {
+      final fake = _FakeMessaging();
+      final media = _FakeMedia();
+      final svc = CallService(fake, now: () => clock.now(), media: media)
+        ..start();
+      fake.onCallSignal!(peer, videoOffer('call-s'));
+      svc.accept();
+      async.flushMicrotasks();
+      expect(svc.current?.status, CallStatus.active);
+      media.log.clear(); // drop start()-time calls; the tests assert toggles
+      return (svc, media);
+    }
+
+    test('share on drives the controller and flips screenOn; share off '
+        'restores the camera the intent flag still wants', () {
+      fakeAsync((async) {
+        final (svc, media) = liveVideoCall(async);
+
+        svc.setScreenShareEnabled(true);
+        async.flushMicrotasks();
+        expect(svc.current?.screenOn, isTrue);
+        expect(media.log, ['screen:true']);
+
+        svc.setScreenShareEnabled(false);
+        async.flushMicrotasks();
+        expect(svc.current?.screenOn, isFalse);
+        expect(media.log, ['screen:true', 'screen:false', 'cam:true'],
+            reason: 'cameraOn stayed true → the share hand-back restores it');
+      });
+    });
+
+    test('a failed capture start leaves the call in camera state', () {
+      fakeAsync((async) {
+        final (svc, media) = liveVideoCall(async);
+        media.screenOk = false;
+
+        svc.setScreenShareEnabled(true);
+        async.flushMicrotasks();
+        expect(svc.current?.screenOn, isFalse,
+            reason: 'no backend / capture failed — nothing changed');
+      });
+    });
+
+    test('camera toggle while sharing flips only the INTENT: no source '
+        'switch, and the share hand-back honours the final value', () {
+      fakeAsync((async) {
+        final (svc, media) = liveVideoCall(async);
+        svc.setScreenShareEnabled(true);
+        async.flushMicrotasks();
+        media.log.clear();
+
+        svc.setCameraEnabled(false); // user turns the camera OFF mid-share
+        async.flushMicrotasks();
+        expect(svc.current?.cameraOn, isFalse);
+        expect(media.log, isEmpty,
+            reason: 'the share owns the single video source');
+
+        svc.setScreenShareEnabled(false);
+        async.flushMicrotasks();
+        expect(media.log, ['screen:false'],
+            reason: 'cameraOn=false → nothing to restore');
+      });
+    });
+
+    test('share is a no-op on an audio-only call', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia();
+        final svc = CallService(fake, now: () => clock.now(), media: media)
+          ..start();
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'call-a',
+            type: CallSignalType.offer,
+            media: CallMedia(audio: true),
+            posture: CallPosture.direct,
+          ),
+        );
+        svc.accept();
+        async.flushMicrotasks();
+        media.log.clear();
+
+        svc.setScreenShareEnabled(true);
+        async.flushMicrotasks();
+        expect(svc.current?.screenOn, isFalse);
+        expect(media.log, isEmpty);
+      });
+    });
+  });
+}
+
+/// Records camera/screen toggles; [screenOk] fakes the platform backend
+/// accepting or refusing to start the capture.
+class _FakeMedia extends CallMediaController {
+  bool screenOk = true;
+  final List<String> log = [];
+
+  @override
+  Future<bool> start(Call call) async => true;
+
+  @override
+  Future<void> stop() async {}
+
+  @override
+  Future<void> setCameraEnabled(bool enabled) async {
+    log.add('cam:$enabled');
+  }
+
+  @override
+  Future<bool> setScreenShareEnabled(bool enabled) async {
+    log.add('screen:$enabled');
+    return enabled ? screenOk : true;
+  }
 }
 
 /// Minimal [MessagingService] stand-in: only the three members [CallService]
