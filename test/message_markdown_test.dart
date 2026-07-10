@@ -154,15 +154,56 @@ void main() {
       ]);
     });
 
-    test('> inside a fenced code block stays literal (normal)', () {
-      const body = '```\n> not a quote\n```';
-      expect(parseBlocks(body), [const MdBlock(MdBlockKind.normal, body)]);
+    test('> inside a fenced code block is code, not a quote', () {
+      expect(parseBlocks('```\n> not a quote\n```'), [
+        const MdBlock(MdBlockKind.code, '> not a quote'),
+      ]);
     });
 
     test('a real quote after a closed fence is still recognised', () {
       expect(parseBlocks('```\ncode\n```\n> q'), [
-        const MdBlock(MdBlockKind.normal, '```\ncode\n```'),
+        const MdBlock(MdBlockKind.code, 'code'),
         const MdBlock(MdBlockKind.quote, 'q'),
+      ]);
+    });
+  });
+
+  group('parseBlocks — fenced code', () {
+    test('a fence becomes a code block with the inner lines', () {
+      expect(parseBlocks('```\ncode\n```'), [
+        const MdBlock(MdBlockKind.code, 'code'),
+      ]);
+    });
+
+    test('a language tag on the opening fence is dropped', () {
+      expect(parseBlocks('```dart\nx = 1;\n```'), [
+        const MdBlock(MdBlockKind.code, 'x = 1;'),
+      ]);
+    });
+
+    test('multi-line code is preserved verbatim', () {
+      expect(parseBlocks('```\na\nb\n```'), [
+        const MdBlock(MdBlockKind.code, 'a\nb'),
+      ]);
+    });
+
+    test('text around a code block splits into three blocks', () {
+      expect(parseBlocks('before\n```\ncode\n```\nafter'), [
+        const MdBlock(MdBlockKind.normal, 'before'),
+        const MdBlock(MdBlockKind.code, 'code'),
+        const MdBlock(MdBlockKind.normal, 'after'),
+      ]);
+    });
+
+    test('an unterminated fence stays literal normal text', () {
+      expect(parseBlocks('```\ncode'), [
+        const MdBlock(MdBlockKind.normal, '```\ncode'),
+      ]);
+    });
+
+    test('a self-closed inline triple-backtick is not a block', () {
+      expect(parseBlocks('```x```'), [
+        const MdBlock(MdBlockKind.normal, '```x```'),
       ]);
     });
   });

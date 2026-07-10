@@ -357,6 +357,9 @@ class AppL10nEn extends AppL10n {
   String get chatLinkCopied => 'Link copied';
 
   @override
+  String get chatCodeCopied => 'Code copied';
+
+  @override
   String get p2pSelectedTitle => 'Selected contacts';
 
   @override
