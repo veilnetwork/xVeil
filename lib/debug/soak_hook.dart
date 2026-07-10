@@ -28,6 +28,7 @@ import '../state/veil_call_media.dart' show remoteVideoFrame;
 import '../state/providers.dart';
 import '../state/voice_message.dart';
 import '../state/transcription_controller.dart';
+import '../state/whisper_ffi.dart';
 import '../state/voice_play_controller.dart';
 import 'ui_driver.dart';
 
@@ -493,8 +494,15 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   /// decode16k -> whisper -> cache), verifying the on-device STT path end to
   /// end without tap geometry. Reports whether STT is available + the text.
   Future<void> _transcribeVoiceHook(HttpRequest req) async {
-    if (!ref.read(transcriptionAvailableProvider)) {
-      return _json(req, {'ok': false, 'error': 'stt unavailable (lib/model)'});
+    final avail = await ref.read(transcriptionAvailableProvider.future);
+    if (!avail) {
+      return _json(req, {
+        'ok': false,
+        'error': 'stt unavailable',
+        'model': WhisperTranscriber.modelPath(),
+        'mediaOpen': WhisperTranscriber.debugCanOpen('veil_media'),
+        'whisperOpen': WhisperTranscriber.debugCanOpen('veil_whisper'),
+      });
     }
     final storage = ref.read(storageProvider);
     Message? last;

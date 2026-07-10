@@ -19,9 +19,12 @@ final voiceTranscriberProvider = Provider<VoiceTranscribe>(
 );
 
 /// Whether the native STT layer + model are present (gates the UI affordance).
-final transcriptionAvailableProvider = Provider<bool>(
-  (ref) => WhisperTranscriber.available(),
-);
+/// Async because the Android model path needs a path_provider lookup; resolves
+/// to false until (and unless) the libs + model are found.
+final transcriptionAvailableProvider = FutureProvider<bool>((ref) async {
+  await WhisperTranscriber.ensureResolved();
+  return WhisperTranscriber.available();
+});
 
 enum TranscriptPhase { none, running, done, failed }
 

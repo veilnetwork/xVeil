@@ -2528,7 +2528,8 @@ class _VoiceBubble extends ConsumerWidget {
   /// "Transcribe" button, a spinner while running, then the cached text. Hidden
   /// entirely when the native STT layer / model isn't present.
   Widget _transcript(BuildContext context, WidgetRef ref, Color onBubble) {
-    final available = ref.watch(transcriptionAvailableProvider);
+    final available =
+        ref.watch(transcriptionAvailableProvider).valueOrNull ?? false;
     if (!available) return const SizedBox.shrink();
     final entry = ref.watch(
       transcriptionControllerProvider.select((m) => m[messageId]),
