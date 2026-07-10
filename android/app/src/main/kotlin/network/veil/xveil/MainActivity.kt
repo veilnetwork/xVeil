@@ -58,6 +58,28 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+        // Media epic: one representative frame of a video the user is SENDING
+        // (their own plaintext source file) for the message micro-thumb.
+        // MediaMetadataRetriever decodes — keep it off the UI thread.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "xveil/video_thumb")
+            .setMethodCallHandler { call, result ->
+                if (call.method != "frame") {
+                    result.notImplemented()
+                    return@setMethodCallHandler
+                }
+                val path = call.argument<String>("path")
+                if (path == null) {
+                    result.error("bad_args", "path required", null)
+                    return@setMethodCallHandler
+                }
+                val maxDim = call.argument<Int>("maxDim") ?: 64
+                Thread {
+                    val bytes = grabVideoFrame(path, maxDim)
+                    // No decodable frame is a normal outcome (unsupported
+                    // codec, audio-only container) — null, not an error.
+                    runOnUiThread { result.success(bytes) }
+                }.start()
+            }
         pipEventsChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             pipEventsChannelName,
@@ -95,6 +117,41 @@ class MainActivity : FlutterActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         deliverCallAction(intent)
+    }
+
+    /**
+     * First decodable frame of the video at [path], downscaled so its longest
+     * side is [maxDim], JPEG-encoded. Null on any failure — the thumb is
+     * always optional.
+     */
+    private fun grabVideoFrame(path: String, maxDim: Int): ByteArray? {
+        val retriever = android.media.MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(path)
+            // A hair in (100ms) rather than 0: many encodes open on a
+            // black/blank frame; CLOSEST_SYNC keeps it cheap on any API level.
+            val frame = retriever.getFrameAtTime(
+                100_000L,
+                android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+            ) ?: return null
+            val scale = maxDim.toFloat() / maxOf(frame.width, frame.height)
+            val scaled = if (scale >= 1f) frame else android.graphics.Bitmap.createScaledBitmap(
+                frame,
+                maxOf(1, (frame.width * scale).toInt()),
+                maxOf(1, (frame.height * scale).toInt()),
+                true,
+            )
+            val out = java.io.ByteArrayOutputStream()
+            scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, out)
+            out.toByteArray()
+        } catch (_: Exception) {
+            null
+        } finally {
+            try {
+                retriever.release()
+            } catch (_: Exception) {
+            }
+        }
     }
 
     private fun permFor(type: String) =

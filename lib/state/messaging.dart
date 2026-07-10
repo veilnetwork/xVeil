@@ -34,6 +34,7 @@ import 'p2p_policy_controller.dart';
 import 'providers.dart';
 import 'signature_policy_controller.dart';
 import 'thumbnail.dart';
+import 'video_thumb.dart';
 import 'package:xveil/core/log.dart';
 
 const _uuid = Uuid();
@@ -3018,7 +3019,12 @@ class MessagingService {
   /// records an outgoing file message (filePost, on the seq stream), then streams
   /// the bytes as fileMeta + fileChunk envelopes — the meta carrying the file's
   /// event seq so the receiver folds it convergently and gap-fill can heal it.
-  Future<void> sendFile(NodeId dst, Uint8List bytes, String name) async {
+  Future<void> sendFile(
+    NodeId dst,
+    Uint8List bytes,
+    String name, {
+    String? sourcePath,
+  }) async {
     final contact = await _storage.getContact(dst);
     if (contact == null || contact.status != ContactStatus.accepted) return;
     _mailbox?.noteActivity(); // user action → mailbox burst window
@@ -3028,7 +3034,7 @@ class MessagingService {
     // Large files take the content layer (hash-verified pieces over datagrams —
     // the path that actually crosses NAT) instead of the per-chunk fileMeta push.
     if (bytes.length > _contentThreshold) {
-      await _sendAsContent(dst, bytes, name);
+      await _sendAsContent(dst, bytes, name, sourcePath: sourcePath);
       return;
     }
     // Backstop the storage ceiling: the UI pre-checks the same bound and shows a
@@ -3759,13 +3765,28 @@ class MessagingService {
   /// the MESSAGE is a per-send event under a fresh [msgId] + the (author,seq) the
   /// log allocates — so a re-send (even of previously-DELETED content) surfaces
   /// as a NEW message (A), while identical bytes are never re-stored/re-fetched.
-  Future<void> _sendAsContent(NodeId dst, Uint8List bytes, String name) async {
-    // Micro-thumb for an image: embedded in the ADVERT (unbound — not in
-    // contentId) so the receiver renders a preview BEFORE downloading. Null
-    // for non-images / undecodable bytes / over the datagram budget.
-    final thumb = isImageFileName(name)
-        ? await makeMessageThumbB64(bytes)
-        : null;
+  Future<void> _sendAsContent(
+    NodeId dst,
+    Uint8List bytes,
+    String name, {
+    String? sourcePath,
+  }) async {
+    // Micro-thumb: embedded in the ADVERT (unbound — not in contentId) so the
+    // receiver renders a preview BEFORE downloading. Images from the in-RAM
+    // bytes; videos need the SOURCE PATH (the platform grabber decodes from
+    // disk — bytes-only callers get no video thumb, deliberately: writing a
+    // plaintext temp file just to grab a frame is not worth it). Null for
+    // anything undecodable / over the datagram budget.
+    String? thumb;
+    if (isImageFileName(name)) {
+      thumb = await makeMessageThumbB64(bytes);
+    } else if (isVideoFileName(name) && sourcePath != null) {
+      try {
+        thumb = await makeVideoThumbB64(sourcePath);
+      } catch (e) {
+        devLog(() => 'xVeil[content]: video thumb skipped for $name: $e');
+      }
+    }
     // Hash the file ONCE → the manifest + contentId (the blob key).
     final base = ContentManifest.fromBytes(
       name,
@@ -3886,6 +3907,17 @@ class MessagingService {
     //    costs pennies and viewing your own send is the whole point. Also
     //    keeps the serve alive even if the source file later moves away.
     String? thumb;
+    // Video preview frame: grabbed by PLATFORM code straight from the source
+    // path (no size cap — the grabber never reads the file into RAM), so even
+    // a multi-GB video gets a bubble thumb. Best-effort: null on platforms
+    // without a handler / undecodable containers → the play-icon row.
+    if (isVideoFileName(name) && sourcePath != null) {
+      try {
+        thumb = await makeVideoThumbB64(sourcePath);
+      } catch (e) {
+        devLog(() => 'xVeil[content]: video thumb skipped for $name: $e');
+      }
+    }
     final mediaCopy = (isImageFileName(name) || isVideoFileName(name)) &&
         size <= kThumbSourceReadCapBytes;
     if (mediaCopy) {
