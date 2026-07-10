@@ -1761,6 +1761,15 @@ class AppL10nRu extends AppL10n {
   String get nicknameOwnedTitle => 'Ваше имя';
 
   @override
+  String get nicknameWeightExplain =>
+      'Вес защиты — суммарное доказательство работы (PoW), закреплённое за именем: показан актуальный вес из сети. Чтобы перехватить имя, нужно вычислить строго больше — «Усилить» повышает цену перехвата.';
+
+  @override
+  String nicknameOwnedTakenOver(String weight) {
+    return 'Имя перехвачено более тяжёлой работой (вес соперника $weight). «Усилить» вернёт имя, намайнив строго больше.';
+  }
+
+  @override
   String nicknameOwnedWeight(String weight) {
     return 'Вес защиты $weight';
   }

@@ -46,6 +46,7 @@ class NicknameState {
     this.hashesDone = 0,
     this.ownedName,
     this.ownedWeight = 0,
+    this.ownedTakenOver = false,
     this.error,
   });
 
@@ -66,7 +67,16 @@ class NicknameState {
 
   /// Name this identity successfully published (from the settings KV).
   final String? ownedName;
+
+  /// Current NETWORK weight of [ownedName] when we still own it (refreshed on
+  /// screen open — the persisted claim weight goes stale after top-ups), or
+  /// the RIVAL's weight when [ownedTakenOver].
   final int ownedWeight;
+
+  /// The last background refresh resolved [ownedName] to a DIFFERENT owner:
+  /// someone displaced the claim with heavier work. "Усилить" wins it back by
+  /// mining strictly more than [ownedWeight].
+  final bool ownedTakenOver;
 
   final String? error;
 
@@ -89,6 +99,7 @@ class NicknameState {
     int? hashesDone,
     String? ownedName,
     int? ownedWeight,
+    bool? ownedTakenOver,
     String? error,
     bool clearError = false,
     bool clearOwned = false,
@@ -104,6 +115,8 @@ class NicknameState {
       hashesDone: hashesDone ?? this.hashesDone,
       ownedName: clearOwned ? null : (ownedName ?? this.ownedName),
       ownedWeight: clearOwned ? 0 : (ownedWeight ?? this.ownedWeight),
+      ownedTakenOver:
+          clearOwned ? false : (ownedTakenOver ?? this.ownedTakenOver),
       error: clearError ? null : (error ?? this.error),
     );
   }
@@ -159,8 +172,54 @@ class NicknameController extends StateNotifier<NicknameState> {
         ownedName: m['name'] as String?,
         ownedWeight: (m['weight'] as num?)?.toInt() ?? 0,
       );
+      // The persisted weight is the LAST CLAIM's weight — stale after
+      // top-ups/displacements. Refresh from the network in the background.
+      unawaited(refreshOwned());
     } catch (_) {
       // Corrupt/missing KV — start clean.
+    }
+  }
+
+  Future<void> _persistClaim(String name, int weight) async {
+    await _storage.putSetting(
+      _kClaimedKey,
+      jsonEncode({
+        'name': name,
+        'weight': weight,
+        'at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      }),
+    );
+  }
+
+  /// Re-resolve the owned name and sync the card to the NETWORK state: the
+  /// live cumulative weight while we still own it, or the takeover flag (and
+  /// the rival's weight to beat) when someone displaced the claim. Resolve
+  /// failures keep the persisted view (never scare the user on a timeout).
+  Future<void> refreshOwned() async {
+    final name = state.ownedName;
+    if (name == null) return;
+    try {
+      final self = await _selfNodeId();
+      final resolved = await veil.resolveNicknameAsync(
+        selfNodeId: self,
+        name: name,
+        timeoutMs: _netTimeoutMs,
+      );
+      if (_disposed || resolved == null || state.ownedName != name) return;
+      if (_sameBytes(resolved.ownerNodeId, self)) {
+        state = state.copyWith(
+          ownedWeight: resolved.weight,
+          ownedTakenOver: false,
+        );
+        await _persistClaim(name, resolved.weight);
+      } else {
+        state = state.copyWith(
+          ownedWeight: resolved.weight,
+          ownedTakenOver: true,
+        );
+      }
+    } catch (_) {
+      // Lookup unavailable — keep the persisted card as is.
     }
   }
 
@@ -356,19 +415,14 @@ class NicknameController extends StateNotifier<NicknameState> {
       timeoutMs: _netTimeoutMs,
     );
     if (_disposed) return;
-    await _storage.putSetting(
-      _kClaimedKey,
-      jsonEncode({
-        'name': norm,
-        'weight': published,
-        'at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      }),
-    );
+    await _persistClaim(norm, published);
     await _storage.putSetting(_kMiningKey, jsonEncode(<String, dynamic>{}));
     state = state.copyWith(
       phase: NicknamePhase.idle,
       ownedName: norm,
       ownedWeight: published,
+      // A successful publish (fresh claim, top-up or win-back) = ours again.
+      ownedTakenOver: false,
       availability: NicknameAvailability.mine,
       checkedName: norm,
       takenWeight: published,

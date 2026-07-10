@@ -1753,6 +1753,15 @@ class AppL10nEn extends AppL10n {
   String get nicknameOwnedTitle => 'Your name';
 
   @override
+  String get nicknameWeightExplain =>
+      'Protection weight is the cumulative proof-of-work pinned to the name — the value shown is the live network weight. Taking the name over requires strictly more work; Reinforce raises that price.';
+
+  @override
+  String nicknameOwnedTakenOver(String weight) {
+    return 'The name was taken over with heavier work (rival weight $weight). Reinforce wins it back by mining strictly more.';
+  }
+
+  @override
   String nicknameOwnedWeight(String weight) {
     return 'Protection weight $weight';
   }
