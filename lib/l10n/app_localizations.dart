@@ -511,6 +511,24 @@ abstract class AppL10n {
   /// **'Microphone access denied'**
   String get chatVoiceMicDenied;
 
+  /// No description provided for @chatVoiceTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Voice message'**
+  String get chatVoiceTooltip;
+
+  /// No description provided for @chatVnoteTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Video message'**
+  String get chatVnoteTooltip;
+
+  /// No description provided for @chatVnoteDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'Camera or microphone access denied'**
+  String get chatVnoteDenied;
+
   /// No description provided for @chatVoiceRecordFailed.
   ///
   /// In en, this message translates to:

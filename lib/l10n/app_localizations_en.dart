@@ -231,6 +231,15 @@ class AppL10nEn extends AppL10n {
   String get chatVoiceMicDenied => 'Microphone access denied';
 
   @override
+  String get chatVoiceTooltip => 'Voice message';
+
+  @override
+  String get chatVnoteTooltip => 'Video message';
+
+  @override
+  String get chatVnoteDenied => 'Camera or microphone access denied';
+
+  @override
   String get chatVoiceRecordFailed => 'Couldn\'t record — try again';
 
   @override
