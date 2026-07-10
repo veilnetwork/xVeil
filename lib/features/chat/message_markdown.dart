@@ -275,6 +275,149 @@ List<TextSpan> highlightSpans(
   return spans;
 }
 
+/// Lightweight, language-agnostic syntax classes for fenced code blocks.
+enum CodeTokenKind { plain, keyword, str, comment, number }
+
+class CodeToken {
+  const CodeToken(this.kind, this.text);
+  final CodeTokenKind kind;
+  final String text;
+
+  @override
+  bool operator ==(Object other) =>
+      other is CodeToken && other.kind == kind && other.text == text;
+
+  @override
+  int get hashCode => Object.hash(kind, text);
+
+  @override
+  String toString() => 'CodeToken($kind, ${text.replaceAll("\n", "\\n")})';
+}
+
+/// Common keywords across C-like, Python, Rust, JS/TS, Dart, Go, etc. A shared
+/// set (not per-language) keeps the highlighter dependency-free; false matches
+/// inside a code block read as "looks like code", which is the whole point.
+const _codeKeywords = <String>{
+  'if', 'else', 'elif', 'for', 'while', 'do', 'switch', 'case', 'default',
+  'break', 'continue', 'return', 'goto', 'yield', 'await', 'async',
+  'function', 'fn', 'func', 'def', 'lambda', 'class', 'struct', 'enum',
+  'interface', 'trait', 'impl', 'extends', 'implements', 'mixin',
+  'const', 'let', 'var', 'val', 'final', 'static', 'mut', 'public', 'private',
+  'protected', 'abstract', 'override', 'virtual',
+  'void', 'int', 'long', 'short', 'float', 'double', 'bool', 'boolean', 'char',
+  'string', 'str', 'byte', 'true', 'false', 'null', 'nil', 'none', 'undefined',
+  'import', 'export', 'from', 'package', 'module', 'use', 'using', 'pub',
+  'new', 'delete', 'this', 'self', 'super', 'typeof', 'instanceof', 'sizeof',
+  'try', 'catch', 'except', 'finally', 'throw', 'throws', 'raise', 'match',
+  'in', 'is', 'as', 'and', 'or', 'not', 'with',
+};
+
+bool _isIdentStart(String c) {
+  final u = c.codeUnitAt(0);
+  return (u >= 65 && u <= 90) || (u >= 97 && u <= 122) || c == '_' || c == r'$';
+}
+
+bool _isIdentPart(String c) {
+  final u = c.codeUnitAt(0);
+  return _isIdentStart(c) || (u >= 48 && u <= 57);
+}
+
+bool _isDigit(String c) {
+  final u = c.codeUnitAt(0);
+  return u >= 48 && u <= 57;
+}
+
+/// True if everything from the previous newline (or start) up to [i] is blank —
+/// used so `#` opens a comment only when it leads the line (Python/shell), not
+/// mid-expression.
+bool _atLineStart(String s, int i) {
+  var j = i - 1;
+  while (j >= 0) {
+    final c = s[j];
+    if (c == '\n') return true;
+    if (c != ' ' && c != '\t') return false;
+    j--;
+  }
+  return true;
+}
+
+/// Split [code] into coarse syntax tokens: line/block comments, single- and
+/// double-quoted strings, numbers, keywords, and plain runs. Deliberately
+/// simple and language-agnostic — no grammar, no dependency. Pure — unit-tested.
+List<CodeToken> highlightCode(String code) {
+  final out = <CodeToken>[];
+  final plain = StringBuffer();
+  void flush() {
+    if (plain.isNotEmpty) {
+      out.add(CodeToken(CodeTokenKind.plain, plain.toString()));
+      plain.clear();
+    }
+  }
+
+  var i = 0;
+  final n = code.length;
+  while (i < n) {
+    final c = code[i];
+    final two = i + 1 < n ? code.substring(i, i + 2) : '';
+    // Line comment: // or a leading #.
+    if (two == '//' || (c == '#' && _atLineStart(code, i))) {
+      var end = code.indexOf('\n', i);
+      if (end < 0) end = n;
+      flush();
+      out.add(CodeToken(CodeTokenKind.comment, code.substring(i, end)));
+      i = end;
+    } else if (two == '/*') {
+      var end = code.indexOf('*/', i + 2);
+      end = end < 0 ? n : end + 2;
+      flush();
+      out.add(CodeToken(CodeTokenKind.comment, code.substring(i, end)));
+      i = end;
+    } else if (c == '"' || c == "'" || c == '`') {
+      // String literal to the matching unescaped quote (or EOL/end).
+      var j = i + 1;
+      while (j < n && code[j] != c) {
+        if (code[j] == r'\' && j + 1 < n) {
+          j += 2;
+        } else if (code[j] == '\n') {
+          break;
+        } else {
+          j++;
+        }
+      }
+      final end = (j < n && code[j] == c) ? j + 1 : j;
+      flush();
+      out.add(CodeToken(CodeTokenKind.str, code.substring(i, end)));
+      i = end;
+    } else if (_isIdentStart(c)) {
+      var j = i + 1;
+      while (j < n && _isIdentPart(code[j])) {
+        j++;
+      }
+      final word = code.substring(i, j);
+      if (_codeKeywords.contains(word)) {
+        flush();
+        out.add(CodeToken(CodeTokenKind.keyword, word));
+      } else {
+        plain.write(word);
+      }
+      i = j;
+    } else if (_isDigit(c)) {
+      var j = i + 1;
+      while (j < n && (_isIdentPart(code[j]) || code[j] == '.')) {
+        j++;
+      }
+      flush();
+      out.add(CodeToken(CodeTokenKind.number, code.substring(i, j)));
+      i = j;
+    } else {
+      plain.write(c);
+      i++;
+    }
+  }
+  flush();
+  return out;
+}
+
 /// Renders a message body with the [parseFormatted] subset. Bold / italic /
 /// underline / strikethrough / inline `code` / ``` code blocks / ||spoiler|| /
 /// `>` block quotes. Spoilers are tap-to-reveal.
@@ -537,7 +680,7 @@ class _FormattedTextState extends State<FormattedText> {
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Text.rich(
-                TextSpan(children: highlightSpans(code, mono, hlQuery, hlColor)),
+                TextSpan(children: _codeSpans(code, mono, scheme, hlQuery, hlColor)),
               ),
             ),
           ),
@@ -556,5 +699,37 @@ class _FormattedTextState extends State<FormattedText> {
         ],
       ),
     );
+  }
+
+  /// Syntax-colour the code (via [highlightCode]) and, within each token, still
+  /// apply the search highlight background (via [highlightSpans]).
+  List<InlineSpan> _codeSpans(
+    String code,
+    TextStyle mono,
+    ColorScheme scheme,
+    String? hlQuery,
+    Color hlColor,
+  ) {
+    final spans = <InlineSpan>[];
+    for (final tok in highlightCode(code)) {
+      spans.addAll(
+        highlightSpans(tok.text, _codeStyle(tok.kind, mono, scheme), hlQuery, hlColor),
+      );
+    }
+    return spans;
+  }
+
+  TextStyle _codeStyle(CodeTokenKind kind, TextStyle mono, ColorScheme scheme) {
+    return switch (kind) {
+      CodeTokenKind.plain => mono,
+      CodeTokenKind.keyword =>
+        mono.copyWith(color: scheme.primary, fontWeight: FontWeight.w600),
+      CodeTokenKind.str => mono.copyWith(color: scheme.tertiary),
+      CodeTokenKind.number => mono.copyWith(color: scheme.secondary),
+      CodeTokenKind.comment => mono.copyWith(
+        color: scheme.onSurfaceVariant,
+        fontStyle: FontStyle.italic,
+      ),
+    };
   }
 }

@@ -261,4 +261,72 @@ void main() {
       ]);
     });
   });
+
+  group('highlightCode', () {
+    List<(CodeTokenKind, String)> shape(List<CodeToken> toks) => [
+      for (final t in toks) (t.kind, t.text),
+    ];
+
+    test('keywords are tagged, the rest is plain', () {
+      expect(shape(highlightCode('if x')), [
+        (CodeTokenKind.keyword, 'if'),
+        (CodeTokenKind.plain, ' x'),
+      ]);
+      expect(shape(highlightCode('return 0')), [
+        (CodeTokenKind.keyword, 'return'),
+        (CodeTokenKind.plain, ' '),
+        (CodeTokenKind.number, '0'),
+      ]);
+    });
+
+    test('double- and single-quoted strings', () {
+      expect(shape(highlightCode('a = "hi"')), [
+        (CodeTokenKind.plain, 'a = '),
+        (CodeTokenKind.str, '"hi"'),
+      ]);
+      expect(shape(highlightCode("x = 'y'")), [
+        (CodeTokenKind.plain, 'x = '),
+        (CodeTokenKind.str, "'y'"),
+      ]);
+    });
+
+    test('an escaped quote does not end the string', () {
+      expect(shape(highlightCode(r'"a\"b"')), [
+        (CodeTokenKind.str, r'"a\"b"'),
+      ]);
+    });
+
+    test('line comment (//) runs to end of line', () {
+      expect(shape(highlightCode('x // note')), [
+        (CodeTokenKind.plain, 'x '),
+        (CodeTokenKind.comment, '// note'),
+      ]);
+    });
+
+    test('# is a comment only at line start', () {
+      expect(shape(highlightCode('# hi')), [
+        (CodeTokenKind.comment, '# hi'),
+      ]);
+      expect(shape(highlightCode('a # b')), [
+        (CodeTokenKind.plain, 'a # b'),
+      ]);
+    });
+
+    test('block comment', () {
+      expect(shape(highlightCode('/* c */x')), [
+        (CodeTokenKind.comment, '/* c */'),
+        (CodeTokenKind.plain, 'x'),
+      ]);
+    });
+
+    test('numbers, but not digits inside an identifier', () {
+      expect(shape(highlightCode('n = 42')), [
+        (CodeTokenKind.plain, 'n = '),
+        (CodeTokenKind.number, '42'),
+      ]);
+      expect(shape(highlightCode('veil2')), [
+        (CodeTokenKind.plain, 'veil2'),
+      ]);
+    });
+  });
 }
