@@ -29,6 +29,7 @@ class ContentManifest {
     this.author,
     this.seq,
     this.ts,
+    this.thumbB64,
   });
 
   /// Original file name (authenticated — folded into [contentId]).
@@ -76,6 +77,13 @@ class ContentManifest {
   /// receiver folds it with the SAME timestamp on every device (convergent
   /// display order), mirroring fileMeta's `sentAtMs`. UNBOUND (not in contentId).
   final int? ts;
+
+  /// Micro-thumbnail of an IMAGE file (base64 of a tiny PNG, budget-bound at
+  /// send so the advert frame still fits one datagram) — renders on the
+  /// receiver BEFORE the blob is downloaded. UNBOUND (not in contentId): the
+  /// same bytes keep one contentId whether or not the sender attached a thumb,
+  /// and a tampered thumb can only mislead a preview, never the verified blob.
+  final String? thumbB64;
 
   /// Default piece size: 256 KiB — keeps the manifest small (a 256 MiB file is
   /// 1024 × 32 B = 32 KiB of hashes) while bounding per-piece re-request cost.
@@ -224,6 +232,7 @@ class ContentManifest {
     String? author,
     int? seq,
     int? ts,
+    String? thumbB64,
   }) => ContentManifest(
     name: name,
     size: size,
@@ -235,6 +244,7 @@ class ContentManifest {
     author: author ?? this.author,
     seq: seq ?? this.seq,
     ts: ts ?? this.ts,
+    thumbB64: thumbB64 ?? this.thumbB64,
   );
 
   /// Canonical, deterministic content id: hex SHA-256 over
@@ -316,6 +326,8 @@ class ContentManifest {
     if (author != null) 'au': author,
     if (seq != null) 'sq': seq,
     if (ts != null) 'mts': ts,
+    // Unbound micro-thumb (see [thumbB64]) — additive, ignored by old builds.
+    if (thumbB64 != null) 'th': thumbB64,
   };
 
   /// Parse + validate a manifest. Returns null if malformed or NOT self-
@@ -352,6 +364,7 @@ class ContentManifest {
         author: j['au'] as String?,
         seq: j['sq'] as int?,
         ts: j['mts'] as int?,
+        thumbB64: j['th'] as String?,
       );
       return m.isSelfConsistent ? m : null;
     } catch (_) {

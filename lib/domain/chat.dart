@@ -143,6 +143,7 @@ class Message {
     this.fileSize,
     this.fileContentId,
     this.fileExternal = false,
+    this.thumb,
     this.edited = false,
     this.author,
     this.seq,
@@ -177,6 +178,12 @@ class Message {
   /// the blob lands under [fileId]. So `fileContentId != null && fileId == null`
   /// is the "offered, not downloaded" state. Null for small/inline files.
   final String? fileContentId;
+
+  /// Micro-thumbnail of an IMAGE file message: base64 of a tiny PNG embedded in
+  /// the message itself (travels in the manifest advert, budget-bound so the
+  /// advert still fits one datagram). Renders instantly on the receiver BEFORE
+  /// the blob is downloaded; null for non-images / older senders.
+  final String? thumb;
 
   /// True for a LARGE file whose blob lives in the external encrypted blob store
   /// (ExternalBlobStore[fileId]) instead of the in-container FileStore — sent /
@@ -235,6 +242,7 @@ class Message {
     fileSize: fileSize,
     fileContentId: fileContentId,
     fileExternal: fileExternal,
+    thumb: thumb,
     edited: edited ?? this.edited,
     author: author,
     seq: seq,

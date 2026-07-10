@@ -33,6 +33,7 @@ import 'mailbox_service.dart';
 import 'p2p_policy_controller.dart';
 import 'providers.dart';
 import 'signature_policy_controller.dart';
+import 'thumbnail.dart';
 import 'package:xveil/core/log.dart';
 
 const _uuid = Uuid();
@@ -116,6 +117,7 @@ typedef _ContentManifestRef = ({
   String? author,
   int? seq,
   int? ts,
+  String? thumb,
 });
 
 int? xveilConfiguredStreamRangeParallelism() =>
@@ -191,6 +193,12 @@ const _wireChunkBytes = 4000;
 /// here, instead of the storage layer throwing PayloadTooLarge mid-attach).
 const kMaxIncomingFileBytes =
     kMaxStoredFileBytes; // ~8 MiB (1024×8 KiB ceiling)
+
+/// Largest streamed IMAGE we will read back whole (transiently) to generate
+/// its embedded micro-thumb. Image decode needs the full file, so this bounds
+/// the RAM spike of thumb generation on the sendFileStreaming path; a bigger
+/// image simply ships without a thumb (the preview is optional by design).
+const kThumbSourceReadCapBytes = 24 * 1024 * 1024;
 
 /// Max simultaneous inbound transfers we will buffer. Without this the
 /// per-transfer [kMaxIncomingFileBytes] cap is not enough: a peer could open
@@ -894,6 +902,7 @@ class MessagingService {
     String? fileName,
     int? fileSize,
     String? fileContentId,
+    String? thumb,
     String? id,
     DateTime? timestamp,
     int? seq,
@@ -908,6 +917,7 @@ class MessagingService {
         direction: dir,
         replyToId: replyToId,
         forwardedFrom: forwardedFrom,
+        thumb: thumb,
         body: body,
         // Incoming messages carry the SENDER's send time (env.sentAtMs) so the
         // conversation orders by send-order, not the scrambled arrival order.
@@ -3476,6 +3486,9 @@ class MessagingService {
     if (manifest.author != null) 'au': manifest.author,
     if (manifest.seq != null) 'sq': manifest.seq,
     if (manifest.ts != null) 'mts': manifest.ts,
+    // Embedded micro-thumb (unbound, budget-bound at generation) — rides the
+    // ref too so an over-limit full manifest still delivers the preview.
+    if (manifest.thumbB64 != null) 'th': manifest.thumbB64,
   });
 
   _ContentManifestRef? _parseContentManifestRef(Map<String, dynamic> j) {
@@ -3493,6 +3506,7 @@ class MessagingService {
         author: j['au'] as String?,
         seq: j['sq'] as int?,
         ts: j['mts'] as int?,
+        thumb: j['th'] as String?,
       );
     } catch (_) {
       return null;
@@ -3728,6 +3742,12 @@ class MessagingService {
   /// log allocates — so a re-send (even of previously-DELETED content) surfaces
   /// as a NEW message (A), while identical bytes are never re-stored/re-fetched.
   Future<void> _sendAsContent(NodeId dst, Uint8List bytes, String name) async {
+    // Micro-thumb for an image: embedded in the ADVERT (unbound — not in
+    // contentId) so the receiver renders a preview BEFORE downloading. Null
+    // for non-images / undecodable bytes / over the datagram budget.
+    final thumb = isImageFileName(name)
+        ? await makeMessageThumbB64(bytes)
+        : null;
     // Hash the file ONCE → the manifest + contentId (the blob key).
     final base = ContentManifest.fromBytes(
       name,
@@ -3757,6 +3777,7 @@ class MessagingService {
       MessageStatus.sent,
       fileId: cid,
       fileName: name,
+      thumb: thumb,
       id: msgId,
       timestamp: _now(),
     );
@@ -3767,7 +3788,12 @@ class MessagingService {
     if (contact?.status != ContactStatus.accepted) return;
     await _advertise(
       dst,
-      base.withEvent(msgId: msgId, author: stored.author, seq: stored.seq),
+      base.withEvent(
+        msgId: msgId,
+        author: stored.author,
+        seq: stored.seq,
+        thumbB64: thumb,
+      ),
       bytes,
     );
   }
@@ -3831,6 +3857,18 @@ class MessagingService {
       rethrow;
     }
     final cid = base.contentId;
+    // Micro-thumb for a streamed IMAGE: the source isn't in RAM, so read it
+    // once (bounded — image decode needs the whole file anyway) purely for
+    // thumb generation. Reads are serialized by the source's gate; the buffer
+    // is transient. Over-cap images just skip the thumb — it is optional.
+    String? thumb;
+    if (isImageFileName(name) && size <= kThumbSourceReadCapBytes) {
+      try {
+        thumb = await makeMessageThumbB64(await read(0, size));
+      } catch (e) {
+        devLog(() => 'xVeil[content]: stream-send thumb skipped for $name: $e');
+      }
+    }
     // Fresh per-send msgId = a NEW filePost event (identity is (author,seq), not
     // the byte-hash → a re-send surfaces even after a delete). fileId = contentId.
     final msgId = _uuid.v4();
@@ -3842,6 +3880,7 @@ class MessagingService {
       fileId: cid,
       fileName: name,
       fileSize: size,
+      thumb: thumb,
       id: msgId,
       timestamp: _now(),
     );
@@ -3855,6 +3894,7 @@ class MessagingService {
       msgId: msgId,
       author: stored.author,
       seq: stored.seq,
+      thumbB64: thumb,
     );
     final activeExisting = (_activeStreamServes[cid] ?? 0) > 0
         ? _serving[cid]
@@ -4092,6 +4132,7 @@ class MessagingService {
       msgId: ref.msgId,
       seq: ref.seq,
       ts: ref.ts,
+      thumb: ref.thumb,
     );
 
     if (await _storage.hasFile(cid)) {
@@ -8270,6 +8311,7 @@ class MessagingService {
       msgId: m.msgId,
       seq: m.seq,
       ts: m.ts,
+      thumb: m.thumbB64,
     );
   }
 
@@ -8281,6 +8323,7 @@ class MessagingService {
     String? msgId,
     int? seq,
     int? ts,
+    String? thumb,
   }) async {
     final msgIdOrContent = msgId ?? contentId; // legacy sender → hash id
     if (await _hasMessage(peer, msgIdOrContent)) {
@@ -8307,6 +8350,7 @@ class MessagingService {
       fileContentId: contentId,
       fileSize: size,
       fileName: name,
+      thumb: thumb,
       id: msgIdOrContent,
       seq: seq,
       timestamp: ts != null ? DateTime.fromMillisecondsSinceEpoch(ts) : _now(),
