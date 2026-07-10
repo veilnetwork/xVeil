@@ -571,7 +571,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (mounted) _snack(l.chatFileTooLarge);
       return;
     }
-    await ref.read(messagingServiceProvider).sendFile(_peer, data, file.name);
+    await ref.read(messagingServiceProvider).sendFile(
+          _peer,
+          data,
+          file.name,
+          // For a small VIDEO the platform frame-grabber needs the on-disk
+          // source — the bytes alone can't produce a preview frame.
+          sourcePath: file.path,
+        );
     _scrollToBottom(force: true);
   }
 
@@ -2358,6 +2365,149 @@ IconData documentIcon(String? name) {
 /// Inline preview for a downloaded image file: a rounded, bounded thumbnail
 /// that opens a full-screen zoomable viewer on tap. Bytes come from the
 /// encrypted container (loadFile), so nothing hits disk in the clear.
+/// Decode a message's embedded micro-thumb ('tb'), or null when absent or
+/// corrupt (a hostile field must fall back to the plain row, never throw).
+Uint8List? _decodeThumbB64(String? tb) {
+  if (tb == null) return null;
+  try {
+    return base64Decode(tb);
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Video message with an embedded preview frame: the media-box rendering
+/// (Telegram-style still + overlay) replacing the play-icon file row. The
+/// micro-thumb is upscaled + blurred exactly like an image's undownloaded
+/// preview (we never decode the video locally for a full-res poster — the
+/// frame travels in the advert). Overlay: download progress ring while a
+/// transfer runs, play when the blob is held, download otherwise; a held
+/// video keeps its save/export affordance as a corner button.
+class _VideoPreviewBox extends StatelessWidget {
+  const _VideoPreviewBox({
+    required this.thumb,
+    required this.playable,
+    this.progress,
+    this.sizeLabel,
+    this.onTap,
+    this.onSave,
+  });
+
+  final Uint8List thumb;
+  final bool playable;
+  final double? progress;
+  final String? sizeLabel;
+  final VoidCallback? onTap;
+  final VoidCallback? onSave;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        // Fixed box for the same reason as the image preview: a 32-px thumb's
+        // intrinsic size would collapse the bubble to a postage stamp.
+        child: SizedBox(
+          width: 260,
+          height: 170,
+          child: Stack(
+            alignment: Alignment.center,
+            fit: StackFit.expand,
+            children: [
+              ImageFiltered(
+                imageFilter: ui.ImageFilter.blur(
+                  sigmaX: 2.5,
+                  sigmaY: 2.5,
+                  tileMode: TileMode.decal,
+                ),
+                child: Image.memory(
+                  thumb,
+                  fit: BoxFit.cover,
+                  filterQuality: FilterQuality.medium,
+                  gaplessPlayback: true,
+                ),
+              ),
+              Center(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: progress != null
+                        ? SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              value: progress == 0 ? null : progress,
+                              strokeWidth: 2.5,
+                              color: Colors.white,
+                            ),
+                          )
+                        : Icon(
+                            playable ? Icons.play_arrow : Icons.download,
+                            size: 24,
+                            color: Colors.white,
+                          ),
+                  ),
+                ),
+              ),
+              if (onSave != null)
+                Positioned(
+                  top: 6,
+                  right: 6,
+                  child: GestureDetector(
+                    onTap: onSave,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.35),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Padding(
+                        padding: EdgeInsets.all(6),
+                        child: Icon(
+                          Icons.save_alt,
+                          size: 16,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              if (sizeLabel != null)
+                Positioned(
+                  left: 6,
+                  bottom: 6,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.35),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      child: Text(
+                        sizeLabel!,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ImagePreview extends ConsumerStatefulWidget {
   const _ImagePreview({
     required this.fileKey,
@@ -2947,6 +3097,32 @@ class _Bubble extends ConsumerWidget {
                       final playable = onPlayVideo != null &&
                           a == _FileAffordance.save &&
                           isVideoFileName(message.fileName);
+                      // A video WITH an embedded preview frame renders as a
+                      // media box (thumb + play/download overlay) instead of
+                      // the file row. Terminal-degraded states (gone /
+                      // resuming) keep the row — its honest status text.
+                      final videoThumb =
+                          isVideoFileName(message.fileName) && !gone && !resuming
+                              ? _decodeThumbB64(message.thumb)
+                              : null;
+                      if (videoThumb != null) {
+                        return _VideoPreviewBox(
+                          thumb: videoThumb,
+                          playable: playable,
+                          progress: progress,
+                          sizeLabel: message.fileSize != null
+                              ? _formatBytes(message.fileSize!)
+                              : null,
+                          onTap: playable
+                              ? () => onPlayVideo!(message)
+                              : (onTapFile == null
+                                  ? null
+                                  : () => onTapFile!(message)),
+                          onSave: playable && onTapFile != null
+                              ? () => onTapFile!(message)
+                              : null,
+                        );
+                      }
                       return InkWell(
                         onTap: playable
                             ? () => onPlayVideo!(message)

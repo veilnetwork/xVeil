@@ -40,9 +40,56 @@ class MainFlutterWindow: NSWindow {
       }
     }
 
+    // Media epic: grab ONE representative frame of a video the user is
+    // SENDING (their own plaintext source file) so the message can carry a
+    // micro-thumb. Runs off the main thread — AVAssetImageGenerator decodes.
+    let thumbChannel = FlutterMethodChannel(
+      name: "xveil/video_thumb",
+      binaryMessenger: flutterViewController.engine.binaryMessenger)
+    thumbChannel.setMethodCallHandler { call, result in
+      guard call.method == "frame",
+            let args = call.arguments as? [String: Any],
+            let path = args["path"] as? String else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      let maxDim = args["maxDim"] as? Int ?? 64
+      DispatchQueue.global(qos: .utility).async {
+        let frame = Self.grabVideoFrame(path: path, maxDim: maxDim)
+        DispatchQueue.main.async {
+          if let frame = frame {
+            result(FlutterStandardTypedData(bytes: frame))
+          } else {
+            // No decodable frame is a normal outcome (unsupported codec,
+            // audio-only container) — null, not an error.
+            result(nil)
+          }
+        }
+      }
+    }
+
     RegisterGeneratedPlugins(registry: flutterViewController)
 
     super.awakeFromNib()
+  }
+
+  /// First decodable frame of the video at [path], downscaled so its longest
+  /// side is [maxDim], PNG-encoded. Nil on any failure — the thumb is always
+  /// optional.
+  private static func grabVideoFrame(path: String, maxDim: Int) -> Data? {
+    let asset = AVURLAsset(url: URL(fileURLWithPath: path))
+    let gen = AVAssetImageGenerator(asset: asset)
+    gen.appliesPreferredTrackTransform = true // respect rotation metadata
+    gen.maximumSize = CGSize(width: maxDim, height: maxDim)
+    // A hair in (0.1s) rather than 0: many encodes open on a black/blank
+    // frame; tolerance-free would fail on short clips, so keep the default
+    // tolerances and let the generator pick the nearest sync frame.
+    let time = CMTime(seconds: 0.1, preferredTimescale: 600)
+    guard let cg = try? gen.copyCGImage(at: time, actualTime: nil) else {
+      return nil
+    }
+    let rep = NSBitmapImageRep(cgImage: cg)
+    return rep.representation(using: .png, properties: [:])
   }
 
   private static func statusString(_ s: AVAuthorizationStatus) -> String {
