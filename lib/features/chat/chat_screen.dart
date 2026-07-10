@@ -23,6 +23,7 @@ import '../../state/app_controller.dart';
 import '../../state/call_service.dart';
 import '../../state/chat_page_size_controller.dart';
 import '../../state/messaging.dart';
+import '../../state/nickname_peers.dart';
 import '../../state/notifications.dart';
 import '../../state/providers.dart';
 
@@ -1652,7 +1653,61 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       : Text(title.characters.first.toUpperCase()),
                 ),
                 const SizedBox(width: 12),
-                Expanded(child: Text(title, overflow: TextOverflow.ellipsis)),
+                // Local alias first; the verified @nickname (when this
+                // contact was added by name, or a binding is stored) goes
+                // UNDER it — the alias always outranks the network name.
+                // A binding whose resolve no longer matches the pinned node
+                // id gets a warning: the name changed owners, the contact
+                // did NOT re-point (design: «Безопасность перехвата»).
+                Expanded(
+                  child: Builder(
+                    builder: (_) {
+                      final nick = _saved
+                          ? null
+                          : ref
+                                .watch(peerNicknameProvider(widget.peerHex))
+                                .valueOrNull;
+                      if (nick == null) {
+                        return Text(title, overflow: TextOverflow.ellipsis);
+                      }
+                      final theme = Theme.of(context);
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(title, overflow: TextOverflow.ellipsis),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  '@${nick.name}',
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: nick.ownerChanged
+                                        ? theme.colorScheme.error
+                                        : theme.colorScheme.primary,
+                                  ),
+                                ),
+                              ),
+                              if (nick.ownerChanged) ...[
+                                const SizedBox(width: 4),
+                                Tooltip(
+                                  message: l.nicknameOwnerChanged,
+                                  child: Icon(
+                                    Icons.warning_amber_rounded,
+                                    size: 14,
+                                    color: theme.colorScheme.error,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
               ],
             ),
             actions: [

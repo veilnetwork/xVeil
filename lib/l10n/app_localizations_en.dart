@@ -1762,4 +1762,17 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get nicknameClaimed => 'Name published';
+
+  @override
+  String get newChatPeerOrNickname => 'Node id (hex) or @name';
+
+  @override
+  String get nicknameNotFound => 'Name not found on the network';
+
+  @override
+  String get nicknameIsSelf => 'That name points to you';
+
+  @override
+  String get nicknameOwnerChanged =>
+      'This name has changed owners on the network. The contact still points to the person you added.';
 }

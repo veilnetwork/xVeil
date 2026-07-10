@@ -23,6 +23,7 @@ class InviteExchangeSheet extends StatefulWidget {
     required this.myInvite,
     required this.onAddContact,
     this.onImportPeers,
+    this.onAddNickname,
   });
 
   /// This device's `veil:bootstrap?…` URI, or null while the node is starting.
@@ -34,6 +35,11 @@ class InviteExchangeSheet extends StatefulWidget {
   /// the bootstrap peers WITHOUT creating a contact. Null ⇒ the sheet treats a
   /// peers-share as an invalid invite (the contact-only callers).
   final void Function(List<BootstrapInvite> peers)? onImportPeers;
+
+  /// Optional: handle a pasted `@name` (leading `@`, already stripped) — the
+  /// host resolves the nickname to a node id (verified DHT lookup) and opens
+  /// the normal invite flow. Null ⇒ `@name` input reads as an invalid invite.
+  final void Function(String name)? onAddNickname;
 
   @override
   State<InviteExchangeSheet> createState() => _InviteExchangeSheetState();
@@ -63,6 +69,14 @@ class _InviteExchangeSheetState extends State<InviteExchangeSheet> {
         setState(() => _error = AppL10n.of(context).inviteInvalid);
         return;
       }
+    }
+    // `@name` → the nicknames path (verified DHT resolve by the caller),
+    // when the host supports it. Only an explicit leading @ is treated as a
+    // name — bare text still goes down the invite parser so its error stays.
+    if (widget.onAddNickname != null && text.startsWith('@')) {
+      setState(() => _error = null);
+      widget.onAddNickname!(text.substring(1));
+      return;
     }
     try {
       final invite = BootstrapInvite.parse(text);

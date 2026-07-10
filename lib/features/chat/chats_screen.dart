@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:veil_flutter/veil_flutter.dart' as veil;
 
 import '../../core/ids.dart';
 import '../../domain/chat.dart';
@@ -12,6 +13,7 @@ import '../../domain/chat_folder.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/messaging.dart';
+import '../../state/nickname_peers.dart';
 import 'chat_actions.dart';
 import 'chat_search.dart';
 import '../../state/folder_panel_controller.dart';
@@ -408,6 +410,44 @@ Future<void> showAddContactSheet(BuildContext context, WidgetRef ref) async {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(AppL10n.of(context).peersImported(added))),
           );
+        }
+      },
+      onAddNickname: (name) async {
+        // `@name` → verified DHT resolve → the owner's node id becomes the
+        // peer, the name→id binding is pinned (an owner change later WARNS,
+        // never re-points), then the normal first-message consent flow.
+        final l = AppL10n.of(context);
+        if (sheetCtx.mounted) Navigator.of(sheetCtx).pop();
+        void toast(String msg) {
+          if (context.mounted) {
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(msg)));
+          }
+        }
+
+        try {
+          final selfHex = await ref
+              .read(messagingServiceProvider)
+              .savedSelfHex();
+          final self = NodeId.fromHex(selfHex).bytes;
+          final norm = veil.normalizeNickname(name);
+          final resolved =
+              await veil.resolveNicknameAsync(selfNodeId: self, name: norm);
+          if (resolved == null) {
+            toast(l.nicknameNotFound);
+            return;
+          }
+          final ownerHex = NodeId(resolved.ownerNodeId).hex;
+          if (ownerHex == selfHex) {
+            toast(l.nicknameIsSelf);
+            return;
+          }
+          await savePeerNickname(ref.read(storageProvider), ownerHex, norm);
+          ref.invalidate(peerNicknameProvider(ownerHex));
+          if (context.mounted) context.push('/chat/$ownerHex');
+        } catch (e) {
+          toast('$e');
         }
       },
     ),
@@ -836,16 +876,17 @@ class _ConversationTile extends ConsumerWidget {
   }
 }
 
-class _NewChatDialog extends StatefulWidget {
+class _NewChatDialog extends ConsumerStatefulWidget {
   const _NewChatDialog();
 
   @override
-  State<_NewChatDialog> createState() => _NewChatDialogState();
+  ConsumerState<_NewChatDialog> createState() => _NewChatDialogState();
 }
 
-class _NewChatDialogState extends State<_NewChatDialog> {
+class _NewChatDialogState extends ConsumerState<_NewChatDialog> {
   final _ctrl = TextEditingController();
   String? _error;
+  bool _resolving = false;
 
   @override
   void dispose() {
@@ -853,13 +894,64 @@ class _NewChatDialogState extends State<_NewChatDialog> {
     super.dispose();
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     final text = _ctrl.text.trim();
+    // Plain 64-char hex → open directly (the original flow).
     try {
       final id = NodeId.fromHex(text);
       Navigator.of(context).pop(id.hex);
+      return;
+    } catch (_) {}
+    // Otherwise treat as a nickname (`@name` or bare name): verified DHT
+    // resolve → the owner's node id becomes the peer. The name→id binding
+    // is pinned alongside the contact (see nickname_peers.dart) so a later
+    // owner change WARNS instead of silently re-pointing the chat.
+    final l = AppL10n.of(context);
+    final String norm;
+    try {
+      norm = veil.normalizeNickname(text.replaceFirst(RegExp(r'^@'), ''));
     } catch (_) {
-      setState(() => _error = 'Enter a 64-character node id (hex)');
+      setState(
+        () => _error = 'Enter a 64-character node id (hex) or a @name',
+      );
+      return;
+    }
+    setState(() {
+      _resolving = true;
+      _error = null;
+    });
+    try {
+      final selfHex =
+          await ref.read(messagingServiceProvider).savedSelfHex();
+      final self = NodeId.fromHex(selfHex).bytes;
+      final resolved =
+          await veil.resolveNicknameAsync(selfNodeId: self, name: norm);
+      if (!mounted) return;
+      if (resolved == null) {
+        setState(() {
+          _resolving = false;
+          _error = l.nicknameNotFound;
+        });
+        return;
+      }
+      final ownerHex = NodeId(resolved.ownerNodeId).hex;
+      if (ownerHex == selfHex) {
+        setState(() {
+          _resolving = false;
+          _error = l.nicknameIsSelf;
+        });
+        return;
+      }
+      await savePeerNickname(ref.read(storageProvider), ownerHex, norm);
+      ref.invalidate(peerNicknameProvider(ownerHex));
+      if (!mounted) return;
+      Navigator.of(context).pop(ownerHex);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _resolving = false;
+        _error = '$e';
+      });
     }
   }
 
@@ -881,16 +973,22 @@ class _NewChatDialogState extends State<_NewChatDialog> {
         children: [
           TextField(
             controller: _ctrl,
+            enabled: !_resolving,
             decoration: InputDecoration(
-              labelText: l.demoPeerNodeId,
+              labelText: l.newChatPeerOrNickname,
               errorText: _error,
             ),
+            onSubmitted: _resolving ? null : (_) => _submit(),
           ),
+          if (_resolving) ...[
+            const SizedBox(height: 12),
+            const LinearProgressIndicator(),
+          ],
           const SizedBox(height: 8),
           Align(
             alignment: Alignment.centerLeft,
             child: TextButton.icon(
-              onPressed: _useDemoPeer,
+              onPressed: _resolving ? null : _useDemoPeer,
               icon: const Icon(Icons.smart_toy_outlined),
               label: Text(l.demoChatWith),
             ),
@@ -902,7 +1000,10 @@ class _NewChatDialogState extends State<_NewChatDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: Text(l.actionCancel),
         ),
-        FilledButton(onPressed: _submit, child: Text(l.actionOpen)),
+        FilledButton(
+          onPressed: _resolving ? null : _submit,
+          child: Text(l.actionOpen),
+        ),
       ],
     );
   }

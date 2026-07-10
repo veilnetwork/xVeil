@@ -3366,6 +3366,30 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Name published'**
   String get nicknameClaimed;
+
+  /// No description provided for @newChatPeerOrNickname.
+  ///
+  /// In en, this message translates to:
+  /// **'Node id (hex) or @name'**
+  String get newChatPeerOrNickname;
+
+  /// No description provided for @nicknameNotFound.
+  ///
+  /// In en, this message translates to:
+  /// **'Name not found on the network'**
+  String get nicknameNotFound;
+
+  /// No description provided for @nicknameIsSelf.
+  ///
+  /// In en, this message translates to:
+  /// **'That name points to you'**
+  String get nicknameIsSelf;
+
+  /// No description provided for @nicknameOwnerChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'This name has changed owners on the network. The contact still points to the person you added.'**
+  String get nicknameOwnerChanged;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {
