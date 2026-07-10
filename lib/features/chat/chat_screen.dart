@@ -29,6 +29,7 @@ import '../../state/nickname_peers.dart';
 import '../../state/notifications.dart';
 import '../../state/providers.dart';
 import '../../state/thumbnail.dart';
+import 'emoji_panel.dart';
 
 /// The quick-react emoji bar shown atop the message-actions sheet.
 const kQuickReactions = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
@@ -3160,22 +3161,26 @@ class _Composer extends StatelessWidget {
     focusNode.requestFocus();
   }
 
-  /// Insert a newline at the cursor (replacing any selection). Bound to
-  /// Shift+Enter: Flutter maps no default editing action to it, so without an
-  /// explicit binding the keystroke would do NOTHING once plain Enter is
-  /// claimed by the send shortcut.
-  void _insertNewline() {
+  /// Insert [s] at the cursor (replacing any selection), keeping focus and
+  /// placing the caret after the insertion. Drives the emoji picker and the
+  /// Shift+Enter newline.
+  void _insertText(String s) {
     final v = controller.value;
     final sel = v.selection;
     final start = sel.isValid ? sel.start : v.text.length;
     final end = sel.isValid ? sel.end : v.text.length;
     controller.value = v.copyWith(
-      text: v.text.replaceRange(start, end, '\n'),
-      selection: TextSelection.collapsed(offset: start + 1),
+      text: v.text.replaceRange(start, end, s),
+      selection: TextSelection.collapsed(offset: start + s.length),
       composing: TextRange.empty,
     );
     focusNode.requestFocus();
   }
+
+  /// Bound to Shift+Enter: Flutter maps no default editing action to it, so
+  /// without an explicit binding the keystroke would do NOTHING once plain
+  /// Enter is claimed by the send shortcut.
+  void _insertNewline() => _insertText('\n');
 
   /// Prefix every line spanned by the selection (or the cursor's line) with
   /// `> `, turning it into a block quote. Line-level, so it can't reuse the
@@ -3319,7 +3324,19 @@ class _Composer extends StatelessWidget {
               ],
             ),
             Expanded(child: field),
-            const SizedBox(width: 8),
+            // Emoji picker — right of the field, left of send (remark #2):
+            // desktop's only emoji entry point; a complement on mobile.
+            Builder(
+              builder: (context) => IconButton(
+                tooltip: l.chatEmojiTooltip,
+                icon: const Icon(Icons.emoji_emotions_outlined),
+                onPressed: () async {
+                  final picked = await showEmojiPanel(context);
+                  if (picked != null) _insertText(picked);
+                },
+              ),
+            ),
+            const SizedBox(width: 4),
             IconButton.filled(onPressed: onSend, icon: const Icon(Icons.send)),
           ],
         ),
