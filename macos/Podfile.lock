@@ -21,6 +21,9 @@ PODS:
     - FlutterMacOS
   - veil_media (0.0.1):
     - FlutterMacOS
+  - video_player_avfoundation (0.0.1):
+    - Flutter
+    - FlutterMacOS
   - window_manager (0.5.0):
     - FlutterMacOS
 
@@ -36,6 +39,7 @@ DEPENDENCIES:
   - url_launcher_macos (from `Flutter/ephemeral/.symlinks/plugins/url_launcher_macos/macos`)
   - veil_flutter (from `Flutter/ephemeral/.symlinks/plugins/veil_flutter/macos`)
   - veil_media (from `Flutter/ephemeral/.symlinks/plugins/veil_media/macos`)
+  - video_player_avfoundation (from `Flutter/ephemeral/.symlinks/plugins/video_player_avfoundation/darwin`)
   - window_manager (from `Flutter/ephemeral/.symlinks/plugins/window_manager/macos`)
 
 EXTERNAL SOURCES:
@@ -61,6 +65,8 @@ EXTERNAL SOURCES:
     :path: Flutter/ephemeral/.symlinks/plugins/veil_flutter/macos
   veil_media:
     :path: Flutter/ephemeral/.symlinks/plugins/veil_media/macos
+  video_player_avfoundation:
+    :path: Flutter/ephemeral/.symlinks/plugins/video_player_avfoundation/darwin
   window_manager:
     :path: Flutter/ephemeral/.symlinks/plugins/window_manager/macos
 
@@ -76,6 +82,7 @@ SPEC CHECKSUMS:
   url_launcher_macos: f87a979182d112f911de6820aefddaf56ee9fbfd
   veil_flutter: ddd24f08ddfe79825a6d408cf29b46abb1ce459e
   veil_media: 0c63d412f9351e7d5192b5fdddc9a03e0e7f4c1d
+  video_player_avfoundation: 3453f792138786248960ca029747fcd9f318ef52
   window_manager: b729e31d38fb04905235df9ea896128991cad99e
 
 PODFILE CHECKSUM: 54d867c82ac51cbd61b565781b9fada492027009
