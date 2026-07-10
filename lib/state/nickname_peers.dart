@@ -79,6 +79,29 @@ Future<void> savePeerNickname(
   await storage.putSetting(_kPeerNickname(peerHex), jsonEncode(binding));
 }
 
+/// Smoke/debug driver: mark the stored binding stale (checkedAtUnix=0) so
+/// the next [peerNicknameProvider] read re-verifies immediately — the
+/// production cadence is [_recheckAfter], undrivable in a device smoke.
+/// Returns false when the peer has no binding.
+Future<bool> markPeerNicknameStale(Storage storage, String peerHex) async {
+  final raw = await storage.getSetting(_kPeerNickname(peerHex));
+  if (raw == null) return false;
+  PeerNickname? binding;
+  try {
+    binding = PeerNickname.fromJson(jsonDecode(raw));
+  } catch (_) {
+    return false;
+  }
+  if (binding == null) return false;
+  final stale = PeerNickname(
+    name: binding.name,
+    checkedAtUnix: 0,
+    ownerChanged: binding.ownerChanged,
+  );
+  await storage.putSetting(_kPeerNickname(peerHex), jsonEncode(stale));
+  return true;
+}
+
 /// The stored binding for a peer, re-verified in the background when stale:
 /// resolve the name and compare the CURRENT owner to the pinned node id.
 /// Resolve failures (offline, timeout) leave the binding as-is — `changed`
