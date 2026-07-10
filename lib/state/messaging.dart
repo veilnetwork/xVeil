@@ -1994,10 +1994,11 @@ class MessagingService {
         // dedup + deleted-resurrect guards are already conversation-scoped); only
         // the blob's storage key is decoupled.
         final localFileId = _uuid.v4();
+        final assembled = inc.reasm.assemble();
         try {
           await _storage.storeFile(
             localFileId,
-            inc.reasm.assemble(),
+            assembled,
             name: inc.name,
           );
         } catch (e) {
@@ -2014,6 +2015,7 @@ class MessagingService {
           MessageStatus.delivered,
           fileId: localFileId,
           fileName: inc.name,
+          fileSize: assembled.length,
           id: tid,
           // Fold the file under the SENDER's filePost seq + send-time (R4) so the
           // (author, seq) AND the convergent display time are identical on both
@@ -3042,6 +3044,7 @@ class MessagingService {
       MessageStatus.sent,
       fileId: fileId,
       fileName: name,
+      fileSize: bytes.length,
       id: fileId,
       // Stamp from the service clock (like sendText) so the per-message reconnect
       // give-up age sees a consistent timeline for file messages too.

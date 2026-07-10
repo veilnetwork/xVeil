@@ -2316,6 +2316,27 @@ class _QuoteBlock extends StatelessWidget {
 // isImageFileName moved to state/thumbnail.dart (shared with the send path's
 // thumb generation) and re-exported via the import above.
 
+/// Type-specific icon for a document file row (media epic: "документы —
+/// иконка типа"). Pure extension→icon mapping, unit-tested; anything
+/// unrecognized keeps the generic file icon.
+IconData documentIcon(String? name) {
+  final ext = FileDownloadPolicy.extensionOf(name);
+  return switch (ext) {
+    'pdf' => Icons.picture_as_pdf_outlined,
+    'zip' || 'rar' || '7z' || 'tar' || 'gz' || 'xz' || 'bz2' =>
+      Icons.folder_zip_outlined,
+    'mp3' || 'wav' || 'ogg' || 'opus' || 'm4a' || 'flac' || 'aac' =>
+      Icons.audiotrack_outlined,
+    'mp4' || 'mov' || 'mkv' || 'webm' || 'avi' => Icons.movie_outlined,
+    'doc' || 'docx' || 'odt' || 'rtf' => Icons.description_outlined,
+    'xls' || 'xlsx' || 'ods' || 'csv' => Icons.table_chart_outlined,
+    'ppt' || 'pptx' || 'odp' => Icons.slideshow_outlined,
+    'txt' || 'md' || 'log' => Icons.article_outlined,
+    'apk' => Icons.android_outlined,
+    _ => Icons.insert_drive_file_outlined,
+  };
+}
+
 /// Inline preview for a downloaded image file: a rounded, bounded thumbnail
 /// that opens a full-screen zoomable viewer on tap. Bytes come from the
 /// encrypted container (loadFile), so nothing hits disk in the clear.
@@ -2868,7 +2889,7 @@ class _Bubble extends ConsumerWidget {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(
-                              Icons.insert_drive_file_outlined,
+                              documentIcon(message.fileName),
                               size: 20,
                               color: scheme.onSurfaceVariant,
                             ),
