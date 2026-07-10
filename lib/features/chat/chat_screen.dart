@@ -29,6 +29,8 @@ import '../../state/nickname_peers.dart';
 import '../../state/notifications.dart';
 import '../../state/providers.dart';
 import '../../state/thumbnail.dart';
+import '../../state/voice_message.dart';
+import 'voice_waveform.dart';
 import 'emoji_panel.dart';
 import 'video_player_screen.dart';
 
@@ -612,6 +614,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ),
       ),
     );
+  }
+
+  /// Play a held voice message. Native Opus playback lands in the next brick;
+  /// for now the bubble's play control acknowledges (so it's never a dead tap).
+  void _playVoice(Message m) {
+    _snack(AppL10n.of(context).comingSoon);
   }
 
   /// Tap on a file bubble: if we already hold the blob, save it out. For an OFFER
@@ -1936,6 +1944,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       onTapFile: _onTapFile,
                       onOpenImage: _openImageGallery,
                       onPlayVideo: _openVideoPlayer,
+                      onPlayVoice: _playVoice,
                       onLongPress: _showMessageActions,
                       onTap: _selecting ? () => _toggleSelected(m) : null,
                       onTapQuote: m.replyToId == null
@@ -2373,6 +2382,94 @@ Uint8List? _decodeThumbB64(String? tb) {
     return base64Decode(tb);
   } catch (_) {
     return null;
+  }
+}
+
+/// Voice message: a play/download control + the clip waveform + duration,
+/// rendered from the `vw1:` sidecar that travelled in the message (no decode
+/// needed to show it). Play is enabled only once the small Opus blob is held
+/// (it auto-downloads under the cap); while fetching it shows a progress ring,
+/// otherwise a download affordance.
+class _VoiceBubble extends StatelessWidget {
+  const _VoiceBubble({
+    required this.sidecar,
+    required this.outgoing,
+    required this.downloaded,
+    this.progress,
+    this.onPlay,
+    this.onDownload,
+  });
+
+  final VoiceSidecar? sidecar;
+  final bool outgoing;
+  final bool downloaded;
+  final double? progress;
+  final VoidCallback? onPlay;
+  final VoidCallback? onDownload;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final onBubble = outgoing ? scheme.onPrimary : scheme.onSurface;
+    final bars = sidecar?.bars ?? const <double>[];
+    final duration = formatVoiceDuration(sidecar?.duration);
+    final tapping = downloaded ? onPlay : onDownload;
+    return SizedBox(
+      width: 220,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          GestureDetector(
+            onTap: tapping,
+            child: SizedBox(
+              width: 36,
+              height: 36,
+              child: progress != null
+                  ? Padding(
+                      padding: const EdgeInsets.all(6),
+                      child: CircularProgressIndicator(
+                        value: progress == 0 ? null : progress,
+                        strokeWidth: 2,
+                        color: onBubble,
+                      ),
+                    )
+                  : Icon(
+                      downloaded
+                          ? Icons.play_arrow
+                          : Icons.download,
+                      color: onBubble,
+                      size: 32,
+                    ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: SizedBox(
+              height: 32,
+              child: bars.isEmpty
+                  ? Align(
+                      alignment: Alignment.centerLeft,
+                      child: Icon(Icons.graphic_eq,
+                          size: 20, color: onBubble.withValues(alpha: 0.5)),
+                    )
+                  : VoiceWaveform(
+                      bars: bars,
+                      playedColor: onBubble,
+                      unplayedColor: onBubble.withValues(alpha: 0.4),
+                    ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            duration,
+            style: Theme.of(context)
+                .textTheme
+                .labelSmall
+                ?.copyWith(color: onBubble.withValues(alpha: 0.8)),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -2889,6 +2986,7 @@ class _Bubble extends ConsumerWidget {
     this.onTapQuote,
     this.onOpenImage,
     this.onPlayVideo,
+    this.onPlayVoice,
     this.highlight,
   });
   final Message message;
@@ -2901,6 +2999,10 @@ class _Bubble extends ConsumerWidget {
   /// Tap on a HELD video file row — the chat screen opens the in-app player
   /// (loopback-streamed; null = the row keeps the plain save behavior).
   final void Function(Message message)? onPlayVideo;
+
+  /// Tap play on a HELD voice message — the chat screen plays the Opus clip
+  /// via the native decoder (null until playback is wired / not downloaded).
+  final void Function(Message message)? onPlayVoice;
 
   /// Active in-chat search query — occurrences in the body get a highlight
   /// background (null when not searching).
@@ -3065,7 +3167,31 @@ class _Bubble extends ConsumerWidget {
                     onTap: onTapQuote,
                     child: _QuoteBlock(quoted: quoted, outgoing: outgoing),
                   ),
-                if (message.isFile &&
+                if (message.isFile && isVoiceFileName(message.fileName))
+                  FutureBuilder<_FileAffordance>(
+                    future: _affordance(ref),
+                    builder: (context, snap) {
+                      final a = snap.data ??
+                          (message.fileId != null
+                              ? _FileAffordance.save
+                              : _FileAffordance.download);
+                      final downloaded = progress == null &&
+                          a == _FileAffordance.save;
+                      return _VoiceBubble(
+                        sidecar: decodeVoiceSidecar(message.thumb),
+                        outgoing: outgoing,
+                        downloaded: downloaded,
+                        progress: progress,
+                        onPlay: (downloaded && onPlayVoice != null)
+                            ? () => onPlayVoice!(message)
+                            : null,
+                        onDownload: (!downloaded && onTapFile != null)
+                            ? () => onTapFile!(message)
+                            : null,
+                      );
+                    },
+                  )
+                else if (message.isFile &&
                     isImageFileName(message.fileName) &&
                     (message.fileId ?? message.fileContentId) != null)
                   _ImagePreview(

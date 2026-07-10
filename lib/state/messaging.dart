@@ -35,6 +35,7 @@ import 'providers.dart';
 import 'signature_policy_controller.dart';
 import 'thumbnail.dart';
 import 'video_thumb.dart';
+import 'voice_message.dart';
 import 'package:xveil/core/log.dart';
 
 const _uuid = Uuid();
@@ -3760,6 +3761,25 @@ class MessagingService {
     return manifest.contentId;
   }
 
+  /// Send a VOICE MESSAGE: the Opus clip [bytes] ride the content layer exactly
+  /// like a small file (content-addressed, auto-downloaded under the receiver's
+  /// cap), named `.opus` so both ends render a voice bubble. The clip's
+  /// [durationMs] + [waveform] travel in the SAME `thumb` sidecar image
+  /// micro-thumbs use (tagged `vw1:`), so nothing new crosses the wire. Gated to
+  /// accepted contacts inside [_sendAsContent].
+  Future<void> sendVoice(
+    NodeId dst,
+    Uint8List bytes,
+    int durationMs,
+    List<double> waveform,
+  ) async {
+    _mailbox?.noteActivity(); // user action → mailbox burst window
+    _warmStreamPeer(dst);
+    final sidecar = encodeVoiceSidecar(durationMs, waveform);
+    final name = '${_uuid.v4()}$kVoiceFileExt';
+    await _sendAsContent(dst, bytes, name, thumbOverride: sidecar);
+  }
+
   /// Send a LARGE file via the content layer as a first-class filePost EVENT.
   /// The BYTES are content-addressed (stored + served by contentId, de-duped);
   /// the MESSAGE is a per-send event under a fresh [msgId] + the (author,seq) the
@@ -3770,17 +3790,19 @@ class MessagingService {
     Uint8List bytes,
     String name, {
     String? sourcePath,
+    String? thumbOverride,
   }) async {
     // Micro-thumb: embedded in the ADVERT (unbound — not in contentId) so the
-    // receiver renders a preview BEFORE downloading. Images from the in-RAM
-    // bytes; videos need the SOURCE PATH (the platform grabber decodes from
-    // disk — bytes-only callers get no video thumb, deliberately: writing a
-    // plaintext temp file just to grab a frame is not worth it). Null for
-    // anything undecodable / over the datagram budget.
-    String? thumb;
-    if (isImageFileName(name)) {
+    // receiver renders a preview BEFORE downloading. [thumbOverride] wins when
+    // set (a voice message's waveform+duration sidecar). Otherwise: images from
+    // the in-RAM bytes; videos need the SOURCE PATH (the platform grabber
+    // decodes from disk — bytes-only callers get no video thumb, deliberately:
+    // writing a plaintext temp file just to grab a frame is not worth it). Null
+    // for anything undecodable / over the datagram budget.
+    String? thumb = thumbOverride;
+    if (thumb == null && isImageFileName(name)) {
       thumb = await makeMessageThumbB64(bytes);
-    } else if (isVideoFileName(name) && sourcePath != null) {
+    } else if (thumb == null && isVideoFileName(name) && sourcePath != null) {
       try {
         thumb = await makeVideoThumbB64(sourcePath);
       } catch (e) {
