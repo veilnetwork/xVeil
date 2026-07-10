@@ -7,6 +7,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   hidden_volume
   screen_retriever_windows
   tray_manager
+  url_launcher_windows
   window_manager
 )
 
