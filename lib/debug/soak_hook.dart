@@ -1016,7 +1016,16 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   Future<void> _navigate(HttpRequest req) async {
     final path = _required(req, 'path');
     if (path == null) return;
-    ref.read(routerProvider).go(path);
+    // Chat routes are ROOTED like the product does it (home under the chat →
+    // the back button exists); a bare go() replaces the stack and smoke
+    // screenshots silently diverge from what a user sees.
+    if (path.startsWith('/chat/')) {
+      ref.read(routerProvider)
+        ..go('/home')
+        ..push(path);
+    } else {
+      ref.read(routerProvider).go(path);
+    }
     await Future<void>.delayed(const Duration(milliseconds: 250));
     return _json(req, {'ok': true, 'route': _currentRoute()});
   }
