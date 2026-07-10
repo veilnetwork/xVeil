@@ -232,6 +232,15 @@ class AppL10nRu extends AppL10n {
   String get chatVoiceMicDenied => 'Доступ к микрофону запрещён';
 
   @override
+  String get chatVoiceTooltip => 'Голосовое сообщение';
+
+  @override
+  String get chatVnoteTooltip => 'Видео-сообщение';
+
+  @override
+  String get chatVnoteDenied => 'Нет доступа к камере или микрофону';
+
+  @override
   String get chatVoiceRecordFailed =>
       'Не удалось записать — попробуйте ещё раз';
 
