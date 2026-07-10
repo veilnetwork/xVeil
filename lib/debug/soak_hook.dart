@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data' show BytesBuilder;
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:ui' as ui;
@@ -185,6 +186,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/send_vnote':
           await _sendVnote(req);
+          return;
+        case '/send_sticker':
+          await _sendStickerHook(req);
           return;
         case '/play_vnote':
           await _playVnoteHook(req);
@@ -482,6 +486,24 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'paused': st.paused,
       'frameW': ctrl.frame.value?.width ?? 0,
     });
+  }
+
+  /// Send the POST body (an image) as a STICKER to ?peer= — drives the
+  /// sticker send path (thumb + .stkr content send) exactly like the panel.
+  Future<void> _sendStickerHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final peer = _peer(req);
+    if (peer == null) return;
+    final builder = BytesBuilder(copy: false);
+    await for (final chunk in req) {
+      builder.add(chunk);
+    }
+    final bytes = builder.takeBytes();
+    if (bytes.isEmpty) {
+      return _json(req, {'ok': false, 'error': 'empty body'}, status: 400);
+    }
+    await ref.read(messagingServiceProvider).sendSticker(peer, bytes);
+    return _json(req, {'ok': true, 'bytes': bytes.length});
   }
 
   /// Record + SEND a video note to ?peer= — drives the full brick-4 path
