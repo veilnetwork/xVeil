@@ -167,6 +167,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/warmup_onion':
           await _warmupOnion(req);
           return;
+        case '/record_voice':
+          await _recordVoice(req);
+          return;
         case '/identity':
           await _identity(req);
           return;
@@ -336,6 +339,64 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     return _json(req, {
       'ok': true,
       'phase': ref.read(appControllerProvider).phase.name,
+    });
+  }
+
+  /// Smoke-drive the native voice recorder end-to-end (Dart -> FFI -> native):
+  /// record for `?ms=` (default 2000), then report the byte length, duration,
+  /// packet count from the VOICE_OPUS header, and the waveform. Verifies brick
+  /// 2 (bindings + controller) against the real mic without any UI.
+  Future<void> _recordVoice(HttpRequest req) async {
+    final ms = int.tryParse(req.uri.queryParameters['ms'] ?? '') ?? 2000;
+    final rec = VeilAudioRecorder.create();
+    if (rec == null) {
+      return _json(req, {'ok': false, 'error': 'recorder unavailable'},
+          status: 500);
+    }
+    // The mic prompt must be answered before StartRecording sees audio.
+    await MacMediaPermissions.requestMicrophone().timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => false,
+    );
+    if (!rec.start()) {
+      rec.dispose();
+      return _json(req, {'ok': false, 'error': 'start failed (permission?)'},
+          status: 500);
+    }
+    await Future<void>.delayed(Duration(milliseconds: ms));
+    final level = rec.level;
+    final elapsed = rec.elapsedMs;
+    final clip = rec.stop();
+    rec.dispose();
+    if (clip == null) {
+      return _json(req, {
+        'ok': false,
+        'error': 'empty clip',
+        'level': level,
+        'elapsedMs': elapsed,
+      });
+    }
+    // Parse the VOICE_OPUS header for verification.
+    final b = clip.bytes;
+    String magic = '';
+    int channels = 0, sampleRate = 0, packetCount = 0;
+    if (b.length >= 18 &&
+        b[0] == 0x56 && b[1] == 0x4F && b[2] == 0x50 && b[3] == 0x31) {
+      magic = 'VOP1';
+      channels = b[5];
+      sampleRate = b[6] | (b[7] << 8) | (b[8] << 16) | (b[9] << 24);
+      packetCount = b[14] | (b[15] << 8) | (b[16] << 16) | (b[17] << 24);
+    }
+    return _json(req, {
+      'ok': true,
+      'bytes': b.length,
+      'durationMs': clip.durationMs,
+      'level': level,
+      'magic': magic,
+      'channels': channels,
+      'sampleRate': sampleRate,
+      'packetCount': packetCount,
+      'waveform': clip.waveform.map((v) => (v * 100).round()).toList(),
     });
   }
 
