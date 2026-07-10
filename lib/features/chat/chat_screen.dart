@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert' show base64Decode;
 import 'dart:io';
-import 'dart:ui' as ui show ImageFilter;
+import 'dart:ui' as ui show ImageFilter, PlatformDispatcher;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -621,9 +621,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   /// Send a recorded voice clip (from the composer's hold-to-record button).
   void _sendVoiceClip(VoiceClip clip) {
-    ref
-        .read(messagingServiceProvider)
-        .sendVoice(_peer, clip.bytes, clip.durationMs, clip.waveform);
+    ref.read(messagingServiceProvider).sendVoice(
+          _peer,
+          clip.bytes,
+          clip.durationMs,
+          clip.waveform,
+          // Tag the note with our UI language so the receiver transcribes it
+          // in the language it was spoken in.
+          lang: ui.PlatformDispatcher.instance.locale.languageCode,
+        );
     _scrollToBottom(force: true);
   }
 
@@ -2586,7 +2592,7 @@ class _VoiceBubble extends ConsumerWidget {
       child: InkWell(
         onTap: () => ref
             .read(transcriptionControllerProvider.notifier)
-            .transcribe(messageId, fileKey),
+            .transcribe(messageId, fileKey, senderLang: sidecar?.lang),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
