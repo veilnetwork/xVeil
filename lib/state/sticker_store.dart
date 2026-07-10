@@ -120,6 +120,49 @@ class StickerController extends AsyncNotifier<List<StickerPack>> {
   /// The bytes for a sticker item, or null if missing.
   Future<Uint8List?> bytesFor(String itemId) =>
       ref.read(storageProvider).loadFile(stickerFileKey(itemId));
+
+  /// Serialize [packId] (its stickers, in order) into a shareable STKP1 blob,
+  /// or null when the pack is unknown / empty / its bytes are gone.
+  Future<Uint8List?> packToBlob(String packId) async {
+    final packs = state.valueOrNull ?? await _load();
+    final pack = packs.where((p) => p.id == packId).firstOrNull;
+    if (pack == null || pack.items.isEmpty) return null;
+    final storage = ref.read(storageProvider);
+    final images = <Uint8List>[];
+    for (final id in pack.items) {
+      final bytes = await storage.loadFile(stickerFileKey(id));
+      if (bytes != null && bytes.isNotEmpty) images.add(bytes);
+    }
+    if (images.isEmpty) return null;
+    return encodeStickerPack(pack.name.isEmpty ? 'Stickers' : pack.name, images);
+  }
+
+  /// Install a received STKP1 [blob] as a NEW pack (its own id, so an install
+  /// never clobbers a same-named local pack). Returns the number of stickers
+  /// added, or 0 when the blob is malformed / decodes to nothing usable.
+  Future<int> installPack(Uint8List blob) async {
+    final bundle = decodeStickerPack(blob);
+    if (bundle == null || bundle.images.isEmpty) return 0;
+    final storage = ref.read(storageProvider);
+    final packs = List<StickerPack>.of(state.valueOrNull ?? await _load());
+    final items = <String>[];
+    for (final img in bundle.images) {
+      final norm = await normalizeStickerBytes(img);
+      if (norm == null) continue;
+      final itemId = const Uuid().v4();
+      await storage.storeFile(stickerFileKey(itemId), norm,
+          name: 'sticker$kStickerFileExt');
+      items.add(itemId);
+    }
+    if (items.isEmpty) return 0;
+    packs.add(StickerPack(
+      id: const Uuid().v4(),
+      name: bundle.name.isEmpty ? 'Shared pack' : bundle.name,
+      items: items,
+    ));
+    await _save(packs);
+    return items.length;
+  }
 }
 
 final stickerControllerProvider =

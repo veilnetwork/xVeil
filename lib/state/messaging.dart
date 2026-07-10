@@ -3843,6 +3843,17 @@ class MessagingService {
     await _sendAsContent(dst, bytes, name, thumbOverride: thumb);
   }
 
+  /// Send a shared STICKER PACK: the STKP1 [blob] rides the content path under
+  /// `.stkpack` so the receiver gets an install card. A thumb of the first
+  /// sticker ([firstThumbB64]) previews it before download.
+  Future<void> sendStickerPack(NodeId dst, Uint8List blob,
+      {String? firstThumbB64}) async {
+    _mailbox?.noteActivity();
+    _warmStreamPeer(dst);
+    final name = '${_uuid.v4()}$kStickerPackFileExt';
+    await _sendAsContent(dst, blob, name, thumbOverride: firstThumbB64);
+  }
+
   /// Send a LARGE file via the content layer as a first-class filePost EVENT.
   /// The BYTES are content-addressed (stored + served by contentId, de-duped);
   /// the MESSAGE is a per-send event under a fresh [msgId] + the (author,seq) the

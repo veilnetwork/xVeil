@@ -541,6 +541,30 @@ abstract class AppL10n {
   /// **'No stickers yet — import your own pictures'**
   String get stickerEmpty;
 
+  /// No description provided for @stickerSharePack.
+  ///
+  /// In en, this message translates to:
+  /// **'Share pack'**
+  String get stickerSharePack;
+
+  /// No description provided for @stickerPackTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Sticker pack'**
+  String get stickerPackTitle;
+
+  /// No description provided for @stickerPackDownload.
+  ///
+  /// In en, this message translates to:
+  /// **'Download'**
+  String get stickerPackDownload;
+
+  /// No description provided for @stickerPackInstall.
+  ///
+  /// In en, this message translates to:
+  /// **'Install'**
+  String get stickerPackInstall;
+
   /// No description provided for @stickerImported.
   ///
   /// In en, this message translates to:

@@ -14,7 +14,12 @@ import '../../l10n/app_localizations.dart';
 import '../../state/providers.dart';
 import '../../state/sticker_store.dart';
 
-/// Opens the sticker sheet; resolves to the picked sticker's item id, or null.
+/// The default pack shared by the header share button (v1: the single
+/// import pack). Kept in sync with the store's default pack id.
+const String _defaultSharePackId = 'my';
+
+/// Opens the sticker sheet; resolves to either a sticker item id (send that
+/// sticker), `pack:<packId>` (share that pack to the chat), or null.
 Future<String?> showStickerPanel(BuildContext context) =>
     showModalBottomSheet<String>(
       context: context,
@@ -82,6 +87,13 @@ class _StickerSheetState extends ConsumerState<_StickerSheet> {
                   child: Text(l.stickerTitle,
                       style: Theme.of(context).textTheme.titleMedium),
                 ),
+                // Share the whole library as a pack to this chat.
+                if ((packs.valueOrNull ?? const []).any((p) => p.items.isNotEmpty))
+                  IconButton(
+                    icon: const Icon(Icons.ios_share),
+                    tooltip: l.stickerSharePack,
+                    onPressed: () => Navigator.of(context).pop('pack:$_defaultSharePackId'),
+                  ),
                 _importing
                     ? const Padding(
                         padding: EdgeInsets.all(12),

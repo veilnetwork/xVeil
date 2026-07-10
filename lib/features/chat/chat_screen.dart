@@ -668,11 +668,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _scrollToBottom(force: true);
   }
 
-  /// Send a sticker picked from the panel: load its bytes from the library and
-  /// ship it through the sticker content path.
-  Future<void> _sendSticker(String itemId) async {
+  /// Handle a sticker-panel pick: a `pack:<id>` result shares that pack to the
+  /// chat, otherwise the id is a single sticker to send.
+  Future<void> _sendSticker(String result) async {
+    if (result.startsWith('pack:')) {
+      final packId = result.substring('pack:'.length);
+      final ctrl = ref.read(stickerControllerProvider.notifier);
+      final blob = await ctrl.packToBlob(packId);
+      if (blob == null) return;
+      // Preview the first sticker before download.
+      final bundle = decodeStickerPack(blob);
+      String? thumb;
+      if (bundle != null && bundle.images.isNotEmpty) {
+        thumb = await makeMessageThumbB64(bundle.images.first);
+      }
+      await ref
+          .read(messagingServiceProvider)
+          .sendStickerPack(_peer, blob, firstThumbB64: thumb);
+      _scrollToBottom(force: true);
+      return;
+    }
     final bytes =
-        await ref.read(storageProvider).loadFile(stickerFileKey(itemId));
+        await ref.read(storageProvider).loadFile(stickerFileKey(result));
     if (bytes == null) return;
     await ref.read(messagingServiceProvider).sendSticker(_peer, bytes);
     _scrollToBottom(force: true);
@@ -2443,6 +2460,112 @@ Uint8List? _decodeThumbB64(String? tb) {
   }
 }
 
+/// A shared sticker pack: an install card (first-sticker thumb + name/count +
+/// an Install button once the blob is held; a download affordance before).
+/// Installing decodes the STKP1 blob into a new local pack.
+class _StickerPackCard extends ConsumerStatefulWidget {
+  const _StickerPackCard({
+    required this.fileKey,
+    required this.thumbB64,
+    required this.downloaded,
+    this.progress,
+    this.onDownload,
+  });
+
+  final String fileKey;
+  final String? thumbB64;
+  final bool downloaded;
+  final double? progress;
+  final VoidCallback? onDownload;
+
+  @override
+  ConsumerState<_StickerPackCard> createState() => _StickerPackCardState();
+}
+
+class _StickerPackCardState extends ConsumerState<_StickerPackCard> {
+  bool _installing = false;
+  int? _installed;
+
+  Future<void> _install() async {
+    setState(() => _installing = true);
+    try {
+      final bytes =
+          await ref.read(storageProvider).loadFile(widget.fileKey);
+      if (bytes == null) return;
+      final n =
+          await ref.read(stickerControllerProvider.notifier).installPack(bytes);
+      if (mounted) setState(() => _installed = n);
+    } finally {
+      if (mounted) setState(() => _installing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final thumb = _decodeThumbB64(widget.thumbB64);
+    return SizedBox(
+      width: 220,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 48,
+            height: 48,
+            child: thumb != null
+                ? Image.memory(thumb, fit: BoxFit.contain)
+                : Icon(Icons.sticky_note_2_outlined,
+                    color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(l.stickerPackTitle,
+                    style: Theme.of(context).textTheme.labelLarge),
+                const SizedBox(height: 4),
+                if (_installed != null)
+                  Text(l.stickerImported(_installed!),
+                      style: Theme.of(context).textTheme.labelSmall)
+                else if (_installing)
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                else if (!widget.downloaded)
+                  (widget.progress != null
+                      ? SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            value: widget.progress == 0
+                                ? null
+                                : widget.progress,
+                          ),
+                        )
+                      : TextButton(
+                          onPressed: widget.onDownload,
+                          child: Text(l.stickerPackDownload),
+                        ))
+                else
+                  FilledButton.tonal(
+                    onPressed: _install,
+                    child: Text(l.stickerPackInstall),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// A sticker: the image itself, naked (the bubble adds no chrome for sticker
 /// messages). Until the blob lands, the blurred sidecar micro-thumb (or a
 /// progress ring) stands in — stickers are small and auto-download, so this
@@ -3569,7 +3692,18 @@ class _Bubble extends ConsumerWidget {
                     onTap: onTapQuote,
                     child: _QuoteBlock(quoted: quoted, outgoing: outgoing),
                   ),
-                if (message.isFile && isStickerFileName(message.fileName))
+                if (message.isFile && isStickerPackFileName(message.fileName))
+                  _StickerPackCard(
+                    fileKey: message.fileId ?? message.fileContentId ?? '',
+                    thumbB64: message.thumb,
+                    downloaded:
+                        progress == null && (message.fileId != null),
+                    progress: progress,
+                    onDownload: onTapFile == null
+                        ? null
+                        : () => onTapFile!(message),
+                  )
+                else if (message.isFile && isStickerFileName(message.fileName))
                   _StickerContent(
                     fileKey: message.fileId ?? message.fileContentId ?? '',
                     thumbB64: message.thumb,
