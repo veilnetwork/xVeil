@@ -1,66 +1,97 @@
 // Voice playback controller (voice epic, brick 5): plays a stored voice clip
-// through the native veil_media player (Opus -> PCM -> ADM speaker). One player
-// at a time across the whole app (starting a new clip stops the current one),
-// so the bubble UI can show a single live progress + play/pause and cycle speed.
+// by decoding the Opus natively to a RIFF/WAV in RAM (AVFoundation cannot
+// decode Opus), serving it over the loopback LocalMediaServer and driving the
+// platform player via video_player — the same canon-clean path in-chat video
+// uses. Riding the host's real media session (instead of a standalone
+// playout-only ADM, which the Flutter macOS host never pulls) makes playback
+// work inside the app and gives exact seeking for free. One player at a time
+// across the whole app (starting a new clip stops the current one), so the
+// bubble UI can show a single live progress + play/pause and cycle speed.
 //
-// The native player is behind a small [VoicePlayer] interface with an
-// injectable factory, so widget tests drive the flow with a fake.
+// The player is behind a small [VoicePlayer] interface with an injectable
+// factory, so widget tests drive the flow with a fake.
 
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:veil_media/veil_media.dart';
+import 'package:video_player/video_player.dart';
 
+import 'media_stream_server.dart';
 import 'providers.dart';
 
 /// Minimal player surface the controller drives (fakeable in tests).
 abstract class VoicePlayer {
-  bool start();
-  void pause();
-  void resume();
-  void seekMs(int ms);
-  void setSpeed(double speed);
-  int get positionMs;
+  Future<bool> start();
+  Future<void> pause();
+  Future<void> resume();
+  Future<void> seekMs(int ms);
+  Future<void> setSpeed(double speed);
+  Future<int> positionMs();
   int get durationMs;
   bool get isPlaying;
-  void dispose();
+  Future<void> dispose();
 }
 
-class _NativeVoicePlayer implements VoicePlayer {
-  _NativeVoicePlayer(this._p);
-  final VeilAudioPlayer _p;
+/// The real player: native Opus->WAV decode, loopback serve, video_player.
+class _WavVoicePlayer implements VoicePlayer {
+  _WavVoicePlayer._(this._server, this._c);
 
-  static _NativeVoicePlayer? create(Uint8List bytes) {
-    final p = VeilAudioPlayer.create(bytes);
-    return p == null ? null : _NativeVoicePlayer(p);
+  final LocalMediaServer _server;
+  final VideoPlayerController _c;
+
+  static Future<_WavVoicePlayer?> create(Uint8List voiceOpus) async {
+    final wav = decodeVoiceWav(voiceOpus);
+    if (wav == null) return null;
+    final server = LocalMediaServer();
+    try {
+      final url = await server.serve(wav, name: 'voice.wav');
+      final c = VideoPlayerController.networkUrl(url);
+      await c.initialize();
+      return _WavVoicePlayer._(server, c);
+    } catch (_) {
+      await server.stop();
+      return null;
+    }
   }
 
   @override
-  bool start() => _p.start();
+  Future<bool> start() async {
+    await _c.play();
+    return true;
+  }
+
   @override
-  void pause() => _p.pause();
+  Future<void> pause() => _c.pause();
   @override
-  void resume() => _p.resume();
+  Future<void> resume() => _c.play();
   @override
-  void seekMs(int ms) => _p.seekMs(ms);
+  Future<void> seekMs(int ms) => _c.seekTo(Duration(milliseconds: ms));
   @override
-  void setSpeed(double speed) => _p.setSpeed(speed);
+  Future<void> setSpeed(double speed) => _c.setPlaybackSpeed(speed);
+
   @override
-  int get positionMs => _p.positionMs;
+  Future<int> positionMs() async =>
+      (await _c.position ?? _c.value.position).inMilliseconds;
+
   @override
-  int get durationMs => _p.durationMs;
+  int get durationMs => _c.value.duration.inMilliseconds;
   @override
-  bool get isPlaying => _p.isPlaying;
+  bool get isPlaying => _c.value.isPlaying;
+
   @override
-  void dispose() => _p.dispose();
+  Future<void> dispose() async {
+    await _c.dispose();
+    await _server.stop();
+  }
 }
 
 /// Builds a player over the clip [bytes]; overridden in tests.
-typedef VoicePlayerFactory = VoicePlayer? Function(Uint8List bytes);
+typedef VoicePlayerFactory = Future<VoicePlayer?> Function(Uint8List bytes);
 
 final voicePlayerFactoryProvider = Provider<VoicePlayerFactory>(
-  (ref) => _NativeVoicePlayer.create,
+  (ref) => _WavVoicePlayer.create,
 );
 
 /// The available speeds, cycled by the bubble's speed chip.
@@ -111,6 +142,8 @@ class VoicePlayController extends Notifier<VoicePlayState> {
   VoicePlayer? _player;
   Timer? _poll;
   double _speed = 1.0;
+  int _gen = 0; // invalidates in-flight toggles when a newer one starts
+  bool _ticking = false;
 
   static const Duration _pollEvery = Duration(milliseconds: 100);
 
@@ -126,24 +159,29 @@ class VoicePlayController extends Notifier<VoicePlayState> {
     if (state.isActive(messageId)) {
       // Same clip: pause/resume.
       if (state.paused) {
-        _player?.resume();
+        await _player?.resume();
         state = state.copyWith(paused: false);
       } else {
-        _player?.pause();
+        await _player?.pause();
         state = state.copyWith(paused: true);
       }
       return;
     }
     // Different (or first) clip: tear down any current player, load + start.
     _stopPlayer();
+    final gen = ++_gen;
     final bytes = await ref.read(storageProvider).loadFile(fileKey);
-    if (bytes == null) return;
-    final player = ref.read(voicePlayerFactoryProvider)(bytes);
-    if (player == null || !player.start()) {
-      player?.dispose();
+    if (bytes == null || gen != _gen) return;
+    final player = await ref.read(voicePlayerFactoryProvider)(bytes);
+    if (gen != _gen) {
+      await player?.dispose();
       return;
     }
-    player.setSpeed(_speed);
+    if (player == null || !await player.start()) {
+      await player?.dispose();
+      return;
+    }
+    await player.setSpeed(_speed);
     _player = player;
     state = VoicePlayState(
       playingId: messageId,
@@ -153,35 +191,52 @@ class VoicePlayController extends Notifier<VoicePlayState> {
     _poll = Timer.periodic(_pollEvery, (_) => _tick());
   }
 
+  /// Seek the ACTIVE clip to [fraction] (0..1) of its duration — the bubble
+  /// maps a waveform tap position to this. Ignored for inactive clips.
+  Future<void> seekTo(String messageId, double fraction) async {
+    final p = _player;
+    if (p == null || !state.isActive(messageId)) return;
+    final ms = (state.durationMs * fraction.clamp(0.0, 1.0)).round();
+    await p.seekMs(ms);
+    state = state.copyWith(positionMs: ms);
+  }
+
   /// Cycle playback speed (1.0 → 1.5 → 2.0 → 1.0), applied live.
   void cycleSpeed() {
     final i = kVoiceSpeeds.indexOf(_speed);
     _speed = kVoiceSpeeds[(i + 1) % kVoiceSpeeds.length];
-    _player?.setSpeed(_speed);
+    unawaited(_player?.setSpeed(_speed));
     state = state.copyWith(speed: _speed);
   }
 
-  void _tick() {
+  Future<void> _tick() async {
     final p = _player;
-    if (p == null) return;
-    final pos = p.positionMs;
-    final playing = p.isPlaying;
-    state = state.copyWith(positionMs: pos);
-    // Native reports not-playing at end-of-clip → reset to idle.
-    if (!playing && !state.paused) {
-      _stopPlayer();
-      state = const VoicePlayState();
+    if (p == null || _ticking) return;
+    _ticking = true;
+    try {
+      final pos = await p.positionMs();
+      if (!identical(p, _player)) return; // player switched mid-await
+      state = state.copyWith(positionMs: pos);
+      // The platform player reports not-playing at end-of-clip → reset to idle.
+      if (!p.isPlaying && !state.paused) {
+        _stopPlayer();
+        state = const VoicePlayState();
+      }
+    } finally {
+      _ticking = false;
     }
   }
 
   void _stopPlayer() {
     _poll?.cancel();
     _poll = null;
-    _player?.dispose();
+    final p = _player;
     _player = null;
+    if (p != null) unawaited(p.dispose());
   }
 
   void _teardown() {
+    _gen++;
     _stopPlayer();
   }
 }

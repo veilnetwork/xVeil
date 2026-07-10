@@ -181,6 +181,15 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/play_voice':
           await _playVoiceHook(req);
           return;
+        case '/seek_voice':
+          await _seekVoiceHook(req);
+          return;
+        case '/voice_state':
+          await _voiceStateHook(req);
+          return;
+        case '/voice_speed':
+          await _voiceSpeedHook(req);
+          return;
         case '/transcribe_voice':
           await _transcribeVoiceHook(req);
           return;
@@ -486,6 +495,44 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'durationMs': st.durationMs,
       'positionMs': st.positionMs,
       'playing': st.isPlaying(last.id),
+      'speed': st.speed,
+    });
+  }
+
+  /// Seek the active voice clip to ?frac= (0..1) of its duration via the play
+  /// controller — verifies the waveform-tap seek path without tap geometry.
+  Future<void> _seekVoiceHook(HttpRequest req) async {
+    final frac = double.tryParse(req.uri.queryParameters['frac'] ?? '');
+    final active = ref.read(voicePlayControllerProvider).playingId;
+    if (frac == null || active == null) {
+      return _json(req, {'ok': false, 'error': 'no active clip / bad frac'});
+    }
+    await ref.read(voicePlayControllerProvider.notifier).seekTo(active, frac);
+    final st = ref.read(voicePlayControllerProvider);
+    return _json(req, {
+      'ok': st.isActive(active),
+      'durationMs': st.durationMs,
+      'positionMs': st.positionMs,
+      'playing': st.isPlaying(active),
+    });
+  }
+
+  /// Cycle the playback speed chip (1x -> 1.5x -> 2x -> 1x) on the active clip.
+  Future<void> _voiceSpeedHook(HttpRequest req) async {
+    ref.read(voicePlayControllerProvider.notifier).cycleSpeed();
+    final st = ref.read(voicePlayControllerProvider);
+    return _json(req, {'ok': true, 'speed': st.speed});
+  }
+
+  /// Snapshot of the voice play controller state (poll to watch position).
+  Future<void> _voiceStateHook(HttpRequest req) async {
+    final st = ref.read(voicePlayControllerProvider);
+    return _json(req, {
+      'ok': true,
+      'playingId': st.playingId,
+      'durationMs': st.durationMs,
+      'positionMs': st.positionMs,
+      'paused': st.paused,
       'speed': st.speed,
     });
   }

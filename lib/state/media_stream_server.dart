@@ -49,6 +49,7 @@ String mediaMimeFor(String? name) {
   if (n.endsWith('.webm')) return 'video/webm';
   if (n.endsWith('.mkv')) return 'video/x-matroska';
   if (n.endsWith('.avi')) return 'video/x-msvideo';
+  if (n.endsWith('.wav')) return 'audio/wav';
   return 'application/octet-stream';
 }
 
