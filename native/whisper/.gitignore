@@ -1,0 +1,7 @@
+# Built artifacts (rebuild via build_veil_whisper_*.sh from the whisper.cpp
+# checkout). The whisper.cpp source + ggml model live out-of-repo.
+Frameworks/
+jniLibs/
+*.dylib
+*.so
+*.bin
