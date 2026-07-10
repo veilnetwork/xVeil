@@ -35,6 +35,7 @@ import 'providers.dart';
 import 'signature_policy_controller.dart';
 import 'thumbnail.dart';
 import 'video_thumb.dart';
+import 'sticker_message.dart';
 import 'vnote_message.dart';
 import 'voice_message.dart';
 import 'package:xveil/core/log.dart';
@@ -3828,6 +3829,18 @@ class MessagingService {
     final sidecar = encodeVnoteSidecar(durationMs, thumbB64);
     final name = '${_uuid.v4()}$kVnoteFileExt';
     await _sendAsContent(dst, bytes, name, thumbOverride: sidecar);
+  }
+
+  /// Send a STICKER: the image [bytes] ride the content path under `.stkr`
+  /// (auto-downloaded under the receiver's cap), with an ordinary image
+  /// micro-thumb in the sidecar so the receiver previews it instantly. The
+  /// extension makes both ends render it naked (no bubble chrome).
+  Future<void> sendSticker(NodeId dst, Uint8List bytes) async {
+    _mailbox?.noteActivity();
+    _warmStreamPeer(dst);
+    final thumb = await makeMessageThumbB64(bytes);
+    final name = '${_uuid.v4()}$kStickerFileExt';
+    await _sendAsContent(dst, bytes, name, thumbOverride: thumb);
   }
 
   /// Send a LARGE file via the content layer as a first-class filePost EVENT.
