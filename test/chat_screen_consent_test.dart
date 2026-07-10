@@ -44,10 +44,18 @@ void main() {
     expect(find.byIcon(Icons.send), findsNothing);
   });
 
-  testWidgets('accepted shows the normal composer', (tester) async {
+  testWidgets('accepted shows the normal composer (mic on empty, send on text)',
+      (tester) async {
     await tester.pumpWidget(_host(_c(ContactStatus.accepted)));
     await tester.pump();
+    // Empty field → hold-to-record mic (Telegram convention); send appears
+    // once there is text to send.
+    expect(find.byIcon(Icons.mic), findsOneWidget);
+    expect(find.byIcon(Icons.send), findsNothing);
+    await tester.enterText(find.byType(TextField), 'hi');
+    await tester.pump();
     expect(find.byIcon(Icons.send), findsOneWidget);
+    expect(find.byIcon(Icons.mic), findsNothing);
   });
 
   testWidgets('no contact yet shows a connection-request composer',
