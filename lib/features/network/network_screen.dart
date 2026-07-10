@@ -62,8 +62,9 @@ class NetworkScreen extends ConsumerWidget {
                 phase: s.phase, peers: peers, message: s.message),
           ),
           const Divider(),
-          // Secondary controls — proxy/VPN + node management land here in later
-          // milestones, behind their own ports (oproxy/ogate, SSH provisioning).
+          // Secondary controls: proxy routing (oproxy SOCKS5 client + exit) is
+          // live below; node management (ogate, SSH provisioning) is still a
+          // later milestone behind the Extensions stub.
           Consumer(builder: (context, ref, _) {
             final routing = ref.watch(proxyRoutingProvider);
             return ListTile(
