@@ -446,6 +446,52 @@ void main() {
           reason: 'the stale offer was not delivered to B');
     });
 
+    test('peer inbound within the nudge grace does not duplicate a just-sent '
+        'call frame; the backoff re-drive still heals a lost ack', () async {
+      tB.online = false; // B receives, but every ack it sends is lost
+      var offers = 0;
+      final sub = tB.messages().listen((m) {
+        try {
+          if (WireEnvelope.decode(m.payload).frameId == 'call:dup:offer') {
+            offers++;
+          }
+        } catch (_) {}
+      });
+      addTearDown(sub.cancel);
+
+      await mA.sendCallSignal(
+        b,
+        CallSignal(
+          callId: 'dup',
+          type: CallSignalType.offer,
+          media: const CallMedia(audio: true),
+          posture: CallPosture.direct,
+        ),
+      );
+      await _settle();
+      expect(offers, 1);
+
+      // B's health beat lands seconds later — the call's steady inbound. The
+      // nudge must NOT rewind the just-sent offer (its ack is merely in
+      // flight) into a duplicate re-drive.
+      clock = clock.add(const Duration(seconds: 2));
+      tA.inject(
+        b,
+        WireEnvelope.callSignal(
+          const CallSignal(callId: 'dup', type: CallSignalType.health)
+              .encode(),
+        ).encode(),
+      );
+      await _settle();
+      expect(offers, 1,
+          reason: 'inbound during the grace must not duplicate the send');
+
+      // The ack really was lost → the regular backoff re-drive still fires.
+      clock = clock.add(const Duration(seconds: 21));
+      await flushA();
+      expect(offers, 2, reason: 'the durable guarantee is untouched');
+    });
+
     test('RECONNECT to a wiped peer is durable: re-intro survives the lost '
         'first attempt, and accepting heals the conversation end-to-end',
         () async {
