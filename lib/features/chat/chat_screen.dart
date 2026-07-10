@@ -29,6 +29,7 @@ import '../../state/nickname_peers.dart';
 import '../../state/notifications.dart';
 import '../../state/providers.dart';
 import '../../state/thumbnail.dart';
+import '../../state/transcription_controller.dart';
 import '../../state/voice_message.dart';
 import '../../state/voice_play_controller.dart';
 import '../../state/voice_record_controller.dart';
@@ -2434,13 +2435,17 @@ class _VoiceBubble extends ConsumerWidget {
       ref.read(voicePlayControllerProvider.notifier).toggle(messageId, fileKey);
     }
 
-    return SizedBox(
-      width: 232,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          GestureDetector(
-            onTap: onLead,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: 232,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              GestureDetector(
+                onTap: onLead,
             child: SizedBox(
               width: 36,
               height: 36,
@@ -2511,7 +2516,89 @@ class _VoiceBubble extends ConsumerWidget {
                   .labelSmall
                   ?.copyWith(color: onBubble.withValues(alpha: 0.8)),
             ),
-        ],
+            ],
+          ),
+        ),
+        if (downloaded) _transcript(context, ref, onBubble),
+      ],
+    );
+  }
+
+  /// The on-device transcription affordance under a downloaded voice clip: a
+  /// "Transcribe" button, a spinner while running, then the cached text. Hidden
+  /// entirely when the native STT layer / model isn't present.
+  Widget _transcript(BuildContext context, WidgetRef ref, Color onBubble) {
+    final available = ref.watch(transcriptionAvailableProvider);
+    if (!available) return const SizedBox.shrink();
+    final entry = ref.watch(
+      transcriptionControllerProvider.select((m) => m[messageId]),
+    );
+    // Lazily load a cached transcript once (idempotent in the controller).
+    if (entry == null) {
+      Future.microtask(() => ref
+          .read(transcriptionControllerProvider.notifier)
+          .loadCached(messageId, fileKey));
+    }
+    final l = AppL10n.of(context);
+    final muted = onBubble.withValues(alpha: 0.7);
+    final style = Theme.of(context)
+        .textTheme
+        .bodySmall
+        ?.copyWith(color: onBubble);
+
+    if (entry != null && entry.isRunning) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 12,
+              height: 12,
+              child: CircularProgressIndicator(strokeWidth: 1.6, color: muted),
+            ),
+            const SizedBox(width: 8),
+            Text(l.chatVoiceTranscribing,
+                style: Theme.of(context)
+                    .textTheme
+                    .labelSmall
+                    ?.copyWith(color: muted)),
+          ],
+        ),
+      );
+    }
+    if (entry != null && entry.isDone) {
+      final text = entry.text ?? '';
+      if (text.isEmpty) return const SizedBox.shrink();
+      return Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 260),
+          child: Text(text, style: style),
+        ),
+      );
+    }
+    // none / failed → a tap-to-transcribe (re-tappable after a failure).
+    final failed = entry?.phase == TranscriptPhase.failed;
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: InkWell(
+        onTap: () => ref
+            .read(transcriptionControllerProvider.notifier)
+            .transcribe(messageId, fileKey),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.subtitles_outlined, size: 15, color: muted),
+            const SizedBox(width: 4),
+            Text(
+              failed ? l.chatVoiceTranscribeFailed : l.chatVoiceTranscribe,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: failed ? Theme.of(context).colorScheme.error : muted,
+                  ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -236,6 +236,15 @@ class AppL10nRu extends AppL10n {
       'Не удалось записать — попробуйте ещё раз';
 
   @override
+  String get chatVoiceTranscribe => 'Расшифровать';
+
+  @override
+  String get chatVoiceTranscribing => 'Расшифровка…';
+
+  @override
+  String get chatVoiceTranscribeFailed => 'Не удалось расшифровать';
+
+  @override
   String get chatFileSave => 'Сохранить';
 
   @override

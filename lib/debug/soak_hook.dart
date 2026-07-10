@@ -27,6 +27,7 @@ import '../state/nickname_peers.dart';
 import '../state/veil_call_media.dart' show remoteVideoFrame;
 import '../state/providers.dart';
 import '../state/voice_message.dart';
+import '../state/transcription_controller.dart';
 import '../state/voice_play_controller.dart';
 import 'ui_driver.dart';
 
@@ -178,6 +179,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/play_voice':
           await _playVoiceHook(req);
+          return;
+        case '/transcribe_voice':
+          await _transcribeVoiceHook(req);
           return;
         case '/identity':
           await _identity(req);
@@ -482,6 +486,38 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'positionMs': st.positionMs,
       'playing': st.isPlaying(last.id),
       'speed': st.speed,
+    });
+  }
+
+  /// Transcribe the most recent voice message via the controller (Dart -> FFI
+  /// decode16k -> whisper -> cache), verifying the on-device STT path end to
+  /// end without tap geometry. Reports whether STT is available + the text.
+  Future<void> _transcribeVoiceHook(HttpRequest req) async {
+    if (!ref.read(transcriptionAvailableProvider)) {
+      return _json(req, {'ok': false, 'error': 'stt unavailable (lib/model)'});
+    }
+    final storage = ref.read(storageProvider);
+    Message? last;
+    for (final c in await storage.loadConversations()) {
+      for (final m in await storage.loadMessages(c.id)) {
+        if (isVoiceFileName(m.fileName) &&
+            (m.fileId ?? m.fileContentId) != null) {
+          last = m;
+        }
+      }
+    }
+    if (last == null) {
+      return _json(req, {'ok': false, 'error': 'no voice message'});
+    }
+    final fileKey = last.fileId ?? last.fileContentId!;
+    final ctrl = ref.read(transcriptionControllerProvider.notifier);
+    await ctrl.transcribe(last.id, fileKey);
+    final entry = ctrl.entryFor(last.id);
+    return _json(req, {
+      'ok': entry.isDone,
+      'messageId': last.id,
+      'phase': entry.phase.name,
+      'text': entry.text,
     });
   }
 

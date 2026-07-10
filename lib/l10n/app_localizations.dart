@@ -517,6 +517,24 @@ abstract class AppL10n {
   /// **'Couldn\'t record — try again'**
   String get chatVoiceRecordFailed;
 
+  /// No description provided for @chatVoiceTranscribe.
+  ///
+  /// In en, this message translates to:
+  /// **'Transcribe'**
+  String get chatVoiceTranscribe;
+
+  /// No description provided for @chatVoiceTranscribing.
+  ///
+  /// In en, this message translates to:
+  /// **'Transcribing…'**
+  String get chatVoiceTranscribing;
+
+  /// No description provided for @chatVoiceTranscribeFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t transcribe'**
+  String get chatVoiceTranscribeFailed;
+
   /// No description provided for @chatFileSave.
   ///
   /// In en, this message translates to:
