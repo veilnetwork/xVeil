@@ -15,6 +15,8 @@ import '../core/log.dart';
 import '../data/serve_source.dart';
 import 'package:veil_media/veil_media.dart';
 
+import '../state/thumbnail.dart' show makeRgbaThumbB64;
+
 import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call_signal.dart';
 import '../domain/chat.dart';
@@ -174,6 +176,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/record_voice':
           await _recordVoice(req);
+          return;
+        case '/record_vnote':
+          await _recordVnote(req);
+          return;
+        case '/send_vnote':
+          await _sendVnote(req);
           return;
         case '/send_voice':
           await _sendVoice(req);
@@ -377,6 +385,97 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   /// record for `?ms=` (default 2000), then report the byte length, duration,
   /// packet count from the VOICE_OPUS header, and the waveform. Verifies brick
   /// 2 (bindings + controller) against the real mic without any UI.
+  /// Record a video note for ?ms= (camera+mic where available) and report the
+  /// VN01 header fields — verifies the whole native capture chain in-app.
+  Future<void> _recordVnote(HttpRequest req) async {
+    final ms = int.tryParse(req.uri.queryParameters['ms'] ?? '') ?? 2000;
+    final rec = VeilVnoteRecorder.create();
+    if (rec == null) {
+      return _json(req, {'ok': false, 'error': 'recorder unavailable'},
+          status: 500);
+    }
+    await MacMediaPermissions.requestMicrophone()
+        .timeout(const Duration(seconds: 5), onTimeout: () => false);
+    await MacMediaPermissions.requestCamera()
+        .timeout(const Duration(seconds: 5), onTimeout: () => false);
+    if (!rec.start()) {
+      rec.dispose();
+      return _json(req, {'ok': false, 'error': 'start failed'}, status: 500);
+    }
+    await Future<void>.delayed(Duration(milliseconds: ms));
+    final preview = rec.frame();
+    final clip = rec.stop();
+    rec.dispose();
+    if (clip == null) {
+      return _json(req, {'ok': false, 'error': 'empty clip'});
+    }
+    final b = clip.bytes;
+    final vn = b.length >= 24 &&
+        b[0] == 0x56 && b[1] == 0x4E && b[2] == 0x30 && b[3] == 0x31;
+    return _json(req, {
+      'ok': true,
+      'bytes': b.length,
+      'durationMs': clip.durationMs,
+      'magic': vn ? 'VN01' : '',
+      'flags': vn ? b[5] : 0,
+      'width': vn ? (b[6] | (b[7] << 8)) : 0,
+      'height': vn ? (b[8] | (b[9] << 8)) : 0,
+      'frames': vn
+          ? (b[20] | (b[21] << 8) | (b[22] << 16) | (b[23] << 24))
+          : 0,
+      'previewW': preview?.width ?? 0,
+    });
+  }
+
+  /// Record + SEND a video note to ?peer= — drives the full brick-4 path
+  /// (record -> first-frame thumb -> sendVideoNote) exactly like the UI.
+  Future<void> _sendVnote(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final peer = _peer(req);
+    if (peer == null) return;
+    final ms = int.tryParse(req.uri.queryParameters['ms'] ?? '') ?? 2500;
+    final rec = VeilVnoteRecorder.create();
+    if (rec == null) {
+      return _json(req, {'ok': false, 'error': 'recorder unavailable'},
+          status: 500);
+    }
+    await MacMediaPermissions.requestMicrophone()
+        .timeout(const Duration(seconds: 5), onTimeout: () => false);
+    await MacMediaPermissions.requestCamera()
+        .timeout(const Duration(seconds: 5), onTimeout: () => false);
+    if (!rec.start()) {
+      rec.dispose();
+      return _json(req, {'ok': false, 'error': 'start failed'}, status: 500);
+    }
+    await Future<void>.delayed(Duration(milliseconds: ms));
+    final clip = rec.stop();
+    rec.dispose();
+    if (clip == null) {
+      return _json(req, {'ok': false, 'error': 'empty clip'});
+    }
+    String? thumb;
+    final player = VeilVnotePlayer.create(clip.bytes);
+    if (player != null) {
+      try {
+        final f = player.frameAt(0);
+        if (f != null) {
+          thumb = await makeRgbaThumbB64(f.rgba, f.width, f.height);
+        }
+      } finally {
+        player.dispose();
+      }
+    }
+    await ref.read(messagingServiceProvider).sendVideoNote(
+        peer, clip.bytes, clip.durationMs,
+        thumbB64: thumb);
+    return _json(req, {
+      'ok': true,
+      'bytes': clip.bytes.length,
+      'durationMs': clip.durationMs,
+      'thumbB64Len': thumb?.length ?? 0,
+    });
+  }
+
   Future<void> _recordVoice(HttpRequest req) async {
     final ms = int.tryParse(req.uri.queryParameters['ms'] ?? '') ?? 2000;
     final rec = VeilAudioRecorder.create();
