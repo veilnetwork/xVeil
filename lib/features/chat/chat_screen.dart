@@ -3592,10 +3592,6 @@ class _ComposerState extends ConsumerState<_Composer> {
   /// recording. Fed from the record controller's poll ticks.
   final List<double> _liveLevels = [];
 
-  /// True once the in-progress recording has been dragged past the cancel
-  /// threshold — releasing then discards instead of sending.
-  bool _cancelling = false;
-
   /// Wrap the current selection (or insert at the cursor) with a formatting
   /// marker, keeping focus + the wrapped selection so the user can keep typing
   /// or stack another format.
@@ -3657,18 +3653,13 @@ class _ComposerState extends ConsumerState<_Composer> {
   }
 
   Future<void> _startRecording() async {
-    _cancelling = false;
     _liveLevels.clear();
     await ref.read(voiceRecordControllerProvider.notifier).start();
   }
 
-  void _finishRecording() {
-    final ctrl = ref.read(voiceRecordControllerProvider.notifier);
-    if (_cancelling) {
-      ctrl.cancel();
-      return;
-    }
-    final clip = ctrl.stop();
+  /// Stop recording and send the clip (the recording bar's Send button).
+  void _sendRecording() {
+    final clip = ref.read(voiceRecordControllerProvider.notifier).stop();
     if (clip != null) widget.onVoice?.call(clip);
   }
 
@@ -3686,9 +3677,9 @@ class _ComposerState extends ConsumerState<_Composer> {
         setState(_liveLevels.clear);
       }
       if (next.phase == VoiceRecordPhase.denied) {
-        _showComposerSnack(l.chatVoiceMicDenied);
+        _showCenterToast(l.chatVoiceMicDenied);
       } else if (next.phase == VoiceRecordPhase.error) {
-        _showComposerSnack(l.chatVoiceRecordFailed);
+        _showCenterToast(l.chatVoiceRecordFailed);
       }
     });
     final rec = ref.watch(voiceRecordControllerProvider);
@@ -3828,12 +3819,12 @@ class _ComposerState extends ConsumerState<_Composer> {
               ),
             ),
             const SizedBox(width: 4),
-            // Empty field + voice enabled → hold-to-record mic; otherwise send.
+            // Empty field + voice enabled → tap-to-record mic; otherwise send.
             if (widget.onVoice != null)
               ValueListenableBuilder<TextEditingValue>(
                 valueListenable: controller,
                 builder: (_, value, child) => value.text.trim().isEmpty
-                    ? _micButton(context, l)
+                    ? _micButton(context)
                     : IconButton.filled(
                         onPressed: onSend, icon: const Icon(Icons.send)),
               )
@@ -3846,35 +3837,31 @@ class _ComposerState extends ConsumerState<_Composer> {
     );
   }
 
-  /// Hold-to-record mic button. Long-press starts capture; dragging left past a
-  /// threshold arms cancel; release sends (or cancels). A short tap just hints.
-  Widget _micButton(BuildContext context, AppL10n l) {
+  /// Tap-to-record mic button (hands-free): a tap starts recording; the
+  /// recording bar's Send/Cancel then finish or discard — no hold required, so
+  /// it works the same on desktop and mobile and the stop action is explicit.
+  Widget _micButton(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return GestureDetector(
-      onTap: () => _showComposerSnack(l.chatVoiceHold),
-      onLongPressStart: (_) => _startRecording(),
-      onLongPressMoveUpdate: (d) {
-        final cancelling = d.offsetFromOrigin.dx < -60;
-        if (cancelling != _cancelling) setState(() => _cancelling = cancelling);
-      },
-      onLongPressEnd: (_) => _finishRecording(),
-      child: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: scheme.primary,
-          shape: BoxShape.circle,
-        ),
-        child: Icon(Icons.mic, color: scheme.onPrimary),
-      ),
+    return IconButton.filled(
+      onPressed: _startRecording,
+      icon: const Icon(Icons.mic),
+      color: scheme.onPrimary,
     );
   }
 
+  /// While recording: Cancel (left) + record dot + elapsed + live waveform +
+  /// a prominent Send (right) that stops and sends. Send is the clear "stop".
   Widget _recordingBar(BuildContext context, AppL10n l, VoiceRecordState rec) {
     final scheme = Theme.of(context).colorScheme;
     final elapsed = formatVoiceDuration(Duration(milliseconds: rec.elapsedMs));
     return Row(
       children: [
+        IconButton(
+          icon: Icon(Icons.delete_outline, color: scheme.error),
+          tooltip: l.actionCancel,
+          onPressed: () =>
+              ref.read(voiceRecordControllerProvider.notifier).cancel(),
+        ),
         // Pulsing record dot + elapsed time.
         Icon(Icons.fiber_manual_record, color: scheme.error, size: 14),
         const SizedBox(width: 8),
@@ -3895,30 +3882,53 @@ class _ComposerState extends ConsumerState<_Composer> {
                   ),
           ),
         ),
-        const SizedBox(width: 8),
-        Text(
-          _cancelling ? l.chatVoiceReleaseCancel : l.chatVoiceSlideCancel,
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: _cancelling ? scheme.error : scheme.onSurfaceVariant,
-              ),
-        ),
-        const SizedBox(width: 8),
-        // A cancel button as a keyboard/pointer-friendly complement to the drag.
-        IconButton(
-          icon: Icon(Icons.delete_outline, color: scheme.error),
-          tooltip: l.actionCancel,
-          onPressed: () =>
-              ref.read(voiceRecordControllerProvider.notifier).cancel(),
+        const SizedBox(width: 4),
+        // The explicit STOP + send.
+        IconButton.filled(
+          onPressed: _sendRecording,
+          icon: const Icon(Icons.send),
         ),
       ],
     );
   }
 
-  void _showComposerSnack(String msg) {
+  /// A brief, centered, translucent toast (an overlay, not a bottom snackbar so
+  /// it never covers the composer). Auto-dismisses.
+  void _showCenterToast(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(msg)));
+    final overlay = Overlay.of(context);
+    late final OverlayEntry entry;
+    var removed = false;
+    void remove() {
+      if (removed) return;
+      removed = true;
+      entry.remove();
+    }
+
+    entry = OverlayEntry(
+      builder: (ctx) => IgnorePointer(
+        child: Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.72),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                msg,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white, fontSize: 15),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    overlay.insert(entry);
+    Future.delayed(const Duration(milliseconds: 1600), remove);
   }
 }
 
