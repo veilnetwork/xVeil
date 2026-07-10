@@ -22,6 +22,7 @@ import '../state/app_controller.dart';
 import '../state/call_service.dart';
 import '../state/mac_media_permissions.dart';
 import '../state/messaging.dart';
+import '../state/nickname_peers.dart';
 import '../state/veil_call_media.dart' show remoteVideoFrame;
 import '../state/providers.dart';
 import 'ui_driver.dart';
@@ -255,6 +256,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/nickname_resolve':
           await _nicknameResolve(req);
+          return;
+        case '/nickname_recheck':
+          await _nicknameRecheck(req);
           return;
         case '/delete_message':
           await _deleteMessage(req);
@@ -1170,6 +1174,41 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         'owner': NodeId(resolved.ownerNodeId).hex,
         'weight': resolved.weight,
         'issuedAt': resolved.issuedAtUnix,
+      });
+    } catch (e) {
+      return _json(req, {'ok': false, 'error': '$e'}, status: 500);
+    }
+  }
+
+  /// GET/POST /nickname_recheck?peer=<hex> — force the 6h re-verify of a
+  /// pinned peer↔@name binding NOW (smoke driver for the owner-changed
+  /// badge): marks the binding stale, re-reads the provider (which resolves
+  /// and compares the current owner to the pinned node id), returns it.
+  Future<void> _nicknameRecheck(HttpRequest req) async {
+    final ready = _requireReady(req);
+    if (!ready) return;
+    final params = await _mergedParams(req);
+    final peer = params['peer']?.trim().toLowerCase();
+    if (peer == null || peer.isEmpty) {
+      return _json(req, {'ok': false, 'error': 'missing peer'}, status: 400);
+    }
+    try {
+      final storage = ref.read(storageProvider);
+      final had = await markPeerNicknameStale(storage, peer);
+      if (!had) {
+        return _json(req, {'ok': true, 'found': false});
+      }
+      ref.invalidate(peerNicknameProvider(peer));
+      final binding = await ref.read(peerNicknameProvider(peer).future);
+      if (binding == null) {
+        return _json(req, {'ok': true, 'found': false});
+      }
+      return _json(req, {
+        'ok': true,
+        'found': true,
+        'name': binding.name,
+        'ownerChanged': binding.ownerChanged,
+        'checkedAt': binding.checkedAtUnix,
       });
     } catch (e) {
       return _json(req, {'ok': false, 'error': '$e'}, status: 500);
