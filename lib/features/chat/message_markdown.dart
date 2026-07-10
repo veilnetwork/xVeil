@@ -238,13 +238,55 @@ List<MdBlock> parseBlocks(String body) {
   return blocks;
 }
 
+/// Split [text] into spans, giving every case-insensitive occurrence of [query]
+/// a [highlight] background over [style]. Returns a single unstyled-background
+/// span when [query] is null/empty or has no match. Pure — unit-tested.
+List<TextSpan> highlightSpans(
+  String text,
+  TextStyle style,
+  String? query,
+  Color highlight,
+) {
+  if (query == null || query.isEmpty) {
+    return [TextSpan(text: text, style: style)];
+  }
+  final hay = text.toLowerCase();
+  final needle = query.toLowerCase();
+  final spans = <TextSpan>[];
+  var start = 0;
+  while (true) {
+    final idx = hay.indexOf(needle, start);
+    if (idx < 0) break;
+    if (idx > start) {
+      spans.add(TextSpan(text: text.substring(start, idx), style: style));
+    }
+    spans.add(
+      TextSpan(
+        text: text.substring(idx, idx + needle.length),
+        style: style.copyWith(backgroundColor: highlight),
+      ),
+    );
+    start = idx + needle.length;
+  }
+  if (spans.isEmpty) return [TextSpan(text: text, style: style)];
+  if (start < text.length) {
+    spans.add(TextSpan(text: text.substring(start), style: style));
+  }
+  return spans;
+}
+
 /// Renders a message body with the [parseFormatted] subset. Bold / italic /
 /// underline / strikethrough / inline `code` / ``` code blocks / ||spoiler|| /
 /// `>` block quotes. Spoilers are tap-to-reveal.
 class FormattedText extends StatefulWidget {
-  const FormattedText(this.body, {super.key, this.style});
+  const FormattedText(this.body, {super.key, this.style, this.highlight});
   final String body;
   final TextStyle? style;
+
+  /// When set (an active search query), case-insensitive occurrences of it get
+  /// a highlight background. Applied to text runs only — not links (keeps the
+  /// tap target) or spoilers (would reveal hidden text).
+  final String? highlight;
 
   @override
   State<FormattedText> createState() => _FormattedTextState();
@@ -281,46 +323,30 @@ class _FormattedTextState extends State<FormattedText> {
     TextStyle base,
     TextStyle mono,
     ColorScheme scheme,
+    String? highlight,
+    Color hlColor,
   ) {
     final tokens = parseFormatted(text);
     final spans = <InlineSpan>[];
+    void addText(String s, TextStyle style) =>
+        spans.addAll(highlightSpans(s, style, highlight, hlColor));
     for (var idx = 0; idx < tokens.length; idx++) {
       final t = tokens[idx];
       final key = indexBase + idx;
       switch (t.kind) {
         case FmtKind.plain:
-          spans.add(TextSpan(text: t.text, style: base));
+          addText(t.text, base);
         case FmtKind.bold:
-          spans.add(
-            TextSpan(
-              text: t.text,
-              style: base.copyWith(fontWeight: FontWeight.bold),
-            ),
-          );
+          addText(t.text, base.copyWith(fontWeight: FontWeight.bold));
         case FmtKind.italic:
-          spans.add(
-            TextSpan(
-              text: t.text,
-              style: base.copyWith(fontStyle: FontStyle.italic),
-            ),
-          );
+          addText(t.text, base.copyWith(fontStyle: FontStyle.italic));
         case FmtKind.underline:
-          spans.add(
-            TextSpan(
-              text: t.text,
-              style: base.copyWith(decoration: TextDecoration.underline),
-            ),
-          );
+          addText(t.text, base.copyWith(decoration: TextDecoration.underline));
         case FmtKind.strike:
-          spans.add(
-            TextSpan(
-              text: t.text,
-              style: base.copyWith(decoration: TextDecoration.lineThrough),
-            ),
-          );
+          addText(t.text, base.copyWith(decoration: TextDecoration.lineThrough));
         case FmtKind.code:
         case FmtKind.codeBlock:
-          spans.add(TextSpan(text: t.text, style: mono));
+          addText(t.text, mono);
         case FmtKind.link:
           final recognizer = TapGestureRecognizer()
             ..onTap = () => _copyLink(t.text);
@@ -373,12 +399,16 @@ class _FormattedTextState extends State<FormattedText> {
       fontFamily: 'monospace',
       backgroundColor: scheme.surfaceContainerHighest,
     );
+    final hlQuery = (widget.highlight?.isNotEmpty ?? false)
+        ? widget.highlight
+        : null;
+    final hlColor = scheme.tertiary.withValues(alpha: 0.55);
 
     final blocks = parseBlocks(widget.body);
     // No quotes: one Text.rich over the whole body — preserves blank lines and
     // matches the pre-quote behaviour exactly.
     if (!blocks.any((b) => b.kind == MdBlockKind.quote)) {
-      final (spans, _) = _spansFor(widget.body, 0, base, mono, scheme);
+      final (spans, _) = _spansFor(widget.body, 0, base, mono, scheme, hlQuery, hlColor);
       return Text.rich(TextSpan(children: spans));
     }
 
@@ -388,7 +418,8 @@ class _FormattedTextState extends State<FormattedText> {
       final blockBase = b.kind == MdBlockKind.quote
           ? base.copyWith(color: scheme.onSurfaceVariant)
           : base;
-      final (spans, count) = _spansFor(b.text, indexBase, blockBase, mono, scheme);
+      final (spans, count) =
+          _spansFor(b.text, indexBase, blockBase, mono, scheme, hlQuery, hlColor);
       indexBase += count;
       final rich = Text.rich(TextSpan(children: spans));
       children.add(
