@@ -573,6 +573,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _scrollToBottom(force: true);
   }
 
+  /// Tap on a DOWNLOADED inline image: open the swipeable media gallery over
+  /// every downloaded image of the loaded conversation, positioned on [m].
+  void _openImageGallery(Message m) {
+    final items = conversationGalleryItems(
+      ref.read(messagesProvider(widget.peerHex)).valueOrNull ??
+          const <Message>[],
+    );
+    if (items.isEmpty) return;
+    var initial = items.indexWhere((it) => it.id == m.id);
+    if (initial < 0) initial = 0;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _MediaGallery(items: items, initialIndex: initial),
+      ),
+    );
+  }
+
   /// Tap on a file bubble: if we already hold the blob, save it out. For an OFFER
   /// we have not downloaded: a small file downloads into the deniable volume
   /// directly; a LARGE file asks WHERE — the encrypted in-app tier, or a plain
@@ -1893,6 +1910,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       selected: _selected.contains(m.id),
                       selecting: _selecting,
                       onTapFile: _onTapFile,
+                      onOpenImage: _openImageGallery,
                       onLongPress: _showMessageActions,
                       onTap: _selecting ? () => _toggleSelected(m) : null,
                       onTapQuote: m.replyToId == null
@@ -2307,9 +2325,14 @@ class _ImagePreview extends ConsumerWidget {
     required this.name,
     this.thumbB64,
     this.onOpen,
+    this.onView,
   });
   final String fileKey;
   final String name;
+
+  /// Tap on the DOWNLOADED preview — the swipeable conversation gallery
+  /// (falls back to the single-image viewer when null).
+  final VoidCallback? onView;
 
   /// Embedded micro-thumb (base64 PNG travelling IN the message) — rendered
   /// blurred/upscaled while the blob itself is not yet downloaded.
@@ -2417,11 +2440,12 @@ class _ImagePreview extends ConsumerWidget {
           );
         }
         return GestureDetector(
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => _FullscreenImage(bytes: bytes, name: name),
-            ),
-          ),
+          onTap: onView ??
+              () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => _FullscreenImage(bytes: bytes, name: name),
+                    ),
+                  ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(10),
             child: ConstrainedBox(
@@ -2435,6 +2459,147 @@ class _ImagePreview extends ConsumerWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// One entry of the conversation media gallery: an image message, keyed the
+/// way the bubble keys its preview (fileId when held, else the contentId —
+/// an incoming content-path image keeps fileContentId even после download,
+/// its blob living under the hash; loadFile resolves both). [thumb] is the
+/// embedded micro-thumb, the fallback rendering for pages whose blob isn't
+/// downloaded yet.
+typedef GalleryItem = ({
+  String id,
+  String fileKey,
+  String name,
+  String? thumb,
+});
+
+/// The swipeable-gallery item set for a loaded conversation: every image
+/// message with a loadable key, in display order. Pure — unit-tested. Pages
+/// without local bytes degrade to the embedded thumb / a placeholder, so an
+/// offered-not-downloaded image doesn't break the swipe sequence.
+List<GalleryItem> conversationGalleryItems(List<Message> messages) => [
+      for (final msg in messages)
+        if (isImageFileName(msg.fileName) &&
+            (msg.fileId ?? msg.fileContentId) != null)
+          (
+            id: msg.id,
+            fileKey: (msg.fileId ?? msg.fileContentId)!,
+            name: msg.fileName ?? '',
+            thumb: msg.thumb,
+          ),
+    ];
+
+/// Swipeable full-screen gallery over every downloaded image of the
+/// conversation (media epic: "свайп между медиа"). Pages load their bytes
+/// from the encrypted store on demand; each page zooms independently. The
+/// app bar shows the current file name and the position in the set.
+class _MediaGallery extends ConsumerStatefulWidget {
+  const _MediaGallery({required this.items, required this.initialIndex});
+  final List<GalleryItem> items;
+  final int initialIndex;
+
+  @override
+  ConsumerState<_MediaGallery> createState() => _MediaGalleryState();
+}
+
+class _MediaGalleryState extends ConsumerState<_MediaGallery> {
+  late final PageController _page = PageController(
+    initialPage: widget.initialIndex,
+  );
+  late int _current = widget.initialIndex;
+
+  @override
+  void dispose() {
+    _page.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final item = widget.items[_current];
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: Text(item.name, overflow: TextOverflow.ellipsis),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: Center(
+              child: Text(
+                '${_current + 1}/${widget.items.length}',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleSmall
+                    ?.copyWith(color: Colors.white70),
+              ),
+            ),
+          ),
+        ],
+      ),
+      body: PageView.builder(
+        controller: _page,
+        itemCount: widget.items.length,
+        onPageChanged: (i) => setState(() => _current = i),
+        itemBuilder: (context, i) {
+          final it = widget.items[i];
+          return FutureBuilder<Uint8List?>(
+            future: ref.read(storageProvider).loadFile(it.fileKey),
+            builder: (context, snap) {
+              if (snap.connectionState != ConnectionState.done) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final bytes = snap.data;
+              if (bytes == null) {
+                // Not downloaded (offered) or vanished: degrade to the
+                // embedded micro-thumb when the message carries one, else an
+                // inert placeholder — never a crash or spinner.
+                Uint8List? thumb;
+                final tb = it.thumb;
+                if (tb != null) {
+                  try {
+                    thumb = base64Decode(tb);
+                  } catch (_) {
+                    thumb = null;
+                  }
+                }
+                if (thumb != null) {
+                  return ImageFiltered(
+                    imageFilter: ui.ImageFilter.blur(
+                      sigmaX: 6,
+                      sigmaY: 6,
+                      tileMode: TileMode.decal,
+                    ),
+                    child: Image.memory(
+                      thumb,
+                      fit: BoxFit.contain,
+                      gaplessPlayback: true,
+                    ),
+                  );
+                }
+                return const Center(
+                  child: Icon(
+                    Icons.image_not_supported_outlined,
+                    color: Colors.white38,
+                    size: 48,
+                  ),
+                );
+              }
+              return Center(
+                child: InteractiveViewer(
+                  minScale: 0.5,
+                  maxScale: 5,
+                  child: Image.memory(bytes, gaplessPlayback: true),
+                ),
+              );
+            },
+          );
+        },
+      ),
     );
   }
 }
@@ -2495,9 +2660,15 @@ class _Bubble extends ConsumerWidget {
     this.onLongPress,
     this.onTap,
     this.onTapQuote,
+    this.onOpenImage,
     this.highlight,
   });
   final Message message;
+
+  /// Tap on a DOWNLOADED inline image — the chat screen opens the swipeable
+  /// media gallery positioned on this message (null = fall back to the
+  /// single-image viewer).
+  final void Function(Message message)? onOpenImage;
 
   /// Active in-chat search query — occurrences in the body get a highlight
   /// background (null when not searching).
@@ -2672,6 +2843,9 @@ class _Bubble extends ConsumerWidget {
                     onOpen: onTapFile == null
                         ? null
                         : () => onTapFile!(message),
+                    onView: onOpenImage == null
+                        ? null
+                        : () => onOpenImage!(message),
                   )
                 else if (message.isFile)
                   FutureBuilder<_FileAffordance>(
