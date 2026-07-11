@@ -138,6 +138,34 @@ void main() {
     expect(hit.contentType, 'application/octet-stream');
   });
 
+  test('GET /v1/openapi.json returns a valid OpenAPI 3 doc with every path',
+      () async {
+    final res =
+        await make().handle('GET', u('/v1/openapi.json'), 'Bearer secret-token');
+    expect(res.status, 200);
+    final spec = res.body as Map<String, dynamic>;
+    expect(spec['openapi'], startsWith('3.'));
+    expect((spec['info'] as Map)['title'], isNotEmpty);
+    final paths = (spec['paths'] as Map).keys.toSet();
+    // Every implemented endpoint is documented (WS /events lives in the info).
+    expect(
+        paths,
+        containsAll(<String>[
+          '/health',
+          '/contacts',
+          '/messages',
+          '/files',
+          '/files/download',
+        ]));
+    // The security scheme is declared so generated clients wire the token.
+    expect(
+        ((spec['components'] as Map)['securitySchemes'] as Map)['bearerAuth'],
+        isNotNull);
+    // The spec itself is behind auth like every other route.
+    expect(
+        (await make().handle('GET', u('/v1/openapi.json'), null)).status, 401);
+  });
+
   test('an authenticated unknown route is 404, not 401', () async {
     final res =
         await make().handle('GET', u('/v1/nope'), 'Bearer secret-token');

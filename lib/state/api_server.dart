@@ -33,6 +33,204 @@ const int kApiPort = 8787;
 const String _kEnabledKey = 'api.enabled';
 const String _kTokenKey = 'api.token';
 
+/// The OpenAPI 3.0 contract for the implemented `/v1` surface, so a client can
+/// be generated in any language (`openapi-generator -i .../v1/openapi.json`).
+/// Hand-authored (small surface); kept in lockstep with [ApiHandler.handle].
+/// The realtime `/v1/events` WebSocket is described in `info.description`
+/// because OpenAPI 3.0 has no first-class WebSocket schema.
+Map<String, dynamic> openApiSpec() {
+  Map<String, dynamic> ok(Map<String, dynamic> schema) => {
+        '200': {
+          'description': 'OK',
+          'content': {
+            'application/json': {'schema': schema},
+          },
+        },
+      };
+  const obj = 'object';
+  return {
+    'openapi': '3.0.3',
+    'info': {
+      'title': 'xVeil Automation API',
+      'version': '1.0.0',
+      'description':
+          'Local, off-by-default, loopback-only API for bots/scripts. '
+              'Every request needs `Authorization: Bearer <token>`. '
+              'Realtime: connect a WebSocket to `/v1/events?token=<token>` to '
+              'receive incoming-message events '
+              '`{type:"message", from, preview, isFile}`.',
+    },
+    'servers': [
+      {'url': 'http://127.0.0.1:$kApiPort/v1'},
+    ],
+    'security': [
+      {'bearerAuth': <dynamic>[]},
+    ],
+    'components': {
+      'securitySchemes': {
+        'bearerAuth': {'type': 'http', 'scheme': 'bearer'},
+      },
+      'schemas': {
+        'Contact': {
+          'type': obj,
+          'properties': {
+            'nodeId': {'type': 'string'},
+            'short': {'type': 'string'},
+            'name': {'type': 'string'},
+          },
+        },
+        'Message': {
+          'type': obj,
+          'properties': {
+            'id': {'type': 'string'},
+            'body': {'type': 'string'},
+            'direction': {
+              'type': 'string',
+              'enum': ['incoming', 'outgoing'],
+            },
+            'sentAt': {'type': 'integer', 'format': 'int64'},
+            'status': {'type': 'string'},
+            'fileName': {'type': 'string'},
+            'fileId': {'type': 'string'},
+          },
+        },
+      },
+    },
+    'paths': {
+      '/health': {
+        'get': {
+          'summary': 'Node / account status',
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'ok': {'type': 'boolean'},
+              'nodeId': {'type': 'string'},
+              'short': {'type': 'string'},
+              'api': {'type': 'string'},
+            },
+          }),
+        },
+      },
+      '/contacts': {
+        'get': {
+          'summary': 'Accepted contacts',
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'contacts': {
+                'type': 'array',
+                'items': {r'$ref': '#/components/schemas/Contact'},
+              },
+            },
+          }),
+        },
+      },
+      '/messages': {
+        'get': {
+          'summary': 'Recent messages of a conversation',
+          'parameters': [
+            {
+              'name': 'peer',
+              'in': 'query',
+              'required': true,
+              'schema': {'type': 'string'},
+            },
+            {
+              'name': 'limit',
+              'in': 'query',
+              'schema': {'type': 'integer', 'default': 50},
+            },
+          ],
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'messages': {
+                'type': 'array',
+                'items': {r'$ref': '#/components/schemas/Message'},
+              },
+            },
+          }),
+        },
+        'post': {
+          'summary': 'Send a text message',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['to', 'body'],
+                  'properties': {
+                    'to': {'type': 'string'},
+                    'body': {'type': 'string'},
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'ok': {'type': 'boolean'},
+            },
+          }),
+        },
+      },
+      '/files': {
+        'post': {
+          'summary': 'Send a local file to a peer (streamed)',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['to', 'path'],
+                  'properties': {
+                    'to': {'type': 'string'},
+                    'path': {'type': 'string'},
+                    'name': {'type': 'string'},
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'ok': {'type': 'boolean'},
+            },
+          }),
+        },
+      },
+      '/files/download': {
+        'get': {
+          'summary': 'Download a stored file blob by id',
+          'parameters': [
+            {
+              'name': 'fileId',
+              'in': 'query',
+              'required': true,
+              'schema': {'type': 'string'},
+            },
+          ],
+          'responses': {
+            '200': {
+              'description': 'File bytes',
+              'content': {
+                'application/octet-stream': {
+                  'schema': {'type': 'string', 'format': 'binary'},
+                },
+              },
+            },
+            '404': {'description': 'Unknown file id'},
+          },
+        },
+      },
+    },
+  };
+}
+
 /// Persisted API state: whether the server runs, and the bearer token clients
 /// must present. The token lives in the deniable store, never in plaintext prefs.
 class ApiConfig {
@@ -121,6 +319,9 @@ class ApiHandler {
       return const ApiResponse(401, {'error': 'unauthorized'});
     }
     final path = uri.path;
+    if (method == 'GET' && path == '/v1/openapi.json') {
+      return ApiResponse(200, openApiSpec());
+    }
     if (method == 'GET' && path == '/v1/health') {
       return ApiResponse(200, status());
     }
