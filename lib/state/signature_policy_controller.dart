@@ -1,9 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../domain/chat.dart' show SignaturePolicy;
+import 'device_settings_sync.dart';
 import 'providers.dart';
 
-const _kSignaturePolicyKey = 'signature_policy';
+const _kSignaturePolicyKey = kSyncSignaturePolicy;
 
 /// Default for [signaturePolicyProvider] and the value used when prefs are
 /// unavailable (tests): prompt each time.
@@ -41,6 +42,10 @@ class SignaturePolicyController extends Notifier<SignaturePolicy> {
   Future<void> set(SignaturePolicy value) async {
     _userSet = true;
     state = value;
+    // Device sync: the attestation answer policy is an identity-level choice.
+    ref
+        .read(deviceSettingsSyncHubProvider)
+        .notifyLocalSet(kSyncSignaturePolicy, value.name);
     try {
       final prefs = await ref.read(prefsProvider.future);
       await prefs.setString(_kSignaturePolicyKey, value.name);

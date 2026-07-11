@@ -1,0 +1,150 @@
+// Multi-device bridge, brick 4 (doc/MULTIDEVICE-DESIGN.md): contacts, app
+// settings and the call journal ride the device group the same way brick 3
+// mirrors 1:1 messages. EMIT taps fire only on LOCAL changes (each apply path
+// writes below its tap), so nothing a device applies ever echoes back; APPLY
+// consumes the same [GroupService.deviceIncoming] stream as the msgMirror
+// bridge (which lives with the service itself in group_service.dart).
+//
+// Events can arrive in any order (catch-up snapshots, re-drives), so applies
+// are gated by a newest-wins timestamp per (kind, key) — the in-RAM twin of
+// foldDeviceSync's LWW rule; storage-level idempotence backstops a restart.
+
+import 'dart:async';
+import 'dart:ui' show Locale;
+
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../core/ids.dart';
+import '../domain/call_log.dart';
+import '../domain/chat.dart' show SignaturePolicy;
+import '../domain/device_sync.dart';
+import 'call_log.dart';
+import 'device_settings_sync.dart';
+import 'group_service.dart';
+import 'locale_controller.dart';
+import 'messaging.dart';
+import 'reactions_visibility_controller.dart';
+import 'signature_policy_controller.dart';
+
+/// Wires the brick-4 sync kinds. Eagerly watched from the app scope (next to
+/// [groupServiceProvider]); rebuilds with the service on identity switch.
+final deviceSyncBridgeProvider = Provider<void>((ref) {
+  final svc = ref.watch(groupServiceProvider);
+  if (svc == null) return;
+  final messaging = ref.read(messagingServiceProvider);
+  final hub = ref.read(deviceSettingsSyncHubProvider);
+  final callLog = ref.read(callLogStoreProvider);
+
+  // The settings allowlist: registering an applier is what admits a key.
+  hub.register(
+    kSyncShowReactions,
+    (v) => ref.read(showReactionsProvider.notifier).set(v == '1'),
+  );
+  hub.register(
+    kSyncLocale,
+    (v) => ref
+        .read(localeProvider.notifier)
+        .setLocale(v.isEmpty ? null : Locale(v)),
+  );
+  hub.register(kSyncSignaturePolicy, (v) async {
+    SignaturePolicy? policy;
+    for (final p in SignaturePolicy.values) {
+      if (p.name == v) policy = p;
+    }
+    if (policy == null) return; // newer vocabulary — skip, don't guess
+    await ref.read(signaturePolicyProvider.notifier).set(policy);
+  });
+
+  // ── EMIT: local change → device-group event ───────────────────────────────
+  // Monotonic emit stamps: two edits inside the same wall-clock millisecond
+  // (e.g. a hook or a settings screen flipping two fields back-to-back) must
+  // still be ordered, or the LWW fold ranks them by payload instead of by
+  // which came last. Caught live in the brick-4 device verify.
+  var lastEmitMs = 0;
+  int nextTs() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    lastEmitMs = now > lastEmitMs ? now : lastEmitMs + 1;
+    return lastEmitMs;
+  }
+
+  messaging.onContactPrefsChanged = (c) {
+    unawaited(svc.postDeviceEvent(DeviceSyncEvent(
+      kind: DeviceSyncKind.contactUp,
+      key: c.nodeId.hex,
+      tsMs: nextTs(),
+      payload: {
+        'name': c.name,
+        'mutedMs': c.mutedUntil?.millisecondsSinceEpoch,
+        'pin': c.pinned,
+        'arc': c.archived,
+        'ret': c.retentionDays,
+        'apd': c.allowPeerDelete,
+      },
+    )));
+  };
+  hub.onLocalSet = (key, value) {
+    unawaited(svc.postDeviceEvent(DeviceSyncEvent(
+      kind: DeviceSyncKind.settingSet,
+      key: key,
+      tsMs: nextTs(),
+      payload: {'v': value},
+    )));
+  };
+  callLog.onAdded = (e) {
+    unawaited(svc.postDeviceEvent(DeviceSyncEvent(
+      kind: DeviceSyncKind.callLog,
+      key: e.id,
+      tsMs: e.atMs,
+      payload: e.toJson(),
+    )));
+  };
+
+  // ── APPLY: device-group event → local state, newest-wins per (kind, key),
+  // ranked exactly like foldDeviceSync (same-millisecond edits tie-break on
+  // payload — a bare timestamp compare would drop the fold's winner).
+  final lastApplied = <String, DeviceSyncEvent>{};
+  bool newest(DeviceSyncEvent e) {
+    final k = '${e.kind.name}|${e.key}';
+    final prev = lastApplied[k];
+    if (prev != null && !isNewerDeviceSync(e, prev)) return false;
+    lastApplied[k] = e;
+    return true;
+  }
+
+  final sub = svc.deviceIncoming.listen((gm) {
+    final e = DeviceSyncEvent.fromBody(gm.body);
+    if (e == null || !newest(e)) return;
+    switch (e.kind) {
+      case DeviceSyncKind.contactUp:
+        final NodeId peer;
+        try {
+          peer = NodeId.fromHex(e.key);
+        } catch (_) {
+          return; // malformed key from a newer/buggy device — skip silently
+        }
+        final name = e.payload['name'], muted = e.payload['mutedMs'];
+        final ret = e.payload['ret'];
+        unawaited(messaging.applyMirroredContact(
+          peer: peer,
+          name: name is String && name.isNotEmpty ? name : null,
+          mutedUntilMs: muted is int ? muted : null,
+          pinned: e.payload['pin'] == true,
+          archived: e.payload['arc'] == true,
+          retentionDays: ret is int ? ret : null,
+          allowPeerDelete: e.payload['apd'] != false,
+        ));
+      case DeviceSyncKind.settingSet:
+        final v = e.payload['v'];
+        if (v is String) unawaited(hub.applyIncoming(e.key, v));
+      case DeviceSyncKind.callLog:
+        final entry = CallLogEntry.fromJson(e.payload);
+        if (entry != null && entry.id == e.key) {
+          unawaited(callLog.addMirrored(entry));
+        }
+      case DeviceSyncKind.msgMirror:
+      case DeviceSyncKind.readMark:
+        break; // msgMirror is applied by the group_service bridge (brick 3)
+    }
+  });
+  ref.onDispose(sub.cancel);
+});

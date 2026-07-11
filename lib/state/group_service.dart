@@ -884,12 +884,23 @@ class GroupService {
         target: device);
   }
 
+  /// Serializes [postDeviceEvent] appends: sync emits are fire-and-forget
+  /// (message taps, settings toggles, journal rows), so two can race the
+  /// group log's read-modify-write and the later save silently drops the
+  /// earlier append. Caught live in the brick-4 device verify (pin landed,
+  /// the same-call archive edit vanished from BOTH devices' folds).
+  Future<void> _devicePostChain = Future.value();
+
   /// Append a sync event to my device group's log (no-op false when no
-  /// device group exists yet).
-  Future<bool> postDeviceEvent(DeviceSyncEvent e) async {
-    final hex = await deviceGroupIdHex();
-    if (hex == null) return false;
-    return postMessage(NodeId.fromHex(hex), e.toBody());
+  /// device group exists yet). Concurrent calls are applied in order.
+  Future<bool> postDeviceEvent(DeviceSyncEvent e) {
+    final done = _devicePostChain.then((_) async {
+      final hex = await deviceGroupIdHex();
+      if (hex == null) return false;
+      return postMessage(NodeId.fromHex(hex), e.toBody());
+    });
+    _devicePostChain = done.then((_) {}, onError: (_) {});
+    return done;
   }
 
   /// The folded device-sync state: newest event per (kind, key), from the
