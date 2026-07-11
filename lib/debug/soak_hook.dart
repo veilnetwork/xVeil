@@ -24,6 +24,7 @@ import '../domain/chat.dart';
 import '../domain/group.dart';
 import '../domain/group_policy.dart';
 import '../state/group_crypto.dart';
+import '../state/group_service.dart';
 import '../routing/router.dart';
 import '../state/app_controller.dart';
 import '../state/call_service.dart';
@@ -206,6 +207,18 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/group_selftest':
           await _groupSelftestHook(req);
+          return;
+        case '/group_create':
+          await _groupCreateHook(req);
+          return;
+        case '/group_op':
+          await _groupOpHook(req);
+          return;
+        case '/group_post':
+          await _groupPostHook(req);
+          return;
+        case '/group_state':
+          await _groupStateHook(req);
           return;
         case '/play_vnote':
           await _playVnoteHook(req);
@@ -502,6 +515,86 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'positionMs': st.positionMs,
       'paused': st.paused,
       'frameW': ctrl.frame.value?.width ?? 0,
+    });
+  }
+
+  GroupService? _groupSvc() => ref.read(groupServiceProvider);
+
+  /// Create a group named ?name= with the real identity; report id + members.
+  Future<void> _groupCreateHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final name = req.uri.queryParameters['name']?.trim() ?? 'Group';
+    final gid = await svc.createGroup(name);
+    final st = await svc.stateOf(gid);
+    return _json(req, {
+      'ok': true,
+      'groupId': gid.hex,
+      'members': st?.members.length ?? 0,
+    });
+  }
+
+  /// Apply a control op: ?group=&op=addMember&target=<hex>&role=member.
+  Future<void> _groupOpHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final q = req.uri.queryParameters;
+    final gidHex = q['group'];
+    final op = ControlOp.fromName(q['op']);
+    if (gidHex == null || op == null) {
+      return _json(req, {'ok': false, 'error': 'bad group/op'});
+    }
+    NodeId? target;
+    if (q['target'] != null) {
+      try {
+        target = NodeId.fromHex(q['target']!);
+      } catch (_) {}
+    }
+    final role = GroupRole.fromName(q['role']);
+    final gid = NodeId.fromHex(gidHex);
+    final applied =
+        await svc.addControlOp(gid, op, target: target, role: role);
+    final st = await svc.stateOf(gid);
+    return _json(req, {
+      'ok': applied,
+      'members': st?.members.length ?? 0,
+      'epoch': st?.epoch ?? 0,
+    });
+  }
+
+  /// Post a message: ?group=&body=; reports success + total validated msgs.
+  Future<void> _groupPostHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final q = req.uri.queryParameters;
+    final gidHex = q['group'];
+    if (gidHex == null) return _json(req, {'ok': false, 'error': 'no group'});
+    final gid = NodeId.fromHex(gidHex);
+    final posted = await svc.postMessage(gid, q['body'] ?? '');
+    final msgs = await svc.messagesOf(gid);
+    return _json(req, {'ok': posted, 'messages': msgs.length});
+  }
+
+  /// Snapshot: ?group= → members/epoch/policyVersion + validated msg bodies.
+  Future<void> _groupStateHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final gidHex = req.uri.queryParameters['group'];
+    if (gidHex == null) return _json(req, {'ok': false, 'error': 'no group'});
+    final gid = NodeId.fromHex(gidHex);
+    final st = await svc.stateOf(gid);
+    if (st == null) return _json(req, {'ok': false, 'error': 'unknown group'});
+    final msgs = await svc.messagesOf(gid);
+    return _json(req, {
+      'ok': true,
+      'members': st.members.length,
+      'epoch': st.epoch,
+      'policyVersion': st.policyVersion,
+      'bodies': [for (final m in msgs) m.body],
     });
   }
 
