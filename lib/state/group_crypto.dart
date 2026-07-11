@@ -10,6 +10,7 @@ import 'dart:ffi';
 import '../data/node/embedded_node.dart';
 import '../domain/group.dart';
 import '../domain/group_message.dart';
+import '../domain/group_reaction.dart';
 
 /// Sign [unsigned] with the identity in [identityToml], returning a copy with
 /// its signature + author public key filled. The signature is over
@@ -73,6 +74,36 @@ bool verifyGroupMessage(GroupMessage m, {DynamicLibrary? lib}) {
       publicKey: m.authorPubKey,
       message: m.canonicalBytes(),
       signature: m.signature,
+      lib: lib,
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+/// Sign a group reaction with the identity in [identityToml].
+GroupReaction signGroupReaction({
+  required String identityToml,
+  required GroupReaction unsigned,
+  DynamicLibrary? lib,
+}) {
+  final res = EmbeddedNode.signMessage(
+    identityToml,
+    unsigned.canonicalBytes(),
+    lib: lib,
+  );
+  return unsigned.withSignature(res.signature, res.publicKey);
+}
+
+/// Verify a group reaction: ed25519 over its canonical bytes, node-id-bound.
+bool verifyGroupReaction(GroupReaction r, {DynamicLibrary? lib}) {
+  if (r.authorPubKey.length != 32 || r.signature.length != 64) return false;
+  try {
+    return EmbeddedNode.verifyMessage(
+      nodeId: r.author.bytes,
+      publicKey: r.authorPubKey,
+      message: r.canonicalBytes(),
+      signature: r.signature,
       lib: lib,
     );
   } catch (_) {

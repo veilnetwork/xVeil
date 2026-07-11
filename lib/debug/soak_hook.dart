@@ -228,6 +228,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/group_leave':
           await _groupLeaveHook(req);
           return;
+        case '/group_react':
+          await _groupReactHook(req);
+          return;
         case '/api_enable':
           await _apiEnableHook(req);
           return;
@@ -682,6 +685,32 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     return _json(req, {'ok': left, 'stillListed': listed});
   }
 
+  /// Toggle a reaction ?emoji= on the LAST message of ?group=. Reports the
+  /// aggregated reactions on that message so a 2-device test can confirm counts.
+  Future<void> _groupReactHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final q = req.uri.queryParameters;
+    final gidHex = q['group'];
+    if (gidHex == null) return _json(req, {'ok': false, 'error': 'no group'});
+    final gid = NodeId.fromHex(gidHex);
+    final msgs = await svc.messagesOf(gid);
+    if (msgs.isEmpty) {
+      return _json(req, {'ok': false, 'error': 'nothing to react to'});
+    }
+    final ref = msgs.last.ref;
+    final ok = await svc.react(gid, ref, q['emoji'] ?? '👍');
+    final agg = await svc.reactionsOf(gid);
+    return _json(req, {
+      'ok': ok,
+      'target': ref,
+      'reactions': {
+        for (final e in (agg[ref] ?? const {}).entries) e.key: e.value.length,
+      },
+    });
+  }
+
   /// Post a message replying to the LAST message in ?group= (?body=). Reports
   /// the reply ref so a 2-device test can confirm the quote resolves.
   Future<void> _groupPostReplyHook(HttpRequest req) async {
@@ -805,6 +834,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final st = await svc.stateOf(gid);
     if (st == null) return _json(req, {'ok': false, 'error': 'unknown group'});
     final msgs = await svc.messagesOf(gid);
+    final reacts = await svc.reactionsOf(gid);
     return _json(req, {
       'ok': true,
       'members': st.members.length,
@@ -816,6 +846,10 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           if (m.attachment != null)
             {'w': m.attachment!.w, 'h': m.attachment!.h}
       ],
+      'reactions': {
+        for (final e in reacts.entries)
+          e.key: {for (final r in e.value.entries) r.key: r.value.length},
+      },
     });
   }
 
