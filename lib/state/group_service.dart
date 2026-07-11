@@ -278,7 +278,7 @@ class GroupService {
   /// non-muted member. An optional inline [attachment] rides inside the signed
   /// message (groups media brick 1) — no separate content fetch.
   Future<bool> postMessage(NodeId groupId, String body,
-      {GroupAttachment? attachment}) async {
+      {GroupAttachment? attachment, String? replyTo}) async {
     final b = await load(groupId);
     if (b == null) return false;
     final state = foldControlLog(
@@ -300,6 +300,7 @@ class GroupService {
       createdAtMs: _now(),
       signature: Uint8List(0),
       attachment: attachment,
+      replyTo: replyTo,
     );
     final signed = _signer.signMessage(unsigned);
     await _save(GroupBundle(

@@ -289,6 +289,30 @@ void main() {
     expect((delta['c'] as List).length, 1, reason: 'just the mute entry');
   });
 
+  test('replyTo is signed + round-trips; a plain message omits it', () {
+    GroupMessage base({String? rt}) => GroupMessage(
+          groupId: _id(2),
+          author: owner,
+          seq: 1,
+          prevHash: '',
+          body: 'reply body',
+          policyVersion: 0,
+          createdAtMs: 9,
+          signature: Uint8List(0),
+          replyTo: rt,
+        );
+    final withReply = base(rt: '${bob.hex}:3').canonicalBytes();
+    final plain = base().canonicalBytes();
+    expect(withReply, isNot(equals(plain)),
+        reason: 'the reply ref is inside the signed bytes (tamper-evident)');
+    expect(String.fromCharCodes(plain).contains('"rt"'), isFalse,
+        reason: 'a non-reply message signs as before the field existed');
+    final rt = GroupMessage.fromJson(base(rt: '${bob.hex}:3').toJson())!;
+    expect(rt.replyTo, '${bob.hex}:3');
+    // The ref of a message resolves to its (author, seq) identity.
+    expect(base().ref, '${owner.hex}:1');
+  });
+
   test('a delta merges on a peer that already has the group', () async {
     // Owner device.
     final s1 = FakeHvContainer().storage();
