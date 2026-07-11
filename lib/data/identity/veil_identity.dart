@@ -13,3 +13,16 @@ bool veilPhraseValid(String phrase) {
     return false;
   }
 }
+
+/// Mint a FRESH 24-word master phrase via the native generator (new random
+/// master seed + veil's checksum; the seed zeroizes inside the call — the
+/// phrase is its only representation). Returns null when the native library
+/// is unavailable (tests/loopback) so callers can degrade honestly instead
+/// of showing a fake phrase.
+String? veilGeneratePhrase() {
+  try {
+    return veil.generateMasterPhrase();
+  } catch (_) {
+    return null;
+  }
+}
