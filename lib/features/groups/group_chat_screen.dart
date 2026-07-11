@@ -20,8 +20,10 @@ import '../../l10n/app_localizations.dart';
 import '../../state/group_service.dart';
 import '../../state/messaging.dart' show conversationsProvider;
 import '../../state/providers.dart';
+import '../../state/reactions_visibility_controller.dart';
 import '../../state/sticker_store.dart';
 import '../../state/thumbnail.dart';
+import '../chat/reactors_sheet.dart';
 import '../chat/sticker_panel.dart';
 
 class GroupChatScreen extends ConsumerStatefulWidget {
@@ -61,35 +63,38 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     return (msgs, reacts);
   }
 
-  /// Long-press on a message: quick-react emojis + a Reply action.
+  /// Long-press on a message: quick-react emojis + a Reply action. The emoji
+  /// bar honors the "show reactions" display preference.
   Future<void> _showMessageMenu(GroupService svc, GroupMessage m) async {
     final l = AppL10n.of(context);
+    final showReactions = ref.read(showReactionsProvider);
     await showModalBottomSheet<void>(
       context: context,
       builder: (sheetCtx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Wrap(
-                alignment: WrapAlignment.center,
-                children: [
-                  for (final e in _quickEmojis)
-                    InkWell(
-                      onTap: () {
-                        Navigator.of(sheetCtx).pop();
-                        svc.react(_gid, m.ref, e);
-                      },
-                      borderRadius: BorderRadius.circular(24),
-                      child: Padding(
-                        padding: const EdgeInsets.all(10),
-                        child: Text(e, style: const TextStyle(fontSize: 26)),
+            if (showReactions)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Wrap(
+                  alignment: WrapAlignment.center,
+                  children: [
+                    for (final e in _quickEmojis)
+                      InkWell(
+                        onTap: () {
+                          Navigator.of(sheetCtx).pop();
+                          svc.react(_gid, m.ref, e);
+                        },
+                        borderRadius: BorderRadius.circular(24),
+                        child: Padding(
+                          padding: const EdgeInsets.all(10),
+                          child: Text(e, style: const TextStyle(fontSize: 26)),
+                        ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
-            ),
             ListTile(
               leading: const Icon(Icons.reply),
               title: Text(l.groupReply),
@@ -102,6 +107,27 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
         ),
       ),
     );
+  }
+
+  /// Display name for a reactor: me → "You", a known contact → its alias,
+  /// otherwise the short node id (group members need not be contacts).
+  String _reactorName(NodeId id, GroupService svc, AppL10n l) {
+    if (id == svc.selfId) return l.reactorsYou;
+    final convos =
+        ref.read(conversationsProvider).valueOrNull ?? const <Conversation>[];
+    for (final c in convos) {
+      if (c.peer.nodeId == id) return c.peer.label;
+    }
+    return id.short;
+  }
+
+  /// Long-press on a reaction chip: who set what on this message.
+  Future<void> _showReactors(GroupService svc, MessageReactions r) {
+    final l = AppL10n.of(context);
+    return showReactorsSheet(context, namesByEmoji: {
+      for (final e in r.entries)
+        e.key: [for (final n in e.value) _reactorName(n, svc, l)],
+    });
   }
 
   Future<void> _send(GroupService svc) async {
@@ -527,8 +553,10 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                 future: _loadFeed(svc),
                 builder: (context, snap) {
                   final msgs = snap.data?.$1 ?? const <GroupMessage>[];
-                  final reacts =
-                      snap.data?.$2 ?? const <String, MessageReactions>{};
+                  final showReactions = ref.watch(showReactionsProvider);
+                  final reacts = !showReactions
+                      ? const <String, MessageReactions>{}
+                      : snap.data?.$2 ?? const <String, MessageReactions>{};
                   if (msgs.isEmpty) {
                     return Center(child: Text(l.groupNoMessages));
                   }
@@ -547,6 +575,10 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                         reactions: reacts[m.ref],
                         onLongPress: () => _showMessageMenu(svc, m),
                         onToggleReaction: (e) => svc.react(_gid, m.ref, e),
+                        onShowReactors: () {
+                          final r = reacts[m.ref];
+                          if (r != null && r.isNotEmpty) _showReactors(svc, r);
+                        },
                       );
                     },
                   );
@@ -609,6 +641,7 @@ class _GroupBubble extends StatelessWidget {
     this.reactions,
     this.onLongPress,
     this.onToggleReaction,
+    this.onShowReactors,
   });
   final GroupMessage message;
   final bool mine;
@@ -626,6 +659,9 @@ class _GroupBubble extends StatelessWidget {
   /// Tap a reaction chip to toggle that emoji.
   final void Function(String emoji)? onToggleReaction;
 
+  /// Long-press (or right-click) a reaction chip: show who reacted.
+  final VoidCallback? onShowReactors;
+
   /// The reaction chips shown under the bubble (empty widget if none).
   Widget _reactionChips(BuildContext context) {
     final r = reactions;
@@ -642,6 +678,8 @@ class _GroupBubble extends StatelessWidget {
           for (final e in entries)
             InkWell(
               onTap: () => onToggleReaction?.call(e.key),
+              onLongPress: onShowReactors,
+              onSecondaryTap: onShowReactors,
               borderRadius: BorderRadius.circular(12),
               child: Container(
                 padding:
