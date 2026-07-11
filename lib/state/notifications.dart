@@ -6,6 +6,7 @@ import '../core/ids.dart';
 import '../core/log.dart';
 import '../data/notifications/notification_service.dart';
 import '../routing/router.dart';
+import 'group_service.dart' show groupServiceProvider;
 import 'messaging.dart';
 import 'providers.dart';
 
@@ -118,9 +119,13 @@ final notificationServiceProvider = Provider<NotificationService>((ref) {
         // go() alone REPLACES the stack: the chat would open with no back
         // button (user-reported on desktop). Root the stack at home first,
         // then push — back leads to the chat list, like a normal open.
+        // A `group:<hex>` payload opens the group chat instead of a 1:1.
+        final route = payload.startsWith('group:')
+            ? '/group/${payload.substring(6)}'
+            : '/chat/$payload';
         ref.read(routerProvider)
           ..go('/home')
-          ..push('/chat/$payload');
+          ..push(route);
       }
     },
     onReply: (payload, text) {
@@ -131,6 +136,17 @@ final notificationServiceProvider = Provider<NotificationService>((ref) {
       // single-identity case; a reply from a since-switched identity would go
       // from the wrong one).
       try {
+        if (payload.startsWith('group:')) {
+          final gidHex = payload.substring(6);
+          final svc = ref.read(groupServiceProvider);
+          if (svc != null) {
+            unawaited(svc.postMessage(NodeId.fromHex(gidHex), text));
+          }
+          ref.read(routerProvider)
+            ..go('/home')
+            ..push('/group/$gidHex');
+          return;
+        }
         final peer = NodeId.fromHex(payload);
         unawaited(ref.read(messagingServiceProvider).sendText(peer, text));
         // Same stack-rooting as onTap: never land in a chat with no way back.

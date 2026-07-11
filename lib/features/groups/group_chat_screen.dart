@@ -2,6 +2,7 @@
 // composer that posts (auto-fanned to members by the service). The member
 // count sits in the app bar; an overflow menu opens the member sheet.
 
+import 'dart:async' show unawaited;
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -20,6 +21,7 @@ import '../../l10n/app_localizations.dart';
 import '../../state/group_service.dart';
 import '../../state/messaging.dart'
     show conversationsProvider, contentProgressProvider, messagingServiceProvider;
+import '../../state/notifications.dart' show activeConversationProvider;
 import '../../state/providers.dart';
 import '../../state/reactions_visibility_controller.dart';
 import '../../state/sticker_store.dart';
@@ -49,7 +51,23 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   GroupMessage? _replyTarget;
 
   @override
+  void initState() {
+    super.initState();
+    // Mark this group as the actively-viewed conversation so the notification
+    // layer never alerts for the chat on screen (post-frame: a provider must
+    // not be written during build).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(activeConversationProvider.notifier).state =
+          'group:${widget.groupIdHex}';
+    });
+  }
+
+  @override
   void dispose() {
+    if (ref.read(activeConversationProvider) == 'group:${widget.groupIdHex}') {
+      ref.read(activeConversationProvider.notifier).state = null;
+    }
     _input.dispose();
     super.dispose();
   }
@@ -67,6 +85,9 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       GroupService svc) async {
     final msgs = await svc.messagesOf(_gid);
     final reacts = await svc.reactionsOf(_gid);
+    // Everything rendered is read — advance the unread watermark (covers both
+    // opening the chat and messages arriving while it is open).
+    unawaited(svc.markGroupSeen(_gid));
     return (msgs, reacts);
   }
 

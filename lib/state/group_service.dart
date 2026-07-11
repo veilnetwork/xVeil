@@ -221,8 +221,9 @@ class GroupService {
   /// without deleting its blob — the stored data lingers deniably and a fresh
   /// re-add simply folds us back in. (An admin-removal we never received doesn't
   /// hide the group on our side: we don't learn we were removed — no oracle.)
-  Future<List<({NodeId groupId, String name})>> listGroups() async {
-    final out = <({NodeId groupId, String name})>[];
+  Future<List<({NodeId groupId, String name, int unread})>>
+      listGroups() async {
+    final out = <({NodeId groupId, String name, int unread})>[];
     for (final hex in await _index()) {
       try {
         final b = await load(NodeId.fromHex(hex));
@@ -234,7 +235,11 @@ class GroupService {
           initialName: b.manifest.name,
         ).state;
         if (state.isMember(_signer.selfId)) {
-          out.add((groupId: b.manifest.groupId, name: state.name));
+          out.add((
+            groupId: b.manifest.groupId,
+            name: state.name,
+            unread: await unreadOf(b.manifest.groupId),
+          ));
         }
       } catch (_) {}
     }
@@ -705,9 +710,16 @@ class GroupService {
         control.add(e);
       }
     }
+    final fresh = <GroupMessage>[];
     for (final m in inMsgs) {
       if (!messages.any((x) => x.author == m.author && x.seq == m.seq)) {
         messages.add(m);
+        // Feed the notification/unread layer: genuinely new, not ours, and
+        // signature-verified (a forged entry must not buzz the phone even
+        // though the fold would drop it on read anyway).
+        if (m.author != _signer.selfId && _signer.verifyMessage(m)) {
+          fresh.add(m);
+        }
       }
     }
     for (final r in inReactions) {
@@ -730,7 +742,35 @@ class GroupService {
         await _setIndex(idx);
       }
     }
+    for (final m in fresh) {
+      _incomingCtl.add((groupId: man.groupId, message: m));
+    }
     return true;
+  }
+
+  /// Genuinely-NEW inbound messages (post-dedup, signature-verified, not
+  /// self-authored) — the notification/unread layer's feed, symmetric to
+  /// MessagingService.incoming.
+  final StreamController<({NodeId groupId, GroupMessage message})>
+      _incomingCtl = StreamController.broadcast();
+  Stream<({NodeId groupId, GroupMessage message})> get incoming =>
+      _incomingCtl.stream;
+
+  /// Mark [groupId] read "as of now" — the unread watermark the open group
+  /// screen advances. A local display preference, not group state.
+  Future<void> markGroupSeen(NodeId groupId) =>
+      _storage.putSetting('group.seen:${groupId.hex}', '${_now()}');
+
+  /// How many VALIDATED messages of [groupId] are newer than the seen
+  /// watermark and not self-authored.
+  Future<int> unreadOf(NodeId groupId) async {
+    final wm = int.tryParse(
+            await _storage.getSetting('group.seen:${groupId.hex}') ?? '') ??
+        0;
+    final msgs = await messagesOf(groupId);
+    return msgs
+        .where((m) => m.createdAtMs > wm && m.author != selfId)
+        .length;
   }
 
   /// Fan the current FULL snapshot of [groupId] out to every OTHER member
