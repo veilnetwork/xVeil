@@ -622,6 +622,105 @@ void main() {
         reason: 'no membership oracle — a stranger gets nothing');
   });
 
+  test('gap-fill G1 remainder: a LOST reaction converges from the sync-vector '
+      'exchange; a legacy vector without the r-key over-ships but dedups',
+      () async {
+    final sOwner = FakeHvContainer().storage();
+    await sOwner.open(password: 'pw', createIfMissing: true);
+    final sBob = FakeHvContainer().storage();
+    await sBob.open(password: 'pw', createIfMissing: true);
+    final toBob = <String>[], toOwner = <String>[];
+    final ownerSvc = GroupService(sOwner, _FakeSigner(owner),
+        send: (p, g, j) async => (p == bob ? toBob : toOwner).add(j));
+    final bobSvc = GroupService(sBob, _FakeSigner(bob),
+        send: (p, g, j) async => toOwner.add(j));
+
+    final gid = await ownerSvc.createGroup('g1rx');
+    await ownerSvc.addControlOp(gid, ControlOp.addMember,
+        target: bob, role: GroupRole.member);
+    await ownerSvc.postMessage(gid, 'react-target');
+    for (var i = 0; i < 6; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    for (final j in toBob) {
+      await bobSvc.ingestSnapshot(j);
+    }
+    expect((await bobSvc.messagesOf(gid)).length, 1);
+
+    // The owner's reaction is stored but its delta is LOST (broadcast off).
+    final ref = (await ownerSvc.messagesOf(gid)).last.ref;
+    expect(await ownerSvc.react(gid, ref, '🔥', broadcast: false), isTrue);
+    expect(await bobSvc.reactionsOf(gid), isEmpty,
+        reason: 'precondition: bob never saw the reaction delta');
+
+    // Bob's boot vector → the reply carries ONLY the missing reaction.
+    toBob.clear();
+    final req = (await bobSvc.buildGroupSyncRequest(gid))!;
+    expect(await ownerSvc.ingestGroupEntry(bob, jsonEncode(req)), isTrue);
+    expect(toBob, hasLength(1));
+    final reply = jsonDecode(toBob.single) as Map;
+    expect(reply['g'] as List, isEmpty, reason: 'messages are in sync');
+    expect(reply['c'] as List, isEmpty, reason: 'control is in sync');
+    expect(reply['r'] as List, hasLength(1));
+    await bobSvc.ingestSnapshot(toBob.single);
+    final agg = await bobSvc.reactionsOf(gid);
+    expect(agg[ref]?['🔥']?.map((n) => n.hex), contains(owner.hex));
+
+    // Converged → the same exchange now stays silent.
+    toBob.clear();
+    final req2 = (await bobSvc.buildGroupSyncRequest(gid))!;
+    expect(await ownerSvc.ingestGroupEntry(bob, jsonEncode(req2)), isFalse);
+    expect(toBob, isEmpty);
+
+    // A LEGACY requester (no 'r' key) gets every reaction re-shipped; the
+    // (author, seq) ingest dedup keeps the fold at exactly one reactor.
+    final legacy = Map<String, dynamic>.of(req2)..remove('r');
+    expect(await ownerSvc.ingestGroupEntry(bob, jsonEncode(legacy)), isTrue);
+    expect(toBob, hasLength(1));
+    await bobSvc.ingestSnapshot(toBob.single);
+    expect((await bobSvc.reactionsOf(gid))[ref]?['🔥']?.length, 1,
+        reason: 'over-shipped reaction dedups by (author, seq)');
+  });
+
+  test('gap-fill heals a lost FIRST entry (seq 0) of an author — with the old '
+      '0-floor vector semantics it was unrecoverable (latent G1 bug)',
+      () async {
+    final sOwner = FakeHvContainer().storage();
+    await sOwner.open(password: 'pw', createIfMissing: true);
+    final sBob = FakeHvContainer().storage();
+    await sBob.open(password: 'pw', createIfMissing: true);
+    final toBob = <String>[], toOwner = <String>[];
+    final ownerSvc = GroupService(sOwner, _FakeSigner(owner),
+        send: (p, g, j) async => (p == bob ? toBob : toOwner).add(j));
+    final bobSvc = GroupService(sBob, _FakeSigner(bob),
+        send: (p, g, j) async => toOwner.add(j));
+
+    final gid = await ownerSvc.createGroup('g1seq0');
+    await ownerSvc.addControlOp(gid, ControlOp.addMember,
+        target: bob, role: GroupRole.member);
+    for (var i = 0; i < 6; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    for (final j in toBob) {
+      await bobSvc.ingestSnapshot(j);
+    }
+
+    // Bob's very FIRST message (his seq 0) is lost in an outage.
+    await bobSvc.postMessage(gid, 'first-and-lost', broadcast: false);
+    expect((await ownerSvc.messagesOf(gid)), isEmpty);
+
+    // The owner's boot vector has never seen bob as a message author — bob's
+    // reply must include the seq-0 message (old floor 0 dropped it forever).
+    toOwner.clear();
+    final req = (await ownerSvc.buildGroupSyncRequest(gid))!;
+    expect(await bobSvc.ingestGroupEntry(owner, jsonEncode(req)), isTrue,
+        reason: 'the seq-0 entry IS missing and must ship');
+    expect(toOwner, hasLength(1));
+    await ownerSvc.ingestSnapshot(toOwner.single);
+    expect((await ownerSvc.messagesOf(gid)).map((m) => m.body),
+        contains('first-and-lost'));
+  });
+
   test('nudgeDeviceSync (brick 4e): ships the FULL device-group snapshot to '
       'every other device — the boot catch-up for deltas lost during a total '
       'outage; no-op on a solo install', () async {
