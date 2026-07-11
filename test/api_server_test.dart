@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/state/api_server.dart';
 
@@ -287,5 +290,115 @@ void main() {
     final rt = ApiToken.fromJson(t.toJson())!;
     expect(rt.id, 'i');
     expect(rt.readOnly, true);
+    // copyWith keeps the webhook; withWebhook sets AND clears it.
+    final w = c.withWebhook('http://127.0.0.1:9911/hook');
+    expect(w.copyWith(enabled: false).webhookUrl, 'http://127.0.0.1:9911/hook');
+    expect(w.withWebhook(null).webhookUrl, isNull);
+  });
+
+  test('webhookUrlError enforces loopback-only http(s)', () {
+    expect(webhookUrlError('http://127.0.0.1:9911/hook'), isNull);
+    expect(webhookUrlError('http://localhost:8080/x'), isNull);
+    expect(webhookUrlError('https://127.0.0.1/x'), isNull);
+    // Cleartext must not leave the machine (privacy canon).
+    expect(webhookUrlError('http://192.168.1.10/x'), isNotNull);
+    expect(webhookUrlError('http://example.com/x'), isNotNull);
+    expect(webhookUrlError('ftp://127.0.0.1/x'), isNotNull);
+    expect(webhookUrlError('not a url'), isNotNull);
+  });
+
+  test('webhook routes: get/set/clear, validation, read-only refuses writes',
+      () async {
+    String? hook;
+    ApiHandler withHook({bool readOnly = false}) => ApiHandler(
+          tokens: [
+            ApiToken(id: 't', name: 't', token: 'tok', readOnly: readOnly),
+          ],
+          status: () => const {'ok': true},
+          contacts: () async => const [],
+          send: (to, body) async => null,
+          messages: (peer, limit) async => const [],
+          sendFile: (to, path, name) async => null,
+          loadFile: (fileId) async => null,
+          placeCall: (to, media) async => null,
+          callState: () => null,
+          callAction: (action) async {},
+          webhook: () => hook,
+          setWebhook: (url) async => hook = url,
+        );
+    final h = withHook();
+    // Unset → null; set a loopback URL → stored; get reflects it.
+    expect((await h.handle('GET', u('/v1/webhook'), 'Bearer tok')).body,
+        {'url': null});
+    final set = await h.handle('POST', u('/v1/webhook'), 'Bearer tok',
+        body: {'url': 'http://127.0.0.1:9911/hook'});
+    expect(set.status, 200);
+    expect(hook, 'http://127.0.0.1:9911/hook');
+    expect((await h.handle('GET', u('/v1/webhook'), 'Bearer tok')).body,
+        {'url': 'http://127.0.0.1:9911/hook'});
+    // A non-loopback target is refused and does not overwrite.
+    final bad = await h.handle('POST', u('/v1/webhook'), 'Bearer tok',
+        body: {'url': 'http://evil.example.com/x'});
+    expect(bad.status, 400);
+    expect(hook, 'http://127.0.0.1:9911/hook');
+    // DELETE clears.
+    expect((await h.handle('DELETE', u('/v1/webhook'), 'Bearer tok')).status,
+        200);
+    expect(hook, isNull);
+    // A read-only token can GET but neither POST nor DELETE (non-GET = write).
+    hook = 'http://127.0.0.1:1/x';
+    final ro = withHook(readOnly: true);
+    expect(
+        (await ro.handle('GET', u('/v1/webhook'), 'Bearer tok')).status, 200);
+    expect(
+        (await ro.handle('POST', u('/v1/webhook'), 'Bearer tok',
+                body: {'url': 'http://127.0.0.1:2/y'}))
+            .status,
+        403);
+    expect((await ro.handle('DELETE', u('/v1/webhook'), 'Bearer tok')).status,
+        403);
+    expect(hook, 'http://127.0.0.1:1/x');
+    // A host without the webhook wired (default fixture) 404s the route.
+    expect(
+        (await make().handle('GET', u('/v1/webhook'), 'Bearer secret-token'))
+            .status,
+        404);
+  });
+
+  test('pushWebhookEvent POSTs the event JSON to a real loopback server',
+      () async {
+    final received = <(String?, String)>[];
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    server.listen((req) async {
+      received.add((
+        req.headers.value('X-XVeil-Event'),
+        await utf8.decoder.bind(req).join(),
+      ));
+      req.response.statusCode = 200;
+      await req.response.close();
+    });
+    addTearDown(() => server.close(force: true));
+    final url = 'http://127.0.0.1:${server.port}/hook';
+    final ok = await pushWebhookEvent(url, {
+      'type': 'message',
+      'from': 'aabb',
+      'preview': 'hi',
+      'isFile': false,
+    });
+    expect(ok, isTrue);
+    expect(received, hasLength(1));
+    expect(received.single.$1, 'message');
+    expect(jsonDecode(received.single.$2), {
+      'type': 'message',
+      'from': 'aabb',
+      'preview': 'hi',
+      'isFile': false,
+    });
+    // An unreachable target reports failure (the caller's retry kicks in).
+    await server.close(force: true);
+    expect(
+        await pushWebhookEvent(url, const {'type': 'message'},
+            timeout: const Duration(milliseconds: 500)),
+        isFalse);
   });
 }

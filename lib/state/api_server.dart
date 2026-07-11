@@ -36,6 +36,29 @@ const String _kEnabledKey = 'api.enabled';
 const String _kTokensKey = 'api.tokens'; // JSON list of ApiToken
 const String _kTokenKey = 'api.token'; // legacy single token (migrated)
 const String _kReadOnlyKey = 'api.readonly'; // legacy single-token scope
+const String _kWebhookKey = 'api.webhook'; // event push URL ('' = none)
+
+/// Why [url] is unusable as a webhook target, or null if it is fine.
+/// Privacy canon: cleartext HTTP must never leave the machine, so the target
+/// host is restricted to loopback — a bot on the same host. (An external
+/// interface would be a separate, deliberate opt-in with real transport
+/// security, not this brick.)
+String? webhookUrlError(String url) {
+  final Uri u;
+  try {
+    u = Uri.parse(url);
+  } catch (_) {
+    return 'invalid url';
+  }
+  if (u.scheme != 'http' && u.scheme != 'https') {
+    return 'http(s) only';
+  }
+  const loopback = {'127.0.0.1', 'localhost', '::1', '[::1]'};
+  if (!loopback.contains(u.host)) {
+    return 'loopback host only (privacy: cleartext must not leave 127.0.0.1)';
+  }
+  return null;
+}
 
 /// The OpenAPI 3.0 contract for the implemented `/v1` surface, so a client can
 /// be generated in any language (`openapi-generator -i .../v1/openapi.json`).
@@ -62,8 +85,10 @@ Map<String, dynamic> openApiSpec() {
               'Every request needs `Authorization: Bearer <token>`. '
               'Realtime: connect a WebSocket to `/v1/events?token=<token>` to '
               'receive incoming-message events '
-              '`{type:"message", from, preview, isFile}`. '
-              'A read-only token refuses every write (POST) with 403.',
+              '`{type:"message", from, preview, isFile}` — or register a '
+              'loopback webhook (`POST /v1/webhook`) to have the same events '
+              'POSTed to your local HTTP server. '
+              'A read-only token refuses every write (non-GET) with 403.',
     },
     'servers': [
       {'url': 'http://127.0.0.1:$kApiPort/v1'},
@@ -289,8 +314,71 @@ Map<String, dynamic> openApiSpec() {
           'responses': ok({'type': obj}),
         },
       },
+      '/webhook': {
+        'get': {
+          'summary': 'The configured event webhook (null when none)',
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'url': {'type': 'string', 'nullable': true},
+            },
+          }),
+        },
+        'post': {
+          'summary':
+              'Set the event webhook — incoming events are POSTed to this '
+                  'LOOPBACK-ONLY url as {type,from,preview,isFile}',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['url'],
+                  'properties': {
+                    'url': {'type': 'string'},
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'ok': {'type': 'boolean'},
+              'url': {'type': 'string'},
+            },
+          }),
+        },
+        'delete': {
+          'summary': 'Clear the event webhook',
+          'responses': ok({'type': obj}),
+        },
+      },
     },
   };
+}
+
+/// POST one JSON [event] to the webhook [url] (`X-XVeil-Event` carries the
+/// event type). True = delivered (any non-5xx response); false = try again.
+/// Top-level so the actual HTTP push is testable against a real loopback
+/// server, not just mocked.
+Future<bool> pushWebhookEvent(String url, Map<String, dynamic> event,
+    {Duration timeout = const Duration(seconds: 5)}) async {
+  final client = HttpClient()..connectionTimeout = timeout;
+  try {
+    final req = await client.postUrl(Uri.parse(url));
+    req.headers.contentType = ContentType.json;
+    req.headers.set('X-XVeil-Event', event['type']?.toString() ?? 'event');
+    req.write(jsonEncode(event));
+    final res = await req.close().timeout(timeout);
+    await res.drain<void>();
+    return res.statusCode < 500; // delivered (or client error — don't retry)
+  } catch (_) {
+    return false;
+  } finally {
+    client.close(force: true);
+  }
 }
 
 /// Persisted API state: whether the server runs, and the bearer token clients
@@ -323,16 +411,25 @@ class ApiToken {
 }
 
 class ApiConfig {
-  const ApiConfig({required this.enabled, this.tokens = const []});
+  const ApiConfig(
+      {required this.enabled, this.tokens = const [], this.webhookUrl});
   final bool enabled;
 
   /// The issued tokens (any of which authenticates; its own scope applies).
   final List<ApiToken> tokens;
 
+  /// Where incoming events are POSTed (loopback-only), or null = no webhook.
+  final String? webhookUrl;
+
   ApiConfig copyWith({bool? enabled, List<ApiToken>? tokens}) => ApiConfig(
         enabled: enabled ?? this.enabled,
         tokens: tokens ?? this.tokens,
+        webhookUrl: webhookUrl,
       );
+
+  /// [copyWith] can't clear a nullable field — this can.
+  ApiConfig withWebhook(String? url) =>
+      ApiConfig(enabled: enabled, tokens: tokens, webhookUrl: url);
 
   static const empty = ApiConfig(enabled: false);
 }
@@ -365,6 +462,8 @@ class ApiHandler {
     required this.placeCall,
     required this.callState,
     required this.callAction,
+    this.webhook,
+    this.setWebhook,
   });
 
   /// The issued tokens; the presented bearer must match one (whose scope then
@@ -399,6 +498,13 @@ class ApiHandler {
 
   /// Act on the current call: 'hangup' | 'accept' | 'reject'.
   final Future<void> Function(String action) callAction;
+
+  /// The configured webhook URL (null = none). Optional: hosts without the
+  /// webhook feature wired just 404 the /v1/webhook routes.
+  final String? Function()? webhook;
+
+  /// Persist + apply a new webhook URL (null clears). URL is pre-validated.
+  final Future<void> Function(String? url)? setWebhook;
 
   /// Constant-time compare of a raw token (localhost, but no reason to leak
   /// length/prefix). Used directly by the WebSocket path (token in the query,
@@ -436,8 +542,9 @@ class ApiHandler {
     if (auth == null) {
       return const ApiResponse(401, {'error': 'unauthorized'});
     }
-    // A read-only token refuses every write (POST). Reads fall through.
-    if (auth.readOnly && method == 'POST') {
+    // A read-only token refuses every write (anything but GET). Reads fall
+    // through.
+    if (auth.readOnly && method != 'GET') {
       return const ApiResponse(403, {'error': 'read-only token'});
     }
     final path = uri.path;
@@ -513,6 +620,27 @@ class ApiHandler {
             path == '/v1/calls/reject')) {
       await callAction(path.split('/').last);
       return ApiResponse(200, {'call': callState()});
+    }
+    // Webhook: push incoming events to a LOOPBACK URL (the bot's local
+    // server) instead of holding a WebSocket open.
+    if (path == '/v1/webhook' && webhook != null && setWebhook != null) {
+      if (method == 'GET') {
+        return ApiResponse(200, {'url': webhook!()});
+      }
+      if (method == 'POST') {
+        final url = body?['url'];
+        if (url is! String || url.isEmpty) {
+          return const ApiResponse(400, {'error': 'url required'});
+        }
+        final err = webhookUrlError(url);
+        if (err != null) return ApiResponse(400, {'error': err});
+        await setWebhook!(url);
+        return ApiResponse(200, {'ok': true, 'url': url});
+      }
+      if (method == 'DELETE') {
+        await setWebhook!(null);
+        return const ApiResponse(200, {'ok': true});
+      }
     }
     return const ApiResponse(404, {'error': 'not found'});
   }
@@ -603,10 +731,14 @@ class ApiServer {
 /// bridge so the server survives navigation.
 class ApiServerController extends Notifier<ApiConfig> {
   ApiServer? _server;
+  StreamSubscription<Map<String, dynamic>>? _webhookSub;
 
   @override
   ApiConfig build() {
-    ref.onDispose(() => unawaited(_server?.stop()));
+    ref.onDispose(() {
+      unawaited(_server?.stop());
+      unawaited(_webhookSub?.cancel());
+    });
     // The config lives in the (per-identity) deniable store, so it can only be
     // read once the store is UNLOCKED. Gate on the identity being ready — before
     // unlock the store is locked (getSetting throws) and there's nothing to
@@ -648,7 +780,12 @@ class ApiServerController extends Notifier<ApiConfig> {
               jsonEncode(tokens.map((t) => t.toJson()).toList()));
         }
       }
-      state = ApiConfig(enabled: enabled, tokens: tokens);
+      final webhook = await st.getSetting(_kWebhookKey);
+      state = ApiConfig(
+          enabled: enabled,
+          tokens: tokens,
+          webhookUrl:
+              (webhook == null || webhook.isEmpty) ? null : webhook);
       if (enabled && tokens.isNotEmpty) await _reconcile();
     } catch (e) {
       // Store not ready yet (e.g. mid-unlock) — a later identity change re-runs.
@@ -815,10 +952,13 @@ class ApiServerController extends Notifier<ApiConfig> {
   }
 
   /// Bring the socket in line with [state]: run (with a fresh handler carrying
-  /// the current token) iff enabled + tokened, else stop.
+  /// the current token) iff enabled + tokened, else stop. The webhook
+  /// subscription follows the same lifecycle (active iff server runs + URL set).
   Future<void> _reconcile() async {
     await _server?.stop();
     _server = null;
+    await _webhookSub?.cancel();
+    _webhookSub = null;
     if (!state.enabled || state.tokens.isEmpty) return;
     final handler = ApiHandler(
       tokens: state.tokens,
@@ -831,6 +971,8 @@ class ApiServerController extends Notifier<ApiConfig> {
       placeCall: _placeCall,
       callState: _callState,
       callAction: _callAction,
+      webhook: () => state.webhookUrl,
+      setWebhook: setWebhook,
     );
     // The bot event feed: incoming-message notices as JSON. `.map` on a
     // broadcast stream stays broadcast, so many WS clients can each subscribe.
@@ -849,6 +991,56 @@ class ApiServerController extends Notifier<ApiConfig> {
       debugPrint('xVeil[api]: bind failed: $e');
       _server = null;
     }
+    _rewireWebhook();
+  }
+
+  /// (Re)subscribe the webhook push to the incoming-event feed. Separate from
+  /// [_reconcile] so changing the URL mid-request does NOT restart the socket —
+  /// tearing the server down while it is serving the very POST /v1/webhook that
+  /// changed the URL kills that connection before the response is written.
+  void _rewireWebhook() {
+    unawaited(_webhookSub?.cancel());
+    _webhookSub = null;
+    final hook = state.webhookUrl;
+    if (!state.enabled || _server == null || hook == null) return;
+    // Webhook push: the same events the WS feed carries, POSTed to a loopback
+    // URL, for bots that would rather run a plain HTTP server than hold a
+    // WebSocket open.
+    _webhookSub = ref
+        .read(messagingServiceProvider)
+        .incoming
+        .map(
+          (n) => <String, dynamic>{
+            'type': 'message',
+            'from': n.from.hex,
+            'preview': n.preview,
+            'isFile': n.isFile,
+          },
+        )
+        .listen((e) => unawaited(_pushWebhook(hook, e)));
+  }
+
+  /// POST one event to the webhook [url]: short timeout, one retry. Failures
+  /// are logged and dropped — the webhook is a convenience feed; the durable
+  /// record stays in the store (a bot can reconcile via GET /v1/messages).
+  Future<void> _pushWebhook(String url, Map<String, dynamic> event) async {
+    for (var attempt = 0; attempt < 2; attempt++) {
+      if (await pushWebhookEvent(url, event)) return;
+      if (attempt == 0) {
+        await Future<void>.delayed(const Duration(seconds: 2));
+      } else {
+        debugPrint('xVeil[api]: webhook push failed twice, dropped');
+      }
+    }
+  }
+
+  /// Persist + apply the webhook URL (null clears). The URL is validated at
+  /// the API edge ([webhookUrlError]); this stores and rewires the push
+  /// subscription only — never the socket (see [_rewireWebhook]).
+  Future<void> setWebhook(String? url) async {
+    await ref.read(storageProvider).putSetting(_kWebhookKey, url ?? '');
+    state = state.withWebhook(url);
+    _rewireWebhook();
   }
 
   String _mintId() =>
