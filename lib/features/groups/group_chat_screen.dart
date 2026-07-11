@@ -18,7 +18,8 @@ import '../../domain/group_policy.dart';
 import '../../domain/group_reaction.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service.dart';
-import '../../state/messaging.dart' show conversationsProvider;
+import '../../state/messaging.dart'
+    show conversationsProvider, contentProgressProvider, messagingServiceProvider;
 import '../../state/providers.dart';
 import '../../state/reactions_visibility_controller.dart';
 import '../../state/sticker_store.dart';
@@ -243,12 +244,35 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       } catch (_) {/* fall through to the null check */}
     }
     if (bytes == null) return;
+    // Content path (doc/GROUPS-CONTENT-PATH.md): the message carries only a
+    // small thumb + the contentId; members stream the ORIGINAL bytes from us.
+    // Fall back to the legacy full-inline payload when no thumb rung fits.
+    final thumb = await makeInlineImageB64(bytes, rawMax: _kRefThumbRawMax);
+    final caption = _input.text.trim();
+    if (thumb != null) {
+      final cid = await ref
+          .read(messagingServiceProvider)
+          .registerGroupContent(bytes, name: file.name);
+      _input.clear();
+      await svc.postMessage(
+        _gid,
+        caption,
+        replyTo: _takeReplyRef(),
+        attachment: GroupAttachment(
+          kind: 'image',
+          dataB64: thumb.b64,
+          w: thumb.w,
+          h: thumb.h,
+          cid: cid,
+        ),
+      );
+      return;
+    }
     final img = await makeInlineImageB64(bytes);
     if (img == null) {
       if (mounted) _snack(l.groupImageTooLarge);
       return;
     }
-    final caption = _input.text.trim();
     _input.clear();
     await svc.postMessage(
       _gid,
@@ -262,6 +286,10 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       ),
     );
   }
+
+  /// The ref-form thumb cap (raw PNG bytes): small enough to fan out fast
+  /// (~9 chunks), big enough to preview while the full bytes stream in.
+  static const int _kRefThumbRawMax = 16000;
 
   void _snack(String msg) => ScaffoldMessenger.of(context)
       .showSnackBar(SnackBar(content: Text(msg)));
@@ -618,6 +646,10 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                           final r = reacts[m.ref];
                           if (r != null && r.isNotEmpty) _showReactors(svc, r);
                         },
+                        onFetchContent: m.attachment?.cid == null
+                            ? null
+                            : () => svc.fetchGroupContent(
+                                _gid, m.attachment!.cid!, m.author),
                       );
                     },
                   );
@@ -711,6 +743,7 @@ class _GroupBubble extends StatelessWidget {
     this.onLongPress,
     this.onToggleReaction,
     this.onShowReactors,
+    this.onFetchContent,
   });
   final GroupMessage message;
   final bool mine;
@@ -730,6 +763,10 @@ class _GroupBubble extends StatelessWidget {
 
   /// Long-press (or right-click) a reaction chip: show who reacted.
   final VoidCallback? onShowReactors;
+
+  /// Start the membership-authorized stream pull of this message's ref
+  /// content (null when the attachment carries no cid).
+  final VoidCallback? onFetchContent;
 
   /// The reaction chips shown under the bubble (empty widget if none).
   Widget _reactionChips(BuildContext context) {
@@ -906,13 +943,18 @@ class _GroupBubble extends StatelessWidget {
                       aspectRatio: message.attachment!.h == 0
                           ? 1
                           : message.attachment!.w / message.attachment!.h,
-                      child: Image.memory(
-                        base64Decode(message.attachment!.dataB64),
-                        fit: BoxFit.cover,
-                        gaplessPlayback: true,
-                        errorBuilder: (_, _, _) =>
-                            const Icon(Icons.broken_image_outlined),
-                      ),
+                      child: message.attachment!.cid != null
+                          ? _GroupRefImage(
+                              attachment: message.attachment!,
+                              onFetch: onFetchContent,
+                            )
+                          : Image.memory(
+                              base64Decode(message.attachment!.dataB64),
+                              fit: BoxFit.cover,
+                              gaplessPlayback: true,
+                              errorBuilder: (_, _, _) =>
+                                  const Icon(Icons.broken_image_outlined),
+                            ),
                     ),
                   ),
                 ),
@@ -925,6 +967,65 @@ class _GroupBubble extends StatelessWidget {
         ],
       ),
     ),
+    );
+  }
+}
+
+/// A ref-form image (content path): renders the FULL bytes from the file
+/// store once fetched, else the in-message thumb with a download affordance /
+/// live progress ring on top. Completion flips [contentProgressProvider]
+/// (entry removed) → rebuild → the store now holds the blob → full render.
+class _GroupRefImage extends ConsumerWidget {
+  const _GroupRefImage({required this.attachment, this.onFetch});
+  final GroupAttachment attachment;
+  final VoidCallback? onFetch;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cid = attachment.cid!;
+    final progress =
+        ref.watch(contentProgressProvider.select((m) => m[cid]));
+    return FutureBuilder<Uint8List?>(
+      future: ref
+          .read(storageProvider)
+          .loadFile(cid)
+          .catchError((_) => null),
+      builder: (context, snap) {
+        final full = snap.connectionState == ConnectionState.done
+            ? snap.data
+            : null;
+        Uint8List? thumbBytes;
+        try {
+          thumbBytes = base64Decode(attachment.dataB64);
+        } catch (_) {/* corrupt thumb — icon fallback below */}
+        final img = full ?? thumbBytes;
+        return Stack(
+          alignment: Alignment.center,
+          fit: StackFit.expand,
+          children: [
+            if (img != null)
+              Image.memory(
+                img,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                errorBuilder: (_, _, _) =>
+                    const Icon(Icons.broken_image_outlined),
+              )
+            else
+              const Icon(Icons.broken_image_outlined),
+            if (full == null && progress != null)
+              CircularProgressIndicator(
+                value: progress == 0 ? null : progress,
+                strokeWidth: 3,
+              ),
+            if (full == null && progress == null && onFetch != null)
+              IconButton.filledTonal(
+                onPressed: onFetch,
+                icon: const Icon(Icons.download),
+              ),
+          ],
+        );
+      },
     );
   }
 }

@@ -101,7 +101,9 @@ Future<String?> makeRgbaThumbB64(Uint8List rgba, int width, int height) async {
 /// raw PNG → ~85 KB base64 is a real, viewable image while keeping the cap
 /// bounded; the ladder falls back for noisy photos that don't fit at 512 px.
 const int kInlineImageRawMax = 64000;
-const List<int> _inlineDims = [512, 384, 320, 256, 192, 128];
+// The small rungs (96/64) only ever win under a tight [rawMax] (the ref-form
+// thumb): with the default 64 KB cap a larger rung always fits first.
+const List<int> _inlineDims = [512, 384, 320, 256, 192, 128, 96, 64];
 
 /// A size-capped inline image: base64 PNG plus its encoded pixel dimensions
 /// (so the UI lays it out aspect-correct without decoding first).
@@ -114,9 +116,14 @@ class InlineImage {
 
 /// Encode [bytes] (a full image file) as a size-capped inline PNG for a group
 /// message. Walks [_inlineDims] longest-side-first until the encoded PNG fits
-/// [kInlineImageRawMax]; returns null when the source is not a decodable image
-/// or no rung fits. Never upscales a source smaller than the largest rung.
-Future<InlineImage?> makeInlineImageB64(Uint8List bytes) async {
+/// [rawMax] (default [kInlineImageRawMax]); returns null when the source is
+/// not a decodable image or no rung fits. Never upscales a source smaller
+/// than the largest rung. A small [rawMax] (~16 KB) yields the content-path
+/// REF thumb — instant render while the full bytes stream in.
+Future<InlineImage?> makeInlineImageB64(
+  Uint8List bytes, {
+  int rawMax = kInlineImageRawMax,
+}) async {
   if (bytes.isEmpty) return null;
   ui.ImmutableBuffer? buf;
   ui.ImageDescriptor? desc;
@@ -139,7 +146,7 @@ Future<InlineImage?> makeInlineImageB64(Uint8List bytes) async {
           final data = await frame.image.toByteData(
             format: ui.ImageByteFormat.png,
           );
-          if (data != null && data.lengthInBytes <= kInlineImageRawMax) {
+          if (data != null && data.lengthInBytes <= rawMax) {
             return InlineImage(
               b64: base64Encode(
                   data.buffer.asUint8List(0, data.lengthInBytes)),
