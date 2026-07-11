@@ -679,6 +679,30 @@ abstract class AppL10n {
   /// **'Image too large to send inline'**
   String get groupImageTooLarge;
 
+  /// No description provided for @groupVoiceRecord.
+  ///
+  /// In en, this message translates to:
+  /// **'Record voice message'**
+  String get groupVoiceRecord;
+
+  /// No description provided for @groupVoiceStop.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop and send'**
+  String get groupVoiceStop;
+
+  /// No description provided for @groupVoiceMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Voice message'**
+  String get groupVoiceMessage;
+
+  /// No description provided for @groupVoiceTooLong.
+  ///
+  /// In en, this message translates to:
+  /// **'Voice message is too long to send in a group'**
+  String get groupVoiceTooLong;
+
   /// No description provided for @reactorsTitle.
   ///
   /// In en, this message translates to:

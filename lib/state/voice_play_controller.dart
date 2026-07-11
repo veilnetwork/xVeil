@@ -155,7 +155,16 @@ class VoicePlayController extends Notifier<VoicePlayState> {
 
   /// Tap on a clip's play control: start it (loading its bytes), toggle
   /// pause/resume if it's the active clip, or switch to a different clip.
-  Future<void> toggle(String messageId, String fileKey) async {
+  Future<void> toggle(String messageId, String fileKey) =>
+      _toggle(messageId, () => ref.read(storageProvider).loadFile(fileKey));
+
+  /// [toggle] for a clip whose bytes are already in hand — a group message's
+  /// inline voice attachment has no file-store key to load from.
+  Future<void> toggleBytes(String messageId, Uint8List bytes) =>
+      _toggle(messageId, () async => bytes);
+
+  Future<void> _toggle(
+      String messageId, Future<Uint8List?> Function() load) async {
     if (state.isActive(messageId)) {
       // Same clip: pause/resume.
       if (state.paused) {
@@ -170,7 +179,7 @@ class VoicePlayController extends Notifier<VoicePlayState> {
     // Different (or first) clip: tear down any current player, load + start.
     _stopPlayer();
     final gen = ++_gen;
-    final bytes = await ref.read(storageProvider).loadFile(fileKey);
+    final bytes = await load();
     if (bytes == null || gen != _gen) return;
     final player = await ref.read(voicePlayerFactoryProvider)(bytes);
     if (gen != _gen) {

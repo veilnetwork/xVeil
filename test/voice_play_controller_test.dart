@@ -153,6 +153,25 @@ void main() {
     expect(await p.positionMs(), 2000);
   });
 
+  test('toggleBytes plays in-hand bytes (group inline clip, no file key)',
+      () async {
+    final p = _FakePlayer();
+    final c = await _container(p);
+    addTearDown(c.dispose);
+    final ctrl = c.read(voicePlayControllerProvider.notifier);
+
+    await ctrl.toggleBytes('a:0', Uint8List.fromList([9, 9, 9]));
+    expect(p.started, isTrue);
+    expect(c.read(voicePlayControllerProvider).isActive('a:0'), isTrue);
+    expect(c.read(voicePlayControllerProvider).durationMs, 2000);
+
+    // Same clip id: pause / resume, exactly like the file-key path.
+    await ctrl.toggleBytes('a:0', Uint8List.fromList([9, 9, 9]));
+    expect(c.read(voicePlayControllerProvider).isPlaying('a:0'), isFalse);
+    await ctrl.toggleBytes('a:0', Uint8List.fromList([9, 9, 9]));
+    expect(c.read(voicePlayControllerProvider).isPlaying('a:0'), isTrue);
+  });
+
   test('progress fraction is position/duration clamped', () {
     const s = VoicePlayState(playingId: 'm', positionMs: 500, durationMs: 2000);
     expect(s.progress, 0.25);

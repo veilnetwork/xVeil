@@ -326,6 +326,19 @@ class AppL10nRu extends AppL10n {
   String get groupImageTooLarge => 'Картинка слишком большая для инлайна';
 
   @override
+  String get groupVoiceRecord => 'Записать голосовое';
+
+  @override
+  String get groupVoiceStop => 'Остановить и отправить';
+
+  @override
+  String get groupVoiceMessage => 'Голосовое сообщение';
+
+  @override
+  String get groupVoiceTooLong =>
+      'Голосовое слишком длинное для отправки в группу';
+
+  @override
   String get reactorsTitle => 'Реакции';
 
   @override
