@@ -14,6 +14,7 @@ import 'package:veil_flutter/veil_flutter.dart' as veil;
 
 import '../core/ids.dart';
 import '../core/log.dart';
+import '../data/node/embedded_node.dart';
 import '../data/serve_source.dart';
 import 'package:veil_media/veil_media.dart';
 
@@ -302,6 +303,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/device_link':
           await _deviceLinkHook(req);
+          return;
+        case '/sovereign_probe':
+          await _sovereignProbeHook(req);
           return;
         case '/device_adopt':
           await _deviceAdoptHook(req);
@@ -1100,6 +1104,36 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
 
   // ── Device group hooks (multi-device epic) ────────────────────────────────
 
+  /// Device-safe crypto smoke: fresh phrase exists only in RAM, signs one
+  /// fixed probe through the opaque handle, verifies, then closes/zeroizes.
+  Future<void> _sovereignProbeHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    NativeSovereignGroupSigner? signer;
+    try {
+      final phrase = veil.generateMasterPhrase();
+      signer = NativeSovereignGroupSigner.openRecoveryPhrase(phrase);
+      final message = Uint8List.fromList(utf8.encode('xveil-sovereign-probe'));
+      final signature = signer.sign(message);
+      final valid = EmbeddedNode.verifyMessage(
+        nodeId: signer.nodeId.bytes,
+        publicKey: signer.publicKey,
+        message: message,
+        signature: signature,
+      );
+      return _json(req, {
+        'ok': valid,
+        'algorithm': signer.algorithm,
+        'node': signer.nodeId.short,
+        'publicKeyBytes': signer.publicKey.length,
+        'signatureBytes': signature.length,
+      });
+    } catch (_) {
+      return _json(req, {'ok': false, 'error': 'sovereign probe failed'});
+    } finally {
+      signer?.close();
+    }
+  }
+
   /// Link ?peer= as one of MY devices (creates the device group on first use).
   Future<void> _deviceLinkHook(HttpRequest req) async {
     if (!_requireReady(req)) return;
@@ -1107,7 +1141,20 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
     final peer = req.uri.queryParameters['peer'];
     if (peer == null) return _json(req, {'ok': false, 'error': 'no peer'});
-    final ok = await svc.linkDevice(NodeId.fromHex(peer));
+    final phrase = await utf8.decoder.bind(req).join();
+    if (phrase.trim().isEmpty) {
+      return _json(req, {'ok': false, 'error': 'phrase required'});
+    }
+    NativeSovereignGroupSigner? sovereign;
+    var ok = false;
+    try {
+      sovereign = NativeSovereignGroupSigner.openRecoveryPhrase(phrase);
+      ok = await svc.linkDevice(NodeId.fromHex(peer), sovereign: sovereign);
+    } catch (_) {
+      ok = false;
+    } finally {
+      sovereign?.close();
+    }
     return _json(req, {
       'ok': ok,
       'deviceGroup': await svc.deviceGroupIdHex(),
@@ -1122,8 +1169,8 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
     final gidHex = req.uri.queryParameters['group'];
     if (gidHex == null) return _json(req, {'ok': false, 'error': 'no group'});
-    await svc.adoptDeviceGroup(NodeId.fromHex(gidHex));
-    return _json(req, {'ok': true, 'deviceGroup': gidHex});
+    final ok = await svc.adoptDeviceGroup(NodeId.fromHex(gidHex));
+    return _json(req, {'ok': ok, 'deviceGroup': ok ? gidHex : null});
   }
 
   /// Revoke device ?peer= (removeMember → the fold rotates the epoch).
@@ -1133,7 +1180,20 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
     final peer = req.uri.queryParameters['peer'];
     if (peer == null) return _json(req, {'ok': false, 'error': 'no peer'});
-    final ok = await svc.revokeDevice(NodeId.fromHex(peer));
+    final phrase = await utf8.decoder.bind(req).join();
+    if (phrase.trim().isEmpty) {
+      return _json(req, {'ok': false, 'error': 'phrase required'});
+    }
+    NativeSovereignGroupSigner? sovereign;
+    var ok = false;
+    try {
+      sovereign = NativeSovereignGroupSigner.openRecoveryPhrase(phrase);
+      ok = await svc.revokeDevice(NodeId.fromHex(peer), sovereign: sovereign);
+    } catch (_) {
+      ok = false;
+    } finally {
+      sovereign?.close();
+    }
     return _json(req, {'ok': ok});
   }
 
@@ -1146,14 +1206,22 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     if (hex == null) {
       return _json(req, {'ok': true, 'deviceGroup': null, 'members': []});
     }
-    final st = await svc.stateOf(NodeId.fromHex(hex));
+    final gid = NodeId.fromHex(hex);
+    final bundle = await svc.load(gid);
+    final st = await svc.stateOf(gid);
     return _json(req, {
       'ok': true,
       'deviceGroup': hex,
+      'sovereign': bundle?.manifest.isSovereignDevice ?? false,
+      'sovereignOwner': bundle?.manifest.isSovereignDevice == true
+          ? bundle!.manifest.owner.hex
+          : null,
       'epoch': st?.epoch,
       'members': [
         for (final m in (st?.members ?? {}).values)
-          {'id': m.nodeId.hex, 'short': m.nodeId.short, 'role': m.role.name},
+          if (bundle?.manifest.isSovereignDevice != true ||
+              m.nodeId != bundle?.manifest.owner)
+            {'id': m.nodeId.hex, 'short': m.nodeId.short, 'role': m.role.name},
       ],
     });
   }
