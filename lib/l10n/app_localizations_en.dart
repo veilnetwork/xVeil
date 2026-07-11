@@ -1272,6 +1272,17 @@ class AppL10nEn extends AppL10n {
       'Run every identity\'s node at once so none goes offline when you switch. Less anonymous — an observer may link your identities by their shared device. Mark sensitive identities to route anonymously.';
 
   @override
+  String get settingsPhraseStatusTitle => 'Recovery phrase';
+
+  @override
+  String get settingsPhraseBackedHint =>
+      'This identity derives from its recovery phrase — the phrase you wrote down restores it.';
+
+  @override
+  String get settingsPhraseNoneHint =>
+      'This identity was created without a recovery phrase — a phrase cannot restore it. Keep the app data backed up by other means.';
+
+  @override
   String get settingsAnonymousRouting => 'Anonymous routing (onion)';
 
   @override
