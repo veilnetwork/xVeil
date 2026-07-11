@@ -801,10 +801,30 @@ class GroupService {
   Stream<({NodeId groupId, GroupMessage message})> get incoming =>
       _incomingCtl.stream;
 
+  /// Attached by the multi-device bridge: a LOCAL group-seen advance (never
+  /// fired from [applyMirroredGroupSeen]) — my other devices clear the badge.
+  void Function(String gidHex, int tsMs)? onGroupSeen;
+
   /// Mark [groupId] read "as of now" — the unread watermark the open group
   /// screen advances. A local display preference, not group state.
-  Future<void> markGroupSeen(NodeId groupId) =>
-      _storage.putSetting('group.seen:${groupId.hex}', '${_now()}');
+  Future<void> markGroupSeen(NodeId groupId) async {
+    final ts = _now();
+    await _storage.putSetting('group.seen:${groupId.hex}', '$ts');
+    onGroupSeen?.call(groupId.hex, ts);
+  }
+
+  /// Apply a group-seen watermark mirrored from ANOTHER of my devices —
+  /// monotonic, straight to storage (no [onGroupSeen] echo). Returns whether
+  /// the watermark advanced.
+  Future<bool> applyMirroredGroupSeen(String gidHex, int tsMs) async {
+    final cur =
+        int.tryParse(await _storage.getSetting('group.seen:$gidHex') ?? '') ??
+            0;
+    if (cur >= tsMs) return false;
+    await _storage.putSetting('group.seen:$gidHex', '$tsMs');
+    changes.value++; // group list re-renders its badge
+    return true;
+  }
 
   /// How many VALIDATED messages of [groupId] are newer than the seen
   /// watermark and not self-authored.
@@ -863,6 +883,7 @@ class GroupService {
   Future<void> adoptDeviceGroup(NodeId groupId) async {
     await _storage.putSetting('devices.gid', groupId.hex);
     _deviceGidCache = groupId.hex;
+    _deviceMembersCache = null;
     changes.value++;
   }
 
@@ -871,6 +892,7 @@ class GroupService {
   /// snapshot broadcast (addMember path) syncs it the whole history.
   Future<bool> linkDevice(NodeId device) async {
     final gid = await ensureDeviceGroup();
+    _deviceMembersCache = null;
     return addControlOp(gid, ControlOp.addMember,
         target: device, role: GroupRole.admin);
   }
@@ -880,9 +902,33 @@ class GroupService {
   Future<bool> revokeDevice(NodeId device) async {
     final hex = await deviceGroupIdHex();
     if (hex == null) return false;
+    _deviceMembersCache = null;
     return addControlOp(NodeId.fromHex(hex), ControlOp.removeMember,
         target: device);
   }
+
+  /// Whether [peer] is a CURRENT member of my device group — i.e. another of
+  /// my own devices. The mirror taps consult this per stored message, so the
+  /// folded member set is cached briefly; link/adopt/revoke invalidate it.
+  Future<bool> isMyDevice(NodeId peer) async {
+    final hex = await deviceGroupIdHex();
+    if (hex == null) return false;
+    final now = _now();
+    var cached = _deviceMembersCache;
+    if (cached == null || now - _deviceMembersCacheAtMs > 30000) {
+      final st = await stateOf(NodeId.fromHex(hex));
+      cached = {
+        for (final m in st?.members.values ?? const <GroupMember>[])
+          m.nodeId.hex,
+      };
+      _deviceMembersCache = cached;
+      _deviceMembersCacheAtMs = now;
+    }
+    return cached.contains(peer.hex);
+  }
+
+  Set<String>? _deviceMembersCache;
+  int _deviceMembersCacheAtMs = 0;
 
   /// Serializes [postDeviceEvent] appends: sync emits are fire-and-forget
   /// (message taps, settings toggles, journal rows), so two can race the
@@ -1066,46 +1112,52 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   // so this is inert on a single-device install.
   messaging.onMessageStored = (peer, m) {
     if (peer == svc.selfId) return;
-    final cid = m.fileContentId ?? m.fileId;
-    if (cid == null) {
-      if (m.body.isEmpty) return;
-      unawaited(svc.postDeviceEvent(DeviceSyncEvent(
-        kind: DeviceSyncKind.msgMirror,
-        key: m.id,
-        tsMs: m.timestamp.millisecondsSinceEpoch,
-        payload: {
-          'peer': peer.hex,
-          'dir': m.direction.name,
-          'body': m.body,
-        },
-      )));
-      return;
-    }
-    unawaited(svc.postDeviceEvent(
-      DeviceSyncEvent(
-        kind: DeviceSyncKind.msgMirror,
-        key: m.id,
-        tsMs: m.timestamp.millisecondsSinceEpoch,
-        payload: {
-          'peer': peer.hex,
-          'dir': m.direction.name,
-          'body': m.body,
-          'cid': cid,
-          'fname': m.fileName,
-          'fsize': m.fileSize,
-        },
-      ),
-      // The ref that puts cid into referencedContentIds. dataB64 must be
-      // non-empty by the codec's contract — the micro-thumb when we have one,
-      // a one-byte placeholder otherwise (w/h are meaningless for 'file').
-      attachment: GroupAttachment(
-        kind: 'file',
-        dataB64: (m.thumb?.isNotEmpty ?? false) ? m.thumb! : 'AA==',
-        w: 1,
-        h: 1,
-        cid: cid,
-      ),
-    ));
+    unawaited(() async {
+      // The device-PAIR conversation never mirrors: each side names it by the
+      // OTHER device's id, so a mirrored row would land in the wrong (even
+      // self-) conversation on the sibling. Intra-owner chat is local-only.
+      if (await svc.isMyDevice(peer)) return;
+      final cid = m.fileContentId ?? m.fileId;
+      if (cid == null) {
+        if (m.body.isEmpty) return;
+        await svc.postDeviceEvent(DeviceSyncEvent(
+          kind: DeviceSyncKind.msgMirror,
+          key: m.id,
+          tsMs: m.timestamp.millisecondsSinceEpoch,
+          payload: {
+            'peer': peer.hex,
+            'dir': m.direction.name,
+            'body': m.body,
+          },
+        ));
+        return;
+      }
+      await svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.msgMirror,
+          key: m.id,
+          tsMs: m.timestamp.millisecondsSinceEpoch,
+          payload: {
+            'peer': peer.hex,
+            'dir': m.direction.name,
+            'body': m.body,
+            'cid': cid,
+            'fname': m.fileName,
+            'fsize': m.fileSize,
+          },
+        ),
+        // The ref that puts cid into referencedContentIds. dataB64 must be
+        // non-empty by the codec's contract — the micro-thumb when we have
+        // one, a one-byte placeholder otherwise (w/h are meaningless here).
+        attachment: GroupAttachment(
+          kind: 'file',
+          dataB64: (m.thumb?.isNotEmpty ?? false) ? m.thumb! : 'AA==',
+          w: 1,
+          h: 1,
+          cid: cid,
+        ),
+      );
+    }());
   };
   // APPLY: a device-group message from another device → fold → write the
   // mirrored 1:1 row (idempotent + deniability-safe in applyMirroredMessage).
@@ -1120,6 +1172,10 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
         ? MessageDirection.outgoing
         : MessageDirection.incoming;
     if (peerHex is! String || body is! String) return;
+    // A mirror naming THIS device as the conversation peer would write a
+    // conversation-with-myself row (the device-pair chat seen from the other
+    // side) — drop it; the emit side skips device members too.
+    if (peerHex == svc.selfId.hex) return;
     final cid = e.payload['cid'], fname = e.payload['fname'];
     final fsize = e.payload['fsize'];
     final thumb = gm.attachment?.dataB64;

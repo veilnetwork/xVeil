@@ -560,6 +560,28 @@ void main() {
     }
   });
 
+  test('isMyDevice: true only for current device-group members, and the '
+      'cache invalidates on revoke (brick 4c mirror exclusion)', () async {
+    final s = FakeHvContainer().storage();
+    await s.open(password: 'pw', createIfMissing: true);
+    final svc = GroupService(s, _FakeSigner(owner));
+    expect(await svc.isMyDevice(bob), isFalse,
+        reason: 'no device group yet');
+    await svc.linkDevice(bob);
+    expect(await svc.isMyDevice(bob), isTrue);
+    expect(await svc.isMyDevice(_id(9)), isFalse);
+    await svc.revokeDevice(bob);
+    expect(await svc.isMyDevice(bob), isFalse,
+        reason: 'revoke must invalidate the cached member set');
+
+    // Group seen mirror: apply is monotonic and never fires the local tap.
+    final taps = <(String, int)>[];
+    svc.onGroupSeen = (g, ts) => taps.add((g, ts));
+    expect(await svc.applyMirroredGroupSeen('aa', 500), isTrue);
+    expect(await svc.applyMirroredGroupSeen('aa', 400), isFalse);
+    expect(taps, isEmpty, reason: 'apply must not echo into the tap');
+  });
+
   test('postDeviceEvent with an attachment ref authorizes the membership pull '
       '(brick 4b: the cid lands in referencedContentIds of the device group)',
       () async {

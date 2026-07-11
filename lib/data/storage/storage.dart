@@ -73,6 +73,14 @@ abstract interface class Storage {
   /// resets to zero. Called when the user opens the conversation.
   Future<void> markRead(String conversationId);
 
+  /// Millis of the latest message marked read in [conversationId]
+  /// (0 = never read → every incoming message counts as unread).
+  Future<int> readMarker(String conversationId);
+
+  /// Advance the read watermark of [conversationId] to [tsMs]. Monotonic —
+  /// an older mark never regresses it (multi-device readMark apply path).
+  Future<void> setReadMarker(String conversationId, int tsMs);
+
   /// All messages of [conversationId], oldest-first. When [limit] is set,
   /// return only the most-recent [limit] (the tail) — the read side of chat
   /// pagination ("load the latest N, fetch earlier on demand"). Omitting

@@ -99,6 +99,48 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     )));
   };
 
+  // Read marks (brick 4c): reading here clears the badge on my other devices.
+  // The event's tsMs IS the watermark (not a monotonic emit stamp) — two
+  // devices reading independently converge on the newest read time, which is
+  // exactly the LWW the fold gives per key. Keys: '<peerHex>' for a 1:1
+  // conversation, 'g:<gidHex>' for a group. The device-pair conversation is
+  // excluded — each side names it by the other device's id, so the key would
+  // not be portable.
+  final lastReadEmitted = <String, int>{};
+  messaging.onConversationRead = (convId, ts) {
+    if ((lastReadEmitted[convId] ?? 0) >= ts) return;
+    lastReadEmitted[convId] = ts;
+    unawaited(() async {
+      try {
+        if (await svc.isMyDevice(NodeId.fromHex(convId))) return;
+      } catch (_) {
+        return; // not a node-id-shaped conversation — never sync it
+      }
+      await svc.postDeviceEvent(DeviceSyncEvent(
+        kind: DeviceSyncKind.readMark,
+        key: convId,
+        tsMs: ts,
+        payload: const {},
+      ));
+    }());
+  };
+  svc.onGroupSeen = (gidHex, ts) {
+    final key = 'g:$gidHex';
+    if ((lastReadEmitted[key] ?? 0) >= ts) return;
+    lastReadEmitted[key] = ts;
+    unawaited(() async {
+      // Never for the device group itself (it is hidden from every list, but
+      // hooks could still reach it) — its seen mark is meaningless to sync.
+      if (gidHex == await svc.deviceGroupIdHex()) return;
+      await svc.postDeviceEvent(DeviceSyncEvent(
+        kind: DeviceSyncKind.readMark,
+        key: key,
+        tsMs: ts,
+        payload: const {},
+      ));
+    }());
+  };
+
   // Lazy attachments (brick 4b): when the user downloads a cid that is a
   // mirrored attachment of my device group, also request it from my other
   // devices over the membership-authorized content path. The in-flight set
@@ -167,9 +209,19 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
         if (entry != null && entry.id == e.key) {
           unawaited(callLog.addMirrored(entry));
         }
-      case DeviceSyncKind.msgMirror:
       case DeviceSyncKind.readMark:
-        break; // msgMirror is applied by the group_service bridge (brick 3)
+        // Remember the applied mark as "already emitted" so a later local
+        // open of the same conversation does not re-post an identical event.
+        if ((lastReadEmitted[e.key] ?? 0) < e.tsMs) {
+          lastReadEmitted[e.key] = e.tsMs;
+        }
+        if (e.key.startsWith('g:')) {
+          unawaited(svc.applyMirroredGroupSeen(e.key.substring(2), e.tsMs));
+        } else if (e.key != svc.selfId.hex) {
+          unawaited(messaging.applyMirroredReadMark(e.key, e.tsMs));
+        }
+      case DeviceSyncKind.msgMirror:
+        break; // applied by the group_service bridge (brick 3)
     }
   });
   ref.onDispose(sub.cancel);
