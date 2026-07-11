@@ -201,6 +201,21 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     return true;
   }
 
+  // Shared by the live pref apply and the post-materialization replay below.
+  Future<bool> applyPrefs(NodeId peer, DeviceSyncEvent e) {
+    final name = e.payload['name'], muted = e.payload['mutedMs'];
+    final ret = e.payload['ret'];
+    return messaging.applyMirroredContact(
+      peer: peer,
+      name: name is String && name.isNotEmpty ? name : null,
+      mutedUntilMs: muted is int ? muted : null,
+      pinned: e.payload['pin'] == true,
+      archived: e.payload['arc'] == true,
+      retentionDays: ret is int ? ret : null,
+      allowPeerDelete: e.payload['apd'] != false,
+    );
+  }
+
   final sub = svc.deviceIncoming.listen((gm) {
     final e = DeviceSyncEvent.fromBody(gm.body);
     if (e == null || !newest(e)) return;
@@ -221,20 +236,19 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
             if (s.name == raw) status = s;
           }
           if (status == null) return; // newer vocabulary — skip, don't guess
-          unawaited(messaging.applyMirroredContactStatus(peer, status));
+          unawaited(() async {
+            await messaging.applyMirroredContactStatus(peer, status!);
+            // A pref event that arrived while this peer was still unknown was
+            // skipped (prefs never CREATE a record — they carry no status).
+            // Now that the record exists, replay the newest folded pref for
+            // it so the alias/flags chosen on the other device land too.
+            final folded = await svc.deviceSyncState();
+            final pref = folded[(DeviceSyncKind.contactUp, peer.hex)];
+            if (pref != null) await applyPrefs(peer, pref);
+          }());
           return;
         }
-        final name = e.payload['name'], muted = e.payload['mutedMs'];
-        final ret = e.payload['ret'];
-        unawaited(messaging.applyMirroredContact(
-          peer: peer,
-          name: name is String && name.isNotEmpty ? name : null,
-          mutedUntilMs: muted is int ? muted : null,
-          pinned: e.payload['pin'] == true,
-          archived: e.payload['arc'] == true,
-          retentionDays: ret is int ? ret : null,
-          allowPeerDelete: e.payload['apd'] != false,
-        ));
+        unawaited(applyPrefs(peer, e));
       case DeviceSyncKind.settingSet:
         final v = e.payload['v'];
         if (v is String) unawaited(hub.applyIncoming(e.key, v));
