@@ -560,6 +560,68 @@ void main() {
     }
   });
 
+  test('gap-fill (brick G1): a member behind by one LOST delta converges from '
+      'the sync-vector exchange; the reply carries ONLY the missing entry and '
+      'a non-member vector is dropped silently', () async {
+    // Owner + member over separate stores, cross-wired sends.
+    final sOwner = FakeHvContainer().storage();
+    await sOwner.open(password: 'pw', createIfMissing: true);
+    final sBob = FakeHvContainer().storage();
+    await sBob.open(password: 'pw', createIfMissing: true);
+    final toBob = <String>[], toOwner = <String>[];
+    final ownerSvc = GroupService(sOwner, _FakeSigner(owner),
+        send: (p, g, j) async => (p == bob ? toBob : toOwner).add(j));
+    final bobSvc = GroupService(sBob, _FakeSigner(bob),
+        send: (p, g, j) async => toOwner.add(j));
+
+    final gid = await ownerSvc.createGroup('g1');
+    await ownerSvc.addControlOp(gid, ControlOp.addMember,
+        target: bob, role: GroupRole.member);
+    for (var i = 0; i < 6; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    // Bob joins from the full snapshot.
+    for (final j in toBob) {
+      await bobSvc.ingestSnapshot(j);
+    }
+    expect((await bobSvc.messagesOf(gid)).length, 0);
+
+    // A visible post AND a silently-lost one (the outage-class delta).
+    await ownerSvc.postMessage(gid, 'delivered');
+    await ownerSvc.postMessage(gid, 'lost-in-outage', broadcast: false);
+    for (var i = 0; i < 6; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    toBob.removeRange(0, toBob.length - 1); // keep only the delivered delta
+    for (final j in toBob) {
+      await bobSvc.ingestSnapshot(j);
+    }
+    expect((await bobSvc.messagesOf(gid)).length, 1,
+        reason: 'precondition: bob is missing the lost delta');
+
+    // Bob's boot vector reaches the owner → reply carries ONLY the gap.
+    toBob.clear();
+    final req = (await bobSvc.buildGroupSyncRequest(gid))!;
+    expect(await ownerSvc.ingestGroupEntry(bob, jsonEncode(req)), isTrue);
+    expect(toBob, hasLength(1), reason: 'one targeted reply');
+    final reply = jsonDecode(toBob.single) as Map;
+    expect((reply['g'] as List).length, 1,
+        reason: 'only the missing message ships, not the whole log');
+    await bobSvc.ingestSnapshot(toBob.single);
+    final bodies =
+        (await bobSvc.messagesOf(gid)).map((m) => m.body).toList();
+    expect(bodies, containsAll(['delivered', 'lost-in-outage']));
+
+    // In-sync vector → nothing to send. Non-member vector → silent drop.
+    toBob.clear();
+    final req2 = (await bobSvc.buildGroupSyncRequest(gid))!;
+    expect(await ownerSvc.ingestGroupEntry(bob, jsonEncode(req2)), isFalse);
+    expect(toBob, isEmpty);
+    expect(
+        await ownerSvc.ingestGroupEntry(_id(9), jsonEncode(req2)), isFalse,
+        reason: 'no membership oracle — a stranger gets nothing');
+  });
+
   test('nudgeDeviceSync (brick 4e): ships the FULL device-group snapshot to '
       'every other device — the boot catch-up for deltas lost during a total '
       'outage; no-op on a solo install', () async {

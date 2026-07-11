@@ -434,7 +434,12 @@ class GroupService {
   /// non-muted member. An optional inline [attachment] rides inside the signed
   /// message (groups media brick 1) — no separate content fetch.
   Future<bool> postMessage(NodeId groupId, String body,
-      {GroupAttachment? attachment, String? replyTo}) async {
+      {GroupAttachment? attachment,
+      String? replyTo,
+      // Test/repro-only escape hatch: append WITHOUT the delta fanout —
+      // simulates a delta lost in transit (total-outage class), so the
+      // gap-fill path has a deterministic stand target.
+      bool broadcast = true}) async {
     final b = await load(groupId);
     if (b == null) return false;
     final state = foldControlLog(
@@ -466,8 +471,141 @@ class GroupService {
         reactions: b.reactions));
     // Ship only the NEW message (delta), not the whole log — a post to a group
     // that already holds an image must not re-chunk that image over the wire.
-    unawaited(broadcastDelta(groupId, messages: [signed]));
+    if (broadcast) unawaited(broadcastDelta(groupId, messages: [signed]));
     return true;
+  }
+
+  // ── Group log gap-fill (reliability brick G1) ─────────────────────────────
+  // A delta that dies while EVERY entry node is down is lost for good — the
+  // full snapshot only ships on join. Each device therefore fans a compact
+  // per-author high-water VECTOR of both logs to a few members on boot; a
+  // member that holds more replies with ONLY the missing entries. Bandwidth
+  // is one small JSON each way when in sync; convergence is eventual (a
+  // sampled member that is itself behind just yields nothing this round).
+
+  /// How many members a boot sync-vector is sent to per group.
+  static const int kGroupSyncFanout = 3;
+
+  /// The compact "what I hold" vector for [groupId], or null when unknown.
+  Future<Map<String, dynamic>?> buildGroupSyncRequest(NodeId groupId) async {
+    final b = await load(groupId);
+    if (b == null) return null;
+    Map<String, int> vector(Iterable<(NodeId, int)> entries) {
+      final v = <String, int>{};
+      for (final (a, s) in entries) {
+        if (s > (v[a.hex] ?? 0)) v[a.hex] = s;
+      }
+      return v;
+    }
+
+    return {
+      'sreq': 1,
+      'gid': groupId.hex,
+      'g': vector(b.messages.map((m) => (m.author, m.seq))),
+      'c': vector(b.control.map((e) => (e.author, e.seq))),
+    };
+  }
+
+  /// Answer a member's sync vector: ship ONLY the entries [peer] lacks (their
+  /// vector's high-water per author, unseen author = everything). Non-members
+  /// are dropped silently — no membership oracle. Returns whether a reply
+  /// delta was sent.
+  Future<bool> handleGroupSyncRequest(NodeId peer, Map req) async {
+    final send = _send;
+    if (send == null) return false;
+    final gidHex = req['gid'];
+    if (gidHex is! String || !(await _index()).contains(gidHex)) return false;
+    final NodeId gid;
+    try {
+      gid = NodeId.fromHex(gidHex);
+    } catch (_) {
+      return false;
+    }
+    final b = await load(gid);
+    if (b == null) return false;
+    final state = foldControlLog(
+      owner: b.manifest.owner,
+      entries: b.control,
+      verify: _signer.verifyControl,
+    ).state;
+    if (!state.isMember(peer)) {
+      debugPrint('xVeil[groups]: sync request from non-member — drop');
+      return false;
+    }
+    int seen(Object? vec, NodeId author) =>
+        (vec is Map && vec[author.hex] is int) ? vec[author.hex] as int : 0;
+    final missingMsgs = [
+      for (final m in b.messages)
+        if (m.seq > seen(req['g'], m.author)) m,
+    ];
+    final missingCtl = [
+      for (final e in b.control)
+        if (e.seq > seen(req['c'], e.author)) e,
+    ];
+    if (missingMsgs.isEmpty && missingCtl.isEmpty) return false;
+    await send(
+        peer,
+        gid,
+        jsonEncode({
+          'm': b.manifest.toJson(),
+          'c': [for (final e in missingCtl) e.toJson()],
+          'g': [for (final m in missingMsgs) m.toJson()],
+          'r': const [],
+        }));
+    return true;
+  }
+
+  /// Route one inbound group-entry payload from [peer]: a sync VECTOR is
+  /// answered (membership-gated), anything else is the normal idempotent
+  /// snapshot/delta ingest. The wire wiring points here instead of calling
+  /// [ingestSnapshot] directly.
+  Future<bool> ingestGroupEntry(NodeId peer, String json) async {
+    try {
+      final d = jsonDecode(json);
+      if (d is Map && d['sreq'] == 1) return handleGroupSyncRequest(peer, d);
+    } catch (_) {
+      return false; // malformed — drop
+    }
+    return ingestSnapshot(json);
+  }
+
+  /// The NON-contact variant of [ingestGroupEntry]: a member's sync vector is
+  /// answered (the handler's own membership gate is the same admission), a
+  /// bundle goes through the stranger-guarded ingest.
+  Future<bool> ingestGroupEntryFromStranger(NodeId peer, String json) async {
+    try {
+      final d = jsonDecode(json);
+      if (d is Map && d['sreq'] == 1) return handleGroupSyncRequest(peer, d);
+    } catch (_) {
+      return false; // malformed — drop
+    }
+    return ingestSnapshotFromStranger(peer, json);
+  }
+
+  /// Boot catch-up for EVERY group: fan my sync vector to up to
+  /// [kGroupSyncFanout] members per group. Cheap when in sync (one small
+  /// JSON), and the reply path ships only what this device actually lacks.
+  Future<void> nudgeGroupSyncAll() async {
+    final send = _send;
+    if (send == null) return;
+    for (final gidHex in await _index()) {
+      final NodeId gid;
+      try {
+        gid = NodeId.fromHex(gidHex);
+      } catch (_) {
+        continue;
+      }
+      final req = await buildGroupSyncRequest(gid);
+      final st = await stateOf(gid);
+      if (req == null || st == null) continue;
+      final others = [
+        for (final m in st.members.values)
+          if (m.nodeId != _signer.selfId) m.nodeId,
+      ]..shuffle(Random());
+      for (final peer in others.take(kGroupSyncFanout)) {
+        await send(peer, gid, jsonEncode(req));
+      }
+    }
   }
 
   /// The VALIDATED, time-ordered messages of [groupId]: signature ok AND the
@@ -1101,7 +1239,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     },
   );
   messaging.onGroupEntry = (peer, bundleJson) async {
-    await svc.ingestSnapshot(bundleJson);
+    await svc.ingestGroupEntry(peer, bundleJson);
   };
   // Membership-authorized fetch requests (content path): judged entirely by
   // the service (signature + fold + referenced + replay).
@@ -1111,9 +1249,12 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   // Scale-free log sync: a NON-contact member's snapshot merges into groups
   // we hold (guarded); chunk reassembly asks the same admission up front.
   messaging.onGroupEntryFromStranger = (peer, bundleJson) {
-    unawaited(svc.ingestSnapshotFromStranger(peer, bundleJson));
+    unawaited(svc.ingestGroupEntryFromStranger(peer, bundleJson));
   };
   messaging.allowStrangerGroupSync = svc.allowStrangerGroupSync;
+  // Reliability brick G1: fan each group's sync VECTOR to a few members once
+  // per boot — recovers deltas that died while every entry node was down.
+  unawaited(svc.nudgeGroupSyncAll());
 
   // ── Multi-device mirror loop (doc/MULTIDEVICE-DESIGN.md, bricks 3+4b) ─────
   // EMIT: a stored 1:1 message becomes a msgMirror event on my device group.
