@@ -5,6 +5,7 @@ import 'features/calls/call_overlay.dart';
 import 'features/calls/call_lifecycle_bridge.dart';
 import 'l10n/app_localizations.dart';
 import 'routing/router.dart';
+import 'state/api_server.dart';
 import 'state/group_service.dart';
 import 'state/locale_controller.dart';
 import 'theme/app_theme.dart';
@@ -36,6 +37,9 @@ class XVeilApp extends ConsumerWidget {
           // inbound-snapshot bridge is attached BEFORE any group frame arrives
           // (a member added on another device pushes a snapshot immediately).
           const _GroupBridge(),
+          // Keep the automation-API controller alive so a persisted "enabled"
+          // flag re-opens the loopback server on boot (off by default).
+          const _ApiBridge(),
         ],
       ),
     );
@@ -49,6 +53,17 @@ class _GroupBridge extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     ref.watch(groupServiceProvider);
+    return const SizedBox.shrink();
+  }
+}
+
+/// Keeps [apiServerControllerProvider] alive so the loopback automation server
+/// starts on boot when the persisted flag is on (and reconciles on toggle).
+class _ApiBridge extends ConsumerWidget {
+  const _ApiBridge();
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(apiServerControllerProvider);
     return const SizedBox.shrink();
   }
 }
