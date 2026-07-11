@@ -19,9 +19,10 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/ids.dart';
 import '../domain/chat.dart';
 import 'app_controller.dart';
-import 'messaging.dart' show conversationsProvider;
+import 'messaging.dart' show conversationsProvider, messagingServiceProvider;
 import 'providers.dart';
 
 /// The loopback port the automation API binds when enabled. Distinct from the
@@ -57,6 +58,8 @@ class ApiHandler {
     required this.token,
     required this.status,
     required this.contacts,
+    required this.send,
+    required this.messages,
   });
 
   /// The bearer token every request must present (empty = reject everything).
@@ -67,6 +70,13 @@ class ApiHandler {
 
   /// Accepted contacts for `GET /v1/contacts`.
   final Future<List<Map<String, dynamic>>> Function() contacts;
+
+  /// Send a text message to [toHex]; returns null on success or an error string.
+  final Future<String?> Function(String toHex, String body) send;
+
+  /// The most-recent [limit] messages of the conversation with [peerHex].
+  final Future<List<Map<String, dynamic>>> Function(String peerHex, int limit)
+      messages;
 
   /// Constant-time token compare (localhost, but no reason to leak length/prefix).
   bool _authOk(String? header) {
@@ -82,16 +92,37 @@ class ApiHandler {
     return diff == 0;
   }
 
-  Future<ApiResponse> handle(
-      String method, String path, String? authHeader) async {
+  Future<ApiResponse> handle(String method, Uri uri, String? authHeader,
+      {Map<String, dynamic>? body}) async {
     if (!_authOk(authHeader)) {
       return const ApiResponse(401, {'error': 'unauthorized'});
     }
+    final path = uri.path;
     if (method == 'GET' && path == '/v1/health') {
       return ApiResponse(200, status());
     }
     if (method == 'GET' && path == '/v1/contacts') {
       return ApiResponse(200, {'contacts': await contacts()});
+    }
+    if (method == 'GET' && path == '/v1/messages') {
+      final peer = uri.queryParameters['peer'];
+      if (peer == null || peer.isEmpty) {
+        return const ApiResponse(400, {'error': 'peer required'});
+      }
+      final limit = int.tryParse(uri.queryParameters['limit'] ?? '') ?? 50;
+      return ApiResponse(
+          200, {'messages': await messages(peer, limit.clamp(1, 500))});
+    }
+    if (method == 'POST' && path == '/v1/messages') {
+      final to = body?['to'];
+      final text = body?['body'];
+      if (to is! String || to.isEmpty || text is! String || text.isEmpty) {
+        return const ApiResponse(400, {'error': 'to + body required'});
+      }
+      final err = await send(to, text);
+      return err == null
+          ? const ApiResponse(200, {'ok': true})
+          : ApiResponse(400, {'error': err});
     }
     return const ApiResponse(404, {'error': 'not found'});
   }
@@ -121,7 +152,15 @@ class ApiServer {
   Future<void> _onRequest(HttpRequest req) async {
     try {
       final auth = req.headers.value(HttpHeaders.authorizationHeader);
-      final res = await _handler.handle(req.method, req.uri.path, auth);
+      Map<String, dynamic>? body;
+      if (req.method == 'POST') {
+        final raw = await utf8.decoder.bind(req).join();
+        if (raw.isNotEmpty) {
+          final decoded = jsonDecode(raw);
+          if (decoded is Map<String, dynamic>) body = decoded;
+        }
+      }
+      final res = await _handler.handle(req.method, req.uri, auth, body: body);
       req.response.statusCode = res.status;
       req.response.headers.contentType = ContentType.json;
       req.response.write(jsonEncode(res.body ?? const {}));
@@ -208,6 +247,47 @@ class ApiServerController extends Notifier<ApiConfig> {
     ];
   }
 
+  /// Send a text message to [toHex] via the messaging service. Returns null on
+  /// success, or an error string (bad peer / send failure).
+  Future<String?> _send(String toHex, String text) async {
+    final NodeId peer;
+    try {
+      peer = NodeId.fromHex(toHex);
+    } catch (_) {
+      return 'invalid peer';
+    }
+    try {
+      await ref.read(messagingServiceProvider).sendText(peer, text);
+      return null;
+    } catch (e) {
+      return '$e';
+    }
+  }
+
+  /// The most-recent [limit] messages of the conversation with [peerHex].
+  Future<List<Map<String, dynamic>>> _messages(
+      String peerHex, int limit) async {
+    final NodeId peer;
+    try {
+      peer = NodeId.fromHex(peerHex);
+    } catch (_) {
+      return const [];
+    }
+    final msgs =
+        await ref.read(storageProvider).loadMessages(peer.hex, limit: limit);
+    return [
+      for (final m in msgs)
+        {
+          'id': m.id,
+          'body': m.body,
+          'direction': m.direction.name,
+          'sentAt': m.timestamp.millisecondsSinceEpoch,
+          'status': m.status.name,
+          if (m.fileName != null) 'fileName': m.fileName,
+        },
+    ];
+  }
+
   /// Bring the socket in line with [state]: run (with a fresh handler carrying
   /// the current token) iff enabled + tokened, else stop.
   Future<void> _reconcile() async {
@@ -218,6 +298,8 @@ class ApiServerController extends Notifier<ApiConfig> {
       token: state.token,
       status: _status,
       contacts: _contacts,
+      send: _send,
+      messages: _messages,
     );
     _server = ApiServer(handler);
     try {
