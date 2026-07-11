@@ -36,6 +36,12 @@ and apply-loop into the local store.
 * The device group's OWNER is the sovereign; v1 practical stance: the
   first (linking) device acts for the sovereign the same way it already
   signs group ops today.
+* DECIDED (user, 2026-07-11): the production stance is STRICT sovereign
+  signing — linking a device requires the sovereign key (seed phrase
+  entered at link time) to sign the device-group manifest/addMember op.
+  The v1 instance-key path above stays only until that brick lands
+  ("sovereign-подпись линковки", scheduled after brick 4/5); no new
+  format work may assume the first-device-acts-for-sovereign shortcut.
 
 ## Sync-event vocabulary (v1 — "sync everything")
 

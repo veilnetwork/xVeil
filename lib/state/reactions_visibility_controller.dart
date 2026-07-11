@@ -1,8 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'device_settings_sync.dart';
 import 'providers.dart';
 
-const _kShowReactionsKey = 'show_reactions';
+const _kShowReactionsKey = kSyncShowReactions;
 
 /// Whether message reactions are rendered at all — the chips under bubbles and
 /// the quick-react bar in the long-press menu, in BOTH 1:1 chats and groups.
@@ -34,6 +35,11 @@ class ShowReactionsController extends Notifier<bool> {
   Future<void> set(bool value) async {
     _userSet = true;
     state = value;
+    // Device sync: an allowlisted preference — mirror the local set to my
+    // other devices (no-op while an incoming synced value is being applied).
+    ref
+        .read(deviceSettingsSyncHubProvider)
+        .notifyLocalSet(kSyncShowReactions, value ? '1' : '0');
     try {
       final prefs = await ref.read(prefsProvider.future);
       await prefs.setBool(_kShowReactionsKey, value);
