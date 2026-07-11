@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/domain/device_sync.dart';
 import 'package:xveil/domain/group.dart';
 import 'package:xveil/domain/group_content.dart';
 import 'package:xveil/domain/group_message.dart';
@@ -424,6 +425,82 @@ void main() {
     expect((await ownerSvc.listGroups()).single.muted, isTrue);
     await ownerSvc.setGroupMuted(gid, false);
     expect(await ownerSvc.isGroupMuted(gid), isFalse);
+  });
+
+  test('device group: link/adopt/revoke lifecycle, hidden + silent', () async {
+    Future<void> drain() async {
+      for (var i = 0; i < 6; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+    }
+
+    final sent = <String>[];
+    final s1 = FakeHvContainer().storage();
+    await s1.open(password: 'pw', createIfMissing: true);
+    final primary = GroupService(s1, _FakeSigner(owner),
+        send: (p, g, j) async => sent.add(j));
+
+    // First link creates the device group; the second reuses it (a different
+    // device — bob is _id(3), so link _id(4) as the second phone).
+    expect(await primary.deviceGroupIdHex(), isNull);
+    expect(await primary.linkDevice(bob), isTrue);
+    final gidHex = (await primary.deviceGroupIdHex())!;
+    expect(await primary.linkDevice(_id(4)), isTrue);
+    expect(await primary.deviceGroupIdHex(), gidHex);
+    await drain();
+
+    // Hidden from the user-facing group list despite being a real group…
+    expect((await primary.listGroups()).where((g) => g.groupId.hex == gidHex),
+        isEmpty);
+    // …and a linked device is an ADMIN (it can manage devices below it).
+    final st = (await primary.stateOf(NodeId.fromHex(gidHex)))!;
+    expect(st.roleOf(bob), GroupRole.admin);
+
+    // The NEW device adopts via the handshake id, then sees the same group.
+    final s2 = FakeHvContainer().storage();
+    await s2.open(password: 'pw', createIfMissing: true);
+    final secondary = GroupService(s2, _FakeSigner(bob));
+    expect(await secondary.ingestSnapshot(sent.first), isTrue);
+    await secondary.adoptDeviceGroup(NodeId.fromHex(gidHex));
+    expect(await secondary.deviceGroupIdHex(), gidHex);
+
+    // Sync events round-trip through the device log and fold newest-wins…
+    final chat = <String>[];
+    final sub = primary.incoming.listen((n) => chat.add(n.message.body));
+    expect(
+        await secondary.postDeviceEvent(DeviceSyncEvent(
+            kind: DeviceSyncKind.settingSet,
+            key: 'theme',
+            tsMs: 111,
+            payload: const {'v': 'dark'})),
+        isTrue);
+    final deltas = <String>[];
+    final secondary2 = GroupService(s2, _FakeSigner(bob),
+        send: (p, g, j) async => deltas.add(j));
+    await secondary2.postDeviceEvent(DeviceSyncEvent(
+        kind: DeviceSyncKind.settingSet,
+        key: 'theme',
+        tsMs: 222,
+        payload: const {'v': 'light'}));
+    await drain();
+    for (final d in deltas) {
+      await primary.ingestSnapshot(d);
+    }
+    await drain();
+    final folded = await primary.deviceSyncState();
+    expect(folded[(DeviceSyncKind.settingSet, 'theme')]!.payload['v'],
+        'light');
+    // …and device-group traffic NEVER feeds the chat notification stream.
+    expect(chat, isEmpty);
+    await sub.cancel();
+
+    // Revoke removes the device and rotates the epoch.
+    final epochBefore =
+        (await primary.stateOf(NodeId.fromHex(gidHex)))!.epoch;
+    expect(await primary.revokeDevice(bob), isTrue);
+    final after = (await primary.stateOf(NodeId.fromHex(gidHex)))!;
+    expect(after.isMember(bob), isFalse);
+    expect(after.epoch, greaterThan(epochBefore));
   });
 
   // Auto-broadcast is unawaited (fire-and-forget) — let it drain.
