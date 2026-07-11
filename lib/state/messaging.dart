@@ -480,12 +480,21 @@ class MessagingService {
   /// (native delivery or an earlier mirror) AND one we deleted on THIS device
   /// (a mirror must never resurrect it). Writes straight to storage, so it
   /// does not re-fire [onMessageStored]. Returns whether it wrote a new row.
+  ///
+  /// A FILE mirror (brick 4b) carries [fileContentId]/[fileName]/[fileSize]/
+  /// [thumb] and lands OFFER-shaped — no bytes, `fileId` stays null — so the
+  /// chat renders the normal download affordance; the download routes to my
+  /// other devices through [deviceContentPull].
   Future<bool> applyMirroredMessage({
     required NodeId peer,
     required String msgId,
     required MessageDirection direction,
     required String body,
     required int tsMs,
+    String? fileContentId,
+    String? fileName,
+    int? fileSize,
+    String? thumb,
   }) async {
     if (await _hasMessage(peer, msgId)) return false;
     if (await _storage.isMessageDeleted(peer.hex, msgId)) return false;
@@ -498,10 +507,21 @@ class MessagingService {
       status: direction == MessageDirection.outgoing
           ? MessageStatus.sent
           : MessageStatus.delivered,
+      fileContentId: fileContentId,
+      fileName: fileName,
+      fileSize: fileSize,
+      thumb: thumb,
     ));
     _signal();
     return true;
   }
+
+  /// Attached by the multi-device bridge (brick 4b): fire-and-forget "also try
+  /// pulling [contentId] from MY OTHER DEVICES over the membership-authorized
+  /// group content path". Invoked on every user download; the bridge no-ops
+  /// unless the cid is actually referenced in my device group, so ordinary
+  /// 1:1 downloads cost nothing. Null = single-device install.
+  Future<void> Function(String contentId)? deviceContentPull;
 
   /// Attached by the multi-device bridge: fires after a LOCAL user edit of a
   /// contact's sync-worthy preferences (alias, mute, pin, archive, retention,
@@ -4786,6 +4806,11 @@ class MessagingService {
       return ContentDownloadResult.started;
     }
     devLog(() => 'xVeil[content]: user download ${contentId.substring(0, 12)}');
+    // Multi-device: in parallel, ask my OTHER devices for the bytes over the
+    // membership pull (no-op unless this cid is a mirrored attachment). The
+    // conversation peer may be unreachable — or, for a mirrored OUTGOING
+    // file, may never have had the blob at all.
+    unawaited(deviceContentPull?.call(contentId));
     _warmStreamPeer(peer);
     // An explicit user retry overrides a terminal "gone" mark — if the bytes
     // are still gone everywhere, the next reoffer round re-marks it.

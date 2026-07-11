@@ -560,6 +560,42 @@ void main() {
     }
   });
 
+  test('postDeviceEvent with an attachment ref authorizes the membership pull '
+      '(brick 4b: the cid lands in referencedContentIds of the device group)',
+      () async {
+    final s = FakeHvContainer().storage();
+    await s.open(password: 'pw', createIfMissing: true);
+    final svc = GroupService(s, _FakeSigner(owner));
+    await svc.linkDevice(bob);
+    final gid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
+
+    expect(
+        await svc.postDeviceEvent(
+          DeviceSyncEvent(
+              kind: DeviceSyncKind.msgMirror,
+              key: 'f1',
+              tsMs: 5,
+              payload: const {
+                'peer': 'aa',
+                'dir': 'outgoing',
+                'body': '📎 report.pdf',
+                'cid': 'cafe01',
+                'fname': 'report.pdf',
+                'fsize': 12345,
+              }),
+          attachment: const GroupAttachment(
+              kind: 'file', dataB64: 'AA==', w: 1, h: 1, cid: 'cafe01'),
+        ),
+        isTrue);
+    expect(await svc.referencedContentIds(gid), contains('cafe01'),
+        reason: 'the ref is what lets my other device fetch the bytes');
+    // The event still parses as a normal msgMirror with the file payload.
+    final msgs = await svc.messagesOf(gid);
+    final e = DeviceSyncEvent.fromBody(msgs.last.body)!;
+    expect(e.payload['cid'], 'cafe01');
+    expect(msgs.last.attachment?.cid, 'cafe01');
+  });
+
   // Auto-broadcast is unawaited (fire-and-forget) — let it drain.
   Future<void> pump() async {
     for (var i = 0; i < 6; i++) {

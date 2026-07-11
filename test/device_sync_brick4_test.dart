@@ -247,4 +247,50 @@ void main() {
     );
     expect(isNewerDeviceSync(newer, second), isTrue);
   });
+
+  test('file mirror applies OFFER-shaped (brick 4b): fileContentId + meta, '
+      'no bytes, idempotent, and deniability still holds', () async {
+    final me = _id(1), peer = _id(2);
+    final storage = await _openStorage();
+    await storage.upsertContact(
+        Contact(nodeId: peer, status: ContactStatus.accepted));
+    final svc = MessagingService(_Noop(me), storage)..start();
+    addTearDown(svc.dispose);
+
+    expect(
+        await svc.applyMirroredMessage(
+          peer: peer,
+          msgId: 'fm1',
+          direction: MessageDirection.outgoing,
+          body: '📎 report.pdf',
+          tsMs: 7000,
+          fileContentId: 'cafe01',
+          fileName: 'report.pdf',
+          fileSize: 12345,
+          thumb: 'dGh1bWI=',
+        ),
+        isTrue);
+    final rows = await storage.loadMessages(peer.hex);
+    final m = rows.singleWhere((x) => x.id == 'fm1');
+    expect(m.fileContentId, 'cafe01');
+    expect(m.fileId, isNull, reason: 'no bytes yet — offer-shaped');
+    expect(m.fileName, 'report.pdf');
+    expect(m.fileSize, 12345);
+    expect(m.thumb, 'dGh1bWI=');
+    expect(m.isFile, isTrue);
+
+    // Idempotent on re-delivery.
+    expect(
+        await svc.applyMirroredMessage(
+          peer: peer,
+          msgId: 'fm1',
+          direction: MessageDirection.outgoing,
+          body: '📎 report.pdf',
+          tsMs: 7000,
+          fileContentId: 'cafe01',
+        ),
+        isFalse);
+    expect((await storage.loadMessages(peer.hex))
+        .where((x) => x.id == 'fm1').length, 1);
+  });
 }

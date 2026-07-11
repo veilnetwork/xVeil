@@ -330,6 +330,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/call_log_add':
           await _callLogAddHook(req);
           return;
+        case '/mirror_pull':
+          await _mirrorPullHook(req);
+          return;
         case '/group_play_voice':
           await _groupPlayVoiceHook(req);
           return;
@@ -1168,9 +1171,33 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'count': msgs.length,
       'messages': [
         for (final m in msgs)
-          {'id': m.id, 'dir': m.direction.name, 'body': m.body},
+          {
+            'id': m.id,
+            'dir': m.direction.name,
+            'body': m.body,
+            if (m.fileContentId != null) 'cid': m.fileContentId,
+            if (m.fileId != null) 'fileId': m.fileId,
+            if (m.fileName != null) 'fname': m.fileName,
+            if (m.fileSize != null) 'fsize': m.fileSize,
+            if (m.thumb != null) 'hasThumb': true,
+          },
       ],
     });
+  }
+
+  /// Pull mirrored attachment ?cid= from MY OTHER DEVICES over the
+  /// membership-authorized content path (brick 4b) — the same hook the chat
+  /// download button fires via [MessagingService.deviceContentPull].
+  Future<void> _mirrorPullHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final cid = req.uri.queryParameters['cid'];
+    if (cid == null) return _json(req, {'ok': false, 'error': 'no cid'});
+    final pull = ref.read(messagingServiceProvider).deviceContentPull;
+    if (pull == null) {
+      return _json(req, {'ok': false, 'error': 'no bridge'});
+    }
+    await pull(cid);
+    return _json(req, {'ok': true});
   }
 
   /// Set contact preferences of ?peer= — only the params present are applied

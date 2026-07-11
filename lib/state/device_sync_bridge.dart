@@ -99,6 +99,32 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     )));
   };
 
+  // Lazy attachments (brick 4b): when the user downloads a cid that is a
+  // mirrored attachment of my device group, also request it from my other
+  // devices over the membership-authorized content path. The in-flight set
+  // breaks the recursion (fetchGroupContent's pull re-enters downloadContent,
+  // which fires this hook again) and de-bounces retry taps.
+  final pulling = <String>{};
+  messaging.deviceContentPull = (cid) async {
+    if (!pulling.add(cid)) return;
+    try {
+      final gidHex = await svc.deviceGroupIdHex();
+      if (gidHex == null) return;
+      final gid = NodeId.fromHex(gidHex);
+      if (!(await svc.referencedContentIds(gid)).contains(cid)) return;
+      final st = await svc.stateOf(gid);
+      if (st == null) return;
+      for (final m in st.members.values) {
+        if (m.nodeId == svc.selfId) continue;
+        await svc.fetchGroupContent(gid, cid, m.nodeId);
+      }
+    } finally {
+      // Free the slot on the next tick — enough to cover the synchronous
+      // re-entry from our own pull, while a later user retry still works.
+      Timer(const Duration(seconds: 15), () => pulling.remove(cid));
+    }
+  };
+
   // ── APPLY: device-group event → local state, newest-wins per (kind, key),
   // ranked exactly like foldDeviceSync (same-millisecond edits tie-break on
   // payload — a bare timestamp compare would drop the fold's winner).
