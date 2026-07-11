@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../chat/chats_screen.dart';
@@ -26,6 +27,10 @@ class HomeShell extends StatelessWidget {
             selectedIndex: 0,
             onDestinationSelected: (i) {
               if (i == 0) return;
+              if (i == 1) {
+                context.push('/groups'); // Channels = groups (phase 0)
+                return;
+              }
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text(l.comingSoon)),
               );

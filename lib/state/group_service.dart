@@ -94,6 +94,13 @@ class GroupService {
   final GroupSigner _signer;
   final GroupSnapshotSender? _send;
 
+  /// Bumped on every persisted mutation (local op/post OR an ingested
+  /// snapshot) so open group screens re-fetch. Cheap: the UI reads on change.
+  final ValueNotifier<int> changes = ValueNotifier(0);
+
+  /// Our own node id — the composer uses it to align outgoing bubbles.
+  NodeId get selfId => _signer.selfId;
+
   int _now() => DateTime.now().millisecondsSinceEpoch;
 
   Future<List<String>> _index() async {
@@ -143,6 +150,7 @@ class GroupService {
             'g': b.messages.map((m) => m.toJson()).toList(),
           }),
         );
+    changes.value++;
   }
 
   /// All groups we hold, newest-created last.
@@ -240,6 +248,7 @@ class GroupService {
     }
     await _save(GroupBundle(
         manifest: b.manifest, control: candidate, messages: b.messages));
+    unawaited(broadcast(groupId)); // fan the new op out to members
     return true;
   }
 
@@ -272,6 +281,7 @@ class GroupService {
         manifest: b.manifest,
         control: b.control,
         messages: [...b.messages, signed]));
+    unawaited(broadcast(groupId)); // deliver to members
     return true;
   }
 
