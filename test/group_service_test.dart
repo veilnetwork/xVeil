@@ -225,6 +225,29 @@ void main() {
     expect(rt.attachment?.dataB64, 'QQ');
   });
 
+  test('voice attachment: durationMs rides in w, round-trips, signs stably',
+      () {
+    GroupMessage voiceMsg() => GroupMessage(
+          groupId: _id(2),
+          author: owner,
+          seq: 0,
+          prevHash: '',
+          body: '',
+          policyVersion: 0,
+          createdAtMs: 5,
+          signature: Uint8List(0),
+          attachment: const GroupAttachment(
+              kind: 'voice', dataB64: 'Vk9QMQ', w: 4200, h: 1),
+        );
+    final rt = GroupMessage.fromJson(voiceMsg().toJson())!;
+    expect(rt.attachment?.kind, 'voice');
+    expect(rt.attachment?.w, 4200, reason: 'durationMs travels in w');
+    expect(rt.attachment?.h, 1);
+    // The parsed message re-canonicalizes byte-identically — a signature a
+    // voice-aware build minted verifies on any build (zero schema change).
+    expect(rt.canonicalBytes(), voiceMsg().canonicalBytes());
+  });
+
   // Auto-broadcast is unawaited (fire-and-forget) — let it drain.
   Future<void> pump() async {
     for (var i = 0; i < 6; i++) {

@@ -5,6 +5,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:ui' as ui;
 
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/widgets.dart';
@@ -248,6 +249,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/group_post_sticker':
           await _groupPostStickerHook(req);
+          return;
+        case '/group_post_voice':
+          await _groupPostVoiceHook(req);
+          return;
+        case '/group_play_voice':
+          await _groupPlayVoiceHook(req);
           return;
         case '/group_state':
           await _groupStateHook(req);
@@ -817,6 +824,94 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     return _json(req, {'ok': posted, 'w': img.w, 'h': img.h});
   }
 
+  /// Record ?ms= (default 2000) from the REAL mic and post it to ?group= as an
+  /// inline `voice` attachment — the same payload the composer mic produces.
+  /// Reports the clip's duration, byte length and sha8 so the receiving device
+  /// can prove byte-exactness via /group_state.
+  Future<void> _groupPostVoiceHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final gidHex = req.uri.queryParameters['group'];
+    if (gidHex == null) return _json(req, {'ok': false, 'error': 'no group'});
+    final ms = int.tryParse(req.uri.queryParameters['ms'] ?? '') ?? 2000;
+    final rec = VeilAudioRecorder.create();
+    if (rec == null) {
+      return _json(req, {'ok': false, 'error': 'recorder unavailable'},
+          status: 500);
+    }
+    await MacMediaPermissions.requestMicrophone().timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => false,
+    );
+    if (!rec.start()) {
+      rec.dispose();
+      return _json(req, {'ok': false, 'error': 'start failed (permission?)'},
+          status: 500);
+    }
+    await Future<void>.delayed(Duration(milliseconds: ms));
+    final clip = rec.stop();
+    rec.dispose();
+    if (clip == null || clip.bytes.isEmpty) {
+      return _json(req, {'ok': false, 'error': 'empty clip'});
+    }
+    final posted = await svc.postMessage(
+      NodeId.fromHex(gidHex),
+      '',
+      attachment: GroupAttachment(
+        kind: 'voice',
+        dataB64: base64Encode(clip.bytes),
+        w: clip.durationMs > 0 ? clip.durationMs : 1,
+        h: 1,
+      ),
+    );
+    return _json(req, {
+      'ok': posted,
+      'durationMs': clip.durationMs,
+      'bytes': clip.bytes.length,
+      'sha8': _sha8(clip.bytes),
+    });
+  }
+
+  /// Play the LAST inline voice clip of ?group= through the real playback
+  /// controller (toggleBytes — no file-store key exists for inline clips),
+  /// then report the live play state — proves decode + playback without ears.
+  Future<void> _groupPlayVoiceHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final gidHex = req.uri.queryParameters['group'];
+    if (gidHex == null) return _json(req, {'ok': false, 'error': 'no group'});
+    final msgs = await svc.messagesOf(NodeId.fromHex(gidHex));
+    var last = msgs.where((m) => m.attachment?.kind == 'voice').lastOrNull;
+    if (last == null) {
+      return _json(req, {'ok': false, 'error': 'no voice message'});
+    }
+    final Uint8List bytes;
+    try {
+      bytes = base64Decode(last.attachment!.dataB64);
+    } catch (_) {
+      return _json(req, {'ok': false, 'error': 'corrupt attachment'});
+    }
+    await ref
+        .read(voicePlayControllerProvider.notifier)
+        .toggleBytes(last.ref, bytes);
+    await Future<void>.delayed(const Duration(milliseconds: 700));
+    final st = ref.read(voicePlayControllerProvider);
+    return _json(req, {
+      'ok': st.isActive(last.ref),
+      'ref': last.ref,
+      'durationMs': st.durationMs,
+      'positionMs': st.positionMs,
+      'playing': st.isPlaying(last.ref),
+      'bytes': bytes.length,
+      'sha8': _sha8(bytes),
+    });
+  }
+
+  static String _sha8(Uint8List bytes) =>
+      crypto.sha256.convert(bytes).toString().substring(0, 16);
+
   /// Add ?peer= as a member of ?group= and fan the snapshot out to all members
   /// — the real 2-device group path (the peer materializes the group).
   Future<void> _groupInviteHook(HttpRequest req) async {
@@ -864,6 +959,20 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         for (final m in msgs)
           if (m.attachment != null)
             {'w': m.attachment!.w, 'h': m.attachment!.h}
+      ],
+      // Inline voice clips: duration + byte length + sha8 of the decoded
+      // bytes, so a 2-device run can prove the clip arrived byte-exact.
+      'voice': [
+        for (final m in msgs)
+          if (m.attachment?.kind == 'voice')
+            () {
+              final b = base64Decode(m.attachment!.dataB64);
+              return {
+                'ms': m.attachment!.w,
+                'bytes': b.length,
+                'sha8': _sha8(b),
+              };
+            }(),
       ],
       'reactions': {
         for (final e in reacts.entries)
