@@ -183,6 +183,13 @@ class AppL10nRu extends AppL10n {
   String get callOutcomeFailed => 'Не удался';
 
   @override
+  String get channelsEmpty => 'Каналов пока нет';
+
+  @override
+  String get channelsEmptyHint =>
+      'Каналы — подписанные ленты владельца — появятся в будущем обновлении. Групповые чаты теперь живут во вкладке «Чаты».';
+
+  @override
   String get chatsEmpty => 'Пока нет переписок';
 
   @override

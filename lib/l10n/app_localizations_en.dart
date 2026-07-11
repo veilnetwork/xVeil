@@ -182,6 +182,13 @@ class AppL10nEn extends AppL10n {
   String get callOutcomeFailed => 'Failed';
 
   @override
+  String get channelsEmpty => 'No channels yet';
+
+  @override
+  String get channelsEmptyHint =>
+      'Channels — owner-signed broadcast feeds — are coming in a future update. Your group chats now live in the Chats tab.';
+
+  @override
   String get chatsEmpty => 'No conversations yet';
 
   @override

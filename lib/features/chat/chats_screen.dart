@@ -16,6 +16,8 @@ import '../../state/messaging.dart';
 import '../../state/nickname_peers.dart';
 import 'chat_actions.dart';
 import 'chat_search.dart';
+import '../../state/group_service.dart';
+import '../groups/group_tile.dart';
 import '../../state/folder_panel_controller.dart';
 import '../../state/vnote_message.dart';
 import '../../state/voice_message.dart';
@@ -124,11 +126,20 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
   Widget _searchResults(
     AppL10n l,
     List<Conversation> convos,
+    List<GroupListEntry> groups,
     ColorScheme scheme,
   ) {
     final needle = _query.trim().toLowerCase();
     final chatHits = filterConversationsByName(convos, needle);
-    final empty = chatHits.isEmpty && _msgHits.isEmpty && !_scanning;
+    // Group chats live in this list now (NAV1) — match them by name in the
+    // same section. (Message-scan inside groups is a follow-up.)
+    final groupHits = needle.isEmpty
+        ? const <GroupListEntry>[]
+        : groups
+              .where((g) => g.name.toLowerCase().contains(needle))
+              .toList(growable: false);
+    final empty =
+        chatHits.isEmpty && groupHits.isEmpty && _msgHits.isEmpty && !_scanning;
     return ListView(
       children: [
         if (_scanning) const LinearProgressIndicator(minHeight: 2),
@@ -137,12 +148,13 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
             padding: const EdgeInsets.all(32),
             child: Center(child: Text(l.searchNoResults)),
           ),
-        if (chatHits.isNotEmpty)
+        if (chatHits.isNotEmpty || groupHits.isNotEmpty)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
             child: Text(l.navChats, style: TextStyle(color: scheme.primary)),
           ),
         for (final c in chatHits) _ConversationTile(conversation: c),
+        for (final g in groupHits) GroupTile(entry: g),
         if (_msgHits.isNotEmpty)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
@@ -284,12 +296,25 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
               child: const Icon(Icons.person_add_alt_1),
             ),
       body: _searching && _query.trim().isNotEmpty
-          ? _searchResults(l, convos.valueOrNull ?? const [], scheme)
+          ? _searchResults(
+              l,
+              convos.valueOrNull ?? const [],
+              ref.watch(groupListProvider).valueOrNull ?? const [],
+              scheme,
+            )
           : convos.when(
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) => Center(child: Text('$e')),
               data: (list) {
-                if (list.isEmpty) {
+                // NAV1: group chats live HERE, inlined with 1:1 conversations
+                // (channels are ideologically a different thing — that tab now
+                // waits for the real channels epic). Folders stay peer-based,
+                // so a custom folder filters groups out for now.
+                final groups = folder == null
+                    ? ref.watch(groupListProvider).valueOrNull ??
+                          const <GroupListEntry>[]
+                    : const <GroupListEntry>[];
+                if (list.isEmpty && groups.isEmpty) {
                   return _EmptyState(
                     l: l,
                     onStart: () => showAddContactSheet(context, ref),
@@ -310,6 +335,16 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
                 final archived = scoped
                     .where((c) => c.peer.archived)
                     .toList(growable: false);
+                // One recency-ordered stream: 1:1 rows by their last message,
+                // group rows by the group log's last entry.
+                final rows = <(int, Widget)>[
+                  for (final c in active)
+                    (
+                      c.lastMessage?.timestamp.millisecondsSinceEpoch ?? 0,
+                      _ConversationTile(conversation: c),
+                    ),
+                  for (final g in groups) (g.lastTs, GroupTile(entry: g)),
+                ]..sort((a, b) => b.$1.compareTo(a.$1));
                 return Column(
                   children: [
                     // Top placement only; drawer placements render the folders in
@@ -320,14 +355,14 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
                     if (panelPos == FolderPanelPosition.top)
                       _FolderBar(folders: folders, selected: selectedFolder),
                     Expanded(
-                      child: (active.isEmpty && archived.isEmpty)
+                      child: (rows.isEmpty && archived.isEmpty)
                           ? Center(child: Text(l.chatsFolderEmpty))
                           : ListView(
                               children: [
-                                for (final (i, c) in active.indexed) ...[
+                                for (final (i, r) in rows.indexed) ...[
                                   if (i > 0)
                                     const Divider(height: 1, indent: 72),
-                                  _ConversationTile(conversation: c),
+                                  r.$2,
                                 ],
                                 if (archived.isNotEmpty)
                                   ExpansionTile(
@@ -582,6 +617,17 @@ class _FolderDrawer extends ConsumerWidget {
               onTap: () {
                 Navigator.of(context).pop();
                 showAddContactSheet(context, ref);
+              },
+            ),
+            // Group creation moved here from the Channels tab (NAV1): group
+            // chats live in the chats list now, so their creation entry sits
+            // next to "add contact".
+            ListTile(
+              leading: const Icon(Icons.group_add_outlined),
+              title: Text(l.groupCreateTitle),
+              onTap: () {
+                Navigator.of(context).pop();
+                showCreateGroupDialog(context, ref);
               },
             ),
             ListTile(

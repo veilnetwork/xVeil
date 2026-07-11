@@ -62,6 +62,9 @@
   "callOutcomeBusy": "Busy",
   "callOutcomeFailed": "Failed",
 
+  "channelsEmpty": "No channels yet",
+  "channelsEmptyHint": "Channels — owner-signed broadcast feeds — are coming in a future update. Your group chats now live in the Chats tab.",
+
   "chatsEmpty": "No conversations yet",
   "chatsEmptyHint": "Start a new chat to begin messaging",
   "chatNewMessageHint": "Message",
