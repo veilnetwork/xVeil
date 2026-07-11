@@ -3,8 +3,12 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/ids.dart';
+import '../../core/log.dart';
 import '../../domain/chat.dart';
+import '../../domain/group_message.dart';
 import '../../l10n/app_localizations.dart';
+import '../../state/group_service.dart';
 import '../../state/messaging.dart';
 import '../../state/notifications.dart';
 import '../../state/providers.dart';
@@ -44,6 +48,8 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     with WidgetsBindingObserver {
   StreamSubscription<IncomingNotice>? _sub;
   ProviderSubscription<MessagingService>? _serviceListener;
+  StreamSubscription<({NodeId groupId, GroupMessage message})>? _groupSub;
+  ProviderSubscription<GroupService?>? _groupServiceListener;
 
   bool get _foreground =>
       WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed ||
@@ -66,12 +72,24 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         messagingServiceProvider,
         (_, next) => _subscribe(next),
       );
+      // The group service appears once the signer is ready (and can change on
+      // identity switch) — same manual-listen pattern.
+      _subscribeGroups(ref.read(groupServiceProvider));
+      _groupServiceListener = ref.listenManual<GroupService?>(
+        groupServiceProvider,
+        (_, next) => _subscribeGroups(next),
+      );
     });
   }
 
   void _subscribe(MessagingService service) {
     _sub?.cancel();
     _sub = service.incoming.listen(_onIncoming);
+  }
+
+  void _subscribeGroups(GroupService? service) {
+    _groupSub?.cancel();
+    _groupSub = service?.incoming.listen(_onGroupIncoming);
   }
 
   /// A message just arrived. Alert in real time ONLY when backgrounded; a
@@ -100,6 +118,43 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     );
   }
 
+  /// A group message just arrived (post-dedup, verified, not ours). Same
+  /// lifecycle policy as 1:1: foreground shows in-app, background alerts.
+  Future<void> _onGroupIncoming(
+      ({NodeId groupId, GroupMessage message}) n) async {
+    if (!mounted) return;
+    final settings = ref.read(notificationSettingsProvider);
+    if (!shouldAlertIncoming(
+      enabled: settings.enabled,
+      muted: false, // no local group-mute yet
+      foreground: _foreground,
+    )) {
+      return;
+    }
+    String? name;
+    try {
+      name = (await ref.read(groupServiceProvider)?.stateOf(n.groupId))?.name;
+    } catch (_) {}
+    if (!mounted) return;
+    await _show(
+      convHex: 'group:${n.groupId.hex}',
+      name: (name != null && name.trim().isNotEmpty) ? name : null,
+      shortId: n.groupId.short,
+      preview: _groupPreview(n.message),
+      settings: settings,
+    );
+  }
+
+  static String _groupPreview(GroupMessage m) {
+    if (m.body.isNotEmpty) return m.body;
+    final k = m.attachment?.kind;
+    if (k == 'image') return '🖼';
+    if (k == 'sticker') return '😊';
+    if (k == 'voice') return '🎤';
+    if (k == 'vnote') return '📹';
+    return '…';
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
@@ -122,6 +177,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   Future<void> _flushUnread() async {
     if (!mounted) return;
     final settings = ref.read(notificationSettingsProvider);
+    devLog(() => 'xVeil[notify]: flush-unread (enabled=${settings.enabled})');
     if (!settings.enabled) return;
     final active = ref.read(activeConversationProvider);
     List<Conversation> convs;
@@ -145,6 +201,33 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         name: c.peer.name,
         shortId: c.peer.nodeId.short,
         preview: c.lastMessage?.body ?? '',
+        settings: settings,
+      );
+    }
+    // Groups with unread surface on minimize too (except the one on screen).
+    final gsvc = ref.read(groupServiceProvider);
+    if (gsvc == null) {
+      devLog(() => 'xVeil[notify]: flush — no group service');
+      return;
+    }
+    List<({NodeId groupId, String name, int unread})> groups;
+    try {
+      groups = await gsvc.listGroups();
+    } catch (e) {
+      devLog(() => 'xVeil[notify]: flush — listGroups failed: $e');
+      return;
+    }
+    devLog(() =>
+        'xVeil[notify]: flush — ${groups.length} groups, unread: '
+        '${[for (final g in groups) g.unread]}');
+    if (!mounted) return;
+    for (final g in groups) {
+      if (g.unread <= 0 || 'group:${g.groupId.hex}' == active) continue;
+      await _show(
+        convHex: 'group:${g.groupId.hex}',
+        name: g.name.trim().isNotEmpty ? g.name : null,
+        shortId: g.groupId.short,
+        preview: '', // the list has no last-message preview; hidden-safe
         settings: settings,
       );
     }
@@ -192,7 +275,9 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _serviceListener?.close();
+    _groupServiceListener?.close();
     _sub?.cancel();
+    _groupSub?.cancel();
     super.dispose();
   }
 
