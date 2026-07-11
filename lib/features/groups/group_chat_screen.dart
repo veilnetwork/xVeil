@@ -35,17 +35,73 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   final _input = TextEditingController();
   late final NodeId _gid = NodeId.fromHex(widget.groupIdHex);
 
+  /// The message the composer is replying to, or null.
+  GroupMessage? _replyTarget;
+
   @override
   void dispose() {
     _input.dispose();
     super.dispose();
   }
 
+  String? _takeReplyRef() {
+    final r = _replyTarget?.ref;
+    if (_replyTarget != null) setState(() => _replyTarget = null);
+    return r;
+  }
+
   Future<void> _send(GroupService svc) async {
     final text = _input.text.trim();
     if (text.isEmpty) return;
     _input.clear();
-    await svc.postMessage(_gid, text);
+    await svc.postMessage(_gid, text, replyTo: _takeReplyRef());
+  }
+
+  /// A one-line preview of [m] for the reply bar / quote block.
+  String _msgPreview(GroupMessage m, AppL10n l) {
+    if (m.body.isNotEmpty) return m.body;
+    final k = m.attachment?.kind;
+    if (k == 'image') return '🖼 ${l.groupAttachImage}';
+    if (k == 'sticker') return '😊 ${l.groupSendSticker}';
+    return '…';
+  }
+
+  /// The "replying to …" bar shown above the composer.
+  Widget _replyBar(BuildContext context, AppL10n l) {
+    final t = _replyTarget!;
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(10),
+        border: Border(left: BorderSide(color: scheme.primary, width: 3)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(t.author.short,
+                    style: Theme.of(context)
+                        .textTheme
+                        .labelSmall
+                        ?.copyWith(color: scheme.primary)),
+                Text(_msgPreview(t, l),
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, size: 18),
+            onPressed: () => setState(() => _replyTarget = null),
+          ),
+        ],
+      ),
+    );
   }
 
   /// Pick an image and post it inline (groups media brick 1). The picture is
@@ -78,6 +134,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     await svc.postMessage(
       _gid,
       caption,
+      replyTo: _takeReplyRef(),
       attachment: GroupAttachment(
         kind: 'image',
         dataB64: img.b64,
@@ -340,13 +397,19 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                   if (msgs.isEmpty) {
                     return Center(child: Text(l.groupNoMessages));
                   }
+                  final byRef = {for (final m in msgs) m.ref: m};
                   return ListView.builder(
                     padding: const EdgeInsets.all(8),
                     itemCount: msgs.length,
                     itemBuilder: (context, i) {
                       final m = msgs[i];
                       final mine = m.author == svc.selfId;
-                      return _GroupBubble(message: m, mine: mine);
+                      return _GroupBubble(
+                        message: m,
+                        mine: mine,
+                        quoted: m.replyTo == null ? null : byRef[m.replyTo],
+                        onReply: () => setState(() => _replyTarget = m),
+                      );
                     },
                   );
                 },
@@ -357,7 +420,11 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
             top: false,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-              child: Row(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_replyTarget != null) _replyBar(context, l),
+                  Row(
                 children: [
                   IconButton(
                     onPressed: () => _attachImage(svc),
@@ -384,6 +451,8 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                     icon: const Icon(Icons.send),
                   ),
                 ],
+                  ),
+                ],
               ),
             ),
           ),
@@ -394,9 +463,58 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
 }
 
 class _GroupBubble extends StatelessWidget {
-  const _GroupBubble({required this.message, required this.mine});
+  const _GroupBubble({
+    required this.message,
+    required this.mine,
+    this.quoted,
+    this.onReply,
+  });
   final GroupMessage message;
   final bool mine;
+
+  /// The resolved message this one replies to (null if none / not held yet).
+  final GroupMessage? quoted;
+
+  /// Long-press to reply to this message.
+  final VoidCallback? onReply;
+
+  /// One-line preview of the quoted message for the in-bubble quote block.
+  static String _preview(GroupMessage m) {
+    if (m.body.isNotEmpty) return m.body;
+    final k = m.attachment?.kind;
+    if (k == 'image') return '🖼';
+    if (k == 'sticker') return '😊';
+    return '…';
+  }
+
+  Widget _quoteBlock(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final q = quoted!;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: scheme.surface.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(8),
+        border: Border(left: BorderSide(color: scheme.primary, width: 2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(q.author.short,
+              style: Theme.of(context)
+                  .textTheme
+                  .labelSmall
+                  ?.copyWith(color: scheme.primary)),
+          Text(_preview(q),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -404,7 +522,10 @@ class _GroupBubble extends StatelessWidget {
     final att = message.attachment;
     // A sticker renders BORDERLESS (no bubble background), like every messenger.
     if (att != null && att.kind == 'sticker' && message.body.isEmpty) {
-      return Align(
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onLongPress: onReply,
+        child: Align(
         alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 4),
@@ -433,9 +554,13 @@ class _GroupBubble extends StatelessWidget {
             ],
           ),
         ),
+      ),
       );
     }
-    return Align(
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onLongPress: onReply,
+      child: Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 3),
@@ -459,6 +584,7 @@ class _GroupBubble extends StatelessWidget {
                     .labelSmall
                     ?.copyWith(color: scheme.primary),
               ),
+            if (quoted != null) _quoteBlock(context),
             if (message.attachment != null &&
                 message.attachment!.kind == 'image')
               Padding(
@@ -489,6 +615,7 @@ class _GroupBubble extends StatelessWidget {
           ],
         ),
       ),
+    ),
     );
   }
 }
