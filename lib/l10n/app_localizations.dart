@@ -3763,6 +3763,12 @@ abstract class AppL10n {
   /// **'Emoji'**
   String get chatEmojiTooltip;
 
+  /// No description provided for @chatMoreActions.
+  ///
+  /// In en, this message translates to:
+  /// **'More actions'**
+  String get chatMoreActions;
+
   /// No description provided for @nicknameTitle.
   ///
   /// In en, this message translates to:

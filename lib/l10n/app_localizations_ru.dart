@@ -1992,6 +1992,9 @@ class AppL10nRu extends AppL10n {
   String get chatEmojiTooltip => 'Эмодзи';
 
   @override
+  String get chatMoreActions => 'Дополнительные действия';
+
+  @override
   String get nicknameTitle => 'Никнейм';
 
   @override
