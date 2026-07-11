@@ -811,7 +811,11 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       return _json(req, {'ok': false, 'error': 'nothing to react to'});
     }
     final ref = msgs.last.ref;
-    final ok = await svc.react(gid, ref, q['emoji'] ?? '👍');
+    // ?silent=1 stores the signed reaction WITHOUT the delta fanout — the
+    // deterministic "lost reaction" for the gap-fill device-verify (mirrors
+    // /group_post?silent=1).
+    final ok = await svc.react(gid, ref, q['emoji'] ?? '👍',
+        broadcast: q['silent'] != '1');
     final agg = await svc.reactionsOf(gid);
     return _json(req, {
       'ok': ok,
