@@ -272,6 +272,15 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
+  String get groupAttachImage => 'Send image';
+
+  @override
+  String get groupImageOnly => 'Pick an image file';
+
+  @override
+  String get groupImageTooLarge => 'Image too large to send inline';
+
+  @override
   String get stickerEmpty => 'No stickers yet — import your own pictures';
 
   @override

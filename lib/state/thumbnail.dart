@@ -95,6 +95,75 @@ Future<String?> makeRgbaThumbB64(Uint8List rgba, int width, int height) async {
   }
 }
 
+/// Budget for a group inline image (groups media brick 1): the whole picture
+/// travels INSIDE the signed group message (no content-path fetch), so it must
+/// stay small enough that a snapshot broadcast to every member is cheap. ~64 KB
+/// raw PNG → ~85 KB base64 is a real, viewable image while keeping the cap
+/// bounded; the ladder falls back for noisy photos that don't fit at 512 px.
+const int kInlineImageRawMax = 64000;
+const List<int> _inlineDims = [512, 384, 320, 256, 192, 128];
+
+/// A size-capped inline image: base64 PNG plus its encoded pixel dimensions
+/// (so the UI lays it out aspect-correct without decoding first).
+class InlineImage {
+  const InlineImage({required this.b64, required this.w, required this.h});
+  final String b64;
+  final int w;
+  final int h;
+}
+
+/// Encode [bytes] (a full image file) as a size-capped inline PNG for a group
+/// message. Walks [_inlineDims] longest-side-first until the encoded PNG fits
+/// [kInlineImageRawMax]; returns null when the source is not a decodable image
+/// or no rung fits. Never upscales a source smaller than the largest rung.
+Future<InlineImage?> makeInlineImageB64(Uint8List bytes) async {
+  if (bytes.isEmpty) return null;
+  ui.ImmutableBuffer? buf;
+  ui.ImageDescriptor? desc;
+  try {
+    buf = await ui.ImmutableBuffer.fromUint8List(bytes);
+    desc = await ui.ImageDescriptor.encoded(buf);
+    final w = desc.width, h = desc.height;
+    if (w <= 0 || h <= 0) return null;
+    for (final dim in _inlineDims) {
+      final scale = dim / math.max(w, h);
+      final tw = scale >= 1 ? w : math.max(1, (w * scale).round());
+      final th = scale >= 1 ? h : math.max(1, (h * scale).round());
+      final codec = await desc.instantiateCodec(
+        targetWidth: tw,
+        targetHeight: th,
+      );
+      try {
+        final frame = await codec.getNextFrame();
+        try {
+          final data = await frame.image.toByteData(
+            format: ui.ImageByteFormat.png,
+          );
+          if (data != null && data.lengthInBytes <= kInlineImageRawMax) {
+            return InlineImage(
+              b64: base64Encode(
+                  data.buffer.asUint8List(0, data.lengthInBytes)),
+              w: tw,
+              h: th,
+            );
+          }
+        } finally {
+          frame.image.dispose();
+        }
+      } finally {
+        codec.dispose();
+      }
+      if (scale >= 1) break; // source already smaller than the rung.
+    }
+    return null;
+  } catch (_) {
+    return null;
+  } finally {
+    desc?.dispose();
+    buf?.dispose();
+  }
+}
+
 /// Encode a micro-thumbnail for [bytes] (an image file's full contents) as
 /// base64 PNG, or null when [bytes] is not a decodable image or no ladder
 /// rung fits the byte budget. Aspect ratio is preserved (longest side =

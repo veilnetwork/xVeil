@@ -153,6 +153,70 @@ void main() {
     expect(sent.every((e) => e.$2 == gid), isTrue);
   });
 
+  test('inline image attachment persists + survives snapshot round-trip',
+      () async {
+    // A realistic-size payload (~40 KB) so the bundle overflows the single
+    // ~4 KB setting cap and is chunked across the file-store — the exact case
+    // that threw PayloadTooLarge when the bundle lived in one setting.
+    final big = 'Q' * 40000;
+    final att = GroupAttachment(kind: 'image', dataB64: big, w: 40, h: 30);
+    final s1 = FakeHvContainer().storage();
+    await s1.open(password: 'pw', createIfMissing: true);
+    final owned = GroupService(s1, _FakeSigner(owner));
+    final gid = await owned.createGroup('Pics');
+    await owned.addControlOp(gid, ControlOp.addMember,
+        target: bob, role: GroupRole.member);
+    expect(await owned.postMessage(gid, 'look', attachment: att), isTrue);
+
+    final mine = (await owned.messagesOf(gid)).single;
+    expect(mine.body, 'look');
+    expect(mine.attachment, isNotNull);
+    expect(mine.attachment!.w, 40);
+    expect(mine.attachment!.h, 30);
+    expect(mine.attachment!.dataB64, big);
+
+    // Fresh member device materializes the group AND the image via snapshot.
+    final snap = owned.snapshotJson((await owned.load(gid))!);
+    final s2 = FakeHvContainer().storage();
+    await s2.open(password: 'pw', createIfMissing: true);
+    final bobDev = GroupService(s2, _FakeSigner(bob));
+    expect(await bobDev.ingestSnapshot(snap), isTrue);
+    final got = (await bobDev.messagesOf(gid)).single;
+    expect(got.attachment?.dataB64, big);
+    expect(got.attachment?.w, 40);
+  });
+
+  test('attachment is signed: canonicalBytes differ, text-only unchanged', () {
+    GroupMessage base({GroupAttachment? att}) => GroupMessage(
+          groupId: _id(2),
+          author: owner,
+          seq: 0,
+          prevHash: '',
+          body: 'hi',
+          policyVersion: 0,
+          createdAtMs: 5,
+          signature: Uint8List(0),
+          attachment: att,
+        );
+    final textOnly = base().canonicalBytes();
+    final withImg =
+        base(att: const GroupAttachment(kind: 'image', dataB64: 'QQ', w: 1, h: 1))
+            .canonicalBytes();
+    // The attachment is inside the signed bytes (tamper-evident)...
+    expect(withImg, isNot(equals(textOnly)));
+    // ...and a text-only message signs byte-identically to before the field
+    // existed (the 'att' key is omitted, not null).
+    expect(String.fromCharCodes(textOnly).contains('att'), isFalse);
+    // JSON round-trip preserves the attachment.
+    final rt = GroupMessage.fromJson(base(
+            att: const GroupAttachment(
+                kind: 'image', dataB64: 'QQ', w: 2, h: 3))
+        .toJson())!;
+    expect(rt.attachment?.w, 2);
+    expect(rt.attachment?.h, 3);
+    expect(rt.attachment?.dataB64, 'QQ');
+  });
+
   test('ingestControl dedups on (author, seq)', () async {
     final (svc, _) = await setup();
     final gid = await svc.createGroup('G');
