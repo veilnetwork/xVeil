@@ -94,7 +94,8 @@ enum ControlOp {
   unmute,
   ban,
   rotateEpoch,
-  setPolicy;
+  setPolicy,
+  leave; // the author removes THEMSELVES (any member may leave)
 
   static ControlOp? fromName(String? s) {
     for (final o in ControlOp.values) {

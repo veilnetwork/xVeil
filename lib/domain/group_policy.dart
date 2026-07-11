@@ -78,6 +78,10 @@ bool canApply({
       // the owner; the owner is above all).
       return authorRole.rank >= GroupRole.admin.rank &&
           targetRole.rank < authorRole.rank;
+    case ControlOp.leave:
+      // Any member may leave (removes only themselves) — EXCEPT the owner, who
+      // is the genesis and cannot depart (a later "delete/transfer" covers that).
+      return authorRole != GroupRole.owner;
   }
 }
 
@@ -186,6 +190,10 @@ GroupFoldResult foldControlLog({
         epoch++;
       case ControlOp.setPolicy:
         policyVersion++;
+      case ControlOp.leave:
+        // The author removes themselves; their departure rotates the epoch too.
+        members.remove(e.author.hex);
+        epoch++;
     }
     lastSeq[e.author.hex] = e.seq;
   }

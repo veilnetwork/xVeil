@@ -95,6 +95,8 @@
   "groupPromote": "Make admin",
   "groupDemote": "Remove admin",
   "groupRemove": "Remove from group",
+  "groupLeave": "Leave group",
+  "groupLeaveConfirm": "You will stop receiving this group's messages.",
   "groupNoContactsToAdd": "No contacts left to add",
   "groupAttachImage": "Send image",
   "groupSendSticker": "Send sticker",

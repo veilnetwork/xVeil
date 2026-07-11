@@ -95,6 +95,8 @@
   "groupPromote": "Сделать админом",
   "groupDemote": "Снять админа",
   "groupRemove": "Убрать из группы",
+  "groupLeave": "Выйти из группы",
+  "groupLeaveConfirm": "Вы перестанете получать сообщения этой группы.",
   "groupNoContactsToAdd": "Нет контактов для добавления",
   "groupAttachImage": "Отправить картинку",
   "groupSendSticker": "Отправить стикер",

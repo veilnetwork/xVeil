@@ -224,6 +224,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/group_post_reply':
           await _groupPostReplyHook(req);
           return;
+        case '/group_leave':
+          await _groupLeaveHook(req);
+          return;
         case '/group_post_sticker':
           await _groupPostStickerHook(req);
           return;
@@ -589,6 +592,21 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final posted = await svc.postMessage(gid, q['body'] ?? '');
     final msgs = await svc.messagesOf(gid);
     return _json(req, {'ok': posted, 'messages': msgs.length});
+  }
+
+  /// Leave ?group= — appends a self-leave op + broadcasts. Reports whether we
+  /// still appear in our own (member-filtered) group list afterward.
+  Future<void> _groupLeaveHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final gidHex = req.uri.queryParameters['group'];
+    if (gidHex == null) return _json(req, {'ok': false, 'error': 'no group'});
+    final gid = NodeId.fromHex(gidHex);
+    final left = await svc.leaveGroup(gid);
+    final listed =
+        (await svc.listGroups()).any((g) => g.groupId == gid);
+    return _json(req, {'ok': left, 'stillListed': listed});
   }
 
   /// Post a message replying to the LAST message in ?group= (?body=). Reports
