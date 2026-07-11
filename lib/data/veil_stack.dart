@@ -29,6 +29,17 @@ String _mineConfigInIsolate() {
   return EmbeddedNode.mineConfig(0, lib: lib);
 }
 
+/// Same isolate-entry contract as [_mineConfigInIsolate], but the identity is
+/// DERIVED from the onboarding master phrase (only the anti-sybil nonce is
+/// mined) — see EmbeddedNode.configFromPhrase.
+String _configFromPhraseInIsolate(String phrase) {
+  final path = Platform.environment['VEIL_FFI_DYLIB'];
+  final lib = (path != null && path.isNotEmpty && File(path).existsSync())
+      ? DynamicLibrary.open(path)
+      : processLibFor('veilclient_ffi');
+  return EmbeddedNode.configFromPhrase(phrase, lib: lib);
+}
+
 /// The composed real veil stack the app runs: a started node ([controller]), a
 /// connected overlay [transport], this device's shareable [myInvite], and
 /// contact redemption ([addContact]).
@@ -82,6 +93,13 @@ class RealVeilStack {
     List<BootstrapPeerCfg> bootstrapPeers = const [],
     String? obfs4Psk,
     ProxyRouting proxy = ProxyRouting.disabled,
+    // First-run only (onboarding-phrase epic P2): when set and no node config
+    // is stored yet, the identity is DERIVED from this master phrase instead
+    // of mined at random — node_id becomes deterministic in the phrase, so
+    // disaster recovery restores the same identity. Consumed once; the phrase
+    // itself is never persisted (the derived [Identity] TOML goes into the
+    // deniable container like the mined one always has).
+    String? identityPhrase,
   }) async {
     // Time each phase so the log pinpoints where a slow boot/switch goes (the
     // boot is mining-free when the identity already exists, so a slow switch is
@@ -98,6 +116,18 @@ class RealVeilStack {
     final existing = await storage.loadNodeConfig();
     if (existing != null) {
       identityToml = existing;
+    } else if (identityPhrase != null && identityPhrase.isNotEmpty) {
+      devLog(
+        () => 'xVeil[deniable]: deriving node identity from phrase '
+            '(first run)…',
+      );
+      // Phrase-derived identity (P2): the keypair is deterministic, only the
+      // nonce search burns CPU — still off the UI isolate like the mine.
+      final phrase = identityPhrase;
+      identityToml = lib == null
+          ? await Isolate.run(() => _configFromPhraseInIsolate(phrase))
+          : EmbeddedNode.configFromPhrase(phrase, lib: lib);
+      await storage.saveNodeConfig(identityToml);
     } else {
       devLog(() => 'xVeil[deniable]: mining node identity (first run)…');
       // Canonical-difficulty PoW is CPU-heavy. Run it on a separate isolate so
