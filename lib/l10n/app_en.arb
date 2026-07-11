@@ -417,7 +417,7 @@
   "addIdentityAnonymous": "Route anonymously",
   "addIdentityAnonymousHint": "Hide this identity's network activity through veil's overlay so it can't be linked to your other identities. Slower.",
   "settingsKeepAllOnline": "Keep all identities online",
-  "settingsKeepAllOnlineHint": "Run every identity's node at once so none goes offline when you switch. Less anonymous — an observer may link your identities by their shared device. Mark sensitive identities to route anonymously.",
+  "settingsKeepAllOnlineHint": "Run every identity's node at once so switching is instant and none goes offline (the default). Turn off for strict unlinkability — an observer may link always-on identities by their shared device. Mark sensitive identities to route anonymously.",
   "settingsPhraseStatusTitle": "Recovery phrase",
   "settingsPhraseBackedHint": "This identity derives from its recovery phrase — the phrase you wrote down restores it.",
   "settingsPhraseNoneHint": "This identity was created without a recovery phrase — a phrase cannot restore it. Keep the app data backed up by other means.",

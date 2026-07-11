@@ -277,8 +277,16 @@ User chose **path B = multispace in the hidden-volume core**. Built + tested:
   every identity receives + persists concurrently. `IdentityNode` abstraction
   makes it unit-testable (a message to one identity's transport lands in ITS
   storage, not another's).
-- **Opt-in setting** `keepAllOnline` (default OFF, anonymity-safe) + container
-  path threaded into `DeniableBootConfig.storePath`.
+- **Setting** `keepAllOnline` + container path threaded into
+  `DeniableBootConfig.storePath`. Default **ON** since 2026-07-11 (user
+  decision: all-online is the NORM of a master session — instant switch, no
+  identity drops offline). OFF remains the strict-unlinkability opt-out: with
+  every node co-located on one device, an observer can correlate the master's
+  identities; one-active keeps only the active identity on the network. Either
+  way, marking an identity `anonymous` routes it over onion and keeps it
+  uncorrelated even when always-on. Resource note: all-online runs N nodes at
+  once — acceptable on desktop, noticeable on mobile (battery/RAM); an explicit
+  pref (either value) always wins over the default.
 
 **DONE (the invasive finish — shipped + observed working live):** the session is
 wired into `AppController`: on master unlock + `keepAllOnline` + storePath, it
