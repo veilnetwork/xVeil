@@ -150,6 +150,23 @@ class AccountSettingsScreen extends ConsumerWidget {
                 },
                 orElse: () => const SizedBox.shrink(),
               ),
+          Builder(
+            builder: (_) {
+              final ctrl = ref.read(appControllerProvider.notifier);
+              final anonymous = master.$1
+                  ? (master.$2 == null ||
+                      ctrl.isIdentityAnonymous(master.$2!))
+                  : ctrl.singleIdentityAnonymous;
+              if (anonymous) return const SizedBox.shrink();
+              return ListTile(
+                leading: const Icon(Icons.devices_outlined),
+                title: Text(l.settingsDevices),
+                subtitle: Text(l.settingsDevicesHint),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.push('/settings/devices'),
+              );
+            },
+          ),
           // Anonymity toggle for the ACTIVE identity — the SAME control in
           // single and master modes (in master it routes the change to the
           // active identity). Reboots the node under the new routing.

@@ -5,7 +5,9 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:veil_flutter/veil_flutter.dart' as veil;
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/data/transport/bootstrap_invite.dart';
 import 'package:xveil/domain/device_sync.dart';
+import 'package:xveil/domain/device_link.dart';
 import 'package:xveil/domain/group.dart';
 import 'package:xveil/domain/group_content.dart';
 import 'package:xveil/domain/group_message.dart';
@@ -798,6 +800,78 @@ void main() {
       'not-base64%%%',
       reason: 'corruption must fail closed, never rotate sovereign identity',
     );
+  });
+
+  test('guided adoption admits one pinned stranger snapshot then auto-adopts',
+      () async {
+    final sourceInvite = BootstrapInvite(
+      publicKey: Uint8List.fromList(List.filled(32, 21)),
+      nonce: Uint8List.fromList([1, 2, 3, 4]),
+    );
+    final targetInvite = BootstrapInvite(
+      publicKey: Uint8List.fromList(List.filled(32, 22)),
+      nonce: Uint8List.fromList([4, 3, 2, 1]),
+    );
+    final sent = <({NodeId peer, String json})>[];
+    final sourceStorage = FakeHvContainer().storage();
+    await sourceStorage.open(password: 'pw', createIfMissing: true);
+    final source = GroupService(sourceStorage, _FakeSigner(sourceInvite.nodeId),
+        send: (peer, _, json) async => sent.add((peer: peer, json: json)));
+    final sourceSovereign = _FakeSovereign(_id(9));
+    expect(
+      await source.linkDevice(
+        targetInvite.nodeId,
+        sovereign: sourceSovereign,
+        broadcastSnapshot: false,
+      ),
+      isTrue,
+    );
+    expect(sent, isEmpty, reason: 'target has not explicitly admitted it yet');
+    final token = await source.createDeviceLinkToken(sourceInvite);
+    expect(token, isNotNull);
+    final gid = token!.groupId;
+    final bundle = (await source.load(gid))!;
+    final snapshot = source.snapshotJson(bundle);
+
+    final targetStorage = FakeHvContainer().storage();
+    await targetStorage.open(password: 'pw', createIfMissing: true);
+    final target = GroupService(targetStorage, _FakeSigner(targetInvite.nodeId));
+    expect(
+      await target.ingestSnapshotFromStranger(sourceInvite.nodeId, snapshot),
+      isFalse,
+      reason: 'a new marker group is inert without scanned consent',
+    );
+    expect(
+      await target.prepareDeviceAdoption(DeviceLinkToken(
+        groupId: token.groupId,
+        source: token.source,
+        manifestHash: Uint8List(32),
+        sourceInvite: token.sourceInvite,
+        expiresAtMs: token.expiresAtMs,
+      )),
+      isTrue,
+    );
+    expect(
+      await target.ingestGroupEntry(sourceInvite.nodeId, snapshot),
+      isFalse,
+      reason: 'the QR pins the exact sovereign-signed manifest',
+    );
+    expect(await target.prepareDeviceAdoption(token), isTrue);
+    expect(
+      await target.ingestSnapshotFromStranger(_id(77), snapshot),
+      isFalse,
+      reason: 'the token pins the source device',
+    );
+
+    expect(await source.broadcastDeviceGroup(), 1);
+    expect(sent.single.peer, targetInvite.nodeId);
+    expect(
+      await target.ingestGroupEntry(sourceInvite.nodeId, sent.single.json),
+      isTrue,
+    );
+    expect(await target.deviceGroupIdHex(), gid.hex);
+    expect(await target.pendingDeviceAdoption(), isNull);
+    expect((await target.stateOf(gid))!.isMember(targetInvite.nodeId), isTrue);
   });
 
   test('device keys and a wrong sovereign cannot mutate the registry',
