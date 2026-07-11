@@ -244,6 +244,36 @@ class AppL10nRu extends AppL10n {
   String get stickerImport => 'Импорт из фото';
 
   @override
+  String get groupCreateTitle => 'Новая группа';
+
+  @override
+  String get groupCreateAction => 'Создать';
+
+  @override
+  String get groupNameHint => 'Название группы';
+
+  @override
+  String get groupEmpty => 'Пока нет групп';
+
+  @override
+  String get groupNoMessages => 'Пока нет сообщений';
+
+  @override
+  String get groupMembersTooltip => 'Участники';
+
+  @override
+  String groupMembers(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count участников',
+      few: '$count участника',
+      one: '1 участник',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get stickerEmpty => 'Пока нет стикеров — импортируйте свои картинки';
 
   @override
