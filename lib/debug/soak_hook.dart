@@ -345,6 +345,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/device_sync_now':
           await _deviceSyncNowHook(req);
           return;
+        case '/group_sync_now':
+          await _groupSyncNowHook(req);
+          return;
         case '/read_state':
           await _readStateHook(req);
           return;
@@ -710,7 +713,10 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final gidHex = q['group'];
     if (gidHex == null) return _json(req, {'ok': false, 'error': 'no group'});
     final gid = NodeId.fromHex(gidHex);
-    final posted = await svc.postMessage(gid, q['body'] ?? '');
+    // ?silent=1 skips the delta fanout — a deterministic "lost delta" for
+    // gap-fill verification (brick G1).
+    final posted = await svc.postMessage(gid, q['body'] ?? '',
+        broadcast: q['silent'] != '1');
     final msgs = await svc.messagesOf(gid);
     return _json(req, {'ok': posted, 'messages': msgs.length});
   }
@@ -1375,6 +1381,16 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
     final shipped = await svc.nudgeDeviceSync();
     return _json(req, {'ok': true, 'shipped': shipped});
+  }
+
+  /// Fan the sync VECTOR of every group (brick G1) — the boot catch-up,
+  /// triggerable on demand for verification.
+  Future<void> _groupSyncNowHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    await svc.nudgeGroupSyncAll();
+    return _json(req, {'ok': true});
   }
 
   /// Redeem a bootstrap-peer invite ?uri= (url-encoded `veil:bootstrap?…`) on
