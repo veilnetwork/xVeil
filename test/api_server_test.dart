@@ -5,6 +5,7 @@ import 'package:xveil/state/api_server.dart';
 
 void main() {
   final sent = <(String, String)>[];
+  Map<String, dynamic>? _call;
   ApiHandler make({String token = 'secret-token'}) {
     sent.clear();
     return ApiHandler(
@@ -23,6 +24,9 @@ void main() {
       ],
       sendFile: (to, path, name) async => to == 'bad' ? 'invalid peer' : null,
       loadFile: (fileId) async => fileId == 'known' ? [1, 2, 3] : null,
+      placeCall: (to, media) async => to == 'bad' ? 'invalid peer' : null,
+      callState: () => _call,
+      callAction: (action) async => _call = null,
     );
   }
 
@@ -138,6 +142,39 @@ void main() {
     expect(hit.contentType, 'application/octet-stream');
   });
 
+  test('calls: place validates to; GET reflects state; actions clear it',
+      () async {
+    _call = null;
+    final h = make();
+    // POST place requires `to`.
+    expect((await h.handle('POST', u('/v1/calls'), 'Bearer secret-token',
+                body: <String, dynamic>{}))
+            .status,
+        400);
+    // A bad peer surfaces the placeCall error.
+    final bad = await h.handle('POST', u('/v1/calls'), 'Bearer secret-token',
+        body: {'to': 'bad'});
+    expect(bad.status, 400);
+    // Place ok → 200 with the (test) call state.
+    _call = {'callId': 'c1', 'status': 'ringing'};
+    final placed = await h.handle('POST', u('/v1/calls'), 'Bearer secret-token',
+        body: {'to': 'peer', 'media': 'audio'});
+    expect(placed.status, 200);
+    expect(((placed.body as Map)['call'] as Map)['callId'], 'c1');
+    // GET reflects the current call.
+    expect(
+        ((await h.handle('GET', u('/v1/calls'), 'Bearer secret-token')).body
+            as Map)['call'],
+        isNotNull);
+    // Hangup clears it (the fake action nulls _call).
+    final hung =
+        await h.handle('POST', u('/v1/calls/hangup'), 'Bearer secret-token');
+    expect(hung.status, 200);
+    expect((hung.body as Map)['call'], isNull);
+    // Auth still enforced.
+    expect((await h.handle('GET', u('/v1/calls'), null)).status, 401);
+  });
+
   test('GET /v1/openapi.json returns a valid OpenAPI 3 doc with every path',
       () async {
     final res =
@@ -156,6 +193,8 @@ void main() {
           '/messages',
           '/files',
           '/files/download',
+          '/calls',
+          '/calls/hangup',
         ]));
     // The security scheme is declared so generated clients wire the token.
     expect(
