@@ -326,6 +326,9 @@ class AppL10nRu extends AppL10n {
   String get groupImageTooLarge => 'Картинка слишком большая для инлайна';
 
   @override
+  String get groupVnoteRecord => 'Записать кружок';
+
+  @override
   String get groupVoiceRecord => 'Записать голосовое';
 
   @override

@@ -325,6 +325,9 @@ class AppL10nEn extends AppL10n {
   String get groupImageTooLarge => 'Image too large to send inline';
 
   @override
+  String get groupVnoteRecord => 'Record video note';
+
+  @override
   String get groupVoiceRecord => 'Record voice message';
 
   @override

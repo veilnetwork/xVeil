@@ -106,6 +106,7 @@
   "groupSendSticker": "Send sticker",
   "groupImageOnly": "Pick an image file",
   "groupImageTooLarge": "Image too large to send inline",
+  "groupVnoteRecord": "Record video note",
   "groupVoiceRecord": "Record voice message",
   "groupVoiceStop": "Stop and send",
   "groupVoiceMessage": "Voice message",
