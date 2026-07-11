@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:veil_flutter/veil_flutter.dart' as veil;
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/device_sync.dart';
 import 'package:xveil/domain/group.dart';
@@ -61,6 +62,26 @@ class _FakeSigner implements GroupSigner {
       algorithm == 'ed25519' &&
       nodeId == NodeId(Uint8List.fromList(publicKey)) &&
       _bytesEqual(_fakeSovereignSignature(publicKey, message), signature);
+}
+
+class _NativeSovereignVerifier extends _FakeSigner {
+  _NativeSovereignVerifier(super._self);
+
+  @override
+  bool verifySovereign({
+    required String algorithm,
+    required NodeId nodeId,
+    required Uint8List publicKey,
+    required Uint8List message,
+    required Uint8List signature,
+  }) =>
+      veil.verifySovereignSignature(
+        algorithm: algorithm,
+        nodeId: nodeId.bytes,
+        publicKey: publicKey,
+        message: message,
+        signature: signature,
+      );
 }
 
 bool _bytesEqual(Uint8List a, Uint8List b) {
@@ -717,6 +738,66 @@ void main() {
     final fresh = GroupService(freshStorage, _FakeSigner(bob));
     expect(await fresh.ingestSnapshot(jsonEncode(wire)), isFalse);
     expect(await fresh.listGroups(), isEmpty);
+  });
+
+  test('hybrid bundle hash gates snapshot and adopt persists encrypted copy',
+      () async {
+    final phrase = veil.generateMasterPhrase();
+    final encrypted = veil.createHybrid512SovereignBundle(phrase);
+    final sourceStorage = FakeHvContainer().storage();
+    await sourceStorage.open(password: 'pw', createIfMissing: true);
+    await sourceStorage.putSetting(
+      GroupService.kSovereignBundleSetting,
+      base64Encode(encrypted),
+    );
+    final source =
+        GroupService(sourceStorage, _NativeSovereignVerifier(owner));
+    final signer = NativeSovereignGroupSigner.openBundle(encrypted, phrase);
+    expect(await source.linkDevice(bob, sovereign: signer), isTrue);
+    signer.close();
+
+    final gid = NodeId.fromHex((await source.deviceGroupIdHex())!);
+    final local = (await source.load(gid))!;
+    expect(local.manifest.signatureAlgorithm, 'ed25519+falcon512');
+    expect(local.manifest.sovereignBundleHash, hasLength(32));
+    expect(local.sovereignBundle, encrypted);
+    final snapshot = source.snapshotJson(local);
+
+    final tampered = jsonDecode(snapshot) as Map<String, dynamic>;
+    final wireBundle = base64Decode(tampered['s'] as String)..last ^= 1;
+    tampered['s'] = base64Encode(wireBundle);
+    final targetStorage = FakeHvContainer().storage();
+    await targetStorage.open(password: 'pw', createIfMissing: true);
+    final target =
+        GroupService(targetStorage, _NativeSovereignVerifier(bob));
+    expect(await target.ingestSnapshot(jsonEncode(tampered)), isFalse);
+    expect(await target.ingestSnapshot(snapshot), isTrue);
+    expect(await target.localSovereignBundle(), isNull,
+        reason: 'a planted snapshot stays inert before explicit adopt');
+    expect(await target.adoptDeviceGroup(gid), isTrue);
+    expect(await target.localSovereignBundle(), encrypted);
+
+    await expectLater(
+      target.openLocalSovereign(veil.generateMasterPhrase()),
+      throwsA(anything),
+    );
+    final reopened = await target.openLocalSovereign(phrase);
+    expect(reopened.algorithm, 'ed25519+falcon512');
+    expect(reopened.nodeId, local.manifest.owner);
+    reopened.close();
+
+    final corruptStorage = FakeHvContainer().storage();
+    await corruptStorage.open(password: 'pw', createIfMissing: true);
+    await corruptStorage.putSetting(
+        GroupService.kSovereignBundleSetting, 'not-base64%%%');
+    final corrupt =
+        GroupService(corruptStorage, _NativeSovereignVerifier(owner));
+    await expectLater(corrupt.openLocalSovereign(phrase), throwsStateError);
+    expect(
+      await corruptStorage.getSetting(GroupService.kSovereignBundleSetting),
+      'not-base64%%%',
+      reason: 'corruption must fail closed, never rotate sovereign identity',
+    );
   });
 
   test('device keys and a wrong sovereign cannot mutate the registry',

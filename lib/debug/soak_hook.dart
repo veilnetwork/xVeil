@@ -14,7 +14,6 @@ import 'package:veil_flutter/veil_flutter.dart' as veil;
 
 import '../core/ids.dart';
 import '../core/log.dart';
-import '../data/node/embedded_node.dart';
 import '../data/serve_source.dart';
 import 'package:veil_media/veil_media.dart';
 
@@ -1111,10 +1110,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     NativeSovereignGroupSigner? signer;
     try {
       final phrase = veil.generateMasterPhrase();
-      signer = NativeSovereignGroupSigner.openRecoveryPhrase(phrase);
+      final bundle = veil.createHybrid512SovereignBundle(phrase);
+      signer = NativeSovereignGroupSigner.openBundle(bundle, phrase);
       final message = Uint8List.fromList(utf8.encode('xveil-sovereign-probe'));
       final signature = signer.sign(message);
-      final valid = EmbeddedNode.verifyMessage(
+      final valid = veil.verifySovereignSignature(
+        algorithm: signer.algorithm,
         nodeId: signer.nodeId.bytes,
         publicKey: signer.publicKey,
         message: message,
@@ -1148,7 +1149,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     NativeSovereignGroupSigner? sovereign;
     var ok = false;
     try {
-      sovereign = NativeSovereignGroupSigner.openRecoveryPhrase(phrase);
+      sovereign = await svc.openLocalSovereign(phrase);
       ok = await svc.linkDevice(NodeId.fromHex(peer), sovereign: sovereign);
     } catch (_) {
       ok = false;
@@ -1187,7 +1188,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     NativeSovereignGroupSigner? sovereign;
     var ok = false;
     try {
-      sovereign = NativeSovereignGroupSigner.openRecoveryPhrase(phrase);
+      sovereign = await svc.openLocalSovereign(phrase);
       ok = await svc.revokeDevice(NodeId.fromHex(peer), sovereign: sovereign);
     } catch (_) {
       ok = false;

@@ -44,6 +44,7 @@ class GroupManifest {
     this.version = 1,
     this.kind,
     this.signatureAlgorithm,
+    this.sovereignBundleHash,
     Uint8List? signature,
   }) : signature = signature ?? Uint8List(0);
 
@@ -58,6 +59,9 @@ class GroupManifest {
   final int version;
   final String? kind;
   final String? signatureAlgorithm;
+  /// SHA-256 of the encrypted sovereign bundle replicated with this device
+  /// group. Its signed hash prevents a member device from replacing the blob.
+  final Uint8List? sovereignBundleHash;
   final Uint8List signature;
 
   static const int sovereignDeviceVersion = 2;
@@ -78,6 +82,8 @@ class GroupManifest {
         'name': name,
         'ts': createdAtMs,
         if (signatureAlgorithm != null) 'alg': signatureAlgorithm,
+        if (sovereignBundleHash != null)
+          'sbh': base64Encode(sovereignBundleHash!),
       })));
 
   GroupManifest withSignature(Uint8List value) => GroupManifest(
@@ -89,6 +95,7 @@ class GroupManifest {
         version: version,
         kind: kind,
         signatureAlgorithm: signatureAlgorithm,
+        sovereignBundleHash: sovereignBundleHash,
         signature: value,
       );
 
@@ -105,6 +112,8 @@ class GroupManifest {
         'name': name,
         'ts': createdAtMs,
         if (signatureAlgorithm != null) 'alg': signatureAlgorithm,
+        if (sovereignBundleHash != null)
+          'sbh': base64Encode(sovereignBundleHash!),
         if (signature.isNotEmpty) 'msig': base64Encode(signature),
       };
 
@@ -126,9 +135,13 @@ class GroupManifest {
       final signature = j['msig'] is String
           ? Uint8List.fromList(base64Decode(j['msig'] as String))
           : Uint8List(0);
+      final bundleHash = j['sbh'] is String
+          ? Uint8List.fromList(base64Decode(j['sbh'] as String))
+          : null;
       if (pk.isEmpty || pk.length > 16384 || signature.length > 16384) {
         return null;
       }
+      if (bundleHash != null && bundleHash.length != 32) return null;
       if (version == 1 && pk.length != 32) return null;
       if (version == sovereignDeviceVersion &&
           (j['kind'] != sovereignDeviceKind ||
@@ -146,6 +159,7 @@ class GroupManifest {
         version: version,
         kind: j['kind'] is String ? j['kind'] as String : null,
         signatureAlgorithm: j['alg'] is String ? j['alg'] as String : null,
+        sovereignBundleHash: bundleHash,
         signature: signature,
       );
     } catch (_) {
