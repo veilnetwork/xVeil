@@ -75,6 +75,15 @@ int get _debugHookPort => _debugHookPortDefine != 0
     ? _debugHookPortDefine
     : ((Platform.isAndroid || Platform.isIOS) ? 38766 : 38765);
 
+/// Text accepted by the group-post debug hook. `text` is the documented
+/// automation spelling used by the other send hooks; `body` remains accepted
+/// for compatibility with the original G1 device-verify recipe.
+@visibleForTesting
+String groupPostHookText(Uri uri) {
+  final q = uri.queryParameters;
+  return q['text'] ?? q['body'] ?? '';
+}
+
 /// Debug-only loopback HTTP hook for automated soak tests.
 ///
 /// Disabled unless the app is launched with:
@@ -704,7 +713,8 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     });
   }
 
-  /// Post a message: ?group=&body=; reports success + total validated msgs.
+  /// Post a message: ?group=&text= (`body` is a legacy alias); reports
+  /// success + total validated msgs.
   Future<void> _groupPostHook(HttpRequest req) async {
     if (!_requireReady(req)) return;
     final svc = _groupSvc();
@@ -715,7 +725,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final gid = NodeId.fromHex(gidHex);
     // ?silent=1 skips the delta fanout — a deterministic "lost delta" for
     // gap-fill verification (brick G1).
-    final posted = await svc.postMessage(gid, q['body'] ?? '',
+    final posted = await svc.postMessage(gid, groupPostHookText(req.uri),
         broadcast: q['silent'] != '1');
     final msgs = await svc.messagesOf(gid);
     return _json(req, {'ok': posted, 'messages': msgs.length});
