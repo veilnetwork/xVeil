@@ -1283,6 +1283,12 @@ class MessagingService {
     int? seq,
     String? replyToId,
     String? forwardedFrom,
+    // LOCAL system annotations (the chatDeleted marker): author under OUR OWN
+    // event stream even though the row renders as incoming. Attributing it to
+    // the peer would make [appendMessage] allocate the next GAP-FREE seq in
+    // the PEER's stream — which fills an old gap and sorts the marker into
+    // the MIDDLE of the chat (caught in device-verify: idx 21/66 twice).
+    bool selfAuthored = false,
   }) async {
     final msgId = id ?? _uuid.v4();
     final stored = await _storage.appendMessage(
@@ -1306,7 +1312,9 @@ class MessagingService {
         // AUTHENTICATED side — our own for an outgoing message, the peer (the
         // server-authenticated conversation id) for an incoming one. Never
         // inferred from an in-band wire field.
-        author: dir == MessageDirection.outgoing ? await _selfHex() : peer.hex,
+        author: selfAuthored || dir == MessageDirection.outgoing
+            ? await _selfHex()
+            : peer.hex,
         // The SENDER's seq when this is a wire-delivered incoming event (keeps
         // the log convergent, R4); null for our own outgoing message → storage
         // allocates the next gap-free value, which the caller puts on the wire.
@@ -2341,6 +2349,28 @@ class MessagingService {
         // own folded state and grants (or silently drops — no oracle).
         onGroupContentRequest?.call(m.src, env.body);
         return;
+      case WireKind.chatDeleted:
+        // The peer deleted this conversation on their device and explicitly
+        // opted into telling us. Accepted contacts only (a stranger/pending
+        // peer gets the usual silent drop — no oracle); the durable frame was
+        // already acked+deduped by the generic gate above. Leave a LOCAL
+        // system-notice marker in the chat via the normal store path, so
+        // unread/notification behave like any incoming event.
+        if (existing?.status != ContactStatus.accepted) return;
+        await _store(
+          m.src,
+          MessageDirection.incoming,
+          kChatDeletedMarkerBody,
+          MessageStatus.delivered,
+          // Fall back to receive time: an unstamped marker would sort into
+          // the middle of the chat instead of closing it.
+          timestamp: _wireSentAt(env) ?? _now(),
+          // A LOCAL annotation, not an event from the sender's (just wiped)
+          // log — see [_store.selfAuthored] for the ordering rationale.
+          selfAuthored: true,
+        );
+        _emitIncoming(m.src, '🗑️', isFile: false);
+        return;
       case WireKind.unknown:
         // A structured (v:2) frame from a NEWER build whose kind we don't know —
         // the decoder already mapped it to this drop sentinel (RULE WC). Ignore.
@@ -2720,12 +2750,51 @@ class MessagingService {
   /// contact + every message from the encrypted store and drops the peer's
   /// in-memory send state so the outbox stops re-sending to it (this is how a
   /// user clears a dead/old "ghost" identity that can no longer be reached).
-  /// Local-only — the peer is not notified.
-  Future<void> deleteConversation(NodeId peer) async {
+  /// Local by default — the peer is not notified. [notifyPeer] is the explicit
+  /// OPT-IN from the delete dialog (user decision 2026-07-11): send a
+  /// [WireKind.chatDeleted] farewell BEFORE the local wipe, so the peer's chat
+  /// shows an honest "deleted the chat" notice instead of silence.
+  Future<void> deleteConversation(
+    NodeId peer, {
+    bool notifyPeer = false,
+  }) async {
+    if (notifyPeer) await _sendChatDeletedFarewell(peer);
     await _storage.removeConversation(peer);
     _peerUnresolvedBackoff.remove(peer.hex);
     await _removeFromAllFolders(peer.hex);
     _signal();
+  }
+
+  /// The opt-in farewell of [deleteConversation]. NOT [sendDurable]: the local
+  /// outbox entry would be wiped moments later with the conversation, so the
+  /// frame rides a live attempt plus an AWAITED mailbox deposit — parked for
+  /// an offline peer before the local state (contact keys included) goes away.
+  /// Guards keep the no-oracle canon intact everywhere else: nothing is sent
+  /// to Saved Messages (self) or a non-accepted peer.
+  Future<void> _sendChatDeletedFarewell(NodeId peer) async {
+    final selfHex = await _selfHex();
+    if (peer.hex == selfHex) return;
+    final contact = await _storage.getContact(peer);
+    if (contact == null || contact.status != ContactStatus.accepted) return;
+    final fid = 'chatdel:${_uuid.v4()}';
+    // Stamp the send time (like sendText) — without it the receiver stores the
+    // marker with no timestamp and it sorts into the MIDDLE of the chat
+    // instead of appending as the closing notice (caught in device-verify).
+    final wire = WireEnvelope(
+      WireKind.chatDeleted,
+      '',
+      sentAtMs: _now().millisecondsSinceEpoch,
+    ).withFrameId(fid).encode();
+    try {
+      await _send(peer, wire);
+    } catch (_) {
+      // Live path down — the mailbox deposit below still delivers.
+    }
+    try {
+      await _maybeStash(peer, fid, wire);
+    } catch (_) {
+      // Best-effort: the delete must not be blocked by an unreachable mailbox.
+    }
   }
 
   // ── Chat folders (local-only groupings, §Telegram-style) ─────────────────
