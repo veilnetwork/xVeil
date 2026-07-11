@@ -152,6 +152,121 @@ void main() {
     expect(b.messages.length, 1);
   });
 
+  test('new control entries are group-bound while legacy canonical bytes stay '
+      'compatible', () {
+    ControlEntry entry({NodeId? gid}) => ControlEntry(
+          groupId: gid,
+          author: owner,
+          seq: 0,
+          prevHash: '',
+          op: ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+          policyVersion: 0,
+          createdAtMs: 1,
+          signature: Uint8List(0),
+        );
+
+    final legacy = String.fromCharCodes(entry().canonicalBytes());
+    final bound = String.fromCharCodes(entry(gid: _id(8)).canonicalBytes());
+    expect(legacy.contains('"gid"'), isFalse);
+    expect(bound.contains('"gid":"${_id(8).hex}"'), isTrue);
+    expect(ControlEntry.fromJson(entry(gid: _id(8)).toJson())!.groupId,
+        _id(8));
+  });
+
+  test('ingest rejects cross-group replay and invalid-signature seq poisoning',
+      () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final svc = GroupService(storage, _FakeSigner(owner));
+    final groupA = await svc.createGroup('A');
+    final groupB = await svc.createGroup('B');
+    await svc.addControlOp(groupA, ControlOp.addMember,
+        target: bob, role: GroupRole.member);
+    final aBundle = (await svc.load(groupA))!;
+    final bBundle = (await svc.load(groupB))!;
+
+    final replay = jsonEncode({
+      'm': bBundle.manifest.toJson(),
+      'c': [aBundle.control.single.toJson()],
+      'g': const [],
+      'r': const [],
+    });
+    expect(await svc.ingestSnapshot(replay), isTrue);
+    expect((await svc.stateOf(groupB))!.isMember(bob), isFalse);
+    expect((await svc.load(groupB))!.control, isEmpty);
+
+    GroupMessage message(Uint8List signature, String body) => GroupMessage(
+          groupId: groupB,
+          author: owner,
+          seq: 0,
+          prevHash: '',
+          body: body,
+          policyVersion: 0,
+          createdAtMs: 2,
+          signature: signature,
+          authorPubKey: owner.bytes,
+        );
+    String snap(GroupMessage m) => jsonEncode({
+          'm': bBundle.manifest.toJson(),
+          'c': const [],
+          'g': [m.toJson()],
+          'r': const [],
+        });
+
+    await svc.ingestSnapshot(snap(message(Uint8List(0), 'poison')));
+    expect((await svc.load(groupB))!.messages, isEmpty);
+    await svc.ingestSnapshot(snap(message(Uint8List(64), 'valid')));
+    expect((await svc.messagesOf(groupB)).single.body, 'valid');
+  });
+
+  test('cross-group messages/reactions and non-member reactions are ignored',
+      () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final svc = GroupService(storage, _FakeSigner(owner));
+    final gid = await svc.createGroup('target');
+    final other = _id(9);
+    final bundle = (await svc.load(gid))!;
+    final wrongMessage = GroupMessage(
+      groupId: other,
+      author: owner,
+      seq: 0,
+      prevHash: '',
+      body: 'wrong-group',
+      policyVersion: 0,
+      createdAtMs: 1,
+      signature: Uint8List(64),
+      authorPubKey: owner.bytes,
+    );
+    GroupReaction reaction(NodeId group, NodeId author, int seq) =>
+        GroupReaction(
+          groupId: group,
+          author: author,
+          seq: seq,
+          target: '${owner.hex}:0',
+          emoji: '🔥',
+          createdAtMs: 2,
+          signature: Uint8List(64),
+          authorPubKey: author.bytes,
+        );
+    final payload = jsonEncode({
+      'm': bundle.manifest.toJson(),
+      'c': const [],
+      'g': [wrongMessage.toJson()],
+      'r': [
+        reaction(other, owner, 0).toJson(),
+        reaction(gid, stranger, 0).toJson(),
+      ],
+    });
+    expect(await svc.ingestSnapshot(payload), isTrue);
+    final stored = (await svc.load(gid))!;
+    expect(stored.messages, isEmpty);
+    expect(stored.reactions, isEmpty);
+    expect(await svc.reactionsOf(gid), isEmpty);
+  });
+
   test('broadcast ships the snapshot to every other member', () async {
     final sent = <(NodeId, NodeId)>[];
     final storage = FakeHvContainer().storage();

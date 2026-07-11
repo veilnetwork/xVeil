@@ -112,6 +112,7 @@ enum ControlOp {
 /// authored against, and signed ([signature] over [canonicalBytes]).
 class ControlEntry {
   ControlEntry({
+    this.groupId,
     required this.author,
     required this.seq,
     required this.prevHash,
@@ -125,6 +126,9 @@ class ControlEntry {
     Uint8List? authorPubKey,
   }) : authorPubKey = authorPubKey ?? Uint8List(0);
 
+  /// Group binding for replay resistance. Legacy entries omit it and retain
+  /// their old canonical bytes; every newly-authored entry includes it.
+  final NodeId? groupId;
   final NodeId author;
   final int seq;
   final String prevHash; // hex of the author's previous entry hash, or ''
@@ -142,6 +146,7 @@ class ControlEntry {
   final Uint8List authorPubKey;
 
   ControlEntry withSignature(Uint8List sig, Uint8List pubKey) => ControlEntry(
+        groupId: groupId,
         author: author,
         seq: seq,
         prevHash: prevHash,
@@ -160,6 +165,7 @@ class ControlEntry {
   /// for the signature to verify, so field order and encoding are fixed here.
   Uint8List canonicalBytes() {
     final map = {
+      if (groupId != null) 'gid': groupId!.hex,
       'author': author.hex,
       'seq': seq,
       'prev': prevHash,
@@ -174,6 +180,7 @@ class ControlEntry {
   }
 
   Map<String, dynamic> toJson() => {
+        if (groupId != null) 'gid': groupId!.hex,
         'author': author.hex,
         'seq': seq,
         'prev': prevHash,
@@ -204,6 +211,9 @@ class ControlEntry {
     if (op == null || seq < 0 || pv < 0) return null;
     try {
       return ControlEntry(
+        groupId: j['gid'] is String
+            ? NodeId.fromHex(j['gid'] as String)
+            : null,
         author: NodeId.fromHex(author),
         seq: seq,
         prevHash: prev,

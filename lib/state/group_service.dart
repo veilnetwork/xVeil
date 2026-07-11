@@ -145,6 +145,15 @@ class GroupService {
 
   int _now() => DateTime.now().millisecondsSinceEpoch;
 
+  bool _validControlFor(NodeId groupId, ControlEntry e) =>
+      (e.groupId == null || e.groupId == groupId) && _signer.verifyControl(e);
+
+  bool _validMessageFor(NodeId groupId, GroupMessage m) =>
+      m.groupId == groupId && _signer.verifyMessage(m);
+
+  bool _validReactionFor(NodeId groupId, GroupReaction r) =>
+      r.groupId == groupId && _signer.verifyReaction(r);
+
   Future<List<String>> _index() async {
     final raw = await _storage.getSetting('groups.index');
     if (raw == null || raw.isEmpty) return [];
@@ -248,7 +257,7 @@ class GroupService {
         final state = foldControlLog(
           owner: b.manifest.owner,
           entries: b.control,
-          verify: _signer.verifyControl,
+          verify: (e) => _validControlFor(b.manifest.groupId, e),
           initialName: b.manifest.name,
         ).state;
         if (!state.isMember(_signer.selfId)) continue;
@@ -302,7 +311,7 @@ class GroupService {
     return foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
-      verify: _signer.verifyControl,
+      verify: (e) => _validControlFor(b.manifest.groupId, e),
       initialName: b.manifest.name,
     ).state;
   }
@@ -327,15 +336,19 @@ class GroupService {
   }) async {
     final b = await load(groupId);
     if (b == null) return false;
-    final mySeq = _nextSeq(
-        b.control.where((e) => e.author == _signer.selfId).map((e) => e.seq));
+    final mySeq = _nextSeq(b.control
+        .where((e) =>
+            e.author == _signer.selfId &&
+            _validControlFor(b.manifest.groupId, e))
+        .map((e) => e.seq));
     final state = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
-      verify: _signer.verifyControl,
+      verify: (e) => _validControlFor(b.manifest.groupId, e),
     ).state;
     final pv = state.policyVersion;
     final unsigned = ControlEntry(
+      groupId: groupId,
       author: _signer.selfId,
       seq: mySeq,
       prevHash: '',
@@ -354,7 +367,7 @@ class GroupService {
     final folded = foldControlLog(
       owner: b.manifest.owner,
       entries: candidate,
-      verify: _signer.verifyControl,
+      verify: (e) => _validControlFor(b.manifest.groupId, e),
     );
     if (folded.rejected.any((e) => identical(e, signed) ||
         (e.author == signed.author && e.seq == signed.seq))) {
@@ -390,14 +403,18 @@ class GroupService {
     final state = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
-      verify: _signer.verifyControl,
+      verify: (e) => _validControlFor(b.manifest.groupId, e),
     ).state;
     final me = state.memberOf(_signer.selfId);
     if (me == null) return true; // already gone
     if (me.role == GroupRole.owner) return false; // owner can't leave (v1)
-    final mySeq = _nextSeq(
-        b.control.where((e) => e.author == _signer.selfId).map((e) => e.seq));
+    final mySeq = _nextSeq(b.control
+        .where((e) =>
+            e.author == _signer.selfId &&
+            _validControlFor(b.manifest.groupId, e))
+        .map((e) => e.seq));
     final unsigned = ControlEntry(
+      groupId: groupId,
       author: _signer.selfId,
       seq: mySeq,
       prevHash: '',
@@ -413,7 +430,7 @@ class GroupService {
     final folded = foldControlLog(
       owner: b.manifest.owner,
       entries: candidate,
-      verify: _signer.verifyControl,
+      verify: (e) => _validControlFor(b.manifest.groupId, e),
     );
     if (folded.rejected
         .any((e) => e.author == signed.author && e.seq == signed.seq)) {
@@ -445,12 +462,15 @@ class GroupService {
     final state = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
-      verify: _signer.verifyControl,
+      verify: (e) => _validControlFor(b.manifest.groupId, e),
     ).state;
     final me = state.memberOf(_signer.selfId);
     if (me == null || me.muted) return false;
-    final mySeq = _nextSeq(
-        b.messages.where((m) => m.author == _signer.selfId).map((m) => m.seq));
+    final mySeq = _nextSeq(b.messages
+        .where((m) =>
+            m.author == _signer.selfId &&
+            _validMessageFor(b.manifest.groupId, m))
+        .map((m) => m.seq));
     final unsigned = GroupMessage(
       groupId: groupId,
       author: _signer.selfId,
@@ -506,11 +526,17 @@ class GroupService {
     return {
       'sreq': 1,
       'gid': groupId.hex,
-      'g': vector(b.messages.map((m) => (m.author, m.seq))),
-      'c': vector(b.control.map((e) => (e.author, e.seq))),
+      'g': vector(b.messages
+          .where((m) => _validMessageFor(groupId, m))
+          .map((m) => (m.author, m.seq))),
+      'c': vector(b.control
+          .where((e) => _validControlFor(groupId, e))
+          .map((e) => (e.author, e.seq))),
       // Reactions ride the same per-author high-water scheme (each author's
       // reaction seq is monotonic). An older responder just ignores the key.
-      'r': vector(b.reactions.map((r) => (r.author, r.seq))),
+      'r': vector(b.reactions
+          .where((r) => _validReactionFor(groupId, r))
+          .map((r) => (r.author, r.seq))),
     };
   }
 
@@ -534,7 +560,7 @@ class GroupService {
     final state = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
-      verify: _signer.verifyControl,
+      verify: (e) => _validControlFor(b.manifest.groupId, e),
     ).state;
     if (!state.isMember(peer)) {
       debugPrint('xVeil[groups]: sync request from non-member — drop');
@@ -546,18 +572,24 @@ class GroupService {
         (vec is Map && vec[author.hex] is int) ? vec[author.hex] as int : -1;
     final missingMsgs = [
       for (final m in b.messages)
-        if (m.seq > seen(req['g'], m.author)) m,
+        if (_validMessageFor(gid, m) &&
+            m.seq > seen(req['g'], m.author))
+          m,
     ];
     final missingCtl = [
       for (final e in b.control)
-        if (e.seq > seen(req['c'], e.author)) e,
+        if (_validControlFor(gid, e) &&
+            e.seq > seen(req['c'], e.author))
+          e,
     ];
     // A requester from before the 'r' vector sends none — `seen` reads 0 and
     // every held reaction ships; the ingest dedup by (author, seq) makes the
     // over-send harmless.
     final missingRx = [
       for (final r in b.reactions)
-        if (r.seq > seen(req['r'], r.author)) r,
+        if (_validReactionFor(gid, r) &&
+            r.seq > seen(req['r'], r.author))
+          r,
     ];
     if (missingMsgs.isEmpty && missingCtl.isEmpty && missingRx.isEmpty) {
       return false;
@@ -636,11 +668,11 @@ class GroupService {
     final state = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
-      verify: _signer.verifyControl,
+      verify: (e) => _validControlFor(b.manifest.groupId, e),
     ).state;
     final out = <GroupMessage>[];
     for (final m in b.messages) {
-      if (!_signer.verifyMessage(m)) continue;
+      if (!_validMessageFor(groupId, m)) continue;
       final mem = state.memberOf(m.author);
       if (mem == null || mem.muted) continue;
       out.add(m);
@@ -672,13 +704,14 @@ class GroupService {
     final state = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
-      verify: _signer.verifyControl,
+      verify: (e) => _validControlFor(b.manifest.groupId, e),
     ).state;
     final me = state.memberOf(_signer.selfId);
     if (me == null || me.muted) return false;
     // My current reaction on this message (if any) → tapping it again clears it.
-    final onMsg =
-        foldGroupReactions(b.reactions, _signer.verifyReaction)[msgRef] ??
+    final onMsg = foldGroupReactions(
+            b.reactions.where((r) => _validReactionFor(groupId, r)),
+            _signer.verifyReaction)[msgRef] ??
             const <String, List<NodeId>>{};
     String? mine;
     for (final e in onMsg.entries) {
@@ -688,8 +721,11 @@ class GroupService {
       }
     }
     final next = (mine == emoji) ? '' : emoji;
-    final mySeq = _nextSeq(
-        b.reactions.where((r) => r.author == _signer.selfId).map((r) => r.seq));
+    final mySeq = _nextSeq(b.reactions
+        .where((r) =>
+            r.author == _signer.selfId &&
+            _validReactionFor(b.manifest.groupId, r))
+        .map((r) => r.seq));
     final signed = _signer.signReaction(GroupReaction(
       groupId: groupId,
       author: _signer.selfId,
@@ -712,7 +748,16 @@ class GroupService {
   Future<Map<String, MessageReactions>> reactionsOf(NodeId groupId) async {
     final b = await load(groupId);
     if (b == null) return const {};
-    return foldGroupReactions(b.reactions, _signer.verifyReaction);
+    final state = foldControlLog(
+      owner: b.manifest.owner,
+      entries: b.control,
+      verify: (e) => _validControlFor(b.manifest.groupId, e),
+    ).state;
+    return foldGroupReactions(
+      b.reactions.where(
+          (r) => _validReactionFor(groupId, r) && state.isMember(r.author)),
+      _signer.verifyReaction,
+    );
   }
 
   // ── Content path (doc/GROUPS-CONTENT-PATH.md) ─────────────────────────────
@@ -855,7 +900,13 @@ class GroupService {
   Future<void> ingestControl(NodeId groupId, ControlEntry e) async {
     final b = await load(groupId);
     if (b == null) return;
-    if (b.control.any((x) => x.author == e.author && x.seq == e.seq)) return;
+    if (!_validControlFor(groupId, e)) return;
+    if (b.control.any((x) =>
+        _validControlFor(groupId, x) &&
+        x.author == e.author &&
+        x.seq == e.seq)) {
+      return;
+    }
     await _save(GroupBundle(
         manifest: b.manifest,
         control: [...b.control, e],
@@ -866,9 +917,18 @@ class GroupService {
   /// Serialize a group's full snapshot (manifest + logs) for the wire.
   String snapshotJson(GroupBundle b) => jsonEncode({
         'm': b.manifest.toJson(),
-        'c': b.control.map((e) => e.toJson()).toList(),
-        'g': b.messages.map((m) => m.toJson()).toList(),
-        'r': b.reactions.map((x) => x.toJson()).toList(),
+        'c': b.control
+            .where((e) => _validControlFor(b.manifest.groupId, e))
+            .map((e) => e.toJson())
+            .toList(),
+        'g': b.messages
+            .where((m) => _validMessageFor(b.manifest.groupId, m))
+            .map((m) => m.toJson())
+            .toList(),
+        'r': b.reactions
+            .where((r) => _validReactionFor(b.manifest.groupId, r))
+            .map((r) => r.toJson())
+            .toList(),
       });
 
   /// Ingest a received snapshot: materialize the group if new (manifest +
@@ -897,34 +957,58 @@ class GroupService {
         .toList();
 
     final existing = await load(manifest.groupId);
+    // Keep the manifest we already had (the authoritative genesis); only adopt
+    // the incoming one when the group is new to us.
+    final man = existing?.manifest ?? manifest;
     final control = [...(existing?.control ?? const <ControlEntry>[])];
     final messages = [...(existing?.messages ?? const <GroupMessage>[])];
     final reactions = [...(existing?.reactions ?? const <GroupReaction>[])];
     for (final e in inControl) {
-      if (!control.any((x) => x.author == e.author && x.seq == e.seq)) {
+      if (!_validControlFor(manifest.groupId, e)) continue;
+      if (!control.any((x) =>
+          _validControlFor(manifest.groupId, x) &&
+          x.author == e.author &&
+          x.seq == e.seq)) {
         control.add(e);
       }
     }
+    final mergedState = foldControlLog(
+      owner: man.owner,
+      entries: control,
+      verify: (e) => _validControlFor(manifest.groupId, e),
+      initialName: man.name,
+    ).state;
     final fresh = <GroupMessage>[];
     for (final m in inMsgs) {
-      if (!messages.any((x) => x.author == m.author && x.seq == m.seq)) {
+      if (!_validMessageFor(manifest.groupId, m) ||
+          !mergedState.isMember(m.author)) {
+        continue;
+      }
+      if (!messages.any((x) =>
+          _validMessageFor(manifest.groupId, x) &&
+          x.author == m.author &&
+          x.seq == m.seq)) {
         messages.add(m);
         // Feed the notification/unread layer: genuinely new, not ours, and
         // signature-verified (a forged entry must not buzz the phone even
         // though the fold would drop it on read anyway).
-        if (m.author != _signer.selfId && _signer.verifyMessage(m)) {
+        if (m.author != _signer.selfId) {
           fresh.add(m);
         }
       }
     }
     for (final r in inReactions) {
-      if (!reactions.any((x) => x.author == r.author && x.seq == r.seq)) {
+      if (!_validReactionFor(manifest.groupId, r) ||
+          !mergedState.isMember(r.author)) {
+        continue;
+      }
+      if (!reactions.any((x) =>
+          _validReactionFor(manifest.groupId, x) &&
+          x.author == r.author &&
+          x.seq == r.seq)) {
         reactions.add(r);
       }
     }
-    // Keep the manifest we already had (the authoritative genesis); only adopt
-    // the incoming one when the group is new to us.
-    final man = existing?.manifest ?? manifest;
     await _save(GroupBundle(
         manifest: man,
         control: control,
@@ -1172,7 +1256,7 @@ class GroupService {
     final state = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
-      verify: _signer.verifyControl,
+      verify: (e) => _validControlFor(b.manifest.groupId, e),
     ).state;
     final json = snapshotJson(b);
     var n = 0;
@@ -1204,7 +1288,7 @@ class GroupService {
     final state = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
-      verify: _signer.verifyControl,
+      verify: (e) => _validControlFor(b.manifest.groupId, e),
     ).state;
     final json = jsonEncode({
       'm': b.manifest.toJson(),
