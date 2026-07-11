@@ -2810,6 +2810,11 @@ class MessagingService {
     _signal();
   }
 
+  /// Attached by the multi-device bridge: fires after a LOCAL [markRead]
+  /// advanced the conversation's watermark (never from
+  /// [applyMirroredReadMark]), so my other devices clear the same badge.
+  void Function(String conversationId, int tsMs)? onConversationRead;
+
   /// Mark a conversation read (its unread badge resets) and refresh the UI.
   /// Best-effort — never throw from a screen's open hook (e.g. storage not yet
   /// open in a test/loopback context).
@@ -2817,8 +2822,25 @@ class MessagingService {
     try {
       await _storage.markRead(conversationId);
       _signal();
+      final ts = await _storage.readMarker(conversationId);
+      if (ts > 0) onConversationRead?.call(conversationId, ts);
     } catch (_) {
       // storage locked / unavailable — skip the badge clear.
+    }
+  }
+
+  /// Apply a read watermark mirrored from ANOTHER of my devices. Monotonic
+  /// (an older mark never regresses what this device already read) and writes
+  /// straight to storage — it never re-fires [onConversationRead], so a
+  /// mirrored mark cannot echo. Returns whether the watermark advanced.
+  Future<bool> applyMirroredReadMark(String conversationId, int tsMs) async {
+    try {
+      if (await _storage.readMarker(conversationId) >= tsMs) return false;
+      await _storage.setReadMarker(conversationId, tsMs);
+      _signal();
+      return true;
+    } catch (_) {
+      return false; // storage locked / unavailable
     }
   }
 

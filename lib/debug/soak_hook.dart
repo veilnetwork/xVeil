@@ -333,6 +333,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/mirror_pull':
           await _mirrorPullHook(req);
           return;
+        case '/read_conv':
+          await _readConvHook(req);
+          return;
+        case '/read_state':
+          await _readStateHook(req);
+          return;
         case '/group_play_voice':
           await _groupPlayVoiceHook(req);
           return;
@@ -1327,6 +1333,37 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           durationSec: int.tryParse(q['dur'] ?? '') ?? 0,
         ));
     return _json(req, {'ok': wrote});
+  }
+
+  /// Mark conversation ?peer= read through the REAL messaging path (what an
+  /// opened chat screen does) — a linked device should receive a readMark.
+  Future<void> _readConvHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final peer = req.uri.queryParameters['peer'];
+    if (peer == null) return _json(req, {'ok': false, 'error': 'no peer'});
+    await ref.read(messagingServiceProvider).markRead(peer);
+    return _json(req,
+        {'ok': true, 'marker': await ref.read(storageProvider).readMarker(peer)});
+  }
+
+  /// The stored read watermark of ?conv= (peer hex) or ?group= (gid hex) —
+  /// brick-4c verify.
+  Future<void> _readStateHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final conv = req.uri.queryParameters['conv'];
+    final group = req.uri.queryParameters['group'];
+    if (conv != null) {
+      return _json(req, {
+        'ok': true,
+        'marker': await ref.read(storageProvider).readMarker(conv),
+      });
+    }
+    if (group != null) {
+      final raw =
+          await ref.read(storageProvider).getSetting('group.seen:$group');
+      return _json(req, {'ok': true, 'marker': int.tryParse(raw ?? '') ?? 0});
+    }
+    return _json(req, {'ok': false, 'error': 'need conv or group'});
   }
 
   /// Toggle the LOCAL notification mute of ?group= (?on=1|0).
