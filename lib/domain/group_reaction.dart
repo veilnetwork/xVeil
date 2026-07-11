@@ -131,3 +131,8 @@ bool _isNewer(GroupReaction a, GroupReaction b) {
   if (h != 0) return h > 0;
   return a.seq > b.seq;
 }
+
+/// The fold ordering exposed to storage compaction. A compactor must retain
+/// exactly the same winner as [foldGroupReactions], otherwise a fresh device
+/// could reconstruct a different reaction state from the compacted snapshot.
+bool isNewerGroupReaction(GroupReaction a, GroupReaction b) => _isNewer(a, b);
