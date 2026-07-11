@@ -82,6 +82,14 @@ enum WireKind {
   /// ships it durably to each member. Added before [unknown] so an older
   /// decoder maps this out-of-range index to [unknown] and drops it (RULE WC).
   groupEntry,
+
+  /// ONE chunk of a group snapshot too large for a single [groupEntry] frame
+  /// (groups media: an inline image pushes the bundle JSON past the
+  /// auth_deliver cap MAX_AUTH_DELIVER_MSG_BYTES=6144). Body = JSON
+  /// {tid, i, n, d:base64}; the receiver reassembles all `n` chunks of `tid`
+  /// (a durable frame each, acked/deduped individually) and ingests the joined
+  /// bundle exactly like a whole [groupEntry]. Added before [unknown] (RULE WC).
+  groupEntryChunk,
   unknown,
 }
 
@@ -236,6 +244,10 @@ class WireEnvelope {
   /// ingest. Delivered durably to each member (direct fanout, v1).
   const WireEnvelope.groupEntry(String bodyJson)
     : this(WireKind.groupEntry, bodyJson);
+
+  /// One chunk of an oversized group snapshot — see [WireKind.groupEntryChunk].
+  const WireEnvelope.groupEntryChunk(String bodyJson)
+    : this(WireKind.groupEntryChunk, bodyJson);
 
   /// The decode-only sentinel for a structured (v:2) frame whose kind this build
   /// does not know — the dispatcher drops it (RULE WC).
@@ -575,6 +587,45 @@ FileChunkFrame parseFileChunk(String body) {
     transferId: j['tid'] as String,
     index: j['i'] as int,
     total: j['total'] as int,
+    data: base64.decode(j['d'] as String),
+  );
+}
+
+// ── Group snapshot chunking (groups media over the wire) ─────────────────────
+
+/// Parsed body of a [WireKind.groupEntryChunk]: one [data] slice (index
+/// [index] of [count]) of the group bundle JSON identified by [transferId].
+typedef GroupEntryChunkFrame = ({
+  String transferId,
+  int index,
+  int count,
+  Uint8List data,
+});
+
+/// One chunk of an oversized group snapshot: body `{tid, i, n, d:base64}`. The
+/// bundle's UTF-8 bytes are split so each chunk frame fits under the
+/// auth_deliver cap; the receiver reassembles [count] chunks by [transferId],
+/// concatenates the bytes, and ingests the joined bundle like a whole snapshot.
+WireEnvelope groupEntryChunkEnvelope({
+  required String transferId,
+  required int index,
+  required int count,
+  required Uint8List data,
+}) => WireEnvelope.groupEntryChunk(
+  jsonEncode({
+    'tid': transferId,
+    'i': index,
+    'n': count,
+    'd': base64.encode(data),
+  }),
+);
+
+GroupEntryChunkFrame parseGroupEntryChunk(String body) {
+  final j = jsonDecode(body) as Map<String, dynamic>;
+  return (
+    transferId: j['tid'] as String,
+    index: j['i'] as int,
+    count: j['n'] as int,
     data: base64.decode(j['d'] as String),
   );
 }

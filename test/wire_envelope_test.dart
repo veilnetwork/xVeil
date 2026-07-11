@@ -304,4 +304,63 @@ void main() {
     expect(out.id, 'm');
     expect(out.body, '');
   });
+
+  test('groupEntryChunk round-trips (tid/index/count/data) as v:2', () {
+    final data = Uint8List.fromList(List.generate(300, (i) => i & 0xff));
+    final raw = groupEntryChunkEnvelope(
+      transferId: 'grp:abcd:42',
+      index: 2,
+      count: 5,
+      data: data,
+    ).encode();
+    final env = WireEnvelope.decode(raw);
+    expect(env.kind, WireKind.groupEntryChunk);
+    final f = parseGroupEntryChunk(env.body);
+    expect(f.transferId, 'grp:abcd:42');
+    expect(f.index, 2);
+    expect(f.count, 5);
+    expect(f.data, data);
+    // v:2 so an older decoder drops it (RULE WC) instead of showing it as chat.
+    expect((jsonDecode(utf8.decode(raw)) as Map)['v'], 2);
+  });
+
+  test('splitting a bundle into groupEntryChunks reassembles byte-exact', () {
+    // Mirrors the send/receive split: chunk the UTF-8 bytes, base64 each into a
+    // frame, then concatenate the parsed chunks back in index order.
+    final bundle = jsonEncode({
+      'm': {'name': 'Pics'},
+      'g': [
+        {'body': 'x' * 9000} // forces several chunks
+      ],
+    });
+    final bytes = Uint8List.fromList(utf8.encode(bundle));
+    const chunk = 4000;
+    final count = (bytes.length + chunk - 1) ~/ chunk;
+    expect(count, greaterThan(1), reason: 'must actually split');
+    final frames = <Uint8List>[];
+    for (var i = 0; i < count; i++) {
+      final start = i * chunk;
+      final end = start + chunk < bytes.length ? start + chunk : bytes.length;
+      frames.add(groupEntryChunkEnvelope(
+        transferId: 'grp:z:1',
+        index: i,
+        count: count,
+        data: Uint8List.sublistView(bytes, start, end),
+      ).encode());
+    }
+    // EVERY chunk frame stays under the auth_deliver 6144 cap (the whole point).
+    for (final fr in frames) {
+      expect(fr.length, lessThanOrEqualTo(6144));
+    }
+    final parts = <int, Uint8List>{};
+    for (final fr in frames) {
+      final f = parseGroupEntryChunk(WireEnvelope.decode(fr).body);
+      parts[f.index] = f.data;
+    }
+    final joined = <int>[];
+    for (var i = 0; i < count; i++) {
+      joined.addAll(parts[i]!);
+    }
+    expect(utf8.decode(joined), bundle);
+  });
 }
