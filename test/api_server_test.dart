@@ -21,6 +21,8 @@ void main() {
       messages: (peer, limit) async => [
         {'id': 'm1', 'body': 'hi', 'direction': 'incoming'},
       ],
+      sendFile: (to, path, name) async => to == 'bad' ? 'invalid peer' : null,
+      loadFile: (fileId) async => fileId == 'known' ? [1, 2, 3] : null,
     );
   }
 
@@ -98,6 +100,42 @@ void main() {
         'GET', u('/v1/messages?peer=beef&limit=10'), 'Bearer secret-token');
     expect(res.status, 200);
     expect(((res.body as Map)['messages'] as List).single['id'], 'm1');
+  });
+
+  test('POST /v1/files validates to+path; reports send errors', () async {
+    final h = make();
+    expect((await h.handle('POST', u('/v1/files'), 'Bearer secret-token',
+                body: {'to': 'peer'}))
+            .status,
+        400);
+    expect((await h.handle('POST', u('/v1/files'), 'Bearer secret-token',
+                body: {'to': 'peer', 'path': '/tmp/x'}))
+            .status,
+        200);
+    final err = await h.handle('POST', u('/v1/files'), 'Bearer secret-token',
+        body: {'to': 'bad', 'path': '/tmp/x'});
+    expect(err.status, 400);
+    expect((err.body as Map)['error'], 'invalid peer');
+    expect((await h.handle('POST', u('/v1/files'), null,
+                body: {'to': 'peer', 'path': '/tmp/x'}))
+            .status,
+        401);
+  });
+
+  test('GET /v1/files/download returns bytes for a known id, 404 otherwise',
+      () async {
+    final h = make();
+    expect((await h.handle('GET', u('/v1/files/download'), 'Bearer secret-token'))
+            .status,
+        400); // no fileId
+    final miss = await h.handle(
+        'GET', u('/v1/files/download?fileId=nope'), 'Bearer secret-token');
+    expect(miss.status, 404);
+    final hit = await h.handle(
+        'GET', u('/v1/files/download?fileId=known'), 'Bearer secret-token');
+    expect(hit.status, 200);
+    expect(hit.bytes, [1, 2, 3]);
+    expect(hit.contentType, 'application/octet-stream');
   });
 
   test('an authenticated unknown route is 404, not 401', () async {

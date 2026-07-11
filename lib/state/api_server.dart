@@ -20,6 +20,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/ids.dart';
+import '../data/serve_source.dart';
 import '../domain/chat.dart';
 import 'app_controller.dart';
 import 'messaging.dart' show conversationsProvider, messagingServiceProvider;
@@ -45,11 +46,19 @@ class ApiConfig {
   static const empty = ApiConfig(enabled: false, token: '');
 }
 
-/// A JSON response: an HTTP status + a JSON-encodable body.
+/// An API response: either a JSON [body] or raw [bytes] (a file download).
 class ApiResponse {
-  const ApiResponse(this.status, [this.body]);
+  const ApiResponse(this.status, [this.body])
+      : bytes = null,
+        contentType = null;
+  const ApiResponse.binary(this.bytes,
+      {this.contentType = 'application/octet-stream'})
+      : status = 200,
+        body = null;
   final int status;
   final Object? body;
+  final List<int>? bytes;
+  final String? contentType;
 }
 
 /// Pure request router — no socket, so tests exercise auth + endpoints directly.
@@ -60,6 +69,8 @@ class ApiHandler {
     required this.contacts,
     required this.send,
     required this.messages,
+    required this.sendFile,
+    required this.loadFile,
   });
 
   /// The bearer token every request must present (empty = reject everything).
@@ -77,6 +88,13 @@ class ApiHandler {
   /// The most-recent [limit] messages of the conversation with [peerHex].
   final Future<List<Map<String, dynamic>>> Function(String peerHex, int limit)
       messages;
+
+  /// Send the file at local [path] to [toHex]; null on success else an error.
+  final Future<String?> Function(String toHex, String path, String? name)
+      sendFile;
+
+  /// Load the bytes of a stored file by [fileId], or null if unknown.
+  final Future<List<int>?> Function(String fileId) loadFile;
 
   /// Constant-time compare of a raw token (localhost, but no reason to leak
   /// length/prefix). Used directly by the WebSocket path (token in the query,
@@ -128,6 +146,29 @@ class ApiHandler {
       return err == null
           ? const ApiResponse(200, {'ok': true})
           : ApiResponse(400, {'error': err});
+    }
+    if (method == 'POST' && path == '/v1/files') {
+      final to = body?['to'];
+      final filePath = body?['path'];
+      if (to is! String || to.isEmpty || filePath is! String ||
+          filePath.isEmpty) {
+        return const ApiResponse(400, {'error': 'to + path required'});
+      }
+      final name = body?['name'];
+      final err = await sendFile(to, filePath, name is String ? name : null);
+      return err == null
+          ? const ApiResponse(200, {'ok': true})
+          : ApiResponse(400, {'error': err});
+    }
+    if (method == 'GET' && path == '/v1/files/download') {
+      final fileId = uri.queryParameters['fileId'];
+      if (fileId == null || fileId.isEmpty) {
+        return const ApiResponse(400, {'error': 'fileId required'});
+      }
+      final bytes = await loadFile(fileId);
+      return bytes == null
+          ? const ApiResponse(404, {'error': 'not found'})
+          : ApiResponse.binary(bytes);
     }
     return const ApiResponse(404, {'error': 'not found'});
   }
@@ -191,8 +232,14 @@ class ApiServer {
       }
       final res = await _handler.handle(req.method, req.uri, auth, body: body);
       req.response.statusCode = res.status;
-      req.response.headers.contentType = ContentType.json;
-      req.response.write(jsonEncode(res.body ?? const {}));
+      if (res.bytes != null) {
+        req.response.headers.contentType =
+            ContentType.parse(res.contentType ?? 'application/octet-stream');
+        req.response.add(res.bytes!);
+      } else {
+        req.response.headers.contentType = ContentType.json;
+        req.response.write(jsonEncode(res.body ?? const {}));
+      }
     } catch (_) {
       req.response.statusCode = 500;
     } finally {
@@ -313,9 +360,44 @@ class ApiServerController extends Notifier<ApiConfig> {
           'sentAt': m.timestamp.millisecondsSinceEpoch,
           'status': m.status.name,
           if (m.fileName != null) 'fileName': m.fileName,
+          // The id a bot passes to GET /v1/files/download to fetch the blob.
+          if (m.fileId != null) 'fileId': m.fileId,
         },
     ];
   }
+
+  /// Send the file at local [path] to [toHex] (streamed off disk, any size).
+  /// Returns null on success or an error string.
+  Future<String?> _sendFile(String toHex, String path, String? name) async {
+    final NodeId peer;
+    try {
+      peer = NodeId.fromHex(toHex);
+    } catch (_) {
+      return 'invalid peer';
+    }
+    final file = File(path);
+    if (!await file.exists()) return 'source not found';
+    final size = await file.length();
+    final source = await veilSourceOpener(path);
+    if (source == null) return 'source open failed';
+    final n = (name != null && name.isNotEmpty) ? name : path.split('/').last;
+    try {
+      final cid = await ref.read(messagingServiceProvider).sendFileStreaming(
+            peer,
+            n,
+            size,
+            source.read,
+            close: source.close,
+            sourcePath: path,
+          );
+      return cid == null ? 'peer not accepted' : null;
+    } catch (e) {
+      return '$e';
+    }
+  }
+
+  Future<List<int>?> _loadFile(String fileId) =>
+      ref.read(storageProvider).loadFile(fileId);
 
   /// Bring the socket in line with [state]: run (with a fresh handler carrying
   /// the current token) iff enabled + tokened, else stop.
@@ -329,6 +411,8 @@ class ApiServerController extends Notifier<ApiConfig> {
       contacts: _contacts,
       send: _send,
       messages: _messages,
+      sendFile: _sendFile,
+      loadFile: _loadFile,
     );
     // The bot event feed: incoming-message notices as JSON. `.map` on a
     // broadcast stream stays broadcast, so many WS clients can each subscribe.
