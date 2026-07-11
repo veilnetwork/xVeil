@@ -2,6 +2,11 @@
 // composer that posts (auto-fanned to members by the service). The member
 // count sits in the app bar; an overflow menu opens the member sheet.
 
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -10,6 +15,7 @@ import '../../domain/group.dart';
 import '../../domain/group_message.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service.dart';
+import '../../state/thumbnail.dart';
 
 class GroupChatScreen extends ConsumerStatefulWidget {
   const GroupChatScreen({super.key, required this.groupIdHex});
@@ -35,6 +41,48 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     _input.clear();
     await svc.postMessage(_gid, text);
   }
+
+  /// Pick an image and post it inline (groups media brick 1). The picture is
+  /// downscaled + size-capped into the signed message so every member renders
+  /// it without a content fetch; any caption typed in the composer rides along.
+  Future<void> _attachImage(GroupService svc) async {
+    final l = AppL10n.of(context);
+    final picked = await FilePicker.pickFiles();
+    final file = picked?.files.firstOrNull;
+    if (file == null) return; // cancelled
+    if (!isImageFileName(file.name)) {
+      if (mounted) _snack(l.groupImageOnly);
+      return;
+    }
+    Uint8List? bytes = file.bytes;
+    final path = file.path;
+    if (bytes == null && path != null) {
+      try {
+        bytes = await File(path).readAsBytes();
+      } catch (_) {/* fall through to the null check */}
+    }
+    if (bytes == null) return;
+    final img = await makeInlineImageB64(bytes);
+    if (img == null) {
+      if (mounted) _snack(l.groupImageTooLarge);
+      return;
+    }
+    final caption = _input.text.trim();
+    _input.clear();
+    await svc.postMessage(
+      _gid,
+      caption,
+      attachment: GroupAttachment(
+        kind: 'image',
+        dataB64: img.b64,
+        w: img.w,
+        h: img.h,
+      ),
+    );
+  }
+
+  void _snack(String msg) => ScaffoldMessenger.of(context)
+      .showSnackBar(SnackBar(content: Text(msg)));
 
   Future<void> _showMembers(GroupService svc) async {
     final state = await svc.stateOf(_gid);
@@ -129,6 +177,11 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
               padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
               child: Row(
                 children: [
+                  IconButton(
+                    onPressed: () => _attachImage(svc),
+                    tooltip: l.groupAttachImage,
+                    icon: const Icon(Icons.image_outlined),
+                  ),
                   Expanded(
                     child: TextField(
                       controller: _input,
@@ -185,7 +238,33 @@ class _GroupBubble extends StatelessWidget {
                     .labelSmall
                     ?.copyWith(color: scheme.primary),
               ),
-            Text(message.body),
+            if (message.attachment != null &&
+                message.attachment!.kind == 'image')
+              Padding(
+                padding: EdgeInsets.only(bottom: message.body.isEmpty ? 0 : 6),
+                child: ConstrainedBox(
+                  // Keep an inline photo to a sensible size regardless of the
+                  // (small) encoded resolution or a wide desktop bubble.
+                  constraints: const BoxConstraints(
+                      maxWidth: 240, maxHeight: 320),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: AspectRatio(
+                      aspectRatio: message.attachment!.h == 0
+                          ? 1
+                          : message.attachment!.w / message.attachment!.h,
+                      child: Image.memory(
+                        base64Decode(message.attachment!.dataB64),
+                        fit: BoxFit.cover,
+                        gaplessPlayback: true,
+                        errorBuilder: (_, _, _) =>
+                            const Icon(Icons.broken_image_outlined),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            if (message.body.isNotEmpty) Text(message.body),
           ],
         ),
       ),

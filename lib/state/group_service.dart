@@ -119,8 +119,18 @@ class GroupService {
 
   String _key(NodeId groupId) => 'group:${groupId.hex}';
 
+  /// Read a group's serialized bundle. It lives in the CHUNKED file-store, not a
+  /// single setting: an inline image attachment can push the JSON well past the
+  /// ~4 KB single-setting cap (HvException.PayloadTooLarge). Falls back to the
+  /// legacy settings key for groups written before the store moved.
+  Future<String?> _loadBundleRaw(NodeId groupId) async {
+    final blob = await _storage.loadFile(_key(groupId));
+    if (blob != null) return utf8.decode(blob);
+    return _storage.getSetting(_key(groupId));
+  }
+
   Future<GroupBundle?> load(NodeId groupId) async {
-    final raw = await _storage.getSetting(_key(groupId));
+    final raw = await _loadBundleRaw(groupId);
     if (raw == null) return null;
     try {
       final d = jsonDecode(raw) as Map<String, dynamic>;
@@ -142,14 +152,19 @@ class GroupService {
   }
 
   Future<void> _save(GroupBundle b) async {
-    await _storage.putSetting(
-          _key(b.manifest.groupId),
-          jsonEncode({
-            'm': b.manifest.toJson(),
-            'c': b.control.map((e) => e.toJson()).toList(),
-            'g': b.messages.map((m) => m.toJson()).toList(),
-          }),
-        );
+    // Chunked file-store (not putSetting): the bundle carries inline media that
+    // overflows the single-setting cap. storeFile replaces the prior blob (or
+    // no-ops if byte-identical) and chunks large values across commits.
+    final json = jsonEncode({
+      'm': b.manifest.toJson(),
+      'c': b.control.map((e) => e.toJson()).toList(),
+      'g': b.messages.map((m) => m.toJson()).toList(),
+    });
+    await _storage.storeFile(
+      _key(b.manifest.groupId),
+      Uint8List.fromList(utf8.encode(json)),
+      name: 'group',
+    );
     changes.value++;
   }
 
@@ -253,8 +268,10 @@ class GroupService {
   }
 
   /// Post a message to [groupId]. Rejected (returns false) if we are not a
-  /// non-muted member.
-  Future<bool> postMessage(NodeId groupId, String body) async {
+  /// non-muted member. An optional inline [attachment] rides inside the signed
+  /// message (groups media brick 1) — no separate content fetch.
+  Future<bool> postMessage(NodeId groupId, String body,
+      {GroupAttachment? attachment}) async {
     final b = await load(groupId);
     if (b == null) return false;
     final state = foldControlLog(
@@ -275,6 +292,7 @@ class GroupService {
       policyVersion: state.policyVersion,
       createdAtMs: _now(),
       signature: Uint8List(0),
+      attachment: attachment,
     );
     final signed = _signer.signMessage(unsigned);
     await _save(GroupBundle(

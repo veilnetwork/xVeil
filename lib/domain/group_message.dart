@@ -10,6 +10,46 @@ import 'dart:typed_data';
 
 import '../core/ids.dart';
 
+/// An inline media attachment carried WHOLE inside a group message (groups
+/// epic, phase 1, media brick 1). Unlike 1:1 media — which ships a tiny thumb
+/// in the advert and fetches the full blob over the content-path — a group
+/// member is not necessarily a 1:1 contact of the author, so the first media
+/// brick embeds a size-capped image directly in the signed message so EVERY
+/// member renders it with no fetch. The cap ([kInlineImageRawMax]) bounds the
+/// per-image snapshot cost; incremental deltas (a later Ф0 item) will stop full
+/// snapshots from re-shipping old images.
+class GroupAttachment {
+  const GroupAttachment({
+    required this.kind,
+    required this.dataB64,
+    required this.w,
+    required this.h,
+  });
+
+  final String kind; // 'image' (only kind in brick 1)
+  final String dataB64; // base64 PNG, self-contained
+  final int w; // encoded pixel dimensions (for aspect-correct layout)
+  final int h;
+
+  /// Canonical, order-stable map — folded into the message the author signs.
+  Map<String, dynamic> toCanonical() => {
+        'k': kind,
+        'd': dataB64,
+        'w': w,
+        'h': h,
+      };
+
+  Map<String, dynamic> toJson() => toCanonical();
+
+  static GroupAttachment? fromJson(Object? j) {
+    if (j is! Map) return null;
+    final k = j['k'], d = j['d'], w = j['w'], h = j['h'];
+    if (k is! String || d is! String || w is! int || h is! int) return null;
+    if (w <= 0 || h <= 0 || d.isEmpty) return null;
+    return GroupAttachment(kind: k, dataB64: d, w: w, h: h);
+  }
+}
+
 class GroupMessage {
   GroupMessage({
     required this.groupId,
@@ -20,6 +60,7 @@ class GroupMessage {
     required this.policyVersion,
     required this.createdAtMs,
     required this.signature,
+    this.attachment,
     Uint8List? authorPubKey,
   }) : authorPubKey = authorPubKey ?? Uint8List(0);
 
@@ -31,9 +72,12 @@ class GroupMessage {
   final int policyVersion; // the policy version the author wrote against
   final int createdAtMs;
   final Uint8List signature;
+  final GroupAttachment? attachment; // optional inline media
   final Uint8List authorPubKey; // bound via node_id == BLAKE3(pk), not signed
 
-  /// The bytes the author signs — fixed field order, no signature/pubKey.
+  /// The bytes the author signs — fixed field order, no signature/pubKey. The
+  /// 'att' key is emitted ONLY when an attachment is present, so text-only
+  /// messages sign byte-identically to before this field existed.
   Uint8List canonicalBytes() {
     final map = {
       'gid': groupId.hex,
@@ -43,6 +87,7 @@ class GroupMessage {
       'body': body,
       'pv': policyVersion,
       'ts': createdAtMs,
+      if (attachment != null) 'att': attachment!.toCanonical(),
     };
     return Uint8List.fromList(utf8.encode(jsonEncode(map)));
   }
@@ -56,6 +101,7 @@ class GroupMessage {
         policyVersion: policyVersion,
         createdAtMs: createdAtMs,
         signature: sig,
+        attachment: attachment,
         authorPubKey: pubKey,
       );
 
@@ -67,6 +113,7 @@ class GroupMessage {
         'body': body,
         'pv': policyVersion,
         'ts': createdAtMs,
+        if (attachment != null) 'att': attachment!.toJson(),
         'sig': base64Encode(signature),
         if (authorPubKey.isNotEmpty) 'apk': base64Encode(authorPubKey),
       };
@@ -97,6 +144,7 @@ class GroupMessage {
         policyVersion: pv,
         createdAtMs: ts,
         signature: Uint8List.fromList(base64Decode(sig)),
+        attachment: GroupAttachment.fromJson(j['att']),
         authorPubKey: j['apk'] is String
             ? Uint8List.fromList(base64Decode(j['apk'] as String))
             : null,

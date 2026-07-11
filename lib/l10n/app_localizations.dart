@@ -577,6 +577,24 @@ abstract class AppL10n {
   /// **'{count, plural, =1{1 member} other{{count} members}}'**
   String groupMembers(int count);
 
+  /// No description provided for @groupAttachImage.
+  ///
+  /// In en, this message translates to:
+  /// **'Send image'**
+  String get groupAttachImage;
+
+  /// No description provided for @groupImageOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Pick an image file'**
+  String get groupImageOnly;
+
+  /// No description provided for @groupImageTooLarge.
+  ///
+  /// In en, this message translates to:
+  /// **'Image too large to send inline'**
+  String get groupImageTooLarge;
+
   /// No description provided for @stickerEmpty.
   ///
   /// In en, this message translates to:

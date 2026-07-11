@@ -274,6 +274,15 @@ class AppL10nRu extends AppL10n {
   }
 
   @override
+  String get groupAttachImage => 'Отправить картинку';
+
+  @override
+  String get groupImageOnly => 'Выберите файл изображения';
+
+  @override
+  String get groupImageTooLarge => 'Картинка слишком большая для инлайна';
+
+  @override
   String get stickerEmpty => 'Пока нет стикеров — импортируйте свои картинки';
 
   @override
