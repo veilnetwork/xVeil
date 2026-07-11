@@ -9,6 +9,7 @@ import 'dart:ffi';
 
 import '../data/node/embedded_node.dart';
 import '../domain/group.dart';
+import '../domain/group_content.dart';
 import '../domain/group_message.dart';
 import '../domain/group_reaction.dart';
 
@@ -101,6 +102,37 @@ bool verifyGroupReaction(GroupReaction r, {DynamicLibrary? lib}) {
   try {
     return EmbeddedNode.verifyMessage(
       nodeId: r.author.bytes,
+      publicKey: r.authorPubKey,
+      message: r.canonicalBytes(),
+      signature: r.signature,
+      lib: lib,
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+/// Sign a group content-fetch request with the identity in [identityToml].
+GroupContentRequest signGroupContentRequest({
+  required String identityToml,
+  required GroupContentRequest unsigned,
+  DynamicLibrary? lib,
+}) {
+  final res = EmbeddedNode.signMessage(
+    identityToml,
+    unsigned.canonicalBytes(),
+    lib: lib,
+  );
+  return unsigned.withSignature(res.signature, res.publicKey);
+}
+
+/// Verify a content-fetch request: ed25519 over its canonical bytes, the
+/// requester's key node-id-bound like every other group signature.
+bool verifyGroupContentRequest(GroupContentRequest r, {DynamicLibrary? lib}) {
+  if (r.authorPubKey.length != 32 || r.signature.length != 64) return false;
+  try {
+    return EmbeddedNode.verifyMessage(
+      nodeId: r.requester.bytes,
       publicKey: r.authorPubKey,
       message: r.canonicalBytes(),
       signature: r.signature,
