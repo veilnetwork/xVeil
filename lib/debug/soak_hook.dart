@@ -234,8 +234,11 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/api_token':
           await _apiTokenHook(req);
           return;
-        case '/api_readonly':
-          await _apiReadOnlyHook(req);
+        case '/api_token_add':
+          await _apiTokenAddHook(req);
+          return;
+        case '/api_token_revoke':
+          await _apiTokenRevokeHook(req);
           return;
         case '/group_post_sticker':
           await _groupPostStickerHook(req);
@@ -625,16 +628,43 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   /// Report the current automation-API bearer token (empty until enabled once).
   Future<void> _apiTokenHook(HttpRequest req) async {
     final cfg = ref.read(apiServerControllerProvider);
-    return _json(req, {'ok': true, 'token': cfg.token});
+    var full = '';
+    String? ro;
+    for (final t in cfg.tokens) {
+      if (t.readOnly) {
+        ro ??= t.token;
+      } else if (full.isEmpty) {
+        full = t.token;
+      }
+    }
+    if (full.isEmpty && cfg.tokens.isNotEmpty) full = cfg.tokens.first.token;
+    return _json(req, {
+      'ok': true,
+      'token': full,
+      if (ro != null) 'readonlyToken': ro,
+      'tokens': [
+        for (final t in cfg.tokens)
+          {'id': t.id, 'name': t.name, 'readOnly': t.readOnly},
+      ],
+    });
   }
 
-  /// Toggle the API read-only (least-privilege) mode: ?on=1|0.
-  Future<void> _apiReadOnlyHook(HttpRequest req) async {
-    await ref
+  /// Issue a new token: ?name=&ro=1 → returns its secret.
+  Future<void> _apiTokenAddHook(HttpRequest req) async {
+    final q = req.uri.queryParameters;
+    final tok = await ref
         .read(apiServerControllerProvider.notifier)
-        .setReadOnly(req.uri.queryParameters['on'] != '0');
-    return _json(
-        req, {'ok': true, 'readOnly': ref.read(apiServerControllerProvider).readOnly});
+        .addToken(q['name'] ?? 'hook', readOnly: q['ro'] == '1');
+    return _json(req, {'ok': true, 'token': tok});
+  }
+
+  /// Revoke a token by ?id=.
+  Future<void> _apiTokenRevokeHook(HttpRequest req) async {
+    final id = req.uri.queryParameters['id'];
+    if (id != null) {
+      await ref.read(apiServerControllerProvider.notifier).revokeToken(id);
+    }
+    return _json(req, {'ok': true});
   }
 
   /// Leave ?group= — appends a self-leave op + broadcasts. Reports whether we

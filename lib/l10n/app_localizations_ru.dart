@@ -713,6 +713,15 @@ class AppL10nRu extends AppL10n {
       'Только чтение и события — запись (отправка, звонки) запрещена';
 
   @override
+  String get settingsApiAddToken => 'Добавить токен';
+
+  @override
+  String get settingsApiTokenName => 'Имя токена (напр. бот)';
+
+  @override
+  String get settingsApiRevoke => 'Отозвать';
+
+  @override
   String get settingsApiToken => 'Токен API';
 
   @override
