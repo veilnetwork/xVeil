@@ -152,6 +152,45 @@ class EmbeddedNode {
     }
   }
 
+  /// Provision the node identity FROM A MASTER PHRASE (onboarding-phrase epic
+  /// P2): phrase → master seed → the same Ed25519 derivation the sovereign
+  /// restore uses, with only the anti-sybil nonce mined. Deterministic in the
+  /// phrase — a later restore from the same phrase lands on the SAME node_id.
+  /// The native side zeroizes the phrase buffer in place; nothing touches
+  /// disk (persist via Storage.saveNodeConfig like [mineConfig]'s output).
+  static String configFromPhrase(
+    String phrase, {
+    int difficulty = 0,
+    DynamicLibrary? lib,
+  }) {
+    final dl = lib ?? _veilLib();
+    final initFn = dl.lookupFunction<
+        Pointer<Utf8> Function(
+            Pointer<Uint8>, IntPtr, Uint32, Pointer<Pointer<Utf8>>),
+        Pointer<Utf8> Function(Pointer<Uint8>, int, int,
+            Pointer<Pointer<Utf8>>)>('veil_config_init_from_phrase_zeroize');
+    final freeStr =
+        dl.lookupFunction<_FreeStrNative, _FreeStrDart>('veil_free_string');
+    final phraseC = phrase.toNativeUtf8();
+    final errOut = calloc<Pointer<Utf8>>();
+    try {
+      final out =
+          initFn(phraseC.cast<Uint8>(), phraseC.length, difficulty, errOut);
+      if (out == nullptr) {
+        final err = errOut.value;
+        final msg = err == nullptr ? 'unknown error' : err.toDartString();
+        if (err != nullptr) freeStr(err);
+        throw StateError('veil_config_init_from_phrase failed: $msg');
+      }
+      final toml = out.toDartString();
+      freeStr(out);
+      return toml;
+    } finally {
+      calloc.free(phraseC); // native already zeroized the bytes in place
+      calloc.free(errOut);
+    }
+  }
+
   /// Compose a full, bootable node config from a stored identity (from
   /// [mineConfig], loaded out of the deniable container) plus EPHEMERAL,
   /// per-launch runtime endpoints — a [listenTransport] (e.g.

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/identity/veil_identity.dart';
 import '../../domain/identity.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
@@ -38,8 +39,16 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
   void _go(int step) => setState(() => _step = step);
 
+  /// Whether [_phrase] is the REAL native master phrase (P2): the node
+  /// identity derives from it and restore works. False only when the native
+  /// generator is unavailable (loopback/test builds) — then the placeholder
+  /// words are shown and the identity is minted randomly, as before.
+  bool _realPhrase = false;
+
   void _startCreate() {
-    _phrase = _generatePhrase();
+    final real = veilGeneratePhrase();
+    _realPhrase = real != null;
+    _phrase = real?.split(' ') ?? _generatePhrase();
     _phraseConfirmed = false;
     _go(2);
   }
@@ -52,6 +61,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           identity: identity,
           password: _passwordCtrl.text,
           mode: _mode,
+          // The REAL phrase drives the deterministic identity derivation on
+          // the first node boot; the placeholder never leaves this screen.
+          identityPhrase: _realPhrase ? _phrase.join(' ') : null,
         );
     // Router redirect takes over once phase flips to ready.
   }
@@ -108,8 +120,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     );
   }
 
-  // Placeholder phrase for the create flow. The real 24-word BIP-39 phrase is
-  // produced by veil_flutter identity derivation once the native layer lands.
+  // FALLBACK-ONLY placeholder (loopback/test builds without the native
+  // library): production builds show the REAL native phrase from
+  // veilGeneratePhrase() and derive the identity from it (_realPhrase).
   static const _sampleWords = [
     'anchor', 'borrow', 'cliff', 'dawn', 'ember', 'forest', 'glide', 'harbor',
     'island', 'jungle', 'kernel', 'lantern', 'meadow', 'noble', 'orbit',

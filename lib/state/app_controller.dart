@@ -155,11 +155,20 @@ class AppController extends Notifier<AppState> {
 
   /// Finish first-launch setup: persist the new identity into a freshly
   /// created space and start the session.
+  /// Held ONLY between completeOnboarding and the first node boot, then
+  /// dropped (P2): the master phrase the user just wrote down, from which the
+  /// node identity is derived. Never persisted anywhere.
+  String? _pendingIdentityPhrase;
+
   Future<void> completeOnboarding({
     required Identity identity,
     required String password,
     required StorageMode mode,
+    // The REAL master phrase shown on the recovery step (null on the
+    // loopback/test path where the native generator is unavailable).
+    String? identityPhrase,
   }) async {
+    _pendingIdentityPhrase = identityPhrase;
     // Show the "setting up" screen up front and let it paint a frame BEFORE the
     // CPU-heavy work begins — creating the container (Argon2id KDF) and
     // provisioning the node identity both block briefly, and without this the
@@ -1324,7 +1333,11 @@ class AppController extends Notifier<AppState> {
         bootstrapPeers: const [],
         obfs4Psk: boot.obfs4Psk,
         proxy: ref.read(proxyRoutingProvider),
+        identityPhrase: _pendingIdentityPhrase,
       );
+      // One shot: the phrase only matters for the first-run identity
+      // derivation; drop the reference as soon as the boot consumed it.
+      _pendingIdentityPhrase = null;
       ref.read(realStackProvider.notifier).state = stack;
       // Real node is up — clear any pending boot status so the UI follows the
       // real controller's live state, not a stale "connecting…".
