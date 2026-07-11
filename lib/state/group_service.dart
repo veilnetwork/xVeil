@@ -118,6 +118,7 @@ class GroupService {
     GroupSnapshotSender? send,
     this.sendContentRequest,
     this.grantContentServe,
+    this.startContentPull,
   }) : _send = send;
   final Storage _storage;
   final GroupSigner _signer;
@@ -129,6 +130,9 @@ class GroupService {
 
   /// Opens the serve gate for an authorized member (wire layer grant).
   final void Function(NodeId peer, String cid)? grantContentServe;
+
+  /// Starts the standard content pull of [cid] from a holder (wire layer).
+  final Future<void> Function(NodeId holder, String cid)? startContentPull;
 
   /// Bumped on every persisted mutation (local op/post OR an ingested
   /// snapshot) so open group screens re-fetch. Cheap: the UI reads on change.
@@ -587,6 +591,26 @@ class GroupService {
     return true;
   }
 
+  /// Fetch [cid] of [groupId] from [holder] (normally the message author):
+  /// ship the signed membership request, give the grant a moment to land at
+  /// the holder, then start the standard stream pull. For holders that are
+  /// also accepted 1:1 contacts the pull would pass anyway; the request makes
+  /// the same flow work for pure co-members. Fire-and-forget: progress /
+  /// completion surface through the content providers like any 1:1 download.
+  Future<bool> fetchGroupContent(
+      NodeId groupId, String cid, NodeId holder) async {
+    final pull = startContentPull;
+    if (pull == null) return false;
+    await requestGroupContent(groupId, cid, holder);
+    // The durable request needs a wire round-trip before the grant exists —
+    // pulling instantly would burn the first stream attempt on a DENIED. The
+    // pull machinery retries, so this delay is a fast-path nicety, not a
+    // correctness requirement.
+    await Future<void>.delayed(const Duration(seconds: 4));
+    await pull(holder, cid);
+    return true;
+  }
+
   /// Ingest an externally-received control entry (from a peer-sync brick, or a
   /// hook). Appends if it isn't already present; the fold decides validity on
   /// read, so a bogus entry simply never applies.
@@ -771,6 +795,9 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     sendContentRequest: (holder, json) =>
         messaging.sendGroupContentRequest(holder, json),
     grantContentServe: messaging.grantGroupContentServe,
+    startContentPull: (holder, cid) async {
+      await messaging.downloadContent(holder, cid);
+    },
   );
   messaging.onGroupEntry = (peer, bundleJson) async {
     await svc.ingestSnapshot(bundleJson);

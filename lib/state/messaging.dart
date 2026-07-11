@@ -506,6 +506,42 @@ class MessagingService {
       (_groupServeGrants['${peer.hex}|$cid'] ?? 0) >
       DateTime.now().millisecondsSinceEpoch;
 
+  /// Register in-RAM [bytes] as fetchable group content: the blob goes into
+  /// the file store under its contentId and the manifest under `mf:<cid>`, so
+  /// [_serveStream] can serve it (to accepted contacts as always, and to
+  /// membership-granted members). Idempotent — the cid is content-derived.
+  /// Returns the contentId the group message's ref should carry.
+  Future<String> registerGroupContent(
+    Uint8List bytes, {
+    required String name,
+  }) async {
+    final m = ContentManifest.fromBytes(name, bytes);
+    final cid = m.contentId;
+    if (!await _storage.hasFile(cid)) {
+      await _storage.storeFile(cid, bytes, name: name);
+    }
+    // The manifest is what makes the blob SERVABLE — a swallowed failure here
+    // mints a ref nobody can fetch (device-observed: the very first write
+    // after app start failed transiently while the blob write succeeded).
+    // Retry once, then rethrow so the caller refuses to post the ref.
+    final mfBytes = Uint8List.fromList(utf8.encode(jsonEncode(m.toJson())));
+    try {
+      await _storage.storeFile('mf:$cid', mfBytes, name: 'manifest');
+    } catch (e) {
+      devLog(
+        () => 'xVeil[content]: group manifest persist retry after: $e',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      await _storage.storeFile('mf:$cid', mfBytes, name: 'manifest');
+    }
+    devLog(
+      () =>
+          'xVeil[content]: group content registered '
+          '${cid.substring(0, 12)} (${bytes.length}B)',
+    );
+    return cid;
+  }
+
   /// The active (unexpired) grants, for the debug hook / tests.
   List<Map<String, Object>> debugGroupServeGrants() {
     final now = DateTime.now().millisecondsSinceEpoch;

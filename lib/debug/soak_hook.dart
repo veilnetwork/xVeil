@@ -23,6 +23,7 @@ import '../domain/group_message.dart' show GroupAttachment;
 import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call_signal.dart';
 import '../domain/chat.dart';
+import '../domain/content_manifest.dart' show ContentManifest;
 import '../domain/group.dart';
 import '../domain/group_policy.dart';
 import '../state/group_crypto.dart';
@@ -256,11 +257,20 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/group_post_ref':
           await _groupPostRefHook(req);
           return;
+        case '/group_post_image_ref':
+          await _groupPostImageRefHook(req);
+          return;
+        case '/group_fetch_content':
+          await _groupFetchContentHook(req);
+          return;
         case '/group_request_content':
           await _groupRequestContentHook(req);
           return;
         case '/content_grants':
           await _contentGrantsHook(req);
+          return;
+        case '/content_served':
+          await _contentServedHook(req);
           return;
         case '/group_play_voice':
           await _groupPlayVoiceHook(req);
@@ -962,6 +972,104 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   Future<void> _contentGrantsHook(HttpRequest req) async {
     final grants = ref.read(messagingServiceProvider).debugGroupServeGrants();
     return _json(req, {'ok': true, 'grants': grants});
+  }
+
+  /// What the serve gate would see for ?cid=: blob presence, manifest blob
+  /// presence + parseability — the serve-side triage for content-path bricks.
+  Future<void> _contentServedHook(HttpRequest req) async {
+    final cid = req.uri.queryParameters['cid'];
+    if (cid == null) return _json(req, {'ok': false, 'error': 'missing cid'});
+    final storage = ref.read(storageProvider);
+    final hasBlob = await storage.hasFile(cid);
+    final mfBytes = await storage.loadFile('mf:$cid');
+    Object? mfParsed;
+    if (mfBytes != null) {
+      try {
+        final m = ContentManifest.fromJson(
+            jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>);
+        mfParsed = m == null
+            ? 'PARSE-NULL'
+            : {'id': m.contentId, 'size': m.size, 'pieces': m.pieceCount};
+      } catch (e) {
+        mfParsed = 'THROW: $e';
+      }
+    }
+    return _json(req, {
+      'ok': true,
+      'hasBlob': hasBlob,
+      'mfBytes': mfBytes?.length,
+      'manifest': mfParsed,
+    });
+  }
+
+  /// Post a REAL image at ?path= to ?group= in REF form (register the full
+  /// bytes for serving, ship only the thumb + cid) — the composer's path.
+  Future<void> _groupPostImageRefHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final q = req.uri.queryParameters;
+    final gidHex = q['group'], path = q['path'];
+    if (gidHex == null || path == null) {
+      return _json(req, {'ok': false, 'error': 'need group+path'});
+    }
+    Uint8List bytes;
+    try {
+      bytes = await File(path).readAsBytes();
+    } catch (_) {
+      return _json(req, {'ok': false, 'error': 'unreadable path'});
+    }
+    final thumb = await makeInlineImageB64(bytes, rawMax: 16000);
+    if (thumb == null) {
+      return _json(req, {'ok': false, 'error': 'not an image / no thumb rung'});
+    }
+    final cid = await ref
+        .read(messagingServiceProvider)
+        .registerGroupContent(bytes, name: path.split('/').last);
+    final posted = await svc.postMessage(
+      NodeId.fromHex(gidHex),
+      '',
+      attachment: GroupAttachment(
+          kind: 'image', dataB64: thumb.b64, w: thumb.w, h: thumb.h, cid: cid),
+    );
+    return _json(req, {
+      'ok': posted,
+      'cid': cid,
+      'bytes': bytes.length,
+      'sha8': _sha8(bytes),
+      'thumbB64Len': thumb.b64.length,
+    });
+  }
+
+  /// Drive the member-side fetch of ?cid= from ?holder= for ?group= and poll
+  /// the file store up to ~25s — reports whether the full bytes landed and
+  /// their sha8 (byte-exactness against the poster's report).
+  Future<void> _groupFetchContentHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final q = req.uri.queryParameters;
+    final gidHex = q['group'], cid = q['cid'], holder = q['holder'];
+    if (gidHex == null || cid == null || holder == null) {
+      return _json(req, {'ok': false, 'error': 'need group+cid+holder'});
+    }
+    final started = await svc.fetchGroupContent(
+        NodeId.fromHex(gidHex), cid, NodeId.fromHex(holder));
+    final storage = ref.read(storageProvider);
+    for (var i = 0; i < 50; i++) {
+      if (await storage.hasFile(cid)) {
+        final bytes = await storage.loadFile(cid);
+        return _json(req, {
+          'ok': true,
+          'started': started,
+          'bytes': bytes?.length,
+          'sha8': bytes == null ? null : _sha8(bytes),
+        });
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    }
+    return _json(req,
+        {'ok': false, 'started': started, 'error': 'fetch did not complete'});
   }
 
   /// Add ?peer= as a member of ?group= and fan the snapshot out to all members
