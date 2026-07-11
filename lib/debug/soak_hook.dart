@@ -30,9 +30,15 @@ import '../domain/group_policy.dart';
 import '../state/group_crypto.dart';
 import '../state/group_service.dart';
 import '../routing/router.dart';
+import '../domain/call_log.dart';
 import '../state/api_server.dart';
 import '../state/app_controller.dart';
+import '../state/call_log.dart';
 import '../state/call_service.dart';
+import '../state/device_settings_sync.dart';
+import '../state/locale_controller.dart';
+import '../state/reactions_visibility_controller.dart';
+import '../state/signature_policy_controller.dart';
 import '../state/mac_media_permissions.dart';
 import '../state/messaging.dart';
 import '../state/nickname_peers.dart';
@@ -305,6 +311,24 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/conv_messages':
           await _convMessagesHook(req);
+          return;
+        case '/contact_set':
+          await _contactSetHook(req);
+          return;
+        case '/contact_info':
+          await _contactInfoHook(req);
+          return;
+        case '/pref_set':
+          await _prefSetHook(req);
+          return;
+        case '/prefs':
+          await _prefsHook(req);
+          return;
+        case '/call_log':
+          await _callLogHook(req);
+          return;
+        case '/call_log_add':
+          await _callLogAddHook(req);
           return;
         case '/group_play_voice':
           await _groupPlayVoiceHook(req);
@@ -1147,6 +1171,135 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           {'id': m.id, 'dir': m.direction.name, 'body': m.body},
       ],
     });
+  }
+
+  /// Set contact preferences of ?peer= — only the params present are applied
+  /// (?name= ?pin=1|0 ?mute=1|0 ?arc=1|0 ?apd=1|0 ?ret=days) — exercises the
+  /// REAL setter path, so a linked device should receive a contactUp event.
+  Future<void> _contactSetHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final q = req.uri.queryParameters;
+    final peerHex = q['peer'];
+    if (peerHex == null) return _json(req, {'ok': false, 'error': 'no peer'});
+    final peer = NodeId.fromHex(peerHex);
+    final messaging = ref.read(messagingServiceProvider);
+    if (q.containsKey('name')) {
+      await messaging.setContactName(peer, q['name']);
+    }
+    if (q.containsKey('pin')) {
+      await messaging.setContactPinned(peer, q['pin'] == '1');
+    }
+    if (q.containsKey('mute')) {
+      await messaging.setContactMuted(peer, q['mute'] == '1');
+    }
+    if (q.containsKey('arc')) {
+      await messaging.setContactArchived(peer, q['arc'] == '1');
+    }
+    if (q.containsKey('apd')) {
+      await messaging.setContactAllowPeerDelete(peer, q['apd'] == '1');
+    }
+    if (q.containsKey('ret')) {
+      await messaging.setContactRetention(peer, int.tryParse(q['ret'] ?? ''));
+    }
+    return _json(req, {'ok': true});
+  }
+
+  /// The FULL stored preference fields of contact ?peer= — brick-4 verify
+  /// (the /contacts list stays lean).
+  Future<void> _contactInfoHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final peerHex = req.uri.queryParameters['peer'];
+    if (peerHex == null) return _json(req, {'ok': false, 'error': 'no peer'});
+    final c =
+        await ref.read(storageProvider).getContact(NodeId.fromHex(peerHex));
+    if (c == null) return _json(req, {'ok': false, 'error': 'unknown'});
+    return _json(req, {
+      'ok': true,
+      'name': c.name,
+      'status': c.status.name,
+      'pinned': c.pinned,
+      'archived': c.archived,
+      'muted': c.muted,
+      'mutedUntilMs': c.mutedUntil?.millisecondsSinceEpoch,
+      'retentionDays': c.retentionDays,
+      'allowPeerDelete': c.allowPeerDelete,
+      'p2pOverride': c.p2pOverride.name,
+    });
+  }
+
+  /// Set an allowlisted app preference ?key=&v= through its REAL controller
+  /// (the same path a settings-screen toggle takes), so a linked device should
+  /// receive a settingSet event.
+  Future<void> _prefSetHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final q = req.uri.queryParameters;
+    final v = q['v'] ?? '';
+    switch (q['key']) {
+      case kSyncShowReactions:
+        await ref.read(showReactionsProvider.notifier).set(v == '1');
+      case kSyncLocale:
+        await ref
+            .read(localeProvider.notifier)
+            .setLocale(v.isEmpty ? null : ui.Locale(v));
+      case kSyncSignaturePolicy:
+        SignaturePolicy? policy;
+        for (final p in SignaturePolicy.values) {
+          if (p.name == v) policy = p;
+        }
+        if (policy == null) {
+          return _json(req, {'ok': false, 'error': 'bad policy'});
+        }
+        await ref.read(signaturePolicyProvider.notifier).set(policy);
+      default:
+        return _json(req, {'ok': false, 'error': 'unknown key'});
+    }
+    return _json(req, {'ok': true});
+  }
+
+  /// The PERSISTED values of the synced app preferences (read straight from
+  /// prefs, not controller state — survives the lazy controller build).
+  Future<void> _prefsHook(HttpRequest req) async {
+    final prefs = await ref.read(prefsProvider.future);
+    return _json(req, {
+      'ok': true,
+      kSyncShowReactions: prefs.getBool(kSyncShowReactions),
+      kSyncLocale: prefs.getString(kSyncLocale),
+      kSyncSignaturePolicy: prefs.getString(kSyncSignaturePolicy),
+    });
+  }
+
+  /// The persisted call journal, newest first — brick-4 verify.
+  Future<void> _callLogHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final entries = await ref.read(callLogStoreProvider).list();
+    return _json(req, {
+      'ok': true,
+      'count': entries.length,
+      'entries': [for (final e in entries) e.toJson()],
+    });
+  }
+
+  /// Append a LOCAL journal row (?peer= ?id= ?out=1|0 ?vid=1|0 ?outcome=
+  /// ?dur=sec) through the real store, so the tap mirrors it to linked
+  /// devices — a call FSM run is not needed to verify the sync path.
+  Future<void> _callLogAddHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final q = req.uri.queryParameters;
+    final peerHex = q['peer'];
+    if (peerHex == null) return _json(req, {'ok': false, 'error': 'no peer'});
+    final outcome =
+        CallLogOutcome.fromName(q['outcome']) ?? CallLogOutcome.missed;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final wrote = await ref.read(callLogStoreProvider).add(CallLogEntry(
+          id: q['id'] ?? 'hook-$nowMs',
+          peerHex: peerHex,
+          outgoing: q['out'] == '1',
+          video: q['vid'] == '1',
+          outcome: outcome,
+          atMs: nowMs,
+          durationSec: int.tryParse(q['dur'] ?? '') ?? 0,
+        ));
+    return _json(req, {'ok': wrote});
   }
 
   /// Toggle the LOCAL notification mute of ?group= (?on=1|0).

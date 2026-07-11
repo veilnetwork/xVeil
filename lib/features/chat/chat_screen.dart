@@ -1,18 +1,15 @@
 import 'dart:async';
 import 'dart:convert' show base64Decode;
 import 'dart:io';
-import 'dart:ui' as ui
-    show ImageFilter, PlatformDispatcher, Image, PixelFormat, decodeImageFromPixels;
+import 'dart:ui' as ui show ImageFilter, PlatformDispatcher, Image;
 
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:veil_media/veil_media.dart'
-    show VeilVideoFrame, VeilVnotePlayer;
+import 'package:veil_media/veil_media.dart' show VeilVnotePlayer;
 
 import '../../core/format.dart';
 import '../../core/ids.dart';

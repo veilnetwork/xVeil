@@ -2,9 +2,10 @@ import 'dart:ui';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'device_settings_sync.dart';
 import 'providers.dart';
 
-const _kLocaleKey = 'locale';
+const _kLocaleKey = kSyncLocale;
 
 /// The app's UI language. `null` means "follow the system locale"; a non-null
 /// [Locale] forces that language. Persisted to `shared_preferences` so the
@@ -30,6 +31,10 @@ class LocaleController extends Notifier<Locale?> {
   /// Set the UI language. Pass `null` to follow the system locale.
   Future<void> setLocale(Locale? locale) async {
     state = locale;
+    // Device sync: '' = follow the system locale on every device.
+    ref
+        .read(deviceSettingsSyncHubProvider)
+        .notifyLocalSet(kSyncLocale, locale?.languageCode ?? '');
     final prefs = await ref.read(prefsProvider.future);
     if (locale == null) {
       await prefs.remove(_kLocaleKey);

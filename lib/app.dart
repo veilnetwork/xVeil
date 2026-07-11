@@ -6,6 +6,8 @@ import 'features/calls/call_lifecycle_bridge.dart';
 import 'l10n/app_localizations.dart';
 import 'routing/router.dart';
 import 'state/api_server.dart';
+import 'state/call_log.dart';
+import 'state/device_sync_bridge.dart';
 import 'state/group_service.dart';
 import 'state/locale_controller.dart';
 import 'theme/app_theme.dart';
@@ -53,6 +55,10 @@ class _GroupBridge extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     ref.watch(groupServiceProvider);
+    // Multi-device brick 4: contacts/settings/call-journal sync taps, plus the
+    // journal recorder itself (calls are journaled even without a journal UI).
+    ref.watch(deviceSyncBridgeProvider);
+    ref.watch(callLogRecorderProvider);
     return const SizedBox.shrink();
   }
 }

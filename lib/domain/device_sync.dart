@@ -98,3 +98,8 @@ bool _newer(DeviceSyncEvent a, DeviceSyncEvent b) {
   if (a.tsMs != b.tsMs) return a.tsMs > b.tsMs;
   return jsonEncode(a.payload).compareTo(jsonEncode(b.payload)) > 0;
 }
+
+/// The fold's ordering, exposed for LIVE appliers: would [a] beat [b] in
+/// [foldDeviceSync]? A live guard must use exactly this (not a bare timestamp
+/// compare) or same-millisecond edits diverge from what a later re-fold says.
+bool isNewerDeviceSync(DeviceSyncEvent a, DeviceSyncEvent b) => _newer(a, b);

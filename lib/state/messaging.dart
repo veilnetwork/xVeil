@@ -503,6 +503,58 @@ class MessagingService {
     return true;
   }
 
+  /// Attached by the multi-device bridge: fires after a LOCAL user edit of a
+  /// contact's sync-worthy preferences (alias, mute, pin, archive, retention,
+  /// peer-delete policy) — the setters below funnel through
+  /// [_putContactPrefs]. NEVER fires from [applyMirroredContact], so a synced
+  /// record can't re-mirror. Null = no mirroring.
+  void Function(Contact updated)? onContactPrefsChanged;
+
+  /// The single write path for the SYNCED contact-preference setters: persist,
+  /// then let the device bridge mirror the fresh record. Relationship changes
+  /// ([_setStatus]) and the per-device [setContactP2POverride] stay off this
+  /// path by design.
+  Future<void> _putContactPrefs(Contact c) async {
+    await _storage.upsertContact(c);
+    onContactPrefsChanged?.call(c);
+  }
+
+  /// Apply a contact record mirrored from ANOTHER of my devices. Only merges
+  /// into a contact THIS device already holds (v1 — the relationship itself is
+  /// not synced yet, so an unknown peer is skipped silently rather than
+  /// materialized half-formed); local-only fields (status, p2pOverride) are
+  /// preserved. Writes straight to storage, so it never re-fires
+  /// [onContactPrefsChanged]. Returns whether anything was written.
+  Future<bool> applyMirroredContact({
+    required NodeId peer,
+    String? name,
+    int? mutedUntilMs,
+    required bool pinned,
+    required bool archived,
+    int? retentionDays,
+    required bool allowPeerDelete,
+  }) async {
+    final existing = await _storage.getContact(peer);
+    if (existing == null) return false;
+    await _storage.upsertContact(
+      Contact(
+        nodeId: existing.nodeId,
+        name: name,
+        status: existing.status,
+        mutedUntil: mutedUntilMs == null
+            ? null
+            : DateTime.fromMillisecondsSinceEpoch(mutedUntilMs),
+        pinned: pinned,
+        archived: archived,
+        retentionDays: retentionDays,
+        allowPeerDelete: allowPeerDelete,
+        p2pOverride: existing.p2pOverride,
+      ),
+    );
+    _signal();
+    return true;
+  }
+
   /// Attached by the group layer: a group snapshot from a NON-contact sender
   /// (scale-free log sync — members need no pairwise contact handshake). The
   /// group layer admits it ONLY into groups it already holds where the sender
@@ -2501,7 +2553,7 @@ class MessagingService {
     final existing = await _storage.getContact(peer);
     if (existing == null) return;
     final trimmed = name?.trim();
-    await _storage.upsertContact(
+    await _putContactPrefs(
       Contact(
         nodeId: existing.nodeId,
         name: (trimmed == null || trimmed.isEmpty) ? null : trimmed,
@@ -2525,7 +2577,7 @@ class MessagingService {
   Future<void> setContactMutedUntil(NodeId peer, DateTime? until) async {
     final existing = await _storage.getContact(peer);
     if (existing == null) return;
-    await _storage.upsertContact(existing.copyWith(mutedUntil: until));
+    await _putContactPrefs(existing.copyWith(mutedUntil: until));
     _signal();
   }
 
@@ -2539,7 +2591,7 @@ class MessagingService {
   Future<void> setContactArchived(NodeId peer, bool archived) async {
     final existing = await _storage.getContact(peer);
     if (existing == null) return;
-    await _storage.upsertContact(existing.copyWith(archived: archived));
+    await _putContactPrefs(existing.copyWith(archived: archived));
     _signal();
   }
 
@@ -2550,7 +2602,7 @@ class MessagingService {
   Future<void> setContactAllowPeerDelete(NodeId peer, bool allow) async {
     final existing = await _storage.getContact(peer);
     if (existing == null) return;
-    await _storage.upsertContact(existing.copyWith(allowPeerDelete: allow));
+    await _putContactPrefs(existing.copyWith(allowPeerDelete: allow));
     _signal();
   }
 
@@ -2571,7 +2623,7 @@ class MessagingService {
   Future<void> setContactPinned(NodeId peer, bool pinned) async {
     final existing = await _storage.getContact(peer);
     if (existing == null) return;
-    await _storage.upsertContact(existing.copyWith(pinned: pinned));
+    await _putContactPrefs(existing.copyWith(pinned: pinned));
     _signal();
   }
 
@@ -2583,7 +2635,7 @@ class MessagingService {
     final existing = await _storage.getContact(peer);
     if (existing == null) return;
     final window = (days == null || days <= 0) ? null : days;
-    await _storage.upsertContact(
+    await _putContactPrefs(
       Contact(
         nodeId: existing.nodeId,
         name: existing.name,

@@ -534,6 +534,32 @@ void main() {
     expect(after.epoch, greaterThan(epochBefore));
   });
 
+  test('postDeviceEvent: concurrent fire-and-forget emits ALL land '
+      '(regression: two unawaited posts raced the group log read-modify-write '
+      'and the later save dropped the earlier append — caught in the brick-4 '
+      'device verify)', () async {
+    final s = FakeHvContainer().storage();
+    await s.open(password: 'pw', createIfMissing: true);
+    final svc = GroupService(s, _FakeSigner(owner));
+    await svc.linkDevice(bob);
+
+    // Fire a burst WITHOUT awaiting each — exactly what the sync taps do.
+    final posts = [
+      for (var i = 0; i < 5; i++)
+        svc.postDeviceEvent(DeviceSyncEvent(
+            kind: DeviceSyncKind.contactUp,
+            key: 'peer$i',
+            tsMs: 1000 + i,
+            payload: {'pin': i.isEven})),
+    ];
+    expect(await Future.wait(posts), everyElement(isTrue));
+    final folded = await svc.deviceSyncState();
+    for (var i = 0; i < 5; i++) {
+      expect(folded[(DeviceSyncKind.contactUp, 'peer$i')], isNotNull,
+          reason: 'emit $i must survive the concurrent burst');
+    }
+  });
+
   // Auto-broadcast is unawaited (fire-and-forget) — let it drain.
   Future<void> pump() async {
     for (var i = 0; i < 6; i++) {
