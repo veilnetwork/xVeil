@@ -439,6 +439,26 @@ class MessagingService {
   /// attached — the signal is then dropped.
   void Function(NodeId peer, CallSignal signal)? onCallSignal;
 
+  /// Attached by the group layer: an inbound group snapshot ([bundleJson]) from
+  /// an accepted [peer], to ingest idempotently. Dropped when unset.
+  void Function(NodeId peer, String bundleJson)? onGroupEntry;
+
+  /// Ship a group snapshot to [dst] durably (direct fanout; keyed per group so
+  /// a later snapshot of the SAME group supersedes an un-acked earlier one).
+  Future<void> sendGroupSnapshot(NodeId dst, String groupIdHex,
+      String bundleJson) async {
+    // Key the frame by CONTENT so a NEW snapshot of the same group (a fresh
+    // message/op) is a distinct durable frame — a group-only id would let the
+    // receiver dedup the newer snapshot away. A re-drive of the SAME snapshot
+    // still dedups (same hash). (The renegotiate lesson: type-only ids collide.)
+    final h = bundleJson.hashCode & 0x7fffffff;
+    await sendDurable(
+      dst,
+      'grp:$groupIdHex:$h',
+      WireEnvelope.groupEntry(bundleJson),
+    );
+  }
+
   /// Single egress point so every outbound frame honours [_anonymous]. The real
   /// transport routes over an onion circuit when anonymous (and never falls back
   /// to clearnet); the loopback fake ignores the flag.
@@ -1920,6 +1940,13 @@ class MessagingService {
         if (targetId == null) return;
         await _applyReaction(m.src.hex, targetId, m.src.hex, env.body);
         _signal();
+        return;
+      case WireKind.groupEntry:
+        // A group snapshot from a member (groups epic). Consent-gated; the
+        // durable frame was already acked+deduped above. The group layer
+        // ingests it idempotently (validity is decided on fold/read).
+        if (existing?.status != ContactStatus.accepted) return;
+        onGroupEntry?.call(m.src, env.body);
         return;
       case WireKind.unknown:
         // A structured (v:2) frame from a NEWER build whose kind we don't know —
