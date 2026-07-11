@@ -230,6 +230,8 @@
   "settingsSignaturePolicyHint": "How to answer when a contact asks you to prove you wrote a message",
   "settingsApiTitle": "Automation API",
   "settingsApiHint": "Off. Local REST API for bots/scripts (localhost only)",
+  "settingsApiReadOnly": "Read-only",
+  "settingsApiReadOnlyHint": "Reads and events only — writes (send, calls) are refused",
   "settingsApiToken": "API token",
   "settingsApiCopyToken": "Copy token",
   "settingsApiRegenerate": "Regenerate token",

@@ -152,6 +152,14 @@ class PrivacySettingsScreen extends ConsumerWidget {
             }
           },
         ),
+        if (cfg.enabled)
+          SwitchListTile(
+            secondary: const Icon(Icons.visibility_outlined),
+            title: Text(l.settingsApiReadOnly),
+            subtitle: Text(l.settingsApiReadOnlyHint),
+            value: cfg.readOnly,
+            onChanged: (v) => ctrl.setReadOnly(v),
+          ),
         if (cfg.enabled && cfg.token.isNotEmpty)
           ListTile(
             leading: const Icon(Icons.key_outlined),
