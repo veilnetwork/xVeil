@@ -46,6 +46,7 @@ import '../../state/voice_record_controller.dart';
 import 'voice_waveform.dart';
 import 'emoji_panel.dart';
 import 'reactors_sheet.dart';
+import 'vnote_preview.dart';
 import 'sticker_panel.dart';
 import 'video_player_screen.dart';
 
@@ -2732,7 +2733,7 @@ class _VnoteBubble extends ConsumerWidget {
                       fit: StackFit.expand,
                       children: [
                         if (active)
-                          _VnotePreview(
+                          VnotePreview(
                             frameListenable: ref
                                 .read(vnotePlayControllerProvider.notifier)
                                 .frame,
@@ -4160,63 +4161,6 @@ class _Bubble extends ConsumerWidget {
 /// Live round self-preview while recording a video note: converts the
 /// controller's latest RGBA frame to a [ui.Image], coalescing decodes (a slow
 /// frame is skipped, never queued) — the calls' remote-video pattern.
-class _VnotePreview extends StatefulWidget {
-  const _VnotePreview({required this.frameListenable});
-  final ValueListenable<VeilVideoFrame?> frameListenable;
-
-  @override
-  State<_VnotePreview> createState() => _VnotePreviewState();
-}
-
-class _VnotePreviewState extends State<_VnotePreview> {
-  ui.Image? _image;
-  bool _decoding = false;
-
-  @override
-  void initState() {
-    super.initState();
-    widget.frameListenable.addListener(_onFrame);
-    _onFrame();
-  }
-
-  @override
-  void dispose() {
-    widget.frameListenable.removeListener(_onFrame);
-    _image?.dispose();
-    super.dispose();
-  }
-
-  void _onFrame() {
-    final f = widget.frameListenable.value;
-    if (f == null || _decoding) return;
-    _decoding = true;
-    ui.decodeImageFromPixels(f.rgba, f.width, f.height, ui.PixelFormat.rgba8888,
-        (img) {
-      _decoding = false;
-      if (!mounted) {
-        img.dispose();
-        return;
-      }
-      setState(() {
-        _image?.dispose();
-        _image = img;
-      });
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final img = _image;
-    if (img == null) {
-      return const ColoredBox(
-        color: Colors.black26,
-        child: Center(child: Icon(Icons.videocam, size: 28)),
-      );
-    }
-    return RawImage(image: img, fit: BoxFit.cover);
-  }
-}
-
 class _Composer extends ConsumerStatefulWidget {
   const _Composer({
     required this.controller,
@@ -4624,7 +4568,7 @@ class _ComposerState extends ConsumerState<_Composer> {
               child: SizedBox(
                 width: 96,
                 height: 96,
-                child: _VnotePreview(frameListenable: ctrl.preview),
+                child: VnotePreview(frameListenable: ctrl.preview),
               ),
             ),
           ),

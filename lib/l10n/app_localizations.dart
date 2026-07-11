@@ -679,6 +679,12 @@ abstract class AppL10n {
   /// **'Image too large to send inline'**
   String get groupImageTooLarge;
 
+  /// No description provided for @groupVnoteRecord.
+  ///
+  /// In en, this message translates to:
+  /// **'Record video note'**
+  String get groupVnoteRecord;
+
   /// No description provided for @groupVoiceRecord.
   ///
   /// In en, this message translates to:
