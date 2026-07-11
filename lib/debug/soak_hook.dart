@@ -24,6 +24,7 @@ import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call_signal.dart';
 import '../domain/chat.dart';
 import '../domain/content_manifest.dart' show ContentManifest;
+import '../domain/device_sync.dart';
 import '../domain/group.dart';
 import '../domain/group_policy.dart';
 import '../state/group_crypto.dart';
@@ -283,6 +284,24 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/group_mute':
           await _groupMuteHook(req);
+          return;
+        case '/device_link':
+          await _deviceLinkHook(req);
+          return;
+        case '/device_adopt':
+          await _deviceAdoptHook(req);
+          return;
+        case '/device_revoke':
+          await _deviceRevokeHook(req);
+          return;
+        case '/devices':
+          await _devicesHook(req);
+          return;
+        case '/device_post_event':
+          await _devicePostEventHook(req);
+          return;
+        case '/device_events':
+          await _deviceEventsHook(req);
           return;
         case '/group_play_voice':
           await _groupPlayVoiceHook(req);
@@ -1009,6 +1028,104 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   Future<void> _contentGrantsHook(HttpRequest req) async {
     final grants = ref.read(messagingServiceProvider).debugGroupServeGrants();
     return _json(req, {'ok': true, 'grants': grants});
+  }
+
+  // ── Device group hooks (multi-device epic) ────────────────────────────────
+
+  /// Link ?peer= as one of MY devices (creates the device group on first use).
+  Future<void> _deviceLinkHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final peer = req.uri.queryParameters['peer'];
+    if (peer == null) return _json(req, {'ok': false, 'error': 'no peer'});
+    final ok = await svc.linkDevice(NodeId.fromHex(peer));
+    return _json(req, {
+      'ok': ok,
+      'deviceGroup': await svc.deviceGroupIdHex(),
+    });
+  }
+
+  /// NEW device side of the handshake: adopt ?group= as MY device group (the
+  /// id travels the QR channel in the real flow).
+  Future<void> _deviceAdoptHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final gidHex = req.uri.queryParameters['group'];
+    if (gidHex == null) return _json(req, {'ok': false, 'error': 'no group'});
+    await svc.adoptDeviceGroup(NodeId.fromHex(gidHex));
+    return _json(req, {'ok': true, 'deviceGroup': gidHex});
+  }
+
+  /// Revoke device ?peer= (removeMember → the fold rotates the epoch).
+  Future<void> _deviceRevokeHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final peer = req.uri.queryParameters['peer'];
+    if (peer == null) return _json(req, {'ok': false, 'error': 'no peer'});
+    final ok = await svc.revokeDevice(NodeId.fromHex(peer));
+    return _json(req, {'ok': ok});
+  }
+
+  /// My device group's state: id + members + epoch (null id = not linked).
+  Future<void> _devicesHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final hex = await svc.deviceGroupIdHex();
+    if (hex == null) {
+      return _json(req, {'ok': true, 'deviceGroup': null, 'members': []});
+    }
+    final st = await svc.stateOf(NodeId.fromHex(hex));
+    return _json(req, {
+      'ok': true,
+      'deviceGroup': hex,
+      'epoch': st?.epoch,
+      'members': [
+        for (final m in (st?.members ?? {}).values)
+          {'id': m.nodeId.hex, 'short': m.nodeId.short, 'role': m.role.name},
+      ],
+    });
+  }
+
+  /// Append a sync event (?kind=&key=&v=) to my device group — brick verify.
+  Future<void> _devicePostEventHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final q = req.uri.queryParameters;
+    final kind = DeviceSyncKind.fromName(q['kind']);
+    final key = q['key'];
+    if (kind == null || key == null || key.isEmpty) {
+      return _json(req, {'ok': false, 'error': 'need kind+key'});
+    }
+    final ok = await svc.postDeviceEvent(DeviceSyncEvent(
+      kind: kind,
+      key: key,
+      tsMs: DateTime.now().millisecondsSinceEpoch,
+      payload: {'v': q['v'] ?? ''},
+    ));
+    return _json(req, {'ok': ok});
+  }
+
+  /// The folded device-sync state (kind|key → payload/ts) — brick verify.
+  Future<void> _deviceEventsHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final folded = await svc.deviceSyncState();
+    return _json(req, {
+      'ok': true,
+      'events': {
+        for (final e in folded.entries)
+          '${e.key.$1.name}|${e.key.$2}': {
+            'ts': e.value.tsMs,
+            'payload': e.value.payload,
+          },
+      },
+    });
   }
 
   /// Toggle the LOCAL notification mute of ?group= (?on=1|0).
