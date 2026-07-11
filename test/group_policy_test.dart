@@ -175,6 +175,7 @@ void main() {
   test('manifest + control entry json round-trip', () {
     final m = GroupManifest(
       groupId: _owner,
+      owner: _owner,
       genesisPubKey: Uint8List.fromList(List.filled(32, 7)),
       name: 'Family',
       createdAtMs: 42,
@@ -182,6 +183,7 @@ void main() {
     final back = GroupManifest.fromJson(m.toJson())!;
     expect(back.name, 'Family');
     expect(back.groupId, _owner);
+    expect(back.owner, _owner);
     expect(back.genesisPubKey.length, 32);
 
     final e = ControlEntry(

@@ -9,6 +9,7 @@ import 'dart:ffi';
 
 import '../data/node/embedded_node.dart';
 import '../domain/group.dart';
+import '../domain/group_message.dart';
 
 /// Sign [unsigned] with the identity in [identityToml], returning a copy with
 /// its signature + author public key filled. The signature is over
@@ -48,3 +49,33 @@ bool verifyControlEntry(ControlEntry e, {DynamicLibrary? lib}) {
 /// A [foldControlLog]-compatible verifier bound to the native library.
 bool Function(ControlEntry) nativeControlVerifier({DynamicLibrary? lib}) =>
     (e) => verifyControlEntry(e, lib: lib);
+
+/// Sign a group message with the identity in [identityToml].
+GroupMessage signGroupMessage({
+  required String identityToml,
+  required GroupMessage unsigned,
+  DynamicLibrary? lib,
+}) {
+  final res = EmbeddedNode.signMessage(
+    identityToml,
+    unsigned.canonicalBytes(),
+    lib: lib,
+  );
+  return unsigned.withSignature(res.signature, res.publicKey);
+}
+
+/// Verify a group message: ed25519 over its canonical bytes, node-id-bound.
+bool verifyGroupMessage(GroupMessage m, {DynamicLibrary? lib}) {
+  if (m.authorPubKey.length != 32 || m.signature.length != 64) return false;
+  try {
+    return EmbeddedNode.verifyMessage(
+      nodeId: m.author.bytes,
+      publicKey: m.authorPubKey,
+      message: m.canonicalBytes(),
+      signature: m.signature,
+      lib: lib,
+    );
+  } catch (_) {
+    return false;
+  }
+}

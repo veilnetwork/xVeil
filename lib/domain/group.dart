@@ -37,21 +37,22 @@ enum GroupRole {
 class GroupManifest {
   const GroupManifest({
     required this.groupId,
+    required this.owner,
     required this.genesisPubKey,
     required this.name,
     required this.createdAtMs,
   });
 
-  final NodeId groupId;
+  final NodeId groupId; // opaque 32-byte group id (random at creation)
+  final NodeId owner; // the genesis owner's node id = BLAKE3(genesisPubKey)
   final Uint8List genesisPubKey; // 32-byte ed25519 owner key
   final String name;
   final int createdAtMs;
 
-  /// The owner's node id = BLAKE3(genesisPubKey), computed app-side and passed
-  /// as [groupId]'s sibling — here we take it as the genesis key's derived id.
   Map<String, dynamic> toJson() => {
         'v': 1,
         'gid': groupId.hex,
+        'owner': owner.hex,
         'gpk': base64Encode(genesisPubKey),
         'name': name,
         'ts': createdAtMs,
@@ -59,8 +60,13 @@ class GroupManifest {
 
   static GroupManifest? fromJson(Object? j) {
     if (j is! Map) return null;
-    final gid = j['gid'], gpk = j['gpk'], name = j['name'], ts = j['ts'];
-    if (gid is! String || gpk is! String || name is! String || ts is! int) {
+    final gid = j['gid'], owner = j['owner'];
+    final gpk = j['gpk'], name = j['name'], ts = j['ts'];
+    if (gid is! String ||
+        owner is! String ||
+        gpk is! String ||
+        name is! String ||
+        ts is! int) {
       return null;
     }
     try {
@@ -68,6 +74,7 @@ class GroupManifest {
       if (pk.length != 32) return null;
       return GroupManifest(
         groupId: NodeId.fromHex(gid),
+        owner: NodeId.fromHex(owner),
         genesisPubKey: Uint8List.fromList(pk),
         name: name,
         createdAtMs: ts,
