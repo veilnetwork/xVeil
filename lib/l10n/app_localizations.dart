@@ -577,6 +577,48 @@ abstract class AppL10n {
   /// **'{count, plural, =1{1 member} other{{count} members}}'**
   String groupMembers(int count);
 
+  /// No description provided for @groupAddMember.
+  ///
+  /// In en, this message translates to:
+  /// **'Add'**
+  String get groupAddMember;
+
+  /// No description provided for @groupMute.
+  ///
+  /// In en, this message translates to:
+  /// **'Mute'**
+  String get groupMute;
+
+  /// No description provided for @groupUnmute.
+  ///
+  /// In en, this message translates to:
+  /// **'Unmute'**
+  String get groupUnmute;
+
+  /// No description provided for @groupPromote.
+  ///
+  /// In en, this message translates to:
+  /// **'Make admin'**
+  String get groupPromote;
+
+  /// No description provided for @groupDemote.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove admin'**
+  String get groupDemote;
+
+  /// No description provided for @groupRemove.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove from group'**
+  String get groupRemove;
+
+  /// No description provided for @groupNoContactsToAdd.
+  ///
+  /// In en, this message translates to:
+  /// **'No contacts left to add'**
+  String get groupNoContactsToAdd;
+
   /// No description provided for @groupAttachImage.
   ///
   /// In en, this message translates to:
