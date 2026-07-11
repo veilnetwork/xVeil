@@ -1195,6 +1195,41 @@ class GroupService {
   }
 }
 
+/// One row of the user-facing group list (the shape [GroupService.listGroups]
+/// returns) — named so the chats screen and providers can share it.
+typedef GroupListEntry = ({
+  NodeId groupId,
+  String name,
+  int unread,
+  bool muted,
+  String preview,
+  int lastTs,
+});
+
+/// The group list as a stream: re-emits on every service change signal, so
+/// the chats screen (which now inlines groups) rebuilds like any provider.
+final groupListProvider = StreamProvider<List<GroupListEntry>>((ref) async* {
+  final svc = ref.watch(groupServiceProvider);
+  if (svc == null) {
+    yield const [];
+    return;
+  }
+  yield await svc.listGroups();
+  final ticks = StreamController<void>();
+  void onTick() {
+    if (!ticks.isClosed) ticks.add(null);
+  }
+
+  svc.changes.addListener(onTick);
+  ref.onDispose(() {
+    svc.changes.removeListener(onTick);
+    ticks.close();
+  });
+  await for (final _ in ticks.stream) {
+    yield await svc.listGroups();
+  }
+});
+
 /// Builds the real signer from the app's identity, or null before ready.
 final groupSignerProvider = FutureProvider<GroupSigner?>((ref) async {
   // WATCH the identity: the eager app-scope bridge builds this at boot when the
