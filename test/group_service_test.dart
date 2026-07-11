@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/device_sync.dart';
@@ -49,6 +50,49 @@ class _FakeSigner implements GroupSigner {
   @override
   bool verifyReaction(GroupReaction r) =>
       r.signature.length == 64 && r.authorPubKey.length == 32;
+  @override
+  bool verifySovereign({
+    required String algorithm,
+    required NodeId nodeId,
+    required Uint8List publicKey,
+    required Uint8List message,
+    required Uint8List signature,
+  }) =>
+      algorithm == 'ed25519' &&
+      nodeId == NodeId(Uint8List.fromList(publicKey)) &&
+      _bytesEqual(_fakeSovereignSignature(publicKey, message), signature);
+}
+
+bool _bytesEqual(Uint8List a, Uint8List b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
+
+Uint8List _fakeSovereignSignature(Uint8List publicKey, Uint8List message) {
+  final digest = sha256.convert([...publicKey, ...message]).bytes;
+  return Uint8List.fromList([...digest, ...digest]);
+}
+
+class _FakeSovereign implements SovereignGroupSigner {
+  _FakeSovereign(this.nodeId);
+  @override
+  final NodeId nodeId;
+  bool _closed = false;
+  @override
+  String get algorithm => 'ed25519';
+  @override
+  Uint8List get publicKey => Uint8List.fromList(nodeId.bytes);
+  @override
+  Uint8List sign(Uint8List message) {
+    if (_closed) throw StateError('closed');
+    return _fakeSovereignSignature(publicKey, message);
+  }
+
+  @override
+  void close() => _closed = true;
 }
 
 void main() {
@@ -56,6 +100,7 @@ void main() {
   final bob = _id(3);
   final carol = _id(4);
   final stranger = _id(7);
+  final sovereign = _FakeSovereign(_id(9));
 
   /// Fresh storage + an owner-perspective service; extra services over the SAME
   /// storage model other members on their own devices.
@@ -589,25 +634,26 @@ void main() {
     // First link creates the device group; the second reuses it (a different
     // device — bob is _id(3), so link _id(4) as the second phone).
     expect(await primary.deviceGroupIdHex(), isNull);
-    expect(await primary.linkDevice(bob), isTrue);
+    expect(await primary.linkDevice(bob, sovereign: sovereign), isTrue);
     final gidHex = (await primary.deviceGroupIdHex())!;
-    expect(await primary.linkDevice(_id(4)), isTrue);
+    expect(await primary.linkDevice(_id(4), sovereign: sovereign), isTrue);
     expect(await primary.deviceGroupIdHex(), gidHex);
     await drain();
 
     // Hidden from the user-facing group list despite being a real group…
     expect((await primary.listGroups()).where((g) => g.groupId.hex == gidHex),
         isEmpty);
-    // …and a linked device is an ADMIN (it can manage devices below it).
+    // …and linked devices are members; only the sovereign is owner.
     final st = (await primary.stateOf(NodeId.fromHex(gidHex)))!;
-    expect(st.roleOf(bob), GroupRole.admin);
+    expect(st.roleOf(bob), GroupRole.member);
+    expect(st.roleOf(sovereign.nodeId), GroupRole.owner);
 
     // The NEW device adopts via the handshake id, then sees the same group.
     final s2 = FakeHvContainer().storage();
     await s2.open(password: 'pw', createIfMissing: true);
     final secondary = GroupService(s2, _FakeSigner(bob));
     expect(await secondary.ingestSnapshot(sent.first), isTrue);
-    await secondary.adoptDeviceGroup(NodeId.fromHex(gidHex));
+    expect(await secondary.adoptDeviceGroup(NodeId.fromHex(gidHex)), isTrue);
     expect(await secondary.deviceGroupIdHex(), gidHex);
 
     // Sync events round-trip through the device log and fold newest-wins…
@@ -643,10 +689,146 @@ void main() {
     // Revoke removes the device and rotates the epoch.
     final epochBefore =
         (await primary.stateOf(NodeId.fromHex(gidHex)))!.epoch;
-    expect(await primary.revokeDevice(bob), isTrue);
+    expect(await primary.revokeDevice(bob, sovereign: sovereign), isTrue);
     final after = (await primary.stateOf(NodeId.fromHex(gidHex)))!;
     expect(after.isMember(bob), isFalse);
     expect(after.epoch, greaterThan(epochBefore));
+  });
+
+  test('sovereign genesis tampering is rejected before materialization',
+      () async {
+    final sent = <String>[];
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final primary = GroupService(storage, _FakeSigner(owner),
+        send: (p, g, j) async => sent.add(j));
+    expect(await primary.linkDevice(bob, sovereign: sovereign), isTrue);
+
+    final wire = jsonDecode(sent.first) as Map<String, dynamic>;
+    final manifest = wire['m'] as Map<String, dynamic>;
+    expect(manifest['v'], GroupManifest.sovereignDeviceVersion);
+    expect(manifest['kind'], GroupManifest.sovereignDeviceKind);
+    expect(manifest['alg'], 'ed25519');
+    expect(manifest['msig'], isNotEmpty);
+    manifest['name'] = ' xveil.devices.tampered';
+
+    final freshStorage = FakeHvContainer().storage();
+    await freshStorage.open(password: 'pw', createIfMissing: true);
+    final fresh = GroupService(freshStorage, _FakeSigner(bob));
+    expect(await fresh.ingestSnapshot(jsonEncode(wire)), isFalse);
+    expect(await fresh.listGroups(), isEmpty);
+  });
+
+  test('device keys and a wrong sovereign cannot mutate the registry',
+      () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final primary = GroupService(storage, _FakeSigner(owner));
+    expect(await primary.linkDevice(bob, sovereign: sovereign), isTrue);
+    final gid = NodeId.fromHex((await primary.deviceGroupIdHex())!);
+    final wrong = _FakeSovereign(_id(8));
+
+    expect(await primary.linkDevice(carol, sovereign: wrong), isFalse);
+    expect(await primary.revokeDevice(bob, sovereign: wrong), isFalse);
+    expect(
+        await primary.addControlOp(gid, ControlOp.addMember,
+            target: carol, role: GroupRole.member),
+        isFalse);
+    final beforeRows = (await primary.load(gid))!.control.length;
+    final forged = ControlEntry(
+      groupId: gid,
+      author: owner,
+      seq: 99,
+      prevHash: '',
+      op: ControlOp.addMember,
+      target: carol,
+      role: GroupRole.member,
+      policyVersion: 0,
+      createdAtMs: 9999,
+      signature: Uint8List(0),
+    );
+    await primary.ingestControl(gid, _FakeSigner(owner).signControl(forged));
+    expect((await primary.load(gid))!.control, hasLength(beforeRows));
+    final state = (await primary.stateOf(gid))!;
+    expect(state.isMember(bob), isTrue);
+    expect(state.isMember(carol), isFalse);
+  });
+
+  test('legacy device group remints gid and carries compact sync state',
+      () async {
+    final sent = <String>[];
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final builder = GroupService(storage, _FakeSigner(owner));
+    final legacyGid = await builder.createGroup('Legacy devices');
+    expect(
+        await builder.addControlOp(legacyGid, ControlOp.addMember,
+            target: bob, role: GroupRole.member),
+        isTrue);
+
+    final raw = await storage.loadFile('group:${legacyGid.hex}');
+    final legacyJson =
+        jsonDecode(utf8.decode(raw!)) as Map<String, dynamic>;
+    (legacyJson['m'] as Map<String, dynamic>)['name'] =
+        GroupService.kDeviceGroupName;
+    await storage.storeFile(
+      'group:${legacyGid.hex}',
+      Uint8List.fromList(utf8.encode(jsonEncode(legacyJson))),
+      name: 'group',
+    );
+    await storage.putSetting('devices.gid', legacyGid.hex);
+    final legacy = GroupService(storage, _FakeSigner(owner));
+    expect(
+        await legacy.postDeviceEvent(DeviceSyncEvent(
+            kind: DeviceSyncKind.settingSet,
+            key: 'locale',
+            tsMs: 4242,
+            payload: const {'v': 'ru'})),
+        isTrue);
+
+    final migrating = GroupService(storage, _FakeSigner(owner),
+        send: (p, g, j) async => sent.add(j));
+    expect(
+        await migrating.addControlOp(legacyGid, ControlOp.addMember,
+            target: carol, role: GroupRole.member),
+        isFalse,
+        reason: 'legacy registry is read-only');
+    expect(await migrating.linkDevice(carol, sovereign: sovereign), isTrue);
+    final newGid = NodeId.fromHex((await migrating.deviceGroupIdHex())!);
+    expect(newGid, isNot(legacyGid));
+
+    final oldBundle = (await migrating.load(legacyGid))!;
+    final newBundle = (await migrating.load(newGid))!;
+    expect(oldBundle.manifest.version, 1);
+    expect(oldBundle.control, hasLength(1));
+    expect(newBundle.manifest.isSovereignDevice, isTrue);
+    expect(newBundle.manifest.owner, sovereign.nodeId);
+    expect(
+        (await migrating.deviceSyncState())[
+                (DeviceSyncKind.settingSet, 'locale')]!
+            .payload['v'],
+        'ru');
+    final state = (await migrating.stateOf(newGid))!;
+    expect(state.isMember(owner), isTrue);
+    expect(state.isMember(bob), isTrue);
+    expect(state.isMember(carol), isTrue);
+    expect(state.roleOf(bob), GroupRole.member);
+    expect(sent, isNotEmpty);
+
+    final bobStorage = FakeHvContainer().storage();
+    await bobStorage.open(password: 'pw', createIfMissing: true);
+    final bobDevice = GroupService(bobStorage, _FakeSigner(bob));
+    final applied = <String>[];
+    final sub = bobDevice.deviceIncoming.listen((m) => applied.add(m.body));
+    expect(await bobDevice.ingestSnapshot(sent.first), isTrue);
+    await Future<void>.delayed(Duration.zero);
+    expect(applied, isEmpty,
+        reason: 'snapshot is inert before explicit local adoption');
+    expect(await bobDevice.adoptDeviceGroup(newGid), isTrue);
+    await Future<void>.delayed(Duration.zero);
+    expect(applied.map(DeviceSyncEvent.fromBody).whereType<DeviceSyncEvent>()
+        .any((e) => e.key == 'locale'), isTrue);
+    await sub.cancel();
   });
 
   test('postDeviceEvent: concurrent fire-and-forget emits ALL land '
@@ -656,7 +838,7 @@ void main() {
     final s = FakeHvContainer().storage();
     await s.open(password: 'pw', createIfMissing: true);
     final svc = GroupService(s, _FakeSigner(owner));
-    await svc.linkDevice(bob);
+    await svc.linkDevice(bob, sovereign: sovereign);
 
     // Fire a burst WITHOUT awaiting each — exactly what the sync taps do.
     final posts = [
@@ -877,7 +1059,7 @@ void main() {
     final storage = FakeHvContainer().storage();
     await storage.open(password: 'pw', createIfMissing: true);
     final svc = GroupService(storage, _FakeSigner(owner));
-    await svc.linkDevice(bob);
+    await svc.linkDevice(bob, sovereign: sovereign);
     final deviceGid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
     for (var i = 0; i < 3; i++) {
       await svc.postDeviceEvent(DeviceSyncEvent(
@@ -920,7 +1102,7 @@ void main() {
         send: (p, g, j) async => sent.add(j));
     expect(await svc.nudgeDeviceSync(), 0, reason: 'no device group yet');
 
-    await svc.linkDevice(bob);
+    await svc.linkDevice(bob, sovereign: sovereign);
     await svc.postDeviceEvent(DeviceSyncEvent(
         kind: DeviceSyncKind.settingSet,
         key: 'theme',
@@ -948,10 +1130,10 @@ void main() {
     final svc = GroupService(s, _FakeSigner(owner));
     expect(await svc.isMyDevice(bob), isFalse,
         reason: 'no device group yet');
-    await svc.linkDevice(bob);
+    await svc.linkDevice(bob, sovereign: sovereign);
     expect(await svc.isMyDevice(bob), isTrue);
     expect(await svc.isMyDevice(_id(9)), isFalse);
-    await svc.revokeDevice(bob);
+    await svc.revokeDevice(bob, sovereign: sovereign);
     expect(await svc.isMyDevice(bob), isFalse,
         reason: 'revoke must invalidate the cached member set');
 
@@ -969,7 +1151,7 @@ void main() {
     final s = FakeHvContainer().storage();
     await s.open(password: 'pw', createIfMissing: true);
     final svc = GroupService(s, _FakeSigner(owner));
-    await svc.linkDevice(bob);
+    await svc.linkDevice(bob, sovereign: sovereign);
     final gid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
 
     expect(

@@ -35,31 +35,83 @@ enum GroupRole {
 /// [groupId] is BLAKE3(genesisPubKey)-derived app-side; here it is an opaque
 /// 32-byte id carried so the manifest is self-contained.
 class GroupManifest {
-  const GroupManifest({
+  GroupManifest({
     required this.groupId,
     required this.owner,
     required this.genesisPubKey,
     required this.name,
     required this.createdAtMs,
-  });
+    this.version = 1,
+    this.kind,
+    this.signatureAlgorithm,
+    Uint8List? signature,
+  }) : signature = signature ?? Uint8List(0);
 
   final NodeId groupId; // opaque 32-byte group id (random at creation)
   final NodeId owner; // the genesis owner's node id = BLAKE3(genesisPubKey)
-  final Uint8List genesisPubKey; // 32-byte ed25519 owner key
+  /// Legacy manifests carry a 32-byte Ed25519 key. Sovereign device
+  /// manifests are algorithm-tagged and permit variable key sizes so a
+  /// Falcon/hybrid bundle does not require another wire migration.
+  final Uint8List genesisPubKey;
   final String name;
   final int createdAtMs;
+  final int version;
+  final String? kind;
+  final String? signatureAlgorithm;
+  final Uint8List signature;
 
-  Map<String, dynamic> toJson() => {
-        'v': 1,
+  static const int sovereignDeviceVersion = 2;
+  static const String sovereignDeviceKind = 'xveil.devices';
+
+  bool get isSovereignDevice =>
+      version == sovereignDeviceVersion &&
+      kind == sovereignDeviceKind &&
+      signatureAlgorithm != null &&
+      signature.isNotEmpty;
+
+  Uint8List canonicalBytes() => Uint8List.fromList(utf8.encode(jsonEncode({
+        'v': version,
+        if (kind != null) 'kind': kind,
         'gid': groupId.hex,
         'owner': owner.hex,
         'gpk': base64Encode(genesisPubKey),
         'name': name,
         'ts': createdAtMs,
+        if (signatureAlgorithm != null) 'alg': signatureAlgorithm,
+      })));
+
+  GroupManifest withSignature(Uint8List value) => GroupManifest(
+        groupId: groupId,
+        owner: owner,
+        genesisPubKey: genesisPubKey,
+        name: name,
+        createdAtMs: createdAtMs,
+        version: version,
+        kind: kind,
+        signatureAlgorithm: signatureAlgorithm,
+        signature: value,
+      );
+
+  bool sameGenesis(GroupManifest other) =>
+      base64Encode(canonicalBytes()) == base64Encode(other.canonicalBytes()) &&
+      base64Encode(signature) == base64Encode(other.signature);
+
+  Map<String, dynamic> toJson() => {
+        'v': version,
+        if (kind != null) 'kind': kind,
+        'gid': groupId.hex,
+        'owner': owner.hex,
+        'gpk': base64Encode(genesisPubKey),
+        'name': name,
+        'ts': createdAtMs,
+        if (signatureAlgorithm != null) 'alg': signatureAlgorithm,
+        if (signature.isNotEmpty) 'msig': base64Encode(signature),
       };
 
   static GroupManifest? fromJson(Object? j) {
     if (j is! Map) return null;
+    final version = j['v'] is int ? j['v'] as int : 1;
+    if (version != 1 && version != sovereignDeviceVersion) return null;
     final gid = j['gid'], owner = j['owner'];
     final gpk = j['gpk'], name = j['name'], ts = j['ts'];
     if (gid is! String ||
@@ -71,13 +123,30 @@ class GroupManifest {
     }
     try {
       final pk = base64Decode(gpk);
-      if (pk.length != 32) return null;
+      final signature = j['msig'] is String
+          ? Uint8List.fromList(base64Decode(j['msig'] as String))
+          : Uint8List(0);
+      if (pk.isEmpty || pk.length > 16384 || signature.length > 16384) {
+        return null;
+      }
+      if (version == 1 && pk.length != 32) return null;
+      if (version == sovereignDeviceVersion &&
+          (j['kind'] != sovereignDeviceKind ||
+              j['alg'] is! String ||
+              (j['alg'] as String).isEmpty ||
+              signature.isEmpty)) {
+        return null;
+      }
       return GroupManifest(
         groupId: NodeId.fromHex(gid),
         owner: NodeId.fromHex(owner),
         genesisPubKey: Uint8List.fromList(pk),
         name: name,
         createdAtMs: ts,
+        version: version,
+        kind: j['kind'] is String ? j['kind'] as String : null,
+        signatureAlgorithm: j['alg'] is String ? j['alg'] as String : null,
+        signature: signature,
       );
     } catch (_) {
       return null;

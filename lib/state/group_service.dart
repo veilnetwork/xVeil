@@ -19,6 +19,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:veil_flutter/veil_flutter.dart' as veil;
 
 import '../core/ids.dart';
 import '../domain/chat.dart' show MessageDirection;
@@ -49,6 +50,42 @@ abstract class GroupSigner {
   bool verifyMessage(GroupMessage m);
   bool verifyReaction(GroupReaction r);
   bool verifyContentRequest(GroupContentRequest r);
+  bool verifySovereign({
+    required String algorithm,
+    required NodeId nodeId,
+    required Uint8List publicKey,
+    required Uint8List message,
+    required Uint8List signature,
+  });
+}
+
+abstract class SovereignGroupSigner {
+  String get algorithm;
+  NodeId get nodeId;
+  Uint8List get publicKey;
+  Uint8List sign(Uint8List message);
+  void close();
+}
+
+/// Opaque native recovery signer. The eventual normal path decrypts the local
+/// sovereign bundle; this phrase-derived path remains the recovery bootstrap.
+final class NativeSovereignGroupSigner implements SovereignGroupSigner {
+  NativeSovereignGroupSigner._(this._inner);
+  final veil.VeilSovereignSigner _inner;
+
+  factory NativeSovereignGroupSigner.openRecoveryPhrase(String phrase) =>
+      NativeSovereignGroupSigner._(veil.VeilSovereignSigner.open(phrase));
+
+  @override
+  String get algorithm => 'ed25519';
+  @override
+  NodeId get nodeId => NodeId(Uint8List.fromList(_inner.nodeId));
+  @override
+  Uint8List get publicKey => Uint8List.fromList(_inner.publicKey);
+  @override
+  Uint8List sign(Uint8List message) => _inner.sign(message);
+  @override
+  void close() => _inner.close();
 }
 
 /// Real signer: native ed25519 over the deniable identity TOML.
@@ -93,6 +130,23 @@ class NativeGroupSigner implements GroupSigner {
   @override
   bool verifyContentRequest(GroupContentRequest r) =>
       verifyGroupContentRequest(r, lib: lib);
+  @override
+  bool verifySovereign({
+    required String algorithm,
+    required NodeId nodeId,
+    required Uint8List publicKey,
+    required Uint8List message,
+    required Uint8List signature,
+  }) {
+    if (algorithm != 'ed25519') return false;
+    return EmbeddedNode.verifyMessage(
+      nodeId: nodeId.bytes,
+      publicKey: publicKey,
+      message: message,
+      signature: signature,
+      lib: lib,
+    );
+  }
 }
 
 /// One group's stored data.
@@ -168,8 +222,46 @@ class GroupService {
 
   int _now() => DateTime.now().millisecondsSinceEpoch;
 
-  bool _validControlFor(NodeId groupId, ControlEntry e) =>
-      (e.groupId == null || e.groupId == groupId) && _signer.verifyControl(e);
+  bool _validManifest(GroupManifest manifest) {
+    if (manifest.version == 1) return manifest.genesisPubKey.length == 32;
+    if (!manifest.isSovereignDevice ||
+        manifest.name != kDeviceGroupName ||
+        manifest.signatureAlgorithm == null) {
+      return false;
+    }
+    return _signer.verifySovereign(
+      algorithm: manifest.signatureAlgorithm!,
+      nodeId: manifest.owner,
+      publicKey: manifest.genesisPubKey,
+      message: manifest.canonicalBytes(),
+      signature: manifest.signature,
+    );
+  }
+
+  bool _validControlFor(GroupManifest manifest, ControlEntry e) {
+    if (manifest.isSovereignDevice) {
+      final membershipOp = e.op == ControlOp.addMember ||
+          e.op == ControlOp.removeMember;
+      final shapeOk = e.target != null &&
+          (e.op != ControlOp.addMember || e.role == GroupRole.member) &&
+          (e.op != ControlOp.removeMember || e.role == null);
+      return _validManifest(manifest) &&
+          e.groupId == manifest.groupId &&
+          e.author == manifest.owner &&
+          listEquals(e.authorPubKey, manifest.genesisPubKey) &&
+          membershipOp &&
+          shapeOk &&
+          _signer.verifySovereign(
+            algorithm: manifest.signatureAlgorithm!,
+            nodeId: e.author,
+            publicKey: e.authorPubKey,
+            message: e.canonicalBytes(),
+            signature: e.signature,
+          );
+    }
+    return (e.groupId == null || e.groupId == manifest.groupId) &&
+        _signer.verifyControl(e);
+  }
 
   bool _validMessageFor(NodeId groupId, GroupMessage m) =>
       m.groupId == groupId && _signer.verifyMessage(m);
@@ -254,7 +346,7 @@ class GroupService {
     if (b == null) return null;
     final control = [
       for (final e in b.control)
-        if (_validControlFor(groupId, e)) e,
+        if (_validControlFor(b.manifest, e)) e,
     ];
     final messages = b.manifest.name == kDeviceGroupName
         ? _compactDeviceMessages(groupId, b.messages)
@@ -314,7 +406,7 @@ class GroupService {
     try {
       final d = jsonDecode(raw) as Map<String, dynamic>;
       final manifest = GroupManifest.fromJson(d['m']);
-      if (manifest == null) return null;
+      if (manifest == null || !_validManifest(manifest)) return null;
       final control = (d['c'] as List? ?? const [])
           .map(ControlEntry.fromJson)
           .whereType<ControlEntry>()
@@ -385,7 +477,7 @@ class GroupService {
         final state = foldControlLog(
           owner: b.manifest.owner,
           entries: b.control,
-          verify: (e) => _validControlFor(b.manifest.groupId, e),
+          verify: (e) => _validControlFor(b.manifest, e),
           initialName: b.manifest.name,
         ).state;
         if (!state.isMember(_signer.selfId)) continue;
@@ -415,9 +507,7 @@ class GroupService {
 
   /// Create a group named [name] with us as the sole owner. Returns its id.
   Future<NodeId> createGroup(String name) async {
-    final rnd = Random.secure();
-    final gid = NodeId(
-        Uint8List.fromList(List.generate(32, (_) => rnd.nextInt(256))));
+    final gid = _randomGroupId();
     final manifest = GroupManifest(
       groupId: gid,
       owner: _signer.selfId,
@@ -432,6 +522,12 @@ class GroupService {
     return gid;
   }
 
+  NodeId _randomGroupId() {
+    final rnd = Random.secure();
+    return NodeId(
+        Uint8List.fromList(List.generate(32, (_) => rnd.nextInt(256))));
+  }
+
   /// The current folded state of [groupId], or null if unknown.
   Future<GroupState?> stateOf(NodeId groupId) async {
     final b = await load(groupId);
@@ -439,7 +535,7 @@ class GroupService {
     return foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
-      verify: (e) => _validControlFor(b.manifest.groupId, e),
+      verify: (e) => _validControlFor(b.manifest, e),
       initialName: b.manifest.name,
     ).state;
   }
@@ -464,15 +560,16 @@ class GroupService {
   }) async {
     final b = await load(groupId);
     if (b == null) return false;
+    if (b.manifest.name == kDeviceGroupName) return false;
     final mySeq = _nextSeq(b.control
         .where((e) =>
             e.author == _signer.selfId &&
-            _validControlFor(b.manifest.groupId, e))
+            _validControlFor(b.manifest, e))
         .map((e) => e.seq));
     final state = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
-      verify: (e) => _validControlFor(b.manifest.groupId, e),
+      verify: (e) => _validControlFor(b.manifest, e),
     ).state;
     final pv = state.policyVersion;
     final unsigned = ControlEntry(
@@ -495,7 +592,7 @@ class GroupService {
     final folded = foldControlLog(
       owner: b.manifest.owner,
       entries: candidate,
-      verify: (e) => _validControlFor(b.manifest.groupId, e),
+      verify: (e) => _validControlFor(b.manifest, e),
     );
     if (folded.rejected.any((e) => identical(e, signed) ||
         (e.author == signed.author && e.seq == signed.seq))) {
@@ -528,10 +625,11 @@ class GroupService {
   Future<bool> leaveGroup(NodeId groupId) async {
     final b = await load(groupId);
     if (b == null) return false;
+    if (b.manifest.name == kDeviceGroupName) return false;
     final state = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
-      verify: (e) => _validControlFor(b.manifest.groupId, e),
+      verify: (e) => _validControlFor(b.manifest, e),
     ).state;
     final me = state.memberOf(_signer.selfId);
     if (me == null) return true; // already gone
@@ -539,7 +637,7 @@ class GroupService {
     final mySeq = _nextSeq(b.control
         .where((e) =>
             e.author == _signer.selfId &&
-            _validControlFor(b.manifest.groupId, e))
+            _validControlFor(b.manifest, e))
         .map((e) => e.seq));
     final unsigned = ControlEntry(
       groupId: groupId,
@@ -558,7 +656,7 @@ class GroupService {
     final folded = foldControlLog(
       owner: b.manifest.owner,
       entries: candidate,
-      verify: (e) => _validControlFor(b.manifest.groupId, e),
+      verify: (e) => _validControlFor(b.manifest, e),
     );
     if (folded.rejected
         .any((e) => e.author == signed.author && e.seq == signed.seq)) {
@@ -590,7 +688,7 @@ class GroupService {
     final state = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
-      verify: (e) => _validControlFor(b.manifest.groupId, e),
+      verify: (e) => _validControlFor(b.manifest, e),
     ).state;
     final me = state.memberOf(_signer.selfId);
     if (me == null || me.muted) return false;
@@ -658,7 +756,7 @@ class GroupService {
           .where((m) => _validMessageFor(groupId, m))
           .map((m) => (m.author, m.seq))),
       'c': vector(b.control
-          .where((e) => _validControlFor(groupId, e))
+          .where((e) => _validControlFor(b.manifest, e))
           .map((e) => (e.author, e.seq))),
       // Reactions ride the same per-author high-water scheme (each author's
       // reaction seq is monotonic). An older responder just ignores the key.
@@ -688,7 +786,7 @@ class GroupService {
     final state = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
-      verify: (e) => _validControlFor(b.manifest.groupId, e),
+      verify: (e) => _validControlFor(b.manifest, e),
     ).state;
     if (!state.isMember(peer)) {
       debugPrint('xVeil[groups]: sync request from non-member — drop');
@@ -706,7 +804,7 @@ class GroupService {
     ];
     final missingCtl = [
       for (final e in b.control)
-        if (_validControlFor(gid, e) &&
+        if (_validControlFor(b.manifest, e) &&
             e.seq > seen(req['c'], e.author))
           e,
     ];
@@ -775,12 +873,16 @@ class GroupService {
         continue;
       }
       await compactStateLogs(gid);
+      final bundle = await load(gid);
       final req = await buildGroupSyncRequest(gid);
       final st = await stateOf(gid);
-      if (req == null || st == null) continue;
+      if (bundle == null || req == null || st == null) continue;
       final others = [
         for (final m in st.members.values)
-          if (m.nodeId != _signer.selfId) m.nodeId,
+          if (m.nodeId != _signer.selfId &&
+              (!bundle.manifest.isSovereignDevice ||
+                  m.nodeId != bundle.manifest.owner))
+            m.nodeId,
       ]..shuffle(Random());
       for (final peer in others.take(kGroupSyncFanout)) {
         await send(peer, gid, jsonEncode(req));
@@ -797,7 +899,7 @@ class GroupService {
     final state = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
-      verify: (e) => _validControlFor(b.manifest.groupId, e),
+      verify: (e) => _validControlFor(b.manifest, e),
     ).state;
     final out = <GroupMessage>[];
     for (final m in b.messages) {
@@ -833,7 +935,7 @@ class GroupService {
     final state = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
-      verify: (e) => _validControlFor(b.manifest.groupId, e),
+      verify: (e) => _validControlFor(b.manifest, e),
     ).state;
     final me = state.memberOf(_signer.selfId);
     if (me == null || me.muted) return false;
@@ -880,7 +982,7 @@ class GroupService {
     final state = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
-      verify: (e) => _validControlFor(b.manifest.groupId, e),
+      verify: (e) => _validControlFor(b.manifest, e),
     ).state;
     return foldGroupReactions(
       b.reactions.where(
@@ -1029,9 +1131,9 @@ class GroupService {
   Future<void> ingestControl(NodeId groupId, ControlEntry e) async {
     final b = await load(groupId);
     if (b == null) return;
-    if (!_validControlFor(groupId, e)) return;
+    if (!_validControlFor(b.manifest, e)) return;
     if (b.control.any((x) =>
-        _validControlFor(groupId, x) &&
+        _validControlFor(b.manifest, x) &&
         x.author == e.author &&
         x.seq == e.seq)) {
       return;
@@ -1047,7 +1149,7 @@ class GroupService {
   String snapshotJson(GroupBundle b) => jsonEncode({
         'm': b.manifest.toJson(),
         'c': b.control
-            .where((e) => _validControlFor(b.manifest.groupId, e))
+            .where((e) => _validControlFor(b.manifest, e))
             .map((e) => e.toJson())
             .toList(),
         'g': b.messages
@@ -1071,7 +1173,7 @@ class GroupService {
       return false;
     }
     final manifest = GroupManifest.fromJson(d['m']);
-    if (manifest == null) return false;
+    if (manifest == null || !_validManifest(manifest)) return false;
     final inControl = (d['c'] as List? ?? const [])
         .map(ControlEntry.fromJson)
         .whereType<ControlEntry>()
@@ -1086,6 +1188,11 @@ class GroupService {
         .toList();
 
     final existing = await load(manifest.groupId);
+    if (existing != null &&
+        existing.manifest.isSovereignDevice &&
+        !existing.manifest.sameGenesis(manifest)) {
+      return false;
+    }
     // Keep the manifest we already had (the authoritative genesis); only adopt
     // the incoming one when the group is new to us.
     final man = existing?.manifest ?? manifest;
@@ -1093,9 +1200,9 @@ class GroupService {
     final messages = [...(existing?.messages ?? const <GroupMessage>[])];
     final reactions = [...(existing?.reactions ?? const <GroupReaction>[])];
     for (final e in inControl) {
-      if (!_validControlFor(manifest.groupId, e)) continue;
+      if (!_validControlFor(man, e)) continue;
       if (!control.any((x) =>
-          _validControlFor(manifest.groupId, x) &&
+          _validControlFor(man, x) &&
           x.author == e.author &&
           x.seq == e.seq)) {
         control.add(e);
@@ -1104,7 +1211,7 @@ class GroupService {
     final mergedState = foldControlLog(
       owner: man.owner,
       entries: control,
-      verify: (e) => _validControlFor(manifest.groupId, e),
+      verify: (e) => _validControlFor(man, e),
       initialName: man.name,
     ).state;
     final fresh = <GroupMessage>[];
@@ -1154,8 +1261,13 @@ class GroupService {
     // the notification layer or count as chat-unread. It routes to a SEPARATE
     // stream the multi-device bridge consumes (device-sync events).
     if (man.name == kDeviceGroupName) {
-      for (final m in fresh) {
-        _deviceIncomingCtl.add(m);
+      // A marker snapshot is inert until the local handshake explicitly
+      // adopts this exact gid. Otherwise any contact could plant a valid-
+      // looking infrastructure group and drive sync apply side effects.
+      if (await deviceGroupIdHex() == man.groupId.hex) {
+        for (final m in fresh) {
+          _deviceIncomingCtl.add(m);
+        }
       }
     } else {
       for (final m in fresh) {
@@ -1243,14 +1355,143 @@ class GroupService {
     return (_deviceGidCache?.isEmpty ?? true) ? null : _deviceGidCache;
   }
 
-  /// Create my device group if it does not exist yet (first link).
-  Future<NodeId> ensureDeviceGroup() async {
-    final hex = await deviceGroupIdHex();
-    if (hex != null) return NodeId.fromHex(hex);
-    final gid = await createGroup(kDeviceGroupName);
+  bool _sovereignMatches(
+          GroupManifest manifest, SovereignGroupSigner sovereign) =>
+      manifest.isSovereignDevice &&
+      manifest.signatureAlgorithm == sovereign.algorithm &&
+      manifest.owner == sovereign.nodeId &&
+      listEquals(manifest.genesisPubKey, sovereign.publicKey);
+
+  Future<NodeId?> _mintSovereignDeviceGroup(
+    SovereignGroupSigner sovereign,
+    Iterable<NodeId> devices, {
+    GroupBundle? migrateFrom,
+  }) async {
+    final gid = _randomGroupId();
+    final unsignedManifest = GroupManifest(
+      groupId: gid,
+      owner: sovereign.nodeId,
+      genesisPubKey: Uint8List.fromList(sovereign.publicKey),
+      name: kDeviceGroupName,
+      createdAtMs: _now(),
+      version: GroupManifest.sovereignDeviceVersion,
+      kind: GroupManifest.sovereignDeviceKind,
+      signatureAlgorithm: sovereign.algorithm,
+    );
+    final manifest = unsignedManifest
+        .withSignature(sovereign.sign(unsignedManifest.canonicalBytes()));
+    if (!_validManifest(manifest)) return null;
+
+    final unique = <String, NodeId>{
+      _signer.selfId.hex: _signer.selfId,
+      for (final d in devices) d.hex: d,
+    }..remove(sovereign.nodeId.hex);
+    final ordered = unique.values.toList()
+      ..sort((a, b) => a.hex.compareTo(b.hex));
+    final control = <ControlEntry>[];
+    final baseTs = _now();
+    for (var seq = 0; seq < ordered.length; seq++) {
+      final unsigned = ControlEntry(
+        groupId: gid,
+        author: sovereign.nodeId,
+        seq: seq,
+        prevHash: '',
+        op: ControlOp.addMember,
+        target: ordered[seq],
+        role: GroupRole.member,
+        policyVersion: 0,
+        createdAtMs: baseTs + seq,
+        signature: Uint8List(0),
+      );
+      control.add(unsigned.withSignature(
+        sovereign.sign(unsigned.canonicalBytes()),
+        Uint8List.fromList(sovereign.publicKey),
+      ));
+    }
+    final folded = foldControlLog(
+      owner: manifest.owner,
+      entries: control,
+      verify: (e) => _validControlFor(manifest, e),
+      initialName: manifest.name,
+    );
+    if (folded.rejected.isNotEmpty ||
+        !folded.state.isMember(_signer.selfId)) {
+      return null;
+    }
+
+    final migratedMessages = <GroupMessage>[];
+    if (migrateFrom != null) {
+      final oldState = foldControlLog(
+        owner: migrateFrom.manifest.owner,
+        entries: migrateFrom.control,
+        verify: (e) => _validControlFor(migrateFrom.manifest, e),
+        initialName: migrateFrom.manifest.name,
+      ).state;
+      final compact = _compactDeviceMessages(
+        migrateFrom.manifest.groupId,
+        [
+          for (final m in migrateFrom.messages)
+            if (oldState.isMember(m.author)) m,
+        ],
+      )..sort((a, b) {
+          final ts = a.createdAtMs.compareTo(b.createdAtMs);
+          return ts != 0 ? ts : _messageIdentityCompare(a, b);
+        });
+      for (var seq = 0; seq < compact.length; seq++) {
+        final old = compact[seq];
+        final unsigned = GroupMessage(
+          groupId: gid,
+          author: _signer.selfId,
+          seq: seq,
+          prevHash: '',
+          body: old.body,
+          policyVersion: 0,
+          createdAtMs: old.createdAtMs,
+          signature: Uint8List(0),
+          attachment: old.attachment,
+        );
+        migratedMessages.add(_signer.signMessage(unsigned));
+      }
+    }
+
+    await _save(GroupBundle(
+      manifest: manifest,
+      control: control,
+      messages: migratedMessages,
+    ));
+    final idx = await _index();
+    if (!idx.contains(gid.hex)) {
+      idx.add(gid.hex);
+      await _setIndex(idx);
+    }
     await _storage.putSetting('devices.gid', gid.hex);
     _deviceGidCache = gid.hex;
+    _deviceMembersCache = null;
+    await broadcast(gid);
     return gid;
+  }
+
+  Future<NodeId?> ensureDeviceGroup(SovereignGroupSigner sovereign) async {
+    final hex = await deviceGroupIdHex();
+    if (hex == null) return _mintSovereignDeviceGroup(sovereign, const []);
+    final old = await load(NodeId.fromHex(hex));
+    if (old == null) return null;
+    if (old.manifest.isSovereignDevice) {
+      return _sovereignMatches(old.manifest, sovereign)
+          ? old.manifest.groupId
+          : null;
+    }
+    final state = foldControlLog(
+      owner: old.manifest.owner,
+      entries: old.control,
+      verify: (e) => _validControlFor(old.manifest, e),
+      initialName: old.manifest.name,
+    ).state;
+    return _mintSovereignDeviceGroup(
+      sovereign,
+      state.members.values.map((m) => m.nodeId),
+      migrateFrom: old,
+    );
   }
 
   /// ADOPT [groupId] as my device group — called by the NEW device during the
@@ -1258,31 +1499,146 @@ class GroupService {
   /// explicit: a device group is NEVER auto-adopted from an inbound snapshot,
   /// or any contact could plant a marker-named group and start receiving this
   /// device's sync events.
-  Future<void> adoptDeviceGroup(NodeId groupId) async {
+  Future<bool> adoptDeviceGroup(NodeId groupId) async {
+    final bundle = await load(groupId);
+    if (bundle == null ||
+        !bundle.manifest.isSovereignDevice ||
+        !_validManifest(bundle.manifest)) {
+      return false;
+    }
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (e) => _validControlFor(bundle.manifest, e),
+      initialName: bundle.manifest.name,
+    ).state;
+    if (!state.isMember(_signer.selfId)) return false;
     await _storage.putSetting('devices.gid', groupId.hex);
     _deviceGidCache = groupId.hex;
     _deviceMembersCache = null;
     changes.value++;
+    // Ingest deliberately kept the snapshot inert before adoption. Replay its
+    // validated state now that gid + sovereign genesis + membership are bound.
+    for (final message in await messagesOf(groupId)) {
+      if (message.author != _signer.selfId) {
+        _deviceIncomingCtl.add(message);
+      }
+    }
+    return true;
   }
 
-  /// Link [device] into my device group (create it on first use). The new
-  /// device gets ADMIN so it can manage members below itself; the full
-  /// snapshot broadcast (addMember path) syncs it the whole history.
-  Future<bool> linkDevice(NodeId device) async {
-    final gid = await ensureDeviceGroup();
+  Future<bool> _appendSovereignMembership(GroupBundle bundle,
+      SovereignGroupSigner sovereign, ControlOp op, NodeId device) async {
+    if (!_sovereignMatches(bundle.manifest, sovereign)) return false;
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (e) => _validControlFor(bundle.manifest, e),
+      initialName: bundle.manifest.name,
+    ).state;
+    if (op == ControlOp.addMember && state.isMember(device)) return true;
+    if (op == ControlOp.removeMember && !state.isMember(device)) return true;
+    if (device == bundle.manifest.owner) return false;
+    final seq = _nextSeq(bundle.control
+        .where((e) =>
+            e.author == sovereign.nodeId &&
+            _validControlFor(bundle.manifest, e))
+        .map((e) => e.seq));
+    final unsigned = ControlEntry(
+      groupId: bundle.manifest.groupId,
+      author: sovereign.nodeId,
+      seq: seq,
+      prevHash: '',
+      op: op,
+      target: device,
+      role: op == ControlOp.addMember ? GroupRole.member : null,
+      policyVersion: state.policyVersion,
+      createdAtMs: _now(),
+      signature: Uint8List(0),
+    );
+    final signed = unsigned.withSignature(
+      sovereign.sign(unsigned.canonicalBytes()),
+      Uint8List.fromList(sovereign.publicKey),
+    );
+    final candidate = [...bundle.control, signed];
+    final folded = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: candidate,
+      verify: (e) => _validControlFor(bundle.manifest, e),
+      initialName: bundle.manifest.name,
+    );
+    if (folded.rejected
+        .any((e) => e.author == signed.author && e.seq == signed.seq)) {
+      return false;
+    }
+    await _save(GroupBundle(
+      manifest: bundle.manifest,
+      control: candidate,
+      messages: bundle.messages,
+      reactions: bundle.reactions,
+    ));
     _deviceMembersCache = null;
-    return addControlOp(gid, ControlOp.addMember,
-        target: device, role: GroupRole.admin);
+    if (op == ControlOp.addMember) {
+      await broadcast(bundle.manifest.groupId);
+    } else {
+      await broadcastDelta(bundle.manifest.groupId, control: [signed]);
+    }
+    return true;
+  }
+
+  Future<bool> linkDevice(NodeId device,
+      {required SovereignGroupSigner sovereign}) async {
+    final hex = await deviceGroupIdHex();
+    if (hex == null) {
+      return await _mintSovereignDeviceGroup(sovereign, [device]) != null;
+    }
+    final bundle = await load(NodeId.fromHex(hex));
+    if (bundle == null) return false;
+    if (!bundle.manifest.isSovereignDevice) {
+      final state = foldControlLog(
+        owner: bundle.manifest.owner,
+        entries: bundle.control,
+        verify: (e) => _validControlFor(bundle.manifest, e),
+        initialName: bundle.manifest.name,
+      ).state;
+      return await _mintSovereignDeviceGroup(
+            sovereign,
+            [...state.members.values.map((m) => m.nodeId), device],
+            migrateFrom: bundle,
+          ) !=
+          null;
+    }
+    return _appendSovereignMembership(
+        bundle, sovereign, ControlOp.addMember, device);
   }
 
   /// Revoke [device]: removeMember — the fold rotates the epoch, so the
   /// removed device loses the future (already-synced history honestly stays).
-  Future<bool> revokeDevice(NodeId device) async {
+  Future<bool> revokeDevice(NodeId device,
+      {required SovereignGroupSigner sovereign}) async {
     final hex = await deviceGroupIdHex();
     if (hex == null) return false;
+    final old = await load(NodeId.fromHex(hex));
+    if (old == null) return false;
+    if (!old.manifest.isSovereignDevice) {
+      final state = foldControlLog(
+        owner: old.manifest.owner,
+        entries: old.control,
+        verify: (e) => _validControlFor(old.manifest, e),
+        initialName: old.manifest.name,
+      ).state;
+      return await _mintSovereignDeviceGroup(
+            sovereign,
+            state.members.values
+                .map((m) => m.nodeId)
+                .where((id) => id != device),
+            migrateFrom: old,
+          ) !=
+          null;
+    }
     _deviceMembersCache = null;
-    return addControlOp(NodeId.fromHex(hex), ControlOp.removeMember,
-        target: device);
+    return _appendSovereignMembership(
+        old, sovereign, ControlOp.removeMember, device);
   }
 
   /// Catch-up for the device group (brick 4e): ship my FULL device-group
@@ -1307,10 +1663,18 @@ class GroupService {
     final now = _now();
     var cached = _deviceMembersCache;
     if (cached == null || now - _deviceMembersCacheAtMs > 30000) {
-      final st = await stateOf(NodeId.fromHex(hex));
+      final bundle = await load(NodeId.fromHex(hex));
+      final st = bundle == null
+          ? null
+          : foldControlLog(
+              owner: bundle.manifest.owner,
+              entries: bundle.control,
+              verify: (e) => _validControlFor(bundle.manifest, e),
+              initialName: bundle.manifest.name,
+            ).state;
       cached = {
         for (final m in st?.members.values ?? const <GroupMember>[])
-          m.nodeId.hex,
+          if (m.nodeId != bundle?.manifest.owner) m.nodeId.hex,
       };
       _deviceMembersCache = cached;
       _deviceMembersCacheAtMs = now;
@@ -1385,12 +1749,16 @@ class GroupService {
     final state = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
-      verify: (e) => _validControlFor(b.manifest.groupId, e),
+      verify: (e) => _validControlFor(b.manifest, e),
     ).state;
     final json = snapshotJson(b);
     var n = 0;
     for (final m in state.members.values) {
-      if (m.nodeId == _signer.selfId) continue;
+      if (m.nodeId == _signer.selfId ||
+          (b.manifest.isSovereignDevice &&
+              m.nodeId == b.manifest.owner)) {
+        continue;
+      }
       await send(m.nodeId, groupId, json);
       n++;
     }
@@ -1417,7 +1785,7 @@ class GroupService {
     final state = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
-      verify: (e) => _validControlFor(b.manifest.groupId, e),
+      verify: (e) => _validControlFor(b.manifest, e),
     ).state;
     final json = jsonEncode({
       'm': b.manifest.toJson(),
@@ -1427,7 +1795,11 @@ class GroupService {
     });
     var n = 0;
     for (final m in state.members.values) {
-      if (m.nodeId == _signer.selfId) continue;
+      if (m.nodeId == _signer.selfId ||
+          (b.manifest.isSovereignDevice &&
+              m.nodeId == b.manifest.owner)) {
+        continue;
+      }
       await send(m.nodeId, groupId, json);
       n++;
     }

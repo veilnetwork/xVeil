@@ -1,6 +1,6 @@
 # Multi-device (design)
 
-Status: DRAFT v1 — brick 1 (this doc + the pure device-group core).
+Status: v1 sync shipped; production-safe sovereign gate in progress.
 Agreed decisions (2026-07-09, ROADMAP «Эпик: мультиустройства») are
 restated here and mapped onto the shipped groups foundation.
 
@@ -26,32 +26,26 @@ and apply-loop into the local store.
 
 ## Identity vs device keys
 
-* The SOVEREIGN (master) key exists only via the seed phrase — ownership
-  and recovery. Secondary devices never store it.
 * Each device runs its own per-device instance identity (veil-core:
   InstanceRegistry, identity_document.bin + instance.toml — already in
-  the FFI). Linking = the OLD device signs the NEW one into the device
-  group (addMember) after a QR handshake carrying the new device's
-  public identity + a short-auth code.
-* The device group's OWNER is the sovereign; v1 practical stance: the
-  first (linking) device acts for the sovereign the same way it already
-  signs group ops today.
-* DECIDED (user, 2026-07-11): the production stance is STRICT sovereign
-  signing — linking a device requires the sovereign key (seed phrase
-  entered at link time) to sign the device-group manifest/addMember op.
-  The v1 instance-key path above stays only until that brick lands
-  ("sovereign-подпись линковки", scheduled after brick 4/5); no new
-  format work may assume the first-device-acts-for-sovereign shortcut.
+  the FFI). It signs sync events but NEVER device-registry mutations.
+* The device group's OWNER is the sovereign. Its signed v2 manifest and
+  every addMember/removeMember entry carry an explicit signature algorithm;
+  keys/signatures are variable-length so Falcon/hybrid bundles fit without a
+  new wire version. Linked device identities are plain members, not admins.
+* DECIDED (user, 2026-07-11): encrypted sovereign material lives on EVERY
+  device; the seed phrase decrypts it in RAM for one signing burst. The first
+  implementation is an opaque Ed25519 recovery-phrase signer; encrypted
+  bundle persistence + Falcon remain required before the epic is complete.
 
-## Sovereign-signed linking (design draft — pending UX answers)
+## Sovereign-signed linking
 
-Proposed flow (recommendation, not yet confirmed):
+Confirmed flow and implemented invariants:
 
-1. The user starts "Link device" on an EXISTING device and is prompted
-   for the seed phrase. The sovereign identity TOML is derived from the
-   phrase strictly IN RAM (the recovery-flow derivation, reused), used
-   for the signatures below, then wiped. Nothing sovereign ever touches
-   disk on any device (canon).
+1. The user starts "Link device" on an EXISTING device and unlocks one
+   short-lived sovereign signing burst. Mutable FFI phrase copies and native
+   seeds are wiped; private material never crosses into Dart. The production
+   path will decrypt the local sovereign bundle rather than derive-only.
 2. First link mints the device group with OWNER = the SOVEREIGN node id
    (manifest signed by the sovereign key). Every membership ControlOp of
    a device group (addMember AND removeMember) must be signed by the
@@ -62,13 +56,15 @@ Proposed flow (recommendation, not yet confirmed):
    ownership.
 3. The QR handshake stays as today (gid + new device's public identity +
    short-auth code); only the signer of the resulting addMember changes.
-4. The fold gains a device-group-only validation rule: membership ops
+4. The fold has a device-group-only validation rule: membership ops
    not signed by the owner are rejected (regular groups keep the
-   existing role rules — this is scoped by the marker name).
+   existing role rules). Manifest signature, gid, owner key, algorithm,
+   operation shape and member admission are checked BEFORE persistence.
 5. Migration: an existing v1 group (instance-owned) is grandfathered
-   read-only for sync but cannot admit NEW devices; the first
-   sovereign-signed link re-mints the group under the sovereign owner
-   and the old devices re-adopt (one-time, guided).
+   read-only for sync but cannot admit NEW devices. The first sovereign action
+   re-mints a fresh gid, carries all known devices as members, and re-signs the
+   compact current sync state (including attachment refs) into the new group;
+   old devices explicitly re-adopt it once (a planted snapshot never auto-adopts).
 
 UX ANSWERS (user, 2026-07-11) — the flow above amended accordingly:
 * KEY STORAGE (user's design, replaces derive-at-link): the sovereign
@@ -143,3 +139,7 @@ the message.
 4. Contacts/settings/call-log sync + lazy attachment fetch.
 5. Padding/registry-privacy follow-ups + audit pass (the churn-outlier
    saga's stub-identity/EK-epoch grabli get re-checked here).
+6. Sovereign hardening: ✅ opaque one-burst signer; ✅ signed algorithm-aware
+   v2 manifest + owner-only add/revoke + legacy remint; ⏳ encrypted sovereign
+   blob on every device, Falcon/hybrid signer/verifier, QR/UI guided re-adopt,
+   and pre-issued recovery certificate format.
