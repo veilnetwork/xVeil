@@ -27,6 +27,7 @@ import '../domain/group_policy.dart';
 import '../state/group_crypto.dart';
 import '../state/group_service.dart';
 import '../routing/router.dart';
+import '../state/api_server.dart';
 import '../state/app_controller.dart';
 import '../state/call_service.dart';
 import '../state/mac_media_permissions.dart';
@@ -226,6 +227,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/group_leave':
           await _groupLeaveHook(req);
+          return;
+        case '/api_enable':
+          await _apiEnableHook(req);
+          return;
+        case '/api_token':
+          await _apiTokenHook(req);
           return;
         case '/group_post_sticker':
           await _groupPostStickerHook(req);
@@ -592,6 +599,30 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final posted = await svc.postMessage(gid, q['body'] ?? '');
     final msgs = await svc.messagesOf(gid);
     return _json(req, {'ok': posted, 'messages': msgs.length});
+  }
+
+  /// Toggle the automation API: ?on=1 enables (mints a token if none) + starts
+  /// the loopback server; ?on=0 disables. Reports enabled/running/port.
+  Future<void> _apiEnableHook(HttpRequest req) async {
+    final ctrl = ref.read(apiServerControllerProvider.notifier);
+    if (req.uri.queryParameters['on'] == '0') {
+      await ctrl.disable();
+    } else {
+      await ctrl.enable();
+    }
+    final cfg = ref.read(apiServerControllerProvider);
+    return _json(req, {
+      'ok': true,
+      'enabled': cfg.enabled,
+      'running': ctrl.running,
+      'port': kApiPort,
+    });
+  }
+
+  /// Report the current automation-API bearer token (empty until enabled once).
+  Future<void> _apiTokenHook(HttpRequest req) async {
+    final cfg = ref.read(apiServerControllerProvider);
+    return _json(req, {'ok': true, 'token': cfg.token});
   }
 
   /// Leave ?group= — appends a self-leave op + broadcasts. Reports whether we
