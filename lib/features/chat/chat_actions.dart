@@ -483,32 +483,62 @@ Future<void> _confirmClear(
   }
 }
 
+/// The shared delete-chat confirmation (chat list AND in-chat menu): the
+/// destructive confirm plus the OPT-IN "notify the peer" checkbox (user
+/// decision 2026-07-11). Default stays OFF — silent local deletion is the
+/// no-oracle canon; the farewell is sent only on this explicit per-action
+/// choice. Returns null when cancelled.
+Future<({bool notify})?> confirmChatDeleteDialog(BuildContext context) async {
+  final l = AppL10n.of(context);
+  var notify = false;
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (dialog) => StatefulBuilder(
+      builder: (ctx, setDialogState) => AlertDialog(
+        title: Text(l.chatDeleteChatTitle),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(l.chatDeleteChatBody),
+            const SizedBox(height: 8),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              value: notify,
+              onChanged: (v) => setDialogState(() => notify = v ?? false),
+              title: Text(l.chatDeleteNotifyPeer),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialog).pop(false),
+            child: Text(l.actionCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialog).pop(true),
+            child: Text(l.chatDeleteConfirm),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (ok != true) return null;
+  return (notify: notify);
+}
+
 Future<void> _confirmDelete(
   BuildContext context,
   WidgetRef ref,
   NodeId peer,
   VoidCallback? onDeleted,
 ) async {
-  final l = AppL10n.of(context);
-  final ok = await showDialog<bool>(
-    context: context,
-    builder: (dialog) => AlertDialog(
-      title: Text(l.chatDeleteChatTitle),
-      content: Text(l.chatDeleteChatBody),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(dialog).pop(false),
-          child: Text(l.actionCancel),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(dialog).pop(true),
-          child: Text(l.chatDeleteConfirm),
-        ),
-      ],
-    ),
-  );
-  if (ok != true) return;
-  await ref.read(messagingServiceProvider).deleteConversation(peer);
+  final choice = await confirmChatDeleteDialog(context);
+  if (choice == null) return;
+  await ref
+      .read(messagingServiceProvider)
+      .deleteConversation(peer, notifyPeer: choice.notify);
   onDeleted?.call();
 }
 

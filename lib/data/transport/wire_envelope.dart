@@ -97,8 +97,26 @@ enum WireKind {
   /// membership proof itself, checked by the group layer (unauthorized ⇒
   /// silent drop). Added before [unknown] (RULE WC).
   groupContentRequest,
+
+  /// OPT-IN farewell: the sender deleted this whole conversation on their
+  /// device AND explicitly chose "notify the peer" in the delete dialog (the
+  /// default delete stays silent — the no-oracle canon is relaxed only by
+  /// that explicit choice, decision 2026-07-11). Body is empty; the receiver
+  /// stores a local [kChatDeletedMarkerBody] marker message in the chat.
+  /// Added before [unknown] so an older decoder maps this out-of-range index
+  /// to [unknown] and drops it (RULE WC).
+  chatDeleted,
   unknown,
 }
+
+/// Stored body of the LOCAL marker message a [WireKind.chatDeleted] farewell
+/// leaves in the receiver's chat. Never typed by a user (bodies are trimmed
+/// user text; this exact token is produced only by the receive path), so the
+/// UI can render it as a system notice instead of a peer bubble.
+const kChatDeletedMarkerBody = 'sys:chat-deleted';
+
+/// True when a stored message body is the [WireKind.chatDeleted] marker.
+bool isChatDeletedMarker(String body) => body == kChatDeletedMarkerBody;
 
 /// The loopback dev transport echoes every wire frame back prefixed with this,
 /// so `↩︎ echo: {"t":..}` bodies land in the log. Echoes of CONTROL frames

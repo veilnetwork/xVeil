@@ -631,6 +631,12 @@ class AppL10nRu extends AppL10n {
       'Переписка и все сообщения удаляются с этого устройства. Собеседник не уведомляется.';
 
   @override
+  String get chatDeleteNotifyPeer => 'Уведомить собеседника';
+
+  @override
+  String get chatDeletedByPeer => 'Собеседник удалил этот чат у себя';
+
+  @override
   String get chatEditTitle => 'Изменить сообщение';
 
   @override

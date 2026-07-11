@@ -14,6 +14,7 @@ import 'package:veil_media/veil_media.dart' show VeilVnotePlayer;
 import '../../core/format.dart';
 import '../../core/ids.dart';
 import '../../data/serve_source.dart';
+import '../../data/transport/wire_envelope.dart' show isChatDeletedMarker;
 import '../../core/log.dart';
 import 'chat_actions.dart';
 import 'chat_search.dart';
@@ -1524,31 +1525,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     await ref.read(messagingServiceProvider).clearConversation(_peer);
   }
 
-  /// Erase this whole conversation (messages + contact) from THIS device. The
-  /// peer is not notified — a local, deniable wipe. After it, [_peer] is unknown
-  /// again, so we pop back to the chat list.
+  /// Erase this whole conversation (messages + contact) from THIS device. A
+  /// local, deniable wipe by default; the shared dialog offers the OPT-IN
+  /// "notify the peer" farewell. After it, [_peer] is unknown again, so we pop
+  /// back to the chat list.
   Future<void> _deleteConversation() async {
-    final l = AppL10n.of(context);
     final navigator = Navigator.of(context);
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialog) => AlertDialog(
-        title: Text(l.chatDeleteChatTitle),
-        content: Text(l.chatDeleteChatBody),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialog).pop(false),
-            child: Text(l.actionCancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialog).pop(true),
-            child: Text(l.chatDeleteConfirm),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    await ref.read(messagingServiceProvider).deleteConversation(_peer);
+    final choice = await confirmChatDeleteDialog(context);
+    if (choice == null) return;
+    await ref
+        .read(messagingServiceProvider)
+        .deleteConversation(_peer, notifyPeer: choice.notify);
     if (!mounted) return;
     navigator.pop(); // leave the now-empty conversation
   }
@@ -2038,6 +2025,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       );
                     }
                     final m = list[hasMore ? i - 1 : i];
+                    // A chatDeleted farewell marker renders as a centered
+                    // system notice, not a peer bubble (nobody typed it).
+                    if (m.direction == MessageDirection.incoming &&
+                        isChatDeletedMarker(m.body)) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Text(
+                            l.chatDeletedByPeer,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      );
+                    }
                     final bubble = _Bubble(
                       key: _bubbleKey(m.id),
                       message: m,

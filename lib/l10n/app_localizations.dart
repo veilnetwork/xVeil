@@ -1243,6 +1243,18 @@ abstract class AppL10n {
   /// **'The conversation and all its messages are erased from this device. The other person is not notified.'**
   String get chatDeleteChatBody;
 
+  /// No description provided for @chatDeleteNotifyPeer.
+  ///
+  /// In en, this message translates to:
+  /// **'Notify the other person'**
+  String get chatDeleteNotifyPeer;
+
+  /// No description provided for @chatDeletedByPeer.
+  ///
+  /// In en, this message translates to:
+  /// **'The other person deleted this chat on their device'**
+  String get chatDeletedByPeer;
+
   /// No description provided for @chatEditTitle.
   ///
   /// In en, this message translates to:
