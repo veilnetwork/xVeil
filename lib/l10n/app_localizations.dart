@@ -2461,6 +2461,24 @@ abstract class AppL10n {
   /// **'Run every identity\'s node at once so none goes offline when you switch. Less anonymous — an observer may link your identities by their shared device. Mark sensitive identities to route anonymously.'**
   String get settingsKeepAllOnlineHint;
 
+  /// No description provided for @settingsPhraseStatusTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Recovery phrase'**
+  String get settingsPhraseStatusTitle;
+
+  /// No description provided for @settingsPhraseBackedHint.
+  ///
+  /// In en, this message translates to:
+  /// **'This identity derives from its recovery phrase — the phrase you wrote down restores it.'**
+  String get settingsPhraseBackedHint;
+
+  /// No description provided for @settingsPhraseNoneHint.
+  ///
+  /// In en, this message translates to:
+  /// **'This identity was created without a recovery phrase — a phrase cannot restore it. Keep the app data backed up by other means.'**
+  String get settingsPhraseNoneHint;
+
   /// No description provided for @settingsAnonymousRouting.
   ///
   /// In en, this message translates to:

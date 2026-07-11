@@ -112,6 +112,20 @@ final storageProvider = Provider<Storage>((ref) {
   return ref.watch(singleSpaceStorageProvider);
 });
 
+/// Provenance of the ACTIVE identity's node config ([kIdentityOriginSetting]):
+/// 'phrase' — restorable from the recovery phrase; 'mined' — minted at random;
+/// null — legacy space provisioned before the marker existed (= no phrase).
+/// Follows identity switches via [storageProvider].
+final identityOriginProvider = FutureProvider.autoDispose<String?>((ref) async {
+  final storage = ref.watch(storageProvider);
+  if (!storage.isOpen) return null;
+  try {
+    return await storage.getSetting(kIdentityOriginSetting);
+  } catch (_) {
+    return null; // unreadable — show nothing rather than a wrong claim
+  }
+});
+
 /// Parameters for the in-process deniable boot, set by main() when the
 /// node-embedded dylib is loaded. Null disables it (loopback / legacy paths).
 class DeniableBootConfig {

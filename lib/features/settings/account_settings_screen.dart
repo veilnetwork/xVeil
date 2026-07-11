@@ -125,6 +125,31 @@ class AccountSettingsScreen extends ConsumerWidget {
       appBar: AppBar(title: Text(l.settingsCatAccount)),
       body: ListView(
         children: [
+          // Honest recovery-phrase status of the ACTIVE identity (phrase epic
+          // P4). 'phrase' = derived from the phrase, so it restores it; 'mined'
+          // or a legacy space without the marker = created without a phrase —
+          // say so instead of letting the user assume their old written-down
+          // words restore anything. Informational, not tappable.
+          ref.watch(identityOriginProvider).maybeWhen(
+                data: (origin) {
+                  final backed = origin == 'phrase';
+                  final scheme = Theme.of(context).colorScheme;
+                  return ListTile(
+                    leading: Icon(
+                      backed ? Icons.password_outlined : Icons.key_off_outlined,
+                      color: backed ? scheme.primary : Colors.amber,
+                    ),
+                    title: Text(l.settingsPhraseStatusTitle),
+                    subtitle: Text(
+                      backed
+                          ? l.settingsPhraseBackedHint
+                          : l.settingsPhraseNoneHint,
+                    ),
+                    isThreeLine: true,
+                  );
+                },
+                orElse: () => const SizedBox.shrink(),
+              ),
           // Anonymity toggle for the ACTIVE identity — the SAME control in
           // single and master modes (in master it routes the change to the
           // active identity). Reboots the node under the new routing.

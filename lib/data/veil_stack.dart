@@ -78,6 +78,51 @@ class RealVeilStack {
   // leaves NO at-rest artifact — see [dispose].
   final String? _runtimeDir;
 
+  /// Step 1 of the deniable boot, extracted so the provenance contract is
+  /// unit-testable: load the stored node config, or provision + store one on
+  /// first run — derived from [identityPhrase] when given, mined at random
+  /// otherwise. Records [kIdentityOriginSetting] ('phrase'/'mined') alongside
+  /// a FRESH provision only, so the honest "no phrase" state of legacy spaces
+  /// (config present, marker absent) is never overwritten.
+  static Future<String> ensureNodeConfig(
+    Storage storage, {
+    String? identityPhrase,
+    DynamicLibrary? lib,
+  }) async {
+    final existing = await storage.loadNodeConfig();
+    if (existing != null) return existing;
+    final String identityToml;
+    final String origin;
+    if (identityPhrase != null && identityPhrase.isNotEmpty) {
+      devLog(
+        () => 'xVeil[deniable]: deriving node identity from phrase '
+            '(first run)…',
+      );
+      // Phrase-derived identity (P2): the keypair is deterministic, only the
+      // nonce search burns CPU — still off the UI isolate like the mine.
+      final phrase = identityPhrase;
+      identityToml = lib == null
+          ? await Isolate.run(() => _configFromPhraseInIsolate(phrase))
+          : EmbeddedNode.configFromPhrase(phrase, lib: lib);
+      origin = 'phrase';
+    } else {
+      devLog(() => 'xVeil[deniable]: mining node identity (first run)…');
+      // Canonical-difficulty PoW is CPU-heavy. Run it on a separate isolate so
+      // the UI thread stays responsive (the "setting up" screen animates). The
+      // worker isolate re-opens the dylib itself (from VEIL_FFI_DYLIB) rather
+      // than relying on the parent's load being visible via process(), which is
+      // not guaranteed across isolates. The explicit-lib path (tests) mines
+      // inline.
+      identityToml = lib == null
+          ? await Isolate.run(_mineConfigInIsolate)
+          : EmbeddedNode.mineConfig(0, lib: lib);
+      origin = 'mined';
+    }
+    await storage.saveNodeConfig(identityToml);
+    await storage.putSetting(kIdentityOriginSetting, origin);
+    return identityToml;
+  }
+
   /// Production boot: identity comes from the unlocked [storage] (mined +
   /// stored on first run), the node boots in-process via deferred-init and has
   /// its real config applied in memory — no `config.toml` on disk. [runtimeDir]
@@ -111,36 +156,10 @@ class RealVeilStack {
       return ms;
     }
 
-    // 1. Load this identity's node config, or mine + store it on first run.
-    final String identityToml;
-    final existing = await storage.loadNodeConfig();
-    if (existing != null) {
-      identityToml = existing;
-    } else if (identityPhrase != null && identityPhrase.isNotEmpty) {
-      devLog(
-        () => 'xVeil[deniable]: deriving node identity from phrase '
-            '(first run)…',
-      );
-      // Phrase-derived identity (P2): the keypair is deterministic, only the
-      // nonce search burns CPU — still off the UI isolate like the mine.
-      final phrase = identityPhrase;
-      identityToml = lib == null
-          ? await Isolate.run(() => _configFromPhraseInIsolate(phrase))
-          : EmbeddedNode.configFromPhrase(phrase, lib: lib);
-      await storage.saveNodeConfig(identityToml);
-    } else {
-      devLog(() => 'xVeil[deniable]: mining node identity (first run)…');
-      // Canonical-difficulty PoW is CPU-heavy. Run it on a separate isolate so
-      // the UI thread stays responsive (the "setting up" screen animates). The
-      // worker isolate re-opens the dylib itself (from VEIL_FFI_DYLIB) rather
-      // than relying on the parent's load being visible via process(), which is
-      // not guaranteed across isolates. The explicit-lib path (tests) mines
-      // inline.
-      identityToml = lib == null
-          ? await Isolate.run(_mineConfigInIsolate)
-          : EmbeddedNode.mineConfig(0, lib: lib);
-      await storage.saveNodeConfig(identityToml);
-    }
+    // 1. Load this identity's node config, or derive/mine + store it on
+    // first run.
+    final identityToml =
+        await ensureNodeConfig(storage, identityPhrase: identityPhrase, lib: lib);
     devLog(() => 'xVeil[deniable]: identity ready (${identityToml.length} B) '
         '[+${lap()}ms config]');
 

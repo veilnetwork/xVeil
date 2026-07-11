@@ -6,6 +6,14 @@ import '../../domain/event.dart';
 import '../../domain/identity.dart';
 import '../../domain/roster.dart';
 
+/// Settings key recording HOW this space's node identity came to be:
+/// `'phrase'` — derived from the onboarding recovery phrase (P2), so the
+/// phrase restores it; `'mined'` — minted at random (extra identities, or
+/// builds without the native generator). ABSENT on spaces provisioned before
+/// the marker existed (legacy) — treat as "no phrase". Local metadata only;
+/// it never leaves the deniable container.
+const kIdentityOriginSetting = 'identity.origin';
+
 /// Domain-oriented persistence port.
 ///
 /// The production adapter is backed by `hidden-volume`: a [open] call unlocks
