@@ -19,4 +19,17 @@ void main() {
     expect(veilPhraseValid('not a phrase'), isFalse);
     expect(veilPhraseValid(''), isFalse);
   }, skip: hasDylib ? false : 'set VEIL_FFI_DYLIB to libveilclient_ffi');
+
+  test(
+      'a natively GENERATED phrase passes the production validator '
+      '(onboarding phrase epic P1: generate → validate closes the loop the '
+      'header note called out of scope)', () {
+    final phrase = veilGeneratePhrase();
+    expect(phrase, isNotNull, reason: 'dylib present — generation must work');
+    expect(phrase!.split(' ').length, 24);
+    expect(veilPhraseValid(phrase), isTrue,
+        reason: 'checksum of a fresh native phrase must verify');
+    final second = veilGeneratePhrase()!;
+    expect(second, isNot(phrase), reason: 'fresh entropy per call');
+  }, skip: hasDylib ? false : 'set VEIL_FFI_DYLIB to libveilclient_ffi');
 }
