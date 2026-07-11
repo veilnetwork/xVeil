@@ -90,6 +90,7 @@
   "groupMembers": "{count, plural, =1{1 участник} few{{count} участника} other{{count} участников}}",
   "@groupMembers": { "placeholders": { "count": { "type": "int" } } },
   "groupAttachImage": "Отправить картинку",
+  "groupSendSticker": "Отправить стикер",
   "groupImageOnly": "Выберите файл изображения",
   "groupImageTooLarge": "Картинка слишком большая для инлайна",
   "stickerEmpty": "Пока нет стикеров — импортируйте свои картинки",

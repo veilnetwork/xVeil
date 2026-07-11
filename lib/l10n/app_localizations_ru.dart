@@ -277,6 +277,9 @@ class AppL10nRu extends AppL10n {
   String get groupAttachImage => 'Отправить картинку';
 
   @override
+  String get groupSendSticker => 'Отправить стикер';
+
+  @override
   String get groupImageOnly => 'Выберите файл изображения';
 
   @override

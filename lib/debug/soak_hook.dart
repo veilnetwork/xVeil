@@ -221,6 +221,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/group_post_image':
           await _groupPostImageHook(req);
           return;
+        case '/group_post_sticker':
+          await _groupPostStickerHook(req);
+          return;
         case '/group_state':
           await _groupStateHook(req);
           return;
@@ -621,6 +624,36 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'h': img.h,
       'b64len': img.b64.length,
     });
+  }
+
+  /// Post an inline STICKER (kind='sticker' → borderless render): ?group=&path=;
+  /// reads the image file and posts it as a sticker attachment (no caption).
+  Future<void> _groupPostStickerHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final q = req.uri.queryParameters;
+    final gidHex = q['group'], path = q['path'];
+    if (gidHex == null || path == null) {
+      return _json(req, {'ok': false, 'error': 'need group+path'});
+    }
+    Uint8List bytes;
+    try {
+      bytes = await File(path).readAsBytes();
+    } catch (_) {
+      return _json(req, {'ok': false, 'error': 'unreadable path'});
+    }
+    final img = await makeInlineImageB64(bytes);
+    if (img == null) {
+      return _json(req, {'ok': false, 'error': 'not-image-or-too-large'});
+    }
+    final posted = await svc.postMessage(
+      NodeId.fromHex(gidHex),
+      '',
+      attachment: GroupAttachment(
+          kind: 'sticker', dataB64: img.b64, w: img.w, h: img.h),
+    );
+    return _json(req, {'ok': posted, 'w': img.w, 'h': img.h});
   }
 
   /// Add ?peer= as a member of ?group= and fan the snapshot out to all members

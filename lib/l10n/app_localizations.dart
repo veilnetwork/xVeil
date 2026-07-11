@@ -583,6 +583,12 @@ abstract class AppL10n {
   /// **'Send image'**
   String get groupAttachImage;
 
+  /// No description provided for @groupSendSticker.
+  ///
+  /// In en, this message translates to:
+  /// **'Send sticker'**
+  String get groupSendSticker;
+
   /// No description provided for @groupImageOnly.
   ///
   /// In en, this message translates to:

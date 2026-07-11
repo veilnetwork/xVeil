@@ -90,6 +90,7 @@
   "groupMembers": "{count, plural, =1{1 member} other{{count} members}}",
   "@groupMembers": { "placeholders": { "count": { "type": "int" } } },
   "groupAttachImage": "Send image",
+  "groupSendSticker": "Send sticker",
   "groupImageOnly": "Pick an image file",
   "groupImageTooLarge": "Image too large to send inline",
   "stickerEmpty": "No stickers yet — import your own pictures",
