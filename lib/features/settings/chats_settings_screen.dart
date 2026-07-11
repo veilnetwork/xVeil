@@ -10,6 +10,7 @@ import '../../state/background_node_controller.dart';
 import '../../state/chat_page_size_controller.dart';
 import '../../state/close_to_tray_controller.dart';
 import '../../state/notifications.dart';
+import '../../state/reactions_visibility_controller.dart';
 
 /// Settings → Chats & notifications: how messages reach you (notifications,
 /// background delivery, close-to-tray) and how a chat loads.
@@ -142,6 +143,18 @@ class ChatsSettingsScreen extends ConsumerWidget {
               value: ref.watch(backgroundNodeProvider),
               onChanged: (v) => _setKeepNodeBackground(ref, v),
             ),
+          // Reactions: a local display preference for 1:1 chats AND groups —
+          // hides the chips under bubbles and the quick-react bar in the
+          // message menu. Reactions keep syncing; toggling back restores them.
+          SwitchListTile(
+            secondary: const Icon(Icons.add_reaction_outlined),
+            title: Text(l.settingsShowReactions),
+            subtitle: Text(l.settingsShowReactionsHint),
+            isThreeLine: true,
+            value: ref.watch(showReactionsProvider),
+            onChanged: (v) =>
+                ref.read(showReactionsProvider.notifier).set(v),
+          ),
           // Chat pagination: how many recent messages a chat loads initially
           // (and the "load earlier" step). Bounds decrypt + list-build work.
           ListTile(

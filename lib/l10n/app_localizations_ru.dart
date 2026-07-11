@@ -326,6 +326,19 @@ class AppL10nRu extends AppL10n {
   String get groupImageTooLarge => 'Картинка слишком большая для инлайна';
 
   @override
+  String get reactorsTitle => 'Реакции';
+
+  @override
+  String get reactorsYou => 'Вы';
+
+  @override
+  String get settingsShowReactions => 'Показывать реакции';
+
+  @override
+  String get settingsShowReactionsHint =>
+      'Чипы реакций под сообщениями и быстрые реакции в меню сообщения. Скрытие локально — реакции продолжают синхронизироваться.';
+
+  @override
   String get stickerEmpty => 'Пока нет стикеров — импортируйте свои картинки';
 
   @override

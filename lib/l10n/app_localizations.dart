@@ -679,6 +679,30 @@ abstract class AppL10n {
   /// **'Image too large to send inline'**
   String get groupImageTooLarge;
 
+  /// No description provided for @reactorsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Reactions'**
+  String get reactorsTitle;
+
+  /// No description provided for @reactorsYou.
+  ///
+  /// In en, this message translates to:
+  /// **'You'**
+  String get reactorsYou;
+
+  /// No description provided for @settingsShowReactions.
+  ///
+  /// In en, this message translates to:
+  /// **'Show reactions'**
+  String get settingsShowReactions;
+
+  /// No description provided for @settingsShowReactionsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Reaction chips under messages and the quick-react bar in the message menu. Hiding is local only — reactions keep syncing.'**
+  String get settingsShowReactionsHint;
+
   /// No description provided for @stickerEmpty.
   ///
   /// In en, this message translates to:
