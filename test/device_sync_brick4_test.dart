@@ -248,6 +248,37 @@ void main() {
     expect(isNewerDeviceSync(newer, second), isTrue);
   });
 
+  test('readMark (brick 4c): local markRead fires the tap with the advanced '
+      'watermark; a mirrored mark applies monotonically and never echoes',
+      () async {
+    final me = _id(1), peer = _id(2);
+    final storage = await _openStorage();
+    await storage.upsertContact(
+        Contact(nodeId: peer, status: ContactStatus.accepted));
+    final svc = MessagingService(_Noop(me), storage)..start();
+    addTearDown(svc.dispose);
+
+    final taps = <(String, int)>[];
+    svc.onConversationRead = (c, ts) => taps.add((c, ts));
+
+    await svc.sendText(peer, 'hello');
+    await svc.markRead(peer.hex);
+    expect(taps, hasLength(1));
+    expect(taps.single.$1, peer.hex);
+    final localMark = taps.single.$2;
+    expect(localMark, greaterThan(0));
+    expect(await storage.readMarker(peer.hex), localMark);
+
+    // A NEWER mirrored mark advances the watermark — without firing the tap.
+    expect(await svc.applyMirroredReadMark(peer.hex, localMark + 5000), isTrue);
+    expect(await storage.readMarker(peer.hex), localMark + 5000);
+    expect(taps, hasLength(1), reason: 'apply must not echo into the tap');
+
+    // An OLDER mirrored mark never regresses what this device already read.
+    expect(await svc.applyMirroredReadMark(peer.hex, localMark), isFalse);
+    expect(await storage.readMarker(peer.hex), localMark + 5000);
+  });
+
   test('file mirror applies OFFER-shaped (brick 4b): fileContentId + meta, '
       'no bytes, idempotent, and deniability still holds', () async {
     final me = _id(1), peer = _id(2);

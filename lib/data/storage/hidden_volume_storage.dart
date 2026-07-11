@@ -393,6 +393,17 @@ class HiddenVolumeStorage implements Storage {
   }
 
   @override
+  Future<int> readMarker(String conversationId) => _readMarker(conversationId);
+
+  @override
+  Future<void> setReadMarker(String conversationId, int tsMs) async {
+    if (await _readMarker(conversationId) >= tsMs) return;
+    await _as.commit([
+      PutOp(Ns.settings, _sk('read:$conversationId'), _sk('$tsMs')),
+    ]);
+  }
+
+  @override
   Future<List<Conversation>> loadConversations() async {
     final byConv = <String, Message>{};
     final unread = <String, int>{};
