@@ -325,6 +325,19 @@ class AppL10nEn extends AppL10n {
   String get groupImageTooLarge => 'Image too large to send inline';
 
   @override
+  String get reactorsTitle => 'Reactions';
+
+  @override
+  String get reactorsYou => 'You';
+
+  @override
+  String get settingsShowReactions => 'Show reactions';
+
+  @override
+  String get settingsShowReactionsHint =>
+      'Reaction chips under messages and the quick-react bar in the message menu. Hiding is local only — reactions keep syncing.';
+
+  @override
   String get stickerEmpty => 'No stickers yet — import your own pictures';
 
   @override

@@ -32,6 +32,7 @@ import '../../state/messaging.dart';
 import '../../state/nickname_peers.dart';
 import '../../state/notifications.dart';
 import '../../state/providers.dart';
+import '../../state/reactions_visibility_controller.dart';
 import '../../state/sticker_message.dart';
 import '../../state/sticker_store.dart';
 import '../../state/thumbnail.dart';
@@ -44,6 +45,7 @@ import '../../state/voice_play_controller.dart';
 import '../../state/voice_record_controller.dart';
 import 'voice_waveform.dart';
 import 'emoji_panel.dart';
+import 'reactors_sheet.dart';
 import 'sticker_panel.dart';
 import 'video_player_screen.dart';
 
@@ -450,6 +452,32 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     await ref
         .read(messagingServiceProvider)
         .sendReaction(_peer, m.id, mine == emoji ? '' : emoji);
+  }
+
+  /// Display name for a reactor hex: me → "You", the peer → their alias,
+  /// anything else (future-proofing) → the short node id.
+  String _reactorName(String hex, String? selfHex, AppL10n l) {
+    if (hex == selfHex) return l.reactorsYou;
+    if (hex == widget.peerHex) {
+      final convos = ref.read(conversationsProvider).valueOrNull;
+      for (final c in convos ?? const <Conversation>[]) {
+        if (c.peer.nodeId.hex == hex) return c.peer.label;
+      }
+    }
+    return NodeId.fromHex(hex).short;
+  }
+
+  /// Long-press (or right-click) on a reaction chip: who set what on [m].
+  Future<void> _showReactors(Message m) async {
+    final l = AppL10n.of(context);
+    final forMsg =
+        ref.read(reactionsProvider(widget.peerHex)).valueOrNull?[m.id];
+    if (forMsg == null || forMsg.isEmpty) return;
+    final selfHex = ref.read(appControllerProvider).identity?.nodeId.hex;
+    await showReactorsSheet(context, namesByEmoji: {
+      for (final e in invertReactions(forMsg).entries)
+        e.key: [for (final hex in e.value) _reactorName(hex, selfHex, l)],
+    });
   }
 
   Future<void> _accept() =>
@@ -990,6 +1018,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Future<void> _showMessageActions(Message m) async {
     final l = AppL10n.of(context);
     final own = m.direction == MessageDirection.outgoing;
+    final showReactions = ref.read(showReactionsProvider);
     await showModalBottomSheet<void>(
       context: context,
       // Scrollable: with reply/forward/select/copy/edit/delete/history/info the
@@ -1000,24 +1029,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Quick-react bar: tap an emoji to (toggle) react to this message.
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    for (final e in kQuickReactions)
-                      IconButton(
-                        icon: Text(e, style: const TextStyle(fontSize: 24)),
-                        onPressed: () {
-                          Navigator.of(sheet).pop();
-                          _react(m, e);
-                        },
-                      ),
-                  ],
+              // Quick-react bar: tap an emoji to (toggle) react to this
+              // message. Hidden entirely by the "show reactions" preference.
+              if (showReactions) ...[
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      for (final e in kQuickReactions)
+                        IconButton(
+                          icon: Text(e, style: const TextStyle(fontSize: 24)),
+                          onPressed: () {
+                            Navigator.of(sheet).pop();
+                            _react(m, e);
+                          },
+                        ),
+                    ],
+                  ),
                 ),
-              ),
-              const Divider(height: 1),
+                const Divider(height: 1),
+              ],
               ListTile(
                 leading: const Icon(Icons.reply_outlined),
                 title: Text(l.chatMsgReply),
@@ -2018,6 +2050,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       onOpenImage: _openImageGallery,
                       onPlayVideo: _openVideoPlayer,
                       onLongPress: _showMessageActions,
+                      onToggleReaction: _react,
+                      onShowReactors: _showReactors,
                       onTap: _selecting ? () => _toggleSelected(m) : null,
                       onTapQuote: m.replyToId == null
                           ? null
@@ -3509,9 +3543,17 @@ class _Bubble extends ConsumerWidget {
     this.onTapQuote,
     this.onOpenImage,
     this.onPlayVideo,
+    this.onToggleReaction,
+    this.onShowReactors,
     this.highlight,
   });
   final Message message;
+
+  /// Tap a reaction chip to toggle that emoji on this message.
+  final void Function(Message message, String emoji)? onToggleReaction;
+
+  /// Long-press (or right-click) a reaction chip: show who reacted.
+  final void Function(Message message)? onShowReactors;
 
   /// Tap on a DOWNLOADED inline image — the chat screen opens the swipeable
   /// media gallery positioned on this message (null = fall back to the
@@ -3951,14 +3993,27 @@ class _Bubble extends ConsumerWidget {
                 else
                   FormattedText(message.body, highlight: highlight),
                 // Reaction chips: aggregated emoji → count for this message.
+                // Tap toggles my reaction, long-press / right-click lists the
+                // reactors; hidden entirely by the "show reactions" preference.
+                // In select mode the chips go inert so taps fall through to
+                // the row-selection gesture.
                 Builder(
                   builder: (context) {
+                    if (!ref.watch(showReactionsProvider)) {
+                      return const SizedBox.shrink();
+                    }
                     final forMsg = ref
                         .watch(reactionsProvider(message.conversationId))
                         .valueOrNull?[message.id];
                     if (forMsg == null || forMsg.isEmpty) {
                       return const SizedBox.shrink();
                     }
+                    final selfHex = ref.watch(
+                      appControllerProvider.select(
+                        (s) => s.identity?.nodeId.hex,
+                      ),
+                    );
+                    final mine = selfHex == null ? null : forMsg[selfHex];
                     final counts = <String, int>{};
                     for (final e in forMsg.values) {
                       counts[e] = (counts[e] ?? 0) + 1;
@@ -3970,18 +4025,40 @@ class _Bubble extends ConsumerWidget {
                         runSpacing: 4,
                         children: [
                           for (final entry in counts.entries)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: scheme.surfaceContainerHighest,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Text(
-                                '${entry.key} ${entry.value}',
-                                style: const TextStyle(fontSize: 12),
+                            InkWell(
+                              onTap: selecting || onToggleReaction == null
+                                  ? null
+                                  : () =>
+                                        onToggleReaction!(message, entry.key),
+                              onLongPress: selecting || onShowReactors == null
+                                  ? null
+                                  : () => onShowReactors!(message),
+                              onSecondaryTap:
+                                  selecting || onShowReactors == null
+                                  ? null
+                                  : () => onShowReactors!(message),
+                              borderRadius: BorderRadius.circular(10),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: mine == entry.key
+                                      ? scheme.primaryContainer
+                                      : scheme.surfaceContainerHighest,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: mine == entry.key
+                                      ? Border.all(
+                                          color: scheme.primary,
+                                          width: 1,
+                                        )
+                                      : null,
+                                ),
+                                child: Text(
+                                  '${entry.key} ${entry.value}',
+                                  style: const TextStyle(fontSize: 12),
+                                ),
                               ),
                             ),
                         ],
