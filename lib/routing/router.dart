@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../features/calls/call_log_screen.dart';
 import '../features/chat/chat_screen.dart';
 import '../features/groups/group_chat_screen.dart';
 import '../features/groups/group_list_screen.dart';
@@ -131,6 +132,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       // Network and Settings are pushed from the drawer app-menu (they left
       // the bottom bar when it became Chats + reserved future sections).
       GoRoute(path: '/network', builder: (_, _) => const NetworkScreen()),
+      GoRoute(path: '/calls', builder: (_, _) => const CallLogScreen()),
       GoRoute(path: '/groups', builder: (_, _) => const GroupListScreen()),
       GoRoute(
         path: '/group/:id',

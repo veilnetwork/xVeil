@@ -158,6 +158,31 @@ class AppL10nRu extends AppL10n {
   String get navSettings => 'Настройки';
 
   @override
+  String get navCalls => 'Звонки';
+
+  @override
+  String get callLogEmpty => 'Пока нет звонков';
+
+  @override
+  String get callLogEmptyHint =>
+      'Здесь появятся звонки, сделанные и принятые на любом из ваших устройств';
+
+  @override
+  String get callOutcomeMissed => 'Пропущенный';
+
+  @override
+  String get callOutcomeDeclined => 'Отклонён';
+
+  @override
+  String get callOutcomeCancelled => 'Отменён';
+
+  @override
+  String get callOutcomeBusy => 'Занято';
+
+  @override
+  String get callOutcomeFailed => 'Не удался';
+
+  @override
   String get chatsEmpty => 'Пока нет переписок';
 
   @override

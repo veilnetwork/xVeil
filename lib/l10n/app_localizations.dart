@@ -367,6 +367,54 @@ abstract class AppL10n {
   /// **'Settings'**
   String get navSettings;
 
+  /// No description provided for @navCalls.
+  ///
+  /// In en, this message translates to:
+  /// **'Calls'**
+  String get navCalls;
+
+  /// No description provided for @callLogEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No calls yet'**
+  String get callLogEmpty;
+
+  /// No description provided for @callLogEmptyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Calls you make and receive on any of your devices will appear here'**
+  String get callLogEmptyHint;
+
+  /// No description provided for @callOutcomeMissed.
+  ///
+  /// In en, this message translates to:
+  /// **'Missed'**
+  String get callOutcomeMissed;
+
+  /// No description provided for @callOutcomeDeclined.
+  ///
+  /// In en, this message translates to:
+  /// **'Declined'**
+  String get callOutcomeDeclined;
+
+  /// No description provided for @callOutcomeCancelled.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled'**
+  String get callOutcomeCancelled;
+
+  /// No description provided for @callOutcomeBusy.
+  ///
+  /// In en, this message translates to:
+  /// **'Busy'**
+  String get callOutcomeBusy;
+
+  /// No description provided for @callOutcomeFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed'**
+  String get callOutcomeFailed;
+
   /// No description provided for @chatsEmpty.
   ///
   /// In en, this message translates to:

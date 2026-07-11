@@ -8,6 +8,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../domain/call.dart';
@@ -29,6 +30,10 @@ class CallLogStore {
   /// Fired for LOCALLY recorded rows only (never from [addMirrored]) — the
   /// device-sync bridge posts these to the device group.
   void Function(CallLogEntry e)? onAdded;
+
+  /// Bumped whenever a row lands (local or mirrored) — the journal screen's
+  /// re-render signal.
+  final ValueNotifier<int> changes = ValueNotifier(0);
 
   /// Serializes read-modify-write cycles so a local end racing a mirrored row
   /// can't lose either.
@@ -71,6 +76,7 @@ class CallLogStore {
         _key,
         jsonEncode([for (final x in next.take(kCallLogCap)) x.toJson()]),
       );
+      changes.value++;
       return true;
     });
     _chain = done.then((_) {}, onError: (_) {});
