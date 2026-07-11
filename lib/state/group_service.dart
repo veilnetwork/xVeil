@@ -893,11 +893,17 @@ class GroupService {
 
   /// Append a sync event to my device group's log (no-op false when no
   /// device group exists yet). Concurrent calls are applied in order.
-  Future<bool> postDeviceEvent(DeviceSyncEvent e) {
+  ///
+  /// [attachment] (brick 4b, lazy attachments): a mirrored FILE message posts
+  /// its contentId as a real attachment ref, which puts the cid into
+  /// [referencedContentIds] — that is what authorizes my other devices'
+  /// membership pull of the bytes. The event body stays the JSON codec.
+  Future<bool> postDeviceEvent(DeviceSyncEvent e, {GroupAttachment? attachment}) {
     final done = _devicePostChain.then((_) async {
       final hex = await deviceGroupIdHex();
       if (hex == null) return false;
-      return postMessage(NodeId.fromHex(hex), e.toBody());
+      return postMessage(NodeId.fromHex(hex), e.toBody(),
+          attachment: attachment);
     });
     _devicePostChain = done.then((_) {}, onError: (_) {});
     return done;
@@ -1050,26 +1056,61 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   };
   messaging.allowStrangerGroupSync = svc.allowStrangerGroupSync;
 
-  // ── Multi-device mirror loop (doc/MULTIDEVICE-DESIGN.md, brick 3) ─────────
+  // ── Multi-device mirror loop (doc/MULTIDEVICE-DESIGN.md, bricks 3+4b) ─────
   // EMIT: a stored 1:1 message becomes a msgMirror event on my device group.
-  // Skip Saved Messages (peer == self, local-only) and files (lazy per design
-  // — v1 mirrors text bodies). postDeviceEvent is a no-op until a device group
-  // exists, so this is inert on a single-device install.
+  // Skip Saved Messages (peer == self, local-only). A FILE message (either
+  // direction) mirrors LAZILY: the event carries name/size/cid and a real
+  // attachment ref (micro-thumb + contentId) — never the bytes; the ref is
+  // what authorizes the other device's membership pull when the user taps
+  // download there. postDeviceEvent is a no-op until a device group exists,
+  // so this is inert on a single-device install.
   messaging.onMessageStored = (peer, m) {
-    if (peer == svc.selfId || m.fileId != null || m.body.isEmpty) return;
-    unawaited(svc.postDeviceEvent(DeviceSyncEvent(
-      kind: DeviceSyncKind.msgMirror,
-      key: m.id,
-      tsMs: m.timestamp.millisecondsSinceEpoch,
-      payload: {
-        'peer': peer.hex,
-        'dir': m.direction.name,
-        'body': m.body,
-      },
-    )));
+    if (peer == svc.selfId) return;
+    final cid = m.fileContentId ?? m.fileId;
+    if (cid == null) {
+      if (m.body.isEmpty) return;
+      unawaited(svc.postDeviceEvent(DeviceSyncEvent(
+        kind: DeviceSyncKind.msgMirror,
+        key: m.id,
+        tsMs: m.timestamp.millisecondsSinceEpoch,
+        payload: {
+          'peer': peer.hex,
+          'dir': m.direction.name,
+          'body': m.body,
+        },
+      )));
+      return;
+    }
+    unawaited(svc.postDeviceEvent(
+      DeviceSyncEvent(
+        kind: DeviceSyncKind.msgMirror,
+        key: m.id,
+        tsMs: m.timestamp.millisecondsSinceEpoch,
+        payload: {
+          'peer': peer.hex,
+          'dir': m.direction.name,
+          'body': m.body,
+          'cid': cid,
+          'fname': m.fileName,
+          'fsize': m.fileSize,
+        },
+      ),
+      // The ref that puts cid into referencedContentIds. dataB64 must be
+      // non-empty by the codec's contract — the micro-thumb when we have one,
+      // a one-byte placeholder otherwise (w/h are meaningless for 'file').
+      attachment: GroupAttachment(
+        kind: 'file',
+        dataB64: (m.thumb?.isNotEmpty ?? false) ? m.thumb! : 'AA==',
+        w: 1,
+        h: 1,
+        cid: cid,
+      ),
+    ));
   };
   // APPLY: a device-group message from another device → fold → write the
   // mirrored 1:1 row (idempotent + deniability-safe in applyMirroredMessage).
+  // A file mirror lands as an OFFER-shaped row (fileContentId, no bytes) —
+  // the bytes arrive only when the user downloads, via the membership pull.
   svc.deviceIncoming.listen((gm) {
     final e = DeviceSyncEvent.fromBody(gm.body);
     if (e == null || e.kind != DeviceSyncKind.msgMirror) return;
@@ -1079,12 +1120,19 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
         ? MessageDirection.outgoing
         : MessageDirection.incoming;
     if (peerHex is! String || body is! String) return;
+    final cid = e.payload['cid'], fname = e.payload['fname'];
+    final fsize = e.payload['fsize'];
+    final thumb = gm.attachment?.dataB64;
     unawaited(messaging.applyMirroredMessage(
       peer: NodeId.fromHex(peerHex),
       msgId: e.key,
       direction: dir,
       body: body,
       tsMs: e.tsMs,
+      fileContentId: cid is String && cid.isNotEmpty ? cid : null,
+      fileName: fname is String ? fname : null,
+      fileSize: fsize is int ? fsize : null,
+      thumb: thumb != null && thumb != 'AA==' ? thumb : null,
     ));
   });
   return svc;
