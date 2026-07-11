@@ -1,7 +1,9 @@
+import 'dart:ffi';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/identity/veil_identity.dart';
+import 'package:xveil/data/node/embedded_node.dart';
 
 /// Verifies the production phrase validator [veilPhraseValid] against the real
 /// veil_flutter FFI: veil's validateBip39Phrase THROWS on invalid input (and
@@ -18,6 +20,28 @@ void main() {
     expect(veilPhraseValid(List.filled(24, 'abandon').join(' ')), isFalse);
     expect(veilPhraseValid('not a phrase'), isFalse);
     expect(veilPhraseValid(''), isFalse);
+  }, skip: hasDylib ? false : 'set VEIL_FFI_DYLIB to libveilclient_ffi');
+
+  test(
+      'P2: the node identity config is DETERMINISTIC in the phrase — same '
+      'phrase → same node_id/public_key across derivations, different phrase '
+      '→ different identity (Dart wrapper over the new FFI)', () {
+    final lib = DynamicLibrary.open(Platform.environment['VEIL_FFI_DYLIB']!);
+    final phrase = veilGeneratePhrase()!;
+    String field(String toml, String key) => toml
+        .split('\n')
+        .firstWhere((l) => l.trimLeft().startsWith(key), orElse: () => '')
+        .trim();
+    final a = EmbeddedNode.configFromPhrase(phrase, difficulty: 1, lib: lib);
+    final b = EmbeddedNode.configFromPhrase(phrase, difficulty: 1, lib: lib);
+    expect(field(a, 'public_key'), isNotEmpty);
+    expect(field(a, 'public_key'), field(b, 'public_key'));
+    expect(field(a, 'node_id'), field(b, 'node_id'));
+    final other = EmbeddedNode.configFromPhrase(veilGeneratePhrase()!,
+        difficulty: 1, lib: lib);
+    expect(field(other, 'node_id'), isNot(field(a, 'node_id')));
+    expect(() => EmbeddedNode.configFromPhrase('not a phrase',
+        difficulty: 1, lib: lib), throwsStateError);
   }, skip: hasDylib ? false : 'set VEIL_FFI_DYLIB to libveilclient_ffi');
 
   test(
