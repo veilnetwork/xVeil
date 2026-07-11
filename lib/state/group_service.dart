@@ -21,6 +21,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/ids.dart';
+import '../domain/device_sync.dart';
 import '../domain/group.dart';
 import '../domain/group_content.dart';
 import '../domain/group_message.dart';
@@ -250,6 +251,8 @@ class GroupService {
           initialName: b.manifest.name,
         ).state;
         if (!state.isMember(_signer.selfId)) continue;
+        // Device groups are infrastructure, not chats — never listed.
+        if (b.manifest.name == kDeviceGroupName) continue;
         final gid = b.manifest.groupId;
         // One validated pass powers unread AND the last-message preview.
         final wm =
@@ -768,8 +771,12 @@ class GroupService {
         await _setIndex(idx);
       }
     }
-    for (final m in fresh) {
-      _incomingCtl.add((groupId: man.groupId, message: m));
+    // Device-group traffic is sync machinery, not chat: it must never buzz
+    // the notification layer or count as chat-unread.
+    if (man.name != kDeviceGroupName) {
+      for (final m in fresh) {
+        _incomingCtl.add((groupId: man.groupId, message: m));
+      }
     }
     return true;
   }
@@ -809,6 +816,81 @@ class GroupService {
 
   Future<bool> isGroupMuted(NodeId groupId) async =>
       (await _storage.getSetting('group.muted:${groupId.hex}')) == '1';
+
+  // ── Device group (multi-device epic, doc/MULTIDEVICE-DESIGN.md) ──────────
+
+  /// The reserved manifest name marking a DEVICE group (my devices' private
+  /// sync group). Groups with this name are hidden from every user-facing
+  /// list; the leading space cannot be produced through the create/rename
+  /// dialogs (both trim their input).
+  static const String kDeviceGroupName = ' xveil.devices';
+
+  String? _deviceGidCache;
+
+  /// My device group's id (hex), or null before the first link/adopt.
+  Future<String?> deviceGroupIdHex() async {
+    _deviceGidCache ??= await _storage.getSetting('devices.gid');
+    return (_deviceGidCache?.isEmpty ?? true) ? null : _deviceGidCache;
+  }
+
+  /// Create my device group if it does not exist yet (first link).
+  Future<NodeId> ensureDeviceGroup() async {
+    final hex = await deviceGroupIdHex();
+    if (hex != null) return NodeId.fromHex(hex);
+    final gid = await createGroup(kDeviceGroupName);
+    await _storage.putSetting('devices.gid', gid.hex);
+    _deviceGidCache = gid.hex;
+    return gid;
+  }
+
+  /// ADOPT [groupId] as my device group — called by the NEW device during the
+  /// link handshake (the QR channel carries the id out-of-band). Deliberately
+  /// explicit: a device group is NEVER auto-adopted from an inbound snapshot,
+  /// or any contact could plant a marker-named group and start receiving this
+  /// device's sync events.
+  Future<void> adoptDeviceGroup(NodeId groupId) async {
+    await _storage.putSetting('devices.gid', groupId.hex);
+    _deviceGidCache = groupId.hex;
+    changes.value++;
+  }
+
+  /// Link [device] into my device group (create it on first use). The new
+  /// device gets ADMIN so it can manage members below itself; the full
+  /// snapshot broadcast (addMember path) syncs it the whole history.
+  Future<bool> linkDevice(NodeId device) async {
+    final gid = await ensureDeviceGroup();
+    return addControlOp(gid, ControlOp.addMember,
+        target: device, role: GroupRole.admin);
+  }
+
+  /// Revoke [device]: removeMember — the fold rotates the epoch, so the
+  /// removed device loses the future (already-synced history honestly stays).
+  Future<bool> revokeDevice(NodeId device) async {
+    final hex = await deviceGroupIdHex();
+    if (hex == null) return false;
+    return addControlOp(NodeId.fromHex(hex), ControlOp.removeMember,
+        target: device);
+  }
+
+  /// Append a sync event to my device group's log (no-op false when no
+  /// device group exists yet).
+  Future<bool> postDeviceEvent(DeviceSyncEvent e) async {
+    final hex = await deviceGroupIdHex();
+    if (hex == null) return false;
+    return postMessage(NodeId.fromHex(hex), e.toBody());
+  }
+
+  /// The folded device-sync state: newest event per (kind, key), from the
+  /// VALIDATED device-group log. Empty before adoption.
+  Future<Map<(DeviceSyncKind, String), DeviceSyncEvent>>
+      deviceSyncState() async {
+    final hex = await deviceGroupIdHex();
+    if (hex == null) return const {};
+    final msgs = await messagesOf(NodeId.fromHex(hex));
+    return foldDeviceSync([
+      for (final m in msgs) ?DeviceSyncEvent.fromBody(m.body),
+    ]);
+  }
 
   /// One-line preview of a validated message for list tiles / notifications.
   static String previewOf(GroupMessage m) {
