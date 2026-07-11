@@ -43,6 +43,54 @@ and apply-loop into the local store.
   ("sovereign-подпись линковки", scheduled after brick 4/5); no new
   format work may assume the first-device-acts-for-sovereign shortcut.
 
+## Sovereign-signed linking (design draft — pending UX answers)
+
+Proposed flow (recommendation, not yet confirmed):
+
+1. The user starts "Link device" on an EXISTING device and is prompted
+   for the seed phrase. The sovereign identity TOML is derived from the
+   phrase strictly IN RAM (the recovery-flow derivation, reused), used
+   for the signatures below, then wiped. Nothing sovereign ever touches
+   disk on any device (canon).
+2. First link mints the device group with OWNER = the SOVEREIGN node id
+   (manifest signed by the sovereign key). Every membership ControlOp of
+   a device group (addMember AND removeMember) must be signed by the
+   OWNER — instance admins may post sync events but cannot change
+   membership. This is the point of "strict": a stolen device cannot
+   link an attacker's device or revoke the victim's, because it never
+   holds the phrase; the victim always can, because the phrase IS
+   ownership.
+3. The QR handshake stays as today (gid + new device's public identity +
+   short-auth code); only the signer of the resulting addMember changes.
+4. The fold gains a device-group-only validation rule: membership ops
+   not signed by the owner are rejected (regular groups keep the
+   existing role rules — this is scoped by the marker name).
+5. Migration: an existing v1 group (instance-owned) is grandfathered
+   read-only for sync but cannot admit NEW devices; the first
+   sovereign-signed link re-mints the group under the sovereign owner
+   and the old devices re-adopt (one-time, guided).
+
+UX ANSWERS (user, 2026-07-11) — the flow above amended accordingly:
+* KEY STORAGE (user's design, replaces derive-at-link): the sovereign
+  key material is stored ON EVERY DEVICE as a blob ENCRYPTED with the
+  seed phrase as its password. The phrase never persists; entering it
+  decrypts the bundle strictly in RAM for one signing burst. Because
+  the material is stored (not re-derived from entropy), the bundle can
+  carry MORE than an ed25519 seed — notably a falcon512 (post-quantum)
+  key — without bloating the phrase. Linking rules:
+  - an EXISTING device is available → linking goes ONLY through it
+    (phrase entered there to unlock the local sovereign bundle);
+  - NO device available (all lost) → a new device can join via the
+    seed phrase itself, or via a pre-issued CERTIFICATE (delegation
+    artifact — format TBD in the implementation brick).
+* Sovereign gate covers BOTH addMember and removeMember (a stolen
+  device can neither admit an attacker nor revoke the victim's
+  devices; revoking the stolen one requires the phrase — which is
+  ownership).
+* Migration: re-mint. A v1 instance-owned group is grandfathered for
+  sync only; the first sovereign-signed link re-mints the group under
+  the sovereign owner and existing devices re-adopt (guided, once).
+
 ## Sync-event vocabulary (v1 — "sync everything")
 
 Events ride the device group's message-log as attachments-free bodies

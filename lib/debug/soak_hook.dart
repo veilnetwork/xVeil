@@ -339,6 +339,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/contact_block':
           await _contactBlockHook(req);
           return;
+        case '/add_peer':
+          await _addPeerHook(req);
+          return;
         case '/read_state':
           await _readStateHook(req);
           return;
@@ -1140,11 +1143,23 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     if (kind == null || key == null || key.isEmpty) {
       return _json(req, {'ok': false, 'error': 'need kind+key'});
     }
+    // ?p= carries a RAW JSON payload (event-order test scenarios); the legacy
+    // ?v= single-value form stays for the older bricks' verifies.
+    Map<String, dynamic> payload = {'v': q['v'] ?? ''};
+    final rawP = q['p'];
+    if (rawP != null && rawP.isNotEmpty) {
+      try {
+        final d = jsonDecode(rawP);
+        if (d is Map) payload = Map<String, dynamic>.from(d);
+      } catch (_) {
+        return _json(req, {'ok': false, 'error': 'bad p json'});
+      }
+    }
     final ok = await svc.postDeviceEvent(DeviceSyncEvent(
       kind: kind,
       key: key,
       tsMs: DateTime.now().millisecondsSinceEpoch,
-      payload: {'v': q['v'] ?? ''},
+      payload: payload,
     ));
     return _json(req, {'ok': ok});
   }
@@ -1347,6 +1362,29 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     await ref.read(messagingServiceProvider).markRead(peer);
     return _json(req,
         {'ok': true, 'marker': await ref.read(storageProvider).readMarker(peer)});
+  }
+
+  /// Redeem a bootstrap-peer invite ?uri= (url-encoded `veil:bootstrap?…`) on
+  /// the RUNNING node — adds the peer + dials it over IPC, exactly like the
+  /// scan/paste flow. Ops tooling: lets a stand swap in a temporary entry
+  /// node at runtime (e.g. when the builtin seeds' hoster is down) without
+  /// rebuilding or committing environment-specific descriptors.
+  Future<void> _addPeerHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final uri = req.uri.queryParameters['uri'];
+    if (uri == null || uri.isEmpty) {
+      return _json(req, {'ok': false, 'error': 'no uri'});
+    }
+    final t = ref.read(veilTransportProvider);
+    if (t is! VeilFlutterTransport) {
+      return _json(req, {'ok': false, 'error': 'no embedded transport'});
+    }
+    try {
+      await t.joinInvite(uri);
+      return _json(req, {'ok': true});
+    } catch (e) {
+      return _json(req, {'ok': false, 'error': '$e'});
+    }
   }
 
   /// Block (?on=1) or unblock (?on=0) contact ?peer= through the REAL
