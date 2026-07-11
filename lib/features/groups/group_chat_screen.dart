@@ -449,6 +449,45 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
         target: picked, role: GroupRole.member);
   }
 
+  /// Tap the title → rename the group. Admins+ succeed (the op folds into every
+  /// member's view via a signed setName delta); others get a "no permission"
+  /// note, since renameGroup returns false when the fold would reject the op.
+  Future<void> _renameDialog(GroupService svc, String current) async {
+    final l = AppL10n.of(context);
+    final ctrl = TextEditingController(text: current);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(l.groupRenameTitle),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          maxLength: 64,
+          decoration: InputDecoration(hintText: l.groupNameHint),
+          onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(l.actionCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(ctrl.text.trim()),
+            child: Text(l.groupRenameAction),
+          ),
+        ],
+      ),
+    );
+    if (name == null || name.isEmpty || name == current.trim()) return;
+    final ok = await svc.renameGroup(_gid, name);
+    if (!mounted) return;
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l.groupRenameDenied)),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
@@ -458,14 +497,16 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     }
     return Scaffold(
       appBar: AppBar(
-        title: FutureBuilder<List<GroupManifest>>(
-          future: svc.listGroups(),
+        title: FutureBuilder<GroupState?>(
+          future: svc.stateOf(_gid),
           builder: (context, snap) {
-            final g = (snap.data ?? const [])
-                .where((m) => m.groupId == _gid)
-                .cast<GroupManifest?>()
-                .firstWhere((_) => true, orElse: () => null);
-            return Text(g?.name ?? l.navChannels);
+            final name = snap.data?.name;
+            return InkWell(
+              onTap: () => _renameDialog(svc, name ?? ''),
+              child: Text(
+                name == null || name.isEmpty ? l.navChannels : name,
+              ),
+            );
           },
         ),
         actions: [

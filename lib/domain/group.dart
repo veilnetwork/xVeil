@@ -95,6 +95,7 @@ enum ControlOp {
   ban,
   rotateEpoch,
   setPolicy,
+  setName, // rename the group (payload in ControlEntry.text)
   leave; // the author removes THEMSELVES (any member may leave)
 
   static ControlOp? fromName(String? s) {
@@ -120,6 +121,7 @@ class ControlEntry {
     required this.policyVersion,
     required this.createdAtMs,
     required this.signature,
+    this.text,
     Uint8List? authorPubKey,
   }) : authorPubKey = authorPubKey ?? Uint8List(0);
 
@@ -129,6 +131,7 @@ class ControlEntry {
   final ControlOp op;
   final NodeId? target; // member the op acts on (null for rotateEpoch/setPolicy)
   final GroupRole? role; // for setRole/addMember
+  final String? text; // string payload (the new name for setName)
   final int policyVersion;
   final int createdAtMs;
   final Uint8List signature; // ed25519 over canonicalBytes (verified app-side)
@@ -145,6 +148,7 @@ class ControlEntry {
         op: op,
         target: target,
         role: role,
+        text: text,
         policyVersion: policyVersion,
         createdAtMs: createdAtMs,
         signature: sig,
@@ -162,6 +166,7 @@ class ControlEntry {
       'op': op.name,
       if (target != null) 'target': target!.hex,
       if (role != null) 'role': role!.name,
+      if (text != null) 'text': text,
       'pv': policyVersion,
       'ts': createdAtMs,
     };
@@ -175,6 +180,7 @@ class ControlEntry {
         'op': op.name,
         if (target != null) 'target': target!.hex,
         if (role != null) 'role': role!.name,
+        if (text != null) 'text': text,
         'pv': policyVersion,
         'ts': createdAtMs,
         'sig': base64Encode(signature),
@@ -206,6 +212,7 @@ class ControlEntry {
             ? NodeId.fromHex(j['target'] as String)
             : null,
         role: GroupRole.fromName(j['role'] as String?),
+        text: j['text'] is String ? j['text'] as String : null,
         policyVersion: pv,
         createdAtMs: ts,
         signature: Uint8List.fromList(base64Decode(sig)),
