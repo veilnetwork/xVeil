@@ -1,6 +1,9 @@
 # Any-size file transfer + separate encrypted blob store — implementation plan
 
-Status started 2026-06-27. Goal: transfer files of ANY size; store LARGE files
+Status: SUPERSEDED after the on-device NAT probe. This file preserves the
+discarded push-stream exploration; the shipped design is
+`doc/CONTENT-LAYER-DESIGN.md` plus the current content-manifest/pull-stream code.
+Goal: transfer files of ANY size; store LARGE files
 ENCRYPTED and OUTSIDE the hidden-volume container (so the container isn't bloated
 and the ~3.6 MB atomic-delete ceiling doesn't apply). Designed via a 4-facet
 workflow; user-locked decisions below.
@@ -96,6 +99,15 @@ stream data plane (`veil-app/src/registry.rs send_to`) routing wasn't pinned dow
   doesn't drop the meta) and (b) make the resumable `fileQuery`/`fileNack` round
   actually drive completion (it was silent on-device — fileQuery count=0). The
   ExternalBlobStore + crypto + wire model (Stages 1-5) are reused EITHER way.
+
+**Historical outcome:** the original direct app-stream failed the phone→desktop
+NAT test, so the `fileStream` push protocol below was never connected to a
+production sender. The later onion content-stream transport did cross NAT, but
+uses the safer opposite direction: a verified `contentManifest` offer is stored
+first, then the receiver explicitly pulls by self-authenticating contentId. The
+accept loop therefore serves content requests; it must not also guess whether an
+unframed inbound stream is a pushed file. `WireKind.fileStream` remains only as
+a reserved wire-index slot and authenticated silent-drop compatibility case.
 
 ### Stage 6 — Send/receive (if streams traverse NAT)
 - Send (`messaging.dart sendFile`): route on size. ≤1 MB → unchanged. >1 MB →

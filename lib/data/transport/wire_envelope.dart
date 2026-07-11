@@ -407,12 +407,11 @@ WireEnvelope fileMetaEnvelope({
   }),
 );
 
-/// Start of a STREAMED (large, > the small-file threshold) file transfer. Same
-/// body shape as [fileMetaEnvelope] (parse with [parseFileMeta]; `count` is
-/// absent — a stream is not pre-chunked) but the blob arrives over a reliable,
-/// flow-controlled veil STREAM (no burst loss) and is persisted in the external
-/// encrypted blob store, NOT the deniable container. The receiver, on this
-/// frame, accepts the inbound stream keyed by [transferId].
+/// Reserved frame from the abandoned push-stream prototype. No production
+/// sender ever emitted it: large files now use [contentManifestEnvelope] and a
+/// receiver-initiated, content-id-bound pull stream. Keep the wire index and
+/// codec so later enum indices do not shift and an experimental old frame is
+/// decoded then dropped safely; do not build new behavior on this kind.
 WireEnvelope fileStreamEnvelope({
   required String transferId,
   String? name,
