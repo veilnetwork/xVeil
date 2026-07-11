@@ -263,7 +263,14 @@ class GroupService {
     }
     await _save(GroupBundle(
         manifest: b.manifest, control: candidate, messages: b.messages));
-    unawaited(broadcast(groupId)); // fan the new op out to members
+    // Adding a member: that peer needs the WHOLE history → full snapshot to all
+    // (idempotent for existing members). Every other op ships as a delta so we
+    // don't re-send the group's messages/images on a mute/role/policy change.
+    if (op == ControlOp.addMember) {
+      unawaited(broadcast(groupId));
+    } else {
+      unawaited(broadcastDelta(groupId, control: [signed]));
+    }
     return true;
   }
 
@@ -299,7 +306,9 @@ class GroupService {
         manifest: b.manifest,
         control: b.control,
         messages: [...b.messages, signed]));
-    unawaited(broadcast(groupId)); // deliver to members
+    // Ship only the NEW message (delta), not the whole log — a post to a group
+    // that already holds an image must not re-chunk that image over the wire.
+    unawaited(broadcastDelta(groupId, messages: [signed]));
     return true;
   }
 
@@ -406,9 +415,10 @@ class GroupService {
     return true;
   }
 
-  /// Fan the current snapshot of [groupId] out to every OTHER member (direct
-  /// delivery, v1). No-op without an injected sender. Returns how many peers
-  /// it was shipped to.
+  /// Fan the current FULL snapshot of [groupId] out to every OTHER member
+  /// (direct delivery, v1). Used to sync a member joining (they need the whole
+  /// history). No-op without an injected sender. Returns how many peers it was
+  /// shipped to.
   Future<int> broadcast(NodeId groupId) async {
     final send = _send;
     final b = await load(groupId);
@@ -419,6 +429,41 @@ class GroupService {
       verify: _signer.verifyControl,
     ).state;
     final json = snapshotJson(b);
+    var n = 0;
+    for (final m in state.members.values) {
+      if (m.nodeId == _signer.selfId) continue;
+      await send(m.nodeId, groupId, json);
+      n++;
+    }
+    return n;
+  }
+
+  /// Fan a DELTA (only the just-added [control]/[messages] entries) out to every
+  /// OTHER member — the hot path for posts and ops, so an established group does
+  /// NOT re-ship its whole history (incl. inline images) on every change. A new
+  /// member still gets a full [broadcast] on join. Convergence holds: each delta
+  /// is a durable frame (retried until acked) and [ingestSnapshot] merges by
+  /// (author, seq); the manifest rides along so a delta that races ahead of the
+  /// join snapshot still materializes the group (its entries validate once the
+  /// control-log catches up). Returns how many peers it was shipped to.
+  Future<int> broadcastDelta(
+    NodeId groupId, {
+    List<ControlEntry> control = const [],
+    List<GroupMessage> messages = const [],
+  }) async {
+    final send = _send;
+    final b = await load(groupId);
+    if (send == null || b == null) return 0;
+    final state = foldControlLog(
+      owner: b.manifest.owner,
+      entries: b.control,
+      verify: _signer.verifyControl,
+    ).state;
+    final json = jsonEncode({
+      'm': b.manifest.toJson(),
+      'c': control.map((e) => e.toJson()).toList(),
+      'g': messages.map((m) => m.toJson()).toList(),
+    });
     var n = 0;
     for (final m in state.members.values) {
       if (m.nodeId == _signer.selfId) continue;
