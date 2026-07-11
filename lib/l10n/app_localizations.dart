@@ -1399,6 +1399,24 @@ abstract class AppL10n {
   /// **'Reads and events only — writes (send, calls) are refused'**
   String get settingsApiReadOnlyHint;
 
+  /// No description provided for @settingsApiAddToken.
+  ///
+  /// In en, this message translates to:
+  /// **'Add token'**
+  String get settingsApiAddToken;
+
+  /// No description provided for @settingsApiTokenName.
+  ///
+  /// In en, this message translates to:
+  /// **'Token name (e.g. bot)'**
+  String get settingsApiTokenName;
+
+  /// No description provided for @settingsApiRevoke.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoke'**
+  String get settingsApiRevoke;
+
   /// No description provided for @settingsApiToken.
   ///
   /// In en, this message translates to:

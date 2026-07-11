@@ -6,10 +6,15 @@ import 'package:xveil/state/api_server.dart';
 void main() {
   final sent = <(String, String)>[];
   Map<String, dynamic>? _call;
-  ApiHandler make({String token = 'secret-token'}) {
+  ApiHandler make({String token = 'secret-token', bool readOnly = false}) {
     sent.clear();
     return ApiHandler(
-      token: token,
+      tokens: token.isEmpty
+          ? const []
+          : [
+              ApiToken(
+                  id: 't1', name: 'test', token: token, readOnly: readOnly),
+            ],
       status: () => {'ok': true, 'nodeId': 'abcd'},
       contacts: () async => [
         {'nodeId': 'beef', 'short': 'beef'},
@@ -46,11 +51,12 @@ void main() {
     }
   });
 
-  test('a read-only token allows reads but refuses every write with 403',
-      () async {
+  test('multiple tokens: each authenticates, per-token scope applies', () async {
     final h = ApiHandler(
-      token: 'secret-token',
-      readOnly: true,
+      tokens: const [
+        ApiToken(id: 'a', name: 'full', token: 'tok-full', readOnly: false),
+        ApiToken(id: 'b', name: 'mon', token: 'tok-ro', readOnly: true),
+      ],
       status: () => {'ok': true},
       contacts: () async => const [],
       send: (to, body) async => null,
@@ -61,6 +67,25 @@ void main() {
       callState: () => null,
       callAction: (action) async {},
     );
+    // An unknown token → 401.
+    expect((await h.handle('GET', u('/v1/health'), 'Bearer nope')).status, 401);
+    // The full token can write.
+    expect((await h.handle('POST', u('/v1/messages'), 'Bearer tok-full',
+                body: {'to': 'p', 'body': 'x'}))
+            .status,
+        200);
+    // The read-only token reads but its POST is 403.
+    expect((await h.handle('GET', u('/v1/health'), 'Bearer tok-ro')).status,
+        200);
+    expect((await h.handle('POST', u('/v1/messages'), 'Bearer tok-ro',
+                body: {'to': 'p', 'body': 'x'}))
+            .status,
+        403);
+  });
+
+  test('a read-only token allows reads but refuses every write with 403',
+      () async {
+    final h = make(readOnly: true);
     // Reads still work.
     expect((await h.handle('GET', u('/v1/health'), 'Bearer secret-token')).status,
         200);
@@ -252,11 +277,15 @@ void main() {
     expect(make(token: '').tokenOk(''), isFalse, reason: 'empty token rejects');
   });
 
-  test('ApiConfig.copyWith + empty defaults', () {
+  test('ApiConfig.copyWith + empty defaults; ApiToken JSON round-trip', () {
     expect(ApiConfig.empty.enabled, false);
-    expect(ApiConfig.empty.token, '');
-    final c = ApiConfig.empty.copyWith(enabled: true, token: 't');
+    expect(ApiConfig.empty.tokens, isEmpty);
+    final t = const ApiToken(id: 'i', name: 'n', token: 's', readOnly: true);
+    final c = ApiConfig.empty.copyWith(enabled: true, tokens: [t]);
     expect(c.enabled, true);
-    expect(c.token, 't');
+    expect(c.tokens.single.token, 's');
+    final rt = ApiToken.fromJson(t.toJson())!;
+    expect(rt.id, 'i');
+    expect(rt.readOnly, true);
   });
 }

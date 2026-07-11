@@ -708,6 +708,15 @@ class AppL10nEn extends AppL10n {
       'Reads and events only — writes (send, calls) are refused';
 
   @override
+  String get settingsApiAddToken => 'Add token';
+
+  @override
+  String get settingsApiTokenName => 'Token name (e.g. bot)';
+
+  @override
+  String get settingsApiRevoke => 'Revoke';
+
+  @override
   String get settingsApiToken => 'API token';
 
   @override
