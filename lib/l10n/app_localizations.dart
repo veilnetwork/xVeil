@@ -415,6 +415,18 @@ abstract class AppL10n {
   /// **'Failed'**
   String get callOutcomeFailed;
 
+  /// No description provided for @channelsEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No channels yet'**
+  String get channelsEmpty;
+
+  /// No description provided for @channelsEmptyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Channels — owner-signed broadcast feeds — are coming in a future update. Your group chats now live in the Chats tab.'**
+  String get channelsEmptyHint;
+
   /// No description provided for @chatsEmpty.
   ///
   /// In en, this message translates to:

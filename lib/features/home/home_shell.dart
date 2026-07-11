@@ -1,18 +1,27 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../channels/channels_screen.dart';
 import '../chat/chats_screen.dart';
 import '../chat/notification_binder.dart';
 import '../chat/signature_ask_host.dart';
 
-/// The main authenticated surface. Chats are the whole stage; Network and
-/// Settings moved into the chats drawer (the Telegram-style app menu). The
-/// bottom bar keeps the product's next big sections — Channels, Storage and
-/// the menu-tiles panel — visible but stubbed until their epics land, so the
-/// final navigation shape is already in place.
-class HomeShell extends StatelessWidget {
+/// The main authenticated surface. Chats and Channels are REAL tabs (NAV1:
+/// switching keeps the bottom bar and highlights the active destination —
+/// pushing a route on top used to leave "Chats" lit while a different screen
+/// showed). Group chats live inside the Chats list; the Channels tab waits
+/// for the channels epic. Storage and the menu-tiles panel stay stubbed with
+/// a toast until their epics land, so the final navigation shape is already
+/// in place.
+class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
+
+  @override
+  State<HomeShell> createState() => _HomeShellState();
+}
+
+class _HomeShellState extends State<HomeShell> {
+  int _tab = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -22,13 +31,17 @@ class HomeShell extends StatelessWidget {
     return NotificationBinder(
       child: SignatureAskHost(
         child: Scaffold(
-          body: const ChatsScreen(),
+          // IndexedStack keeps the chats state (scroll, search, folders)
+          // alive while the user peeks at another tab.
+          body: IndexedStack(
+            index: _tab,
+            children: const [ChatsScreen(), ChannelsScreen()],
+          ),
           bottomNavigationBar: NavigationBar(
-            selectedIndex: 0,
+            selectedIndex: _tab,
             onDestinationSelected: (i) {
-              if (i == 0) return;
-              if (i == 1) {
-                context.push('/groups'); // Channels = groups (phase 0)
+              if (i <= 1) {
+                setState(() => _tab = i);
                 return;
               }
               ScaffoldMessenger.of(context).showSnackBar(
@@ -43,6 +56,7 @@ class HomeShell extends StatelessWidget {
               ),
               NavigationDestination(
                 icon: const Icon(Icons.campaign_outlined),
+                selectedIcon: const Icon(Icons.campaign),
                 label: l.navChannels,
               ),
               NavigationDestination(
