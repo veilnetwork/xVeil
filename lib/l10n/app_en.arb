@@ -25,6 +25,8 @@
   "onboardRestoreIdentitySub": "Use your 24-word phrase to recover an existing identity",
   "onboardImportBackup": "Import a backup",
   "onboardImportBackupSub": "Restore from an encrypted backup file",
+  "onboardRestoreBody": "Enter the 24-word recovery phrase you wrote down when the identity was created. The same identity will be recreated on this device.",
+  "onboardRestoreSubmit": "Restore",
 
   "recoveryTitle": "Save your recovery phrase",
   "recoveryBody": "These 24 words ARE your identity. Anyone with them controls it; lose them and it is gone forever. Write them on paper and store them somewhere safe. Never store them online or photograph them.",

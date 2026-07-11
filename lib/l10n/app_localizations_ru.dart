@@ -82,6 +82,13 @@ class AppL10nRu extends AppL10n {
       'Восстановить из зашифрованного файла резервной копии';
 
   @override
+  String get onboardRestoreBody =>
+      'Введите 24 слова фразы восстановления, записанной при создании личности. На этом устройстве будет воссоздана та же личность.';
+
+  @override
+  String get onboardRestoreSubmit => 'Восстановить';
+
+  @override
   String get recoveryTitle => 'Сохраните фразу восстановления';
 
   @override

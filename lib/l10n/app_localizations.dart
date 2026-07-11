@@ -229,6 +229,18 @@ abstract class AppL10n {
   /// **'Restore from an encrypted backup file'**
   String get onboardImportBackupSub;
 
+  /// No description provided for @onboardRestoreBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the 24-word recovery phrase you wrote down when the identity was created. The same identity will be recreated on this device.'**
+  String get onboardRestoreBody;
+
+  /// No description provided for @onboardRestoreSubmit.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore'**
+  String get onboardRestoreSubmit;
+
   /// No description provided for @recoveryTitle.
   ///
   /// In en, this message translates to:
