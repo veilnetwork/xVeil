@@ -462,6 +462,64 @@ class MessagingService {
   /// an accepted [peer], to ingest idempotently. Dropped when unset.
   void Function(NodeId peer, String bundleJson)? onGroupEntry;
 
+  /// Attached by the group layer: an inbound signed content-fetch request
+  /// (groups content path). NOT contact-gated — the signed membership proof
+  /// inside IS the authorization, judged by the group layer (silent drop when
+  /// unauthorized or unset).
+  void Function(NodeId peer, String requestJson)? onGroupContentRequest;
+
+  /// Ship a signed group content-fetch request to [dst] (the content holder)
+  /// durably. Keyed by content so a re-mint of the same request dedups; a
+  /// frame that outlives the 10-minute authorization window is simply refused
+  /// by the holder's gate.
+  Future<void> sendGroupContentRequest(NodeId dst, String requestJson) =>
+      sendDurable(
+        dst,
+        'gcr:${requestJson.hashCode & 0x7fffffff}',
+        WireEnvelope.groupContentRequest(requestJson),
+      );
+
+  /// Membership-authorized serve grants: `<peerHex>|<cid>` → expiry (ms).
+  /// Granted by the group layer after [onGroupContentRequest] authorizes; lets
+  /// [_serveStream] serve a NON-contact group member. RAM-only — after a
+  /// restart the member's retry re-authorizes.
+  final Map<String, int> _groupServeGrants = {};
+
+  /// Allow [peer] to pull [cid] for [ttl] (defaults to the request window).
+  void grantGroupContentServe(
+    NodeId peer,
+    String cid, {
+    Duration ttl = const Duration(minutes: 10),
+  }) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    _groupServeGrants.removeWhere((_, exp) => exp <= now);
+    _groupServeGrants['${peer.hex}|$cid'] = now + ttl.inMilliseconds;
+    devLog(
+      () =>
+          'xVeil[content]: group serve GRANTED '
+          '${cid.substring(0, cid.length < 12 ? cid.length : 12)} '
+          '-> ${peer.short}',
+    );
+  }
+
+  bool _groupServeGranted(NodeId peer, String cid) =>
+      (_groupServeGrants['${peer.hex}|$cid'] ?? 0) >
+      DateTime.now().millisecondsSinceEpoch;
+
+  /// The active (unexpired) grants, for the debug hook / tests.
+  List<Map<String, Object>> debugGroupServeGrants() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return [
+      for (final e in _groupServeGrants.entries)
+        if (e.value > now)
+          {
+            'peer': e.key.split('|').first,
+            'cid': e.key.split('|').last,
+            'expiresInMs': e.value - now,
+          },
+    ];
+  }
+
   /// Ship a group snapshot to [dst] durably (direct fanout; keyed per group so
   /// a later snapshot of the SAME group supersedes an un-acked earlier one).
   Future<void> sendGroupSnapshot(NodeId dst, String groupIdHex,
@@ -2055,6 +2113,13 @@ class MessagingService {
         // just overwrites its slot.
         if (existing?.status != ContactStatus.accepted) return;
         _ingestGroupChunk(m.src, env.body);
+        return;
+      case WireKind.groupContentRequest:
+        // A signed membership-authorized fetch request (groups content path).
+        // Deliberately NOT contact-gated: the signature + membership proof
+        // inside is the authorization; the group layer verifies against its
+        // own folded state and grants (or silently drops — no oracle).
+        onGroupContentRequest?.call(m.src, env.body);
         return;
       case WireKind.unknown:
         // A structured (v:2) frame from a NEWER build whose kind we don't know —
@@ -6311,11 +6376,16 @@ class MessagingService {
             '<- ${peer.short}',
       );
       final contact = await _storage.getContact(peer);
-      if (contact == null || contact.status != ContactStatus.accepted) {
+      // Serve accepted 1:1 contacts as always; a NON-contact group member is
+      // served iff it holds a live membership grant for THIS cid (groups
+      // content path — the grant was minted by the authorized signed request).
+      if ((contact == null || contact.status != ContactStatus.accepted) &&
+          !_groupServeGranted(peer, cid)) {
         devLog(
           () =>
               'xVeil[content]: stream-serve DENIED '
-              '${cid.substring(0, 12)} <- ${peer.short} (not accepted)',
+              '${cid.substring(0, 12)} <- ${peer.short} '
+              '(not accepted, no group grant)',
         );
         return;
       }

@@ -363,4 +363,15 @@ void main() {
     }
     expect(utf8.decode(joined), bundle);
   });
+
+  test('groupContentRequest round-trips as v:2 (RULE WC drop on old builds)',
+      () {
+    const env = WireEnvelope.groupContentRequest('{"gid":"aa","cid":"bb"}');
+    final bytes = env.encode();
+    // Carries the structural v:2 marker so a pre-content-path decoder DROPS it.
+    expect(jsonDecode(utf8.decode(bytes))['v'], 2);
+    final rt = WireEnvelope.decode(bytes);
+    expect(rt.kind, WireKind.groupContentRequest);
+    expect(rt.body, '{"gid":"aa","cid":"bb"}');
+  });
 }

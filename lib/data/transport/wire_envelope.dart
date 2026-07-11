@@ -90,6 +90,13 @@ enum WireKind {
   /// (a durable frame each, acked/deduped individually) and ingests the joined
   /// bundle exactly like a whole [groupEntry]. Added before [unknown] (RULE WC).
   groupEntryChunk,
+
+  /// A signed membership-authorized content-fetch request (groups content
+  /// path, doc/GROUPS-CONTENT-PATH.md): body = GroupContentRequest JSON. The
+  /// dispatcher does NOT contact-gate this kind — authorization is the signed
+  /// membership proof itself, checked by the group layer (unauthorized ⇒
+  /// silent drop). Added before [unknown] (RULE WC).
+  groupContentRequest,
   unknown,
 }
 
@@ -248,6 +255,10 @@ class WireEnvelope {
   /// One chunk of an oversized group snapshot — see [WireKind.groupEntryChunk].
   const WireEnvelope.groupEntryChunk(String bodyJson)
     : this(WireKind.groupEntryChunk, bodyJson);
+
+  /// A signed group content-fetch request — see [WireKind.groupContentRequest].
+  const WireEnvelope.groupContentRequest(String requestJson)
+    : this(WireKind.groupContentRequest, requestJson);
 
   /// The decode-only sentinel for a structured (v:2) frame whose kind this build
   /// does not know — the dispatcher drops it (RULE WC).

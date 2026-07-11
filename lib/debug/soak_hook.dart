@@ -253,6 +253,15 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/group_post_voice':
           await _groupPostVoiceHook(req);
           return;
+        case '/group_post_ref':
+          await _groupPostRefHook(req);
+          return;
+        case '/group_request_content':
+          await _groupRequestContentHook(req);
+          return;
+        case '/content_grants':
+          await _contentGrantsHook(req);
+          return;
         case '/group_play_voice':
           await _groupPlayVoiceHook(req);
           return;
@@ -911,6 +920,49 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
 
   static String _sha8(Uint8List bytes) =>
       crypto.sha256.convert(bytes).toString().substring(0, 16);
+
+  /// Post a message to ?group= carrying a content-path REF (?cid=) with a
+  /// placeholder micro-thumb — the brick-2 verify helper (the real ref-send
+  /// path lands with brick 3).
+  Future<void> _groupPostRefHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final q = req.uri.queryParameters;
+    final gidHex = q['group'], cid = q['cid'];
+    if (gidHex == null || cid == null || cid.isEmpty) {
+      return _json(req, {'ok': false, 'error': 'need group+cid'});
+    }
+    final posted = await svc.postMessage(
+      NodeId.fromHex(gidHex),
+      '',
+      attachment: GroupAttachment(
+          kind: 'image', dataB64: 'QUFBQQ==', w: 1, h: 1, cid: cid),
+    );
+    return _json(req, {'ok': posted, 'cid': cid});
+  }
+
+  /// Mint + sign + ship a membership-authorized fetch request for ?cid= of
+  /// ?group= to ?holder= — drives the real wire path end to end.
+  Future<void> _groupRequestContentHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final q = req.uri.queryParameters;
+    final gidHex = q['group'], cid = q['cid'], holder = q['holder'];
+    if (gidHex == null || cid == null || holder == null) {
+      return _json(req, {'ok': false, 'error': 'need group+cid+holder'});
+    }
+    final ok = await svc.requestGroupContent(
+        NodeId.fromHex(gidHex), cid, NodeId.fromHex(holder));
+    return _json(req, {'ok': ok, 'cid': cid});
+  }
+
+  /// The active membership serve grants (holder side) — brick-2 verify.
+  Future<void> _contentGrantsHook(HttpRequest req) async {
+    final grants = ref.read(messagingServiceProvider).debugGroupServeGrants();
+    return _json(req, {'ok': true, 'grants': grants});
+  }
 
   /// Add ?peer= as a member of ?group= and fan the snapshot out to all members
   /// — the real 2-device group path (the peer materializes the group).

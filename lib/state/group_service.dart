@@ -22,6 +22,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/ids.dart';
 import '../domain/group.dart';
+import '../domain/group_content.dart';
 import '../domain/group_message.dart';
 import '../domain/group_policy.dart';
 import '../domain/group_reaction.dart';
@@ -41,9 +42,11 @@ abstract class GroupSigner {
   ControlEntry signControl(ControlEntry unsigned);
   GroupMessage signMessage(GroupMessage unsigned);
   GroupReaction signReaction(GroupReaction unsigned);
+  GroupContentRequest signContentRequest(GroupContentRequest unsigned);
   bool verifyControl(ControlEntry e);
   bool verifyMessage(GroupMessage m);
   bool verifyReaction(GroupReaction r);
+  bool verifyContentRequest(GroupContentRequest r);
 }
 
 /// Real signer: native ed25519 over the deniable identity TOML.
@@ -76,11 +79,18 @@ class NativeGroupSigner implements GroupSigner {
   GroupReaction signReaction(GroupReaction unsigned) =>
       signGroupReaction(identityToml: identityToml, unsigned: unsigned, lib: lib);
   @override
+  GroupContentRequest signContentRequest(GroupContentRequest unsigned) =>
+      signGroupContentRequest(
+          identityToml: identityToml, unsigned: unsigned, lib: lib);
+  @override
   bool verifyControl(ControlEntry e) => verifyControlEntry(e, lib: lib);
   @override
   bool verifyMessage(GroupMessage m) => verifyGroupMessage(m, lib: lib);
   @override
   bool verifyReaction(GroupReaction r) => verifyGroupReaction(r, lib: lib);
+  @override
+  bool verifyContentRequest(GroupContentRequest r) =>
+      verifyGroupContentRequest(r, lib: lib);
 }
 
 /// One group's stored data.
@@ -102,11 +112,23 @@ typedef GroupSnapshotSender = Future<void> Function(
     NodeId peer, NodeId groupId, String bundleJson);
 
 class GroupService {
-  GroupService(this._storage, this._signer, {GroupSnapshotSender? send})
-      : _send = send;
+  GroupService(
+    this._storage,
+    this._signer, {
+    GroupSnapshotSender? send,
+    this.sendContentRequest,
+    this.grantContentServe,
+  }) : _send = send;
   final Storage _storage;
   final GroupSigner _signer;
   final GroupSnapshotSender? _send;
+
+  /// Ships a signed content-fetch request to the holder (wire layer).
+  final Future<void> Function(NodeId holder, String requestJson)?
+      sendContentRequest;
+
+  /// Opens the serve gate for an authorized member (wire layer grant).
+  final void Function(NodeId peer, String cid)? grantContentServe;
 
   /// Bumped on every persisted mutation (local op/post OR an ingested
   /// snapshot) so open group screens re-fetch. Cheap: the UI reads on change.
@@ -489,6 +511,82 @@ class GroupService {
     return foldGroupReactions(b.reactions, _signer.verifyReaction);
   }
 
+  // ── Content path (doc/GROUPS-CONTENT-PATH.md) ─────────────────────────────
+
+  /// Replay cache for inbound fetch requests (holder side), bounded FIFO.
+  final Set<String> _seenContentNonces = <String>{};
+  static const int _kMaxSeenNonces = 512;
+
+  /// The contentIds referenced by [groupId]'s VALIDATED messages — the only
+  /// content a membership grant may unlock (membership must not become a
+  /// license to fetch arbitrary content this device holds).
+  Future<Set<String>> referencedContentIds(NodeId groupId) async {
+    final msgs = await messagesOf(groupId);
+    return {
+      for (final m in msgs)
+        if (m.attachment?.cid != null) m.attachment!.cid!,
+    };
+  }
+
+  /// Mint, sign and ship a fetch request for [cid] of [groupId] to [holder]
+  /// (normally the message author). False when the wire sender isn't attached.
+  Future<bool> requestGroupContent(
+      NodeId groupId, String cid, NodeId holder) async {
+    final send = sendContentRequest;
+    if (send == null) return false;
+    final rnd = Random.secure();
+    final nonce = List<int>.generate(12, (_) => rnd.nextInt(256))
+        .map((b) => b.toRadixString(16).padLeft(2, '0'))
+        .join();
+    final signed = _signer.signContentRequest(GroupContentRequest(
+      groupId: groupId,
+      contentId: cid,
+      requester: _signer.selfId,
+      nonce: nonce,
+      tsMs: _now(),
+      signature: Uint8List(0),
+    ));
+    await send(holder, jsonEncode(signed.toJson()));
+    return true;
+  }
+
+  /// Holder side: authorize an inbound signed request against OUR folded view
+  /// and grant the serve when it passes. Unauthorized requests return false
+  /// with only a local log line — the requester gets NOTHING back (no
+  /// membership oracle, per canon).
+  Future<bool> handleContentRequest(String requestJson) async {
+    GroupContentRequest? r;
+    try {
+      r = GroupContentRequest.fromJson(jsonDecode(requestJson));
+    } catch (_) {/* malformed → drop */}
+    if (r == null) return false;
+    final req = r;
+    final st = await stateOf(req.groupId);
+    if (st == null) {
+      debugPrint('xVeil[groups]: content request for unknown group — drop');
+      return false;
+    }
+    final denial = authorizeGroupContentRequest(
+      req,
+      state: st,
+      referenced: await referencedContentIds(req.groupId),
+      nowMs: _now(),
+      seenNonces: _seenContentNonces,
+      verify: _signer.verifyContentRequest,
+    );
+    if (denial != null) {
+      debugPrint(
+          'xVeil[groups]: content request DENIED (${denial.name}) — drop');
+      return false;
+    }
+    if (_seenContentNonces.length >= _kMaxSeenNonces) {
+      _seenContentNonces.remove(_seenContentNonces.first);
+    }
+    _seenContentNonces.add(req.nonce);
+    grantContentServe?.call(req.requester, req.contentId);
+    return true;
+  }
+
   /// Ingest an externally-received control entry (from a peer-sync brick, or a
   /// hook). Appends if it isn't already present; the fold decides validity on
   /// read, so a bogus entry simply never applies.
@@ -670,9 +768,17 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     signer,
     send: (peer, groupId, json) =>
         messaging.sendGroupSnapshot(peer, groupId.hex, json),
+    sendContentRequest: (holder, json) =>
+        messaging.sendGroupContentRequest(holder, json),
+    grantContentServe: messaging.grantGroupContentServe,
   );
   messaging.onGroupEntry = (peer, bundleJson) async {
     await svc.ingestSnapshot(bundleJson);
+  };
+  // Membership-authorized fetch requests (content path): judged entirely by
+  // the service (signature + fold + referenced + freshness + replay).
+  messaging.onGroupContentRequest = (peer, requestJson) {
+    unawaited(svc.handleContentRequest(requestJson));
   };
   return svc;
 });
