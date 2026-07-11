@@ -2234,16 +2234,18 @@ class MessagingService {
         // dropped). Falls through to _signal() so the pending surfaces in the UI.
         await _handleRequestOrReconnect(m, env, existing?.status);
       case WireKind.fileStream:
-        // Large-file STREAM transfer announcement (any-size feature). The blob
-        // arrives over a reliable veil stream into the external encrypted store;
-        // the receive accept-loop + size-routed send are wired in a later stage.
-        // Until then drop it gracefully — the sender's gap-fill re-announces, so
-        // no message is lost once the receive path lands.
+        // Reserved abandoned push-stream prototype. No production sender ever
+        // emitted this kind; the shipped any-size path is contentManifest + a
+        // receiver-initiated content-id-bound pull stream. Reusing the same
+        // accept loop for a pushed blob would create an ambiguous protocol and
+        // bypass manifest/hash/opt-in checks, so legacy experimental frames stay
+        // an authenticated, consent-gated silent drop. Keep the enum slot so all
+        // later wire indices remain stable.
         if (existing?.status != ContactStatus.accepted) return;
         devLog(
           () =>
-              'xVeil[recv]: fileStream announce '
-              '${parseFileMeta(env.body).transferId} — receive not yet wired',
+              'xVeil[recv]: reserved fileStream frame '
+              '${parseFileMeta(env.body).transferId} — dropped',
         );
         return;
       case WireKind.contentManifest:

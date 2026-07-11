@@ -2,13 +2,18 @@
 
 Started 2026-06-27. User vision: transfer files of ANY size + SHARE some files
 publicly (a PeerTube analog), decentralized, BitTorrent-style. Replaces the
-abandoned veil-stream approach (streams are direct-session-only — proven NOT to
-traverse NAT phone↔desktop; see doc/ANYSIZE-FILE-TRANSFER-PLAN.md).
+abandoned direct app-stream push approach (proven NOT to traverse NAT
+phone↔desktop; see doc/ANYSIZE-FILE-TRANSFER-PLAN.md). Later anonymous onion
+content streams did gain NAT traversal and now accelerate the same verified
+receiver-pull protocol; they are not the abandoned `WireKind.fileStream` push.
 
 ## Transport decision (proven on-device)
-- veil **streams** (App family) + real-time data (`AppRtData`) are **direct-
+- legacy veil **streams** (App family) + real-time data (`AppRtData`) are **direct-
   session-only** — no relay/onion egress, so they DON'T cross NAT. Verified:
   `open_stream` phone→desktop fails `NO_SESSION` (code 6).
+- the later anonymous onion stream transport DOES cross NAT and is the current
+  bulk data plane after a contentId request; manifest and hash verification stay
+  authoritative, with datagram control/piece fallback and resume logic.
 - veil **datagrams** (Delivery family) DO traverse NAT via relays (proven: the
   chat already delivers both ways). They are lossy, unordered, ≤6144 B/msg.
 - **Anonymity is a per-user TOGGLE.** Default = relay-forward (low latency, fewer
