@@ -243,6 +243,35 @@ class AppL10nEn extends AppL10n {
   String get stickerImport => 'Import from photos';
 
   @override
+  String get groupCreateTitle => 'New group';
+
+  @override
+  String get groupCreateAction => 'Create';
+
+  @override
+  String get groupNameHint => 'Group name';
+
+  @override
+  String get groupEmpty => 'No groups yet';
+
+  @override
+  String get groupNoMessages => 'No messages yet';
+
+  @override
+  String get groupMembersTooltip => 'Members';
+
+  @override
+  String groupMembers(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count members',
+      one: '1 member',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get stickerEmpty => 'No stickers yet — import your own pictures';
 
   @override

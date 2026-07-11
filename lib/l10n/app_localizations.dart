@@ -535,6 +535,48 @@ abstract class AppL10n {
   /// **'Import from photos'**
   String get stickerImport;
 
+  /// No description provided for @groupCreateTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'New group'**
+  String get groupCreateTitle;
+
+  /// No description provided for @groupCreateAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Create'**
+  String get groupCreateAction;
+
+  /// No description provided for @groupNameHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Group name'**
+  String get groupNameHint;
+
+  /// No description provided for @groupEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No groups yet'**
+  String get groupEmpty;
+
+  /// No description provided for @groupNoMessages.
+  ///
+  /// In en, this message translates to:
+  /// **'No messages yet'**
+  String get groupNoMessages;
+
+  /// No description provided for @groupMembersTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Members'**
+  String get groupMembersTooltip;
+
+  /// No description provided for @groupMembers.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 member} other{{count} members}}'**
+  String groupMembers(int count);
+
   /// No description provided for @stickerEmpty.
   ///
   /// In en, this message translates to:

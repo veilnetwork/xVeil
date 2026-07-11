@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../features/chat/chat_screen.dart';
+import '../features/groups/group_chat_screen.dart';
+import '../features/groups/group_list_screen.dart';
 import '../features/home/home_shell.dart';
 import '../features/identity/add_identity_screen.dart';
 import '../features/identity/decoy_master_screen.dart';
@@ -129,6 +131,12 @@ final routerProvider = Provider<GoRouter>((ref) {
       // Network and Settings are pushed from the drawer app-menu (they left
       // the bottom bar when it became Chats + reserved future sections).
       GoRoute(path: '/network', builder: (_, _) => const NetworkScreen()),
+      GoRoute(path: '/groups', builder: (_, _) => const GroupListScreen()),
+      GoRoute(
+        path: '/group/:id',
+        builder: (_, st) =>
+            GroupChatScreen(groupIdHex: st.pathParameters['id']!),
+      ),
       GoRoute(path: '/settings', builder: (_, _) => const SettingsScreen()),
       GoRoute(
         path: '/settings/account',
