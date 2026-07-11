@@ -248,6 +248,46 @@ void main() {
     expect(isNewerDeviceSync(newer, second), isTrue);
   });
 
+  test('contact-list sync (brick 4d): status transitions fire the tap; a '
+      'mirrored status CREATES a missing contact and preserves other fields',
+      () async {
+    final me = _id(1), peer = _id(2), stranger = _id(7);
+    final storage = await _openStorage();
+    await storage.upsertContact(Contact(
+        nodeId: peer, name: 'Алиса', status: ContactStatus.accepted));
+    final svc = MessagingService(_Noop(me), storage)..start();
+    addTearDown(svc.dispose);
+
+    final statusTaps = <(NodeId, ContactStatus)>[];
+    svc.onContactStatusChanged = (p, s) => statusTaps.add((p, s));
+
+    // Local block funnels through _setStatus → the tap fires.
+    await svc.blockContact(peer);
+    expect(statusTaps, [(peer, ContactStatus.blocked)]);
+
+    // Mirrored status for an UNKNOWN peer creates the record — this is what
+    // materializes the contact list on a fresh device.
+    expect(
+        await svc.applyMirroredContactStatus(
+            stranger, ContactStatus.accepted),
+        isTrue);
+    expect((await storage.getContact(stranger))!.status,
+        ContactStatus.accepted);
+    expect(statusTaps, hasLength(1), reason: 'apply must not echo');
+
+    // Mirrored unblock of the known peer preserves its other fields…
+    expect(
+        await svc.applyMirroredContactStatus(peer, ContactStatus.accepted),
+        isTrue);
+    final c = (await storage.getContact(peer))!;
+    expect(c.status, ContactStatus.accepted);
+    expect(c.name, 'Алиса');
+    // …and an identical status is a no-op (idempotent on re-delivery).
+    expect(
+        await svc.applyMirroredContactStatus(peer, ContactStatus.accepted),
+        isFalse);
+  });
+
   test('readMark (brick 4c): local markRead fires the tap with the advanced '
       'watermark; a mirrored mark applies monotonically and never echoes',
       () async {

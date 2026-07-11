@@ -336,6 +336,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/read_conv':
           await _readConvHook(req);
           return;
+        case '/contact_block':
+          await _contactBlockHook(req);
+          return;
         case '/read_state':
           await _readStateHook(req);
           return;
@@ -1344,6 +1347,24 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     await ref.read(messagingServiceProvider).markRead(peer);
     return _json(req,
         {'ok': true, 'marker': await ref.read(storageProvider).readMarker(peer)});
+  }
+
+  /// Block (?on=1) or unblock (?on=0) contact ?peer= through the REAL
+  /// messaging flow — a linked device should mirror the relationship change
+  /// (brick 4d contact-list sync).
+  Future<void> _contactBlockHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final peerHex = req.uri.queryParameters['peer'];
+    if (peerHex == null) return _json(req, {'ok': false, 'error': 'no peer'});
+    final peer = NodeId.fromHex(peerHex);
+    final messaging = ref.read(messagingServiceProvider);
+    if (req.uri.queryParameters['on'] == '1') {
+      await messaging.blockContact(peer);
+    } else {
+      await messaging.unblockContact(peer);
+    }
+    final c = await ref.read(storageProvider).getContact(peer);
+    return _json(req, {'ok': true, 'status': c?.status.name});
   }
 
   /// The stored read watermark of ?conv= (peer hex) or ?group= (gid hex) —

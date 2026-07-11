@@ -16,7 +16,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/ids.dart';
 import '../domain/call_log.dart';
-import '../domain/chat.dart' show SignaturePolicy;
+import '../domain/chat.dart' show ContactStatus, SignaturePolicy;
 import '../domain/device_sync.dart';
 import 'call_log.dart';
 import 'device_settings_sync.dart';
@@ -67,20 +67,42 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     return lastEmitMs;
   }
 
+  // Contact records of my OWN devices never sync: each side keys the pair
+  // relationship by the OTHER device's id, so the record is not portable (on
+  // the sibling it would describe itself). Same rule as the msgMirror
+  // exclusion (brick 4c).
   messaging.onContactPrefsChanged = (c) {
-    unawaited(svc.postDeviceEvent(DeviceSyncEvent(
-      kind: DeviceSyncKind.contactUp,
-      key: c.nodeId.hex,
-      tsMs: nextTs(),
-      payload: {
-        'name': c.name,
-        'mutedMs': c.mutedUntil?.millisecondsSinceEpoch,
-        'pin': c.pinned,
-        'arc': c.archived,
-        'ret': c.retentionDays,
-        'apd': c.allowPeerDelete,
-      },
-    )));
+    unawaited(() async {
+      if (c.nodeId == svc.selfId || await svc.isMyDevice(c.nodeId)) return;
+      await svc.postDeviceEvent(DeviceSyncEvent(
+        kind: DeviceSyncKind.contactUp,
+        key: c.nodeId.hex,
+        tsMs: nextTs(),
+        payload: {
+          'name': c.name,
+          'mutedMs': c.mutedUntil?.millisecondsSinceEpoch,
+          'pin': c.pinned,
+          'arc': c.archived,
+          'ret': c.retentionDays,
+          'apd': c.allowPeerDelete,
+        },
+      ));
+    }());
+  };
+  // Relationship transitions ride a SEPARATE key namespace ('s:<peer>'), so
+  // a preference edit and a status change LWW independently — an alias edit
+  // carrying a stale embedded status could otherwise un-block a peer that my
+  // other device just blocked.
+  messaging.onContactStatusChanged = (peer, status) {
+    unawaited(() async {
+      if (peer == svc.selfId || await svc.isMyDevice(peer)) return;
+      await svc.postDeviceEvent(DeviceSyncEvent(
+        kind: DeviceSyncKind.contactUp,
+        key: 's:${peer.hex}',
+        tsMs: nextTs(),
+        payload: {'status': status.name},
+      ));
+    }());
   };
   hub.onLocalSet = (key, value) {
     unawaited(svc.postDeviceEvent(DeviceSyncEvent(
@@ -184,11 +206,23 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     if (e == null || !newest(e)) return;
     switch (e.kind) {
       case DeviceSyncKind.contactUp:
+        final statusEvent = e.key.startsWith('s:');
         final NodeId peer;
         try {
-          peer = NodeId.fromHex(e.key);
+          peer = NodeId.fromHex(statusEvent ? e.key.substring(2) : e.key);
         } catch (_) {
           return; // malformed key from a newer/buggy device — skip silently
+        }
+        if (peer.hex == svc.selfId.hex) return; // never my own record
+        if (statusEvent) {
+          final raw = e.payload['status'];
+          ContactStatus? status;
+          for (final s in ContactStatus.values) {
+            if (s.name == raw) status = s;
+          }
+          if (status == null) return; // newer vocabulary — skip, don't guess
+          unawaited(messaging.applyMirroredContactStatus(peer, status));
+          return;
         }
         final name = e.payload['name'], muted = e.payload['mutedMs'];
         final ret = e.payload['ret'];
