@@ -11,10 +11,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/ids.dart';
+import '../../domain/chat.dart';
 import '../../domain/group.dart';
 import '../../domain/group_message.dart';
+import '../../domain/group_policy.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service.dart';
+import '../../state/messaging.dart' show conversationsProvider;
 import '../../state/providers.dart';
 import '../../state/sticker_store.dart';
 import '../../state/thumbnail.dart';
@@ -110,39 +113,192 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     );
   }
 
+  /// The member roster + management actions (add / mute / role / remove). Every
+  /// action is gated by [canApply] against MY current role, so the UI only
+  /// offers what the control-log would actually accept; the service re-checks on
+  /// commit. The sheet is reactive (svc.changes) so it refreshes after an op.
   Future<void> _showMembers(GroupService svc) async {
-    final state = await svc.stateOf(_gid);
-    if (!mounted || state == null) return;
-    final l = AppL10n.of(context);
     await showModalBottomSheet<void>(
       context: context,
-      builder: (_) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(l.groupMembers(state.members.length),
-                  style: Theme.of(context).textTheme.titleMedium),
-            ),
-            for (final m in state.members.values)
-              ListTile(
-                dense: true,
-                leading: Icon(
-                  m.role == GroupRole.owner
-                      ? Icons.star
-                      : (m.role == GroupRole.admin
-                          ? Icons.shield_outlined
-                          : Icons.person_outline),
+      isScrollControlled: true,
+      builder: (_) => AnimatedBuilder(
+        animation: svc.changes,
+        builder: (context, _) => FutureBuilder<GroupState?>(
+          future: svc.stateOf(_gid),
+          builder: (context, snap) {
+            final l = AppL10n.of(context);
+            final state = snap.data;
+            if (state == null) {
+              return const SafeArea(
+                child: Padding(
+                  padding: EdgeInsets.all(28),
+                  child: Center(child: CircularProgressIndicator()),
                 ),
-                title: Text(m.nodeId.short),
-                subtitle: Text(m.role.name),
-                trailing: m.muted ? const Icon(Icons.volume_off, size: 16) : null,
+              );
+            }
+            final myRole = state.roleOf(svc.selfId);
+            final canAdd = myRole != null &&
+                canApply(
+                    authorRole: myRole,
+                    op: ControlOp.addMember,
+                    newRole: GroupRole.member);
+            return SafeArea(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 8, 0),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(l.groupMembers(state.members.length),
+                              style: Theme.of(context).textTheme.titleMedium),
+                        ),
+                        if (canAdd)
+                          TextButton.icon(
+                            onPressed: () => _addMember(svc, state),
+                            icon: const Icon(Icons.person_add_alt),
+                            label: Text(l.groupAddMember),
+                          ),
+                      ],
+                    ),
+                  ),
+                  Flexible(
+                    child: ListView(
+                      shrinkWrap: true,
+                      children: [
+                        for (final m in state.members.values)
+                          _memberTile(svc, myRole, m, l),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _memberTile(
+      GroupService svc, GroupRole? myRole, GroupMember m, AppL10n l) {
+    final isSelf = m.nodeId == svc.selfId;
+    final actions = <PopupMenuEntry<String>>[];
+    if (myRole != null && !isSelf) {
+      final tr = m.role;
+      if (canApply(
+          authorRole: myRole,
+          op: m.muted ? ControlOp.unmute : ControlOp.mute,
+          targetRole: tr)) {
+        actions.add(PopupMenuItem(
+            value: m.muted ? 'unmute' : 'mute',
+            child: Text(m.muted ? l.groupUnmute : l.groupMute)));
+      }
+      if (m.role == GroupRole.member &&
+          canApply(
+              authorRole: myRole,
+              op: ControlOp.setRole,
+              targetRole: tr,
+              newRole: GroupRole.admin)) {
+        actions
+            .add(PopupMenuItem(value: 'promote', child: Text(l.groupPromote)));
+      }
+      if (m.role == GroupRole.admin &&
+          canApply(
+              authorRole: myRole,
+              op: ControlOp.setRole,
+              targetRole: tr,
+              newRole: GroupRole.member)) {
+        actions.add(PopupMenuItem(value: 'demote', child: Text(l.groupDemote)));
+      }
+      if (canApply(
+          authorRole: myRole, op: ControlOp.removeMember, targetRole: tr)) {
+        actions.add(PopupMenuItem(value: 'remove', child: Text(l.groupRemove)));
+      }
+    }
+    return ListTile(
+      dense: true,
+      leading: Icon(m.role == GroupRole.owner
+          ? Icons.star
+          : (m.role == GroupRole.admin
+              ? Icons.shield_outlined
+              : Icons.person_outline)),
+      title: Text(m.nodeId.short),
+      subtitle: Text(m.role.name),
+      trailing: actions.isEmpty
+          ? (m.muted ? const Icon(Icons.volume_off, size: 16) : null)
+          : PopupMenuButton<String>(
+              itemBuilder: (_) => actions,
+              onSelected: (v) => _memberAction(svc, m, v),
+            ),
+    );
+  }
+
+  Future<void> _memberAction(
+      GroupService svc, GroupMember m, String action) async {
+    switch (action) {
+      case 'mute':
+        await svc.addControlOp(_gid, ControlOp.mute, target: m.nodeId);
+      case 'unmute':
+        await svc.addControlOp(_gid, ControlOp.unmute, target: m.nodeId);
+      case 'promote':
+        await svc.addControlOp(_gid, ControlOp.setRole,
+            target: m.nodeId, role: GroupRole.admin);
+      case 'demote':
+        await svc.addControlOp(_gid, ControlOp.setRole,
+            target: m.nodeId, role: GroupRole.member);
+      case 'remove':
+        await svc.addControlOp(_gid, ControlOp.removeMember, target: m.nodeId);
+    }
+  }
+
+  /// Pick an accepted contact not already in the group and add them as a member
+  /// (a full snapshot broadcast syncs the whole history to the joiner).
+  Future<void> _addMember(GroupService svc, GroupState state) async {
+    final l = AppL10n.of(context);
+    final convos =
+        ref.read(conversationsProvider).valueOrNull ?? const <Conversation>[];
+    final candidates = [
+      for (final c in convos)
+        if (c.peer.status == ContactStatus.accepted &&
+            !state.isMember(c.peer.nodeId))
+          c.peer,
+    ];
+    if (candidates.isEmpty) {
+      _snack(l.groupNoContactsToAdd);
+      return;
+    }
+    final picked = await showModalBottomSheet<NodeId>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            for (final c in candidates)
+              ListTile(
+                leading: CircleAvatar(
+                  child: Text(((c.name?.isNotEmpty ?? false)
+                          ? c.name!
+                          : c.nodeId.short)
+                      .characters
+                      .first
+                      .toUpperCase()),
+                ),
+                title: Text((c.name?.isNotEmpty ?? false)
+                    ? c.name!
+                    : c.nodeId.short),
+                subtitle: Text(c.nodeId.short),
+                onTap: () => Navigator.of(context).pop(c.nodeId),
               ),
           ],
         ),
       ),
     );
+    if (picked == null) return;
+    await svc.addControlOp(_gid, ControlOp.addMember,
+        target: picked, role: GroupRole.member);
   }
 
   @override

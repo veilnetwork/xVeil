@@ -272,6 +272,27 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
+  String get groupAddMember => 'Add';
+
+  @override
+  String get groupMute => 'Mute';
+
+  @override
+  String get groupUnmute => 'Unmute';
+
+  @override
+  String get groupPromote => 'Make admin';
+
+  @override
+  String get groupDemote => 'Remove admin';
+
+  @override
+  String get groupRemove => 'Remove from group';
+
+  @override
+  String get groupNoContactsToAdd => 'No contacts left to add';
+
+  @override
   String get groupAttachImage => 'Send image';
 
   @override

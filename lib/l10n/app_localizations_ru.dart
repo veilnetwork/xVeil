@@ -274,6 +274,27 @@ class AppL10nRu extends AppL10n {
   }
 
   @override
+  String get groupAddMember => 'Добавить';
+
+  @override
+  String get groupMute => 'Заглушить';
+
+  @override
+  String get groupUnmute => 'Разглушить';
+
+  @override
+  String get groupPromote => 'Сделать админом';
+
+  @override
+  String get groupDemote => 'Снять админа';
+
+  @override
+  String get groupRemove => 'Убрать из группы';
+
+  @override
+  String get groupNoContactsToAdd => 'Нет контактов для добавления';
+
+  @override
   String get groupAttachImage => 'Отправить картинку';
 
   @override
