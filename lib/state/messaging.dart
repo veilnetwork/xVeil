@@ -1397,11 +1397,37 @@ class MessagingService {
     _pendingOps[key] = op;
   }
 
+  /// Attached by the multi-device bridge: fires after a LOCAL relationship
+  /// transition lands in [_setStatus] (request in/out, accept, block,
+  /// unblock) — never from [applyMirroredContactStatus] — so the contact
+  /// LIST itself converges across my devices, not just its preferences.
+  void Function(NodeId peer, ContactStatus status)? onContactStatusChanged;
+
   Future<void> _setStatus(NodeId peer, ContactStatus status) async {
     final existing = await _storage.getContact(peer);
     await _storage.upsertContact(
       (existing ?? Contact(nodeId: peer)).copyWith(status: status),
     );
+    onContactStatusChanged?.call(peer, status);
+  }
+
+  /// Apply a relationship status mirrored from ANOTHER of my devices. Unlike
+  /// the preference mirror this CREATES a missing contact (that is the
+  /// contact-list sync: an add/accept/block decided on my other device is the
+  /// same owner's decision), preserving every other field of an existing
+  /// record. Writes straight to storage — never re-fires
+  /// [onContactStatusChanged], so a mirrored status cannot echo.
+  Future<bool> applyMirroredContactStatus(
+    NodeId peer,
+    ContactStatus status,
+  ) async {
+    final existing = await _storage.getContact(peer);
+    if (existing?.status == status) return false;
+    await _storage.upsertContact(
+      (existing ?? Contact(nodeId: peer)).copyWith(status: status),
+    );
+    _signal();
+    return true;
   }
 
   /// Shared handling for a [WireKind.request] AND a [WireKind.reconnect] — both
