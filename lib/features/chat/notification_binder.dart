@@ -124,9 +124,16 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       ({NodeId groupId, GroupMessage message}) n) async {
     if (!mounted) return;
     final settings = ref.read(notificationSettingsProvider);
+    var muted = false;
+    try {
+      muted =
+          await ref.read(groupServiceProvider)?.isGroupMuted(n.groupId) ??
+              false;
+    } catch (_) {}
+    if (!mounted) return;
     if (!shouldAlertIncoming(
       enabled: settings.enabled,
-      muted: false, // no local group-mute yet
+      muted: muted,
       foreground: _foreground,
     )) {
       return;
@@ -210,7 +217,15 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       devLog(() => 'xVeil[notify]: flush — no group service');
       return;
     }
-    List<({NodeId groupId, String name, int unread})> groups;
+    List<
+        ({
+          NodeId groupId,
+          String name,
+          int unread,
+          bool muted,
+          String preview,
+          int lastTs,
+        })> groups;
     try {
       groups = await gsvc.listGroups();
     } catch (e) {
@@ -222,7 +237,9 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         '${[for (final g in groups) g.unread]}');
     if (!mounted) return;
     for (final g in groups) {
-      if (g.unread <= 0 || 'group:${g.groupId.hex}' == active) continue;
+      if (g.unread <= 0 || g.muted || 'group:${g.groupId.hex}' == active) {
+        continue;
+      }
       await _show(
         convHex: 'group:${g.groupId.hex}',
         name: g.name.trim().isNotEmpty ? g.name : null,
