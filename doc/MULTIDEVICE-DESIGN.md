@@ -116,15 +116,20 @@ the message.
 
 ## Tech-notes resolved (engineering stance, flagged in ROADMAP)
 
-1. Mailbox multi-reader (an ACK by one device deletes the relay copy):
-   v1 does NOT rely on per-instance relay copies — the device-sync log
-   itself is the recovery path: whichever device drained the mailbox
-   mirrors the message into the device group (msgMirror), and the other
-   devices converge from there. Relay-side per-instance lifecycle can
-   come later as an optimization.
-2. Fanout-envelope count leaking the device count: unchanged in v1 (the
-   mailbox already fans out per-instance envelopes); padding to a fixed
-   envelope set is a follow-up crypto brick, noted not blocking.
+1. xVeil v1 devices are separate node ids in the private app-level device
+   group, not native `InstanceRegistry` entries under one recipient node id.
+   The contacted device receives the mailbox copy and mirrors it through the
+   device-sync log; relay-side per-device lifecycle is therefore not part of
+   the shipped v1 path.
+2. AUDIT (2026-07-12): native `fanout_encrypt` supports many instance certs,
+   but the production mailbox resolver deliberately selects only the freshest
+   registry instance and seals one envelope. The earlier statement that the
+   mailbox already fanned out to all devices was false. Fixed-count envelope
+   padding alone would not hide xVeil's app-level device count because that
+   count never enters this native blob. A future native `InstanceTag::All`
+   path must first define how app-level members map to a same-node registry,
+   then hide both registry membership and envelope count; do not mark brick 5
+   complete from the currently dormant fanout primitive.
 3. Anonymous identities: NO public instance registry for them — v1
    scopes multi-device to the sovereign identity only; anonymous spaces
    stay single-device (seed-only recovery), revisit after Ф0.
