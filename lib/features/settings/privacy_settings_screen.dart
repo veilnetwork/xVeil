@@ -141,8 +141,8 @@ class PrivacySettingsScreen extends ConsumerWidget {
         SwitchListTile(
           secondary: const Icon(Icons.api_outlined),
           title: Text(l.settingsApiTitle),
-          subtitle: Text(
-              cfg.enabled ? '127.0.0.1:$kApiPort' : l.settingsApiHint),
+          subtitle:
+              Text(cfg.enabled ? '127.0.0.1:$kApiPort' : l.settingsApiHint),
           value: cfg.enabled,
           onChanged: (v) async {
             if (v) {
@@ -152,46 +152,92 @@ class PrivacySettingsScreen extends ConsumerWidget {
             }
           },
         ),
-        if (cfg.enabled)
-          SwitchListTile(
-            secondary: const Icon(Icons.visibility_outlined),
-            title: Text(l.settingsApiReadOnly),
-            subtitle: Text(l.settingsApiReadOnlyHint),
-            value: cfg.readOnly,
-            onChanged: (v) => ctrl.setReadOnly(v),
-          ),
-        if (cfg.enabled && cfg.token.isNotEmpty)
+        if (cfg.enabled) ...[
+          for (final t in cfg.tokens)
+            ListTile(
+              leading: Icon(t.readOnly
+                  ? Icons.visibility_outlined
+                  : Icons.key_outlined),
+              title: Text(t.name),
+              subtitle: Text(
+                '${t.token.substring(0, 8)}…'
+                '${t.readOnly ? ' · ${l.settingsApiReadOnly}' : ''}',
+                style: const TextStyle(fontFamily: 'monospace'),
+              ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.copy_outlined),
+                    tooltip: l.settingsApiCopyToken,
+                    onPressed: () async {
+                      await Clipboard.setData(ClipboardData(text: t.token));
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(l.settingsApiTokenCopied)),
+                        );
+                      }
+                    },
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline),
+                    tooltip: l.settingsApiRevoke,
+                    onPressed: () => ctrl.revokeToken(t.id),
+                  ),
+                ],
+              ),
+            ),
           ListTile(
-            leading: const Icon(Icons.key_outlined),
-            title: Text(l.settingsApiToken),
-            subtitle: Text(
-              '${cfg.token.substring(0, 8)}…',
-              style: const TextStyle(fontFamily: 'monospace'),
-            ),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.copy_outlined),
-                  tooltip: l.settingsApiCopyToken,
-                  onPressed: () async {
-                    await Clipboard.setData(ClipboardData(text: cfg.token));
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text(l.settingsApiTokenCopied)),
-                      );
-                    }
-                  },
-                ),
-                IconButton(
-                  icon: const Icon(Icons.refresh),
-                  tooltip: l.settingsApiRegenerate,
-                  onPressed: () => ctrl.regenerateToken(),
-                ),
-              ],
-            ),
+            leading: const Icon(Icons.add),
+            title: Text(l.settingsApiAddToken),
+            onTap: () => _addToken(context, ref, l),
           ),
+        ],
       ],
     );
+  }
+
+  Future<void> _addToken(BuildContext context, WidgetRef ref, AppL10n l) async {
+    final nameCtrl = TextEditingController();
+    var readOnly = false;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) => AlertDialog(
+          title: Text(l.settingsApiAddToken),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameCtrl,
+                autofocus: true,
+                decoration:
+                    InputDecoration(hintText: l.settingsApiTokenName),
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(l.settingsApiReadOnly),
+                value: readOnly,
+                onChanged: (v) => setState(() => readOnly = v),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text(l.actionCancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text(l.settingsApiAddToken),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true) return;
+    await ref
+        .read(apiServerControllerProvider.notifier)
+        .addToken(nameCtrl.text, readOnly: readOnly);
   }
 }

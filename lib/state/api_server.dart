@@ -33,8 +33,9 @@ import 'providers.dart';
 const int kApiPort = 8787;
 
 const String _kEnabledKey = 'api.enabled';
-const String _kTokenKey = 'api.token';
-const String _kReadOnlyKey = 'api.readonly';
+const String _kTokensKey = 'api.tokens'; // JSON list of ApiToken
+const String _kTokenKey = 'api.token'; // legacy single token (migrated)
+const String _kReadOnlyKey = 'api.readonly'; // legacy single-token scope
 
 /// The OpenAPI 3.0 contract for the implemented `/v1` surface, so a client can
 /// be generated in any language (`openapi-generator -i .../v1/openapi.json`).
@@ -294,28 +295,46 @@ Map<String, dynamic> openApiSpec() {
 
 /// Persisted API state: whether the server runs, and the bearer token clients
 /// must present. The token lives in the deniable store, never in plaintext prefs.
-class ApiConfig {
-  const ApiConfig({
-    required this.enabled,
+/// One issued bearer token — a per-app credential with its own scope, revocable
+/// independently. [readOnly] refuses every write (POST) with 403 (a monitoring
+/// bot observes without being able to act).
+class ApiToken {
+  const ApiToken({
+    required this.id,
+    required this.name,
     required this.token,
-    this.readOnly = false,
+    required this.readOnly,
   });
-  final bool enabled;
-  final String token;
-
-  /// When true the token is least-privilege: reads (GET, WS events) work but
-  /// every write (POST — send message/file, place/answer/end calls) is refused
-  /// with 403. Lets a monitoring bot observe without being able to act.
+  final String id; // short handle for revocation (not secret)
+  final String name; // human label ("bot", "monitor", …)
+  final String token; // the secret bearer value
   final bool readOnly;
 
-  ApiConfig copyWith({bool? enabled, String? token, bool? readOnly}) =>
-      ApiConfig(
+  Map<String, dynamic> toJson() =>
+      {'id': id, 'name': name, 'token': token, 'ro': readOnly};
+
+  static ApiToken? fromJson(Object? j) {
+    if (j is! Map) return null;
+    final id = j['id'], name = j['name'], token = j['token'];
+    if (id is! String || name is! String || token is! String) return null;
+    return ApiToken(
+        id: id, name: name, token: token, readOnly: j['ro'] == true);
+  }
+}
+
+class ApiConfig {
+  const ApiConfig({required this.enabled, this.tokens = const []});
+  final bool enabled;
+
+  /// The issued tokens (any of which authenticates; its own scope applies).
+  final List<ApiToken> tokens;
+
+  ApiConfig copyWith({bool? enabled, List<ApiToken>? tokens}) => ApiConfig(
         enabled: enabled ?? this.enabled,
-        token: token ?? this.token,
-        readOnly: readOnly ?? this.readOnly,
+        tokens: tokens ?? this.tokens,
       );
 
-  static const empty = ApiConfig(enabled: false, token: '');
+  static const empty = ApiConfig(enabled: false);
 }
 
 /// An API response: either a JSON [body] or raw [bytes] (a file download).
@@ -336,8 +355,7 @@ class ApiResponse {
 /// Pure request router — no socket, so tests exercise auth + endpoints directly.
 class ApiHandler {
   ApiHandler({
-    required this.token,
-    this.readOnly = false,
+    required this.tokens,
     required this.status,
     required this.contacts,
     required this.send,
@@ -349,11 +367,9 @@ class ApiHandler {
     required this.callAction,
   });
 
-  /// The bearer token every request must present (empty = reject everything).
-  final String token;
-
-  /// Least-privilege: refuse every write (POST) with 403 (see [ApiConfig]).
-  final bool readOnly;
+  /// The issued tokens; the presented bearer must match one (whose scope then
+  /// applies). Empty = reject everything (API not provisioned).
+  final List<ApiToken> tokens;
 
   /// Node/account status for `GET /v1/health`.
   final Map<String, dynamic> Function() status;
@@ -387,29 +403,41 @@ class ApiHandler {
   /// Constant-time compare of a raw token (localhost, but no reason to leak
   /// length/prefix). Used directly by the WebSocket path (token in the query,
   /// since a browser/ws client can't set an Authorization header on upgrade).
-  bool tokenOk(String? raw) {
-    if (token.isEmpty || raw == null || raw.length != token.length) return false;
+  static bool _ctEq(String a, String b) {
+    if (a.length != b.length) return false;
     var diff = 0;
-    for (var i = 0; i < token.length; i++) {
-      diff |= raw.codeUnitAt(i) ^ token.codeUnitAt(i);
+    for (var i = 0; i < a.length; i++) {
+      diff |= a.codeUnitAt(i) ^ b.codeUnitAt(i);
     }
     return diff == 0;
   }
 
-  /// Bearer-header auth for REST requests.
-  bool _authOk(String? header) {
-    const prefix = 'Bearer ';
-    if (header == null || !header.startsWith(prefix)) return false;
-    return tokenOk(header.substring(prefix.length));
+  /// The token matching raw bearer [raw] (whose scope applies), or null.
+  ApiToken? _matchRaw(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    for (final t in tokens) {
+      if (_ctEq(raw, t.token)) return t;
+    }
+    return null;
   }
+
+  ApiToken? _matchHeader(String? header) {
+    const prefix = 'Bearer ';
+    if (header == null || !header.startsWith(prefix)) return null;
+    return _matchRaw(header.substring(prefix.length));
+  }
+
+  /// True if [raw] matches any token — the WS path's query-token check.
+  bool tokenOk(String? raw) => _matchRaw(raw) != null;
 
   Future<ApiResponse> handle(String method, Uri uri, String? authHeader,
       {Map<String, dynamic>? body}) async {
-    if (!_authOk(authHeader)) {
+    final auth = _matchHeader(authHeader);
+    if (auth == null) {
       return const ApiResponse(401, {'error': 'unauthorized'});
     }
-    // Read-only token: every write (POST) is refused. Reads fall through.
-    if (readOnly && method == 'POST') {
+    // A read-only token refuses every write (POST). Reads fall through.
+    if (auth.readOnly && method == 'POST') {
       return const ApiResponse(403, {'error': 'read-only token'});
     }
     final path = uri.path;
@@ -598,12 +626,30 @@ class ApiServerController extends Notifier<ApiConfig> {
     final st = ref.read(storageProvider);
     try {
       final enabled = (await st.getSetting(_kEnabledKey)) == '1';
-      final token = (await st.getSetting(_kTokenKey)) ?? '';
-      final readOnly = (await st.getSetting(_kReadOnlyKey)) == '1';
-      state = ApiConfig(enabled: enabled, token: token, readOnly: readOnly);
-      if (enabled && token.isNotEmpty) {
-        await _reconcile();
+      var tokens = <ApiToken>[];
+      final raw = await st.getSetting(_kTokensKey);
+      if (raw != null && raw.isNotEmpty) {
+        final d = jsonDecode(raw);
+        if (d is List) {
+          tokens = d.map(ApiToken.fromJson).whereType<ApiToken>().toList();
+        }
+      } else {
+        // Migrate the old single-token model (api.token + api.readonly).
+        final old = await st.getSetting(_kTokenKey);
+        if (old != null && old.isNotEmpty) {
+          tokens = [
+            ApiToken(
+                id: _mintId(),
+                name: 'default',
+                token: old,
+                readOnly: (await st.getSetting(_kReadOnlyKey)) == '1'),
+          ];
+          await st.putSetting(_kTokensKey,
+              jsonEncode(tokens.map((t) => t.toJson()).toList()));
+        }
       }
+      state = ApiConfig(enabled: enabled, tokens: tokens);
+      if (enabled && tokens.isNotEmpty) await _reconcile();
     } catch (e) {
       // Store not ready yet (e.g. mid-unlock) — a later identity change re-runs.
       debugPrint('xVeil[api]: config load deferred: $e');
@@ -773,10 +819,9 @@ class ApiServerController extends Notifier<ApiConfig> {
   Future<void> _reconcile() async {
     await _server?.stop();
     _server = null;
-    if (!state.enabled || state.token.isEmpty) return;
+    if (!state.enabled || state.tokens.isEmpty) return;
     final handler = ApiHandler(
-      token: state.token,
-      readOnly: state.readOnly,
+      tokens: state.tokens,
       status: _status,
       contacts: _contacts,
       send: _send,
@@ -806,38 +851,57 @@ class ApiServerController extends Notifier<ApiConfig> {
     }
   }
 
-  /// Turn the API on: mint a token if none exists, persist, start the socket.
+  String _mintId() =>
+      base64Url.encode(List<int>.generate(6, (_) => Random.secure().nextInt(256)))
+          .replaceAll(RegExp('[=_-]'), '')
+          .substring(0, 6);
+
+  Future<void> _persistTokens() => ref.read(storageProvider).putSetting(
+      _kTokensKey, jsonEncode(state.tokens.map((t) => t.toJson()).toList()));
+
+  /// Turn the API on: ensure at least one (full) token exists, persist, start.
   Future<void> enable() async {
-    final token = state.token.isEmpty ? _mintToken() : state.token;
-    final st = ref.read(storageProvider);
-    await st.putSetting(_kTokenKey, token);
-    await st.putSetting(_kEnabledKey, '1');
-    state = state.copyWith(enabled: true, token: token);
+    if (state.tokens.isEmpty) {
+      state = state.copyWith(tokens: [
+        ApiToken(
+            id: _mintId(),
+            name: 'default',
+            token: _mintToken(),
+            readOnly: false),
+      ]);
+      await _persistTokens();
+    }
+    await ref.read(storageProvider).putSetting(_kEnabledKey, '1');
+    state = state.copyWith(enabled: true);
     await _reconcile();
   }
 
-  /// Turn the API off (keeps the token so re-enabling is one tap).
+  /// Turn the API off (keeps the tokens so re-enabling is one tap).
   Future<void> disable() async {
     await ref.read(storageProvider).putSetting(_kEnabledKey, '0');
     state = state.copyWith(enabled: false);
     await _reconcile();
   }
 
-  /// Flip the read-only (least-privilege) mode; re-binds the socket with a
-  /// handler carrying the new posture.
-  Future<void> setReadOnly(bool value) async {
-    await ref.read(storageProvider).putSetting(_kReadOnlyKey, value ? '1' : '0');
-    state = state.copyWith(readOnly: value);
+  /// Issue a new token ([readOnly] = least-privilege); returns its secret.
+  Future<String> addToken(String name, {bool readOnly = false}) async {
+    final tok = ApiToken(
+        id: _mintId(),
+        name: name.trim().isEmpty ? 'token' : name.trim(),
+        token: _mintToken(),
+        readOnly: readOnly);
+    state = state.copyWith(tokens: [...state.tokens, tok]);
+    await _persistTokens();
     if (state.enabled) await _reconcile();
+    return tok.token;
   }
 
-  /// Revoke the current token and mint a new one (existing clients break).
-  Future<String> regenerateToken() async {
-    final token = _mintToken();
-    await ref.read(storageProvider).putSetting(_kTokenKey, token);
-    state = state.copyWith(token: token);
+  /// Revoke the token with [id] (that client immediately stops working).
+  Future<void> revokeToken(String id) async {
+    state = state
+        .copyWith(tokens: state.tokens.where((t) => t.id != id).toList());
+    await _persistTokens();
     if (state.enabled) await _reconcile();
-    return token;
   }
 
   bool get running => _server?.running ?? false;
