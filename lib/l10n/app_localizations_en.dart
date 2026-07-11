@@ -325,6 +325,19 @@ class AppL10nEn extends AppL10n {
   String get groupImageTooLarge => 'Image too large to send inline';
 
   @override
+  String get groupVoiceRecord => 'Record voice message';
+
+  @override
+  String get groupVoiceStop => 'Stop and send';
+
+  @override
+  String get groupVoiceMessage => 'Voice message';
+
+  @override
+  String get groupVoiceTooLong =>
+      'Voice message is too long to send in a group';
+
+  @override
   String get reactorsTitle => 'Reactions';
 
   @override

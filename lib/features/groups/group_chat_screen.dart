@@ -23,6 +23,9 @@ import '../../state/providers.dart';
 import '../../state/reactions_visibility_controller.dart';
 import '../../state/sticker_store.dart';
 import '../../state/thumbnail.dart';
+import '../../state/voice_message.dart' show formatVoiceDuration;
+import '../../state/voice_play_controller.dart';
+import '../../state/voice_record_controller.dart';
 import '../chat/reactors_sheet.dart';
 import '../chat/sticker_panel.dart';
 
@@ -143,7 +146,43 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     final k = m.attachment?.kind;
     if (k == 'image') return '🖼 ${l.groupAttachImage}';
     if (k == 'sticker') return '😊 ${l.groupSendSticker}';
+    if (k == 'voice') return '🎤 ${l.groupVoiceMessage}';
     return '…';
+  }
+
+  /// Inline voice cap (raw VOP1 bytes): Opus at voice bitrate is ~2 KB/s, so
+  /// this is ~45s of speech. Rides the snapshot-chunking wire path like inline
+  /// images; longer clips need the content-path media epic.
+  static const int _kGroupVoiceRawMax = 96000;
+
+  /// Tap the mic: start recording; tap again (stop icon): finish + post the
+  /// clip as an inline `voice` attachment. durationMs travels in the signed
+  /// attachment's `w` (and h=1) — reusing the existing fields keeps the
+  /// canonical bytes identical for builds that predate voice.
+  Future<void> _toggleVoiceRecording(GroupService svc) async {
+    final l = AppL10n.of(context);
+    final ctl = ref.read(voiceRecordControllerProvider.notifier);
+    if (!ref.read(voiceRecordControllerProvider).isRecording) {
+      await ctl.start();
+      return;
+    }
+    final clip = ctl.stop();
+    if (clip == null || clip.bytes.isEmpty) return;
+    if (clip.bytes.length > _kGroupVoiceRawMax) {
+      _snack(l.groupVoiceTooLong);
+      return;
+    }
+    await svc.postMessage(
+      _gid,
+      '',
+      replyTo: _takeReplyRef(),
+      attachment: GroupAttachment(
+        kind: 'voice',
+        dataB64: base64Encode(clip.bytes),
+        w: clip.durationMs > 0 ? clip.durationMs : 1,
+        h: 1,
+      ),
+    );
   }
 
   /// The "replying to …" bar shown above the composer.
@@ -606,6 +645,36 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                     tooltip: l.groupSendSticker,
                     icon: const Icon(Icons.emoji_emotions_outlined),
                   ),
+                  // Voice note: tap to record, tap again to stop + post. While
+                  // recording the icon turns into a red stop + elapsed clock.
+                  Builder(builder: (context) {
+                    final rec = ref.watch(voiceRecordControllerProvider);
+                    return Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          onPressed: () => _toggleVoiceRecording(svc),
+                          tooltip: rec.isRecording
+                              ? l.groupVoiceStop
+                              : l.groupVoiceRecord,
+                          icon: Icon(
+                            rec.isRecording
+                                ? Icons.stop_circle
+                                : Icons.mic_none,
+                            color: rec.isRecording
+                                ? Theme.of(context).colorScheme.error
+                                : null,
+                          ),
+                        ),
+                        if (rec.isRecording)
+                          Text(
+                            formatVoiceDuration(
+                                Duration(milliseconds: rec.elapsedMs)),
+                            style: Theme.of(context).textTheme.labelSmall,
+                          ),
+                      ],
+                    );
+                  }),
                   Expanded(
                     child: TextField(
                       controller: _input,
@@ -708,6 +777,7 @@ class _GroupBubble extends StatelessWidget {
     final k = m.attachment?.kind;
     if (k == 'image') return '🖼';
     if (k == 'sticker') return '😊';
+    if (k == 'voice') return '🎤';
     return '…';
   }
 
@@ -816,6 +886,12 @@ class _GroupBubble extends StatelessWidget {
               ),
             if (quoted != null) _quoteBlock(context),
             if (message.attachment != null &&
+                message.attachment!.kind == 'voice')
+              _GroupVoiceRow(
+                messageRef: message.ref,
+                attachment: message.attachment!,
+              ),
+            if (message.attachment != null &&
                 message.attachment!.kind == 'image')
               Padding(
                 padding: EdgeInsets.only(bottom: message.body.isEmpty ? 0 : 6),
@@ -849,6 +925,59 @@ class _GroupBubble extends StatelessWidget {
         ],
       ),
     ),
+    );
+  }
+}
+
+/// A group message's inline voice clip: play/pause + progress + clock, driven
+/// by the shared [voicePlayControllerProvider] (one clip plays at a time, app-
+/// wide). The clip id is the message's stable `<authorHex>:<seq>` ref; the
+/// bytes come straight from the signed attachment (no file-store fetch).
+class _GroupVoiceRow extends ConsumerWidget {
+  const _GroupVoiceRow({required this.messageRef, required this.attachment});
+  final String messageRef;
+  final GroupAttachment attachment;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final play = ref.watch(voicePlayControllerProvider);
+    final active = play.isActive(messageRef);
+    final playing = play.isPlaying(messageRef);
+    // durationMs rides in the attachment's `w` (see _toggleVoiceRecording).
+    final label = active
+        ? formatVoiceDuration(Duration(milliseconds: play.positionMs))
+        : formatVoiceDuration(Duration(milliseconds: attachment.w));
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          visualDensity: VisualDensity.compact,
+          onPressed: () {
+            final Uint8List bytes;
+            try {
+              bytes = base64Decode(attachment.dataB64);
+            } catch (_) {
+              return; // corrupt attachment — nothing to play
+            }
+            ref
+                .read(voicePlayControllerProvider.notifier)
+                .toggleBytes(messageRef, bytes);
+          },
+          icon: Icon(playing ? Icons.pause : Icons.play_arrow, size: 28),
+        ),
+        SizedBox(
+          width: 110,
+          child: LinearProgressIndicator(
+            value: active ? play.progress : 0,
+            minHeight: 3,
+            color: scheme.primary,
+            backgroundColor: scheme.onSurface.withValues(alpha: 0.15),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(label, style: Theme.of(context).textTheme.labelSmall),
+      ],
     );
   }
 }
