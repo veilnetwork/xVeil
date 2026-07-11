@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/group.dart';
+import 'package:xveil/domain/group_content.dart';
 import 'package:xveil/domain/group_message.dart';
 import 'package:xveil/domain/group_reaction.dart';
 import 'package:xveil/state/group_service.dart';
@@ -33,8 +34,14 @@ class _FakeSigner implements GroupSigner {
   GroupReaction signReaction(GroupReaction u) =>
       u.withSignature(Uint8List(64), u.author.bytes);
   @override
+  GroupContentRequest signContentRequest(GroupContentRequest u) =>
+      u.withSignature(Uint8List(64), u.requester.bytes);
+  @override
   bool verifyControl(ControlEntry e) =>
       e.signature.length == 64 && e.authorPubKey.length == 32;
+  @override
+  bool verifyContentRequest(GroupContentRequest r) =>
+      r.signature.length == 64 && r.authorPubKey.length == 32;
   @override
   bool verifyMessage(GroupMessage m) =>
       m.signature.length == 64 && m.authorPubKey.length == 32;
@@ -246,6 +253,48 @@ void main() {
     // The parsed message re-canonicalizes byte-identically — a signature a
     // voice-aware build minted verifies on any build (zero schema change).
     expect(rt.canonicalBytes(), voiceMsg().canonicalBytes());
+  });
+
+  test('content path: member request → grant; stranger/replay/unknown → drop',
+      () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final grants = <(NodeId, String)>[];
+    final sentReq = <String>[];
+    final svc = GroupService(storage, _FakeSigner(owner),
+        grantContentServe: (peer, cid) => grants.add((peer, cid)));
+    final gid = await svc.createGroup('G');
+    await svc.addControlOp(gid, ControlOp.addMember,
+        target: bob, role: GroupRole.member);
+    await svc.postMessage(gid, '',
+        attachment: const GroupAttachment(
+            kind: 'image', dataB64: 'QQ', w: 1, h: 1, cid: 'c0ffee'));
+    expect(await svc.referencedContentIds(gid), {'c0ffee'});
+
+    // Bob (member, own service+store) mints a signed request…
+    final bobStorage = FakeHvContainer().storage();
+    await bobStorage.open(password: 'pw', createIfMissing: true);
+    final bobSvc = GroupService(bobStorage, _FakeSigner(bob),
+        sendContentRequest: (holder, json) async => sentReq.add(json));
+    expect(await bobSvc.requestGroupContent(gid, 'c0ffee', owner), isTrue);
+    // …and the holder authorizes: a grant for exactly (bob, cid).
+    expect(await svc.handleContentRequest(sentReq.last), isTrue);
+    expect(grants.single.$1, bob);
+    expect(grants.single.$2, 'c0ffee');
+
+    // A replay of the same request is refused (nonce cache).
+    expect(await svc.handleContentRequest(sentReq.last), isFalse);
+
+    // A stranger's request never grants.
+    final evieSvc = GroupService(bobStorage, _FakeSigner(_id(7)),
+        sendContentRequest: (holder, json) async => sentReq.add(json));
+    expect(await evieSvc.requestGroupContent(gid, 'c0ffee', owner), isTrue);
+    expect(await svc.handleContentRequest(sentReq.last), isFalse);
+
+    // A cid the group never referenced never grants either.
+    expect(await bobSvc.requestGroupContent(gid, 'beef', owner), isTrue);
+    expect(await svc.handleContentRequest(sentReq.last), isFalse);
+    expect(grants, hasLength(1));
   });
 
   // Auto-broadcast is unawaited (fire-and-forget) — let it drain.
