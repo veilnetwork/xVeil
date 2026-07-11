@@ -3894,6 +3894,168 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'This name has changed owners on the network. The contact still points to the person you added.'**
   String get nicknameOwnerChanged;
+
+  /// No description provided for @settingsDevices.
+  ///
+  /// In en, this message translates to:
+  /// **'My devices'**
+  String get settingsDevices;
+
+  /// No description provided for @settingsDevicesHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Link, review, or revoke devices that share this identity'**
+  String get settingsDevicesHint;
+
+  /// No description provided for @devicesThisDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'This device'**
+  String get devicesThisDevice;
+
+  /// No description provided for @devicesNoGroup.
+  ///
+  /// In en, this message translates to:
+  /// **'No other devices are linked yet'**
+  String get devicesNoGroup;
+
+  /// No description provided for @devicesLinkNew.
+  ///
+  /// In en, this message translates to:
+  /// **'Link a new device'**
+  String get devicesLinkNew;
+
+  /// No description provided for @devicesJoinExisting.
+  ///
+  /// In en, this message translates to:
+  /// **'Join an existing device'**
+  String get devicesJoinExisting;
+
+  /// No description provided for @devicesPhrase.
+  ///
+  /// In en, this message translates to:
+  /// **'Recovery phrase'**
+  String get devicesPhrase;
+
+  /// No description provided for @devicesPhraseHint.
+  ///
+  /// In en, this message translates to:
+  /// **'The phrase decrypts the sovereign key for this one action. It is not stored.'**
+  String get devicesPhraseHint;
+
+  /// No description provided for @devicesTargetInvite.
+  ///
+  /// In en, this message translates to:
+  /// **'New device invite'**
+  String get devicesTargetInvite;
+
+  /// No description provided for @devicesTargetInviteHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Scan or paste the bootstrap invite shown by the new device'**
+  String get devicesTargetInviteHint;
+
+  /// No description provided for @devicesShowMyInvite.
+  ///
+  /// In en, this message translates to:
+  /// **'First, show this device invite to the existing device'**
+  String get devicesShowMyInvite;
+
+  /// No description provided for @devicesPrepare.
+  ///
+  /// In en, this message translates to:
+  /// **'Prepare secure link'**
+  String get devicesPrepare;
+
+  /// No description provided for @devicesAdoptionQrTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Scan this on the new device'**
+  String get devicesAdoptionQrTitle;
+
+  /// No description provided for @devicesAdoptionQrHint.
+  ///
+  /// In en, this message translates to:
+  /// **'First scan this setup code there. Then return here and send the encrypted setup.'**
+  String get devicesAdoptionQrHint;
+
+  /// No description provided for @devicesSendSetup.
+  ///
+  /// In en, this message translates to:
+  /// **'New device is ready — send setup'**
+  String get devicesSendSetup;
+
+  /// No description provided for @devicesSetupSent.
+  ///
+  /// In en, this message translates to:
+  /// **'Encrypted setup sent'**
+  String get devicesSetupSent;
+
+  /// No description provided for @devicesJoinToken.
+  ///
+  /// In en, this message translates to:
+  /// **'Setup code from existing device'**
+  String get devicesJoinToken;
+
+  /// No description provided for @devicesJoinTokenHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Scan or paste the device setup code'**
+  String get devicesJoinTokenHint;
+
+  /// No description provided for @devicesWaitTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Ready to receive'**
+  String get devicesWaitTitle;
+
+  /// No description provided for @devicesWaitHint.
+  ///
+  /// In en, this message translates to:
+  /// **'On the existing device, press “send setup”. This screen will finish automatically.'**
+  String get devicesWaitHint;
+
+  /// No description provided for @devicesJoined.
+  ///
+  /// In en, this message translates to:
+  /// **'Device linked'**
+  String get devicesJoined;
+
+  /// No description provided for @devicesInvalidToken.
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid or mismatched device setup code'**
+  String get devicesInvalidToken;
+
+  /// No description provided for @devicesExpiredToken.
+  ///
+  /// In en, this message translates to:
+  /// **'This setup code has expired'**
+  String get devicesExpiredToken;
+
+  /// No description provided for @devicesRevoke.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoke device'**
+  String get devicesRevoke;
+
+  /// No description provided for @devicesRevokeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoke {device}?'**
+  String devicesRevokeTitle(String device);
+
+  /// No description provided for @devicesOperationFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not complete device linking'**
+  String get devicesOperationFailed;
+
+  /// No description provided for @devicesCancelPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel waiting'**
+  String get devicesCancelPending;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

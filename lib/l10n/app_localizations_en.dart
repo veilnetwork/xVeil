@@ -2058,4 +2058,93 @@ class AppL10nEn extends AppL10n {
   @override
   String get nicknameOwnerChanged =>
       'This name has changed owners on the network. The contact still points to the person you added.';
+
+  @override
+  String get settingsDevices => 'My devices';
+
+  @override
+  String get settingsDevicesHint =>
+      'Link, review, or revoke devices that share this identity';
+
+  @override
+  String get devicesThisDevice => 'This device';
+
+  @override
+  String get devicesNoGroup => 'No other devices are linked yet';
+
+  @override
+  String get devicesLinkNew => 'Link a new device';
+
+  @override
+  String get devicesJoinExisting => 'Join an existing device';
+
+  @override
+  String get devicesPhrase => 'Recovery phrase';
+
+  @override
+  String get devicesPhraseHint =>
+      'The phrase decrypts the sovereign key for this one action. It is not stored.';
+
+  @override
+  String get devicesTargetInvite => 'New device invite';
+
+  @override
+  String get devicesTargetInviteHint =>
+      'Scan or paste the bootstrap invite shown by the new device';
+
+  @override
+  String get devicesShowMyInvite =>
+      'First, show this device invite to the existing device';
+
+  @override
+  String get devicesPrepare => 'Prepare secure link';
+
+  @override
+  String get devicesAdoptionQrTitle => 'Scan this on the new device';
+
+  @override
+  String get devicesAdoptionQrHint =>
+      'First scan this setup code there. Then return here and send the encrypted setup.';
+
+  @override
+  String get devicesSendSetup => 'New device is ready — send setup';
+
+  @override
+  String get devicesSetupSent => 'Encrypted setup sent';
+
+  @override
+  String get devicesJoinToken => 'Setup code from existing device';
+
+  @override
+  String get devicesJoinTokenHint => 'Scan or paste the device setup code';
+
+  @override
+  String get devicesWaitTitle => 'Ready to receive';
+
+  @override
+  String get devicesWaitHint =>
+      'On the existing device, press “send setup”. This screen will finish automatically.';
+
+  @override
+  String get devicesJoined => 'Device linked';
+
+  @override
+  String get devicesInvalidToken => 'Invalid or mismatched device setup code';
+
+  @override
+  String get devicesExpiredToken => 'This setup code has expired';
+
+  @override
+  String get devicesRevoke => 'Revoke device';
+
+  @override
+  String devicesRevokeTitle(String device) {
+    return 'Revoke $device?';
+  }
+
+  @override
+  String get devicesOperationFailed => 'Could not complete device linking';
+
+  @override
+  String get devicesCancelPending => 'Cancel waiting';
 }

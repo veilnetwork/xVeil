@@ -2067,4 +2067,96 @@ class AppL10nRu extends AppL10n {
   @override
   String get nicknameOwnerChanged =>
       'Имя сменило владельца в сети. Контакт по-прежнему указывает на человека, которого вы добавили.';
+
+  @override
+  String get settingsDevices => 'Мои устройства';
+
+  @override
+  String get settingsDevicesHint =>
+      'Связать, проверить или отозвать устройства этой личности';
+
+  @override
+  String get devicesThisDevice => 'Это устройство';
+
+  @override
+  String get devicesNoGroup => 'Другие устройства пока не связаны';
+
+  @override
+  String get devicesLinkNew => 'Связать новое устройство';
+
+  @override
+  String get devicesJoinExisting => 'Присоединиться к существующему';
+
+  @override
+  String get devicesPhrase => 'Фраза восстановления';
+
+  @override
+  String get devicesPhraseHint =>
+      'Фраза расшифрует суверенный ключ только для этого действия и не сохранится.';
+
+  @override
+  String get devicesTargetInvite => 'Инвайт нового устройства';
+
+  @override
+  String get devicesTargetInviteHint =>
+      'Отсканируйте или вставьте bootstrap-инвайт с нового устройства';
+
+  @override
+  String get devicesShowMyInvite =>
+      'Сначала покажите инвайт этого устройства существующему устройству';
+
+  @override
+  String get devicesPrepare => 'Подготовить защищённую связку';
+
+  @override
+  String get devicesAdoptionQrTitle => 'Отсканируйте на новом устройстве';
+
+  @override
+  String get devicesAdoptionQrHint =>
+      'Сначала отсканируйте этот код там. Затем вернитесь сюда и отправьте зашифрованную настройку.';
+
+  @override
+  String get devicesSendSetup => 'Новое устройство готово — отправить';
+
+  @override
+  String get devicesSetupSent => 'Зашифрованная настройка отправлена';
+
+  @override
+  String get devicesJoinToken => 'Код настройки с существующего устройства';
+
+  @override
+  String get devicesJoinTokenHint =>
+      'Отсканируйте или вставьте код привязки устройства';
+
+  @override
+  String get devicesWaitTitle => 'Готово к приёму';
+
+  @override
+  String get devicesWaitHint =>
+      'На существующем устройстве нажмите «отправить». Этот экран завершится автоматически.';
+
+  @override
+  String get devicesJoined => 'Устройство связано';
+
+  @override
+  String get devicesInvalidToken =>
+      'Некорректный или чужой код настройки устройства';
+
+  @override
+  String get devicesExpiredToken => 'Срок действия кода истёк';
+
+  @override
+  String get devicesRevoke => 'Отозвать устройство';
+
+  @override
+  String devicesRevokeTitle(String device) {
+    return 'Отозвать $device?';
+  }
+
+  @override
+  String get devicesOperationFailed =>
+      'Не удалось завершить привязку устройства';
+
+  @override
+  String get devicesCancelPending => 'Отменить ожидание';
 }
