@@ -221,6 +221,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/group_post_image':
           await _groupPostImageHook(req);
           return;
+        case '/group_post_reply':
+          await _groupPostReplyHook(req);
+          return;
         case '/group_post_sticker':
           await _groupPostStickerHook(req);
           return;
@@ -586,6 +589,26 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final posted = await svc.postMessage(gid, q['body'] ?? '');
     final msgs = await svc.messagesOf(gid);
     return _json(req, {'ok': posted, 'messages': msgs.length});
+  }
+
+  /// Post a message replying to the LAST message in ?group= (?body=). Reports
+  /// the reply ref so a 2-device test can confirm the quote resolves.
+  Future<void> _groupPostReplyHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final q = req.uri.queryParameters;
+    final gidHex = q['group'];
+    if (gidHex == null) return _json(req, {'ok': false, 'error': 'no group'});
+    final gid = NodeId.fromHex(gidHex);
+    final existing = await svc.messagesOf(gid);
+    if (existing.isEmpty) {
+      return _json(req, {'ok': false, 'error': 'nothing to reply to'});
+    }
+    final target = existing.last;
+    final posted =
+        await svc.postMessage(gid, q['body'] ?? '', replyTo: target.ref);
+    return _json(req, {'ok': posted, 'replyTo': target.ref});
   }
 
   /// Post an inline image (groups media brick 1): ?group=&path=&body=; reads the

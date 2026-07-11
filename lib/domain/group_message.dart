@@ -61,6 +61,7 @@ class GroupMessage {
     required this.createdAtMs,
     required this.signature,
     this.attachment,
+    this.replyTo,
     Uint8List? authorPubKey,
   }) : authorPubKey = authorPubKey ?? Uint8List(0);
 
@@ -73,11 +74,18 @@ class GroupMessage {
   final int createdAtMs;
   final Uint8List signature;
   final GroupAttachment? attachment; // optional inline media
+  /// The `<authorHex>:<seq>` reference of the message this one replies to, or
+  /// null. Group messages have no single id, but (author, seq) is a permanent
+  /// identity (groups have no edit/delete), so it resolves stably on any device.
+  final String? replyTo;
   final Uint8List authorPubKey; // bound via node_id == BLAKE3(pk), not signed
 
+  /// This message's own stable reference, for another message to [replyTo].
+  String get ref => '${author.hex}:$seq';
+
   /// The bytes the author signs — fixed field order, no signature/pubKey. The
-  /// 'att' key is emitted ONLY when an attachment is present, so text-only
-  /// messages sign byte-identically to before this field existed.
+  /// 'att'/'rt' keys are emitted ONLY when present, so a plain text message
+  /// signs byte-identically to before these fields existed.
   Uint8List canonicalBytes() {
     final map = {
       'gid': groupId.hex,
@@ -88,6 +96,7 @@ class GroupMessage {
       'pv': policyVersion,
       'ts': createdAtMs,
       if (attachment != null) 'att': attachment!.toCanonical(),
+      if (replyTo != null) 'rt': replyTo,
     };
     return Uint8List.fromList(utf8.encode(jsonEncode(map)));
   }
@@ -102,6 +111,7 @@ class GroupMessage {
         createdAtMs: createdAtMs,
         signature: sig,
         attachment: attachment,
+        replyTo: replyTo,
         authorPubKey: pubKey,
       );
 
@@ -114,6 +124,7 @@ class GroupMessage {
         'pv': policyVersion,
         'ts': createdAtMs,
         if (attachment != null) 'att': attachment!.toJson(),
+        if (replyTo != null) 'rt': replyTo,
         'sig': base64Encode(signature),
         if (authorPubKey.isNotEmpty) 'apk': base64Encode(authorPubKey),
       };
@@ -145,6 +156,7 @@ class GroupMessage {
         createdAtMs: ts,
         signature: Uint8List.fromList(base64Decode(sig)),
         attachment: GroupAttachment.fromJson(j['att']),
+        replyTo: j['rt'] is String ? j['rt'] as String : null,
         authorPubKey: j['apk'] is String
             ? Uint8List.fromList(base64Decode(j['apk'] as String))
             : null,
