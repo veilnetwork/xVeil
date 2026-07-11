@@ -141,7 +141,7 @@ void main() {
     final stranger = _id(9); // no contact record on B
     var acceptedCalls = 0, strangerCalls = 0;
     String? viaStranger;
-    mB.onGroupEntry = (_, __) => acceptedCalls++;
+    mB.onGroupEntry = (_, _) => acceptedCalls++;
     mB.onGroupEntryFromStranger = (peer, json) {
       viaStranger = json;
       strangerCalls++;

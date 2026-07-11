@@ -362,6 +362,59 @@ void main() {
         isFalse);
   });
 
+  test('unread + incoming: ingest feeds the stream, watermark clears the count',
+      () async {
+    Future<void> drain() async {
+      for (var i = 0; i < 6; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+    }
+
+    final sent = <String>[];
+    final s1 = FakeHvContainer().storage();
+    await s1.open(password: 'pw', createIfMissing: true);
+    final ownerSvc = GroupService(s1, _FakeSigner(owner),
+        send: (p, g, j) async => sent.add(j));
+    final gid = await ownerSvc.createGroup('G');
+    await ownerSvc.addControlOp(gid, ControlOp.addMember,
+        target: bob, role: GroupRole.member);
+    await drain();
+    final s2 = FakeHvContainer().storage();
+    await s2.open(password: 'pw', createIfMissing: true);
+    final bobSvc = GroupService(s2, _FakeSigner(bob),
+        send: (p, g, j) async => sent.add(j));
+    await bobSvc.ingestSnapshot(sent.last);
+    sent.clear();
+    await bobSvc.postMessage(gid, 'ping-1');
+    await bobSvc.postMessage(gid, 'ping-2');
+    await drain();
+
+    // Owner ingests bob's deltas: the incoming stream fires per NEW message…
+    final got = <String>[];
+    final sub = ownerSvc.incoming.listen((n) => got.add(n.message.body));
+    for (final delta in sent) {
+      await ownerSvc.ingestSnapshot(delta);
+    }
+    await drain();
+    expect(got, ['ping-1', 'ping-2']);
+    // …a re-ingest is silent (dedup)…
+    await ownerSvc.ingestSnapshot(sent.last);
+    await drain();
+    expect(got, hasLength(2));
+    // …and our OWN messages never feed the stream.
+    await ownerSvc.postMessage(gid, 'mine');
+    await drain();
+    expect(got, hasLength(2));
+    await sub.cancel();
+
+    // Unread counts bob's two messages, ignores ours, and clears on seen.
+    expect(await ownerSvc.unreadOf(gid), 2);
+    final listed = await ownerSvc.listGroups();
+    expect(listed.single.unread, 2);
+    await ownerSvc.markGroupSeen(gid);
+    expect(await ownerSvc.unreadOf(gid), 0);
+  });
+
   // Auto-broadcast is unawaited (fire-and-forget) — let it drain.
   Future<void> pump() async {
     for (var i = 0; i < 6; i++) {

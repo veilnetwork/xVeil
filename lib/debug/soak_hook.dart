@@ -278,6 +278,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/content_served':
           await _contentServedHook(req);
           return;
+        case '/group_unread':
+          await _groupUnreadHook(req);
+          return;
         case '/group_play_voice':
           await _groupPlayVoiceHook(req);
           return;
@@ -902,7 +905,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     );
     return _json(req, {
       'ok': posted,
-      if (cid != null) 'cid': cid,
+      'cid': ?cid,
       'durationMs': clip.durationMs,
       'bytes': clip.bytes.length,
       'sha8': _sha8(clip.bytes),
@@ -950,7 +953,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     return _json(req, {
       'ok': st.isActive(last.ref),
       'ref': last.ref,
-      if (refCid != null) 'cid': refCid,
+      'cid': ?refCid,
       'durationMs': st.durationMs,
       'positionMs': st.positionMs,
       'playing': st.isPlaying(last.ref),
@@ -1003,6 +1006,17 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   Future<void> _contentGrantsHook(HttpRequest req) async {
     final grants = ref.read(messagingServiceProvider).debugGroupServeGrants();
     return _json(req, {'ok': true, 'grants': grants});
+  }
+
+  /// The unread count of ?group= (the badge's number) — brick verify.
+  Future<void> _groupUnreadHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final gidHex = req.uri.queryParameters['group'];
+    if (gidHex == null) return _json(req, {'ok': false, 'error': 'no group'});
+    final unread = await svc.unreadOf(NodeId.fromHex(gidHex));
+    return _json(req, {'ok': true, 'unread': unread});
   }
 
   /// What the serve gate would see for ?cid=: blob presence, manifest blob

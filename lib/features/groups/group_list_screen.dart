@@ -62,8 +62,8 @@ class GroupListScreen extends ConsumerWidget {
           ? const Center(child: CircularProgressIndicator())
           : AnimatedBuilder(
               animation: svc.changes,
-              builder: (context, _) =>
-                  FutureBuilder<List<({NodeId groupId, String name})>>(
+              builder: (context, _) => FutureBuilder<
+                      List<({NodeId groupId, String name, int unread})>>(
                 future: svc.listGroups(),
                 builder: (context, snap) {
                   final groups = snap.data ?? const [];
@@ -94,6 +94,23 @@ class GroupListScreen extends ConsumerWidget {
                         ),
                         title: Text(g.name),
                         subtitle: Text(g.groupId.short),
+                        // Unread badge — same visual language as the chat list.
+                        trailing: g.unread > 0
+                            ? CircleAvatar(
+                                radius: 12,
+                                backgroundColor:
+                                    Theme.of(context).colorScheme.primary,
+                                child: Text(
+                                  g.unread > 999 ? '999+' : '${g.unread}',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onPrimary,
+                                  ),
+                                ),
+                              )
+                            : null,
                         onTap: () => context.push('/group/${g.groupId.hex}'),
                       );
                     },
