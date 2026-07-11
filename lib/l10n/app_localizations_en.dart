@@ -694,6 +694,25 @@ class AppL10nEn extends AppL10n {
       'How to answer when a contact asks you to prove you wrote a message';
 
   @override
+  String get settingsApiTitle => 'Automation API';
+
+  @override
+  String get settingsApiHint =>
+      'Off. Local REST API for bots/scripts (localhost only)';
+
+  @override
+  String get settingsApiToken => 'API token';
+
+  @override
+  String get settingsApiCopyToken => 'Copy token';
+
+  @override
+  String get settingsApiRegenerate => 'Regenerate token';
+
+  @override
+  String get settingsApiTokenCopied => 'Token copied';
+
+  @override
   String get settingsCommunication => 'Communication';
 
   @override

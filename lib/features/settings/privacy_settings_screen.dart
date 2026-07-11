@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../domain/chat.dart' show SignaturePolicy;
 import '../../domain/p2p_policy.dart';
 import '../../l10n/app_localizations.dart';
+import '../../state/api_server.dart';
 import '../../state/p2p_policy_controller.dart';
 import '../../state/signature_policy_controller.dart';
 
@@ -120,8 +122,68 @@ class PrivacySettingsScreen extends ConsumerWidget {
             ),
             onTap: () => _pickSignaturePolicy(context, ref, l),
           ),
+          const Divider(),
+          // Local automation API (REST API epic): off by default; a permanently
+          // open port is discoverable, so the user opts in here. When on it binds
+          // 127.0.0.1 only and needs the bearer token shown below.
+          _apiSection(context, ref, l),
         ],
       ),
+    );
+  }
+
+  Widget _apiSection(BuildContext context, WidgetRef ref, AppL10n l) {
+    final cfg = ref.watch(apiServerControllerProvider);
+    final ctrl = ref.read(apiServerControllerProvider.notifier);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SwitchListTile(
+          secondary: const Icon(Icons.api_outlined),
+          title: Text(l.settingsApiTitle),
+          subtitle: Text(
+              cfg.enabled ? '127.0.0.1:$kApiPort' : l.settingsApiHint),
+          value: cfg.enabled,
+          onChanged: (v) async {
+            if (v) {
+              await ctrl.enable();
+            } else {
+              await ctrl.disable();
+            }
+          },
+        ),
+        if (cfg.enabled && cfg.token.isNotEmpty)
+          ListTile(
+            leading: const Icon(Icons.key_outlined),
+            title: Text(l.settingsApiToken),
+            subtitle: Text(
+              '${cfg.token.substring(0, 8)}…',
+              style: const TextStyle(fontFamily: 'monospace'),
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.copy_outlined),
+                  tooltip: l.settingsApiCopyToken,
+                  onPressed: () async {
+                    await Clipboard.setData(ClipboardData(text: cfg.token));
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(l.settingsApiTokenCopied)),
+                      );
+                    }
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.refresh),
+                  tooltip: l.settingsApiRegenerate,
+                  onPressed: () => ctrl.regenerateToken(),
+                ),
+              ],
+            ),
+          ),
+      ],
     );
   }
 }

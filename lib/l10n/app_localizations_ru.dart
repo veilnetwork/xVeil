@@ -699,6 +699,25 @@ class AppL10nRu extends AppL10n {
       'Как отвечать, когда контакт просит подтвердить, что вы написали сообщение';
 
   @override
+  String get settingsApiTitle => 'API автоматизации';
+
+  @override
+  String get settingsApiHint =>
+      'Выкл. Локальный REST API для ботов/скриптов (только localhost)';
+
+  @override
+  String get settingsApiToken => 'Токен API';
+
+  @override
+  String get settingsApiCopyToken => 'Копировать токен';
+
+  @override
+  String get settingsApiRegenerate => 'Сменить токен';
+
+  @override
+  String get settingsApiTokenCopied => 'Токен скопирован';
+
+  @override
   String get settingsCommunication => 'Связь';
 
   @override
