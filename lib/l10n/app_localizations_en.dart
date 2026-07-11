@@ -275,6 +275,9 @@ class AppL10nEn extends AppL10n {
   String get groupAttachImage => 'Send image';
 
   @override
+  String get groupSendSticker => 'Send sticker';
+
+  @override
   String get groupImageOnly => 'Pick an image file';
 
   @override

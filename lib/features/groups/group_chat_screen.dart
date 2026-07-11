@@ -15,7 +15,10 @@ import '../../domain/group.dart';
 import '../../domain/group_message.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service.dart';
+import '../../state/providers.dart';
+import '../../state/sticker_store.dart';
 import '../../state/thumbnail.dart';
+import '../chat/sticker_panel.dart';
 
 class GroupChatScreen extends ConsumerStatefulWidget {
   const GroupChatScreen({super.key, required this.groupIdHex});
@@ -83,6 +86,29 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
 
   void _snack(String msg) => ScaffoldMessenger.of(context)
       .showSnackBar(SnackBar(content: Text(msg)));
+
+  /// Pick a sticker from the user's library and post it inline (kind='sticker'
+  /// → borderless render). Reuses the 1:1 sticker sheet; a small static sticker
+  /// fits the inline-attachment path (delta-broadcast, one-time chunk cost).
+  Future<void> _attachSticker(GroupService svc) async {
+    final picked = await showStickerPanel(context);
+    if (picked == null || picked.startsWith('pack:')) return; // no pack-share
+    final bytes =
+        await ref.read(storageProvider).loadFile(stickerFileKey(picked));
+    if (bytes == null) return;
+    final img = await makeInlineImageB64(bytes);
+    if (img == null) return;
+    await svc.postMessage(
+      _gid,
+      '',
+      attachment: GroupAttachment(
+        kind: 'sticker',
+        dataB64: img.b64,
+        w: img.w,
+        h: img.h,
+      ),
+    );
+  }
 
   Future<void> _showMembers(GroupService svc) async {
     final state = await svc.stateOf(_gid);
@@ -182,6 +208,11 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                     tooltip: l.groupAttachImage,
                     icon: const Icon(Icons.image_outlined),
                   ),
+                  IconButton(
+                    onPressed: () => _attachSticker(svc),
+                    tooltip: l.groupSendSticker,
+                    icon: const Icon(Icons.emoji_emotions_outlined),
+                  ),
                   Expanded(
                     child: TextField(
                       controller: _input,
@@ -214,6 +245,40 @@ class _GroupBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final att = message.attachment;
+    // A sticker renders BORDERLESS (no bubble background), like every messenger.
+    if (att != null && att.kind == 'sticker' && message.body.isEmpty) {
+      return Align(
+        alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 4),
+          child: Column(
+            crossAxisAlignment:
+                mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (!mine)
+                Text(message.author.short,
+                    style: Theme.of(context)
+                        .textTheme
+                        .labelSmall
+                        ?.copyWith(color: scheme.primary)),
+              SizedBox(
+                width: 140,
+                height: 140,
+                child: Image.memory(
+                  base64Decode(att.dataB64),
+                  fit: BoxFit.contain,
+                  gaplessPlayback: true,
+                  errorBuilder: (_, _, _) =>
+                      const Icon(Icons.broken_image_outlined),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
