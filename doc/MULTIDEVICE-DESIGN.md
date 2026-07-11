@@ -33,10 +33,10 @@ and apply-loop into the local store.
   every addMember/removeMember entry carry an explicit signature algorithm;
   keys/signatures are variable-length so Falcon/hybrid bundles fit without a
   new wire version. Linked device identities are plain members, not admins.
-* DECIDED (user, 2026-07-11): encrypted sovereign material lives on EVERY
-  device; the seed phrase decrypts it in RAM for one signing burst. The first
-  implementation is an opaque Ed25519 recovery-phrase signer; encrypted
-  bundle persistence + Falcon remain required before the epic is complete.
+* DECIDED (user, 2026-07-11), SHIPPED CORE (2026-07-12): encrypted sovereign
+  material lives on EVERY device; the seed phrase decrypts it in RAM for one
+  signing burst. The normal path is an Ed25519+Falcon512 `XVSB` bundle; the
+  earlier opaque Ed25519 phrase-derived signer remains recovery bootstrap.
 
 ## Sovereign-signed linking
 
@@ -45,7 +45,7 @@ Confirmed flow and implemented invariants:
 1. The user starts "Link device" on an EXISTING device and unlocks one
    short-lived sovereign signing burst. Mutable FFI phrase copies and native
    seeds are wiped; private material never crosses into Dart. The production
-   path will decrypt the local sovereign bundle rather than derive-only.
+   normal path decrypts the local sovereign bundle rather than derive-only.
 2. First link mints the device group with OWNER = the SOVEREIGN node id
    (manifest signed by the sovereign key). Every membership ControlOp of
    a device group (addMember AND removeMember) must be signed by the
@@ -140,6 +140,7 @@ the message.
 5. Padding/registry-privacy follow-ups + audit pass (the churn-outlier
    saga's stub-identity/EK-epoch grabli get re-checked here).
 6. Sovereign hardening: ✅ opaque one-burst signer; ✅ signed algorithm-aware
-   v2 manifest + owner-only add/revoke + legacy remint; ⏳ encrypted sovereign
-   blob on every device, Falcon/hybrid signer/verifier, QR/UI guided re-adopt,
-   and pre-issued recovery certificate format.
+   v2 manifest + owner-only add/revoke + legacy remint; ✅ encrypted sovereign
+   blob replicated to every adopted device, Falcon/hybrid signer/verifier and
+   blob-hash binding in the manifest; ⏳ QR/UI guided re-adopt and pre-issued
+   recovery certificate format.

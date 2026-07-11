@@ -76,8 +76,13 @@ final class NativeSovereignGroupSigner implements SovereignGroupSigner {
   factory NativeSovereignGroupSigner.openRecoveryPhrase(String phrase) =>
       NativeSovereignGroupSigner._(veil.VeilSovereignSigner.open(phrase));
 
+  factory NativeSovereignGroupSigner.openBundle(
+          Uint8List bundle, String phrase) =>
+      NativeSovereignGroupSigner._(
+          veil.VeilSovereignSigner.openBundle(bundle, phrase));
+
   @override
-  String get algorithm => 'ed25519';
+  String get algorithm => _inner.algorithm;
   @override
   NodeId get nodeId => NodeId(Uint8List.fromList(_inner.nodeId));
   @override
@@ -138,13 +143,12 @@ class NativeGroupSigner implements GroupSigner {
     required Uint8List message,
     required Uint8List signature,
   }) {
-    if (algorithm != 'ed25519') return false;
-    return EmbeddedNode.verifyMessage(
+    return veil.verifySovereignSignature(
+      algorithm: algorithm,
       nodeId: nodeId.bytes,
       publicKey: publicKey,
       message: message,
       signature: signature,
-      lib: lib,
     );
   }
 }
@@ -156,11 +160,13 @@ class GroupBundle {
     required this.control,
     required this.messages,
     this.reactions = const [],
+    this.sovereignBundle,
   });
   final GroupManifest manifest;
   final List<ControlEntry> control;
   final List<GroupMessage> messages;
   final List<GroupReaction> reactions;
+  final Uint8List? sovereignBundle;
 }
 
 class GroupLogCompaction {
@@ -229,6 +235,10 @@ class GroupService {
         manifest.signatureAlgorithm == null) {
       return false;
     }
+    if (manifest.signatureAlgorithm != 'ed25519' &&
+        manifest.sovereignBundleHash == null) {
+      return false;
+    }
     return _signer.verifySovereign(
       algorithm: manifest.signatureAlgorithm!,
       nodeId: manifest.owner,
@@ -236,6 +246,16 @@ class GroupService {
       message: manifest.canonicalBytes(),
       signature: manifest.signature,
     );
+  }
+
+  bool _validSovereignBundle(
+      GroupManifest manifest, Uint8List? encryptedBundle) {
+    final expected = manifest.sovereignBundleHash;
+    if (expected == null) return encryptedBundle == null;
+    if (encryptedBundle == null || encryptedBundle.length > 16 * 1024) {
+      return false;
+    }
+    return listEquals(veil.VeilCrypto.sha256(encryptedBundle), expected);
   }
 
   bool _validControlFor(GroupManifest manifest, ControlEntry e) {
@@ -369,6 +389,7 @@ class GroupService {
         control: control,
         messages: messages,
         reactions: reactions,
+        sovereignBundle: b.sovereignBundle,
       ));
     }
     return result;
@@ -419,11 +440,16 @@ class GroupService {
           .map(GroupReaction.fromJson)
           .whereType<GroupReaction>()
           .toList();
+      final sovereignBundle = d['s'] is String
+          ? Uint8List.fromList(base64Decode(d['s'] as String))
+          : null;
+      if (!_validSovereignBundle(manifest, sovereignBundle)) return null;
       return GroupBundle(
           manifest: manifest,
           control: control,
           messages: messages,
-          reactions: reactions);
+          reactions: reactions,
+          sovereignBundle: sovereignBundle);
     } catch (_) {
       return null;
     }
@@ -438,6 +464,7 @@ class GroupService {
       'c': b.control.map((e) => e.toJson()).toList(),
       'g': b.messages.map((m) => m.toJson()).toList(),
       'r': b.reactions.map((x) => x.toJson()).toList(),
+      if (b.sovereignBundle != null) 's': base64Encode(b.sovereignBundle!),
     });
     await _storage.storeFile(
       _key(b.manifest.groupId),
@@ -602,7 +629,8 @@ class GroupService {
         manifest: b.manifest,
         control: candidate,
         messages: b.messages,
-        reactions: b.reactions));
+        reactions: b.reactions,
+        sovereignBundle: b.sovereignBundle));
     // Adding a member: that peer needs the WHOLE history → full snapshot to all
     // (idempotent for existing members). Every other op ships as a delta so we
     // don't re-send the group's messages/images on a mute/role/policy change.
@@ -666,7 +694,8 @@ class GroupService {
         manifest: b.manifest,
         control: candidate,
         messages: b.messages,
-        reactions: b.reactions));
+        reactions: b.reactions,
+        sovereignBundle: b.sovereignBundle));
     // Tell the members who remain (broadcastDelta folds AFTER the leave, so it
     // fans out to them and never to us). They drop us from their roster.
     await broadcastDelta(groupId, control: [signed]);
@@ -714,7 +743,8 @@ class GroupService {
         manifest: b.manifest,
         control: b.control,
         messages: [...b.messages, signed],
-        reactions: b.reactions));
+        reactions: b.reactions,
+        sovereignBundle: b.sovereignBundle));
     // Ship only the NEW message (delta), not the whole log — a post to a group
     // that already holds an image must not re-chunk that image over the wire.
     if (broadcast) unawaited(broadcastDelta(groupId, messages: [signed]));
@@ -970,7 +1000,8 @@ class GroupService {
         manifest: b.manifest,
         control: b.control,
         messages: b.messages,
-        reactions: [...b.reactions, signed]));
+        reactions: [...b.reactions, signed],
+        sovereignBundle: b.sovereignBundle));
     if (broadcast) unawaited(broadcastDelta(groupId, reactions: [signed]));
     return true;
   }
@@ -1142,7 +1173,8 @@ class GroupService {
         manifest: b.manifest,
         control: [...b.control, e],
         messages: b.messages,
-        reactions: b.reactions));
+        reactions: b.reactions,
+        sovereignBundle: b.sovereignBundle));
   }
 
   /// Serialize a group's full snapshot (manifest + logs) for the wire.
@@ -1160,6 +1192,8 @@ class GroupService {
             .where((r) => _validReactionFor(b.manifest.groupId, r))
             .map((r) => r.toJson())
             .toList(),
+        if (b.sovereignBundle != null)
+          's': base64Encode(b.sovereignBundle!),
       });
 
   /// Ingest a received snapshot: materialize the group if new (manifest +
@@ -1174,6 +1208,14 @@ class GroupService {
     }
     final manifest = GroupManifest.fromJson(d['m']);
     if (manifest == null || !_validManifest(manifest)) return false;
+    final Uint8List? incomingSovereignBundle;
+    try {
+      incomingSovereignBundle = d['s'] is String
+          ? Uint8List.fromList(base64Decode(d['s'] as String))
+          : null;
+    } catch (_) {
+      return false;
+    }
     final inControl = (d['c'] as List? ?? const [])
         .map(ControlEntry.fromJson)
         .whereType<ControlEntry>()
@@ -1188,6 +1230,13 @@ class GroupService {
         .toList();
 
     final existing = await load(manifest.groupId);
+    if ((existing == null &&
+            !_validSovereignBundle(manifest, incomingSovereignBundle)) ||
+        (existing != null &&
+            incomingSovereignBundle != null &&
+            !_validSovereignBundle(manifest, incomingSovereignBundle))) {
+      return false;
+    }
     if (existing != null &&
         existing.manifest.isSovereignDevice &&
         !existing.manifest.sameGenesis(manifest)) {
@@ -1249,7 +1298,9 @@ class GroupService {
         manifest: man,
         control: control,
         messages: messages,
-        reactions: reactions));
+        reactions: reactions,
+        sovereignBundle:
+            existing?.sovereignBundle ?? incomingSovereignBundle));
     if (existing == null) {
       final idx = await _index();
       if (!idx.contains(man.groupId.hex)) {
@@ -1346,6 +1397,7 @@ class GroupService {
   /// list; the leading space cannot be produced through the create/rename
   /// dialogs (both trim their input).
   static const String kDeviceGroupName = ' xveil.devices';
+  static const String kSovereignBundleSetting = 'devices.sovereign.bundle.v1';
 
   String? _deviceGidCache;
 
@@ -1355,6 +1407,43 @@ class GroupService {
     return (_deviceGidCache?.isEmpty ?? true) ? null : _deviceGidCache;
   }
 
+  Future<Uint8List?> localSovereignBundle() async {
+    final raw = await _storage.getSetting(kSovereignBundleSetting);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final value = Uint8List.fromList(base64Decode(raw));
+      return value.length <= 16 * 1024 ? value : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Decrypt the persisted bundle in native RAM for one signing burst. The
+  /// first phrase-backed operation creates and stores only an encrypted blob.
+  Future<NativeSovereignGroupSigner> openLocalSovereign(
+    String phrase, {
+    bool createIfMissing = true,
+  }) async {
+    final stored = await _storage.getSetting(kSovereignBundleSetting);
+    Uint8List? bundle;
+    if (stored != null) {
+      try {
+        bundle = Uint8List.fromList(base64Decode(stored));
+        if (bundle.isEmpty || bundle.length > 16 * 1024) {
+          throw const FormatException('sovereign bundle size');
+        }
+      } catch (_) {
+        throw StateError('Local sovereign bundle is corrupt');
+      }
+    } else if (createIfMissing) {
+      bundle = veil.createHybrid512SovereignBundle(phrase);
+      await _storage.putSetting(
+          kSovereignBundleSetting, base64Encode(bundle));
+    }
+    if (bundle == null) throw StateError('No local sovereign bundle');
+    return NativeSovereignGroupSigner.openBundle(bundle, phrase);
+  }
+
   bool _sovereignMatches(
           GroupManifest manifest, SovereignGroupSigner sovereign) =>
       manifest.isSovereignDevice &&
@@ -1362,11 +1451,24 @@ class GroupService {
       manifest.owner == sovereign.nodeId &&
       listEquals(manifest.genesisPubKey, sovereign.publicKey);
 
+  bool _canUpgradeSovereign(
+          GroupManifest manifest, SovereignGroupSigner sovereign) =>
+      manifest.isSovereignDevice &&
+      manifest.signatureAlgorithm == 'ed25519' &&
+      sovereign.algorithm == 'ed25519+falcon512' &&
+      sovereign.publicKey.length == 929 &&
+      listEquals(
+          manifest.genesisPubKey, sovereign.publicKey.sublist(0, 32));
+
   Future<NodeId?> _mintSovereignDeviceGroup(
     SovereignGroupSigner sovereign,
     Iterable<NodeId> devices, {
     GroupBundle? migrateFrom,
   }) async {
+    final encryptedSovereign = await localSovereignBundle();
+    if (sovereign.algorithm != 'ed25519' && encryptedSovereign == null) {
+      return null;
+    }
     final gid = _randomGroupId();
     final unsignedManifest = GroupManifest(
       groupId: gid,
@@ -1377,6 +1479,9 @@ class GroupService {
       version: GroupManifest.sovereignDeviceVersion,
       kind: GroupManifest.sovereignDeviceKind,
       signatureAlgorithm: sovereign.algorithm,
+      sovereignBundleHash: encryptedSovereign == null
+          ? null
+          : veil.VeilCrypto.sha256(encryptedSovereign),
     );
     final manifest = unsignedManifest
         .withSignature(sovereign.sign(unsignedManifest.canonicalBytes()));
@@ -1458,6 +1563,7 @@ class GroupService {
       manifest: manifest,
       control: control,
       messages: migratedMessages,
+      sovereignBundle: encryptedSovereign,
     ));
     final idx = await _index();
     if (!idx.contains(gid.hex)) {
@@ -1477,9 +1583,21 @@ class GroupService {
     final old = await load(NodeId.fromHex(hex));
     if (old == null) return null;
     if (old.manifest.isSovereignDevice) {
-      return _sovereignMatches(old.manifest, sovereign)
-          ? old.manifest.groupId
-          : null;
+      if (_sovereignMatches(old.manifest, sovereign)) {
+        return old.manifest.groupId;
+      }
+      if (!_canUpgradeSovereign(old.manifest, sovereign)) return null;
+      final state = foldControlLog(
+        owner: old.manifest.owner,
+        entries: old.control,
+        verify: (e) => _validControlFor(old.manifest, e),
+        initialName: old.manifest.name,
+      ).state;
+      return _mintSovereignDeviceGroup(
+        sovereign,
+        state.members.values.map((m) => m.nodeId),
+        migrateFrom: old,
+      );
     }
     final state = foldControlLog(
       owner: old.manifest.owner,
@@ -1514,6 +1632,12 @@ class GroupService {
     ).state;
     if (!state.isMember(_signer.selfId)) return false;
     await _storage.putSetting('devices.gid', groupId.hex);
+    if (bundle.sovereignBundle != null) {
+      await _storage.putSetting(
+        kSovereignBundleSetting,
+        base64Encode(bundle.sovereignBundle!),
+      );
+    }
     _deviceGidCache = groupId.hex;
     _deviceMembersCache = null;
     changes.value++;
@@ -1576,6 +1700,7 @@ class GroupService {
       control: candidate,
       messages: bundle.messages,
       reactions: bundle.reactions,
+      sovereignBundle: bundle.sovereignBundle,
     ));
     _deviceMembersCache = null;
     if (op == ControlOp.addMember) {
@@ -1608,6 +1733,21 @@ class GroupService {
           ) !=
           null;
     }
+    if (!_sovereignMatches(bundle.manifest, sovereign) &&
+        _canUpgradeSovereign(bundle.manifest, sovereign)) {
+      final state = foldControlLog(
+        owner: bundle.manifest.owner,
+        entries: bundle.control,
+        verify: (e) => _validControlFor(bundle.manifest, e),
+        initialName: bundle.manifest.name,
+      ).state;
+      return await _mintSovereignDeviceGroup(
+            sovereign,
+            [...state.members.values.map((m) => m.nodeId), device],
+            migrateFrom: bundle,
+          ) !=
+          null;
+    }
     return _appendSovereignMembership(
         bundle, sovereign, ControlOp.addMember, device);
   }
@@ -1621,6 +1761,23 @@ class GroupService {
     final old = await load(NodeId.fromHex(hex));
     if (old == null) return false;
     if (!old.manifest.isSovereignDevice) {
+      final state = foldControlLog(
+        owner: old.manifest.owner,
+        entries: old.control,
+        verify: (e) => _validControlFor(old.manifest, e),
+        initialName: old.manifest.name,
+      ).state;
+      return await _mintSovereignDeviceGroup(
+            sovereign,
+            state.members.values
+                .map((m) => m.nodeId)
+                .where((id) => id != device),
+            migrateFrom: old,
+          ) !=
+          null;
+    }
+    if (!_sovereignMatches(old.manifest, sovereign) &&
+        _canUpgradeSovereign(old.manifest, sovereign)) {
       final state = foldControlLog(
         owner: old.manifest.owner,
         entries: old.control,
