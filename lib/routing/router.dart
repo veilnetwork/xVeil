@@ -116,6 +116,16 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/onboarding',
         builder: (_, _) => const OnboardingScreen(),
       ),
+      // Debug-only preview of the onboarding wizard from a READY session
+      // (the real /onboarding is redirect-locked to the onboarding phase),
+      // so the phrase/restore steps can be device-verified without wiping
+      // an onboarded install. View-only by convention: finishing the wizard
+      // here would re-run completeOnboarding.
+      if (kDebugMode)
+        GoRoute(
+          path: '/onboarding-preview',
+          builder: (_, _) => const OnboardingScreen(),
+        ),
       GoRoute(path: '/lock', builder: (_, _) => const LockScreen()),
       GoRoute(
         path: '/pick-identity',

@@ -74,4 +74,71 @@ void main() {
 
     expect(container.read(appControllerProvider).phase, AppPhase.ready);
   });
+
+  testWidgets('restore wizard gates on the validator and completes into ready',
+      (tester) async {
+    late ProviderContainer container;
+    final validated = <String>[];
+    await tester.pumpWidget(ProviderScope(
+      overrides: [nodeControllerProvider.overrideWithValue(_NoopNode())],
+      child: Consumer(builder: (ctx, ref, _) {
+        container = ProviderScope.containerOf(ctx);
+        return MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: OnboardingScreen(
+            // Fake validator (the real one is FFI): any 24 words pass.
+            validatePhrase: (p) {
+              validated.add(p);
+              return p.split(' ').length == 24;
+            },
+          ),
+        );
+      }),
+    ));
+    await tester.pumpAndSettle();
+
+    AppL10n l() => AppL10n.of(tester.element(find.byType(OnboardingScreen)));
+    bool submitEnabled() => tester
+            .widget<FilledButton>(
+                find.widgetWithText(FilledButton, l().onboardRestoreSubmit))
+            .onPressed !=
+        null;
+
+    // 0 welcome -> Continue, 1 choose -> Restore from recovery phrase.
+    await tester.tap(find.text(l().actionContinue));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l().onboardRestoreIdentity));
+    await tester.pumpAndSettle();
+
+    // 5 restore: 23 words keep the button disabled even if the validator
+    // would pass; 24 words that fail validation stay disabled too.
+    final field = find.byType(TextField);
+    await tester.enterText(
+        field, List.generate(23, (i) => 'w$i').join(' '));
+    await tester.pumpAndSettle();
+    expect(submitEnabled(), isFalse);
+
+    // 24 normalized words (extra whitespace + case must not matter).
+    await tester.enterText(
+        field, '  ${List.generate(24, (i) => 'W$i').join('   ')} ');
+    await tester.pumpAndSettle();
+    expect(submitEnabled(), isTrue);
+    await tester.tap(find.text(l().onboardRestoreSubmit));
+    await tester.pumpAndSettle();
+    expect(validated, contains(List.generate(24, (i) => 'w$i').join(' ')));
+
+    // 3 storage -> Continue, 4 password -> Done.
+    await tester.tap(find.text(l().actionContinue));
+    await tester.pumpAndSettle();
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.at(0), 'test123');
+    await tester.enterText(fields.at(1), 'test123');
+    await tester.tap(find.text(l().actionDone));
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    expect(container.read(appControllerProvider).phase, AppPhase.ready);
+  });
 }

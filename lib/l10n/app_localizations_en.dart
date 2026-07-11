@@ -81,6 +81,13 @@ class AppL10nEn extends AppL10n {
   String get onboardImportBackupSub => 'Restore from an encrypted backup file';
 
   @override
+  String get onboardRestoreBody =>
+      'Enter the 24-word recovery phrase you wrote down when the identity was created. The same identity will be recreated on this device.';
+
+  @override
+  String get onboardRestoreSubmit => 'Restore';
+
+  @override
   String get recoveryTitle => 'Save your recovery phrase';
 
   @override

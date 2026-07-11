@@ -8,14 +8,22 @@ import '../../data/identity/veil_identity.dart';
 import '../../domain/identity.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
+import 'recovery_phrase_input.dart';
 
 /// First-launch wizard. Steps:
 ///   0 welcome → 1 choose path → 2 recovery phrase → 3 storage mode → 4 password
+///   restore:             1 → 5 phrase entry → 3 storage mode → 4 password
 ///
-/// Only the "create new identity" path is fully implemented for this
-/// milestone; restore/import surface a placeholder and return to the chooser.
+/// Create and restore both drive the deterministic first-boot identity
+/// derivation from the phrase (P2/P3). Import-a-backup stays a placeholder:
+/// there is no backup EXPORT yet, and the file-based restore writes identity
+/// documents to disk, which the deniable canon forbids.
 class OnboardingScreen extends ConsumerStatefulWidget {
-  const OnboardingScreen({super.key});
+  const OnboardingScreen({super.key, this.validatePhrase = veilPhraseValid});
+
+  /// Injectable so widget tests can drive the restore path without the
+  /// native library; production uses the FFI-backed validator.
+  final bool Function(String phrase) validatePhrase;
 
   @override
   ConsumerState<OnboardingScreen> createState() => _OnboardingScreenState();
@@ -53,6 +61,15 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     _go(2);
   }
 
+  /// The user typed a phrase that passed the native validator: it feeds the
+  /// SAME deterministic first-boot derivation as the create path, so the
+  /// node identity it produces is the one the phrase was written down for.
+  void _restoreWith(String phrase) {
+    _phrase = phrase.split(' ');
+    _realPhrase = true;
+    _go(3);
+  }
+
   Future<void> _finish() async {
     if (_busy) return;
     setState(() => _busy = true);
@@ -77,7 +94,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             ? null
             : IconButton(
                 icon: const Icon(Icons.arrow_back),
-                onPressed: () => _go(_step == 4 ? 3 : (_step == 2 ? 1 : 0)),
+                onPressed: () =>
+                    _go(switch (_step) { 4 => 3, 2 || 5 => 1, _ => 0 }),
               ),
       ),
       body: SafeArea(
@@ -87,8 +105,12 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             0 => _Welcome(onNext: () => _go(1)),
             1 => _ChoosePath(
                 onCreate: _startCreate,
-                onRestore: () => _showSoon(context, l.onboardRestoreIdentity),
+                onRestore: () => _go(5),
                 onImport: () => _showSoon(context, l.onboardImportBackup),
+              ),
+            5 => _RestoreStep(
+                validate: widget.validatePhrase,
+                onSubmit: _restoreWith,
               ),
             2 => _Recovery(
                 phrase: _phrase,
@@ -200,6 +222,36 @@ class _ChoosePath extends StatelessWidget {
           onTap: onImport,
         ),
       ],
+    );
+  }
+}
+
+class _RestoreStep extends StatelessWidget {
+  const _RestoreStep({required this.validate, required this.onSubmit});
+  final bool Function(String phrase) validate;
+  final ValueChanged<String> onSubmit;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(l.onboardRestoreIdentity,
+              style: Theme.of(context).textTheme.headlineSmall),
+          const SizedBox(height: 12),
+          Text(l.onboardRestoreBody,
+              style: Theme.of(context).textTheme.bodyMedium),
+          const SizedBox(height: 16),
+          RecoveryPhraseInput(
+            validate: validate,
+            onSubmit: onSubmit,
+            submitLabel: l.onboardRestoreSubmit,
+          ),
+        ],
+      ),
     );
   }
 }
