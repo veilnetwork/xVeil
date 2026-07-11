@@ -21,8 +21,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/ids.dart';
 import '../data/serve_source.dart';
+import '../domain/call_signal.dart' show CallMedia;
 import '../domain/chat.dart';
 import 'app_controller.dart';
+import 'call_service.dart' show callServiceProvider, currentCallProvider;
 import 'messaging.dart' show conversationsProvider, messagingServiceProvider;
 import 'providers.dart';
 
@@ -227,6 +229,63 @@ Map<String, dynamic> openApiSpec() {
           },
         },
       },
+      '/calls': {
+        'get': {
+          'summary': 'Current call state (null when idle)',
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'call': {'type': obj, 'nullable': true},
+            },
+          }),
+        },
+        'post': {
+          'summary': 'Place a call to a peer',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['to'],
+                  'properties': {
+                    'to': {'type': 'string'},
+                    'media': {
+                      'type': 'string',
+                      'enum': ['audio', 'video', 'screen'],
+                      'default': 'audio',
+                    },
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'call': {'type': obj, 'nullable': true},
+            },
+          }),
+        },
+      },
+      '/calls/hangup': {
+        'post': {
+          'summary': 'Hang up the current call',
+          'responses': ok({'type': obj}),
+        },
+      },
+      '/calls/accept': {
+        'post': {
+          'summary': 'Accept the incoming call',
+          'responses': ok({'type': obj}),
+        },
+      },
+      '/calls/reject': {
+        'post': {
+          'summary': 'Reject the incoming call',
+          'responses': ok({'type': obj}),
+        },
+      },
     },
   };
 }
@@ -269,6 +328,9 @@ class ApiHandler {
     required this.messages,
     required this.sendFile,
     required this.loadFile,
+    required this.placeCall,
+    required this.callState,
+    required this.callAction,
   });
 
   /// The bearer token every request must present (empty = reject everything).
@@ -293,6 +355,15 @@ class ApiHandler {
 
   /// Load the bytes of a stored file by [fileId], or null if unknown.
   final Future<List<int>?> Function(String fileId) loadFile;
+
+  /// Place a call to [toHex] ([media] = audio|video|screen); null on success.
+  final Future<String?> Function(String toHex, String media) placeCall;
+
+  /// The current call as a JSON map, or null if there is none.
+  final Map<String, dynamic>? Function() callState;
+
+  /// Act on the current call: 'hangup' | 'accept' | 'reject'.
+  final Future<void> Function(String action) callAction;
 
   /// Constant-time compare of a raw token (localhost, but no reason to leak
   /// length/prefix). Used directly by the WebSocket path (token in the query,
@@ -370,6 +441,27 @@ class ApiHandler {
       return bytes == null
           ? const ApiResponse(404, {'error': 'not found'})
           : ApiResponse.binary(bytes);
+    }
+    if (method == 'GET' && path == '/v1/calls') {
+      return ApiResponse(200, {'call': callState()});
+    }
+    if (method == 'POST' && path == '/v1/calls') {
+      final to = body?['to'];
+      if (to is! String || to.isEmpty) {
+        return const ApiResponse(400, {'error': 'to required'});
+      }
+      final media = body?['media'];
+      final err = await placeCall(to, media is String ? media : 'audio');
+      return err == null
+          ? ApiResponse(200, {'call': callState()})
+          : ApiResponse(400, {'error': err});
+    }
+    if (method == 'POST' &&
+        (path == '/v1/calls/hangup' ||
+            path == '/v1/calls/accept' ||
+            path == '/v1/calls/reject')) {
+      await callAction(path.split('/').last);
+      return ApiResponse(200, {'call': callState()});
     }
     return const ApiResponse(404, {'error': 'not found'});
   }
@@ -600,6 +692,58 @@ class ApiServerController extends Notifier<ApiConfig> {
   Future<List<int>?> _loadFile(String fileId) =>
       ref.read(storageProvider).loadFile(fileId);
 
+  Future<String?> _placeCall(String toHex, String media) async {
+    final NodeId peer;
+    try {
+      peer = NodeId.fromHex(toHex);
+    } catch (_) {
+      return 'invalid peer';
+    }
+    try {
+      await ref.read(callServiceProvider).placeCall(
+            peer,
+            CallMedia(
+              audio: true,
+              video: media == 'video',
+              screen: media == 'screen',
+            ),
+          );
+      return null;
+    } catch (e) {
+      return '$e';
+    }
+  }
+
+  Map<String, dynamic>? _callState() {
+    final c = ref.read(currentCallProvider);
+    if (c == null) return null;
+    return {
+      'callId': c.callId,
+      'peer': c.peer.hex,
+      'direction': c.direction.name,
+      'status': c.status.name,
+      'media': {
+        'audio': c.media.audio,
+        'video': c.media.video,
+        'screen': c.media.screen,
+      },
+      'micOn': c.micOn,
+      'cameraOn': c.cameraOn,
+    };
+  }
+
+  Future<void> _callAction(String action) async {
+    final svc = ref.read(callServiceProvider);
+    switch (action) {
+      case 'hangup':
+        await svc.hangup();
+      case 'accept':
+        await svc.accept();
+      case 'reject':
+        await svc.reject();
+    }
+  }
+
   /// Bring the socket in line with [state]: run (with a fresh handler carrying
   /// the current token) iff enabled + tokened, else stop.
   Future<void> _reconcile() async {
@@ -614,6 +758,9 @@ class ApiServerController extends Notifier<ApiConfig> {
       messages: _messages,
       sendFile: _sendFile,
       loadFile: _loadFile,
+      placeCall: _placeCall,
+      callState: _callState,
+      callAction: _callAction,
     );
     // The bot event feed: incoming-message notices as JSON. `.map` on a
     // broadcast stream stays broadcast, so many WS clients can each subscribe.
