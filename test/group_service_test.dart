@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -215,6 +216,103 @@ void main() {
     expect(rt.attachment?.w, 2);
     expect(rt.attachment?.h, 3);
     expect(rt.attachment?.dataB64, 'QQ');
+  });
+
+  // Auto-broadcast is unawaited (fire-and-forget) — let it drain.
+  Future<void> pump() async {
+    for (var i = 0; i < 6; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+  }
+
+  test('postMessage ships a DELTA (only the new message), not the whole log',
+      () async {
+    final sent = <String>[];
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final svc = GroupService(storage, _FakeSigner(owner),
+        send: (peer, gid, json) async => sent.add(json));
+    final gid = await svc.createGroup('G');
+    await svc.addControlOp(gid, ControlOp.addMember,
+        target: bob, role: GroupRole.member);
+    await svc.postMessage(gid, 'first');
+    await svc.postMessage(gid, 'second');
+    await pump();
+    // The last send is the delta for 'second' — ONLY that message, no control.
+    final last = jsonDecode(sent.last) as Map;
+    final bodies =
+        (last['g'] as List).map((m) => (m as Map)['body']).toList();
+    expect(bodies, ['second'], reason: 'delta carries only the new message');
+    expect(last['c'] as List, isEmpty);
+    expect(last['m'], isNotNull, reason: 'manifest rides along for a racing join');
+  });
+
+  test('addMember ships a FULL snapshot so a joining member gets history',
+      () async {
+    final sent = <String>[];
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final svc = GroupService(storage, _FakeSigner(owner),
+        send: (peer, gid, json) async => sent.add(json));
+    final gid = await svc.createGroup('G');
+    await svc.addControlOp(gid, ControlOp.addMember,
+        target: bob, role: GroupRole.member);
+    await svc.postMessage(gid, 'history');
+    await pump();
+    sent.clear();
+    await svc.addControlOp(gid, ControlOp.addMember,
+        target: carol, role: GroupRole.member);
+    await pump();
+    final snap = jsonDecode(sent.last) as Map;
+    final bodies =
+        (snap['g'] as List).map((m) => (m as Map)['body']).toList();
+    expect(bodies, contains('history'),
+        reason: 'the full snapshot on join carries the prior log');
+  });
+
+  test('a mute op ships a control DELTA (no messages re-sent)', () async {
+    final sent = <String>[];
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final svc = GroupService(storage, _FakeSigner(owner),
+        send: (peer, gid, json) async => sent.add(json));
+    final gid = await svc.createGroup('G');
+    await svc.addControlOp(gid, ControlOp.addMember,
+        target: bob, role: GroupRole.member);
+    await svc.postMessage(gid, 'msg');
+    await pump();
+    sent.clear();
+    await svc.addControlOp(gid, ControlOp.mute, target: bob);
+    await pump();
+    final delta = jsonDecode(sent.last) as Map;
+    expect(delta['g'] as List, isEmpty, reason: 'a mute re-sends no messages');
+    expect((delta['c'] as List).length, 1, reason: 'just the mute entry');
+  });
+
+  test('a delta merges on a peer that already has the group', () async {
+    // Owner device.
+    final s1 = FakeHvContainer().storage();
+    await s1.open(password: 'pw', createIfMissing: true);
+    String? lastDelta;
+    final owned = GroupService(s1, _FakeSigner(owner),
+        send: (peer, gid, json) async => lastDelta = json);
+    final gid = await owned.createGroup('Shared');
+    await owned.addControlOp(gid, ControlOp.addMember,
+        target: bob, role: GroupRole.member);
+
+    // Bob materializes from the FULL snapshot (the addMember broadcast).
+    final s2 = FakeHvContainer().storage();
+    await s2.open(password: 'pw', createIfMissing: true);
+    final bobDev = GroupService(s2, _FakeSigner(bob));
+    await bobDev.ingestSnapshot(owned.snapshotJson((await owned.load(gid))!));
+    expect(await bobDev.messagesOf(gid), isEmpty);
+
+    // Owner posts → only the delta is sent; Bob ingests it and sees the message.
+    await owned.postMessage(gid, 'hi bob');
+    await pump();
+    expect(lastDelta, isNotNull);
+    await bobDev.ingestSnapshot(lastDelta!);
+    expect((await bobDev.messagesOf(gid)).single.body, 'hi bob');
   });
 
   test('ingestControl dedups on (author, seq)', () async {
