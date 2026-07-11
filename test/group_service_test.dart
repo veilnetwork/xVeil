@@ -297,6 +297,26 @@ void main() {
     expect(grants, hasLength(1));
   });
 
+  test('fetchGroupContent ships the signed request, then starts the pull',
+      () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final sentReq = <String>[];
+    final pulls = <(NodeId, String)>[];
+    final svc = GroupService(storage, _FakeSigner(bob),
+        sendContentRequest: (holder, json) async => sentReq.add(json),
+        startContentPull: (holder, cid) async => pulls.add((holder, cid)));
+    final gid = await svc.createGroup('G');
+    expect(await svc.fetchGroupContent(gid, 'c0ffee', owner), isTrue);
+    expect(sentReq, hasLength(1), reason: 'the membership proof went first');
+    expect(pulls.single.$1, owner);
+    expect(pulls.single.$2, 'c0ffee');
+    // Without a pull sink the flow reports not-started (nothing to drive).
+    final noPull = GroupService(storage, _FakeSigner(bob),
+        sendContentRequest: (holder, json) async => sentReq.add(json));
+    expect(await noPull.fetchGroupContent(gid, 'c0ffee', owner), isFalse);
+  });
+
   // Auto-broadcast is unawaited (fire-and-forget) — let it drain.
   Future<void> pump() async {
     for (var i = 0; i < 6; i++) {
