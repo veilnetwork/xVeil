@@ -656,6 +656,7 @@
   "videoPlayError": "Could not play this video",
   "emojiSearchHint": "Search emoji",
   "chatEmojiTooltip": "Emoji",
+  "chatMoreActions": "More actions",
   "nicknameTitle": "Nickname",
   "nicknameIntro": "A nickname is a public @name on the veil network that resolves to this identity. Claiming costs proof-of-work: short names cost much more. A name can be taken over by strictly more work, so you can reinforce yours anytime.",
   "nicknameFieldLabel": "Name (a–z, 0–9, _)",
