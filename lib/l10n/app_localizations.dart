@@ -571,6 +571,24 @@ abstract class AppL10n {
   /// **'Members'**
   String get groupMembersTooltip;
 
+  /// No description provided for @groupRenameTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename group'**
+  String get groupRenameTitle;
+
+  /// No description provided for @groupRenameAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename'**
+  String get groupRenameAction;
+
+  /// No description provided for @groupRenameDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'You don\'t have permission to rename this group'**
+  String get groupRenameDenied;
+
   /// No description provided for @groupMembers.
   ///
   /// In en, this message translates to:

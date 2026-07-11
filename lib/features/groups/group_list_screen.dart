@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../domain/group.dart';
+import '../../core/ids.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service.dart';
 
@@ -62,7 +62,8 @@ class GroupListScreen extends ConsumerWidget {
           ? const Center(child: CircularProgressIndicator())
           : AnimatedBuilder(
               animation: svc.changes,
-              builder: (context, _) => FutureBuilder<List<GroupManifest>>(
+              builder: (context, _) =>
+                  FutureBuilder<List<({NodeId groupId, String name})>>(
                 future: svc.listGroups(),
                 builder: (context, snap) {
                   final groups = snap.data ?? const [];
