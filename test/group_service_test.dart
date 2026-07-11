@@ -106,6 +106,53 @@ void main() {
     expect((await svc.messagesOf(gid)).single.body, 'back');
   });
 
+  test('snapshot -> ingest materializes the group on a fresh device', () async {
+    // Owner's device.
+    final s1 = FakeHvContainer().storage();
+    await s1.open(password: 'pw', createIfMissing: true);
+    final owned = GroupService(s1, _FakeSigner(owner));
+    final gid = await owned.createGroup('Shared');
+    await owned.addControlOp(gid, ControlOp.addMember,
+        target: bob, role: GroupRole.member);
+    await owned.postMessage(gid, 'welcome');
+    final snap = owned.snapshotJson((await owned.load(gid))!);
+
+    // Bob's fresh device: never saw the group before.
+    final s2 = FakeHvContainer().storage();
+    await s2.open(password: 'pw', createIfMissing: true);
+    final bobDev = GroupService(s2, _FakeSigner(bob));
+    expect(await bobDev.stateOf(gid), isNull);
+    expect(await bobDev.ingestSnapshot(snap), isTrue);
+
+    final st = (await bobDev.stateOf(gid))!;
+    expect(st.roleOf(owner), GroupRole.owner);
+    expect(st.isMember(bob), isTrue);
+    expect((await bobDev.listGroups()).single.name, 'Shared');
+    expect((await bobDev.messagesOf(gid)).single.body, 'welcome');
+    // Re-ingest is idempotent (no dupes).
+    await bobDev.ingestSnapshot(snap);
+    final b = await bobDev.load(gid);
+    expect(b!.control.length, 1);
+    expect(b.messages.length, 1);
+  });
+
+  test('broadcast ships the snapshot to every other member', () async {
+    final sent = <(NodeId, NodeId)>[];
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final svc = GroupService(storage, _FakeSigner(owner),
+        send: (peer, gid, json) async => sent.add((peer, gid)));
+    final gid = await svc.createGroup('G');
+    await svc.addControlOp(gid, ControlOp.addMember,
+        target: bob, role: GroupRole.member);
+    await svc.addControlOp(gid, ControlOp.addMember,
+        target: carol, role: GroupRole.member);
+    final n = await svc.broadcast(gid);
+    expect(n, 2, reason: 'both members, not self');
+    expect(sent.map((e) => e.$1).toSet(), {bob, carol});
+    expect(sent.every((e) => e.$2 == gid), isTrue);
+  });
+
   test('ingestControl dedups on (author, seq)', () async {
     final (svc, _) = await setup();
     final gid = await svc.createGroup('G');

@@ -28,6 +28,7 @@ import '../data/node/embedded_node.dart';
 import '../data/storage/storage.dart';
 import 'app_controller.dart';
 import 'group_crypto.dart';
+import 'messaging.dart';
 import 'providers.dart';
 
 /// The identity operations the service needs — injectable for tests.
@@ -82,10 +83,16 @@ class GroupBundle {
   final List<GroupMessage> messages;
 }
 
+/// Ships a group snapshot [bundleJson] durably to [peer] (direct fanout, v1).
+typedef GroupSnapshotSender = Future<void> Function(
+    NodeId peer, NodeId groupId, String bundleJson);
+
 class GroupService {
-  GroupService(this._storage, this._signer);
+  GroupService(this._storage, this._signer, {GroupSnapshotSender? send})
+      : _send = send;
   final Storage _storage;
   final GroupSigner _signer;
+  final GroupSnapshotSender? _send;
 
   int _now() => DateTime.now().millisecondsSinceEpoch;
 
@@ -308,13 +315,102 @@ class GroupService {
         control: [...b.control, e],
         messages: b.messages));
   }
+
+  /// Serialize a group's full snapshot (manifest + logs) for the wire.
+  String snapshotJson(GroupBundle b) => jsonEncode({
+        'm': b.manifest.toJson(),
+        'c': b.control.map((e) => e.toJson()).toList(),
+        'g': b.messages.map((m) => m.toJson()).toList(),
+      });
+
+  /// Ingest a received snapshot: materialize the group if new (manifest +
+  /// index), then merge control + message entries (dedup by author+seq).
+  /// Idempotent — re-delivery of the same snapshot is a no-op.
+  Future<bool> ingestSnapshot(String bundleJson) async {
+    Map<String, dynamic> d;
+    try {
+      d = jsonDecode(bundleJson) as Map<String, dynamic>;
+    } catch (_) {
+      return false;
+    }
+    final manifest = GroupManifest.fromJson(d['m']);
+    if (manifest == null) return false;
+    final inControl = (d['c'] as List? ?? const [])
+        .map(ControlEntry.fromJson)
+        .whereType<ControlEntry>()
+        .toList();
+    final inMsgs = (d['g'] as List? ?? const [])
+        .map(GroupMessage.fromJson)
+        .whereType<GroupMessage>()
+        .toList();
+
+    final existing = await load(manifest.groupId);
+    final control = [...(existing?.control ?? const <ControlEntry>[])];
+    final messages = [...(existing?.messages ?? const <GroupMessage>[])];
+    bool has(List l, Object e) {
+      if (e is ControlEntry) {
+        return control.any((x) => x.author == e.author && x.seq == e.seq);
+      }
+      if (e is GroupMessage) {
+        return messages.any((x) => x.author == e.author && x.seq == e.seq);
+      }
+      return false;
+    }
+
+    for (final e in inControl) {
+      if (!has(control, e)) control.add(e);
+    }
+    for (final m in inMsgs) {
+      if (!has(messages, m)) messages.add(m);
+    }
+    // Keep the manifest we already had (the authoritative genesis); only adopt
+    // the incoming one when the group is new to us.
+    final man = existing?.manifest ?? manifest;
+    await _save(
+        GroupBundle(manifest: man, control: control, messages: messages));
+    if (existing == null) {
+      final idx = await _index();
+      if (!idx.contains(man.groupId.hex)) {
+        idx.add(man.groupId.hex);
+        await _setIndex(idx);
+      }
+    }
+    return true;
+  }
+
+  /// Fan the current snapshot of [groupId] out to every OTHER member (direct
+  /// delivery, v1). No-op without an injected sender. Returns how many peers
+  /// it was shipped to.
+  Future<int> broadcast(NodeId groupId) async {
+    final send = _send;
+    final b = await load(groupId);
+    if (send == null || b == null) return 0;
+    final state = foldControlLog(
+      owner: b.manifest.owner,
+      entries: b.control,
+      verify: _signer.verifyControl,
+    ).state;
+    final json = snapshotJson(b);
+    var n = 0;
+    for (final m in state.members.values) {
+      if (m.nodeId == _signer.selfId) continue;
+      await send(m.nodeId, groupId, json);
+      n++;
+    }
+    return n;
+  }
 }
 
 /// Builds the real signer from the app's identity, or null before ready.
 final groupSignerProvider = FutureProvider<GroupSigner?>((ref) async {
+  // WATCH the identity: the eager app-scope bridge builds this at boot when the
+  // identity is still null; without a watch the null result would cache forever
+  // and no group would ever sign. Re-runs once the identity is ready.
+  final selfId =
+      ref.watch(appControllerProvider.select((s) => s.identity?.nodeId));
+  if (selfId == null) return null;
   final toml = await ref.read(storageProvider).loadNodeConfig();
-  final selfId = ref.read(appControllerProvider).identity?.nodeId;
-  if (toml == null || selfId == null) return null;
+  if (toml == null) return null;
   // Learn our public key by signing an empty probe (stateless native crypto);
   // the native verifier later re-binds it to selfId (node_id == BLAKE3(pk)).
   try {
@@ -329,9 +425,21 @@ final groupSignerProvider = FutureProvider<GroupSigner?>((ref) async {
   }
 });
 
-/// The service, or null until the signer is ready.
+/// The service, or null until the signer is ready. Wires group snapshot
+/// delivery to the messaging layer, and routes inbound snapshots back into
+/// the service (idempotent ingest) — the direct-fanout transport (v1).
 final groupServiceProvider = Provider<GroupService?>((ref) {
   final signer = ref.watch(groupSignerProvider).valueOrNull;
   if (signer == null) return null;
-  return GroupService(ref.read(storageProvider), signer);
+  final messaging = ref.read(messagingServiceProvider);
+  final svc = GroupService(
+    ref.read(storageProvider),
+    signer,
+    send: (peer, groupId, json) =>
+        messaging.sendGroupSnapshot(peer, groupId.hex, json),
+  );
+  messaging.onGroupEntry = (peer, bundleJson) async {
+    await svc.ingestSnapshot(bundleJson);
+  };
+  return svc;
 });

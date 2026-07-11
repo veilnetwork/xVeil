@@ -220,6 +220,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/group_state':
           await _groupStateHook(req);
           return;
+        case '/group_invite':
+          await _groupInviteHook(req);
+          return;
         case '/play_vnote':
           await _playVnoteHook(req);
           return;
@@ -576,6 +579,30 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final posted = await svc.postMessage(gid, q['body'] ?? '');
     final msgs = await svc.messagesOf(gid);
     return _json(req, {'ok': posted, 'messages': msgs.length});
+  }
+
+  /// Add ?peer= as a member of ?group= and fan the snapshot out to all members
+  /// — the real 2-device group path (the peer materializes the group).
+  Future<void> _groupInviteHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final q = req.uri.queryParameters;
+    final gidHex = q['group'], peerHex = q['peer'];
+    if (gidHex == null || peerHex == null) {
+      return _json(req, {'ok': false, 'error': 'need group+peer'});
+    }
+    final gid = NodeId.fromHex(gidHex);
+    final peer = NodeId.fromHex(peerHex);
+    final added = await svc.addControlOp(gid, ControlOp.addMember,
+        target: peer, role: GroupRole.member);
+    final sent = await svc.broadcast(gid);
+    final st = await svc.stateOf(gid);
+    return _json(req, {
+      'ok': added,
+      'members': st?.members.length ?? 0,
+      'delivered': sent,
+    });
   }
 
   /// Snapshot: ?group= → members/epoch/policyVersion + validated msg bodies.
