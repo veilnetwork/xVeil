@@ -493,7 +493,12 @@ class GroupService {
     Map<String, int> vector(Iterable<(NodeId, int)> entries) {
       final v = <String, int>{};
       for (final (a, s) in entries) {
-        if (s > (v[a.hex] ?? 0)) v[a.hex] = s;
+        // Seqs start at 0 (_nextSeq), so the floor is -1 — with a 0 floor an
+        // author whose ONLY entry is seq 0 was absent from the vector and the
+        // responder (old default 0) never shipped seq-0 entries at all: the
+        // FIRST lost entry of any author was unrecoverable (latent G1 bug,
+        // caught by the reaction remainder).
+        if (s > (v[a.hex] ?? -1)) v[a.hex] = s;
       }
       return v;
     }
@@ -503,6 +508,9 @@ class GroupService {
       'gid': groupId.hex,
       'g': vector(b.messages.map((m) => (m.author, m.seq))),
       'c': vector(b.control.map((e) => (e.author, e.seq))),
+      // Reactions ride the same per-author high-water scheme (each author's
+      // reaction seq is monotonic). An older responder just ignores the key.
+      'r': vector(b.reactions.map((r) => (r.author, r.seq))),
     };
   }
 
@@ -532,8 +540,10 @@ class GroupService {
       debugPrint('xVeil[groups]: sync request from non-member — drop');
       return false;
     }
+    // -1, not 0: seqs start at 0, so "never seen this author" must sit BELOW
+    // the first seq or seq-0 entries can never gap-fill (see [vector]).
     int seen(Object? vec, NodeId author) =>
-        (vec is Map && vec[author.hex] is int) ? vec[author.hex] as int : 0;
+        (vec is Map && vec[author.hex] is int) ? vec[author.hex] as int : -1;
     final missingMsgs = [
       for (final m in b.messages)
         if (m.seq > seen(req['g'], m.author)) m,
@@ -542,7 +552,16 @@ class GroupService {
       for (final e in b.control)
         if (e.seq > seen(req['c'], e.author)) e,
     ];
-    if (missingMsgs.isEmpty && missingCtl.isEmpty) return false;
+    // A requester from before the 'r' vector sends none — `seen` reads 0 and
+    // every held reaction ships; the ingest dedup by (author, seq) makes the
+    // over-send harmless.
+    final missingRx = [
+      for (final r in b.reactions)
+        if (r.seq > seen(req['r'], r.author)) r,
+    ];
+    if (missingMsgs.isEmpty && missingCtl.isEmpty && missingRx.isEmpty) {
+      return false;
+    }
     await send(
         peer,
         gid,
@@ -550,7 +569,7 @@ class GroupService {
           'm': b.manifest.toJson(),
           'c': [for (final e in missingCtl) e.toJson()],
           'g': [for (final m in missingMsgs) m.toJson()],
-          'r': const [],
+          'r': [for (final r in missingRx) r.toJson()],
         }));
     return true;
   }
@@ -639,7 +658,15 @@ class GroupService {
   /// Toggle our reaction [emoji] on the message [msgRef] ("<authorHex>:<seq>"):
   /// reacting with the emoji we already have removes it. Rejected (false) if we
   /// are not a non-muted member. The signed reaction is delta-broadcast.
-  Future<bool> react(NodeId groupId, String msgRef, String emoji) async {
+  /// [broadcast]=false stores the signed reaction WITHOUT the delta fanout —
+  /// the deterministic "lost reaction" for gap-fill tests (like
+  /// [postMessage]'s flag).
+  Future<bool> react(
+    NodeId groupId,
+    String msgRef,
+    String emoji, {
+    bool broadcast = true,
+  }) async {
     final b = await load(groupId);
     if (b == null) return false;
     final state = foldControlLog(
@@ -677,7 +704,7 @@ class GroupService {
         control: b.control,
         messages: b.messages,
         reactions: [...b.reactions, signed]));
-    unawaited(broadcastDelta(groupId, reactions: [signed]));
+    if (broadcast) unawaited(broadcastDelta(groupId, reactions: [signed]));
     return true;
   }
 
