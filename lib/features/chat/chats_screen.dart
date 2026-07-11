@@ -585,6 +585,11 @@ class _FolderDrawer extends ConsumerWidget {
               },
             ),
             ListTile(
+              leading: const Icon(Icons.call_outlined),
+              title: Text(l.navCalls),
+              onTap: () => go('/calls'),
+            ),
+            ListTile(
               leading: const Icon(Icons.hub_outlined),
               title: Text(l.navNetwork),
               onTap: () => go('/network'),

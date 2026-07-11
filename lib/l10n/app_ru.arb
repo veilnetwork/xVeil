@@ -52,6 +52,15 @@
   "navChats": "Чаты",
   "navNetwork": "Сеть",
   "navSettings": "Настройки",
+  "navCalls": "Звонки",
+
+  "callLogEmpty": "Пока нет звонков",
+  "callLogEmptyHint": "Здесь появятся звонки, сделанные и принятые на любом из ваших устройств",
+  "callOutcomeMissed": "Пропущенный",
+  "callOutcomeDeclined": "Отклонён",
+  "callOutcomeCancelled": "Отменён",
+  "callOutcomeBusy": "Занято",
+  "callOutcomeFailed": "Не удался",
 
   "chatsEmpty": "Пока нет переписок",
   "chatsEmptyHint": "Начните новый чат, чтобы написать сообщение",
