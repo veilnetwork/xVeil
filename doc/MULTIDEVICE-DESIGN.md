@@ -1,6 +1,7 @@
 # Multi-device (design)
 
-Status: v1 sync shipped; production-safe sovereign gate in progress.
+Status: v1 sync and guided production-safe sovereign link/re-adopt shipped;
+all-devices-lost recovery certificate remains.
 Agreed decisions (2026-07-09, ROADMAP «Эпик: мультиустройства») are
 restated here and mapped onto the shipped groups foundation.
 
@@ -54,8 +55,13 @@ Confirmed flow and implemented invariants:
    link an attacker's device or revoke the victim's, because it never
    holds the phrase; the victim always can, because the phrase IS
    ownership.
-3. The QR handshake stays as today (gid + new device's public identity +
-   short-auth code); only the signer of the resulting addMember changes.
+3. The guided QR handshake is two-phase. The new device first shows its
+   bootstrap invite. The existing device sovereign-signs that exact device
+   into the registry without broadcasting, then shows a 30-minute public
+   adoption token bound to source device, fresh/current gid and the exact
+   signed-manifest hash. The new device scans it and stores one explicit
+   pending admission; only then does the existing device send the durable
+   encrypted snapshot. Contact and stranger ingress use the same gate.
 4. The fold has a device-group-only validation rule: membership ops
    not signed by the owner are rejected (regular groups keep the
    existing role rules). Manifest signature, gid, owner key, algorithm,
@@ -128,10 +134,10 @@ the message.
 1. (this) design + pure core: DeviceSyncEvent codec + apply-order fold,
    device-group conventions (marker in the manifest name-space, local
    registry of "my device group id"), unit tests. No wire, no UI.
-2. Device-group lifecycle: create-on-first-link, QR link handshake
-   (reuse invite QR machinery), addMember signing, revoke = remove +
-   rotateEpoch; hooks + 2-device verify (desktop links phone-as-device
-   fixture — the pair IS two devices).
+2. Device-group lifecycle: create-on-first-link, addMember signing, revoke =
+   remove + rotateEpoch; hooks + 2-device verify. The original debug lifecycle
+   shipped first; the production QR ceremony and sovereign re-adopt are in
+   brick 6.
 3. Mirror loop: messaging taps (send/receive/read) → emit sync events;
    apply loop folds inbound events into the local store (dedup against
    native delivery); verify: message sent on desktop appears in the
@@ -142,5 +148,6 @@ the message.
 6. Sovereign hardening: ✅ opaque one-burst signer; ✅ signed algorithm-aware
    v2 manifest + owner-only add/revoke + legacy remint; ✅ encrypted sovereign
    blob replicated to every adopted device, Falcon/hybrid signer/verifier and
-   blob-hash binding in the manifest; ⏳ QR/UI guided re-adopt and pre-issued
-   recovery certificate format.
+   blob-hash binding in the manifest; ✅ two-phase QR/UI guided link/re-adopt
+   with an exact-manifest pending-admission gate; ⏳ pre-issued recovery
+   certificate format for the all-devices-lost path.

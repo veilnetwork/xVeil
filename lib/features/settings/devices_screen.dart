@@ -1,0 +1,557 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+
+import '../../core/ids.dart';
+import '../../data/veil_stack.dart';
+import '../../data/transport/bootstrap_invite.dart';
+import '../../domain/device_link.dart';
+import '../../l10n/app_localizations.dart';
+import '../../state/app_controller.dart';
+import '../../state/group_service.dart';
+import '../../state/providers.dart';
+import '../contacts/qr_scan_screen.dart';
+
+class DevicesScreen extends ConsumerStatefulWidget {
+  const DevicesScreen({super.key});
+
+  @override
+  ConsumerState<DevicesScreen> createState() => _DevicesScreenState();
+}
+
+class _DevicesScreenState extends ConsumerState<DevicesScreen> {
+  List<NodeId> _members = const [];
+  bool _loading = true;
+  bool _hasSovereignBundle = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _reload());
+  }
+
+  Future<void> _reload() async {
+    final svc = ref.read(groupServiceProvider);
+    final gidHex = await svc?.deviceGroupIdHex();
+    final state = gidHex == null
+        ? null
+        : await svc?.stateOf(NodeId.fromHex(gidHex));
+    final hasBundle = await svc?.localSovereignBundle() != null;
+    if (!mounted) return;
+    setState(() {
+      _members = [...?state?.members.values.map((m) => m.nodeId)]
+        ..sort((a, b) => a.hex.compareTo(b.hex));
+      _hasSovereignBundle = hasBundle;
+      _loading = false;
+    });
+  }
+
+  Future<void> _showSource() async {
+    final svc = ref.read(groupServiceProvider);
+    final stack = ref.read(realStackProvider);
+    if (svc == null || stack == null) return;
+    final changed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => _SourceLinkSheet(service: svc, stack: stack),
+    );
+    if (changed == true) await _reload();
+  }
+
+  Future<void> _showTarget() async {
+    final svc = ref.read(groupServiceProvider);
+    final stack = ref.read(realStackProvider);
+    if (svc == null || stack == null) return;
+    final changed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => _TargetLinkSheet(service: svc, stack: stack),
+    );
+    if (changed == true) await _reload();
+  }
+
+  Future<void> _revoke(NodeId device) async {
+    final l = AppL10n.of(context);
+    final phrase = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text(l.devicesRevokeTitle(device.short)),
+        content: TextField(
+          controller: phrase,
+          obscureText: true,
+          maxLines: 1,
+          decoration: InputDecoration(
+            labelText: l.devicesPhrase,
+            helperText: l.devicesPhraseHint,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialog, false),
+            child: Text(MaterialLocalizations.of(dialog).cancelButtonLabel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialog, true),
+            child: Text(l.devicesRevoke),
+          ),
+        ],
+      ),
+    );
+    final words = phrase.text.trim();
+    phrase.clear();
+    phrase.dispose();
+    if (confirmed != true || words.isEmpty || !mounted) return;
+    NativeSovereignGroupSigner? signer;
+    var ok = false;
+    try {
+      final svc = ref.read(groupServiceProvider);
+      signer = await svc?.openLocalSovereign(words);
+      if (svc != null && signer != null) {
+        ok = await svc.revokeDevice(device, sovereign: signer);
+      }
+    } catch (_) {
+      ok = false;
+    } finally {
+      signer?.close();
+    }
+    if (!mounted) return;
+    if (ok) {
+      await _reload();
+    } else {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.devicesOperationFailed)));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    final self = ref.watch(appControllerProvider).identity?.nodeId;
+    final ready =
+        ref.watch(groupServiceProvider) != null &&
+        ref.watch(realStackProvider) != null;
+    final phraseBacked =
+        ref.watch(identityOriginProvider).valueOrNull == 'phrase';
+    final canOwn = ready && (_hasSovereignBundle || phraseBacked);
+    return Scaffold(
+      appBar: AppBar(title: Text(l.settingsDevices)),
+      body: ListView(
+        children: [
+          if (_loading)
+            const LinearProgressIndicator()
+          else if (_members.isEmpty)
+            ListTile(
+              leading: const Icon(Icons.devices_outlined),
+              title: Text(l.devicesNoGroup),
+            )
+          else
+            for (final device in _members)
+              ListTile(
+                leading: Icon(
+                  device == self ? Icons.devices : Icons.phonelink_outlined,
+                ),
+                title: Text(
+                  device == self ? l.devicesThisDevice : device.short,
+                ),
+                subtitle: device == self ? Text(device.short) : null,
+                trailing: device == self
+                    ? const Icon(Icons.check)
+                    : IconButton(
+                        tooltip: l.devicesRevoke,
+                        icon: const Icon(Icons.link_off),
+                        onPressed: () => _revoke(device),
+                      ),
+              ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.add_link),
+            title: Text(l.devicesLinkNew),
+            subtitle: Text(l.devicesPhraseHint),
+            enabled: canOwn,
+            trailing: const Icon(Icons.chevron_right),
+            onTap: canOwn ? _showSource : null,
+          ),
+          ListTile(
+            leading: const Icon(Icons.qr_code_scanner),
+            title: Text(l.devicesJoinExisting),
+            enabled: ready,
+            trailing: const Icon(Icons.chevron_right),
+            onTap: ready ? _showTarget : null,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SourceLinkSheet extends StatefulWidget {
+  const _SourceLinkSheet({required this.service, required this.stack});
+  final GroupService service;
+  final RealVeilStack stack;
+
+  @override
+  State<_SourceLinkSheet> createState() => _SourceLinkSheetState();
+}
+
+class _SourceLinkSheetState extends State<_SourceLinkSheet> {
+  final _phrase = TextEditingController();
+  final _targetInvite = TextEditingController();
+  String? _token;
+  String? _error;
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    _phrase.clear();
+    _phrase.dispose();
+    _targetInvite.dispose();
+    super.dispose();
+  }
+
+  Future<void> _scan() async {
+    final raw = await Navigator.of(
+      context,
+    ).push<String>(MaterialPageRoute(builder: (_) => const QrScanScreen()));
+    if (raw != null && mounted) _targetInvite.text = raw;
+  }
+
+  Future<void> _prepare() async {
+    final l = AppL10n.of(context);
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    NativeSovereignGroupSigner? signer;
+    try {
+      final target = BootstrapInvite.parse(_targetInvite.text);
+      if (target.nodeId == widget.service.selfId) {
+        throw const FormatException('self device');
+      }
+      final words = _phrase.text.trim();
+      _phrase.clear();
+      await widget.stack.addContact(target);
+      signer = await widget.service.openLocalSovereign(words);
+      final linked = await widget.service.linkDevice(
+        target.nodeId,
+        sovereign: signer,
+        broadcastSnapshot: false,
+      );
+      if (!linked) throw StateError('membership rejected');
+      final token = await widget.service.createDeviceLinkToken(
+        widget.stack.myInvite,
+      );
+      if (token == null) throw StateError('token unavailable');
+      if (!mounted) return;
+      setState(() => _token = token.toUri());
+    } catch (_) {
+      if (mounted) setState(() => _error = l.devicesOperationFailed);
+    } finally {
+      signer?.close();
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _send() async {
+    final l = AppL10n.of(context);
+    setState(() => _busy = true);
+    try {
+      final count = await widget.service.broadcastDeviceGroup();
+      if (count < 1) throw StateError('no target');
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.devicesSetupSent)));
+      Navigator.of(context).pop(true);
+    } catch (_) {
+      if (mounted) setState(() => _error = l.devicesOperationFailed);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    return SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(
+        24,
+        24,
+        24,
+        24 + MediaQuery.viewInsetsOf(context).bottom,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(l.devicesLinkNew, style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 16),
+          if (_token == null) ...[
+            TextField(
+              controller: _targetInvite,
+              minLines: 1,
+              maxLines: 3,
+              decoration: InputDecoration(
+                labelText: l.devicesTargetInvite,
+                helperText: l.devicesTargetInviteHint,
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.qr_code_scanner),
+                  onPressed: _busy ? null : _scan,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _phrase,
+              obscureText: true,
+              decoration: InputDecoration(
+                labelText: l.devicesPhrase,
+                helperText: l.devicesPhraseHint,
+              ),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _busy ? null : _prepare,
+              icon: const Icon(Icons.lock_outline),
+              label: Text(l.devicesPrepare),
+            ),
+          ] else ...[
+            Text(
+              l.devicesAdoptionQrTitle,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            Text(l.devicesAdoptionQrHint),
+            const SizedBox(height: 16),
+            Center(
+              child: Container(
+                color: Colors.white,
+                padding: const EdgeInsets.all(12),
+                child: QrImageView(data: _token!, size: 220),
+              ),
+            ),
+            SelectableText(
+              _token!,
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 10),
+            ),
+            TextButton.icon(
+              onPressed: () => Clipboard.setData(ClipboardData(text: _token!)),
+              icon: const Icon(Icons.copy),
+              label: Text(l.actionCopy),
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: _busy ? null : _send,
+              icon: const Icon(Icons.send),
+              label: Text(l.devicesSendSetup),
+            ),
+          ],
+          if (_busy)
+            const Padding(
+              padding: EdgeInsets.only(top: 12),
+              child: LinearProgressIndicator(),
+            ),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                _error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TargetLinkSheet extends StatefulWidget {
+  const _TargetLinkSheet({required this.service, required this.stack});
+  final GroupService service;
+  final RealVeilStack stack;
+
+  @override
+  State<_TargetLinkSheet> createState() => _TargetLinkSheetState();
+}
+
+class _TargetLinkSheetState extends State<_TargetLinkSheet> {
+  final _token = TextEditingController();
+  Timer? _poll;
+  DeviceLinkToken? _pending;
+  String? _error;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _restorePending();
+  }
+
+  Future<void> _restorePending() async {
+    final pending = await widget.service.pendingDeviceAdoption();
+    if (pending == null || !mounted) return;
+    setState(() => _pending = pending);
+    _poll = Timer.periodic(const Duration(seconds: 1), (_) => _checkDone());
+    await _checkDone();
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    _token.dispose();
+    super.dispose();
+  }
+
+  Future<void> _scan() async {
+    final raw = await Navigator.of(
+      context,
+    ).push<String>(MaterialPageRoute(builder: (_) => const QrScanScreen()));
+    if (raw == null || !mounted) return;
+    _token.text = raw;
+    await _prepare();
+  }
+
+  Future<void> _prepare() async {
+    final l = AppL10n.of(context);
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final token = DeviceLinkToken.parse(_token.text);
+      if (token.isExpired(DateTime.now().millisecondsSinceEpoch)) {
+        throw const FormatException('expired');
+      }
+      await widget.stack.addContact(token.sourceInvite);
+      if (!await widget.service.prepareDeviceAdoption(token)) {
+        throw StateError('admission rejected');
+      }
+      _token.clear();
+      if (!mounted) return;
+      setState(() => _pending = token);
+      _poll?.cancel();
+      _poll = Timer.periodic(const Duration(seconds: 1), (_) => _checkDone());
+      await _checkDone();
+    } on FormatException catch (e) {
+      if (!mounted) return;
+      setState(
+        () => _error = e.message == 'expired'
+            ? l.devicesExpiredToken
+            : l.devicesInvalidToken,
+      );
+    } catch (_) {
+      if (mounted) setState(() => _error = l.devicesOperationFailed);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _checkDone() async {
+    final pending = _pending;
+    if (pending == null) return;
+    if (await widget.service.deviceGroupIdHex() != pending.groupId.hex) return;
+    _poll?.cancel();
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(AppL10n.of(context).devicesJoined)));
+    Navigator.of(context).pop(true);
+  }
+
+  Future<void> _cancel() async {
+    await widget.service.cancelPendingDeviceAdoption();
+    if (mounted) Navigator.of(context).pop(false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    final myInvite = widget.stack.myInvite.toUri();
+    return SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(
+        24,
+        24,
+        24,
+        24 + MediaQuery.viewInsetsOf(context).bottom,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            l.devicesJoinExisting,
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 12),
+          if (_pending == null) ...[
+            Text(l.devicesShowMyInvite),
+            const SizedBox(height: 8),
+            Center(
+              child: Container(
+                color: Colors.white,
+                padding: const EdgeInsets.all(10),
+                child: QrImageView(data: myInvite, size: 170),
+              ),
+            ),
+            TextButton.icon(
+              onPressed: () => Clipboard.setData(ClipboardData(text: myInvite)),
+              icon: const Icon(Icons.copy),
+              label: Text(l.actionCopy),
+            ),
+            const Divider(height: 28),
+            TextField(
+              controller: _token,
+              minLines: 1,
+              maxLines: 3,
+              decoration: InputDecoration(
+                labelText: l.devicesJoinToken,
+                helperText: l.devicesJoinTokenHint,
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.qr_code_scanner),
+                  onPressed: _busy ? null : _scan,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: _busy ? null : _prepare,
+              child: Text(l.devicesPrepare),
+            ),
+          ] else ...[
+            const Icon(Icons.phonelink_lock_outlined, size: 52),
+            const SizedBox(height: 12),
+            Text(
+              l.devicesWaitTitle,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            Text(l.devicesWaitHint, textAlign: TextAlign.center),
+            const SizedBox(height: 12),
+            const LinearProgressIndicator(),
+            TextButton(onPressed: _cancel, child: Text(l.devicesCancelPending)),
+          ],
+          if (_busy)
+            const Padding(
+              padding: EdgeInsets.only(top: 12),
+              child: LinearProgressIndicator(),
+            ),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                _error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}

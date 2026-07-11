@@ -24,12 +24,14 @@ import 'package:veil_flutter/veil_flutter.dart' as veil;
 import '../core/ids.dart';
 import '../domain/chat.dart' show MessageDirection;
 import '../domain/device_sync.dart';
+import '../domain/device_link.dart';
 import '../domain/group.dart';
 import '../domain/group_content.dart';
 import '../domain/group_message.dart';
 import '../domain/group_policy.dart';
 import '../domain/group_reaction.dart';
 import '../data/node/embedded_node.dart';
+import '../data/transport/bootstrap_invite.dart';
 import '../data/storage/storage.dart';
 import 'app_controller.dart';
 import 'group_crypto.dart';
@@ -873,6 +875,8 @@ class GroupService {
     } catch (_) {
       return false; // malformed — drop
     }
+    final pending = await _tryPendingDeviceSnapshot(peer, json);
+    if (pending != null) return pending;
     return ingestSnapshot(json);
   }
 
@@ -1129,11 +1133,35 @@ class GroupService {
       if (gid is String && gid.isNotEmpty) gidHex = gid;
     } catch (_) {/* malformed → drop below */}
     if (gidHex == null) return false;
+    final pending = await _tryPendingDeviceSnapshot(peer, bundleJson);
+    if (pending != null) return pending;
     if (!await allowStrangerGroupSync(peer, gidHex)) {
       debugPrint('xVeil[groups]: stranger snapshot DENIED — drop');
       return false;
     }
     return ingestSnapshot(bundleJson);
+  }
+
+  /// Returns null when [bundleJson] is unrelated to the pending ceremony,
+  /// otherwise consumes it (true) or rejects it (false). Shared by contact and
+  /// non-contact ingress: prior contact status must not change adoption rules.
+  Future<bool?> _tryPendingDeviceSnapshot(
+      NodeId peer, String bundleJson) async {
+    final pending = await pendingDeviceAdoption();
+    if (pending == null || peer != pending.source) return null;
+    GroupManifest? manifest;
+    try {
+      final d = jsonDecode(bundleJson);
+      manifest = GroupManifest.fromJson(d is Map ? d['m'] : null);
+    } catch (_) {
+      return false;
+    }
+    if (manifest == null || manifest.groupId != pending.groupId) return null;
+    if (!listEquals(_manifestHash(manifest), pending.manifestHash)) return false;
+    if (!await ingestSnapshot(bundleJson)) return false;
+    if (!await adoptDeviceGroup(pending.groupId)) return false;
+    await cancelPendingDeviceAdoption();
+    return true;
   }
 
   /// Fetch [cid] of [groupId] from [holder] (normally the message author):
@@ -1398,6 +1426,8 @@ class GroupService {
   /// dialogs (both trim their input).
   static const String kDeviceGroupName = ' xveil.devices';
   static const String kSovereignBundleSetting = 'devices.sovereign.bundle.v1';
+  static const String kPendingDeviceAdoptionSetting =
+      'devices.pending_adoption.v1';
 
   String? _deviceGidCache;
 
@@ -1444,6 +1474,60 @@ class GroupService {
     return NativeSovereignGroupSigner.openBundle(bundle, phrase);
   }
 
+  Uint8List _manifestHash(GroupManifest manifest) => veil.VeilCrypto.sha256(
+        Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+      );
+
+  Future<DeviceLinkToken?> pendingDeviceAdoption() async {
+    final raw = await _storage.getSetting(kPendingDeviceAdoptionSetting);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final token = DeviceLinkToken.fromJson(jsonDecode(raw));
+      if (token == null || token.isExpired(_now())) return null;
+      return token;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Explicit target-side consent. Until this token is stored, a stranger can
+  /// never materialize a new marker group. The token pins source, gid and the
+  /// exact signed manifest; the subsequent snapshot still passes all normal
+  /// signature, bundle-hash and self-membership checks.
+  Future<bool> prepareDeviceAdoption(DeviceLinkToken token) async {
+    if (token.source == _signer.selfId || token.isExpired(_now())) return false;
+    await _storage.putSetting(
+        kPendingDeviceAdoptionSetting, jsonEncode(token.toJson()));
+    return true;
+  }
+
+  Future<void> cancelPendingDeviceAdoption() =>
+      _storage.putSetting(kPendingDeviceAdoptionSetting, '');
+
+  /// Build the short QR token after the source has sovereign-signed the target
+  /// into the local registry but before it broadcasts the encrypted snapshot.
+  Future<DeviceLinkToken?> createDeviceLinkToken(
+      BootstrapInvite sourceInvite) async {
+    if (sourceInvite.nodeId != _signer.selfId) return null;
+    final gidHex = await deviceGroupIdHex();
+    if (gidHex == null) return null;
+    final bundle = await load(NodeId.fromHex(gidHex));
+    if (bundle == null || !bundle.manifest.isSovereignDevice) return null;
+    return DeviceLinkToken(
+      groupId: bundle.manifest.groupId,
+      source: _signer.selfId,
+      manifestHash: _manifestHash(bundle.manifest),
+      sourceInvite: sourceInvite,
+      expiresAtMs: _now() + const Duration(minutes: 30).inMilliseconds,
+    );
+  }
+
+  Future<int> broadcastDeviceGroup() async {
+    final gidHex = await deviceGroupIdHex();
+    if (gidHex == null) return 0;
+    return broadcast(NodeId.fromHex(gidHex));
+  }
+
   bool _sovereignMatches(
           GroupManifest manifest, SovereignGroupSigner sovereign) =>
       manifest.isSovereignDevice &&
@@ -1464,6 +1548,7 @@ class GroupService {
     SovereignGroupSigner sovereign,
     Iterable<NodeId> devices, {
     GroupBundle? migrateFrom,
+    bool broadcastSnapshot = true,
   }) async {
     final encryptedSovereign = await localSovereignBundle();
     if (sovereign.algorithm != 'ed25519' && encryptedSovereign == null) {
@@ -1573,7 +1658,7 @@ class GroupService {
     await _storage.putSetting('devices.gid', gid.hex);
     _deviceGidCache = gid.hex;
     _deviceMembersCache = null;
-    await broadcast(gid);
+    if (broadcastSnapshot) await broadcast(gid);
     return gid;
   }
 
@@ -1652,7 +1737,8 @@ class GroupService {
   }
 
   Future<bool> _appendSovereignMembership(GroupBundle bundle,
-      SovereignGroupSigner sovereign, ControlOp op, NodeId device) async {
+      SovereignGroupSigner sovereign, ControlOp op, NodeId device,
+      {bool broadcastSnapshot = true}) async {
     if (!_sovereignMatches(bundle.manifest, sovereign)) return false;
     final state = foldControlLog(
       owner: bundle.manifest.owner,
@@ -1703,19 +1789,22 @@ class GroupService {
       sovereignBundle: bundle.sovereignBundle,
     ));
     _deviceMembersCache = null;
-    if (op == ControlOp.addMember) {
+    if (op == ControlOp.addMember && broadcastSnapshot) {
       await broadcast(bundle.manifest.groupId);
-    } else {
+    } else if (op == ControlOp.removeMember) {
       await broadcastDelta(bundle.manifest.groupId, control: [signed]);
     }
     return true;
   }
 
   Future<bool> linkDevice(NodeId device,
-      {required SovereignGroupSigner sovereign}) async {
+      {required SovereignGroupSigner sovereign,
+      bool broadcastSnapshot = true}) async {
     final hex = await deviceGroupIdHex();
     if (hex == null) {
-      return await _mintSovereignDeviceGroup(sovereign, [device]) != null;
+      return await _mintSovereignDeviceGroup(sovereign, [device],
+              broadcastSnapshot: broadcastSnapshot) !=
+          null;
     }
     final bundle = await load(NodeId.fromHex(hex));
     if (bundle == null) return false;
@@ -1728,8 +1817,9 @@ class GroupService {
       ).state;
       return await _mintSovereignDeviceGroup(
             sovereign,
-            [...state.members.values.map((m) => m.nodeId), device],
-            migrateFrom: bundle,
+        [...state.members.values.map((m) => m.nodeId), device],
+        migrateFrom: bundle,
+        broadcastSnapshot: broadcastSnapshot,
           ) !=
           null;
     }
@@ -1745,11 +1835,13 @@ class GroupService {
             sovereign,
             [...state.members.values.map((m) => m.nodeId), device],
             migrateFrom: bundle,
+            broadcastSnapshot: broadcastSnapshot,
           ) !=
           null;
     }
     return _appendSovereignMembership(
-        bundle, sovereign, ControlOp.addMember, device);
+        bundle, sovereign, ControlOp.addMember, device,
+        broadcastSnapshot: broadcastSnapshot);
   }
 
   /// Revoke [device]: removeMember — the fold rotates the epoch, so the
