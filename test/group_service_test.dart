@@ -560,6 +560,37 @@ void main() {
     }
   });
 
+  test('nudgeDeviceSync (brick 4e): ships the FULL device-group snapshot to '
+      'every other device — the boot catch-up for deltas lost during a total '
+      'outage; no-op on a solo install', () async {
+    final s = FakeHvContainer().storage();
+    await s.open(password: 'pw', createIfMissing: true);
+    final sent = <String>[];
+    final svc = GroupService(s, _FakeSigner(owner),
+        send: (p, g, j) async => sent.add(j));
+    expect(await svc.nudgeDeviceSync(), 0, reason: 'no device group yet');
+
+    await svc.linkDevice(bob);
+    await svc.postDeviceEvent(DeviceSyncEvent(
+        kind: DeviceSyncKind.settingSet,
+        key: 'theme',
+        tsMs: 1,
+        payload: const {'v': 'dark'}));
+    // Let the fire-and-forget link/post broadcasts land before isolating the
+    // nudge's own send.
+    for (var i = 0; i < 6; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    sent.clear();
+    expect(await svc.nudgeDeviceSync(), 1, reason: 'one other device');
+    // The nudge is a FULL snapshot (manifest + control + messages), so a
+    // sibling that missed any delta converges from it alone.
+    final snap = jsonDecode(sent.single) as Map;
+    expect(snap['m'], isNotNull);
+    expect((snap['c'] as List), isNotEmpty);
+    expect((snap['g'] as List).length, 1, reason: 'carries the missed event');
+  });
+
   test('isMyDevice: true only for current device-group members, and the '
       'cache invalidates on revoke (brick 4c mirror exclusion)', () async {
     final s = FakeHvContainer().storage();

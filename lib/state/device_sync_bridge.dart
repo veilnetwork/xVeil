@@ -35,6 +35,12 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   final hub = ref.read(deviceSettingsSyncHubProvider);
   final callLog = ref.read(callLogStoreProvider);
 
+  // Boot catch-up (brick 4e): ship the full device-group snapshot to my other
+  // devices once per bridge build. Deltas posted during a total entry-node
+  // outage never redrive into the GROUP log (unlike 1:1 durable frames), so
+  // without this a sibling that missed them stays diverged until re-link.
+  unawaited(svc.nudgeDeviceSync());
+
   // The settings allowlist: registering an applier is what admits a key.
   hub.register(
     kSyncShowReactions,

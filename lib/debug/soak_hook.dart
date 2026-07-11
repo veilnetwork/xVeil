@@ -342,6 +342,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/add_peer':
           await _addPeerHook(req);
           return;
+        case '/device_sync_now':
+          await _deviceSyncNowHook(req);
+          return;
         case '/read_state':
           await _readStateHook(req);
           return;
@@ -1362,6 +1365,16 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     await ref.read(messagingServiceProvider).markRead(peer);
     return _json(req,
         {'ok': true, 'marker': await ref.read(storageProvider).readMarker(peer)});
+  }
+
+  /// Ship the FULL device-group snapshot to my other devices right now — the
+  /// brick-4e catch-up nudge (normally fired once per boot by the bridge).
+  Future<void> _deviceSyncNowHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final shipped = await svc.nudgeDeviceSync();
+    return _json(req, {'ok': true, 'shipped': shipped});
   }
 
   /// Redeem a bootstrap-peer invite ?uri= (url-encoded `veil:bootstrap?…`) on

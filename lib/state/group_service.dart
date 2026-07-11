@@ -907,6 +907,19 @@ class GroupService {
         target: device);
   }
 
+  /// Catch-up for the device group (brick 4e): ship my FULL device-group
+  /// snapshot to every other device. Deltas posted while every entry node was
+  /// down can be lost for good (the join-time full broadcast is the only
+  /// recovery today — found live in the 2026-07-11 seed outage), so each
+  /// device nudges once per boot; [ingestSnapshot] merges by (author, seq),
+  /// so a redundant nudge costs bandwidth, never correctness. Returns how
+  /// many devices it was shipped to (0 = no device group / solo install).
+  Future<int> nudgeDeviceSync() async {
+    final hex = await deviceGroupIdHex();
+    if (hex == null) return 0;
+    return broadcast(NodeId.fromHex(hex));
+  }
+
   /// Whether [peer] is a CURRENT member of my device group — i.e. another of
   /// my own devices. The mirror taps consult this per stored message, so the
   /// folded member set is cached briefly; link/adopt/revoke invalidate it.
