@@ -157,6 +157,31 @@ class AppL10nEn extends AppL10n {
   String get navSettings => 'Settings';
 
   @override
+  String get navCalls => 'Calls';
+
+  @override
+  String get callLogEmpty => 'No calls yet';
+
+  @override
+  String get callLogEmptyHint =>
+      'Calls you make and receive on any of your devices will appear here';
+
+  @override
+  String get callOutcomeMissed => 'Missed';
+
+  @override
+  String get callOutcomeDeclined => 'Declined';
+
+  @override
+  String get callOutcomeCancelled => 'Cancelled';
+
+  @override
+  String get callOutcomeBusy => 'Busy';
+
+  @override
+  String get callOutcomeFailed => 'Failed';
+
+  @override
   String get chatsEmpty => 'No conversations yet';
 
   @override

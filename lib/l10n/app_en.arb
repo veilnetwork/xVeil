@@ -52,6 +52,15 @@
   "navChats": "Chats",
   "navNetwork": "Network",
   "navSettings": "Settings",
+  "navCalls": "Calls",
+
+  "callLogEmpty": "No calls yet",
+  "callLogEmptyHint": "Calls you make and receive on any of your devices will appear here",
+  "callOutcomeMissed": "Missed",
+  "callOutcomeDeclined": "Declined",
+  "callOutcomeCancelled": "Cancelled",
+  "callOutcomeBusy": "Busy",
+  "callOutcomeFailed": "Failed",
 
   "chatsEmpty": "No conversations yet",
   "chatsEmptyHint": "Start a new chat to begin messaging",
