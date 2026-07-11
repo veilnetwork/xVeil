@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/group.dart';
 import 'package:xveil/domain/group_message.dart';
+import 'package:xveil/domain/group_reaction.dart';
 import 'package:xveil/state/group_service.dart';
 
 import 'support/fake_hv_container.dart';
@@ -29,11 +30,17 @@ class _FakeSigner implements GroupSigner {
   GroupMessage signMessage(GroupMessage u) =>
       u.withSignature(Uint8List(64), u.author.bytes);
   @override
+  GroupReaction signReaction(GroupReaction u) =>
+      u.withSignature(Uint8List(64), u.author.bytes);
+  @override
   bool verifyControl(ControlEntry e) =>
       e.signature.length == 64 && e.authorPubKey.length == 32;
   @override
   bool verifyMessage(GroupMessage m) =>
       m.signature.length == 64 && m.authorPubKey.length == 32;
+  @override
+  bool verifyReaction(GroupReaction r) =>
+      r.signature.length == 64 && r.authorPubKey.length == 32;
 }
 
 void main() {
@@ -310,6 +317,45 @@ void main() {
     // The owner is the genesis and cannot leave.
     expect(await svc.leaveGroup(gid), isFalse);
     expect((await svc.stateOf(gid))!.isMember(owner), isTrue);
+  });
+
+  test('reactions: toggle on/off, aggregate, and survive snapshot round-trip',
+      () async {
+    final s1 = FakeHvContainer().storage();
+    await s1.open(password: 'pw', createIfMissing: true);
+    final owned = GroupService(s1, _FakeSigner(owner));
+    final gid = await owned.createGroup('G');
+    await owned.addControlOp(gid, ControlOp.addMember,
+        target: bob, role: GroupRole.member);
+    await owned.postMessage(gid, 'react to me');
+    final msg = (await owned.messagesOf(gid)).single;
+    final ref = msg.ref;
+
+    // Owner reacts 👍.
+    expect(await owned.react(gid, ref, '👍'), isTrue);
+    var agg = await owned.reactionsOf(gid);
+    expect(agg[ref]!['👍'], contains(owner));
+
+    // Bob (same store) reacts ❤ on the same message → both counted.
+    final bobDev = GroupService(s1, _FakeSigner(bob));
+    await bobDev.react(gid, ref, '❤');
+    agg = await owned.reactionsOf(gid);
+    expect(agg[ref]!['👍'], contains(owner));
+    expect(agg[ref]!['❤'], contains(bob));
+
+    // Owner taps 👍 again → toggles OFF (latest-per-author-target wins).
+    await owned.react(gid, ref, '👍');
+    agg = await owned.reactionsOf(gid);
+    expect(agg[ref]?['👍'] ?? const [], isNot(contains(owner)));
+    expect(agg[ref]!['❤'], contains(bob), reason: 'bob still reacts');
+
+    // A fresh device materializes the reactions via the full snapshot.
+    final s2 = FakeHvContainer().storage();
+    await s2.open(password: 'pw', createIfMissing: true);
+    final carolDev = GroupService(s2, _FakeSigner(carol));
+    await carolDev.ingestSnapshot(owned.snapshotJson((await owned.load(gid))!));
+    final got = await carolDev.reactionsOf(gid);
+    expect(got[ref]!['❤'], contains(bob));
   });
 
   test('replyTo is signed + round-trips; a plain message omits it', () {

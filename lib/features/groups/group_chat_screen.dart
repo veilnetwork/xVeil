@@ -15,6 +15,7 @@ import '../../domain/chat.dart';
 import '../../domain/group.dart';
 import '../../domain/group_message.dart';
 import '../../domain/group_policy.dart';
+import '../../domain/group_reaction.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service.dart';
 import '../../state/messaging.dart' show conversationsProvider;
@@ -48,6 +49,59 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     final r = _replyTarget?.ref;
     if (_replyTarget != null) setState(() => _replyTarget = null);
     return r;
+  }
+
+  /// Quick reactions offered in the long-press sheet.
+  static const _quickEmojis = ['👍', '❤', '😂', '😮', '😢', '🙏'];
+
+  Future<(List<GroupMessage>, Map<String, MessageReactions>)> _loadFeed(
+      GroupService svc) async {
+    final msgs = await svc.messagesOf(_gid);
+    final reacts = await svc.reactionsOf(_gid);
+    return (msgs, reacts);
+  }
+
+  /// Long-press on a message: quick-react emojis + a Reply action.
+  Future<void> _showMessageMenu(GroupService svc, GroupMessage m) async {
+    final l = AppL10n.of(context);
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetCtx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Wrap(
+                alignment: WrapAlignment.center,
+                children: [
+                  for (final e in _quickEmojis)
+                    InkWell(
+                      onTap: () {
+                        Navigator.of(sheetCtx).pop();
+                        svc.react(_gid, m.ref, e);
+                      },
+                      borderRadius: BorderRadius.circular(24),
+                      child: Padding(
+                        padding: const EdgeInsets.all(10),
+                        child: Text(e, style: const TextStyle(fontSize: 26)),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.reply),
+              title: Text(l.groupReply),
+              onTap: () {
+                Navigator.of(sheetCtx).pop();
+                setState(() => _replyTarget = m);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _send(GroupService svc) async {
@@ -427,10 +481,13 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
           Expanded(
             child: AnimatedBuilder(
               animation: svc.changes,
-              builder: (context, _) => FutureBuilder<List<GroupMessage>>(
-                future: svc.messagesOf(_gid),
+              builder: (context, _) => FutureBuilder<
+                  (List<GroupMessage>, Map<String, MessageReactions>)>(
+                future: _loadFeed(svc),
                 builder: (context, snap) {
-                  final msgs = snap.data ?? const [];
+                  final msgs = snap.data?.$1 ?? const <GroupMessage>[];
+                  final reacts =
+                      snap.data?.$2 ?? const <String, MessageReactions>{};
                   if (msgs.isEmpty) {
                     return Center(child: Text(l.groupNoMessages));
                   }
@@ -444,8 +501,11 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                       return _GroupBubble(
                         message: m,
                         mine: mine,
+                        selfId: svc.selfId,
                         quoted: m.replyTo == null ? null : byRef[m.replyTo],
-                        onReply: () => setState(() => _replyTarget = m),
+                        reactions: reacts[m.ref],
+                        onLongPress: () => _showMessageMenu(svc, m),
+                        onToggleReaction: (e) => svc.react(_gid, m.ref, e),
                       );
                     },
                   );
@@ -503,17 +563,65 @@ class _GroupBubble extends StatelessWidget {
   const _GroupBubble({
     required this.message,
     required this.mine,
+    required this.selfId,
     this.quoted,
-    this.onReply,
+    this.reactions,
+    this.onLongPress,
+    this.onToggleReaction,
   });
   final GroupMessage message;
   final bool mine;
+  final NodeId selfId;
 
   /// The resolved message this one replies to (null if none / not held yet).
   final GroupMessage? quoted;
 
-  /// Long-press to reply to this message.
-  final VoidCallback? onReply;
+  /// This message's reactions (emoji -> reactors), or null if none.
+  final MessageReactions? reactions;
+
+  /// Long-press: open the react/reply menu.
+  final VoidCallback? onLongPress;
+
+  /// Tap a reaction chip to toggle that emoji.
+  final void Function(String emoji)? onToggleReaction;
+
+  /// The reaction chips shown under the bubble (empty widget if none).
+  Widget _reactionChips(BuildContext context) {
+    final r = reactions;
+    if (r == null || r.isEmpty) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    final entries = r.entries.toList()
+      ..sort((a, b) => b.value.length.compareTo(a.value.length));
+    return Padding(
+      padding: const EdgeInsets.only(top: 3, left: 4),
+      child: Wrap(
+        spacing: 4,
+        runSpacing: 4,
+        children: [
+          for (final e in entries)
+            InkWell(
+              onTap: () => onToggleReaction?.call(e.key),
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: e.value.any((n) => n == selfId)
+                      ? scheme.primaryContainer
+                      : scheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(12),
+                  border: e.value.any((n) => n == selfId)
+                      ? Border.all(color: scheme.primary, width: 1)
+                      : null,
+                ),
+                child: Text('${e.key} ${e.value.length}',
+                    style: const TextStyle(fontSize: 12)),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 
   /// One-line preview of the quoted message for the in-bubble quote block.
   static String _preview(GroupMessage m) {
@@ -561,7 +669,7 @@ class _GroupBubble extends StatelessWidget {
     if (att != null && att.kind == 'sticker' && message.body.isEmpty) {
       return GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onLongPress: onReply,
+        onLongPress: onLongPress,
         child: Align(
         alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
         child: Padding(
@@ -588,6 +696,7 @@ class _GroupBubble extends StatelessWidget {
                       const Icon(Icons.broken_image_outlined),
                 ),
               ),
+              _reactionChips(context),
             ],
           ),
         ),
@@ -596,10 +705,15 @@ class _GroupBubble extends StatelessWidget {
     }
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onLongPress: onReply,
+      onLongPress: onLongPress,
       child: Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
+      child: Column(
+        crossAxisAlignment:
+            mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+      Container(
         margin: const EdgeInsets.symmetric(vertical: 3),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         constraints: BoxConstraints(
@@ -651,6 +765,9 @@ class _GroupBubble extends StatelessWidget {
             if (message.body.isNotEmpty) Text(message.body),
           ],
         ),
+      ),
+          _reactionChips(context),
+        ],
       ),
     ),
     );

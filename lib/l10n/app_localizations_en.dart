@@ -272,6 +272,9 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
+  String get groupReply => 'Reply';
+
+  @override
   String get groupAddMember => 'Add';
 
   @override

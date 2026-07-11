@@ -89,6 +89,7 @@
   "groupMembersTooltip": "Members",
   "groupMembers": "{count, plural, =1{1 member} other{{count} members}}",
   "@groupMembers": { "placeholders": { "count": { "type": "int" } } },
+  "groupReply": "Reply",
   "groupAddMember": "Add",
   "groupMute": "Mute",
   "groupUnmute": "Unmute",

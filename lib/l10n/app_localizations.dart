@@ -577,6 +577,12 @@ abstract class AppL10n {
   /// **'{count, plural, =1{1 member} other{{count} members}}'**
   String groupMembers(int count);
 
+  /// No description provided for @groupReply.
+  ///
+  /// In en, this message translates to:
+  /// **'Reply'**
+  String get groupReply;
+
   /// No description provided for @groupAddMember.
   ///
   /// In en, this message translates to:
