@@ -4164,6 +4164,8 @@ class _Bubble extends ConsumerWidget {
 /// Live round self-preview while recording a video note: converts the
 /// controller's latest RGBA frame to a [ui.Image], coalescing decodes (a slow
 /// frame is skipped, never queued) — the calls' remote-video pattern.
+enum _ComposerExtra { emoji, sticker, videoNote }
+
 class _Composer extends ConsumerStatefulWidget {
   const _Composer({
     required this.controller,
@@ -4209,8 +4211,7 @@ class _ComposerState extends ConsumerState<_Composer> {
   /// recording. Fed from the record controller's poll ticks.
   final List<double> _liveLevels = [];
 
-  /// Capture mode of the empty-field button: false = voice, true = video note.
-  bool _vnoteMode = false;
+  bool _fieldHovered = false;
 
   /// Wrap the current selection (or insert at the cursor) with a formatting
   /// marker, keeping focus + the wrapped selection so the user can keep typing
@@ -4246,6 +4247,27 @@ class _ComposerState extends ConsumerState<_Composer> {
   /// without an explicit binding the keystroke would do NOTHING once plain
   /// Enter is claimed by the send shortcut.
   void _insertNewline() => _insertText('\n');
+
+  Future<void> _openEmoji(BuildContext context) async {
+    final picked = await showEmojiPanel(context);
+    if (picked != null) _insertText(picked);
+  }
+
+  Future<void> _openSticker(BuildContext context) async {
+    final itemId = await showStickerPanel(context);
+    if (itemId != null) widget.onSticker?.call(itemId);
+  }
+
+  Future<void> _openExtra(BuildContext context, _ComposerExtra extra) async {
+    switch (extra) {
+      case _ComposerExtra.emoji:
+        await _openEmoji(context);
+      case _ComposerExtra.sticker:
+        await _openSticker(context);
+      case _ComposerExtra.videoNote:
+        await _startVnoteRecording();
+    }
+  }
 
   /// Prefix every line spanned by the selection (or the cursor's line) with
   /// `> `, turning it into a block quote. Line-level, so it can't reuse the
@@ -4376,14 +4398,35 @@ class _ComposerState extends ConsumerState<_Composer> {
         const SingleActivator(LogicalKeyboardKey.numpadEnter, shift: true):
             _insertNewline,
       },
-      child: TextField(
-        controller: controller,
-        focusNode: focusNode,
-        minLines: 1,
-        maxLines: 5,
-        textInputAction: TextInputAction.newline,
-        keyboardType: TextInputType.multiline,
-        decoration: InputDecoration(hintText: widget.hint),
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _fieldHovered = true),
+        onExit: (_) => setState(() => _fieldHovered = false),
+        child: AnimatedBuilder(
+          animation: focusNode,
+          builder: (context, _) => TextField(
+            controller: controller,
+            focusNode: focusNode,
+            minLines: 1,
+            maxLines: 5,
+            textInputAction: TextInputAction.newline,
+            keyboardType: TextInputType.multiline,
+            decoration: InputDecoration(
+              hintText: widget.hint,
+              // Telegram-style quick emoji entry lives inside/over the field:
+              // quiet at rest, fully visible on pointer hover or focus, and
+              // always tappable on touch devices.
+              suffixIcon: AnimatedOpacity(
+                duration: const Duration(milliseconds: 140),
+                opacity: _fieldHovered || focusNode.hasFocus ? 1 : 0.55,
+                child: IconButton(
+                  tooltip: l.chatEmojiTooltip,
+                  icon: const Icon(Icons.emoji_emotions_outlined),
+                  onPressed: () => _openEmoji(context),
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
     return SafeArea(
@@ -4398,7 +4441,41 @@ class _ComposerState extends ConsumerState<_Composer> {
                 icon: const Icon(Icons.attach_file),
                 tooltip: l.chatAttachTooltip,
               ),
-            // Formatting menu — the mobile counterpart to the desktop hotkeys.
+            Expanded(child: field),
+            // Rare send modes stay behind one predictable menu instead of a
+            // permanent row of emoji/sticker/camera buttons.
+            if (widget.onSticker != null || widget.onVideoNote != null)
+              PopupMenuButton<_ComposerExtra>(
+                icon: const Icon(Icons.add_circle_outline),
+                tooltip: l.chatMoreActions,
+                onSelected: (v) => _openExtra(context, v),
+                itemBuilder: (_) => [
+                  PopupMenuItem(
+                    value: _ComposerExtra.emoji,
+                    child: ListTile(
+                      leading: const Icon(Icons.emoji_emotions_outlined),
+                      title: Text(l.chatEmojiTooltip),
+                    ),
+                  ),
+                  if (widget.onSticker != null)
+                    PopupMenuItem(
+                      value: _ComposerExtra.sticker,
+                      child: ListTile(
+                        leading: const Icon(Icons.sticky_note_2_outlined),
+                        title: Text(l.stickerTitle),
+                      ),
+                    ),
+                  if (widget.onVideoNote != null)
+                    PopupMenuItem(
+                      value: _ComposerExtra.videoNote,
+                      child: ListTile(
+                        leading: const Icon(Icons.videocam_outlined),
+                        title: Text(l.chatVnoteTooltip),
+                      ),
+                    ),
+                ],
+              ),
+            // Formatting remains directly discoverable beside the extras.
             PopupMenuButton<String>(
               icon: const Icon(Icons.text_format),
               tooltip: l.chatFormatTooltip,
@@ -4457,32 +4534,6 @@ class _ComposerState extends ConsumerState<_Composer> {
                 ),
               ],
             ),
-            Expanded(child: field),
-            // Emoji picker — right of the field, left of send (remark #2):
-            // desktop's only emoji entry point; a complement on mobile.
-            Builder(
-              builder: (context) => IconButton(
-                tooltip: l.chatEmojiTooltip,
-                icon: const Icon(Icons.emoji_emotions_outlined),
-                onPressed: () async {
-                  final picked = await showEmojiPanel(context);
-                  if (picked != null) _insertText(picked);
-                },
-              ),
-            ),
-            // Sticker panel — only where the note/sticker send path is wired
-            // (accepted contacts), same gate as voice/video.
-            if (widget.onSticker != null)
-              Builder(
-                builder: (context) => IconButton(
-                  tooltip: l.stickerTitle,
-                  icon: const Icon(Icons.sticky_note_2_outlined),
-                  onPressed: () async {
-                    final itemId = await showStickerPanel(context);
-                    if (itemId != null) widget.onSticker!(itemId);
-                  },
-                ),
-              ),
             const SizedBox(width: 4),
             // Empty field + voice enabled → tap-to-record capture button (mic
             // or, with the toggle, a round video note); otherwise send.
@@ -4490,21 +4541,19 @@ class _ComposerState extends ConsumerState<_Composer> {
               ValueListenableBuilder<TextEditingValue>(
                 valueListenable: controller,
                 builder: (_, value, child) => value.text.trim().isEmpty
-                    ? Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (widget.onVideoNote != null) _modeToggle(context, l),
-                          _vnoteMode && widget.onVideoNote != null
-                              ? _vnoteButton(context)
-                              : _micButton(context),
-                        ],
-                      )
+                    ? _micButton(context)
                     : IconButton.filled(
-                        onPressed: onSend, icon: const Icon(Icons.send)),
+                        tooltip: l.chatSend,
+                        onPressed: onSend,
+                        icon: const Icon(Icons.send),
+                      ),
               )
             else
               IconButton.filled(
-                  onPressed: onSend, icon: const Icon(Icons.send)),
+                tooltip: l.chatSend,
+                onPressed: onSend,
+                icon: const Icon(Icons.send),
+              ),
           ],
         ),
       ),
@@ -4517,29 +4566,10 @@ class _ComposerState extends ConsumerState<_Composer> {
   Widget _micButton(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return IconButton.filled(
+      tooltip: AppL10n.of(context).chatVoiceTooltip,
       onPressed: _startRecording,
       icon: const Icon(Icons.mic),
       color: scheme.onPrimary,
-    );
-  }
-
-  /// Tap-to-record round-video button (the camera mode of the capture toggle).
-  Widget _vnoteButton(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return IconButton.filled(
-      onPressed: _startVnoteRecording,
-      icon: const Icon(Icons.videocam),
-      color: scheme.onPrimary,
-    );
-  }
-
-  /// Switches the capture button between voice and round-video mode (shows
-  /// the mode you'd switch TO, Telegram-desktop style).
-  Widget _modeToggle(BuildContext context, AppL10n l) {
-    return IconButton(
-      icon: Icon(_vnoteMode ? Icons.mic_none : Icons.videocam_outlined),
-      tooltip: _vnoteMode ? l.chatVoiceTooltip : l.chatVnoteTooltip,
-      onPressed: () => setState(() => _vnoteMode = !_vnoteMode),
     );
   }
 

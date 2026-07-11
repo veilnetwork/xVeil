@@ -91,6 +91,31 @@ void main() {
     await tester.pump();
     await tester.pump();
 
+    // Minimal composer: field in the middle, one extras menu + formatting to
+    // its right, and the voice/send control at the far right. Sticker/video
+    // are not permanent buttons anymore.
+    final composerField = find.byType(TextField).first;
+    final extras = find.byIcon(Icons.add_circle_outline);
+    final format = find.byIcon(Icons.text_format);
+    final mic = find.byIcon(Icons.mic);
+    expect(extras, findsOneWidget);
+    expect(format, findsOneWidget);
+    expect(mic, findsOneWidget);
+    expect(find.byIcon(Icons.sticky_note_2_outlined), findsNothing);
+    expect(find.byIcon(Icons.videocam_outlined), findsNothing);
+    expect(tester.getCenter(extras).dx,
+        greaterThan(tester.getCenter(composerField).dx));
+    expect(tester.getCenter(format).dx, greaterThan(tester.getCenter(extras).dx));
+    expect(tester.getCenter(mic).dx, greaterThan(tester.getCenter(format).dx));
+
+    await tester.tap(extras);
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.emoji_emotions_outlined), findsNWidgets(2));
+    expect(find.byIcon(Icons.sticky_note_2_outlined), findsOneWidget);
+    expect(find.byIcon(Icons.videocam_outlined), findsOneWidget);
+    await tester.tapAt(const Offset(8, 8));
+    await tester.pumpAndSettle();
+
     await tester.tap(find.byIcon(Icons.emoji_emotions_outlined));
     await tester.pumpAndSettle();
 

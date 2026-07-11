@@ -1983,6 +1983,9 @@ class AppL10nEn extends AppL10n {
   String get chatEmojiTooltip => 'Emoji';
 
   @override
+  String get chatMoreActions => 'More actions';
+
+  @override
   String get nicknameTitle => 'Nickname';
 
   @override
