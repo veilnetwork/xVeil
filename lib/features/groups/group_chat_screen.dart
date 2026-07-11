@@ -229,6 +229,15 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                       ],
                     ),
                   ),
+                  if (myRole != null && myRole != GroupRole.owner)
+                    ListTile(
+                      leading: Icon(Icons.logout,
+                          color: Theme.of(context).colorScheme.error),
+                      title: Text(l.groupLeave,
+                          style: TextStyle(
+                              color: Theme.of(context).colorScheme.error)),
+                      onTap: () => _leaveGroup(svc),
+                    ),
                 ],
               ),
             );
@@ -236,6 +245,34 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
         ),
       ),
     );
+  }
+
+  /// Confirm + leave the group: closes the member sheet and returns to the list.
+  Future<void> _leaveGroup(GroupService svc) async {
+    final l = AppL10n.of(context);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l.groupLeave),
+        content: Text(l.groupLeaveConfirm),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(l.actionCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(l.groupLeave),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await svc.leaveGroup(_gid);
+    if (!mounted) return;
+    final nav = Navigator.of(context);
+    nav.pop(); // close the member sheet
+    nav.pop(); // return to the group list
   }
 
   Widget _memberTile(

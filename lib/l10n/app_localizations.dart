@@ -613,6 +613,18 @@ abstract class AppL10n {
   /// **'Remove from group'**
   String get groupRemove;
 
+  /// No description provided for @groupLeave.
+  ///
+  /// In en, this message translates to:
+  /// **'Leave group'**
+  String get groupLeave;
+
+  /// No description provided for @groupLeaveConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'You will stop receiving this group\'s messages.'**
+  String get groupLeaveConfirm;
+
   /// No description provided for @groupNoContactsToAdd.
   ///
   /// In en, this message translates to:
