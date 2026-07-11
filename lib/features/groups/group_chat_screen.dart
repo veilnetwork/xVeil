@@ -24,9 +24,12 @@ import '../../state/providers.dart';
 import '../../state/reactions_visibility_controller.dart';
 import '../../state/sticker_store.dart';
 import '../../state/thumbnail.dart';
+import '../../state/vnote_play_controller.dart';
+import '../../state/vnote_record_controller.dart';
 import '../../state/voice_message.dart' show formatVoiceDuration;
 import '../../state/voice_play_controller.dart';
 import '../../state/voice_record_controller.dart';
+import '../chat/vnote_preview.dart';
 import '../chat/reactors_sheet.dart';
 import '../chat/sticker_panel.dart';
 
@@ -148,6 +151,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     if (k == 'image') return '🖼 ${l.groupAttachImage}';
     if (k == 'sticker') return '😊 ${l.groupSendSticker}';
     if (k == 'voice') return '🎤 ${l.groupVoiceMessage}';
+    if (k == 'vnote') return '📹 ${l.groupVnoteRecord}';
     return '…';
   }
 
@@ -161,7 +165,6 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   /// attachment's `w` (and h=1) — reusing the existing fields keeps the
   /// canonical bytes identical for builds that predate voice.
   Future<void> _toggleVoiceRecording(GroupService svc) async {
-    final l = AppL10n.of(context);
     final ctl = ref.read(voiceRecordControllerProvider.notifier);
     if (!ref.read(voiceRecordControllerProvider).isRecording) {
       await ctl.start();
@@ -170,7 +173,24 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     final clip = ctl.stop();
     if (clip == null || clip.bytes.isEmpty) return;
     if (clip.bytes.length > _kGroupVoiceRawMax) {
-      _snack(l.groupVoiceTooLong);
+      // Long clip: over the content path (register + ref, members stream it)
+      // instead of the old "too long" refusal. dataB64 must be non-empty per
+      // the attachment schema — a 1-byte placeholder marks "no inline payload".
+      final cid = await ref
+          .read(messagingServiceProvider)
+          .registerGroupContent(clip.bytes, name: 'voice.vop1');
+      await svc.postMessage(
+        _gid,
+        '',
+        replyTo: _takeReplyRef(),
+        attachment: GroupAttachment(
+          kind: 'voice',
+          dataB64: 'QQ==',
+          w: clip.durationMs > 0 ? clip.durationMs : 1,
+          h: 1,
+          cid: cid,
+        ),
+      );
       return;
     }
     await svc.postMessage(
@@ -182,6 +202,33 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
         dataB64: base64Encode(clip.bytes),
         w: clip.durationMs > 0 ? clip.durationMs : 1,
         h: 1,
+      ),
+    );
+  }
+
+  /// Tap the camera: start a video-note recording; tap again: finish + post
+  /// as a content-path REF (VN01 bytes are far too big for inline chunks).
+  Future<void> _toggleVnoteRecording(GroupService svc) async {
+    final ctl = ref.read(vnoteRecordControllerProvider.notifier);
+    if (!ref.read(vnoteRecordControllerProvider).isRecording) {
+      await ctl.start();
+      return;
+    }
+    final clip = ctl.stop();
+    if (clip == null || clip.bytes.isEmpty) return;
+    final cid = await ref
+        .read(messagingServiceProvider)
+        .registerGroupContent(clip.bytes, name: 'vnote.vn01');
+    await svc.postMessage(
+      _gid,
+      '',
+      replyTo: _takeReplyRef(),
+      attachment: GroupAttachment(
+        kind: 'vnote',
+        dataB64: 'QQ==',
+        w: clip.durationMs > 0 ? clip.durationMs : 1,
+        h: 1,
+        cid: cid,
       ),
     );
   }
@@ -707,6 +754,43 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                       ],
                     );
                   }),
+                  // Video note: tap to record (live round self-preview shows
+                  // while capturing), tap again to stop + post as a ref.
+                  Builder(builder: (context) {
+                    final vrec = ref.watch(vnoteRecordControllerProvider);
+                    return Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          onPressed: () => _toggleVnoteRecording(svc),
+                          tooltip: vrec.isRecording
+                              ? l.groupVoiceStop
+                              : l.groupVnoteRecord,
+                          icon: Icon(
+                            vrec.isRecording
+                                ? Icons.stop_circle
+                                : Icons.videocam_outlined,
+                            color: vrec.isRecording
+                                ? Theme.of(context).colorScheme.error
+                                : null,
+                          ),
+                        ),
+                        if (vrec.isRecording)
+                          SizedBox(
+                            width: 44,
+                            height: 44,
+                            child: ClipOval(
+                              child: VnotePreview(
+                                frameListenable: ref
+                                    .read(vnoteRecordControllerProvider
+                                        .notifier)
+                                    .preview,
+                              ),
+                            ),
+                          ),
+                      ],
+                    );
+                  }),
                   Expanded(
                     child: TextField(
                       controller: _input,
@@ -815,6 +899,7 @@ class _GroupBubble extends StatelessWidget {
     if (k == 'image') return '🖼';
     if (k == 'sticker') return '😊';
     if (k == 'voice') return '🎤';
+    if (k == 'vnote') return '📹';
     return '…';
   }
 
@@ -927,6 +1012,14 @@ class _GroupBubble extends StatelessWidget {
               _GroupVoiceRow(
                 messageRef: message.ref,
                 attachment: message.attachment!,
+                onFetch: onFetchContent,
+              ),
+            if (message.attachment != null &&
+                message.attachment!.kind == 'vnote')
+              _GroupVnoteCircle(
+                messageRef: message.ref,
+                attachment: message.attachment!,
+                onFetch: onFetchContent,
               ),
             if (message.attachment != null &&
                 message.attachment!.kind == 'image')
@@ -1035,9 +1128,16 @@ class _GroupRefImage extends ConsumerWidget {
 /// wide). The clip id is the message's stable `<authorHex>:<seq>` ref; the
 /// bytes come straight from the signed attachment (no file-store fetch).
 class _GroupVoiceRow extends ConsumerWidget {
-  const _GroupVoiceRow({required this.messageRef, required this.attachment});
+  const _GroupVoiceRow({
+    required this.messageRef,
+    required this.attachment,
+    this.onFetch,
+  });
   final String messageRef;
   final GroupAttachment attachment;
+
+  /// Starts the membership-authorized fetch of a ref-form clip.
+  final VoidCallback? onFetch;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1045,40 +1145,176 @@ class _GroupVoiceRow extends ConsumerWidget {
     final play = ref.watch(voicePlayControllerProvider);
     final active = play.isActive(messageRef);
     final playing = play.isPlaying(messageRef);
+    final cid = attachment.cid;
+    final fetching = cid == null
+        ? null
+        : ref.watch(contentProgressProvider.select((m) => m[cid]));
     // durationMs rides in the attachment's `w` (see _toggleVoiceRecording).
     final label = active
         ? formatVoiceDuration(Duration(milliseconds: play.positionMs))
         : formatVoiceDuration(Duration(milliseconds: attachment.w));
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        IconButton(
-          visualDensity: VisualDensity.compact,
-          onPressed: () {
-            final Uint8List bytes;
-            try {
-              bytes = base64Decode(attachment.dataB64);
-            } catch (_) {
-              return; // corrupt attachment — nothing to play
-            }
-            ref
-                .read(voicePlayControllerProvider.notifier)
-                .toggleBytes(messageRef, bytes);
-          },
-          icon: Icon(playing ? Icons.pause : Icons.play_arrow, size: 28),
-        ),
-        SizedBox(
-          width: 110,
-          child: LinearProgressIndicator(
-            value: active ? play.progress : 0,
-            minHeight: 3,
-            color: scheme.primary,
-            backgroundColor: scheme.onSurface.withValues(alpha: 0.15),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Text(label, style: Theme.of(context).textTheme.labelSmall),
-      ],
+    return FutureBuilder<bool>(
+      // A ref clip plays from the file store once fetched (its key IS the
+      // cid); an inline clip is always "held".
+      future: cid == null
+          ? Future.value(true)
+          : ref.read(storageProvider).hasFile(cid).catchError((_) => false),
+      builder: (context, snap) {
+        final held = cid == null || (snap.data ?? false);
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              onPressed: () {
+                if (!held) {
+                  onFetch?.call();
+                  return;
+                }
+                if (cid != null) {
+                  ref
+                      .read(voicePlayControllerProvider.notifier)
+                      .toggle(messageRef, cid);
+                  return;
+                }
+                final Uint8List bytes;
+                try {
+                  bytes = base64Decode(attachment.dataB64);
+                } catch (_) {
+                  return; // corrupt attachment — nothing to play
+                }
+                ref
+                    .read(voicePlayControllerProvider.notifier)
+                    .toggleBytes(messageRef, bytes);
+              },
+              icon: fetching != null
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                    )
+                  : Icon(
+                      !held
+                          ? Icons.download
+                          : (playing ? Icons.pause : Icons.play_arrow),
+                      size: 28,
+                    ),
+            ),
+            SizedBox(
+              width: 110,
+              child: LinearProgressIndicator(
+                value: active ? play.progress : 0,
+                minHeight: 3,
+                color: scheme.primary,
+                backgroundColor: scheme.onSurface.withValues(alpha: 0.15),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(label, style: Theme.of(context).textTheme.labelSmall),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// A round group video note (content path): the circle plays live frames when
+/// active, else shows a placeholder with a play / download / progress
+/// affordance; the clock below turns live while playing. The fetched blob's
+/// file-store key IS the cid, so the shared vnote player's file-key toggle
+/// works unchanged.
+class _GroupVnoteCircle extends ConsumerWidget {
+  const _GroupVnoteCircle({
+    required this.messageRef,
+    required this.attachment,
+    this.onFetch,
+  });
+  final String messageRef;
+  final GroupAttachment attachment;
+  final VoidCallback? onFetch;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final play = ref.watch(vnotePlayControllerProvider);
+    final active = play.isActive(messageRef);
+    final playing = play.isPlaying(messageRef);
+    final cid = attachment.cid;
+    final fetching = cid == null
+        ? null
+        : ref.watch(contentProgressProvider.select((m) => m[cid]));
+    final label = active
+        ? formatVoiceDuration(Duration(milliseconds: play.positionMs))
+        : formatVoiceDuration(Duration(milliseconds: attachment.w));
+    return FutureBuilder<bool>(
+      future: cid == null
+          ? Future.value(false)
+          : ref.read(storageProvider).hasFile(cid).catchError((_) => false),
+      builder: (context, snap) {
+        final held = snap.data ?? false;
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            GestureDetector(
+              onTap: () {
+                if (!held) {
+                  onFetch?.call();
+                  return;
+                }
+                ref
+                    .read(vnotePlayControllerProvider.notifier)
+                    .toggle(messageRef, cid!);
+              },
+              child: SizedBox(
+                width: 160,
+                height: 160,
+                child: ClipOval(
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      if (active)
+                        VnotePreview(
+                          frameListenable: ref
+                              .read(vnotePlayControllerProvider.notifier)
+                              .frame,
+                        )
+                      else
+                        ColoredBox(color: scheme.surfaceContainerHighest),
+                      if (!playing) ...[
+                        ColoredBox(
+                            color: Colors.black.withValues(alpha: 0.18)),
+                        Center(
+                          child: fetching != null
+                              ? SizedBox(
+                                  width: 36,
+                                  height: 36,
+                                  child: CircularProgressIndicator(
+                                    value: fetching == 0 ? null : fetching,
+                                    strokeWidth: 3,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : Icon(
+                                  held ? Icons.play_arrow : Icons.download,
+                                  color: Colors.white,
+                                  size: 44,
+                                ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 2, left: 6),
+              child:
+                  Text(label, style: Theme.of(context).textTheme.labelSmall),
+            ),
+          ],
+        );
+      },
     );
   }
 }

@@ -260,6 +260,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/group_post_image_ref':
           await _groupPostImageRefHook(req);
           return;
+        case '/group_post_vnote':
+          await _groupPostVnoteHook(req);
+          return;
+        case '/group_play_vnote':
+          await _groupPlayVnoteHook(req);
+          return;
         case '/group_fetch_content':
           await _groupFetchContentHook(req);
           return;
@@ -874,18 +880,29 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     if (clip == null || clip.bytes.isEmpty) {
       return _json(req, {'ok': false, 'error': 'empty clip'});
     }
+    // ?ref=1 forces the content-path form — the composer's over-cap branch —
+    // without recording 45+ seconds of real audio.
+    final asRef = req.uri.queryParameters['ref'] == '1';
+    String? cid;
+    if (asRef) {
+      cid = await ref
+          .read(messagingServiceProvider)
+          .registerGroupContent(clip.bytes, name: 'voice.vop1');
+    }
     final posted = await svc.postMessage(
       NodeId.fromHex(gidHex),
       '',
       attachment: GroupAttachment(
         kind: 'voice',
-        dataB64: base64Encode(clip.bytes),
+        dataB64: asRef ? 'QQ==' : base64Encode(clip.bytes),
         w: clip.durationMs > 0 ? clip.durationMs : 1,
         h: 1,
+        cid: cid,
       ),
     );
     return _json(req, {
       'ok': posted,
+      if (cid != null) 'cid': cid,
       'durationMs': clip.durationMs,
       'bytes': clip.bytes.length,
       'sha8': _sha8(clip.bytes),
@@ -906,20 +923,34 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     if (last == null) {
       return _json(req, {'ok': false, 'error': 'no voice message'});
     }
+    final refCid = last.attachment!.cid;
     final Uint8List bytes;
-    try {
-      bytes = base64Decode(last.attachment!.dataB64);
-    } catch (_) {
-      return _json(req, {'ok': false, 'error': 'corrupt attachment'});
+    if (refCid != null) {
+      // Ref clip: play from the fetched file-store blob (its key = cid).
+      final held = await ref.read(storageProvider).loadFile(refCid);
+      if (held == null) {
+        return _json(req, {'ok': false, 'error': 'blob not held (fetch first)'});
+      }
+      bytes = held;
+      await ref
+          .read(voicePlayControllerProvider.notifier)
+          .toggle(last.ref, refCid);
+    } else {
+      try {
+        bytes = base64Decode(last.attachment!.dataB64);
+      } catch (_) {
+        return _json(req, {'ok': false, 'error': 'corrupt attachment'});
+      }
+      await ref
+          .read(voicePlayControllerProvider.notifier)
+          .toggleBytes(last.ref, bytes);
     }
-    await ref
-        .read(voicePlayControllerProvider.notifier)
-        .toggleBytes(last.ref, bytes);
     await Future<void>.delayed(const Duration(milliseconds: 700));
     final st = ref.read(voicePlayControllerProvider);
     return _json(req, {
       'ok': st.isActive(last.ref),
       'ref': last.ref,
+      if (refCid != null) 'cid': refCid,
       'durationMs': st.durationMs,
       'positionMs': st.positionMs,
       'playing': st.isPlaying(last.ref),
@@ -999,6 +1030,85 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'hasBlob': hasBlob,
       'mfBytes': mfBytes?.length,
       'manifest': mfParsed,
+    });
+  }
+
+  /// Record a REAL ?ms= video note (camera+mic) and post it to ?group= as a
+  /// content-path REF — the composer camera's path. Reports cid/bytes/sha8.
+  Future<void> _groupPostVnoteHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final gidHex = req.uri.queryParameters['group'];
+    if (gidHex == null) return _json(req, {'ok': false, 'error': 'no group'});
+    final ms = int.tryParse(req.uri.queryParameters['ms'] ?? '') ?? 2000;
+    final rec = NativeVnoteRecorder.create();
+    if (rec == null) {
+      return _json(req, {'ok': false, 'error': 'recorder unavailable'},
+          status: 500);
+    }
+    if (!await rec.start()) {
+      rec.dispose();
+      return _json(req, {'ok': false, 'error': 'start failed (permission?)'},
+          status: 500);
+    }
+    await Future<void>.delayed(Duration(milliseconds: ms));
+    final clip = rec.stop();
+    rec.dispose();
+    if (clip == null || clip.bytes.isEmpty) {
+      return _json(req, {'ok': false, 'error': 'empty clip'});
+    }
+    final cid = await ref
+        .read(messagingServiceProvider)
+        .registerGroupContent(clip.bytes, name: 'vnote.vn01');
+    final posted = await svc.postMessage(
+      NodeId.fromHex(gidHex),
+      '',
+      attachment: GroupAttachment(
+          kind: 'vnote',
+          dataB64: 'QQ==',
+          w: clip.durationMs > 0 ? clip.durationMs : 1,
+          h: 1,
+          cid: cid),
+    );
+    return _json(req, {
+      'ok': posted,
+      'cid': cid,
+      'durationMs': clip.durationMs,
+      'bytes': clip.bytes.length,
+      'sha8': _sha8(clip.bytes),
+    });
+  }
+
+  /// Play the LAST vnote ref of ?group= through the shared player (the
+  /// fetched blob's file-store key is its cid) and report the live state.
+  Future<void> _groupPlayVnoteHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final gidHex = req.uri.queryParameters['group'];
+    if (gidHex == null) return _json(req, {'ok': false, 'error': 'no group'});
+    final msgs = await svc.messagesOf(NodeId.fromHex(gidHex));
+    final last = msgs
+        .where((m) => m.attachment?.kind == 'vnote' && m.attachment?.cid != null)
+        .lastOrNull;
+    if (last == null) {
+      return _json(req, {'ok': false, 'error': 'no vnote ref'});
+    }
+    final cid = last.attachment!.cid!;
+    if (!await ref.read(storageProvider).hasFile(cid)) {
+      return _json(req, {'ok': false, 'error': 'blob not held (fetch first)'});
+    }
+    await ref.read(vnotePlayControllerProvider.notifier).toggle(last.ref, cid);
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+    final st = ref.read(vnotePlayControllerProvider);
+    return _json(req, {
+      'ok': st.isActive(last.ref),
+      'ref': last.ref,
+      'cid': cid,
+      'durationMs': st.durationMs,
+      'positionMs': st.positionMs,
+      'playing': st.isPlaying(last.ref),
     });
   }
 

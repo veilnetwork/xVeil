@@ -106,6 +106,7 @@
   "groupSendSticker": "Отправить стикер",
   "groupImageOnly": "Выберите файл изображения",
   "groupImageTooLarge": "Картинка слишком большая для инлайна",
+  "groupVnoteRecord": "Записать кружок",
   "groupVoiceRecord": "Записать голосовое",
   "groupVoiceStop": "Остановить и отправить",
   "groupVoiceMessage": "Голосовое сообщение",
