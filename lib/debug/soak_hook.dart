@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data' show BytesBuilder;
+import 'dart:typed_data' show BytesBuilder, Uint8List;
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:ui' as ui;
@@ -16,7 +16,8 @@ import '../core/log.dart';
 import '../data/serve_source.dart';
 import 'package:veil_media/veil_media.dart';
 
-import '../state/thumbnail.dart' show makeRgbaThumbB64;
+import '../state/thumbnail.dart' show makeRgbaThumbB64, makeInlineImageB64;
+import '../domain/group_message.dart' show GroupAttachment;
 
 import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call_signal.dart';
@@ -216,6 +217,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/group_post':
           await _groupPostHook(req);
+          return;
+        case '/group_post_image':
+          await _groupPostImageHook(req);
           return;
         case '/group_state':
           await _groupStateHook(req);
@@ -581,6 +585,44 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     return _json(req, {'ok': posted, 'messages': msgs.length});
   }
 
+  /// Post an inline image (groups media brick 1): ?group=&path=&body=; reads the
+  /// file, downscales it into a size-capped inline attachment, posts, then
+  /// reports the encoded dims + base64 length so a 2-device test can confirm the
+  /// picture rode WHOLE inside the signed message (no content fetch).
+  Future<void> _groupPostImageHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final q = req.uri.queryParameters;
+    final gidHex = q['group'], path = q['path'];
+    if (gidHex == null || path == null) {
+      return _json(req, {'ok': false, 'error': 'need group+path'});
+    }
+    Uint8List bytes;
+    try {
+      bytes = await File(path).readAsBytes();
+    } catch (_) {
+      return _json(req, {'ok': false, 'error': 'unreadable path'});
+    }
+    final img = await makeInlineImageB64(bytes);
+    if (img == null) {
+      return _json(req, {'ok': false, 'error': 'not-image-or-too-large'});
+    }
+    final gid = NodeId.fromHex(gidHex);
+    final posted = await svc.postMessage(
+      gid,
+      q['body'] ?? '',
+      attachment: GroupAttachment(
+          kind: 'image', dataB64: img.b64, w: img.w, h: img.h),
+    );
+    return _json(req, {
+      'ok': posted,
+      'w': img.w,
+      'h': img.h,
+      'b64len': img.b64.length,
+    });
+  }
+
   /// Add ?peer= as a member of ?group= and fan the snapshot out to all members
   /// — the real 2-device group path (the peer materializes the group).
   Future<void> _groupInviteHook(HttpRequest req) async {
@@ -622,6 +664,11 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'epoch': st.epoch,
       'policyVersion': st.policyVersion,
       'bodies': [for (final m in msgs) m.body],
+      'images': [
+        for (final m in msgs)
+          if (m.attachment != null)
+            {'w': m.attachment!.w, 'h': m.attachment!.h}
+      ],
     });
   }
 
