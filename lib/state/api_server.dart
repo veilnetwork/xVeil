@@ -78,18 +78,23 @@ class ApiHandler {
   final Future<List<Map<String, dynamic>>> Function(String peerHex, int limit)
       messages;
 
-  /// Constant-time token compare (localhost, but no reason to leak length/prefix).
-  bool _authOk(String? header) {
-    if (token.isEmpty) return false;
-    const prefix = 'Bearer ';
-    if (header == null || !header.startsWith(prefix)) return false;
-    final got = header.substring(prefix.length);
-    if (got.length != token.length) return false;
+  /// Constant-time compare of a raw token (localhost, but no reason to leak
+  /// length/prefix). Used directly by the WebSocket path (token in the query,
+  /// since a browser/ws client can't set an Authorization header on upgrade).
+  bool tokenOk(String? raw) {
+    if (token.isEmpty || raw == null || raw.length != token.length) return false;
     var diff = 0;
     for (var i = 0; i < token.length; i++) {
-      diff |= got.codeUnitAt(i) ^ token.codeUnitAt(i);
+      diff |= raw.codeUnitAt(i) ^ token.codeUnitAt(i);
     }
     return diff == 0;
+  }
+
+  /// Bearer-header auth for REST requests.
+  bool _authOk(String? header) {
+    const prefix = 'Bearer ';
+    if (header == null || !header.startsWith(prefix)) return false;
+    return tokenOk(header.substring(prefix.length));
   }
 
   Future<ApiResponse> handle(String method, Uri uri, String? authHeader,
@@ -128,10 +133,13 @@ class ApiHandler {
   }
 }
 
-/// Binds [ApiHandler] to a loopback HTTP socket.
+/// Binds [ApiHandler] to a loopback HTTP socket. [_events] is a broadcast
+/// stream of JSON-able events pushed to every authenticated `/v1/events`
+/// WebSocket subscriber (the bot event feed).
 class ApiServer {
-  ApiServer(this._handler);
+  ApiServer(this._handler, this._events);
   final ApiHandler _handler;
+  final Stream<Map<String, dynamic>> _events;
   HttpServer? _server;
 
   bool get running => _server != null;
@@ -150,6 +158,27 @@ class ApiServer {
   }
 
   Future<void> _onRequest(HttpRequest req) async {
+    // Bot event feed: an authenticated WebSocket streams incoming-message
+    // events. The token rides in the query (?token=) because a WS client can't
+    // set an Authorization header on the upgrade handshake.
+    if (WebSocketTransformer.isUpgradeRequest(req) &&
+        req.uri.path == '/v1/events') {
+      if (!_handler.tokenOk(req.uri.queryParameters['token'])) {
+        req.response.statusCode = 401;
+        await req.response.close();
+        return;
+      }
+      try {
+        final ws = await WebSocketTransformer.upgrade(req);
+        final sub = _events.listen((e) {
+          try {
+            ws.add(jsonEncode(e));
+          } catch (_) {/* client gone mid-encode */}
+        });
+        unawaited(ws.done.whenComplete(sub.cancel));
+      } catch (_) {/* upgrade failed */}
+      return;
+    }
     try {
       final auth = req.headers.value(HttpHeaders.authorizationHeader);
       Map<String, dynamic>? body;
@@ -301,7 +330,17 @@ class ApiServerController extends Notifier<ApiConfig> {
       send: _send,
       messages: _messages,
     );
-    _server = ApiServer(handler);
+    // The bot event feed: incoming-message notices as JSON. `.map` on a
+    // broadcast stream stays broadcast, so many WS clients can each subscribe.
+    final events = ref.read(messagingServiceProvider).incoming.map(
+          (n) => <String, dynamic>{
+            'type': 'message',
+            'from': n.from.hex,
+            'preview': n.preview,
+            'isFile': n.isFile,
+          },
+        );
+    _server = ApiServer(handler, events);
     try {
       await _server!.start(kApiPort);
     } catch (e) {

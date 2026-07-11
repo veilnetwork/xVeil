@@ -106,6 +106,16 @@ void main() {
     expect(res.status, 404);
   });
 
+  test('tokenOk (WS query-token auth) accepts only the exact token', () {
+    final h = make();
+    expect(h.tokenOk('secret-token'), isTrue);
+    expect(h.tokenOk('secret-toke'), isFalse); // shorter
+    expect(h.tokenOk('wrong-token!'), isFalse);
+    expect(h.tokenOk(null), isFalse);
+    expect(h.tokenOk(''), isFalse);
+    expect(make(token: '').tokenOk(''), isFalse, reason: 'empty token rejects');
+  });
+
   test('ApiConfig.copyWith + empty defaults', () {
     expect(ApiConfig.empty.enabled, false);
     expect(ApiConfig.empty.token, '');
