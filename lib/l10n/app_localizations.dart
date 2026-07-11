@@ -1375,6 +1375,42 @@ abstract class AppL10n {
   /// **'How to answer when a contact asks you to prove you wrote a message'**
   String get settingsSignaturePolicyHint;
 
+  /// No description provided for @settingsApiTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Automation API'**
+  String get settingsApiTitle;
+
+  /// No description provided for @settingsApiHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Off. Local REST API for bots/scripts (localhost only)'**
+  String get settingsApiHint;
+
+  /// No description provided for @settingsApiToken.
+  ///
+  /// In en, this message translates to:
+  /// **'API token'**
+  String get settingsApiToken;
+
+  /// No description provided for @settingsApiCopyToken.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy token'**
+  String get settingsApiCopyToken;
+
+  /// No description provided for @settingsApiRegenerate.
+  ///
+  /// In en, this message translates to:
+  /// **'Regenerate token'**
+  String get settingsApiRegenerate;
+
+  /// No description provided for @settingsApiTokenCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'Token copied'**
+  String get settingsApiTokenCopied;
+
   /// No description provided for @settingsCommunication.
   ///
   /// In en, this message translates to:
