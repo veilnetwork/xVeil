@@ -357,6 +357,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/group_sync_now':
           await _groupSyncNowHook(req);
           return;
+        case '/group_compact':
+          await _groupCompactHook(req);
+          return;
         case '/read_state':
           await _readStateHook(req);
           return;
@@ -1405,6 +1408,26 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
     await svc.nudgeGroupSyncAll();
     return _json(req, {'ok': true});
+  }
+
+  /// Compact superseded state rows without touching ordinary chat history.
+  Future<void> _groupCompactHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final gidHex = req.uri.queryParameters['group'];
+    if (gidHex == null) return _json(req, {'ok': false, 'error': 'no group'});
+    final result = await svc.compactStateLogs(NodeId.fromHex(gidHex));
+    if (result == null) {
+      return _json(req, {'ok': false, 'error': 'unknown group'});
+    }
+    return _json(req, {
+      'ok': true,
+      'changed': result.changed,
+      'messages': [result.messagesBefore, result.messagesAfter],
+      'control': [result.controlBefore, result.controlAfter],
+      'reactions': [result.reactionsBefore, result.reactionsAfter],
+    });
   }
 
   /// Redeem a bootstrap-peer invite ?uri= (url-encoded `veil:bootstrap?…`) on

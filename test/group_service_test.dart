@@ -836,6 +836,80 @@ void main() {
         contains('first-and-lost'));
   });
 
+  test('state-log compaction collapses reaction history, preserves fold and '
+      'per-author high-water', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final svc = GroupService(storage, _FakeSigner(owner));
+    final gid = await svc.createGroup('compact-rx');
+    await svc.postMessage(gid, 'target');
+    final ref = (await svc.messagesOf(gid)).single.ref;
+    await svc.react(gid, ref, '🔥');
+    await svc.react(gid, ref, '🎯');
+    await svc.react(gid, ref, '🎯'); // clear
+    await svc.react(gid, ref, '❤️');
+    final beforeFold = await svc.reactionsOf(gid);
+    final beforeVector = (await svc.buildGroupSyncRequest(gid))!['r'] as Map;
+    expect((await svc.load(gid))!.reactions, hasLength(4));
+
+    final compacted = (await svc.compactStateLogs(gid))!;
+    expect(compacted.reactionsBefore, 4);
+    expect(compacted.reactionsAfter, 1);
+    expect(await svc.reactionsOf(gid), beforeFold);
+    expect((await svc.buildGroupSyncRequest(gid))!['r'], beforeVector,
+        reason: 'author head keeps the gap-fill high-water at seq 3');
+
+    final freshStorage = FakeHvContainer().storage();
+    await freshStorage.open(password: 'pw', createIfMissing: true);
+    final fresh = GroupService(freshStorage, _FakeSigner(owner));
+    await fresh.ingestSnapshot(svc.snapshotJson((await svc.load(gid))!));
+    expect(await fresh.reactionsOf(gid), beforeFold,
+        reason: 'a wiped/fresh device reconstructs the same state');
+    expect((await fresh.buildGroupSyncRequest(gid))!['r'], beforeVector);
+
+    await svc.react(gid, ref, '❤️'); // clear after compaction
+    expect((await svc.load(gid))!.reactions.last.seq, 4,
+        reason: 'next seq must not rewind after old rows are removed');
+  });
+
+  test('device-group compaction keeps LWW winners, unknown future events and '
+      'author heads; ordinary chat messages are untouched', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final svc = GroupService(storage, _FakeSigner(owner));
+    await svc.linkDevice(bob);
+    final deviceGid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
+    for (var i = 0; i < 3; i++) {
+      await svc.postDeviceEvent(DeviceSyncEvent(
+        kind: DeviceSyncKind.settingSet,
+        key: 'theme',
+        tsMs: i + 1,
+        payload: {'v': 'theme-$i'},
+      ));
+    }
+    await svc.postMessage(deviceGid, '{"v":2,"k":"futureKind"}');
+    final vectorBefore =
+        (await svc.buildGroupSyncRequest(deviceGid))!['g'] as Map;
+    expect((await svc.load(deviceGid))!.messages, hasLength(4));
+
+    final compacted = (await svc.compactStateLogs(deviceGid))!;
+    expect(compacted.messagesBefore, 4);
+    expect(compacted.messagesAfter, 2,
+        reason: 'theme winner + unknown forward-compatible row');
+    expect((await svc.deviceSyncState())[
+            (DeviceSyncKind.settingSet, 'theme')]!
+        .payload['v'], 'theme-2');
+    expect((await svc.buildGroupSyncRequest(deviceGid))!['g'], vectorBefore);
+
+    final chatGid = await svc.createGroup('history');
+    await svc.postMessage(chatGid, 'one');
+    await svc.postMessage(chatGid, 'two');
+    final chatResult = (await svc.compactStateLogs(chatGid))!;
+    expect(chatResult.messagesBefore, 2);
+    expect(chatResult.messagesAfter, 2,
+        reason: 'ordinary group history is not state and must not compact');
+  });
+
   test('nudgeDeviceSync (brick 4e): ships the FULL device-group snapshot to '
       'every other device — the boot catch-up for deltas lost during a total '
       'outage; no-op on a solo install', () async {

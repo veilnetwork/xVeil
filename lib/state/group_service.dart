@@ -109,6 +109,29 @@ class GroupBundle {
   final List<GroupReaction> reactions;
 }
 
+class GroupLogCompaction {
+  const GroupLogCompaction({
+    required this.messagesBefore,
+    required this.messagesAfter,
+    required this.controlBefore,
+    required this.controlAfter,
+    required this.reactionsBefore,
+    required this.reactionsAfter,
+  });
+
+  final int messagesBefore;
+  final int messagesAfter;
+  final int controlBefore;
+  final int controlAfter;
+  final int reactionsBefore;
+  final int reactionsAfter;
+
+  bool get changed =>
+      messagesBefore != messagesAfter ||
+      controlBefore != controlAfter ||
+      reactionsBefore != reactionsAfter;
+}
+
 /// Ships a group snapshot [bundleJson] durably to [peer] (direct fanout, v1).
 typedef GroupSnapshotSender = Future<void> Function(
     NodeId peer, NodeId groupId, String bundleJson);
@@ -153,6 +176,111 @@ class GroupService {
 
   bool _validReactionFor(NodeId groupId, GroupReaction r) =>
       r.groupId == groupId && _signer.verifyReaction(r);
+
+  List<GroupReaction> _compactReactions(
+      NodeId groupId, List<GroupReaction> input) {
+    final latest = <String, GroupReaction>{};
+    final heads = <String, GroupReaction>{};
+    for (final r in input) {
+      if (!_validReactionFor(groupId, r)) continue;
+      final key = '${r.author.hex}|${r.target}';
+      final current = latest[key];
+      if (current == null || isNewerGroupReaction(r, current)) {
+        latest[key] = r;
+      }
+      final head = heads[r.author.hex];
+      if (head == null || r.seq > head.seq) heads[r.author.hex] = r;
+    }
+    final keep = <String>{
+      for (final r in latest.values) '${r.author.hex}:${r.seq}',
+      for (final r in heads.values) '${r.author.hex}:${r.seq}',
+    };
+    return [
+      for (final r in input)
+        if (_validReactionFor(groupId, r) &&
+            keep.contains('${r.author.hex}:${r.seq}'))
+          r,
+    ];
+  }
+
+  List<GroupMessage> _compactDeviceMessages(
+      NodeId groupId, List<GroupMessage> input) {
+    final latest = <(DeviceSyncKind, String),
+        ({DeviceSyncEvent event, GroupMessage message})>{};
+    final heads = <String, GroupMessage>{};
+    final unknown = <String>{};
+    for (final m in input) {
+      if (!_validMessageFor(groupId, m)) continue;
+      final head = heads[m.author.hex];
+      if (head == null || m.seq > head.seq) heads[m.author.hex] = m;
+      final event = DeviceSyncEvent.fromBody(m.body);
+      if (event == null) {
+        // Forward-compatible: an older build must not erase a newer event kind.
+        unknown.add(m.ref);
+        continue;
+      }
+      final key = (event.kind, event.key);
+      final current = latest[key];
+      if (current == null ||
+          isNewerDeviceSync(event, current.event) ||
+          (!isNewerDeviceSync(current.event, event) &&
+              _messageIdentityCompare(m, current.message) > 0)) {
+        latest[key] = (event: event, message: m);
+      }
+    }
+    final keep = <String>{
+      ...unknown,
+      for (final v in latest.values) v.message.ref,
+      for (final m in heads.values) m.ref,
+    };
+    return [
+      for (final m in input)
+        if (_validMessageFor(groupId, m) && keep.contains(m.ref)) m,
+    ];
+  }
+
+  int _messageIdentityCompare(GroupMessage a, GroupMessage b) {
+    final author = a.author.hex.compareTo(b.author.hex);
+    return author != 0 ? author : a.seq.compareTo(b.seq);
+  }
+
+  /// Compact only logs whose old entries are superseded state. Ordinary group
+  /// messages are chat history and are never removed. Reaction winners and
+  /// device-sync LWW winners are retained together with each author's max-seq
+  /// row, preserving the current fold, next-seq allocation, and gap-fill
+  /// high-water. Invalid/cross-group rows are scrubbed as part of the rewrite.
+  Future<GroupLogCompaction?> compactStateLogs(NodeId groupId) async {
+    final b = await load(groupId);
+    if (b == null) return null;
+    final control = [
+      for (final e in b.control)
+        if (_validControlFor(groupId, e)) e,
+    ];
+    final messages = b.manifest.name == kDeviceGroupName
+        ? _compactDeviceMessages(groupId, b.messages)
+        : [
+            for (final m in b.messages)
+              if (_validMessageFor(groupId, m)) m,
+          ];
+    final reactions = _compactReactions(groupId, b.reactions);
+    final result = GroupLogCompaction(
+      messagesBefore: b.messages.length,
+      messagesAfter: messages.length,
+      controlBefore: b.control.length,
+      controlAfter: control.length,
+      reactionsBefore: b.reactions.length,
+      reactionsAfter: reactions.length,
+    );
+    if (result.changed) {
+      await _save(GroupBundle(
+        manifest: b.manifest,
+        control: control,
+        messages: messages,
+        reactions: reactions,
+      ));
+    }
+    return result;
+  }
 
   Future<List<String>> _index() async {
     final raw = await _storage.getSetting('groups.index');
@@ -646,6 +774,7 @@ class GroupService {
       } catch (_) {
         continue;
       }
+      await compactStateLogs(gid);
       final req = await buildGroupSyncRequest(gid);
       final st = await stateOf(gid);
       if (req == null || st == null) continue;
