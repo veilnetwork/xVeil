@@ -275,10 +275,16 @@ class AppController extends Notifier<AppState> {
         // password re-prompt (held in memory like the child keys above).
         _masterKeys = await storage.exportSpaceKeys();
         await storage.close(); // release the single-space lock first
-        // Opt-in "all identities online": host every space + run every node at
-        // once (needs the real container path). Else the one-active picker.
+        // "All identities online" (the NORM since 2026-07-11): host every
+        // space + run every node at once (needs the real container path).
+        // Else the one-active picker. AWAIT the persisted value — the lazily
+        // created provider's sync state can still be the default while the
+        // prefs load is in flight, which must not override an explicit
+        // one-active opt-out.
         final boot = ref.read(deniableBootProvider);
-        if (ref.read(keepAllOnlineProvider) && boot?.storePath != null) {
+        final allOnline =
+            await ref.read(keepAllOnlineProvider.notifier).resolved();
+        if (allOnline && boot?.storePath != null) {
           try {
             await _enterAllOnline(roster, boot!);
             return;

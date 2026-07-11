@@ -2470,7 +2470,7 @@ abstract class AppL10n {
   /// No description provided for @settingsKeepAllOnlineHint.
   ///
   /// In en, this message translates to:
-  /// **'Run every identity\'s node at once so none goes offline when you switch. Less anonymous — an observer may link your identities by their shared device. Mark sensitive identities to route anonymously.'**
+  /// **'Run every identity\'s node at once so switching is instant and none goes offline (the default). Turn off for strict unlinkability — an observer may link always-on identities by their shared device. Mark sensitive identities to route anonymously.'**
   String get settingsKeepAllOnlineHint;
 
   /// No description provided for @settingsPhraseStatusTitle.
