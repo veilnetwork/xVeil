@@ -468,6 +468,17 @@ class MessagingService {
   /// unauthorized or unset).
   void Function(NodeId peer, String requestJson)? onGroupContentRequest;
 
+  /// Attached by the group layer: a group snapshot from a NON-contact sender
+  /// (scale-free log sync — members need no pairwise contact handshake). The
+  /// group layer admits it ONLY into groups it already holds where the sender
+  /// is a current member; new-group materialization (an invite) stays
+  /// contact-gated. Dropped when unset.
+  void Function(NodeId peer, String bundleJson)? onGroupEntryFromStranger;
+
+  /// Asks the group layer whether NON-contact [peer] may sync the group —
+  /// the chunk-path admission, checked BEFORE reassembly RAM is spent.
+  Future<bool> Function(NodeId peer, String gidHex)? allowStrangerGroupSync;
+
   /// Ship a signed group content-fetch request to [dst] (the content holder)
   /// durably. Keyed by content so a re-mint of the same request dedups; a
   /// frame that outlives the 10-minute authorization window is simply refused
@@ -603,7 +614,26 @@ class MessagingService {
   /// every chunk of a transferId is present, hand the joined bundle to
   /// [onGroupEntry] exactly like a whole [WireKind.groupEntry]. In-RAM +
   /// bounded; a lost partial re-heals on the sender's next full re-broadcast.
-  void _ingestGroupChunk(NodeId src, String body) {
+  /// A NON-contact's chunk: admit only when the group layer confirms the
+  /// sender is a member of the group named in the transferId
+  /// (`grp:<gidHex>:<hash>`) — checked before buying reassembly RAM.
+  Future<void> _ingestStrangerGroupChunk(NodeId src, String body) async {
+    final GroupEntryChunkFrame f;
+    try {
+      f = parseGroupEntryChunk(body);
+    } catch (_) {
+      return; // malformed / hostile chunk
+    }
+    final parts = f.transferId.split(':');
+    if (parts.length < 3 || parts[0] != 'grp') return;
+    final gidHex = parts[1];
+    if (!(await allowStrangerGroupSync?.call(src, gidHex) ?? false)) {
+      return; // silent drop — no membership oracle
+    }
+    _ingestGroupChunk(src, body, fromStranger: true);
+  }
+
+  void _ingestGroupChunk(NodeId src, String body, {bool fromStranger = false}) {
     final GroupEntryChunkFrame f;
     try {
       f = parseGroupEntryChunk(body);
@@ -640,7 +670,15 @@ class MessagingService {
       joined.add(part);
     }
     try {
-      onGroupEntry?.call(src, utf8.decode(joined.toBytes()));
+      final bundle = utf8.decode(joined.toBytes());
+      // The stranger path re-validates membership at ingest too (the guarded
+      // service half) — this routing just keeps the two admission stories
+      // separate end to end.
+      if (fromStranger) {
+        onGroupEntryFromStranger?.call(src, bundle);
+      } else {
+        onGroupEntry?.call(src, bundle);
+      }
     } catch (_) {/* undecodable joined bundle */}
   }
 
@@ -2135,20 +2173,27 @@ class MessagingService {
         _signal();
         return;
       case WireKind.groupEntry:
-        // A group snapshot from a member (groups epic). Consent-gated; the
-        // durable frame was already acked+deduped above. The group layer
-        // ingests it idempotently (validity is decided on fold/read).
-        if (existing?.status != ContactStatus.accepted) return;
-        onGroupEntry?.call(m.src, env.body);
+        // A group snapshot from a member (groups epic); the durable frame was
+        // already acked+deduped above. From an accepted contact it ingests as
+        // always; from a NON-contact it goes through the guarded stranger
+        // path (existing group + sender is a member — scale-free log sync).
+        if (existing?.status == ContactStatus.accepted) {
+          onGroupEntry?.call(m.src, env.body);
+        } else {
+          onGroupEntryFromStranger?.call(m.src, env.body);
+        }
         return;
       case WireKind.groupEntryChunk:
-        // One slice of an oversized snapshot (an inline group image). Consent-
-        // gated + already acked/deduped above. Reassemble by transferId; once
-        // every chunk is present, ingest the joined bundle exactly like a whole
-        // groupEntry. Idempotent: a re-driven chunk that survives the dedup gate
-        // just overwrites its slot.
-        if (existing?.status != ContactStatus.accepted) return;
-        _ingestGroupChunk(m.src, env.body);
+        // One slice of an oversized snapshot (inline group media). Already
+        // acked/deduped above. Reassemble by transferId; once every chunk is
+        // present, ingest the joined bundle exactly like a whole groupEntry.
+        // A NON-contact's chunk must pass the membership admission BEFORE any
+        // reassembly RAM is spent on it.
+        if (existing?.status == ContactStatus.accepted) {
+          _ingestGroupChunk(m.src, env.body);
+        } else {
+          await _ingestStrangerGroupChunk(m.src, env.body);
+        }
         return;
       case WireKind.groupContentRequest:
         // A signed membership-authorized fetch request (groups content path).

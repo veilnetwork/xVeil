@@ -136,6 +136,49 @@ void main() {
     expect(calls, 1, reason: 'seenFrames dedups the re-driven chunk');
   });
 
+  test('NON-contact sender: stranger routing + chunk admission (brick 5)',
+      () async {
+    final stranger = _id(9); // no contact record on B
+    var acceptedCalls = 0, strangerCalls = 0;
+    String? viaStranger;
+    mB.onGroupEntry = (_, __) => acceptedCalls++;
+    mB.onGroupEntryFromStranger = (peer, json) {
+      viaStranger = json;
+      strangerCalls++;
+    };
+    // The group layer's admission: this stranger may sync ONLY group aa11.
+    mB.allowStrangerGroupSync = (peer, gidHex) async =>
+        peer == stranger && gidHex == 'aa11';
+
+    // A whole groupEntry from a stranger routes to the STRANGER callback
+    // (the guarded service half judges it), never the accepted one.
+    tB.inject(
+        stranger,
+        const WireEnvelope.groupEntry('{"m":{"gid":"aa11"}}')
+            .withFrameId('grp:aa11:9')
+            .encode());
+    await _settle();
+    expect(strangerCalls, 1);
+    expect(acceptedCalls, 0);
+
+    // Chunks for the ADMITTED group reassemble and fire the stranger path.
+    for (final fr in _chunkFrames(bundle, 'grp:aa11:7')) {
+      tB.inject(stranger, fr);
+      await _settle();
+    }
+    expect(strangerCalls, 2);
+    expect(viaStranger, bundle);
+
+    // Chunks for a group the admission REFUSES never reassemble (no RAM
+    // spent, nothing fires) — silent drop.
+    for (final fr in _chunkFrames(bundle, 'grp:bb22:7')) {
+      tB.inject(stranger, fr);
+      await _settle();
+    }
+    expect(strangerCalls, 2);
+    expect(acceptedCalls, 0);
+  });
+
   test('out-of-order chunks still reassemble byte-exact', () async {
     String? gotJson;
     mB.onGroupEntry = (_, json) => gotJson = json;

@@ -591,6 +591,44 @@ class GroupService {
     return true;
   }
 
+  /// Whether NON-contact [peer] may sync group [gidHex]: we already hold that
+  /// group AND the peer is a current member per OUR fold. The admission the
+  /// wire layer asks before spending reassembly RAM on a stranger's chunks.
+  Future<bool> allowStrangerGroupSync(NodeId peer, String gidHex) async {
+    if (!(await _index()).contains(gidHex)) return false;
+    final NodeId gid;
+    try {
+      gid = NodeId.fromHex(gidHex);
+    } catch (_) {
+      return false;
+    }
+    final st = await stateOf(gid);
+    return st != null && st.isMember(peer);
+  }
+
+  /// Ingest a snapshot from a NON-contact sender: merge ONLY into a group we
+  /// already hold where [peer] is a current member — the scale-free log sync
+  /// (members need no pairwise contact handshake). Never materializes a NEW
+  /// group: a stranger's group-invite is spam until a consent surface exists,
+  /// so that path stays contact-gated. Unauthorized bundles are dropped with
+  /// nothing sent back (no membership oracle).
+  Future<bool> ingestSnapshotFromStranger(
+      NodeId peer, String bundleJson) async {
+    String? gidHex;
+    try {
+      final d = jsonDecode(bundleJson);
+      final m = d is Map ? d['m'] : null;
+      final gid = m is Map ? m['gid'] : null;
+      if (gid is String && gid.isNotEmpty) gidHex = gid;
+    } catch (_) {/* malformed → drop below */}
+    if (gidHex == null) return false;
+    if (!await allowStrangerGroupSync(peer, gidHex)) {
+      debugPrint('xVeil[groups]: stranger snapshot DENIED — drop');
+      return false;
+    }
+    return ingestSnapshot(bundleJson);
+  }
+
   /// Fetch [cid] of [groupId] from [holder] (normally the message author):
   /// ship the signed membership request, give the grant a moment to land at
   /// the holder, then start the standard stream pull. For holders that are
@@ -803,9 +841,15 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     await svc.ingestSnapshot(bundleJson);
   };
   // Membership-authorized fetch requests (content path): judged entirely by
-  // the service (signature + fold + referenced + freshness + replay).
+  // the service (signature + fold + referenced + replay).
   messaging.onGroupContentRequest = (peer, requestJson) {
     unawaited(svc.handleContentRequest(requestJson));
   };
+  // Scale-free log sync: a NON-contact member's snapshot merges into groups
+  // we hold (guarded); chunk reassembly asks the same admission up front.
+  messaging.onGroupEntryFromStranger = (peer, bundleJson) {
+    unawaited(svc.ingestSnapshotFromStranger(peer, bundleJson));
+  };
+  messaging.allowStrangerGroupSync = svc.allowStrangerGroupSync;
   return svc;
 });

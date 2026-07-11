@@ -317,6 +317,51 @@ void main() {
     expect(await noPull.fetchGroupContent(gid, 'c0ffee', owner), isFalse);
   });
 
+  test('stranger sync: member delta merges into a held group; others drop',
+      () async {
+    Future<void> drain() async {
+      for (var i = 0; i < 6; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+    }
+
+    final sent = <String>[];
+    final s1 = FakeHvContainer().storage();
+    await s1.open(password: 'pw', createIfMissing: true);
+    final ownerSvc = GroupService(s1, _FakeSigner(owner),
+        send: (p, g, j) async => sent.add(j));
+    final gid = await ownerSvc.createGroup('G');
+    await ownerSvc.addControlOp(gid, ControlOp.addMember,
+        target: bob, role: GroupRole.member);
+    await drain();
+    final full = sent.last; // the join snapshot bob's device materializes from
+
+    final s2 = FakeHvContainer().storage();
+    await s2.open(password: 'pw', createIfMissing: true);
+    final bobSvc = GroupService(s2, _FakeSigner(bob),
+        send: (p, g, j) async => sent.add(j));
+    expect(await bobSvc.ingestSnapshot(full), isTrue);
+    sent.clear();
+    await bobSvc.postMessage(gid, 'from-bob');
+    await drain();
+    final delta = sent.last;
+
+    // Bob needs NO contact relationship: he is a member per the owner's fold.
+    expect(await ownerSvc.allowStrangerGroupSync(bob, gid.hex), isTrue);
+    expect(await ownerSvc.ingestSnapshotFromStranger(bob, delta), isTrue);
+    expect((await ownerSvc.messagesOf(gid)).map((m) => m.body),
+        contains('from-bob'));
+
+    // A non-member stranger is refused even with a well-formed bundle…
+    expect(await ownerSvc.ingestSnapshotFromStranger(_id(7), delta), isFalse);
+    // …and a group we don't hold NEVER materializes from a stranger.
+    expect(await ownerSvc.allowStrangerGroupSync(bob, 'ff' * 32), isFalse);
+    expect(
+        await ownerSvc.ingestSnapshotFromStranger(
+            bob, '{"m":{"gid":"${'ff' * 32}"}}'),
+        isFalse);
+  });
+
   // Auto-broadcast is unawaited (fire-and-forget) — let it drain.
   Future<void> pump() async {
     for (var i = 0; i < 6; i++) {
