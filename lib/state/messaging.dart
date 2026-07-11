@@ -468,6 +468,41 @@ class MessagingService {
   /// unauthorized or unset).
   void Function(NodeId peer, String requestJson)? onGroupContentRequest;
 
+  /// Attached by the multi-device bridge: fires after a 1:1 message is stored
+  /// (BOTH directions), so the device-sync layer can mirror it to my other
+  /// devices. Fires for the row we just wrote; NEVER fires from
+  /// [applyMirroredMessage] (which writes straight to storage), so a mirrored
+  /// message can't re-mirror. Null = no mirroring.
+  void Function(NodeId peer, Message stored)? onMessageStored;
+
+  /// Apply a message mirrored from ANOTHER of my devices into the [peer]
+  /// conversation. Idempotent + deniability-safe: skips an id we already hold
+  /// (native delivery or an earlier mirror) AND one we deleted on THIS device
+  /// (a mirror must never resurrect it). Writes straight to storage, so it
+  /// does not re-fire [onMessageStored]. Returns whether it wrote a new row.
+  Future<bool> applyMirroredMessage({
+    required NodeId peer,
+    required String msgId,
+    required MessageDirection direction,
+    required String body,
+    required int tsMs,
+  }) async {
+    if (await _hasMessage(peer, msgId)) return false;
+    if (await _storage.isMessageDeleted(peer.hex, msgId)) return false;
+    await _storage.appendMessage(Message(
+      id: msgId,
+      conversationId: peer.hex,
+      direction: direction,
+      body: body,
+      timestamp: DateTime.fromMillisecondsSinceEpoch(tsMs),
+      status: direction == MessageDirection.outgoing
+          ? MessageStatus.sent
+          : MessageStatus.delivered,
+    ));
+    _signal();
+    return true;
+  }
+
   /// Attached by the group layer: a group snapshot from a NON-contact sender
   /// (scale-free log sync — members need no pairwise contact handshake). The
   /// group layer admits it ONLY into groups it already holds where the sender
@@ -1178,7 +1213,7 @@ class MessagingService {
     String? forwardedFrom,
   }) async {
     final msgId = id ?? _uuid.v4();
-    return _storage.appendMessage(
+    final stored = await _storage.appendMessage(
       Message(
         id: msgId,
         conversationId: peer.hex,
@@ -1206,6 +1241,12 @@ class MessagingService {
         seq: seq,
       ),
     );
+    // Multi-device mirror tap: after the single write path persists a 1:1 row,
+    // let the device-sync bridge mirror it to my other devices. [_store] is the
+    // one messaging write path; applyMirroredMessage bypasses it, so a mirrored
+    // row never re-mirrors.
+    onMessageStored?.call(peer, stored);
+    return stored;
   }
 
   /// The sender's send time off the wire as a DateTime, or null (older sender

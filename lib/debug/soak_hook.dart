@@ -303,6 +303,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/device_events':
           await _deviceEventsHook(req);
           return;
+        case '/conv_messages':
+          await _convMessagesHook(req);
+          return;
         case '/group_play_voice':
           await _groupPlayVoiceHook(req);
           return;
@@ -1125,6 +1128,24 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
             'payload': e.value.payload,
           },
       },
+    });
+  }
+
+  /// The stored 1:1 messages of conversation ?peer= (bodies + direction) —
+  /// verifies the multi-device mirror landed a message this device never
+  /// received natively.
+  Future<void> _convMessagesHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final peer = req.uri.queryParameters['peer'];
+    if (peer == null) return _json(req, {'ok': false, 'error': 'no peer'});
+    final msgs = await ref.read(storageProvider).loadMessages(peer);
+    return _json(req, {
+      'ok': true,
+      'count': msgs.length,
+      'messages': [
+        for (final m in msgs)
+          {'id': m.id, 'dir': m.direction.name, 'body': m.body},
+      ],
     });
   }
 
