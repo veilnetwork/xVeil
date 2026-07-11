@@ -274,6 +274,9 @@ class AppL10nRu extends AppL10n {
   }
 
   @override
+  String get groupReply => 'Ответить';
+
+  @override
   String get groupAddMember => 'Добавить';
 
   @override

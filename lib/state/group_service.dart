@@ -24,6 +24,7 @@ import '../core/ids.dart';
 import '../domain/group.dart';
 import '../domain/group_message.dart';
 import '../domain/group_policy.dart';
+import '../domain/group_reaction.dart';
 import '../data/node/embedded_node.dart';
 import '../data/storage/storage.dart';
 import 'app_controller.dart';
@@ -39,8 +40,10 @@ abstract class GroupSigner {
 
   ControlEntry signControl(ControlEntry unsigned);
   GroupMessage signMessage(GroupMessage unsigned);
+  GroupReaction signReaction(GroupReaction unsigned);
   bool verifyControl(ControlEntry e);
   bool verifyMessage(GroupMessage m);
+  bool verifyReaction(GroupReaction r);
 }
 
 /// Real signer: native ed25519 over the deniable identity TOML.
@@ -70,17 +73,28 @@ class NativeGroupSigner implements GroupSigner {
   GroupMessage signMessage(GroupMessage unsigned) =>
       signGroupMessage(identityToml: identityToml, unsigned: unsigned, lib: lib);
   @override
+  GroupReaction signReaction(GroupReaction unsigned) =>
+      signGroupReaction(identityToml: identityToml, unsigned: unsigned, lib: lib);
+  @override
   bool verifyControl(ControlEntry e) => verifyControlEntry(e, lib: lib);
   @override
   bool verifyMessage(GroupMessage m) => verifyGroupMessage(m, lib: lib);
+  @override
+  bool verifyReaction(GroupReaction r) => verifyGroupReaction(r, lib: lib);
 }
 
 /// One group's stored data.
 class GroupBundle {
-  GroupBundle({required this.manifest, required this.control, required this.messages});
+  GroupBundle({
+    required this.manifest,
+    required this.control,
+    required this.messages,
+    this.reactions = const [],
+  });
   final GroupManifest manifest;
   final List<ControlEntry> control;
   final List<GroupMessage> messages;
+  final List<GroupReaction> reactions;
 }
 
 /// Ships a group snapshot [bundleJson] durably to [peer] (direct fanout, v1).
@@ -144,8 +158,15 @@ class GroupService {
           .map(GroupMessage.fromJson)
           .whereType<GroupMessage>()
           .toList();
+      final reactions = (d['r'] as List? ?? const [])
+          .map(GroupReaction.fromJson)
+          .whereType<GroupReaction>()
+          .toList();
       return GroupBundle(
-          manifest: manifest, control: control, messages: messages);
+          manifest: manifest,
+          control: control,
+          messages: messages,
+          reactions: reactions);
     } catch (_) {
       return null;
     }
@@ -159,6 +180,7 @@ class GroupService {
       'm': b.manifest.toJson(),
       'c': b.control.map((e) => e.toJson()).toList(),
       'g': b.messages.map((m) => m.toJson()).toList(),
+      'r': b.reactions.map((x) => x.toJson()).toList(),
     });
     await _storage.storeFile(
       _key(b.manifest.groupId),
@@ -272,7 +294,10 @@ class GroupService {
       return false;
     }
     await _save(GroupBundle(
-        manifest: b.manifest, control: candidate, messages: b.messages));
+        manifest: b.manifest,
+        control: candidate,
+        messages: b.messages,
+        reactions: b.reactions));
     // Adding a member: that peer needs the WHOLE history → full snapshot to all
     // (idempotent for existing members). Every other op ships as a delta so we
     // don't re-send the group's messages/images on a mute/role/policy change.
@@ -323,7 +348,10 @@ class GroupService {
       return false;
     }
     await _save(GroupBundle(
-        manifest: b.manifest, control: candidate, messages: b.messages));
+        manifest: b.manifest,
+        control: candidate,
+        messages: b.messages,
+        reactions: b.reactions));
     // Tell the members who remain (broadcastDelta folds AFTER the leave, so it
     // fans out to them and never to us). They drop us from their roster.
     await broadcastDelta(groupId, control: [signed]);
@@ -362,7 +390,8 @@ class GroupService {
     await _save(GroupBundle(
         manifest: b.manifest,
         control: b.control,
-        messages: [...b.messages, signed]));
+        messages: [...b.messages, signed],
+        reactions: b.reactions));
     // Ship only the NEW message (delta), not the whole log — a post to a group
     // that already holds an image must not re-chunk that image over the wire.
     unawaited(broadcastDelta(groupId, messages: [signed]));
@@ -397,6 +426,58 @@ class GroupService {
     return out;
   }
 
+  /// Toggle our reaction [emoji] on the message [msgRef] ("<authorHex>:<seq>"):
+  /// reacting with the emoji we already have removes it. Rejected (false) if we
+  /// are not a non-muted member. The signed reaction is delta-broadcast.
+  Future<bool> react(NodeId groupId, String msgRef, String emoji) async {
+    final b = await load(groupId);
+    if (b == null) return false;
+    final state = foldControlLog(
+      owner: b.manifest.owner,
+      entries: b.control,
+      verify: _signer.verifyControl,
+    ).state;
+    final me = state.memberOf(_signer.selfId);
+    if (me == null || me.muted) return false;
+    // My current reaction on this message (if any) → tapping it again clears it.
+    final onMsg =
+        foldGroupReactions(b.reactions, _signer.verifyReaction)[msgRef] ??
+            const <String, List<NodeId>>{};
+    String? mine;
+    for (final e in onMsg.entries) {
+      if (e.value.any((n) => n == _signer.selfId)) {
+        mine = e.key;
+        break;
+      }
+    }
+    final next = (mine == emoji) ? '' : emoji;
+    final mySeq = _nextSeq(
+        b.reactions.where((r) => r.author == _signer.selfId).map((r) => r.seq));
+    final signed = _signer.signReaction(GroupReaction(
+      groupId: groupId,
+      author: _signer.selfId,
+      seq: mySeq,
+      target: msgRef,
+      emoji: next,
+      createdAtMs: _now(),
+      signature: Uint8List(0),
+    ));
+    await _save(GroupBundle(
+        manifest: b.manifest,
+        control: b.control,
+        messages: b.messages,
+        reactions: [...b.reactions, signed]));
+    unawaited(broadcastDelta(groupId, reactions: [signed]));
+    return true;
+  }
+
+  /// The folded reactions of [groupId]: `messageRef -> emoji -> reactors`.
+  Future<Map<String, MessageReactions>> reactionsOf(NodeId groupId) async {
+    final b = await load(groupId);
+    if (b == null) return const {};
+    return foldGroupReactions(b.reactions, _signer.verifyReaction);
+  }
+
   /// Ingest an externally-received control entry (from a peer-sync brick, or a
   /// hook). Appends if it isn't already present; the fold decides validity on
   /// read, so a bogus entry simply never applies.
@@ -407,7 +488,8 @@ class GroupService {
     await _save(GroupBundle(
         manifest: b.manifest,
         control: [...b.control, e],
-        messages: b.messages));
+        messages: b.messages,
+        reactions: b.reactions));
   }
 
   /// Serialize a group's full snapshot (manifest + logs) for the wire.
@@ -415,6 +497,7 @@ class GroupService {
         'm': b.manifest.toJson(),
         'c': b.control.map((e) => e.toJson()).toList(),
         'g': b.messages.map((m) => m.toJson()).toList(),
+        'r': b.reactions.map((x) => x.toJson()).toList(),
       });
 
   /// Ingest a received snapshot: materialize the group if new (manifest +
@@ -437,31 +520,38 @@ class GroupService {
         .map(GroupMessage.fromJson)
         .whereType<GroupMessage>()
         .toList();
+    final inReactions = (d['r'] as List? ?? const [])
+        .map(GroupReaction.fromJson)
+        .whereType<GroupReaction>()
+        .toList();
 
     final existing = await load(manifest.groupId);
     final control = [...(existing?.control ?? const <ControlEntry>[])];
     final messages = [...(existing?.messages ?? const <GroupMessage>[])];
-    bool has(List l, Object e) {
-      if (e is ControlEntry) {
-        return control.any((x) => x.author == e.author && x.seq == e.seq);
-      }
-      if (e is GroupMessage) {
-        return messages.any((x) => x.author == e.author && x.seq == e.seq);
-      }
-      return false;
-    }
-
+    final reactions = [...(existing?.reactions ?? const <GroupReaction>[])];
     for (final e in inControl) {
-      if (!has(control, e)) control.add(e);
+      if (!control.any((x) => x.author == e.author && x.seq == e.seq)) {
+        control.add(e);
+      }
     }
     for (final m in inMsgs) {
-      if (!has(messages, m)) messages.add(m);
+      if (!messages.any((x) => x.author == m.author && x.seq == m.seq)) {
+        messages.add(m);
+      }
+    }
+    for (final r in inReactions) {
+      if (!reactions.any((x) => x.author == r.author && x.seq == r.seq)) {
+        reactions.add(r);
+      }
     }
     // Keep the manifest we already had (the authoritative genesis); only adopt
     // the incoming one when the group is new to us.
     final man = existing?.manifest ?? manifest;
-    await _save(
-        GroupBundle(manifest: man, control: control, messages: messages));
+    await _save(GroupBundle(
+        manifest: man,
+        control: control,
+        messages: messages,
+        reactions: reactions));
     if (existing == null) {
       final idx = await _index();
       if (!idx.contains(man.groupId.hex)) {
@@ -507,6 +597,7 @@ class GroupService {
     NodeId groupId, {
     List<ControlEntry> control = const [],
     List<GroupMessage> messages = const [],
+    List<GroupReaction> reactions = const [],
   }) async {
     final send = _send;
     final b = await load(groupId);
@@ -520,6 +611,7 @@ class GroupService {
       'm': b.manifest.toJson(),
       'c': control.map((e) => e.toJson()).toList(),
       'g': messages.map((m) => m.toJson()).toList(),
+      'r': reactions.map((x) => x.toJson()).toList(),
     });
     var n = 0;
     for (final m in state.members.values) {

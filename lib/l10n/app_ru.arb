@@ -89,6 +89,7 @@
   "groupMembersTooltip": "Участники",
   "groupMembers": "{count, plural, =1{1 участник} few{{count} участника} other{{count} участников}}",
   "@groupMembers": { "placeholders": { "count": { "type": "int" } } },
+  "groupReply": "Ответить",
   "groupAddMember": "Добавить",
   "groupMute": "Заглушить",
   "groupUnmute": "Разглушить",
