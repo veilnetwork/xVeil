@@ -46,6 +46,37 @@ void main() {
     }
   });
 
+  test('a read-only token allows reads but refuses every write with 403',
+      () async {
+    final h = ApiHandler(
+      token: 'secret-token',
+      readOnly: true,
+      status: () => {'ok': true},
+      contacts: () async => const [],
+      send: (to, body) async => null,
+      messages: (peer, limit) async => const [],
+      sendFile: (to, path, name) async => null,
+      loadFile: (fileId) async => null,
+      placeCall: (to, media) async => null,
+      callState: () => null,
+      callAction: (action) async {},
+    );
+    // Reads still work.
+    expect((await h.handle('GET', u('/v1/health'), 'Bearer secret-token')).status,
+        200);
+    // Every write is 403 (not 200, not 401 — the token is valid but scoped).
+    for (final w in <(String, Map<String, dynamic>)>[
+      ('/v1/messages', {'to': 'p', 'body': 'x'}),
+      ('/v1/files', {'to': 'p', 'path': '/x'}),
+      ('/v1/calls', {'to': 'p'}),
+      ('/v1/calls/hangup', {}),
+    ]) {
+      final res =
+          await h.handle('POST', u(w.$1), 'Bearer secret-token', body: w.$2);
+      expect(res.status, 403, reason: '${w.$1} must be read-only-refused');
+    }
+  });
+
   test('an empty token rejects everything (API not provisioned)', () async {
     final h = make(token: '');
     expect((await h.handle('GET', u('/v1/health'), 'Bearer ')).status, 401);

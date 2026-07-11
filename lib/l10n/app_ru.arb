@@ -229,6 +229,8 @@
   "settingsSignaturePolicyHint": "Как отвечать, когда контакт просит подтвердить, что вы написали сообщение",
   "settingsApiTitle": "API автоматизации",
   "settingsApiHint": "Выкл. Локальный REST API для ботов/скриптов (только localhost)",
+  "settingsApiReadOnly": "Только чтение",
+  "settingsApiReadOnlyHint": "Только чтение и события — запись (отправка, звонки) запрещена",
   "settingsApiToken": "Токен API",
   "settingsApiCopyToken": "Копировать токен",
   "settingsApiRegenerate": "Сменить токен",

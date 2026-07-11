@@ -706,6 +706,13 @@ class AppL10nRu extends AppL10n {
       'Выкл. Локальный REST API для ботов/скриптов (только localhost)';
 
   @override
+  String get settingsApiReadOnly => 'Только чтение';
+
+  @override
+  String get settingsApiReadOnlyHint =>
+      'Только чтение и события — запись (отправка, звонки) запрещена';
+
+  @override
   String get settingsApiToken => 'Токен API';
 
   @override

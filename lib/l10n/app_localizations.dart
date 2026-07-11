@@ -1387,6 +1387,18 @@ abstract class AppL10n {
   /// **'Off. Local REST API for bots/scripts (localhost only)'**
   String get settingsApiHint;
 
+  /// No description provided for @settingsApiReadOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Read-only'**
+  String get settingsApiReadOnly;
+
+  /// No description provided for @settingsApiReadOnlyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Reads and events only — writes (send, calls) are refused'**
+  String get settingsApiReadOnlyHint;
+
   /// No description provided for @settingsApiToken.
   ///
   /// In en, this message translates to:

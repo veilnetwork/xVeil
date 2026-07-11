@@ -701,6 +701,13 @@ class AppL10nEn extends AppL10n {
       'Off. Local REST API for bots/scripts (localhost only)';
 
   @override
+  String get settingsApiReadOnly => 'Read-only';
+
+  @override
+  String get settingsApiReadOnlyHint =>
+      'Reads and events only — writes (send, calls) are refused';
+
+  @override
   String get settingsApiToken => 'API token';
 
   @override
