@@ -292,6 +292,13 @@ class AppL10nRu extends AppL10n {
   String get groupRemove => 'Убрать из группы';
 
   @override
+  String get groupLeave => 'Выйти из группы';
+
+  @override
+  String get groupLeaveConfirm =>
+      'Вы перестанете получать сообщения этой группы.';
+
+  @override
   String get groupNoContactsToAdd => 'Нет контактов для добавления';
 
   @override

@@ -289,6 +289,29 @@ void main() {
     expect((delta['c'] as List).length, 1, reason: 'just the mute entry');
   });
 
+  test('a member leaves: removed from state + hidden from their list; owner cannot',
+      () async {
+    final (svc, member) = await setup();
+    final gid = await svc.createGroup('G');
+    await svc.addControlOp(gid, ControlOp.addMember,
+        target: bob, role: GroupRole.member);
+    expect((await svc.stateOf(gid))!.isMember(bob), isTrue);
+
+    final bobDev = member(bob);
+    expect(await bobDev.leaveGroup(gid), isTrue);
+    expect((await svc.stateOf(gid))!.isMember(bob), isFalse,
+        reason: 'the leave op removes the author');
+    expect((await bobDev.listGroups()).where((g) => g.groupId == gid), isEmpty,
+        reason: 'a left group is hidden from the leaver');
+    expect(
+        (await svc.listGroups()).where((g) => g.groupId == gid), isNotEmpty,
+        reason: 'the owner still sees it');
+
+    // The owner is the genesis and cannot leave.
+    expect(await svc.leaveGroup(gid), isFalse);
+    expect((await svc.stateOf(gid))!.isMember(owner), isTrue);
+  });
+
   test('replyTo is signed + round-trips; a plain message omits it', () {
     GroupMessage base({String? rt}) => GroupMessage(
           groupId: _id(2),

@@ -290,6 +290,13 @@ class AppL10nEn extends AppL10n {
   String get groupRemove => 'Remove from group';
 
   @override
+  String get groupLeave => 'Leave group';
+
+  @override
+  String get groupLeaveConfirm =>
+      'You will stop receiving this group\'s messages.';
+
+  @override
   String get groupNoContactsToAdd => 'No contacts left to add';
 
   @override

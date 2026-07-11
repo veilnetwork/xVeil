@@ -168,13 +168,23 @@ class GroupService {
     changes.value++;
   }
 
-  /// All groups we hold, newest-created last.
+  /// The groups we are STILL A MEMBER of, newest-created last. A group we left
+  /// (or were never/no-longer a member of, per the folded control-log) is hidden
+  /// without deleting its blob — the stored data lingers deniably and a fresh
+  /// re-add simply folds us back in. (An admin-removal we never received doesn't
+  /// hide the group on our side: we don't learn we were removed — no oracle.)
   Future<List<GroupManifest>> listGroups() async {
     final out = <GroupManifest>[];
     for (final hex in await _index()) {
       try {
         final b = await load(NodeId.fromHex(hex));
-        if (b != null) out.add(b.manifest);
+        if (b == null) continue;
+        final state = foldControlLog(
+          owner: b.manifest.owner,
+          entries: b.control,
+          verify: _signer.verifyControl,
+        ).state;
+        if (state.isMember(_signer.selfId)) out.add(b.manifest);
       } catch (_) {}
     }
     return out;
@@ -271,6 +281,52 @@ class GroupService {
     } else {
       unawaited(broadcastDelta(groupId, control: [signed]));
     }
+    return true;
+  }
+
+  /// Leave [groupId]: append a signed `leave` op (removes only us), tell the
+  /// remaining members, and let [listGroups] hide it (the fold drops us). Idempotent
+  /// if we already aren't a member; false for the owner (who cannot leave, v1).
+  Future<bool> leaveGroup(NodeId groupId) async {
+    final b = await load(groupId);
+    if (b == null) return false;
+    final state = foldControlLog(
+      owner: b.manifest.owner,
+      entries: b.control,
+      verify: _signer.verifyControl,
+    ).state;
+    final me = state.memberOf(_signer.selfId);
+    if (me == null) return true; // already gone
+    if (me.role == GroupRole.owner) return false; // owner can't leave (v1)
+    final mySeq = _nextSeq(
+        b.control.where((e) => e.author == _signer.selfId).map((e) => e.seq));
+    final unsigned = ControlEntry(
+      author: _signer.selfId,
+      seq: mySeq,
+      prevHash: '',
+      op: ControlOp.leave,
+      target: null,
+      role: null,
+      policyVersion: state.policyVersion,
+      createdAtMs: _now(),
+      signature: Uint8List(0),
+    );
+    final signed = _signer.signControl(unsigned);
+    final candidate = [...b.control, signed];
+    final folded = foldControlLog(
+      owner: b.manifest.owner,
+      entries: candidate,
+      verify: _signer.verifyControl,
+    );
+    if (folded.rejected
+        .any((e) => e.author == signed.author && e.seq == signed.seq)) {
+      return false;
+    }
+    await _save(GroupBundle(
+        manifest: b.manifest, control: candidate, messages: b.messages));
+    // Tell the members who remain (broadcastDelta folds AFTER the leave, so it
+    // fans out to them and never to us). They drop us from their roster.
+    await broadcastDelta(groupId, control: [signed]);
     return true;
   }
 
