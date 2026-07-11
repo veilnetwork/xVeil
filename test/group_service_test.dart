@@ -428,4 +428,36 @@ void main() {
     expect(b!.control.length, 1);
     expect((await svc.stateOf(gid))!.isMember(bob), isTrue);
   });
+
+  test('rename: owner renames, name folds + lists; a plain member cannot',
+      () async {
+    // Owner device, capturing what gets broadcast so we can confirm it's a
+    // DELTA (a setName control op ships without re-sending the whole log).
+    final s1 = FakeHvContainer().storage();
+    await s1.open(password: 'pw', createIfMissing: true);
+    String? lastDelta;
+    final owned = GroupService(s1, _FakeSigner(owner),
+        send: (peer, gid, json) async => lastDelta = json);
+    final gid = await owned.createGroup('Old name');
+    await owned.addControlOp(gid, ControlOp.addMember,
+        target: bob, role: GroupRole.member);
+
+    // Owner renames → state folds the new name and the list reflects it.
+    expect(await owned.renameGroup(gid, 'New name'), isTrue);
+    expect((await owned.stateOf(gid))!.name, 'New name');
+    expect((await owned.listGroups()).single.name, 'New name');
+    expect(lastDelta, isNotNull); // a delta, not a full snapshot
+
+    // Bob materializes from the owner's snapshot: he inherits the new name.
+    final s2 = FakeHvContainer().storage();
+    await s2.open(password: 'pw', createIfMissing: true);
+    final bobDev = GroupService(s2, _FakeSigner(bob));
+    await bobDev.ingestSnapshot(owned.snapshotJson((await owned.load(gid))!));
+    expect((await bobDev.stateOf(gid))!.name, 'New name');
+
+    // A plain member cannot rename: the op is rejected, the name is unchanged
+    // on the owner's authoritative view.
+    expect(await bobDev.renameGroup(gid, 'Hijacked'), isFalse);
+    expect((await bobDev.stateOf(gid))!.name, 'New name');
+  });
 }

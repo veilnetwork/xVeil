@@ -195,8 +195,8 @@ class GroupService {
   /// without deleting its blob — the stored data lingers deniably and a fresh
   /// re-add simply folds us back in. (An admin-removal we never received doesn't
   /// hide the group on our side: we don't learn we were removed — no oracle.)
-  Future<List<GroupManifest>> listGroups() async {
-    final out = <GroupManifest>[];
+  Future<List<({NodeId groupId, String name})>> listGroups() async {
+    final out = <({NodeId groupId, String name})>[];
     for (final hex in await _index()) {
       try {
         final b = await load(NodeId.fromHex(hex));
@@ -205,8 +205,11 @@ class GroupService {
           owner: b.manifest.owner,
           entries: b.control,
           verify: _signer.verifyControl,
+          initialName: b.manifest.name,
         ).state;
-        if (state.isMember(_signer.selfId)) out.add(b.manifest);
+        if (state.isMember(_signer.selfId)) {
+          out.add((groupId: b.manifest.groupId, name: state.name));
+        }
       } catch (_) {}
     }
     return out;
@@ -239,6 +242,7 @@ class GroupService {
       owner: b.manifest.owner,
       entries: b.control,
       verify: _signer.verifyControl,
+      initialName: b.manifest.name,
     ).state;
   }
 
@@ -258,6 +262,7 @@ class GroupService {
     ControlOp op, {
     NodeId? target,
     GroupRole? role,
+    String? text,
   }) async {
     final b = await load(groupId);
     if (b == null) return false;
@@ -276,6 +281,7 @@ class GroupService {
       op: op,
       target: target,
       role: role,
+      text: text,
       policyVersion: pv,
       createdAtMs: _now(),
       signature: Uint8List(0),
@@ -308,6 +314,11 @@ class GroupService {
     }
     return true;
   }
+
+  /// Rename [groupId] (admins+). The name folds into every member's view via a
+  /// signed `setName` op (delta-broadcast). Returns false if we lack permission.
+  Future<bool> renameGroup(NodeId groupId, String name) =>
+      addControlOp(groupId, ControlOp.setName, text: name.trim());
 
   /// Leave [groupId]: append a signed `leave` op (removes only us), tell the
   /// remaining members, and let [listGroups] hide it (the fold drops us). Idempotent

@@ -19,7 +19,7 @@ import 'group.dart';
 
 /// The folded group state after replaying a (validated) control-log prefix.
 class GroupState {
-  GroupState._(this.members, this.epoch, this.policyVersion);
+  GroupState._(this.members, this.epoch, this.policyVersion, this.name);
 
   /// nodeId hex -> member.
   final Map<String, GroupMember> members;
@@ -30,17 +30,21 @@ class GroupState {
   /// The current policy version (bumped by setPolicy).
   final int policyVersion;
 
+  /// The current display name (genesis manifest name, updated by setName).
+  final String name;
+
   GroupMember? memberOf(NodeId id) => members[id.hex];
   bool isMember(NodeId id) => members.containsKey(id.hex);
   GroupRole? roleOf(NodeId id) => members[id.hex]?.role;
 
   /// The initial state of a group: the owner (genesis) is the sole member.
-  factory GroupState.genesis(NodeId owner) => GroupState._(
+  factory GroupState.genesis(NodeId owner, [String name = '']) => GroupState._(
         {
           owner.hex: GroupMember(nodeId: owner, role: GroupRole.owner),
         },
         0,
         0,
+        name,
       );
 }
 
@@ -55,6 +59,8 @@ bool canApply({
   switch (op) {
     case ControlOp.setPolicy:
       return authorRole == GroupRole.owner;
+    case ControlOp.setName:
+      return authorRole.rank >= GroupRole.admin.rank;
     case ControlOp.rotateEpoch:
       return authorRole.rank >= GroupRole.admin.rank;
     case ControlOp.addMember:
@@ -104,12 +110,14 @@ GroupFoldResult foldControlLog({
   required NodeId owner,
   required List<ControlEntry> entries,
   required bool Function(ControlEntry entry) verify,
+  String initialName = '',
 }) {
   final members = <String, GroupMember>{
     owner.hex: GroupMember(nodeId: owner, role: GroupRole.owner),
   };
   var epoch = 0;
   var policyVersion = 0;
+  var name = initialName;
   final rejected = <ControlEntry>[];
 
   // Per-author monotonic seq + prev-hash chaining: process each author's
@@ -190,6 +198,8 @@ GroupFoldResult foldControlLog({
         epoch++;
       case ControlOp.setPolicy:
         policyVersion++;
+      case ControlOp.setName:
+        name = e.text ?? name;
       case ControlOp.leave:
         // The author removes themselves; their departure rotates the epoch too.
         members.remove(e.author.hex);
@@ -199,7 +209,7 @@ GroupFoldResult foldControlLog({
   }
 
   return GroupFoldResult(
-    GroupState._(members, epoch, policyVersion),
+    GroupState._(members, epoch, policyVersion, name),
     rejected,
   );
 }

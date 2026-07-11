@@ -261,6 +261,16 @@ class AppL10nEn extends AppL10n {
   String get groupMembersTooltip => 'Members';
 
   @override
+  String get groupRenameTitle => 'Rename group';
+
+  @override
+  String get groupRenameAction => 'Rename';
+
+  @override
+  String get groupRenameDenied =>
+      'You don\'t have permission to rename this group';
+
+  @override
   String groupMembers(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

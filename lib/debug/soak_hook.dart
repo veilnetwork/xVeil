@@ -231,6 +231,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/group_react':
           await _groupReactHook(req);
           return;
+        case '/group_rename':
+          await _groupRenameHook(req);
+          return;
         case '/api_enable':
           await _apiEnableHook(req);
           return;
@@ -711,6 +714,21 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     });
   }
 
+  /// Rename ?group= to ?name= (admins+ only). Reports the folded name back so a
+  /// 2-device test can confirm the setName op propagated and folded on both ends.
+  Future<void> _groupRenameHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final q = req.uri.queryParameters;
+    final gidHex = q['group'];
+    if (gidHex == null) return _json(req, {'ok': false, 'error': 'no group'});
+    final gid = NodeId.fromHex(gidHex);
+    final ok = await svc.renameGroup(gid, q['name'] ?? '');
+    final st = await svc.stateOf(gid);
+    return _json(req, {'ok': ok, 'name': st?.name});
+  }
+
   /// Post a message replying to the LAST message in ?group= (?body=). Reports
   /// the reply ref so a 2-device test can confirm the quote resolves.
   Future<void> _groupPostReplyHook(HttpRequest req) async {
@@ -837,6 +855,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final reacts = await svc.reactionsOf(gid);
     return _json(req, {
       'ok': true,
+      'name': st.name,
       'members': st.members.length,
       'epoch': st.epoch,
       'policyVersion': st.policyVersion,
