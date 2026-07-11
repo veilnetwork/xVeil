@@ -188,6 +188,25 @@ int _clampContentServeBatch(int value) {
 /// onion. (Mailbox-deposited frames share the same ceiling.)
 const _wireChunkBytes = 4000;
 
+/// Group snapshot bytes per [WireKind.groupEntryChunk], and the threshold above
+/// which a snapshot is chunked instead of shipped as one [WireKind.groupEntry].
+///
+/// Smaller than [_wireChunkBytes] because a group chunk is DURABLE: it is stored
+/// in the outbox as `{id,p,w:base64(wire)}` in ONE ~4 KB container chunk, and the
+/// chunk data is ALREADY base64 inside the frame — so the raw bytes pass through
+/// TWO base64 layers (~1.78×) before hitting the outbox's PAYLOAD_CAP≈4040. 1800
+/// raw → ~3.2 KB outbox payload, a safe margin (4000 raw threw PayloadTooLarge on
+/// enqueueOutboxFrame). File chunks avoid this — they are NOT durable-outbox'd.
+const _groupChunkBytes = 1800;
+
+/// Bound the in-RAM group-snapshot reassembly so a hostile peer can't grow it
+/// without limit: a single snapshot over this many bytes (matching the stored
+/// file cap) is refused, and no more than this many snapshots reassemble at
+/// once (older partials evicted). A snapshot lost to eviction / restart re-heals
+/// on the sender's next full re-broadcast.
+const _kMaxGroupReasmBytes = kMaxStoredFileBytes;
+const _kMaxGroupReasmConcurrent = 8;
+
 /// Hard ceiling on a file we will buffer in memory and store. Bound by the
 /// at-rest layer: a stored file must be DELETABLE in one atomic commit (≤ 1024
 /// records × 8 KiB), so a larger blob can neither be persisted nor scrubbed on
@@ -452,11 +471,83 @@ class MessagingService {
     // receiver dedup the newer snapshot away. A re-drive of the SAME snapshot
     // still dedups (same hash). (The renegotiate lesson: type-only ids collide.)
     final h = bundleJson.hashCode & 0x7fffffff;
-    await sendDurable(
-      dst,
-      'grp:$groupIdHex:$h',
-      WireEnvelope.groupEntry(bundleJson),
-    );
+    final bytes = Uint8List.fromList(utf8.encode(bundleJson));
+    // Small snapshot (control/text updates): one frame, as before (brick 4).
+    if (bytes.length <= _groupChunkBytes) {
+      await sendDurable(
+        dst,
+        'grp:$groupIdHex:$h',
+        WireEnvelope.groupEntry(bundleJson),
+      );
+      return;
+    }
+    // Oversized (an inline image): a single frame would exceed the auth_deliver
+    // 6144 cap and be silently dropped. Split the UTF-8 bytes into chunks, each
+    // a durable frame keyed per (snapshot, index) so it acks/dedups on its own;
+    // the receiver reassembles by [tid] and ingests the joined bundle.
+    final tid = 'grp:$groupIdHex:$h';
+    final count = (bytes.length + _groupChunkBytes - 1) ~/ _groupChunkBytes;
+    for (var i = 0; i < count; i++) {
+      final start = i * _groupChunkBytes;
+      final end = start + _groupChunkBytes < bytes.length
+          ? start + _groupChunkBytes
+          : bytes.length;
+      await sendDurable(
+        dst,
+        'grpc:$tid:$i',
+        groupEntryChunkEnvelope(
+          transferId: tid,
+          index: i,
+          count: count,
+          data: Uint8List.sublistView(bytes, start, end),
+        ),
+      );
+    }
+  }
+
+  /// Reassemble a chunked group snapshot ([WireKind.groupEntryChunk]); once
+  /// every chunk of a transferId is present, hand the joined bundle to
+  /// [onGroupEntry] exactly like a whole [WireKind.groupEntry]. In-RAM +
+  /// bounded; a lost partial re-heals on the sender's next full re-broadcast.
+  void _ingestGroupChunk(NodeId src, String body) {
+    final GroupEntryChunkFrame f;
+    try {
+      f = parseGroupEntryChunk(body);
+    } catch (_) {
+      return; // malformed / hostile chunk
+    }
+    if (f.count <= 0 || f.index < 0 || f.index >= f.count) return;
+    var slot = _groupReasm[f.transferId];
+    if (slot == null) {
+      // Cap concurrent reassemblies — evict the oldest partial (insertion order).
+      if (_groupReasm.length >= _kMaxGroupReasmConcurrent) {
+        _groupReasm.remove(_groupReasm.keys.first);
+      }
+      slot = (count: f.count, parts: <int, Uint8List>{}, bytes: 0);
+      _groupReasm[f.transferId] = slot;
+    }
+    if (f.count != slot.count) return; // stray chunk from a different snapshot
+    if (slot.parts.containsKey(f.index)) return; // duplicate slice
+    final nextBytes = slot.bytes + f.data.length;
+    if (nextBytes > _kMaxGroupReasmBytes) {
+      _groupReasm.remove(f.transferId); // refuse an oversized snapshot
+      return;
+    }
+    slot.parts[f.index] = f.data;
+    _groupReasm[f.transferId] =
+        (count: slot.count, parts: slot.parts, bytes: nextBytes);
+    if (slot.parts.length < slot.count) return; // still missing chunks
+    // Complete: concatenate in index order, decode, ingest once.
+    _groupReasm.remove(f.transferId);
+    final joined = BytesBuilder(copy: false);
+    for (var i = 0; i < slot.count; i++) {
+      final part = slot.parts[i];
+      if (part == null) return; // gap despite full count — bail defensively
+      joined.add(part);
+    }
+    try {
+      onGroupEntry?.call(src, utf8.decode(joined.toBytes()));
+    } catch (_) {/* undecodable joined bundle */}
   }
 
   /// Single egress point so every outbound frame honours [_anonymous]. The real
@@ -1207,6 +1298,14 @@ class MessagingService {
   final _seenFrames = <String>{};
   static const _seenFramesCap = 4096;
 
+  /// In-RAM reassembly of chunked group snapshots ([WireKind.groupEntryChunk]),
+  /// keyed by transferId → (chunk count, index→bytes, running byte total).
+  /// Bounded by [_kMaxGroupReasmBytes]/[_kMaxGroupReasmConcurrent]. Completed
+  /// or evicted entries are removed; a lost partial re-heals on the sender's
+  /// next full re-broadcast.
+  final _groupReasm =
+      <String, ({int count, Map<int, Uint8List> parts, int bytes})>{};
+
   /// Best-effort ack of a durable frame so the sender retires it from its
   /// outbox. Rides [_ackTo]: a live send PLUS a mailbox deposit (`ack:<fid>`)
   /// — the sender of a durable frame is often exactly the NAT'd peer whose
@@ -1947,6 +2046,15 @@ class MessagingService {
         // ingests it idempotently (validity is decided on fold/read).
         if (existing?.status != ContactStatus.accepted) return;
         onGroupEntry?.call(m.src, env.body);
+        return;
+      case WireKind.groupEntryChunk:
+        // One slice of an oversized snapshot (an inline group image). Consent-
+        // gated + already acked/deduped above. Reassemble by transferId; once
+        // every chunk is present, ingest the joined bundle exactly like a whole
+        // groupEntry. Idempotent: a re-driven chunk that survives the dedup gate
+        // just overwrites its slot.
+        if (existing?.status != ContactStatus.accepted) return;
+        _ingestGroupChunk(m.src, env.body);
         return;
       case WireKind.unknown:
         // A structured (v:2) frame from a NEWER build whose kind we don't know —
