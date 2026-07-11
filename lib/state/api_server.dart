@@ -34,6 +34,7 @@ const int kApiPort = 8787;
 
 const String _kEnabledKey = 'api.enabled';
 const String _kTokenKey = 'api.token';
+const String _kReadOnlyKey = 'api.readonly';
 
 /// The OpenAPI 3.0 contract for the implemented `/v1` surface, so a client can
 /// be generated in any language (`openapi-generator -i .../v1/openapi.json`).
@@ -60,7 +61,8 @@ Map<String, dynamic> openApiSpec() {
               'Every request needs `Authorization: Bearer <token>`. '
               'Realtime: connect a WebSocket to `/v1/events?token=<token>` to '
               'receive incoming-message events '
-              '`{type:"message", from, preview, isFile}`.',
+              '`{type:"message", from, preview, isFile}`. '
+              'A read-only token refuses every write (POST) with 403.',
     },
     'servers': [
       {'url': 'http://127.0.0.1:$kApiPort/v1'},
@@ -293,12 +295,25 @@ Map<String, dynamic> openApiSpec() {
 /// Persisted API state: whether the server runs, and the bearer token clients
 /// must present. The token lives in the deniable store, never in plaintext prefs.
 class ApiConfig {
-  const ApiConfig({required this.enabled, required this.token});
+  const ApiConfig({
+    required this.enabled,
+    required this.token,
+    this.readOnly = false,
+  });
   final bool enabled;
   final String token;
 
-  ApiConfig copyWith({bool? enabled, String? token}) =>
-      ApiConfig(enabled: enabled ?? this.enabled, token: token ?? this.token);
+  /// When true the token is least-privilege: reads (GET, WS events) work but
+  /// every write (POST — send message/file, place/answer/end calls) is refused
+  /// with 403. Lets a monitoring bot observe without being able to act.
+  final bool readOnly;
+
+  ApiConfig copyWith({bool? enabled, String? token, bool? readOnly}) =>
+      ApiConfig(
+        enabled: enabled ?? this.enabled,
+        token: token ?? this.token,
+        readOnly: readOnly ?? this.readOnly,
+      );
 
   static const empty = ApiConfig(enabled: false, token: '');
 }
@@ -322,6 +337,7 @@ class ApiResponse {
 class ApiHandler {
   ApiHandler({
     required this.token,
+    this.readOnly = false,
     required this.status,
     required this.contacts,
     required this.send,
@@ -335,6 +351,9 @@ class ApiHandler {
 
   /// The bearer token every request must present (empty = reject everything).
   final String token;
+
+  /// Least-privilege: refuse every write (POST) with 403 (see [ApiConfig]).
+  final bool readOnly;
 
   /// Node/account status for `GET /v1/health`.
   final Map<String, dynamic> Function() status;
@@ -388,6 +407,10 @@ class ApiHandler {
       {Map<String, dynamic>? body}) async {
     if (!_authOk(authHeader)) {
       return const ApiResponse(401, {'error': 'unauthorized'});
+    }
+    // Read-only token: every write (POST) is refused. Reads fall through.
+    if (readOnly && method == 'POST') {
+      return const ApiResponse(403, {'error': 'read-only token'});
     }
     final path = uri.path;
     if (method == 'GET' && path == '/v1/openapi.json') {
@@ -576,7 +599,8 @@ class ApiServerController extends Notifier<ApiConfig> {
     try {
       final enabled = (await st.getSetting(_kEnabledKey)) == '1';
       final token = (await st.getSetting(_kTokenKey)) ?? '';
-      state = ApiConfig(enabled: enabled, token: token);
+      final readOnly = (await st.getSetting(_kReadOnlyKey)) == '1';
+      state = ApiConfig(enabled: enabled, token: token, readOnly: readOnly);
       if (enabled && token.isNotEmpty) {
         await _reconcile();
       }
@@ -752,6 +776,7 @@ class ApiServerController extends Notifier<ApiConfig> {
     if (!state.enabled || state.token.isEmpty) return;
     final handler = ApiHandler(
       token: state.token,
+      readOnly: state.readOnly,
       status: _status,
       contacts: _contacts,
       send: _send,
@@ -796,6 +821,14 @@ class ApiServerController extends Notifier<ApiConfig> {
     await ref.read(storageProvider).putSetting(_kEnabledKey, '0');
     state = state.copyWith(enabled: false);
     await _reconcile();
+  }
+
+  /// Flip the read-only (least-privilege) mode; re-binds the socket with a
+  /// handler carrying the new posture.
+  Future<void> setReadOnly(bool value) async {
+    await ref.read(storageProvider).putSetting(_kReadOnlyKey, value ? '1' : '0');
+    state = state.copyWith(readOnly: value);
+    if (state.enabled) await _reconcile();
   }
 
   /// Revoke the current token and mint a new one (existing clients break).

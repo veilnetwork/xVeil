@@ -234,6 +234,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/api_token':
           await _apiTokenHook(req);
           return;
+        case '/api_readonly':
+          await _apiReadOnlyHook(req);
+          return;
         case '/group_post_sticker':
           await _groupPostStickerHook(req);
           return;
@@ -623,6 +626,15 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   Future<void> _apiTokenHook(HttpRequest req) async {
     final cfg = ref.read(apiServerControllerProvider);
     return _json(req, {'ok': true, 'token': cfg.token});
+  }
+
+  /// Toggle the API read-only (least-privilege) mode: ?on=1|0.
+  Future<void> _apiReadOnlyHook(HttpRequest req) async {
+    await ref
+        .read(apiServerControllerProvider.notifier)
+        .setReadOnly(req.uri.queryParameters['on'] != '0');
+    return _json(
+        req, {'ok': true, 'readOnly': ref.read(apiServerControllerProvider).readOnly});
   }
 
   /// Leave ?group= — appends a self-leave op + broadcasts. Reports whether we
