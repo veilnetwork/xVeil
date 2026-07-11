@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import 'package:veil_flutter/veil_flutter.dart' as veil;
 
 import '../../core/ids.dart';
+import '../../data/transport/wire_envelope.dart' show isChatDeletedMarker;
 import '../../domain/chat.dart';
 import '../../domain/chat_folder.dart';
 import '../../l10n/app_localizations.dart';
@@ -943,12 +944,15 @@ class _ConversationTile extends ConsumerWidget {
                   ? null
                   : Text(
                       // Voice/video notes are sent under opaque uuid filenames —
-                      // the preview line shows the human kind instead.
+                      // the preview line shows the human kind instead; a
+                      // chatDeleted farewell marker shows its system notice.
                       isVnoteFileName(last.fileName)
                           ? l.chatVnoteTooltip
                           : (isVoiceFileName(last.fileName)
                               ? l.chatVoiceTooltip
-                              : last.body),
+                              : (isChatDeletedMarker(last.body)
+                                  ? l.chatDeletedByPeer
+                                  : last.body)),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     )),

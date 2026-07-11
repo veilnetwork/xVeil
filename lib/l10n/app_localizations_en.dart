@@ -627,6 +627,13 @@ class AppL10nEn extends AppL10n {
       'The conversation and all its messages are erased from this device. The other person is not notified.';
 
   @override
+  String get chatDeleteNotifyPeer => 'Notify the other person';
+
+  @override
+  String get chatDeletedByPeer =>
+      'The other person deleted this chat on their device';
+
+  @override
   String get chatEditTitle => 'Edit message';
 
   @override
