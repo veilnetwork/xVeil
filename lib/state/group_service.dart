@@ -21,6 +21,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/ids.dart';
+import '../domain/chat.dart' show MessageDirection;
 import '../domain/device_sync.dart';
 import '../domain/group.dart';
 import '../domain/group_content.dart';
@@ -772,14 +773,25 @@ class GroupService {
       }
     }
     // Device-group traffic is sync machinery, not chat: it must never buzz
-    // the notification layer or count as chat-unread.
-    if (man.name != kDeviceGroupName) {
+    // the notification layer or count as chat-unread. It routes to a SEPARATE
+    // stream the multi-device bridge consumes (device-sync events).
+    if (man.name == kDeviceGroupName) {
+      for (final m in fresh) {
+        _deviceIncomingCtl.add(m);
+      }
+    } else {
       for (final m in fresh) {
         _incomingCtl.add((groupId: man.groupId, message: m));
       }
     }
     return true;
   }
+
+  /// Fresh (post-dedup, verified, not-self) messages of MY device group — the
+  /// multi-device bridge folds these into DeviceSyncEvents and applies them.
+  final StreamController<GroupMessage> _deviceIncomingCtl =
+      StreamController.broadcast();
+  Stream<GroupMessage> get deviceIncoming => _deviceIncomingCtl.stream;
 
   /// Genuinely-NEW inbound messages (post-dedup, signature-verified, not
   /// self-authored) — the notification/unread layer's feed, symmetric to
@@ -1026,5 +1038,43 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     unawaited(svc.ingestSnapshotFromStranger(peer, bundleJson));
   };
   messaging.allowStrangerGroupSync = svc.allowStrangerGroupSync;
+
+  // ── Multi-device mirror loop (doc/MULTIDEVICE-DESIGN.md, brick 3) ─────────
+  // EMIT: a stored 1:1 message becomes a msgMirror event on my device group.
+  // Skip Saved Messages (peer == self, local-only) and files (lazy per design
+  // — v1 mirrors text bodies). postDeviceEvent is a no-op until a device group
+  // exists, so this is inert on a single-device install.
+  messaging.onMessageStored = (peer, m) {
+    if (peer == svc.selfId || m.fileId != null || m.body.isEmpty) return;
+    unawaited(svc.postDeviceEvent(DeviceSyncEvent(
+      kind: DeviceSyncKind.msgMirror,
+      key: m.id,
+      tsMs: m.timestamp.millisecondsSinceEpoch,
+      payload: {
+        'peer': peer.hex,
+        'dir': m.direction.name,
+        'body': m.body,
+      },
+    )));
+  };
+  // APPLY: a device-group message from another device → fold → write the
+  // mirrored 1:1 row (idempotent + deniability-safe in applyMirroredMessage).
+  svc.deviceIncoming.listen((gm) {
+    final e = DeviceSyncEvent.fromBody(gm.body);
+    if (e == null || e.kind != DeviceSyncKind.msgMirror) return;
+    final peerHex = e.payload['peer'];
+    final body = e.payload['body'];
+    final dir = e.payload['dir'] == 'outgoing'
+        ? MessageDirection.outgoing
+        : MessageDirection.incoming;
+    if (peerHex is! String || body is! String) return;
+    unawaited(messaging.applyMirroredMessage(
+      peer: NodeId.fromHex(peerHex),
+      msgId: e.key,
+      direction: dir,
+      body: body,
+      tsMs: e.tsMs,
+    ));
+  });
   return svc;
 });

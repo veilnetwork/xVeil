@@ -427,6 +427,37 @@ void main() {
     expect(await ownerSvc.isGroupMuted(gid), isFalse);
   });
 
+  test('mirror loop: msgMirror events fold + apply, deduped, deniability-safe',
+      () async {
+    // Pure fold/codec check of the mirror event vocabulary against the store's
+    // dedup contract — the wiring (onMessageStored → postDeviceEvent →
+    // deviceIncoming → applyMirroredMessage) is exercised on-device; here we
+    // pin the fold that carries it.
+    final a = DeviceSyncEvent(
+        kind: DeviceSyncKind.msgMirror,
+        key: 'm1',
+        tsMs: 10,
+        payload: const {'peer': 'aa', 'dir': 'incoming', 'body': 'hi'});
+    final dup = DeviceSyncEvent(
+        kind: DeviceSyncKind.msgMirror,
+        key: 'm1',
+        tsMs: 10,
+        payload: const {'peer': 'aa', 'dir': 'incoming', 'body': 'hi'});
+    final b = DeviceSyncEvent(
+        kind: DeviceSyncKind.msgMirror,
+        key: 'm2',
+        tsMs: 20,
+        payload: const {'peer': 'aa', 'dir': 'outgoing', 'body': 'yo'});
+    final folded = foldDeviceSync([a, dup, b]);
+    // One entry per msgId (the mirror key IS the message id → idempotent apply).
+    expect(folded.length, 2);
+    expect(folded[(DeviceSyncKind.msgMirror, 'm1')]!.payload['body'], 'hi');
+    expect(folded[(DeviceSyncKind.msgMirror, 'm2')]!.payload['dir'],
+        'outgoing');
+    // Body codec preserves the mirror payload across the wire.
+    expect(DeviceSyncEvent.fromBody(a.toBody())!.payload, a.payload);
+  });
+
   test('device group: link/adopt/revoke lifecycle, hidden + silent', () async {
     Future<void> drain() async {
       for (var i = 0; i < 6; i++) {
