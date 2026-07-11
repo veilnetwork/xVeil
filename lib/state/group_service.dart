@@ -221,9 +221,24 @@ class GroupService {
   /// without deleting its blob — the stored data lingers deniably and a fresh
   /// re-add simply folds us back in. (An admin-removal we never received doesn't
   /// hide the group on our side: we don't learn we were removed — no oracle.)
-  Future<List<({NodeId groupId, String name, int unread})>>
-      listGroups() async {
-    final out = <({NodeId groupId, String name, int unread})>[];
+  Future<
+      List<
+          ({
+            NodeId groupId,
+            String name,
+            int unread,
+            bool muted,
+            String preview,
+            int lastTs,
+          })>> listGroups() async {
+    final out = <({
+      NodeId groupId,
+      String name,
+      int unread,
+      bool muted,
+      String preview,
+      int lastTs,
+    })>[];
     for (final hex in await _index()) {
       try {
         final b = await load(NodeId.fromHex(hex));
@@ -234,13 +249,24 @@ class GroupService {
           verify: _signer.verifyControl,
           initialName: b.manifest.name,
         ).state;
-        if (state.isMember(_signer.selfId)) {
-          out.add((
-            groupId: b.manifest.groupId,
-            name: state.name,
-            unread: await unreadOf(b.manifest.groupId),
-          ));
-        }
+        if (!state.isMember(_signer.selfId)) continue;
+        final gid = b.manifest.groupId;
+        // One validated pass powers unread AND the last-message preview.
+        final wm =
+            int.tryParse(await _storage.getSetting('group.seen:$hex') ?? '') ??
+                0;
+        final msgs = await messagesOf(gid);
+        final last = msgs.isEmpty ? null : msgs.last;
+        out.add((
+          groupId: gid,
+          name: state.name,
+          unread: msgs
+              .where((m) => m.createdAtMs > wm && m.author != _signer.selfId)
+              .length,
+          muted: await isGroupMuted(gid),
+          preview: last == null ? '' : previewOf(last),
+          lastTs: last?.createdAtMs ?? 0,
+        ));
       } catch (_) {}
     }
     return out;
@@ -771,6 +797,33 @@ class GroupService {
     return msgs
         .where((m) => m.createdAtMs > wm && m.author != selfId)
         .length;
+  }
+
+  /// Local notification mute for [groupId] — a display preference like the
+  /// unread watermark (never sent anywhere; distinct from the CONTROL-LOG
+  /// member mute, which is about posting rights).
+  Future<void> setGroupMuted(NodeId groupId, bool muted) async {
+    await _storage.putSetting('group.muted:${groupId.hex}', muted ? '1' : '');
+    changes.value++; // the group list re-renders its mute affordance
+  }
+
+  Future<bool> isGroupMuted(NodeId groupId) async =>
+      (await _storage.getSetting('group.muted:${groupId.hex}')) == '1';
+
+  /// One-line preview of a validated message for list tiles / notifications.
+  static String previewOf(GroupMessage m) {
+    if (m.body.isNotEmpty) return m.body;
+    switch (m.attachment?.kind) {
+      case 'image':
+        return '🖼';
+      case 'sticker':
+        return '😊';
+      case 'voice':
+        return '🎤';
+      case 'vnote':
+        return '📹';
+    }
+    return '…';
   }
 
   /// Fan the current FULL snapshot of [groupId] out to every OTHER member

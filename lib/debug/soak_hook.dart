@@ -281,6 +281,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/group_unread':
           await _groupUnreadHook(req);
           return;
+        case '/group_mute':
+          await _groupMuteHook(req);
+          return;
         case '/group_play_voice':
           await _groupPlayVoiceHook(req);
           return;
@@ -1006,6 +1009,19 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   Future<void> _contentGrantsHook(HttpRequest req) async {
     final grants = ref.read(messagingServiceProvider).debugGroupServeGrants();
     return _json(req, {'ok': true, 'grants': grants});
+  }
+
+  /// Toggle the LOCAL notification mute of ?group= (?on=1|0).
+  Future<void> _groupMuteHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final gidHex = req.uri.queryParameters['group'];
+    if (gidHex == null) return _json(req, {'ok': false, 'error': 'no group'});
+    final on = req.uri.queryParameters['on'] == '1';
+    final gid = NodeId.fromHex(gidHex);
+    await svc.setGroupMuted(gid, on);
+    return _json(req, {'ok': true, 'muted': await svc.isGroupMuted(gid)});
   }
 
   /// The unread count of ?group= (the badge's number) — brick verify.

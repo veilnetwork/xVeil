@@ -411,8 +411,19 @@ void main() {
     expect(await ownerSvc.unreadOf(gid), 2);
     final listed = await ownerSvc.listGroups();
     expect(listed.single.unread, 2);
+    // The list carries the last-message preview + its timestamp too.
+    expect(listed.single.preview, 'mine');
+    expect(listed.single.lastTs, greaterThan(0));
     await ownerSvc.markGroupSeen(gid);
     expect(await ownerSvc.unreadOf(gid), 0);
+
+    // The local notification mute persists and rides the list record.
+    expect(listed.single.muted, isFalse);
+    await ownerSvc.setGroupMuted(gid, true);
+    expect(await ownerSvc.isGroupMuted(gid), isTrue);
+    expect((await ownerSvc.listGroups()).single.muted, isTrue);
+    await ownerSvc.setGroupMuted(gid, false);
+    expect(await ownerSvc.isGroupMuted(gid), isFalse);
   });
 
   // Auto-broadcast is unawaited (fire-and-forget) — let it drain.
