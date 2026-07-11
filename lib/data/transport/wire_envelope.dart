@@ -75,6 +75,13 @@ enum WireKind {
   /// [unknown] so an older decoder maps this out-of-range index to [unknown]
   /// and drops it (RULE WC).
   reaction,
+
+  /// A group snapshot/delta (groups epic). Body = JSON of a group bundle
+  /// {m: manifest, c: [control...], g: [message...]} the receiver INGESTS
+  /// (idempotent — dedup by author+seq). Direct fanout in v1: the sender
+  /// ships it durably to each member. Added before [unknown] so an older
+  /// decoder maps this out-of-range index to [unknown] and drops it (RULE WC).
+  groupEntry,
   unknown,
 }
 
@@ -224,6 +231,11 @@ class WireEnvelope {
   /// React to message [targetMsgId] with [emoji] (empty = remove the reaction).
   const WireEnvelope.reaction(String targetMsgId, String emoji)
     : this(WireKind.reaction, emoji, id: targetMsgId);
+
+  /// A group snapshot ([bodyJson] = the bundle {m, c, g}) for the receiver to
+  /// ingest. Delivered durably to each member (direct fanout, v1).
+  const WireEnvelope.groupEntry(String bodyJson)
+    : this(WireKind.groupEntry, bodyJson);
 
   /// The decode-only sentinel for a structured (v:2) frame whose kind this build
   /// does not know — the dispatcher drops it (RULE WC).
