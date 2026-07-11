@@ -24,12 +24,21 @@ class GroupAttachment {
     required this.dataB64,
     required this.w,
     required this.h,
+    this.cid,
   });
 
-  final String kind; // 'image' (only kind in brick 1)
-  final String dataB64; // base64 PNG, self-contained
-  final int w; // encoded pixel dimensions (for aspect-correct layout)
+  final String kind; // 'image' | 'sticker' | 'voice' | …
+  final String dataB64; // base64 payload — or the micro-thumb in ref form
+  final int w; // encoded pixel dimensions (durationMs for 'voice')
   final int h;
+
+  /// Content-path reference (doc/GROUPS-CONTENT-PATH.md): when set, [dataB64]
+  /// carries only a micro-thumb and the full bytes are fetched by this
+  /// contentId over the membership-authorized stream pull. In the signed
+  /// canonical bytes ONLY when present, so pre-content-path messages keep
+  /// signing byte-identically (a ref-carrying message won't verify on builds
+  /// predating the field — they reject rather than mis-render, RULE-WC-style).
+  final String? cid;
 
   /// Canonical, order-stable map — folded into the message the author signs.
   Map<String, dynamic> toCanonical() => {
@@ -37,6 +46,7 @@ class GroupAttachment {
         'd': dataB64,
         'w': w,
         'h': h,
+        if (cid != null) 'cid': cid,
       };
 
   Map<String, dynamic> toJson() => toCanonical();
@@ -46,7 +56,13 @@ class GroupAttachment {
     final k = j['k'], d = j['d'], w = j['w'], h = j['h'];
     if (k is! String || d is! String || w is! int || h is! int) return null;
     if (w <= 0 || h <= 0 || d.isEmpty) return null;
-    return GroupAttachment(kind: k, dataB64: d, w: w, h: h);
+    final cid = j['cid'];
+    return GroupAttachment(
+        kind: k,
+        dataB64: d,
+        w: w,
+        h: h,
+        cid: cid is String && cid.isNotEmpty ? cid : null);
   }
 }
 
