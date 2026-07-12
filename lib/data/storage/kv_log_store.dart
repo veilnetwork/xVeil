@@ -47,6 +47,14 @@ class AppendLogOp extends KvLogOp {
   final Uint8List payload;
 }
 
+/// Remove one logical record from a Log namespace. Unlike appending an empty
+/// payload, this releases the log id from hidden-volume's bounded B+ index.
+class DeleteLogOp extends KvLogOp {
+  const DeleteLogOp(this.namespace, this.logId);
+  final int namespace;
+  final int logId;
+}
+
 class KvLogEntry {
   const KvLogEntry(this.logId, this.payload);
   final int logId;
@@ -104,10 +112,8 @@ abstract interface class KvLogStore {
 /// Opens (or creates) the space for [password]. Returns null when no space
 /// matches — the production opener maps hidden-volume's `AuthFailed` (which
 /// deliberately conflates "wrong password" and "no such space") to null.
-typedef SpaceOpener = KvLogStore? Function({
-  required Uint8List password,
-  required bool create,
-});
+typedef SpaceOpener =
+    KvLogStore? Function({required Uint8List password, required bool create});
 
 /// Opens a space directly from its pre-derived [keys] (64 bytes from
 /// [KvLogStore.exportKeys]) — the master-space path, no password. Returns null

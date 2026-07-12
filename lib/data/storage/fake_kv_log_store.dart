@@ -15,7 +15,7 @@ String _hexKey(Uint8List key) {
 /// for the storage unit tests.
 class FakeKvLogStore implements KvLogStore {
   FakeKvLogStore({Uint8List? keys})
-      : _keys = keys ?? Uint8List.fromList(List.filled(64, 0));
+    : _keys = keys ?? Uint8List.fromList(List.filled(64, 0));
 
   final Map<int, Map<String, Uint8List>> _kv = {};
   final Map<int, List<KvLogEntry>> _log = {};
@@ -47,14 +47,15 @@ class FakeKvLogStore implements KvLogStore {
           } else {
             list.add(KvLogEntry(logId, payload));
           }
+        case DeleteLogOp(:final namespace, :final logId):
+          _log[namespace]?.removeWhere((entry) => entry.logId == logId);
       }
     }
     return ++_seq;
   }
 
   @override
-  Uint8List? get(int namespace, Uint8List key) =>
-      _kv[namespace]?[_hexKey(key)];
+  Uint8List? get(int namespace, Uint8List key) => _kv[namespace]?[_hexKey(key)];
 
   @override
   Uint8List? readLog(int namespace, int logId) {
@@ -71,25 +72,29 @@ class FakeKvLogStore implements KvLogStore {
     int? end,
     required int limit,
   }) {
-    final entries = (_log[namespace] ?? const <KvLogEntry>[])
-        .where((e) =>
-            (start == null || e.logId >= start) &&
-            (end == null || e.logId < end))
-        .toList()
-      ..sort((a, b) => a.logId.compareTo(b.logId));
+    final entries =
+        (_log[namespace] ?? const <KvLogEntry>[])
+            .where(
+              (e) =>
+                  (start == null || e.logId >= start) &&
+                  (end == null || e.logId < end),
+            )
+            .toList()
+          ..sort((a, b) => a.logId.compareTo(b.logId));
     return entries.take(limit).toList();
   }
 
   @override
-  int count(int namespace) => _kv[namespace]?.length ?? 0;
+  int count(int namespace) =>
+      (_kv[namespace]?.length ?? 0) + (_log[namespace]?.length ?? 0);
 
   @override
   List<Uint8List> kvKeys(int namespace) {
     // Internal map keys are hex-encoded ([_hexKey]); decode back to bytes.
     // Hex order == byte order, so sorting the hex strings is byte-wise sort.
-    final hexKeys = (_kv[namespace]?.keys ?? const Iterable<String>.empty())
-        .toList()
-      ..sort();
+    final hexKeys =
+        (_kv[namespace]?.keys ?? const Iterable<String>.empty()).toList()
+          ..sort();
     return [
       for (final h in hexKeys)
         Uint8List.fromList([
