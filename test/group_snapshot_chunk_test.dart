@@ -35,8 +35,11 @@ class _Link implements VeilTransport {
   @override
   Future<void> sendReply(int replyId, Uint8List payload) async {}
   @override
-  Future<void> send(NodeId dst, Uint8List payload,
-      {bool anonymous = false}) async {
+  Future<void> send(
+    NodeId dst,
+    Uint8List payload, {
+    bool anonymous = false,
+  }) async {
     final p = peer;
     if (p == null || p._me != dst) return;
     p._inbound.add(InboundMessage(src: _me, payload: payload));
@@ -77,10 +80,30 @@ List<Uint8List> _chunkFrames(String bundle, String tid) {
         index: i,
         count: count,
         data: Uint8List.sublistView(
-            bytes, i * chunk, (i + 1) * chunk < bytes.length
-                ? (i + 1) * chunk
-                : bytes.length),
+          bytes,
+          i * chunk,
+          (i + 1) * chunk < bytes.length ? (i + 1) * chunk : bytes.length,
+        ),
       ).withFrameId('grpc:$tid:$i').encode(),
+  ];
+}
+
+List<Uint8List> _documentChunkFrames(String frame, String tid) {
+  final bytes = Uint8List.fromList(utf8.encode(frame));
+  const chunk = 1800;
+  final count = (bytes.length + chunk - 1) ~/ chunk;
+  return [
+    for (var i = 0; i < count; i++)
+      cloudDocumentChunkEnvelope(
+        transferId: tid,
+        index: i,
+        count: count,
+        data: Uint8List.sublistView(
+          bytes,
+          i * chunk,
+          (i + 1) * chunk < bytes.length ? (i + 1) * chunk : bytes.length,
+        ),
+      ).withFrameId('docc:$tid:$i').encode(),
   ];
 }
 
@@ -103,81 +126,89 @@ void main() {
     bundle = jsonEncode({
       'm': {'name': 'Pics'},
       'g': [
-        {'body': 'y' * 12000} // forces 3+ chunks
+        {'body': 'y' * 12000}, // forces 3+ chunks
       ],
     });
   });
 
-  test('chunks reassemble and fire onGroupEntry ONCE with the exact bundle',
-      () async {
-    NodeId? gotPeer;
-    String? gotJson;
-    var calls = 0;
-    mB.onGroupEntry = (peer, json) {
-      gotPeer = peer;
-      gotJson = json;
-      calls++;
-    };
-    final frames = _chunkFrames(bundle, 'grp:z:1');
-    expect(frames.length, greaterThan(1), reason: 'must actually split');
-    for (final fr in frames) {
-      expect(fr.length, lessThanOrEqualTo(6144),
-          reason: 'each chunk must fit under the auth_deliver cap');
-      tB.inject(a, fr);
+  test(
+    'chunks reassemble and fire onGroupEntry ONCE with the exact bundle',
+    () async {
+      NodeId? gotPeer;
+      String? gotJson;
+      var calls = 0;
+      mB.onGroupEntry = (peer, json) {
+        gotPeer = peer;
+        gotJson = json;
+        calls++;
+      };
+      final frames = _chunkFrames(bundle, 'grp:z:1');
+      expect(frames.length, greaterThan(1), reason: 'must actually split');
+      for (final fr in frames) {
+        expect(
+          fr.length,
+          lessThanOrEqualTo(6144),
+          reason: 'each chunk must fit under the auth_deliver cap',
+        );
+        tB.inject(a, fr);
+        await _settle();
+      }
+      expect(calls, 1);
+      expect(gotPeer, a);
+      expect(gotJson, bundle);
+
+      // A re-driven chunk (mailbox re-delivery / restart) is deduped: no re-fire.
+      tB.inject(a, frames.first);
       await _settle();
-    }
-    expect(calls, 1);
-    expect(gotPeer, a);
-    expect(gotJson, bundle);
+      expect(calls, 1, reason: 'seenFrames dedups the re-driven chunk');
+    },
+  );
 
-    // A re-driven chunk (mailbox re-delivery / restart) is deduped: no re-fire.
-    tB.inject(a, frames.first);
-    await _settle();
-    expect(calls, 1, reason: 'seenFrames dedups the re-driven chunk');
-  });
+  test(
+    'NON-contact sender: stranger routing + chunk admission (brick 5)',
+    () async {
+      final stranger = _id(9); // no contact record on B
+      var acceptedCalls = 0, strangerCalls = 0;
+      String? viaStranger;
+      mB.onGroupEntry = (_, _) => acceptedCalls++;
+      mB.onGroupEntryFromStranger = (peer, json) {
+        viaStranger = json;
+        strangerCalls++;
+      };
+      // The group layer's admission: this stranger may sync ONLY group aa11.
+      mB.allowStrangerGroupSync = (peer, gidHex) async =>
+          peer == stranger && gidHex == 'aa11';
 
-  test('NON-contact sender: stranger routing + chunk admission (brick 5)',
-      () async {
-    final stranger = _id(9); // no contact record on B
-    var acceptedCalls = 0, strangerCalls = 0;
-    String? viaStranger;
-    mB.onGroupEntry = (_, _) => acceptedCalls++;
-    mB.onGroupEntryFromStranger = (peer, json) {
-      viaStranger = json;
-      strangerCalls++;
-    };
-    // The group layer's admission: this stranger may sync ONLY group aa11.
-    mB.allowStrangerGroupSync = (peer, gidHex) async =>
-        peer == stranger && gidHex == 'aa11';
-
-    // A whole groupEntry from a stranger routes to the STRANGER callback
-    // (the guarded service half judges it), never the accepted one.
-    tB.inject(
+      // A whole groupEntry from a stranger routes to the STRANGER callback
+      // (the guarded service half judges it), never the accepted one.
+      tB.inject(
         stranger,
-        const WireEnvelope.groupEntry('{"m":{"gid":"aa11"}}')
-            .withFrameId('grp:aa11:9')
-            .encode());
-    await _settle();
-    expect(strangerCalls, 1);
-    expect(acceptedCalls, 0);
-
-    // Chunks for the ADMITTED group reassemble and fire the stranger path.
-    for (final fr in _chunkFrames(bundle, 'grp:aa11:7')) {
-      tB.inject(stranger, fr);
+        const WireEnvelope.groupEntry(
+          '{"m":{"gid":"aa11"}}',
+        ).withFrameId('grp:aa11:9').encode(),
+      );
       await _settle();
-    }
-    expect(strangerCalls, 2);
-    expect(viaStranger, bundle);
+      expect(strangerCalls, 1);
+      expect(acceptedCalls, 0);
 
-    // Chunks for a group the admission REFUSES never reassemble (no RAM
-    // spent, nothing fires) — silent drop.
-    for (final fr in _chunkFrames(bundle, 'grp:bb22:7')) {
-      tB.inject(stranger, fr);
-      await _settle();
-    }
-    expect(strangerCalls, 2);
-    expect(acceptedCalls, 0);
-  });
+      // Chunks for the ADMITTED group reassemble and fire the stranger path.
+      for (final fr in _chunkFrames(bundle, 'grp:aa11:7')) {
+        tB.inject(stranger, fr);
+        await _settle();
+      }
+      expect(strangerCalls, 2);
+      expect(viaStranger, bundle);
+
+      // Chunks for a group the admission REFUSES never reassemble (no RAM
+      // spent, nothing fires) — silent drop.
+      for (final fr in _chunkFrames(bundle, 'grp:bb22:7')) {
+        tB.inject(stranger, fr);
+        await _settle();
+      }
+      expect(strangerCalls, 2);
+      expect(acceptedCalls, 0);
+    },
+  );
 
   test('out-of-order chunks still reassemble byte-exact', () async {
     String? gotJson;
@@ -201,4 +232,36 @@ void main() {
     }
     expect(calls, 0, reason: 'a partial snapshot must not ingest');
   });
+
+  test(
+    'document chunks are accepted-contact-only and reassemble once',
+    () async {
+      final frame = jsonEncode({'v': 1, 'body': 'd' * 9000});
+      final chunks = _documentChunkFrames(frame, 'doc:${_id(10).hex}:7');
+      String? received;
+      var calls = 0;
+      mB.onCloudDocumentFrame = (peer, json) {
+        expect(peer, a);
+        received = json;
+        calls++;
+      };
+      for (final chunk in chunks.reversed) {
+        expect(chunk.length, lessThanOrEqualTo(6144));
+        tB.inject(a, chunk);
+        await _settle();
+      }
+      expect(received, frame);
+      expect(calls, 1);
+      tB.inject(a, chunks.first);
+      await _settle();
+      expect(calls, 1);
+
+      final stranger = _id(9);
+      for (final chunk in _documentChunkFrames(frame, 'doc:${_id(10).hex}:8')) {
+        tB.inject(stranger, chunk);
+        await _settle();
+      }
+      expect(calls, 1, reason: 'document frames never use stranger admission');
+    },
+  );
 }
