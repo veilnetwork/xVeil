@@ -25,6 +25,10 @@ List<hv.HvWriteOp> _toHvOps(List<KvLogOp> ops) => ops.map<hv.HvWriteOp>((op) {
         logId: logId,
         payload: payload,
       ),
+    DeleteLogOp(:final namespace, :final logId) => hv.HvWriteOpDeleteLog(
+      namespace: namespace,
+      logId: logId,
+    ),
   };
 }).toList();
 

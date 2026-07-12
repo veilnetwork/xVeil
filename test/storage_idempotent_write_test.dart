@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -19,10 +20,16 @@ class _CountingStore implements KvLogStore {
   _CountingStore(this._inner);
   final FakeKvLogStore _inner;
   int commits = 0;
+  int? failOnCommit;
 
   @override
   int commit(List<KvLogOp> ops) {
-    if (ops.isNotEmpty) commits++;
+    if (ops.isNotEmpty) {
+      commits++;
+      if (commits == failOnCommit) {
+        throw StateError('injected commit failure');
+      }
+    }
     return _inner.commit(ops);
   }
 
@@ -202,29 +209,78 @@ void main() {
       expect(fs.loadFile('id'), data);
     });
 
-    test('replacing with different bytes purges the old chunks first (sync)', () {
+    test(
+      'replacement rotates record ids and reclaims the complete old run',
+      () {
+        final s = _CountingStore(FakeKvLogStore());
+        final fs = FileStore(s);
+        final v1 = _bytes(20000, 2);
+        final v2 = _bytes(15000, 3);
+        fs.storeFile('id', v1);
+        final nextKey = Uint8List.fromList('file_next_log'.codeUnits);
+        final nextBefore = utf8.decode(s.get(Ns.settings, nextKey)!);
+        expect(nextBefore, '7');
+        expect(
+          s.get(Ns.settings, Uint8List.fromList('file:id'.codeUnits)),
+          isNotNull,
+        );
+        fs.storeFile('id', v2);
+        expect(fs.loadFile('id'), v2);
+        expect(
+          utf8.decode(s.get(Ns.settings, nextKey)!),
+          '11',
+          reason: 'four fresh records are allocated before atomic publication',
+        );
+        for (var id = 1; id <= 6; id++) {
+          expect(s.readLog(Ns.fileChunks, id), isNull);
+        }
+        expect(s.readLog(Ns.fileChunks, 7), isNotEmpty);
+      },
+    );
+
+    test(
+      'failed final publication leaves the complete old version visible',
+      () {
+        final s = _CountingStore(FakeKvLogStore());
+        final fs = FileStore(s);
+        final oldBytes = _bytes(9000, 31);
+        final newBytes = _bytes(9100, 32);
+        fs.storeFile('id', oldBytes);
+        final before = s.commits;
+        // Replacement has one fresh-chunk commit, then the final metadata +
+        // old-run deletion commit. Fail only the latter.
+        s.failOnCommit = before + 2;
+
+        expect(() => fs.storeFile('id', newBytes), throwsA(isA<StateError>()));
+
+        expect(fs.loadFile('id'), oldBytes);
+        expect(s.readLog(Ns.fileChunks, 1), isNotNull);
+        s.failOnCommit = null;
+        expect(fs.reclaimOrphanedFileChunkIds(), 3);
+        expect(fs.loadFile('id'), oldBytes);
+      },
+    );
+
+    test('growing replacement publishes a fresh run and drops the old run', () {
       final s = _CountingStore(FakeKvLogStore());
       final fs = FileStore(s);
-      final v1 = _bytes(20000, 2);
-      final v2 = _bytes(15000, 3);
-      fs.storeFile('id', v1);
-      // Old layout: chunks at base..base+count-1.
+      final nextKey = Uint8List.fromList('file_next_log'.codeUnits);
+      fs.storeFile('id', _bytes(9000, 21)); // 3 records, next=4.
+      expect(utf8.decode(s.get(Ns.settings, nextKey)!), '4');
+      final grown = _bytes(20000, 22); // 6 fresh records.
+      fs.storeFile('id', grown);
+      expect(fs.loadFile('id'), grown);
+      expect(utf8.decode(s.get(Ns.settings, nextKey)!), '10');
       final metaRaw = s.get(
         Ns.settings,
         Uint8List.fromList('file:id'.codeUnits),
-      );
-      expect(metaRaw, isNotNull);
-      fs.storeFile('id', v2);
-      expect(fs.loadFile('id'), v2);
-      // The v1 chunk records must have been scrubbed (zero-length payloads), not
-      // left as live-but-unreachable log records.
-      final firstOldChunk = s.readLog(Ns.fileChunks, 1);
-      expect(firstOldChunk, isNotNull);
-      expect(
-        firstOldChunk,
-        isEmpty,
-        reason: 'replaced blob chunks must be zeroed, not leaked',
-      );
+      )!;
+      expect((jsonDecode(utf8.decode(metaRaw)) as Map)['segments'], [
+        [4, 6],
+      ]);
+      for (var id = 1; id <= 3; id++) {
+        expect(s.readLog(Ns.fileChunks, id), isNull);
+      }
     });
 
     test(
@@ -245,8 +301,29 @@ void main() {
         final v1 = _bytes(9000, 5);
         final v2 = _bytes(9100, 6);
         await storage.storeFile('mf:y', v1);
+        final nextBefore = utf8.decode(
+          counting.get(
+            Ns.settings,
+            Uint8List.fromList('file_next_log'.codeUnits),
+          )!,
+        );
         await storage.storeFile('mf:y', v2);
         expect(await storage.loadFile('mf:y'), v2);
+        expect(
+          await storage.readFileRange('mf:y', 3700, 500),
+          Uint8List.sublistView(v2, 3700, 4200),
+          reason: 'range reads must follow v2 segment metadata',
+        );
+        expect(
+          utf8.decode(
+            counting.get(
+              Ns.settings,
+              Uint8List.fromList('file_next_log'.codeUnits),
+            )!,
+          ),
+          '${int.parse(nextBefore) + 3}',
+          reason: 'async replacement rotates three records crash-safely',
+        );
       },
     );
   });
