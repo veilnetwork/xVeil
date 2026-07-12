@@ -116,6 +116,12 @@ Future<void> _run(List<String> args) async {
     }
     await runtime.close();
   }
+  // A standalone host may still have native worker threads winding down after
+  // every Dart handle, node and encrypted-store resource has closed. Returning
+  // from main leaves the AOT process waiting for those foreign threads on some
+  // platforms. At this point cleanup has completed, so terminate the service
+  // process explicitly just like a conventional daemon entrypoint.
+  exit(0);
 }
 
 String _next(List<String> args, int index, String option) {

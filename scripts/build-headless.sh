@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${1:-$ROOT/build/headless}"
 
-"$ROOT/scripts/build-native.sh" --release
+"$ROOT/scripts/build-native.sh" --release --ffi-only
 mkdir -p "$OUT"
 (cd "$ROOT" && dart build cli --target=bin/xveil.dart --output="$OUT")
 

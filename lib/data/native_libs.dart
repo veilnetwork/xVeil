@@ -29,7 +29,8 @@ List<String> nativeLibCandidates(
     final exeDir = File(Platform.resolvedExecutable).parent.path;
     out.add('$exeDir/$file'); // Windows / Linux: next to the exe
     out.add('$exeDir/../Frameworks/$file'); // macOS .app bundle
-    out.add('$exeDir/lib/$file'); // Linux bundle lib dir
+    out.add('$exeDir/lib/$file'); // Linux app bundle with executable at root
+    out.add('$exeDir/../lib/$file'); // standalone bundle: bin/ + sibling lib/
   } catch (_) {
     // resolvedExecutable can be unavailable in some hosts; skip.
   }
@@ -61,7 +62,11 @@ bool loadNativeLib(String base, {String? envVar, String? devSubdir}) {
       return false;
     }
   }
-  for (final path in nativeLibCandidates(base, envVar: envVar, devSubdir: devSubdir)) {
+  for (final path in nativeLibCandidates(
+    base,
+    envVar: envVar,
+    devSubdir: devSubdir,
+  )) {
     if (!File(path).existsSync()) continue;
     try {
       DynamicLibrary.open(path);
@@ -79,6 +84,6 @@ bool loadNativeLib(String base, {String? envVar, String? devSubdir}) {
 /// NOT placed in the global (`process()`) scope, so callers must use THIS
 /// handle; on iOS/desktop the symbols are process-global. Mirrors how the
 /// plugin bindings pick their handle per platform.
-DynamicLibrary processLibFor(String base) =>
-    Platform.isAndroid ? DynamicLibrary.open(nativeLibFileName(base))
-                       : DynamicLibrary.process();
+DynamicLibrary processLibFor(String base) => Platform.isAndroid
+    ? DynamicLibrary.open(nativeLibFileName(base))
+    : DynamicLibrary.process();

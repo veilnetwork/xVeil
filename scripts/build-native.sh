@@ -5,16 +5,30 @@
 #   libhidden_volume_ffi — deniable storage FFI (hidden_volume plugin)
 #   veil-cli           — the node binary spawned by SubprocessNodeController
 #
-# Debug by default; pass --release for optimized artifacts. Prints the
-# absolute artifact paths so callers can wire VEIL_FFI_DYLIB / link steps.
+# Debug by default; pass --release for optimized artifacts. Pass --ffi-only
+# when the caller embeds the node and does not ship the standalone veil-cli.
+# Prints the absolute artifact paths so callers can wire VEIL_FFI_DYLIB / link
+# steps.
 set -euo pipefail
 
 PROFILE="debug"
 CARGO_FLAGS=()
-if [[ "${1:-}" == "--release" ]]; then
-  PROFILE="release"
-  CARGO_FLAGS+=(--release)
-fi
+BUILD_CLI=true
+for arg in "$@"; do
+  case "$arg" in
+    --release)
+      PROFILE="release"
+      CARGO_FLAGS+=(--release)
+      ;;
+    --ffi-only)
+      BUILD_CLI=false
+      ;;
+    *)
+      echo "unknown option: $arg" >&2
+      exit 2
+      ;;
+  esac
+done
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VEIL="$ROOT/third_party/veil"
@@ -36,11 +50,13 @@ if [[ "$PROFILE" == "release" ]]; then
 fi
 ( cd "$VEIL" && cargo build -p veilclient-ffi --features "$VEIL_FEATURES" ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} )
 
-echo "==> Building veil-cli ($PROFILE)"
-if [[ "$PROFILE" == "release" ]]; then
-  ( cd "$VEIL" && cargo build -p veil-cli --features production-seeds ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} )
-else
-  ( cd "$VEIL" && cargo build -p veil-cli ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} )
+if [[ "$BUILD_CLI" == true ]]; then
+  echo "==> Building veil-cli ($PROFILE)"
+  if [[ "$PROFILE" == "release" ]]; then
+    ( cd "$VEIL" && cargo build -p veil-cli --features production-seeds ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} )
+  else
+    ( cd "$VEIL" && cargo build -p veil-cli ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} )
+  fi
 fi
 
 case "$(uname -s)" in
@@ -53,4 +69,6 @@ echo
 echo "Artifacts:"
 echo "  HV_FFI=$HV/target/$PROFILE/libhidden_volume_ffi.$EXT"
 echo "  VEIL_FFI=$VEIL/target/$PROFILE/libveilclient_ffi.$EXT"
-echo "  VEIL_CLI=$VEIL/target/$PROFILE/veil-cli"
+if [[ "$BUILD_CLI" == true ]]; then
+  echo "  VEIL_CLI=$VEIL/target/$PROFILE/veil-cli"
+fi
