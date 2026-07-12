@@ -18,6 +18,12 @@ import 'group_service.dart';
 import 'messaging.dart';
 import 'providers.dart';
 
+class CloudEditConflict implements Exception {
+  const CloudEditConflict(this.current);
+
+  final CloudItem current;
+}
+
 /// Transport/persistence edge used by [CloudService]. Keeping it narrow makes
 /// the index and integrity logic testable without a Flutter engine or network.
 abstract class CloudSyncPort {
@@ -107,6 +113,7 @@ class CloudService {
   static const _lastVerifySetting = 'cloud.last_verify.v1';
   static const _manifestPrefix = 'mf:';
   static const _wireChunkBytes = 4096;
+  static const maxTextNoteBytes = 1024 * 1024;
 
   final Storage _storage;
   final CloudSyncPort _sync;
@@ -253,12 +260,14 @@ class CloudService {
     await _saveIndex();
     await _saveClaims();
 
-    // A remote tombstone must erase local ciphertext too. Tombstones carry no
-    // cid, so use the previously materialized live row; a device that never
-    // saw it cannot hold the corresponding bytes.
+    // A remote tombstone or content revision must erase superseded local
+    // ciphertext too. Tombstones carry no cid, so use the previously
+    // materialized live row; a device that never saw it cannot hold the bytes.
     for (final item in _items.values) {
       final previous = before[item.id];
-      if (item.deleted && previous != null && !previous.deleted) {
+      if (previous != null &&
+          !previous.deleted &&
+          (item.deleted || item.contentId != previous.contentId)) {
         await _dropContentIfUnreferenced(previous);
       }
     }
@@ -269,13 +278,13 @@ class CloudService {
     final remoteBodies = {for (final row in remote) row.event.toBody()};
     for (final item in _items.values) {
       if (!remoteBodies.contains(item.toEvent().toBody())) {
-        await _postItemBestEffort(item);
+        _postItemBestEffort(item);
       }
     }
     for (final claim in _claims.values) {
       if (claim.deviceId == _sync.selfId &&
           !remoteBodies.contains(claim.toEvent().toBody())) {
-        await _postClaimBestEffort(claim);
+        _postClaimBestEffort(claim);
       }
     }
     _emit();
@@ -374,7 +383,7 @@ class CloudService {
         rethrow;
       }
       final imported = item;
-      await _postItemBestEffort(imported);
+      _postItemBestEffort(imported);
       try {
         await _setLocalClaim(imported, present: true);
       } catch (_) {
@@ -385,6 +394,132 @@ class CloudService {
       _emit();
       return imported;
     });
+  }
+
+  /// Create or replace one private text note. The body is an immutable
+  /// content-addressed blob; the logical row advances with optimistic
+  /// revision checking so an editor cannot silently overwrite a newer device
+  /// update. Callers may retry against [CloudEditConflict.current] after an
+  /// explicit merge choice.
+  Future<CloudItem> saveTextNote({
+    String? itemId,
+    required String title,
+    required String body,
+    int? expectedRevision,
+  }) async {
+    await start();
+    final normalizedTitle = title.trim();
+    final bytes = Uint8List.fromList(utf8.encode(body));
+    if (normalizedTitle.isEmpty || normalizedTitle.length > 512) {
+      throw ArgumentError('invalid note title');
+    }
+    if (bytes.length > maxTextNoteBytes) {
+      throw ArgumentError('note body is too large');
+    }
+    return _serialized(() async {
+      CloudItem? previous;
+      if (itemId != null) {
+        previous = _items[itemId];
+        if (previous == null || previous.deleted) {
+          throw StateError('note no longer exists');
+        }
+        if (previous.kind != CloudItemKind.note) {
+          throw StateError('cloud item is not a note');
+        }
+        if (expectedRevision == null || previous.revision != expectedRevision) {
+          throw CloudEditConflict(previous);
+        }
+      } else if (expectedRevision != null) {
+        throw ArgumentError('new note cannot have an expected revision');
+      }
+
+      final manifest = ContentManifest.fromBytes(normalizedTitle, bytes);
+      final manifestId = '$_manifestPrefix${manifest.contentId}';
+      var createdContent = false;
+      var createdManifest = false;
+      final id = itemId ?? _newId().replaceAll(RegExp('[^A-Za-z0-9_-]'), '_');
+      final now = _nextTimestamp();
+      final note = CloudItem(
+        id: id,
+        kind: CloudItemKind.note,
+        name: normalizedTitle,
+        contentId: manifest.contentId,
+        size: bytes.length,
+        mime: 'text/plain; charset=utf-8',
+        createdAtMs: previous?.createdAtMs ?? now,
+        modifiedAtMs: now,
+        revision: (previous?.revision ?? 0) + 1,
+        deleted: false,
+      );
+      try {
+        if (!await _storage.hasFile(manifest.contentId)) {
+          await _storage.storeFile(
+            manifest.contentId,
+            bytes,
+            name: normalizedTitle,
+          );
+          createdContent = true;
+        }
+        if (!await _storage.hasFile(manifestId)) {
+          await _storage.storeFile(
+            manifestId,
+            Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+            name: 'cloud-manifest',
+          );
+          createdManifest = true;
+        }
+        _items[id] = note;
+        await _saveIndex();
+      } catch (_) {
+        if (previous == null) {
+          _items.remove(id);
+        } else {
+          _items[id] = previous;
+        }
+        try {
+          if (createdContent) {
+            await _storage.deleteStoredFile(manifest.contentId);
+          }
+          if (createdManifest) await _storage.deleteStoredFile(manifestId);
+          if (createdContent || createdManifest) await _storage.scrubDeleted();
+        } catch (_) {}
+        rethrow;
+      }
+
+      _postItemBestEffort(note);
+      if (previous != null) await _dropContentIfUnreferenced(previous);
+      try {
+        await _setLocalClaim(note, present: true);
+      } catch (_) {
+        // The note row and bytes are already durable. Reconcile/verify can
+        // repair a claim that could not be persisted under local pressure.
+      }
+      _emit();
+      return note;
+    });
+  }
+
+  Future<String> loadTextNote(CloudItem item) async {
+    await start();
+    if (item.deleted || item.kind != CloudItemKind.note) {
+      throw StateError('cloud item is not a live note');
+    }
+    if (item.contentId == null || item.size > maxTextNoteBytes) {
+      throw StateError('invalid note content');
+    }
+    if (!await ensureLocal(item)) {
+      throw StateError('note content is unavailable');
+    }
+    final bytes = await _storage.loadFile(item.contentId!);
+    if (bytes == null || bytes.length != item.size) {
+      throw StateError('note content is unavailable');
+    }
+    final manifest = ContentManifest.fromBytes(item.name, bytes);
+    if (manifest.contentId != item.contentId) {
+      await _setLocalClaim(item, present: false);
+      throw StateError('note content failed integrity verification');
+    }
+    return utf8.decode(bytes, allowMalformed: false);
   }
 
   int _lastTimestamp = 0;
@@ -402,7 +537,7 @@ class CloudService {
       final tombstone = current.tombstone(_nextTimestamp());
       _items[itemId] = tombstone;
       await _saveIndex();
-      await _postItemBestEffort(tombstone);
+      _postItemBestEffort(tombstone);
       await _dropContentIfUnreferenced(current);
       _emit();
     });
@@ -514,7 +649,7 @@ class CloudService {
       );
       _items[item.id] = item;
       await _saveIndex();
-      await _postItemBestEffort(item);
+      _postItemBestEffort(item);
       await _setLocalClaim(item, present: true);
       _emit();
       return item;
@@ -691,22 +826,25 @@ class CloudService {
     );
     _claims[claim.key] = claim;
     await _saveClaims();
-    await _postClaimBestEffort(claim);
+    _postClaimBestEffort(claim);
   }
 
-  Future<bool> _postItemBestEffort(CloudItem item) async {
+  void _postItemBestEffort(CloudItem item) {
     try {
-      return await _sync.postItem(item);
+      final attempt = _sync.postItem(item);
+      unawaited(attempt.catchError((_) => false));
     } catch (_) {
-      return false;
+      // A synchronous adapter failure is handled like an async transport
+      // failure. The encrypted materialized index remains the retry source.
     }
   }
 
-  Future<bool> _postClaimBestEffort(CloudReplicaClaim claim) async {
+  void _postClaimBestEffort(CloudReplicaClaim claim) {
     try {
-      return await _sync.postClaim(claim);
+      final attempt = _sync.postClaim(claim);
+      unawaited(attempt.catchError((_) => false));
     } catch (_) {
-      return false;
+      // Claims are durable locally before publish and reconcile backfills them.
     }
   }
 

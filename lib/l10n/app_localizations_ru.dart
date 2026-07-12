@@ -507,10 +507,16 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get cloudEmptyHint =>
-      'Файлы шифруются локально и реплицируются только между вашими связанными устройствами.';
+      'Файлы и заметки шифруются локально и реплицируются только между вашими связанными устройствами.';
+
+  @override
+  String get cloudAdd => 'Добавить в облако';
 
   @override
   String get cloudAddFile => 'Добавить файл';
+
+  @override
+  String get cloudAddNote => 'Новая заметка';
 
   @override
   String get cloudImported => 'Файл добавлен в облако';
@@ -637,6 +643,57 @@ class AppL10nRu extends AppL10n {
   @override
   String get cloudDeleteBody =>
       'Элемент исчезнет со всех связанных устройств. Это действие нельзя отменить.';
+
+  @override
+  String get cloudNoteNew => 'Новая заметка';
+
+  @override
+  String get cloudNoteEdit => 'Редактировать заметку';
+
+  @override
+  String get cloudNoteTitleHint => 'Название';
+
+  @override
+  String get cloudNoteBodyHint => 'Напишите приватную заметку…';
+
+  @override
+  String get cloudNoteSave => 'Сохранить';
+
+  @override
+  String get cloudNoteSaved => 'Заметка сохранена';
+
+  @override
+  String get cloudNoteLoadFailed =>
+      'Не удалось загрузить или проверить заметку';
+
+  @override
+  String get cloudNoteSaveFailed => 'Не удалось сохранить заметку';
+
+  @override
+  String get cloudNoteTitleRequired => 'Введите название';
+
+  @override
+  String get cloudNoteTooLarge => 'Заметка слишком большая (максимум 1 МиБ)';
+
+  @override
+  String get cloudNoteConflictTitle =>
+      'Заметка изменилась на другом устройстве';
+
+  @override
+  String get cloudNoteConflictBody =>
+      'Сверьте текущую облачную версию с черновиком и объедините их перед сохранением.';
+
+  @override
+  String get cloudNoteRemoteVersion => 'Текущая версия в облаке';
+
+  @override
+  String get cloudNoteYourDraft => 'Ваш объединённый черновик';
+
+  @override
+  String get cloudNoteUseRemote => 'Использовать версию из облака';
+
+  @override
+  String get cloudNoteSaveMerged => 'Сохранить объединённую версию';
 
   @override
   String get settingsCatAccount => 'Личности и аккаунт';
