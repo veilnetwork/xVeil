@@ -473,6 +473,11 @@ class MessagingService {
   /// an accepted [peer], to ingest idempotently. Dropped when unset.
   void Function(NodeId peer, String bundleJson)? onGroupEntry;
 
+  /// Attached by shared-document replication. Both whole and reassembled
+  /// frames reach this callback only from accepted contacts; the document
+  /// layer then verifies root/control signatures and membership epochs.
+  void Function(NodeId peer, String frameJson)? onCloudDocumentFrame;
+
   /// Attached by the group layer: an inbound signed content-fetch request
   /// (groups content path). NOT contact-gated — the signed membership proof
   /// inside IS the authorization, judged by the group layer (silent drop when
@@ -731,6 +736,44 @@ class MessagingService {
     }
   }
 
+  /// Ship a shared-document invite/snapshot/delta durably. A document frame can
+  /// contain a long signed log, so it uses the same conservative double-base64
+  /// chunk size as group snapshots while retaining a distinct wire kind.
+  Future<void> sendCloudDocumentFrame(
+    NodeId dst,
+    String documentIdHex,
+    String frameJson,
+  ) async {
+    final hash = frameJson.hashCode & 0x7fffffff;
+    final bytes = Uint8List.fromList(utf8.encode(frameJson));
+    if (bytes.length <= _groupChunkBytes) {
+      await sendDurable(
+        dst,
+        'doc:$documentIdHex:$hash',
+        WireEnvelope.cloudDocument(frameJson),
+      );
+      return;
+    }
+    final tid = 'doc:$documentIdHex:$hash';
+    final count = (bytes.length + _groupChunkBytes - 1) ~/ _groupChunkBytes;
+    for (var index = 0; index < count; index++) {
+      final start = index * _groupChunkBytes;
+      final end = start + _groupChunkBytes < bytes.length
+          ? start + _groupChunkBytes
+          : bytes.length;
+      await sendDurable(
+        dst,
+        'docc:$tid:$index',
+        cloudDocumentChunkEnvelope(
+          transferId: tid,
+          index: index,
+          count: count,
+          data: Uint8List.sublistView(bytes, start, end),
+        ),
+      );
+    }
+  }
+
   /// Reassemble a chunked group snapshot ([WireKind.groupEntryChunk]); once
   /// every chunk of a transferId is present, hand the joined bundle to
   /// [onGroupEntry] exactly like a whole [WireKind.groupEntry]. In-RAM +
@@ -805,6 +848,52 @@ class MessagingService {
       }
     } catch (_) {
       /* undecodable joined bundle */
+    }
+  }
+
+  void _ingestCloudDocumentChunk(NodeId src, String body) {
+    final GroupEntryChunkFrame frame;
+    try {
+      frame = parseGroupEntryChunk(body);
+    } catch (_) {
+      return;
+    }
+    final idParts = frame.transferId.split(':');
+    if (idParts.length < 3 || idParts.first != 'doc') return;
+    if (frame.count <= 0 || frame.index < 0 || frame.index >= frame.count) {
+      return;
+    }
+    var slot = _cloudDocumentReasm[frame.transferId];
+    if (slot == null) {
+      if (_cloudDocumentReasm.length >= _kMaxGroupReasmConcurrent) {
+        _cloudDocumentReasm.remove(_cloudDocumentReasm.keys.first);
+      }
+      slot = (count: frame.count, parts: <int, Uint8List>{}, bytes: 0);
+      _cloudDocumentReasm[frame.transferId] = slot;
+    }
+    if (slot.count != frame.count || slot.parts.containsKey(frame.index)) {
+      return;
+    }
+    final bytes = slot.bytes + frame.data.length;
+    if (bytes > _kMaxGroupReasmBytes) {
+      _cloudDocumentReasm.remove(frame.transferId);
+      return;
+    }
+    slot.parts[frame.index] = frame.data;
+    slot = (count: slot.count, parts: slot.parts, bytes: bytes);
+    _cloudDocumentReasm[frame.transferId] = slot;
+    if (slot.parts.length != slot.count) return;
+    _cloudDocumentReasm.remove(frame.transferId);
+    final joined = BytesBuilder(copy: false);
+    for (var index = 0; index < slot.count; index++) {
+      final part = slot.parts[index];
+      if (part == null) return;
+      joined.add(part);
+    }
+    try {
+      onCloudDocumentFrame?.call(src, utf8.decode(joined.toBytes()));
+    } catch (_) {
+      // Malformed UTF-8 is an unauthorized/malformed frame: silent drop.
     }
   }
 
@@ -1607,6 +1696,9 @@ class MessagingService {
   final _groupReasm =
       <String, ({int count, Map<int, Uint8List> parts, int bytes})>{};
 
+  final _cloudDocumentReasm =
+      <String, ({int count, Map<int, Uint8List> parts, int bytes})>{};
+
   /// Best-effort ack of a durable frame so the sender retires it from its
   /// outbox. Rides [_ackTo]: a live send PLUS a mailbox deposit (`ack:<fid>`)
   /// — the sender of a durable frame is often exactly the NAT'd peer whose
@@ -2394,6 +2486,14 @@ class MessagingService {
           selfAuthored: true,
         );
         _emitIncoming(m.src, '🗑️', isFile: false);
+        return;
+      case WireKind.cloudDocument:
+        if (existing?.status != ContactStatus.accepted) return;
+        onCloudDocumentFrame?.call(m.src, env.body);
+        return;
+      case WireKind.cloudDocumentChunk:
+        if (existing?.status != ContactStatus.accepted) return;
+        _ingestCloudDocumentChunk(m.src, env.body);
         return;
       case WireKind.unknown:
         // A structured (v:2) frame from a NEWER build whose kind we don't know —
