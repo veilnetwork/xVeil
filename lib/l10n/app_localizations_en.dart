@@ -576,6 +576,35 @@ class AppL10nEn extends AppL10n {
   String get cloudShareFailed => 'Could not share the file';
 
   @override
+  String get cloudPublicLink => 'Private link';
+
+  @override
+  String get cloudPublicCopy => 'Copy link';
+
+  @override
+  String get cloudPublicCopied => 'Private link copied';
+
+  @override
+  String get cloudPublicRevoke => 'Revoke link';
+
+  @override
+  String get cloudPublicRevoked =>
+      'Link revoked; existing downloads cannot be erased';
+
+  @override
+  String get cloudPublicFailed => 'Could not create the private link';
+
+  @override
+  String get cloudPublicImport => 'Open private link';
+
+  @override
+  String get cloudPublicPasteHint => 'Paste an xveil://cloud link';
+
+  @override
+  String get cloudPublicOpenFailed =>
+      'Could not open or verify the private link';
+
+  @override
   String get cloudSelect => 'Keep selected';
 
   @override

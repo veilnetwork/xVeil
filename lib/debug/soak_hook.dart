@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data' show BytesBuilder, Uint8List;
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math';
 import 'dart:ui' as ui;
 
 import 'package:crypto/crypto.dart' as crypto;
@@ -37,6 +38,7 @@ import '../state/app_controller.dart';
 import '../state/call_log.dart';
 import '../state/call_service.dart';
 import '../state/cloud_service.dart';
+import '../state/cloud_capability_service.dart';
 import '../state/device_settings_sync.dart';
 import '../state/locale_controller.dart';
 import '../state/reactions_visibility_controller.dart';
@@ -343,6 +345,21 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/cloud_share':
           await _cloudShareHook(req);
+          return;
+        case '/cloud_public_create':
+          await _cloudPublicCreateHook(req);
+          return;
+        case '/cloud_public_list':
+          await _cloudPublicListHook(req);
+          return;
+        case '/cloud_public_revoke':
+          await _cloudPublicRevokeHook(req);
+          return;
+        case '/cloud_public_download':
+          await _cloudPublicDownloadHook(req);
+          return;
+        case '/cloud_capability_probe':
+          await _cloudCapabilityProbeHook(req);
           return;
         case '/conv_messages':
           await _convMessagesHook(req);
@@ -1514,6 +1531,188 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'cid': item.contentId,
       'peer': peer,
     });
+  }
+
+  Future<void> _cloudPublicCreateHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final cloud = ref.read(cloudServiceProvider);
+    final capabilities = ref.read(cloudCapabilityServiceProvider);
+    final id = req.uri.queryParameters['id'];
+    if (cloud == null || capabilities == null || id == null) {
+      return _json(req, {
+        'ok': false,
+        'error': 'need cloud capability service+id',
+      });
+    }
+    final item = (await cloud.listItems())
+        .where((candidate) => candidate.id == id)
+        .firstOrNull;
+    if (item == null) return _json(req, {'ok': false, 'error': 'not found'});
+    try {
+      final share = await capabilities.createShare(item);
+      return _json(req, {
+        'ok': true,
+        'shareId': share.shareId,
+        'itemId': share.itemId,
+        'cid': share.contentId,
+        'expiresAtMs': share.expiresAtMs,
+        'link': share.link,
+      });
+    } catch (error) {
+      return _json(req, {'ok': false, 'error': '$error'});
+    }
+  }
+
+  Future<void> _cloudPublicListHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(cloudCapabilityServiceProvider);
+    if (service == null) {
+      return _json(req, {'ok': false, 'error': 'unavailable'});
+    }
+    final shares = await service.listShares();
+    return _json(req, {
+      'ok': true,
+      'shares': [
+        for (final share in shares)
+          {
+            'shareId': share.shareId,
+            'itemId': share.itemId,
+            'cid': share.contentId,
+            'expiresAtMs': share.expiresAtMs,
+          },
+      ],
+    });
+  }
+
+  Future<void> _cloudPublicRevokeHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(cloudCapabilityServiceProvider);
+    final shareId = req.uri.queryParameters['share'];
+    if (service == null || shareId == null) {
+      return _json(req, {'ok': false, 'error': 'need service+share'});
+    }
+    return _json(req, {'ok': await service.revoke(shareId)});
+  }
+
+  Future<void> _cloudPublicDownloadHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final cloud = ref.read(cloudServiceProvider);
+    final capabilities = ref.read(cloudCapabilityServiceProvider);
+    final link = req.uri.queryParameters['link'];
+    if (cloud == null || capabilities == null || link == null) {
+      return _json(req, {
+        'ok': false,
+        'error': 'need cloud capability service+link',
+      });
+    }
+    try {
+      final capability = await capabilities.download(link);
+      final item = await cloud.adoptCapability(capability);
+      return _json(req, {
+        'ok': true,
+        'id': item.id,
+        'cid': item.contentId,
+        'size': item.size,
+      });
+    } catch (error) {
+      return _json(req, {'ok': false, 'error': '$error'});
+    }
+  }
+
+  /// Native CLOUD-2B F0 smoke: bind/register the same secret alias and identity
+  /// on two endpoint ids. Both app id and service key must stay stable without
+  /// depending on sovereign node id; seed buffers are always scrubbed.
+  Future<void> _cloudCapabilityProbeHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final transport = ref.read(veilTransportProvider);
+    if (transport is! VeilFlutterTransport) {
+      return _json(req, {'ok': false, 'error': 'native transport unavailable'});
+    }
+    final random = Random.secure();
+    if (req.uri.queryParameters['bind_only'] == '1') {
+      final name =
+          'probe-${List.generate(12, (_) => random.nextInt(256)).map((byte) => byte.toRadixString(16).padLeft(2, '0')).join()}';
+      final firstApp = await transport.bindCapabilityEndpoint(
+        name: name,
+        endpointId: 37,
+      );
+      final firstAppId = Uint8List.fromList(firstApp.appId);
+      final secondApp = await transport.bindCapabilityEndpoint(
+        name: name,
+        endpointId: 39,
+      );
+      final stable = listEquals(firstAppId, secondApp.appId);
+      await firstApp.close();
+      await secondApp.close();
+      return _json(req, {
+        'ok': stable,
+        'stableCapabilityAppId': stable,
+        'capabilityAppId': firstAppId
+            .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+            .join(),
+      });
+    }
+    final seedMaterial = Uint8List.fromList([
+      for (var i = 0; i < 32; i++) random.nextInt(256),
+    ]);
+    final firstSeed = Uint8List.fromList(seedMaterial);
+    final secondSeed = Uint8List.fromList(seedMaterial);
+    seedMaterial.fillRange(0, seedMaterial.length, 0);
+    final name =
+        'probe-${List.generate(12, (_) => random.nextInt(256)).map((byte) => byte.toRadixString(16).padLeft(2, '0')).join()}';
+    VeilCapabilityEndpoint? first;
+    VeilCapabilityEndpoint? second;
+    try {
+      first = await transport.hostCapabilityEndpoint(
+        identitySeed: firstSeed,
+        name: name,
+        endpointId: 50,
+      );
+      final firstPublicKey = Uint8List.fromList(first.servicePublicKey);
+      final firstAppId = Uint8List.fromList(first.appId);
+      second = await transport.hostCapabilityEndpoint(
+        identitySeed: secondSeed,
+        name: name,
+        endpointId: 51,
+      );
+      final stableServiceKey = listEquals(
+        firstPublicKey,
+        second.servicePublicKey,
+      );
+      final stableCapabilityAppId = listEquals(firstAppId, second.appId);
+      await first.close();
+      await second.close();
+      await second.close();
+      return _json(req, {
+        'ok': stableServiceKey && stableCapabilityAppId,
+        'servicePublicKey': firstPublicKey
+            .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+            .join(),
+        'capabilityAppId': firstAppId
+            .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+            .join(),
+        'seedZeroized':
+            firstSeed.every((byte) => byte == 0) &&
+            secondSeed.every((byte) => byte == 0),
+        'stableServiceKey': stableServiceKey,
+        'stableCapabilityAppId': stableCapabilityAppId,
+        'withdrawIdempotent': true,
+      });
+    } catch (error) {
+      return _json(req, {
+        'ok': false,
+        'error': 'capability service probe failed',
+        'detail': '$error',
+        'seedZeroized':
+            firstSeed.every((byte) => byte == 0) &&
+            secondSeed.every((byte) => byte == 0),
+      });
+    } finally {
+      firstSeed.fillRange(0, firstSeed.length, 0);
+      secondSeed.fillRange(0, secondSeed.length, 0);
+      await first?.close();
+      await second?.close();
+    }
   }
 
   /// The stored 1:1 messages of conversation ?peer= (bodies + direction) —

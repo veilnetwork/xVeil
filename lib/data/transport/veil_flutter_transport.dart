@@ -18,7 +18,13 @@ import 'veil_transport.dart';
 /// is derived — see [chatAppIdFor], verified against the native bindNamed).
 class VeilFlutterTransport
     implements VeilTransport, StreamTransport, P2PStreamTransport {
-  VeilFlutterTransport._(this._client, this._app, this._mediaApp) {
+  VeilFlutterTransport._(
+    this._socketPath,
+    this._client,
+    this._capabilityClient,
+    this._app,
+    this._mediaApp,
+  ) {
     _mediaMessages = _mediaApp.messages().listen((m) {
       final src = NodeId(m.srcNodeId);
       if (!_bytesEqual(m.srcAppId, mediaAppIdFor(src))) {
@@ -36,7 +42,9 @@ class VeilFlutterTransport
     });
   }
 
+  final String _socketPath;
   final VeilClient _client;
+  final VeilClient _capabilityClient;
   final AppHandle _app;
   final AppHandle _mediaApp;
   StreamSubscription<dynamic>? _mediaMessages;
@@ -44,7 +52,13 @@ class VeilFlutterTransport
   /// Connect to a running node's app IPC socket and bind the chat endpoint.
   static Future<VeilFlutterTransport> connect(String socketPath) async {
     final client = await VeilClient.connect(socketPath);
+    VeilClient? capabilityClient;
     try {
+      // Capability hosting/fetch uses a separate IPC connection. The main
+      // client may spend seconds inside mailbox/rendezvous lookups while
+      // holding its native mutex; sharing it made public-link bind/send wait
+      // behind unrelated traffic even though Flutter itself was responsive.
+      capabilityClient = await VeilClient.connect(socketPath);
       final app = await client.bindNamed(
         namespace: veilChatNamespace,
         name: veilChatName,
@@ -55,8 +69,15 @@ class VeilFlutterTransport
         name: veilMediaName,
         endpointId: veilMediaEndpointId,
       );
-      return VeilFlutterTransport._(client, app, mediaApp);
+      return VeilFlutterTransport._(
+        socketPath,
+        client,
+        capabilityClient,
+        app,
+        mediaApp,
+      );
     } catch (_) {
+      await capabilityClient?.close();
       await client.close();
       rethrow;
     }
@@ -111,6 +132,98 @@ class VeilFlutterTransport
       throw StateError('join failed: ${r.status.name} ${r.detail ?? ''}');
     }
   }
+
+  /// Native CLOUD-2B primitive: host a blinded service under a random
+  /// application-owned identity. [identitySeed] is scrubbed by veil_flutter
+  /// before this future yields and again by native at the ABI boundary.
+  Future<Uint8List> registerEphemeralOnionService(
+    Uint8List identitySeed, {
+    int hopCount = 3,
+  }) => _capabilityClient.registerEphemeralOnionService(
+    identitySeed,
+    hopCount: hopCount,
+  );
+
+  Future<void> withdrawEphemeralOnionService(Uint8List identityVk) =>
+      _capabilityClient.withdrawEphemeralOnionService(identityVk);
+
+  Future<AppHandle> bindCapabilityEndpoint({
+    required String name,
+    required int endpointId,
+  }) => _capabilityClient.bindCapability(
+    namespace: 'xveil-cloud-capability',
+    name: name,
+    endpointId: endpointId,
+  );
+
+  /// Bind an opaque app endpoint and advertise it under a random service
+  /// identity. The returned endpoint owns both lifetimes; close withdraws the
+  /// descriptor before releasing the app handle.
+  Future<VeilCapabilityEndpoint> hostCapabilityEndpoint({
+    required Uint8List identitySeed,
+    required String name,
+    required int endpointId,
+  }) async {
+    final app = await bindCapabilityEndpoint(
+      name: name,
+      endpointId: endpointId,
+    );
+    try {
+      final servicePublicKey = await registerEphemeralOnionService(
+        identitySeed,
+      );
+      return VeilCapabilityEndpoint._(_capabilityClient, app, servicePublicKey);
+    } catch (_) {
+      await app.close();
+      rethrow;
+    }
+  }
+
+  /// One public download gets a short-lived IPC client. Closing that client
+  /// releases its return endpoint server-side; AppHandle.close alone does not
+  /// APP_UNBIND, so a shared client would eventually exhaust endpoint ids.
+  Future<VeilCapabilityEndpoint> hostTransientCapabilityEndpoint({
+    required Uint8List identitySeed,
+    required String name,
+    required int endpointId,
+  }) async {
+    final client = await VeilClient.connect(_socketPath);
+    AppHandle? app;
+    try {
+      app = await client.bindCapability(
+        namespace: 'xveil-cloud-capability',
+        name: name,
+        endpointId: endpointId,
+      );
+      final servicePublicKey = await client.registerEphemeralOnionService(
+        identitySeed,
+      );
+      return VeilCapabilityEndpoint._(
+        client,
+        app,
+        servicePublicKey,
+        closeClient: true,
+      );
+    } catch (_) {
+      await app?.close();
+      await client.close();
+      rethrow;
+    }
+  }
+
+  Future<void> sendToOnionServiceAnonymous({
+    required Uint8List serviceIdentityVk,
+    required Uint8List targetAppId,
+    required int targetEndpointId,
+    required Uint8List srcAppId,
+    required Uint8List data,
+  }) => _capabilityClient.sendToOnionServiceAnonymous(
+    serviceIdentityVk: serviceIdentityVk,
+    targetAppId: targetAppId,
+    targetEndpointId: targetEndpointId,
+    srcAppId: srcAppId,
+    data: data,
+  );
 
   @override
   Future<NodeId> nodeId() async => NodeId(await _client.nodeId());
@@ -353,7 +466,43 @@ class VeilFlutterTransport
     await mediaMessages?.cancel();
     await _mediaApp.close();
     await _app.close();
+    await _capabilityClient.close();
     await _client.close();
+  }
+}
+
+class VeilCapabilityEndpoint {
+  VeilCapabilityEndpoint._(
+    this._client,
+    this._app,
+    this.servicePublicKey, {
+    bool closeClient = false,
+  }) : // ignore: prefer_initializing_formals
+       _closeClient = closeClient;
+
+  final VeilClient _client;
+  final AppHandle _app;
+  final Uint8List servicePublicKey;
+  final bool _closeClient;
+  bool _closed = false;
+
+  Uint8List get appId => Uint8List.fromList(_app.appId);
+  int get endpointId => _app.endpointId;
+  Stream<Uint8List> get messages =>
+      _app.messages().map((message) => message.data);
+
+  Future<void> close() async {
+    if (_closed) return;
+    _closed = true;
+    try {
+      await _client.withdrawEphemeralOnionService(servicePublicKey);
+    } finally {
+      try {
+        await _app.close();
+      } finally {
+        if (_closeClient) await _client.close();
+      }
+    }
   }
 }
 
