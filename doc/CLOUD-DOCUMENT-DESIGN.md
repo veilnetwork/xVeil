@@ -52,6 +52,41 @@ operation against membership at the operation's bound epoch; filtering all
 history by current membership is forbidden because it would erase a removed
 author's earlier contribution.
 
+## Implemented: CLOUD-3B2/1 epoch-bound log core
+
+The first CLOUD-3B2 brick is the pure, transport-independent wire and fold in
+`lib/domain/cloud_document.dart`, with native node-id-bound Ed25519 adapters in
+`lib/state/cloud_document_crypto.dart`.
+
+The immutable v1 root signs the random document id, owner, document kind,
+codec version, epoch-0 key commitment, hash of the encrypted epoch envelopes,
+and the initial control-chain root. Control entries are owner-only and bind the
+document id, exact current and next epoch, sequence, previous signed control
+hash, unique control id, ACL mutation, next key commitment/envelope hash, and a
+canonical operation frontier for the epoch being closed. Grant, role change,
+revoke, and explicit rotation all advance the epoch. This deliberately avoids
+an ambiguous within-epoch role transition that could otherwise be backdated.
+
+Document operations bind document id, membership epoch, author sequence,
+previous signed author hash, operation id, sorted parent ids, codec operation
+type, payload/ciphertext hash, and timestamp. Owner and editor operations are
+accepted; viewers cannot mutate. Duplicate signed author sequences or owner
+control sequences are equivocation and fail closed. Invalid-signature poison
+is discarded before duplicate detection, so an unauthenticated frame cannot
+block a valid sequence.
+
+An epoch-closing control contains the exact `(author -> seq, signed record
+hash)` frontier accepted by the owner. A late old-epoch suffix from a revoked
+editor is withheld unless it is part of that signed hash chain, while the
+prefix named by the frontier remains visible forever. Missing parents and
+incomplete closed frontiers are withheld, not interpreted as empty state.
+This closes the backdating problem that an epoch number alone cannot solve.
+
+This brick does **not** yet persist or replicate document logs, encrypt payload
+bytes, construct per-recipient key envelopes, expose invite/ACL UI, or provide
+a rich-text CRDT. Those are the next CLOUD-3B2 bricks; ordinary `GroupMessage`
+remains forbidden for collaborative edits.
+
 ## Why ordinary `GroupMessage` is not sufficient yet
 
 The current group message signs `groupId/author/seq/body/policyVersion/time`.
