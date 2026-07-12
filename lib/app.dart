@@ -7,6 +7,7 @@ import 'l10n/app_localizations.dart';
 import 'routing/router.dart';
 import 'state/api_server.dart';
 import 'state/call_log.dart';
+import 'state/cloud_capability_service.dart';
 import 'state/cloud_service.dart';
 import 'state/device_sync_bridge.dart';
 import 'state/group_service.dart';
@@ -60,6 +61,7 @@ class _GroupBridge extends ConsumerWidget {
     // journal recorder itself (calls are journaled even without a journal UI).
     ref.watch(deviceSyncBridgeProvider);
     ref.watch(cloudServiceProvider);
+    ref.watch(cloudCapabilityServiceProvider);
     ref.watch(callLogRecorderProvider);
     return const SizedBox.shrink();
   }

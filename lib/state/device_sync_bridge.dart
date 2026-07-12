@@ -295,6 +295,8 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       case DeviceSyncKind.cloudEntry:
       case DeviceSyncKind.cloudReplica:
         break; // applied by CloudService
+      case DeviceSyncKind.cloudCapability:
+        break; // applied by CloudCapabilityService (contains secret registry)
     }
   });
   ref.onDispose(sub.cancel);

@@ -1129,6 +1129,60 @@ abstract class AppL10n {
   /// **'Could not share the file'**
   String get cloudShareFailed;
 
+  /// No description provided for @cloudPublicLink.
+  ///
+  /// In en, this message translates to:
+  /// **'Private link'**
+  String get cloudPublicLink;
+
+  /// No description provided for @cloudPublicCopy.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy link'**
+  String get cloudPublicCopy;
+
+  /// No description provided for @cloudPublicCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'Private link copied'**
+  String get cloudPublicCopied;
+
+  /// No description provided for @cloudPublicRevoke.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoke link'**
+  String get cloudPublicRevoke;
+
+  /// No description provided for @cloudPublicRevoked.
+  ///
+  /// In en, this message translates to:
+  /// **'Link revoked; existing downloads cannot be erased'**
+  String get cloudPublicRevoked;
+
+  /// No description provided for @cloudPublicFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not create the private link'**
+  String get cloudPublicFailed;
+
+  /// No description provided for @cloudPublicImport.
+  ///
+  /// In en, this message translates to:
+  /// **'Open private link'**
+  String get cloudPublicImport;
+
+  /// No description provided for @cloudPublicPasteHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste an xveil://cloud link'**
+  String get cloudPublicPasteHint;
+
+  /// No description provided for @cloudPublicOpenFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not open or verify the private link'**
+  String get cloudPublicOpenFailed;
+
   /// No description provided for @cloudSelect.
   ///
   /// In en, this message translates to:

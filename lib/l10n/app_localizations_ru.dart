@@ -583,6 +583,35 @@ class AppL10nRu extends AppL10n {
   String get cloudShareFailed => 'Не удалось отправить файл';
 
   @override
+  String get cloudPublicLink => 'Приватная ссылка';
+
+  @override
+  String get cloudPublicCopy => 'Копировать ссылку';
+
+  @override
+  String get cloudPublicCopied => 'Приватная ссылка скопирована';
+
+  @override
+  String get cloudPublicRevoke => 'Отозвать ссылку';
+
+  @override
+  String get cloudPublicRevoked =>
+      'Ссылка отозвана; уже скачанные копии удалить нельзя';
+
+  @override
+  String get cloudPublicFailed => 'Не удалось создать приватную ссылку';
+
+  @override
+  String get cloudPublicImport => 'Открыть приватную ссылку';
+
+  @override
+  String get cloudPublicPasteHint => 'Вставьте ссылку xveil://cloud';
+
+  @override
+  String get cloudPublicOpenFailed =>
+      'Не удалось открыть или проверить приватную ссылку';
+
+  @override
   String get cloudSelect => 'Хранить выбранным';
 
   @override

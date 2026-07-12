@@ -1,70 +1,63 @@
 # Public cloud capability links
 
-Status: design boundary for CLOUD-2B. Contact sharing is implemented separately
-through accepted 1:1 filePost/content flows. Public links MUST NOT be emulated by
-putting the owner's sovereign `node_id` in a URL.
+Status: CLOUD-2B is implemented locally and verified on macOS. Cross-device
+download, simultaneous multi-provider failover and revoke convergence still
+require a fresh writable device group and must not be described as verified.
 
 ## Privacy and authority
 
-A link is a bearer capability. Possessing it grants read access to one immutable
-cloud revision; it grants no membership, write, list, delete, identity lookup or
-other-content access. The URL fragment (never sent to an HTTP server) contains:
+A link is a bearer capability for one immutable cloud revision. It grants no
+membership, write, list, delete or identity lookup authority. The fixed binary
+`xveil://cloud/v1#…` fragment contains a random 256-bit share id and bearer key,
+the random onion-service public key, a capability-scoped app id, endpoint,
+expiry, and an AEAD-encrypted manifest. Neither the URL, public descriptor nor
+request transcript contains the owner's sovereign `node_id`.
 
-- version and random 256-bit `share_id`;
-- random 256-bit content-encryption key;
-- an ephemeral share public key / provider-discovery label;
-- encrypted, authenticated manifest metadata (name, size, plaintext cid,
-  ciphertext cid, expiry and algorithm identifiers).
+Manifest metadata and every 2 KiB content chunk use ChaCha20-Poly1305 with
+context-bound AAD. A request MAC binds the share, temporary return service/app,
+endpoint, piece, chunk and nonce. Malformed, unauthorised, expired, revoked and
+unavailable requests are dropped silently. Decrypted bytes remain in RAM and
+verified plaintext is committed only through the deniable content store.
 
-The provider advertisement is signed by the ephemeral per-share key, not the
-sovereign identity. It contains no owner node id, contacts, device count or cloud
-index. Requests prove knowledge of the capability with a transcript-bound MAC;
-invalid, expired and revoked requests are dropped silently (no read/delete
-oracle). Plaintext and decrypted key material remain in RAM only.
+Revocation first removes the local handler and encrypted active-registry row,
+then withdraws the descriptor asynchronously. The active/revoke event is also
+replicated in the signed device-group log; trusted group history can therefore
+retain the previous encrypted event until group compaction. Revocation cannot
+erase a copy already downloaded by a bearer, which the UI states explicitly.
 
-Revocation withdraws the provider advertisement, scrubs the local share key and
-stops new serves. It cannot erase bytes already downloaded by a bearer. Updating
-a file creates a new immutable capability/revision; it never silently retargets
-an old link.
+## Implemented network shape
 
-## Network shape
+veil-core/veilclient now provide random ephemeral onion identities whose seeds
+are zeroized after provisioning, blinded DHT descriptors, idempotent withdraw,
+and node-independent capability app ids derived from a high-entropy alias. The
+Flutter transport keeps capability traffic on a separate IPC client so normal
+mailbox/rendezvous work cannot head-of-line block it.
 
-The current content path opens a stream to a known holder `node_id`. Reusing it
-directly would reveal the owner's stable sovereign address in every public link.
-CLOUD-2B therefore requires a native pseudonymous provider-discovery primitive:
+An owner hosts up to six active shares on endpoint slots 40–45. A recipient
+creates a transient random return service on its own IPC connection, requests
+bounded chunks anonymously, authenticates each response, verifies the manifest
+piece hash, and only then adopts the content id without copying an existing
+blob. Retiring provider endpoints are not reused until native descriptor
+withdrawal finishes.
 
-1. `share_advertise(share_id, ephemeral_pk, expiry, endpoint)` publishes a
-   bounded DHT/anycast record without binding the public record to sovereign id.
-2. `share_resolve(share_id)` returns several live ephemeral providers so linked
-   owner devices can serve the same ciphertext and fail over.
-3. `share_stream_open(share_id, provider, proof)` opens an anonymous onion stream;
-   the application receives only the capability-scoped request and reply handle.
-4. `share_withdraw(share_id)` removes the local advert; records expire even when
-   withdrawal cannot propagate.
+Owner devices converge the encrypted share seed/link and revoke tombstone via
+the signed sovereign device-group log, and can host the same pseudonymous
+service key and app id. The current blinded DHT descriptor resolves to one
+rendezvous value, however. True simultaneous multi-candidate resolution and
+measured failover between two live owners remain a native follow-up; the present
+implementation must not claim that guarantee.
 
-FFI must expose advertise/resolve/withdraw and inbound/outbound anonymous alias
-streams. The existing IPC anycast concepts are not currently exported through
-veilclient-ffi/Flutter and are therefore not a production capability transport.
+## Verification state
 
-## Storage and replication
+Automated coverage checks strict codec limits and tamper rejection, wrong-key
+and wrong-chunk failure, silent unauthorised probes, bounded endpoint allocation,
+background withdrawal without premature slot reuse, provider rehost/revoke,
+fake-network end-to-end download, no-copy adoption, and two-owner signed-log
+active/revoke convergence.
 
-The public object is piecewise AEAD ciphertext under the link key. Each piece
-binds `share_id`, revision, piece index, total size and ciphertext manifest hash
-as AAD. Providers verify ciphertext hashes without possessing plaintext; owner
-devices may generate/repair ciphertext from the deniable cloud blob in bounded
-RAM. The encrypted share registry (share id, encrypted manifest, expiry,
-revoked-at and provider state) replicates only inside the sovereign device group.
-
-## Required verification
-
-- codec rejects wrong version, hostile size, malformed base64 and duplicate
-  fields;
-- wrong key/tamper/wrong piece index fail before plaintext release;
-- anonymous resolve/open works without owner node id on the recipient;
-- unauthorized probes are silent and indistinguishable from absent/expired;
-- revoke stops fresh downloads, while an already downloaded copy is described
-  honestly as irrevocable;
-- two owner devices advertise one share, fail over and converge revoke through
-  the signed device-group log;
-- packet/link metadata audit proves no sovereign id is present in the URL,
-  advert or capability handshake.
+The macOS fixture has verified seed zeroization, stable pseudonymous service/app
+identity, idempotent withdrawal, full host/probe/response behavior, UI entry
+points, link creation, local adoption and revoke. Phone/cross-node fetch is
+deliberately pending until the physical Android device is connected. A fresh
+writable two-owner device group is also required to verify real revoke
+convergence and to characterize the remaining DHT failover limitation.

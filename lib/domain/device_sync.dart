@@ -32,7 +32,13 @@ enum DeviceSyncKind {
   /// One device's claim that it holds and has verified an item's current cid.
   /// The applier additionally binds the claimed device id to the message
   /// author, so a member cannot manufacture another device's replica.
-  cloudReplica;
+  cloudReplica,
+
+  /// Encrypted public-capability registry row or revoke tombstone. The event
+  /// travels only inside the sovereign device group; it contains the random
+  /// per-share seed/link needed for another owner device to host the same
+  /// pseudonymous alias, never in the public DHT advertisement.
+  cloudCapability;
 
   static DeviceSyncKind? fromName(String? n) {
     for (final k in values) {

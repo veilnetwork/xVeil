@@ -1,14 +1,15 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/ids.dart';
 import '../../domain/cloud.dart';
 import '../../l10n/app_localizations.dart';
+import '../../state/cloud_capability_service.dart';
 import '../../state/cloud_service.dart';
 
 /// Personal-cloud surface. The signed device-group log owns the logical index;
@@ -25,6 +26,8 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
   bool _busy = false;
 
   CloudService? get _service => ref.read(cloudServiceProvider);
+  CloudCapabilityService? get _capabilityService =>
+      ref.read(cloudCapabilityServiceProvider);
 
   Future<void> _importFile() async {
     final service = _service;
@@ -75,6 +78,49 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
     }
   }
 
+  Future<void> _importPublicLink() async {
+    final cloud = _service;
+    final capabilities = _capabilityService;
+    if (cloud == null || capabilities == null || _busy) return;
+    final controller = TextEditingController();
+    final l = AppL10n.of(context);
+    final link = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(l.cloudPublicImport),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          minLines: 2,
+          maxLines: 5,
+          decoration: InputDecoration(hintText: l.cloudPublicPasteHint),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(l.actionCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: Text(l.cloudDownload),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (!mounted || link == null || link.isEmpty) return;
+    setState(() => _busy = true);
+    try {
+      final capability = await capabilities.download(link);
+      await cloud.adoptCapability(capability);
+      if (mounted) _notice(l.cloudImported);
+    } catch (_) {
+      if (mounted) _notice(l.cloudPublicOpenFailed);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   void _notice(String text) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -90,6 +136,12 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
       appBar: AppBar(
         title: Text(l.cloudTitle),
         actions: [
+          if (ref.watch(cloudCapabilityServiceProvider) != null)
+            IconButton(
+              tooltip: l.cloudPublicImport,
+              onPressed: _busy ? null : _importPublicLink,
+              icon: const Icon(Icons.link),
+            ),
           IconButton(
             tooltip: l.cloudVerify,
             onPressed: service == null || _busy ? null : _verifyAll,
@@ -126,6 +178,9 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
                               ),
                               item: rows[index],
                               service: service,
+                              capabilityService: ref.watch(
+                                cloudCapabilityServiceProvider,
+                              ),
                             ),
                           ),
                     loading: () =>
@@ -240,10 +295,16 @@ class _EmptyCloud extends StatelessWidget {
 }
 
 class _CloudItemTile extends StatefulWidget {
-  const _CloudItemTile({super.key, required this.item, required this.service});
+  const _CloudItemTile({
+    super.key,
+    required this.item,
+    required this.service,
+    required this.capabilityService,
+  });
 
   final CloudItem item;
   final CloudService service;
+  final CloudCapabilityService? capabilityService;
 
   @override
   State<_CloudItemTile> createState() => _CloudItemTileState();
@@ -371,6 +432,61 @@ class _CloudItemTileState extends State<_CloudItemTile> {
     );
   }
 
+  Future<void> _sharePublic() async {
+    final service = widget.capabilityService;
+    if (service == null || _working) return;
+    final l = AppL10n.of(context);
+    setState(() => _working = true);
+    try {
+      final existing = (await service.listShares())
+          .where((share) => share.itemId == widget.item.id)
+          .firstOrNull;
+      if (!mounted) return;
+      if (existing != null) {
+        final action = await showDialog<String>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(l.cloudPublicLink),
+            content: SelectableText(existing.link, maxLines: 5),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, 'revoke'),
+                child: Text(l.cloudPublicRevoke),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, 'copy'),
+                child: Text(l.cloudPublicCopy),
+              ),
+            ],
+          ),
+        );
+        if (action == 'revoke') {
+          await service.revoke(existing.shareId);
+          if (mounted) _notice(l.cloudPublicRevoked);
+          return;
+        }
+        if (action == 'copy') {
+          await Clipboard.setData(ClipboardData(text: existing.link));
+          if (mounted) _notice(l.cloudPublicCopied);
+        }
+        return;
+      }
+      final share = await service.createShare(widget.item);
+      await Clipboard.setData(ClipboardData(text: share.link));
+      if (mounted) _notice(l.cloudPublicCopied);
+    } catch (_) {
+      if (mounted) _notice(l.cloudPublicFailed);
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
+  void _notice(String text) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(text)));
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
@@ -407,6 +523,8 @@ class _CloudItemTileState extends State<_CloudItemTile> {
               unawaited(widget.service.verifyItem(widget.item, repair: true));
             case 'share':
               unawaited(_share());
+            case 'public':
+              unawaited(_sharePublic());
             case 'delete':
               unawaited(_delete());
           }
@@ -422,6 +540,8 @@ class _CloudItemTileState extends State<_CloudItemTile> {
             PopupMenuItem(value: 'verify', child: Text(l.cloudVerify)),
           if (_local == true)
             PopupMenuItem(value: 'share', child: Text(l.cloudShare)),
+          if (_local == true && widget.capabilityService != null)
+            PopupMenuItem(value: 'public', child: Text(l.cloudPublicLink)),
           PopupMenuItem(value: 'delete', child: Text(l.cloudDelete)),
         ],
       ),
