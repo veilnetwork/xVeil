@@ -150,6 +150,39 @@ This brick still does **not** encrypt/store the CRDT payload bytes named by
 Those remain CLOUD-3B2/4+; a real three-device cross-node invite/adopt run also
 remains device verification rather than a claimed unit-test property.
 
+## Implemented: CLOUD-3B2/4 encrypted payload and invitation UI
+
+Every signed document operation now has exactly one separately serialized
+ChaCha20-Poly1305 ciphertext. Its random nonce, ciphertext and authentication
+tag are domain-separated and hashed into the operation's signed `payloadHash`.
+AEAD associated data binds the document id, membership epoch, author, author
+sequence and previous hash, operation id, sorted parents, codec operation type
+and timestamp. A ciphertext therefore cannot be moved to another operation or
+epoch even if its bytes are copied intact.
+
+Cleartext is capped at 1 MiB. Replication also caps the complete encoded frame
+and aggregate sealed payload bytes beneath the existing bounded document
+reassembly allocation. Frame and deniable-store format v2 require one unique,
+hash-matching payload per accepted operation. A v1 empty log remains readable;
+an old metadata-only operation is not silently presented as decryptable data.
+
+After the signed log and membership fold pass, ingest opens any missing local
+epoch keys and authenticates every operation from every epoch in which the
+local identity was a member before committing the merged bundle. Adoption does
+the same only after the user's explicit action. An invite remains inert while
+pending, and a signed but AEAD-invalid payload cannot poison durable history.
+Temporary validation plaintext and loaded epoch-key copies are wiped in RAM.
+
+The Storage screen now exposes pending shared-document invitations with
+explicit accept and reject actions. The list follows the active deniable
+identity and live service changes. Its narrow mobile layout is covered at
+390x844 in Russian; invitation rows stack their actions and the empty cloud
+surface scrolls when invitations reduce available height.
+
+This brick does **not** add owner-side document creation, grant/setRole/revoke/
+rotate controls, rich-text CRDT materialization, or claim a real cross-node
+encrypted-operation run. Those are the next service/UI and CRDT bricks.
+
 ## Why ordinary `GroupMessage` is not sufficient yet
 
 The current group message signs `groupId/author/seq/body/policyVersion/time`.

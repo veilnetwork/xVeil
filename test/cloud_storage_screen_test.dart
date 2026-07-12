@@ -7,11 +7,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/cloud.dart';
+import 'package:xveil/domain/cloud_document.dart';
+import 'package:xveil/domain/cloud_document_replication.dart';
 import 'package:xveil/domain/content_manifest.dart';
 import 'package:xveil/domain/device_sync.dart';
 import 'package:xveil/features/storage/cloud_storage_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/cloud_service.dart';
+import 'package:xveil/state/cloud_document_envelope_service.dart';
+import 'package:xveil/state/cloud_document_providers.dart';
+import 'package:xveil/state/cloud_document_replication_service.dart';
+import 'package:xveil/state/cloud_document_store.dart';
+import 'package:xveil/data/transport/veil_mailbox.dart';
 
 import 'support/fake_hv_container.dart';
 
@@ -60,7 +67,98 @@ Future<void> _pumpTransition(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 500));
 }
 
+String _hexFill(int byte) => List.filled(
+  32,
+  byte,
+).map((value) => value.toRadixString(16).padLeft(2, '0')).join();
+
 void main() {
+  testWidgets('shared-document invite stays explicit and can be rejected', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final cloud = CloudService(
+      storage,
+      _Sync(),
+      contentReceived: const Stream.empty(),
+      integrityChecks: false,
+    );
+    final documentStore = CloudDocumentStore(storage);
+    final owner = NodeId(Uint8List(32)..[0] = 9);
+    final documentId = NodeId(Uint8List(32)..[0] = 10);
+    final root = CloudDocumentRoot(
+      documentId: documentId,
+      owner: owner,
+      ownerPubKey: Uint8List(32),
+      kind: CloudDocumentKind.note,
+      codec: 'xveil.note.rga.v1',
+      epochKeyCommitment: _hexFill(0x11),
+      epochEnvelopeHash: _hexFill(0x22),
+      controlLogRoot: _hexFill(0x33),
+      createdAtMs: 1,
+      signature: Uint8List(64),
+    );
+    await documentStore.savePendingInvite(
+      CloudDocumentPendingInvite(
+        sender: owner,
+        receivedAtMs: 2,
+        frame: CloudDocumentFrame(
+          kind: CloudDocumentFrameKind.invite,
+          root: root,
+          controls: const [],
+          operations: const [],
+          envelopes: const [],
+        ),
+      ),
+    );
+    final documents = CloudDocumentReplicationService(
+      localNodeId: _Sync().selfId,
+      ourCertVersion: 0,
+      store: documentStore,
+      envelopes: CloudDocumentEnvelopeService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      ),
+      sendFrame: (_, _, _) async {},
+      verifyRoot: (_) => true,
+      verifyControl: (_) => true,
+      verifyOperation: (_) => true,
+    );
+    addTearDown(() {
+      unawaited(documents.close());
+      unawaited(cloud.close());
+      unawaited(storage.close());
+    });
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          cloudServiceProvider.overrideWithValue(cloud),
+          cloudDocumentReplicationServiceProvider.overrideWithValue(documents),
+        ],
+        child: const MaterialApp(
+          locale: Locale('ru'),
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: CloudStorageScreen(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.text('Приглашения в общие документы (1)'), findsOneWidget);
+    expect(find.textContaining('Приглашение от 09000000'), findsOneWidget);
+    expect(await documentStore.load(documentId.hex), isNull);
+
+    await tester.tap(find.text('Отклонить'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.text('Приглашения в общие документы (1)'), findsNothing);
+    expect(await documentStore.listPendingInviteIds(), isEmpty);
+  });
+
   testWidgets('personal cloud note opens, edits, and saves through the UI', (
     tester,
   ) async {

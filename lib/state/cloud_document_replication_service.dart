@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -5,6 +6,7 @@ import '../core/ids.dart';
 import '../domain/cloud_document.dart';
 import '../domain/cloud_document_envelope.dart';
 import '../domain/cloud_document_replication.dart';
+import '../domain/cloud_document_payload.dart';
 import 'cloud_document_crypto.dart';
 import 'cloud_document_envelope_service.dart';
 import 'cloud_document_store.dart';
@@ -59,6 +61,16 @@ class CloudDocumentReplicationService {
   final bool Function(CloudDocumentControlEntry entry) _verifyControl;
   final bool Function(CloudDocumentOperation operation) _verifyOperation;
   final DateTime Function() _now;
+  final StreamController<void> _changes = StreamController<void>.broadcast();
+
+  Stream<void> get changes => _changes.stream;
+
+  Future<void> close() async {
+    // Riverpod/widget listeners can still be paused while their container is
+    // being torn down. No producer runs after provider disposal, so initiate
+    // completion without waiting for those listeners to cancel.
+    unawaited(_changes.close());
+  }
 
   CloudDocumentFoldResult _fold(CloudDocumentFrame frame) =>
       foldCloudDocumentLog(
@@ -80,6 +92,21 @@ class CloudDocumentReplicationService {
         fold.withheldOperations.isNotEmpty ||
         fold.incompleteEpochs.isNotEmpty) {
       return false;
+    }
+    final payloads = <String, CloudDocumentEncryptedPayload>{};
+    for (final payload in frame.payloads) {
+      if (payloads.containsKey(payload.operationId)) return false;
+      payloads[payload.operationId] = payload;
+    }
+    if (payloads.length != fold.acceptedOperations.length) return false;
+    for (final operation in fold.acceptedOperations) {
+      final payload = payloads[operation.operationId];
+      if (payload == null ||
+          payload.documentId != operation.documentId ||
+          payload.membershipEpoch != operation.membershipEpoch ||
+          payload.payloadHash != operation.payloadHash) {
+        return false;
+      }
     }
     final byEpoch = <int, String>{};
     for (final envelope in frame.envelopes) {
@@ -143,6 +170,9 @@ class CloudDocumentReplicationService {
       };
       try {
         await _openMissingKeys(merged, fold, keys);
+        if (!await _validateAccessiblePayloads(merged, fold, keys)) {
+          return false;
+        }
         await _store.save(
           CloudDocumentStoredBundle(
             root: merged.root,
@@ -150,6 +180,7 @@ class CloudDocumentReplicationService {
             operations: fold.acceptedOperations,
             envelopes: merged.envelopes,
             localEpochKeys: keys,
+            payloads: merged.payloads,
           ),
         );
       } finally {
@@ -185,6 +216,7 @@ class CloudDocumentReplicationService {
         frame: frame,
       ),
     );
+    _changes.add(null);
     return true;
   }
 
@@ -204,6 +236,7 @@ class CloudDocumentReplicationService {
     try {
       await _openMissingKeys(frame, fold, keys);
       if (!keys.containsKey(latest)) return false;
+      if (!await _validateAccessiblePayloads(frame, fold, keys)) return false;
       await _store.save(
         CloudDocumentStoredBundle(
           root: frame.root,
@@ -211,9 +244,11 @@ class CloudDocumentReplicationService {
           operations: fold.acceptedOperations,
           envelopes: frame.envelopes,
           localEpochKeys: keys,
+          payloads: frame.payloads,
         ),
       );
       await _store.removePendingInvite(documentId);
+      _changes.add(null);
       return true;
     } catch (_) {
       return false;
@@ -221,6 +256,44 @@ class CloudDocumentReplicationService {
       for (final key in keys.values) {
         key.fillRange(0, key.length, 0);
       }
+    }
+  }
+
+  Future<void> dismissInvite(String documentId) async {
+    await _store.removePendingInvite(documentId);
+    _changes.add(null);
+  }
+
+  /// Decrypts one authenticated operation entirely in RAM. The returned bytes
+  /// are owned by the caller and must never be written outside the deniable
+  /// content store.
+  Future<Uint8List?> decryptOperation(
+    String documentId,
+    String operationId,
+  ) async {
+    final stored = await _store.load(documentId);
+    if (stored == null) return null;
+    try {
+      CloudDocumentOperation? operation;
+      for (final candidate in stored.operations) {
+        if (candidate.operationId == operationId) operation = candidate;
+      }
+      CloudDocumentEncryptedPayload? payload;
+      for (final candidate in stored.payloads) {
+        if (candidate.operationId == operationId) payload = candidate;
+      }
+      if (operation == null || payload == null) return null;
+      final key = stored.localEpochKeys[operation.membershipEpoch];
+      if (key == null) return null;
+      return await decryptCloudDocumentPayload(
+        operation: operation,
+        payload: payload,
+        epochKey: key,
+      );
+    } catch (_) {
+      return null;
+    } finally {
+      stored.wipeLocalEpochKeys();
     }
   }
 
@@ -245,6 +318,38 @@ class CloudDocumentReplicationService {
       keys[envelope.epoch] = Uint8List.fromList(opened.key);
       opened.key.fillRange(0, opened.key.length, 0);
     }
+  }
+
+  Future<bool> _validateAccessiblePayloads(
+    CloudDocumentFrame frame,
+    CloudDocumentFoldResult fold,
+    Map<int, Uint8List> keys,
+  ) async {
+    final byId = {
+      for (final payload in frame.payloads) payload.operationId: payload,
+    };
+    for (final operation in fold.acceptedOperations) {
+      final epoch = fold.epochs[operation.membershipEpoch];
+      if (epoch == null || !epoch.members.containsKey(localNodeId.hex)) {
+        continue;
+      }
+      final key = keys[operation.membershipEpoch];
+      final payload = byId[operation.operationId];
+      if (key == null || payload == null) return false;
+      Uint8List? clear;
+      try {
+        clear = await decryptCloudDocumentPayload(
+          operation: operation,
+          payload: payload,
+          epochKey: key,
+        );
+      } catch (_) {
+        return false;
+      } finally {
+        clear?.fillRange(0, clear.length, 0);
+      }
+    }
+    return true;
   }
 
   Future<void> sendInvite(NodeId peer, CloudDocumentStoredBundle bundle) async {
@@ -290,6 +395,7 @@ class CloudDocumentReplicationService {
     controls: bundle.controls,
     operations: bundle.operations,
     envelopes: bundle.envelopes,
+    payloads: bundle.payloads,
   );
 
   CloudDocumentFrame? _merge(
@@ -314,12 +420,19 @@ class CloudDocumentReplicationService {
       if (prior != null && prior.bundleHash != entry.bundleHash) return null;
       envelopes[entry.epoch] = entry;
     }
+    final payloads = <String, CloudDocumentEncryptedPayload>{};
+    for (final entry in [...existing.payloads, ...incoming.payloads]) {
+      final prior = payloads[entry.operationId];
+      if (prior != null && prior.payloadHash != entry.payloadHash) return null;
+      payloads[entry.operationId] = entry;
+    }
     return CloudDocumentFrame(
       kind: CloudDocumentFrameKind.snapshot,
       root: existing.root,
       controls: controls.values.toList(),
       operations: operations.values.toList(),
       envelopes: envelopes.values.toList(),
+      payloads: payloads.values.toList(),
     );
   }
 }
