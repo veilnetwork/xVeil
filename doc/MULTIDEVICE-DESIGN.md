@@ -1,7 +1,8 @@
 # Multi-device (design)
 
-Status: v1 sync and guided production-safe sovereign link/re-adopt shipped;
-all-devices-lost recovery certificate remains.
+Status: v1 sync, guided production-safe sovereign link/re-adopt and
+node-preserving all-devices-lost recovery are shipped. Padding/registry
+privacy remains a separate follow-up.
 Agreed decisions (2026-07-09, ROADMAP «Эпик: мультиустройства») are
 restated here and mapped onto the shipped groups foundation.
 
@@ -82,9 +83,13 @@ UX ANSWERS (user, 2026-07-11) — the flow above amended accordingly:
   key — without bloating the phrase. Linking rules:
   - an EXISTING device is available → linking goes ONLY through it
     (phrase entered there to unlock the local sovereign bundle);
-  - NO device available (all lost) → a new device can join via the
-    seed phrase itself, or via a pre-issued CERTIFICATE (delegation
-    artifact — format TBD in the implementation brick).
+  - NO device available (all lost) → preserving the SAME sovereign requires
+    a pre-issued `XVRC` certificate plus its separately stored recovery code.
+    XVRC is an encrypted portable backup of the complete Ed25519+Falcon512
+    keypair, not a bearer delegate; opening it recomputes the node id from the
+    full public key and must match the AEAD-bound public header. The seed phrase
+    alone cannot reconstruct the random Falcon half: without XVRC it can only
+    bootstrap a NEW sovereign bundle with a different full public key/node id.
 * Sovereign gate covers BOTH addMember and removeMember (a stolen
   device can neither admit an attacker nor revoke the victim's
   devices; revoking the stolen one requires the phrase — which is
@@ -154,5 +159,7 @@ the message.
    v2 manifest + owner-only add/revoke + legacy remint; ✅ encrypted sovereign
    blob replicated to every adopted device, Falcon/hybrid signer/verifier and
    blob-hash binding in the manifest; ✅ two-phase QR/UI guided link/re-adopt
-   with an exact-manifest pending-admission gate; ⏳ pre-issued recovery
-   certificate format for the all-devices-lost path.
+   with an exact-manifest pending-admission gate; ✅ pre-issued `XVRC v1`
+   recovery credential preserving the exact full sovereign public key/node id,
+   with bounded Argon2id+ChaCha20-Poly1305, independent recovery code,
+   fresh-registry-only adoption and rollback on partial failure.
