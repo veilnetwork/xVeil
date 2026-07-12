@@ -20,7 +20,8 @@ class CloudItem {
     required this.revision,
     required this.deleted,
     this.mime,
-  });
+    this.parentContentIds = const [],
+  }) : assert(parentContentIds.length <= maxNoteParents);
 
   final String id;
   final CloudItemKind kind;
@@ -32,6 +33,13 @@ class CloudItem {
   final int modifiedAtMs;
   final int revision;
   final bool deleted;
+
+  /// Immediate DAG parents for a whole-note revision. Empty on files, legacy
+  /// rows, and a note's root revision. Multiple parents mean the author
+  /// explicitly merged every listed offline head.
+  final List<String> parentContentIds;
+
+  static const maxNoteParents = 32;
 
   DeviceSyncEvent toEvent() => DeviceSyncEvent(
     kind: DeviceSyncKind.cloudEntry,
@@ -47,6 +55,7 @@ class CloudItem {
             'created': createdAtMs,
             'rev': revision,
             if (mime != null) 'mime': mime,
+            if (parentContentIds.isNotEmpty) 'parents': parentContentIds,
           },
   );
 
@@ -91,6 +100,21 @@ class CloudItem {
     final size = p['size'];
     final created = p['created'];
     final mime = p['mime'];
+    final rawParents = p['parents'];
+    final parents = <String>[];
+    if (rawParents != null) {
+      if (rawParents is! List || rawParents.length > maxNoteParents) {
+        return null;
+      }
+      for (final parent in rawParents) {
+        if (parent is! String ||
+            !_contentId.hasMatch(parent) ||
+            parents.contains(parent)) {
+          return null;
+        }
+        parents.add(parent);
+      }
+    }
     if (kind == null ||
         name is! String ||
         name.isEmpty ||
@@ -106,6 +130,13 @@ class CloudItem {
         (mime != null && (mime is! String || mime.length > 255))) {
       return null;
     }
+    if (parents.isNotEmpty &&
+        (kind != CloudItemKind.note || parents.contains(cid))) {
+      return null;
+    }
+    for (var index = 1; index < parents.length; index++) {
+      if (parents[index - 1].compareTo(parents[index]) >= 0) return null;
+    }
     return CloudItem(
       id: event.key,
       kind: kind,
@@ -117,6 +148,7 @@ class CloudItem {
       modifiedAtMs: event.tsMs,
       revision: revision,
       deleted: false,
+      parentContentIds: List.unmodifiable(parents),
     );
   }
 
@@ -148,7 +180,10 @@ class CloudReplicaClaim {
   final int verifiedAtMs;
   final int size;
 
-  String get key => '$itemId|${deviceId.hex}';
+  /// v2 convergence key includes cid so one device can truthfully advertise
+  /// several unresolved note heads. The parser still accepts legacy
+  /// `item|device` events written before branch preservation.
+  String get key => '$itemId|${deviceId.hex}|$contentId';
 
   DeviceSyncEvent toEvent() => DeviceSyncEvent(
     kind: DeviceSyncKind.cloudReplica,
@@ -164,10 +199,10 @@ class CloudReplicaClaim {
 
   static CloudReplicaClaim? fromEvent(DeviceSyncEvent event, {NodeId? author}) {
     if (event.kind != DeviceSyncKind.cloudReplica) return null;
-    final separator = event.key.lastIndexOf('|');
-    if (separator <= 0) return null;
-    final itemId = event.key.substring(0, separator);
-    final deviceHex = event.key.substring(separator + 1);
+    final parts = event.key.split('|');
+    if (parts.length != 2 && parts.length != 3) return null;
+    final itemId = parts[0];
+    final deviceHex = parts[1];
     if (!CloudItem._validId(itemId) || deviceHex.length != 64) return null;
     final p = event.payload;
     if (p['device'] != deviceHex ||
@@ -180,6 +215,7 @@ class CloudReplicaClaim {
         event.tsMs < 1) {
       return null;
     }
+    if (parts.length == 3 && parts[2] != p['cid']) return null;
     final device = NodeId.fromHex(deviceHex);
     if (author != null && author != device) return null;
     return CloudReplicaClaim(
@@ -253,6 +289,74 @@ Map<String, CloudItem> foldCloudItems(Iterable<DeviceSyncEvent> events) {
     if (item != null) items[item.id] = item;
   }
   return items;
+}
+
+/// Fold every parent-aware whole-note revision into its unresolved DAG heads.
+/// A cid is superseded only by a strictly higher revision that names it as an
+/// immediate parent. Two devices editing the same parent therefore yield two
+/// durable heads instead of whichever LWW timestamp happened to win.
+///
+/// Legacy note rows carried no parents. Until the first parent-aware revision
+/// exists for an item they retain the old single-winner behavior, avoiding a
+/// false conflict explosion during migration.
+Map<String, List<CloudItem>> foldCloudNoteHeads(
+  Iterable<DeviceSyncEvent> events,
+) {
+  final source = events.toList();
+  final winners = foldCloudItems(source);
+  final byItem =
+      <String, Map<String, ({CloudItem item, DeviceSyncEvent event})>>{};
+  for (final event in source) {
+    final item = CloudItem.fromEvent(event);
+    if (item == null || item.deleted || item.kind != CloudItemKind.note) {
+      continue;
+    }
+    final cid = item.contentId!;
+    final versions = byItem.putIfAbsent(item.id, () => {});
+    final previous = versions[cid];
+    if (previous == null || isNewerDeviceSync(event, previous.event)) {
+      versions[cid] = (item: item, event: event);
+    }
+  }
+
+  final result = <String, List<CloudItem>>{};
+  for (final entry in byItem.entries) {
+    final winner = winners[entry.key];
+    if (winner == null || winner.deleted || winner.kind != CloudItemKind.note) {
+      continue;
+    }
+    final versions = entry.value;
+    if (!versions.values.any(
+      (version) => version.item.parentContentIds.isNotEmpty,
+    )) {
+      result[entry.key] = [winner];
+      continue;
+    }
+    final superseded = <String>{};
+    for (final child in versions.values.map((version) => version.item)) {
+      for (final parentCid in child.parentContentIds) {
+        final parent = versions[parentCid]?.item;
+        if (parent != null && parent.revision < child.revision) {
+          superseded.add(parentCid);
+        }
+      }
+    }
+    final heads =
+        [
+          for (final version in versions.values)
+            if (!superseded.contains(version.item.contentId)) version.item,
+        ]..sort((a, b) {
+          final revision = b.revision.compareTo(a.revision);
+          if (revision != 0) return revision;
+          final modified = b.modifiedAtMs.compareTo(a.modifiedAtMs);
+          if (modified != 0) return modified;
+          return a.contentId!.compareTo(b.contentId!);
+        });
+    if (heads.isNotEmpty) {
+      result[entry.key] = List.unmodifiable(heads);
+    }
+  }
+  return result;
 }
 
 Map<String, CloudReplicaClaim> foldCloudReplicaClaims(

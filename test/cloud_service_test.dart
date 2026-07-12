@@ -106,6 +106,7 @@ void main() {
     final edited = await service.saveTextNote(
       itemId: created.id,
       expectedRevision: created.revision,
+      expectedContentId: created.contentId,
       title: 'Renamed note',
       body: 'second body',
     );
@@ -145,6 +146,7 @@ void main() {
       final current = await service.saveTextNote(
         itemId: original.id,
         expectedRevision: original.revision,
+        expectedContentId: original.contentId,
         title: 'Note',
         body: 'v2 remote',
       );
@@ -153,6 +155,7 @@ void main() {
         service.saveTextNote(
           itemId: original.id,
           expectedRevision: original.revision,
+          expectedContentId: original.contentId,
           title: 'Note',
           body: 'stale local',
         ),
@@ -211,14 +214,139 @@ void main() {
     expect(await storage.hasFile(oldCid), isFalse);
     expect(await storage.hasFile('mf:$oldCid'), isFalse);
     final claims = foldCloudReplicaClaims(sync.rows);
-    final localClaim = claims['${original.id}|${sync.selfId.hex}'];
-    expect(localClaim?.contentId, oldCid);
-    expect(localClaim?.present, isFalse);
+    final localClaims = claims.values
+        .where(
+          (claim) =>
+              claim.itemId == original.id &&
+              claim.deviceId == sync.selfId &&
+              claim.contentId == oldCid,
+        )
+        .toList();
+    expect(localClaims, hasLength(1));
+    final localClaim = localClaims.single;
+    expect(localClaim.contentId, oldCid);
+    expect(localClaim.present, isFalse);
 
     await service.close();
     await received.close();
     await storage.close();
   });
+
+  test(
+    'concurrent note heads survive reconcile/restart and merge explicitly',
+    () async {
+      final container = FakeHvContainer();
+      final storage = container.storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final sync = _FakeSync(_id(1));
+      final received = StreamController<String>.broadcast();
+      var clock = 4000;
+      final service = CloudService(
+        storage,
+        sync,
+        contentReceived: received.stream,
+        now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+        newId: () => 'branch-note',
+        integrityChecks: false,
+      );
+      final root = await service.saveTextNote(title: 'Note', body: 'root');
+      final left = await service.saveTextNote(
+        itemId: root.id,
+        expectedRevision: root.revision,
+        expectedContentId: root.contentId,
+        title: 'Note',
+        body: 'left branch',
+      );
+      final rightBytes = Uint8List.fromList(utf8.encode('right branch'));
+      final rightManifest = ContentManifest.fromBytes('Note', rightBytes);
+      await storage.storeFile(
+        rightManifest.contentId,
+        rightBytes,
+        name: 'Note',
+      );
+      await storage.storeFile(
+        'mf:${rightManifest.contentId}',
+        Uint8List.fromList(utf8.encode(jsonEncode(rightManifest.toJson()))),
+      );
+      final right = CloudItem(
+        id: root.id,
+        kind: CloudItemKind.note,
+        name: 'Note',
+        contentId: rightManifest.contentId,
+        size: rightBytes.length,
+        mime: 'text/plain; charset=utf-8',
+        createdAtMs: root.createdAtMs,
+        modifiedAtMs: left.modifiedAtMs + 100,
+        revision: 2,
+        deleted: false,
+        parentContentIds: [root.contentId!],
+      );
+      sync.rows.add((event: right.toEvent(), author: _id(2)));
+      sync.controller.add(null);
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+
+      final current = (await service.listItems()).single;
+      expect(current.contentId, right.contentId);
+      expect(service.noteHeads(current).map((item) => item.contentId), {
+        left.contentId,
+        right.contentId,
+      });
+      expect(await storage.hasFile(left.contentId!), isTrue);
+      expect(await storage.hasFile(right.contentId!), isTrue);
+      await expectLater(
+        service.saveTextNote(
+          itemId: left.id,
+          expectedRevision: left.revision,
+          expectedContentId: left.contentId,
+          title: 'Note',
+          body: 'must not bypass the equal-revision conflict',
+        ),
+        throwsA(
+          isA<CloudEditConflict>().having(
+            (error) => error.current.contentId,
+            'current cid',
+            right.contentId,
+          ),
+        ),
+      );
+
+      await service.close();
+      await received.close();
+      final sync2 = _FakeSync(_id(1), seed: sync.rows);
+      final received2 = StreamController<String>.broadcast();
+      final restarted = CloudService(
+        storage,
+        sync2,
+        contentReceived: received2.stream,
+        now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+        integrityChecks: false,
+      );
+      final reloaded = (await restarted.listItems()).single;
+      final heads = restarted.noteHeads(reloaded);
+      expect(heads.map((item) => item.contentId), {
+        left.contentId,
+        right.contentId,
+      });
+
+      final merged = await restarted.saveTextNote(
+        itemId: reloaded.id,
+        expectedRevision: reloaded.revision,
+        expectedContentId: reloaded.contentId,
+        mergeParentContentIds: heads.map((item) => item.contentId!),
+        title: 'Note',
+        body: 'merged body',
+      );
+      expect(merged.revision, 3);
+      expect(restarted.noteHeads(merged).single.contentId, merged.contentId);
+      expect(await restarted.loadTextNote(merged), 'merged body');
+      expect(await storage.hasFile(left.contentId!), isFalse);
+      expect(await storage.hasFile(right.contentId!), isFalse);
+
+      await restarted.close();
+      await received2.close();
+      await storage.close();
+    },
+  );
 
   test('text note bounds are enforced before storage mutation', () async {
     final container = FakeHvContainer();

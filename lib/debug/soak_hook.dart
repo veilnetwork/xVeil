@@ -1440,6 +1440,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         'cid': item.contentId,
         'size': item.size,
         'revision': item.revision,
+        'heads': item.kind == CloudItemKind.note
+            ? service.noteHeads(item).length
+            : 1,
         'deleted': item.deleted,
         'local': await service.isLocal(item),
         'replicas': service.replicaCount(item),
@@ -1466,6 +1469,10 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       final item = await service.saveTextNote(
         itemId: q['id'],
         expectedRevision: int.tryParse(q['revision'] ?? ''),
+        expectedContentId: q['cid'],
+        mergeParentContentIds: q['parents']
+            ?.split(',')
+            .where((value) => value.isNotEmpty),
         title: title,
         body: body,
       );
@@ -1475,6 +1482,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         'cid': item.contentId,
         'size': item.size,
         'revision': item.revision,
+        'heads': service.noteHeads(item).length,
       });
     } on CloudEditConflict catch (conflict) {
       return _json(req, {
@@ -1510,6 +1518,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         'ok': true,
         'id': item.id,
         'revision': item.revision,
+        'heads': service.noteHeads(item).length,
         'bytes': bytes.length,
         'sha256': crypto.sha256.convert(bytes).toString(),
       });

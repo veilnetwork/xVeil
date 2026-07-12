@@ -19,6 +19,25 @@ CloudItem _item({int modified = 10, int revision = 1}) => CloudItem(
   deleted: false,
 );
 
+CloudItem _note(
+  String byte, {
+  int modified = 10,
+  int revision = 1,
+  List<String> parents = const [],
+}) => CloudItem(
+  id: 'note_1',
+  kind: CloudItemKind.note,
+  name: 'Note',
+  contentId: List.filled(64, byte).join(),
+  size: 4,
+  mime: 'text/plain; charset=utf-8',
+  createdAtMs: 5,
+  modifiedAtMs: modified,
+  revision: revision,
+  deleted: false,
+  parentContentIds: parents,
+);
+
 void main() {
   test('cloud item round-trips through the device-sync vocabulary', () {
     final item = _item();
@@ -60,6 +79,124 @@ void main() {
     );
   });
 
+  test('concurrent parent-bound note edits remain as two DAG heads', () {
+    final root = _note('a');
+    final left = _note(
+      'b',
+      modified: 20,
+      revision: 2,
+      parents: [root.contentId!],
+    );
+    final right = _note(
+      'c',
+      modified: 30,
+      revision: 2,
+      parents: [root.contentId!],
+    );
+    final heads = foldCloudNoteHeads([
+      root.toEvent(),
+      right.toEvent(),
+      left.toEvent(),
+    ])['note_1']!;
+    expect(heads.map((item) => item.contentId), {
+      left.contentId,
+      right.contentId,
+    });
+  });
+
+  test('a higher revision naming every head collapses a note conflict', () {
+    final root = _note('a');
+    final left = _note(
+      'b',
+      modified: 20,
+      revision: 2,
+      parents: [root.contentId!],
+    );
+    final right = _note(
+      'c',
+      modified: 30,
+      revision: 2,
+      parents: [root.contentId!],
+    );
+    final merged = _note(
+      'd',
+      modified: 40,
+      revision: 3,
+      parents: [left.contentId!, right.contentId!],
+    );
+    final heads = foldCloudNoteHeads([
+      root.toEvent(),
+      left.toEvent(),
+      right.toEvent(),
+      merged.toEvent(),
+    ])['note_1']!;
+    expect(heads.single.contentId, merged.contentId);
+  });
+
+  test('legacy parentless notes retain their single LWW winner', () {
+    final older = _note('a', modified: 10, revision: 1);
+    final newer = _note('b', modified: 20, revision: 2);
+    final heads = foldCloudNoteHeads([
+      newer.toEvent(),
+      older.toEvent(),
+    ])['note_1']!;
+    expect(heads.single.contentId, newer.contentId);
+  });
+
+  test(
+    'note parents are strict, unique, bounded, and cannot self-reference',
+    () {
+      final note = _note('a');
+      final event = note.toEvent();
+      expect(
+        CloudItem.fromEvent(
+          DeviceSyncEvent(
+            kind: event.kind,
+            key: event.key,
+            tsMs: event.tsMs,
+            payload: {
+              ...event.payload,
+              'parents': [note.contentId],
+            },
+          ),
+        ),
+        isNull,
+      );
+      final parentA = List.filled(64, 'a').join();
+      final parentB = List.filled(64, 'b').join();
+      for (final parents in [
+        [parentA, parentA],
+        [parentB, parentA],
+      ]) {
+        expect(
+          CloudItem.fromEvent(
+            DeviceSyncEvent(
+              kind: event.kind,
+              key: event.key,
+              tsMs: event.tsMs,
+              payload: {...event.payload, 'parents': parents},
+            ),
+          ),
+          isNull,
+        );
+      }
+      expect(
+        CloudItem.fromEvent(
+          DeviceSyncEvent(
+            kind: event.kind,
+            key: event.key,
+            tsMs: event.tsMs,
+            payload: {
+              ...event.payload,
+              'parents': List.filled(CloudItem.maxNoteParents + 1, 'bad'),
+            },
+          ),
+        ),
+        isNull,
+      );
+    },
+  );
+
   test('replica claim is bound to its signed message author', () {
     final claim = CloudReplicaClaim(
       itemId: 'item_1',
@@ -76,6 +213,34 @@ void main() {
     expect(
       CloudReplicaClaim.fromEvent(claim.toEvent(), author: _id(2)),
       isNull,
+    );
+    final event = claim.toEvent();
+    expect(
+      CloudReplicaClaim.fromEvent(
+        DeviceSyncEvent(
+          kind: event.kind,
+          key:
+              '${claim.itemId}|${claim.deviceId.hex}|'
+              '${List.filled(64, 'a').join()}',
+          tsMs: event.tsMs,
+          payload: event.payload,
+        ),
+        author: _id(1),
+      ),
+      isNull,
+    );
+    expect(
+      CloudReplicaClaim.fromEvent(
+        DeviceSyncEvent(
+          kind: event.kind,
+          key: '${claim.itemId}|${claim.deviceId.hex}',
+          tsMs: event.tsMs,
+          payload: event.payload,
+        ),
+        author: _id(1),
+      ),
+      isNotNull,
+      reason: 'legacy two-part claim keys remain readable',
     );
   });
 

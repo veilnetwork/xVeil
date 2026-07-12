@@ -687,6 +687,33 @@ class AppL10nEn extends AppL10n {
   String get cloudNoteSaveMerged => 'Save merged version';
 
   @override
+  String cloudNoteBranches(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count offline versions',
+      one: '1 version',
+    );
+    return '$_temp0 preserved';
+  }
+
+  @override
+  String get cloudNoteReviewBranches => 'Review versions';
+
+  @override
+  String cloudNoteVersion(int number) {
+    return 'Preserved version $number';
+  }
+
+  @override
+  String get cloudNoteBranchesUnavailable =>
+      'Download every preserved version before merging';
+
+  @override
+  String get cloudNoteMergeReady =>
+      'Merge prepared — save the note to resolve every version';
+
+  @override
   String get settingsCatAccount => 'Identities & account';
 
   @override

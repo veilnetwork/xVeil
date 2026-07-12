@@ -29,7 +29,8 @@ enum DeviceSyncKind {
   /// the content-addressed store; this is the replicated index row.
   cloudEntry,
 
-  /// One device's claim that it holds and has verified an item's current cid.
+  /// One device's claim that it holds and has verified one item cid. The v2
+  /// convergence key includes cid so concurrent note heads can coexist.
   /// The applier additionally binds the claimed device id to the message
   /// author, so a member cannot manufacture another device's replica.
   cloudReplica,

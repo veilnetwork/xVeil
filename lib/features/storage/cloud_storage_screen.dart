@@ -370,6 +370,7 @@ class _CloudItemTile extends StatefulWidget {
 class _CloudItemTileState extends State<_CloudItemTile> {
   bool _working = false;
   bool? _local;
+  CloudItem? _localNoteHead;
 
   @override
   void initState() {
@@ -387,8 +388,18 @@ class _CloudItemTileState extends State<_CloudItemTile> {
   }
 
   Future<void> _refresh() async {
-    final local = await widget.service.isLocal(widget.item);
-    if (mounted) setState(() => _local = local);
+    final localHead = widget.item.kind == CloudItemKind.note
+        ? await widget.service.localNoteHead(widget.item)
+        : null;
+    final local = widget.item.kind == CloudItemKind.note
+        ? localHead != null
+        : await widget.service.isLocal(widget.item);
+    if (mounted) {
+      setState(() {
+        _local = local;
+        _localNoteHead = localHead;
+      });
+    }
   }
 
   Future<void> _fetch() async {
@@ -407,8 +418,10 @@ class _CloudItemTileState extends State<_CloudItemTile> {
     await Navigator.push<CloudItem>(
       context,
       MaterialPageRoute(
-        builder: (context) =>
-            CloudNoteEditorScreen(service: widget.service, item: widget.item),
+        builder: (context) => CloudNoteEditorScreen(
+          service: widget.service,
+          item: _localNoteHead ?? widget.item,
+        ),
       ),
     );
   }
@@ -562,6 +575,9 @@ class _CloudItemTileState extends State<_CloudItemTile> {
     final selected = widget.service.profile.selectedItemIds.contains(
       widget.item.id,
     );
+    final noteHeads = widget.item.kind == CloudItemKind.note
+        ? widget.service.noteHeads(widget.item).length
+        : 1;
     return ListTile(
       leading: _working
           ? const SizedBox.square(
@@ -583,7 +599,8 @@ class _CloudItemTileState extends State<_CloudItemTile> {
       subtitle: Text(
         '${_formatBytes(widget.item.size)} · '
         '${_local == true ? l.cloudLocal : l.cloudRemote} · '
-        '${l.cloudReplicas(replicas)}',
+        '${l.cloudReplicas(replicas)}'
+        '${noteHeads > 1 ? ' · ${l.cloudNoteBranches(noteHeads)}' : ''}',
       ),
       onTap: widget.item.kind == CloudItemKind.note && _local == true
           ? _openNote
