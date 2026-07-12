@@ -15,6 +15,7 @@ import 'package:uuid/uuid.dart';
 
 import 'providers.dart';
 import 'sticker_message.dart';
+import 'sticker_image.dart';
 
 const String _manifestKey = 'stickers.v1';
 String stickerFileKey(String itemId) => 'sticker:$itemId';

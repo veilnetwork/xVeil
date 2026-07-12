@@ -15,35 +15,11 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+export '../domain/media_file_name.dart';
+
 /// Raw (pre-base64) budget for the embedded thumb PNG. Keeps the manifest
 /// ref advert (~300 B) + thumb comfortably under the inline envelope limit.
 const int kThumbMaxRawBytes = 2500;
-
-/// True when [name] looks like a video the in-app player can open (by
-/// extension; the containers ExoPlayer/AVPlayer overlap on).
-bool isVideoFileName(String? name) {
-  if (name == null) return false;
-  final n = name.toLowerCase();
-  return n.endsWith('.mp4') ||
-      n.endsWith('.m4v') ||
-      n.endsWith('.mov') ||
-      n.endsWith('.webm') ||
-      n.endsWith('.mkv');
-}
-
-/// True when [name] looks like an image we can render inline (by extension).
-/// Shared by the chat UI (inline previews) and the send path (thumb
-/// generation) — one definition so they cannot disagree.
-bool isImageFileName(String? name) {
-  if (name == null) return false;
-  final n = name.toLowerCase();
-  return n.endsWith('.jpg') ||
-      n.endsWith('.jpeg') ||
-      n.endsWith('.png') ||
-      n.endsWith('.gif') ||
-      n.endsWith('.webp') ||
-      n.endsWith('.bmp');
-}
 
 /// Dimension ladder for the longest image side, tried in order until the
 /// encoded PNG fits [kThumbMaxRawBytes]. 32 px is a Telegram-class micro

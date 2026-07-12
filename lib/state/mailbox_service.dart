@@ -3,9 +3,10 @@
 // libraries), so an explicit initializer list is required.
 // ignore_for_file: prefer_initializing_formals
 import 'dart:async';
+import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart';
-import 'package:veil_flutter/veil_flutter.dart';
+import 'package:veil_flutter/veil_ffi.dart'
+    show VeilClient, VeilEvent, VeilEventKind;
 
 import '../core/ids.dart';
 import '../data/transport/relay_key_cache.dart';
@@ -584,7 +585,6 @@ class MailboxService implements MailboxSink {
 /// drifting ad slots that previously black-holed incoming delivery. Ties (which
 /// require two distinct node_ids with equal distance — impossible for real
 /// 32-byte ids) resolve to stable input order.
-@visibleForTesting
 List<NodeId> relaysByXorDistance(NodeId me, List<NodeId> relays) {
   final anchor = me.bytes;
   final sorted = [...relays];

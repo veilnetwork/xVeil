@@ -1,12 +1,12 @@
-import 'package:flutter/foundation.dart';
+import 'dart:developer' as developer;
 
 /// Diagnostic logging that is COMPILED OUT of release builds.
 ///
 /// xVeil's diagnostics embed node-id prefixes, message ids, byte counts and
 /// timestamps — precisely the metadata an anonymity / deniability tool must
 /// never emit somewhere an adversary can read it (Android `logcat`, a captured
-/// stdout, a crash-report pipe). [kDebugMode] is a compile-time `false` in
-/// release and profile, so the branch below is dead-code-eliminated by the AOT
+/// stdout, a crash-report pipe). `dart.vm.product` is a compile-time `true` in
+/// release, so the branch below is dead-code-eliminated by the AOT
 /// compiler: nothing prints. The message is a thunk, so the (often
 /// node-id-bearing) string is not even constructed in a release build.
 ///
@@ -19,7 +19,10 @@ import 'package:flutter/foundation.dart';
 /// properties while restoring the trace. Distribution builds never set it, so
 /// their logging stays dead-code-eliminated exactly as before.
 const _releaseDiagnosticLog = bool.fromEnvironment('XVEIL_RELEASE_LOG');
+const _productMode = bool.fromEnvironment('dart.vm.product');
 
 void devLog(String Function() message) {
-  if (kDebugMode || _releaseDiagnosticLog) debugPrint(message());
+  if (!_productMode || _releaseDiagnosticLog) {
+    developer.log(message(), name: 'xVeil');
+  }
 }

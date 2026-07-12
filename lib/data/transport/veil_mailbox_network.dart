@@ -6,7 +6,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:veil_flutter/veil_flutter.dart' as veil;
+import 'package:veil_flutter/veil_ffi.dart' as veil;
 
 import '../../core/ids.dart';
 import 'relay_key_cache.dart';
