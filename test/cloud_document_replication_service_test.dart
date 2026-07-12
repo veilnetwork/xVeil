@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
@@ -7,6 +8,7 @@ import 'package:xveil/domain/cloud_document.dart';
 import 'package:xveil/domain/cloud_document_replication.dart';
 import 'package:xveil/domain/cloud_document_payload.dart';
 import 'package:xveil/state/cloud_document_envelope_service.dart';
+import 'package:xveil/state/cloud_document_crypto.dart';
 import 'package:xveil/state/cloud_document_replication_service.dart';
 import 'package:xveil/state/cloud_document_store.dart';
 
@@ -33,6 +35,22 @@ class _Fixture {
   final NodeId owner;
   final NodeId editor;
   final CloudDocumentEnvelopeService envelopeService;
+}
+
+class _Signer implements CloudDocumentSigner {
+  _Signer(this.selfId, this.byte);
+
+  @override
+  final NodeId selfId;
+  final int byte;
+
+  @override
+  CloudDocumentRoot signRoot(CloudDocumentRoot unsigned) =>
+      unsigned.withSignature(_bytes(byte, 64), _bytes(byte, 32));
+
+  @override
+  CloudDocumentControlEntry signControl(CloudDocumentControlEntry unsigned) =>
+      unsigned.withSignature(_bytes(byte, 64), _bytes(byte, 32));
 }
 
 Future<_Fixture> _fixture() async {
@@ -105,6 +123,9 @@ CloudDocumentReplicationService _service({
   required CloudDocumentStore store,
   required CloudDocumentEnvelopeService envelopes,
   required List<({NodeId peer, String documentId, String json})> sent,
+  CloudDocumentSigner? signer,
+  CloudDocumentAcceptedContact? acceptedContact,
+  Random? random,
 }) => CloudDocumentReplicationService(
   localNodeId: self,
   ourCertVersion: 0,
@@ -113,6 +134,9 @@ CloudDocumentReplicationService _service({
   sendFrame: (peer, documentId, json) async {
     sent.add((peer: peer, documentId: documentId, json: json));
   },
+  signer: signer,
+  acceptedContact: acceptedContact,
+  random: random,
   verifyRoot: (_) => true,
   verifyControl: (_) => true,
   verifyOperation: (_) => true,
@@ -144,6 +168,185 @@ _sealedOperation({
 }
 
 void main() {
+  test(
+    'owner creates, invites, rotates roles and revokes with closed frontier',
+    () async {
+      final owner = _id(1);
+      final editor = _id(2);
+      final stranger = _id(9);
+      final envelopeService = CloudDocumentEnvelopeService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      );
+      final ownerStore = await _openStore(FakeHvContainer());
+      final receiverStore = await _openStore(FakeHvContainer());
+      final sent = <({NodeId peer, String documentId, String json})>[];
+      final ownerService = _service(
+        self: owner,
+        store: ownerStore,
+        envelopes: envelopeService,
+        sent: sent,
+        signer: _Signer(owner, 1),
+        acceptedContact: (peer) async => peer == editor,
+        random: Random(41),
+      );
+      final receiver = _service(
+        self: editor,
+        store: receiverStore,
+        envelopes: envelopeService,
+        sent: sent,
+      );
+
+      final created = await ownerService.createDocument();
+      expect(created, isNotNull);
+      final documentId = created!.documentId;
+      expect((await ownerService.listDocuments()).single.currentEpoch, 0);
+      expect(
+        await ownerService.grant(
+          documentId,
+          stranger,
+          CloudDocumentRole.editor,
+        ),
+        isNull,
+        reason: 'only an accepted contact can be granted from this surface',
+      );
+
+      final granted = await ownerService.grant(
+        documentId,
+        editor,
+        CloudDocumentRole.editor,
+      );
+      expect(granted, isNotNull);
+      expect(granted!.fullyQueued, isTrue);
+      expect(sent, hasLength(1));
+      var frame = CloudDocumentFrame.decode(sent.removeLast().json)!;
+      expect(frame.kind, CloudDocumentFrameKind.invite);
+      expect(await receiver.ingest(owner, frame.encode()), isTrue);
+      expect(await receiver.adopt(documentId), isTrue);
+      expect(
+        (await receiver.listDocuments()).single.localRole,
+        CloudDocumentRole.editor,
+      );
+
+      // Plant one valid editor operation so the next ACL mutation must close
+      // the old epoch with its exact signed author frontier.
+      final ownerBundle = (await ownerStore.load(documentId))!;
+      try {
+        final unsigned = CloudDocumentOperation(
+          documentId: ownerBundle.root.documentId,
+          membershipEpoch: 1,
+          author: editor,
+          seq: 0,
+          prevAuthorHash: '',
+          operationId: _hash(70),
+          parentOperationIds: const [],
+          opType: 'text.insert',
+          payloadHash: _hash(0),
+          createdAtMs: 2000,
+          authorPubKey: _bytes(2, 32),
+          signature: _bytes(2, 64),
+        );
+        final sealed = await _sealedOperation(
+          unsigned: unsigned,
+          key: ownerBundle.localEpochKeys[1]!,
+        );
+        await ownerStore.save(
+          CloudDocumentStoredBundle(
+            root: ownerBundle.root,
+            controls: ownerBundle.controls,
+            operations: [sealed.operation],
+            envelopes: ownerBundle.envelopes,
+            localEpochKeys: ownerBundle.localEpochKeys,
+            payloads: [sealed.payload],
+          ),
+        );
+      } finally {
+        ownerBundle.wipeLocalEpochKeys();
+      }
+
+      final roleChanged = await ownerService.setRole(
+        documentId,
+        editor,
+        CloudDocumentRole.viewer,
+      );
+      expect(roleChanged?.fullyQueued, isTrue);
+      frame = CloudDocumentFrame.decode(sent.removeLast().json)!;
+      expect(frame.kind, CloudDocumentFrameKind.snapshot);
+      expect(
+        frame.controls.last.closedEpochFrontier[editor.hex]?.hash,
+        frame.operations.single.recordHash,
+      );
+      expect(await receiver.ingest(owner, frame.encode()), isTrue);
+      var view = (await receiver.listDocuments()).single;
+      expect(view.currentEpoch, 2);
+      expect(view.localRole, CloudDocumentRole.viewer);
+      expect(
+        await ownerService.setRole(
+          documentId,
+          editor,
+          CloudDocumentRole.viewer,
+        ),
+        isNull,
+        reason: 'a no-op role change must not rotate the epoch',
+      );
+
+      final rotated = await ownerService.rotateEpoch(documentId);
+      expect(rotated?.fullyQueued, isTrue);
+      frame = CloudDocumentFrame.decode(sent.removeLast().json)!;
+      expect(await receiver.ingest(owner, frame.encode()), isTrue);
+      expect((await receiver.listDocuments()).single.currentEpoch, 3);
+
+      final revoked = await ownerService.revoke(documentId, editor);
+      expect(revoked?.fullyQueued, isTrue);
+      frame = CloudDocumentFrame.decode(sent.removeLast().json)!;
+      expect(await receiver.ingest(owner, frame.encode()), isTrue);
+      view = (await receiver.listDocuments()).single;
+      expect(view.currentEpoch, 4);
+      expect(view.localRole, isNull);
+      expect(view.members.keys, [owner.hex]);
+
+      final finalOwner = (await ownerStore.load(documentId))!;
+      expect(finalOwner.localEpochKeys.keys, [0, 1, 2, 3, 4]);
+      expect(
+        finalOwner.envelopes.last.envelopeFor(editor),
+        isNull,
+        reason: 'the revoked peer must not receive the next epoch key',
+      );
+      finalOwner.wipeLocalEpochKeys();
+    },
+  );
+
+  test('ACL persists locally when durable fanout cannot be queued', () async {
+    final owner = _id(1);
+    final editor = _id(2);
+    final store = await _openStore(FakeHvContainer());
+    final service = CloudDocumentReplicationService(
+      localNodeId: owner,
+      ourCertVersion: 0,
+      store: store,
+      envelopes: CloudDocumentEnvelopeService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      ),
+      sendFrame: (_, _, _) async => throw StateError('offline'),
+      signer: _Signer(owner, 1),
+      acceptedContact: (_) async => true,
+      verifyRoot: (_) => true,
+      verifyControl: (_) => true,
+      verifyOperation: (_) => true,
+      random: Random(42),
+    );
+    final created = await service.createDocument();
+    final result = await service.grant(
+      created!.documentId,
+      editor,
+      CloudDocumentRole.editor,
+    );
+    expect(result, isNotNull);
+    expect(result!.failedRecipients, [editor]);
+    final view = (await service.listDocuments()).single;
+    expect(view.currentEpoch, 1);
+    expect(view.members[editor.hex], CloudDocumentRole.editor);
+  });
+
   test(
     'invite is inert, survives restart, and explicit adopt opens key',
     () async {

@@ -2,7 +2,6 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 
-
 import 'native_libs.dart' show processLibFor;
 import 'node/embedded_node.dart';
 import 'node/node_controller.dart';
@@ -60,10 +59,10 @@ class RealVeilStack {
     String? configPath,
     VeilFlutterTransport? nodeIpc,
     String? runtimeDir,
-  })  : _cli = veilCliPath,
-        _config = configPath,
-        _flutterTransport = nodeIpc,
-        _runtimeDir = runtimeDir;
+  }) : _cli = veilCliPath,
+       _config = configPath,
+       _flutterTransport = nodeIpc,
+       _runtimeDir = runtimeDir;
 
   final NodeController controller;
   final VeilTransport transport;
@@ -95,7 +94,8 @@ class RealVeilStack {
     final String origin;
     if (identityPhrase != null && identityPhrase.isNotEmpty) {
       devLog(
-        () => 'xVeil[deniable]: deriving node identity from phrase '
+        () =>
+            'xVeil[deniable]: deriving node identity from phrase '
             '(first run)…',
       );
       // Phrase-derived identity (P2): the keypair is deterministic, only the
@@ -158,15 +158,35 @@ class RealVeilStack {
 
     // 1. Load this identity's node config, or derive/mine + store it on
     // first run.
-    final identityToml =
-        await ensureNodeConfig(storage, identityPhrase: identityPhrase, lib: lib);
-    devLog(() => 'xVeil[deniable]: identity ready (${identityToml.length} B) '
-        '[+${lap()}ms config]');
+    final identityToml = await ensureNodeConfig(
+      storage,
+      identityPhrase: identityPhrase,
+      lib: lib,
+    );
+    devLog(
+      () =>
+          'xVeil[deniable]: identity ready (${identityToml.length} B) '
+          '[+${lap()}ms config]',
+    );
 
     // 2. Ephemeral, identity-free runtime endpoints.
     await Directory(runtimeDir).create(recursive: true);
-    final ipcSock = '$runtimeDir/app.sock';
-    final adminSock = '$runtimeDir/admin.sock';
+    // iOS application-container paths exceed sockaddr_un's SUN_LEN on both
+    // physical devices and Simulator. Keep discovery sidecars in the sandbox,
+    // but carry local admin + IPC over authenticated loopback TCP there.
+    final tcpLocalEndpoints = Platform.isIOS;
+    final ipcSock = tcpLocalEndpoints
+        ? '$runtimeDir/ipc.anchor'
+        : '$runtimeDir/app.sock';
+    final adminSock = tcpLocalEndpoints
+        ? '$runtimeDir/admin.anchor'
+        : '$runtimeDir/admin.sock';
+    final ipcEndpoint = tcpLocalEndpoints
+        ? 'tcp://127.0.0.1:0?runtime_dir=$runtimeDir'
+        : ipcSock;
+    final adminEndpoint = tcpLocalEndpoints
+        ? 'tcp://127.0.0.1:0?runtime_dir=$runtimeDir'
+        : adminSock;
     final listen = 'tcp://127.0.0.1:$listenPort';
 
     // Deployment-wide obfs4 PSK (networks that pin a shared anti-probe key):
@@ -187,8 +207,8 @@ class RealVeilStack {
     final fullConfig = EmbeddedNode.composeConfig(
       identityToml: identityToml,
       listenTransport: listen,
-      ipcSocket: ipcSock,
-      adminSocket: adminSock,
+      ipcSocket: ipcEndpoint,
+      adminSocket: adminEndpoint,
       lib: lib,
       anonymous: anonymous,
       lazyMining: lazyMining,
@@ -200,12 +220,18 @@ class RealVeilStack {
       // Proxy services spawn from the APPLIED config (spawn_all_services runs on
       // apply-config reload too), so unlike [anonymity] this needs no stub
       // boot-arming — the composed config above carries the [proxy.*] sections.
-      devLog(() => 'xVeil[deniable]: traffic routing — socks5=${proxy.socks5Active} '
-          'exit=${proxy.exitEnabled}');
+      devLog(
+        () =>
+            'xVeil[deniable]: traffic routing — socks5=${proxy.socks5Active} '
+            'exit=${proxy.exitEnabled}',
+      );
     }
     if (bootstrapPeers.isNotEmpty) {
-      devLog(() => 'xVeil[deniable]: dialing ${bootstrapPeers.length} '
-          'bootstrap peer(s) from config');
+      devLog(
+        () =>
+            'xVeil[deniable]: dialing ${bootstrapPeers.length} '
+            'bootstrap peer(s) from config',
+      );
     }
     if (anonymous) {
       // Anonymity must be armed at BOOT (passed to startDeferred below), not via
@@ -215,11 +241,17 @@ class RealVeilStack {
       // onion-reachable under its real identity (the throwaway stub identity is
       // never published — publish is periodic, not at boot). See
       // veil build_stub_config_with_ephemeral_identity / veil_node_start_deferred.
-      devLog(() => 'xVeil[deniable]: anonymous routing — arming onion at boot '
-          '(resolves to the real identity after apply-config)');
+      devLog(
+        () =>
+            'xVeil[deniable]: anonymous routing — arming onion at boot '
+            '(resolves to the real identity after apply-config)',
+      );
     }
-    devLog(() => 'xVeil[deniable]: composed config [+${lap()}ms], '
-        'booting deferred @ $adminSock');
+    devLog(
+      () =>
+          'xVeil[deniable]: composed config [+${lap()}ms], '
+          'booting deferred @ $adminEndpoint',
+    );
 
     // 4. Boot deferred (anonymity armed in the stub when requested), then apply
     // the real config IN MEMORY (no file) to promote the real identity.
@@ -230,12 +262,18 @@ class RealVeilStack {
         // (startDeferred) from a slow admin CONNECT/apply (applyConfig holds the
         // ~90s connect-retry — a big number here is the port-bind stall).
         final ssw = Stopwatch()..start();
-        final node =
-            EmbeddedNode.startDeferred(adminSock, anonymous: anonymous, lib: lib);
+        final node = EmbeddedNode.startDeferred(
+          adminEndpoint,
+          anonymous: anonymous,
+          lib: lib,
+        );
         final tDeferred = ssw.elapsedMilliseconds;
         node.applyConfig(fullConfig);
-        devLog(() => 'xVeil[deniable]: startDeferred +${tDeferred}ms, '
-            'applyConfig +${ssw.elapsedMilliseconds - tDeferred}ms');
+        devLog(
+          () =>
+              'xVeil[deniable]: startDeferred +${tDeferred}ms, '
+              'applyConfig +${ssw.elapsedMilliseconds - tDeferred}ms',
+        );
         return node;
       },
     );
@@ -243,12 +281,16 @@ class RealVeilStack {
     // This lap is the suspect for a slow switch: startDeferred + applyConfig
     // (admin bind/connect) + the readiness poll. A large value here with a
     // mining-free identity points at a port-bind stall, not PoW.
-    devLog(() => 'xVeil[deniable]: controller phase=${controller.current.phase}'
-        ' msg=${controller.current.message} [+${lap()}ms boot+connect]');
+    devLog(
+      () =>
+          'xVeil[deniable]: controller phase=${controller.current.phase}'
+          ' msg=${controller.current.message} [+${lap()}ms boot+connect]',
+    );
     if (controller.current.phase != NodePhase.connected) {
       throw StateError(
-          'deniable node did not connect: ${controller.current.phase}'
-          ' (${controller.current.message})');
+        'deniable node did not connect: ${controller.current.phase}'
+        ' (${controller.current.message})',
+      );
     }
 
     // 5. Connect the transport, then ask the running node for its own invite.
@@ -302,7 +344,9 @@ class RealVeilStack {
           );
     await controller.start();
     if (controller.current.phase != NodePhase.connected) {
-      throw StateError('node did not reach connected: ${controller.current.phase}');
+      throw StateError(
+        'node did not reach connected: ${controller.current.phase}',
+      );
     }
 
     final VeilTransport transport;

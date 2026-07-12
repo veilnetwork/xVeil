@@ -2466,4 +2466,72 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get cloudDocumentRejected => 'Приглашение удалено';
+
+  @override
+  String get cloudSharedNew => 'Новый общий документ';
+
+  @override
+  String cloudSharedDocuments(int count) {
+    return 'Общие документы ($count)';
+  }
+
+  @override
+  String cloudSharedDocument(String kind, String id) {
+    return 'Общий документ $kind · $id';
+  }
+
+  @override
+  String cloudSharedMembers(int count, int epoch, String role) {
+    return 'Участников: $count · эпоха $epoch · $role';
+  }
+
+  @override
+  String get cloudSharedPickContact => 'Пригласить принятый контакт';
+
+  @override
+  String get cloudSharedRole => 'Роль в документе';
+
+  @override
+  String get cloudSharedRoleOwner => 'Владелец';
+
+  @override
+  String get cloudSharedRoleEditor => 'Редактор';
+
+  @override
+  String get cloudSharedRoleViewer => 'Читатель';
+
+  @override
+  String get cloudSharedCreated =>
+      'Общий документ создан, приглашение поставлено в отправку';
+
+  @override
+  String get cloudSharedFailed => 'Не удалось изменить общий документ';
+
+  @override
+  String get cloudSharedPartial =>
+      'Локально сохранено, но доставка поставлена в очередь не для всех';
+
+  @override
+  String get cloudSharedAddMember => 'Добавить участника';
+
+  @override
+  String get cloudSharedRevoke => 'Отозвать доступ';
+
+  @override
+  String cloudSharedRevokeTitle(String member) {
+    return 'Отозвать доступ у $member?';
+  }
+
+  @override
+  String get cloudSharedRotate => 'Сменить ключ шифрования';
+
+  @override
+  String get cloudSharedRotateTitle =>
+      'Сменить ключ документа для всех участников?';
+
+  @override
+  String get cloudSharedResend => 'Повторить приглашение';
+
+  @override
+  String get cloudSharedQueued => 'Изменение поставлено в отправку';
 }

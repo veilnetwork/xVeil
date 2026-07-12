@@ -475,8 +475,10 @@ class MessagingService {
 
   /// Attached by shared-document replication. Both whole and reassembled
   /// frames reach this callback only from accepted contacts; the document
-  /// layer then verifies root/control signatures and membership epochs.
-  void Function(NodeId peer, String frameJson)? onCloudDocumentFrame;
+  /// layer then verifies root/control signatures and membership epochs. True
+  /// means terminal (applied OR permanently rejected) and permits ACK. False
+  /// means local persistence was unavailable, so the durable sender must retry.
+  Future<bool> Function(NodeId peer, String frameJson)? onCloudDocumentFrame;
 
   /// Attached by the group layer: an inbound signed content-fetch request
   /// (groups content path). NOT contact-gated — the signed membership proof
@@ -851,16 +853,25 @@ class MessagingService {
     }
   }
 
-  void _ingestCloudDocumentChunk(NodeId src, String body) {
+  Future<void> _ingestCloudDocumentChunk(
+    InboundMessage message,
+    String body,
+    String? frameId,
+  ) async {
     final GroupEntryChunkFrame frame;
     try {
       frame = parseGroupEntryChunk(body);
     } catch (_) {
+      await _ackTerminalDocumentFrame(message, frameId);
       return;
     }
     final idParts = frame.transferId.split(':');
-    if (idParts.length < 3 || idParts.first != 'doc') return;
+    if (idParts.length < 3 || idParts.first != 'doc') {
+      await _ackTerminalDocumentFrame(message, frameId);
+      return;
+    }
     if (frame.count <= 0 || frame.index < 0 || frame.index >= frame.count) {
+      await _ackTerminalDocumentFrame(message, frameId);
       return;
     }
     var slot = _cloudDocumentReasm[frame.transferId];
@@ -868,19 +879,41 @@ class MessagingService {
       if (_cloudDocumentReasm.length >= _kMaxGroupReasmConcurrent) {
         _cloudDocumentReasm.remove(_cloudDocumentReasm.keys.first);
       }
-      slot = (count: frame.count, parts: <int, Uint8List>{}, bytes: 0);
+      slot = (
+        count: frame.count,
+        parts: <int, Uint8List>{},
+        acks: <int, ({NodeId src, int replyId, String fid})>{},
+        bytes: 0,
+      );
       _cloudDocumentReasm[frame.transferId] = slot;
     }
-    if (slot.count != frame.count || slot.parts.containsKey(frame.index)) {
+    if (slot.count != frame.count) {
+      await _ackTerminalDocumentFrame(message, frameId);
+      return;
+    }
+    if (slot.parts.containsKey(frame.index)) {
       return;
     }
     final bytes = slot.bytes + frame.data.length;
     if (bytes > _kMaxGroupReasmBytes) {
       _cloudDocumentReasm.remove(frame.transferId);
+      await _ackTerminalDocumentFrame(message, frameId);
       return;
     }
     slot.parts[frame.index] = frame.data;
-    slot = (count: slot.count, parts: slot.parts, bytes: bytes);
+    if (frameId != null) {
+      slot.acks[frame.index] = (
+        src: message.src,
+        replyId: message.replyId,
+        fid: frameId,
+      );
+    }
+    slot = (
+      count: slot.count,
+      parts: slot.parts,
+      acks: slot.acks,
+      bytes: bytes,
+    );
     _cloudDocumentReasm[frame.transferId] = slot;
     if (slot.parts.length != slot.count) return;
     _cloudDocumentReasm.remove(frame.transferId);
@@ -891,10 +924,53 @@ class MessagingService {
       joined.add(part);
     }
     try {
-      onCloudDocumentFrame?.call(src, utf8.decode(joined.toBytes()));
+      final terminal = await _deliverCloudDocumentFrame(
+        message.src,
+        utf8.decode(joined.toBytes()),
+      );
+      if (!terminal) return;
+      for (final ack in slot.acks.values) {
+        await _ackTerminalDocumentFrame(
+          InboundMessage(
+            src: ack.src,
+            payload: Uint8List(0),
+            replyId: ack.replyId,
+          ),
+          ack.fid,
+        );
+      }
     } catch (_) {
       // Malformed UTF-8 is an unauthorized/malformed frame: silent drop.
+      for (final ack in slot.acks.values) {
+        await _ackTerminalDocumentFrame(
+          InboundMessage(
+            src: ack.src,
+            payload: Uint8List(0),
+            replyId: ack.replyId,
+          ),
+          ack.fid,
+        );
+      }
     }
+  }
+
+  Future<bool> _deliverCloudDocumentFrame(NodeId peer, String frameJson) async {
+    final handler = onCloudDocumentFrame;
+    if (handler == null) return false;
+    try {
+      return await handler(peer, frameJson);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _ackTerminalDocumentFrame(
+    InboundMessage message,
+    String? frameId,
+  ) async {
+    if (frameId == null) return;
+    _seenFrames.add(frameId);
+    await _ackFrame(message, frameId);
   }
 
   /// Single egress point so every outbound frame honours [_anonymous]. The real
@@ -1697,7 +1773,15 @@ class MessagingService {
       <String, ({int count, Map<int, Uint8List> parts, int bytes})>{};
 
   final _cloudDocumentReasm =
-      <String, ({int count, Map<int, Uint8List> parts, int bytes})>{};
+      <
+        String,
+        ({
+          int count,
+          Map<int, Uint8List> parts,
+          Map<int, ({NodeId src, int replyId, String fid})> acks,
+          int bytes,
+        })
+      >{};
 
   /// Best-effort ack of a durable frame so the sender retires it from its
   /// outbox. Rides [_ackTo]: a live send PLUS a mailbox deposit (`ack:<fid>`)
@@ -2105,9 +2189,19 @@ class MessagingService {
     // ack, or we restarted) is re-acked but not re-processed. Consent-gated:
     // only accepted peers reach the durable handlers below.
     final fid = env.frameId;
+    final deferredDocumentAck =
+        env.kind == WireKind.cloudDocument ||
+        env.kind == WireKind.cloudDocumentChunk;
     if (fid != null && existing?.status == ContactStatus.accepted) {
-      await _ackFrame(m, fid);
-      if (!_seenFrames.add(fid)) return; // already processed — re-acked above
+      if (deferredDocumentAck) {
+        if (_seenFrames.contains(fid)) {
+          await _ackFrame(m, fid);
+          return;
+        }
+      } else {
+        await _ackFrame(m, fid);
+        if (!_seenFrames.add(fid)) return; // already processed — re-acked above
+      }
     }
 
     switch (env.kind) {
@@ -2489,11 +2583,13 @@ class MessagingService {
         return;
       case WireKind.cloudDocument:
         if (existing?.status != ContactStatus.accepted) return;
-        onCloudDocumentFrame?.call(m.src, env.body);
+        if (await _deliverCloudDocumentFrame(m.src, env.body)) {
+          await _ackTerminalDocumentFrame(m, fid);
+        }
         return;
       case WireKind.cloudDocumentChunk:
         if (existing?.status != ContactStatus.accepted) return;
-        _ingestCloudDocumentChunk(m.src, env.body);
+        await _ingestCloudDocumentChunk(m, env.body, fid);
         return;
       case WireKind.unknown:
         // A structured (v:2) frame from a NEWER build whose kind we don't know —

@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/cloud.dart';
+import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/cloud_document.dart';
 import 'package:xveil/domain/cloud_document_replication.dart';
 import 'package:xveil/domain/content_manifest.dart';
@@ -15,6 +16,7 @@ import 'package:xveil/features/storage/cloud_storage_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/cloud_service.dart';
 import 'package:xveil/state/cloud_document_envelope_service.dart';
+import 'package:xveil/state/cloud_document_crypto.dart';
 import 'package:xveil/state/cloud_document_providers.dart';
 import 'package:xveil/state/cloud_document_replication_service.dart';
 import 'package:xveil/state/cloud_document_store.dart';
@@ -60,6 +62,27 @@ class _Sync implements CloudSyncPort {
     rows.add((event: item.toEvent(), author: author));
     _changes.add(null);
   }
+}
+
+class _DocumentSigner implements CloudDocumentSigner {
+  _DocumentSigner(this.selfId);
+
+  @override
+  final NodeId selfId;
+
+  @override
+  CloudDocumentRoot signRoot(CloudDocumentRoot unsigned) =>
+      unsigned.withSignature(
+        Uint8List(64)..fillRange(0, 64, 7),
+        Uint8List(32)..fillRange(0, 32, 7),
+      );
+
+  @override
+  CloudDocumentControlEntry signControl(CloudDocumentControlEntry unsigned) =>
+      unsigned.withSignature(
+        Uint8List(64)..fillRange(0, 64, 7),
+        Uint8List(32)..fillRange(0, 32, 7),
+      );
 }
 
 Future<void> _pumpTransition(WidgetTester tester) async {
@@ -157,6 +180,114 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
     expect(find.text('Приглашения в общие документы (1)'), findsNothing);
     expect(await documentStore.listPendingInviteIds(), isEmpty);
+  });
+
+  testWidgets('owner creates a shared document and manages ACL through UI', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final sync = _Sync();
+    final peer = NodeId(Uint8List(32)..[0] = 8);
+    await storage.upsertContact(
+      Contact(nodeId: peer, name: 'Alice', status: ContactStatus.accepted),
+    );
+    final cloud = CloudService(
+      storage,
+      sync,
+      contentReceived: const Stream.empty(),
+      integrityChecks: false,
+    );
+    final sent = <String>[];
+    final documents = CloudDocumentReplicationService(
+      localNodeId: sync.selfId,
+      ourCertVersion: 0,
+      store: CloudDocumentStore(storage),
+      envelopes: CloudDocumentEnvelopeService(
+        LoopbackMailboxCrypto(senderForOpen: sync.selfId),
+      ),
+      sendFrame: (_, _, frame) async => sent.add(frame),
+      signer: _DocumentSigner(sync.selfId),
+      acceptedContact: (candidate) async => candidate == peer,
+      verifyRoot: (_) => true,
+      verifyControl: (_) => true,
+      verifyOperation: (_) => true,
+    );
+    addTearDown(() {
+      unawaited(documents.close());
+      unawaited(cloud.close());
+      unawaited(storage.close());
+    });
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          cloudServiceProvider.overrideWithValue(cloud),
+          cloudDocumentReplicationServiceProvider.overrideWithValue(documents),
+        ],
+        child: const MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: CloudStorageScreen(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.tap(find.text('Add to cloud'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New shared document'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Alice'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Editor'));
+    await tester.pumpAndSettle();
+
+    expect(sent, hasLength(1));
+    expect(find.text('Shared documents (1)'), findsOneWidget);
+    await tester.tap(find.text('Shared documents (1)'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Shared note'));
+    await tester.pumpAndSettle();
+    expect(find.text('Alice'), findsOneWidget);
+    expect(find.text('Editor'), findsOneWidget);
+
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Resend invitation'));
+    await tester.pumpAndSettle();
+    expect(sent, hasLength(2));
+
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Viewer'));
+    await tester.pumpAndSettle();
+    var view = (await documents.listDocuments()).single;
+    expect(view.currentEpoch, 2);
+    expect(view.members[peer.hex], CloudDocumentRole.viewer);
+
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Revoke access'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Revoke access'));
+    await tester.pumpAndSettle();
+    view = (await documents.listDocuments()).single;
+    expect(view.currentEpoch, 3);
+    expect(view.members.containsKey(peer.hex), isFalse);
+
+    await tester.tap(
+      find.widgetWithText(OutlinedButton, 'Rotate encryption key'),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.widgetWithText(FilledButton, 'Rotate encryption key'),
+    );
+    await tester.pumpAndSettle();
+    expect((await documents.listDocuments()).single.currentEpoch, 4);
   });
 
   testWidgets('personal cloud note opens, edits, and saves through the UI', (

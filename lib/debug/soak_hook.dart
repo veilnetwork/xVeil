@@ -33,12 +33,15 @@ import '../state/group_service.dart';
 import '../routing/router.dart';
 import '../domain/call_log.dart';
 import '../domain/cloud.dart';
+import '../domain/cloud_document.dart';
 import '../state/api_server.dart';
 import '../state/app_controller.dart';
 import '../state/call_log.dart';
 import '../state/call_service.dart';
 import '../state/cloud_service.dart';
 import '../state/cloud_capability_service.dart';
+import '../state/cloud_document_providers.dart';
+import '../state/cloud_document_replication_service.dart';
 import '../state/device_settings_sync.dart';
 import '../state/locale_controller.dart';
 import '../state/reactions_visibility_controller.dart';
@@ -336,6 +339,21 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/cloud_note_probe':
           await _cloudNoteProbeHook(req);
+          return;
+        case '/cloud_document_state':
+          await _cloudDocumentStateHook(req);
+          return;
+        case '/cloud_document_outbox':
+          await _cloudDocumentOutboxHook(req);
+          return;
+        case '/cloud_document_create':
+          await _cloudDocumentCreateHook(req);
+          return;
+        case '/cloud_document_acl':
+          await _cloudDocumentAclHook(req);
+          return;
+        case '/cloud_document_adopt':
+          await _cloudDocumentAdoptHook(req);
           return;
         case '/cloud_fetch':
           await _cloudFetchHook(req);
@@ -1454,6 +1472,179 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'selected': service.profile.selectedItemIds.toList()..sort(),
       'items': items,
     });
+  }
+
+  /// Shared-document metadata only: no epoch keys, sealed envelopes,
+  /// ciphertext or decrypted operation bytes ever leave the process.
+  Future<void> _cloudDocumentStateHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(cloudDocumentReplicationServiceProvider);
+    final nodeBoot = ref.read(nodeBootStateProvider);
+    if (service == null) {
+      return _json(req, {'ok': false, 'error': 'documents unavailable'});
+    }
+    final documents = await service.listDocuments();
+    final pending = await service.pendingInvites();
+    return _json(req, {
+      'ok': true,
+      'canMutate': service.canMutate,
+      'realTransport': ref.read(realStackProvider) != null,
+      'node': nodeBoot == null
+          ? null
+          : {'phase': nodeBoot.phase.name, 'message': nodeBoot.message},
+      'documents': [
+        for (final document in documents)
+          {
+            'id': document.root.documentId.hex,
+            'owner': document.root.owner.hex,
+            'kind': document.root.kind.name,
+            'codec': document.root.codec,
+            'epoch': document.currentEpoch,
+            'role': document.localRole?.name,
+            'members': {
+              for (final member in document.members.entries)
+                member.key: member.value.name,
+            },
+          },
+      ],
+      'pending': [
+        for (final invite in pending)
+          {
+            'id': invite.frame.root.documentId.hex,
+            'owner': invite.sender.hex,
+            'kind': invite.frame.root.kind.name,
+            'receivedAt': invite.receivedAtMs,
+          },
+      ],
+    });
+  }
+
+  /// Durable shared-document frame metadata only. The exact wire payload is
+  /// deliberately never exposed by the debug hook.
+  Future<void> _cloudDocumentOutboxHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final documentId = req.uri.queryParameters['id'];
+    final frames = (await ref.read(storageProvider).pendingOutboxFrames())
+        .where(
+          (frame) =>
+              (frame.frameId.startsWith('doc:') ||
+                  frame.frameId.startsWith('docc:')) &&
+              (documentId == null || frame.frameId.contains(documentId)),
+        )
+        .toList(growable: false);
+    return _json(req, {
+      'ok': true,
+      'count': frames.length,
+      'frames': [
+        for (final frame in frames)
+          {'id': frame.frameId, 'peer': frame.peerHex},
+      ],
+    });
+  }
+
+  Future<void> _cloudDocumentCreateHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(cloudDocumentReplicationServiceProvider);
+    if (service == null || !service.canMutate) {
+      return _json(req, {'ok': false, 'error': 'documents unavailable'});
+    }
+    final q = req.uri.queryParameters;
+    final role =
+        CloudDocumentRole.fromName(q['role']) ?? CloudDocumentRole.editor;
+    if (role == CloudDocumentRole.owner) {
+      return _json(req, {'ok': false, 'error': 'role must be editor/viewer'});
+    }
+    try {
+      final created = await service.createDocument();
+      if (created == null) {
+        return _json(req, {'ok': false, 'error': 'create rejected'});
+      }
+      CloudDocumentMutationResult? granted;
+      final peerHex = q['peer'];
+      if (peerHex != null) {
+        granted = await service.grant(
+          created.documentId,
+          NodeId.fromHex(peerHex),
+          role,
+        );
+      }
+      return _json(req, {
+        'ok': peerHex == null || granted != null,
+        'id': created.documentId,
+        'granted': granted != null,
+        'fullyQueued': granted?.fullyQueued,
+        'failed': granted?.failedRecipients.map((peer) => peer.hex).toList(),
+      });
+    } catch (error) {
+      return _json(req, {'ok': false, 'error': '$error'});
+    }
+  }
+
+  Future<void> _cloudDocumentAclHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(cloudDocumentReplicationServiceProvider);
+    final q = req.uri.queryParameters;
+    final documentId = q['id'];
+    final action = q['action'];
+    if (service == null || documentId == null || action == null) {
+      return _json(req, {'ok': false, 'error': 'need documents+id+action'});
+    }
+    try {
+      CloudDocumentMutationResult? result;
+      if (action == 'rotate') {
+        result = await service.rotateEpoch(documentId);
+      } else {
+        final peerHex = q['peer'];
+        if (peerHex == null) {
+          return _json(req, {'ok': false, 'error': 'need peer'});
+        }
+        final peer = NodeId.fromHex(peerHex);
+        switch (action) {
+          case 'grant':
+            final role = CloudDocumentRole.fromName(q['role']);
+            if (role != CloudDocumentRole.editor &&
+                role != CloudDocumentRole.viewer) {
+              return _json(req, {'ok': false, 'error': 'bad role'});
+            }
+            result = await service.grant(documentId, peer, role!);
+            break;
+          case 'role':
+            final role = CloudDocumentRole.fromName(q['role']);
+            if (role != CloudDocumentRole.editor &&
+                role != CloudDocumentRole.viewer) {
+              return _json(req, {'ok': false, 'error': 'bad role'});
+            }
+            result = await service.setRole(documentId, peer, role!);
+            break;
+          case 'revoke':
+            result = await service.revoke(documentId, peer);
+            break;
+          case 'resend':
+            final ok = await service.resendInvite(documentId, peer);
+            return _json(req, {'ok': ok, 'id': documentId});
+          default:
+            return _json(req, {'ok': false, 'error': 'bad action'});
+        }
+      }
+      return _json(req, {
+        'ok': result != null,
+        'id': documentId,
+        'fullyQueued': result?.fullyQueued,
+        'failed': result?.failedRecipients.map((peer) => peer.hex).toList(),
+      });
+    } catch (error) {
+      return _json(req, {'ok': false, 'error': '$error'});
+    }
+  }
+
+  Future<void> _cloudDocumentAdoptHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(cloudDocumentReplicationServiceProvider);
+    final id = req.uri.queryParameters['id'];
+    if (service == null || id == null) {
+      return _json(req, {'ok': false, 'error': 'need documents+id'});
+    }
+    return _json(req, {'ok': await service.adopt(id), 'id': id});
   }
 
   Future<void> _cloudNoteSaveHook(HttpRequest req) async {

@@ -551,8 +551,9 @@ class EmbeddedNode {
     }
   }
 
-  /// Start a node in deferred-init mode bound to [adminSocketPath] (an
-  /// ephemeral, identity-free path). It boots under a throwaway identity; call
+  /// Start a node in deferred-init mode bound to [adminEndpoint] (an
+  /// ephemeral, identity-free Unix path or authenticated loopback-TCP URI). It
+  /// boots under a throwaway identity; call
   /// [applyConfig] with the real config to promote it — so the private key never
   /// touches a config file on disk.
   ///
@@ -562,7 +563,7 @@ class EmbeddedNode {
   /// later reload does not re-apply it. The published onion descriptor is sealed
   /// against the live identity, so it resolves to the real identity post-[applyConfig].
   static EmbeddedNode startDeferred(
-    String adminSocketPath, {
+    String adminEndpoint, {
     bool anonymous = false,
     DynamicLibrary? lib,
   }) {
@@ -572,7 +573,7 @@ class EmbeddedNode {
     final freeStr =
         dl.lookupFunction<_FreeStrNative, _FreeStrDart>('veil_free_string');
 
-    final bytes = utf8.encode(adminSocketPath);
+    final bytes = utf8.encode(adminEndpoint);
     final sockPtr = calloc<Uint8>(bytes.length);
     final errOut = calloc<Pointer<Utf8>>();
     try {

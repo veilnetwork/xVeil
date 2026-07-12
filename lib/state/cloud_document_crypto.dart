@@ -1,7 +1,44 @@
 import 'dart:ffi';
 
+import '../core/ids.dart';
 import '../data/node/embedded_node.dart';
 import '../domain/cloud_document.dart';
+
+abstract interface class CloudDocumentSigner {
+  NodeId get selfId;
+
+  CloudDocumentRoot signRoot(CloudDocumentRoot unsigned);
+  CloudDocumentControlEntry signControl(CloudDocumentControlEntry unsigned);
+}
+
+final class NativeCloudDocumentSigner implements CloudDocumentSigner {
+  NativeCloudDocumentSigner({
+    required this.identityToml,
+    required this.selfId,
+    this.lib,
+  });
+
+  final String identityToml;
+  @override
+  final NodeId selfId;
+  final DynamicLibrary? lib;
+
+  @override
+  CloudDocumentRoot signRoot(CloudDocumentRoot unsigned) =>
+      signCloudDocumentRoot(
+        identityToml: identityToml,
+        unsigned: unsigned,
+        lib: lib,
+      );
+
+  @override
+  CloudDocumentControlEntry signControl(CloudDocumentControlEntry unsigned) =>
+      signCloudDocumentControl(
+        identityToml: identityToml,
+        unsigned: unsigned,
+        lib: lib,
+      );
+}
 
 CloudDocumentRoot signCloudDocumentRoot({
   required String identityToml,

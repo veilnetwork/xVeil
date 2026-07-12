@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 
 import '../core/ids.dart';
+import '../crypto/blake3.dart';
 import '../domain/cloud_document.dart';
 import '../domain/cloud_document_envelope.dart';
 import '../domain/cloud_document_replication.dart';
@@ -13,6 +15,32 @@ import 'cloud_document_store.dart';
 
 typedef CloudDocumentFrameSender =
     Future<void> Function(NodeId peer, String documentId, String frameJson);
+typedef CloudDocumentAcceptedContact = Future<bool> Function(NodeId peer);
+
+class CloudDocumentView {
+  const CloudDocumentView({
+    required this.root,
+    required this.currentEpoch,
+    required this.members,
+    required this.localRole,
+  });
+
+  final CloudDocumentRoot root;
+  final int currentEpoch;
+  final Map<String, CloudDocumentRole> members;
+  final CloudDocumentRole? localRole;
+}
+
+class CloudDocumentMutationResult {
+  const CloudDocumentMutationResult({
+    required this.documentId,
+    this.failedRecipients = const [],
+  });
+
+  final String documentId;
+  final List<NodeId> failedRecipients;
+  bool get fullyQueued => failedRecipients.isEmpty;
+}
 
 /// Replicates signed document logs without borrowing group authorization.
 /// Transport admission is accepted-contact-only; this layer independently
@@ -24,20 +52,26 @@ class CloudDocumentReplicationService {
     required CloudDocumentStore store,
     required CloudDocumentEnvelopeService envelopes,
     required CloudDocumentFrameSender sendFrame,
+    CloudDocumentSigner? signer,
+    CloudDocumentAcceptedContact? acceptedContact,
     bool Function(CloudDocumentRoot root)? verifyRoot,
     bool Function(CloudDocumentControlEntry entry)? verifyControl,
     bool Function(CloudDocumentOperation operation)? verifyOperation,
     DateTime Function()? now,
+    Random? random,
   }) => CloudDocumentReplicationService._(
     localNodeId: localNodeId,
     ourCertVersion: ourCertVersion,
     store: store,
     envelopes: envelopes,
     sendFrame: sendFrame,
+    signer: signer,
+    acceptedContact: acceptedContact ?? (_) async => true,
     verifyRoot: verifyRoot ?? verifyCloudDocumentRoot,
     verifyControl: verifyControl ?? verifyCloudDocumentControl,
     verifyOperation: verifyOperation ?? verifyCloudDocumentOperation,
     now: now ?? DateTime.now,
+    random: random ?? Random.secure(),
   );
 
   CloudDocumentReplicationService._({
@@ -46,10 +80,13 @@ class CloudDocumentReplicationService {
     required this._store,
     required this._envelopes,
     required this._sendFrame,
+    required this._signer,
+    required this._acceptedContact,
     required this._verifyRoot,
     required this._verifyControl,
     required this._verifyOperation,
     required this._now,
+    required this._random,
   });
 
   final NodeId localNodeId;
@@ -57,13 +94,29 @@ class CloudDocumentReplicationService {
   final CloudDocumentStore _store;
   final CloudDocumentEnvelopeService _envelopes;
   final CloudDocumentFrameSender _sendFrame;
+  final CloudDocumentSigner? _signer;
+  final CloudDocumentAcceptedContact _acceptedContact;
   final bool Function(CloudDocumentRoot root) _verifyRoot;
   final bool Function(CloudDocumentControlEntry entry) _verifyControl;
   final bool Function(CloudDocumentOperation operation) _verifyOperation;
   final DateTime Function() _now;
+  final Random _random;
   final StreamController<void> _changes = StreamController<void>.broadcast();
+  Future<void> _writeTail = Future.value();
 
   Stream<void> get changes => _changes.stream;
+
+  bool get canMutate => _signer?.selfId == localNodeId;
+
+  Future<T> _serialized<T>(Future<T> Function() action) {
+    final result = _writeTail.then((_) => action());
+    _writeTail = result.then<void>((_) {}, onError: (_) {});
+    return result;
+  }
+
+  void _emit() {
+    if (!_changes.isClosed) _changes.add(null);
+  }
 
   Future<void> close() async {
     // Riverpod/widget listeners can still be paused while their container is
@@ -129,6 +182,345 @@ class CloudDocumentReplicationService {
     return currentEnvelope != null;
   }
 
+  Future<List<CloudDocumentView>> listDocuments() async {
+    final result = <CloudDocumentView>[];
+    for (final id in await _store.listDocumentIds()) {
+      final stored = await _store.load(id);
+      if (stored == null) continue;
+      try {
+        final frame = _frameFromStored(CloudDocumentFrameKind.snapshot, stored);
+        final fold = _fold(frame);
+        if (!_completeAndValid(frame, fold)) continue;
+        final epoch = fold.epochs.keys.reduce((a, b) => a > b ? a : b);
+        final members = fold.epochs[epoch]!.members;
+        result.add(
+          CloudDocumentView(
+            root: stored.root,
+            currentEpoch: epoch,
+            members: Map.unmodifiable(members),
+            localRole: members[localNodeId.hex],
+          ),
+        );
+      } finally {
+        stored.wipeLocalEpochKeys();
+      }
+    }
+    result.sort((left, right) {
+      final byTime = right.root.createdAtMs.compareTo(left.root.createdAtMs);
+      return byTime != 0
+          ? byTime
+          : left.root.documentId.hex.compareTo(right.root.documentId.hex);
+    });
+    return result;
+  }
+
+  Future<CloudDocumentMutationResult?> createDocument({
+    CloudDocumentKind kind = CloudDocumentKind.note,
+    String codec = 'xveil.note.rga.v1',
+  }) => _serialized(() async {
+    final signer = _signer;
+    if (signer == null || signer.selfId != localNodeId) return null;
+    final documentId = NodeId(_randomBytes(32));
+    final epochKey = _randomBytes(32);
+    try {
+      final envelope = await _envelopes.sealEpoch(
+        documentId: documentId,
+        epoch: 0,
+        epochKey: epochKey,
+        recipients: [localNodeId],
+      );
+      final unsigned = CloudDocumentRoot(
+        documentId: documentId,
+        owner: localNodeId,
+        ownerPubKey: Uint8List(32),
+        kind: kind,
+        codec: codec,
+        epochKeyCommitment: envelope.keyCommitment,
+        epochEnvelopeHash: envelope.bundleHash,
+        controlLogRoot: _randomHex32(),
+        createdAtMs: _now().millisecondsSinceEpoch,
+        signature: Uint8List(64),
+      );
+      final root = signer.signRoot(unsigned);
+      final signingNode = NodeId(blake3Hash(root.ownerPubKey));
+      final bundle = CloudDocumentStoredBundle(
+        root: root,
+        controls: const [],
+        operations: const [],
+        envelopes: [envelope],
+        localEpochKeys: {0: epochKey},
+      );
+      final frame = _frameFromStored(CloudDocumentFrameKind.snapshot, bundle);
+      final fold = _fold(frame);
+      if (!_completeAndValid(frame, fold) || !bundle.isStructurallyValid) {
+        throw StateError(
+          'locally generated document failed validation '
+          '(root=${fold.rootValid} owner=${localNodeId.short} '
+          'signer=${signingNode.short} controls=${fold.rejectedControls.length} '
+          'operations=${fold.rejectedOperations.length} '
+          'withheld=${fold.withheldOperations.length} '
+          'incomplete=${fold.incompleteEpochs.length} '
+          'bundle=${bundle.isStructurallyValid})',
+        );
+      }
+      await _store.save(bundle);
+      _emit();
+      return CloudDocumentMutationResult(documentId: documentId.hex);
+    } finally {
+      epochKey.fillRange(0, epochKey.length, 0);
+    }
+  });
+
+  Future<CloudDocumentMutationResult?> grant(
+    String documentId,
+    NodeId peer,
+    CloudDocumentRole role,
+  ) => _changeAcl(
+    documentId: documentId,
+    op: CloudDocumentControlOp.grant,
+    target: peer,
+    role: role,
+  );
+
+  Future<CloudDocumentMutationResult?> setRole(
+    String documentId,
+    NodeId peer,
+    CloudDocumentRole role,
+  ) => _changeAcl(
+    documentId: documentId,
+    op: CloudDocumentControlOp.setRole,
+    target: peer,
+    role: role,
+  );
+
+  Future<CloudDocumentMutationResult?> revoke(String documentId, NodeId peer) =>
+      _changeAcl(
+        documentId: documentId,
+        op: CloudDocumentControlOp.revoke,
+        target: peer,
+      );
+
+  Future<CloudDocumentMutationResult?> rotateEpoch(String documentId) =>
+      _changeAcl(
+        documentId: documentId,
+        op: CloudDocumentControlOp.rotateEpoch,
+      );
+
+  Future<bool> resendInvite(String documentId, NodeId peer) async {
+    if (!await _acceptedContact(peer)) return false;
+    final stored = await _store.load(documentId);
+    if (stored == null || stored.root.owner != localNodeId) return false;
+    try {
+      final frame = _frameFromStored(CloudDocumentFrameKind.snapshot, stored);
+      final fold = _fold(frame);
+      if (!_completeAndValid(frame, fold)) return false;
+      final latest = fold.epochs.keys.reduce((a, b) => a > b ? a : b);
+      if (!fold.epochs[latest]!.members.containsKey(peer.hex)) return false;
+      await sendInvite(peer, stored);
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      stored.wipeLocalEpochKeys();
+    }
+  }
+
+  Future<CloudDocumentMutationResult?> _changeAcl({
+    required String documentId,
+    required CloudDocumentControlOp op,
+    NodeId? target,
+    CloudDocumentRole? role,
+  }) => _serialized(() async {
+    final signer = _signer;
+    if (signer == null || signer.selfId != localNodeId) return null;
+    if (op == CloudDocumentControlOp.grant &&
+        (target == null || !await _acceptedContact(target))) {
+      return null;
+    }
+    final stored = await _store.load(documentId);
+    if (stored == null || stored.root.owner != localNodeId) return null;
+    try {
+      final oldFrame = _frameFromStored(
+        CloudDocumentFrameKind.snapshot,
+        stored,
+      );
+      final oldFold = _fold(oldFrame);
+      if (!_completeAndValid(oldFrame, oldFold)) return null;
+      final currentEpoch = oldFold.epochs.keys.reduce((a, b) => a > b ? a : b);
+      final current = oldFold.epochs[currentEpoch]!;
+      final nextMembers = Map<String, CloudDocumentRole>.from(current.members);
+      switch (op) {
+        case CloudDocumentControlOp.grant:
+          if (target == localNodeId ||
+              nextMembers.containsKey(target!.hex) ||
+              (role != CloudDocumentRole.editor &&
+                  role != CloudDocumentRole.viewer)) {
+            return null;
+          }
+          nextMembers[target.hex] = role!;
+          break;
+        case CloudDocumentControlOp.setRole:
+          final oldRole = target == null ? null : nextMembers[target.hex];
+          if (oldRole == null ||
+              oldRole == CloudDocumentRole.owner ||
+              oldRole == role ||
+              (role != CloudDocumentRole.editor &&
+                  role != CloudDocumentRole.viewer)) {
+            return null;
+          }
+          nextMembers[target!.hex] = role!;
+          break;
+        case CloudDocumentControlOp.revoke:
+          final oldRole = target == null ? null : nextMembers[target.hex];
+          if (oldRole == null || oldRole == CloudDocumentRole.owner) {
+            return null;
+          }
+          nextMembers.remove(target!.hex);
+          break;
+        case CloudDocumentControlOp.rotateEpoch:
+          if (target != null || role != null) return null;
+          break;
+      }
+
+      final nextEpoch = currentEpoch + 1;
+      final nextKey = _randomBytes(32);
+      try {
+        final envelope = await _envelopes.sealEpoch(
+          documentId: stored.root.documentId,
+          epoch: nextEpoch,
+          epochKey: nextKey,
+          recipients: [
+            for (final member in nextMembers.keys) NodeId.fromHex(member),
+          ],
+        );
+        final frontier = <String, CloudDocumentAuthorHead>{};
+        for (final operation in oldFold.acceptedOperations) {
+          // Closures carry the cumulative per-author head through the epoch,
+          // not only records authored inside that one epoch. Otherwise a later
+          // key-only rotation would appear to erase the prior signed prefix.
+          if (operation.membershipEpoch > currentEpoch) continue;
+          final prior = frontier[operation.author.hex];
+          if (prior == null || operation.seq > prior.seq) {
+            frontier[operation.author.hex] = CloudDocumentAuthorHead(
+              seq: operation.seq,
+              hash: operation.recordHash,
+            );
+          }
+        }
+        final unsigned = CloudDocumentControlEntry(
+          documentId: stored.root.documentId,
+          author: localNodeId,
+          seq: oldFold.acceptedControls.length,
+          prevControlHash: oldFold.acceptedControls.isEmpty
+              ? stored.root.controlLogRoot
+              : oldFold.acceptedControls.last.recordHash,
+          controlId: _randomHex32(),
+          membershipEpoch: currentEpoch,
+          nextEpoch: nextEpoch,
+          op: op,
+          target: target,
+          role: role,
+          epochKeyCommitment: envelope.keyCommitment,
+          epochEnvelopeHash: envelope.bundleHash,
+          closedEpochFrontier: frontier,
+          createdAtMs: _now().millisecondsSinceEpoch,
+          authorPubKey: Uint8List(32),
+          signature: Uint8List(64),
+        );
+        final control = signer.signControl(unsigned);
+        final keys = <int, Uint8List>{
+          for (final entry in stored.localEpochKeys.entries)
+            entry.key: Uint8List.fromList(entry.value),
+          nextEpoch: Uint8List.fromList(nextKey),
+        };
+        try {
+          final bundle = CloudDocumentStoredBundle(
+            root: stored.root,
+            controls: [...oldFold.acceptedControls, control],
+            operations: oldFold.acceptedOperations,
+            envelopes: [...stored.envelopes, envelope],
+            localEpochKeys: keys,
+            payloads: stored.payloads,
+          );
+          final frame = _frameFromStored(
+            CloudDocumentFrameKind.snapshot,
+            bundle,
+          );
+          final fold = _fold(frame);
+          if (!_completeAndValid(frame, fold) || !bundle.isStructurallyValid) {
+            return null;
+          }
+          await _store.save(bundle);
+          _emit();
+          final failed = await _fanoutAclMutation(
+            bundle: bundle,
+            oldMembers: current.members,
+            newMembers: nextMembers,
+            op: op,
+            target: target,
+          );
+          return CloudDocumentMutationResult(
+            documentId: documentId,
+            failedRecipients: List.unmodifiable(failed),
+          );
+        } finally {
+          for (final key in keys.values) {
+            key.fillRange(0, key.length, 0);
+          }
+        }
+      } finally {
+        nextKey.fillRange(0, nextKey.length, 0);
+      }
+    } catch (_) {
+      return null;
+    } finally {
+      stored.wipeLocalEpochKeys();
+    }
+  });
+
+  Future<List<NodeId>> _fanoutAclMutation({
+    required CloudDocumentStoredBundle bundle,
+    required Map<String, CloudDocumentRole> oldMembers,
+    required Map<String, CloudDocumentRole> newMembers,
+    required CloudDocumentControlOp op,
+    required NodeId? target,
+  }) async {
+    final recipients = {...oldMembers.keys, ...newMembers.keys}
+      ..remove(localNodeId.hex);
+    final failed = <NodeId>[];
+    for (final id in recipients) {
+      final peer = NodeId.fromHex(id);
+      try {
+        if (op == CloudDocumentControlOp.grant && peer == target) {
+          await sendInvite(peer, bundle);
+        } else if (newMembers.containsKey(id)) {
+          await sendSnapshot(peer, bundle);
+        } else if (op == CloudDocumentControlOp.revoke && peer == target) {
+          final frame = _frameFromStored(
+            CloudDocumentFrameKind.snapshot,
+            bundle,
+          );
+          await _sendFrame(peer, bundle.root.documentId.hex, frame.encode());
+        }
+      } catch (_) {
+        failed.add(peer);
+      }
+    }
+    return failed;
+  }
+
+  Uint8List _randomBytes(int count) {
+    final bytes = Uint8List(count);
+    for (var index = 0; index < count; index++) {
+      bytes[index] = _random.nextInt(256);
+    }
+    return bytes;
+  }
+
+  String _randomHex32() => _randomBytes(
+    32,
+  ).map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+
   Future<List<CloudDocumentPendingInvite>> pendingInvites() async {
     final result = <CloudDocumentPendingInvite>[];
     for (final id in await _store.listPendingInviteIds()) {
@@ -141,7 +533,10 @@ class CloudDocumentReplicationService {
 
   /// Receive an accepted-contact frame. Invalid/unauthorized input is silently
   /// discarded: the return value is local diagnostics only and never ack data.
-  Future<bool> ingest(NodeId sender, String frameJson) async {
+  Future<bool> ingest(NodeId sender, String frameJson) =>
+      _serialized(() => _ingest(sender, frameJson));
+
+  Future<bool> _ingest(NodeId sender, String frameJson) async {
     final incoming = CloudDocumentFrame.decode(frameJson);
     if (incoming == null) return false;
     if (incoming.kind == CloudDocumentFrameKind.invite) {
@@ -188,6 +583,7 @@ class CloudDocumentReplicationService {
           key.fillRange(0, key.length, 0);
         }
       }
+      _emit();
       return true;
     } finally {
       existing.wipeLocalEpochKeys();
@@ -216,11 +612,14 @@ class CloudDocumentReplicationService {
         frame: frame,
       ),
     );
-    _changes.add(null);
+    _emit();
     return true;
   }
 
-  Future<bool> adopt(String documentId) async {
+  Future<bool> adopt(String documentId) =>
+      _serialized(() => _adopt(documentId));
+
+  Future<bool> _adopt(String documentId) async {
     final pending = await _store.loadPendingInvite(documentId);
     if (pending == null) return false;
     final frame = pending.frame;
@@ -248,7 +647,7 @@ class CloudDocumentReplicationService {
         ),
       );
       await _store.removePendingInvite(documentId);
-      _changes.add(null);
+      _emit();
       return true;
     } catch (_) {
       return false;
@@ -259,10 +658,10 @@ class CloudDocumentReplicationService {
     }
   }
 
-  Future<void> dismissInvite(String documentId) async {
+  Future<void> dismissInvite(String documentId) => _serialized(() async {
     await _store.removePendingInvite(documentId);
-    _changes.add(null);
-  }
+    _emit();
+  });
 
   /// Decrypts one authenticated operation entirely in RAM. The returned bytes
   /// are owned by the caller and must never be written outside the deniable
