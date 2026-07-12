@@ -621,6 +621,17 @@ class HiddenVolumeStorage implements Storage {
   }
 
   @override
+  Future<void> deleteStoredFile(String fileId) => _fileSerialized(() async {
+    final blobNames = <String>[];
+    final ops = <KvLogOp>[
+      ...await AsyncFileStore(_as).deleteFileOps(fileId),
+      ...await _onDiskScrubOps(fileId, blobNames),
+    ];
+    if (ops.isNotEmpty) await _as.commit(ops);
+    await _deleteBlobFiles(blobNames);
+  });
+
+  @override
   Future<bool> hasFile(String fileId) async {
     final meta = await _odMeta(fileId);
     if (meta != null) {
@@ -1737,6 +1748,35 @@ class HiddenVolumeStorage implements Storage {
       // stores carry hundreds of entries.
       key.startsWith('msgidx:');
 
+  /// Content referenced by the personal-cloud materialized index is just as
+  /// live as a chat attachment. Parse the storage codec locally to keep the
+  /// storage layer independent of the cloud domain, and accept only the exact
+  /// bounded v1 shape + a 64-hex cid. Malformed rows retain nothing.
+  Future<Set<String>> _cloudIndexContentIds() async {
+    final live = <String>{};
+    try {
+      final raw = await _as.get(Ns.settings, _sk('set:cloud.index.v1'));
+      if (raw == null) return live;
+      final rows = jsonDecode(utf8.decode(raw));
+      if (rows is! List || rows.length > 100000) return live;
+      final cidPattern = RegExp(r'^[0-9a-f]{64}$');
+      for (final body in rows) {
+        if (body is! String || body.length > 4096) continue;
+        final event = jsonDecode(body);
+        if (event is! Map || event['v'] != 1 || event['k'] != 'cloudEntry') {
+          continue;
+        }
+        final payload = event['p'];
+        if (payload is! Map || payload['del'] == true) continue;
+        final cid = payload['cid'];
+        if (cid is String && cidPattern.hasMatch(cid)) live.add(cid);
+      }
+    } catch (_) {
+      // Fail closed for retention: malformed local index keeps no blob alive.
+    }
+    return live;
+  }
+
   @override
   Future<int> sweepSettingsGarbage({bool wholesale = false}) async {
     final keys = await settingsKeys();
@@ -1746,7 +1786,7 @@ class HiddenVolumeStorage implements Storage {
     if (!wholesale) {
       // Per-content bookkeeping is only reachable through a message that
       // still names its content id; collect the live ids once per sweep.
-      final live = <String>{};
+      final live = await _cloudIndexContentIds();
       for (final m in await _scanLog()) {
         final cid = m.fileContentId;
         if (cid != null) live.add(cid);

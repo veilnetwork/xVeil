@@ -5,14 +5,14 @@ import '../channels/channels_screen.dart';
 import '../chat/chats_screen.dart';
 import '../chat/notification_binder.dart';
 import '../chat/signature_ask_host.dart';
+import '../storage/cloud_storage_screen.dart';
 
 /// The main authenticated surface. Chats and Channels are REAL tabs (NAV1:
 /// switching keeps the bottom bar and highlights the active destination —
 /// pushing a route on top used to leave "Chats" lit while a different screen
 /// showed). Group chats live inside the Chats list; the Channels tab waits
-/// for the channels epic. Storage and the menu-tiles panel stay stubbed with
-/// a toast until their epics land, so the final navigation shape is already
-/// in place.
+/// for the channels epic. Personal cloud is a real third tab; only the
+/// menu-tiles panel remains a stub.
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
 
@@ -35,18 +35,22 @@ class _HomeShellState extends State<HomeShell> {
           // alive while the user peeks at another tab.
           body: IndexedStack(
             index: _tab,
-            children: const [ChatsScreen(), ChannelsScreen()],
+            children: const [
+              ChatsScreen(),
+              ChannelsScreen(),
+              CloudStorageScreen(),
+            ],
           ),
           bottomNavigationBar: NavigationBar(
             selectedIndex: _tab,
             onDestinationSelected: (i) {
-              if (i <= 1) {
+              if (i <= 2) {
                 setState(() => _tab = i);
                 return;
               }
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(l.comingSoon)),
-              );
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(SnackBar(content: Text(l.comingSoon)));
             },
             destinations: [
               NavigationDestination(

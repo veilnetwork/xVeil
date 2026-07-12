@@ -985,6 +985,168 @@ abstract class AppL10n {
   /// **'Coming soon'**
   String get comingSoon;
 
+  /// No description provided for @cloudTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Personal cloud'**
+  String get cloudTitle;
+
+  /// No description provided for @cloudUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Cloud sync is unavailable until the node is ready'**
+  String get cloudUnavailable;
+
+  /// No description provided for @cloudEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'Your cloud is empty'**
+  String get cloudEmpty;
+
+  /// No description provided for @cloudEmptyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Files are encrypted locally and replicated only between your own linked devices.'**
+  String get cloudEmptyHint;
+
+  /// No description provided for @cloudAddFile.
+  ///
+  /// In en, this message translates to:
+  /// **'Add file'**
+  String get cloudAddFile;
+
+  /// No description provided for @cloudImported.
+  ///
+  /// In en, this message translates to:
+  /// **'File added to your cloud'**
+  String get cloudImported;
+
+  /// No description provided for @cloudImportFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not import the file'**
+  String get cloudImportFailed;
+
+  /// No description provided for @cloudLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load the cloud index'**
+  String get cloudLoadFailed;
+
+  /// No description provided for @cloudReplication.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep on this device'**
+  String get cloudReplication;
+
+  /// No description provided for @cloudModeAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Everything'**
+  String get cloudModeAll;
+
+  /// No description provided for @cloudModeSelected.
+  ///
+  /// In en, this message translates to:
+  /// **'Selected'**
+  String get cloudModeSelected;
+
+  /// No description provided for @cloudModeIndex.
+  ///
+  /// In en, this message translates to:
+  /// **'Index only'**
+  String get cloudModeIndex;
+
+  /// No description provided for @cloudModeAllHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatically download every cloud item'**
+  String get cloudModeAllHint;
+
+  /// No description provided for @cloudModeSelectedHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatically download selected items'**
+  String get cloudModeSelectedHint;
+
+  /// No description provided for @cloudModeIndexHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Show the index and download only on demand'**
+  String get cloudModeIndexHint;
+
+  /// No description provided for @cloudLocal.
+  ///
+  /// In en, this message translates to:
+  /// **'on this device'**
+  String get cloudLocal;
+
+  /// No description provided for @cloudRemote.
+  ///
+  /// In en, this message translates to:
+  /// **'in cloud'**
+  String get cloudRemote;
+
+  /// No description provided for @cloudReplicas.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{no verified copies} =1{1 verified copy} other{{count} verified copies}}'**
+  String cloudReplicas(int count);
+
+  /// No description provided for @cloudDownload.
+  ///
+  /// In en, this message translates to:
+  /// **'Download to this device'**
+  String get cloudDownload;
+
+  /// No description provided for @cloudSelect.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep selected'**
+  String get cloudSelect;
+
+  /// No description provided for @cloudUnselect.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop keeping selected'**
+  String get cloudUnselect;
+
+  /// No description provided for @cloudVerify.
+  ///
+  /// In en, this message translates to:
+  /// **'Verify and repair'**
+  String get cloudVerify;
+
+  /// No description provided for @cloudVerifyOk.
+  ///
+  /// In en, this message translates to:
+  /// **'Local cloud files passed verification'**
+  String get cloudVerifyOk;
+
+  /// No description provided for @cloudRepairStarted.
+  ///
+  /// In en, this message translates to:
+  /// **'Repair requested for {count} damaged files'**
+  String cloudRepairStarted(int count);
+
+  /// No description provided for @cloudDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get cloudDelete;
+
+  /// No description provided for @cloudDeleteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete from your cloud?'**
+  String get cloudDeleteTitle;
+
+  /// No description provided for @cloudDeleteBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The item will disappear from every linked device. This cannot be undone.'**
+  String get cloudDeleteBody;
+
   /// No description provided for @settingsCatAccount.
   ///
   /// In en, this message translates to:

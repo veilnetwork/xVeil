@@ -46,6 +46,7 @@ List<NodeId> mailboxRelayCandidates(List<BootstrapPeerCfg> peers) {
   }
   return out;
 }
+
 const _streamRangeParallelismDartDefine = int.fromEnvironment(
   'XVEIL_STREAM_RANGE_PARALLELISM',
   defaultValue: 0,
@@ -508,20 +509,22 @@ class MessagingService {
   }) async {
     if (await _hasMessage(peer, msgId)) return false;
     if (await _storage.isMessageDeleted(peer.hex, msgId)) return false;
-    await _storage.appendMessage(Message(
-      id: msgId,
-      conversationId: peer.hex,
-      direction: direction,
-      body: body,
-      timestamp: DateTime.fromMillisecondsSinceEpoch(tsMs),
-      status: direction == MessageDirection.outgoing
-          ? MessageStatus.sent
-          : MessageStatus.delivered,
-      fileContentId: fileContentId,
-      fileName: fileName,
-      fileSize: fileSize,
-      thumb: thumb,
-    ));
+    await _storage.appendMessage(
+      Message(
+        id: msgId,
+        conversationId: peer.hex,
+        direction: direction,
+        body: body,
+        timestamp: DateTime.fromMillisecondsSinceEpoch(tsMs),
+        status: direction == MessageDirection.outgoing
+            ? MessageStatus.sent
+            : MessageStatus.delivered,
+        fileContentId: fileContentId,
+        fileName: fileName,
+        fileSize: fileSize,
+        thumb: thumb,
+      ),
+    );
     _signal();
     return true;
   }
@@ -656,9 +659,7 @@ class MessagingService {
     try {
       await _storage.storeFile('mf:$cid', mfBytes, name: 'manifest');
     } catch (e) {
-      devLog(
-        () => 'xVeil[content]: group manifest persist retry after: $e',
-      );
+      devLog(() => 'xVeil[content]: group manifest persist retry after: $e');
       await Future<void>.delayed(const Duration(milliseconds: 300));
       await _storage.storeFile('mf:$cid', mfBytes, name: 'manifest');
     }
@@ -686,8 +687,11 @@ class MessagingService {
 
   /// Ship a group snapshot to [dst] durably (direct fanout; keyed per group so
   /// a later snapshot of the SAME group supersedes an un-acked earlier one).
-  Future<void> sendGroupSnapshot(NodeId dst, String groupIdHex,
-      String bundleJson) async {
+  Future<void> sendGroupSnapshot(
+    NodeId dst,
+    String groupIdHex,
+    String bundleJson,
+  ) async {
     // Key the frame by CONTENT so a NEW snapshot of the same group (a fresh
     // message/op) is a distinct durable frame — a group-only id would let the
     // receiver dedup the newer snapshot away. A re-drive of the SAME snapshot
@@ -775,8 +779,11 @@ class MessagingService {
       return;
     }
     slot.parts[f.index] = f.data;
-    _groupReasm[f.transferId] =
-        (count: slot.count, parts: slot.parts, bytes: nextBytes);
+    _groupReasm[f.transferId] = (
+      count: slot.count,
+      parts: slot.parts,
+      bytes: nextBytes,
+    );
     if (slot.parts.length < slot.count) return; // still missing chunks
     // Complete: concatenate in index order, decode, ingest once.
     _groupReasm.remove(f.transferId);
@@ -796,7 +803,9 @@ class MessagingService {
       } else {
         onGroupEntry?.call(src, bundle);
       }
-    } catch (_) {/* undecodable joined bundle */}
+    } catch (_) {
+      /* undecodable joined bundle */
+    }
   }
 
   /// Single egress point so every outbound frame honours [_anonymous]. The real
@@ -1572,7 +1581,10 @@ class MessagingService {
   /// steady health/transportInfo inbound would otherwise rewind a call frame
   /// whose ack is merely in flight, re-driving it every nudge throttle window
   /// (the duplicate `re-drive fid=call:…` lines in the P2P smoke).
-  final Map<String, ({int count, DateTime nextAt, String peer, DateTime lastSentAt})>
+  final Map<
+    String,
+    ({int count, DateTime nextAt, String peer, DateTime lastSentAt})
+  >
   _outboxLiveBackoff = {};
 
   /// A frame live-sent this recently is presumed in flight (ack pending) —
@@ -2497,11 +2509,7 @@ class MessagingService {
         final localFileId = _uuid.v4();
         final assembled = inc.reasm.assemble();
         try {
-          await _storage.storeFile(
-            localFileId,
-            assembled,
-            name: inc.name,
-          );
+          await _storage.storeFile(localFileId, assembled, name: inc.name);
         } catch (e) {
           // Over the storage cap (the buffer cap should have aborted it first) or
           // a transient store error — drop the transfer rather than crash the
@@ -4006,13 +4014,7 @@ class MessagingService {
   /// the cap the piece COUNT grows instead — the ceiling then comes from the
   /// durable manifest (~3.6 MB storeFile cap ≈ 32 K piece hashes), i.e. ~1 TB.
   static int adaptivePieceSize(int size) {
-    const maxPieces = 4096;
-    const maxPieceBytes = 32 * 1024 * 1024;
-    final needed = (size + maxPieces - 1) ~/ maxPieces;
-    if (needed <= ContentManifest.defaultPieceSize) {
-      return ContentManifest.defaultPieceSize;
-    }
-    return needed > maxPieceBytes ? maxPieceBytes : needed;
+    return ContentManifest.adaptivePieceSize(size);
   }
 
   /// Persist [bytes] as a streamed (uncapped) blob keyed by the manifest's
@@ -4366,8 +4368,11 @@ class MessagingService {
   /// Send a shared STICKER PACK: the STKP1 [blob] rides the content path under
   /// `.stkpack` so the receiver gets an install card. A thumb of the first
   /// sticker ([firstThumbB64]) previews it before download.
-  Future<void> sendStickerPack(NodeId dst, Uint8List blob,
-      {String? firstThumbB64}) async {
+  Future<void> sendStickerPack(
+    NodeId dst,
+    Uint8List blob, {
+    String? firstThumbB64,
+  }) async {
     _mailbox?.noteActivity();
     _warmStreamPeer(dst);
     final name = '${_uuid.v4()}$kStickerPackFileExt';
@@ -4534,7 +4539,8 @@ class MessagingService {
         devLog(() => 'xVeil[content]: video thumb skipped for $name: $e');
       }
     }
-    final mediaCopy = (isImageFileName(name) || isVideoFileName(name)) &&
+    final mediaCopy =
+        (isImageFileName(name) || isVideoFileName(name)) &&
         size <= kThumbSourceReadCapBytes;
     if (mediaCopy) {
       try {
@@ -4546,7 +4552,8 @@ class MessagingService {
           await _storeServedBlob(base, mediaBytes);
         } catch (e) {
           devLog(
-            () => 'xVeil[content]: stream-send local copy skipped for '
+            () =>
+                'xVeil[content]: stream-send local copy skipped for '
                 '$name: $e',
           );
         }

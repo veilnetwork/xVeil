@@ -31,10 +31,12 @@ import '../state/group_crypto.dart';
 import '../state/group_service.dart';
 import '../routing/router.dart';
 import '../domain/call_log.dart';
+import '../domain/cloud.dart';
 import '../state/api_server.dart';
 import '../state/app_controller.dart';
 import '../state/call_log.dart';
 import '../state/call_service.dart';
+import '../state/cloud_service.dart';
 import '../state/device_settings_sync.dart';
 import '../state/locale_controller.dart';
 import '../state/reactions_visibility_controller.dart';
@@ -321,6 +323,24 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/device_events':
           await _deviceEventsHook(req);
           return;
+        case '/cloud_put':
+          await _cloudPutHook(req);
+          return;
+        case '/cloud_state':
+          await _cloudStateHook(req);
+          return;
+        case '/cloud_fetch':
+          await _cloudFetchHook(req);
+          return;
+        case '/cloud_verify':
+          await _cloudVerifyHook(req);
+          return;
+        case '/cloud_delete':
+          await _cloudDeleteHook(req);
+          return;
+        case '/cloud_profile':
+          await _cloudProfileHook(req);
+          return;
         case '/conv_messages':
           await _convMessagesHook(req);
           return;
@@ -432,9 +452,8 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/call_screen':
           await _callAction(
             req,
-            (svc) => svc.setScreenShareEnabled(
-              req.uri.queryParameters['on'] != '0',
-            ),
+            (svc) =>
+                svc.setScreenShareEnabled(req.uri.queryParameters['on'] != '0'),
           );
           return;
         case '/call_state':
@@ -591,13 +610,19 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     // camera capturer — the hook exercises exactly what the UI does.
     final rec = NativeVnoteRecorder.create();
     if (rec == null) {
-      return _json(req, {'ok': false, 'error': 'recorder unavailable'},
-          status: 500);
+      return _json(req, {
+        'ok': false,
+        'error': 'recorder unavailable',
+      }, status: 500);
     }
-    await MacMediaPermissions.requestMicrophone()
-        .timeout(const Duration(seconds: 5), onTimeout: () => false);
-    await MacMediaPermissions.requestCamera()
-        .timeout(const Duration(seconds: 5), onTimeout: () => false);
+    await MacMediaPermissions.requestMicrophone().timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => false,
+    );
+    await MacMediaPermissions.requestCamera().timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => false,
+    );
     if (!await rec.start()) {
       rec.dispose();
       return _json(req, {'ok': false, 'error': 'start failed'}, status: 500);
@@ -610,8 +635,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       return _json(req, {'ok': false, 'error': 'empty clip'});
     }
     final b = clip.bytes;
-    final vn = b.length >= 24 &&
-        b[0] == 0x56 && b[1] == 0x4E && b[2] == 0x30 && b[3] == 0x31;
+    final vn =
+        b.length >= 24 &&
+        b[0] == 0x56 &&
+        b[1] == 0x4E &&
+        b[2] == 0x30 &&
+        b[3] == 0x31;
     return _json(req, {
       'ok': true,
       'bytes': b.length,
@@ -620,9 +649,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'flags': vn ? b[5] : 0,
       'width': vn ? (b[6] | (b[7] << 8)) : 0,
       'height': vn ? (b[8] | (b[9] << 8)) : 0,
-      'frames': vn
-          ? (b[20] | (b[21] << 8) | (b[22] << 16) | (b[23] << 24))
-          : 0,
+      'frames': vn ? (b[20] | (b[21] << 8) | (b[22] << 16) | (b[23] << 24)) : 0,
       'previewW': preview?.width ?? 0,
     });
   }
@@ -709,8 +736,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     }
     final role = GroupRole.fromName(q['role']);
     final gid = NodeId.fromHex(gidHex);
-    final applied =
-        await svc.addControlOp(gid, op, target: target, role: role);
+    final applied = await svc.addControlOp(gid, op, target: target, role: role);
     final st = await svc.stateOf(gid);
     return _json(req, {
       'ok': applied,
@@ -731,8 +757,11 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final gid = NodeId.fromHex(gidHex);
     // ?silent=1 skips the delta fanout — a deterministic "lost delta" for
     // gap-fill verification (brick G1).
-    final posted = await svc.postMessage(gid, groupPostHookText(req.uri),
-        broadcast: q['silent'] != '1');
+    final posted = await svc.postMessage(
+      gid,
+      groupPostHookText(req.uri),
+      broadcast: q['silent'] != '1',
+    );
     final msgs = await svc.messagesOf(gid);
     return _json(req, {'ok': posted, 'messages': msgs.length});
   }
@@ -807,8 +836,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     if (gidHex == null) return _json(req, {'ok': false, 'error': 'no group'});
     final gid = NodeId.fromHex(gidHex);
     final left = await svc.leaveGroup(gid);
-    final listed =
-        (await svc.listGroups()).any((g) => g.groupId == gid);
+    final listed = (await svc.listGroups()).any((g) => g.groupId == gid);
     return _json(req, {'ok': left, 'stillListed': listed});
   }
 
@@ -830,8 +858,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     // ?silent=1 stores the signed reaction WITHOUT the delta fanout — the
     // deterministic "lost reaction" for the gap-fill device-verify (mirrors
     // /group_post?silent=1).
-    final ok = await svc.react(gid, ref, q['emoji'] ?? '👍',
-        broadcast: q['silent'] != '1');
+    final ok = await svc.react(
+      gid,
+      ref,
+      q['emoji'] ?? '👍',
+      broadcast: q['silent'] != '1',
+    );
     final agg = await svc.reactionsOf(gid);
     return _json(req, {
       'ok': ok,
@@ -872,8 +904,11 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       return _json(req, {'ok': false, 'error': 'nothing to reply to'});
     }
     final target = existing.last;
-    final posted =
-        await svc.postMessage(gid, q['body'] ?? '', replyTo: target.ref);
+    final posted = await svc.postMessage(
+      gid,
+      q['body'] ?? '',
+      replyTo: target.ref,
+    );
     return _json(req, {'ok': posted, 'replyTo': target.ref});
   }
 
@@ -905,7 +940,11 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       gid,
       q['body'] ?? '',
       attachment: GroupAttachment(
-          kind: 'image', dataB64: img.b64, w: img.w, h: img.h),
+        kind: 'image',
+        dataB64: img.b64,
+        w: img.w,
+        h: img.h,
+      ),
     );
     return _json(req, {
       'ok': posted,
@@ -940,7 +979,11 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       NodeId.fromHex(gidHex),
       '',
       attachment: GroupAttachment(
-          kind: 'sticker', dataB64: img.b64, w: img.w, h: img.h),
+        kind: 'sticker',
+        dataB64: img.b64,
+        w: img.w,
+        h: img.h,
+      ),
     );
     return _json(req, {'ok': posted, 'w': img.w, 'h': img.h});
   }
@@ -958,8 +1001,10 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final ms = int.tryParse(req.uri.queryParameters['ms'] ?? '') ?? 2000;
     final rec = VeilAudioRecorder.create();
     if (rec == null) {
-      return _json(req, {'ok': false, 'error': 'recorder unavailable'},
-          status: 500);
+      return _json(req, {
+        'ok': false,
+        'error': 'recorder unavailable',
+      }, status: 500);
     }
     await MacMediaPermissions.requestMicrophone().timeout(
       const Duration(seconds: 5),
@@ -967,8 +1012,10 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     );
     if (!rec.start()) {
       rec.dispose();
-      return _json(req, {'ok': false, 'error': 'start failed (permission?)'},
-          status: 500);
+      return _json(req, {
+        'ok': false,
+        'error': 'start failed (permission?)',
+      }, status: 500);
     }
     await Future<void>.delayed(Duration(milliseconds: ms));
     final clip = rec.stop();
@@ -1025,7 +1072,10 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       // Ref clip: play from the fetched file-store blob (its key = cid).
       final held = await ref.read(storageProvider).loadFile(refCid);
       if (held == null) {
-        return _json(req, {'ok': false, 'error': 'blob not held (fetch first)'});
+        return _json(req, {
+          'ok': false,
+          'error': 'blob not held (fetch first)',
+        });
       }
       bytes = held;
       await ref
@@ -1074,7 +1124,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       NodeId.fromHex(gidHex),
       '',
       attachment: GroupAttachment(
-          kind: 'image', dataB64: 'QUFBQQ==', w: 1, h: 1, cid: cid),
+        kind: 'image',
+        dataB64: 'QUFBQQ==',
+        w: 1,
+        h: 1,
+        cid: cid,
+      ),
     );
     return _json(req, {'ok': posted, 'cid': cid});
   }
@@ -1091,7 +1146,10 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       return _json(req, {'ok': false, 'error': 'need group+cid+holder'});
     }
     final ok = await svc.requestGroupContent(
-        NodeId.fromHex(gidHex), cid, NodeId.fromHex(holder));
+      NodeId.fromHex(gidHex),
+      cid,
+      NodeId.fromHex(holder),
+    );
     return _json(req, {'ok': ok, 'cid': cid});
   }
 
@@ -1115,9 +1173,14 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       signer = NativeSovereignGroupSigner.openBundle(bundle, phrase);
       final recoveryCode = veil.generateSovereignRecoveryCode();
       final certificate = veil.exportSovereignRecoveryCertificate(
-          bundle, phrase, recoveryCode);
+        bundle,
+        phrase,
+        recoveryCode,
+      );
       recovered = NativeSovereignGroupSigner.openRecoveryCertificate(
-          certificate, recoveryCode);
+        certificate,
+        recoveryCode,
+      );
       final message = Uint8List.fromList(utf8.encode('xveil-sovereign-probe'));
       final signature = recovered.sign(message);
       final valid = veil.verifySovereignSignature(
@@ -1166,10 +1229,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     } finally {
       sovereign?.close();
     }
-    return _json(req, {
-      'ok': ok,
-      'deviceGroup': await svc.deviceGroupIdHex(),
-    });
+    return _json(req, {'ok': ok, 'deviceGroup': await svc.deviceGroupIdHex()});
   }
 
   /// NEW device side of the handshake: adopt ?group= as MY device group (the
@@ -1260,12 +1320,14 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         return _json(req, {'ok': false, 'error': 'bad p json'});
       }
     }
-    final ok = await svc.postDeviceEvent(DeviceSyncEvent(
-      kind: kind,
-      key: key,
-      tsMs: DateTime.now().millisecondsSinceEpoch,
-      payload: payload,
-    ));
+    final ok = await svc.postDeviceEvent(
+      DeviceSyncEvent(
+        kind: kind,
+        key: key,
+        tsMs: DateTime.now().millisecondsSinceEpoch,
+        payload: payload,
+      ),
+    );
     return _json(req, {'ok': ok});
   }
 
@@ -1285,6 +1347,148 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           },
       },
     });
+  }
+
+  // ── Personal cloud hooks ────────────────────────────────────────────────
+
+  /// Import deterministic in-memory bytes into the real deniable cloud path.
+  /// Small and debug-only: this lets the two-device stand prove index + blob
+  /// replication without writing a cleartext fixture to either device.
+  Future<void> _cloudPutHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(cloudServiceProvider);
+    if (service == null) {
+      return _json(req, {'ok': false, 'error': 'cloud unavailable'});
+    }
+    final q = req.uri.queryParameters;
+    final size = int.tryParse(q['size'] ?? '') ?? 32768;
+    final seed = int.tryParse(q['seed'] ?? '') ?? 17;
+    if (size < 0 || size > 4 * 1024 * 1024) {
+      return _json(req, {'ok': false, 'error': 'size must be 0..4194304'});
+    }
+    final name = (q['name']?.trim().isNotEmpty ?? false)
+        ? q['name']!.trim()
+        : 'cloud-probe-$seed.bin';
+    final bytes = Uint8List.fromList([
+      for (var i = 0; i < size; i++) (seed + i * 31) & 0xff,
+    ]);
+    try {
+      final item = await service.importContent(
+        name: name,
+        size: bytes.length,
+        readRange: (offset, length) async =>
+            Uint8List.fromList(bytes.sublist(offset, offset + length)),
+      );
+      return _json(req, {
+        'ok': true,
+        'id': item.id,
+        'cid': item.contentId,
+        'size': item.size,
+        'replicas': service.replicaCount(item),
+      });
+    } catch (e) {
+      return _json(req, {
+        'ok': false,
+        'error': 'cloud import failed',
+        'detail': '$e',
+      });
+    }
+  }
+
+  /// Materialized cloud index and verified local replica state.
+  Future<void> _cloudStateHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(cloudServiceProvider);
+    if (service == null) {
+      return _json(req, {'ok': false, 'error': 'cloud unavailable'});
+    }
+    final rows = await service.listItems(
+      includeDeleted: req.uri.queryParameters['deleted'] == '1',
+    );
+    final items = <Map<String, Object?>>[];
+    for (final item in rows) {
+      items.add({
+        'id': item.id,
+        'name': item.name,
+        'kind': item.kind.name,
+        'cid': item.contentId,
+        'size': item.size,
+        'revision': item.revision,
+        'deleted': item.deleted,
+        'local': await service.isLocal(item),
+        'replicas': service.replicaCount(item),
+      });
+    }
+    return _json(req, {
+      'ok': true,
+      'mode': service.profile.mode.name,
+      'selected': service.profile.selectedItemIds.toList()..sort(),
+      'items': items,
+    });
+  }
+
+  Future<void> _cloudFetchHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(cloudServiceProvider);
+    final id = req.uri.queryParameters['id'];
+    if (service == null || id == null) {
+      return _json(req, {'ok': false, 'error': 'need cloud+id'});
+    }
+    final item = (await service.listItems())
+        .where((row) => row.id == id)
+        .firstOrNull;
+    if (item == null) return _json(req, {'ok': false, 'error': 'not found'});
+    final started = await service.ensureLocal(item);
+    return _json(req, {
+      'ok': started,
+      'id': id,
+      'local': await service.isLocal(item),
+    });
+  }
+
+  Future<void> _cloudVerifyHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(cloudServiceProvider);
+    if (service == null) {
+      return _json(req, {'ok': false, 'error': 'cloud unavailable'});
+    }
+    final result = await service.verifyAll(
+      repair: req.uri.queryParameters['repair'] == '1',
+    );
+    return _json(req, {'ok': true, 'verified': result});
+  }
+
+  Future<void> _cloudDeleteHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(cloudServiceProvider);
+    final id = req.uri.queryParameters['id'];
+    if (service == null || id == null) {
+      return _json(req, {'ok': false, 'error': 'need cloud+id'});
+    }
+    await service.deleteItem(id);
+    return _json(req, {'ok': true, 'id': id});
+  }
+
+  Future<void> _cloudProfileHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(cloudServiceProvider);
+    if (service == null) {
+      return _json(req, {'ok': false, 'error': 'cloud unavailable'});
+    }
+    final raw = req.uri.queryParameters['mode'];
+    final mode = CloudReplicationMode.values
+        .where((candidate) => candidate.name == raw)
+        .firstOrNull;
+    if (mode == null) {
+      return _json(req, {'ok': false, 'error': 'bad mode'});
+    }
+    await service.setProfile(
+      CloudReplicationProfile(
+        mode: mode,
+        selectedItemIds: service.profile.selectedItemIds,
+      ),
+    );
+    return _json(req, {'ok': true, 'mode': mode.name});
   }
 
   /// The stored 1:1 messages of conversation ?peer= (bodies + direction) —
@@ -1366,8 +1570,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     if (!_requireReady(req)) return;
     final peerHex = req.uri.queryParameters['peer'];
     if (peerHex == null) return _json(req, {'ok': false, 'error': 'no peer'});
-    final c =
-        await ref.read(storageProvider).getContact(NodeId.fromHex(peerHex));
+    final c = await ref
+        .read(storageProvider)
+        .getContact(NodeId.fromHex(peerHex));
     if (c == null) return _json(req, {'ok': false, 'error': 'unknown'});
     return _json(req, {
       'ok': true,
@@ -1446,15 +1651,19 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final outcome =
         CallLogOutcome.fromName(q['outcome']) ?? CallLogOutcome.missed;
     final nowMs = DateTime.now().millisecondsSinceEpoch;
-    final wrote = await ref.read(callLogStoreProvider).add(CallLogEntry(
-          id: q['id'] ?? 'hook-$nowMs',
-          peerHex: peerHex,
-          outgoing: q['out'] == '1',
-          video: q['vid'] == '1',
-          outcome: outcome,
-          atMs: nowMs,
-          durationSec: int.tryParse(q['dur'] ?? '') ?? 0,
-        ));
+    final wrote = await ref
+        .read(callLogStoreProvider)
+        .add(
+          CallLogEntry(
+            id: q['id'] ?? 'hook-$nowMs',
+            peerHex: peerHex,
+            outgoing: q['out'] == '1',
+            video: q['vid'] == '1',
+            outcome: outcome,
+            atMs: nowMs,
+            durationSec: int.tryParse(q['dur'] ?? '') ?? 0,
+          ),
+        );
     return _json(req, {'ok': wrote});
   }
 
@@ -1465,8 +1674,10 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final peer = req.uri.queryParameters['peer'];
     if (peer == null) return _json(req, {'ok': false, 'error': 'no peer'});
     await ref.read(messagingServiceProvider).markRead(peer);
-    return _json(req,
-        {'ok': true, 'marker': await ref.read(storageProvider).readMarker(peer)});
+    return _json(req, {
+      'ok': true,
+      'marker': await ref.read(storageProvider).readMarker(peer),
+    });
   }
 
   /// Ship the FULL device-group snapshot to my other devices right now — the
@@ -1563,8 +1774,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       });
     }
     if (group != null) {
-      final raw =
-          await ref.read(storageProvider).getSetting('group.seen:$group');
+      final raw = await ref
+          .read(storageProvider)
+          .getSetting('group.seen:$group');
       return _json(req, {'ok': true, 'marker': int.tryParse(raw ?? '') ?? 0});
     }
     return _json(req, {'ok': false, 'error': 'need conv or group'});
@@ -1606,7 +1818,8 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     if (mfBytes != null) {
       try {
         final m = ContentManifest.fromJson(
-            jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>);
+          jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>,
+        );
         mfParsed = m == null
             ? 'PARSE-NULL'
             : {'id': m.contentId, 'size': m.size, 'pieces': m.pieceCount};
@@ -1633,13 +1846,17 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final ms = int.tryParse(req.uri.queryParameters['ms'] ?? '') ?? 2000;
     final rec = NativeVnoteRecorder.create();
     if (rec == null) {
-      return _json(req, {'ok': false, 'error': 'recorder unavailable'},
-          status: 500);
+      return _json(req, {
+        'ok': false,
+        'error': 'recorder unavailable',
+      }, status: 500);
     }
     if (!await rec.start()) {
       rec.dispose();
-      return _json(req, {'ok': false, 'error': 'start failed (permission?)'},
-          status: 500);
+      return _json(req, {
+        'ok': false,
+        'error': 'start failed (permission?)',
+      }, status: 500);
     }
     await Future<void>.delayed(Duration(milliseconds: ms));
     final clip = rec.stop();
@@ -1654,11 +1871,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       NodeId.fromHex(gidHex),
       '',
       attachment: GroupAttachment(
-          kind: 'vnote',
-          dataB64: 'QQ==',
-          w: clip.durationMs > 0 ? clip.durationMs : 1,
-          h: 1,
-          cid: cid),
+        kind: 'vnote',
+        dataB64: 'QQ==',
+        w: clip.durationMs > 0 ? clip.durationMs : 1,
+        h: 1,
+        cid: cid,
+      ),
     );
     return _json(req, {
       'ok': posted,
@@ -1679,7 +1897,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     if (gidHex == null) return _json(req, {'ok': false, 'error': 'no group'});
     final msgs = await svc.messagesOf(NodeId.fromHex(gidHex));
     final last = msgs
-        .where((m) => m.attachment?.kind == 'vnote' && m.attachment?.cid != null)
+        .where(
+          (m) => m.attachment?.kind == 'vnote' && m.attachment?.cid != null,
+        )
         .lastOrNull;
     if (last == null) {
       return _json(req, {'ok': false, 'error': 'no vnote ref'});
@@ -1729,7 +1949,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       NodeId.fromHex(gidHex),
       '',
       attachment: GroupAttachment(
-          kind: 'image', dataB64: thumb.b64, w: thumb.w, h: thumb.h, cid: cid),
+        kind: 'image',
+        dataB64: thumb.b64,
+        w: thumb.w,
+        h: thumb.h,
+        cid: cid,
+      ),
     );
     return _json(req, {
       'ok': posted,
@@ -1753,7 +1978,10 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       return _json(req, {'ok': false, 'error': 'need group+cid+holder'});
     }
     final started = await svc.fetchGroupContent(
-        NodeId.fromHex(gidHex), cid, NodeId.fromHex(holder));
+      NodeId.fromHex(gidHex),
+      cid,
+      NodeId.fromHex(holder),
+    );
     final storage = ref.read(storageProvider);
     for (var i = 0; i < 50; i++) {
       if (await storage.hasFile(cid)) {
@@ -1767,8 +1995,11 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       }
       await Future<void>.delayed(const Duration(milliseconds: 500));
     }
-    return _json(req,
-        {'ok': false, 'started': started, 'error': 'fetch did not complete'});
+    return _json(req, {
+      'ok': false,
+      'started': started,
+      'error': 'fetch did not complete',
+    });
   }
 
   /// Add ?peer= as a member of ?group= and fan the snapshot out to all members
@@ -1784,8 +2015,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     }
     final gid = NodeId.fromHex(gidHex);
     final peer = NodeId.fromHex(peerHex);
-    final added = await svc.addControlOp(gid, ControlOp.addMember,
-        target: peer, role: GroupRole.member);
+    final added = await svc.addControlOp(
+      gid,
+      ControlOp.addMember,
+      target: peer,
+      role: GroupRole.member,
+    );
     final sent = await svc.broadcast(gid);
     final st = await svc.stateOf(gid);
     return _json(req, {
@@ -1817,7 +2052,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'images': [
         for (final m in msgs)
           if (m.attachment != null)
-            {'w': m.attachment!.w, 'h': m.attachment!.h}
+            {'w': m.attachment!.w, 'h': m.attachment!.h},
       ],
       // Inline voice clips: duration + byte length + sha8 of the decoded
       // bytes, so a 2-device run can prove the clip arrived byte-exact.
@@ -1940,10 +2175,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     if (last == null) {
       return _json(req, {'ok': false, 'error': 'no pack message'});
     }
-    final bytes =
-        await storage.loadFile(last.fileId ?? last.fileContentId!);
+    final bytes = await storage.loadFile(last.fileId ?? last.fileContentId!);
     if (bytes == null) {
-      return _json(req, {'ok': false, 'error': 'blob missing (not downloaded)'});
+      return _json(req, {
+        'ok': false,
+        'error': 'blob missing (not downloaded)',
+      });
     }
     final n = await ref
         .read(stickerControllerProvider.notifier)
@@ -1969,13 +2206,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     if (bytes.isEmpty) {
       return _json(req, {'ok': false, 'error': 'empty body'}, status: 400);
     }
-    final n = await ref
-        .read(stickerControllerProvider.notifier)
-        .importImages([bytes]);
+    final n = await ref.read(stickerControllerProvider.notifier).importImages([
+      bytes,
+    ]);
     final packs = ref.read(stickerControllerProvider).valueOrNull ?? const [];
     final items = [for (final p in packs) ...p.items];
-    return _json(req,
-        {'ok': n > 0, 'added': n, 'library': items.length});
+    return _json(req, {'ok': n > 0, 'added': n, 'library': items.length});
   }
 
   /// Send the POST body (an image) as a STICKER to ?peer= — drives the
@@ -2005,13 +2241,19 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final ms = int.tryParse(req.uri.queryParameters['ms'] ?? '') ?? 2500;
     final rec = NativeVnoteRecorder.create();
     if (rec == null) {
-      return _json(req, {'ok': false, 'error': 'recorder unavailable'},
-          status: 500);
+      return _json(req, {
+        'ok': false,
+        'error': 'recorder unavailable',
+      }, status: 500);
     }
-    await MacMediaPermissions.requestMicrophone()
-        .timeout(const Duration(seconds: 5), onTimeout: () => false);
-    await MacMediaPermissions.requestCamera()
-        .timeout(const Duration(seconds: 5), onTimeout: () => false);
+    await MacMediaPermissions.requestMicrophone().timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => false,
+    );
+    await MacMediaPermissions.requestCamera().timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => false,
+    );
     if (!await rec.start()) {
       rec.dispose();
       return _json(req, {'ok': false, 'error': 'start failed'}, status: 500);
@@ -2034,9 +2276,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         player.dispose();
       }
     }
-    await ref.read(messagingServiceProvider).sendVideoNote(
-        peer, clip.bytes, clip.durationMs,
-        thumbB64: thumb);
+    await ref
+        .read(messagingServiceProvider)
+        .sendVideoNote(peer, clip.bytes, clip.durationMs, thumbB64: thumb);
     return _json(req, {
       'ok': true,
       'bytes': clip.bytes.length,
@@ -2049,8 +2291,10 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final ms = int.tryParse(req.uri.queryParameters['ms'] ?? '') ?? 2000;
     final rec = VeilAudioRecorder.create();
     if (rec == null) {
-      return _json(req, {'ok': false, 'error': 'recorder unavailable'},
-          status: 500);
+      return _json(req, {
+        'ok': false,
+        'error': 'recorder unavailable',
+      }, status: 500);
     }
     // The mic prompt must be answered before StartRecording sees audio.
     await MacMediaPermissions.requestMicrophone().timeout(
@@ -2059,8 +2303,10 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     );
     if (!rec.start()) {
       rec.dispose();
-      return _json(req, {'ok': false, 'error': 'start failed (permission?)'},
-          status: 500);
+      return _json(req, {
+        'ok': false,
+        'error': 'start failed (permission?)',
+      }, status: 500);
     }
     await Future<void>.delayed(Duration(milliseconds: ms));
     final level = rec.level;
@@ -2080,7 +2326,10 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     String magic = '';
     int channels = 0, sampleRate = 0, packetCount = 0;
     if (b.length >= 18 &&
-        b[0] == 0x56 && b[1] == 0x4F && b[2] == 0x50 && b[3] == 0x31) {
+        b[0] == 0x56 &&
+        b[1] == 0x4F &&
+        b[2] == 0x50 &&
+        b[3] == 0x31) {
       magic = 'VOP1';
       channels = b[5];
       sampleRate = b[6] | (b[7] << 8) | (b[8] << 16) | (b[9] << 24);
@@ -2116,11 +2365,15 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final ms = int.tryParse(req.uri.queryParameters['ms'] ?? '') ?? 2000;
     final rec = VeilAudioRecorder.create();
     if (rec == null) {
-      return _json(req, {'ok': false, 'error': 'recorder unavailable'},
-          status: 500);
+      return _json(req, {
+        'ok': false,
+        'error': 'recorder unavailable',
+      }, status: 500);
     }
-    await MacMediaPermissions.requestMicrophone()
-        .timeout(const Duration(seconds: 5), onTimeout: () => false);
+    await MacMediaPermissions.requestMicrophone().timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => false,
+    );
     if (!rec.start()) {
       rec.dispose();
       return _json(req, {'ok': false, 'error': 'start failed'}, status: 500);
@@ -2258,8 +2511,11 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       });
     }
     final ctrl = ref.read(transcriptionControllerProvider.notifier);
-    await ctrl.transcribe(last.id, fileKey,
-        senderLang: decodeVoiceSidecar(last.thumb)?.lang);
+    await ctrl.transcribe(
+      last.id,
+      fileKey,
+      senderLang: decodeVoiceSidecar(last.thumb)?.lang,
+    );
     final entry = ctrl.entryFor(last.id);
     return _json(req, {
       'ok': entry.isDone,
@@ -3068,8 +3324,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         name: norm,
         timeoutMs: 10 * 1000,
       );
-      final target =
-          current == null ? floor : (current.weight * 2).clamp(floor, 1 << 62);
+      final target = current == null
+          ? floor
+          : (current.weight * 2).clamp(floor, 1 << 62);
       final mined = await veil.mineNicknameChunkAsync(
         name: norm,
         ownerNodeId: self,
@@ -3227,14 +3484,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final byClass = <String, int>{};
     for (final k in keys) {
       final parts = k.split(':');
-      final klass = parts.length > 1 ? '${parts[0]}:${parts[1].length > 12 ? '#' : parts[1]}' : k;
+      final klass = parts.length > 1
+          ? '${parts[0]}:${parts[1].length > 12 ? '#' : parts[1]}'
+          : k;
       byClass[klass] = (byClass[klass] ?? 0) + 1;
     }
-    return _json(req, {
-      'ok': true,
-      'count': keys.length,
-      'byClass': byClass,
-    });
+    return _json(req, {'ok': true, 'count': keys.length, 'byClass': byClass});
   }
 
   Future<void> _deleteMessage(HttpRequest req) async {
@@ -3392,7 +3647,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final peer = _peer(req);
     if (peer == null) return;
     final media = req.uri.queryParameters['media']?.trim() ?? 'audio';
-    await ref.read(callServiceProvider).placeCall(
+    await ref
+        .read(callServiceProvider)
+        .placeCall(
           peer,
           CallMedia(
             audio: true,
@@ -3404,7 +3661,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   }
 
   Future<void> _callAction(
-      HttpRequest req, Future<void> Function(CallService) action) async {
+    HttpRequest req,
+    Future<void> Function(CallService) action,
+  ) async {
     if (!_requireReady(req)) return;
     await action(ref.read(callServiceProvider));
     await _callState(req);
@@ -3446,9 +3705,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   VeilFlutterTransport? _mediaTransport(HttpRequest req) {
     final t = ref.read(veilTransportProvider);
     if (t is VeilFlutterTransport) return t;
-    unawaited(_json(req,
-        {'ok': false, 'error': 'media unavailable (no embedded transport)'},
-        status: 400));
+    unawaited(
+      _json(req, {
+        'ok': false,
+        'error': 'media unavailable (no embedded transport)',
+      }, status: 400),
+    );
     return null;
   }
 
@@ -3520,8 +3782,11 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     if (peer == null) return;
     final t = _mediaTransport(req);
     if (t == null) return;
-    await _json(
-        req, {'ok': true, 'peer': peer.hex, 'count': t.mediaRecvCount(peer.bytes)});
+    await _json(req, {
+      'ok': true,
+      'peer': peer.hex,
+      'count': t.mediaRecvCount(peer.bytes),
+    });
   }
 
   Future<void> _mediaClose(HttpRequest req) async {
@@ -3542,8 +3807,10 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     try {
       await _json(req, {'ok': true, 'version': VeilMediaEngine.version()});
     } catch (e) {
-      await _json(req, {'ok': false, 'error': 'veil_media unavailable: $e'},
-          status: 500);
+      await _json(req, {
+        'ok': false,
+        'error': 'veil_media unavailable: $e',
+      }, status: 500);
     }
   }
 
@@ -3552,8 +3819,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final before = await MacMediaPermissions.microphoneStatus();
     final granted = await MacMediaPermissions.requestMicrophone();
     final after = await MacMediaPermissions.microphoneStatus();
-    await _json(req,
-        {'ok': true, 'granted': granted, 'before': before, 'after': after});
+    await _json(req, {
+      'ok': true,
+      'granted': granted,
+      'before': before,
+      'after': after,
+    });
   }
 
   // Construct the full engine (webrtc::Call + ADM + AudioState) and enumerate
@@ -3571,13 +3842,20 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     try {
       final c = Completer<ui.Image>();
       ui.decodeImageFromPixels(
-          f.rgba, f.width, f.height, ui.PixelFormat.rgba8888, c.complete);
+        f.rgba,
+        f.width,
+        f.height,
+        ui.PixelFormat.rgba8888,
+        c.complete,
+      );
       final img = await c.future;
       final png = await img.toByteData(format: ui.ImageByteFormat.png);
       img.dispose();
       if (png == null) {
-        await _json(req, {'ok': false, 'error': 'png encode failed'},
-            status: 500);
+        await _json(req, {
+          'ok': false,
+          'error': 'png encode failed',
+        }, status: 500);
         return;
       }
       req.response
@@ -3594,10 +3872,16 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     try {
       final local = Uint8List(32)..[0] = 1;
       final peer = Uint8List(32)..[0] = 2;
-      final e = VeilMediaEngine.create(veilChan: 0, localId: local, peerId: peer);
+      final e = VeilMediaEngine.create(
+        veilChan: 0,
+        localId: local,
+        peerId: peer,
+      );
       if (e == null) {
-        await _json(req, {'ok': false, 'error': 'engine create returned null'},
-            status: 500);
+        await _json(req, {
+          'ok': false,
+          'error': 'engine create returned null',
+        }, status: 500);
         return;
       }
       final mics = e.listAudioInputs();
@@ -3627,8 +3911,11 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         'speaker_labels': [for (final s in spk) s.label],
       });
     } catch (ex, st) {
-      await _json(req, {'ok': false, 'error': '$ex', 'stack': '$st'},
-          status: 500);
+      await _json(req, {
+        'ok': false,
+        'error': '$ex',
+        'stack': '$st',
+      }, status: 500);
     }
   }
 }

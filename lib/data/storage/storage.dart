@@ -162,7 +162,10 @@ abstract interface class Storage {
   /// Persist [wire] addressed to [peerHex] under [frameId]. Idempotent on
   /// [frameId] — enqueueing the same id twice keeps one pending entry.
   Future<void> enqueueOutboxFrame(
-      String frameId, String peerHex, Uint8List wire);
+    String frameId,
+    String peerHex,
+    Uint8List wire,
+  );
 
   /// Mark [frameId] delivered (recipient acked) so the flush stops re-driving it.
   Future<void> ackOutboxFrame(String frameId);
@@ -264,14 +267,18 @@ abstract interface class Storage {
   /// (author, seq, watermark) so the caller ships it on the wire. Only the
   /// watermark travels — no cleared id/text (no oracle).
   Future<({String author, int seq, Map<String, int> watermark})>
-      emitClearConversation(NodeId peer, String selfHex);
+  emitClearConversation(NodeId peer, String selfHex);
 
   /// Apply a clear event received from [author] for [peer]'s conversation: record
   /// the [watermark], scrub + tombstone every local message at/below it (keep
   /// anything newer), and occupy the clear's own ([author], [seq]) slot so the
   /// per-author stream stays gap-free. Idempotent on (author, seq).
   Future<void> applyRemoteClear(
-      NodeId peer, String author, int seq, Map<String, int> watermark);
+    NodeId peer,
+    String author,
+    int seq,
+    Map<String, int> watermark,
+  );
 
   /// FORENSICALLY erase this whole space — every namespace (identity, contacts,
   /// messages, file blobs) — then scrub orphaned chunks, so the deleted
@@ -331,6 +338,13 @@ abstract interface class Storage {
   /// Load a previously stored file, or null if unknown / incomplete.
   Future<Uint8List?> loadFile(String fileId);
 
+  /// Remove one stored blob from either encrypted tier. The implementation
+  /// atomically scrubs its in-volume key/chunk metadata before best-effort
+  /// ciphertext unlink. Call [scrubDeleted] afterwards to vacuum overwritten
+  /// in-volume records. Higher layers must prove the cid is no longer shared
+  /// by another logical reference before calling this deduplicated-blob API.
+  Future<void> deleteStoredFile(String fileId);
+
   /// True iff a blob is already stored under [fileId] — a cheap existence check
   /// (no chunk reads). Content dedup: a received file whose contentId we already
   /// hold is referenced (a fresh filePost event), not re-fetched over the network.
@@ -340,9 +354,15 @@ abstract interface class Storage {
   /// large file is never held whole in RAM and its size is bounded by disk, not
   /// [kMaxStoredFileBytes]. [hasFile] becomes true once all [pieceCount] pieces
   /// are stored. Idempotent per (fileId, pieceIndex).
-  Future<void> storeFilePiece(String fileId, int pieceIndex, int pieceCount,
-      int pieceSize, int totalSize, Uint8List bytes,
-      {String? name});
+  Future<void> storeFilePiece(
+    String fileId,
+    int pieceIndex,
+    int pieceCount,
+    int pieceSize,
+    int totalSize,
+    Uint8List bytes, {
+    String? name,
+  });
 
   /// Read [length] bytes at [offset] of a stored file WITHOUT loading it whole
   /// (reads only the covering records) — lets the sender serve a wire chunk

@@ -493,6 +493,101 @@ class AppL10nEn extends AppL10n {
   String get comingSoon => 'Coming soon';
 
   @override
+  String get cloudTitle => 'Personal cloud';
+
+  @override
+  String get cloudUnavailable =>
+      'Cloud sync is unavailable until the node is ready';
+
+  @override
+  String get cloudEmpty => 'Your cloud is empty';
+
+  @override
+  String get cloudEmptyHint =>
+      'Files are encrypted locally and replicated only between your own linked devices.';
+
+  @override
+  String get cloudAddFile => 'Add file';
+
+  @override
+  String get cloudImported => 'File added to your cloud';
+
+  @override
+  String get cloudImportFailed => 'Could not import the file';
+
+  @override
+  String get cloudLoadFailed => 'Could not load the cloud index';
+
+  @override
+  String get cloudReplication => 'Keep on this device';
+
+  @override
+  String get cloudModeAll => 'Everything';
+
+  @override
+  String get cloudModeSelected => 'Selected';
+
+  @override
+  String get cloudModeIndex => 'Index only';
+
+  @override
+  String get cloudModeAllHint => 'Automatically download every cloud item';
+
+  @override
+  String get cloudModeSelectedHint => 'Automatically download selected items';
+
+  @override
+  String get cloudModeIndexHint => 'Show the index and download only on demand';
+
+  @override
+  String get cloudLocal => 'on this device';
+
+  @override
+  String get cloudRemote => 'in cloud';
+
+  @override
+  String cloudReplicas(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count verified copies',
+      one: '1 verified copy',
+      zero: 'no verified copies',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get cloudDownload => 'Download to this device';
+
+  @override
+  String get cloudSelect => 'Keep selected';
+
+  @override
+  String get cloudUnselect => 'Stop keeping selected';
+
+  @override
+  String get cloudVerify => 'Verify and repair';
+
+  @override
+  String get cloudVerifyOk => 'Local cloud files passed verification';
+
+  @override
+  String cloudRepairStarted(int count) {
+    return 'Repair requested for $count damaged files';
+  }
+
+  @override
+  String get cloudDelete => 'Delete';
+
+  @override
+  String get cloudDeleteTitle => 'Delete from your cloud?';
+
+  @override
+  String get cloudDeleteBody =>
+      'The item will disappear from every linked device. This cannot be undone.';
+
+  @override
   String get settingsCatAccount => 'Identities & account';
 
   @override
