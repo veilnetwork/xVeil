@@ -80,19 +80,21 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   messaging.onContactPrefsChanged = (c) {
     unawaited(() async {
       if (c.nodeId == svc.selfId || await svc.isMyDevice(c.nodeId)) return;
-      await svc.postDeviceEvent(DeviceSyncEvent(
-        kind: DeviceSyncKind.contactUp,
-        key: c.nodeId.hex,
-        tsMs: nextTs(),
-        payload: {
-          'name': c.name,
-          'mutedMs': c.mutedUntil?.millisecondsSinceEpoch,
-          'pin': c.pinned,
-          'arc': c.archived,
-          'ret': c.retentionDays,
-          'apd': c.allowPeerDelete,
-        },
-      ));
+      await svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.contactUp,
+          key: c.nodeId.hex,
+          tsMs: nextTs(),
+          payload: {
+            'name': c.name,
+            'mutedMs': c.mutedUntil?.millisecondsSinceEpoch,
+            'pin': c.pinned,
+            'arc': c.archived,
+            'ret': c.retentionDays,
+            'apd': c.allowPeerDelete,
+          },
+        ),
+      );
     }());
   };
   // Relationship transitions ride a SEPARATE key namespace ('s:<peer>'), so
@@ -102,29 +104,39 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   messaging.onContactStatusChanged = (peer, status) {
     unawaited(() async {
       if (peer == svc.selfId || await svc.isMyDevice(peer)) return;
-      await svc.postDeviceEvent(DeviceSyncEvent(
-        kind: DeviceSyncKind.contactUp,
-        key: 's:${peer.hex}',
-        tsMs: nextTs(),
-        payload: {'status': status.name},
-      ));
+      await svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.contactUp,
+          key: 's:${peer.hex}',
+          tsMs: nextTs(),
+          payload: {'status': status.name},
+        ),
+      );
     }());
   };
   hub.onLocalSet = (key, value) {
-    unawaited(svc.postDeviceEvent(DeviceSyncEvent(
-      kind: DeviceSyncKind.settingSet,
-      key: key,
-      tsMs: nextTs(),
-      payload: {'v': value},
-    )));
+    unawaited(
+      svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.settingSet,
+          key: key,
+          tsMs: nextTs(),
+          payload: {'v': value},
+        ),
+      ),
+    );
   };
   callLog.onAdded = (e) {
-    unawaited(svc.postDeviceEvent(DeviceSyncEvent(
-      kind: DeviceSyncKind.callLog,
-      key: e.id,
-      tsMs: e.atMs,
-      payload: e.toJson(),
-    )));
+    unawaited(
+      svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.callLog,
+          key: e.id,
+          tsMs: e.atMs,
+          payload: e.toJson(),
+        ),
+      ),
+    );
   };
 
   // Read marks (brick 4c): reading here clears the badge on my other devices.
@@ -144,12 +156,14 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       } catch (_) {
         return; // not a node-id-shaped conversation — never sync it
       }
-      await svc.postDeviceEvent(DeviceSyncEvent(
-        kind: DeviceSyncKind.readMark,
-        key: convId,
-        tsMs: ts,
-        payload: const {},
-      ));
+      await svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.readMark,
+          key: convId,
+          tsMs: ts,
+          payload: const {},
+        ),
+      );
     }());
   };
   svc.onGroupSeen = (gidHex, ts) {
@@ -160,12 +174,14 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       // Never for the device group itself (it is hidden from every list, but
       // hooks could still reach it) — its seen mark is meaningless to sync.
       if (gidHex == await svc.deviceGroupIdHex()) return;
-      await svc.postDeviceEvent(DeviceSyncEvent(
-        kind: DeviceSyncKind.readMark,
-        key: key,
-        tsMs: ts,
-        payload: const {},
-      ));
+      await svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.readMark,
+          key: key,
+          tsMs: ts,
+          payload: const {},
+        ),
+      );
     }());
   };
 
@@ -276,6 +292,9 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
         }
       case DeviceSyncKind.msgMirror:
         break; // applied by the group_service bridge (brick 3)
+      case DeviceSyncKind.cloudEntry:
+      case DeviceSyncKind.cloudReplica:
+        break; // applied by CloudService
     }
   });
   ref.onDispose(sub.cancel);

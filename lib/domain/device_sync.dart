@@ -5,6 +5,8 @@
 
 import 'dart:convert';
 
+import '../core/ids.dart';
+
 /// What a sync event describes. Serialized BY NAME (like ControlOp) so the
 /// enum can grow without renumbering.
 enum DeviceSyncKind {
@@ -21,7 +23,16 @@ enum DeviceSyncKind {
   settingSet,
 
   /// A call-journal entry.
-  callLog;
+  callLog,
+
+  /// A logical personal-cloud item (upsert or tombstone). The bytes stay in
+  /// the content-addressed store; this is the replicated index row.
+  cloudEntry,
+
+  /// One device's claim that it holds and has verified an item's current cid.
+  /// The applier additionally binds the claimed device id to the message
+  /// author, so a member cannot manufacture another device's replica.
+  cloudReplica;
 
   static DeviceSyncKind? fromName(String? n) {
     for (final k in values) {
@@ -48,13 +59,8 @@ class DeviceSyncEvent {
   final Map<String, dynamic> payload;
 
   /// The group-message body this event travels as.
-  String toBody() => jsonEncode({
-        'v': 1,
-        'k': kind.name,
-        'id': key,
-        'ts': tsMs,
-        'p': payload,
-      });
+  String toBody() =>
+      jsonEncode({'v': 1, 'k': kind.name, 'id': key, 'ts': tsMs, 'p': payload});
 
   /// Parse a body; null for anything malformed or from a newer vocabulary
   /// (unknown kind) — the applier just skips what it cannot understand.
@@ -80,11 +86,17 @@ class DeviceSyncEvent {
   }
 }
 
+/// A validated device-group message projected into its sync-event payload and
+/// signed author. Author is retained for event kinds (replica claims) whose key
+/// must be bound to the device that actually signed the group message.
+typedef DeviceSyncRecord = ({DeviceSyncEvent event, NodeId author});
+
 /// Deterministic fold: the NEWEST event per (kind, key) wins; ties break on
 /// the jsonEncode of the payload (any stable total order works — devices just
 /// have to agree). Order-independent by construction.
 Map<(DeviceSyncKind, String), DeviceSyncEvent> foldDeviceSync(
-    Iterable<DeviceSyncEvent> events) {
+  Iterable<DeviceSyncEvent> events,
+) {
   final out = <(DeviceSyncKind, String), DeviceSyncEvent>{};
   for (final e in events) {
     final id = (e.kind, e.key);

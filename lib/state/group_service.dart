@@ -15,8 +15,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:math';
-import 'dart:typed_data';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:veil_flutter/veil_flutter.dart' as veil;
@@ -79,15 +77,18 @@ final class NativeSovereignGroupSigner implements SovereignGroupSigner {
       NativeSovereignGroupSigner._(veil.VeilSovereignSigner.open(phrase));
 
   factory NativeSovereignGroupSigner.openBundle(
-          Uint8List bundle, String phrase) =>
-      NativeSovereignGroupSigner._(
-          veil.VeilSovereignSigner.openBundle(bundle, phrase));
+    Uint8List bundle,
+    String phrase,
+  ) => NativeSovereignGroupSigner._(
+    veil.VeilSovereignSigner.openBundle(bundle, phrase),
+  );
 
   factory NativeSovereignGroupSigner.openRecoveryCertificate(
-          Uint8List certificate, String recoveryCode) =>
-      NativeSovereignGroupSigner._(
-          veil.VeilSovereignSigner.openRecoveryCertificate(
-              certificate, recoveryCode));
+    Uint8List certificate,
+    String recoveryCode,
+  ) => NativeSovereignGroupSigner._(
+    veil.VeilSovereignSigner.openRecoveryCertificate(certificate, recoveryCode),
+  );
 
   @override
   String get algorithm => _inner.algorithm;
@@ -108,8 +109,8 @@ class NativeGroupSigner implements GroupSigner {
     required NodeId selfId,
     required Uint8List selfPubKey,
     this.lib,
-  })  : _selfId = selfId,
-        _selfPubKey = selfPubKey;
+  }) : _selfId = selfId,
+       _selfPubKey = selfPubKey;
 
   final String identityToml;
   final DynamicLibrary? lib;
@@ -122,18 +123,30 @@ class NativeGroupSigner implements GroupSigner {
   Uint8List get selfPubKey => _selfPubKey;
 
   @override
-  ControlEntry signControl(ControlEntry unsigned) =>
-      signControlEntry(identityToml: identityToml, unsigned: unsigned, lib: lib);
+  ControlEntry signControl(ControlEntry unsigned) => signControlEntry(
+    identityToml: identityToml,
+    unsigned: unsigned,
+    lib: lib,
+  );
   @override
-  GroupMessage signMessage(GroupMessage unsigned) =>
-      signGroupMessage(identityToml: identityToml, unsigned: unsigned, lib: lib);
+  GroupMessage signMessage(GroupMessage unsigned) => signGroupMessage(
+    identityToml: identityToml,
+    unsigned: unsigned,
+    lib: lib,
+  );
   @override
-  GroupReaction signReaction(GroupReaction unsigned) =>
-      signGroupReaction(identityToml: identityToml, unsigned: unsigned, lib: lib);
+  GroupReaction signReaction(GroupReaction unsigned) => signGroupReaction(
+    identityToml: identityToml,
+    unsigned: unsigned,
+    lib: lib,
+  );
   @override
   GroupContentRequest signContentRequest(GroupContentRequest unsigned) =>
       signGroupContentRequest(
-          identityToml: identityToml, unsigned: unsigned, lib: lib);
+        identityToml: identityToml,
+        unsigned: unsigned,
+        lib: lib,
+      );
   @override
   bool verifyControl(ControlEntry e) => verifyControlEntry(e, lib: lib);
   @override
@@ -201,8 +214,8 @@ class GroupLogCompaction {
 }
 
 /// Ships a group snapshot [bundleJson] durably to [peer] (direct fanout, v1).
-typedef GroupSnapshotSender = Future<void> Function(
-    NodeId peer, NodeId groupId, String bundleJson);
+typedef GroupSnapshotSender =
+    Future<void> Function(NodeId peer, NodeId groupId, String bundleJson);
 
 class GroupService {
   GroupService(
@@ -219,7 +232,7 @@ class GroupService {
 
   /// Ships a signed content-fetch request to the holder (wire layer).
   final Future<void> Function(NodeId holder, String requestJson)?
-      sendContentRequest;
+  sendContentRequest;
 
   /// Opens the serve gate for an authorized member (wire layer grant).
   final void Function(NodeId peer, String cid)? grantContentServe;
@@ -257,7 +270,9 @@ class GroupService {
   }
 
   bool _validSovereignBundle(
-      GroupManifest manifest, Uint8List? encryptedBundle) {
+    GroupManifest manifest,
+    Uint8List? encryptedBundle,
+  ) {
     final expected = manifest.sovereignBundleHash;
     if (expected == null) return encryptedBundle == null;
     if (encryptedBundle == null || encryptedBundle.length > 16 * 1024) {
@@ -268,9 +283,10 @@ class GroupService {
 
   bool _validControlFor(GroupManifest manifest, ControlEntry e) {
     if (manifest.isSovereignDevice) {
-      final membershipOp = e.op == ControlOp.addMember ||
-          e.op == ControlOp.removeMember;
-      final shapeOk = e.target != null &&
+      final membershipOp =
+          e.op == ControlOp.addMember || e.op == ControlOp.removeMember;
+      final shapeOk =
+          e.target != null &&
           (e.op != ControlOp.addMember || e.role == GroupRole.member) &&
           (e.op != ControlOp.removeMember || e.role == null);
       return _validManifest(manifest) &&
@@ -298,7 +314,9 @@ class GroupService {
       r.groupId == groupId && _signer.verifyReaction(r);
 
   List<GroupReaction> _compactReactions(
-      NodeId groupId, List<GroupReaction> input) {
+    NodeId groupId,
+    List<GroupReaction> input,
+  ) {
     final latest = <String, GroupReaction>{};
     final heads = <String, GroupReaction>{};
     for (final r in input) {
@@ -324,9 +342,14 @@ class GroupService {
   }
 
   List<GroupMessage> _compactDeviceMessages(
-      NodeId groupId, List<GroupMessage> input) {
-    final latest = <(DeviceSyncKind, String),
-        ({DeviceSyncEvent event, GroupMessage message})>{};
+    NodeId groupId,
+    List<GroupMessage> input,
+  ) {
+    final latest =
+        <
+          (DeviceSyncKind, String),
+          ({DeviceSyncEvent event, GroupMessage message})
+        >{};
     final heads = <String, GroupMessage>{};
     final unknown = <String>{};
     for (final m in input) {
@@ -392,13 +415,15 @@ class GroupService {
       reactionsAfter: reactions.length,
     );
     if (result.changed) {
-      await _save(GroupBundle(
-        manifest: b.manifest,
-        control: control,
-        messages: messages,
-        reactions: reactions,
-        sovereignBundle: b.sovereignBundle,
-      ));
+      await _save(
+        GroupBundle(
+          manifest: b.manifest,
+          control: control,
+          messages: messages,
+          reactions: reactions,
+          sovereignBundle: b.sovereignBundle,
+        ),
+      );
     }
     return result;
   }
@@ -453,11 +478,12 @@ class GroupService {
           : null;
       if (!_validSovereignBundle(manifest, sovereignBundle)) return null;
       return GroupBundle(
-          manifest: manifest,
-          control: control,
-          messages: messages,
-          reactions: reactions,
-          sovereignBundle: sovereignBundle);
+        manifest: manifest,
+        control: control,
+        messages: messages,
+        reactions: reactions,
+        sovereignBundle: sovereignBundle,
+      );
     } catch (_) {
       return null;
     }
@@ -488,7 +514,20 @@ class GroupService {
   /// re-add simply folds us back in. (An admin-removal we never received doesn't
   /// hide the group on our side: we don't learn we were removed — no oracle.)
   Future<
-      List<
+    List<
+      ({
+        NodeId groupId,
+        String name,
+        int unread,
+        bool muted,
+        String preview,
+        int lastTs,
+      })
+    >
+  >
+  listGroups() async {
+    final out =
+        <
           ({
             NodeId groupId,
             String name,
@@ -496,15 +535,8 @@ class GroupService {
             bool muted,
             String preview,
             int lastTs,
-          })>> listGroups() async {
-    final out = <({
-      NodeId groupId,
-      String name,
-      int unread,
-      bool muted,
-      String preview,
-      int lastTs,
-    })>[];
+          })
+        >[];
     for (final hex in await _index()) {
       try {
         final b = await load(NodeId.fromHex(hex));
@@ -522,7 +554,7 @@ class GroupService {
         // One validated pass powers unread AND the last-message preview.
         final wm =
             int.tryParse(await _storage.getSetting('group.seen:$hex') ?? '') ??
-                0;
+            0;
         final msgs = await messagesOf(gid);
         final last = msgs.isEmpty ? null : msgs.last;
         out.add((
@@ -560,7 +592,8 @@ class GroupService {
   NodeId _randomGroupId() {
     final rnd = Random.secure();
     return NodeId(
-        Uint8List.fromList(List.generate(32, (_) => rnd.nextInt(256))));
+      Uint8List.fromList(List.generate(32, (_) => rnd.nextInt(256))),
+    );
   }
 
   /// The current folded state of [groupId], or null if unknown.
@@ -596,11 +629,14 @@ class GroupService {
     final b = await load(groupId);
     if (b == null) return false;
     if (b.manifest.name == kDeviceGroupName) return false;
-    final mySeq = _nextSeq(b.control
-        .where((e) =>
-            e.author == _signer.selfId &&
-            _validControlFor(b.manifest, e))
-        .map((e) => e.seq));
+    final mySeq = _nextSeq(
+      b.control
+          .where(
+            (e) =>
+                e.author == _signer.selfId && _validControlFor(b.manifest, e),
+          )
+          .map((e) => e.seq),
+    );
     final state = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
@@ -629,16 +665,22 @@ class GroupService {
       entries: candidate,
       verify: (e) => _validControlFor(b.manifest, e),
     );
-    if (folded.rejected.any((e) => identical(e, signed) ||
-        (e.author == signed.author && e.seq == signed.seq))) {
+    if (folded.rejected.any(
+      (e) =>
+          identical(e, signed) ||
+          (e.author == signed.author && e.seq == signed.seq),
+    )) {
       return false;
     }
-    await _save(GroupBundle(
+    await _save(
+      GroupBundle(
         manifest: b.manifest,
         control: candidate,
         messages: b.messages,
         reactions: b.reactions,
-        sovereignBundle: b.sovereignBundle));
+        sovereignBundle: b.sovereignBundle,
+      ),
+    );
     // Adding a member: that peer needs the WHOLE history → full snapshot to all
     // (idempotent for existing members). Every other op ships as a delta so we
     // don't re-send the group's messages/images on a mute/role/policy change.
@@ -670,11 +712,14 @@ class GroupService {
     final me = state.memberOf(_signer.selfId);
     if (me == null) return true; // already gone
     if (me.role == GroupRole.owner) return false; // owner can't leave (v1)
-    final mySeq = _nextSeq(b.control
-        .where((e) =>
-            e.author == _signer.selfId &&
-            _validControlFor(b.manifest, e))
-        .map((e) => e.seq));
+    final mySeq = _nextSeq(
+      b.control
+          .where(
+            (e) =>
+                e.author == _signer.selfId && _validControlFor(b.manifest, e),
+          )
+          .map((e) => e.seq),
+    );
     final unsigned = ControlEntry(
       groupId: groupId,
       author: _signer.selfId,
@@ -694,16 +739,20 @@ class GroupService {
       entries: candidate,
       verify: (e) => _validControlFor(b.manifest, e),
     );
-    if (folded.rejected
-        .any((e) => e.author == signed.author && e.seq == signed.seq)) {
+    if (folded.rejected.any(
+      (e) => e.author == signed.author && e.seq == signed.seq,
+    )) {
       return false;
     }
-    await _save(GroupBundle(
+    await _save(
+      GroupBundle(
         manifest: b.manifest,
         control: candidate,
         messages: b.messages,
         reactions: b.reactions,
-        sovereignBundle: b.sovereignBundle));
+        sovereignBundle: b.sovereignBundle,
+      ),
+    );
     // Tell the members who remain (broadcastDelta folds AFTER the leave, so it
     // fans out to them and never to us). They drop us from their roster.
     await broadcastDelta(groupId, control: [signed]);
@@ -713,13 +762,16 @@ class GroupService {
   /// Post a message to [groupId]. Rejected (returns false) if we are not a
   /// non-muted member. An optional inline [attachment] rides inside the signed
   /// message (groups media brick 1) — no separate content fetch.
-  Future<bool> postMessage(NodeId groupId, String body,
-      {GroupAttachment? attachment,
-      String? replyTo,
-      // Test/repro-only escape hatch: append WITHOUT the delta fanout —
-      // simulates a delta lost in transit (total-outage class), so the
-      // gap-fill path has a deterministic stand target.
-      bool broadcast = true}) async {
+  Future<bool> postMessage(
+    NodeId groupId,
+    String body, {
+    GroupAttachment? attachment,
+    String? replyTo,
+    // Test/repro-only escape hatch: append WITHOUT the delta fanout —
+    // simulates a delta lost in transit (total-outage class), so the
+    // gap-fill path has a deterministic stand target.
+    bool broadcast = true,
+  }) async {
     final b = await load(groupId);
     if (b == null) return false;
     final state = foldControlLog(
@@ -729,11 +781,15 @@ class GroupService {
     ).state;
     final me = state.memberOf(_signer.selfId);
     if (me == null || me.muted) return false;
-    final mySeq = _nextSeq(b.messages
-        .where((m) =>
-            m.author == _signer.selfId &&
-            _validMessageFor(b.manifest.groupId, m))
-        .map((m) => m.seq));
+    final mySeq = _nextSeq(
+      b.messages
+          .where(
+            (m) =>
+                m.author == _signer.selfId &&
+                _validMessageFor(b.manifest.groupId, m),
+          )
+          .map((m) => m.seq),
+    );
     final unsigned = GroupMessage(
       groupId: groupId,
       author: _signer.selfId,
@@ -747,12 +803,15 @@ class GroupService {
       replyTo: replyTo,
     );
     final signed = _signer.signMessage(unsigned);
-    await _save(GroupBundle(
+    await _save(
+      GroupBundle(
         manifest: b.manifest,
         control: b.control,
         messages: [...b.messages, signed],
         reactions: b.reactions,
-        sovereignBundle: b.sovereignBundle));
+        sovereignBundle: b.sovereignBundle,
+      ),
+    );
     // Ship only the NEW message (delta), not the whole log — a post to a group
     // that already holds an image must not re-chunk that image over the wire.
     if (broadcast) unawaited(broadcastDelta(groupId, messages: [signed]));
@@ -790,17 +849,23 @@ class GroupService {
     return {
       'sreq': 1,
       'gid': groupId.hex,
-      'g': vector(b.messages
-          .where((m) => _validMessageFor(groupId, m))
-          .map((m) => (m.author, m.seq))),
-      'c': vector(b.control
-          .where((e) => _validControlFor(b.manifest, e))
-          .map((e) => (e.author, e.seq))),
+      'g': vector(
+        b.messages
+            .where((m) => _validMessageFor(groupId, m))
+            .map((m) => (m.author, m.seq)),
+      ),
+      'c': vector(
+        b.control
+            .where((e) => _validControlFor(b.manifest, e))
+            .map((e) => (e.author, e.seq)),
+      ),
       // Reactions ride the same per-author high-water scheme (each author's
       // reaction seq is monotonic). An older responder just ignores the key.
-      'r': vector(b.reactions
-          .where((r) => _validReactionFor(groupId, r))
-          .map((r) => (r.author, r.seq))),
+      'r': vector(
+        b.reactions
+            .where((r) => _validReactionFor(groupId, r))
+            .map((r) => (r.author, r.seq)),
+      ),
     };
   }
 
@@ -836,14 +901,11 @@ class GroupService {
         (vec is Map && vec[author.hex] is int) ? vec[author.hex] as int : -1;
     final missingMsgs = [
       for (final m in b.messages)
-        if (_validMessageFor(gid, m) &&
-            m.seq > seen(req['g'], m.author))
-          m,
+        if (_validMessageFor(gid, m) && m.seq > seen(req['g'], m.author)) m,
     ];
     final missingCtl = [
       for (final e in b.control)
-        if (_validControlFor(b.manifest, e) &&
-            e.seq > seen(req['c'], e.author))
+        if (_validControlFor(b.manifest, e) && e.seq > seen(req['c'], e.author))
           e,
     ];
     // A requester from before the 'r' vector sends none — `seen` reads 0 and
@@ -851,22 +913,21 @@ class GroupService {
     // over-send harmless.
     final missingRx = [
       for (final r in b.reactions)
-        if (_validReactionFor(gid, r) &&
-            r.seq > seen(req['r'], r.author))
-          r,
+        if (_validReactionFor(gid, r) && r.seq > seen(req['r'], r.author)) r,
     ];
     if (missingMsgs.isEmpty && missingCtl.isEmpty && missingRx.isEmpty) {
       return false;
     }
     await send(
-        peer,
-        gid,
-        jsonEncode({
-          'm': b.manifest.toJson(),
-          'c': [for (final e in missingCtl) e.toJson()],
-          'g': [for (final m in missingMsgs) m.toJson()],
-          'r': [for (final r in missingRx) r.toJson()],
-        }));
+      peer,
+      gid,
+      jsonEncode({
+        'm': b.manifest.toJson(),
+        'c': [for (final e in missingCtl) e.toJson()],
+        'g': [for (final m in missingMsgs) m.toJson()],
+        'r': [for (final r in missingRx) r.toJson()],
+      }),
+    );
     return true;
   }
 
@@ -980,10 +1041,12 @@ class GroupService {
     final me = state.memberOf(_signer.selfId);
     if (me == null || me.muted) return false;
     // My current reaction on this message (if any) → tapping it again clears it.
-    final onMsg = foldGroupReactions(
-            b.reactions.where((r) => _validReactionFor(groupId, r)),
-            _signer.verifyReaction)[msgRef] ??
-            const <String, List<NodeId>>{};
+    final onMsg =
+        foldGroupReactions(
+          b.reactions.where((r) => _validReactionFor(groupId, r)),
+          _signer.verifyReaction,
+        )[msgRef] ??
+        const <String, List<NodeId>>{};
     String? mine;
     for (final e in onMsg.entries) {
       if (e.value.any((n) => n == _signer.selfId)) {
@@ -992,26 +1055,35 @@ class GroupService {
       }
     }
     final next = (mine == emoji) ? '' : emoji;
-    final mySeq = _nextSeq(b.reactions
-        .where((r) =>
-            r.author == _signer.selfId &&
-            _validReactionFor(b.manifest.groupId, r))
-        .map((r) => r.seq));
-    final signed = _signer.signReaction(GroupReaction(
-      groupId: groupId,
-      author: _signer.selfId,
-      seq: mySeq,
-      target: msgRef,
-      emoji: next,
-      createdAtMs: _now(),
-      signature: Uint8List(0),
-    ));
-    await _save(GroupBundle(
+    final mySeq = _nextSeq(
+      b.reactions
+          .where(
+            (r) =>
+                r.author == _signer.selfId &&
+                _validReactionFor(b.manifest.groupId, r),
+          )
+          .map((r) => r.seq),
+    );
+    final signed = _signer.signReaction(
+      GroupReaction(
+        groupId: groupId,
+        author: _signer.selfId,
+        seq: mySeq,
+        target: msgRef,
+        emoji: next,
+        createdAtMs: _now(),
+        signature: Uint8List(0),
+      ),
+    );
+    await _save(
+      GroupBundle(
         manifest: b.manifest,
         control: b.control,
         messages: b.messages,
         reactions: [...b.reactions, signed],
-        sovereignBundle: b.sovereignBundle));
+        sovereignBundle: b.sovereignBundle,
+      ),
+    );
     if (broadcast) unawaited(broadcastDelta(groupId, reactions: [signed]));
     return true;
   }
@@ -1027,7 +1099,8 @@ class GroupService {
     ).state;
     return foldGroupReactions(
       b.reactions.where(
-          (r) => _validReactionFor(groupId, r) && state.isMember(r.author)),
+        (r) => _validReactionFor(groupId, r) && state.isMember(r.author),
+      ),
       _signer.verifyReaction,
     );
   }
@@ -1052,21 +1125,27 @@ class GroupService {
   /// Mint, sign and ship a fetch request for [cid] of [groupId] to [holder]
   /// (normally the message author). False when the wire sender isn't attached.
   Future<bool> requestGroupContent(
-      NodeId groupId, String cid, NodeId holder) async {
+    NodeId groupId,
+    String cid,
+    NodeId holder,
+  ) async {
     final send = sendContentRequest;
     if (send == null) return false;
     final rnd = Random.secure();
-    final nonce = List<int>.generate(12, (_) => rnd.nextInt(256))
-        .map((b) => b.toRadixString(16).padLeft(2, '0'))
-        .join();
-    final signed = _signer.signContentRequest(GroupContentRequest(
-      groupId: groupId,
-      contentId: cid,
-      requester: _signer.selfId,
-      nonce: nonce,
-      tsMs: _now(),
-      signature: Uint8List(0),
-    ));
+    final nonce = List<int>.generate(
+      12,
+      (_) => rnd.nextInt(256),
+    ).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    final signed = _signer.signContentRequest(
+      GroupContentRequest(
+        groupId: groupId,
+        contentId: cid,
+        requester: _signer.selfId,
+        nonce: nonce,
+        tsMs: _now(),
+        signature: Uint8List(0),
+      ),
+    );
     await send(holder, jsonEncode(signed.toJson()));
     return true;
   }
@@ -1079,7 +1158,9 @@ class GroupService {
     GroupContentRequest? r;
     try {
       r = GroupContentRequest.fromJson(jsonDecode(requestJson));
-    } catch (_) {/* malformed → drop */}
+    } catch (_) {
+      /* malformed → drop */
+    }
     if (r == null) return false;
     final req = r;
     final st = await stateOf(req.groupId);
@@ -1097,7 +1178,8 @@ class GroupService {
     );
     if (denial != null) {
       debugPrint(
-          'xVeil[groups]: content request DENIED (${denial.name}) — drop');
+        'xVeil[groups]: content request DENIED (${denial.name}) — drop',
+      );
       return false;
     }
     if (_seenContentNonces.length >= _kMaxSeenNonces) {
@@ -1130,14 +1212,18 @@ class GroupService {
   /// so that path stays contact-gated. Unauthorized bundles are dropped with
   /// nothing sent back (no membership oracle).
   Future<bool> ingestSnapshotFromStranger(
-      NodeId peer, String bundleJson) async {
+    NodeId peer,
+    String bundleJson,
+  ) async {
     String? gidHex;
     try {
       final d = jsonDecode(bundleJson);
       final m = d is Map ? d['m'] : null;
       final gid = m is Map ? m['gid'] : null;
       if (gid is String && gid.isNotEmpty) gidHex = gid;
-    } catch (_) {/* malformed → drop below */}
+    } catch (_) {
+      /* malformed → drop below */
+    }
     if (gidHex == null) return false;
     final pending = await _tryPendingDeviceSnapshot(peer, bundleJson);
     if (pending != null) return pending;
@@ -1152,7 +1238,9 @@ class GroupService {
   /// otherwise consumes it (true) or rejects it (false). Shared by contact and
   /// non-contact ingress: prior contact status must not change adoption rules.
   Future<bool?> _tryPendingDeviceSnapshot(
-      NodeId peer, String bundleJson) async {
+    NodeId peer,
+    String bundleJson,
+  ) async {
     final pending = await pendingDeviceAdoption();
     if (pending == null || peer != pending.source) return null;
     GroupManifest? manifest;
@@ -1163,7 +1251,8 @@ class GroupService {
       return false;
     }
     if (manifest == null || manifest.groupId != pending.groupId) return null;
-    if (!listEquals(_manifestHash(manifest), pending.manifestHash)) return false;
+    if (!listEquals(_manifestHash(manifest), pending.manifestHash))
+      return false;
     if (!await ingestSnapshot(bundleJson)) return false;
     if (!await adoptDeviceGroup(pending.groupId)) return false;
     await cancelPendingDeviceAdoption();
@@ -1177,7 +1266,10 @@ class GroupService {
   /// the same flow work for pure co-members. Fire-and-forget: progress /
   /// completion surface through the content providers like any 1:1 download.
   Future<bool> fetchGroupContent(
-      NodeId groupId, String cid, NodeId holder) async {
+    NodeId groupId,
+    String cid,
+    NodeId holder,
+  ) async {
     final pull = startContentPull;
     if (pull == null) return false;
     await requestGroupContent(groupId, cid, holder);
@@ -1197,38 +1289,42 @@ class GroupService {
     final b = await load(groupId);
     if (b == null) return;
     if (!_validControlFor(b.manifest, e)) return;
-    if (b.control.any((x) =>
-        _validControlFor(b.manifest, x) &&
-        x.author == e.author &&
-        x.seq == e.seq)) {
+    if (b.control.any(
+      (x) =>
+          _validControlFor(b.manifest, x) &&
+          x.author == e.author &&
+          x.seq == e.seq,
+    )) {
       return;
     }
-    await _save(GroupBundle(
+    await _save(
+      GroupBundle(
         manifest: b.manifest,
         control: [...b.control, e],
         messages: b.messages,
         reactions: b.reactions,
-        sovereignBundle: b.sovereignBundle));
+        sovereignBundle: b.sovereignBundle,
+      ),
+    );
   }
 
   /// Serialize a group's full snapshot (manifest + logs) for the wire.
   String snapshotJson(GroupBundle b) => jsonEncode({
-        'm': b.manifest.toJson(),
-        'c': b.control
-            .where((e) => _validControlFor(b.manifest, e))
-            .map((e) => e.toJson())
-            .toList(),
-        'g': b.messages
-            .where((m) => _validMessageFor(b.manifest.groupId, m))
-            .map((m) => m.toJson())
-            .toList(),
-        'r': b.reactions
-            .where((r) => _validReactionFor(b.manifest.groupId, r))
-            .map((r) => r.toJson())
-            .toList(),
-        if (b.sovereignBundle != null)
-          's': base64Encode(b.sovereignBundle!),
-      });
+    'm': b.manifest.toJson(),
+    'c': b.control
+        .where((e) => _validControlFor(b.manifest, e))
+        .map((e) => e.toJson())
+        .toList(),
+    'g': b.messages
+        .where((m) => _validMessageFor(b.manifest.groupId, m))
+        .map((m) => m.toJson())
+        .toList(),
+    'r': b.reactions
+        .where((r) => _validReactionFor(b.manifest.groupId, r))
+        .map((r) => r.toJson())
+        .toList(),
+    if (b.sovereignBundle != null) 's': base64Encode(b.sovereignBundle!),
+  });
 
   /// Ingest a received snapshot: materialize the group if new (manifest +
   /// index), then merge control + message entries (dedup by author+seq).
@@ -1284,10 +1380,10 @@ class GroupService {
     final reactions = [...(existing?.reactions ?? const <GroupReaction>[])];
     for (final e in inControl) {
       if (!_validControlFor(man, e)) continue;
-      if (!control.any((x) =>
-          _validControlFor(man, x) &&
-          x.author == e.author &&
-          x.seq == e.seq)) {
+      if (!control.any(
+        (x) =>
+            _validControlFor(man, x) && x.author == e.author && x.seq == e.seq,
+      )) {
         control.add(e);
       }
     }
@@ -1303,10 +1399,12 @@ class GroupService {
           !mergedState.isMember(m.author)) {
         continue;
       }
-      if (!messages.any((x) =>
-          _validMessageFor(manifest.groupId, x) &&
-          x.author == m.author &&
-          x.seq == m.seq)) {
+      if (!messages.any(
+        (x) =>
+            _validMessageFor(manifest.groupId, x) &&
+            x.author == m.author &&
+            x.seq == m.seq,
+      )) {
         messages.add(m);
         // Feed the notification/unread layer: genuinely new, not ours, and
         // signature-verified (a forged entry must not buzz the phone even
@@ -1321,20 +1419,24 @@ class GroupService {
           !mergedState.isMember(r.author)) {
         continue;
       }
-      if (!reactions.any((x) =>
-          _validReactionFor(manifest.groupId, x) &&
-          x.author == r.author &&
-          x.seq == r.seq)) {
+      if (!reactions.any(
+        (x) =>
+            _validReactionFor(manifest.groupId, x) &&
+            x.author == r.author &&
+            x.seq == r.seq,
+      )) {
         reactions.add(r);
       }
     }
-    await _save(GroupBundle(
+    await _save(
+      GroupBundle(
         manifest: man,
         control: control,
         messages: messages,
         reactions: reactions,
-        sovereignBundle:
-            existing?.sovereignBundle ?? incomingSovereignBundle));
+        sovereignBundle: existing?.sovereignBundle ?? incomingSovereignBundle,
+      ),
+    );
     if (existing == null) {
       final idx = await _index();
       if (!idx.contains(man.groupId.hex)) {
@@ -1372,7 +1474,7 @@ class GroupService {
   /// self-authored) — the notification/unread layer's feed, symmetric to
   /// MessagingService.incoming.
   final StreamController<({NodeId groupId, GroupMessage message})>
-      _incomingCtl = StreamController.broadcast();
+  _incomingCtl = StreamController.broadcast();
   Stream<({NodeId groupId, GroupMessage message})> get incoming =>
       _incomingCtl.stream;
 
@@ -1394,7 +1496,7 @@ class GroupService {
   Future<bool> applyMirroredGroupSeen(String gidHex, int tsMs) async {
     final cur =
         int.tryParse(await _storage.getSetting('group.seen:$gidHex') ?? '') ??
-            0;
+        0;
     if (cur >= tsMs) return false;
     await _storage.putSetting('group.seen:$gidHex', '$tsMs');
     changes.value++; // group list re-renders its badge
@@ -1404,13 +1506,13 @@ class GroupService {
   /// How many VALIDATED messages of [groupId] are newer than the seen
   /// watermark and not self-authored.
   Future<int> unreadOf(NodeId groupId) async {
-    final wm = int.tryParse(
-            await _storage.getSetting('group.seen:${groupId.hex}') ?? '') ??
+    final wm =
+        int.tryParse(
+          await _storage.getSetting('group.seen:${groupId.hex}') ?? '',
+        ) ??
         0;
     final msgs = await messagesOf(groupId);
-    return msgs
-        .where((m) => m.createdAtMs > wm && m.author != selfId)
-        .length;
+    return msgs.where((m) => m.createdAtMs > wm && m.author != selfId).length;
   }
 
   /// Local notification mute for [groupId] — a display preference like the
@@ -1473,8 +1575,7 @@ class GroupService {
       }
     } else if (createIfMissing) {
       bundle = veil.createHybrid512SovereignBundle(phrase);
-      await _storage.putSetting(
-          kSovereignBundleSetting, base64Encode(bundle));
+      await _storage.putSetting(kSovereignBundleSetting, base64Encode(bundle));
     }
     if (bundle == null) throw StateError('No local sovereign bundle');
     final magic = bundle.length >= 4
@@ -1501,7 +1602,7 @@ class GroupService {
   /// Export a fresh XVRC + independent 256-bit code from the current XVSB or
   /// XVRC credential. Decrypted key bytes never enter Dart.
   Future<({Uint8List certificate, String code, NodeId nodeId})?>
-      exportRecoveryCertificate(String currentSecret) async {
+  exportRecoveryCertificate(String currentSecret) async {
     var credential = await localSovereignBundle();
     if (credential == null) {
       // A phrase-backed identity may pre-issue its certificate BEFORE its first
@@ -1513,9 +1614,14 @@ class GroupService {
     if (credential == null) return null;
     final code = veil.generateSovereignRecoveryCode();
     final certificate = veil.exportSovereignRecoveryCertificate(
-        credential, currentSecret, code);
+      credential,
+      currentSecret,
+      code,
+    );
     final signer = NativeSovereignGroupSigner.openRecoveryCertificate(
-        certificate, code);
+      certificate,
+      code,
+    );
     try {
       return (certificate: certificate, code: code, nodeId: signer.nodeId);
     } finally {
@@ -1527,18 +1633,24 @@ class GroupService {
   /// device-registry state, then mint a fresh gid owned by the SAME full hybrid
   /// public key/node id. Never overwrites a different credential or group.
   Future<NodeId?> recoverDeviceGroupFromCertificate(
-      Uint8List certificate, String recoveryCode) async {
+    Uint8List certificate,
+    String recoveryCode,
+  ) async {
     if (await deviceGroupIdHex() != null) return null;
     final existing = await localSovereignBundle();
     if (existing != null && !listEquals(existing, certificate)) return null;
     final signer = NativeSovereignGroupSigner.openRecoveryCertificate(
-        certificate, recoveryCode);
+      certificate,
+      recoveryCode,
+    );
     var installed = false;
     try {
       if (signer.algorithm != 'ed25519+falcon512') return null;
       if (existing == null) {
         await _storage.putSetting(
-            kSovereignBundleSetting, base64Encode(certificate));
+          kSovereignBundleSetting,
+          base64Encode(certificate),
+        );
         installed = true;
       }
       final gid = await _mintSovereignDeviceGroup(signer, const []);
@@ -1557,8 +1669,8 @@ class GroupService {
   }
 
   Uint8List _manifestHash(GroupManifest manifest) => veil.VeilCrypto.sha256(
-        Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
-      );
+    Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+  );
 
   Future<DeviceLinkToken?> pendingDeviceAdoption() async {
     final raw = await _storage.getSetting(kPendingDeviceAdoptionSetting);
@@ -1579,7 +1691,9 @@ class GroupService {
   Future<bool> prepareDeviceAdoption(DeviceLinkToken token) async {
     if (token.source == _signer.selfId || token.isExpired(_now())) return false;
     await _storage.putSetting(
-        kPendingDeviceAdoptionSetting, jsonEncode(token.toJson()));
+      kPendingDeviceAdoptionSetting,
+      jsonEncode(token.toJson()),
+    );
     return true;
   }
 
@@ -1589,7 +1703,8 @@ class GroupService {
   /// Build the short QR token after the source has sovereign-signed the target
   /// into the local registry but before it broadcasts the encrypted snapshot.
   Future<DeviceLinkToken?> createDeviceLinkToken(
-      BootstrapInvite sourceInvite) async {
+    BootstrapInvite sourceInvite,
+  ) async {
     if (sourceInvite.nodeId != _signer.selfId) return null;
     final gidHex = await deviceGroupIdHex();
     if (gidHex == null) return null;
@@ -1611,20 +1726,23 @@ class GroupService {
   }
 
   bool _sovereignMatches(
-          GroupManifest manifest, SovereignGroupSigner sovereign) =>
+    GroupManifest manifest,
+    SovereignGroupSigner sovereign,
+  ) =>
       manifest.isSovereignDevice &&
       manifest.signatureAlgorithm == sovereign.algorithm &&
       manifest.owner == sovereign.nodeId &&
       listEquals(manifest.genesisPubKey, sovereign.publicKey);
 
   bool _canUpgradeSovereign(
-          GroupManifest manifest, SovereignGroupSigner sovereign) =>
+    GroupManifest manifest,
+    SovereignGroupSigner sovereign,
+  ) =>
       manifest.isSovereignDevice &&
       manifest.signatureAlgorithm == 'ed25519' &&
       sovereign.algorithm == 'ed25519+falcon512' &&
       sovereign.publicKey.length == 929 &&
-      listEquals(
-          manifest.genesisPubKey, sovereign.publicKey.sublist(0, 32));
+      listEquals(manifest.genesisPubKey, sovereign.publicKey.sublist(0, 32));
 
   Future<NodeId?> _mintSovereignDeviceGroup(
     SovereignGroupSigner sovereign,
@@ -1650,8 +1768,9 @@ class GroupService {
           ? null
           : veil.VeilCrypto.sha256(encryptedSovereign),
     );
-    final manifest = unsignedManifest
-        .withSignature(sovereign.sign(unsignedManifest.canonicalBytes()));
+    final manifest = unsignedManifest.withSignature(
+      sovereign.sign(unsignedManifest.canonicalBytes()),
+    );
     if (!_validManifest(manifest)) return null;
 
     final unique = <String, NodeId>{
@@ -1675,10 +1794,12 @@ class GroupService {
         createdAtMs: baseTs + seq,
         signature: Uint8List(0),
       );
-      control.add(unsigned.withSignature(
-        sovereign.sign(unsigned.canonicalBytes()),
-        Uint8List.fromList(sovereign.publicKey),
-      ));
+      control.add(
+        unsigned.withSignature(
+          sovereign.sign(unsigned.canonicalBytes()),
+          Uint8List.fromList(sovereign.publicKey),
+        ),
+      );
     }
     final folded = foldControlLog(
       owner: manifest.owner,
@@ -1686,8 +1807,7 @@ class GroupService {
       verify: (e) => _validControlFor(manifest, e),
       initialName: manifest.name,
     );
-    if (folded.rejected.isNotEmpty ||
-        !folded.state.isMember(_signer.selfId)) {
+    if (folded.rejected.isNotEmpty || !folded.state.isMember(_signer.selfId)) {
       return null;
     }
 
@@ -1699,16 +1819,14 @@ class GroupService {
         verify: (e) => _validControlFor(migrateFrom.manifest, e),
         initialName: migrateFrom.manifest.name,
       ).state;
-      final compact = _compactDeviceMessages(
-        migrateFrom.manifest.groupId,
-        [
-          for (final m in migrateFrom.messages)
-            if (oldState.isMember(m.author)) m,
-        ],
-      )..sort((a, b) {
-          final ts = a.createdAtMs.compareTo(b.createdAtMs);
-          return ts != 0 ? ts : _messageIdentityCompare(a, b);
-        });
+      final compact =
+          _compactDeviceMessages(migrateFrom.manifest.groupId, [
+            for (final m in migrateFrom.messages)
+              if (oldState.isMember(m.author)) m,
+          ])..sort((a, b) {
+            final ts = a.createdAtMs.compareTo(b.createdAtMs);
+            return ts != 0 ? ts : _messageIdentityCompare(a, b);
+          });
       for (var seq = 0; seq < compact.length; seq++) {
         final old = compact[seq];
         final unsigned = GroupMessage(
@@ -1726,12 +1844,14 @@ class GroupService {
       }
     }
 
-    await _save(GroupBundle(
-      manifest: manifest,
-      control: control,
-      messages: migratedMessages,
-      sovereignBundle: encryptedSovereign,
-    ));
+    await _save(
+      GroupBundle(
+        manifest: manifest,
+        control: control,
+        messages: migratedMessages,
+        sovereignBundle: encryptedSovereign,
+      ),
+    );
     final idx = await _index();
     if (!idx.contains(gid.hex)) {
       idx.add(gid.hex);
@@ -1818,9 +1938,13 @@ class GroupService {
     return true;
   }
 
-  Future<bool> _appendSovereignMembership(GroupBundle bundle,
-      SovereignGroupSigner sovereign, ControlOp op, NodeId device,
-      {bool broadcastSnapshot = true}) async {
+  Future<bool> _appendSovereignMembership(
+    GroupBundle bundle,
+    SovereignGroupSigner sovereign,
+    ControlOp op,
+    NodeId device, {
+    bool broadcastSnapshot = true,
+  }) async {
     if (!_sovereignMatches(bundle.manifest, sovereign)) return false;
     final state = foldControlLog(
       owner: bundle.manifest.owner,
@@ -1831,11 +1955,15 @@ class GroupService {
     if (op == ControlOp.addMember && state.isMember(device)) return true;
     if (op == ControlOp.removeMember && !state.isMember(device)) return true;
     if (device == bundle.manifest.owner) return false;
-    final seq = _nextSeq(bundle.control
-        .where((e) =>
-            e.author == sovereign.nodeId &&
-            _validControlFor(bundle.manifest, e))
-        .map((e) => e.seq));
+    final seq = _nextSeq(
+      bundle.control
+          .where(
+            (e) =>
+                e.author == sovereign.nodeId &&
+                _validControlFor(bundle.manifest, e),
+          )
+          .map((e) => e.seq),
+    );
     final unsigned = ControlEntry(
       groupId: bundle.manifest.groupId,
       author: sovereign.nodeId,
@@ -1859,17 +1987,20 @@ class GroupService {
       verify: (e) => _validControlFor(bundle.manifest, e),
       initialName: bundle.manifest.name,
     );
-    if (folded.rejected
-        .any((e) => e.author == signed.author && e.seq == signed.seq)) {
+    if (folded.rejected.any(
+      (e) => e.author == signed.author && e.seq == signed.seq,
+    )) {
       return false;
     }
-    await _save(GroupBundle(
-      manifest: bundle.manifest,
-      control: candidate,
-      messages: bundle.messages,
-      reactions: bundle.reactions,
-      sovereignBundle: bundle.sovereignBundle,
-    ));
+    await _save(
+      GroupBundle(
+        manifest: bundle.manifest,
+        control: candidate,
+        messages: bundle.messages,
+        reactions: bundle.reactions,
+        sovereignBundle: bundle.sovereignBundle,
+      ),
+    );
     _deviceMembersCache = null;
     if (op == ControlOp.addMember && broadcastSnapshot) {
       await broadcast(bundle.manifest.groupId);
@@ -1879,13 +2010,16 @@ class GroupService {
     return true;
   }
 
-  Future<bool> linkDevice(NodeId device,
-      {required SovereignGroupSigner sovereign,
-      bool broadcastSnapshot = true}) async {
+  Future<bool> linkDevice(
+    NodeId device, {
+    required SovereignGroupSigner sovereign,
+    bool broadcastSnapshot = true,
+  }) async {
     final hex = await deviceGroupIdHex();
     if (hex == null) {
-      return await _mintSovereignDeviceGroup(sovereign, [device],
-              broadcastSnapshot: broadcastSnapshot) !=
+      return await _mintSovereignDeviceGroup(sovereign, [
+            device,
+          ], broadcastSnapshot: broadcastSnapshot) !=
           null;
     }
     final bundle = await load(NodeId.fromHex(hex));
@@ -1899,9 +2033,9 @@ class GroupService {
       ).state;
       return await _mintSovereignDeviceGroup(
             sovereign,
-        [...state.members.values.map((m) => m.nodeId), device],
-        migrateFrom: bundle,
-        broadcastSnapshot: broadcastSnapshot,
+            [...state.members.values.map((m) => m.nodeId), device],
+            migrateFrom: bundle,
+            broadcastSnapshot: broadcastSnapshot,
           ) !=
           null;
     }
@@ -1922,14 +2056,20 @@ class GroupService {
           null;
     }
     return _appendSovereignMembership(
-        bundle, sovereign, ControlOp.addMember, device,
-        broadcastSnapshot: broadcastSnapshot);
+      bundle,
+      sovereign,
+      ControlOp.addMember,
+      device,
+      broadcastSnapshot: broadcastSnapshot,
+    );
   }
 
   /// Revoke [device]: removeMember — the fold rotates the epoch, so the
   /// removed device loses the future (already-synced history honestly stays).
-  Future<bool> revokeDevice(NodeId device,
-      {required SovereignGroupSigner sovereign}) async {
+  Future<bool> revokeDevice(
+    NodeId device, {
+    required SovereignGroupSigner sovereign,
+  }) async {
     final hex = await deviceGroupIdHex();
     if (hex == null) return false;
     final old = await load(NodeId.fromHex(hex));
@@ -1969,7 +2109,11 @@ class GroupService {
     }
     _deviceMembersCache = null;
     return _appendSovereignMembership(
-        old, sovereign, ControlOp.removeMember, device);
+      old,
+      sovereign,
+      ControlOp.removeMember,
+      device,
+    );
   }
 
   /// Catch-up for the device group (brick 4e): ship my FULL device-group
@@ -2030,12 +2174,18 @@ class GroupService {
   /// its contentId as a real attachment ref, which puts the cid into
   /// [referencedContentIds] — that is what authorizes my other devices'
   /// membership pull of the bytes. The event body stays the JSON codec.
-  Future<bool> postDeviceEvent(DeviceSyncEvent e, {GroupAttachment? attachment}) {
+  Future<bool> postDeviceEvent(
+    DeviceSyncEvent e, {
+    GroupAttachment? attachment,
+  }) {
     final done = _devicePostChain.then((_) async {
       final hex = await deviceGroupIdHex();
       if (hex == null) return false;
-      return postMessage(NodeId.fromHex(hex), e.toBody(),
-          attachment: attachment);
+      return postMessage(
+        NodeId.fromHex(hex),
+        e.toBody(),
+        attachment: attachment,
+      );
     });
     _devicePostChain = done.then((_) {}, onError: (_) {});
     return done;
@@ -2044,13 +2194,45 @@ class GroupService {
   /// The folded device-sync state: newest event per (kind, key), from the
   /// VALIDATED device-group log. Empty before adoption.
   Future<Map<(DeviceSyncKind, String), DeviceSyncEvent>>
-      deviceSyncState() async {
+  deviceSyncState() async {
     final hex = await deviceGroupIdHex();
     if (hex == null) return const {};
     final msgs = await messagesOf(NodeId.fromHex(hex));
     return foldDeviceSync([
       for (final m in msgs) ?DeviceSyncEvent.fromBody(m.body),
     ]);
+  }
+
+  /// Every validated device-sync row with its signed message author retained.
+  /// Most LWW kinds need only [deviceSyncState]; cloud replica claims must also
+  /// prove `claimed device == author`, so discarding the author would turn the
+  /// group into a replica-count spoofing oracle.
+  Future<List<DeviceSyncRecord>> deviceSyncRecords() async {
+    final hex = await deviceGroupIdHex();
+    if (hex == null) return const [];
+    final messages = await messagesOf(NodeId.fromHex(hex));
+    return [
+      for (final message in messages)
+        if (DeviceSyncEvent.fromBody(message.body) case final event?)
+          (event: event, author: message.author),
+    ];
+  }
+
+  /// Current non-sovereign members of the device group (including self).
+  Future<List<NodeId>> deviceMembers() async {
+    final hex = await deviceGroupIdHex();
+    if (hex == null) return const [];
+    final bundle = await load(NodeId.fromHex(hex));
+    if (bundle == null) return const [];
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+    ).state;
+    return [
+      for (final member in state.members.values)
+        if (member.nodeId != bundle.manifest.owner) member.nodeId,
+    ];
   }
 
   /// One-line preview of a validated message for list tiles / notifications.
@@ -2086,8 +2268,7 @@ class GroupService {
     var n = 0;
     for (final m in state.members.values) {
       if (m.nodeId == _signer.selfId ||
-          (b.manifest.isSovereignDevice &&
-              m.nodeId == b.manifest.owner)) {
+          (b.manifest.isSovereignDevice && m.nodeId == b.manifest.owner)) {
         continue;
       }
       await send(m.nodeId, groupId, json);
@@ -2127,8 +2308,7 @@ class GroupService {
     var n = 0;
     for (final m in state.members.values) {
       if (m.nodeId == _signer.selfId ||
-          (b.manifest.isSovereignDevice &&
-              m.nodeId == b.manifest.owner)) {
+          (b.manifest.isSovereignDevice && m.nodeId == b.manifest.owner)) {
         continue;
       }
       await send(m.nodeId, groupId, json);
@@ -2178,8 +2358,9 @@ final groupSignerProvider = FutureProvider<GroupSigner?>((ref) async {
   // WATCH the identity: the eager app-scope bridge builds this at boot when the
   // identity is still null; without a watch the null result would cache forever
   // and no group would ever sign. Re-runs once the identity is ready.
-  final selfId =
-      ref.watch(appControllerProvider.select((s) => s.identity?.nodeId));
+  final selfId = ref.watch(
+    appControllerProvider.select((s) => s.identity?.nodeId),
+  );
   if (selfId == null) return null;
   final toml = await ref.read(storageProvider).loadNodeConfig();
   if (toml == null) return null;
@@ -2252,16 +2433,18 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
       final cid = m.fileContentId ?? m.fileId;
       if (cid == null) {
         if (m.body.isEmpty) return;
-        await svc.postDeviceEvent(DeviceSyncEvent(
-          kind: DeviceSyncKind.msgMirror,
-          key: m.id,
-          tsMs: m.timestamp.millisecondsSinceEpoch,
-          payload: {
-            'peer': peer.hex,
-            'dir': m.direction.name,
-            'body': m.body,
-          },
-        ));
+        await svc.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.msgMirror,
+            key: m.id,
+            tsMs: m.timestamp.millisecondsSinceEpoch,
+            payload: {
+              'peer': peer.hex,
+              'dir': m.direction.name,
+              'body': m.body,
+            },
+          ),
+        );
         return;
       }
       await svc.postDeviceEvent(
@@ -2311,17 +2494,19 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     final cid = e.payload['cid'], fname = e.payload['fname'];
     final fsize = e.payload['fsize'];
     final thumb = gm.attachment?.dataB64;
-    unawaited(messaging.applyMirroredMessage(
-      peer: NodeId.fromHex(peerHex),
-      msgId: e.key,
-      direction: dir,
-      body: body,
-      tsMs: e.tsMs,
-      fileContentId: cid is String && cid.isNotEmpty ? cid : null,
-      fileName: fname is String ? fname : null,
-      fileSize: fsize is int ? fsize : null,
-      thumb: thumb != null && thumb != 'AA==' ? thumb : null,
-    ));
+    unawaited(
+      messaging.applyMirroredMessage(
+        peer: NodeId.fromHex(peerHex),
+        msgId: e.key,
+        direction: dir,
+        body: body,
+        tsMs: e.tsMs,
+        fileContentId: cid is String && cid.isNotEmpty ? cid : null,
+        fileName: fname is String ? fname : null,
+        fileSize: fsize is int ? fsize : null,
+        thumb: thumb != null && thumb != 'AA==' ? thumb : null,
+      ),
+    );
   });
   return svc;
 });
