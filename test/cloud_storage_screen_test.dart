@@ -13,6 +13,7 @@ import 'package:xveil/domain/cloud_document_replication.dart';
 import 'package:xveil/domain/content_manifest.dart';
 import 'package:xveil/domain/device_sync.dart';
 import 'package:xveil/features/storage/cloud_storage_screen.dart';
+import 'package:xveil/features/storage/cloud_shared_document_editor.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/cloud_service.dart';
 import 'package:xveil/state/cloud_document_envelope_service.dart';
@@ -79,6 +80,13 @@ class _DocumentSigner implements CloudDocumentSigner {
 
   @override
   CloudDocumentControlEntry signControl(CloudDocumentControlEntry unsigned) =>
+      unsigned.withSignature(
+        Uint8List(64)..fillRange(0, 64, 7),
+        Uint8List(32)..fillRange(0, 32, 7),
+      );
+
+  @override
+  CloudDocumentOperation signOperation(CloudDocumentOperation unsigned) =>
       unsigned.withSignature(
         Uint8List(64)..fillRange(0, 64, 7),
         Uint8List(32)..fillRange(0, 32, 7),
@@ -185,6 +193,7 @@ void main() {
   testWidgets('owner creates a shared document and manages ACL through UI', (
     tester,
   ) async {
+    final semantics = tester.ensureSemantics();
     await tester.binding.setSurfaceSize(const Size(390, 844));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final storage = FakeHvContainer().storage();
@@ -250,7 +259,58 @@ void main() {
     expect(find.text('Shared documents (1)'), findsOneWidget);
     await tester.tap(find.text('Shared documents (1)'));
     await tester.pumpAndSettle();
-    await tester.tap(find.textContaining('Shared note'));
+    await tester.tap(find.textContaining('Shared note').last);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('cloud-rich-editor')), findsOneWidget);
+    expect(find.byKey(const ValueKey('cloud-rich-close')), findsOneWidget);
+    expect(
+      find.byType(BottomSheet),
+      findsNothing,
+      reason: 'a collaborative editor is a full screen, not a modal sheet',
+    );
+    final richField = find.byKey(const ValueKey('cloud-rich-editor'));
+    final richController = tester.widget<TextField>(richField).controller!;
+    expect(
+      richController
+          .buildTextSpan(
+            context: tester.element(richField),
+            style: null,
+            withComposing: false,
+          )
+          .style
+          ?.color,
+      isNotNull,
+      reason: 'custom rich spans must inherit a visible theme color',
+    );
+    await tester.enterText(richField, 'Shared text');
+    await tester.pump();
+    expect(tester.widget<TextField>(richField).controller!.text, 'Shared text');
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const ValueKey('cloud-rich-save')))
+          .onPressed,
+      isNotNull,
+    );
+    tester
+        .widget<TextField>(find.byKey(const ValueKey('cloud-rich-editor')))
+        .controller!
+        .selection = const TextSelection(
+      baseOffset: 0,
+      extentOffset: 6,
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('cloud-rich-bold')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('cloud-rich-save')));
+    await tester.pumpAndSettle();
+    final rich = (await documents.loadRichText(
+      (await documents.listDocuments()).single.root.documentId.hex,
+    ))!.snapshot;
+    expect(rich.text, 'Shared text');
+    expect(rich.atoms.take(6).every((atom) => atom.style.bold), isTrue);
+    expect(rich.atoms.skip(6).every((atom) => !atom.style.bold), isTrue);
+    sent.clear();
+    await tester.tap(find.byKey(const ValueKey('cloud-rich-manage')));
     await tester.pumpAndSettle();
     expect(find.text('Alice'), findsOneWidget);
     expect(find.text('Editor'), findsOneWidget);
@@ -259,7 +319,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Resend invitation'));
     await tester.pumpAndSettle();
-    expect(sent, hasLength(2));
+    expect(sent, hasLength(1));
 
     await tester.tap(find.byType(PopupMenuButton<String>));
     await tester.pumpAndSettle();
@@ -288,6 +348,67 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect((await documents.listDocuments()).single.currentEpoch, 4);
+    semantics.dispose();
+  });
+
+  testWidgets('shared editor header stays readable in narrow Russian layout', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final self = NodeId(Uint8List(32)..[0] = 4);
+    final documents = CloudDocumentReplicationService(
+      localNodeId: self,
+      ourCertVersion: 0,
+      store: CloudDocumentStore(storage),
+      envelopes: CloudDocumentEnvelopeService(
+        LoopbackMailboxCrypto(senderForOpen: self),
+      ),
+      sendFrame: (_, _, _) async {},
+      signer: _DocumentSigner(self),
+      verifyRoot: (_) => true,
+      verifyControl: (_) => true,
+      verifyOperation: (_) => true,
+    );
+    final documentId = (await documents.createDocument())!.documentId;
+    addTearDown(() {
+      unawaited(documents.close());
+      unawaited(storage.close());
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('ru'),
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        home: Scaffold(
+          body: CloudSharedDocumentEditor(
+            service: documents,
+            documentId: documentId,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('Общая заметка'), findsOneWidget);
+    expect(
+      find.text('Совместное редактирование с шифрованием'),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('cloud-rich-block')), findsOneWidget);
+    expect(
+      tester
+          .getBottomLeft(find.text('Совместное редактирование с шифрованием'))
+          .dy,
+      lessThan(
+        tester.getTopLeft(find.byKey(const ValueKey('cloud-rich-bold'))).dy,
+      ),
+      reason: 'the wrapped Russian subtitle must end above the toolbar',
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('personal cloud note opens, edits, and saves through the UI', (

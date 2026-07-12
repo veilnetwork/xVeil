@@ -4686,6 +4686,162 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Update queued'**
   String get cloudSharedQueued;
+
+  /// No description provided for @cloudRichTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Shared note'**
+  String get cloudRichTitle;
+
+  /// No description provided for @cloudRichCollaborative.
+  ///
+  /// In en, this message translates to:
+  /// **'Encrypted collaborative editing'**
+  String get cloudRichCollaborative;
+
+  /// No description provided for @cloudRichReadOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Read-only access'**
+  String get cloudRichReadOnly;
+
+  /// No description provided for @cloudRichManage.
+  ///
+  /// In en, this message translates to:
+  /// **'Members and access'**
+  String get cloudRichManage;
+
+  /// No description provided for @cloudRichSave.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get cloudRichSave;
+
+  /// No description provided for @cloudRichSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'Shared note saved and queued'**
+  String get cloudRichSaved;
+
+  /// No description provided for @cloudRichFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The shared note could not be updated'**
+  String get cloudRichFailed;
+
+  /// No description provided for @cloudRichHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Write together…'**
+  String get cloudRichHint;
+
+  /// No description provided for @cloudRichRemotePending.
+  ///
+  /// In en, this message translates to:
+  /// **'A remote change arrived while you were editing. Saving preserves both changes.'**
+  String get cloudRichRemotePending;
+
+  /// No description provided for @cloudRichRecovered.
+  ///
+  /// In en, this message translates to:
+  /// **'An offline edit survived a concurrent deletion and was recovered here.'**
+  String get cloudRichRecovered;
+
+  /// No description provided for @cloudRichInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'An authenticated but invalid edit was kept inert.'**
+  String get cloudRichInvalid;
+
+  /// No description provided for @cloudRichDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete visible version'**
+  String get cloudRichDelete;
+
+  /// No description provided for @cloudRichDeleteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete the version visible here?'**
+  String get cloudRichDeleteTitle;
+
+  /// No description provided for @cloudRichDeleteBody.
+  ///
+  /// In en, this message translates to:
+  /// **'This deletion covers only changes already visible on this device. A concurrent offline edit is preserved and will reappear for review instead of being lost.'**
+  String get cloudRichDeleteBody;
+
+  /// No description provided for @cloudRichDeleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Visible version deleted; concurrent edits remain recoverable'**
+  String get cloudRichDeleted;
+
+  /// No description provided for @cloudRichBold.
+  ///
+  /// In en, this message translates to:
+  /// **'Bold'**
+  String get cloudRichBold;
+
+  /// No description provided for @cloudRichItalic.
+  ///
+  /// In en, this message translates to:
+  /// **'Italic'**
+  String get cloudRichItalic;
+
+  /// No description provided for @cloudRichUnderline.
+  ///
+  /// In en, this message translates to:
+  /// **'Underline'**
+  String get cloudRichUnderline;
+
+  /// No description provided for @cloudRichStrike.
+  ///
+  /// In en, this message translates to:
+  /// **'Strikethrough'**
+  String get cloudRichStrike;
+
+  /// No description provided for @cloudRichCode.
+  ///
+  /// In en, this message translates to:
+  /// **'Inline code'**
+  String get cloudRichCode;
+
+  /// No description provided for @cloudRichParagraph.
+  ///
+  /// In en, this message translates to:
+  /// **'Paragraph'**
+  String get cloudRichParagraph;
+
+  /// No description provided for @cloudRichHeading1.
+  ///
+  /// In en, this message translates to:
+  /// **'Heading 1'**
+  String get cloudRichHeading1;
+
+  /// No description provided for @cloudRichHeading2.
+  ///
+  /// In en, this message translates to:
+  /// **'Heading 2'**
+  String get cloudRichHeading2;
+
+  /// No description provided for @cloudRichQuote.
+  ///
+  /// In en, this message translates to:
+  /// **'Quote'**
+  String get cloudRichQuote;
+
+  /// No description provided for @cloudRichBullet.
+  ///
+  /// In en, this message translates to:
+  /// **'Bullet'**
+  String get cloudRichBullet;
+
+  /// No description provided for @cloudRichCodeBlock.
+  ///
+  /// In en, this message translates to:
+  /// **'Code block'**
+  String get cloudRichCodeBlock;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

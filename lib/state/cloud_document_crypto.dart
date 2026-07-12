@@ -9,6 +9,7 @@ abstract interface class CloudDocumentSigner {
 
   CloudDocumentRoot signRoot(CloudDocumentRoot unsigned);
   CloudDocumentControlEntry signControl(CloudDocumentControlEntry unsigned);
+  CloudDocumentOperation signOperation(CloudDocumentOperation unsigned);
 }
 
 final class NativeCloudDocumentSigner implements CloudDocumentSigner {
@@ -34,6 +35,14 @@ final class NativeCloudDocumentSigner implements CloudDocumentSigner {
   @override
   CloudDocumentControlEntry signControl(CloudDocumentControlEntry unsigned) =>
       signCloudDocumentControl(
+        identityToml: identityToml,
+        unsigned: unsigned,
+        lib: lib,
+      );
+
+  @override
+  CloudDocumentOperation signOperation(CloudDocumentOperation unsigned) =>
+      signCloudDocumentOperation(
         identityToml: identityToml,
         unsigned: unsigned,
         lib: lib,

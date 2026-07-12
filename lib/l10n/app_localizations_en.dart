@@ -2515,4 +2515,87 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get cloudSharedQueued => 'Update queued';
+
+  @override
+  String get cloudRichTitle => 'Shared note';
+
+  @override
+  String get cloudRichCollaborative => 'Encrypted collaborative editing';
+
+  @override
+  String get cloudRichReadOnly => 'Read-only access';
+
+  @override
+  String get cloudRichManage => 'Members and access';
+
+  @override
+  String get cloudRichSave => 'Save';
+
+  @override
+  String get cloudRichSaved => 'Shared note saved and queued';
+
+  @override
+  String get cloudRichFailed => 'The shared note could not be updated';
+
+  @override
+  String get cloudRichHint => 'Write together…';
+
+  @override
+  String get cloudRichRemotePending =>
+      'A remote change arrived while you were editing. Saving preserves both changes.';
+
+  @override
+  String get cloudRichRecovered =>
+      'An offline edit survived a concurrent deletion and was recovered here.';
+
+  @override
+  String get cloudRichInvalid =>
+      'An authenticated but invalid edit was kept inert.';
+
+  @override
+  String get cloudRichDelete => 'Delete visible version';
+
+  @override
+  String get cloudRichDeleteTitle => 'Delete the version visible here?';
+
+  @override
+  String get cloudRichDeleteBody =>
+      'This deletion covers only changes already visible on this device. A concurrent offline edit is preserved and will reappear for review instead of being lost.';
+
+  @override
+  String get cloudRichDeleted =>
+      'Visible version deleted; concurrent edits remain recoverable';
+
+  @override
+  String get cloudRichBold => 'Bold';
+
+  @override
+  String get cloudRichItalic => 'Italic';
+
+  @override
+  String get cloudRichUnderline => 'Underline';
+
+  @override
+  String get cloudRichStrike => 'Strikethrough';
+
+  @override
+  String get cloudRichCode => 'Inline code';
+
+  @override
+  String get cloudRichParagraph => 'Paragraph';
+
+  @override
+  String get cloudRichHeading1 => 'Heading 1';
+
+  @override
+  String get cloudRichHeading2 => 'Heading 2';
+
+  @override
+  String get cloudRichQuote => 'Quote';
+
+  @override
+  String get cloudRichBullet => 'Bullet';
+
+  @override
+  String get cloudRichCodeBlock => 'Code block';
 }
