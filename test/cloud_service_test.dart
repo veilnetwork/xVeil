@@ -27,6 +27,7 @@ class _FakeSync implements CloudSyncPort {
   List<NodeId> memberList = [];
   bool connected = true;
   bool throwPosts = false;
+  Completer<bool>? postGate;
 
   @override
   Stream<void> get changes => controller.stream;
@@ -38,6 +39,8 @@ class _FakeSync implements CloudSyncPort {
   Future<bool> postItem(CloudItem item) async {
     if (throwPosts) throw StateError('transport unavailable');
     if (!connected) return false;
+    final gate = postGate;
+    if (gate != null) return gate.future;
     rows.add((event: item.toEvent(), author: selfId));
     controller.add(null);
     return true;
@@ -47,6 +50,8 @@ class _FakeSync implements CloudSyncPort {
   Future<bool> postClaim(CloudReplicaClaim claim) async {
     if (throwPosts) throw StateError('transport unavailable');
     if (!connected) return false;
+    final gate = postGate;
+    if (gate != null) return gate.future;
     rows.add((event: claim.toEvent(), author: selfId));
     controller.add(null);
     return true;
@@ -73,6 +78,202 @@ Future<Uint8List> Function(int, int) _reader(Uint8List bytes) =>
         Uint8List.sublistView(bytes, offset, offset + length);
 
 void main() {
+  test('text note create/edit is revisioned and scrubs the old body', () async {
+    final container = FakeHvContainer();
+    final storage = container.storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final sync = _FakeSync(_id(1));
+    final received = StreamController<String>.broadcast();
+    var clock = 1000;
+    final service = CloudService(
+      storage,
+      sync,
+      contentReceived: received.stream,
+      now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+      newId: () => 'note-1',
+      integrityChecks: false,
+    );
+
+    final created = await service.saveTextNote(
+      title: 'Private note',
+      body: 'first body',
+    );
+    final firstCid = created.contentId!;
+    expect(created.kind, CloudItemKind.note);
+    expect(created.revision, 1);
+    expect(await service.loadTextNote(created), 'first body');
+
+    final edited = await service.saveTextNote(
+      itemId: created.id,
+      expectedRevision: created.revision,
+      title: 'Renamed note',
+      body: 'second body',
+    );
+    expect(edited.revision, 2);
+    expect(edited.createdAtMs, created.createdAtMs);
+    expect(await service.loadTextNote(edited), 'second body');
+    expect(await storage.hasFile(firstCid), isFalse);
+    expect(await storage.hasFile('mf:$firstCid'), isFalse);
+    expect(
+      sync.rows
+          .where((row) => row.event.kind == DeviceSyncKind.cloudEntry)
+          .map((row) => CloudItem.fromEvent(row.event)?.revision),
+      containsAllInOrder([1, 2]),
+    );
+
+    await service.close();
+    await received.close();
+    await storage.close();
+  });
+
+  test(
+    'stale note editor gets an explicit conflict without overwrite',
+    () async {
+      final container = FakeHvContainer();
+      final storage = container.storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final sync = _FakeSync(_id(1));
+      final received = StreamController<String>.broadcast();
+      final service = CloudService(
+        storage,
+        sync,
+        contentReceived: received.stream,
+        newId: () => 'note-conflict',
+        integrityChecks: false,
+      );
+      final original = await service.saveTextNote(title: 'Note', body: 'v1');
+      final current = await service.saveTextNote(
+        itemId: original.id,
+        expectedRevision: original.revision,
+        title: 'Note',
+        body: 'v2 remote',
+      );
+
+      await expectLater(
+        service.saveTextNote(
+          itemId: original.id,
+          expectedRevision: original.revision,
+          title: 'Note',
+          body: 'stale local',
+        ),
+        throwsA(
+          isA<CloudEditConflict>().having(
+            (error) => error.current.revision,
+            'current revision',
+            current.revision,
+          ),
+        ),
+      );
+      expect(await service.loadTextNote(current), 'v2 remote');
+
+      await service.close();
+      await received.close();
+      await storage.close();
+    },
+  );
+
+  test('remote note revision scrubs superseded local ciphertext', () async {
+    final container = FakeHvContainer();
+    final storage = container.storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final sync = _FakeSync(_id(1));
+    final received = StreamController<String>.broadcast();
+    var clock = 3000;
+    final service = CloudService(
+      storage,
+      sync,
+      contentReceived: received.stream,
+      now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+      newId: () => 'remote-note',
+      integrityChecks: false,
+    );
+    final original = await service.saveTextNote(title: 'Note', body: 'local');
+    final oldCid = original.contentId!;
+    final remoteBytes = Uint8List.fromList(utf8.encode('remote'));
+    final remoteManifest = ContentManifest.fromBytes('Note', remoteBytes);
+    final remote = CloudItem(
+      id: original.id,
+      kind: CloudItemKind.note,
+      name: 'Note',
+      contentId: remoteManifest.contentId,
+      size: remoteBytes.length,
+      mime: 'text/plain; charset=utf-8',
+      createdAtMs: original.createdAtMs,
+      modifiedAtMs: original.modifiedAtMs + 100,
+      revision: original.revision + 1,
+      deleted: false,
+    );
+    sync.rows.add((event: remote.toEvent(), author: _id(2)));
+    sync.controller.add(null);
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+
+    expect((await service.listItems()).single.contentId, remote.contentId);
+    expect(await storage.hasFile(oldCid), isFalse);
+    expect(await storage.hasFile('mf:$oldCid'), isFalse);
+    final claims = foldCloudReplicaClaims(sync.rows);
+    final localClaim = claims['${original.id}|${sync.selfId.hex}'];
+    expect(localClaim?.contentId, oldCid);
+    expect(localClaim?.present, isFalse);
+
+    await service.close();
+    await received.close();
+    await storage.close();
+  });
+
+  test('text note bounds are enforced before storage mutation', () async {
+    final container = FakeHvContainer();
+    final storage = container.storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final sync = _FakeSync(_id(1));
+    final received = StreamController<String>.broadcast();
+    final service = CloudService(
+      storage,
+      sync,
+      contentReceived: received.stream,
+      newId: () => 'note-large',
+      integrityChecks: false,
+    );
+
+    await expectLater(
+      service.saveTextNote(
+        title: 'Too large',
+        body: List.filled(CloudService.maxTextNoteBytes + 1, 'x').join(),
+      ),
+      throwsArgumentError,
+    );
+    expect(await service.listItems(), isEmpty);
+
+    await service.close();
+    await received.close();
+    await storage.close();
+  });
+
+  test('note save stays local-first when device sync never returns', () async {
+    final container = FakeHvContainer();
+    final storage = container.storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final sync = _FakeSync(_id(1))..postGate = Completer<bool>();
+    final received = StreamController<String>.broadcast();
+    final service = CloudService(
+      storage,
+      sync,
+      contentReceived: received.stream,
+      newId: () => 'offline-note',
+      integrityChecks: false,
+    );
+
+    final note = await service
+        .saveTextNote(title: 'Offline', body: 'durable first')
+        .timeout(const Duration(seconds: 1));
+    expect((await service.listItems()).single.id, note.id);
+    expect(await service.loadTextNote(note), 'durable first');
+    expect(await storage.hasFile(note.contentId!), isTrue);
+
+    await service.close();
+    await received.close();
+    await storage.close();
+  });
+
   test(
     'adopts verified capability bytes without a second content id',
     () async {

@@ -504,10 +504,16 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get cloudEmptyHint =>
-      'Files are encrypted locally and replicated only between your own linked devices.';
+      'Files and notes are encrypted locally and replicated only between your own linked devices.';
+
+  @override
+  String get cloudAdd => 'Add to cloud';
 
   @override
   String get cloudAddFile => 'Add file';
+
+  @override
+  String get cloudAddNote => 'New note';
 
   @override
   String get cloudImported => 'File added to your cloud';
@@ -630,6 +636,55 @@ class AppL10nEn extends AppL10n {
   @override
   String get cloudDeleteBody =>
       'The item will disappear from every linked device. This cannot be undone.';
+
+  @override
+  String get cloudNoteNew => 'New note';
+
+  @override
+  String get cloudNoteEdit => 'Edit note';
+
+  @override
+  String get cloudNoteTitleHint => 'Title';
+
+  @override
+  String get cloudNoteBodyHint => 'Write a private note…';
+
+  @override
+  String get cloudNoteSave => 'Save';
+
+  @override
+  String get cloudNoteSaved => 'Note saved';
+
+  @override
+  String get cloudNoteLoadFailed => 'Could not load or verify the note';
+
+  @override
+  String get cloudNoteSaveFailed => 'Could not save the note';
+
+  @override
+  String get cloudNoteTitleRequired => 'Enter a title';
+
+  @override
+  String get cloudNoteTooLarge => 'The note is too large (maximum 1 MiB)';
+
+  @override
+  String get cloudNoteConflictTitle => 'This note changed on another device';
+
+  @override
+  String get cloudNoteConflictBody =>
+      'Review the current cloud version and merge it with your draft before saving.';
+
+  @override
+  String get cloudNoteRemoteVersion => 'Current cloud version';
+
+  @override
+  String get cloudNoteYourDraft => 'Your merged draft';
+
+  @override
+  String get cloudNoteUseRemote => 'Use cloud version';
+
+  @override
+  String get cloudNoteSaveMerged => 'Save merged version';
 
   @override
   String get settingsCatAccount => 'Identities & account';
