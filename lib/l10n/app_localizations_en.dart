@@ -2447,4 +2447,72 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get cloudDocumentRejected => 'Invitation removed';
+
+  @override
+  String get cloudSharedNew => 'New shared document';
+
+  @override
+  String cloudSharedDocuments(int count) {
+    return 'Shared documents ($count)';
+  }
+
+  @override
+  String cloudSharedDocument(String kind, String id) {
+    return 'Shared $kind · $id';
+  }
+
+  @override
+  String cloudSharedMembers(int count, int epoch, String role) {
+    return '$count members · epoch $epoch · $role';
+  }
+
+  @override
+  String get cloudSharedPickContact => 'Invite an accepted contact';
+
+  @override
+  String get cloudSharedRole => 'Document role';
+
+  @override
+  String get cloudSharedRoleOwner => 'Owner';
+
+  @override
+  String get cloudSharedRoleEditor => 'Editor';
+
+  @override
+  String get cloudSharedRoleViewer => 'Viewer';
+
+  @override
+  String get cloudSharedCreated =>
+      'Shared document created and invitation queued';
+
+  @override
+  String get cloudSharedFailed => 'Could not update the shared document';
+
+  @override
+  String get cloudSharedPartial =>
+      'Saved locally, but delivery was not queued for every member';
+
+  @override
+  String get cloudSharedAddMember => 'Add member';
+
+  @override
+  String get cloudSharedRevoke => 'Revoke access';
+
+  @override
+  String cloudSharedRevokeTitle(String member) {
+    return 'Revoke access for $member?';
+  }
+
+  @override
+  String get cloudSharedRotate => 'Rotate encryption key';
+
+  @override
+  String get cloudSharedRotateTitle =>
+      'Rotate the document key for every member?';
+
+  @override
+  String get cloudSharedResend => 'Resend invitation';
+
+  @override
+  String get cloudSharedQueued => 'Update queued';
 }

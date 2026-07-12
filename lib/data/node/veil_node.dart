@@ -6,16 +6,21 @@ import 'subprocess_node_controller.dart';
 
 /// Args to run a veil node in the foreground against [configPath].
 List<String> veilNodeRunArgs(String configPath) => [
-      '-c',
-      configPath,
-      'node',
-      'run',
-      '--foreground',
-    ];
+  '-c',
+  configPath,
+  'node',
+  'run',
+  '--foreground',
+];
 
 /// Readiness probe: the app IPC unix socket exists and accepts a connection.
 Future<bool> Function() veilSocketProbe(String appSocketPath) {
   return () async {
+    final parent = File(appSocketPath).parent;
+    if (await File('${parent.path}/ipc.port').exists() &&
+        await File('${parent.path}/ipc.token').exists()) {
+      return true;
+    }
     if (!await File(appSocketPath).exists()) return false;
     try {
       final s = await Socket.connect(
@@ -61,20 +66,36 @@ Future<String> ensureVeilConfig({
 }) async {
   final socket = appSocketPath ?? '${File(configPath).parent.path}/app.sock';
   if (!await File(configPath).exists()) {
-    final init =
-        await Process.run(veilCliPath, ['config', 'init', configPath]);
+    final init = await Process.run(veilCliPath, ['config', 'init', configPath]);
     if (init.exitCode != 0) {
       throw StateError('veil config init failed: ${init.stderr}');
     }
     // A fresh config has no listener; add one so peers can dial us.
-    await Process.run(
-        veilCliPath, ['-c', configPath, 'listen', 'add', listenTransport]);
+    await Process.run(veilCliPath, [
+      '-c',
+      configPath,
+      'listen',
+      'add',
+      listenTransport,
+    ]);
   }
   // Enable the separate app IPC socket (admin socket is admin-only).
-  await Process.run(
-      veilCliPath, ['-c', configPath, 'config', 'set', 'ipc.enabled', 'true']);
-  await Process.run(veilCliPath,
-      ['-c', configPath, 'config', 'set', 'ipc.socket_uri', 'unix://$socket']);
+  await Process.run(veilCliPath, [
+    '-c',
+    configPath,
+    'config',
+    'set',
+    'ipc.enabled',
+    'true',
+  ]);
+  await Process.run(veilCliPath, [
+    '-c',
+    configPath,
+    'config',
+    'set',
+    'ipc.socket_uri',
+    'unix://$socket',
+  ]);
   return socket;
 }
 
@@ -84,8 +105,12 @@ Future<BootstrapInvite> veilBootstrapInvite({
   required String veilCliPath,
   required String configPath,
 }) async {
-  final r = await Process.run(
-      veilCliPath, ['-c', configPath, 'bootstrap', 'invite']);
+  final r = await Process.run(veilCliPath, [
+    '-c',
+    configPath,
+    'bootstrap',
+    'invite',
+  ]);
   if (r.exitCode != 0) {
     throw StateError('veil bootstrap invite failed: ${r.stderr}');
   }
@@ -103,8 +128,14 @@ Future<void> veilBootstrapJoin({
   required String configPath,
   required String inviteUri,
 }) async {
-  final r = await Process.run(
-      veilCliPath, ['-c', configPath, 'bootstrap', 'join', '--uri', inviteUri]);
+  final r = await Process.run(veilCliPath, [
+    '-c',
+    configPath,
+    'bootstrap',
+    'join',
+    '--uri',
+    inviteUri,
+  ]);
   if (r.exitCode != 0) {
     throw StateError('veil bootstrap join failed: ${r.stderr}');
   }

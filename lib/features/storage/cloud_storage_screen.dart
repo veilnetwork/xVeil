@@ -8,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/ids.dart';
 import '../../domain/cloud.dart';
+import '../../domain/chat.dart';
+import '../../domain/cloud_document.dart';
 import '../../domain/cloud_document_replication.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/cloud_capability_service.dart';
@@ -32,6 +34,8 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
   CloudService? get _service => ref.read(cloudServiceProvider);
   CloudCapabilityService? get _capabilityService =>
       ref.read(cloudCapabilityServiceProvider);
+  CloudDocumentReplicationService? get _documentService =>
+      ref.read(cloudDocumentReplicationServiceProvider);
 
   Future<void> _importFile() async {
     final service = _service;
@@ -95,6 +99,12 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
               title: Text(l.cloudAddFile),
               onTap: () => Navigator.pop(context, 'file'),
             ),
+            if (_documentService?.canMutate == true)
+              ListTile(
+                leading: const Icon(Icons.group_add_outlined),
+                title: Text(l.cloudSharedNew),
+                onTap: () => Navigator.pop(context, 'shared'),
+              ),
           ],
         ),
       ),
@@ -102,6 +112,99 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
     if (!mounted) return;
     if (action == 'note') await _createNote();
     if (action == 'file') await _importFile();
+    if (action == 'shared') await _createSharedDocument();
+  }
+
+  Future<NodeId?> _pickAcceptedContact(
+    List<Contact> contacts, {
+    Set<String> excluded = const {},
+  }) async {
+    final available = contacts
+        .where((contact) => !excluded.contains(contact.nodeId.hex))
+        .toList();
+    if (available.isEmpty) {
+      _notice(AppL10n.of(context).cloudNoContacts);
+      return null;
+    }
+    final l = AppL10n.of(context);
+    return showModalBottomSheet<NodeId>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * 0.7,
+          ),
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: available.length + 1,
+            itemBuilder: (context, index) {
+              if (index == 0) {
+                return ListTile(title: Text(l.cloudSharedPickContact));
+              }
+              final contact = available[index - 1];
+              return ListTile(
+                leading: const Icon(Icons.person_add_outlined),
+                title: Text(contact.label),
+                subtitle: Text(contact.nodeId.short),
+                onTap: () => Navigator.pop(context, contact.nodeId),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<CloudDocumentRole?> _pickDocumentRole() {
+    final l = AppL10n.of(context);
+    return showDialog<CloudDocumentRole>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: Text(l.cloudSharedRole),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, CloudDocumentRole.editor),
+            child: Text(l.cloudSharedRoleEditor),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, CloudDocumentRole.viewer),
+            child: Text(l.cloudSharedRoleViewer),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _createSharedDocument() async {
+    final documents = _documentService;
+    final cloud = _service;
+    if (documents == null || cloud == null || _busy) return;
+    final peer = await _pickAcceptedContact(await cloud.acceptedContacts());
+    if (peer == null || !mounted) return;
+    final role = await _pickDocumentRole();
+    if (role == null || !mounted) return;
+    setState(() => _busy = true);
+    CloudDocumentMutationResult? result;
+    try {
+      final created = await documents.createDocument();
+      if (created != null) {
+        result = await documents.grant(created.documentId, peer, role);
+      }
+    } catch (_) {
+      result = null;
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    if (!mounted) return;
+    final l = AppL10n.of(context);
+    _notice(
+      result == null
+          ? l.cloudSharedFailed
+          : result.fullyQueued
+          ? l.cloudSharedCreated
+          : l.cloudSharedPartial,
+    );
   }
 
   Future<void> _verifyAll() async {
@@ -210,6 +313,11 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
               children: [
                 if (documentService != null)
                   _PendingDocumentInvites(service: documentService),
+                if (documentService != null)
+                  _SharedDocumentSection(
+                    service: documentService,
+                    cloud: service,
+                  ),
                 _ReplicationProfile(service: service),
                 const Divider(height: 1),
                 Expanded(
@@ -385,6 +493,438 @@ class _PendingDocumentInvitesState extends State<_PendingDocumentInvites> {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+String _documentRoleLabel(AppL10n l, CloudDocumentRole? role) => switch (role) {
+  CloudDocumentRole.owner => l.cloudSharedRoleOwner,
+  CloudDocumentRole.editor => l.cloudSharedRoleEditor,
+  CloudDocumentRole.viewer => l.cloudSharedRoleViewer,
+  null => '—',
+};
+
+class _SharedDocumentSection extends StatefulWidget {
+  const _SharedDocumentSection({required this.service, required this.cloud});
+
+  final CloudDocumentReplicationService service;
+  final CloudService cloud;
+
+  @override
+  State<_SharedDocumentSection> createState() => _SharedDocumentSectionState();
+}
+
+class _SharedDocumentSectionState extends State<_SharedDocumentSection> {
+  StreamSubscription<void>? _subscription;
+  List<CloudDocumentView> _documents = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _listen();
+  }
+
+  @override
+  void didUpdateWidget(covariant _SharedDocumentSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.service, widget.service)) _listen();
+  }
+
+  void _listen() {
+    unawaited(_subscription?.cancel());
+    _subscription = widget.service.changes.listen((_) => _reload());
+    unawaited(_reload());
+  }
+
+  Future<void> _reload() async {
+    final documents = await widget.service.listDocuments();
+    if (mounted) setState(() => _documents = documents);
+  }
+
+  Future<void> _open(CloudDocumentView document) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => _DocumentAclSheet(
+        service: widget.service,
+        cloud: widget.cloud,
+        documentId: document.root.documentId.hex,
+      ),
+    );
+    if (mounted) await _reload();
+  }
+
+  @override
+  void dispose() {
+    unawaited(_subscription?.cancel());
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_documents.isEmpty) return const SizedBox.shrink();
+    final l = AppL10n.of(context);
+    return ExpansionTile(
+      key: const ValueKey('cloud-shared-documents'),
+      leading: const Icon(Icons.group_work_outlined),
+      title: Text(l.cloudSharedDocuments(_documents.length)),
+      children: [
+        for (final document in _documents)
+          ListTile(
+            key: ValueKey(
+              'cloud-shared-document-${document.root.documentId.hex}',
+            ),
+            leading: const Icon(Icons.description_outlined),
+            title: Text(
+              l.cloudSharedDocument(
+                document.root.kind.name,
+                document.root.documentId.short,
+              ),
+            ),
+            subtitle: Text(
+              l.cloudSharedMembers(
+                document.members.length,
+                document.currentEpoch,
+                _documentRoleLabel(l, document.localRole),
+              ),
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _open(document),
+          ),
+      ],
+    );
+  }
+}
+
+class _DocumentAclSheet extends StatefulWidget {
+  const _DocumentAclSheet({
+    required this.service,
+    required this.cloud,
+    required this.documentId,
+  });
+
+  final CloudDocumentReplicationService service;
+  final CloudService cloud;
+  final String documentId;
+
+  @override
+  State<_DocumentAclSheet> createState() => _DocumentAclSheetState();
+}
+
+class _DocumentAclSheetState extends State<_DocumentAclSheet> {
+  StreamSubscription<void>? _subscription;
+  CloudDocumentView? _document;
+  Map<String, Contact> _contacts = const {};
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _subscription = widget.service.changes.listen((_) => _reload());
+    unawaited(_reload());
+  }
+
+  Future<void> _reload() async {
+    final documents = await widget.service.listDocuments();
+    final contacts = await widget.cloud.acceptedContacts();
+    if (!mounted) return;
+    setState(() {
+      _document = documents
+          .where((entry) => entry.root.documentId.hex == widget.documentId)
+          .firstOrNull;
+      _contacts = {for (final contact in contacts) contact.nodeId.hex: contact};
+    });
+  }
+
+  String _memberLabel(String id) =>
+      _contacts[id]?.label ?? NodeId.fromHex(id).short;
+
+  void _notice(String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _runMutation(
+    Future<CloudDocumentMutationResult?> Function() mutation,
+  ) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    CloudDocumentMutationResult? result;
+    try {
+      result = await mutation();
+    } catch (_) {
+      result = null;
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    if (!mounted) return;
+    final l = AppL10n.of(context);
+    _notice(
+      result == null
+          ? l.cloudSharedFailed
+          : result.fullyQueued
+          ? l.cloudSharedQueued
+          : l.cloudSharedPartial,
+    );
+    await _reload();
+  }
+
+  Future<CloudDocumentRole?> _pickRole() {
+    final l = AppL10n.of(context);
+    return showDialog<CloudDocumentRole>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: Text(l.cloudSharedRole),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, CloudDocumentRole.editor),
+            child: Text(l.cloudSharedRoleEditor),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, CloudDocumentRole.viewer),
+            child: Text(l.cloudSharedRoleViewer),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _addMember() async {
+    final document = _document;
+    if (document == null) return;
+    final available = _contacts.values
+        .where((contact) => !document.members.containsKey(contact.nodeId.hex))
+        .toList();
+    if (available.isEmpty) {
+      _notice(AppL10n.of(context).cloudNoContacts);
+      return;
+    }
+    final peer = await showDialog<NodeId>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: Text(AppL10n.of(context).cloudSharedPickContact),
+        children: [
+          for (final contact in available)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, contact.nodeId),
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(contact.label),
+                subtitle: Text(contact.nodeId.short),
+              ),
+            ),
+        ],
+      ),
+    );
+    if (peer == null || !mounted) return;
+    final role = await _pickRole();
+    if (role == null || !mounted) return;
+    await _runMutation(
+      () => widget.service.grant(widget.documentId, peer, role),
+    );
+  }
+
+  Future<void> _memberAction(String id, String action) async {
+    final peer = NodeId.fromHex(id);
+    switch (action) {
+      case 'editor':
+        await _runMutation(
+          () => widget.service.setRole(
+            widget.documentId,
+            peer,
+            CloudDocumentRole.editor,
+          ),
+        );
+        return;
+      case 'viewer':
+        await _runMutation(
+          () => widget.service.setRole(
+            widget.documentId,
+            peer,
+            CloudDocumentRole.viewer,
+          ),
+        );
+        return;
+      case 'resend':
+        setState(() => _busy = true);
+        final ok = await widget.service.resendInvite(widget.documentId, peer);
+        if (mounted) {
+          setState(() => _busy = false);
+          _notice(
+            ok
+                ? AppL10n.of(context).cloudSharedQueued
+                : AppL10n.of(context).cloudSharedFailed,
+          );
+        }
+        return;
+      case 'revoke':
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(
+              AppL10n.of(context).cloudSharedRevokeTitle(_memberLabel(id)),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text(AppL10n.of(context).actionCancel),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: Text(AppL10n.of(context).cloudSharedRevoke),
+              ),
+            ],
+          ),
+        );
+        if (confirmed == true && mounted) {
+          await _runMutation(
+            () => widget.service.revoke(widget.documentId, peer),
+          );
+        }
+    }
+  }
+
+  Future<void> _rotate() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(AppL10n.of(context).cloudSharedRotateTitle),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(AppL10n.of(context).actionCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(AppL10n.of(context).cloudSharedRotate),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await _runMutation(() => widget.service.rotateEpoch(widget.documentId));
+    }
+  }
+
+  @override
+  void dispose() {
+    unawaited(_subscription?.cancel());
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final document = _document;
+    final l = AppL10n.of(context);
+    if (document == null) {
+      return const SafeArea(child: Center(child: CircularProgressIndicator()));
+    }
+    final ownerControls = document.localRole == CloudDocumentRole.owner;
+    final members = document.members.entries.toList()
+      ..sort((left, right) {
+        if (left.value == CloudDocumentRole.owner) return -1;
+        if (right.value == CloudDocumentRole.owner) return 1;
+        return _memberLabel(left.key).compareTo(_memberLabel(right.key));
+      });
+    return SafeArea(
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.78,
+        child: Column(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.admin_panel_settings_outlined),
+              title: Text(
+                l.cloudSharedDocument(
+                  document.root.kind.name,
+                  document.root.documentId.short,
+                ),
+              ),
+              subtitle: Text(
+                l.cloudSharedMembers(
+                  document.members.length,
+                  document.currentEpoch,
+                  _documentRoleLabel(l, document.localRole),
+                ),
+              ),
+              trailing: _busy
+                  ? const SizedBox.square(
+                      dimension: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : null,
+            ),
+            if (ownerControls)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: _busy ? null : _addMember,
+                      icon: const Icon(Icons.person_add_outlined),
+                      label: Text(l.cloudSharedAddMember),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _busy ? null : _rotate,
+                      icon: const Icon(Icons.key_outlined),
+                      label: Text(l.cloudSharedRotate),
+                    ),
+                  ],
+                ),
+              ),
+            const SizedBox(height: 8),
+            const Divider(height: 1),
+            Expanded(
+              child: ListView(
+                children: [
+                  for (final member in members)
+                    ListTile(
+                      leading: Icon(
+                        member.value == CloudDocumentRole.owner
+                            ? Icons.verified_user_outlined
+                            : Icons.person_outline,
+                      ),
+                      title: Text(_memberLabel(member.key)),
+                      subtitle: Text(_documentRoleLabel(l, member.value)),
+                      trailing:
+                          ownerControls &&
+                              member.value != CloudDocumentRole.owner
+                          ? PopupMenuButton<String>(
+                              enabled: !_busy,
+                              onSelected: (action) =>
+                                  _memberAction(member.key, action),
+                              itemBuilder: (context) => [
+                                if (member.value != CloudDocumentRole.editor)
+                                  PopupMenuItem(
+                                    value: 'editor',
+                                    child: Text(l.cloudSharedRoleEditor),
+                                  ),
+                                if (member.value != CloudDocumentRole.viewer)
+                                  PopupMenuItem(
+                                    value: 'viewer',
+                                    child: Text(l.cloudSharedRoleViewer),
+                                  ),
+                                PopupMenuItem(
+                                  value: 'resend',
+                                  child: Text(l.cloudSharedResend),
+                                ),
+                                PopupMenuItem(
+                                  value: 'revoke',
+                                  child: Text(l.cloudSharedRevoke),
+                                ),
+                              ],
+                            )
+                          : null,
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

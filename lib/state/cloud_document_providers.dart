@@ -6,12 +6,30 @@ import '../core/ids.dart';
 import '../data/storage/storage.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../data/transport/veil_mailbox.dart';
+import '../domain/chat.dart';
 import 'app_controller.dart';
+import 'cloud_document_crypto.dart';
 import 'cloud_document_envelope_service.dart';
 import 'cloud_document_replication_service.dart';
 import 'cloud_document_store.dart';
 import 'messaging.dart';
 import 'providers.dart';
+
+/// Mutation signer for the identity currently visible in the UI. In all-online
+/// mode every hosted identity still receives frames, but only the active
+/// identity gets a signer/control surface; switching rebuilds it from that
+/// identity's deniable node config.
+final cloudDocumentSignerProvider = FutureProvider<CloudDocumentSigner?>((
+  ref,
+) async {
+  final self = ref.watch(
+    appControllerProvider.select((state) => state.identity?.nodeId),
+  );
+  if (self == null) return null;
+  final toml = await ref.read(storageProvider).loadNodeConfig();
+  if (toml == null) return null;
+  return NativeCloudDocumentSigner(identityToml: toml, selfId: self);
+});
 
 /// Production lifecycle for CLOUD-3B2 replication. Null while locked; rebuilt
 /// on identity switch so keys and pending invites never cross deniable spaces.
@@ -23,11 +41,12 @@ final cloudDocumentReplicationServiceProvider =
       if (self == null) return null;
       final session = ref.watch(sessionProvider);
       final active = ref.watch(activeIdentityProvider);
+      final signer = ref.watch(cloudDocumentSignerProvider).valueOrNull;
       final attached =
           <
             ({
               MessagingService messaging,
-              void Function(NodeId, String) handler,
+              Future<bool> Function(NodeId, String) handler,
               CloudDocumentReplicationService service,
             })
           >[];
@@ -37,16 +56,30 @@ final cloudDocumentReplicationServiceProvider =
         required MessagingService messaging,
         required Storage storage,
         required VeilMailboxCrypto crypto,
+        CloudDocumentSigner? signer,
       }) {
         final service = CloudDocumentReplicationService(
           localNodeId: nodeId,
-          ourCertVersion: 0,
+          // Runtime publishes the active per-instance ML-KEM cert as v1.
+          ourCertVersion: 1,
           store: CloudDocumentStore(storage),
           envelopes: CloudDocumentEnvelopeService(crypto),
           sendFrame: messaging.sendCloudDocumentFrame,
+          signer: signer,
+          acceptedContact: (peer) async =>
+              (await storage.getContact(peer))?.status ==
+              ContactStatus.accepted,
         );
-        void handler(NodeId peer, String frameJson) {
-          unawaited(service.ingest(peer, frameJson));
+        Future<bool> handler(NodeId peer, String frameJson) async {
+          try {
+            // Invalid/unauthorized input is a terminal silent drop (ACK it so
+            // the sender does not retry forever). A thrown storage failure is
+            // retryable: Messaging deliberately withholds the durable ACK.
+            await service.ingest(peer, frameJson);
+            return true;
+          } catch (_) {
+            return false;
+          }
         }
 
         messaging.onCloudDocumentFrame = handler;
@@ -74,6 +107,9 @@ final cloudDocumentReplicationServiceProvider =
             messaging: messaging,
             storage: storage,
             crypto: crypto,
+            signer: label == active && signer?.selfId == stack.myInvite.nodeId
+                ? signer
+                : null,
           );
           if (label == active) selected = service;
         }
@@ -87,6 +123,7 @@ final cloudDocumentReplicationServiceProvider =
           crypto: transport is VeilFlutterTransport
               ? transport.mailboxCrypto()
               : LoopbackMailboxCrypto(senderForOpen: self),
+          signer: signer?.selfId == self ? signer : null,
         );
       }
       ref.onDispose(() {

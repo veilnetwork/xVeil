@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/node/node_probe.dart';
+import 'package:xveil/data/node/veil_node.dart';
 
 void main() {
   test('reports reachable for an open port', () async {
@@ -16,14 +17,34 @@ void main() {
     final tmp = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
     final port = tmp.port;
     await tmp.close();
-    final result = await probeTcp('127.0.0.1', port,
-        timeout: const Duration(seconds: 2));
+    final result = await probeTcp(
+      '127.0.0.1',
+      port,
+      timeout: const Duration(seconds: 2),
+    );
     expect(result, ProbeResult.unreachable);
   });
 
   test('never throws on a bogus host', () async {
-    final result = await probeTcp('this.host.does.not.exist.invalid', 22,
-        timeout: const Duration(seconds: 2));
+    final result = await probeTcp(
+      'this.host.does.not.exist.invalid',
+      22,
+      timeout: const Duration(seconds: 2),
+    );
     expect(result, ProbeResult.unreachable);
+  });
+
+  test('veil readiness accepts authenticated TCP discovery sidecars', () async {
+    final dir = await Directory.systemTemp.createTemp('xveil-probe-');
+    addTearDown(() => dir.delete(recursive: true));
+    final anchor = '${dir.path}/ipc.anchor';
+
+    expect(await veilSocketProbe(anchor)(), isFalse);
+    await File('${dir.path}/ipc.port').writeAsString('12345');
+    expect(await veilSocketProbe(anchor)(), isFalse);
+    await File(
+      '${dir.path}/ipc.token',
+    ).writeAsString(List.filled(32, '00').join());
+    expect(await veilSocketProbe(anchor)(), isTrue);
   });
 }
