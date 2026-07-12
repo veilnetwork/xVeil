@@ -11,6 +11,7 @@ import '../../domain/cloud.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/cloud_capability_service.dart';
 import '../../state/cloud_service.dart';
+import 'cloud_note_editor.dart';
 
 /// Personal-cloud surface. The signed device-group log owns the logical index;
 /// this screen only selects local replication policy and asks the service to
@@ -58,6 +59,46 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
       await reader?.close();
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _createNote() async {
+    final service = _service;
+    if (service == null || _busy) return;
+    await Navigator.push<CloudItem>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CloudNoteEditorScreen(service: service),
+      ),
+    );
+  }
+
+  Future<void> _showAddMenu() async {
+    if (_service == null || _busy) return;
+    final l = AppL10n.of(context);
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.note_add_outlined),
+              title: Text(l.cloudAddNote),
+              onTap: () => Navigator.pop(context, 'note'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.upload_file_outlined),
+              title: Text(l.cloudAddFile),
+              onTap: () => Navigator.pop(context, 'file'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (action == 'note') await _createNote();
+    if (action == 'file') await _importFile();
   }
 
   Future<void> _verifyAll() async {
@@ -168,7 +209,10 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
                 Expanded(
                   child: items.when(
                     data: (rows) => rows.isEmpty
-                        ? _EmptyCloud(onImport: _busy ? null : _importFile)
+                        ? _EmptyCloud(
+                            onImport: _busy ? null : _importFile,
+                            onNote: _busy ? null : _createNote,
+                          )
                         : ListView.builder(
                             padding: const EdgeInsets.only(bottom: 96),
                             itemCount: rows.length,
@@ -193,9 +237,9 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
       floatingActionButton: service == null
           ? null
           : FloatingActionButton.extended(
-              onPressed: _busy ? null : _importFile,
+              onPressed: _busy ? null : _showAddMenu,
               icon: const Icon(Icons.add),
-              label: Text(l.cloudAddFile),
+              label: Text(l.cloudAdd),
             ),
     );
   }
@@ -263,9 +307,10 @@ class _ReplicationProfileState extends State<_ReplicationProfile> {
 }
 
 class _EmptyCloud extends StatelessWidget {
-  const _EmptyCloud({required this.onImport});
+  const _EmptyCloud({required this.onImport, required this.onNote});
 
   final VoidCallback? onImport;
+  final VoidCallback? onNote;
 
   @override
   Widget build(BuildContext context) {
@@ -282,10 +327,22 @@ class _EmptyCloud extends StatelessWidget {
             const SizedBox(height: 8),
             Text(l.cloudEmptyHint, textAlign: TextAlign.center),
             const SizedBox(height: 20),
-            FilledButton.icon(
-              onPressed: onImport,
-              icon: const Icon(Icons.add),
-              label: Text(l.cloudAddFile),
+            Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              children: [
+                FilledButton.icon(
+                  onPressed: onNote,
+                  icon: const Icon(Icons.note_add_outlined),
+                  label: Text(l.cloudAddNote),
+                ),
+                OutlinedButton.icon(
+                  onPressed: onImport,
+                  icon: const Icon(Icons.upload_file_outlined),
+                  label: Text(l.cloudAddFile),
+                ),
+              ],
             ),
           ],
         ),
@@ -343,6 +400,17 @@ class _CloudItemTileState extends State<_CloudItemTile> {
     } finally {
       if (mounted) setState(() => _working = false);
     }
+  }
+
+  Future<void> _openNote() async {
+    if (_working || widget.item.kind != CloudItemKind.note) return;
+    await Navigator.push<CloudItem>(
+      context,
+      MaterialPageRoute(
+        builder: (context) =>
+            CloudNoteEditorScreen(service: widget.service, item: widget.item),
+      ),
+    );
   }
 
   Future<void> _toggleSelected() async {
@@ -500,7 +568,13 @@ class _CloudItemTileState extends State<_CloudItemTile> {
               dimension: 24,
               child: CircularProgressIndicator(strokeWidth: 2),
             )
-          : Icon(_local == true ? Icons.cloud_done : Icons.cloud_download),
+          : Icon(
+              widget.item.kind == CloudItemKind.note
+                  ? Icons.note_outlined
+                  : _local == true
+                  ? Icons.cloud_done
+                  : Icons.cloud_download,
+            ),
       title: Text(
         widget.item.name,
         maxLines: 1,
@@ -511,7 +585,11 @@ class _CloudItemTileState extends State<_CloudItemTile> {
         '${_local == true ? l.cloudLocal : l.cloudRemote} · '
         '${l.cloudReplicas(replicas)}',
       ),
-      onTap: _local == true ? null : _fetch,
+      onTap: widget.item.kind == CloudItemKind.note && _local == true
+          ? _openNote
+          : _local == true
+          ? null
+          : _fetch,
       trailing: PopupMenuButton<String>(
         onSelected: (action) {
           switch (action) {

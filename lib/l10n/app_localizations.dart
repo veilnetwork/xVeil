@@ -1006,14 +1006,26 @@ abstract class AppL10n {
   /// No description provided for @cloudEmptyHint.
   ///
   /// In en, this message translates to:
-  /// **'Files are encrypted locally and replicated only between your own linked devices.'**
+  /// **'Files and notes are encrypted locally and replicated only between your own linked devices.'**
   String get cloudEmptyHint;
+
+  /// No description provided for @cloudAdd.
+  ///
+  /// In en, this message translates to:
+  /// **'Add to cloud'**
+  String get cloudAdd;
 
   /// No description provided for @cloudAddFile.
   ///
   /// In en, this message translates to:
   /// **'Add file'**
   String get cloudAddFile;
+
+  /// No description provided for @cloudAddNote.
+  ///
+  /// In en, this message translates to:
+  /// **'New note'**
+  String get cloudAddNote;
 
   /// No description provided for @cloudImported.
   ///
@@ -1230,6 +1242,102 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'The item will disappear from every linked device. This cannot be undone.'**
   String get cloudDeleteBody;
+
+  /// No description provided for @cloudNoteNew.
+  ///
+  /// In en, this message translates to:
+  /// **'New note'**
+  String get cloudNoteNew;
+
+  /// No description provided for @cloudNoteEdit.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit note'**
+  String get cloudNoteEdit;
+
+  /// No description provided for @cloudNoteTitleHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Title'**
+  String get cloudNoteTitleHint;
+
+  /// No description provided for @cloudNoteBodyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Write a private note…'**
+  String get cloudNoteBodyHint;
+
+  /// No description provided for @cloudNoteSave.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get cloudNoteSave;
+
+  /// No description provided for @cloudNoteSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'Note saved'**
+  String get cloudNoteSaved;
+
+  /// No description provided for @cloudNoteLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load or verify the note'**
+  String get cloudNoteLoadFailed;
+
+  /// No description provided for @cloudNoteSaveFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save the note'**
+  String get cloudNoteSaveFailed;
+
+  /// No description provided for @cloudNoteTitleRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a title'**
+  String get cloudNoteTitleRequired;
+
+  /// No description provided for @cloudNoteTooLarge.
+  ///
+  /// In en, this message translates to:
+  /// **'The note is too large (maximum 1 MiB)'**
+  String get cloudNoteTooLarge;
+
+  /// No description provided for @cloudNoteConflictTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'This note changed on another device'**
+  String get cloudNoteConflictTitle;
+
+  /// No description provided for @cloudNoteConflictBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Review the current cloud version and merge it with your draft before saving.'**
+  String get cloudNoteConflictBody;
+
+  /// No description provided for @cloudNoteRemoteVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'Current cloud version'**
+  String get cloudNoteRemoteVersion;
+
+  /// No description provided for @cloudNoteYourDraft.
+  ///
+  /// In en, this message translates to:
+  /// **'Your merged draft'**
+  String get cloudNoteYourDraft;
+
+  /// No description provided for @cloudNoteUseRemote.
+  ///
+  /// In en, this message translates to:
+  /// **'Use cloud version'**
+  String get cloudNoteUseRemote;
+
+  /// No description provided for @cloudNoteSaveMerged.
+  ///
+  /// In en, this message translates to:
+  /// **'Save merged version'**
+  String get cloudNoteSaveMerged;
 
   /// No description provided for @settingsCatAccount.
   ///

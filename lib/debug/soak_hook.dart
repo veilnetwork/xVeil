@@ -331,6 +331,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/cloud_state':
           await _cloudStateHook(req);
           return;
+        case '/cloud_note_save':
+          await _cloudNoteSaveHook(req);
+          return;
+        case '/cloud_note_probe':
+          await _cloudNoteProbeHook(req);
+          return;
         case '/cloud_fetch':
           await _cloudFetchHook(req);
           return;
@@ -1445,6 +1451,71 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'selected': service.profile.selectedItemIds.toList()..sort(),
       'items': items,
     });
+  }
+
+  Future<void> _cloudNoteSaveHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(cloudServiceProvider);
+    final q = req.uri.queryParameters;
+    final title = q['title'];
+    final body = q['body'];
+    if (service == null || title == null || body == null) {
+      return _json(req, {'ok': false, 'error': 'need cloud+title+body'});
+    }
+    try {
+      final item = await service.saveTextNote(
+        itemId: q['id'],
+        expectedRevision: int.tryParse(q['revision'] ?? ''),
+        title: title,
+        body: body,
+      );
+      return _json(req, {
+        'ok': true,
+        'id': item.id,
+        'cid': item.contentId,
+        'size': item.size,
+        'revision': item.revision,
+      });
+    } on CloudEditConflict catch (conflict) {
+      return _json(req, {
+        'ok': false,
+        'error': 'conflict',
+        'revision': conflict.current.revision,
+        'cid': conflict.current.contentId,
+      });
+    } catch (error) {
+      return _json(req, {'ok': false, 'error': '$error'});
+    }
+  }
+
+  /// Verify/decrypt a note entirely in RAM and return only a digest/length;
+  /// the debug hook never writes or returns cleartext note content.
+  Future<void> _cloudNoteProbeHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(cloudServiceProvider);
+    final id = req.uri.queryParameters['id'];
+    if (service == null || id == null) {
+      return _json(req, {'ok': false, 'error': 'need cloud+id'});
+    }
+    final item = (await service.listItems())
+        .where((candidate) => candidate.id == id)
+        .firstOrNull;
+    if (item == null || item.kind != CloudItemKind.note) {
+      return _json(req, {'ok': false, 'error': 'note not found'});
+    }
+    try {
+      final body = await service.loadTextNote(item);
+      final bytes = utf8.encode(body);
+      return _json(req, {
+        'ok': true,
+        'id': item.id,
+        'revision': item.revision,
+        'bytes': bytes.length,
+        'sha256': crypto.sha256.convert(bytes).toString(),
+      });
+    } catch (error) {
+      return _json(req, {'ok': false, 'error': '$error'});
+    }
   }
 
   Future<void> _cloudFetchHook(HttpRequest req) async {
