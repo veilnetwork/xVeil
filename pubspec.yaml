@@ -44,6 +44,10 @@ dependencies:
   go_router: ^14.6.2
   # i18n — primary audience is Russian-speaking users in censored regions.
   intl: any
+  # Unicode grapheme boundaries for the shared-note sequence CRDT. Flutter
+  # selections use UTF-16 offsets, but CRDT atoms must never split emoji or a
+  # combining sequence into independently deletable halves.
+  characters: ^1.4.1
   # App-local directories for the hidden-volume container + node state dir.
   path_provider: ^2.1.5
   # Stable ids for local-only entities.

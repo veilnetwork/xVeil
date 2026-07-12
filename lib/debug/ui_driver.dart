@@ -27,25 +27,44 @@ class UiDriver {
     _semanticsHandle = null;
   }
 
+  /// Releases the temporary accessibility tree after one debug operation.
+  ///
+  /// Keeping a framework-owned [SemanticsHandle] across route and modal
+  /// transitions can leave parent data dirty on current macOS/iOS engines.
+  /// Product accessibility still enables semantics through the platform; the
+  /// debug hook only needs its explicit handle while resolving one request.
+  Future<void> releaseSemantics() async {
+    final handle = _semanticsHandle;
+    if (handle == null) return;
+    _semanticsHandle = null;
+    handle.dispose();
+    WidgetsBinding.instance.scheduleFrame();
+    try {
+      await WidgetsBinding.instance.endOfFrame.timeout(
+        const Duration(milliseconds: 500),
+      );
+    } catch (_) {}
+  }
+
   // ---------------------------------------------------------------- semantics
 
   static List<String> _flagList(ui.SemanticsFlags f) => [
-        if (f.isTextField) 'textField',
-        if (f.isButton) 'button',
-        if (f.isLink) 'link',
-        if (f.isFocused == ui.Tristate.isTrue) 'focused',
-        if (f.isFocused != ui.Tristate.none) 'focusable',
-        if (f.isEnabled == ui.Tristate.isFalse) 'disabled',
-        if (f.isChecked == ui.CheckedState.isTrue) 'checked',
-        if (f.isToggled == ui.Tristate.isTrue) 'toggled',
-        if (f.isSelected == ui.Tristate.isTrue) 'selected',
-        if (f.isHeader) 'header',
-        if (f.isObscured) 'obscured',
-        if (f.isReadOnly) 'readOnly',
-        if (f.isHidden) 'hidden',
-        if (f.isSlider) 'slider',
-        if (f.isImage) 'image',
-      ];
+    if (f.isTextField) 'textField',
+    if (f.isButton) 'button',
+    if (f.isLink) 'link',
+    if (f.isFocused == ui.Tristate.isTrue) 'focused',
+    if (f.isFocused != ui.Tristate.none) 'focusable',
+    if (f.isEnabled == ui.Tristate.isFalse) 'disabled',
+    if (f.isChecked == ui.CheckedState.isTrue) 'checked',
+    if (f.isToggled == ui.Tristate.isTrue) 'toggled',
+    if (f.isSelected == ui.Tristate.isTrue) 'selected',
+    if (f.isHeader) 'header',
+    if (f.isObscured) 'obscured',
+    if (f.isReadOnly) 'readOnly',
+    if (f.isHidden) 'hidden',
+    if (f.isSlider) 'slider',
+    if (f.isImage) 'image',
+  ];
 
   static const Map<String, SemanticsAction> _actionNames = {
     'tap': SemanticsAction.tap,
@@ -98,8 +117,12 @@ class UiDriver {
   /// and widget layout are LOGICAL. This initial transform folds the device
   /// pixel ratio away so every rect the driver reports/uses is logical.
   Matrix4 _rootTransform() {
-    final dpr = WidgetsBinding
-            .instance.platformDispatcher.implicitView?.devicePixelRatio ??
+    final dpr =
+        WidgetsBinding
+            .instance
+            .platformDispatcher
+            .implicitView
+            ?.devicePixelRatio ??
         1.0;
     return Matrix4.diagonal3Values(1 / dpr, 1 / dpr, 1);
   }
@@ -107,10 +130,14 @@ class UiDriver {
   /// The full semantics tree as JSON. Rects are GLOBAL LOGICAL pixels — the
   /// same space /tap?x=&y= and the default (scale=1) /screenshot use.
   Future<Map<String, Object?>?> uiTree() async {
-    final owner = await ensureSemantics();
-    final root = owner?.rootSemanticsNode;
-    if (root == null) return null;
-    return _nodeJson(root, _rootTransform());
+    try {
+      final owner = await ensureSemantics();
+      final root = owner?.rootSemanticsNode;
+      if (root == null) return null;
+      return _nodeJson(root, _rootTransform());
+    } finally {
+      await releaseSemantics();
+    }
   }
 
   Map<String, Object?> _nodeJson(SemanticsNode node, Matrix4 parentTransform) {

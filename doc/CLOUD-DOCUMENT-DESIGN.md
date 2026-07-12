@@ -183,6 +183,70 @@ This brick does **not** add owner-side document creation, grant/setRole/revoke/
 rotate controls, rich-text CRDT materialization, or claim a real cross-node
 encrypted-operation run. Those are the next service/UI and CRDT bricks.
 
+## Implemented: CLOUD-3B2/5 owner creation and ACL controls
+
+The owner can create a signed note document, grant an accepted contact as an
+editor or viewer, change roles, revoke, rotate an epoch explicitly and resend
+an invitation. Every ACL mutation advances the epoch and closes the old one
+with the exact cumulative signed author frontier. The next key is enveloped for
+exactly the next membership. Local durable state is committed before fanout;
+delivery failures are reported without rolling the ACL back. A revoked member
+receives the closing snapshot but no envelope for the new key.
+
+The Storage UI exposes the same owner-only controls and a read-only membership
+view to other roles. Durable document chunks are acknowledged only after the
+async handler reaches terminal persistence or a permanent reject. A storage
+failure releases the complete reassembly for redrive instead of ACKing a frame
+that was never committed.
+
+## Implemented: CLOUD-3B2/6 rich-text sequence CRDT
+
+Shared notes use `xveil.note.rga.v1` directly on the authenticated document
+operation log. A CRDT atom is one Unicode grapheme, identified by the signed
+operation id plus its offset. Inserts name a stable left anchor; concurrent
+siblings use causal rank and operation id as a deterministic order. Deletes
+name exact atoms. Formatting is an exact per-atom register with bold, italic,
+underline, strike, inline code and paragraph/heading/quote/list/code-block
+roles. Insert/checkpoint style runs use a compact bounded encoding. A long
+insertion is materialized with an iterative traversal, so an authorized large
+note cannot overflow the Dart stack.
+
+The implementation deliberately reuses the existing signed operation ids,
+parents, author sequence, epoch, AEAD payload and deniable store. It does not
+introduce an unsigned HLC, a second persistence engine or a parallel sync
+protocol. This followed an engine audit: Automerge has maintained JavaScript,
+Rust and C surfaces but no first-party Dart binding; Yjs lists many language
+ports but no Dart port; the established Dart `crdt` package is a map CRDT, and
+`crdt_lf` describes itself as still in progress and brings its own HLC/log.
+Those are poor fits for making the already signed epoch log authoritative.
+
+Saving computes a grapheme diff against the exact heads shown by the editor.
+Remote heads that arrived after the editor opened are not smuggled into its
+parent set, so the two writes remain genuinely concurrent. More than 32 heads
+are collapsed through signed no-op merge records instead of truncating a
+branch. Viewers cannot append; owner/editors persist locally before a durable
+delta is fanned out to every current member.
+
+Granting a new member creates an authenticated checkpoint in the new epoch.
+It carries the current materialized rich text but none of the old epoch keys,
+so the invitee sees current content without being retroactively made a member
+of prior epochs. The checkpoint replaces the complete owner-signed older epoch,
+including when the wire parent cap cannot name every old head.
+
+A document-delete tombstones only insertions in its causal past. An offline
+insertion that the deleting replica had not seen remains visible and is marked
+as recovered concurrent content. An edit made after seeing the delete is an
+ordinary intentional restoration. The UI states this policy in the delete
+confirmation, warns when concurrent content was recovered, keeps a dirty local
+draft when a remote update arrives, and provides formatted editing plus a
+separate ACL surface. The loopback debug hook returns only byte count, digest,
+heads and conflict flags; it never echoes decrypted text.
+
+The append-only signed log is still bounded by the existing encrypted frame
+limit. Long-term history compaction requires a separately versioned signed
+checkpoint/root transition; silently dropping old author-chain records is
+forbidden and is not claimed here.
+
 ## Why ordinary `GroupMessage` is not sufficient yet
 
 The current group message signs `groupId/author/seq/body/policyVersion/time`.

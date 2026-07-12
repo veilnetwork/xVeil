@@ -7,6 +7,7 @@ import 'package:xveil/data/transport/veil_mailbox.dart';
 import 'package:xveil/domain/cloud_document.dart';
 import 'package:xveil/domain/cloud_document_replication.dart';
 import 'package:xveil/domain/cloud_document_payload.dart';
+import 'package:xveil/domain/cloud_rich_text_crdt.dart';
 import 'package:xveil/state/cloud_document_envelope_service.dart';
 import 'package:xveil/state/cloud_document_crypto.dart';
 import 'package:xveil/state/cloud_document_replication_service.dart';
@@ -50,6 +51,10 @@ class _Signer implements CloudDocumentSigner {
 
   @override
   CloudDocumentControlEntry signControl(CloudDocumentControlEntry unsigned) =>
+      unsigned.withSignature(_bytes(byte, 64), _bytes(byte, 32));
+
+  @override
+  CloudDocumentOperation signOperation(CloudDocumentOperation unsigned) =>
       unsigned.withSignature(_bytes(byte, 64), _bytes(byte, 32));
 }
 
@@ -253,10 +258,10 @@ void main() {
           CloudDocumentStoredBundle(
             root: ownerBundle.root,
             controls: ownerBundle.controls,
-            operations: [sealed.operation],
+            operations: [...ownerBundle.operations, sealed.operation],
             envelopes: ownerBundle.envelopes,
             localEpochKeys: ownerBundle.localEpochKeys,
-            payloads: [sealed.payload],
+            payloads: [...ownerBundle.payloads, sealed.payload],
           ),
         );
       } finally {
@@ -273,7 +278,9 @@ void main() {
       expect(frame.kind, CloudDocumentFrameKind.snapshot);
       expect(
         frame.controls.last.closedEpochFrontier[editor.hex]?.hash,
-        frame.operations.single.recordHash,
+        frame.operations
+            .singleWhere((operation) => operation.author == editor)
+            .recordHash,
       );
       expect(await receiver.ingest(owner, frame.encode()), isTrue);
       var view = (await receiver.listDocuments()).single;
@@ -612,4 +619,129 @@ void main() {
       hasLength(1),
     );
   });
+
+  test(
+    'rich text checkpoint grants current state and delete preserves unseen edit',
+    () async {
+      final owner = _id(1);
+      final editor = _id(2);
+      final envelopes = CloudDocumentEnvelopeService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      );
+      final ownerStore = await _openStore(FakeHvContainer());
+      final editorStore = await _openStore(FakeHvContainer());
+      final sent = <({NodeId peer, String documentId, String json})>[];
+      final ownerService = _service(
+        self: owner,
+        store: ownerStore,
+        envelopes: envelopes,
+        sent: sent,
+        signer: _Signer(owner, 1),
+        random: Random(91),
+      );
+      final editorService = _service(
+        self: editor,
+        store: editorStore,
+        envelopes: envelopes,
+        sent: sent,
+        signer: _Signer(editor, 2),
+        random: Random(92),
+      );
+
+      final documentId = (await ownerService.createDocument())!.documentId;
+      var ownerState = (await ownerService.loadRichText(documentId))!;
+      expect(ownerState.snapshot.text, isEmpty);
+      expect(
+        await ownerService.saveRichText(
+          documentId,
+          base: ownerState.snapshot,
+          text: 'Hello world',
+          styles: List.filled(11, const CloudRichTextStyle()),
+        ),
+        isNotNull,
+      );
+      ownerState = (await ownerService.loadRichText(documentId))!;
+      expect(ownerState.snapshot.text, 'Hello world');
+      expect(
+        await ownerService.saveRichText(
+          documentId,
+          base: ownerState.snapshot,
+          text: 'Hello veil',
+          styles: List.filled(10, const CloudRichTextStyle(bold: true)),
+        ),
+        isNotNull,
+      );
+      ownerState = (await ownerService.loadRichText(documentId))!;
+      expect(ownerState.snapshot.text, 'Hello veil');
+
+      expect(
+        await ownerService.grant(documentId, editor, CloudDocumentRole.editor),
+        isNotNull,
+      );
+      final invite = CloudDocumentFrame.decode(sent.removeLast().json)!;
+      expect(await editorService.ingest(owner, invite.encode()), isTrue);
+      expect(await editorService.adopt(documentId), isTrue);
+      var editorState = (await editorService.loadRichText(documentId))!;
+      expect(editorState.snapshot.text, 'Hello veil');
+      expect(editorState.snapshot.unavailableOperationIds, isNotEmpty);
+      expect(editorState.snapshot.invalidOperationIds, isEmpty);
+      ownerState = (await ownerService.loadRichText(documentId))!;
+
+      sent.clear();
+      expect(
+        await ownerService.deleteRichTextDocument(
+          documentId,
+          parentOperationIds: ownerState.snapshot.headOperationIds,
+        ),
+        isNotNull,
+      );
+      final deleteFrame = CloudDocumentFrame.decode(sent.removeLast().json)!;
+      expect(
+        await editorService.saveRichText(
+          documentId,
+          base: editorState.snapshot,
+          text: 'Hello veil remote',
+          styles: List.filled(17, const CloudRichTextStyle(italic: true)),
+        ),
+        isNotNull,
+      );
+      final editFrame = CloudDocumentFrame.decode(sent.removeLast().json)!;
+
+      expect(await ownerService.ingest(editor, editFrame.encode()), isTrue);
+      expect(await editorService.ingest(owner, deleteFrame.encode()), isTrue);
+      ownerState = (await ownerService.loadRichText(documentId))!;
+      editorState = (await editorService.loadRichText(documentId))!;
+      expect(ownerState.snapshot.text, ' remote');
+      expect(editorState.snapshot.text, ownerState.snapshot.text);
+      expect(ownerState.snapshot.hasConcurrentRecovery, isTrue);
+      expect(editorState.snapshot.hasConcurrentRecovery, isTrue);
+      expect(
+        ownerState.snapshot.atoms.every((atom) => atom.style.italic),
+        isTrue,
+      );
+
+      sent.clear();
+      expect(
+        await ownerService.setRole(
+          documentId,
+          editor,
+          CloudDocumentRole.viewer,
+        ),
+        isNotNull,
+      );
+      final viewerFrame = CloudDocumentFrame.decode(sent.removeLast().json)!;
+      expect(await editorService.ingest(owner, viewerFrame.encode()), isTrue);
+      editorState = (await editorService.loadRichText(documentId))!;
+      expect(editorState.canEdit, isFalse);
+      expect(
+        await editorService.saveRichText(
+          documentId,
+          base: editorState.snapshot,
+          text: 'forbidden',
+          styles: List.filled(9, const CloudRichTextStyle()),
+        ),
+        isNull,
+      );
+    },
+  );
 }

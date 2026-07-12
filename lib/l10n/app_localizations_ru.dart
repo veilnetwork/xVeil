@@ -2534,4 +2534,89 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get cloudSharedQueued => 'Изменение поставлено в отправку';
+
+  @override
+  String get cloudRichTitle => 'Общая заметка';
+
+  @override
+  String get cloudRichCollaborative =>
+      'Совместное редактирование с шифрованием';
+
+  @override
+  String get cloudRichReadOnly => 'Доступ только для чтения';
+
+  @override
+  String get cloudRichManage => 'Участники и доступ';
+
+  @override
+  String get cloudRichSave => 'Сохранить';
+
+  @override
+  String get cloudRichSaved =>
+      'Общая заметка сохранена и поставлена в отправку';
+
+  @override
+  String get cloudRichFailed => 'Не удалось изменить общую заметку';
+
+  @override
+  String get cloudRichHint => 'Пишите вместе…';
+
+  @override
+  String get cloudRichRemotePending =>
+      'Во время редактирования пришло удалённое изменение. При сохранении обе версии останутся целы.';
+
+  @override
+  String get cloudRichRecovered =>
+      'Офлайн-правка пережила одновременное удаление и восстановлена здесь.';
+
+  @override
+  String get cloudRichInvalid =>
+      'Подписанная, но некорректная правка оставлена неактивной.';
+
+  @override
+  String get cloudRichDelete => 'Удалить видимую версию';
+
+  @override
+  String get cloudRichDeleteTitle => 'Удалить видимую здесь версию?';
+
+  @override
+  String get cloudRichDeleteBody =>
+      'Удаление охватит только уже видимые на этом устройстве изменения. Одновременная офлайн-правка сохранится и снова появится для проверки, а не потеряется.';
+
+  @override
+  String get cloudRichDeleted =>
+      'Видимая версия удалена; одновременные правки можно восстановить';
+
+  @override
+  String get cloudRichBold => 'Полужирный';
+
+  @override
+  String get cloudRichItalic => 'Курсив';
+
+  @override
+  String get cloudRichUnderline => 'Подчёркивание';
+
+  @override
+  String get cloudRichStrike => 'Зачёркивание';
+
+  @override
+  String get cloudRichCode => 'Код в строке';
+
+  @override
+  String get cloudRichParagraph => 'Абзац';
+
+  @override
+  String get cloudRichHeading1 => 'Заголовок 1';
+
+  @override
+  String get cloudRichHeading2 => 'Заголовок 2';
+
+  @override
+  String get cloudRichQuote => 'Цитата';
+
+  @override
+  String get cloudRichBullet => 'Список';
+
+  @override
+  String get cloudRichCodeBlock => 'Блок кода';
 }
