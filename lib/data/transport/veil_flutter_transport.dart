@@ -491,6 +491,22 @@ class VeilCapabilityEndpoint {
   Stream<Uint8List> get messages =>
       _app.messages().map((message) => message.data);
 
+  /// The daemon binds source app ids to their owning IPC connection. Sending
+  /// through another client would be rejected as SPOOFED_SRC, so capability
+  /// request/response traffic originates from this endpoint's own client.
+  Future<void> sendAnonymous({
+    required Uint8List servicePublicKey,
+    required Uint8List targetAppId,
+    required int targetEndpointId,
+    required Uint8List data,
+  }) => _client.sendToOnionServiceAnonymous(
+    serviceIdentityVk: servicePublicKey,
+    targetAppId: targetAppId,
+    targetEndpointId: targetEndpointId,
+    srcAppId: _app.appId,
+    data: data,
+  );
+
   Future<void> close() async {
     if (_closed) return;
     _closed = true;

@@ -1814,22 +1814,62 @@ class HiddenVolumeStorage implements Storage {
   Future<Set<String>> _cloudIndexContentIds() async {
     final live = <String>{};
     try {
-      final raw = await _as.get(Ns.settings, _sk('set:cloud.index.v1'));
-      if (raw == null) return live;
-      final rows = jsonDecode(utf8.decode(raw));
-      if (rows is! List || rows.length > 100000) return live;
+      // CLOUD-3 materialized views moved out of the ~4 KiB settings record
+      // into the chunked file-store. Prefer it, but retain the legacy setting
+      // fallback so a pre-migration store remains GC-safe on first unlock.
+      final fileStore = AsyncFileStore(_as);
+      final activeRaw = await _as.get(
+        Ns.settings,
+        _sk('set:cloud.index.v1.active'),
+      );
       final cidPattern = RegExp(r'^[0-9a-f]{64}$');
-      for (final body in rows) {
-        if (body is! String || body.length > 4096) continue;
-        final event = jsonDecode(body);
-        if (event is! Map || event['v'] != 1 || event['k'] != 'cloudEntry') {
-          continue;
+      final active = activeRaw == null
+          ? null
+          : utf8.decode(activeRaw, allowMalformed: true);
+      bool collect(Uint8List raw) {
+        try {
+          final rows = jsonDecode(utf8.decode(raw, allowMalformed: true));
+          if (rows is! List || rows.length > 100000) return false;
+          for (final body in rows) {
+            if (body is! String || body.length > 4096) continue;
+            final event = jsonDecode(body);
+            if (event is! Map ||
+                event['v'] != 1 ||
+                event['k'] != 'cloudEntry') {
+              continue;
+            }
+            final payload = event['p'];
+            if (payload is! Map || payload['del'] == true) continue;
+            final cid = payload['cid'];
+            if (cid is String && cidPattern.hasMatch(cid)) live.add(cid);
+          }
+          return true;
+        } catch (_) {
+          return false;
         }
-        final payload = event['p'];
-        if (payload is! Map || payload['del'] == true) continue;
-        final cid = payload['cid'];
-        if (cid is String && cidPattern.hasMatch(cid)) live.add(cid);
       }
+
+      if (active == 'a' || active == 'b') {
+        final current = await fileStore.loadFile('cloud.index.v1.$active');
+        if (current != null && collect(current)) return live;
+        final fallback = await fileStore.loadFile(
+          'cloud.index.v1.${active == 'a' ? 'b' : 'a'}',
+        );
+        if (fallback != null && collect(fallback)) return live;
+      } else {
+        // With no trustworthy pointer, retain the union conservatively. The
+        // service will publish a fresh generation and repair the pointer.
+        var recovered = false;
+        for (final slot in const ['a', 'b']) {
+          final bytes = await fileStore.loadFile('cloud.index.v1.$slot');
+          if (bytes != null) recovered = collect(bytes) || recovered;
+        }
+        if (recovered) return live;
+      }
+      final unslotted = await fileStore.loadFile('cloud.index.v1');
+      if (unslotted != null && collect(unslotted)) return live;
+      final legacy = await _as.get(Ns.settings, _sk('set:cloud.index.v1'));
+      if (legacy != null) collect(legacy);
     } catch (_) {
       // Fail closed for retention: malformed local index keeps no blob alive.
     }

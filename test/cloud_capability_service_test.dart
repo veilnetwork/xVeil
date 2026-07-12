@@ -33,6 +33,7 @@ class _Endpoint implements CloudCapabilityEndpointPort {
     this.appId,
     this.endpointId, {
     this.closeGate,
+    required this.send,
   });
   @override
   final Uint8List servicePublicKey;
@@ -41,10 +42,34 @@ class _Endpoint implements CloudCapabilityEndpointPort {
   @override
   final int endpointId;
   final Completer<void>? closeGate;
+  final Future<void> Function({
+    required Uint8List servicePublicKey,
+    required Uint8List targetAppId,
+    required int targetEndpointId,
+    required Uint8List data,
+  })
+  send;
   final controller = StreamController<Uint8List>.broadcast();
   bool closed = false;
+  int sentCount = 0;
   @override
   Stream<Uint8List> get messages => controller.stream;
+  @override
+  Future<void> sendAnonymous({
+    required Uint8List servicePublicKey,
+    required Uint8List targetAppId,
+    required int targetEndpointId,
+    required Uint8List data,
+  }) {
+    sentCount++;
+    return send(
+      servicePublicKey: servicePublicKey,
+      targetAppId: targetAppId,
+      targetEndpointId: targetEndpointId,
+      data: data,
+    );
+  }
+
   @override
   Future<void> close() async {
     if (closed) return;
@@ -78,18 +103,17 @@ class _Network implements CloudCapabilityNetworkPort {
       appId,
       endpointId,
       closeGate: nextCloseGate,
+      send: _sendAnonymous,
     );
     nextCloseGate = null;
     endpoints.add(endpoint);
     return endpoint;
   }
 
-  @override
-  Future<void> sendAnonymous({
+  Future<void> _sendAnonymous({
     required Uint8List servicePublicKey,
     required Uint8List targetAppId,
     required int targetEndpointId,
-    required Uint8List srcAppId,
     required Uint8List data,
   }) async {
     sent.add(Uint8List.fromList(data));
@@ -299,6 +323,7 @@ void main() {
       );
       await _settle();
       expect(network.sent, hasLength(1));
+      expect(network.endpoints.first.sentCount, 1);
       final response = network.sent.single;
       expect(utf8.decode(response.sublist(0, 4)), 'XCP1');
       final sealedLength = ByteData.sublistView(
@@ -324,6 +349,11 @@ void main() {
       final downloaded = await recipient.download(share.link);
       expect(downloaded.manifest.contentId, manifest.contentId);
       expect(await recipientStorage.loadFile(manifest.contentId), bytes);
+      expect(
+        network.endpoints[1].sentCount,
+        greaterThan(0),
+        reason: 'the transient return endpoint must own every request source',
+      );
       await recipient.close();
       await recipientStorage.close();
 
@@ -352,48 +382,58 @@ void main() {
     },
   );
 
-  test('revoke does not wait for descriptor withdrawal or reuse its slot', () async {
-    final container = FakeHvContainer();
-    final storage = container.storage();
-    await storage.open(password: 'pw', createIfMissing: true);
-    final network = _Network();
-    final closeGate = Completer<void>();
-    network.nextCloseGate = closeGate;
-    final service = CloudCapabilityService(storage, network, random: _Random());
-
-    Future<CloudPublicShare> create(String id, int salt) async {
-      final bytes = Uint8List.fromList(List.generate(32, (i) => i + salt));
-      final manifest = ContentManifest.fromBytes('$id.bin', bytes);
-      await storage.storeFile(manifest.contentId, bytes);
-      await storage.storeFile(
-        'mf:${manifest.contentId}',
-        Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+  test(
+    'revoke does not wait for descriptor withdrawal or reuse its slot',
+    () async {
+      final container = FakeHvContainer();
+      final storage = container.storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final network = _Network();
+      final closeGate = Completer<void>();
+      network.nextCloseGate = closeGate;
+      final service = CloudCapabilityService(
+        storage,
+        network,
+        random: _Random(),
       );
-      return service.createShare(
-        CloudItem(
-          id: id,
-          kind: CloudItemKind.file,
-          name: manifest.name,
-          contentId: manifest.contentId,
-          size: bytes.length,
-          createdAtMs: salt,
-          modifiedAtMs: salt,
-          revision: 1,
-          deleted: false,
-        ),
-      );
-    }
 
-    final first = await create('first', 1);
-    expect(await service.revoke(first.shareId), isTrue);
-    expect(closeGate.isCompleted, isFalse);
-    await create('second', 2);
-    expect(network.endpoints.map((endpoint) => endpoint.endpointId), [40, 41]);
+      Future<CloudPublicShare> create(String id, int salt) async {
+        final bytes = Uint8List.fromList(List.generate(32, (i) => i + salt));
+        final manifest = ContentManifest.fromBytes('$id.bin', bytes);
+        await storage.storeFile(manifest.contentId, bytes);
+        await storage.storeFile(
+          'mf:${manifest.contentId}',
+          Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+        );
+        return service.createShare(
+          CloudItem(
+            id: id,
+            kind: CloudItemKind.file,
+            name: manifest.name,
+            contentId: manifest.contentId,
+            size: bytes.length,
+            createdAtMs: salt,
+            modifiedAtMs: salt,
+            revision: 1,
+            deleted: false,
+          ),
+        );
+      }
 
-    closeGate.complete();
-    await service.close();
-    await storage.close();
-  });
+      final first = await create('first', 1);
+      expect(await service.revoke(first.shareId), isTrue);
+      expect(closeGate.isCompleted, isFalse);
+      await create('second', 2);
+      expect(network.endpoints.map((endpoint) => endpoint.endpointId), [
+        40,
+        41,
+      ]);
+
+      closeGate.complete();
+      await service.close();
+      await storage.close();
+    },
+  );
 
   test('malformed and wrong-MAC probes are dropped without response', () async {
     final container = FakeHvContainer();
