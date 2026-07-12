@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
@@ -39,11 +40,17 @@ class _Link implements VeilTransport {
   @override
   Future<void> sendReply(int replyId, Uint8List payload) async {}
   @override
-  Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) async {
+  Future<void> send(
+    NodeId dst,
+    Uint8List payload, {
+    bool anonymous = false,
+  }) async {
     final env = WireEnvelope.decode(payload);
     if (env.kind == WireKind.pieceChunk) {
       final f = parsePieceChunk(env.body);
-      if (dropPiecesOnce.remove(f.pieceIndex)) return; // drop once → forces re-request
+      if (dropPiecesOnce.remove(f.pieceIndex)) {
+        return; // drop once → forces re-request
+      }
     }
     if (env.kind == WireKind.contentManifest && dropManifestOnce) {
       dropManifestOnce = false;
@@ -84,12 +91,18 @@ void main() {
     await sB.open(password: 'b', createIfMissing: true);
     // Short re-request cadence so the drop-recovery test doesn't wait seconds.
     const fast = Duration(milliseconds: 120);
-    mA = MessagingService(tA, sA,
-        contentReRequestInterval: fast, contentPacing: Duration.zero)
-      ..start();
-    mB = MessagingService(tB, sB,
-        contentReRequestInterval: fast, contentPacing: Duration.zero)
-      ..start();
+    mA = MessagingService(
+      tA,
+      sA,
+      contentReRequestInterval: fast,
+      contentPacing: Duration.zero,
+    )..start();
+    mB = MessagingService(
+      tB,
+      sB,
+      contentReRequestInterval: fast,
+      contentPacing: Duration.zero,
+    )..start();
     await sA.upsertContact(Contact(nodeId: b, status: ContactStatus.accepted));
     await sB.upsertContact(Contact(nodeId: a, status: ContactStatus.accepted));
   });
@@ -111,43 +124,97 @@ void main() {
     await mA.sendContent(b, data, 'movie.bin');
     final received = await got.timeout(const Duration(seconds: 10));
     expect(received.name, 'movie.bin');
-    expect(await sB.loadFile(received.contentId), data, reason: 'verified whole == original');
+    expect(
+      await sB.loadFile(received.contentId),
+      data,
+      reason: 'verified whole == original',
+    );
   });
 
-  test('a dropped piece is re-requested and the transfer still completes',
-      () async {
-    final data = _rnd(300000, 8);
-    // Content flows A→B over tA.send — drop a piece-1 chunk there, once.
-    tA.dropPiecesOnce.add(1);
-    final got = mB.contentReceived.first;
-    await mA.sendContent(b, data, 'doc.bin');
-    // B's re-request timer asks A again for the missing piece; it lands next time.
-    final received = await got.timeout(const Duration(seconds: 10));
-    expect(await sB.loadFile(received.contentId), data, reason: 'recovered the dropped piece');
-  });
+  test(
+    'stored cloud blob shares as a fresh filePost without a second copy',
+    () async {
+      final data = _rnd(300000, 71);
+      final manifest = ContentManifest.fromBytes(
+        'cloud.bin',
+        data,
+        pieceSize: ContentManifest.adaptivePieceSize(data.length),
+        chunkBytes: 4096,
+      );
+      await sA.storeFile(manifest.contentId, data, name: manifest.name);
+      await sA.storeFile(
+        'mf:${manifest.contentId}',
+        Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+        name: 'cloud-manifest',
+      );
+      final before = await sA.namespaceCounts();
+      final received = mB.contentReceived.first;
 
-  test('large file becomes delivered only after receiver verifies and stores it',
-      () async {
-    final data = _rnd(1024 * 1024 + 1, 9); // force the content-layer path
-    final got = mB.contentReceived.first;
-    await mA.sendFile(b, data, 'large.bin');
+      expect(await mA.shareStoredContent(b, manifest.contentId), isTrue);
+      final event = await received.timeout(const Duration(seconds: 10));
 
-    final before = await sA.loadMessages(b.hex);
-    expect(before.single.status, MessageStatus.sent,
-        reason: 'manifest advertisement is not file delivery');
+      expect(event.contentId, manifest.contentId);
+      expect(await sB.loadFile(manifest.contentId), data);
+      final sent = (await sA.loadMessages(b.hex)).single;
+      expect(sent.fileId, manifest.contentId);
+      expect(sent.fileName, 'cloud.bin');
+      final after = await sA.namespaceCounts();
+      expect(
+        after['fileChunks'],
+        before['fileChunks'],
+        reason: 'sharing must not write a second copy of the cloud blob',
+      );
+    },
+  );
 
-    final received = await got.timeout(const Duration(seconds: 20));
-    expect(await sB.loadFile(received.contentId), data);
+  test(
+    'a dropped piece is re-requested and the transfer still completes',
+    () async {
+      final data = _rnd(300000, 8);
+      // Content flows A→B over tA.send — drop a piece-1 chunk there, once.
+      tA.dropPiecesOnce.add(1);
+      final got = mB.contentReceived.first;
+      await mA.sendContent(b, data, 'doc.bin');
+      // B's re-request timer asks A again for the missing piece; it lands next time.
+      final received = await got.timeout(const Duration(seconds: 10));
+      expect(
+        await sB.loadFile(received.contentId),
+        data,
+        reason: 'recovered the dropped piece',
+      );
+    },
+  );
 
-    MessageStatus? status;
-    for (var i = 0; i < 100; i++) {
-      status = (await sA.loadMessages(b.hex)).single.status;
-      if (status == MessageStatus.delivered) break;
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-    }
-    expect(status, MessageStatus.delivered,
-        reason: 'whole-content completion ACK must flip sender status');
-  });
+  test(
+    'large file becomes delivered only after receiver verifies and stores it',
+    () async {
+      final data = _rnd(1024 * 1024 + 1, 9); // force the content-layer path
+      final got = mB.contentReceived.first;
+      await mA.sendFile(b, data, 'large.bin');
+
+      final before = await sA.loadMessages(b.hex);
+      expect(
+        before.single.status,
+        MessageStatus.sent,
+        reason: 'manifest advertisement is not file delivery',
+      );
+
+      final received = await got.timeout(const Duration(seconds: 20));
+      expect(await sB.loadFile(received.contentId), data);
+
+      MessageStatus? status;
+      for (var i = 0; i < 100; i++) {
+        status = (await sA.loadMessages(b.hex)).single.status;
+        if (status == MessageStatus.delivered) break;
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(
+        status,
+        MessageStatus.delivered,
+        reason: 'whole-content completion ACK must flip sender status',
+      );
+    },
+  );
 
   test('a large send is SERVED FROM SOURCE (no duplicated copy on the sender) '
       'and still delivers + verifies on the receiver', () async {
@@ -159,18 +226,30 @@ void main() {
         Uint8List.sublistView(source, offset, offset + length);
 
     final got = mB.contentReceived.first;
-    await mA.sendFileStreaming(b, 'huge.bin', source.length, read,
-        close: () async => closed = true);
+    await mA.sendFileStreaming(
+      b,
+      'huge.bin',
+      source.length,
+      read,
+      close: () async => closed = true,
+    );
 
     final cid = ContentManifest.fromBytes('huge.bin', source).contentId;
     final received = await got.timeout(const Duration(seconds: 20));
     expect(received.contentId, cid, reason: 'streamed id == in-RAM id');
-    expect(await sB.loadFile(received.contentId), source,
-        reason: 'receiver reassembled + verified the whole from the served source');
+    expect(
+      await sB.loadFile(received.contentId),
+      source,
+      reason:
+          'receiver reassembled + verified the whole from the served source',
+    );
     // The SENDER keeps NO copy — it already has the original, so storing one
     // would duplicate it (and a big copy is what overflowed the in-volume index).
-    expect(await sA.hasFile(cid), isFalse,
-        reason: 'serve-from-source: sender stores nothing');
+    expect(
+      await sA.hasFile(cid),
+      isFalse,
+      reason: 'serve-from-source: sender stores nothing',
+    );
 
     // Status flips to delivered once the receiver has the whole content.
     MessageStatus? status;
@@ -183,51 +262,73 @@ void main() {
     // The source handle is still held while serving (closed only on eviction).
     expect(closed, isFalse, reason: 'source stays open for re-requests');
     await mA.dispose(); // dispose releases it
-    expect(closed, isTrue, reason: 'dispose closes the serve-from-source handle');
+    expect(
+      closed,
+      isTrue,
+      reason: 'dispose closes the serve-from-source handle',
+    );
   });
 
-  test('DURABLE offer: a reoffer after the SENDER restarts re-opens the source '
-      'file and re-serves (offer survives the sender losing its serve state)',
-      () async {
-    final data = _rnd(300000, 52);
-    final cid = ContentManifest.fromBytes('d.bin', data).contentId;
-    Future<Uint8List> read(int o, int l) async =>
-        Uint8List.sublistView(data, o, o + l);
-    // A test source opener: the persisted "path" maps back to the bytes.
-    Future<
+  test(
+    'DURABLE offer: a reoffer after the SENDER restarts re-opens the source '
+    'file and re-serves (offer survives the sender losing its serve state)',
+    () async {
+      final data = _rnd(300000, 52);
+      final cid = ContentManifest.fromBytes('d.bin', data).contentId;
+      Future<Uint8List> read(int o, int l) async =>
+          Uint8List.sublistView(data, o, o + l);
+      // A test source opener: the persisted "path" maps back to the bytes.
+      Future<
         ({
           Future<Uint8List> Function(int, int) read,
-          Future<void> Function() close
-        })?> opener(String path) async {
-      if (path != 'mem://d') return null;
-      return (read: read, close: () async {});
-    }
+          Future<void> Function() close,
+        })?
+      >
+      opener(String path) async {
+        if (path != 'mem://d') return null;
+        return (read: read, close: () async {});
+      }
 
-    // A's first advertise is lost → B never registers the offer (the lost-manifest
-    // case); A persists the durable record (mf + path) and serves.
-    tA.dropManifestOnce = true;
-    await mA.sendFileStreaming(b, 'd.bin', data.length, read,
-        close: () async {}, sourcePath: 'mem://d');
-    await Future<void>.delayed(const Duration(milliseconds: 120));
+      // A's first advertise is lost → B never registers the offer (the lost-manifest
+      // case); A persists the durable record (mf + path) and serves.
+      tA.dropManifestOnce = true;
+      await mA.sendFileStreaming(
+        b,
+        'd.bin',
+        data.length,
+        read,
+        close: () async {},
+        sourcePath: 'mem://d',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 120));
 
-    // "Restart" the SENDER: drop its in-memory serve state, keep its storage.
-    await mA.dispose();
-    final mA2 = MessagingService(tA, sA,
-        contentReRequestInterval: const Duration(milliseconds: 120),
-        contentPacing: Duration.zero)
-      ..sourceOpener = opener
-      ..start();
-    addTearDown(mA2.dispose);
+      // "Restart" the SENDER: drop its in-memory serve state, keep its storage.
+      await mA.dispose();
+      final mA2 =
+          MessagingService(
+              tA,
+              sA,
+              contentReRequestInterval: const Duration(milliseconds: 120),
+              contentPacing: Duration.zero,
+            )
+            ..sourceOpener = opener
+            ..start();
+      addTearDown(mA2.dispose);
 
-    // B downloads → no manifest → reoffer → A2 RE-OPENS the file (durable) and
-    // re-serves → B fetches + completes.
-    final got = mB.contentReceived.first;
-    final r = await mB.downloadContent(a, cid);
-    expect(r, ContentDownloadResult.requestedReoffer);
-    final ev = await got.timeout(const Duration(seconds: 20));
-    expect(ev.contentId, cid);
-    expect(await sB.loadFile(cid), data, reason: 'resumed from the re-opened source');
-  });
+      // B downloads → no manifest → reoffer → A2 RE-OPENS the file (durable) and
+      // re-serves → B fetches + completes.
+      final got = mB.contentReceived.first;
+      final r = await mB.downloadContent(a, cid);
+      expect(r, ContentDownloadResult.requestedReoffer);
+      final ev = await got.timeout(const Duration(seconds: 20));
+      expect(ev.contentId, cid);
+      expect(
+        await sB.loadFile(cid),
+        data,
+        reason: 'resumed from the re-opened source',
+      );
+    },
+  );
 
   test('a download with no live manifest RE-REQUESTS it from the sender and '
       'resumes (offer survived a restart, manifest did not)', () async {
@@ -246,7 +347,11 @@ void main() {
     expect(r, ContentDownloadResult.requestedReoffer);
     final ev = await got.timeout(const Duration(seconds: 20));
     expect(ev.contentId, cid);
-    expect(await sB.loadFile(cid), data, reason: 'resumed + verified the whole');
+    expect(
+      await sB.loadFile(cid),
+      data,
+      reason: 'resumed + verified the whole',
+    );
   });
 
   test('download emits monotonic progress, ending at done == total', () async {
@@ -262,8 +367,11 @@ void main() {
     expect(events.last.total, greaterThan(1), reason: 'multi-piece file');
     expect(events.last.done, events.last.total, reason: 'ends complete');
     for (var i = 1; i < events.length; i++) {
-      expect(events[i].done, greaterThanOrEqualTo(events[i - 1].done),
-          reason: 'progress never goes backwards');
+      expect(
+        events[i].done,
+        greaterThanOrEqualTo(events[i - 1].done),
+        reason: 'progress never goes backwards',
+      );
     }
   });
 
@@ -274,11 +382,17 @@ void main() {
     // "Always ask" so the file stays an OFFER (not auto-downloaded) → the user
     // gets to choose the unencrypted-to-file path.
     await mB.setFileDownloadPolicy(
-        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0));
+      mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+    );
     Future<Uint8List> read(int o, int l) async =>
         Uint8List.sublistView(data, o, o + l);
-    await mA.sendFileStreaming(b, 'clip.bin', data.length, read,
-        close: () async {});
+    await mA.sendFileStreaming(
+      b,
+      'clip.bin',
+      data.length,
+      read,
+      close: () async {},
+    );
     await Future<void>.delayed(const Duration(milliseconds: 100));
 
     // B downloads it UNENCRYPTED to a plaintext file (a temp file stands in for
@@ -291,21 +405,33 @@ void main() {
     final raf = await File(dest).open(mode: FileMode.write);
     final done = mB.contentReceived.firstWhere((e) => e.contentId == cid);
 
-    final res = await mB.downloadContentToFile(a, cid, dest,
-        write: (offset, bytes) async {
-      await raf.setPosition(offset);
-      await raf.writeFrom(bytes);
-    }, close: () async {
-      await raf.close();
-    });
+    final res = await mB.downloadContentToFile(
+      a,
+      cid,
+      dest,
+      write: (offset, bytes) async {
+        await raf.setPosition(offset);
+        await raf.writeFrom(bytes);
+      },
+      close: () async {
+        await raf.close();
+      },
+    );
     expect(res, ContentDownloadResult.started);
 
     final ev = await done.timeout(const Duration(seconds: 20));
-    expect(ev.savedToPath, dest, reason: 'completion reports the plaintext path');
+    expect(
+      ev.savedToPath,
+      dest,
+      reason: 'completion reports the plaintext path',
+    );
     // The plaintext file on disk == the original bytes.
     expect(await File(dest).readAsBytes(), data);
     // NOTHING was stored in the app (no in-volume blob, no encrypted tier).
-    expect(await sB.hasFile(cid), isFalse,
-        reason: 'unencrypted-to-file keeps nothing in the app');
+    expect(
+      await sB.hasFile(cid),
+      isFalse,
+      reason: 'unencrypted-to-file keeps nothing in the app',
+    );
   });
 }

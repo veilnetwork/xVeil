@@ -1099,6 +1099,36 @@ abstract class AppL10n {
   /// **'Download to this device'**
   String get cloudDownload;
 
+  /// No description provided for @cloudShare.
+  ///
+  /// In en, this message translates to:
+  /// **'Share with contact'**
+  String get cloudShare;
+
+  /// No description provided for @cloudShareTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Share with'**
+  String get cloudShareTitle;
+
+  /// No description provided for @cloudNoContacts.
+  ///
+  /// In en, this message translates to:
+  /// **'No accepted contacts to share with'**
+  String get cloudNoContacts;
+
+  /// No description provided for @cloudShared.
+  ///
+  /// In en, this message translates to:
+  /// **'File shared'**
+  String get cloudShared;
+
+  /// No description provided for @cloudShareFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not share the file'**
+  String get cloudShareFailed;
+
   /// No description provided for @cloudSelect.
   ///
   /// In en, this message translates to:

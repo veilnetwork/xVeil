@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/ids.dart';
 import '../../domain/cloud.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/cloud_service.dart';
@@ -315,6 +316,61 @@ class _CloudItemTileState extends State<_CloudItemTile> {
     if (confirmed == true) await widget.service.deleteItem(widget.item.id);
   }
 
+  Future<void> _share() async {
+    final l = AppL10n.of(context);
+    final contacts = await widget.service.acceptedContacts();
+    if (!mounted) return;
+    if (contacts.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.cloudNoContacts)));
+      return;
+    }
+    final peer = await showModalBottomSheet<NodeId>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * 0.7,
+          ),
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: contacts.length + 1,
+            itemBuilder: (context, index) {
+              if (index == 0) return ListTile(title: Text(l.cloudShareTitle));
+              final contact = contacts[index - 1];
+              final trimmed = contact.label.trim();
+              final label = trimmed.isEmpty ? contact.nodeId.short : trimmed;
+              return ListTile(
+                leading: CircleAvatar(
+                  child: Text(label.characters.first.toUpperCase()),
+                ),
+                title: Text(label),
+                subtitle: Text(contact.nodeId.short),
+                onTap: () => Navigator.pop(context, contact.nodeId),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+    if (peer == null || !mounted) return;
+    setState(() => _working = true);
+    var ok = false;
+    try {
+      ok = await widget.service.shareWithContact(widget.item, peer);
+    } catch (_) {
+      // The durable local row may still be retried, but the UI must always
+      // leave its busy state and report that this attempt was not confirmed.
+    }
+    if (!mounted) return;
+    setState(() => _working = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(ok ? l.cloudShared : l.cloudShareFailed)),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
@@ -349,6 +405,8 @@ class _CloudItemTileState extends State<_CloudItemTile> {
               unawaited(_toggleSelected());
             case 'verify':
               unawaited(widget.service.verifyItem(widget.item, repair: true));
+            case 'share':
+              unawaited(_share());
             case 'delete':
               unawaited(_delete());
           }
@@ -362,6 +420,8 @@ class _CloudItemTileState extends State<_CloudItemTile> {
           ),
           if (_local == true)
             PopupMenuItem(value: 'verify', child: Text(l.cloudVerify)),
+          if (_local == true)
+            PopupMenuItem(value: 'share', child: Text(l.cloudShare)),
           PopupMenuItem(value: 'delete', child: Text(l.cloudDelete)),
         ],
       ),

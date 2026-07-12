@@ -1274,10 +1274,16 @@ class HiddenVolumeStorage implements Storage {
   Future<void> deleteMessage(String conversationId, String messageId) async {
     final hit = await _liveEntryFor(conversationId, messageId);
     if (hit == null) return;
-    // If it is a file message, purge the stored blob too — otherwise the
-    // attachment lingers in the container after the row is gone (a deniability
-    // hole). The blob id rides along on the resolved record.
-    final fileId = hit.message.fileId;
+    // Purge attachment blobs only when this is their LAST live reference.
+    // Personal-cloud items and multiple chat posts deliberately deduplicate by
+    // content id, so treating a message as the blob's exclusive owner would
+    // corrupt every other reference to the same bytes.
+    final deletingKey = _msgKey(conversationId, messageId);
+    final blobIds = _messageBlobIds(hit.message);
+    final purgeBlobIds = await _unreferencedBlobIds(
+      blobIds,
+      deletingMessageKeys: {deletingKey},
+    );
     // One atomic commit: tombstone the SAME log_id (so the body no longer reads
     // back) AND purge the file blob. Folding the blob ops in here (rather than a
     // separate FileStore.deleteFile commit) closes the crash window where the
@@ -1308,13 +1314,13 @@ class HiddenVolumeStorage implements Storage {
     // Large-file tier: scrub the per-blob key in the SAME commit (forward
     // secrecy — see _onDiskScrubOps); the ciphertext files go after the commit.
     final blobNames = <String>[];
-    final onDiskOps = fileId != null
-        ? await _onDiskScrubOps(fileId, blobNames)
-        : const <KvLogOp>[];
+    final blobOps = <KvLogOp>[];
+    for (final blobId in purgeBlobIds) {
+      blobOps.addAll(await _deleteContentBlobOps(blobId, blobNames));
+    }
     await _as.commit([
       AppendLogOp(Ns.messageLog, hit.logId, _sk(tomb)),
-      if (fileId != null) ...await AsyncFileStore(_as).deleteFileOps(fileId),
-      ...onDiskOps,
+      ...blobOps,
       ...editVoids,
     ]);
     if (blobNames.isNotEmpty) {
@@ -1406,6 +1412,8 @@ class HiddenVolumeStorage implements Storage {
   }) async {
     final ops = <KvLogOp>[];
     final cleared = <String>{};
+    final deletingKeys = <String>{};
+    final candidateBlobIds = <String>{};
     for (final m in await loadMessages(peer.hex)) {
       // Bounded clear (applyRemoteClear): a remote clear only erases up to the
       // high-water it captured — KEEP anything newer (seq > watermark) that the
@@ -1417,6 +1425,8 @@ class HiddenVolumeStorage implements Storage {
       final hit = await _liveEntryFor(peer.hex, m.id);
       if (hit == null) continue;
       cleared.add(m.id);
+      deletingKeys.add(_msgKey(peer.hex, m.id));
+      candidateBlobIds.addAll(_messageBlobIds(hit.message));
       ops.add(
         AppendLogOp(
           Ns.messageLog,
@@ -1434,13 +1444,15 @@ class HiddenVolumeStorage implements Storage {
           ),
         ),
       );
-      final fileId = hit.message.fileId;
-      if (fileId != null) {
-        ops.addAll(await AsyncFileStore(_as).deleteFileOps(fileId));
-        // Large-file tier: fold the key scrub into the same batch; the caller
-        // removes the ciphertext files after committing (see _onDiskScrubOps).
-        ops.addAll(await _onDiskScrubOps(fileId, blobNamesOut));
-      }
+    }
+    final purgeBlobIds = await _unreferencedBlobIds(
+      candidateBlobIds,
+      deletingMessageKeys: deletingKeys,
+    );
+    for (final blobId in purgeBlobIds) {
+      ops.addAll(await _deleteContentBlobOps(blobId, blobNamesOut));
+      // Large-file tier: fold the key scrub into the same batch; the caller
+      // removes the ciphertext files after committing (see _onDiskScrubOps).
     }
     // Scrub edit rows: ALL of them for a full local clear; only the cleared
     // messages' for a bounded (remote) clear, so a kept newer message keeps its
@@ -1474,11 +1486,16 @@ class HiddenVolumeStorage implements Storage {
     final cutoff = DateTime.now().subtract(Duration(days: retentionDays));
     // Old messages by ORIGINAL post time (the fold keeps the post's original
     // timestamp; edits are separate rows and never refresh it).
-    final old = <String>{
+    final oldMessages = [
       for (final m in await loadMessages(peer.hex))
-        if (m.timestamp.isBefore(cutoff)) m.id,
-    };
+        if (m.timestamp.isBefore(cutoff)) m,
+    ];
+    final old = {for (final m in oldMessages) m.id};
     if (old.isEmpty) return 0;
+    final deletingKeys = {for (final m in oldMessages) _msgKey(peer.hex, m.id)};
+    final candidateBlobIds = {
+      for (final m in oldMessages) ..._messageBlobIds(m),
+    };
     // ONE raw scan: tombstone each old post (+ purge its file), and void-rewrite
     // each retained edit row of an old post (orphaning its body chunk) so the
     // scrub reclaims ALL of its plaintext — not just the current version.
@@ -1531,12 +1548,14 @@ class HiddenVolumeStorage implements Storage {
             ),
           ),
         );
-        final fileId = m['fi'] as String?;
-        if (fileId != null) {
-          ops.addAll(await AsyncFileStore(_as).deleteFileOps(fileId));
-          ops.addAll(await _onDiskScrubOps(fileId, blobNames));
-        }
       }
+    }
+    final purgeBlobIds = await _unreferencedBlobIds(
+      candidateBlobIds,
+      deletingMessageKeys: deletingKeys,
+    );
+    for (final blobId in purgeBlobIds) {
+      ops.addAll(await _deleteContentBlobOps(blobId, blobNames));
     }
     if (ops.isEmpty) return 0;
     await _commitBatched(ops);
@@ -1747,6 +1766,46 @@ class HiddenVolumeStorage implements Storage {
       // (see _liveEntryFor) — nothing writes or reads it anymore, but aged
       // stores carry hundreds of entries.
       key.startsWith('msgidx:');
+
+  static Set<String> _messageBlobIds(Message message) => {
+    ?message.fileId,
+    ?message.fileContentId,
+  };
+
+  /// Erase both the payload and its restart/reoffer manifest. They share one
+  /// reachability lifetime even though they are separate file-store blobs.
+  Future<List<KvLogOp>> _deleteContentBlobOps(
+    String contentId,
+    List<String> blobNamesOut,
+  ) async {
+    final ops = <KvLogOp>[];
+    for (final id in [contentId, 'mf:$contentId']) {
+      ops.addAll(await AsyncFileStore(_as).deleteFileOps(id));
+      ops.addAll(await _onDiskScrubOps(id, blobNamesOut));
+    }
+    return ops;
+  }
+
+  /// Return candidate content ids with no live owner after the named messages
+  /// are tombstoned. Cloud rows and chat messages share the same content-
+  /// addressed blob namespace, so every destructive message path must consult
+  /// both domains before folding physical erasure into its atomic commit.
+  Future<Set<String>> _unreferencedBlobIds(
+    Set<String> candidates, {
+    required Set<String> deletingMessageKeys,
+  }) async {
+    if (candidates.isEmpty) return const {};
+    final live = await _cloudIndexContentIds();
+    for (final message in await _scanLog()) {
+      if (deletingMessageKeys.contains(
+        _msgKey(message.conversationId, message.id),
+      )) {
+        continue;
+      }
+      live.addAll(_messageBlobIds(message));
+    }
+    return candidates.difference(live);
+  }
 
   /// Content referenced by the personal-cloud materialized index is just as
   /// live as a chat attachment. Parse the storage codec locally to keep the

@@ -341,6 +341,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/cloud_profile':
           await _cloudProfileHook(req);
           return;
+        case '/cloud_share':
+          await _cloudShareHook(req);
+          return;
         case '/conv_messages':
           await _convMessagesHook(req);
           return;
@@ -1489,6 +1492,28 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       ),
     );
     return _json(req, {'ok': true, 'mode': mode.name});
+  }
+
+  Future<void> _cloudShareHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(cloudServiceProvider);
+    final q = req.uri.queryParameters;
+    final id = q['id'];
+    final peer = q['peer'];
+    if (service == null || id == null || peer == null) {
+      return _json(req, {'ok': false, 'error': 'need cloud+id+peer'});
+    }
+    final item = (await service.listItems())
+        .where((candidate) => candidate.id == id)
+        .firstOrNull;
+    if (item == null) return _json(req, {'ok': false, 'error': 'not found'});
+    final ok = await service.shareWithContact(item, NodeId.fromHex(peer));
+    return _json(req, {
+      'ok': ok,
+      'id': id,
+      'cid': item.contentId,
+      'peer': peer,
+    });
   }
 
   /// The stored 1:1 messages of conversation ?peer= (bodies + direction) —

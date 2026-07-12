@@ -561,6 +561,21 @@ class AppL10nEn extends AppL10n {
   String get cloudDownload => 'Download to this device';
 
   @override
+  String get cloudShare => 'Share with contact';
+
+  @override
+  String get cloudShareTitle => 'Share with';
+
+  @override
+  String get cloudNoContacts => 'No accepted contacts to share with';
+
+  @override
+  String get cloudShared => 'File shared';
+
+  @override
+  String get cloudShareFailed => 'Could not share the file';
+
+  @override
   String get cloudSelect => 'Keep selected';
 
   @override

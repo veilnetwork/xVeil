@@ -4097,29 +4097,38 @@ class MessagingService {
     NodeId dst,
     ContentManifest manifest,
   ) async {
-    final fullJson = _contentManifestJson(manifest);
-    final fullFrame = contentManifestEnvelope(fullJson).encode();
-    if (fullFrame.length <= _contentManifestInlineEnvelopeLimit) {
-      await _send(dst, fullFrame);
+    final encoded = _encodeContentManifest(manifest);
+    await _send(dst, encoded.frame);
+    if (encoded.inline) {
       devLog(
         () =>
             'xVeil[content]: manifest inline '
             '${manifest.contentId.substring(0, 12)} '
-            'frame=${fullFrame.length}B -> ${dst.short}',
+            'frame=${encoded.frame.length}B -> ${dst.short}',
       );
-      return fullFrame;
+    } else {
+      devLog(
+        () =>
+            'xVeil[content]: manifest ref '
+            '${manifest.contentId.substring(0, 12)} '
+            'full_frame=${encoded.fullLength}B '
+            'ref_frame=${encoded.frame.length}B -> ${dst.short}',
+      );
+    }
+    return encoded.frame;
+  }
+
+  ({Uint8List frame, int fullLength, bool inline}) _encodeContentManifest(
+    ContentManifest manifest,
+  ) {
+    final fullJson = _contentManifestJson(manifest);
+    final fullFrame = contentManifestEnvelope(fullJson).encode();
+    if (fullFrame.length <= _contentManifestInlineEnvelopeLimit) {
+      return (frame: fullFrame, fullLength: fullFrame.length, inline: true);
     }
     final refJson = _contentManifestRefJson(manifest);
     final refFrame = contentManifestEnvelope(refJson).encode();
-    await _send(dst, refFrame);
-    devLog(
-      () =>
-          'xVeil[content]: manifest ref '
-          '${manifest.contentId.substring(0, 12)} '
-          'full_frame=${fullFrame.length}B ref_frame=${refFrame.length}B '
-          '-> ${dst.short}',
-    );
-    return refFrame;
+    return (frame: refFrame, fullLength: fullFrame.length, inline: false);
   }
 
   Future<void> _advertiseStored(
@@ -4128,6 +4137,7 @@ class MessagingService {
     ServeSource? source,
   }) async {
     final cid = manifest.contentId;
+    final serveManifest = _baseContentManifest(manifest);
     final prev = _serving[cid];
     if (prev?.source != null &&
         source != null &&
@@ -4136,12 +4146,25 @@ class MessagingService {
     } else if (prev?.source != null && source == null) {
       _retireServeSourceForContent(cid, prev!.source!);
     }
-    _serving[cid] = (manifest: manifest, source: source, servedAt: _now());
-    await _persistServeManifest(manifest);
+    _serving[cid] = (manifest: serveManifest, source: source, servedAt: _now());
+    await _persistServeManifest(serveManifest);
     _evictServing();
     _ensureContentTimer();
-    final frame = await _sendContentManifest(dst, manifest);
     final mid = manifest.msgId;
+    Uint8List frame;
+    Object? liveError;
+    StackTrace? liveStack;
+    try {
+      frame = await _sendContentManifest(dst, manifest);
+    } catch (error, stack) {
+      // A dead live route is exactly when the mailbox copy matters. Build the
+      // same frame locally and persist it before returning; the previous order
+      // threw before `_maybeStash`, making the documented offline fallback a
+      // false guarantee.
+      frame = _encodeContentManifest(manifest).frame;
+      liveError = error;
+      liveStack = stack;
+    }
     // Offline fallback for the OFFER itself. The manifest was previously
     // live-only: on a flaky/down live path a plain text (which stashes) still
     // arrived while the file offer silently vanished — the reported "file
@@ -4151,7 +4174,13 @@ class MessagingService {
     // bare content API advertises without an event and must not spam mailboxes.
     // Best-effort + non-blocking, exactly like the text path.
     if (mid != null) {
-      unawaited(_maybeStash(dst, 'mf:$mid', frame));
+      if (liveError == null) {
+        unawaited(_maybeStash(dst, 'mf:$mid', frame));
+      } else {
+        await _maybeStash(dst, 'mf:$mid', frame);
+      }
+    } else if (liveError != null) {
+      Error.throwWithStackTrace(liveError, liveStack!);
     }
     devLog(
       () =>
@@ -4311,6 +4340,62 @@ class MessagingService {
       await _advertise(dst, manifest, bytes);
     }
     return manifest.contentId;
+  }
+
+  ContentManifest _baseContentManifest(ContentManifest manifest) =>
+      ContentManifest(
+        name: manifest.name,
+        size: manifest.size,
+        pieceSize: manifest.pieceSize,
+        pieceHashes: manifest.pieceHashes,
+        contentId: manifest.contentId,
+        chunkBytes: manifest.chunkBytes,
+      );
+
+  /// Share an already-stored content-addressed blob as a NEW filePost without
+  /// loading or duplicating its bytes. The cloud layer uses this path: the
+  /// manifest and blob remain keyed by the same cid, while this recipient gets
+  /// a fresh message/event identity and the normal consent-gated offer flow.
+  Future<bool> shareStoredContent(NodeId dst, String contentId) async {
+    final contact = await _storage.getContact(dst);
+    if (contact == null || contact.status != ContactStatus.accepted) {
+      return false;
+    }
+    if (!await _storage.hasFile(contentId)) return false;
+    final persisted = await _loadPersistedManifest(contentId);
+    if (persisted == null) return false;
+    _mailbox?.noteActivity();
+    _warmStreamPeer(dst);
+
+    // Strip any old per-send fields: a cid can be shared repeatedly and each
+    // recipient must get a distinct filePost, while the immutable byte
+    // manifest remains identical.
+    final base = _baseContentManifest(persisted);
+    final msgId = _uuid.v4();
+    final stored = await _store(
+      dst,
+      MessageDirection.outgoing,
+      '📎 ${base.name}',
+      MessageStatus.sent,
+      fileId: contentId,
+      fileName: base.name,
+      fileSize: base.size,
+      thumb: base.thumbB64,
+      id: msgId,
+      timestamp: _now(),
+    );
+    _signal();
+    await _advertiseStored(
+      dst,
+      base.withEvent(
+        msgId: msgId,
+        author: stored.author,
+        seq: stored.seq,
+        ts: stored.timestamp.millisecondsSinceEpoch,
+        thumbB64: base.thumbB64,
+      ),
+    );
+    return true;
   }
 
   /// Send a VOICE MESSAGE: the Opus clip [bytes] ride the content layer exactly
@@ -5544,6 +5629,34 @@ class MessagingService {
     }
   }
 
+  /// Re-bind a cid-level serve manifest to the latest live filePost for this
+  /// particular peer. A single cloud blob may be shared to several contacts;
+  /// using whichever msgId last occupied `_serving[cid]` would make a reoffer
+  /// surface the wrong recipient's event.
+  Future<ContentManifest> _manifestForPeerOffer(
+    NodeId peer,
+    ContentManifest manifest,
+  ) async {
+    try {
+      final messages = await _storage.loadMessages(peer.hex);
+      for (final message in messages.reversed) {
+        final cid = message.fileContentId ?? message.fileId;
+        if (message.direction != MessageDirection.outgoing ||
+            cid != manifest.contentId) {
+          continue;
+        }
+        return manifest.withEvent(
+          msgId: message.id,
+          author: message.author,
+          seq: message.seq,
+          ts: message.timestamp.millisecondsSinceEpoch,
+          thumbB64: message.thumb,
+        );
+      }
+    } catch (_) {}
+    return manifest;
+  }
+
   void _completePendingDownload(String contentId) {
     _resumeTimers.remove(contentId)?.cancel();
     _resumeAttempts.remove(contentId);
@@ -6092,7 +6205,8 @@ class MessagingService {
             'xVeil[content]: re-advertising ${contentId.substring(0, 12)} '
             '-> ${peer.short} (live serving)',
       );
-      unawaited(_sendContentManifest(peer, served.manifest));
+      final offer = await _manifestForPeerOffer(peer, served.manifest);
+      unawaited(_sendContentManifest(peer, offer));
       return;
     }
     if (sourceOpener == null) {
@@ -6150,7 +6264,8 @@ class MessagingService {
             'xVeil[content]: re-advertising ${contentId.substring(0, 12)} '
             '-> ${peer.short} (DURABLE — re-opened ${rec.path})',
       );
-      unawaited(_sendContentManifest(peer, m));
+      final offer = await _manifestForPeerOffer(peer, m);
+      unawaited(_sendContentManifest(peer, offer));
     } catch (e) {
       devLog(
         () =>
