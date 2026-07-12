@@ -20,6 +20,15 @@ const int _kStoreRecord = 3800;
 /// the split recursion's work while staying well under MAX_RECORDS_PER_BATCH=1024.
 const int _kChunksPerCommit = 64;
 
+/// Start a conservative orphan scan before the Log namespace reaches the
+/// hidden-volume two-level B+ index's empirical ~15K unique-id ceiling.
+const int _kFileChunkGcThreshold = 12000;
+
+const int _kLogScanPage = 512;
+// Dart VM integers and the handwritten FFI binding use the non-negative i64
+// range for log ids even though Rust stores them as u64.
+const int _kMaxDartLogId = 0x7fffffffffffffff;
+
 /// Constant-work byte compare for the idempotent re-store check (not
 /// secret-dependent — just avoids allocating).
 bool _sameBytes(Uint8List a, Uint8List b) {
@@ -30,8 +39,105 @@ bool _sameBytes(Uint8List a, Uint8List b) {
   return true;
 }
 
+typedef _RecordSegment = ({int base, int count});
+
+/// Whole-file metadata v2 can name several contiguous record runs. Current
+/// writers publish one fresh run per replacement; readers accept several runs
+/// so stores written by the pre-DeleteLog development build remain readable.
+List<_RecordSegment> _fileSegments(Map<String, dynamic> metadata) {
+  final encoded = metadata['segments'];
+  if (encoded is List) {
+    final result = <_RecordSegment>[];
+    var total = 0;
+    for (final item in encoded) {
+      if (item is! List || item.length != 2) {
+        throw const FormatException('invalid file segments');
+      }
+      final base = item[0];
+      final count = item[1];
+      if (base is! int || count is! int || base < 1 || count < 1) {
+        throw const FormatException('invalid file segment');
+      }
+      total += count;
+      if (total > _kMaxStoredChunks) {
+        throw const FormatException('too many file records');
+      }
+      result.add((base: base, count: count));
+    }
+    return result;
+  }
+  final base = metadata['base'];
+  final count = metadata['count'];
+  if (base is! int || count is! int || base < 1 || count < 0) {
+    throw const FormatException('invalid legacy file run');
+  }
+  return count == 0 ? const [] : [(base: base, count: count)];
+}
+
+List<int> _recordIds(Iterable<_RecordSegment> segments) => [
+  for (final segment in segments)
+    for (var offset = 0; offset < segment.count; offset++)
+      segment.base + offset,
+];
+
+List<List<int>> _encodeSegments(List<int> ids) {
+  if (ids.isEmpty) return const [];
+  final result = <List<int>>[];
+  var base = ids.first;
+  var prior = base;
+  var count = 1;
+  for (final id in ids.skip(1)) {
+    if (id == prior + 1) {
+      count++;
+    } else {
+      result.add([base, count]);
+      base = id;
+      count = 1;
+    }
+    prior = id;
+  }
+  result.add([base, count]);
+  return result;
+}
+
+bool _startsWith(Uint8List value, List<int> prefix) {
+  if (value.length < prefix.length) return false;
+  for (var i = 0; i < prefix.length; i++) {
+    if (value[i] != prefix[i]) return false;
+  }
+  return true;
+}
+
+const _fileKeyPrefix = <int>[102, 105, 108, 101, 58]; // `file:`
+const _pieceKeyPrefix = <int>[
+  102,
+  105,
+  108,
+  101,
+  112,
+  105,
+  101,
+  99,
+  101,
+  58,
+]; // `filepiece:`
+
+void _addPieceRecords(Set<int> active, Map<String, dynamic> metadata) {
+  final base = metadata['base'];
+  final count = metadata['count'];
+  if (base is! int || count is! int || base < 1 || count < 0) {
+    throw const FormatException('invalid streamed file piece run');
+  }
+  if (count > _kMaxStoredChunks) {
+    throw const FormatException('too many streamed file piece records');
+  }
+  for (var offset = 0; offset < count; offset++) {
+    active.add(base + offset);
+  }
+}
+
 /// Max chunk records a stored file may occupy. A file must be deletable in ONE
-/// atomic commit (zero every chunk + drop metadata together so a deleted blob
+/// atomic commit (delete every record id + drop metadata together so a blob
 /// can't linger half-scrubbed), and a commit holds ≤ 1024 records
 /// (MAX_RECORDS_PER_BATCH) — so cap just under that.
 const int _kMaxStoredChunks = 1000;
@@ -49,8 +155,8 @@ const int kMaxStoredFileBytes = _kMaxStoredChunks * _kStoreRecord; // 3_800_000
 ///
 /// A file is split into [_kStoreRecord]-byte records appended to the
 /// [Ns.fileChunks] log; a small KV metadata entry `file:<id>` records the name,
-/// size, and the contiguous base log id + count. hidden-volume exposes no KV key
-/// enumeration, so the base/count let us read the chunks back without scanning.
+/// size, and one or more contiguous record-id segments. Replacements write a
+/// fresh run, then atomically publish it while removing the prior run.
 ///
 /// The record size is bound by the on-disk format, NOT a generous KV cap: the
 /// store seals each record into a 4 KiB container chunk (PAYLOAD_CAP ≈ 4040 B of
@@ -62,7 +168,7 @@ const int kMaxStoredFileBytes = _kMaxStoredChunks * _kStoreRecord; // 3_800_000
 /// A multi-MiB blob is appended across SEVERAL commits ([_kChunksPerCommit] each),
 /// with the metadata published LAST so the file becomes readable only once every
 /// chunk is durable. The whole file must still be DELETABLE in one atomic commit
-/// (zero every chunk + drop metadata together, so a deleted blob never lingers),
+/// (delete every record id + drop metadata together, so a deleted blob never lingers),
 /// and one commit holds at most 1024 records — so a stored file is capped at
 /// [kMaxStoredFileBytes] (~3.6 MB); a larger attachment is rejected up-front.
 class FileStore {
@@ -89,60 +195,88 @@ class FileStore {
   /// [kMaxStoredFileBytes] (callers should pre-check and surface a friendly
   /// error rather than rely on this backstop).
   String storeFile(String fileId, Uint8List bytes, {String? name}) {
-    final chunks = chunkBytes(bytes, transferId: fileId, maxChunk: _maxRecord);
+    // Empty wire transfers still need one marker chunk, but empty at-rest files
+    // need no Log record: metadata with `segments: []` is sufficient.
+    final chunks = bytes.isEmpty
+        ? const <FileChunk>[]
+        : chunkBytes(bytes, transferId: fileId, maxChunk: _maxRecord);
     if (chunks.length > _kMaxStoredChunks) {
       throw ArgumentError.value(
-          bytes.length, 'bytes', 'file exceeds $kMaxStoredFileBytes-byte cap');
+        bytes.length,
+        'bytes',
+        'file exceeds $kMaxStoredFileBytes-byte cap',
+      );
     }
-    // Re-storing an id is common on chatty paths (a serve-manifest re-persisted
-    // per advertise/reoffer round) while every commit permanently grows the
-    // append-only container by a full padding bucket. An identical blob is a
-    // NO-OP; a changed one purges the old chunks first so they don't linger as
-    // unreachable dead records (new metadata would orphan, never reclaim them).
-    final prior = loadFile(fileId);
+    // Re-storing an id is common for crash-safe A/B materialized views. A
+    // changed value gets a FRESH run: overwriting the old ids before publishing
+    // metadata would corrupt the still-visible old version if the process
+    // crashed mid-write. The final commit publishes the new metadata and
+    // deletes every old id atomically; DeleteLog prevents index-capacity leaks.
+    final metadataRaw = _store.get(Ns.settings, _k('file:$fileId'));
+    final metadata = metadataRaw == null
+        ? null
+        : jsonDecode(utf8.decode(metadataRaw)) as Map<String, dynamic>;
+    final prior = metadata == null ? null : loadFile(fileId);
     if (prior != null && _sameBytes(prior, bytes)) return fileId;
-    if (prior != null) deleteFile(fileId);
-    final base = _nextLogId();
+    final priorIds = metadata == null
+        ? const <int>[]
+        : _recordIds(_fileSegments(metadata));
+    if (chunks.isNotEmpty &&
+        _store.count(Ns.fileChunks) + chunks.length >= _kFileChunkGcThreshold) {
+      reclaimOrphanedFileChunkIds();
+    }
+    final nextBase = chunks.isEmpty ? null : _nextLogId();
+    final ids = nextBase == null
+        ? const <int>[]
+        : [
+            for (var offset = 0; offset < chunks.length; offset++)
+              nextBase + offset,
+          ];
     for (var start = 0; start < chunks.length; start += _kChunksPerCommit) {
       final end = start + _kChunksPerCommit < chunks.length
           ? start + _kChunksPerCommit
           : chunks.length;
       _store.commit([
         for (var i = start; i < end; i++)
-          AppendLogOp(Ns.fileChunks, base + i, chunks[i].data),
+          AppendLogOp(Ns.fileChunks, ids[i], chunks[i].data),
       ]);
     }
     _store.commit([
+      for (final id in priorIds) DeleteLogOp(Ns.fileChunks, id),
       PutOp(
         Ns.settings,
         _k('file:$fileId'),
-        _k(jsonEncode({
-          'name': name,
-          'size': bytes.length,
-          'base': base,
-          'count': chunks.length,
-        })),
+        _k(
+          jsonEncode({
+            'name': name,
+            'size': bytes.length,
+            'segments': _encodeSegments(ids),
+          }),
+        ),
       ),
-      PutOp(Ns.settings, _k('file_next_log'), _k('${base + chunks.length}')),
+      if (nextBase != null)
+        PutOp(
+          Ns.settings,
+          _k('file_next_log'),
+          _k('${nextBase + chunks.length}'),
+        ),
     ]);
     return fileId;
   }
 
-  /// The ops that purge a stored file: overwrite each data record with an empty
-  /// payload so the original chunk is orphaned (reclaimed by a later
-  /// vacuum/scrub for true erasure) and drop the metadata key. Empty if the id
-  /// is unknown. Exposed so a caller can fold these into a LARGER atomic commit
+  /// The ops that purge a stored file: remove each record id from the Log index
+  /// (the old DataBatch is reclaimed by a later vacuum/scrub for true erasure)
+  /// and drop the metadata key. Empty if the id is unknown. Exposed so a caller
+  /// can fold these into a LARGER atomic commit
   /// (e.g. delete a file message + its blob in one commit — no crash window
   /// where the chat row and the blob disagree).
   List<KvLogOp> deleteFileOps(String fileId) {
     final raw = _store.get(Ns.settings, _k('file:$fileId'));
     if (raw == null) return const [];
     final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
-    final base = m['base'] as int;
-    final count = m['count'] as int;
     return [
-      for (var i = 0; i < count; i++)
-        AppendLogOp(Ns.fileChunks, base + i, Uint8List(0)),
+      for (final id in _recordIds(_fileSegments(m)))
+        DeleteLogOp(Ns.fileChunks, id),
       DeleteOp(Ns.settings, _k('file:$fileId')),
     ];
   }
@@ -169,21 +303,73 @@ class FileStore {
     final raw = _store.get(Ns.settings, _k('file:$fileId'));
     if (raw == null) return null;
     final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
-    final base = m['base'] as int;
-    final count = m['count'] as int;
     final out = BytesBuilder(copy: false);
-    for (var i = 0; i < count; i++) {
-      final chunk = _store.readLog(Ns.fileChunks, base + i);
+    for (final id in _recordIds(_fileSegments(m))) {
+      final chunk = _store.readLog(Ns.fileChunks, id);
       if (chunk == null) return null;
       out.add(chunk);
     }
     return out.toBytes();
   }
+
+  /// Release Log-index capacity consumed by crash-orphaned chunks and legacy
+  /// empty-payload tombstones. The live set is derived from every whole-file
+  /// and streamed-piece metadata record first; malformed metadata aborts before
+  /// any mutation, so the collector fails closed rather than risking data loss.
+  int reclaimOrphanedFileChunkIds() {
+    final active = <int>{};
+    for (final key in _store.kvKeys(Ns.settings)) {
+      final isPiece = _startsWith(key, _pieceKeyPrefix);
+      final isFile = _startsWith(key, _fileKeyPrefix);
+      if (!isPiece && !isFile) continue;
+      final raw = _store.get(Ns.settings, key);
+      if (raw == null) continue;
+      final metadata = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
+      if (isPiece) {
+        _addPieceRecords(active, metadata);
+      } else if (metadata['streamed'] != true) {
+        active.addAll(_recordIds(_fileSegments(metadata)));
+      }
+    }
+
+    var removed = 0;
+    int? start;
+    while (true) {
+      final page = _store.iterLogRange(
+        namespace: Ns.fileChunks,
+        start: start,
+        limit: _kLogScanPage,
+      );
+      if (page.isEmpty) break;
+      final orphanIds = [
+        for (final entry in page)
+          if (!active.contains(entry.logId)) entry.logId,
+      ];
+      for (var offset = 0; offset < orphanIds.length; offset += _kLogScanPage) {
+        final end = offset + _kLogScanPage < orphanIds.length
+            ? offset + _kLogScanPage
+            : orphanIds.length;
+        _store.commit([
+          for (final id in orphanIds.sublist(offset, end))
+            DeleteLogOp(Ns.fileChunks, id),
+        ]);
+        removed += end - offset;
+      }
+      final last = page.last.logId;
+      if (page.length < _kLogScanPage || last >= _kMaxDartLogId) break;
+      start = last + 1;
+    }
+    return removed;
+  }
 }
 
 /// Lightweight descriptor for a stored file (no bytes).
 class FileMeta {
-  const FileMeta({required this.fileId, required this.name, required this.size});
+  const FileMeta({
+    required this.fileId,
+    required this.name,
+    required this.size,
+  });
   final String fileId;
   final String? name;
   final int size;
@@ -213,41 +399,79 @@ class AsyncFileStore {
   /// are published in a FINAL commit so the file is readable only once every
   /// chunk is durable. Throws [ArgumentError] for a blob over
   /// [kMaxStoredFileBytes] (callers pre-check + surface a friendly error).
-  Future<String> storeFile(String fileId, Uint8List bytes, {String? name}) async {
-    final chunks = chunkBytes(bytes, transferId: fileId, maxChunk: _maxRecord);
+  Future<String> storeFile(
+    String fileId,
+    Uint8List bytes, {
+    String? name,
+  }) async {
+    final chunks = bytes.isEmpty
+        ? const <FileChunk>[]
+        : chunkBytes(bytes, transferId: fileId, maxChunk: _maxRecord);
     if (chunks.length > _kMaxStoredChunks) {
       throw ArgumentError.value(
-          bytes.length, 'bytes', 'file exceeds $kMaxStoredFileBytes-byte cap');
+        bytes.length,
+        'bytes',
+        'file exceeds $kMaxStoredFileBytes-byte cap',
+      );
     }
-    // Same idempotent-re-store shield as the sync twin (see FileStore.storeFile).
-    final prior = await loadFile(fileId);
+    // Same idempotent/fresh-run policy as the sync twin. When replacing a
+    // streamed file, retain its old piece runs until the final metadata commit
+    // so a crash during the new writes leaves the old version intact.
+    final metadataRaw = await _store.get(Ns.settings, _k('file:$fileId'));
+    var metadata = metadataRaw == null
+        ? null
+        : jsonDecode(utf8.decode(metadataRaw)) as Map<String, dynamic>;
+    final prior = metadata == null ? null : await loadFile(fileId);
     if (prior != null && _sameBytes(prior, bytes)) return fileId;
-    if (prior != null) {
-      final purge = await deleteFileOps(fileId);
-      if (purge.isNotEmpty) await _store.commit(purge);
+    var priorPurge = const <KvLogOp>[];
+    if (metadata?['streamed'] == true) {
+      priorPurge = await deleteFileOps(fileId);
+      metadata = null;
     }
-    final base = await _nextLogId();
+    final priorIds = metadata == null
+        ? const <int>[]
+        : _recordIds(_fileSegments(metadata));
+    if (chunks.isNotEmpty &&
+        await _store.count(Ns.fileChunks) + chunks.length >=
+            _kFileChunkGcThreshold) {
+      await reclaimOrphanedFileChunkIds();
+    }
+    final nextBase = chunks.isEmpty ? null : await _nextLogId();
+    final ids = nextBase == null
+        ? const <int>[]
+        : [
+            for (var offset = 0; offset < chunks.length; offset++)
+              nextBase + offset,
+          ];
     for (var start = 0; start < chunks.length; start += _kChunksPerCommit) {
       final end = start + _kChunksPerCommit < chunks.length
           ? start + _kChunksPerCommit
           : chunks.length;
       await _store.commit([
         for (var i = start; i < end; i++)
-          AppendLogOp(Ns.fileChunks, base + i, chunks[i].data),
+          AppendLogOp(Ns.fileChunks, ids[i], chunks[i].data),
       ]);
     }
     await _store.commit([
+      ...priorPurge,
+      for (final id in priorIds) DeleteLogOp(Ns.fileChunks, id),
       PutOp(
         Ns.settings,
         _k('file:$fileId'),
-        _k(jsonEncode({
-          'name': name,
-          'size': bytes.length,
-          'base': base,
-          'count': chunks.length,
-        })),
+        _k(
+          jsonEncode({
+            'name': name,
+            'size': bytes.length,
+            'segments': _encodeSegments(ids),
+          }),
+        ),
       ),
-      PutOp(Ns.settings, _k('file_next_log'), _k('${base + chunks.length}')),
+      if (nextBase != null)
+        PutOp(
+          Ns.settings,
+          _k('file_next_log'),
+          _k('${nextBase + chunks.length}'),
+        ),
     ]);
     return fileId;
   }
@@ -270,17 +494,15 @@ class AsyncFileStore {
         final pm = jsonDecode(utf8.decode(pr)) as Map<String, dynamic>;
         final pb = pm['base'] as int, pc = pm['count'] as int;
         for (var i = 0; i < pc; i++) {
-          ops.add(AppendLogOp(Ns.fileChunks, pb + i, Uint8List(0)));
+          ops.add(DeleteLogOp(Ns.fileChunks, pb + i));
         }
         ops.add(DeleteOp(Ns.settings, _k('filepiece:$fileId:$p')));
       }
       ops.add(DeleteOp(Ns.settings, _k('file:$fileId')));
       return ops;
     }
-    final base = m['base'] as int;
-    final count = m['count'] as int;
-    for (var i = 0; i < count; i++) {
-      ops.add(AppendLogOp(Ns.fileChunks, base + i, Uint8List(0)));
+    for (final id in _recordIds(_fileSegments(m))) {
+      ops.add(DeleteLogOp(Ns.fileChunks, id));
     }
     ops.add(DeleteOp(Ns.settings, _k('file:$fileId')));
     return ops;
@@ -304,19 +526,33 @@ class AsyncFileStore {
   /// file size is bounded only by disk, not [kMaxStoredFileBytes]. Idempotent per
   /// (fileId, pieceIndex); the file becomes [hasFile]-complete once all
   /// [pieceCount] pieces are stored.
-  Future<void> storeFilePiece(String fileId, int pieceIndex, int pieceCount,
-      int pieceSize, int totalSize, Uint8List bytes,
-      {String? name}) async {
+  Future<void> storeFilePiece(
+    String fileId,
+    int pieceIndex,
+    int pieceCount,
+    int pieceSize,
+    int totalSize,
+    Uint8List bytes, {
+    String? name,
+  }) async {
     if (await _store.get(Ns.settings, _k('filepiece:$fileId:$pieceIndex')) !=
         null) {
       return; // already have this piece
     }
-    final chunks =
-        chunkBytes(bytes, transferId: '$fileId:$pieceIndex', maxChunk: _maxRecord);
+    final chunks = chunkBytes(
+      bytes,
+      transferId: '$fileId:$pieceIndex',
+      maxChunk: _maxRecord,
+    );
+    if (await _store.count(Ns.fileChunks) + chunks.length >=
+        _kFileChunkGcThreshold) {
+      await reclaimOrphanedFileChunkIds();
+    }
     final base = await _nextLogId();
     for (var s = 0; s < chunks.length; s += _kChunksPerCommit) {
-      final e =
-          s + _kChunksPerCommit < chunks.length ? s + _kChunksPerCommit : chunks.length;
+      final e = s + _kChunksPerCommit < chunks.length
+          ? s + _kChunksPerCommit
+          : chunks.length;
       await _store.commit([
         for (var i = s; i < e; i++)
           AppendLogOp(Ns.fileChunks, base + i, chunks[i].data),
@@ -328,19 +564,31 @@ class AsyncFileStore {
         : <String, dynamic>{};
     final stored = (meta['stored'] as int? ?? 0) + 1;
     await _store.commit([
-      PutOp(Ns.settings, _k('filepiece:$fileId:$pieceIndex'),
-          _k(jsonEncode({'base': base, 'count': chunks.length, 'len': bytes.length}))),
       PutOp(
-          Ns.settings,
-          _k('file:$fileId'),
-          _k(jsonEncode({
+        Ns.settings,
+        _k('filepiece:$fileId:$pieceIndex'),
+        _k(
+          jsonEncode({
+            'base': base,
+            'count': chunks.length,
+            'len': bytes.length,
+          }),
+        ),
+      ),
+      PutOp(
+        Ns.settings,
+        _k('file:$fileId'),
+        _k(
+          jsonEncode({
             'name': name ?? meta['name'],
             'size': totalSize,
             'pieceCount': pieceCount,
             'pieceSize': pieceSize,
             'streamed': true,
             'stored': stored,
-          }))),
+          }),
+        ),
+      ),
       PutOp(Ns.settings, _k('file_next_log'), _k('${base + chunks.length}')),
     ]);
   }
@@ -349,13 +597,21 @@ class AsyncFileStore {
   /// thing — reads only the records covering the range (per-piece for a streamed
   /// file). Lets the sender serve a wire chunk straight from disk. Null if unknown
   /// / a needed record is missing.
-  Future<Uint8List?> readFileRange(String fileId, int offset, int length) async {
+  Future<Uint8List?> readFileRange(
+    String fileId,
+    int offset,
+    int length,
+  ) async {
     final raw = await _store.get(Ns.settings, _k('file:$fileId'));
     if (raw == null) return null;
     final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
     if (m['streamed'] != true) {
-      return _readRecordRange(
-          m['base'] as int, m['count'] as int, m['size'] as int, offset, length);
+      return _readRecordIdsRange(
+        _recordIds(_fileSegments(m)),
+        m['size'] as int,
+        offset,
+        length,
+      );
     }
     final pieceSize = m['pieceSize'] as int;
     final size = m['size'] as int;
@@ -369,10 +625,17 @@ class AsyncFileStore {
       final pm = jsonDecode(utf8.decode(pr)) as Map<String, dynamic>;
       final inPiece = pos - pIdx * pieceSize;
       final pLen = pm['len'] as int;
-      final take = (end - pos) < (pLen - inPiece) ? (end - pos) : (pLen - inPiece);
+      final take = (end - pos) < (pLen - inPiece)
+          ? (end - pos)
+          : (pLen - inPiece);
       if (take <= 0) break;
       final got = await _readRecordRange(
-          pm['base'] as int, pm['count'] as int, pLen, inPiece, take);
+        pm['base'] as int,
+        pm['count'] as int,
+        pLen,
+        inPiece,
+        take,
+      );
       if (got == null) return null;
       out.add(got);
       pos += take;
@@ -383,7 +646,12 @@ class AsyncFileStore {
   /// Read [length] bytes at [start] from a record-run `[base, base+count)` of
   /// logical length [runLen] (records are [_maxRecord] B, the last possibly short).
   Future<Uint8List?> _readRecordRange(
-      int base, int count, int runLen, int start, int length) async {
+    int base,
+    int count,
+    int runLen,
+    int start,
+    int length,
+  ) async {
     final out = BytesBuilder(copy: false);
     var pos = start.clamp(0, runLen);
     final end = (start + length).clamp(0, runLen);
@@ -393,9 +661,36 @@ class AsyncFileStore {
       final rec = await _store.readLog(Ns.fileChunks, base + recIdx);
       if (rec == null) return null;
       final inRec = pos % _maxRecord;
-      final take = (end - pos) < (rec.length - inRec) ? (end - pos) : (rec.length - inRec);
+      final take = (end - pos) < (rec.length - inRec)
+          ? (end - pos)
+          : (rec.length - inRec);
       if (take <= 0) break;
       out.add(Uint8List.sublistView(rec, inRec, inRec + take));
+      pos += take;
+    }
+    return out.toBytes();
+  }
+
+  Future<Uint8List?> _readRecordIdsRange(
+    List<int> ids,
+    int runLen,
+    int start,
+    int length,
+  ) async {
+    final out = BytesBuilder(copy: false);
+    var pos = start.clamp(0, runLen);
+    final end = (start + length).clamp(0, runLen);
+    while (pos < end) {
+      final recordIndex = pos ~/ _maxRecord;
+      if (recordIndex >= ids.length) break;
+      final record = await _store.readLog(Ns.fileChunks, ids[recordIndex]);
+      if (record == null) return null;
+      final inRecord = pos % _maxRecord;
+      final take = (end - pos) < (record.length - inRecord)
+          ? end - pos
+          : record.length - inRecord;
+      if (take <= 0) break;
+      out.add(Uint8List.sublistView(record, inRecord, inRecord + take));
       pos += take;
     }
     return out.toBytes();
@@ -410,14 +705,59 @@ class AsyncFileStore {
     if (m['streamed'] == true) {
       return readFileRange(fileId, 0, m['size'] as int);
     }
-    final base = m['base'] as int;
-    final count = m['count'] as int;
     final out = BytesBuilder(copy: false);
-    for (var i = 0; i < count; i++) {
-      final chunk = await _store.readLog(Ns.fileChunks, base + i);
+    for (final id in _recordIds(_fileSegments(m))) {
+      final chunk = await _store.readLog(Ns.fileChunks, id);
       if (chunk == null) return null;
       out.add(chunk);
     }
     return out.toBytes();
+  }
+
+  /// Async twin of [FileStore.reclaimOrphanedFileChunkIds].
+  Future<int> reclaimOrphanedFileChunkIds() async {
+    final active = <int>{};
+    for (final key in await _store.kvKeys(Ns.settings)) {
+      final isPiece = _startsWith(key, _pieceKeyPrefix);
+      final isFile = _startsWith(key, _fileKeyPrefix);
+      if (!isPiece && !isFile) continue;
+      final raw = await _store.get(Ns.settings, key);
+      if (raw == null) continue;
+      final metadata = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
+      if (isPiece) {
+        _addPieceRecords(active, metadata);
+      } else if (metadata['streamed'] != true) {
+        active.addAll(_recordIds(_fileSegments(metadata)));
+      }
+    }
+
+    var removed = 0;
+    int? start;
+    while (true) {
+      final page = await _store.iterLogRange(
+        namespace: Ns.fileChunks,
+        start: start,
+        limit: _kLogScanPage,
+      );
+      if (page.isEmpty) break;
+      final orphanIds = [
+        for (final entry in page)
+          if (!active.contains(entry.logId)) entry.logId,
+      ];
+      for (var offset = 0; offset < orphanIds.length; offset += _kLogScanPage) {
+        final end = offset + _kLogScanPage < orphanIds.length
+            ? offset + _kLogScanPage
+            : orphanIds.length;
+        await _store.commit([
+          for (final id in orphanIds.sublist(offset, end))
+            DeleteLogOp(Ns.fileChunks, id),
+        ]);
+        removed += end - offset;
+      }
+      final last = page.last.logId;
+      if (page.length < _kLogScanPage || last >= _kMaxDartLogId) break;
+      start = last + 1;
+    }
+    return removed;
   }
 }
