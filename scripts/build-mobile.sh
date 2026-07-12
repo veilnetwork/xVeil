@@ -63,7 +63,9 @@ build_ios() {
   echo
   echo "iOS artifacts staged. Next:"
   echo "  (cd ios && pod install) && flutter build ios"
-  $SIM && echo "  NOTE: simulator slice staged — rebuild without --sim for a device build."
+  if $SIM; then
+    echo "  NOTE: simulator slice staged — rebuild without --sim for a device build."
+  fi
 }
 
 build_android() {
