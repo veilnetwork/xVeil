@@ -49,6 +49,46 @@ Environment overrides for public configuration are `XVEIL_CONFIG`,
 may be supplied as `XVEIL_PASSWORD_FILE`, `XVEIL_IDENTITY_PHRASE_FILE`, and
 `XVEIL_API_TOKEN_FILE`; secret values themselves have no environment option.
 
+## systemd service
+
+Provision the identity once with `--create`, then remove the phrase credential
+from the steady-state service. A minimal hardened unit for a dedicated `xveil`
+user is:
+
+```ini
+[Unit]
+Description=xVeil headless daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xveil
+Group=xveil
+StateDirectory=xveil
+RuntimeDirectory=xveil
+UMask=0077
+LoadCredential=store-password:/etc/xveil/store-password
+LoadCredential=api-token:/etc/xveil/api-token
+ExecStart=/opt/xveil/bin/xveil run --config /etc/xveil/headless.json --password-file %d/store-password --api-token-file %d/api-token
+Restart=on-failure
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/xveil /run/xveil
+LimitMEMLOCK=infinity
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Keep `/opt/xveil/bin` and `/opt/xveil/lib` together: the executable resolves
+the bundled FFI libraries from the sibling `lib/` directory. SIGINT/SIGTERM
+first closes the API, messaging engine, embedded node and encrypted store, then
+explicitly terminates the standalone process so residual native worker threads
+cannot hold service shutdown open.
+
 ## API and privacy boundary
 
 The daemon serves the same authenticated API, WebSocket event feed and
