@@ -1108,29 +1108,39 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   Future<void> _sovereignProbeHook(HttpRequest req) async {
     if (!_requireReady(req)) return;
     NativeSovereignGroupSigner? signer;
+    NativeSovereignGroupSigner? recovered;
     try {
       final phrase = veil.generateMasterPhrase();
       final bundle = veil.createHybrid512SovereignBundle(phrase);
       signer = NativeSovereignGroupSigner.openBundle(bundle, phrase);
+      final recoveryCode = veil.generateSovereignRecoveryCode();
+      final certificate = veil.exportSovereignRecoveryCertificate(
+          bundle, phrase, recoveryCode);
+      recovered = NativeSovereignGroupSigner.openRecoveryCertificate(
+          certificate, recoveryCode);
       final message = Uint8List.fromList(utf8.encode('xveil-sovereign-probe'));
-      final signature = signer.sign(message);
+      final signature = recovered.sign(message);
       final valid = veil.verifySovereignSignature(
-        algorithm: signer.algorithm,
-        nodeId: signer.nodeId.bytes,
-        publicKey: signer.publicKey,
+        algorithm: recovered.algorithm,
+        nodeId: recovered.nodeId.bytes,
+        publicKey: recovered.publicKey,
         message: message,
         signature: signature,
       );
+      final sameNode = recovered.nodeId == signer.nodeId;
       return _json(req, {
-        'ok': valid,
-        'algorithm': signer.algorithm,
-        'node': signer.nodeId.short,
-        'publicKeyBytes': signer.publicKey.length,
+        'ok': valid && sameNode,
+        'algorithm': recovered.algorithm,
+        'node': recovered.nodeId.short,
+        'sameNodeAfterRecovery': sameNode,
+        'certificateBytes': certificate.length,
+        'publicKeyBytes': recovered.publicKey.length,
         'signatureBytes': signature.length,
       });
     } catch (_) {
       return _json(req, {'ok': false, 'error': 'sovereign probe failed'});
     } finally {
+      recovered?.close();
       signer?.close();
     }
   }

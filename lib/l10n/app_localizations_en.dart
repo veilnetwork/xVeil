@@ -2086,6 +2086,13 @@ class AppL10nEn extends AppL10n {
       'The phrase decrypts the sovereign key for this one action. It is not stored.';
 
   @override
+  String get devicesRecoveryCode => 'Recovery code';
+
+  @override
+  String get devicesRecoveryCodeHint =>
+      'The code decrypts the recovery certificate for this one action. It is not stored.';
+
+  @override
   String get devicesTargetInvite => 'New device invite';
 
   @override
@@ -2147,4 +2154,49 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get devicesCancelPending => 'Cancel waiting';
+
+  @override
+  String get devicesRecoverySection => 'All devices lost';
+
+  @override
+  String get devicesCreateRecovery => 'Create recovery certificate';
+
+  @override
+  String get devicesCreateRecoveryHint =>
+      'Preserves the same sovereign node ID if every linked device is lost';
+
+  @override
+  String get devicesRecover => 'Recover device registry';
+
+  @override
+  String get devicesRecoverHint =>
+      'Use a certificate and its separately stored recovery code on a fresh registry';
+
+  @override
+  String get devicesCertificate => 'Recovery certificate';
+
+  @override
+  String get devicesCertificateHint =>
+      'Paste the complete xveil-recovery:v1 value';
+
+  @override
+  String get devicesCertificateReady => 'Recovery certificate created';
+
+  @override
+  String get devicesCertificateWarning =>
+      'Anyone with both values controls your sovereign device identity. Store the certificate and code separately. The code is shown only now.';
+
+  @override
+  String get devicesCopyCertificate => 'Copy certificate';
+
+  @override
+  String get devicesCopyCode => 'Copy recovery code';
+
+  @override
+  String get devicesRecovered =>
+      'Device registry recovered with the same sovereign node ID';
+
+  @override
+  String get devicesFreshRegistryRequired =>
+      'Recovery requires a fresh device registry';
 }

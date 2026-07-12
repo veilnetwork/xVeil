@@ -9,6 +9,7 @@ import '../../core/ids.dart';
 import '../../data/veil_stack.dart';
 import '../../data/transport/bootstrap_invite.dart';
 import '../../domain/device_link.dart';
+import '../../domain/sovereign_recovery.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/group_service.dart';
@@ -26,6 +27,8 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
   List<NodeId> _members = const [];
   bool _loading = true;
   bool _hasSovereignBundle = false;
+  bool _hasDeviceGroup = false;
+  String? _credentialKind;
 
   @override
   void initState() {
@@ -40,11 +43,14 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
         ? null
         : await svc?.stateOf(NodeId.fromHex(gidHex));
     final hasBundle = await svc?.localSovereignBundle() != null;
+    final credentialKind = await svc?.sovereignCredentialKind();
     if (!mounted) return;
     setState(() {
       _members = [...?state?.members.values.map((m) => m.nodeId)]
         ..sort((a, b) => a.hex.compareTo(b.hex));
       _hasSovereignBundle = hasBundle;
+      _hasDeviceGroup = gidHex != null;
+      _credentialKind = credentialKind;
       _loading = false;
     });
   }
@@ -57,7 +63,36 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => _SourceLinkSheet(service: svc, stack: stack),
+      builder: (_) => _SourceLinkSheet(
+        service: svc,
+        stack: stack,
+        credentialKind: _credentialKind,
+      ),
+    );
+    if (changed == true) await _reload();
+  }
+
+  Future<void> _showRecoveryExport() async {
+    final svc = ref.read(groupServiceProvider);
+    if (svc == null) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) =>
+          _RecoveryExportSheet(service: svc, credentialKind: _credentialKind),
+    );
+    await _reload();
+  }
+
+  Future<void> _showRecoveryImport() async {
+    final svc = ref.read(groupServiceProvider);
+    if (svc == null) return;
+    final changed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => _RecoveryImportSheet(service: svc),
     );
     if (changed == true) await _reload();
   }
@@ -78,6 +113,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
   Future<void> _revoke(NodeId device) async {
     final l = AppL10n.of(context);
     final phrase = TextEditingController();
+    final usesCertificate = _credentialKind == 'certificate';
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialog) => AlertDialog(
@@ -87,8 +123,12 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
           obscureText: true,
           maxLines: 1,
           decoration: InputDecoration(
-            labelText: l.devicesPhrase,
-            helperText: l.devicesPhraseHint,
+            labelText: usesCertificate
+                ? l.devicesRecoveryCode
+                : l.devicesPhrase,
+            helperText: usesCertificate
+                ? l.devicesRecoveryCodeHint
+                : l.devicesPhraseHint,
           ),
         ),
         actions: [
@@ -185,6 +225,291 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
             trailing: const Icon(Icons.chevron_right),
             onTap: ready ? _showTarget : null,
           ),
+          const Divider(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Text(
+              l.devicesRecoverySection,
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.key_outlined),
+            title: Text(l.devicesCreateRecovery),
+            subtitle: Text(l.devicesCreateRecoveryHint),
+            enabled: canOwn,
+            trailing: const Icon(Icons.chevron_right),
+            onTap: canOwn ? _showRecoveryExport : null,
+          ),
+          ListTile(
+            leading: const Icon(Icons.settings_backup_restore),
+            title: Text(l.devicesRecover),
+            subtitle: Text(l.devicesRecoverHint),
+            enabled: ready && !_hasDeviceGroup && !_hasSovereignBundle,
+            trailing: const Icon(Icons.chevron_right),
+            onTap: ready && !_hasDeviceGroup && !_hasSovereignBundle
+                ? _showRecoveryImport
+                : null,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RecoveryExportSheet extends StatefulWidget {
+  const _RecoveryExportSheet({
+    required this.service,
+    required this.credentialKind,
+  });
+
+  final GroupService service;
+  final String? credentialKind;
+
+  @override
+  State<_RecoveryExportSheet> createState() => _RecoveryExportSheetState();
+}
+
+class _RecoveryExportSheetState extends State<_RecoveryExportSheet> {
+  final _secret = TextEditingController();
+  String? _certificate;
+  String? _code;
+  NodeId? _nodeId;
+  bool _busy = false;
+  bool _failed = false;
+
+  @override
+  void dispose() {
+    _secret.clear();
+    _secret.dispose();
+    super.dispose();
+  }
+
+  Future<void> _create() async {
+    final secret = _secret.text.trim();
+    _secret.clear();
+    if (secret.isEmpty) return;
+    setState(() {
+      _busy = true;
+      _failed = false;
+    });
+    try {
+      final exported = await widget.service.exportRecoveryCertificate(secret);
+      if (exported == null) throw StateError('credential unavailable');
+      final certificate = SovereignRecoveryCertificate.fromBytes(
+        exported.certificate,
+      );
+      if (certificate.nodeId != exported.nodeId) {
+        throw StateError('node id mismatch');
+      }
+      if (!mounted) return;
+      setState(() {
+        _certificate = certificate.toText();
+        _code = exported.code;
+        _nodeId = exported.nodeId;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _failed = true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    final usesCertificate = widget.credentialKind == 'certificate';
+    return SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(
+        24,
+        24,
+        24,
+        24 + MediaQuery.viewInsetsOf(context).bottom,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            _certificate == null
+                ? l.devicesCreateRecovery
+                : l.devicesCertificateReady,
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 12),
+          if (_certificate == null) ...[
+            TextField(
+              controller: _secret,
+              obscureText: true,
+              decoration: InputDecoration(
+                labelText: usesCertificate
+                    ? l.devicesRecoveryCode
+                    : l.devicesPhrase,
+                helperText: usesCertificate
+                    ? l.devicesRecoveryCodeHint
+                    : l.devicesPhraseHint,
+              ),
+              onSubmitted: _busy ? null : (_) => _create(),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _busy ? null : _create,
+              icon: const Icon(Icons.key_outlined),
+              label: Text(l.devicesCreateRecovery),
+            ),
+          ] else ...[
+            Text(
+              l.devicesCertificateWarning,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+            const SizedBox(height: 12),
+            Text('${l.nodeIdLabel}: ${_nodeId!.hex}'),
+            const SizedBox(height: 12),
+            SelectableText(
+              _certificate!,
+              maxLines: 5,
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 10),
+            ),
+            TextButton.icon(
+              onPressed: () =>
+                  Clipboard.setData(ClipboardData(text: _certificate!)),
+              icon: const Icon(Icons.copy),
+              label: Text(l.devicesCopyCertificate),
+            ),
+            const SizedBox(height: 8),
+            SelectableText(
+              _code!,
+              style: const TextStyle(fontFamily: 'monospace'),
+            ),
+            TextButton.icon(
+              onPressed: () => Clipboard.setData(ClipboardData(text: _code!)),
+              icon: const Icon(Icons.copy),
+              label: Text(l.devicesCopyCode),
+            ),
+          ],
+          if (_busy)
+            const Padding(
+              padding: EdgeInsets.only(top: 12),
+              child: LinearProgressIndicator(),
+            ),
+          if (_failed)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                l.devicesOperationFailed,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RecoveryImportSheet extends StatefulWidget {
+  const _RecoveryImportSheet({required this.service});
+  final GroupService service;
+
+  @override
+  State<_RecoveryImportSheet> createState() => _RecoveryImportSheetState();
+}
+
+class _RecoveryImportSheetState extends State<_RecoveryImportSheet> {
+  final _certificate = TextEditingController();
+  final _code = TextEditingController();
+  bool _busy = false;
+  bool _failed = false;
+
+  @override
+  void dispose() {
+    _certificate.dispose();
+    _code.clear();
+    _code.dispose();
+    super.dispose();
+  }
+
+  Future<void> _recover() async {
+    final code = _code.text.trim();
+    _code.clear();
+    setState(() {
+      _busy = true;
+      _failed = false;
+    });
+    try {
+      final certificate = SovereignRecoveryCertificate.parse(_certificate.text);
+      final gid = await widget.service.recoverDeviceGroupFromCertificate(
+        certificate.bytes,
+        code,
+      );
+      if (gid == null) throw StateError('fresh registry required');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppL10n.of(context).devicesRecovered)),
+      );
+      Navigator.of(context).pop(true);
+    } catch (_) {
+      if (mounted) setState(() => _failed = true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    return SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(
+        24,
+        24,
+        24,
+        24 + MediaQuery.viewInsetsOf(context).bottom,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(l.devicesRecover, style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 8),
+          Text(l.devicesRecoverHint),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _certificate,
+            minLines: 3,
+            maxLines: 6,
+            decoration: InputDecoration(
+              labelText: l.devicesCertificate,
+              helperText: l.devicesCertificateHint,
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _code,
+            obscureText: true,
+            decoration: InputDecoration(
+              labelText: l.devicesRecoveryCode,
+              helperText: l.devicesRecoveryCodeHint,
+            ),
+            onSubmitted: _busy ? null : (_) => _recover(),
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: _busy ? null : _recover,
+            icon: const Icon(Icons.settings_backup_restore),
+            label: Text(l.devicesRecover),
+          ),
+          if (_busy)
+            const Padding(
+              padding: EdgeInsets.only(top: 12),
+              child: LinearProgressIndicator(),
+            ),
+          if (_failed)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                l.devicesOperationFailed,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
         ],
       ),
     );
@@ -192,9 +517,14 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
 }
 
 class _SourceLinkSheet extends StatefulWidget {
-  const _SourceLinkSheet({required this.service, required this.stack});
+  const _SourceLinkSheet({
+    required this.service,
+    required this.stack,
+    required this.credentialKind,
+  });
   final GroupService service;
   final RealVeilStack stack;
+  final String? credentialKind;
 
   @override
   State<_SourceLinkSheet> createState() => _SourceLinkSheetState();
@@ -279,6 +609,7 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
+    final usesCertificate = widget.credentialKind == 'certificate';
     return SingleChildScrollView(
       padding: EdgeInsets.fromLTRB(
         24,
@@ -311,8 +642,12 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
               controller: _phrase,
               obscureText: true,
               decoration: InputDecoration(
-                labelText: l.devicesPhrase,
-                helperText: l.devicesPhraseHint,
+                labelText: usesCertificate
+                    ? l.devicesRecoveryCode
+                    : l.devicesPhrase,
+                helperText: usesCertificate
+                    ? l.devicesRecoveryCodeHint
+                    : l.devicesPhraseHint,
               ),
             ),
             const SizedBox(height: 16),

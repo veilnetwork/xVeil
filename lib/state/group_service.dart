@@ -83,6 +83,12 @@ final class NativeSovereignGroupSigner implements SovereignGroupSigner {
       NativeSovereignGroupSigner._(
           veil.VeilSovereignSigner.openBundle(bundle, phrase));
 
+  factory NativeSovereignGroupSigner.openRecoveryCertificate(
+          Uint8List certificate, String recoveryCode) =>
+      NativeSovereignGroupSigner._(
+          veil.VeilSovereignSigner.openRecoveryCertificate(
+              certificate, recoveryCode));
+
   @override
   String get algorithm => _inner.algorithm;
   @override
@@ -1456,7 +1462,7 @@ class GroupService {
   }) async {
     final stored = await _storage.getSetting(kSovereignBundleSetting);
     Uint8List? bundle;
-    if (stored != null) {
+    if (stored != null && stored.isNotEmpty) {
       try {
         bundle = Uint8List.fromList(base64Decode(stored));
         if (bundle.isEmpty || bundle.length > 16 * 1024) {
@@ -1471,7 +1477,83 @@ class GroupService {
           kSovereignBundleSetting, base64Encode(bundle));
     }
     if (bundle == null) throw StateError('No local sovereign bundle');
-    return NativeSovereignGroupSigner.openBundle(bundle, phrase);
+    final magic = bundle.length >= 4
+        ? ascii.decode(bundle.sublist(0, 4), allowInvalid: true)
+        : '';
+    return magic == 'XVRC'
+        ? NativeSovereignGroupSigner.openRecoveryCertificate(bundle, phrase)
+        : NativeSovereignGroupSigner.openBundle(bundle, phrase);
+  }
+
+  /// How the persisted sovereign material is unlocked. Missing/corrupt stays
+  /// null; callers must not guess that a legacy identity has a phrase.
+  Future<String?> sovereignCredentialKind() async {
+    final bundle = await localSovereignBundle();
+    if (bundle == null || bundle.length < 4) return null;
+    final magic = ascii.decode(bundle.sublist(0, 4), allowInvalid: true);
+    return switch (magic) {
+      'XVSB' => 'phrase',
+      'XVRC' => 'certificate',
+      _ => null,
+    };
+  }
+
+  /// Export a fresh XVRC + independent 256-bit code from the current XVSB or
+  /// XVRC credential. Decrypted key bytes never enter Dart.
+  Future<({Uint8List certificate, String code, NodeId nodeId})?>
+      exportRecoveryCertificate(String currentSecret) async {
+    var credential = await localSovereignBundle();
+    if (credential == null) {
+      // A phrase-backed identity may pre-issue its certificate BEFORE its first
+      // device link. Provision the normal XVSB once, exactly as link would.
+      final provisioned = await openLocalSovereign(currentSecret);
+      provisioned.close();
+      credential = await localSovereignBundle();
+    }
+    if (credential == null) return null;
+    final code = veil.generateSovereignRecoveryCode();
+    final certificate = veil.exportSovereignRecoveryCertificate(
+        credential, currentSecret, code);
+    final signer = NativeSovereignGroupSigner.openRecoveryCertificate(
+        certificate, code);
+    try {
+      return (certificate: certificate, code: code, nodeId: signer.nodeId);
+    } finally {
+      signer.close();
+    }
+  }
+
+  /// All-devices-lost recovery: install one XVRC only into a fresh local
+  /// device-registry state, then mint a fresh gid owned by the SAME full hybrid
+  /// public key/node id. Never overwrites a different credential or group.
+  Future<NodeId?> recoverDeviceGroupFromCertificate(
+      Uint8List certificate, String recoveryCode) async {
+    if (await deviceGroupIdHex() != null) return null;
+    final existing = await localSovereignBundle();
+    if (existing != null && !listEquals(existing, certificate)) return null;
+    final signer = NativeSovereignGroupSigner.openRecoveryCertificate(
+        certificate, recoveryCode);
+    var installed = false;
+    try {
+      if (signer.algorithm != 'ed25519+falcon512') return null;
+      if (existing == null) {
+        await _storage.putSetting(
+            kSovereignBundleSetting, base64Encode(certificate));
+        installed = true;
+      }
+      final gid = await _mintSovereignDeviceGroup(signer, const []);
+      if (gid == null && installed) {
+        await _storage.putSetting(kSovereignBundleSetting, '');
+      }
+      return gid;
+    } catch (_) {
+      if (installed) {
+        await _storage.putSetting(kSovereignBundleSetting, '');
+      }
+      rethrow;
+    } finally {
+      signer.close();
+    }
   }
 
   Uint8List _manifestHash(GroupManifest manifest) => veil.VeilCrypto.sha256(

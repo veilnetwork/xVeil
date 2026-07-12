@@ -690,6 +690,8 @@
   "devicesJoinExisting": "Join an existing device",
   "devicesPhrase": "Recovery phrase",
   "devicesPhraseHint": "The phrase decrypts the sovereign key for this one action. It is not stored.",
+  "devicesRecoveryCode": "Recovery code",
+  "devicesRecoveryCodeHint": "The code decrypts the recovery certificate for this one action. It is not stored.",
   "devicesTargetInvite": "New device invite",
   "devicesTargetInviteHint": "Scan or paste the bootstrap invite shown by the new device",
   "devicesShowMyInvite": "First, show this device invite to the existing device",
@@ -709,5 +711,18 @@
   "devicesRevokeTitle": "Revoke {device}?",
   "@devicesRevokeTitle": {"placeholders": {"device": {"type": "String"}}},
   "devicesOperationFailed": "Could not complete device linking",
-  "devicesCancelPending": "Cancel waiting"
+  "devicesCancelPending": "Cancel waiting",
+  "devicesRecoverySection": "All devices lost",
+  "devicesCreateRecovery": "Create recovery certificate",
+  "devicesCreateRecoveryHint": "Preserves the same sovereign node ID if every linked device is lost",
+  "devicesRecover": "Recover device registry",
+  "devicesRecoverHint": "Use a certificate and its separately stored recovery code on a fresh registry",
+  "devicesCertificate": "Recovery certificate",
+  "devicesCertificateHint": "Paste the complete xveil-recovery:v1 value",
+  "devicesCertificateReady": "Recovery certificate created",
+  "devicesCertificateWarning": "Anyone with both values controls your sovereign device identity. Store the certificate and code separately. The code is shown only now.",
+  "devicesCopyCertificate": "Copy certificate",
+  "devicesCopyCode": "Copy recovery code",
+  "devicesRecovered": "Device registry recovered with the same sovereign node ID",
+  "devicesFreshRegistryRequired": "Recovery requires a fresh device registry"
 }

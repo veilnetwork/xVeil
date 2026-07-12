@@ -3943,6 +3943,18 @@ abstract class AppL10n {
   /// **'The phrase decrypts the sovereign key for this one action. It is not stored.'**
   String get devicesPhraseHint;
 
+  /// No description provided for @devicesRecoveryCode.
+  ///
+  /// In en, this message translates to:
+  /// **'Recovery code'**
+  String get devicesRecoveryCode;
+
+  /// No description provided for @devicesRecoveryCodeHint.
+  ///
+  /// In en, this message translates to:
+  /// **'The code decrypts the recovery certificate for this one action. It is not stored.'**
+  String get devicesRecoveryCodeHint;
+
   /// No description provided for @devicesTargetInvite.
   ///
   /// In en, this message translates to:
@@ -4056,6 +4068,84 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Cancel waiting'**
   String get devicesCancelPending;
+
+  /// No description provided for @devicesRecoverySection.
+  ///
+  /// In en, this message translates to:
+  /// **'All devices lost'**
+  String get devicesRecoverySection;
+
+  /// No description provided for @devicesCreateRecovery.
+  ///
+  /// In en, this message translates to:
+  /// **'Create recovery certificate'**
+  String get devicesCreateRecovery;
+
+  /// No description provided for @devicesCreateRecoveryHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Preserves the same sovereign node ID if every linked device is lost'**
+  String get devicesCreateRecoveryHint;
+
+  /// No description provided for @devicesRecover.
+  ///
+  /// In en, this message translates to:
+  /// **'Recover device registry'**
+  String get devicesRecover;
+
+  /// No description provided for @devicesRecoverHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Use a certificate and its separately stored recovery code on a fresh registry'**
+  String get devicesRecoverHint;
+
+  /// No description provided for @devicesCertificate.
+  ///
+  /// In en, this message translates to:
+  /// **'Recovery certificate'**
+  String get devicesCertificate;
+
+  /// No description provided for @devicesCertificateHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste the complete xveil-recovery:v1 value'**
+  String get devicesCertificateHint;
+
+  /// No description provided for @devicesCertificateReady.
+  ///
+  /// In en, this message translates to:
+  /// **'Recovery certificate created'**
+  String get devicesCertificateReady;
+
+  /// No description provided for @devicesCertificateWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'Anyone with both values controls your sovereign device identity. Store the certificate and code separately. The code is shown only now.'**
+  String get devicesCertificateWarning;
+
+  /// No description provided for @devicesCopyCertificate.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy certificate'**
+  String get devicesCopyCertificate;
+
+  /// No description provided for @devicesCopyCode.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy recovery code'**
+  String get devicesCopyCode;
+
+  /// No description provided for @devicesRecovered.
+  ///
+  /// In en, this message translates to:
+  /// **'Device registry recovered with the same sovereign node ID'**
+  String get devicesRecovered;
+
+  /// No description provided for @devicesFreshRegistryRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Recovery requires a fresh device registry'**
+  String get devicesFreshRegistryRequired;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {
