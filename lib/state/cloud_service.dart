@@ -10,6 +10,7 @@ import '../data/storage/file_store.dart' show kMaxStoredFileBytes;
 import '../data/storage/storage.dart';
 import '../domain/chat.dart';
 import '../domain/cloud.dart';
+import '../domain/cloud_capability.dart';
 import '../domain/content_manifest.dart';
 import '../domain/device_sync.dart';
 import '../domain/group_message.dart';
@@ -480,6 +481,44 @@ class CloudService {
     if (share == null || item.deleted || item.contentId == null) return false;
     if (!await _storage.hasFile(item.contentId!)) return false;
     return share(peer, item.contentId!);
+  }
+
+  /// Materialize a successfully downloaded public capability in the cloud
+  /// index without copying its already verified content bytes.
+  Future<CloudItem> adoptCapability(CloudCapability capability) async {
+    await start();
+    return _serialized(() async {
+      final manifest = capability.manifest;
+      if (!manifest.isSelfConsistent ||
+          !await _storage.hasFile(manifest.contentId) ||
+          !await _storage.hasFile('$_manifestPrefix${manifest.contentId}')) {
+        throw StateError('capability content is not verified locally');
+      }
+      for (final existing in _items.values) {
+        if (!existing.deleted && existing.contentId == manifest.contentId) {
+          return existing;
+        }
+      }
+      final now = _nextTimestamp();
+      final item = CloudItem(
+        id: _newId().replaceAll(RegExp('[^A-Za-z0-9_-]'), '_'),
+        kind: CloudItemKind.file,
+        name: manifest.name,
+        contentId: manifest.contentId,
+        size: manifest.size,
+        mime: capability.mime,
+        createdAtMs: now,
+        modifiedAtMs: now,
+        revision: capability.revision,
+        deleted: false,
+      );
+      _items[item.id] = item;
+      await _saveIndex();
+      await _postItemBestEffort(item);
+      await _setLocalClaim(item, present: true);
+      _emit();
+      return item;
+    });
   }
 
   int replicaCount(CloudItem item) => _claims.values

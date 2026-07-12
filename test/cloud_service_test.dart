@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/cloud.dart';
+import 'package:xveil/domain/cloud_capability.dart';
 import 'package:xveil/domain/content_manifest.dart';
 import 'package:xveil/domain/device_sync.dart';
 import 'package:xveil/state/cloud_service.dart';
@@ -72,6 +73,54 @@ Future<Uint8List> Function(int, int) _reader(Uint8List bytes) =>
         Uint8List.sublistView(bytes, offset, offset + length);
 
 void main() {
+  test(
+    'adopts verified capability bytes without a second content id',
+    () async {
+      final container = FakeHvContainer();
+      final storage = container.storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final bytes = _bytes(4096);
+      final manifest = ContentManifest.fromBytes('public.bin', bytes);
+      await storage.storeFile(manifest.contentId, bytes, name: manifest.name);
+      await storage.storeFile(
+        'mf:${manifest.contentId}',
+        Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+      );
+      final sync = _FakeSync(_id(1));
+      final received = StreamController<String>.broadcast();
+      final service = CloudService(
+        storage,
+        sync,
+        contentReceived: received.stream,
+        newId: () => 'public-item',
+      );
+      final item = await service.adoptCapability(
+        CloudCapability(
+          shareId: Uint8List(32),
+          key: Uint8List(32),
+          servicePublicKey: Uint8List(32),
+          appId: Uint8List(32),
+          endpointId: 37,
+          expiresAtMs: DateTime(2035).millisecondsSinceEpoch,
+          manifest: manifest,
+          revision: 4,
+          mime: 'application/octet-stream',
+        ),
+      );
+      expect(item.id, 'public-item');
+      expect(item.contentId, manifest.contentId);
+      expect(item.revision, 4);
+      expect(await storage.loadFile(manifest.contentId), bytes);
+      expect(
+        sync.rows.where((row) => row.event.kind == DeviceSyncKind.cloudEntry),
+        isNotEmpty,
+      );
+      await service.close();
+      await received.close();
+      await storage.close();
+    },
+  );
+
   test(
     'RAM-bounded import persists blob, manifest, index and replica claim',
     () async {
