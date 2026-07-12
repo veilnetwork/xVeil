@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 import '../core/ids.dart';
 import '../data/storage/file_store.dart' show kMaxStoredFileBytes;
 import '../data/storage/storage.dart';
+import '../domain/chat.dart';
 import '../domain/cloud.dart';
 import '../domain/content_manifest.dart';
 import '../domain/device_sync.dart';
@@ -95,6 +96,7 @@ class CloudService {
     DateTime Function()? now,
     String Function()? newId,
     this.integrityChecks = true,
+    this.shareStoredContent,
   }) : _now = now ?? DateTime.now,
        _newId = newId ?? const Uuid().v4;
 
@@ -111,6 +113,8 @@ class CloudService {
   final DateTime Function() _now;
   final String Function() _newId;
   final bool integrityChecks;
+  final Future<bool> Function(NodeId peer, String contentId)?
+  shareStoredContent;
 
   final Map<String, CloudItem> _items = {};
   final Map<String, CloudReplicaClaim> _claims = {};
@@ -406,22 +410,44 @@ class CloudService {
   Future<void> _dropContentIfUnreferenced(CloudItem previous) async {
     final cid = previous.contentId;
     if (cid == null) return;
-    final shared = _items.values.any(
+    final sharedByCloud = _items.values.any(
       (item) => !item.deleted && item.contentId == cid,
     );
-    if (shared) {
+    if (sharedByCloud) {
+      await _setLocalClaim(previous, present: false);
+      return;
+    }
+    final sharedByChat = await _chatReferencesContent(cid);
+    if (sharedByChat) {
+      // Chat restart/reoffer uses the same `mf:<cid>` blob as cloud integrity;
+      // both payload and manifest therefore stay live until the last chat post.
       await _setLocalClaim(previous, present: false);
       return;
     }
     final manifestId = '$_manifestPrefix$cid';
     final hadContent = await _storage.hasFile(cid);
     final hadManifest = await _storage.hasFile(manifestId);
-    if (hadContent || hadManifest) {
+    if (hadContent) {
       await _storage.deleteStoredFile(cid);
+    }
+    if (hadManifest) {
       await _storage.deleteStoredFile(manifestId);
+    }
+    if (hadContent || hadManifest) {
       await _storage.scrubDeleted();
     }
     await _setLocalClaim(previous, present: false);
+  }
+
+  Future<bool> _chatReferencesContent(String contentId) async {
+    for (final conversation in await _storage.loadConversations()) {
+      for (final message in await _storage.loadMessages(conversation.id)) {
+        if (message.fileId == contentId || message.fileContentId == contentId) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   Future<void> setProfile(CloudReplicationProfile profile) async {
@@ -430,6 +456,30 @@ class CloudService {
     await _storage.putSetting(_profileSetting, profile.encode());
     _emit();
     _autoReplicate();
+  }
+
+  Future<List<Contact>> acceptedContacts() async {
+    await start();
+    final byId = <String, Contact>{};
+    for (final conversation in await _storage.loadConversations()) {
+      final contact = conversation.peer;
+      if (contact.canMessage && contact.nodeId != _sync.selfId) {
+        byId[contact.nodeId.hex] = contact;
+      }
+    }
+    final contacts = byId.values.toList()
+      ..sort((a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()));
+    return contacts;
+  }
+
+  /// Share one existing cid as a fresh consent-gated filePost. No blob bytes
+  /// cross into this method and no second local copy is created.
+  Future<bool> shareWithContact(CloudItem item, NodeId peer) async {
+    await start();
+    final share = shareStoredContent;
+    if (share == null || item.deleted || item.contentId == null) return false;
+    if (!await _storage.hasFile(item.contentId!)) return false;
+    return share(peer, item.contentId!);
   }
 
   int replicaCount(CloudItem item) => _claims.values
@@ -661,6 +711,7 @@ final cloudServiceProvider = Provider<CloudService?>((ref) {
     ref.read(storageProvider),
     GroupCloudSyncPort(group),
     contentReceived: messaging.contentReceived.map((event) => event.contentId),
+    shareStoredContent: messaging.shareStoredContent,
   );
   unawaited(service.start());
   ref.onDispose(() => unawaited(service.close()));

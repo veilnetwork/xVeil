@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/cloud.dart';
 import 'package:xveil/domain/content_manifest.dart';
 import 'package:xveil/domain/device_sync.dart';
@@ -204,6 +205,114 @@ void main() {
     await service.close();
     await storage.close();
   });
+
+  test(
+    'contact sharing is accepted-only and delegates the existing cid',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final peer = _id(9);
+      await storage.upsertContact(
+        Contact(nodeId: peer, name: 'Peer', status: ContactStatus.accepted),
+      );
+      await storage.upsertContact(
+        Contact(nodeId: _id(1), status: ContactStatus.accepted),
+      );
+      await storage.upsertContact(
+        Contact(nodeId: _id(8), status: ContactStatus.blocked),
+      );
+      (NodeId, String)? shared;
+      final service = CloudService(
+        storage,
+        _FakeSync(_id(1)),
+        contentReceived: const Stream.empty(),
+        shareStoredContent: (target, cid) async {
+          shared = (target, cid);
+          return true;
+        },
+        now: () => DateTime.fromMillisecondsSinceEpoch(100),
+        newId: () => 'share_me',
+      );
+      final bytes = _bytes(64);
+      final item = await service.importContent(
+        name: 'share.bin',
+        size: bytes.length,
+        readRange: _reader(bytes),
+      );
+
+      expect((await service.acceptedContacts()).single.nodeId, peer);
+      expect(await service.shareWithContact(item, peer), isTrue);
+      expect(shared, (peer, item.contentId!));
+
+      await service.close();
+      await storage.close();
+    },
+  );
+
+  test(
+    'cloud deletion keeps chat-shared payload+manifest until the chat is gone',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final peer = _id(9);
+      await storage.upsertContact(
+        Contact(nodeId: peer, name: 'Peer', status: ContactStatus.accepted),
+      );
+      final service = CloudService(
+        storage,
+        _FakeSync(_id(1)),
+        contentReceived: const Stream.empty(),
+        now: () => DateTime.fromMillisecondsSinceEpoch(100),
+        newId: () => 'cloud_chat_shared',
+      );
+      final bytes = _bytes(64);
+      final item = await service.importContent(
+        name: 'shared.bin',
+        size: bytes.length,
+        readRange: _reader(bytes),
+      );
+      final cid = item.contentId!;
+      await storage.appendMessage(
+        Message(
+          id: 'share-post',
+          conversationId: peer.hex,
+          direction: MessageDirection.outgoing,
+          body: '📎 shared.bin',
+          timestamp: DateTime.fromMillisecondsSinceEpoch(101),
+          fileId: cid,
+          fileName: 'shared.bin',
+        ),
+      );
+
+      await service.deleteItem(item.id);
+
+      expect(
+        await storage.hasFile(cid),
+        isTrue,
+        reason: 'the live chat post still owns the deduplicated payload',
+      );
+      expect(
+        await storage.hasFile('mf:$cid'),
+        isTrue,
+        reason: 'restart/reoffer still needs the shared durable manifest',
+      );
+
+      await storage.deleteMessage(peer.hex, 'share-post');
+      expect(
+        await storage.hasFile(cid),
+        isFalse,
+        reason: 'the last cross-domain reference now disappeared',
+      );
+      expect(
+        await storage.hasFile('mf:$cid'),
+        isFalse,
+        reason: 'the manifest shares the payload reachability lifetime',
+      );
+
+      await service.close();
+      await storage.close();
+    },
+  );
 
   test(
     'index-only stays lazy; all mode pulls from a verified replica',

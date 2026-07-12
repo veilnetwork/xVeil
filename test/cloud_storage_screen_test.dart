@@ -89,5 +89,12 @@ void main() {
     expect(find.textContaining('1 verified copy'), findsOneWidget);
     expect(find.text('Index only'), findsOneWidget);
     expect(find.byIcon(Icons.health_and_safety_outlined), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    expect(find.text('Share with contact'), findsOneWidget);
+    await tester.tap(find.text('Share with contact'));
+    await tester.pumpAndSettle();
+    expect(find.text('No accepted contacts to share with'), findsOneWidget);
   });
 }

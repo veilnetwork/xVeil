@@ -568,6 +568,21 @@ class AppL10nRu extends AppL10n {
   String get cloudDownload => 'Загрузить на устройство';
 
   @override
+  String get cloudShare => 'Поделиться с контактом';
+
+  @override
+  String get cloudShareTitle => 'Поделиться с';
+
+  @override
+  String get cloudNoContacts => 'Нет принятых контактов для отправки';
+
+  @override
+  String get cloudShared => 'Файл отправлен';
+
+  @override
+  String get cloudShareFailed => 'Не удалось отправить файл';
+
+  @override
   String get cloudSelect => 'Хранить выбранным';
 
   @override
