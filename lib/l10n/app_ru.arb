@@ -686,6 +686,8 @@
   "devicesJoinExisting": "Присоединиться к существующему",
   "devicesPhrase": "Фраза восстановления",
   "devicesPhraseHint": "Фраза расшифрует суверенный ключ только для этого действия и не сохранится.",
+  "devicesRecoveryCode": "Код восстановления",
+  "devicesRecoveryCodeHint": "Код расшифрует сертификат восстановления только для этого действия и не сохранится.",
   "devicesTargetInvite": "Инвайт нового устройства",
   "devicesTargetInviteHint": "Отсканируйте или вставьте bootstrap-инвайт с нового устройства",
   "devicesShowMyInvite": "Сначала покажите инвайт этого устройства существующему устройству",
@@ -705,5 +707,18 @@
   "devicesRevokeTitle": "Отозвать {device}?",
   "@devicesRevokeTitle": {"placeholders": {"device": {"type": "String"}}},
   "devicesOperationFailed": "Не удалось завершить привязку устройства",
-  "devicesCancelPending": "Отменить ожидание"
+  "devicesCancelPending": "Отменить ожидание",
+  "devicesRecoverySection": "Если потеряны все устройства",
+  "devicesCreateRecovery": "Создать сертификат восстановления",
+  "devicesCreateRecoveryHint": "Сохранит тот же суверенный node ID при потере всех связанных устройств",
+  "devicesRecover": "Восстановить реестр устройств",
+  "devicesRecoverHint": "На чистом реестре используйте сертификат и отдельно сохранённый код",
+  "devicesCertificate": "Сертификат восстановления",
+  "devicesCertificateHint": "Вставьте полное значение xveil-recovery:v1",
+  "devicesCertificateReady": "Сертификат восстановления создан",
+  "devicesCertificateWarning": "Тот, у кого есть оба значения, управляет вашей суверенной идентичностью устройств. Храните сертификат и код раздельно. Код показан только сейчас.",
+  "devicesCopyCertificate": "Копировать сертификат",
+  "devicesCopyCode": "Копировать код восстановления",
+  "devicesRecovered": "Реестр устройств восстановлен с прежним суверенным node ID",
+  "devicesFreshRegistryRequired": "Для восстановления нужен чистый реестр устройств"
 }
