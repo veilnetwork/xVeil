@@ -1339,6 +1339,36 @@ abstract class AppL10n {
   /// **'Save merged version'**
   String get cloudNoteSaveMerged;
 
+  /// No description provided for @cloudNoteBranches.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 version} other{{count} offline versions}} preserved'**
+  String cloudNoteBranches(int count);
+
+  /// No description provided for @cloudNoteReviewBranches.
+  ///
+  /// In en, this message translates to:
+  /// **'Review versions'**
+  String get cloudNoteReviewBranches;
+
+  /// No description provided for @cloudNoteVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'Preserved version {number}'**
+  String cloudNoteVersion(int number);
+
+  /// No description provided for @cloudNoteBranchesUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Download every preserved version before merging'**
+  String get cloudNoteBranchesUnavailable;
+
+  /// No description provided for @cloudNoteMergeReady.
+  ///
+  /// In en, this message translates to:
+  /// **'Merge prepared — save the note to resolve every version'**
+  String get cloudNoteMergeReady;
+
   /// No description provided for @settingsCatAccount.
   ///
   /// In en, this message translates to:

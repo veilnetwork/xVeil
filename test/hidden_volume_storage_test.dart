@@ -942,6 +942,44 @@ void main() {
     },
   );
 
+  test('settings GC retains every unresolved cloud note head', () async {
+    final rootCid = List.filled(64, 'a').join();
+    final leftCid = List.filled(64, 'c').join();
+    final rightCid = List.filled(64, 'd').join();
+    final leftBytes = Uint8List.fromList([1, 3, 5]);
+    final rightBytes = Uint8List.fromList([2, 4, 6]);
+    await storage.storeFile(leftCid, leftBytes, name: 'left-note');
+    await storage.storeFile(rightCid, rightBytes, name: 'right-note');
+    await storage.storeFile('mf:$leftCid', leftBytes, name: 'cloud-manifest');
+    await storage.storeFile('mf:$rightCid', rightBytes, name: 'cloud-manifest');
+    CloudItem branch(String cid, int modified) => CloudItem(
+      id: 'cloud_note_branches',
+      kind: CloudItemKind.note,
+      name: 'Branched note',
+      contentId: cid,
+      size: 3,
+      createdAtMs: 1,
+      modifiedAtMs: modified,
+      revision: 2,
+      deleted: false,
+      parentContentIds: [rootCid],
+    );
+    await storage.putSetting(
+      'cloud.index.v1',
+      jsonEncode([
+        branch(leftCid, 2).toEvent().toBody(),
+        branch(rightCid, 3).toEvent().toBody(),
+      ]),
+    );
+
+    await storage.sweepSettingsGarbage();
+
+    expect(await storage.loadFile(leftCid), leftBytes);
+    expect(await storage.loadFile(rightCid), rightBytes);
+    expect(await storage.loadFile('mf:$leftCid'), leftBytes);
+    expect(await storage.loadFile('mf:$rightCid'), rightBytes);
+  });
+
   test(
     'concurrent file stores do not collide (serialized log-id allocation)',
     () async {

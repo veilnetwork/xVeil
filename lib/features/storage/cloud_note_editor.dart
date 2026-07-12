@@ -23,6 +23,8 @@ class _CloudNoteEditorScreenState extends State<CloudNoteEditorScreen> {
   bool _loading = false;
   bool _saving = false;
   String? _loadError;
+  List<CloudItem> _heads = const [];
+  Set<String>? _mergeParents;
 
   @override
   void initState() {
@@ -40,12 +42,67 @@ class _CloudNoteEditorScreenState extends State<CloudNoteEditorScreen> {
       final body = await widget.service.loadTextNote(_item!);
       if (!mounted) return;
       _body.text = body;
+      _heads = widget.service.noteHeads(_item!);
     } catch (_) {
       if (!mounted) return;
       _loadError = AppL10n.of(context).cloudNoteLoadFailed;
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _reviewBranches() async {
+    if (_item == null || _heads.length < 2 || _saving) return;
+    final l = AppL10n.of(context);
+    final currentRows = (await widget.service.listItems())
+        .where((item) => item.id == _item!.id)
+        .toList();
+    if (!mounted || currentRows.isEmpty) return;
+    final current = currentRows.first;
+    final selectedHeads = [
+      for (final head in _heads)
+        if (head.contentId == current.contentId) head,
+      for (final head in _heads)
+        if (head.contentId != current.contentId) head,
+    ].take(CloudItem.maxNoteParents).toList();
+    final versions = <_LoadedBranch>[];
+    for (final head in selectedHeads) {
+      try {
+        final body = head.contentId == _item!.contentId
+            ? _body.text
+            : await widget.service.loadTextNote(head);
+        versions.add(_LoadedBranch(head, body));
+      } catch (_) {
+        if (mounted) _notice(l.cloudNoteBranchesUnavailable);
+        return;
+      }
+    }
+    if (!mounted) return;
+    final resolution = await showDialog<_ConflictResolution>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => _ConflictDialog(
+        versions: versions,
+        draftTitle: _title.text,
+        draftBody: _body.text,
+      ),
+    );
+    if (!mounted || resolution == null) return;
+    _item = current;
+    if (resolution.useRemote) {
+      final currentVersion = versions
+          .where((version) => version.item.contentId == _item!.contentId)
+          .first;
+      _title.text = currentVersion.item.name;
+      _body.text = currentVersion.body;
+    } else {
+      _title.text = resolution.title;
+      _body.text = resolution.body;
+    }
+    setState(() {
+      _mergeParents = {for (final head in selectedHeads) head.contentId!};
+    });
+    _notice(l.cloudNoteMergeReady);
   }
 
   Future<void> _save() async {
@@ -66,8 +123,10 @@ class _CloudNoteEditorScreenState extends State<CloudNoteEditorScreen> {
           final saved = await widget.service.saveTextNote(
             itemId: _item?.id,
             expectedRevision: _item?.revision,
+            expectedContentId: _item?.contentId,
             title: _title.text,
             body: _body.text,
+            mergeParentContentIds: _mergeParents,
           );
           if (!mounted) return;
           Navigator.pop(context, saved);
@@ -77,25 +136,55 @@ class _CloudNoteEditorScreenState extends State<CloudNoteEditorScreen> {
             conflict.current,
           );
           if (!mounted) return;
+          _item = conflict.current;
+          _heads = widget.service.noteHeads(conflict.current);
+          final selectedHeads = [
+            for (final head in _heads)
+              if (head.contentId == conflict.current.contentId) head,
+            for (final head in _heads)
+              if (head.contentId != conflict.current.contentId) head,
+          ].take(CloudItem.maxNoteParents).toList();
+          final versions = <_LoadedBranch>[];
+          var allLoaded = true;
+          for (final head in selectedHeads) {
+            try {
+              versions.add(
+                _LoadedBranch(
+                  head,
+                  head.contentId == conflict.current.contentId
+                      ? remoteBody
+                      : await widget.service.loadTextNote(head),
+                ),
+              );
+            } catch (_) {
+              allLoaded = false;
+              break;
+            }
+          }
+          if (!mounted) return;
+          if (!allLoaded) {
+            _notice(l.cloudNoteBranchesUnavailable);
+            return;
+          }
           final resolution = await showDialog<_ConflictResolution>(
             context: context,
             barrierDismissible: false,
             builder: (context) => _ConflictDialog(
-              remote: conflict.current,
-              remoteBody: remoteBody,
+              versions: versions,
               draftTitle: _title.text,
               draftBody: _body.text,
             ),
           );
           if (!mounted || resolution == null) return;
-          _item = conflict.current;
           if (resolution.useRemote) {
             _title.text = conflict.current.name;
             _body.text = remoteBody;
+            _mergeParents = null;
             return;
           }
           _title.text = resolution.title;
           _body.text = resolution.body;
+          _mergeParents = {for (final head in selectedHeads) head.contentId!};
           if (_title.text.trim().isEmpty) {
             _notice(l.cloudNoteTitleRequired);
             return;
@@ -158,6 +247,25 @@ class _CloudNoteEditorScreenState extends State<CloudNoteEditorScreen> {
                   padding: const EdgeInsets.all(16),
                   child: Column(
                     children: [
+                      if (_heads.length > 1) ...[
+                        Card(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.tertiaryContainer,
+                          child: ListTile(
+                            leading: const Icon(Icons.call_split_outlined),
+                            title: Text(l.cloudNoteBranches(_heads.length)),
+                            subtitle: _mergeParents == null
+                                ? null
+                                : Text(l.cloudNoteMergeReady),
+                            trailing: TextButton(
+                              onPressed: _reviewBranches,
+                              child: Text(l.cloudNoteReviewBranches),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
                       TextField(
                         controller: _title,
                         autofocus: _item == null,
@@ -203,16 +311,21 @@ class _ConflictResolution {
   final String body;
 }
 
+class _LoadedBranch {
+  const _LoadedBranch(this.item, this.body);
+
+  final CloudItem item;
+  final String body;
+}
+
 class _ConflictDialog extends StatefulWidget {
   const _ConflictDialog({
-    required this.remote,
-    required this.remoteBody,
+    required this.versions,
     required this.draftTitle,
     required this.draftBody,
   });
 
-  final CloudItem remote;
-  final String remoteBody;
+  final List<_LoadedBranch> versions;
   final String draftTitle;
   final String draftBody;
 
@@ -248,25 +361,30 @@ class _ConflictDialogState extends State<_ConflictDialog> {
             children: [
               Text(l.cloudNoteConflictBody),
               const SizedBox(height: 16),
-              Text(
-                l.cloudNoteRemoteVersion,
-                style: Theme.of(context).textTheme.labelLarge,
-              ),
-              const SizedBox(height: 6),
-              Container(
-                constraints: const BoxConstraints(maxHeight: 180),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Theme.of(context).dividerColor),
-                  borderRadius: BorderRadius.circular(4),
+              for (var index = 0; index < widget.versions.length; index++) ...[
+                Text(
+                  widget.versions.length == 1
+                      ? l.cloudNoteRemoteVersion
+                      : l.cloudNoteVersion(index + 1),
+                  style: Theme.of(context).textTheme.labelLarge,
                 ),
-                child: SingleChildScrollView(
-                  child: SelectableText(
-                    '${widget.remote.name}\n\n${widget.remoteBody}',
+                const SizedBox(height: 6),
+                Container(
+                  constraints: const BoxConstraints(maxHeight: 180),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Theme.of(context).dividerColor),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: SingleChildScrollView(
+                    child: SelectableText(
+                      '${widget.versions[index].item.name}\n\n'
+                      '${widget.versions[index].body}',
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
+                const SizedBox(height: 16),
+              ],
               Text(
                 l.cloudNoteYourDraft,
                 style: Theme.of(context).textTheme.labelLarge,

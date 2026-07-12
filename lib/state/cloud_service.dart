@@ -125,6 +125,7 @@ class CloudService {
   shareStoredContent;
 
   final Map<String, CloudItem> _items = {};
+  final Map<String, List<CloudItem>> _noteHeads = {};
   final Map<String, CloudReplicaClaim> _claims = {};
   final StreamController<void> _changes = StreamController.broadcast();
   final Set<String> _fetching = {};
@@ -185,12 +186,12 @@ class CloudService {
       try {
         final rows = jsonDecode(indexRaw);
         if (rows is List) {
-          _items.addAll(
-            foldCloudItems([
-              for (final row in rows)
-                if (row is String) ?DeviceSyncEvent.fromBody(row),
-            ]),
-          );
+          final events = [
+            for (final row in rows)
+              if (row is String) ?DeviceSyncEvent.fromBody(row),
+          ];
+          _items.addAll(foldCloudItems(events));
+          _noteHeads.addAll(foldCloudNoteHeads(events));
         }
       } catch (_) {}
     }
@@ -220,8 +221,18 @@ class CloudService {
 
   Future<void> _saveIndex() => _storage.putSetting(
     _indexSetting,
-    jsonEncode([for (final item in _items.values) item.toEvent().toBody()]),
+    jsonEncode([for (final item in _indexRows()) item.toEvent().toBody()]),
   );
+
+  Iterable<CloudItem> _indexRows() sync* {
+    for (final item in _items.values) {
+      yield item;
+      final currentCid = item.contentId;
+      for (final head in _noteHeads[item.id] ?? const <CloudItem>[]) {
+        if (head.contentId != currentCid) yield head;
+      }
+    }
+  }
 
   Future<void> _saveClaims() => _storage.putSetting(
     _claimsSetting,
@@ -240,12 +251,14 @@ class CloudService {
 
   Future<void> _reconcile() async {
     if (_closed) return;
-    final before = Map<String, CloudItem>.from(_items);
+    final beforeRows = _indexRows().toList();
     final remote = await _sync.records();
-    final mergedItems = foldCloudItems([
-      for (final item in _items.values) item.toEvent(),
+    final mergedEvents = [
+      for (final item in beforeRows) item.toEvent(),
       for (final row in remote) row.event,
-    ]);
+    ];
+    final mergedItems = foldCloudItems(mergedEvents);
+    final mergedHeads = foldCloudNoteHeads(mergedEvents);
     final mergedClaims = foldCloudReplicaClaims([
       for (final claim in _claims.values)
         (event: claim.toEvent(), author: claim.deviceId),
@@ -254,20 +267,20 @@ class CloudService {
     _items
       ..clear()
       ..addAll(mergedItems);
+    _noteHeads
+      ..clear()
+      ..addAll(mergedHeads);
     _claims
       ..clear()
       ..addAll(mergedClaims);
     await _saveIndex();
     await _saveClaims();
 
-    // A remote tombstone or content revision must erase superseded local
-    // ciphertext too. Tombstones carry no cid, so use the previously
-    // materialized live row; a device that never saw it cannot hold the bytes.
-    for (final item in _items.values) {
-      final previous = before[item.id];
-      if (previous != null &&
-          !previous.deleted &&
-          (item.deleted || item.contentId != previous.contentId)) {
+    // Keep every unresolved note head, but scrub any prior revision that the
+    // merged DAG no longer references. This handles remote merge revisions and
+    // tombstones without destroying a concurrent offline branch.
+    for (final previous in beforeRows) {
+      if (!previous.deleted && !_cloudReferencesContent(previous.contentId)) {
         await _dropContentIfUnreferenced(previous);
       }
     }
@@ -276,7 +289,7 @@ class CloudService {
     // signed group log is not posted again, so group change notifications do
     // not create an emit loop.
     final remoteBodies = {for (final row in remote) row.event.toBody()};
-    for (final item in _items.values) {
+    for (final item in _indexRows()) {
       if (!remoteBodies.contains(item.toEvent().toBody())) {
         _postItemBestEffort(item);
       }
@@ -406,6 +419,8 @@ class CloudService {
     required String title,
     required String body,
     int? expectedRevision,
+    String? expectedContentId,
+    Iterable<String>? mergeParentContentIds,
   }) async {
     await start();
     final normalizedTitle = title.trim();
@@ -418,6 +433,7 @@ class CloudService {
     }
     return _serialized(() async {
       CloudItem? previous;
+      var previousHeads = const <CloudItem>[];
       if (itemId != null) {
         previous = _items[itemId];
         if (previous == null || previous.deleted) {
@@ -426,19 +442,45 @@ class CloudService {
         if (previous.kind != CloudItemKind.note) {
           throw StateError('cloud item is not a note');
         }
-        if (expectedRevision == null || previous.revision != expectedRevision) {
+        if (expectedRevision == null ||
+            expectedContentId == null ||
+            previous.revision != expectedRevision ||
+            previous.contentId != expectedContentId) {
           throw CloudEditConflict(previous);
         }
-      } else if (expectedRevision != null) {
-        throw ArgumentError('new note cannot have an expected revision');
+        previousHeads = noteHeads(previous);
+      } else if (expectedRevision != null || expectedContentId != null) {
+        throw ArgumentError('new note cannot have an expected version');
+      } else if (mergeParentContentIds != null) {
+        throw ArgumentError('new note cannot merge existing parents');
       }
 
       final manifest = ContentManifest.fromBytes(normalizedTitle, bytes);
+      final availableParents = {
+        for (final head in previousHeads) head.contentId!: head,
+      };
+      final requestedParents = mergeParentContentIds == null
+          ? [if (previous?.contentId != null) previous!.contentId!]
+          : mergeParentContentIds.toSet().toList();
+      if (requestedParents.length > CloudItem.maxNoteParents ||
+          requestedParents.any((cid) => !availableParents.containsKey(cid)) ||
+          (previous != null &&
+              !requestedParents.contains(previous.contentId))) {
+        throw CloudEditConflict(previous!);
+      }
+      final encodedParents = [
+        for (final cid in requestedParents)
+          if (cid != manifest.contentId) cid,
+      ]..sort();
       final manifestId = '$_manifestPrefix${manifest.contentId}';
       var createdContent = false;
       var createdManifest = false;
       final id = itemId ?? _newId().replaceAll(RegExp('[^A-Za-z0-9_-]'), '_');
       final now = _nextTimestamp();
+      final parentRevision = availableParents.values.fold<int>(
+        previous?.revision ?? 0,
+        (highest, item) => item.revision > highest ? item.revision : highest,
+      );
       final note = CloudItem(
         id: id,
         kind: CloudItemKind.note,
@@ -448,9 +490,11 @@ class CloudService {
         mime: 'text/plain; charset=utf-8',
         createdAtMs: previous?.createdAtMs ?? now,
         modifiedAtMs: now,
-        revision: (previous?.revision ?? 0) + 1,
+        revision: parentRevision + 1,
         deleted: false,
+        parentContentIds: List.unmodifiable(encodedParents),
       );
+      final oldHeads = List<CloudItem>.from(previousHeads);
       try {
         if (!await _storage.hasFile(manifest.contentId)) {
           await _storage.storeFile(
@@ -469,12 +513,20 @@ class CloudService {
           createdManifest = true;
         }
         _items[id] = note;
+        _noteHeads[id] =
+            foldCloudNoteHeads([
+              for (final head in oldHeads) head.toEvent(),
+              note.toEvent(),
+            ])[id] ??
+            [note];
         await _saveIndex();
       } catch (_) {
         if (previous == null) {
           _items.remove(id);
+          _noteHeads.remove(id);
         } else {
           _items[id] = previous;
+          _noteHeads[id] = oldHeads;
         }
         try {
           if (createdContent) {
@@ -487,7 +539,11 @@ class CloudService {
       }
 
       _postItemBestEffort(note);
-      if (previous != null) await _dropContentIfUnreferenced(previous);
+      for (final old in oldHeads) {
+        if (!_cloudReferencesContent(old.contentId)) {
+          await _dropContentIfUnreferenced(old);
+        }
+      }
       try {
         await _setLocalClaim(note, present: true);
       } catch (_) {
@@ -497,6 +553,23 @@ class CloudService {
       _emit();
       return note;
     });
+  }
+
+  List<CloudItem> noteHeads(CloudItem item) {
+    if (item.kind != CloudItemKind.note || item.deleted) return const [];
+    final heads = _noteHeads[item.id];
+    if (heads == null || heads.isEmpty) return [item];
+    return List.unmodifiable(heads);
+  }
+
+  Future<CloudItem?> localNoteHead(CloudItem item) async {
+    if (item.kind != CloudItemKind.note || item.deleted) return null;
+    for (final head in noteHeads(item)) {
+      if (head.contentId != null && await _storage.hasFile(head.contentId!)) {
+        return head;
+      }
+    }
+    return null;
   }
 
   Future<String> loadTextNote(CloudItem item) async {
@@ -534,11 +607,17 @@ class CloudService {
     await _serialized(() async {
       final current = _items[itemId];
       if (current == null || current.deleted) return;
+      final retired = current.kind == CloudItemKind.note
+          ? noteHeads(current)
+          : [current];
       final tombstone = current.tombstone(_nextTimestamp());
       _items[itemId] = tombstone;
+      _noteHeads.remove(itemId);
       await _saveIndex();
       _postItemBestEffort(tombstone);
-      await _dropContentIfUnreferenced(current);
+      for (final item in retired) {
+        await _dropContentIfUnreferenced(item);
+      }
       _emit();
     });
   }
@@ -546,10 +625,7 @@ class CloudService {
   Future<void> _dropContentIfUnreferenced(CloudItem previous) async {
     final cid = previous.contentId;
     if (cid == null) return;
-    final sharedByCloud = _items.values.any(
-      (item) => !item.deleted && item.contentId == cid,
-    );
-    if (sharedByCloud) {
+    if (_cloudReferencesContent(cid)) {
       await _setLocalClaim(previous, present: false);
       return;
     }
@@ -573,6 +649,18 @@ class CloudService {
       await _storage.scrubDeleted();
     }
     await _setLocalClaim(previous, present: false);
+  }
+
+  bool _cloudReferencesContent(String? contentId) {
+    if (contentId == null) return false;
+    if (_items.values.any(
+      (item) => !item.deleted && item.contentId == contentId,
+    )) {
+      return true;
+    }
+    return _noteHeads.values
+        .expand((heads) => heads)
+        .any((head) => !head.deleted && head.contentId == contentId);
   }
 
   Future<bool> _chatReferencesContent(String contentId) async {
@@ -725,8 +813,16 @@ class CloudService {
     await start();
     final result = <String, bool>{};
     for (final item in _visibleItems()) {
-      if (await _storage.hasFile(item.contentId!)) {
-        result[item.id] = await verifyItem(item, repair: repair);
+      final candidates = item.kind == CloudItemKind.note
+          ? noteHeads(item)
+          : [item];
+      for (final candidate in candidates) {
+        if (await _storage.hasFile(candidate.contentId!)) {
+          final key = candidate.contentId == item.contentId
+              ? item.id
+              : '${item.id}:${candidate.contentId}';
+          result[key] = await verifyItem(candidate, repair: repair);
+        }
       }
     }
     return result;
@@ -807,7 +903,7 @@ class CloudService {
 
   Future<void> _onContentReceived(String cid) async {
     _fetching.remove(cid);
-    for (final item in _items.values) {
+    for (final item in _indexRows()) {
       if (!item.deleted && item.contentId == cid) {
         await verifyItem(item);
       }
@@ -850,7 +946,13 @@ class CloudService {
 
   void _autoReplicate() {
     for (final item in _items.values) {
-      if (_profile.wants(item)) unawaited(ensureLocal(item));
+      if (!_profile.wants(item)) continue;
+      final candidates = item.kind == CloudItemKind.note
+          ? noteHeads(item)
+          : [item];
+      for (final candidate in candidates) {
+        unawaited(ensureLocal(candidate));
+      }
     }
   }
 

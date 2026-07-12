@@ -696,6 +696,34 @@ class AppL10nRu extends AppL10n {
   String get cloudNoteSaveMerged => 'Сохранить объединённую версию';
 
   @override
+  String cloudNoteBranches(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Сохранено $count офлайн-версий',
+      few: 'Сохранены $count офлайн-версии',
+      one: 'Сохранена 1 версия',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get cloudNoteReviewBranches => 'Сверить версии';
+
+  @override
+  String cloudNoteVersion(int number) {
+    return 'Сохранённая версия $number';
+  }
+
+  @override
+  String get cloudNoteBranchesUnavailable =>
+      'Перед объединением загрузите все сохранённые версии';
+
+  @override
+  String get cloudNoteMergeReady =>
+      'Объединение подготовлено — сохраните заметку, чтобы разрешить все версии';
+
+  @override
   String get settingsCatAccount => 'Личности и аккаунт';
 
   @override
