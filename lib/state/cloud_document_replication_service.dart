@@ -3,12 +3,15 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:characters/characters.dart';
+
 import '../core/ids.dart';
 import '../crypto/blake3.dart';
 import '../domain/cloud_document.dart';
 import '../domain/cloud_document_envelope.dart';
 import '../domain/cloud_document_replication.dart';
 import '../domain/cloud_document_payload.dart';
+import '../domain/cloud_rich_text_crdt.dart';
 import 'cloud_document_crypto.dart';
 import 'cloud_document_envelope_service.dart';
 import 'cloud_document_store.dart';
@@ -40,6 +43,22 @@ class CloudDocumentMutationResult {
   final String documentId;
   final List<NodeId> failedRecipients;
   bool get fullyQueued => failedRecipients.isEmpty;
+}
+
+class CloudRichTextDocumentState {
+  const CloudRichTextDocumentState({
+    required this.snapshot,
+    required this.currentEpoch,
+    required this.localRole,
+  });
+
+  final CloudRichTextSnapshot snapshot;
+  final int currentEpoch;
+  final CloudDocumentRole? localRole;
+
+  bool get canEdit =>
+      localRole == CloudDocumentRole.owner ||
+      localRole == CloudDocumentRole.editor;
 }
 
 /// Replicates signed document logs without borrowing group authorization.
@@ -212,6 +231,326 @@ class CloudDocumentReplicationService {
           : left.root.documentId.hex.compareTo(right.root.documentId.hex);
     });
     return result;
+  }
+
+  Future<CloudRichTextDocumentState?> loadRichText(String documentId) async {
+    final stored = await _store.load(documentId);
+    if (stored == null ||
+        stored.root.kind != CloudDocumentKind.note ||
+        stored.root.codec != cloudRichTextCodecV1) {
+      stored?.wipeLocalEpochKeys();
+      return null;
+    }
+    try {
+      final frame = _frameFromStored(CloudDocumentFrameKind.snapshot, stored);
+      final fold = _fold(frame);
+      if (!_completeAndValid(frame, fold)) return null;
+      final snapshot = await _materializeRichText(stored, fold);
+      if (snapshot == null) return null;
+      final epoch = fold.epochs.keys.reduce((a, b) => a > b ? a : b);
+      return CloudRichTextDocumentState(
+        snapshot: snapshot,
+        currentEpoch: epoch,
+        localRole: fold.epochs[epoch]!.members[localNodeId.hex],
+      );
+    } finally {
+      stored.wipeLocalEpochKeys();
+    }
+  }
+
+  /// Appends already-planned rich-text operations against an explicit causal
+  /// view. Passing the heads shown by an editor is what keeps a remote edit
+  /// that arrived later concurrent instead of silently overwriting it.
+  Future<CloudDocumentMutationResult?> appendRichTextEdits(
+    String documentId,
+    List<CloudRichTextEdit> edits, {
+    List<String>? parentOperationIds,
+  }) => _serialized(() async {
+    if (edits.isEmpty) return null;
+    final signer = _signer;
+    if (signer == null || signer.selfId != localNodeId) return null;
+    final stored = await _store.load(documentId);
+    if (stored == null ||
+        stored.root.kind != CloudDocumentKind.note ||
+        stored.root.codec != cloudRichTextCodecV1) {
+      stored?.wipeLocalEpochKeys();
+      return null;
+    }
+    final newCleartexts = <String, Uint8List>{};
+    try {
+      final oldFrame = _frameFromStored(
+        CloudDocumentFrameKind.snapshot,
+        stored,
+      );
+      final oldFold = _fold(oldFrame);
+      if (!_completeAndValid(oldFrame, oldFold)) return null;
+      final epoch = oldFold.epochs.keys.reduce((a, b) => a > b ? a : b);
+      final state = oldFold.epochs[epoch]!;
+      final role = state.members[localNodeId.hex];
+      if (role != CloudDocumentRole.owner && role != CloudDocumentRole.editor) {
+        return null;
+      }
+      final epochKey = stored.localEpochKeys[epoch];
+      if (epochKey == null) return null;
+      final knownIds = oldFold.acceptedOperations
+          .map((operation) => operation.operationId)
+          .toSet();
+      var heads =
+          parentOperationIds == null
+                ? _operationHeads(oldFold.acceptedOperations)
+                : parentOperationIds.toSet().toList()
+            ..sort();
+      if (heads.length != heads.toSet().length ||
+          heads.any((id) => !knownIds.contains(id))) {
+        return null;
+      }
+
+      final operations = [...oldFold.acceptedOperations];
+      final payloads = [...stored.payloads];
+      final authored =
+          operations
+              .where((operation) => operation.author == localNodeId)
+              .toList()
+            ..sort((left, right) => left.seq.compareTo(right.seq));
+      var nextSeq = authored.isEmpty ? 0 : authored.last.seq + 1;
+      var previousAuthorHash = authored.isEmpty ? '' : authored.last.recordHash;
+
+      Future<CloudDocumentOperation> appendOne(
+        CloudRichTextEdit edit,
+        List<String> parents,
+      ) async {
+        if (parents.length > 32) {
+          throw StateError('too many document operation parents');
+        }
+        final clear = edit.encode();
+        final unsigned = CloudDocumentOperation(
+          documentId: stored.root.documentId,
+          membershipEpoch: epoch,
+          author: localNodeId,
+          seq: nextSeq,
+          prevAuthorHash: previousAuthorHash,
+          operationId: _randomHex32(),
+          parentOperationIds: [...parents]..sort(),
+          opType: cloudRichTextOperationType,
+          // The payload hash is not part of AEAD AAD; encryption computes the
+          // final value and withPayloadHash replaces this valid placeholder.
+          payloadHash: _randomHex32(),
+          createdAtMs: _now().millisecondsSinceEpoch,
+          authorPubKey: Uint8List(32),
+          signature: Uint8List(64),
+        );
+        try {
+          final encrypted = await encryptCloudDocumentPayload(
+            operation: unsigned,
+            clearText: clear,
+            epochKey: epochKey,
+            random: _random,
+          );
+          final signed = signer.signOperation(
+            unsigned.withPayloadHash(encrypted.payloadHash),
+          );
+          operations.add(signed);
+          payloads.add(encrypted);
+          newCleartexts[signed.operationId] = Uint8List.fromList(clear);
+          nextSeq++;
+          previousAuthorHash = signed.recordHash;
+          return signed;
+        } finally {
+          clear.fillRange(0, clear.length, 0);
+        }
+      }
+
+      // The signed wire permits 32 parents. Fold a pathological set of
+      // concurrent heads through authenticated no-op merge records instead of
+      // dropping branches or refusing a valid offline document forever.
+      while (heads.length > 32) {
+        final batch = heads.take(32).toList();
+        final merged = await appendOne(const CloudRichTextEdit.merge(), batch);
+        heads = [...heads.skip(32), merged.operationId]..sort();
+      }
+      for (final edit in edits) {
+        final operation = await appendOne(edit, heads);
+        heads = [operation.operationId];
+      }
+
+      final bundle = CloudDocumentStoredBundle(
+        root: stored.root,
+        controls: oldFold.acceptedControls,
+        operations: operations,
+        envelopes: stored.envelopes,
+        localEpochKeys: stored.localEpochKeys,
+        payloads: payloads,
+      );
+      final frame = _frameFromStored(CloudDocumentFrameKind.snapshot, bundle);
+      final fold = _fold(frame);
+      if (!_completeAndValid(frame, fold) || !bundle.isStructurallyValid) {
+        return null;
+      }
+      final snapshot = await _materializeRichText(
+        bundle,
+        fold,
+        extraCleartexts: newCleartexts,
+      );
+      if (snapshot == null ||
+          snapshot.invalidOperationIds.any(newCleartexts.containsKey)) {
+        return null;
+      }
+      await _store.save(bundle);
+      _emit();
+      final failed = <NodeId>[];
+      for (final member in state.members.keys) {
+        if (member == localNodeId.hex) continue;
+        final peer = NodeId.fromHex(member);
+        try {
+          await sendDelta(peer, bundle);
+        } catch (_) {
+          failed.add(peer);
+        }
+      }
+      return CloudDocumentMutationResult(
+        documentId: documentId,
+        failedRecipients: List.unmodifiable(failed),
+      );
+    } finally {
+      for (final clear in newCleartexts.values) {
+        clear.fillRange(0, clear.length, 0);
+      }
+      stored.wipeLocalEpochKeys();
+    }
+  });
+
+  Future<CloudDocumentMutationResult?> saveRichText(
+    String documentId, {
+    required CloudRichTextSnapshot base,
+    required String text,
+    required List<CloudRichTextStyle> styles,
+  }) async {
+    final desired = text.characters.toList();
+    if (desired.length != styles.length) return null;
+    final current = base.atoms.map((atom) => atom.value).toList();
+    var prefix = 0;
+    while (prefix < current.length &&
+        prefix < desired.length &&
+        current[prefix] == desired[prefix]) {
+      prefix++;
+    }
+    var suffix = 0;
+    while (suffix < current.length - prefix &&
+        suffix < desired.length - prefix &&
+        current[current.length - 1 - suffix] ==
+            desired[desired.length - 1 - suffix]) {
+      suffix++;
+    }
+
+    final edits = <CloudRichTextEdit>[];
+    final removed =
+        base.atoms
+            .sublist(prefix, current.length - suffix)
+            .map((atom) => atom.id)
+            .toList()
+          ..sort();
+    if (removed.isNotEmpty) edits.add(CloudRichTextEdit.delete(removed));
+    final inserted = desired.sublist(prefix, desired.length - suffix);
+    if (inserted.isNotEmpty) {
+      edits.add(
+        CloudRichTextEdit.insertStyled(
+          afterAtomId: prefix == 0 ? null : base.atoms[prefix - 1].id,
+          text: inserted.join(),
+          styles: styles.sublist(prefix, desired.length - suffix),
+        ),
+      );
+    }
+
+    final formats = <CloudRichTextStyle, List<String>>{};
+    void formatIfChanged(int oldIndex, int desiredIndex) {
+      final atom = base.atoms[oldIndex];
+      final wanted = styles[desiredIndex];
+      if (atom.style != wanted) {
+        formats.putIfAbsent(wanted, () => []).add(atom.id);
+      }
+    }
+
+    for (var index = 0; index < prefix; index++) {
+      formatIfChanged(index, index);
+    }
+    for (var index = 0; index < suffix; index++) {
+      formatIfChanged(
+        current.length - suffix + index,
+        desired.length - suffix + index,
+      );
+    }
+    for (final entry in formats.entries) {
+      entry.value.sort();
+      edits.add(
+        CloudRichTextEdit.format(targetAtomIds: entry.value, style: entry.key),
+      );
+    }
+    if (edits.isEmpty) {
+      return CloudDocumentMutationResult(documentId: documentId);
+    }
+    return appendRichTextEdits(
+      documentId,
+      edits,
+      parentOperationIds: base.headOperationIds,
+    );
+  }
+
+  Future<CloudDocumentMutationResult?> deleteRichTextDocument(
+    String documentId, {
+    required List<String> parentOperationIds,
+  }) => appendRichTextEdits(documentId, const [
+    CloudRichTextEdit.documentDelete(),
+  ], parentOperationIds: parentOperationIds);
+
+  Future<CloudRichTextSnapshot?> _materializeRichText(
+    CloudDocumentStoredBundle stored,
+    CloudDocumentFoldResult fold, {
+    Map<String, Uint8List> extraCleartexts = const {},
+  }) async {
+    final cleartexts = <String, Uint8List>{};
+    try {
+      for (final operation in fold.acceptedOperations) {
+        final supplied = extraCleartexts[operation.operationId];
+        if (supplied != null) {
+          cleartexts[operation.operationId] = Uint8List.fromList(supplied);
+          continue;
+        }
+        final key = stored.localEpochKeys[operation.membershipEpoch];
+        if (key == null) continue;
+        final payload = stored.payloads
+            .where(
+              (candidate) => candidate.operationId == operation.operationId,
+            )
+            .firstOrNull;
+        if (payload == null) return null;
+        cleartexts[operation.operationId] = await decryptCloudDocumentPayload(
+          operation: operation,
+          payload: payload,
+          epochKey: key,
+        );
+      }
+      return materializeCloudRichText(
+        operations: fold.acceptedOperations,
+        cleartextByOperationId: cleartexts,
+      );
+    } catch (_) {
+      return null;
+    } finally {
+      for (final clear in cleartexts.values) {
+        clear.fillRange(0, clear.length, 0);
+      }
+    }
+  }
+
+  List<String> _operationHeads(List<CloudDocumentOperation> operations) {
+    final parents = <String>{
+      for (final operation in operations) ...operation.parentOperationIds,
+    };
+    return operations
+        .map((operation) => operation.operationId)
+        .where((id) => !parents.contains(id))
+        .toList()
+      ..sort();
   }
 
   Future<CloudDocumentMutationResult?> createDocument({
@@ -433,14 +772,61 @@ class CloudDocumentReplicationService {
             entry.key: Uint8List.fromList(entry.value),
           nextEpoch: Uint8List.fromList(nextKey),
         };
+        Uint8List? checkpointClear;
         try {
+          var operations = oldFold.acceptedOperations;
+          var payloads = stored.payloads;
+          if (op == CloudDocumentControlOp.grant &&
+              stored.root.kind == CloudDocumentKind.note &&
+              stored.root.codec == cloudRichTextCodecV1) {
+            final snapshot = await _materializeRichText(stored, oldFold);
+            if (snapshot == null || snapshot.invalidOperationIds.isNotEmpty) {
+              return null;
+            }
+            checkpointClear = CloudRichTextEdit.checkpoint(
+              text: snapshot.text,
+              styles: snapshot.atoms.map((atom) => atom.style).toList(),
+            ).encode();
+            final authored =
+                oldFold.acceptedOperations
+                    .where((operation) => operation.author == localNodeId)
+                    .toList()
+                  ..sort((left, right) => left.seq.compareTo(right.seq));
+            final checkpointUnsigned = CloudDocumentOperation(
+              documentId: stored.root.documentId,
+              membershipEpoch: nextEpoch,
+              author: localNodeId,
+              seq: authored.isEmpty ? 0 : authored.last.seq + 1,
+              prevAuthorHash: authored.isEmpty ? '' : authored.last.recordHash,
+              operationId: _randomHex32(),
+              parentOperationIds: _operationHeads(
+                oldFold.acceptedOperations,
+              ).take(32).toList(),
+              opType: cloudRichTextOperationType,
+              payloadHash: _randomHex32(),
+              createdAtMs: _now().millisecondsSinceEpoch,
+              authorPubKey: Uint8List(32),
+              signature: Uint8List(64),
+            );
+            final checkpointPayload = await encryptCloudDocumentPayload(
+              operation: checkpointUnsigned,
+              clearText: checkpointClear,
+              epochKey: nextKey,
+              random: _random,
+            );
+            final checkpoint = signer.signOperation(
+              checkpointUnsigned.withPayloadHash(checkpointPayload.payloadHash),
+            );
+            operations = [...operations, checkpoint];
+            payloads = [...payloads, checkpointPayload];
+          }
           final bundle = CloudDocumentStoredBundle(
             root: stored.root,
             controls: [...oldFold.acceptedControls, control],
-            operations: oldFold.acceptedOperations,
+            operations: operations,
             envelopes: [...stored.envelopes, envelope],
             localEpochKeys: keys,
-            payloads: stored.payloads,
+            payloads: payloads,
           );
           final frame = _frameFromStored(
             CloudDocumentFrameKind.snapshot,
@@ -464,6 +850,7 @@ class CloudDocumentReplicationService {
             failedRecipients: List.unmodifiable(failed),
           );
         } finally {
+          checkpointClear?.fillRange(0, checkpointClear.length, 0);
           for (final key in keys.values) {
             key.fillRange(0, key.length, 0);
           }

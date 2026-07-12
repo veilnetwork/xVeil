@@ -33,6 +33,7 @@ import '../state/group_service.dart';
 import '../routing/router.dart';
 import '../domain/call_log.dart';
 import '../domain/cloud.dart';
+import '../domain/cloud_rich_text_crdt.dart';
 import '../domain/cloud_document.dart';
 import '../state/api_server.dart';
 import '../state/app_controller.dart';
@@ -354,6 +355,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/cloud_document_adopt':
           await _cloudDocumentAdoptHook(req);
+          return;
+        case '/cloud_document_rich':
+          await _cloudDocumentRichHook(req);
           return;
         case '/cloud_fetch':
           await _cloudFetchHook(req);
@@ -1645,6 +1649,73 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       return _json(req, {'ok': false, 'error': 'need documents+id'});
     }
     return _json(req, {'ok': await service.adopt(id), 'id': id});
+  }
+
+  /// Drives the encrypted rich-text layer while returning only length/digest
+  /// metadata. Decrypted text exists in RAM for this loopback-only request and
+  /// is never echoed or written to disk by the hook.
+  Future<void> _cloudDocumentRichHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(cloudDocumentReplicationServiceProvider);
+    final q = req.uri.queryParameters;
+    final id = q['id'];
+    final action = q['action'] ?? 'probe';
+    if (service == null || id == null) {
+      return _json(req, {'ok': false, 'error': 'need documents+id'});
+    }
+    try {
+      var state = await service.loadRichText(id);
+      if (state == null) {
+        return _json(req, {'ok': false, 'error': 'rich document unavailable'});
+      }
+      CloudDocumentMutationResult? mutation;
+      if (action == 'save') {
+        final text = q['text'];
+        if (text == null) {
+          return _json(req, {'ok': false, 'error': 'need text'});
+        }
+        final style = q['style'] == 'bold'
+            ? const CloudRichTextStyle(bold: true)
+            : const CloudRichTextStyle();
+        mutation = await service.saveRichText(
+          id,
+          base: state.snapshot,
+          text: text,
+          styles: List.filled(text.characters.length, style),
+        );
+      } else if (action == 'delete') {
+        mutation = await service.deleteRichTextDocument(
+          id,
+          parentOperationIds: state.snapshot.headOperationIds,
+        );
+      } else if (action != 'probe') {
+        return _json(req, {'ok': false, 'error': 'bad action'});
+      }
+      if (action != 'probe' && mutation == null) {
+        return _json(req, {'ok': false, 'error': 'mutation rejected'});
+      }
+      if (mutation != null) state = await service.loadRichText(id);
+      if (state == null) {
+        return _json(req, {'ok': false, 'error': 'reload failed'});
+      }
+      final bytes = utf8.encode(state.snapshot.text);
+      return _json(req, {
+        'ok': true,
+        'id': id,
+        'bytes': bytes.length,
+        'sha256': crypto.sha256.convert(bytes).toString(),
+        'heads': state.snapshot.headOperationIds.length,
+        'epoch': state.currentEpoch,
+        'role': state.localRole?.name,
+        'deleted': state.snapshot.isDeleted,
+        'recovered': state.snapshot.hasConcurrentRecovery,
+        'invalid': state.snapshot.invalidOperationIds.length,
+        'unavailable': state.snapshot.unavailableOperationIds.length,
+        'fullyQueued': mutation?.fullyQueued,
+      });
+    } catch (error) {
+      return _json(req, {'ok': false, 'error': '$error'});
+    }
   }
 
   Future<void> _cloudNoteSaveHook(HttpRequest req) async {
@@ -3622,18 +3693,17 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final x = double.tryParse(p['x'] ?? '');
     final y = double.tryParse(p['y'] ?? '');
     if (x != null && y != null) {
+      await _driver.releaseSemantics();
       await _driver.tapAt(Offset(x, y), hold: hold);
       return _json(req, {'ok': true, 'method': 'pointer', 'x': x, 'y': y});
     }
     final target = await _resolveNode(req);
-    if (target == null) return; // error response already written
-    final action = long ? SemanticsAction.longPress : SemanticsAction.tap;
-    if (target.getSemanticsData().hasAction(action)) {
-      _driver.performAction(target, action);
-      await Future<void>.delayed(const Duration(milliseconds: 200));
-      return _json(req, {'ok': true, 'method': 'semantics', 'node': target.id});
+    if (target == null) {
+      await _driver.releaseSemantics();
+      return; // error response already written
     }
     final rect = await _driver.globalRectOf(target);
+    await _driver.releaseSemantics();
     if (rect == null || rect.isEmpty) {
       return _json(req, {
         'ok': false,
@@ -3664,9 +3734,13 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       start = Offset(x, y);
     } else if ((p['label'] ?? '').trim().isNotEmpty || p['node'] != null) {
       final target = await _resolveNode(req);
-      if (target == null) return;
+      if (target == null) {
+        await _driver.releaseSemantics();
+        return;
+      }
       final rect = await _driver.globalRectOf(target);
       if (rect != null && !rect.isEmpty) start = rect.center;
+      await _driver.releaseSemantics();
     }
     if (start == null) {
       final view = WidgetsBinding.instance.platformDispatcher.implicitView;
@@ -3695,8 +3769,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final q = req.uri.queryParameters;
     if ((q['node'] ?? '').isNotEmpty || (q['label'] ?? '').trim().isNotEmpty) {
       final target = await _resolveNode(req);
-      if (target == null) return;
+      if (target == null) {
+        await _driver.releaseSemantics();
+        return;
+      }
       final rect = await _driver.globalRectOf(target);
+      await _driver.releaseSemantics();
       if (rect != null && !rect.isEmpty) {
         await _driver.tapAt(rect.center);
       }

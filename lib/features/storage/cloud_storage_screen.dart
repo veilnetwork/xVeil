@@ -17,6 +17,7 @@ import '../../state/cloud_document_providers.dart';
 import '../../state/cloud_document_replication_service.dart';
 import '../../state/cloud_service.dart';
 import 'cloud_note_editor.dart';
+import 'cloud_shared_document_editor.dart';
 
 /// Personal-cloud surface. The signed device-group log owns the logical index;
 /// this screen only selects local replication policy and asks the service to
@@ -543,6 +544,27 @@ class _SharedDocumentSectionState extends State<_SharedDocumentSection> {
   }
 
   Future<void> _open(CloudDocumentView document) async {
+    var manage = false;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (pageContext) => Scaffold(
+          body: CloudSharedDocumentEditor(
+            service: widget.service,
+            documentId: document.root.documentId.hex,
+            onClose: () => Navigator.pop(pageContext),
+            onManage: () {
+              manage = true;
+              Navigator.pop(pageContext);
+            },
+          ),
+        ),
+      ),
+    );
+    if (manage && mounted) await _manage(document);
+    if (mounted) await _reload();
+  }
+
+  Future<void> _manage(CloudDocumentView document) async {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -553,7 +575,6 @@ class _SharedDocumentSectionState extends State<_SharedDocumentSection> {
         documentId: document.root.documentId.hex,
       ),
     );
-    if (mounted) await _reload();
   }
 
   @override
@@ -590,7 +611,14 @@ class _SharedDocumentSectionState extends State<_SharedDocumentSection> {
                 _documentRoleLabel(l, document.localRole),
               ),
             ),
-            trailing: const Icon(Icons.chevron_right),
+            trailing: IconButton(
+              key: ValueKey(
+                'cloud-shared-manage-${document.root.documentId.hex}',
+              ),
+              tooltip: l.cloudRichManage,
+              onPressed: () => _manage(document),
+              icon: const Icon(Icons.group_outlined),
+            ),
             onTap: () => _open(document),
           ),
       ],
