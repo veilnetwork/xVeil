@@ -981,6 +981,48 @@ void main() {
   });
 
   test(
+    'settings GC reads the chunked cloud index beyond one setting record',
+    () async {
+      final liveCid = List.filled(64, 'e').join();
+      final liveBytes = Uint8List.fromList([9, 8, 7, 6]);
+      await storage.storeFile(liveCid, liveBytes, name: 'chunked-cloud.bin');
+      await storage.storeFile('mf:$liveCid', liveBytes, name: 'cloud-manifest');
+      final rows = <String>[];
+      for (var index = 0; index < 80; index++) {
+        final cid = index == 79
+            ? liveCid
+            : index.toRadixString(16).padLeft(64, '0');
+        rows.add(
+          CloudItem(
+            id: 'chunked_cloud_$index',
+            kind: CloudItemKind.file,
+            name: 'item-$index.bin',
+            contentId: cid,
+            size: 4,
+            createdAtMs: index + 1,
+            modifiedAtMs: index + 1,
+            revision: 1,
+            deleted: false,
+          ).toEvent().toBody(),
+        );
+      }
+      final encoded = Uint8List.fromList(utf8.encode(jsonEncode(rows)));
+      expect(encoded.length, greaterThan(4096));
+      await storage.storeFile(
+        'cloud.index.v1.a',
+        encoded,
+        name: 'cloud-materialized-index',
+      );
+      await storage.putSetting('cloud.index.v1.active', 'corrupt-pointer');
+
+      await storage.sweepSettingsGarbage();
+
+      expect(await storage.loadFile(liveCid), liveBytes);
+      expect(await storage.loadFile('mf:$liveCid'), liveBytes);
+    },
+  );
+
+  test(
     'concurrent file stores do not collide (serialized log-id allocation)',
     () async {
       // Sending a file while an inbound one completes drives two storeFile calls at

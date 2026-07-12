@@ -181,7 +181,7 @@ class CloudService {
     _profile = CloudReplicationProfile.decode(
       await _storage.getSetting(_profileSetting),
     );
-    final indexRaw = await _storage.getSetting(_indexSetting);
+    final indexRaw = await _loadMaterialized(_indexSetting);
     if (indexRaw != null) {
       try {
         final rows = jsonDecode(indexRaw);
@@ -195,7 +195,7 @@ class CloudService {
         }
       } catch (_) {}
     }
-    final claimsRaw = await _storage.getSetting(_claimsSetting);
+    final claimsRaw = await _loadMaterialized(_claimsSetting);
     if (claimsRaw != null) {
       try {
         final rows = jsonDecode(claimsRaw);
@@ -219,7 +219,73 @@ class CloudService {
     }
   }
 
-  Future<void> _saveIndex() => _storage.putSetting(
+  Future<String?> _loadMaterialized(String key) async {
+    final active = await _storage.getSetting('$key.active');
+    final slots = active == 'a' || active == 'b'
+        ? [active!, active == 'a' ? 'b' : 'a']
+        : const ['a', 'b'];
+    for (final slot in slots) {
+      final chunked = await _storage.loadFile('$key.$slot');
+      if (chunked != null) {
+        final decoded = utf8.decode(chunked, allowMalformed: true);
+        try {
+          if (jsonDecode(decoded) is List) return decoded;
+        } catch (_) {}
+      }
+    }
+    // Brief development builds wrote one unslotted chunked copy. Keep this
+    // fallback so those stores migrate forward without data loss.
+    final legacyChunked = await _storage.loadFile(key);
+    if (legacyChunked != null) {
+      final decoded = utf8.decode(legacyChunked, allowMalformed: true);
+      try {
+        if (jsonDecode(decoded) is List) return decoded;
+      } catch (_) {}
+    }
+    final legacy = await _storage.getSetting(key);
+    if (legacy != null) {
+      try {
+        if (jsonDecode(legacy) is List) return legacy;
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  /// Cloud indexes are unbounded materialized views, not preferences. A single
+  /// hidden-volume setting has a ~4 KiB record cap; once enough historical
+  /// items/claims accumulated, every cloud operation failed with
+  /// `PayloadTooLarge`. Store the view in the same chunked file-store used by
+  /// group bundles. Two alternating slots make replacement crash-safe: fully
+  /// publish the inactive blob, then atomically flip a tiny settings pointer.
+  /// The previous slot remains a valid fallback if the active blob is missing.
+  Future<void> _saveMaterialized(String key, String value) async {
+    var active = await _storage.getSetting('$key.active');
+    if (active == 'a' || active == 'b') {
+      final other = active == 'a' ? 'b' : 'a';
+      if (!await _storage.hasFile('$key.$active') &&
+          await _storage.hasFile('$key.$other')) {
+        // The pointer survived but its slot did not. Treat the readable
+        // fallback as active so we never overwrite the only valid copy before
+        // publishing a replacement in the missing slot.
+        active = other;
+      }
+    }
+    final next = active == 'a' ? 'b' : 'a';
+    await _storage.storeFile(
+      '$key.$next',
+      Uint8List.fromList(utf8.encode(value)),
+      name: 'cloud-materialized-index',
+    );
+    await _storage.putSetting('$key.active', next);
+    try {
+      await _storage.putSetting(key, '');
+    } catch (_) {
+      // The chunked copy is already durable. A legacy value may remain as an
+      // inert fallback, but future reads always prefer the file-store copy.
+    }
+  }
+
+  Future<void> _saveIndex() => _saveMaterialized(
     _indexSetting,
     jsonEncode([for (final item in _indexRows()) item.toEvent().toBody()]),
   );
@@ -234,7 +300,7 @@ class CloudService {
     }
   }
 
-  Future<void> _saveClaims() => _storage.putSetting(
+  Future<void> _saveClaims() => _saveMaterialized(
     _claimsSetting,
     jsonEncode([
       for (final claim in _claims.values)

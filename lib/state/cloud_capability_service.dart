@@ -49,6 +49,12 @@ abstract interface class CloudCapabilityEndpointPort {
   Uint8List get appId;
   int get endpointId;
   Stream<Uint8List> get messages;
+  Future<void> sendAnonymous({
+    required Uint8List servicePublicKey,
+    required Uint8List targetAppId,
+    required int targetEndpointId,
+    required Uint8List data,
+  });
   Future<void> close();
 }
 
@@ -58,14 +64,6 @@ abstract interface class CloudCapabilityNetworkPort {
     required String alias,
     required int endpointId,
     bool transient = false,
-  });
-
-  Future<void> sendAnonymous({
-    required Uint8List servicePublicKey,
-    required Uint8List targetAppId,
-    required int targetEndpointId,
-    required Uint8List srcAppId,
-    required Uint8List data,
   });
 }
 
@@ -92,21 +90,6 @@ class VeilCloudCapabilityNetwork implements CloudCapabilityNetworkPort {
             endpointId: endpointId,
           )),
   );
-
-  @override
-  Future<void> sendAnonymous({
-    required Uint8List servicePublicKey,
-    required Uint8List targetAppId,
-    required int targetEndpointId,
-    required Uint8List srcAppId,
-    required Uint8List data,
-  }) => _transport.sendToOnionServiceAnonymous(
-    serviceIdentityVk: servicePublicKey,
-    targetAppId: targetAppId,
-    targetEndpointId: targetEndpointId,
-    srcAppId: srcAppId,
-    data: data,
-  );
 }
 
 class _VeilCapabilityEndpointPort implements CloudCapabilityEndpointPort {
@@ -121,6 +104,18 @@ class _VeilCapabilityEndpointPort implements CloudCapabilityEndpointPort {
   int get endpointId => _endpoint.endpointId;
   @override
   Stream<Uint8List> get messages => _endpoint.messages;
+  @override
+  Future<void> sendAnonymous({
+    required Uint8List servicePublicKey,
+    required Uint8List targetAppId,
+    required int targetEndpointId,
+    required Uint8List data,
+  }) => _endpoint.sendAnonymous(
+    servicePublicKey: servicePublicKey,
+    targetAppId: targetAppId,
+    targetEndpointId: targetEndpointId,
+    data: data,
+  );
   @override
   Future<void> close() => _endpoint.close();
 }
@@ -425,11 +420,10 @@ class CloudCapabilityService {
                 )
                 .timeout(const Duration(seconds: 8));
             try {
-              await _network.sendAnonymous(
+              await endpoint.sendAnonymous(
                 servicePublicKey: capability.servicePublicKey,
                 targetAppId: capability.appId,
                 targetEndpointId: capability.endpointId,
-                srcAppId: endpoint.appId,
                 data: request.encode(),
               );
               final response = await pending;
@@ -585,11 +579,10 @@ class CloudCapabilityService {
         nonce: request.nonce,
         sealed: sealed,
       ).encode();
-      await _network.sendAnonymous(
+      await share.endpoint.sendAnonymous(
         servicePublicKey: request.returnServicePublicKey,
         targetAppId: request.returnAppId,
         targetEndpointId: request.returnEndpointId,
-        srcAppId: share.endpoint.appId,
         data: response,
       );
     } catch (_) {}

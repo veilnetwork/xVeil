@@ -559,6 +559,84 @@ void main() {
     },
   );
 
+  test(
+    'materialized index exceeds one setting record and survives restart',
+    () async {
+      final container = FakeHvContainer();
+      final storage = container.storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final author = _id(2);
+      final seed = <DeviceSyncRecord>[
+        for (var index = 1; index <= 80; index++)
+          (
+            event: CloudItem(
+              id: 'bulk_$index',
+              kind: CloudItemKind.file,
+              name: 'bulk-$index.bin',
+              contentId: index.toRadixString(16).padLeft(64, '0'),
+              size: index,
+              createdAtMs: index,
+              modifiedAtMs: index,
+              revision: 1,
+              deleted: false,
+            ).toEvent(),
+            author: author,
+          ),
+      ];
+      final first = CloudService(
+        storage,
+        _FakeSync(_id(1), seed: seed)..connected = false,
+        contentReceived: const Stream.empty(),
+        integrityChecks: false,
+      );
+
+      expect((await first.listItems()).length, 80);
+      final active = await storage.getSetting('cloud.index.v1.active');
+      expect(active, anyOf('a', 'b'));
+      final encoded = await storage.loadFile('cloud.index.v1.$active');
+      expect(encoded, isNotNull);
+      expect(encoded!.length, greaterThan(4096));
+      expect(await storage.getSetting('cloud.index.v1'), isEmpty);
+      await first.close();
+      final missingSlot = active == 'a' ? 'b' : 'a';
+      expect(await storage.hasFile('cloud.index.v1.$missingSlot'), isFalse);
+      await storage.putSetting('cloud.index.v1.active', missingSlot);
+      await storage.close();
+
+      final reopened = container.storage();
+      await reopened.open(password: 'pw');
+      final second = CloudService(
+        reopened,
+        _FakeSync(_id(1))..connected = false,
+        contentReceived: const Stream.empty(),
+        integrityChecks: false,
+      );
+      expect((await second.listItems()).length, 80);
+      expect(
+        await reopened.hasFile('cloud.index.v1.$missingSlot'),
+        isTrue,
+        reason:
+            'save repairs into the missing slot without overwriting the '
+            'only readable fallback first',
+      );
+      await second.close();
+      await reopened.putSetting('cloud.index.v1.active', 'corrupt');
+      await reopened.close();
+
+      final pointerless = container.storage();
+      await pointerless.open(password: 'pw');
+      final third = CloudService(
+        pointerless,
+        _FakeSync(_id(1))..connected = false,
+        contentReceived: const Stream.empty(),
+        integrityChecks: false,
+      );
+      expect((await third.listItems()).length, 80);
+      await third.close();
+      await pointerless.close();
+    },
+  );
+
   test('transport failure does not undo a durable local import', () async {
     final storage = FakeHvContainer().storage();
     await storage.open(password: 'pw', createIfMissing: true);
@@ -807,8 +885,11 @@ void main() {
       expect(await storage.hasFile('mf:${item.contentId}'), isFalse);
       final all = await service.listItems(includeDeleted: true);
       expect(all.single.deleted, isTrue);
-      final raw = await storage.getSetting('cloud.index.v1');
-      final rows = jsonDecode(raw!) as List;
+      final active = await storage.getSetting('cloud.index.v1.active');
+      final raw = utf8.decode(
+        (await storage.loadFile('cloud.index.v1.$active'))!,
+      );
+      final rows = jsonDecode(raw) as List;
       expect(
         CloudItem.fromEvent(
           DeviceSyncEvent.fromBody(rows.single as String)!,
