@@ -25,8 +25,15 @@ void main() {
     expect(c.first, Platform.environment['PATH']);
     expect(c.last, 'third_party/veil/target/debug/$file');
     // Includes packaged-app candidates between env and dev.
-    expect(c.any((p) => p.contains('Frameworks') || p.endsWith('/$file')),
-        isTrue);
+    expect(
+      c.any((p) => p.contains('Frameworks') || p.endsWith('/$file')),
+      isTrue,
+    );
+    expect(
+      c.any((p) => p.endsWith('/../lib/$file')),
+      isTrue,
+      reason: 'headless bundles keep the executable in bin/ and FFI in lib/',
+    );
   });
 
   test('no env var, no dev subdir -> only packaged-app candidates', () {
