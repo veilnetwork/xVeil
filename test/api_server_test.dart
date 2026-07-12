@@ -9,7 +9,11 @@ import 'package:xveil/state/api_server.dart';
 void main() {
   final sent = <(String, String)>[];
   Map<String, dynamic>? _call;
-  ApiHandler make({String token = 'secret-token', bool readOnly = false}) {
+  ApiHandler make({
+    String token = 'secret-token',
+    bool readOnly = false,
+    bool callsAvailable = true,
+  }) {
     sent.clear();
     return ApiHandler(
       tokens: token.isEmpty
@@ -22,6 +26,16 @@ void main() {
       contacts: () async => [
         {'nodeId': 'beef', 'short': 'beef'},
       ],
+      requestContact: (target, greeting) async {
+        if (target == 'bad') return 'invalid target';
+        sent.add((target, greeting));
+        return null;
+      },
+      contactAction: (peer, action) async {
+        if (peer == 'bad') return 'invalid peer';
+        sent.add((peer, action));
+        return null;
+      },
       send: (to, body) async {
         if (to == 'bad') return 'invalid peer';
         sent.add((to, body));
@@ -35,6 +49,7 @@ void main() {
       placeCall: (to, media) async => to == 'bad' ? 'invalid peer' : null,
       callState: () => _call,
       callAction: (action) async => _call = null,
+      callsAvailable: callsAvailable,
     );
   }
 
@@ -125,6 +140,35 @@ void main() {
     expect(res.status, 200);
     final list = (res.body as Map)['contacts'] as List;
     expect(list.single['nodeId'], 'beef');
+  });
+
+  test('contact request/accept/block routes validate and dispatch', () async {
+    final h = make();
+    expect(
+        (await h.handle('POST', u('/v1/contacts'), 'Bearer secret-token',
+                body: {'greeting': 'hi'}))
+            .status,
+        400);
+    expect(
+        (await h.handle('POST', u('/v1/contacts'), 'Bearer secret-token',
+                body: {'target': 'peer', 'greeting': 'hi'}))
+            .status,
+        200);
+    expect(sent.single, ('peer', 'hi'));
+    expect(
+        (await h.handle(
+                'POST', u('/v1/contacts/accept'), 'Bearer secret-token',
+                body: {'peer': 'peer'}))
+            .status,
+        200);
+    expect(sent.last, ('peer', 'accept'));
+    expect(
+        (await h.handle(
+                'POST', u('/v1/contacts/block'), 'Bearer secret-token',
+                body: {'peer': 'peer'}))
+            .status,
+        200);
+    expect(sent.last, ('peer', 'block'));
   });
 
   test('POST /v1/messages sends; validates to+body; reports send errors',
@@ -234,6 +278,23 @@ void main() {
     expect((await h.handle('GET', u('/v1/calls'), null)).status, 401);
   });
 
+  test('a host without a media engine reports call routes as 501', () async {
+    final h = make(callsAvailable: false);
+    expect(
+        (await h.handle('GET', u('/v1/calls'), 'Bearer secret-token')).status,
+        501);
+    expect(
+        (await h.handle('POST', u('/v1/calls'), 'Bearer secret-token',
+                body: {'to': 'peer'}))
+            .status,
+        501);
+    expect(
+        (await h.handle(
+                'POST', u('/v1/calls/hangup'), 'Bearer secret-token'))
+            .status,
+        501);
+  });
+
   test('GET /v1/openapi.json returns a valid OpenAPI 3 doc with every path',
       () async {
     final res =
@@ -249,6 +310,8 @@ void main() {
         containsAll(<String>[
           '/health',
           '/contacts',
+          '/contacts/accept',
+          '/contacts/block',
           '/messages',
           '/files',
           '/files/download',

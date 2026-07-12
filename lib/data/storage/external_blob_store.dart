@@ -3,7 +3,8 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:veil_flutter/veil_flutter.dart' show veilSealBytes, veilUnsealBytes;
+import 'package:veil_flutter/veil_ffi.dart'
+    show veilSealBytes, veilUnsealBytes;
 
 import '../../crypto/blake3.dart';
 

@@ -1,0 +1,9231 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:uuid/uuid.dart';
+
+import '../core/ids.dart';
+import '../crypto/blake3.dart';
+import '../data/node/embedded_node.dart' show BootstrapPeerCfg, EmbeddedNode;
+import '../data/storage/file_store.dart' show kMaxStoredFileBytes;
+import '../data/storage/storage.dart';
+import '../data/transport/veil_transport.dart';
+import '../data/transport/wire_envelope.dart';
+import '../domain/call_signal.dart';
+import '../domain/chat.dart';
+import '../domain/chat_folder.dart';
+import '../domain/content_manifest.dart';
+import '../domain/content_transfer.dart';
+import '../data/serve_source.dart';
+import '../domain/event.dart';
+import '../domain/file_download_policy.dart';
+import '../domain/file_transfer.dart';
+import '../domain/media_file_name.dart';
+import '../domain/p2p_policy.dart';
+import 'mailbox_service.dart' show MailboxSink;
+import 'sticker_message.dart';
+import 'vnote_message.dart';
+import 'voice_message.dart';
+import 'package:xveil/core/log.dart';
+
+const _uuid = Uuid();
+Future<bool> _denyP2PStream(NodeId peer) async => false;
+Future<String?> _noVideoThumb(String path) async => null;
+Future<String?> _noImageThumb(Uint8List bytes) async => null;
+
+/// Candidate mailbox relays derived from configured bootstrap identity keys.
+/// Pure-Dart and shared by Flutter and headless hosts.
+List<NodeId> mailboxRelayCandidates(List<BootstrapPeerCfg> peers) {
+  final out = <NodeId>[];
+  for (final p in peers) {
+    try {
+      out.add(NodeId(blake3Hash(base64.decode(p.publicKey))));
+    } catch (_) {
+      // Malformed public key: skip without creating a config oracle.
+    }
+  }
+  return out;
+}
+const _streamRangeParallelismDartDefine = int.fromEnvironment(
+  'XVEIL_STREAM_RANGE_PARALLELISM',
+  defaultValue: 0,
+);
+const _streamRangeTargetBytesDartDefine = int.fromEnvironment(
+  'XVEIL_STREAM_RANGE_TARGET_BYTES',
+  defaultValue: 0,
+);
+const _streamRangeEnabledDartDefine = bool.fromEnvironment(
+  'XVEIL_STREAM_RANGE_ENABLED',
+  defaultValue: true,
+);
+const _streamOpenWriteGraceMsDartDefine = int.fromEnvironment(
+  'XVEIL_STREAM_OPEN_WRITE_GRACE_MS',
+  defaultValue: 0,
+);
+const _streamRangePayloadIdleMsDartDefine = int.fromEnvironment(
+  'XVEIL_STREAM_RANGE_PAYLOAD_IDLE_MS',
+  defaultValue: 0,
+);
+const _streamPayloadIdleMsDartDefine = int.fromEnvironment(
+  'XVEIL_STREAM_PAYLOAD_IDLE_MS',
+  defaultValue: 0,
+);
+const _streamRangeOpenPaceMsDartDefine = int.fromEnvironment(
+  'XVEIL_STREAM_RANGE_OPEN_PACE_MS',
+  defaultValue: 0,
+);
+const _streamRangeStallAbandonMsDartDefine = int.fromEnvironment(
+  'XVEIL_STREAM_RANGE_STALL_ABANDON_MS',
+  defaultValue: 0,
+);
+const _streamRangeHedgeMsDartDefine = int.fromEnvironment(
+  'XVEIL_STREAM_RANGE_HEDGE_MS',
+  defaultValue: 0,
+);
+const _streamRangeRetryOpenMsDartDefine = int.fromEnvironment(
+  'XVEIL_STREAM_RANGE_RETRY_OPEN_MS',
+  defaultValue: 0,
+);
+const _streamRequestTimeoutMsDartDefine = int.fromEnvironment(
+  'XVEIL_STREAM_REQUEST_TIMEOUT_MS',
+  defaultValue: 0,
+);
+const _bulkStreamTraceDartDefine = bool.fromEnvironment(
+  'XVEIL_BULK_STREAM_TRACE',
+  defaultValue: false,
+);
+// Plain-file saves ride the reliable stream/range path by DEFAULT. This was
+// an opt-in while the pinned circuit could reset before the manifest arrived
+// and strand a chosen file at 0 bytes — that failure mode is gone (stream
+// retries + piece-granular resume + stall-abandon + RACK loss detection, all
+// device-proven), while the "safe" chunk fallback is impractically slow for
+// large files (it was the pre-stream datagram-era path). The define remains
+// an emergency off-switch: --dart-define=XVEIL_PLAIN_FILE_STREAM=false.
+const _plainFileStreamDartDefine = bool.fromEnvironment(
+  'XVEIL_PLAIN_FILE_STREAM',
+  defaultValue: true,
+);
+const _contentServeBatchDartDefine = int.fromEnvironment(
+  'XVEIL_CONTENT_SERVE_BATCH',
+  defaultValue: 0,
+);
+const _contentPacingMsDartDefine = int.fromEnvironment(
+  'XVEIL_CONTENT_PACING_MS',
+  defaultValue: 0,
+);
+
+const _defaultContentPacing = Duration(milliseconds: 20);
+const _defaultContentServeBatch = 2;
+
+typedef _ContentManifestRef = ({
+  String contentId,
+  String name,
+  int size,
+  String? msgId,
+  String? author,
+  int? seq,
+  int? ts,
+  String? thumb,
+});
+
+int? xveilConfiguredStreamRangeParallelism() =>
+    _streamRangeParallelismDartDefine > 0
+    ? _streamRangeParallelismDartDefine
+    : null;
+
+int? xveilConfiguredStreamRangeTargetBytes() =>
+    _streamRangeTargetBytesDartDefine > 0
+    ? _streamRangeTargetBytesDartDefine
+    : null;
+
+bool xveilConfiguredStreamRangeEnabled() => _streamRangeEnabledDartDefine;
+
+Duration _configuredStreamOpenWriteGrace() =>
+    _streamOpenWriteGraceMsDartDefine > 0
+    ? Duration(milliseconds: _streamOpenWriteGraceMsDartDefine)
+    : MessagingService._defaultStreamOpenWriteGrace;
+
+Duration _configuredStreamRangeStallAbandon() =>
+    _streamRangeStallAbandonMsDartDefine > 0
+    ? Duration(milliseconds: _streamRangeStallAbandonMsDartDefine)
+    : const Duration(milliseconds: 2500);
+
+Duration _configuredStreamRangeHedgeAfter() => _streamRangeHedgeMsDartDefine > 0
+    ? Duration(milliseconds: _streamRangeHedgeMsDartDefine)
+    : const Duration(milliseconds: 3000);
+
+Duration _configuredStreamRequestTimeout() =>
+    _streamRequestTimeoutMsDartDefine > 0
+    ? Duration(milliseconds: _streamRequestTimeoutMsDartDefine)
+    : MessagingService._defaultStreamRequestTimeout;
+
+Duration _configuredStreamPayloadIdleTimeout() =>
+    _streamPayloadIdleMsDartDefine > 0
+    ? Duration(milliseconds: _streamPayloadIdleMsDartDefine)
+    : MessagingService._defaultStreamPayloadIdleTimeout;
+
+void _bulkStreamLog(String Function() message) {
+  if (_bulkStreamTraceDartDefine) devLog(message);
+}
+
+Duration _configuredContentPacing() => _contentPacingMsDartDefine > 0
+    ? Duration(milliseconds: _contentPacingMsDartDefine)
+    : _defaultContentPacing;
+
+int _configuredContentServeBatch() => _contentServeBatchDartDefine > 0
+    ? _clampContentServeBatch(_contentServeBatchDartDefine)
+    : _defaultContentServeBatch;
+
+int _clampContentServeBatch(int value) {
+  if (value < 1) return 1;
+  if (value > 32) return 32;
+  return value;
+}
+
+/// Raw bytes per wire chunk. The anonymous authenticated send (the live path,
+/// veil's auth_deliver) caps ONE message at MAX_AUTH_DELIVER_MSG_BYTES = 6144
+/// bytes and silently drops anything larger (fire-and-forget, no retry). A chunk
+/// is base64 + JSON-wrapped (~1.35×) plus the AuthDeliver header/signature, so
+/// 6000 inflated to ~8099 B and EVERY file chunk was dropped on the live path
+/// (text survived only via its mailbox stash; files have none). 4000 → ~5.5 KB
+/// encoded, a safe margin under 6144, so file chunks actually traverse the
+/// onion. (Mailbox-deposited frames share the same ceiling.)
+const _wireChunkBytes = 4000;
+
+/// Group snapshot bytes per [WireKind.groupEntryChunk], and the threshold above
+/// which a snapshot is chunked instead of shipped as one [WireKind.groupEntry].
+///
+/// Smaller than [_wireChunkBytes] because a group chunk is DURABLE: it is stored
+/// in the outbox as `{id,p,w:base64(wire)}` in ONE ~4 KB container chunk, and the
+/// chunk data is ALREADY base64 inside the frame — so the raw bytes pass through
+/// TWO base64 layers (~1.78×) before hitting the outbox's PAYLOAD_CAP≈4040. 1800
+/// raw → ~3.2 KB outbox payload, a safe margin (4000 raw threw PayloadTooLarge on
+/// enqueueOutboxFrame). File chunks avoid this — they are NOT durable-outbox'd.
+const _groupChunkBytes = 1800;
+
+/// Bound the in-RAM group-snapshot reassembly so a hostile peer can't grow it
+/// without limit: a single snapshot over this many bytes (matching the stored
+/// file cap) is refused, and no more than this many snapshots reassemble at
+/// once (older partials evicted). A snapshot lost to eviction / restart re-heals
+/// on the sender's next full re-broadcast.
+const _kMaxGroupReasmBytes = kMaxStoredFileBytes;
+const _kMaxGroupReasmConcurrent = 8;
+
+/// Hard ceiling on a file we will buffer in memory and store. Bound by the
+/// at-rest layer: a stored file must be DELETABLE in one atomic commit (≤ 1024
+/// records × 8 KiB), so a larger blob can neither be persisted nor scrubbed on
+/// delete — see [kMaxStoredFileBytes]. It therefore doubles as (a) the inbound
+/// memory-DoS backstop (a hostile accepted peer can't buffer more than this) and
+/// (b) the send-side pre-check bound (the UI shows a friendly "too large" error
+/// here, instead of the storage layer throwing PayloadTooLarge mid-attach).
+const kMaxIncomingFileBytes =
+    kMaxStoredFileBytes; // ~8 MiB (1024×8 KiB ceiling)
+
+/// Largest streamed IMAGE we will read back whole (transiently) to generate
+/// its embedded micro-thumb. Image decode needs the full file, so this bounds
+/// the RAM spike of thumb generation on the sendFileStreaming path; a bigger
+/// image simply ships without a thumb (the preview is optional by design).
+const kThumbSourceReadCapBytes = 24 * 1024 * 1024;
+
+/// Max simultaneous inbound transfers we will buffer. Without this the
+/// per-transfer [kMaxIncomingFileBytes] cap is not enough: a peer could open
+/// many transfers at once and still exhaust memory. Together they bound the
+/// worst-case buffered total to ~this × [kMaxIncomingFileBytes]. Tunable.
+const kMaxConcurrentIncomingFiles = 8;
+
+/// How long an inbound transfer may sit idle (no new chunk) before a fresh
+/// transfer arriving at capacity may evict it to reclaim its slot. Without this,
+/// an accepted peer that opens [kMaxConcurrentIncomingFiles] transfers and never
+/// finishes them blocks all legitimate transfers until an app restart — an
+/// availability problem (memory stays bounded regardless). Timeout-evict, not
+/// LRU: LRU would let a hostile peer evict a victim's ACTIVE transfer. Tunable.
+const kStaleIncomingFileTimeout = Duration(minutes: 5);
+
+/// Max pre-consent intro messages we retain from a single not-yet-accepted
+/// peer. Each [WireKind.request] carries an optional greeting we store so the
+/// consent prompt can show it; a literal re-send dedups by id, but a hostile
+/// peer minting a FRESH id per request could otherwise pile up unbounded
+/// intros on the victim's device before they ever accept. We keep the most
+/// recent [kMaxPreConsentIntros] and evict the oldest — bounding storage while
+/// still surfacing a peer's latest introduction. The consent decision is about
+/// the peer, not the text, so a small cap loses nothing. Tunable.
+const kMaxPreConsentIntros = 5;
+
+/// In-flight inbound file reassembly state.
+class _Incoming {
+  _Incoming({
+    required this.src,
+    required this.name,
+    required this.reasm,
+    required this.lastActivity,
+    this.seq,
+    this.sentAtMs,
+  });
+  final NodeId src;
+  final String? name;
+  final FileReassembler reasm;
+
+  /// The SENDER's event seq for this file (filePost, §15), carried on the meta
+  /// so the completed file message folds under the same (author, seq) — keeping
+  /// the log convergent and letting gap-fill heal a missing file. Null from an
+  /// older sender → the receiver allocates a local seq (legacy, off-convergence).
+  final int? seq;
+
+  /// The SENDER's send-time (ms) for this file, carried on the meta so the
+  /// completed file message folds under the sender's time — keeping the
+  /// (effective_ts, author, seq) display order convergent. Null from an older
+  /// sender → the receiver falls back to its receive time.
+  final int? sentAtMs;
+
+  /// Wall-clock of the most recent meta/chunk for this transfer. Bumped on every
+  /// chunk so an actively-progressing transfer is never seen as stale; only idle
+  /// (stalled/abandoned) transfers are eligible for eviction.
+  DateTime lastActivity;
+}
+
+/// Max edit/delete ops we hold waiting for their target message to arrive (see
+/// [MessagingService._pendingOps]). Bounds memory against an accepted peer that
+/// spams ops for message ids we never receive; the cap evicts oldest-first. A
+/// real conversation has at most a handful of in-flight out-of-order ops, so a
+/// modest cap loses nothing legitimate. Tunable.
+const kMaxPendingOps = 512;
+
+/// A peer's edit/delete of one of THEIR messages that drained before the message
+/// itself. Buffered until the target stores, then replayed. A delete is terminal
+/// (a later edit can't revive a message the peer unsent), so [isDelete] wins over
+/// a buffered edit for the same id.
+class _PendingOp {
+  _PendingOp.edit(String this.body) : isDelete = false;
+  _PendingOp.delete() : isDelete = true, body = null;
+  final bool isDelete;
+
+  /// The replacement text for an edit; null for a delete.
+  final String? body;
+}
+
+/// A genuinely-new incoming message, emitted on [MessagingService.incoming] for
+/// the notification layer (NOT re-deliveries — those are deduped before this
+/// fires). Carries only what a notification needs; the privacy decision (show
+/// the text/sender or not) is made above, not here.
+class IncomingNotice {
+  const IncomingNotice({
+    required this.from,
+    required this.preview,
+    required this.isFile,
+  });
+  final NodeId from;
+  final String preview;
+  final bool isFile;
+}
+
+/// An author-side prompt: [peer] asked us to attest authorship of message
+/// [msgId] whose text is [body]. Surfaced on [MessagingService.signatureAsks]
+/// under [SignaturePolicy.ask]; resolved via
+/// [MessagingService.resolveSignatureAsk].
+class SignatureAsk {
+  const SignatureAsk({
+    required this.peer,
+    required this.msgId,
+    required this.body,
+  });
+  final NodeId peer;
+  final String msgId;
+  final String body;
+}
+
+/// Outcome of a user-initiated download ([MessagingService.downloadContent] /
+/// [MessagingService.downloadContentToFile]).
+enum ContentDownloadResult {
+  /// The fetch began (or the bytes were already held).
+  started,
+
+  /// No live manifest handle — we asked the sender to re-advertise; the download
+  /// continues automatically if the sender is still serving, else nothing comes.
+  requestedReoffer,
+
+  /// No live offer AND no peer to ask — the sender must re-send.
+  noOffer,
+}
+
+/// A live byte source the SENDER serves a large file from directly — the user's
+/// ORIGINAL file on disk — instead of a stored/duplicated copy. [read] returns
+/// exactly [length] bytes at [offset]; [close] releases the underlying handle
+/// (the file picker's RandomAccessFile) when serving ends. Held by
+/// [MessagingService._serving] and closed on eviction/dispose. The dart:io
+/// implementation lives in the UI layer so this stays transport-/io-free.
+typedef ServeSource = ({
+  Future<Uint8List> Function(int offset, int length) read,
+  Future<void> Function() close,
+});
+
+/// Where a RECEIVE writes each verified piece when the user chose to download a
+/// large file UNENCRYPTED, straight to a plaintext file they picked — instead of
+/// the encrypted on-disk tier. [write] places [bytes] at byte [offset];
+/// [close] finalises the file. The dart:io sink lives in the UI layer so the
+/// messaging service stays io-free. Null fetch sink ⇒ store via the Storage port
+/// (encrypted tier / in-volume) as usual.
+typedef _FetchSink = ({
+  Future<void> Function(int offset, Uint8List bytes) write,
+  Future<void> Function() close,
+  // Non-null only on a RESUME reopen of a plain file: reads a piece back so the
+  // swarm can hash-verify it off disk and skip the ones a previous run already
+  // wrote (byte-level restart resume). Null on a fresh download / encrypted
+  // tier (nothing prior to trust).
+  Future<Uint8List?> Function(int offset, int length)? read,
+});
+
+/// Wires the [VeilTransport] inbound stream into [Storage] and exposes a send
+/// path. Persists every message, then signals [changes] so the read providers
+/// refresh. Intentionally Riverpod-free (no Ref) — it owns a plain broadcast
+/// stream, which keeps it testable and avoids invalidating providers from
+/// async stream callbacks.
+class MessagingService {
+  MessagingService(
+    this._transport,
+    this._storage, {
+    this._anonymous = false,
+    DateTime Function()? now,
+    Duration? contentReRequestInterval,
+    Duration? contentPacing,
+    int? contentServeBatch,
+    bool? plainFileStream,
+    Duration? streamPayloadIdleTimeout,
+    Duration? streamRangeStallAbandon,
+    Duration? streamRangeHedgeAfter,
+    int? streamPullMaxAttempts,
+    int? streamRangeParallelism,
+    int? streamRangeTargetBytes,
+    bool? streamRangeEnabled,
+    Duration? streamOpenWriteGrace,
+    Duration? streamRequestTimeout,
+    Future<bool> Function(NodeId peer)? p2pStreamAllowed,
+    Future<String?> Function(String path)? videoThumbMaker,
+    Future<String?> Function(Uint8List bytes)? imageThumbMaker,
+  }) : _now = now ?? DateTime.now,
+       _contentReRequestInterval =
+           contentReRequestInterval ?? const Duration(seconds: 20),
+       _contentPacing = contentPacing ?? _configuredContentPacing(),
+       _contentServeBatch = _clampContentServeBatch(
+         contentServeBatch ?? _configuredContentServeBatch(),
+       ),
+       _plainFileStream = plainFileStream ?? _plainFileStreamDartDefine,
+       _streamPayloadIdleTimeout =
+           streamPayloadIdleTimeout ?? _configuredStreamPayloadIdleTimeout(),
+       _streamRangeStallAbandon =
+           streamRangeStallAbandon ?? _configuredStreamRangeStallAbandon(),
+       _streamRangeHedgeAfter =
+           streamRangeHedgeAfter ?? _configuredStreamRangeHedgeAfter(),
+       _streamPullMaxAttempts =
+           streamPullMaxAttempts ?? _defaultStreamPullMaxAttempts,
+       _streamRangeParallelism = _clampStreamRangeParallelism(
+         streamRangeParallelism ?? _defaultStreamRangeParallelism,
+       ),
+       _explicitRangeFanout =
+           streamRangeParallelism != null ||
+           _streamRangeParallelismDartDefine > 0,
+       _streamRangeTargetBytes = _clampStreamRangeTargetBytes(
+         streamRangeTargetBytes ?? _defaultStreamRangeTargetBytes,
+       ),
+       _streamRangeEnabled =
+           streamRangeEnabled ?? _streamRangeEnabledDartDefine,
+       _streamOpenWriteGrace =
+           streamOpenWriteGrace ?? _configuredStreamOpenWriteGrace(),
+       _streamRequestTimeout =
+           streamRequestTimeout ?? _configuredStreamRequestTimeout(),
+       _p2pStreamsEnabled = p2pStreamAllowed != null,
+       _p2pStreamAllowed = p2pStreamAllowed ?? _denyP2PStream,
+       _videoThumbMaker = videoThumbMaker ?? _noVideoThumb,
+       _imageThumbMaker = imageThumbMaker ?? _noImageThumb;
+
+  /// Wall-clock source, injectable so stale-transfer eviction is testable
+  /// without real delays. Defaults to [DateTime.now].
+  final DateTime Function() _now;
+
+  final VeilTransport _transport;
+  final Storage _storage;
+  final bool _p2pStreamsEnabled;
+  final Future<bool> Function(NodeId peer) _p2pStreamAllowed;
+  final Future<String?> Function(String path) _videoThumbMaker;
+  final Future<String?> Function(Uint8List bytes) _imageThumbMaker;
+
+  /// Whether this identity routes over the onion rendezvous (sender-location
+  /// hidden). Fixed per identity at boot from its roster `anonymous` flag — an
+  /// anonymous identity sends EVERYTHING (messages, acks, accepts, file frames)
+  /// anonymously and never over clearnet, so no single frame leaks its network
+  /// location. An undeliverable frame stays un-acked and is retried, never
+  /// degraded to a clearnet send (see [VeilTransport.send]).
+  final bool _anonymous;
+
+  /// This identity's local anonymity posture (per-identity boot flag). The call
+  /// negotiator reads it to choose the media path — see [CallSignal] and the
+  /// design doc's transport matrix (anon → onion, mixed → relay, direct → P2P).
+  bool get isAnonymousIdentity => _anonymous;
+
+  /// Set by the call service to receive inbound [WireKind.callSignal] frames
+  /// (offer/answer/reject/cancel/busy/end/renegotiate/transportInfo). Fires only
+  /// for accepted contacts; a durable signal is already acked+deduped by the
+  /// generic durable-frame gate before this runs. Null when no call service is
+  /// attached — the signal is then dropped.
+  void Function(NodeId peer, CallSignal signal)? onCallSignal;
+
+  /// Attached by the group layer: an inbound group snapshot ([bundleJson]) from
+  /// an accepted [peer], to ingest idempotently. Dropped when unset.
+  void Function(NodeId peer, String bundleJson)? onGroupEntry;
+
+  /// Attached by the group layer: an inbound signed content-fetch request
+  /// (groups content path). NOT contact-gated — the signed membership proof
+  /// inside IS the authorization, judged by the group layer (silent drop when
+  /// unauthorized or unset).
+  void Function(NodeId peer, String requestJson)? onGroupContentRequest;
+
+  /// Attached by the multi-device bridge: fires after a 1:1 message is stored
+  /// (BOTH directions), so the device-sync layer can mirror it to my other
+  /// devices. Fires for the row we just wrote; NEVER fires from
+  /// [applyMirroredMessage] (which writes straight to storage), so a mirrored
+  /// message can't re-mirror. Null = no mirroring.
+  void Function(NodeId peer, Message stored)? onMessageStored;
+
+  /// Apply a message mirrored from ANOTHER of my devices into the [peer]
+  /// conversation. Idempotent + deniability-safe: skips an id we already hold
+  /// (native delivery or an earlier mirror) AND one we deleted on THIS device
+  /// (a mirror must never resurrect it). Writes straight to storage, so it
+  /// does not re-fire [onMessageStored]. Returns whether it wrote a new row.
+  ///
+  /// A FILE mirror (brick 4b) carries [fileContentId]/[fileName]/[fileSize]/
+  /// [thumb] and lands OFFER-shaped — no bytes, `fileId` stays null — so the
+  /// chat renders the normal download affordance; the download routes to my
+  /// other devices through [deviceContentPull].
+  Future<bool> applyMirroredMessage({
+    required NodeId peer,
+    required String msgId,
+    required MessageDirection direction,
+    required String body,
+    required int tsMs,
+    String? fileContentId,
+    String? fileName,
+    int? fileSize,
+    String? thumb,
+  }) async {
+    if (await _hasMessage(peer, msgId)) return false;
+    if (await _storage.isMessageDeleted(peer.hex, msgId)) return false;
+    await _storage.appendMessage(Message(
+      id: msgId,
+      conversationId: peer.hex,
+      direction: direction,
+      body: body,
+      timestamp: DateTime.fromMillisecondsSinceEpoch(tsMs),
+      status: direction == MessageDirection.outgoing
+          ? MessageStatus.sent
+          : MessageStatus.delivered,
+      fileContentId: fileContentId,
+      fileName: fileName,
+      fileSize: fileSize,
+      thumb: thumb,
+    ));
+    _signal();
+    return true;
+  }
+
+  /// Attached by the multi-device bridge (brick 4b): fire-and-forget "also try
+  /// pulling [contentId] from MY OTHER DEVICES over the membership-authorized
+  /// group content path". Invoked on every user download; the bridge no-ops
+  /// unless the cid is actually referenced in my device group, so ordinary
+  /// 1:1 downloads cost nothing. Null = single-device install.
+  Future<void> Function(String contentId)? deviceContentPull;
+
+  /// Attached by the multi-device bridge: fires after a LOCAL user edit of a
+  /// contact's sync-worthy preferences (alias, mute, pin, archive, retention,
+  /// peer-delete policy) — the setters below funnel through
+  /// [_putContactPrefs]. NEVER fires from [applyMirroredContact], so a synced
+  /// record can't re-mirror. Null = no mirroring.
+  void Function(Contact updated)? onContactPrefsChanged;
+
+  /// The single write path for the SYNCED contact-preference setters: persist,
+  /// then let the device bridge mirror the fresh record. Relationship changes
+  /// ([_setStatus]) and the per-device [setContactP2POverride] stay off this
+  /// path by design.
+  Future<void> _putContactPrefs(Contact c) async {
+    await _storage.upsertContact(c);
+    onContactPrefsChanged?.call(c);
+  }
+
+  /// Apply a contact record mirrored from ANOTHER of my devices. Only merges
+  /// into a contact THIS device already holds (v1 — the relationship itself is
+  /// not synced yet, so an unknown peer is skipped silently rather than
+  /// materialized half-formed); local-only fields (status, p2pOverride) are
+  /// preserved. Writes straight to storage, so it never re-fires
+  /// [onContactPrefsChanged]. Returns whether anything was written.
+  Future<bool> applyMirroredContact({
+    required NodeId peer,
+    String? name,
+    int? mutedUntilMs,
+    required bool pinned,
+    required bool archived,
+    int? retentionDays,
+    required bool allowPeerDelete,
+  }) async {
+    final existing = await _storage.getContact(peer);
+    if (existing == null) return false;
+    await _storage.upsertContact(
+      Contact(
+        nodeId: existing.nodeId,
+        name: name,
+        status: existing.status,
+        mutedUntil: mutedUntilMs == null
+            ? null
+            : DateTime.fromMillisecondsSinceEpoch(mutedUntilMs),
+        pinned: pinned,
+        archived: archived,
+        retentionDays: retentionDays,
+        allowPeerDelete: allowPeerDelete,
+        p2pOverride: existing.p2pOverride,
+      ),
+    );
+    _signal();
+    return true;
+  }
+
+  /// Attached by the group layer: a group snapshot from a NON-contact sender
+  /// (scale-free log sync — members need no pairwise contact handshake). The
+  /// group layer admits it ONLY into groups it already holds where the sender
+  /// is a current member; new-group materialization (an invite) stays
+  /// contact-gated. Dropped when unset.
+  void Function(NodeId peer, String bundleJson)? onGroupEntryFromStranger;
+
+  /// Asks the group layer whether NON-contact [peer] may sync the group —
+  /// the chunk-path admission, checked BEFORE reassembly RAM is spent.
+  Future<bool> Function(NodeId peer, String gidHex)? allowStrangerGroupSync;
+
+  /// Ship a signed group content-fetch request to [dst] (the content holder)
+  /// durably. Keyed by content so a re-mint of the same request dedups; a
+  /// frame that outlives the 10-minute authorization window is simply refused
+  /// by the holder's gate.
+  Future<void> sendGroupContentRequest(NodeId dst, String requestJson) =>
+      sendDurable(
+        dst,
+        'gcr:${requestJson.hashCode & 0x7fffffff}',
+        WireEnvelope.groupContentRequest(requestJson),
+      );
+
+  /// Membership-authorized serve grants: `<peerHex>|<cid>` → expiry (ms).
+  /// Granted by the group layer after [onGroupContentRequest] authorizes; lets
+  /// [_serveStream] serve a NON-contact group member. RAM-only — after a
+  /// restart the member's retry re-authorizes.
+  final Map<String, int> _groupServeGrants = {};
+
+  /// Allow [peer] to pull [cid] for [ttl] (defaults to the request window).
+  void grantGroupContentServe(
+    NodeId peer,
+    String cid, {
+    Duration ttl = const Duration(minutes: 10),
+  }) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    _groupServeGrants.removeWhere((_, exp) => exp <= now);
+    _groupServeGrants['${peer.hex}|$cid'] = now + ttl.inMilliseconds;
+    devLog(
+      () =>
+          'xVeil[content]: group serve GRANTED '
+          '${cid.substring(0, cid.length < 12 ? cid.length : 12)} '
+          '-> ${peer.short}',
+    );
+  }
+
+  bool _groupServeGranted(NodeId peer, String cid) =>
+      (_groupServeGrants['${peer.hex}|$cid'] ?? 0) >
+      DateTime.now().millisecondsSinceEpoch;
+
+  /// Register in-RAM [bytes] as fetchable group content: the blob goes into
+  /// the file store under its contentId and the manifest under `mf:<cid>`, so
+  /// [_serveStream] can serve it (to accepted contacts as always, and to
+  /// membership-granted members). Idempotent — the cid is content-derived.
+  /// Returns the contentId the group message's ref should carry.
+  Future<String> registerGroupContent(
+    Uint8List bytes, {
+    required String name,
+  }) async {
+    final m = ContentManifest.fromBytes(name, bytes);
+    final cid = m.contentId;
+    if (!await _storage.hasFile(cid)) {
+      await _storage.storeFile(cid, bytes, name: name);
+    }
+    // The manifest is what makes the blob SERVABLE — a swallowed failure here
+    // mints a ref nobody can fetch (device-observed: the very first write
+    // after app start failed transiently while the blob write succeeded).
+    // Retry once, then rethrow so the caller refuses to post the ref.
+    final mfBytes = Uint8List.fromList(utf8.encode(jsonEncode(m.toJson())));
+    try {
+      await _storage.storeFile('mf:$cid', mfBytes, name: 'manifest');
+    } catch (e) {
+      devLog(
+        () => 'xVeil[content]: group manifest persist retry after: $e',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      await _storage.storeFile('mf:$cid', mfBytes, name: 'manifest');
+    }
+    devLog(
+      () =>
+          'xVeil[content]: group content registered '
+          '${cid.substring(0, 12)} (${bytes.length}B)',
+    );
+    return cid;
+  }
+
+  /// The active (unexpired) grants, for the debug hook / tests.
+  List<Map<String, Object>> debugGroupServeGrants() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return [
+      for (final e in _groupServeGrants.entries)
+        if (e.value > now)
+          {
+            'peer': e.key.split('|').first,
+            'cid': e.key.split('|').last,
+            'expiresInMs': e.value - now,
+          },
+    ];
+  }
+
+  /// Ship a group snapshot to [dst] durably (direct fanout; keyed per group so
+  /// a later snapshot of the SAME group supersedes an un-acked earlier one).
+  Future<void> sendGroupSnapshot(NodeId dst, String groupIdHex,
+      String bundleJson) async {
+    // Key the frame by CONTENT so a NEW snapshot of the same group (a fresh
+    // message/op) is a distinct durable frame — a group-only id would let the
+    // receiver dedup the newer snapshot away. A re-drive of the SAME snapshot
+    // still dedups (same hash). (The renegotiate lesson: type-only ids collide.)
+    final h = bundleJson.hashCode & 0x7fffffff;
+    final bytes = Uint8List.fromList(utf8.encode(bundleJson));
+    // Small snapshot (control/text updates): one frame, as before (brick 4).
+    if (bytes.length <= _groupChunkBytes) {
+      await sendDurable(
+        dst,
+        'grp:$groupIdHex:$h',
+        WireEnvelope.groupEntry(bundleJson),
+      );
+      return;
+    }
+    // Oversized (an inline image): a single frame would exceed the auth_deliver
+    // 6144 cap and be silently dropped. Split the UTF-8 bytes into chunks, each
+    // a durable frame keyed per (snapshot, index) so it acks/dedups on its own;
+    // the receiver reassembles by [tid] and ingests the joined bundle.
+    final tid = 'grp:$groupIdHex:$h';
+    final count = (bytes.length + _groupChunkBytes - 1) ~/ _groupChunkBytes;
+    for (var i = 0; i < count; i++) {
+      final start = i * _groupChunkBytes;
+      final end = start + _groupChunkBytes < bytes.length
+          ? start + _groupChunkBytes
+          : bytes.length;
+      await sendDurable(
+        dst,
+        'grpc:$tid:$i',
+        groupEntryChunkEnvelope(
+          transferId: tid,
+          index: i,
+          count: count,
+          data: Uint8List.sublistView(bytes, start, end),
+        ),
+      );
+    }
+  }
+
+  /// Reassemble a chunked group snapshot ([WireKind.groupEntryChunk]); once
+  /// every chunk of a transferId is present, hand the joined bundle to
+  /// [onGroupEntry] exactly like a whole [WireKind.groupEntry]. In-RAM +
+  /// bounded; a lost partial re-heals on the sender's next full re-broadcast.
+  /// A NON-contact's chunk: admit only when the group layer confirms the
+  /// sender is a member of the group named in the transferId
+  /// (`grp:<gidHex>:<hash>`) — checked before buying reassembly RAM.
+  Future<void> _ingestStrangerGroupChunk(NodeId src, String body) async {
+    final GroupEntryChunkFrame f;
+    try {
+      f = parseGroupEntryChunk(body);
+    } catch (_) {
+      return; // malformed / hostile chunk
+    }
+    final parts = f.transferId.split(':');
+    if (parts.length < 3 || parts[0] != 'grp') return;
+    final gidHex = parts[1];
+    if (!(await allowStrangerGroupSync?.call(src, gidHex) ?? false)) {
+      return; // silent drop — no membership oracle
+    }
+    _ingestGroupChunk(src, body, fromStranger: true);
+  }
+
+  void _ingestGroupChunk(NodeId src, String body, {bool fromStranger = false}) {
+    final GroupEntryChunkFrame f;
+    try {
+      f = parseGroupEntryChunk(body);
+    } catch (_) {
+      return; // malformed / hostile chunk
+    }
+    if (f.count <= 0 || f.index < 0 || f.index >= f.count) return;
+    var slot = _groupReasm[f.transferId];
+    if (slot == null) {
+      // Cap concurrent reassemblies — evict the oldest partial (insertion order).
+      if (_groupReasm.length >= _kMaxGroupReasmConcurrent) {
+        _groupReasm.remove(_groupReasm.keys.first);
+      }
+      slot = (count: f.count, parts: <int, Uint8List>{}, bytes: 0);
+      _groupReasm[f.transferId] = slot;
+    }
+    if (f.count != slot.count) return; // stray chunk from a different snapshot
+    if (slot.parts.containsKey(f.index)) return; // duplicate slice
+    final nextBytes = slot.bytes + f.data.length;
+    if (nextBytes > _kMaxGroupReasmBytes) {
+      _groupReasm.remove(f.transferId); // refuse an oversized snapshot
+      return;
+    }
+    slot.parts[f.index] = f.data;
+    _groupReasm[f.transferId] =
+        (count: slot.count, parts: slot.parts, bytes: nextBytes);
+    if (slot.parts.length < slot.count) return; // still missing chunks
+    // Complete: concatenate in index order, decode, ingest once.
+    _groupReasm.remove(f.transferId);
+    final joined = BytesBuilder(copy: false);
+    for (var i = 0; i < slot.count; i++) {
+      final part = slot.parts[i];
+      if (part == null) return; // gap despite full count — bail defensively
+      joined.add(part);
+    }
+    try {
+      final bundle = utf8.decode(joined.toBytes());
+      // The stranger path re-validates membership at ingest too (the guarded
+      // service half) — this routing just keeps the two admission stories
+      // separate end to end.
+      if (fromStranger) {
+        onGroupEntryFromStranger?.call(src, bundle);
+      } else {
+        onGroupEntry?.call(src, bundle);
+      }
+    } catch (_) {/* undecodable joined bundle */}
+  }
+
+  /// Single egress point so every outbound frame honours [_anonymous]. The real
+  /// transport routes over an onion circuit when anonymous (and never falls back
+  /// to clearnet); the loopback fake ignores the flag.
+  /// Live-send [payload] to [dst]. [wantReply] (only meaningful when anonymous)
+  /// attaches a one-time reply block so the recipient can ACK over THIS send's
+  /// circuit (surfacing as a non-zero [InboundMessage.replyId]) instead of doing
+  /// a full resolve + circuit-build of its own — used for chat messages so the
+  /// delivery-ACK round-trip is ~halved. Anonymity is unchanged (one-shot block,
+  /// not a reused circuit).
+  Future<void> _send(NodeId dst, Uint8List payload, {bool wantReply = false}) {
+    devLog(
+      () =>
+          'xVeil[send]: live send dst=${dst.short} anonymous=$_anonymous '
+          'wantReply=$wantReply bytes=${payload.length} '
+          'transport=${_transport.runtimeType}',
+    );
+    if (_anonymous && wantReply) {
+      return _transport.sendWithReply(dst, payload);
+    }
+    return _transport.send(dst, payload, anonymous: _anonymous);
+  }
+
+  /// Send a delivery ACK for [id] back to the sender of inbound [m]. When [m]
+  /// carried a one-time reply path ([InboundMessage.replyId] != 0, set because
+  /// the sender used `wantReply`), route the ACK over it — no fresh resolve +
+  /// circuit-build — which is the latency win that flips the sender's message to
+  /// "delivered" fast. Falls back to a normal anonymous send otherwise.
+  ///
+  /// [direct] forces the reliable full anonymous send even when a reply path is
+  /// available. We set it on RE-receipts of an already-seen message: a repeat
+  /// means our previous (reply-path) ACK never reached the sender — the one-time
+  /// reply circuit can silently die on a NAT'd/mobile peer — so the second time
+  /// we ACK over the durable resolve+circuit path instead of looping forever on
+  /// a dead reply path. First receipt → fast reply path; repeat → reliable path.
+  Future<void> _ackTo(
+    InboundMessage m,
+    String id, {
+    bool direct = false,
+    bool repeat = false,
+  }) async {
+    final ack = WireEnvelope.ack(id).encode();
+    final viaReply = !direct && m.replyId != 0;
+    // [timeline] which ACK path we took (reply = fast one-time circuit; direct =
+    // durable resolve+circuit). id + path enum only — no body/keys. A repeat
+    // (re-delivery of an already-processed frame: sender re-drive, mailbox
+    // replica fan-out landing across drain passes) is labeled `re-ack` so the
+    // log reads as the EXPECTED duplicate it is, not as reprocessing.
+    devLog(
+      () =>
+          'xVeil[timeline]: ${repeat ? 're-ack' : 'ack'} id=$id '
+          'via=${viaReply ? 'reply' : 'direct'} '
+          't=${DateTime.now().millisecondsSinceEpoch}',
+    );
+    if (viaReply) {
+      // Fast path: ride the sender's one-time reply circuit. Lowest latency, but
+      // the circuit can silently die on a NAT'd/mobile sender — covered by the
+      // durable path below on any re-receipt.
+      await _transport.sendReply(m.replyId, ack);
+      return;
+    }
+    // Durable path. A live send reaches the sender ONLY over a direct session, so
+    // a NAT'd/offline sender never sees the ack and re-sends the message forever
+    // — the observed delivery "storm" (hundreds of duplicate INBOUNDs that the
+    // receiver dedups but the sender keeps generating because nothing flips the
+    // message to "delivered"). The MESSAGE itself reaches a NAT'd peer only
+    // because it is DEPOSITED at their mailbox and pushed over rendezvous; the
+    // ack was missing that leg. Deposit the ack at the sender's mailbox too so it
+    // rides the same push. Deduped per id via the '_stashed' set (at most one
+    // deposit per message), and fire-and-forget so the seal/PUT round-trip never
+    // stalls the receive path — the live send above still covers the online case
+    // at lower latency.
+    await _send(m.src, ack);
+    unawaited(_maybeStash(m.src, 'ack:$id', ack));
+  }
+
+  final _changes = StreamController<void>.broadcast();
+  // Genuinely-new incoming messages (post-dedup), for the notification layer.
+  final _incoming = StreamController<IncomingNotice>.broadcast();
+  StreamSubscription<InboundMessage>? _sub;
+  Timer? _retryTimer;
+
+  /// The one-shot post-unlock settings-GC delay — cancellable so dispose()
+  /// (provider teardown, widget tests) retracts it; see [start].
+  Timer? _settingsGcTimer;
+  bool _flushing = false;
+  final Map<String, _Incoming> _inFlight = {};
+
+  /// Edit/delete ops that arrived BEFORE the message they target. Mailbox blobs
+  /// have no delivery order, so when a peer sends a message and then edits (or
+  /// unsends) it while we are offline, both deposits drain on reconnect in
+  /// arbitrary order — the edit/del can come first. Without this the op would be
+  /// dropped (its target isn't stored yet), so the offline edit/delete never
+  /// lands. Keyed by `<peerHex>|<messageId>`; replayed when the message stores.
+  ///
+  /// In-memory + bounded ([kMaxPendingOps]): nothing about a pending op touches
+  /// disk (no metadata at rest), and a hostile accepted peer can't grow it
+  /// without bound. Lost on restart — durable cross-session op ordering is the
+  /// event-log's job (doc/EVENT-LOG-SYNC-DESIGN.md §15), this is the tactical
+  /// fix for the common same-session drain.
+  final Map<String, _PendingOp> _pendingOps = {};
+
+  /// Offline-delivery side-channel (null until wired by the provider, and null
+  /// for the loopback/test transport). When present, un-acked outgoing messages
+  /// are ALSO deposited at the recipient's mailbox relay so an offline peer
+  /// receives them, and our own mailbox is drained into [deliverInbound].
+  MailboxSink? _mailbox;
+
+  /// Message ids already deposited to the mailbox this session — so a message
+  /// is stashed once, not on every outbox flush. The relay also dedups by
+  /// content id, so this is purely a network-traffic optimisation.
+  final Set<String> _stashed = {};
+
+  /// When a stash of a given id last FAILED. A failed deposit is never added to
+  /// [_stashed] (so a later flush retries it — correct for offline delivery),
+  /// but EACH `mailbox.stash` spawns a worker isolate that does a DHT relay-key
+  /// resolve + ML-KEM seal and blocks ~12s when the relay can't be resolved. The
+  /// 3s outbox flush therefore re-spawned a seal isolate every tick for every
+  /// not-yet-deliverable message — a self-inflicted isolate/CPU storm competing
+  /// with live onion delivery (observed: 140 "stash FAILED" in one session). We
+  /// back off re-attempts of a FAILED id by [_stashRetryBackoff]; the deposit is
+  /// never dropped (it still retries, just not every 3s), so offline delivery is
+  /// unaffected.
+  final Map<String, DateTime> _stashFailedAt = {};
+  static const _stashRetryBackoff = Duration(seconds: 30);
+
+  /// Per-message live-resend backoff. The outbox flush fires every
+  /// [_retryInterval] (3s), but re-sending EVERY un-acked message on EVERY tick
+  /// is a storm when delivery is lossy (observed 789 re-sends in one session,
+  /// each a full onion send + an FFI hop that, in bulk, starved the UI isolate
+  /// into a freeze). Instead each message backs off exponentially after its
+  /// first re-send: 3s, 6s, 12s, 24s, capped at [_maxRetryBackoff]. The first
+  /// send (sendText) and the first re-send are unchanged, so a transient loss
+  /// still recovers in seconds; only a persistently-undeliverable message stops
+  /// hammering. Cleared when the message is acked (delivered).
+  final Map<String, ({int count, DateTime nextAt, String peer})> _retryBackoff =
+      {};
+  static const _maxRetryBackoff = Duration(seconds: 24);
+
+  /// Peer-alive nudge throttle: [_nudgeRetries] rewinds a peer's pending
+  /// re-sends on EVERY inbound from them, so an active peer must not turn
+  /// that into a re-send per received message — at most one nudge per peer
+  /// per [_retryInterval].
+  final Map<String, DateTime> _lastNudgeAt = {};
+
+  /// Message ids we've seen a DELIVERED ack for this session. A peer's mailbox
+  /// drain re-acks every cycle until its relay blob ages out, so duplicate acks
+  /// arrive in a storm; this makes the ack handler idempotent (mark + log once)
+  /// and lets the outbox flush cancel a re-send synchronously on the first ack,
+  /// before the durable status write resolves. Durable `MessageStatus.delivered`
+  /// remains the source of truth across restart — this is only an early-cancel.
+  final Set<String> _delivered = {};
+
+  /// Per-PEER escalating backoff for a contact whose mailbox seal keeps failing
+  /// `PeerUnresolved` (a dead/old identity — e.g. a peer that re-provisioned).
+  /// Without it the 3s flush re-sends to such a ghost forever. Escalates
+  /// 30s→1m→…→30m (cap); cleared on any successful stash for the peer, and reset
+  /// on restart (a fresh resolve attempt) — it NEVER permanently drops, so if the
+  /// identity resolves again delivery resumes.
+  final Map<String, ({int count, DateTime nextAt})> _peerUnresolvedBackoff = {};
+  static const _peerUnresolvedCap = Duration(minutes: 30);
+
+  /// Event-log gap-fill (§15, 3c). A [WireKind.sync] beacon advertises our
+  /// per-author high-water + holes to a peer; the peer re-ships every event we
+  /// are missing above it (and vice-versa), so a flaky transport (lost live send,
+  /// usable(KEM)=0 mailbox) self-heals to the full log — on top of the live +
+  /// outbox + ack path, which stays as the fast path.
+  ///
+  /// Throttle per peer: we beacon at most once per [_syncSendInterval] (it costs
+  /// a live send) and ACT on a peer's beacon at most once per [_syncActInterval]
+  /// (a flood of sync{hw:0} must not make us re-ship in a storm — anti-
+  /// amplification). Each re-ship round is bounded to [_syncReshipCap] events.
+  final Map<String, DateTime> _lastSyncSentAt = {};
+  final Map<String, DateTime> _lastSyncActedAt = {};
+  static const _syncSendInterval = Duration(seconds: 20);
+
+  /// Per-peer count of consecutive sync beacons that got NO inbound of any
+  /// kind from that peer in between. Every accepted conversation used to
+  /// beacon at the base cadence FOREVER — a peer that is simply gone (dead
+  /// identity, device offline for days) received an anonymous onion send
+  /// every 20s indefinitely: pure node load, network noise, and misleading
+  /// `live send dst=&lt;ghost&gt;` lines in every diagnostic session. The beacon
+  /// interval now doubles per unanswered beacon (20s → … → [_syncBackoffCap]);
+  /// ANY inbound from the peer resets it, so a peer that comes back gets the
+  /// base cadence again within one message. `force` (reconnect) bypasses the
+  /// interval as before but does not reset the streak — only the peer
+  /// actually ANSWERING does.
+  final Map<String, int> _syncUnanswered = {};
+  static const _syncBackoffCap = Duration(minutes: 10);
+  static const _syncActInterval = Duration(seconds: 5);
+  static const _syncReshipCap = 100;
+
+  /// Resumable-file re-ship (§15 3c): answer a peer's [WireKind.fileNack] for a
+  /// given (peer, transfer) at most once per [_fileNackInterval] (a flood can't
+  /// drive a blob re-read + chunk re-send storm), and cap the chunks one NACK
+  /// answers — the rest heal on the next round. The map is bounded: entries are
+  /// written only AFTER the NACK resolves to a real outgoing file in THIS peer's
+  /// conversation (a fresh-tid flood inserts nothing), inert entries (older than
+  /// the interval) are evicted on each call, and it is cleared on reconnect — so
+  /// it stays O(active transfers), never O(every tid ever seen).
+  final Map<String, DateTime> _lastFileNackAt = {};
+  static const _fileNackInterval = Duration(seconds: 3);
+  static const _fileNackChunkCap = 256;
+
+  /// Bounded reconnect (recovery handshake, §15.7). When a message stays un-acked
+  /// past [_reconnectThreshold] the peer may have wiped its chat data + forgotten
+  /// us (so our sends hit its consent gate and drop). We send a
+  /// [WireKind.reconnect] re-intro at most every [_reconnectInterval] (throttled
+  /// per peer via [_lastReconnectAt]). Give-up is PER MESSAGE, anchored to the
+  /// message's OWN age: once a message stays un-acked past [_reconnectGiveUpAge]
+  /// it flips to [MessageStatus.failed] ("not delivered"). This is deliberately
+  /// NOT a shared per-peer counter — a chatty conversation to a dead peer would
+  /// keep resetting such a counter and an old undelivered message would never
+  /// terminate. The send throttle resets only when the peer acks (reachable);
+  /// a later gap-fill beacon can still heal a failed message if the peer returns.
+  final Map<String, DateTime> _lastReconnectAt = {};
+  static const _reconnectThreshold = Duration(minutes: 2);
+  static const _reconnectInterval = Duration(minutes: 15);
+  static const _reconnectGiveUpAge = Duration(minutes: 90);
+
+  /// Attach the offline-delivery [MailboxService] after construction (it is
+  /// built with [deliverInbound] as its drain sink, so it must exist first).
+  void attachMailbox(MailboxSink mailbox) => _mailbox = mailbox;
+
+  /// The app just returned to the foreground: the user is looking at the
+  /// screen, so anything parked at the mailbox relay should surface NOW, not on
+  /// the idle back-off (which can be minutes deep after a long background
+  /// stint). One debounced drain + a short burst window; a no-op when locked.
+  void onAppResumed() => _mailbox?.nudgeDrain();
+
+  /// Route a message recovered from our mailbox through the normal inbound
+  /// path — it is a `WireEnvelope`, so [_dispatch] decodes it, applies the
+  /// consent gate, stores it, acks, and dedups by id against any live delivery.
+  Future<void> deliverInbound(InboundMessage m) => _onInbound(m);
+
+  /// How often to re-send still-un-acked messages. Covers the case where the
+  /// RECIPIENT was offline (e.g. the peer switched to another identity, taking
+  /// that identity's node down) — our node-connect flush only fires on OUR
+  /// reconnect, so without this a message to a temporarily-offline peer would
+  /// never be retried. Bounded: a message stops being re-sent once acked.
+  // Re-send un-acked messages this often. Kept short so a live send that was
+  // dropped (circuit not ready) is retried in a few seconds rather than feeling
+  // stuck. Re-sends are cheap (dedup by id receiver-side; the deposit is skipped
+  // once stashed), so a tight interval mainly buys lower delivery latency.
+  static const _retryInterval = Duration(seconds: 3);
+
+  /// Emits whenever stored conversations/messages change.
+  Stream<void> get changes => _changes.stream;
+
+  /// Fires once per genuinely-new incoming message (after the consent gate +
+  /// dedup), so the notification layer can alert without re-alerting on a
+  /// re-delivery. The active identity's service is the one observed.
+  Stream<IncomingNotice> get incoming => _incoming.stream;
+
+  void start() {
+    // LIVE transport frames only (the mailbox drain feeds [deliverInbound]
+    // directly, not this). A frame from a peer proves it is reachable NOW, so
+    // nudge the mailbox to drain promptly: on the desktop→phone path the live
+    // rendezvous introduce is often dropped (cookie_unknown) while the sender's
+    // other live frames (acks / sync beacons) still land — without the nudge the
+    // stashed message surfaces only on the next idle drain (~30 s measured);
+    // with it, within the debounce window. Debounced + no-op without a mailbox.
+    _sub ??= _transport.messages().listen((m) {
+      _mailbox?.nudgeDrain();
+      _onInbound(m);
+    });
+    _retryTimer ??= Timer.periodic(_retryInterval, (_) => _retryFlush());
+    unawaited(_loadFilePolicy()); // this identity's auto-download policy (A1)
+    // Serve inbound bulk file streams (S2) when the transport supports them.
+    if (_transport is StreamTransport) unawaited(_acceptStreamLoop());
+    // Re-drive downloads that were interrupted before the last shutdown.
+    unawaited(_startDownloadResumer());
+    // Settings-namespace GC, once per unlock and off the hot path: aged stores
+    // accumulate per-content bookkeeping keys (legacy msgidx:*, saved:<cid>
+    // for messages long deleted) until the namespace's B+ index budget is
+    // exhausted and EVERY new file-piece persist dies with
+    // HvException.IndexFull — device-observed as downloads failing on a
+    // storage that looks nearly empty. Delayed so unlock/scan latency is
+    // untouched; failures are non-fatal (the next unlock retries). A
+    // CANCELLABLE Timer, not Future.delayed: dispose() must be able to
+    // retract the pending delay itself, or every widget test that touches the
+    // service dies on "A Timer is still pending" at teardown (the _disposed
+    // guard silences the callback but not the timer).
+    _settingsGcTimer = Timer(const Duration(seconds: 20), () {
+      unawaited(() async {
+        if (_disposed) return;
+        try {
+          final swept = await _storage.sweepSettingsGarbage();
+          if (swept > 0) {
+            devLog(() => 'xVeil[storage]: settings GC swept $swept dead keys');
+          }
+        } catch (e) {
+          devLog(() => 'xVeil[storage]: settings GC failed: $e');
+        }
+      }());
+    });
+  }
+
+  /// Set in [dispose]; stops the stream accept loop.
+  bool _disposed = false;
+
+  Future<void> _retryFlush() async {
+    if (_flushing) return; // don't stack overlapping flushes
+    _flushing = true;
+    try {
+      await flushOutbox();
+    } catch (_) {
+      // Transport hiccup — the next tick retries.
+    } finally {
+      _flushing = false;
+    }
+  }
+
+  /// Peer-alive nudge. ANY inbound from a peer proves the live path is healthy
+  /// RIGHT NOW, so sitting out an exponential backoff window (up to 24s) on
+  /// messages we still owe them stretches a healed transport stall into
+  /// user-visible latency (device-measured: a ~10s stall became a 30-60s
+  /// delivery because the next re-send was 24s away). Rewind their pending
+  /// re-sends to due-now and kick a flush; the backoff COUNT is kept, so if
+  /// the path is one-way-broken the doubling resumes on the next miss.
+  void _nudgeRetries(String peerHex) {
+    final now = DateTime.now();
+    final last = _lastNudgeAt[peerHex];
+    if (last != null && now.difference(last) < _retryInterval) return;
+    _lastNudgeAt[peerHex] = now;
+    var nudged = false;
+    for (final id in _retryBackoff.keys.toList()) {
+      final bo = _retryBackoff[id]!;
+      if (bo.peer == peerHex && bo.nextAt.isAfter(now)) {
+        _retryBackoff[id] = (count: bo.count, nextAt: now, peer: bo.peer);
+        nudged = true;
+      }
+    }
+    // Durable control frames get the same alive-now rewind as messages: an
+    // edit/accept/reconnect parked deep in its re-drive backoff would otherwise
+    // stretch a healed path into minutes of latency. Count kept, like above.
+    final fnow = _now();
+    for (final id in _outboxLiveBackoff.keys.toList()) {
+      final bo = _outboxLiveBackoff[id]!;
+      // Just-sent frames are skipped (ack in flight, see _outboxNudgeGrace) —
+      // rewinding them only produced duplicate re-drives, not latency wins.
+      if (fnow.difference(bo.lastSentAt) < _outboxNudgeGrace) continue;
+      if (bo.peer == peerHex && bo.nextAt.isAfter(fnow)) {
+        _outboxLiveBackoff[id] = (
+          count: bo.count,
+          nextAt: fnow,
+          peer: bo.peer,
+          lastSentAt: bo.lastSentAt,
+        );
+        nudged = true;
+      }
+    }
+    if (nudged) unawaited(_retryFlush());
+  }
+
+  /// Our node (re)connected — reconcile now. Clear the per-peer gap-fill throttle
+  /// so the [WireKind.sync] beacon fires IMMEDIATELY for every peer (a reconnect
+  /// is exactly when a peer may have missed our events while we were down), then
+  /// flush the outbox (which sends the beacons + re-sends un-acked messages).
+  Future<void> reconcileOnConnect() async {
+    _lastSyncSentAt.clear();
+    _lastSyncActedAt.clear();
+    _lastFileNackAt.clear(); // bound the throttle map across reconnects
+    // A (re)connect is exactly when interrupted downloads become resumable
+    // again — reset the failure backoff and probe each pending one.
+    _resumeAttempts.clear();
+    unawaited(_resumeAllPendingDownloads(stagger: const Duration(seconds: 2)));
+    await flushOutbox();
+  }
+
+  void _signal() {
+    if (!_changes.isClosed) _changes.add(null);
+  }
+
+  void _emitIncoming(NodeId from, String preview, {required bool isFile}) {
+    if (!_incoming.isClosed) {
+      _incoming.add(
+        IncomingNotice(from: from, preview: preview, isFile: isFile),
+      );
+    }
+  }
+
+  /// Persist a message and return its id. [id] lets the receiver reuse the
+  /// SENDER's id (so re-sends dedup) instead of minting a fresh one.
+  /// Our own node-id hex, cached after the first resolve — the event-log author
+  /// of every OUTGOING message (R1). The transport exposes it only async, so we
+  /// memoise it rather than awaiting a round-trip on every store.
+  String? _selfHexCache;
+  Future<String> _selfHex() async =>
+      _selfHexCache ??= (await _transport.nodeId()).hex;
+
+  // ── Reactions ──────────────────────────────────────────────────────────────
+  // A side annotation store, kept OUT of the message event-log (no seq/R6
+  // concerns): `rx:<convId>` KV holds JSON `{msgId: {reactorHex: emoji}}`.
+  // The UI overlays it on bubbles; delivery is a durable WireKind.reaction.
+
+  /// Load all reactions for a conversation: msgId → (reactorHex → emoji).
+  Future<Map<String, Map<String, String>>> loadReactions(String convId) async {
+    try {
+      final raw = await _storage.getSetting('rx:$convId');
+      if (raw == null || raw.isEmpty) return {};
+      final j = jsonDecode(raw);
+      if (j is! Map) return {};
+      return {
+        for (final e in j.entries)
+          if (e.value is Map)
+            e.key as String: {
+              for (final r in (e.value as Map).entries)
+                r.key as String: r.value as String,
+            },
+      };
+    } catch (_) {
+      return {};
+    }
+  }
+
+  /// Apply one reaction to the store (empty [emoji] removes this reactor's).
+  Future<void> _applyReaction(
+    String convId,
+    String msgId,
+    String reactorHex,
+    String emoji,
+  ) async {
+    final all = await loadReactions(convId);
+    final forMsg = all[msgId] ?? <String, String>{};
+    if (emoji.isEmpty) {
+      forMsg.remove(reactorHex);
+    } else {
+      forMsg[reactorHex] = emoji;
+    }
+    if (forMsg.isEmpty) {
+      all.remove(msgId);
+    } else {
+      all[msgId] = forMsg;
+    }
+    await _storage.putSetting('rx:$convId', jsonEncode(all));
+  }
+
+  /// React to [msgId] in [peer]'s chat with [emoji] (empty removes ours). The
+  /// reaction is applied locally and delivered durably so it survives offline.
+  Future<void> sendReaction(NodeId peer, String msgId, String emoji) async {
+    final selfHex = await _selfHex();
+    await _applyReaction(peer.hex, msgId, selfHex, emoji);
+    _signal();
+    // Saved Messages (peer == self) is local-only — never put a reaction to
+    // ourselves on the wire.
+    if (peer.hex == selfHex) return;
+    await sendDurable(peer, 'rx:$msgId', WireEnvelope.reaction(msgId, emoji));
+  }
+
+  /// The conversation id of "Saved Messages" — a chat with yourself. It's the
+  /// local node id, so when multi-device lands this log naturally becomes the
+  /// "my devices" group log (ROADMAP). Local-only: notes never touch the wire.
+  Future<String> savedSelfHex() => _selfHex();
+
+  /// Append a note to Saved Messages — a purely LOCAL write (no transport, no
+  /// consent gate, no mailbox). Used for notes-to-self and forward-to-saved.
+  Future<void> saveNote(
+    String text, {
+    String? replyToId,
+    String? forwardedFrom,
+  }) async {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return;
+    final selfId = NodeId.fromHex(await _selfHex());
+    await _store(
+      selfId,
+      MessageDirection.outgoing,
+      trimmed,
+      // Delivered, not sent: a note to self has no peer to ack — leaving it
+      // `sent` made _maybeReconnect fire a reconnect AT ourselves, which
+      // created a bogus pendingIncoming self-contact ("Saved wants to connect").
+      MessageStatus.delivered,
+      replyToId: replyToId,
+      forwardedFrom: forwardedFrom,
+      timestamp: _now(),
+    );
+    _signal();
+  }
+
+  Future<Message> _store(
+    NodeId peer,
+    MessageDirection dir,
+    String body,
+    MessageStatus status, {
+    String? fileId,
+    String? fileName,
+    int? fileSize,
+    String? fileContentId,
+    String? thumb,
+    String? id,
+    DateTime? timestamp,
+    int? seq,
+    String? replyToId,
+    String? forwardedFrom,
+    // LOCAL system annotations (the chatDeleted marker): author under OUR OWN
+    // event stream even though the row renders as incoming. Attributing it to
+    // the peer would make [appendMessage] allocate the next GAP-FREE seq in
+    // the PEER's stream — which fills an old gap and sorts the marker into
+    // the MIDDLE of the chat (caught in device-verify: idx 21/66 twice).
+    bool selfAuthored = false,
+  }) async {
+    final msgId = id ?? _uuid.v4();
+    final stored = await _storage.appendMessage(
+      Message(
+        id: msgId,
+        conversationId: peer.hex,
+        direction: dir,
+        replyToId: replyToId,
+        forwardedFrom: forwardedFrom,
+        thumb: thumb,
+        body: body,
+        // Incoming messages carry the SENDER's send time (env.sentAtMs) so the
+        // conversation orders by send-order, not the scrambled arrival order.
+        timestamp: timestamp ?? DateTime.now(),
+        status: status,
+        fileId: fileId,
+        fileName: fileName,
+        fileSize: fileSize,
+        fileContentId: fileContentId,
+        // Event-log author (R1): the message originator's node id, bound to the
+        // AUTHENTICATED side — our own for an outgoing message, the peer (the
+        // server-authenticated conversation id) for an incoming one. Never
+        // inferred from an in-band wire field.
+        author: selfAuthored || dir == MessageDirection.outgoing
+            ? await _selfHex()
+            : peer.hex,
+        // The SENDER's seq when this is a wire-delivered incoming event (keeps
+        // the log convergent, R4); null for our own outgoing message → storage
+        // allocates the next gap-free value, which the caller puts on the wire.
+        seq: seq,
+      ),
+    );
+    // Multi-device mirror tap: after the single write path persists a 1:1 row,
+    // let the device-sync bridge mirror it to my other devices. [_store] is the
+    // one messaging write path; applyMirroredMessage bypasses it, so a mirrored
+    // row never re-mirrors.
+    onMessageStored?.call(peer, stored);
+    return stored;
+  }
+
+  /// The sender's send time off the wire as a DateTime, or null (older sender
+  /// without `sentAtMs` → caller falls back to receive time).
+  ///
+  /// Stored VERBATIM (no receiver-side clamp) so it is byte-identical on both
+  /// devices — the basis for the convergent (effective_ts, author, seq) display
+  /// order. The old future-clamp made the value receiver-dependent (it used the
+  /// receiver's local now), which silently diverged the cross-author interleave
+  /// across devices. It also never addressed the real skew concern (R9: a peer
+  /// stamping ts=0 to float ABOVE my messages) — that is handled deterministically
+  /// by the author-monotone effective_ts FLOOR in loadMessages. A future-stamped
+  /// message now simply sorts to the bottom (convergently) on both devices — and
+  /// since the floor carries that author's later messages down with it, a fast
+  /// clock only buries the SENDER's own stream, never floats it above others.
+  DateTime? _wireSentAt(WireEnvelope env) => _wireSentAtMs(env.sentAtMs);
+
+  /// [DateTime] for a wire send-time in ms (the file-meta path has no envelope).
+  DateTime? _wireSentAtMs(int? ms) =>
+      ms == null ? null : DateTime.fromMillisecondsSinceEpoch(ms);
+
+  Future<bool> _hasMessage(NodeId peer, String id) async {
+    final msgs = await _storage.loadMessages(peer.hex);
+    return msgs.any((m) => m.id == id);
+  }
+
+  /// Bound the number of pre-consent intro messages held from a single
+  /// not-yet-accepted [peer] (anti-spam). Each [WireKind.request] greeting is
+  /// stored so the consent prompt can show it; before acceptance the only
+  /// incoming messages from a peer ARE these intros (real messages are gated on
+  /// `accepted`), so capping incoming-count == capping intros. We evict the
+  /// oldest so that, after storing the new intro [newId], we retain at most
+  /// [kMaxPreConsentIntros]. No-op for an accepted peer (we must never evict a
+  /// real conversation) or a same-id re-send (it overwrites in place, not a new
+  /// intro). Evicted bodies are scrubbed so they leave no recoverable trace.
+  Future<void> _capPreConsentIntros(NodeId peer, String? newId) async {
+    final contact = await _storage.getContact(peer);
+    if (contact?.status == ContactStatus.accepted) return;
+    final msgs = await _storage.loadMessages(peer.hex);
+    if (newId != null && msgs.any((m) => m.id == newId)) return; // overwrite
+    final intros =
+        msgs.where((m) => m.direction == MessageDirection.incoming).toList()
+          ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    // Make room for the one we're about to add: keep at most cap-1 of the old.
+    final evict = intros.length - (kMaxPreConsentIntros - 1);
+    if (evict <= 0) return;
+    for (var i = 0; i < evict; i++) {
+      await _storage.deleteMessage(peer.hex, intros[i].id);
+    }
+    await _storage.scrubDeleted();
+  }
+
+  /// True only if [id] is a message we hold from [peer] that THEY sent us
+  /// (incoming). The authorization gate for peer-driven edit/delete: a peer may
+  /// only modify their own messages, never our outgoing ones.
+  Future<bool> _isIncomingFrom(NodeId peer, String id) async {
+    for (final m in await _storage.loadMessages(peer.hex)) {
+      if (m.id == id) return m.direction == MessageDirection.incoming;
+    }
+    return false;
+  }
+
+  String _opKey(NodeId peer, String id) => '${peer.hex}|$id';
+
+  /// Hold [op] until [peer]'s message [id] arrives (it drained out of order).
+  /// Delete is terminal: once a delete is buffered, a later edit for the same id
+  /// is ignored. Insertion-ordered + bounded — evict the oldest when full so a
+  /// peer flooding ops for ids we never receive can't grow this without bound.
+  void _bufferPendingOp(NodeId peer, String id, _PendingOp op) {
+    final key = _opKey(peer, id);
+    final existing = _pendingOps[key];
+    if (existing != null && existing.isDelete) return; // delete already wins
+    if (!_pendingOps.containsKey(key) && _pendingOps.length >= kMaxPendingOps) {
+      _pendingOps.remove(_pendingOps.keys.first); // evict oldest insertion
+    }
+    _pendingOps[key] = op;
+  }
+
+  /// Attached by the multi-device bridge: fires after a LOCAL relationship
+  /// transition lands in [_setStatus] (request in/out, accept, block,
+  /// unblock) — never from [applyMirroredContactStatus] — so the contact
+  /// LIST itself converges across my devices, not just its preferences.
+  void Function(NodeId peer, ContactStatus status)? onContactStatusChanged;
+
+  Future<void> _setStatus(NodeId peer, ContactStatus status) async {
+    final existing = await _storage.getContact(peer);
+    await _storage.upsertContact(
+      (existing ?? Contact(nodeId: peer)).copyWith(status: status),
+    );
+    onContactStatusChanged?.call(peer, status);
+  }
+
+  /// Apply a relationship status mirrored from ANOTHER of my devices. Unlike
+  /// the preference mirror this CREATES a missing contact (that is the
+  /// contact-list sync: an add/accept/block decided on my other device is the
+  /// same owner's decision), preserving every other field of an existing
+  /// record. Writes straight to storage — never re-fires
+  /// [onContactStatusChanged], so a mirrored status cannot echo.
+  Future<bool> applyMirroredContactStatus(
+    NodeId peer,
+    ContactStatus status,
+  ) async {
+    final existing = await _storage.getContact(peer);
+    if (existing?.status == status) return false;
+    await _storage.upsertContact(
+      (existing ?? Contact(nodeId: peer)).copyWith(status: status),
+    );
+    _signal();
+    return true;
+  }
+
+  /// Shared handling for a [WireKind.request] AND a [WireKind.reconnect] — both
+  /// (re-)establish consent. [status] is the sender's CURRENT contact status.
+  ///
+  /// * accepted — they re-sent because they never saw our accept (a lost accept,
+  ///   or THEY wiped + re-intro'd and we still hold them): re-send + re-stash the
+  ///   accept so the handshake completes, instead of stranding either side.
+  /// * unknown / pending — surface as a pendingIncoming intro (the greeting),
+  ///   bounded by [kMaxPreConsentIntros]; the user accepting heals delivery.
+  /// (blocked is dropped before dispatch — no "you're blocked" oracle. The sender
+  /// emits reconnect unconditionally after a no-ack threshold, so this path can't
+  /// tell whether the peer was merely offline or actually wiped — by design.)
+  Future<void> _handleRequestOrReconnect(
+    InboundMessage m,
+    WireEnvelope env,
+    ContactStatus? status,
+  ) async {
+    // You can't send yourself a connection request. Drop a self-addressed
+    // request/reconnect so it never creates a bogus pendingIncoming
+    // self-contact (Saved Messages is a chat with yourself, always accepted).
+    if (m.src.hex == await _selfHex()) return;
+    if (status == ContactStatus.accepted) {
+      // They re-requested/re-intro'd because they never saw our accept — re-send
+      // it DURABLY (see [sendDurable]): the accept is a control frame that must
+      // land, and this retry proves the first copy didn't. Force a fresh
+      // mailbox deposit too — the previous one may have aged out at the relay.
+      _stashed.remove('accept:${m.src.hex}');
+      await sendDurable(
+        m.src,
+        'accept:${m.src.hex}',
+        const WireEnvelope.accept(),
+      );
+      return;
+    }
+    // Re-drives of a durable request/reconnect land here on every backoff tick
+    // while the intro sits undecided (the durable gate only dedups ACCEPTED
+    // senders) — only the FIRST arrival should write the contact record; the
+    // rewrite is pure storage churn on every later copy.
+    if (status != ContactStatus.pendingIncoming) {
+      await _setStatus(m.src, ContactStatus.pendingIncoming);
+    }
+    if (env.body.isNotEmpty &&
+        !(env.id != null &&
+            await _storage.isMessageDeleted(m.src.hex, env.id!))) {
+      // Bound pre-consent intros: a hostile peer minting a fresh id per
+      // request/reconnect would otherwise pile up unbounded greetings before we
+      // ever accept. Evict the oldest down to the cap, keeping the most recent.
+      await _capPreConsentIntros(m.src, env.id);
+      // Store the greeting under its id so a later outbox re-send of the same
+      // greeting (as a WireKind.message) dedups instead of creating a second copy.
+      await _store(
+        m.src,
+        MessageDirection.incoming,
+        env.body,
+        MessageStatus.delivered,
+        id: env.id,
+        timestamp: _wireSentAt(env),
+      );
+    }
+  }
+
+  /// Serializes inbound handling. The stream listener ([start]) does NOT await
+  /// our async handler, and [deliverInbound] (mailbox drain) feeds the SAME
+  /// path, so without this two frames interleave at their `await` points. That
+  /// let concurrent pre-consent intros each read the stored count below the cap
+  /// in [_capPreConsentIntros] and both store — busting [kMaxPreConsentIntros]
+  /// (an unbounded-greeting hole on a victim's device) — and more generally
+  /// raced the consent gate / id-dedup check-then-act sequences. We process at
+  /// most one frame at a time. [_handleInbound] is fully try/catch-guarded so
+  /// the chained future never rejects and the queue can't be poisoned.
+  Future<void> _inboundChain = Future<void>.value();
+
+  Future<void> _onInbound(InboundMessage m) {
+    final next = _inboundChain.then((_) => _handleInbound(m));
+    _inboundChain = next;
+    return next;
+  }
+
+  Future<void> _handleInbound(InboundMessage m) async {
+    devLog(
+      () =>
+          'xVeil[recv]: INBOUND from=${m.src.short} bytes=${m.payload.length}',
+    );
+    // The peer answered SOMETHING — return its sync beacon to base cadence.
+    _syncUnanswered.remove(m.src.hex);
+    _nudgeRetries(m.src.hex);
+    // ...and revive any parked downloads that list it as a holder.
+    noteInboundFromPeer(m.src);
+    try {
+      await _dispatch(m);
+    } catch (e) {
+      // A hostile or corrupt datagram (malformed JSON, missing/ill-typed
+      // fields, bad base64) must never throw out of the stream listener and
+      // disrupt delivery for everyone else — drop it silently. LOG it so a
+      // legit message that fails to parse/store isn't invisibly dropped.
+      devLog(() => 'xVeil[recv]: dispatch FAILED from=${m.src.short}: $e');
+    }
+  }
+
+  // ── Durable send pipeline ──────────────────────────────────────────────────
+  //
+  // One reliable egress for any CONTROL frame that must reach a peer. Chat
+  // messages have their own durable path (the persisted message log + outbox
+  // flush); this gives everything else the same "never silently lost" guarantee
+  // by construction, so a new feature can't reintroduce the class of bug where a
+  // one-shot live send vanishes on the lossy first attempt.
+  //
+  // Guarantee: persist to the durable outbox → live-send (fast path) →
+  // mailbox-deposit (survives an offline/NAT'd/stalled peer). The receiver acks
+  // by the frame's id; the flush re-drives every un-acked frame (across restarts)
+  // until that ack retires it. Both sides dedup, so re-drives are harmless.
+
+  /// Per-frame live re-drive backoff (the frame twin of [_retryBackoff]): the
+  /// first re-drive fires [_outboxLiveResend] after the send, then doubles per
+  /// attempt up to [_outboxLiveResendCap]. Durable frames have NO give-up (the
+  /// outbox holds them until acked), so without the doubling every un-acked
+  /// frame — a reconnect to a peer that is GONE, an edit to a wiped identity —
+  /// would hit the onion path every 20s forever: the exact ghost-load class the
+  /// message path already backs off. Any inbound from the peer rewinds its
+  /// frames to due-now ([_nudgeRetries]); an ack retires the entry.
+  /// `lastSentAt` records the most recent LIVE send of the frame: the nudge
+  /// skips frames inside [_outboxNudgeGrace] of it — during a call the peer's
+  /// steady health/transportInfo inbound would otherwise rewind a call frame
+  /// whose ack is merely in flight, re-driving it every nudge throttle window
+  /// (the duplicate `re-drive fid=call:…` lines in the P2P smoke).
+  final Map<String, ({int count, DateTime nextAt, String peer, DateTime lastSentAt})>
+  _outboxLiveBackoff = {};
+
+  /// A frame live-sent this recently is presumed in flight (ack pending) —
+  /// the peer-alive nudge must not rewind it into a duplicate send. Half the
+  /// base [_outboxLiveResend]: long enough for any live ack round-trip, short
+  /// enough that a genuinely stalled frame still heals fast on inbound.
+  static const _outboxNudgeGrace = Duration(seconds: 10);
+
+  /// Frame ids already processed this session (dedup for durable re-drives).
+  /// Bounded — oldest evicted past [_seenFramesCap] (a re-process of a very old
+  /// frame is harmless: durable handlers are idempotent).
+  final _seenFrames = <String>{};
+  static const _seenFramesCap = 4096;
+
+  /// In-RAM reassembly of chunked group snapshots ([WireKind.groupEntryChunk]),
+  /// keyed by transferId → (chunk count, index→bytes, running byte total).
+  /// Bounded by [_kMaxGroupReasmBytes]/[_kMaxGroupReasmConcurrent]. Completed
+  /// or evicted entries are removed; a lost partial re-heals on the sender's
+  /// next full re-broadcast.
+  final _groupReasm =
+      <String, ({int count, Map<int, Uint8List> parts, int bytes})>{};
+
+  /// Best-effort ack of a durable frame so the sender retires it from its
+  /// outbox. Rides [_ackTo]: a live send PLUS a mailbox deposit (`ack:<fid>`)
+  /// — the sender of a durable frame is often exactly the NAT'd peer whose
+  /// live path toward us is down, and a live-only ack would leave it
+  /// re-driving forever. Lossy-tolerant regardless: a lost ack just triggers
+  /// one more re-drive, which we dedup + re-ack.
+  Future<void> _ackFrame(InboundMessage m, String frameId) async {
+    if (_seenFrames.length > _seenFramesCap) {
+      _seenFrames.remove(_seenFrames.first); // evict oldest (insertion order)
+    }
+    try {
+      // A frame we already processed is an expected re-delivery — labeled
+      // `re-ack` in the timeline so duplicates read as protocol, not noise.
+      await _ackTo(m, frameId, repeat: _seenFrames.contains(frameId));
+    } catch (_) {
+      // Best-effort — a re-drive will prompt another ack.
+    }
+  }
+
+  /// Send [env] to [peer] durably under [frameId] (see the section comment). The
+  /// receiver echoes [frameId] in its ack to retire the frame.
+  Future<void> sendDurable(
+    NodeId peer,
+    String frameId,
+    WireEnvelope env,
+  ) async {
+    final wire = env.withFrameId(frameId).encode();
+    await _storage.enqueueOutboxFrame(frameId, peer.hex, wire);
+    _outboxLiveBackoff[frameId] = (
+      count: 1,
+      nextAt: _now().add(_outboxLiveResend),
+      peer: peer.hex,
+      lastSentAt: _now(),
+    );
+    try {
+      await _send(peer, wire);
+    } catch (_) {
+      // Live path down — the mailbox copy + flush re-drive still deliver.
+    }
+    unawaited(_maybeStash(peer, frameId, wire));
+  }
+
+  /// Send a call control-plane [signal] to [peer]. Ring/accept/reject/cancel/
+  /// busy/end/renegotiate go via the durable pipeline — keyed `call:<id>:<type>`
+  /// so a dropped frame re-drives and a re-delivery is acked+processed once.
+  /// Best-effort [CallSignalType.transportInfo] (late reachability candidates)
+  /// and [CallSignalType.health] (liveness heartbeat) go via the plain live send
+  /// only: they are real-time hints, and persisting them would create stale
+  /// outbox/mailbox work after a call has already ended.
+  Future<void> sendCallSignal(NodeId peer, CallSignal signal) async {
+    final contact = await _storage.getContact(peer);
+    if (contact == null || contact.status != ContactStatus.accepted) return;
+    final stamped = signal.sentAtMs == null
+        ? signal.copyWith(sentAtMs: _now().millisecondsSinceEpoch)
+        : signal;
+    final env = WireEnvelope.callSignal(stamped.encode());
+    if (stamped.type == CallSignalType.transportInfo ||
+        stamped.type == CallSignalType.health) {
+      try {
+        await _send(peer, env.encode());
+      } catch (_) {
+        // Live path down — the next heartbeat/candidate supersedes this one.
+      }
+      return;
+    }
+    // Renegotiate repeats per call (screen share on/off/on…): a type-only id
+    // would collide with the PREVIOUS toggle still in the outbox and the
+    // receiver would dedup the new state away — key it by sentAt too. The
+    // receiver folds strictly-newer-by-sentAt, so re-drives stay idempotent.
+    final fid = stamped.type == CallSignalType.renegotiate
+        ? 'call:${signal.callId}:${signal.type.name}:${stamped.sentAtMs}'
+        : 'call:${signal.callId}:${signal.type.name}';
+    await sendDurable(peer, fid, env);
+  }
+
+  /// Re-drive un-acked durable frames: re-deposit at the mailbox (idempotent via
+  /// the stash dedup) and, backed off per frame, re-send live. Called from
+  /// [flushOutbox].
+  Future<void> _flushOutboxFrames() async {
+    final List<OutboxFrame> pending;
+    try {
+      pending = await _storage.pendingOutboxFrames();
+    } catch (_) {
+      return;
+    }
+    for (final f in pending) {
+      if (_retireExpiredCallOutboxFrame(f)) continue;
+      final peer = NodeId.fromHex(f.peerHex);
+      // A frame to a peer we no longer hold AT ALL (conversation removed) is
+      // moot — retire it. A BLOCKED peer only PAUSES it, mirroring the message
+      // flush: unblocking resumes delivery instead of having silently lost it.
+      final Contact? contact;
+      try {
+        contact = await _storage.getContact(peer);
+      } catch (_) {
+        continue;
+      }
+      if (contact == null) {
+        _retireOutboxFrame(f.frameId);
+        continue;
+      }
+      if (contact.status == ContactStatus.blocked) continue;
+      // A peer whose identity can't be resolved at all is backed off wholesale
+      // (same gate the message flush applies) — don't hammer resolve/seal.
+      final pb = _peerUnresolvedBackoff[f.peerHex];
+      if (pb != null && _now().isBefore(pb.nextAt)) continue;
+      // The mailbox copy is the durable carrier — always re-attempt it (its own
+      // _stashed/backoff guards make this cheap once deposited).
+      unawaited(_maybeStash(peer, f.frameId, f.wire));
+      // A live re-send is a latency optimisation; exponential per-frame backoff
+      // (20s → … → 10min cap) so a persistently un-acked frame stops hammering
+      // the onion path. The shift exponent is clamped — counts keep growing for
+      // a frame with no give-up, and an unclamped 1<<63 wraps the delay to 0.
+      final now = _now();
+      final bo = _outboxLiveBackoff[f.frameId];
+      if (bo != null && now.isBefore(bo.nextAt)) continue;
+      final count = (bo?.count ?? 0) + 1;
+      final delayMs =
+          (_outboxLiveResend.inMilliseconds * (1 << (count - 1).clamp(0, 10)))
+              .clamp(0, _outboxLiveResendCap.inMilliseconds);
+      _outboxLiveBackoff[f.frameId] = (
+        count: count,
+        nextAt: now.add(Duration(milliseconds: delayMs)),
+        peer: f.peerHex,
+        lastSentAt: now,
+      );
+      devLog(
+        () =>
+            'xVeil[durable]: re-drive fid=${f.frameId} dst=${peer.short} '
+            'attempt=$count t=${DateTime.now().millisecondsSinceEpoch}',
+      );
+      try {
+        await _send(peer, f.wire);
+      } catch (_) {
+        // Best-effort.
+      }
+    }
+  }
+
+  static const _outboxLiveResend = Duration(seconds: 20);
+  static const _outboxLiveResendCap = Duration(minutes: 10);
+  static const _callSignalOutboxTtl = Duration(minutes: 2);
+
+  bool _retireExpiredCallOutboxFrame(OutboxFrame frame) {
+    if (!frame.frameId.startsWith('call:')) return false;
+    try {
+      final env = WireEnvelope.decode(frame.wire);
+      if (env.kind != WireKind.callSignal) return false;
+      final signal = CallSignal.tryDecode(env.body);
+      final sentAtMs = signal?.sentAtMs ?? env.sentAtMs;
+      if (sentAtMs == null) return false;
+      final sentAt = DateTime.fromMillisecondsSinceEpoch(sentAtMs);
+      final age = _now().difference(sentAt);
+      if (age <= _callSignalOutboxTtl) return false;
+      devLog(
+        () =>
+            'xVeil[durable]: retire stale call frame '
+            'fid=${frame.frameId} age=${age.inSeconds}s',
+      );
+      _retireOutboxFrame(frame.frameId);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Locally retire a durable frame (acked, or moot): stop re-driving and
+  /// re-stashing it, and drop it from the persistent outbox. [ackOutboxFrame]
+  /// is a no-op for an id that is not in the outbox, so this is safe to call
+  /// with an ordinary message id too.
+  void _retireOutboxFrame(String frameId) {
+    _stashed.remove(frameId);
+    _outboxLiveBackoff.remove(frameId);
+    unawaited(_storage.ackOutboxFrame(frameId));
+  }
+
+  // ── Opt-in authorship attestation (the "request signature" feature) ────────
+  //
+  // Deniable-by-default: nothing is signed unless a recipient explicitly asks
+  // AND the author consents (per prompt, or a standing auto/refuse policy). The
+  // signed bytes bind author ‖ recipient ‖ msgId ‖ body, so an attestation
+  // proves "this author wrote THIS to THIS recipient" and cannot be transplanted.
+
+  /// Author-side answer to incoming requests. Wired by the app from settings
+  /// (like [sourceOpener]); null → [SignaturePolicy.ask].
+  SignaturePolicy Function()? signaturePolicyResolver;
+
+  final StreamController<SignatureAsk> _signatureAsks =
+      StreamController<SignatureAsk>.broadcast();
+
+  /// Author-side prompts awaiting a decision (surfaced only under
+  /// [SignaturePolicy.ask]). The UI listens and calls [resolveSignatureAsk].
+  Stream<SignatureAsk> get signatureAsks => _signatureAsks.stream;
+
+  /// Canonical bytes both sides sign/verify. Length-prefixed fields so a body
+  /// containing the separator can't be confused for a field boundary.
+  static Uint8List _attestCanonical({
+    required String authorHex,
+    required String recipientHex,
+    required String msgId,
+    required String body,
+  }) {
+    final out = BytesBuilder();
+    out.add(utf8.encode('veil-msg-attest-v1'));
+    void field(List<int> b) {
+      final len = ByteData(4)..setUint32(0, b.length, Endian.big);
+      out.add(len.buffer.asUint8List());
+      out.add(b);
+    }
+
+    field(utf8.encode(authorHex));
+    field(utf8.encode(recipientHex));
+    field(utf8.encode(msgId));
+    field(utf8.encode(body));
+    return out.toBytes();
+  }
+
+  /// Ask [peer] (the author) to attest authorship of message [msgId] whose text
+  /// is [body]. Marks our local copy `requested`, then sends the request through
+  /// the DURABLE pipeline so it reaches the author even across a lost first live
+  /// attempt / offline peer / restart (see [sendDurable]).
+  Future<void> requestSignature(NodeId peer, String msgId, String body) async {
+    await _storage.markMessageSignature(
+      peer.hex,
+      msgId,
+      MessageSignature.requested,
+    );
+    _signal();
+    await sendDurable(
+      peer,
+      'sigreq:$msgId',
+      WireEnvelope.signRequest(msgId, body),
+    );
+  }
+
+  /// Prompt dedup for re-sent requests: (peer|msgId) recently surfaced → skip.
+  final Map<String, DateTime> _recentSignAsks = {};
+
+  Future<void> _onSignRequest(NodeId src, WireEnvelope env) async {
+    final msgId = env.id;
+    if (msgId == null || msgId.isEmpty) return;
+    final policy = signaturePolicyResolver?.call() ?? SignaturePolicy.ask;
+    devLog(
+      () =>
+          'xVeil[sign]: request received from=${src.short} mid=$msgId '
+          'policy=${policy.name}',
+    );
+    switch (policy) {
+      case SignaturePolicy.refuse:
+        // Always respond, even to a duplicate — a re-request usually means our
+        // previous response was lost.
+        await _sendSignRefusal(src, msgId);
+      case SignaturePolicy.auto:
+        await _signAndRespond(src, msgId, env.body);
+      case SignaturePolicy.ask:
+        // Dedup the PROMPT only (the request frame is re-sent by design).
+        final key = '${src.hex}|$msgId';
+        final now = _now();
+        final last = _recentSignAsks[key];
+        if (last != null && now.difference(last) < const Duration(minutes: 2)) {
+          return;
+        }
+        _recentSignAsks[key] = now;
+        if (!_signatureAsks.isClosed) {
+          _signatureAsks.add(
+            SignatureAsk(peer: src, msgId: msgId, body: env.body),
+          );
+        }
+    }
+  }
+
+  /// Resolve an author-side prompt: sign + respond, or decline.
+  Future<void> resolveSignatureAsk(
+    SignatureAsk ask, {
+    required bool approve,
+  }) async {
+    if (approve) {
+      await _signAndRespond(ask.peer, ask.msgId, ask.body);
+    } else {
+      await _sendSignRefusal(ask.peer, ask.msgId);
+    }
+  }
+
+  Future<void> _signAndRespond(
+    NodeId requester,
+    String msgId,
+    String body,
+  ) async {
+    try {
+      final toml = await _storage.loadNodeConfig();
+      if (toml == null) return; // no identity config → cannot sign
+      final selfHex = await _selfHex();
+      final canonical = _attestCanonical(
+        authorHex: selfHex,
+        recipientHex: requester.hex,
+        msgId: msgId,
+        body: body,
+      );
+      final res = EmbeddedNode.signMessage(toml, canonical);
+      final payload = jsonEncode({
+        'mid': msgId,
+        'sig': base64.encode(res.signature),
+        'pk': base64.encode(res.publicKey),
+      });
+      // Durable: the id encodes the OUTCOME so a later opposite answer isn't
+      // dedup-skipped by the outbox/stash.
+      await sendDurable(
+        requester,
+        'sigresp:ok:$msgId',
+        WireEnvelope.signResponse(payload),
+      );
+      devLog(() => 'xVeil[sign]: signed + responded mid=$msgId');
+    } catch (e) {
+      devLog(() => 'xVeil[sign]: sign+respond failed for $msgId: $e');
+    }
+  }
+
+  Future<void> _sendSignRefusal(NodeId requester, String msgId) async {
+    final payload = jsonEncode({'mid': msgId, 'refused': true});
+    await sendDurable(
+      requester,
+      'sigresp:no:$msgId',
+      WireEnvelope.signResponse(payload),
+    );
+    devLog(() => 'xVeil[sign]: refused mid=$msgId');
+  }
+
+  Future<void> _onSignResponse(NodeId src, WireEnvelope env) async {
+    Map<String, dynamic> j;
+    try {
+      j = jsonDecode(env.body) as Map<String, dynamic>;
+    } catch (_) {
+      return;
+    }
+    final msgId = j['mid'] as String?;
+    if (msgId == null || msgId.isEmpty) return;
+    // Resolve OUR stored copy first (the exact bytes we hold) — needed both to
+    // verify and to guard state transitions.
+    final msgs = await _storage.loadMessages(src.hex);
+    Message? target;
+    for (final mm in msgs) {
+      if (mm.id == msgId) {
+        target = mm;
+        break;
+      }
+    }
+    if (target == null) return; // message gone (deleted/cleared) — ignore
+    if (j['refused'] == true) {
+      // `verified` is terminal: attestation frames are re-sent/mailboxed for
+      // durability, so a STALE refusal can arrive after a successful signature
+      // — it must not downgrade the badge.
+      if (target.signature == MessageSignature.verified) return;
+      devLog(() => 'xVeil[sign]: refusal received mid=$msgId');
+      await _storage.markMessageSignature(
+        src.hex,
+        msgId,
+        MessageSignature.refused,
+      );
+      _signal();
+      return;
+    }
+    final sigB64 = j['sig'] as String?;
+    final pkB64 = j['pk'] as String?;
+    if (sigB64 == null || pkB64 == null) return;
+    final selfHex = await _selfHex();
+    final canonical = _attestCanonical(
+      authorHex: src.hex, // the author is the peer who sent us the message
+      recipientHex: selfHex,
+      msgId: msgId,
+      body: target.body,
+    );
+    var ok = false;
+    try {
+      ok = EmbeddedNode.verifyMessage(
+        nodeId: src.bytes,
+        publicKey: base64.decode(pkB64),
+        message: canonical,
+        signature: base64.decode(sigB64),
+      );
+    } catch (e) {
+      devLog(() => 'xVeil[sign]: verify threw for $msgId: $e');
+    }
+    // A re-sent/mailboxed response can arrive again after we already verified —
+    // don't let a later copy that fails (e.g. the message was edited locally in
+    // between) downgrade a good verdict.
+    if (!ok && target.signature == MessageSignature.verified) return;
+    devLog(() => 'xVeil[sign]: response verified=$ok mid=$msgId');
+    await _storage.markMessageSignature(
+      src.hex,
+      msgId,
+      ok ? MessageSignature.verified : MessageSignature.failed,
+    );
+    _signal();
+  }
+
+  Future<void> _dispatch(InboundMessage m) async {
+    final env = WireEnvelope.decode(m.payload);
+    final existing = await _storage.getContact(m.src);
+    if (existing?.status == ContactStatus.blocked) return; // drop blocked
+
+    // Durable-frame ack + dedup (generic, any kind): a frame sent via
+    // [sendDurable] carries a frameId. Ack it so the sender retires it from its
+    // outbox, and process it only ONCE — a re-drive (the sender never got our
+    // ack, or we restarted) is re-acked but not re-processed. Consent-gated:
+    // only accepted peers reach the durable handlers below.
+    final fid = env.frameId;
+    if (fid != null && existing?.status == ContactStatus.accepted) {
+      await _ackFrame(m, fid);
+      if (!_seenFrames.add(fid)) return; // already processed — re-acked above
+    }
+
+    switch (env.kind) {
+      case WireKind.request:
+        await _handleRequestOrReconnect(m, env, existing?.status);
+      case WireKind.accept:
+        // Only honour an accept for a request we actually sent.
+        if (existing?.status == ContactStatus.pendingOutgoing) {
+          await _setStatus(m.src, ContactStatus.accepted);
+          // The durable-frame gate above only acks ACCEPTED senders — but an
+          // accept is the very frame that CREATES that state, so the honoured
+          // accept is acked here instead: the accepting side retires it from
+          // its outbox. (A later duplicate finds us accepted and takes the
+          // generic gate: re-acked + deduped there.)
+          if (fid != null) {
+            _seenFrames.add(fid);
+            await _ackFrame(m, fid);
+          }
+        } else {
+          return;
+        }
+      case WireKind.message:
+        // Consent gate: only deliver from accepted peers; drop the rest.
+        if (existing?.status != ContactStatus.accepted) return;
+        final id = env.id;
+        if (isServiceEchoBody(env.body)) {
+          if (id != null) await _ackTo(m, id, direct: true);
+          return;
+        }
+        // [timeline] inbound receipt: id + whether it carried a reply path. id +
+        // replyId only (no body) — lets us separate receive-latency from the ACK
+        // round-trip when reading a session's logs.
+        devLog(
+          () =>
+              'xVeil[timeline]: recv id=$id replyId=${m.replyId} '
+              't=${DateTime.now().millisecondsSinceEpoch}',
+        );
+        // Dedup re-sent messages (the sender's local outbox re-sends un-acked
+        // ones): if we already have this id, just re-ack so they stop.
+        if (id != null && await _hasMessage(m.src, id)) {
+          await _ackTo(m, id, direct: true);
+          return;
+        }
+        // Deniability: if we DELETED this message, a re-delivery must NOT
+        // resurrect it. Re-ack so the sender stops re-sending, then drop.
+        if (id != null && await _storage.isMessageDeleted(m.src.hex, id)) {
+          await _ackTo(m, id, direct: true);
+          return;
+        }
+        // The peer's edit/delete of this message may have DRAINED FIRST (mailbox
+        // blobs are unordered): when they sent then edited/unsent it while we
+        // were offline, both deposits arrive on reconnect in arbitrary order.
+        final pending = id == null
+            ? null
+            : _pendingOps.remove(_opKey(m.src, id));
+        if (pending != null && pending.isDelete) {
+          // Honor the unsend: store then tombstone so the message never shows AND
+          // a later re-delivery is refused (isMessageDeleted above) — deniable
+          // erasure, not a transient hide. No notification for an unsent message.
+          await _store(
+            m.src,
+            MessageDirection.incoming,
+            env.body,
+            MessageStatus.delivered,
+            id: id,
+            timestamp: _wireSentAt(env),
+          );
+          await _storage.deleteMessage(m.src.hex, id!);
+          await _storage.scrubDeleted();
+          await _ackTo(m, id, direct: true);
+          return;
+        }
+        // Apply a buffered edit by storing the edited body directly, so the
+        // latest text shows on first paint (no flash of the superseded text, and
+        // the original body never hits the container — nothing to scrub).
+        final body = pending?.body ?? env.body;
+        await _store(
+          m.src,
+          MessageDirection.incoming,
+          body,
+          MessageStatus.delivered,
+          id: id,
+          timestamp: _wireSentAt(env),
+          replyToId: env.replyTo,
+          forwardedFrom: env.forwardedFrom,
+          // Fold under the SENDER's seq (R4) so the (author, seq) is identical on
+          // both devices — the basis for gap detection. Null from an older sender
+          // → storage allocates locally (no cross-device convergence for them).
+          seq: env.seq,
+        );
+        _emitIncoming(m.src, body, isFile: false);
+        if (id != null) {
+          await _ackTo(m, id);
+        }
+      case WireKind.ack:
+        // Consent gate, like every other inbound arm: only an accepted contact
+        // can flip our message state. Without this any non-blocked peer could
+        // ack an arbitrary (guessed) id to forge a "delivered" mark and cancel
+        // our retry backoff in any conversation. A legit ack only comes from a
+        // peer we already accepted (we send messages — hence acks — only to them).
+        if (existing?.status != ContactStatus.accepted) return;
+        // The peer confirms delivery of our message [env.id] — stop re-sending.
+        final ackId = env.id;
+        if (ackId != null) {
+          // Retire a durable control frame the peer just confirmed (sign, edit,
+          // del, clear, accept, reconnect): stop re-driving + re-stashing it.
+          // A no-op when ackId is an ordinary message id (not in the outbox).
+          _retireOutboxFrame(ackId);
+          _retryBackoff.remove(ackId); // stop backing off a delivered message
+          // The peer is reachable + still holds us — reset the reconnect throttle.
+          _lastReconnectAt.remove(m.src.hex);
+          // Idempotent: the peer's drain re-acks every cycle until its relay
+          // blob ages out, so duplicate acks arrive in a storm. Mark delivered +
+          // log + write storage only ONCE per id — re-doing it on every dup was
+          // hammering the store (the user-visible "storage opens slowly").
+          if (_delivered.add(ackId)) {
+            // [timeline] sender-side "delivered" moment — pair with the send t0
+            // to get the full perceived round-trip. id + time only.
+            devLog(
+              () =>
+                  'xVeil[timeline]: delivered id=$ackId '
+                  't=${DateTime.now().millisecondsSinceEpoch}',
+            );
+            // Scope by the sender's conversation (m.src.hex) so the status can
+            // only land on a message that lives in THIS peer's chat.
+            await _storage.markMessageStatus(
+              m.src.hex,
+              ackId,
+              MessageStatus.delivered,
+            );
+          }
+        }
+      case WireKind.edit:
+        // The peer edited a message THEY sent us. Apply only to an INCOMING
+        // message we hold from this peer — a peer must never be able to rewrite
+        // our own outgoing messages (the id travels on the wire, so they know
+        // it; the direction check is the real authorization gate).
+        if (existing?.status != ContactStatus.accepted) return;
+        final editId = env.id;
+        if (editId == null) break;
+        if (await _isIncomingFrom(m.src, editId)) {
+          // Fold under the EDITOR's seq (env.seq), like an incoming post — the
+          // edit event's (author, seq) is then identical on both devices, so
+          // conversationSync converges and gap-fill can re-ship a missed edit.
+          // Null from an older sender → editMessage allocates locally (legacy).
+          await _storage.editMessage(m.src.hex, editId, env.body, seq: env.seq);
+          await _storage.scrubDeleted();
+        } else if (!await _hasMessage(m.src, editId)) {
+          // Target not arrived yet (offline send+edit drains out of order) —
+          // buffer and replay when the message stores. NOT buffered when the id
+          // IS present but outgoing (our own message): a peer can't edit ours.
+          _bufferPendingOp(m.src, editId, _PendingOp.edit(env.body));
+        }
+      case WireKind.del:
+        // The peer unsent a message THEY sent us — purge + scrub our copy too.
+        // Same authorization gate: only their incoming messages, never ours.
+        if (existing?.status != ContactStatus.accepted) return;
+        // Receiver policy: a contact we've forbidden from deleting-at-us has its
+        // unsend DECLINED — our copy stays. Buffering is skipped too, so an
+        // out-of-order del can't apply once the message lands. No oracle: the
+        // peer is never told the delete was ignored.
+        if (existing?.allowPeerDelete == false) return;
+        final delId = env.id;
+        if (delId == null) break;
+        if (await _isIncomingFrom(m.src, delId)) {
+          await _storage.deleteMessage(m.src.hex, delId);
+          await _storage.scrubDeleted();
+        } else if (!await _hasMessage(m.src, delId)) {
+          // Same out-of-order case as edit: hold the unsend until the message
+          // arrives, then the message arm tombstones it instead of resurrecting.
+          _bufferPendingOp(m.src, delId, _PendingOp.delete());
+        }
+      case WireKind.sync:
+        // Event-log gap-fill beacon (§15, 3c): the peer tells us what it holds
+        // per author; we re-ship every event it is missing above its high-water.
+        // Consent-gated (R2) — never reconcile a conversation with a non-accepted
+        // node. We also beacon back so the peer heals OUR gaps in the same round.
+        if (existing?.status != ContactStatus.accepted) return;
+        await _handlePeerSync(m.src, env.body);
+        return;
+      case WireKind.voidSeq:
+        // An inert seq placeholder from the peer's gap-fill: record the void slot
+        // so our high-water for the peer's stream advances past a deleted/
+        // superseded event it never delivered (renders nothing, no resurrection).
+        if (existing?.status != ContactStatus.accepted) return;
+        final vseq = env.seq;
+        if (vseq != null) {
+          await _storage.applyRemoteVoid(m.src.hex, m.src.hex, vseq);
+        }
+        return;
+      case WireKind.clear:
+        // The peer CLEARED the conversation up to a per-author seq watermark
+        // (clear-for-everyone). Consent-gated (R2); the author is bound to the
+        // AUTHENTICATED sender (R1, m.src). v1 policy: an accepted contact's clear
+        // is APPLIED (the "delete for everyone" the sender intends) — a future
+        // per-contact toggle can decline it; and once multi-device lands, a clear
+        // from our OWN identity is authoritative for our devices the same way.
+        if (existing?.status != ContactStatus.accepted) return;
+        // Same receiver policy as del: a forbidden contact can't clear our copy.
+        if (existing?.allowPeerDelete == false) return;
+        final cseq = env.seq;
+        if (cseq != null) {
+          Map<String, int> wm;
+          try {
+            final raw = jsonDecode(env.body);
+            wm = raw is Map
+                ? raw.map((k, v) => MapEntry(k as String, v as int))
+                : <String, int>{};
+          } catch (_) {
+            return; // malformed watermark → drop
+          }
+          await _storage.applyRemoteClear(m.src, m.src.hex, cseq, wm);
+          _signal();
+        }
+        return;
+      case WireKind.fileQuery:
+        // A gap-fill probe for a file (§15 3c, resumable): the peer still holds
+        // file <tid> and asks what we're missing. Reply with a fileNack naming
+        // the gaps (or "all" if we hold no chunk yet). The peer then re-sends only
+        // those chunks, instead of re-pushing the whole blob each round.
+        if (existing?.status != ContactStatus.accepted) return;
+        await _handleFileQuery(m, parseFileMeta(env.body));
+        return;
+      case WireKind.fileNack:
+        // The receiver lists the chunks it still needs of a file WE sent
+        // (null = all). Re-send only those, rate-limited per (peer, transfer) so
+        // a NACK flood can't drive a re-send storm.
+        if (existing?.status != ContactStatus.accepted) return;
+        final nack = parseFileNack(env.body);
+        await _handleFileNack(m.src, nack.transferId, nack.missing);
+        return;
+      case WireKind.reconnect:
+        // "We were connected — re-establish." Treated exactly like a request: a
+        // peer who wiped its chat data (Case-A) no longer holds us, so our normal
+        // messages/beacons hit its consent gate and drop; this re-intros us so it
+        // can re-accept. Disambiguated by OUR state in _handleRequestOrReconnect
+        // (accepted→re-ack; unknown/pending→pending intro; blocked→already
+        // dropped). Falls through to _signal() so the pending surfaces in the UI.
+        await _handleRequestOrReconnect(m, env, existing?.status);
+      case WireKind.fileStream:
+        // Reserved abandoned push-stream prototype. No production sender ever
+        // emitted this kind; the shipped any-size path is contentManifest + a
+        // receiver-initiated content-id-bound pull stream. Reusing the same
+        // accept loop for a pushed blob would create an ambiguous protocol and
+        // bypass manifest/hash/opt-in checks, so legacy experimental frames stay
+        // an authenticated, consent-gated silent drop. Keep the enum slot so all
+        // later wire indices remain stable.
+        if (existing?.status != ContactStatus.accepted) return;
+        devLog(
+          () =>
+              'xVeil[recv]: reserved fileStream frame '
+              '${parseFileMeta(env.body).transferId} — dropped',
+        );
+        return;
+      case WireKind.contentManifest:
+        // A peer advertises a content manifest (the "torrent"): verify it,
+        // register a transfer, request the pieces we lack.
+        if (existing?.status != ContactStatus.accepted) {
+          devLog(
+            () =>
+                'xVeil[content]: manifest DROPPED — ${m.src.short} '
+                'not accepted (status=${existing?.status})',
+          );
+          return;
+        }
+        devLog(
+          () =>
+              'xVeil[content]: manifest frame ${env.body.length}B '
+              '<- ${m.src.short}',
+        );
+        await _onContentManifest(m.src, env.body);
+        return;
+      case WireKind.contentReoffer:
+        // A peer lost the manifest handle (restart) but still holds the offer —
+        // re-advertise if we are still serving (or can re-open a durable source).
+        if (existing?.status != ContactStatus.accepted) return;
+        await _onContentReoffer(m.src, env.body);
+        return;
+      case WireKind.contentGone:
+        // A holder answered a reoffer with "I no longer have those bytes" —
+        // stop retrying against them and, once no source remains, surface the
+        // terminal ask-for-a-re-send state instead of spinning forever.
+        if (existing?.status != ContactStatus.accepted) return;
+        await _onContentGone(m.src, env.body);
+        return;
+      case WireKind.pieceRequest:
+        // A peer asks for pieces of content we serve — send the requested
+        // pieces as chunks (paced).
+        if (existing?.status != ContactStatus.accepted) return;
+        _onPieceRequest(m.src, parsePieceRequest(env.body));
+        return;
+      case WireKind.pieceChunk:
+        // One chunk of one piece: buffer + verify-on-complete; finish the
+        // transfer when every piece is verified.
+        if (existing?.status != ContactStatus.accepted) return;
+        await _onPieceChunk(parsePieceChunk(env.body));
+        return;
+      case WireKind.signRequest:
+        // A peer asks us to attest authorship of one of OUR messages. Consent-
+        // gated; the policy (ask / auto / refuse) decides what happens next.
+        if (existing?.status != ContactStatus.accepted) return;
+        await _onSignRequest(m.src, env);
+        return;
+      case WireKind.signResponse:
+        // The author answered our signature request — verify + record.
+        if (existing?.status != ContactStatus.accepted) return;
+        await _onSignResponse(m.src, env);
+        return;
+      case WireKind.callSignal:
+        // Call control plane (voice/video/screen). Consent-gated; a durable
+        // signal was already acked+deduped by the generic frame gate above.
+        // Forward the decoded signal to the attached call service (dropped when
+        // none is attached — e.g. a headless/loopback context).
+        if (existing?.status != ContactStatus.accepted) return;
+        final callSig = CallSignal.tryDecode(env.body);
+        if (callSig != null) onCallSignal?.call(m.src, callSig);
+        return;
+      case WireKind.reaction:
+        // The peer reacted to a message in THIS conversation. A side annotation
+        // (not an event-log event); the durable frame was already acked+deduped
+        // by the generic gate above. Reactor = the authenticated sender.
+        if (existing?.status != ContactStatus.accepted) return;
+        final targetId = env.id;
+        if (targetId == null) return;
+        await _applyReaction(m.src.hex, targetId, m.src.hex, env.body);
+        _signal();
+        return;
+      case WireKind.groupEntry:
+        // A group snapshot from a member (groups epic); the durable frame was
+        // already acked+deduped above. From an accepted contact it ingests as
+        // always; from a NON-contact it goes through the guarded stranger
+        // path (existing group + sender is a member — scale-free log sync).
+        if (existing?.status == ContactStatus.accepted) {
+          onGroupEntry?.call(m.src, env.body);
+        } else {
+          onGroupEntryFromStranger?.call(m.src, env.body);
+        }
+        return;
+      case WireKind.groupEntryChunk:
+        // One slice of an oversized snapshot (inline group media). Already
+        // acked/deduped above. Reassemble by transferId; once every chunk is
+        // present, ingest the joined bundle exactly like a whole groupEntry.
+        // A NON-contact's chunk must pass the membership admission BEFORE any
+        // reassembly RAM is spent on it.
+        if (existing?.status == ContactStatus.accepted) {
+          _ingestGroupChunk(m.src, env.body);
+        } else {
+          await _ingestStrangerGroupChunk(m.src, env.body);
+        }
+        return;
+      case WireKind.groupContentRequest:
+        // A signed membership-authorized fetch request (groups content path).
+        // Deliberately NOT contact-gated: the signature + membership proof
+        // inside is the authorization; the group layer verifies against its
+        // own folded state and grants (or silently drops — no oracle).
+        onGroupContentRequest?.call(m.src, env.body);
+        return;
+      case WireKind.chatDeleted:
+        // The peer deleted this conversation on their device and explicitly
+        // opted into telling us. Accepted contacts only (a stranger/pending
+        // peer gets the usual silent drop — no oracle); the durable frame was
+        // already acked+deduped by the generic gate above. Leave a LOCAL
+        // system-notice marker in the chat via the normal store path, so
+        // unread/notification behave like any incoming event.
+        if (existing?.status != ContactStatus.accepted) return;
+        await _store(
+          m.src,
+          MessageDirection.incoming,
+          kChatDeletedMarkerBody,
+          MessageStatus.delivered,
+          // Fall back to receive time: an unstamped marker would sort into
+          // the middle of the chat instead of closing it.
+          timestamp: _wireSentAt(env) ?? _now(),
+          // A LOCAL annotation, not an event from the sender's (just wiped)
+          // log — see [_store.selfAuthored] for the ordering rationale.
+          selfAuthored: true,
+        );
+        _emitIncoming(m.src, '🗑️', isFile: false);
+        return;
+      case WireKind.unknown:
+        // A structured (v:2) frame from a NEWER build whose kind we don't know —
+        // the decoder already mapped it to this drop sentinel (RULE WC). Ignore.
+        return;
+      case WireKind.fileMeta:
+        if (existing?.status != ContactStatus.accepted) {
+          devLog(
+            () =>
+                'xVeil[recv]: fileMeta DROPPED — ${m.src.short} '
+                'not accepted (status=${existing?.status})',
+          );
+          return;
+        }
+        final meta = parseFileMeta(env.body);
+        // Refuse over-budget transfers up front (the declared size is a hint;
+        // the per-chunk guard below enforces it even if the peer lies here).
+        if (meta.size != null && meta.size! > kMaxIncomingFileBytes) return;
+        // Ignore a duplicate meta for a transfer we are ALREADY tracking —
+        // overwriting it would reset the reassembler and discard chunks already
+        // received (sendFile mints a fresh id per transfer, so the same id never
+        // legitimately restarts).
+        if (_inFlight.containsKey(meta.transferId)) return;
+        // At capacity: first reclaim slots held by transfers that have gone idle
+        // past the stale timeout, so a stalled/abandoned transfer can't block
+        // legitimate ones until restart. Actively-progressing transfers (a recent
+        // chunk bumped lastActivity) are untouched.
+        if (_inFlight.length >= kMaxConcurrentIncomingFiles) {
+          final cutoff = _now();
+          _inFlight.removeWhere(
+            (_, inc) =>
+                cutoff.difference(inc.lastActivity) > kStaleIncomingFileTimeout,
+          );
+        }
+        // Bound concurrent transfers so the per-transfer cap actually bounds
+        // total memory: a new transfer is dropped when we are STILL at capacity
+        // (i.e. every slot holds a live, non-stale transfer).
+        if (_inFlight.length >= kMaxConcurrentIncomingFiles) return;
+        _inFlight[meta.transferId] = _Incoming(
+          src: m.src,
+          name: meta.name,
+          reasm: FileReassembler(),
+          lastActivity: _now(),
+          seq:
+              meta.seq, // the sender's filePost seq (null from an older sender)
+          sentAtMs: meta.sentAtMs, // the sender's send-time (convergent order)
+        );
+        devLog(
+          () =>
+              'xVeil[recv]: fileMeta ${meta.transferId} "${meta.name}" '
+              'count=${meta.count} size=${meta.size} <- ${m.src.short} — tracking',
+        );
+        return; // nothing to show until the file completes
+      case WireKind.fileChunk:
+        if (existing?.status != ContactStatus.accepted) {
+          devLog(
+            () =>
+                'xVeil[recv]: fileChunk DROPPED — ${m.src.short} '
+                'not accepted (status=${existing?.status})',
+          );
+          return;
+        }
+        final frame = parseFileChunk(env.body);
+        final inc = _inFlight[frame.transferId];
+        // Unknown transfer (chunk before meta), or a different peer trying to
+        // contribute to someone else's in-flight transfer — drop it.
+        if (inc == null || inc.src != m.src) {
+          devLog(
+            () =>
+                'xVeil[recv]: fileChunk DROPPED — no meta for transfer '
+                '${frame.transferId} (idx ${frame.index}/${frame.total}) <- ${m.src.short}'
+                '${inc != null ? " (src mismatch)" : " (META LOST or not yet arrived)"}',
+          );
+          return;
+        }
+        inc.lastActivity = _now(); // progress — keep this transfer non-stale
+        inc.reasm.add(
+          FileChunk(
+            transferId: frame.transferId,
+            index: frame.index,
+            total: frame.total,
+            data: frame.data,
+          ),
+        );
+        // Enforce the memory budget even if the peer lied about size — abort
+        // and discard the partial transfer rather than buffer unboundedly.
+        if (inc.reasm.bufferedBytes > kMaxIncomingFileBytes) {
+          _inFlight.remove(frame.transferId);
+          return;
+        }
+        if (!inc.reasm.isComplete) return; // wait for the rest
+        final tid = frame.transferId;
+        devLog(
+          () =>
+              'xVeil[recv]: file $tid "${inc.name}" COMPLETE — assembling + storing',
+        );
+        _inFlight.remove(tid);
+        // Use the transfer id AS the message id (symmetry with the sender), so
+        // a re-delivered transfer dedups and — crucially — a file we DELETED
+        // never resurrects (deniability: deleted stays deleted, same guard the
+        // text path has). Re-ack either way so the sender stops re-sending.
+        if (await _hasMessage(m.src, tid) ||
+            await _storage.isMessageDeleted(m.src.hex, tid)) {
+          await _ackTo(m, tid, direct: true, repeat: true);
+          return;
+        }
+        // Store the blob under a LOCALLY-minted id, NOT the sender-chosen
+        // transferId: storeFile keys the blob globally (file:<id>) and overwrites,
+        // so reusing the wire tid would let a colliding id from another
+        // conversation clobber that chat's blob. The message id stays `tid` (its
+        // dedup + deleted-resurrect guards are already conversation-scoped); only
+        // the blob's storage key is decoupled.
+        final localFileId = _uuid.v4();
+        final assembled = inc.reasm.assemble();
+        try {
+          await _storage.storeFile(
+            localFileId,
+            assembled,
+            name: inc.name,
+          );
+        } catch (e) {
+          // Over the storage cap (the buffer cap should have aborted it first) or
+          // a transient store error — drop the transfer rather than crash the
+          // inbound chain. The sender's gap-fill can retry; no half-stored blob.
+          devLog(() => 'xVeil[recv]: storeFile failed for $tid — dropped: $e');
+          return;
+        }
+        await _store(
+          m.src,
+          MessageDirection.incoming,
+          '📎 ${inc.name ?? 'file'}',
+          MessageStatus.delivered,
+          fileId: localFileId,
+          fileName: inc.name,
+          fileSize: assembled.length,
+          id: tid,
+          // Fold the file under the SENDER's filePost seq + send-time (R4) so the
+          // (author, seq) AND the convergent display time are identical on both
+          // devices, and gap-fill can heal a missing file. Null from an older
+          // sender → storage allocates a seq / falls back to receive time.
+          seq: inc.seq,
+          timestamp: _wireSentAtMs(inc.sentAtMs),
+        );
+        _emitIncoming(m.src, '📎 ${inc.name ?? 'file'}', isFile: true);
+        // Ack the completed transfer so the sender's file message flips
+        // sent -> delivered — the same delivery feedback text messages get.
+        await _ackTo(m, tid);
+    }
+    _signal();
+  }
+
+  /// Ask [dst] to connect, with an optional [greeting]. We can't freely
+  /// message them until they accept.
+  Future<void> sendRequest(NodeId dst, String greeting) async {
+    final text = greeting.trim();
+    await _setStatus(dst, ContactStatus.pendingOutgoing);
+    // Tag the greeting with a stable id shared between our stored copy and the
+    // request on the wire. The greeting is stored `sent`, so the outbox re-sends
+    // it as a WireKind.message after the peer accepts; without a shared id the
+    // recipient (who stored the request body) couldn't dedup it and would show
+    // the greeting twice.
+    final id = _uuid.v4();
+    final sentAt = DateTime.now();
+    if (text.isNotEmpty) {
+      await _store(
+        dst,
+        MessageDirection.outgoing,
+        text,
+        MessageStatus.sent,
+        id: id,
+        timestamp: sentAt,
+      );
+    }
+    _signal();
+    final wire = WireEnvelope.request(
+      text,
+      id: id,
+      sentAtMs: sentAt.millisecondsSinceEpoch,
+    ).encode();
+    _mailbox?.noteActivity(); // expect the accept/decline back as mailbox mail
+    await _send(dst, wire);
+    // Also deposit the request at the recipient's mailbox relay so a NAT'd /
+    // offline peer receives it. The live send above only lands if they're
+    // directly reachable — which for two nodes behind NAT they never are, so
+    // WITHOUT this first contact could never be established. (flushOutbox only
+    // re-stashes ACCEPTED contacts, so the request must stash itself here.)
+    await _maybeStash(dst, id, wire);
+  }
+
+  /// Re-send a pending outgoing request that hasn't been accepted yet (e.g. it
+  /// didn't reach the peer because a relay was momentarily unresolvable). Re-uses
+  /// the original greeting + id (so the peer dedups), re-sends live AND forces a
+  /// fresh mailbox deposit. No-op unless the contact is still pendingOutgoing.
+  Future<void> resendRequest(NodeId dst) async {
+    final contact = await _storage.getContact(dst);
+    if (contact?.status != ContactStatus.pendingOutgoing) return;
+    String? body;
+    String? id;
+    for (final m in await _storage.loadMessages(dst.hex)) {
+      if (m.direction == MessageDirection.outgoing) {
+        body = m.body;
+        id = m.id;
+        break;
+      }
+    }
+    id ??= _uuid.v4();
+    final wire = WireEnvelope.request(body ?? '', id: id).encode();
+    await _send(dst, wire);
+    _stashed.remove(id); // allow the deposit to happen again
+    await _maybeStash(dst, id, wire);
+    _signal();
+  }
+
+  /// Cancel (retract) a pending outgoing request: remove the conversation +
+  /// contact locally so the peer is unknown again and a fresh request can be
+  /// sent later. The peer can't be un-notified (if it already arrived they may
+  /// have seen it), but our side is cleaned up.
+  Future<void> cancelRequest(NodeId peer) async {
+    await _storage.removeConversation(peer);
+    _signal();
+  }
+
+  /// Approve an incoming request — both sides can now message freely.
+  Future<void> acceptContact(NodeId peer) async {
+    await _setStatus(peer, ContactStatus.accepted);
+    _signal();
+    // DURABLE (see [sendDurable]): the requester is likely NAT'd/offline, and
+    // an accept that dies on the lossy first live attempt (or our restart)
+    // strands the whole relationship — they never learn they were accepted.
+    // The pipeline live-sends, deposits at their mailbox, and re-drives until
+    // their ack retires it. Stable id keys relay dedup per peer.
+    await sendDurable(peer, 'accept:${peer.hex}', const WireEnvelope.accept());
+  }
+
+  /// Decline / block an incoming request — their messages are dropped.
+  Future<void> blockContact(NodeId peer) async {
+    await _setStatus(peer, ContactStatus.blocked);
+    _signal();
+  }
+
+  /// Lift a block — the peer becomes an accepted contact again so their
+  /// messages are delivered (and we can message them). Local-only: the peer is
+  /// never told they were blocked or unblocked (no presence/relationship
+  /// oracle). A still-buffered re-send from them will flow on its next arrival.
+  Future<void> unblockContact(NodeId peer) async {
+    await _setStatus(peer, ContactStatus.accepted);
+    _signal();
+  }
+
+  /// Set (or clear, when [name] is null/blank) a LOCAL display alias for [peer].
+  /// Lives only in the encrypted contact record on this device — never sent on
+  /// the wire, so it leaks nothing and is purely a readability aid over the raw
+  /// node id. No-op if we hold no contact for the peer. Built directly (not via
+  /// copyWith) so a blank name actually CLEARS the alias (copyWith's `?? old`
+  /// can only set, never unset).
+  Future<void> setContactName(NodeId peer, String? name) async {
+    final existing = await _storage.getContact(peer);
+    if (existing == null) return;
+    final trimmed = name?.trim();
+    await _putContactPrefs(
+      Contact(
+        nodeId: existing.nodeId,
+        name: (trimmed == null || trimmed.isEmpty) ? null : trimmed,
+        status: existing.status,
+        mutedUntil: existing.mutedUntil,
+        pinned: existing.pinned,
+        archived: existing.archived,
+        retentionDays: existing.retentionDays,
+        allowPeerDelete: existing.allowPeerDelete,
+        p2pOverride: existing.p2pOverride,
+      ),
+    );
+    _signal();
+  }
+
+  /// Mute notifications for [peer]'s conversation until [until] ([kMuteForever]
+  /// = until manually unmuted; null = unmute now). Local-only — the deadline
+  /// lives in the encrypted contact record and is never sent. The notification
+  /// layer reads the computed [Contact.muted] to suppress alerts; messages
+  /// still arrive and store as normal. No-op if we hold no contact for the peer.
+  Future<void> setContactMutedUntil(NodeId peer, DateTime? until) async {
+    final existing = await _storage.getContact(peer);
+    if (existing == null) return;
+    await _putContactPrefs(existing.copyWith(mutedUntil: until));
+    _signal();
+  }
+
+  /// Boolean mute compat shim: true = mute forever, false = unmute now.
+  Future<void> setContactMuted(NodeId peer, bool muted) =>
+      setContactMutedUntil(peer, muted ? kMuteForever : null);
+
+  /// Archive (or unarchive) [peer]'s conversation — it collapses into the
+  /// archive section of the chat list. Local-only, stored in the encrypted
+  /// contact record. No-op if unknown.
+  Future<void> setContactArchived(NodeId peer, bool archived) async {
+    final existing = await _storage.getContact(peer);
+    if (existing == null) return;
+    await _putContactPrefs(existing.copyWith(archived: archived));
+    _signal();
+  }
+
+  /// Allow (or forbid) [peer] to delete-for-everyone / clear messages in OUR
+  /// copy of the conversation. Receiver-side policy (see
+  /// [Contact.allowPeerDelete]); local-only, the peer is never told. No-op if
+  /// we hold no contact for the peer.
+  Future<void> setContactAllowPeerDelete(NodeId peer, bool allow) async {
+    final existing = await _storage.getContact(peer);
+    if (existing == null) return;
+    await _putContactPrefs(existing.copyWith(allowPeerDelete: allow));
+    _signal();
+  }
+
+  /// Per-contact direct P2P override. Local-only and receiver-side: it only
+  /// decides whether THIS device may reveal/use a direct path with [peer].
+  Future<void> setContactP2POverride(
+    NodeId peer,
+    ContactP2POverride value,
+  ) async {
+    final existing = await _storage.getContact(peer);
+    if (existing == null) return;
+    await _storage.upsertContact(existing.copyWith(p2pOverride: value));
+    _signal();
+  }
+
+  /// Pin (or unpin) [peer]'s conversation to the top of the chat list.
+  /// Local-only, stored in the encrypted contact record. No-op if unknown.
+  Future<void> setContactPinned(NodeId peer, bool pinned) async {
+    final existing = await _storage.getContact(peer);
+    if (existing == null) return;
+    await _putContactPrefs(existing.copyWith(pinned: pinned));
+    _signal();
+  }
+
+  /// Set [peer]'s message-retention window in DAYS (null/<=0 = unlimited, the
+  /// default). Persisted in the encrypted contact record, then applied
+  /// immediately (prunes anything already past the window). Local-only; built
+  /// directly so null actually CLEARS the policy (copyWith's `?? old` can't).
+  Future<void> setContactRetention(NodeId peer, int? days) async {
+    final existing = await _storage.getContact(peer);
+    if (existing == null) return;
+    final window = (days == null || days <= 0) ? null : days;
+    await _putContactPrefs(
+      Contact(
+        nodeId: existing.nodeId,
+        name: existing.name,
+        status: existing.status,
+        mutedUntil: existing.mutedUntil,
+        pinned: existing.pinned,
+        archived: existing.archived,
+        retentionDays: window,
+        allowPeerDelete: existing.allowPeerDelete,
+        p2pOverride: existing.p2pOverride,
+      ),
+    );
+    _signal();
+    if (window != null) {
+      await _storage.pruneConversation(peer, window);
+      _signal();
+    }
+  }
+
+  /// Apply [peer]'s retention policy now (called when a chat is opened, so an
+  /// expired message disappears even without a periodic sweep). No-op when the
+  /// conversation has no retention window.
+  Future<void> pruneConversation(NodeId peer) async {
+    try {
+      final c = await _storage.getContact(peer);
+      final days = c?.retentionDays;
+      if (days == null || days <= 0) return;
+      final pruned = await _storage.pruneConversation(peer, days);
+      if (pruned > 0) _signal();
+    } catch (_) {
+      // Best-effort on open (like markRead): storage locked/unavailable → skip.
+    }
+  }
+
+  /// Delete the whole conversation with [peer] from THIS device: removes the
+  /// contact + every message from the encrypted store and drops the peer's
+  /// in-memory send state so the outbox stops re-sending to it (this is how a
+  /// user clears a dead/old "ghost" identity that can no longer be reached).
+  /// Local by default — the peer is not notified. [notifyPeer] is the explicit
+  /// OPT-IN from the delete dialog (user decision 2026-07-11): send a
+  /// [WireKind.chatDeleted] farewell BEFORE the local wipe, so the peer's chat
+  /// shows an honest "deleted the chat" notice instead of silence.
+  Future<void> deleteConversation(
+    NodeId peer, {
+    bool notifyPeer = false,
+  }) async {
+    if (notifyPeer) await _sendChatDeletedFarewell(peer);
+    await _storage.removeConversation(peer);
+    _peerUnresolvedBackoff.remove(peer.hex);
+    await _removeFromAllFolders(peer.hex);
+    _signal();
+  }
+
+  /// The opt-in farewell of [deleteConversation]. NOT [sendDurable]: the local
+  /// outbox entry would be wiped moments later with the conversation, so the
+  /// frame rides a live attempt plus an AWAITED mailbox deposit — parked for
+  /// an offline peer before the local state (contact keys included) goes away.
+  /// Guards keep the no-oracle canon intact everywhere else: nothing is sent
+  /// to Saved Messages (self) or a non-accepted peer.
+  Future<void> _sendChatDeletedFarewell(NodeId peer) async {
+    final selfHex = await _selfHex();
+    if (peer.hex == selfHex) return;
+    final contact = await _storage.getContact(peer);
+    if (contact == null || contact.status != ContactStatus.accepted) return;
+    final fid = 'chatdel:${_uuid.v4()}';
+    // Stamp the send time (like sendText) — without it the receiver stores the
+    // marker with no timestamp and it sorts into the MIDDLE of the chat
+    // instead of appending as the closing notice (caught in device-verify).
+    final wire = WireEnvelope(
+      WireKind.chatDeleted,
+      '',
+      sentAtMs: _now().millisecondsSinceEpoch,
+    ).withFrameId(fid).encode();
+    try {
+      await _send(peer, wire);
+    } catch (_) {
+      // Live path down — the mailbox deposit below still delivers.
+    }
+    try {
+      await _maybeStash(peer, fid, wire);
+    } catch (_) {
+      // Best-effort: the delete must not be blocked by an unreachable mailbox.
+    }
+  }
+
+  // ── Chat folders (local-only groupings, §Telegram-style) ─────────────────
+  static const _kFoldersKey = 'chat_folders';
+
+  /// The user's chat folders (empty when none created). Read from the encrypted
+  /// settings KV; nothing about folders ever goes on the wire.
+  Future<List<ChatFolder>> loadFolders() async {
+    try {
+      return ChatFolder.decodeList(await _storage.getSetting(_kFoldersKey));
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> _saveFolders(List<ChatFolder> folders) async {
+    await _storage.putSetting(_kFoldersKey, ChatFolder.encodeList(folders));
+    _signal();
+  }
+
+  /// Create a folder (optionally seeded with [members]) and return it.
+  Future<ChatFolder> createFolder(
+    String name, {
+    List<String> members = const [],
+  }) async {
+    final folders = List<ChatFolder>.from(await loadFolders());
+    final folder = ChatFolder(
+      id: _uuid.v4(),
+      name: name.trim(),
+      memberHexes: members,
+    );
+    folders.add(folder);
+    await _saveFolders(folders);
+    return folder;
+  }
+
+  Future<void> renameFolder(String folderId, String name) async {
+    final folders = await loadFolders();
+    await _saveFolders([
+      for (final f in folders)
+        if (f.id == folderId) f.copyWith(name: name.trim()) else f,
+    ]);
+  }
+
+  Future<void> deleteFolder(String folderId) async {
+    final folders = await loadFolders();
+    await _saveFolders(folders.where((f) => f.id != folderId).toList());
+  }
+
+  /// Add or remove [peerHex] to/from [folderId] (idempotent). Membership is a
+  /// set — a conversation can live in any number of folders.
+  Future<void> setFolderMembership(
+    String folderId,
+    String peerHex,
+    bool member,
+  ) async {
+    final folders = await loadFolders();
+    await _saveFolders([
+      for (final f in folders)
+        if (f.id != folderId)
+          f
+        else
+          f.copyWith(
+            memberHexes: member
+                ? (f.contains(peerHex)
+                      ? f.memberHexes
+                      : [...f.memberHexes, peerHex])
+                : f.memberHexes.where((h) => h != peerHex).toList(),
+          ),
+    ]);
+  }
+
+  /// Drop [peerHex] from EVERY folder (called when a conversation is deleted so
+  /// no folder keeps a dangling member).
+  Future<void> _removeFromAllFolders(String peerHex) async {
+    final folders = await loadFolders();
+    if (!folders.any((f) => f.contains(peerHex))) return;
+    await _saveFolders([
+      for (final f in folders)
+        f.copyWith(
+          memberHexes: f.memberHexes.where((h) => h != peerHex).toList(),
+        ),
+    ]);
+  }
+
+  /// Clear the message HISTORY of [peer]'s conversation but keep the contact —
+  /// the chat stays in the list, emptied. Forensic (tombstone + scrub), so a
+  /// re-delivery can't resurrect the cleared messages. Local-only — the peer is
+  /// not told. Also forget any deposited-once markers for those ids so a future
+  /// edit/del with a recycled id can still be deposited.
+  Future<void> clearConversation(NodeId peer) async {
+    // Clear locally AND emit a clear EVENT carrying a per-author seq watermark, so
+    // the peer (and — once multi-device lands — our OWN other devices) converge to
+    // the same emptied state on replay. Only the watermark travels (no oracle).
+    final selfHex = await _selfHex();
+    final ev = await _storage.emitClearConversation(peer, selfHex);
+    // DURABLE (see [sendDurable]): a clear-for-everyone that dies on the lossy
+    // first live attempt leaves the two sides PERMANENTLY diverged — there is
+    // no later traffic whose absence would flag it. The frame id is PEER-scoped:
+    // seqs are per-(conversation, author), so clears of two different
+    // conversations can both sit at seq N and must not collide in the outbox.
+    // applyRemoteClear is slot-idempotent, so re-drives are harmless.
+    await sendDurable(
+      peer,
+      'clear:${peer.hex}:${ev.seq}',
+      WireEnvelope.clear(jsonEncode(ev.watermark), seq: ev.seq),
+    );
+    _signal();
+  }
+
+  /// Attached by the multi-device bridge: fires after a LOCAL [markRead]
+  /// advanced the conversation's watermark (never from
+  /// [applyMirroredReadMark]), so my other devices clear the same badge.
+  void Function(String conversationId, int tsMs)? onConversationRead;
+
+  /// Mark a conversation read (its unread badge resets) and refresh the UI.
+  /// Best-effort — never throw from a screen's open hook (e.g. storage not yet
+  /// open in a test/loopback context).
+  Future<void> markRead(String conversationId) async {
+    try {
+      await _storage.markRead(conversationId);
+      _signal();
+      final ts = await _storage.readMarker(conversationId);
+      if (ts > 0) onConversationRead?.call(conversationId, ts);
+    } catch (_) {
+      // storage locked / unavailable — skip the badge clear.
+    }
+  }
+
+  /// Apply a read watermark mirrored from ANOTHER of my devices. Monotonic
+  /// (an older mark never regresses what this device already read) and writes
+  /// straight to storage — it never re-fires [onConversationRead], so a
+  /// mirrored mark cannot echo. Returns whether the watermark advanced.
+  Future<bool> applyMirroredReadMark(String conversationId, int tsMs) async {
+    try {
+      if (await _storage.readMarker(conversationId) >= tsMs) return false;
+      await _storage.setReadMarker(conversationId, tsMs);
+      _signal();
+      return true;
+    } catch (_) {
+      return false; // storage locked / unavailable
+    }
+  }
+
+  Future<void> sendText(
+    NodeId dst,
+    String text, {
+    String? replyToId,
+    String? forwardedFrom,
+  }) async {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return;
+    // Consent gate — only free-message an accepted contact.
+    final contact = await _storage.getContact(dst);
+    if (contact == null || contact.status != ContactStatus.accepted) return;
+    // One send time, used for BOTH our stored copy and the wire `sentAtMs`, so
+    // both ends order this message identically. From the service clock ([_now])
+    // so the per-message reconnect give-up age (and tests) share one timeline.
+    final sentAt = _now();
+    final stored = await _store(
+      dst,
+      MessageDirection.outgoing,
+      trimmed,
+      MessageStatus.sent,
+      timestamp: sentAt,
+      replyToId: replyToId,
+      forwardedFrom: forwardedFrom,
+    );
+    final id = stored.id;
+    _signal();
+    // Stays `sent` until the peer acks; the local outbox re-sends un-acked ones
+    // on reconnect, so a message written offline goes out when we come back. The
+    // event seq travels so the peer folds it under OUR (author, seq) and can spot
+    // a gap for gap-fill.
+    final wire = WireEnvelope.message(
+      trimmed,
+      id: id,
+      sentAtMs: sentAt.millisecondsSinceEpoch,
+      seq: stored.seq,
+      replyTo: replyToId,
+      forwardedFrom: forwardedFrom,
+    ).encode();
+    // wantReply: embed a one-time reply path so the peer's delivery-ACK comes
+    // back over THIS circuit (fast), flipping us to "delivered" without a full
+    // resolve+circuit-build round-trip on their side.
+    // [timeline] id + send-time only (random uuid + ms clock — no body/keys), so
+    // receive-latency vs ACK-latency can be measured per message from the logs.
+    devLog(
+      () =>
+          'xVeil[timeline]: send id=$id '
+          't0=${sentAt.millisecondsSinceEpoch} wantReply=true',
+    );
+    // A user send opens the mailbox burst window: the reply usually comes back
+    // as drained mail (the live introduce toward us may be down), so poll fast
+    // for a bounded window instead of the idle back-off.
+    _mailbox?.noteActivity();
+    await _send(dst, wire, wantReply: true);
+    // Deposit at the peer's mailbox as a BACKGROUND fallback (don't await): the
+    // seal+put is a slow onion round-trip, and blocking the send on it made every
+    // message feel laggy even when the live path delivers instantly. If the peer
+    // is offline the deposit (or the outbox retry) still gets there.
+    unawaited(_maybeStash(dst, id, wire));
+  }
+
+  /// Re-send every outgoing text message still awaiting a delivery ack (i.e.
+  /// `sent`, not yet `delivered`) to accepted contacts. Driven on node-connect /
+  /// app-start so messages composed while offline are delivered on reconnect;
+  /// the receiver dedups by id, so re-sending an already-delivered one is safe.
+  Future<void> flushOutbox() async {
+    // Durable control frames (sign, …) re-driven first — independent of any
+    // per-conversation message state, so they flow even for a peer with no
+    // pending chat messages.
+    await _flushOutboxFrames();
+    final convs = await _storage.loadConversations();
+    for (final conv in convs) {
+      if (conv.peer.status != ContactStatus.accepted) continue;
+      // Event-log gap-fill beacon (§15, 3c): advertise what we hold so the peer
+      // re-ships anything we are missing — and our beacon-back heals the peer.
+      // Throttled per peer ([_syncSendInterval]); live-only, so it is independent
+      // of the mailbox backoff below. The first tick after a (re)connect fires
+      // immediately (no throttle entry yet), so reconnect triggers reconciliation.
+      _sendSyncBestEffort(conv.peer.nodeId);
+      final msgs = await _storage.loadMessages(conv.id);
+      // Bounded reconnect + terminal "not delivered" (§15.7). Runs BEFORE the
+      // resolve-backoff `continue` below so even a never-resolving peer's messages
+      // eventually terminate at failed instead of retrying forever.
+      await _maybeReconnect(conv.peer.nodeId, msgs);
+      // Ghost give-up: a contact whose mailbox seal keeps failing
+      // `PeerUnresolved` (a dead/old identity) is backed off per-peer, so we stop
+      // re-sending to it every 3s forever. Escalating + non-permanent — the next
+      // allowed tick retries, so a peer that resolves again still gets delivered.
+      final pb = _peerUnresolvedBackoff[conv.peer.nodeId.hex];
+      if (pb != null && DateTime.now().isBefore(pb.nextAt)) continue;
+      for (final m in msgs) {
+        if (m.direction == MessageDirection.outgoing &&
+            m.status == MessageStatus.sent &&
+            // Synchronous early-cancel: the durable status flips to `delivered`
+            // a moment later (async write), so without this the next flush could
+            // re-send a just-acked message in that window.
+            !_delivered.contains(m.id) &&
+            !m.isFile) {
+          // Exponential per-message backoff: skip this flush if the message is
+          // still within its backoff window (delivery is lossy, so re-sending
+          // every un-acked message every 3s is a storm). First re-send fires
+          // immediately (no entry yet); each subsequent one doubles 3->6->12->24
+          // capped, so a persistent loss stops hammering the UI/onion path.
+          final now = DateTime.now();
+          final bo = _retryBackoff[m.id];
+          if (bo != null && now.isBefore(bo.nextAt)) continue;
+          final count = (bo?.count ?? 0) + 1;
+          // Shift exponent clamped: count keeps growing while un-acked, and an
+          // unclamped 1<<63 wraps the delay to 0 — silently un-backing-off.
+          final delayMs =
+              (_retryInterval.inMilliseconds * (1 << (count - 1).clamp(0, 10)))
+                  .clamp(0, _maxRetryBackoff.inMilliseconds);
+          _retryBackoff[m.id] = (
+            count: count,
+            nextAt: now.add(Duration(milliseconds: delayMs)),
+            peer: conv.peer.nodeId.hex,
+          );
+          // Re-send with the ORIGINAL send time AND seq so a message recovered
+          // via the outbox retry (not gap-fill) folds under OUR (author, seq) on
+          // the peer — without the seq it would land under a divergent locally-
+          // allocated seq, breaking convergence for the common retry path.
+          final wire = WireEnvelope.message(
+            m.body,
+            id: m.id,
+            sentAtMs: m.timestamp.millisecondsSinceEpoch,
+            seq: m.seq,
+            replyTo: m.replyToId,
+            forwardedFrom: m.forwardedFrom,
+          ).encode();
+          // Re-sends do NOT request a reply: the first send already attached one
+          // (sendText), and building a fresh one-time reply circuit on EVERY 3s
+          // retry was the dominant circuit-build load (the reply path can't be
+          // reused anyway). A plain re-send arrives with replyId==0, so the peer
+          // ACKs over the durable resolve+circuit path — reliable, and it stops
+          // the retry once it lands. This keeps the fast-ACK chance (first send)
+          // without the per-retry circuit storm.
+          // [timeline] one line per re-send so a session's retry count per id is
+          // countable (a high count = the ACK round-trip is lagging). id only.
+          devLog(
+            () =>
+                'xVeil[timeline]: retry id=${m.id} '
+                't=${DateTime.now().millisecondsSinceEpoch}',
+          );
+          await _send(conv.peer.nodeId, wire);
+          // Also deposit at the recipient's mailbox relay so an OFFLINE peer
+          // receives it (live re-send above only lands if they're online). Keep
+          // this in the background: sealing/PUT can take a full anonymous
+          // round-trip, and should not block later live retries in this pass.
+          unawaited(_maybeStash(conv.peer.nodeId, m.id, wire));
+        }
+      }
+    }
+  }
+
+  /// Bounded reconnect handshake (§15.7) for one peer. [msgs] is that peer's
+  /// conversation. If a message has stayed un-acked past [_reconnectThreshold],
+  /// the peer may have wiped its chat data and forgotten us — send a re-intro
+  /// ([WireKind.reconnect]) so it can re-accept; throttled per peer to one every
+  /// [_reconnectInterval]. Give-up is PER MESSAGE: a message un-acked past
+  /// [_reconnectGiveUpAge] flips to [MessageStatus.failed] ("not delivered") so
+  /// it stops retrying — anchored to the message's OWN age, NOT a shared counter
+  /// (a steady drip of new sends to a dead peer must not keep an old undelivered
+  /// message alive forever). A later gap-fill beacon can still heal it if the
+  /// peer returns. (Offline-vs-wiped is indistinguishable — no presence oracle;
+  /// an online accepted peer just re-acks the reconnect, harmless.)
+  Future<void> _maybeReconnect(NodeId peer, List<Message> msgs) async {
+    final now = _now();
+    var failedAny = false;
+    var anyTrying = false; // a stuck message still within the give-up window
+    for (final m in msgs) {
+      if (m.direction != MessageDirection.outgoing ||
+          m.status != MessageStatus.sent ||
+          _delivered.contains(m.id) ||
+          now.difference(m.timestamp) <= _reconnectThreshold) {
+        continue;
+      }
+      if (now.difference(m.timestamp) > _reconnectGiveUpAge) {
+        // Terminal "not delivered" for THIS message. Stops the outbox retry
+        // (status no longer `sent`); a later gap-fill beacon can still recover it.
+        await _storage.markMessageStatus(peer.hex, m.id, MessageStatus.failed);
+        failedAny = true;
+      } else {
+        anyTrying = true;
+      }
+    }
+    if (failedAny) _signal();
+    final reconnectFid = 'reconnect:${peer.hex}';
+    if (!anyTrying) {
+      // Nothing left to re-intro for — reset the throttle AND retire a
+      // still-pending durable reconnect: the messages it was trying to revive
+      // are done (delivered or terminally failed), so re-driving it forever at
+      // a peer that plainly isn't coming back is pure ghost load. The map
+      // check keeps this free of a storage round-trip on the common idle tick
+      // (post-restart, _flushOutboxFrames re-seeds the map before this runs).
+      if (_lastReconnectAt.remove(peer.hex) != null ||
+          _outboxLiveBackoff.containsKey(reconnectFid)) {
+        _retireOutboxFrame(reconnectFid);
+      }
+      return;
+    }
+    final last = _lastReconnectAt[peer.hex];
+    if (last != null && now.difference(last) < _reconnectInterval) return;
+    _lastReconnectAt[peer.hex] = now;
+    // Re-intro with an empty greeting — the contact only needs to surface as a
+    // pending intro on a peer that forgot us; the user accepting heals delivery.
+    // DURABLE (see [sendDurable]) as ONE logical frame per peer: the pipeline
+    // re-drives it on its own backoff between our 15-min attempts, and each
+    // attempt forces a fresh mailbox deposit (the relay copy may have aged out
+    // while the peer was away).
+    _stashed.remove(reconnectFid);
+    await sendDurable(peer, reconnectFid, const WireEnvelope.reconnect(''));
+    devLog(() => 'xVeil[reconnect]: -> ${peer.short}');
+  }
+
+  /// Send an event-log gap-fill beacon ([WireKind.sync]) to [peer] over the LIVE
+  /// path (no mailbox deposit — a beacon is only useful while the peer is online;
+  /// an offline peer beacons us when it returns). The frame carries our per-author
+  /// high-water + holes for this conversation, so the peer re-ships anything we
+  /// are missing. Throttled per peer to [_syncSendInterval] unless [force]d.
+  Future<void> _sendSyncTo(NodeId peer, {bool force = false}) async {
+    final now = DateTime.now();
+    final last = _lastSyncSentAt[peer.hex];
+    // Escalating interval for a peer that never answers (see
+    // [_syncUnanswered]): base × 2^streak, capped.
+    final streak = _syncUnanswered[peer.hex] ?? 0;
+    var interval = _syncSendInterval * (1 << (streak > 5 ? 5 : streak));
+    if (interval > _syncBackoffCap) interval = _syncBackoffCap;
+    if (!force && last != null && now.difference(last) < interval) {
+      return;
+    }
+    _lastSyncSentAt[peer.hex] = now;
+    _syncUnanswered[peer.hex] = streak + 1; // any inbound from peer resets
+    // Declare our own stream's FLOOR: the prefix we can no longer re-ship
+    // (cleared/erased at the source). Persisting it locally first makes our own
+    // hw/holes honest too; the beacon carries it so the peer stops naming that
+    // prefix as holes and re-requesting it forever. Cheap: the underlying
+    // putSetting is a no-op while the floor is unchanged.
+    final selfHex = await _selfHex();
+    final ownFloor = await _storage.ownSyncFloor(peer.hex, selfHex);
+    if (ownFloor > 0) {
+      await _storage.applyAuthorSyncFloor(peer.hex, selfHex, ownFloor);
+    }
+    final sync = await _storage.conversationSync(peer.hex);
+    // Records don't JSON-encode → flatten each hole tuple to a [lo, hi] list.
+    final holes = <String, List<List<int>>>{
+      for (final e in sync.holes.entries)
+        e.key: [
+          for (final h in e.value) [h.$1, h.$2],
+        ],
+    };
+    final body = jsonEncode({
+      'hw': sync.highWater,
+      if (holes.isNotEmpty) 'holes': holes,
+      // Own-stream floor (see above). Old builds ignore the unknown key.
+      if (ownFloor > 0) 'fl': {selfHex: ownFloor},
+      'ep': now.millisecondsSinceEpoch,
+    });
+    devLog(
+      () =>
+          'xVeil[sync]: -> ${peer.short} hw=${sync.highWater} '
+          'holes=${holes.length}',
+    );
+    await _send(peer, WireEnvelope.sync(body).encode());
+  }
+
+  void _sendSyncBestEffort(NodeId peer, {bool force = false}) {
+    unawaited(
+      _sendSyncTo(peer, force: force).catchError((_) {
+        // Sync beacons are advisory gap-fill hints. A transient anonymous-send
+        // failure must not surface as an unhandled async exception or abort an
+        // in-flight file transfer; the retry timer will beacon again.
+      }),
+    );
+  }
+
+  /// Handle a peer's gap-fill beacon: re-ship every event WE authored above the
+  /// peer's high-water for our stream (oldest-first, bounded), then beacon back
+  /// so the peer heals OUR gaps in the same round. Rate-limited per peer
+  /// ([_syncActInterval]) so a flood of sync{hw:0} can't drive a re-ship storm.
+  Future<void> _handlePeerSync(NodeId peer, String body) async {
+    final now = DateTime.now();
+    final lastActed = _lastSyncActedAt[peer.hex];
+    if (lastActed != null && now.difference(lastActed) < _syncActInterval) {
+      // Still beacon back (cheap, throttled) so the peer's gaps heal, but don't
+      // re-run the (heavier) re-ship scan this often.
+      _sendSyncBestEffort(peer);
+      return;
+    }
+    _lastSyncActedAt[peer.hex] = now;
+
+    Map<String, dynamic> j;
+    try {
+      j = jsonDecode(body) as Map<String, dynamic>;
+    } catch (_) {
+      return; // malformed beacon — drop
+    }
+    final hw = j['hw'];
+    if (hw is! Map) return;
+    final selfHex = await _selfHex();
+    // The peer's declared FLOOR for ITS OWN stream: "nothing of mine exists at
+    // or below F any more — stop treating that prefix as holes". Accepted ONLY
+    // for the authenticated sender's own author stream (an author is always
+    // entitled to void its own history; it could equally just never have sent
+    // it), so a peer cannot suppress gap-fill of anyone else's events.
+    final fl = j['fl'];
+    if (fl is Map) {
+      final declared = fl[peer.hex];
+      if (declared is int && declared > 0) {
+        await _storage.applyAuthorSyncFloor(peer.hex, peer.hex, declared);
+      }
+    }
+    // The peer's high-water for OUR author stream = how far it has folded us.
+    final claimed = hw[selfHex];
+    var peerHw = claimed is int && claimed >= 0 ? claimed : 0;
+    // RULE HW: clamp to what we actually emitted — a peer can't ack/own a seq it
+    // was never sent (anti-forgery). Our own stream is gap-free, so high-water ==
+    // our max self seq; re-shipping above it would be a no-op anyway.
+    final ours = await _storage.conversationSync(peer.hex);
+    final ourMax = ours.highWater[selfHex] ?? 0;
+    if (peerHw > ourMax) peerHw = ourMax;
+
+    // Re-ship everything above the clamped high-water, oldest-first, bounded.
+    // seq > hw already covers every named hole (all holes sit above the
+    // contiguous high-water), so v1 needs no separate hole handling.
+    final events = await _storage.loadEventsSince(
+      peer.hex,
+      selfHex,
+      peerHw,
+      limit: _syncReshipCap,
+    );
+    if (events.isNotEmpty) {
+      devLog(
+        () =>
+            'xVeil[sync]: <- ${peer.short} peerHw(me)=$peerHw '
+            'reship=${events.length}',
+      );
+      // Resolve ids → Messages once, so a file post can re-ship its transfer
+      // descriptor (content manifest for the new content layer, legacy file
+      // probe for old small-file chunks) rather than only the caption text.
+      final byId = {
+        for (final mm in await _storage.loadMessages(peer.hex)) mm.id: mm,
+      };
+      for (final ev in events) {
+        switch (ev.kind) {
+          case EventKind.post:
+          case EventKind.filePost:
+            final stored = byId[ev.id];
+            final isFile =
+                ev.kind == EventKind.filePost || (stored?.isFile ?? false);
+            if (isFile) {
+              if (stored == null) continue;
+              final contentId = stored.fileContentId ?? stored.fileId;
+              final served = contentId == null ? null : _serving[contentId];
+              if (served != null) {
+                // Content-layer filePost: the first contentManifest is a lossy
+                // live datagram. If it was the frame that got dropped while an
+                // anonymous circuit was still warming up, gap-fill must re-send
+                // the MANIFEST itself; a legacy fileQuery probe is not enough to
+                // surface an offered file on the receiver.
+                final manifest = served.manifest.withEvent(
+                  msgId: ev.id,
+                  author: selfHex,
+                  seq: ev.seq,
+                  ts: ev.ts,
+                );
+                await _sendContentManifest(peer, manifest);
+                continue;
+              }
+              // Legacy small-file event: send a CHEAP probe (no blob load),
+              // never the caption text. The receiver replies with a fileNack
+              // listing the chunks it lacks and we re-send only those
+              // (resumable) — instead of pushing the whole blob every round.
+              // A filePost whose row/blob is gone is simply not probed (it heals
+              // as a void later).
+              if (stored.fileId == null) continue;
+              await _send(
+                peer,
+                fileQueryEnvelope(
+                  transferId: ev.id,
+                  name: stored.fileName,
+                  seq: ev.seq,
+                  sentAtMs: ev.ts, // keep the file's ORIGINAL send-time
+                ).encode(),
+              );
+              continue;
+            }
+            await _send(
+              peer,
+              WireEnvelope.message(
+                ev.body ?? '',
+                id: ev.id,
+                sentAtMs: ev.ts,
+                seq: ev.seq,
+                replyTo: ev.replyTo,
+                forwardedFrom: ev.forwardedFrom,
+              ).encode(),
+            );
+          case EventKind.edit:
+            if (ev.target == null) continue;
+            await _send(
+              peer,
+              WireEnvelope.edit(
+                ev.target!,
+                ev.body ?? '',
+                seq: ev.seq,
+              ).encode(),
+            );
+          case EventKind.void_:
+            await _send(peer, WireEnvelope.voidSeq(ev.seq).encode());
+          case EventKind.delete:
+          case EventKind.clear:
+            // delete: never a stored event kind on this path. clear: the storage
+            // re-ship maps a clear row to an inert void_ (its effect travels via
+            // its own WireEnvelope.clear), so a clear LogEvent never reaches here.
+            continue;
+        }
+      }
+    }
+    // Beacon back so the peer re-ships what WE are missing (throttled).
+    _sendSyncBestEffort(peer);
+  }
+
+  /// Best-effort offline deposit of [wire] (the message envelope) for [peer],
+  /// keyed by a stable 32-byte content id derived from the message [id]. No-op
+  /// when there is no mailbox side-channel or we already stashed this message.
+  Future<void> _maybeStash(NodeId peer, String id, Uint8List wire) async {
+    final mailbox = _mailbox;
+    if (mailbox == null) {
+      devLog(
+        () =>
+            'xVeil[send]: stash SKIP dst=${peer.short} id=$id '
+            '— NO mailbox (transport not VeilFlutter or no relays)',
+      );
+      return;
+    }
+    if (_stashed.contains(id)) {
+      devLog(
+        () =>
+            'xVeil[send]: stash SKIP dst=${peer.short} id=$id — already stashed',
+      );
+      return;
+    }
+    // Back off re-attempts of a recently-FAILED id: a failed seal isolate blocks
+    // ~12s and the 3s flush would otherwise re-spawn one every tick. The deposit
+    // is NOT dropped — it just waits [_stashRetryBackoff] before the next try, so
+    // a genuinely-offline peer still gets it (eventually), without the storm.
+    final failedAt = _stashFailedAt[id];
+    if (failedAt != null &&
+        DateTime.now().difference(failedAt) < _stashRetryBackoff) {
+      return; // still in backoff — skip this flush, retry on a later one
+    }
+    try {
+      await mailbox.stash(
+        recipient: peer,
+        payload: wire,
+        contentId: _contentIdFor(id),
+      );
+      _stashed.add(id);
+      _stashFailedAt.remove(id);
+      _peerUnresolvedBackoff.remove(
+        peer.hex,
+      ); // peer resolves again — un-ghost it
+      devLog(
+        () =>
+            'xVeil[send]: stash OK dst=${peer.short} id=$id '
+            '(deposited at recipient relay)',
+      );
+    } catch (e, st) {
+      // No relay / no route yet — leave it un-stashed so a later flush retries
+      // (after the backoff). LOG the real reason: this is the offline-delivery
+      // path, and a swallowed failure here is invisible "message never arrived".
+      _stashFailedAt[id] = DateTime.now();
+      // A persistent `PeerUnresolved` means the recipient identity can't be
+      // resolved at all (a dead/old identity — the ghost). Escalate a PER-PEER
+      // backoff so the flush stops hammering it every 3s; cleared on any later
+      // success, reset on restart — never a permanent drop.
+      if (e.toString().contains('PeerUnresolved')) {
+        final pb = _peerUnresolvedBackoff[peer.hex];
+        final count = (pb?.count ?? 0) + 1;
+        final secs = (30 * (1 << (count - 1))).clamp(
+          30,
+          _peerUnresolvedCap.inSeconds,
+        );
+        _peerUnresolvedBackoff[peer.hex] = (
+          count: count,
+          nextAt: DateTime.now().add(Duration(seconds: secs)),
+        );
+      }
+      devLog(
+        () =>
+            'xVeil[send]: stash FAILED dst=${peer.short} id=$id '
+            '(backoff ${_stashRetryBackoff.inSeconds}s): $e\n$st',
+      );
+    }
+  }
+
+  /// Stable 32-byte mailbox content id for a message [id] (the relay keys dedup
+  /// + eviction on this). Distinct from the on-wire message id the recipient
+  /// dedups on; this only needs to be deterministic per message.
+  static Uint8List _contentIdFor(String id) =>
+      blake3DeriveKey('veil.mailbox.content_id.v1', utf8.encode(id));
+
+  /// Delete a message from THIS device only and scrub it from the container so
+  /// the plaintext is no longer recoverable — works for a received message too
+  /// (the highest-value deniability operation: purge what was sent to you). The
+  /// peer's copy is untouched; use [deleteForEveryone] to also unsend it.
+  Future<void> deleteMessageLocally(String messageId) async {
+    // Resolve the owning conversation: deleteMessage is conversation-scoped (a
+    // bare id never resolves across chats), and a local delete can target a
+    // received message too, so look it up rather than assume our own peer.
+    final msg = await _find(messageId);
+    if (msg == null) return;
+    await _storage.deleteMessage(msg.conversationId, messageId);
+    // Scrub immediately: the whole point is the text is gone NOW, before any
+    // coercion — not merely hidden behind a tombstone.
+    await _storage.scrubDeleted();
+    // Deleting our file message must also stop SERVING those bytes, or the
+    // durable served:/mf: records keep answering reoffers as if nothing
+    // happened and the delete is a lie. Peers then get an honest content-GONE
+    // on their next reoffer instead of an eternal spinner.
+    await _releaseServeStateFor(msg);
+    _signal();
+  }
+
+  /// Drop live + durable serve state for [msg]'s content, unless the same
+  /// content is still referenced by another (undeleted) message — the store is
+  /// content-addressed, so one blob can back several chat messages.
+  Future<void> _releaseServeStateFor(Message msg) async {
+    final cid = msg.fileContentId ?? msg.fileId;
+    if (cid == null) return;
+    try {
+      if (await _contentReferencedByAnyMessage(cid)) return;
+      final live = _serving.remove(cid);
+      if (live?.source != null) unawaited(live!.source!.close());
+      // No Storage.removeSetting exists — an empty value is the tombstone; the
+      // reoffer/stream-serve readers treat it as absent. The leftover mf: blob
+      // is inert without a source or stored bytes.
+      await _storage.putSetting('served:$cid', '');
+      devLog(
+        () =>
+            'xVeil[content]: released serve state for '
+            '${cid.substring(0, 12)} (message deleted)',
+      );
+    } catch (e) {
+      devLog(() => 'xVeil[content]: release serve state failed: $e');
+    }
+  }
+
+  Future<bool> _contentReferencedByAnyMessage(String contentId) async {
+    for (final conv in await _storage.loadConversations()) {
+      for (final m in await _storage.loadMessages(conv.id)) {
+        if (m.fileContentId == contentId || m.fileId == contentId) return true;
+      }
+    }
+    return false;
+  }
+
+  /// Delete one of OUR sent messages here AND ask the recipient to delete their
+  /// copy (best-effort: if they are offline the request is simply lost, and we
+  /// can never guarantee they hadn't already copied the text). No-op for a
+  /// received message — you can only unsend your own.
+  Future<void> deleteForEveryone(String messageId) async {
+    final msg = await _find(messageId);
+    if (msg == null || msg.direction != MessageDirection.outgoing) return;
+    final dst = NodeId.fromHex(msg.conversationId);
+    await deleteMessageLocally(messageId);
+    // DURABLE (see [sendDurable]): an unsend is a deniability action — it must
+    // reach the peer across a lost live attempt, their offline window, AND our
+    // restart, or their copy silently survives. Distinct 'del:' id so the
+    // relay does not dedup the deposit against the original message's; the
+    // receive side is idempotent (a deleted id stays deleted, and a re-drive
+    // for an already-purged message is a no-op).
+    await sendDurable(dst, 'del:$messageId', WireEnvelope.del(messageId));
+  }
+
+  /// Edit the body of one of OUR sent messages: replace the stored text in
+  /// place (the prior text is scrubbed), mark it edited, and propagate the new
+  /// text to the recipient (best-effort). No-op for a received message.
+  Future<void> editOwnMessage(String messageId, String newBody) async {
+    final trimmed = newBody.trim();
+    if (trimmed.isEmpty) return;
+    final msg = await _find(messageId);
+    if (msg == null || msg.direction != MessageDirection.outgoing) return;
+    // The edit event allocates the next gap-free seq for our author stream; it
+    // travels so the peer folds under the SAME (author, seq) we used (R4/R5) and
+    // gap-fill can re-ship a missed edit. Null only if the id vanished mid-edit.
+    final editSeq = await _storage.editMessage(
+      msg.conversationId,
+      messageId,
+      trimmed,
+    );
+    await _storage.scrubDeleted();
+    _signal();
+    final dst = NodeId.fromHex(msg.conversationId);
+    // DURABLE (see [sendDurable]). The frame id carries the edit's SEQ so each
+    // re-edit is a DISTINCT durable frame: the receiver dedups re-drives by
+    // frame id, so one id per message would eat every edit after the first —
+    // and distinct ids also give each edit its own mailbox deposit instead of
+    // overwriting the previous one at the relay. Out-of-order delivery is safe:
+    // the receiver folds edits strictly-newer-by-seq (R5), so a stale re-drive
+    // can never regress the text, and a duplicate is slot-idempotent.
+    await sendDurable(
+      dst,
+      'edit:$messageId:${editSeq ?? _uuid.v4()}',
+      WireEnvelope.edit(messageId, trimmed, seq: editSeq),
+    );
+  }
+
+  /// Locate a stored message by id across conversations (used before an
+  /// edit/delete needs its conversation / direction). Null if not found.
+  Future<Message?> _find(String messageId) async {
+    for (final c in await _storage.loadConversations()) {
+      for (final m in await _storage.loadMessages(c.id)) {
+        if (m.id == messageId) return m;
+      }
+    }
+    return null;
+  }
+
+  /// Send a file to [dst] (gated to accepted contacts). Stores a local copy,
+  /// records an outgoing file message (filePost, on the seq stream), then streams
+  /// the bytes as fileMeta + fileChunk envelopes — the meta carrying the file's
+  /// event seq so the receiver folds it convergently and gap-fill can heal it.
+  Future<void> sendFile(
+    NodeId dst,
+    Uint8List bytes,
+    String name, {
+    String? sourcePath,
+  }) async {
+    final contact = await _storage.getContact(dst);
+    if (contact == null || contact.status != ContactStatus.accepted) return;
+    _mailbox?.noteActivity(); // user action → mailbox burst window
+    // The recipient will pull from us shortly — open our serve pool now so
+    // its first attempt doesn't die on a cold-pool manifest timeout.
+    _warmStreamPeer(dst);
+    // Large files take the content layer (hash-verified pieces over datagrams —
+    // the path that actually crosses NAT) instead of the per-chunk fileMeta push.
+    if (bytes.length > _contentThreshold) {
+      await _sendAsContent(dst, bytes, name, sourcePath: sourcePath);
+      return;
+    }
+    // Backstop the storage ceiling: the UI pre-checks the same bound and shows a
+    // friendly error, but a direct caller must not drive storeFile past its
+    // atomic-delete cap (which throws). Drop silently here — the UI owns the UX.
+    if (bytes.length > kMaxStoredFileBytes) {
+      devLog(() => 'xVeil[sendFile]: ${bytes.length}B over cap — dropped');
+      return;
+    }
+
+    final fileId = _uuid.v4();
+    await _storage.storeFile(fileId, bytes, name: name);
+    // Use the transfer id AS the message id so the receiver's completion ack
+    // (keyed by transfer id) flips this message sent -> delivered. The file
+    // wire frames carry only the transfer id, not the message id.
+    final stored = await _store(
+      dst,
+      MessageDirection.outgoing,
+      '📎 $name',
+      MessageStatus.sent,
+      fileId: fileId,
+      fileName: name,
+      fileSize: bytes.length,
+      id: fileId,
+      // Stamp from the service clock (like sendText) so the per-message reconnect
+      // give-up age sees a consistent timeline for file messages too.
+      timestamp: _now(),
+    );
+    _signal();
+    await _sendFileFrames(
+      dst,
+      fileId,
+      name,
+      bytes,
+      stored.seq,
+      stored.timestamp.millisecondsSinceEpoch,
+    );
+  }
+
+  /// Stream a file's wire frames (one fileMeta carrying [seq] + [sentAtMs] + the
+  /// fileChunks) to [peer]. Shared by [sendFile] and the gap-fill re-ship so the
+  /// frame format (and the seq/send-time on the meta) has one source of truth. A
+  /// re-shipped file keeps its ORIGINAL send-time, not a fresh one.
+  Future<void> _sendFileFrames(
+    NodeId peer,
+    String transferId,
+    String? name,
+    Uint8List bytes,
+    int? seq,
+    int? sentAtMs,
+  ) async {
+    final chunks = chunkBytes(
+      bytes,
+      transferId: transferId,
+      maxChunk: _wireChunkBytes,
+    );
+    await _send(
+      peer,
+      fileMetaEnvelope(
+        transferId: transferId,
+        name: name,
+        size: bytes.length,
+        count: chunks.length,
+        seq: seq,
+        sentAtMs: sentAtMs,
+      ).encode(),
+    );
+    for (final c in chunks) {
+      await _send(
+        peer,
+        fileChunkEnvelope(
+          transferId: c.transferId,
+          index: c.index,
+          total: c.total,
+          data: c.data,
+        ).encode(),
+      );
+      // Native send completes when the fragmented onion cells are queued, not
+      // when the session drains them. Without pacing, a sub-MiB attachment can
+      // enqueue >4K cells in one burst and silently trip LIMIT tx_queue.
+      await Future<void>.delayed(_contentPacing);
+    }
+  }
+
+  /// Respond to a gap-fill file PROBE (§15 3c, resumable): tell the sender which
+  /// chunks of [meta].transferId we still need (or `null` = all, when we hold no
+  /// chunk yet). We register an in-flight slot carrying the sender's seq/send-time
+  /// so the completed file folds convergently when the re-sent chunks arrive.
+  Future<void> _handleFileQuery(InboundMessage m, FileMetaFrame meta) async {
+    final tid = meta.transferId;
+    // Already complete (or deliberately deleted) → ACK it again. The sender may
+    // be probing precisely because our original completion ACK was lost; staying
+    // silent here leaves its UI stuck or lets an unrelated sync receipt be
+    // mistaken for file completion.
+    if (await _hasMessage(m.src, tid) ||
+        await _storage.isMessageDeleted(m.src.hex, tid)) {
+      await _ackTo(m, tid, direct: true, repeat: true);
+      return;
+    }
+    var inc = _inFlight[tid];
+    if (inc == null) {
+      // Same capacity discipline as the fileMeta arm: reclaim stale slots first,
+      // then refuse a NEW transfer only when still at capacity.
+      if (_inFlight.length >= kMaxConcurrentIncomingFiles) {
+        final cutoff = _now();
+        _inFlight.removeWhere(
+          (_, x) =>
+              cutoff.difference(x.lastActivity) > kStaleIncomingFileTimeout,
+        );
+      }
+      if (_inFlight.length >= kMaxConcurrentIncomingFiles) return;
+      inc = _Incoming(
+        src: m.src,
+        name: meta.name,
+        reasm: FileReassembler(),
+        lastActivity: _now(),
+        seq: meta.seq,
+        sentAtMs: meta.sentAtMs,
+      );
+      _inFlight[tid] = inc;
+    } else if (inc.src != m.src) {
+      return; // someone else can't probe another peer's in-flight transfer
+    }
+    // What we're missing. Until a chunk has set the total we hold NONE, so ask
+    // for everything (null) — the sender knows its own chunk count.
+    final total = inc.reasm.total;
+    final missing = total == null ? null : inc.reasm.missingIndices(total);
+    await _send(
+      m.src,
+      fileNackEnvelope(transferId: tid, missing: missing).encode(),
+    );
+  }
+
+  /// Re-send the chunks a peer's [WireKind.fileNack] asked for ([missing] == null
+  /// → all) of a file WE sent THEM. Rate-limited per (peer, transfer) + chunk-
+  /// capped so a NACK flood can't drive a blob-reread / chunk re-send storm.
+  Future<void> _handleFileNack(
+    NodeId peer,
+    String transferId,
+    List<int>? missing,
+  ) async {
+    // Resolve the file message WITHIN this peer's conversation — the transfer id
+    // is attacker-chosen on the wire, so a GLOBAL lookup would let an accepted
+    // peer pull ANOTHER conversation's file blob by naming its id (a cross-
+    // conversation leak). Same conversation-scoped boundary as _hasMessage.
+    Message? msg;
+    for (final m in await _storage.loadMessages(peer.hex)) {
+      if (m.id == transferId &&
+          m.direction == MessageDirection.outgoing &&
+          m.fileId != null) {
+        msg = m;
+        break;
+      }
+    }
+    if (msg == null) return; // not a file WE sent THIS peer → ignore (no leak)
+    // Rate-limit AFTER the ownership check, so a fresh-tid flood neither re-sends
+    // a blob nor grows the throttle map. Evict inert entries (older than the
+    // interval) so the map stays O(active transfers), not O(every tid ever).
+    final now = DateTime.now();
+    _lastFileNackAt.removeWhere(
+      (_, v) => now.difference(v) > _fileNackInterval,
+    );
+    final key = '${peer.hex}:$transferId';
+    final last = _lastFileNackAt[key];
+    if (last != null && now.difference(last) < _fileNackInterval) return;
+    _lastFileNackAt[key] = now;
+    final bytes = await _storage.loadFile(msg.fileId!);
+    if (bytes == null) return;
+    final want = missing?.toSet();
+    final chunks = chunkBytes(
+      bytes,
+      transferId: transferId,
+      maxChunk: _wireChunkBytes,
+    );
+    var sent = 0;
+    for (final c in chunks) {
+      if (want != null && !want.contains(c.index)) continue;
+      await _send(
+        peer,
+        fileChunkEnvelope(
+          transferId: c.transferId,
+          index: c.index,
+          total: c.total,
+          data: c.data,
+        ).encode(),
+      );
+      await Future<void>.delayed(_contentPacing);
+      if (++sent >= _fileNackChunkCap) break; // rest heal on the next round
+    }
+  }
+
+  // ── Content layer: decentralized, hash-verified piece transfer (Stage 2) ────
+  // Sender: advertise a manifest, then serve requested pieces as paced chunks.
+  // Receiver: verify the manifest, request missing pieces, verify each piece on
+  // arrival, reassemble + verify the WHOLE, then surface it. Order/loss-tolerant.
+
+  /// Content we SERVE, by contentId — the MANIFEST plus, for a LARGE send, a live
+  /// [source] over the user's ORIGINAL file. [_serveChunks] reads each requested
+  /// chunk either from [source] (serve-from-source: no copy of the file is kept —
+  /// the sender already HAS it, so storing one would just duplicate it, and for a
+  /// big file that copy is what overflows the hidden-volume index) or, when
+  /// [source] is null (small / in-RAM sends), from the on-disk blob store
+  /// ([readFileRange]). Either way only a small manifest sits in RAM.
+  /// [servedAt] is refreshed on every advertise/request so an ACTIVE transfer
+  /// stays; an idle one is evicted by [_evictServing], which closes its [source].
+  final Map<
+    String,
+    ({ContentManifest manifest, ServeSource? source, DateTime servedAt})
+  >
+  _serving = {};
+
+  /// A served manifest is dropped from [_serving] this long after its last
+  /// advertise/request — the on-disk blob remains, so a later re-request simply
+  /// re-advertises and re-seeds [_serving], reading the bytes back from disk.
+  static const _servingTtl = Duration(minutes: 10);
+
+  /// A long serve aborts if the receiver hasn't re-requested within this window
+  /// (it refreshes [_serving] freshness on every request) — i.e. it abandoned the
+  /// download. Comfortably above the receiver's re-request interval so an active
+  /// transfer is never cut, but well under the idle [_servingTtl].
+  static const _serveAbandonTimeout = Duration(seconds: 50);
+
+  /// When a same-content re-send replaces a live serve source, the old source may
+  /// still be feeding an already-accepted stream. Closing it immediately makes
+  /// that stream fail with "File closed" mid-piece. Retire replaced handles after
+  /// a grace window; stream serves normally use a per-stream reopened handle, so
+  /// this is mostly a safety net for legacy/datagram reads.
+  static const _serveSourceRetireGrace = Duration(minutes: 15);
+
+  /// Active stream serves by content id. A same-content re-send may arrive while
+  /// a large file is already being streamed; in that case we must not replace the
+  /// live source/path underneath the running stream. This is especially important
+  /// for Android file_picker cache paths, where a second pick of the same file can
+  /// invalidate the previous temporary handle.
+  final Map<String, int> _activeStreamServes = {};
+  final Map<String, List<ServeSource>> _retiredAfterStream = {};
+
+  /// Cap on the number of concurrently-served manifests; the OLDEST are evicted
+  /// first when over it. Manifests are small (piece hashes), but bound the count
+  /// anyway so a long-lived node doesn't accumulate them without limit.
+  static const _servingMaxEntries = 256;
+
+  /// Re-opens a serve source for a persisted file path (DURABLE offers): on a
+  /// reoffer request after our [_serving] entry is gone (restart / TTL), the
+  /// sender re-opens the original file and re-serves. Injected because the
+  /// dart:io open lives in the data layer (the service stays io-free). Null ⇒
+  /// durable re-serve is off (tests / not wired) — a stale offer then needs a
+  /// re-send. Returns null if the path can't be opened (file moved / SAF expired).
+  Future<ServeSource?> Function(String path)? sourceOpener;
+
+  /// Content we are FETCHING: the verified manifest + the reassembler + the peer,
+  /// plus an optional [_FetchSink] when the user chose to download UNENCRYPTED to
+  /// a plaintext file (null ⇒ store via the Storage port — encrypted tier or
+  /// in-volume).
+  final Map<
+    String,
+    ({
+      ContentManifest manifest,
+      ContentTransfer xfer,
+      NodeId peer,
+      String name,
+      _FetchSink? sink,
+    })
+  >
+  _fetching = {};
+
+  /// Last-progress wall-clock per fetched contentId, so a transfer ABANDONED
+  /// mid-flight (the sender vanished) has its reassembler buffers evicted instead
+  /// of leaking. An actively-progressing fetch (a recent chunk) is untouched.
+  final Map<String, DateTime> _fetchActivity = {};
+  static const _fetchStaleTimeout = Duration(minutes: 5);
+
+  /// Test seam: how many files are currently cached for serving / being fetched
+  /// (so a test can assert the RAM caches stay bounded by the eviction logic).
+  int get servingCount => _serving.length;
+  int get fetchingCount => _fetching.length;
+
+  /// Manifests of OFFERED-but-not-yet-downloaded files (by contentId), retained so
+  /// [downloadContent] can fetch on the user's opt-in. A single contentId may be
+  /// advertised by several accepted peers (group chat / multi-device swarm);
+  /// keep all known sources so stream retries can fail over instead of pinning
+  /// the transfer to the peer whose bubble the user happened to tap. Bounded by
+  /// [_maxOffered] (the manifest is small — piece hashes — but cap it anyway);
+  /// the OFFER chat message is what persists, this is just the fetch handle.
+  final Map<String, ({ContentManifest manifest, Map<String, NodeId> peers})>
+  _offered = {};
+  final Map<String, ({_ContentManifestRef ref, Map<String, NodeId> peers})>
+  _offeredRefs = {};
+  static const _maxOffered = 256;
+
+  /// Per-identity auto-download policy (size cap + blocked types): which incoming
+  /// files download silently vs. surface as an OFFER the user must accept — so a
+  /// peer can't silently fill the disk or push an executable unbidden (Phase A1).
+  /// Loaded from THIS identity's storage on [start]; the safe default applies
+  /// until then (and for a fresh identity). Edited via [setFileDownloadPolicy].
+  FileDownloadPolicy _filePolicy = FileDownloadPolicy.defaults;
+  static const _kFilePolicySetting = 'file_policy';
+
+  /// This identity's current incoming-file policy (read by the settings UI).
+  FileDownloadPolicy get fileDownloadPolicy => _filePolicy;
+
+  /// Apply + persist a new auto-download policy for THIS identity. Takes effect
+  /// immediately (the next offer is judged against it) and survives restart.
+  Future<void> setFileDownloadPolicy(FileDownloadPolicy policy) async {
+    _filePolicy = policy;
+    await _storage.putSetting(_kFilePolicySetting, jsonEncode(policy.toJson()));
+  }
+
+  /// Load this identity's stored policy (called from [start]); a missing or
+  /// corrupt blob leaves the safe default in place.
+  Future<void> _loadFilePolicy() async {
+    try {
+      final raw = await _storage.getSetting(_kFilePolicySetting);
+      if (raw != null && raw.isNotEmpty) {
+        _filePolicy = FileDownloadPolicy.fromJson(
+          jsonDecode(raw) as Map<String, dynamic>,
+        );
+      }
+    } catch (_) {
+      // Unparseable / store hiccup → keep defaults (fail safe, not open).
+    }
+  }
+
+  /// Fires when a content transfer COMPLETES (all pieces streamed to disk). No
+  /// bytes — the blob is on disk under contentId; read it via loadFile /
+  /// readFileRange rather than holding the whole file in RAM.
+  /// [savedToPath] is set only for an unencrypted download-to-file completion —
+  /// the plaintext file's path (so the UI can say where it landed); null for a
+  /// normal store (encrypted tier / in-volume).
+  final _contentReceived =
+      StreamController<
+        ({String contentId, String name, String? savedToPath})
+      >.broadcast();
+  Stream<({String contentId, String name, String? savedToPath})>
+  get contentReceived => _contentReceived.stream;
+
+  /// Download progress for an in-flight fetch (verified/total pieces), emitted as
+  /// each piece is stored/written — the UI shows it on the file bubble. The final
+  /// emit has done == total; a fetch that never starts emits nothing.
+  final _contentProgress =
+      StreamController<({String contentId, int done, int total})>.broadcast();
+  Stream<({String contentId, int done, int total})> get contentProgress =>
+      _contentProgress.stream;
+
+  /// Fires when a user download can't proceed — the re-advertise request timed
+  /// out (the sender no longer serves the file). The UI clears any empty
+  /// destination file and tells the user to ask for a re-send.
+  final _contentFailed = StreamController<String>.broadcast();
+  Stream<String> get contentDownloadFailed => _contentFailed.stream;
+
+  Timer? _contentTimer;
+
+  /// Re-request cadence for still-missing pieces (injectable for tests).
+  final Duration _contentReRequestInterval;
+  // Wire chunk per piece. Over the onion path a chunk is ONE auth_deliver message
+  // (cap MAX_AUTH_DELIVER_MSG_BYTES 6144, base64+JSON framed) that fragments into
+  // ceil(size/≈150 B) cells which must ALL arrive (no per-cell ARQ), so per-chunk
+  // delivery is (1-p^redundancy)^cells. 512 B (~6 cells) was tuned for the BUGGY
+  // rendezvous era (~50 % cell loss; 4000 B/~27 cells delivered ~2 %). With the
+  // rendezvous fix delivery is now high, and a 512 B chunk wastes ~88 % of an
+  // auth_deliver — millions of tiny messages for a big file. On a reliable
+  // transport push it near the ceiling: 4096 B (base64+JSON ≈ 5.6 KB < 6144) is
+  // the practical max, ~8× fewer messages than 512 B. Any chunk the queue/path
+  // drops is healed by the chunk-granular re-request (self-correcting — never
+  // lossy). Drop it back only if device logs show pieces stalling (per-chunk
+  // delivery falling on a lossy path).
+  static const _contentChunkBytes = 4096;
+  // Per-chunk pacing: feed the local onion circuit builder steadily without
+  // overflowing the per-session TX queue (a too-fast burst trips the silent
+  // tx_queue drop — now logged as `LIMIT tx_queue`). Many small chunks, so keep
+  // it short; tune against the tx_queue / delivery logs. Injectable so tests
+  // (which deliver instantly) don't wait real-time per chunk.
+  final Duration _contentPacing;
+
+  /// How many not-yet-verified pieces a single re-request covers. Bounds the
+  /// re-request size (each piece adds a ceil(chunkCount/8)-byte bitmap) so the
+  /// re-request itself stays small enough to survive the lossy path, and focuses
+  /// serving on a few pieces at a time so they complete sooner.
+  static const _reRequestPieceWindow = 4;
+
+  /// How many content chunks to put on the wire CONCURRENTLY before the next
+  /// anti-burst pace. The serve loop used to send one chunk per [_contentPacing]
+  /// (20 ms) — so a ~2250-chunk 1 MiB file spent ~45 s purely pacing. Emitting a
+  /// small batch at once ("parallel parts") fills the session TX queue closer to
+  /// the circuit's drain rate for a ~Nx speedup, while staying under the native
+  /// auth-deliver verify queue capacity. Device logs showed batch=6 could
+  /// repeatedly fill that queue (`auth-deliver verify queue unavailable`) and
+  /// stall large file-save retries near the tail, so the live default is
+  /// conservative and tunable with `XVEIL_CONTENT_SERVE_BATCH`.
+  final int _contentServeBatch;
+
+  /// Whether explicit plaintext save-to-file should try the fast stream/range
+  /// path before the conservative piece fallback. Production defaults to the
+  /// Dart define so the datagram path stays the baseline; tests and soaks can
+  /// opt in without recompiling the whole app.
+  final bool _plainFileStream;
+
+  /// Files larger than this go via the content layer (hash-verified pieces over
+  /// the NAT-traversing datagram path) instead of the per-chunk fileMeta push.
+  // Keep the legacy fileMeta/fileChunk burst below the native session queue's
+  // cell budget. Larger attachments use the paced, hash-verified content path
+  // with chunk-granular retries; this includes ordinary camera screenshots.
+  static const _contentThreshold = 128 * 1024;
+
+  /// Piece size that keeps the hash-verified unit small for the stream/range
+  /// path. Large manifests no longer need to fit one auth-deliver frame: when
+  /// the full hash list would exceed the inline cap, we advertise a tiny
+  /// manifest-ref and let the receiver fetch the full manifest over a reliable
+  /// stream before pulling ranges. Keep up to a few thousand pieces before
+  /// widening the piece size so very large files do not produce huge manifests.
+  ///
+  /// The piece is ALSO capped: it is the RAM-resident unit on every hop
+  /// (hashing, verify, per-piece AEAD in the on-disk tier), so letting it
+  /// scale unbounded turned "TB file" into "256 MB piece in phone RAM". Past
+  /// the cap the piece COUNT grows instead — the ceiling then comes from the
+  /// durable manifest (~3.6 MB storeFile cap ≈ 32 K piece hashes), i.e. ~1 TB.
+  static int adaptivePieceSize(int size) {
+    const maxPieces = 4096;
+    const maxPieceBytes = 32 * 1024 * 1024;
+    final needed = (size + maxPieces - 1) ~/ maxPieces;
+    if (needed <= ContentManifest.defaultPieceSize) {
+      return ContentManifest.defaultPieceSize;
+    }
+    return needed > maxPieceBytes ? maxPieceBytes : needed;
+  }
+
+  /// Persist [bytes] as a streamed (uncapped) blob keyed by the manifest's
+  /// contentId — the SAME on-disk piece layout the receiver builds — so the
+  /// sender SERVES it from disk ([readFileRange]) without holding it in RAM and
+  /// without the whole-file [storeFile] cap (which is what bounded send size).
+  /// Idempotent: a blob already present (a re-send / re-advertise of identical
+  /// bytes) is left as-is, so the de-dup store happens at most once.
+  Future<void> _storeServedBlob(
+    ContentManifest manifest,
+    Uint8List bytes,
+  ) async {
+    final cid = manifest.contentId;
+    if (await _storage.hasFile(cid)) return;
+    for (var p = 0; p < manifest.pieceCount; p++) {
+      final start = p * manifest.pieceSize;
+      final end = start + manifest.pieceLength(p);
+      await _storage.storeFilePiece(
+        cid,
+        p,
+        manifest.pieceCount,
+        manifest.pieceSize,
+        bytes.length,
+        Uint8List.sublistView(bytes, start, end),
+        name: manifest.name,
+      );
+    }
+  }
+
+  /// Register [manifest] for serving and advertise it to [dst]. The bytes are
+  /// read on request either from [source] (a large send, served straight from the
+  /// user's original file) or — when [source] is null — from the on-disk blob
+  /// store keyed by contentId. Shared tail of every advertise path. A prior
+  /// [source] for this contentId is closed if we replace it (no leaked handle).
+  static const int _contentManifestInlineEnvelopeLimit = 5600;
+
+  String _contentManifestJson(ContentManifest manifest) =>
+      jsonEncode(manifest.toJson());
+
+  String _contentManifestRefJson(ContentManifest manifest) => jsonEncode({
+    'ref': 1,
+    'id': manifest.contentId,
+    'name': manifest.name,
+    'size': manifest.size,
+    if (manifest.msgId != null) 'mid': manifest.msgId,
+    if (manifest.author != null) 'au': manifest.author,
+    if (manifest.seq != null) 'sq': manifest.seq,
+    if (manifest.ts != null) 'mts': manifest.ts,
+    // Embedded micro-thumb (unbound, budget-bound at generation) — rides the
+    // ref too so an over-limit full manifest still delivers the preview.
+    if (manifest.thumbB64 != null) 'th': manifest.thumbB64,
+  });
+
+  _ContentManifestRef? _parseContentManifestRef(Map<String, dynamic> j) {
+    try {
+      if (j['ref'] != 1) return null;
+      final id = j['id'] as String;
+      final name = j['name'] as String;
+      final size = j['size'] as int;
+      if (id.length != 64 || size < 0) return null;
+      return (
+        contentId: id,
+        name: name,
+        size: size,
+        msgId: j['mid'] as String?,
+        author: j['au'] as String?,
+        seq: j['sq'] as int?,
+        ts: j['mts'] as int?,
+        thumb: j['th'] as String?,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Live-send the manifest frame for [manifest] and return the exact bytes
+  /// sent (inline full manifest when it fits, else the compact ref frame) so
+  /// the caller can also deposit them for offline delivery.
+  Future<Uint8List> _sendContentManifest(
+    NodeId dst,
+    ContentManifest manifest,
+  ) async {
+    final fullJson = _contentManifestJson(manifest);
+    final fullFrame = contentManifestEnvelope(fullJson).encode();
+    if (fullFrame.length <= _contentManifestInlineEnvelopeLimit) {
+      await _send(dst, fullFrame);
+      devLog(
+        () =>
+            'xVeil[content]: manifest inline '
+            '${manifest.contentId.substring(0, 12)} '
+            'frame=${fullFrame.length}B -> ${dst.short}',
+      );
+      return fullFrame;
+    }
+    final refJson = _contentManifestRefJson(manifest);
+    final refFrame = contentManifestEnvelope(refJson).encode();
+    await _send(dst, refFrame);
+    devLog(
+      () =>
+          'xVeil[content]: manifest ref '
+          '${manifest.contentId.substring(0, 12)} '
+          'full_frame=${fullFrame.length}B ref_frame=${refFrame.length}B '
+          '-> ${dst.short}',
+    );
+    return refFrame;
+  }
+
+  Future<void> _advertiseStored(
+    NodeId dst,
+    ContentManifest manifest, {
+    ServeSource? source,
+  }) async {
+    final cid = manifest.contentId;
+    final prev = _serving[cid];
+    if (prev?.source != null &&
+        source != null &&
+        !_sameServeSource(prev!.source!, source)) {
+      _retireServeSourceForContent(cid, prev.source!);
+    } else if (prev?.source != null && source == null) {
+      _retireServeSourceForContent(cid, prev!.source!);
+    }
+    _serving[cid] = (manifest: manifest, source: source, servedAt: _now());
+    await _persistServeManifest(manifest);
+    _evictServing();
+    _ensureContentTimer();
+    final frame = await _sendContentManifest(dst, manifest);
+    final mid = manifest.msgId;
+    // Offline fallback for the OFFER itself. The manifest was previously
+    // live-only: on a flaky/down live path a plain text (which stashes) still
+    // arrived while the file offer silently vanished — the reported "file
+    // never came, other messages did". Deposit the exact manifest frame at the
+    // recipient's mailbox, keyed by THIS send's msgId so a live + drained copy
+    // dedup by event identity. Only for real event sends (msgId present) — the
+    // bare content API advertises without an event and must not spam mailboxes.
+    // Best-effort + non-blocking, exactly like the text path.
+    if (mid != null) {
+      unawaited(_maybeStash(dst, 'mf:$mid', frame));
+    }
+    devLog(
+      () =>
+          'xVeil[content]: advertise ${manifest.contentId.substring(0, 12)} '
+          '(${manifest.pieceCount} pieces'
+          '${mid != null ? ', msg ${mid.substring(0, 8)}' : ''}) -> ${dst.short}',
+    );
+  }
+
+  /// Parsed `served:$cid` record. Legacy records are a bare path string; new
+  /// ones are JSON `{path,size,pieceSize,name}` so the manifest can be
+  /// rebuilt from the source file when the mf: blob is missing (its persist
+  /// dies first on a bloated store — IndexFull).
+  ({String path, int? size, int? pieceSize, String? name})? _parseServedRecord(
+    String? raw,
+  ) {
+    if (raw == null || raw.isEmpty) return null;
+    if (!raw.startsWith('{')) {
+      return (path: raw, size: null, pieceSize: null, name: null);
+    }
+    try {
+      final m = jsonDecode(raw) as Map<String, dynamic>;
+      final path = m['path'] as String?;
+      if (path == null || path.isEmpty) return null;
+      return (
+        path: path,
+        size: (m['size'] as num?)?.toInt(),
+        pieceSize: (m['pieceSize'] as num?)?.toInt(),
+        name: m['name'] as String?,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Rebuild the manifest of a durable offer by re-hashing the source file at
+  /// [rec]'s path (one RAM-bounded pass — the same work the original send
+  /// did, ~150 ms for 20 MB). Used when the mf: blob is missing: its persist
+  /// is the first casualty of a bloated store (IndexFull), and without this a
+  /// restarted sender answered UNSERVED/GONE forever while the bytes sat on
+  /// disk. Returns null when the record lacks hashing params (legacy bare
+  /// path), the file is gone, or its bytes changed (contentId mismatch).
+  Future<ContentManifest?> _rebuildManifestFromServedRecord(
+    String cid,
+    ({String path, int? size, int? pieceSize, String? name}) rec,
+  ) async {
+    final opener = sourceOpener;
+    final size = rec.size;
+    final pieceSize = rec.pieceSize;
+    if (opener == null || size == null || pieceSize == null) return null;
+    final src = await opener(rec.path);
+    if (src == null) return null;
+    try {
+      final m = await ContentManifest.fromReader(
+        name: rec.name ?? 'file',
+        size: size,
+        pieceSize: pieceSize,
+        chunkBytes: _contentChunkBytes,
+        readRange: src.read,
+      );
+      if (m.contentId != cid) {
+        devLog(
+          () =>
+              'xVeil[content]: served source at ${rec.path} no longer '
+              'matches ${cid.substring(0, 12)} — treating as gone',
+        );
+        return null;
+      }
+      devLog(
+        () =>
+            'xVeil[content]: manifest rebuilt from source for '
+            '${cid.substring(0, 12)} (${m.pieceCount} pieces)',
+      );
+      unawaited(_persistServeManifest(m)); // best-effort re-persist
+      return m;
+    } catch (e) {
+      devLog(
+        () =>
+            'xVeil[content]: manifest rebuild failed for '
+            '${cid.substring(0, 12)}: $e',
+      );
+      return null;
+    } finally {
+      try {
+        await src.close();
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _persistServeManifest(ContentManifest manifest) async {
+    try {
+      await _storage.storeFile(
+        'mf:${manifest.contentId}',
+        Uint8List.fromList(utf8.encode(_contentManifestJson(manifest))),
+        name: 'manifest',
+      );
+    } catch (e) {
+      devLog(
+        () =>
+            'xVeil[content]: serve-manifest persist failed '
+            '${manifest.contentId.substring(0, 12)}: $e',
+      );
+    }
+  }
+
+  bool _sameServeSource(ServeSource a, ServeSource b) =>
+      identical(a, b) ||
+      (identical(a.read, b.read) && identical(a.close, b.close));
+
+  void _retireServeSourceForContent(String cid, ServeSource source) {
+    if ((_activeStreamServes[cid] ?? 0) > 0) {
+      (_retiredAfterStream[cid] ??= []).add(source);
+      return;
+    }
+    _retireServeSourceLater(source);
+  }
+
+  void _retireServeSourceLater(ServeSource source) {
+    Timer(_serveSourceRetireGrace, () async {
+      try {
+        await source.close();
+      } catch (_) {}
+    });
+  }
+
+  /// Persist [bytes] to the blob store (streamed pieces) and advertise. One
+  /// source of truth for the in-RAM serve+advertise tail (the bare-content API
+  /// and the in-RAM message path); [bytes] is not retained past the store.
+  Future<void> _advertise(
+    NodeId dst,
+    ContentManifest manifest,
+    Uint8List bytes,
+  ) async {
+    try {
+      await _storeServedBlob(manifest, bytes);
+    } catch (e) {
+      devLog(
+        () => 'xVeil[content]: serve-store failed for ${manifest.name}: $e',
+      );
+    }
+    await _advertiseStored(dst, manifest);
+  }
+
+  /// Offer [bytes] as a bare content transfer to [dst] (no chat message / event
+  /// identity): build the manifest, serve it, advertise it. Returns the contentId
+  /// (the bytes' self-authenticating address). Used by tests + the recovery
+  /// re-ship; user file sends go through [_sendAsContent] (which adds the event).
+  Future<String> sendContent(NodeId dst, Uint8List bytes, String name) async {
+    final manifest = ContentManifest.fromBytes(
+      name,
+      bytes,
+      pieceSize: adaptivePieceSize(bytes.length),
+      chunkBytes: _contentChunkBytes,
+    );
+    final contact = await _storage.getContact(dst);
+    if (contact?.status == ContactStatus.accepted) {
+      await _advertise(dst, manifest, bytes);
+    }
+    return manifest.contentId;
+  }
+
+  /// Send a VOICE MESSAGE: the Opus clip [bytes] ride the content layer exactly
+  /// like a small file (content-addressed, auto-downloaded under the receiver's
+  /// cap), named `.opus` so both ends render a voice bubble. The clip's
+  /// [durationMs] + [waveform] travel in the SAME `thumb` sidecar image
+  /// micro-thumbs use (tagged `vw1:`), so nothing new crosses the wire. Gated to
+  /// accepted contacts inside [_sendAsContent].
+  Future<void> sendVoice(
+    NodeId dst,
+    Uint8List bytes,
+    int durationMs,
+    List<double> waveform, {
+    String? lang,
+  }) async {
+    _mailbox?.noteActivity(); // user action → mailbox burst window
+    _warmStreamPeer(dst);
+    // Carry the SENDER's language in the sidecar so the receiver transcribes in
+    // the spoken language, not their own locale.
+    final sidecar = encodeVoiceSidecar(durationMs, waveform, lang: lang);
+    final name = '${_uuid.v4()}$kVoiceFileExt';
+    await _sendAsContent(dst, bytes, name, thumbOverride: sidecar);
+  }
+
+  /// Send a VIDEO NOTE (round message): the VNOTE1 clip [bytes] ride the
+  /// content layer like a small file, named `.vnote` so both ends render the
+  /// round bubble. Duration + the first-frame micro-thumb travel in the same
+  /// `thumb` sidecar (tagged `vn1:`) — the receiver renders BEFORE/without
+  /// downloading. Gated to accepted contacts inside [_sendAsContent].
+  Future<void> sendVideoNote(
+    NodeId dst,
+    Uint8List bytes,
+    int durationMs, {
+    String? thumbB64,
+  }) async {
+    _mailbox?.noteActivity(); // user action → mailbox burst window
+    _warmStreamPeer(dst);
+    final sidecar = encodeVnoteSidecar(durationMs, thumbB64);
+    final name = '${_uuid.v4()}$kVnoteFileExt';
+    await _sendAsContent(dst, bytes, name, thumbOverride: sidecar);
+  }
+
+  /// Send a STICKER: the image [bytes] ride the content path under `.stkr`
+  /// (auto-downloaded under the receiver's cap), with an ordinary image
+  /// micro-thumb in the sidecar so the receiver previews it instantly. The
+  /// extension makes both ends render it naked (no bubble chrome).
+  Future<void> sendSticker(NodeId dst, Uint8List bytes) async {
+    _mailbox?.noteActivity();
+    _warmStreamPeer(dst);
+    final thumb = await _imageThumbMaker(bytes);
+    final name = '${_uuid.v4()}$kStickerFileExt';
+    await _sendAsContent(dst, bytes, name, thumbOverride: thumb);
+  }
+
+  /// Send a shared STICKER PACK: the STKP1 [blob] rides the content path under
+  /// `.stkpack` so the receiver gets an install card. A thumb of the first
+  /// sticker ([firstThumbB64]) previews it before download.
+  Future<void> sendStickerPack(NodeId dst, Uint8List blob,
+      {String? firstThumbB64}) async {
+    _mailbox?.noteActivity();
+    _warmStreamPeer(dst);
+    final name = '${_uuid.v4()}$kStickerPackFileExt';
+    await _sendAsContent(dst, blob, name, thumbOverride: firstThumbB64);
+  }
+
+  /// Send a LARGE file via the content layer as a first-class filePost EVENT.
+  /// The BYTES are content-addressed (stored + served by contentId, de-duped);
+  /// the MESSAGE is a per-send event under a fresh [msgId] + the (author,seq) the
+  /// log allocates — so a re-send (even of previously-DELETED content) surfaces
+  /// as a NEW message (A), while identical bytes are never re-stored/re-fetched.
+  Future<void> _sendAsContent(
+    NodeId dst,
+    Uint8List bytes,
+    String name, {
+    String? sourcePath,
+    String? thumbOverride,
+  }) async {
+    // Micro-thumb: embedded in the ADVERT (unbound — not in contentId) so the
+    // receiver renders a preview BEFORE downloading. [thumbOverride] wins when
+    // set (a voice message's waveform+duration sidecar). Otherwise: images from
+    // the in-RAM bytes; videos need the SOURCE PATH (the platform grabber
+    // decodes from disk — bytes-only callers get no video thumb, deliberately:
+    // writing a plaintext temp file just to grab a frame is not worth it). Null
+    // for anything undecodable / over the datagram budget.
+    String? thumb = thumbOverride;
+    if (thumb == null && isImageFileName(name)) {
+      thumb = await _imageThumbMaker(bytes);
+    } else if (thumb == null && isVideoFileName(name) && sourcePath != null) {
+      try {
+        thumb = await _videoThumbMaker(sourcePath);
+      } catch (e) {
+        devLog(() => 'xVeil[content]: video thumb skipped for $name: $e');
+      }
+    }
+    // Hash the file ONCE → the manifest + contentId (the blob key).
+    final base = ContentManifest.fromBytes(
+      name,
+      bytes,
+      pieceSize: adaptivePieceSize(bytes.length),
+      chunkBytes: _contentChunkBytes,
+    );
+    final cid = base.contentId;
+    // Store the blob under its HASH as streamed pieces (uncapped), de-duped: a
+    // re-send of identical bytes keeps ONE copy, and a receiver that already
+    // holds it skips the re-download. ([_advertise] would also ensure-store, but
+    // do it here too so a send to a not-yet-accepted contact still retains the
+    // local copy for a later re-ship.)
+    try {
+      await _storeServedBlob(base, bytes);
+    } catch (e) {
+      devLog(() => 'xVeil[content]: local store failed for $name: $e');
+    }
+    // Fresh per-send msgId = a NEW event each send (the (author,seq) event is the
+    // identity, NOT the byte-hash → re-send surfaces, even after a delete).
+    // fileId = contentId binds the message to its hash-keyed blob.
+    final msgId = _uuid.v4();
+    final stored = await _store(
+      dst,
+      MessageDirection.outgoing,
+      '📎 $name',
+      MessageStatus.sent,
+      fileId: cid,
+      fileName: name,
+      thumb: thumb,
+      id: msgId,
+      timestamp: _now(),
+    );
+    _signal();
+    // Advertise carrying THIS send's event identity so the receiver folds a
+    // first-class filePost and acks by msgId (not the shared contentId).
+    final contact = await _storage.getContact(dst);
+    if (contact?.status != ContactStatus.accepted) return;
+    await _advertise(
+      dst,
+      base.withEvent(
+        msgId: msgId,
+        author: stored.author,
+        seq: stored.seq,
+        thumbB64: thumb,
+      ),
+      bytes,
+    );
+  }
+
+  /// Send a LARGE file by SERVING IT STRAIGHT FROM THE SOURCE — the user's
+  /// original file on disk — with no stored or encrypted copy. [read] returns
+  /// [length] bytes at [offset] of the source; [close] releases its handle when
+  /// serving ends; [size] is the total. The sender already HAS the file, so
+  /// keeping a copy would (a) duplicate it — 2× disk for a TB attachment — and
+  /// (b) be exactly what overflowed the hidden-volume index on a big send. So we
+  /// only HASH the source (one RAM-bounded pass → the manifest), record the
+  /// filePost, and register the live source for serving; [_serveChunks] then
+  /// reads each requested chunk from it on demand. Same content layer + contentId
+  /// as the in-RAM path (so a streamed and an in-RAM send of the same bytes still
+  /// share a swarm address). The source is owned by [_serving] and closed on
+  /// eviction/dispose — the UI must NOT close it after this returns.
+  Future<String?> sendFileStreaming(
+    NodeId dst,
+    String name,
+    int size,
+    Future<Uint8List> Function(int offset, int length) read, {
+    required Future<void> Function() close,
+    String? sourcePath,
+  }) async {
+    final contact = await _storage.getContact(dst);
+    if (contact == null || contact.status != ContactStatus.accepted) {
+      await close(); // not serving this peer → release the handle now
+      return null;
+    }
+    _mailbox?.noteActivity(); // user action → mailbox burst window
+    // The recipient will pull from us shortly — open our serve pool now, in
+    // parallel with the piece hashing below.
+    _warmStreamPeer(dst);
+    final sw = Stopwatch()..start();
+    devLog(
+      () =>
+          'xVeil[content]: stream-send start "$name" size=$size '
+          '-> ${dst.short}',
+    );
+    // Hash the source piece-by-piece → manifest (contentId + per-piece hashes).
+    // Holds at most one piece in RAM; on failure release the handle + surface.
+    final ContentManifest base;
+    try {
+      base = await ContentManifest.fromReader(
+        name: name,
+        size: size,
+        pieceSize: adaptivePieceSize(size),
+        chunkBytes: _contentChunkBytes,
+        readRange: read,
+      );
+      devLog(
+        () =>
+            'xVeil[content]: stream-send hashed "$name" '
+            'pieces=${base.pieceCount} piece_size=${base.pieceSize} '
+            'cid=${base.contentId.substring(0, 12)} '
+            'in ${sw.elapsedMilliseconds}ms',
+      );
+    } catch (e) {
+      await close();
+      devLog(() => 'xVeil[content]: stream hash failed for $name: $e');
+      rethrow;
+    }
+    final cid = base.contentId;
+    // Streamed MEDIA extras — the source isn't in RAM, so read it once
+    // (bounded) and reuse the buffer. Reads are serialized by the source's
+    // gate.
+    // 1. Micro-thumb for the message (images only, optional).
+    // 2. A LOCAL piece-store copy for images AND videos under the cap, so
+    //    the SENDER's own bubble works (inline preview / in-app playback —
+    //    loadFile(cid) → pieces) instead of a dead download affordance: the
+    //    no-local-copy rule exists for TB attachments, but sub-cap media
+    //    costs pennies and viewing your own send is the whole point. Also
+    //    keeps the serve alive even if the source file later moves away.
+    String? thumb;
+    // Video preview frame: grabbed by PLATFORM code straight from the source
+    // path (no size cap — the grabber never reads the file into RAM), so even
+    // a multi-GB video gets a bubble thumb. Best-effort: null on platforms
+    // without a handler / undecodable containers → the play-icon row.
+    if (isVideoFileName(name) && sourcePath != null) {
+      try {
+        thumb = await _videoThumbMaker(sourcePath);
+      } catch (e) {
+        devLog(() => 'xVeil[content]: video thumb skipped for $name: $e');
+      }
+    }
+    final mediaCopy = (isImageFileName(name) || isVideoFileName(name)) &&
+        size <= kThumbSourceReadCapBytes;
+    if (mediaCopy) {
+      try {
+        final mediaBytes = await read(0, size);
+        if (isImageFileName(name)) {
+          thumb = await _imageThumbMaker(mediaBytes);
+        }
+        try {
+          await _storeServedBlob(base, mediaBytes);
+        } catch (e) {
+          devLog(
+            () => 'xVeil[content]: stream-send local copy skipped for '
+                '$name: $e',
+          );
+        }
+      } catch (e) {
+        devLog(() => 'xVeil[content]: stream-send thumb skipped for $name: $e');
+      }
+    }
+    // Fresh per-send msgId = a NEW filePost event (identity is (author,seq), not
+    // the byte-hash → a re-send surfaces even after a delete). fileId = contentId.
+    final msgId = _uuid.v4();
+    final stored = await _store(
+      dst,
+      MessageDirection.outgoing,
+      '📎 $name',
+      MessageStatus.sent,
+      fileId: cid,
+      fileName: name,
+      fileSize: size,
+      thumb: thumb,
+      id: msgId,
+      timestamp: _now(),
+    );
+    devLog(
+      () =>
+          'xVeil[content]: stream-send stored offer '
+          '${cid.substring(0, 12)} in ${sw.elapsedMilliseconds}ms',
+    );
+    _signal();
+    final m = base.withEvent(
+      msgId: msgId,
+      author: stored.author,
+      seq: stored.seq,
+      thumbB64: thumb,
+    );
+    final activeExisting = (_activeStreamServes[cid] ?? 0) > 0
+        ? _serving[cid]
+        : null;
+    final activeSource = activeExisting?.source;
+    // DURABLE offer: persist the manifest + the source PATH so a reoffer after a
+    // restart can re-open the file and re-serve (best-effort; the file must still
+    // be at that path). The manifest exceeds the KV value cap → file store.
+    if (sourcePath != null && activeSource == null) {
+      // The path record and the manifest blob are persisted INDEPENDENTLY: on
+      // a bloated store the file-store write dies with IndexFull while the
+      // small KV setting still lands. The setting now carries the hashing
+      // params too, so a post-restart serve can rebuild the manifest straight
+      // from the source file when the mf: blob never made it (one RAM-bounded
+      // hashing pass — the same work the original send did).
+      try {
+        await _storage.putSetting(
+          'served:$cid',
+          jsonEncode({
+            'path': sourcePath,
+            'size': size,
+            'pieceSize': base.pieceSize,
+            'name': name,
+          }),
+        );
+      } catch (e) {
+        devLog(
+          () =>
+              'xVeil[content]: durable-offer path persist failed for $cid: $e',
+        );
+      }
+      try {
+        await _storage.storeFile(
+          'mf:$cid',
+          Uint8List.fromList(utf8.encode(_contentManifestJson(m))),
+          name: 'manifest',
+        );
+      } catch (e) {
+        devLog(
+          () => 'xVeil[content]: durable-offer persist failed for $cid: $e',
+        );
+      }
+    } else if (sourcePath != null) {
+      devLog(
+        () =>
+            'xVeil[content]: keep active source/path for '
+            '${cid.substring(0, 12)} — same-content resend while streaming',
+      );
+    }
+    if (activeSource != null) {
+      // We only needed this newly-opened handle to hash/identify the resend. The
+      // bytes are identical (same contentId), and an active stream is already
+      // using the previous source/path; replacing it mid-flight can close or
+      // invalidate the stream's file handle on Android file_picker cache paths.
+      await close();
+      await _advertiseStored(dst, m, source: activeSource);
+    } else {
+      // Register the live source + advertise — NO stored copy.
+      await _advertiseStored(dst, m, source: (read: read, close: close));
+    }
+    devLog(
+      () =>
+          'xVeil[content]: stream-send advertised ${cid.substring(0, 12)} '
+          'in ${sw.elapsedMilliseconds}ms',
+    );
+    return cid;
+  }
+
+  Future<void> _onContentManifest(NodeId peer, String body) async {
+    final decoded = jsonDecode(body) as Map<String, dynamic>;
+    final ref = _parseContentManifestRef(decoded);
+    if (ref != null) {
+      await _onContentManifestRef(peer, ref);
+      return;
+    }
+    final m = ContentManifest.fromJson(decoded);
+    if (m == null) {
+      devLog(
+        () => 'xVeil[content]: manifest DROPPED (malformed) <- ${peer.short}',
+      );
+      return; // malformed / not self-consistent → untrusted, drop
+    }
+    devLog(
+      () =>
+          'xVeil[content]: manifest parsed ${m.contentId.substring(0, 12)} '
+          'pieces=${m.pieceCount} msg=${m.msgId?.substring(0, 8)} '
+          '<- ${peer.short}',
+    );
+    // Surface the file as an OFFER first — metadata only (name/size + the
+    // contentId to fetch), NO blob yet — idempotent on the sender's per-send
+    // msgId. The receiver decides whether to download (anti-spam + disk control).
+    await _surfaceFileOffer(peer, m);
+
+    // We ALREADY hold these exact bytes (a re-offer / dedup) → the offer renders
+    // as downloaded; ack so the sender flips sent->delivered.
+    if (await _storage.hasFile(m.contentId)) {
+      devLog(
+        () =>
+            'xVeil[content]: ${m.contentId.substring(0, 12)} ALREADY HELD '
+            '<- ${peer.short} (no re-download)',
+      );
+      await _send(peer, WireEnvelope.ack(m.msgId ?? m.contentId).encode());
+      _signal();
+      return;
+    }
+    // Already pulling it (a re-advertise mid-download) → keep the latest identity.
+    if (_fetching.containsKey(m.contentId)) {
+      final cur = _fetching[m.contentId]!;
+      _fetching[m.contentId] = (
+        manifest: m,
+        xfer: cur.xfer,
+        peer: peer,
+        name: m.name,
+        sink: cur.sink,
+      );
+      return;
+    }
+    // Retain the manifest so the user (or auto-download) can fetch on demand.
+    if (_offered.length >= _maxOffered && !_offered.containsKey(m.contentId)) {
+      _offered.remove(_offered.keys.first);
+    }
+    final existingOffer = _offered[m.contentId];
+    _offered[m.contentId] = (
+      manifest: m,
+      peers: {
+        if (existingOffer != null) ...existingOffer.peers,
+        peer.hex: peer,
+      },
+    );
+    _offeredRefs.remove(m.contentId);
+
+    // A fresh manifest proves the content is obtainable again — clear any
+    // terminal "gone" mark before the resume driver looks at it.
+    unawaited(_clearContentGone(m.contentId));
+    // A durable (cross-restart) pending download exists for this content and
+    // the holder just proved it's online — nudge the auto-resume driver.
+    unawaited(_resumeOnOfferSignal(m.contentId, manifest: m));
+
+    // A user download was PARKED waiting for this manifest (re-advertise after a
+    // restart) → start it now with its destination (sink for unencrypted-to-file,
+    // null for the encrypted tier), regardless of the auto-download policy.
+    if (_pendingDownload.containsKey(m.contentId)) {
+      final sink = _pendingDownload.remove(m.contentId);
+      _pendingTimers.remove(m.contentId)?.cancel();
+      devLog(
+        () =>
+            'xVeil[content]: re-advertised manifest arrived for '
+            '${m.contentId.substring(0, 12)} — resuming the parked download',
+      );
+      final retryPeers = await _contentSourcePeers(
+        preferred: peer,
+        contentId: m.contentId,
+      );
+      if (sink != null) {
+        // Explicit "save plaintext to this path" intent — stream it (default;
+        // see _plainFileStreamDartDefine). The piece/chunk fetch below stays
+        // as the automatic fallback when no stream can be opened at all.
+        if (_plainFileStream &&
+            await _pullSwarmStreamToFile(
+              peer,
+              m.contentId,
+              m,
+              retryPeers,
+              sink,
+              _fetchSavePath[m.contentId] ?? m.contentId,
+            )) {
+          return;
+        }
+        await _beginFetch(peer, m, sink: sink);
+        return;
+      } else {
+        if (await _pullSwarmStream(peer, m.contentId, m, retryPeers)) {
+          return;
+        }
+        if (await _pullStream(
+          peer,
+          m.contentId,
+          null,
+          retryPeers: retryPeers,
+        )) {
+          return;
+        }
+      }
+      await _beginFetch(peer, m, sink: sink);
+      return;
+    }
+
+    // A plaintext save/download has already been explicitly requested for this
+    // content id (for example by the desktop save dialog or the soak hook).
+    // Do not let the automatic encrypted-tier fetch race it: if auto-download
+    // wins, the UI may mark the offer as downloaded while the user's chosen
+    // destination file remains empty and waits forever for a savedPath
+    // completion event.
+    if (_fetchSavePath.containsKey(m.contentId)) {
+      devLog(
+        () =>
+            'xVeil[content]: ${m.contentId.substring(0, 12)} '
+            'plain-file download pending — suppressing auto-download',
+      );
+      return;
+    }
+
+    if (_filePolicy.allowsAuto(m.size, m.name)) {
+      devLog(
+        () =>
+            'xVeil[content]: ${m.contentId.substring(0, 12)} '
+            '(${m.size}B "${m.name}") <- ${peer.short} — auto-downloading (<= cap)',
+      );
+      await _beginFetch(peer, m);
+    } else {
+      devLog(
+        () =>
+            'xVeil[content]: ${m.contentId.substring(0, 12)} '
+            '(${m.size}B "${m.name}") <- ${peer.short} — OFFERED (awaiting user)',
+      );
+    }
+  }
+
+  Future<void> _onContentManifestRef(
+    NodeId peer,
+    _ContentManifestRef ref,
+  ) async {
+    final cid = ref.contentId;
+    devLog(
+      () =>
+          'xVeil[content]: manifest ref parsed ${cid.substring(0, 12)} '
+          'size=${ref.size} msg=${ref.msgId?.substring(0, 8)} '
+          '<- ${peer.short}',
+    );
+    await _surfaceFileOfferFields(
+      peer,
+      contentId: cid,
+      name: ref.name,
+      size: ref.size,
+      msgId: ref.msgId,
+      seq: ref.seq,
+      ts: ref.ts,
+      thumb: ref.thumb,
+    );
+
+    if (await _storage.hasFile(cid)) {
+      devLog(
+        () =>
+            'xVeil[content]: ${cid.substring(0, 12)} ALREADY HELD '
+            '<- ${peer.short} (manifest ref only)',
+      );
+      await _send(peer, WireEnvelope.ack(ref.msgId ?? cid).encode());
+      _signal();
+      return;
+    }
+    if (_offeredRefs.length >= _maxOffered && !_offeredRefs.containsKey(cid)) {
+      _offeredRefs.remove(_offeredRefs.keys.first);
+    }
+    final existing = _offeredRefs[cid];
+    _offeredRefs[cid] = (
+      ref: ref,
+      peers: {if (existing != null) ...existing.peers, peer.hex: peer},
+    );
+    // A fresh ref proves the content is obtainable again.
+    unawaited(_clearContentGone(cid));
+    // A durable pending download exists and its holder just showed up online.
+    unawaited(_resumeOnOfferSignal(cid));
+    if (_pendingDownload.containsKey(cid)) {
+      unawaited(_resumePendingFromManifestRef(peer, cid, ref));
+      return;
+    }
+    if (_fetchSavePath.containsKey(cid)) {
+      devLog(
+        () =>
+            'xVeil[content]: ${cid.substring(0, 12)} '
+            'plain-file download pending — waiting stream manifest',
+      );
+      return;
+    }
+    if (_filePolicy.allowsAuto(ref.size, ref.name)) {
+      unawaited(_beginFetchFromManifestRef(peer, cid, ref, null, null));
+    } else {
+      devLog(
+        () =>
+            'xVeil[content]: ${cid.substring(0, 12)} '
+            '(${ref.size}B "${ref.name}") <- ${peer.short} — '
+            'OFFERED via manifest-ref',
+      );
+    }
+  }
+
+  /// Register a fetch for [m] + request all its pieces. Evicts any abandoned
+  /// reassembler first (RAM bound). [sink] (non-null) diverts each verified piece
+  /// to a plaintext file the user picked, instead of the Storage port. Shared by
+  /// auto-download and [downloadContent]/[downloadContentToFile].
+  Future<void> _beginFetch(
+    NodeId peer,
+    ContentManifest m, {
+    _FetchSink? sink,
+  }) async {
+    final existing = _fetching[m.contentId];
+    if (existing != null) {
+      if (sink != null) {
+        if (existing.sink == null) {
+          _pendingDownload[m.contentId] = sink;
+          _pendingTimers.remove(m.contentId)?.cancel();
+          devLog(
+            () =>
+                'xVeil[content]: plain-file save parked for '
+                '${m.contentId.substring(0, 12)} — export after active fetch',
+          );
+        } else {
+          await sink.close(); // already fetching to a plaintext sink
+        }
+      }
+      return;
+    }
+    final cutoff = _now();
+    _fetching.removeWhere((cid, _) {
+      final last = _fetchActivity[cid];
+      final stale =
+          last != null && cutoff.difference(last) > _fetchStaleTimeout;
+      if (stale) _fetchActivity.remove(cid);
+      return stale;
+    });
+    _fetching[m.contentId] = (
+      manifest: m,
+      xfer: ContentTransfer(m),
+      peer: peer,
+      name: m.name,
+      sink: sink,
+    );
+    _fetchActivity[m.contentId] = _now();
+    _ensureContentTimer();
+    await _send(
+      peer,
+      pieceRequestEnvelope(contentId: m.contentId, indices: null).encode(),
+    );
+  }
+
+  /// The user opted to download an OFFERED file into local STORAGE (the encrypted
+  /// on-disk tier for a large file, or the hidden volume for a small one). No-op
+  /// if we already hold the blob. If the in-memory manifest handle is gone (app
+  /// restart — the offer MESSAGE synced via the event log but the one-shot
+  /// manifest did not), ask the sender (over [peer]) to re-advertise; the
+  /// download then continues automatically when the manifest arrives. The
+  /// download choice itself is the §16.5 consent — a large file lands as an
+  /// encrypted on-disk blob.
+  Future<ContentDownloadResult> downloadContent(
+    NodeId peer,
+    String contentId,
+  ) async {
+    if (await _storage.hasFile(contentId)) {
+      _signal();
+      return ContentDownloadResult.started;
+    }
+    devLog(() => 'xVeil[content]: user download ${contentId.substring(0, 12)}');
+    // Multi-device: in parallel, ask my OTHER devices for the bytes over the
+    // membership pull (no-op unless this cid is a mirrored attachment). The
+    // conversation peer may be unreachable — or, for a mirrored OUTGOING
+    // file, may never have had the blob at all.
+    unawaited(deviceContentPull?.call(contentId));
+    _warmStreamPeer(peer);
+    // An explicit user retry overrides a terminal "gone" mark — if the bytes
+    // are still gone everywhere, the next reoffer round re-marks it.
+    unawaited(_clearContentGone(contentId));
+    _markContentDownloadStarted(contentId);
+    _recordPendingDownload(
+      contentId,
+      mode: _PendingDownload.modeStore,
+      peers: [peer],
+    );
+    final retryPeers = await _contentSourcePeers(
+      preferred: peer,
+      contentId: contentId,
+    );
+    final offered = _offered[contentId];
+    if (offered != null &&
+        await _pullSwarmStream(peer, contentId, offered.manifest, retryPeers)) {
+      return ContentDownloadResult.started;
+    }
+    final offeredRef = _offeredRefs[contentId];
+    if (offeredRef != null &&
+        await _beginFetchFromManifestRef(
+          _offerRefPeer(offeredRef, preferred: peer),
+          contentId,
+          offeredRef.ref,
+          null,
+          null,
+        )) {
+      return ContentDownloadResult.started;
+    }
+    // Legacy reliable STREAM fallback for encrypted/in-store downloads: it can
+    // resume across known sources after a partial payload. Keep this path, but
+    // do not pre-probe the manifest here; the probe consumes a stream open and
+    // can mask the very first failure that this fallback is meant to survive.
+    if (await _pullStream(peer, contentId, null, retryPeers: retryPeers)) {
+      return ContentDownloadResult.started;
+    }
+    // Datagram fallback (transport has no streams — e.g. a loopback fake).
+    if (offered == null) {
+      return _requestReofferFromAny(retryPeers, contentId, null);
+    }
+    await _beginFetch(_offerPeer(offered, preferred: peer), offered.manifest);
+    return ContentDownloadResult.started;
+  }
+
+  /// Swarm/group download primitive: fetch [contentId] from the first accepted
+  /// peer that can actually serve it. This is deliberately content-addressed —
+  /// any holder of the verified blob can seed the same bytes, so a group/torrent
+  /// layer can pass all known holders instead of depending on the original
+  /// sender staying online.
+  ///
+  /// The normal one-peer [downloadContent] path starts the pull and returns
+  /// immediately for UI responsiveness. This method awaits each stream attempt
+  /// to a terminal result before trying the next source, so a dead/non-seeding
+  /// peer does not strand the transfer when another accepted peer has the blob.
+  Future<ContentDownloadResult> downloadContentFromAny(
+    Iterable<NodeId> peers,
+    String contentId,
+  ) async {
+    if (await _storage.hasFile(contentId)) {
+      _signal();
+      return ContentDownloadResult.started;
+    }
+    final offered = _offered[contentId];
+    final offeredRef = _offeredRefs[contentId];
+    final storedSources = await _storedContentSourcePeers(contentId);
+    final sources = _filterGoneSources(
+      contentId,
+      _uniquePeers([
+        ...peers,
+        if (offered != null) ...offered.peers.values,
+        if (offeredRef != null) ...offeredRef.peers.values,
+        ...storedSources,
+      ]),
+    );
+    final seen = <String>{};
+    var attempted = 0;
+    _markContentDownloadStarted(contentId);
+    _recordPendingDownload(
+      contentId,
+      mode: _PendingDownload.modeStore,
+      peers: sources,
+    );
+    if (offered != null &&
+        await _pullSwarmPiecesToCompletion(sources, offered.manifest)) {
+      return ContentDownloadResult.started;
+    }
+    if (offeredRef != null &&
+        sources.isNotEmpty &&
+        await _beginFetchFromManifestRef(
+          _offerRefPeer(offeredRef, preferred: sources.first),
+          contentId,
+          offeredRef.ref,
+          null,
+          null,
+        )) {
+      return ContentDownloadResult.started;
+    }
+    for (final peer in sources) {
+      if (!seen.add(peer.hex)) continue;
+      final contact = await _storage.getContact(peer);
+      if (contact == null || contact.status != ContactStatus.accepted) {
+        continue;
+      }
+      attempted++;
+      devLog(
+        () =>
+            'xVeil[content]: swarm download '
+            '${contentId.substring(0, 12)} trying ${peer.short}',
+      );
+      final ok = await _pullStreamToCompletion(peer, contentId);
+      if (ok == true || await _storage.hasFile(contentId)) {
+        return ContentDownloadResult.started;
+      }
+      devLog(
+        () =>
+            'xVeil[content]: swarm source failed '
+            '${contentId.substring(0, 12)} <- ${peer.short}',
+      );
+    }
+    devLog(
+      () =>
+          'xVeil[content]: swarm download failed '
+          '${contentId.substring(0, 12)} sources=$attempted',
+    );
+    if (!_contentFailed.isClosed) _contentFailed.add(contentId);
+    return ContentDownloadResult.noOffer;
+  }
+
+  NodeId _offerPeer(
+    ({ContentManifest manifest, Map<String, NodeId> peers}) offered, {
+    required NodeId preferred,
+  }) =>
+      offered.peers[preferred.hex] ??
+      (offered.peers.isNotEmpty ? offered.peers.values.first : preferred);
+
+  List<NodeId> _offerPeers({
+    required NodeId preferred,
+    required String contentId,
+  }) {
+    final out = <String, NodeId>{preferred.hex: preferred};
+    final offered = _offered[contentId];
+    if (offered != null) {
+      for (final peer in offered.peers.values) {
+        out[peer.hex] = peer;
+      }
+    }
+    final offeredRef = _offeredRefs[contentId];
+    if (offeredRef != null) {
+      for (final peer in offeredRef.peers.values) {
+        out[peer.hex] = peer;
+      }
+    }
+    return out.values.toList(growable: false);
+  }
+
+  Future<List<NodeId>> _contentSourcePeers({
+    required NodeId preferred,
+    required String contentId,
+  }) async {
+    final out = <String, NodeId>{
+      for (final peer in _offerPeers(
+        preferred: preferred,
+        contentId: contentId,
+      ))
+        peer.hex: peer,
+    };
+    for (final peer in await _storedContentSourcePeers(contentId)) {
+      out[peer.hex] = peer;
+    }
+    return _filterGoneSources(contentId, out.values);
+  }
+
+  Future<List<NodeId>> _storedContentSourcePeers(String contentId) async {
+    final out = <String, NodeId>{};
+    try {
+      for (final conv in await _storage.loadConversations()) {
+        if (!conv.peer.canMessage) continue;
+        final hasOffer = (await _storage.loadMessages(conv.id)).any(
+          (m) =>
+              m.direction == MessageDirection.incoming &&
+              (m.fileContentId == contentId || m.fileId == contentId),
+        );
+        if (hasOffer) out[conv.peer.nodeId.hex] = conv.peer.nodeId;
+      }
+    } catch (e) {
+      devLog(
+        () =>
+            'xVeil[content]: stored source scan failed '
+            '${contentId.substring(0, 12)}: $e',
+      );
+    }
+    return out.values.toList(growable: false);
+  }
+
+  /// The user opted to download an OFFERED file UNENCRYPTED, straight to a
+  /// plaintext file they picked. [write]/[close] is the file sink (created in the
+  /// UI); each verified piece is written at its byte offset, nothing is kept in
+  /// the app. On completion the file is closed and a [contentReceived] event
+  /// fires carrying [savedPath]. If the manifest handle is gone, the sender is
+  /// asked to re-advertise (the sink is held until it arrives or times out).
+  Future<ContentDownloadResult> downloadContentToFile(
+    NodeId peer,
+    String contentId,
+    String savedPath, {
+    required Future<void> Function(int offset, Uint8List bytes) write,
+    required Future<void> Function() close,
+  }) async {
+    final sink = (write: write, close: close, read: null);
+    _fetchSavePath[contentId] = savedPath;
+    devLog(
+      () =>
+          'xVeil[content]: user download-to-file (unencrypted) '
+          '${contentId.substring(0, 12)} -> $savedPath',
+    );
+    _warmStreamPeer(peer);
+    unawaited(_clearContentGone(contentId));
+    _markContentDownloadStarted(contentId);
+    if (await _storage.hasFile(contentId)) {
+      return await _exportStoredContentToSink(contentId, sink, savedPath)
+          ? ContentDownloadResult.started
+          : ContentDownloadResult.noOffer;
+    }
+    _recordPendingDownload(
+      contentId,
+      mode: _PendingDownload.modeFile,
+      savedPath: savedPath,
+      peers: [peer],
+    );
+    final retryPeers = await _contentSourcePeers(
+      preferred: peer,
+      contentId: contentId,
+    );
+    final offered = _offered[contentId];
+    if (offered != null) {
+      if (_plainFileStream &&
+          await _pullSwarmStreamToFile(
+            _offerPeer(offered, preferred: peer),
+            contentId,
+            offered.manifest,
+            retryPeers,
+            sink,
+            savedPath,
+          )) {
+        return ContentDownloadResult.started;
+      }
+      await _beginFetch(
+        _offerPeer(offered, preferred: peer),
+        offered.manifest,
+        sink: sink,
+      );
+      return ContentDownloadResult.started;
+    }
+    final offeredRef = _offeredRefs[contentId];
+    if (offeredRef != null &&
+        await _beginFetchFromManifestRef(
+          _offerRefPeer(offeredRef, preferred: peer),
+          contentId,
+          offeredRef.ref,
+          sink,
+          savedPath,
+        )) {
+      return ContentDownloadResult.started;
+    }
+    // The caller knows the sender and content id, but the one-shot manifest/ref
+    // announcement may have been lost. Probe the manifest from a reliable stream
+    // and then use the parallel range/swarm path before parking a plaintext save
+    // behind the lossy reoffer control path.
+    if (await _beginFetchFromStreamManifest(
+      peer,
+      contentId,
+      sink,
+      savedPath: savedPath,
+      peers: retryPeers,
+    )) {
+      return ContentDownloadResult.started;
+    }
+    return _requestReofferFromAny(retryPeers, contentId, sink);
+  }
+
+  /// Swarm/group variant of [downloadContentToFile]: write verified plaintext
+  /// bytes to [savedPath] from the first known holder that can serve [contentId].
+  ///
+  /// This is used by debug/soak automation and the future group/torrent layer:
+  /// the caller may pass all accepted holders it knows about, while the service
+  /// augments that list with live offers and persisted incoming file-offer
+  /// messages. The app storage remains empty; successful completion only records
+  /// [savedPath] as an external plaintext destination.
+  Future<ContentDownloadResult> downloadContentToFileFromAny(
+    Iterable<NodeId> peers,
+    String contentId,
+    String savedPath, {
+    required Future<void> Function(int offset, Uint8List bytes) write,
+    required Future<void> Function() close,
+    // Non-null on a RESUME: reads pieces back off disk so the swarm skips the
+    // ones already written (see [_FetchSink.read]).
+    Future<Uint8List?> Function(int offset, int length)? read,
+  }) async {
+    final sink = (write: write, close: close, read: read);
+    _fetchSavePath[contentId] = savedPath;
+    devLog(
+      () =>
+          'xVeil[content]: user download-to-file-any (unencrypted) '
+          '${contentId.substring(0, 12)} -> $savedPath',
+    );
+    _markContentDownloadStarted(contentId);
+    if (await _storage.hasFile(contentId)) {
+      return await _exportStoredContentToSink(contentId, sink, savedPath)
+          ? ContentDownloadResult.started
+          : ContentDownloadResult.noOffer;
+    }
+    final offered = _offered[contentId];
+    final offeredRef = _offeredRefs[contentId];
+    final sources = _filterGoneSources(
+      contentId,
+      _uniquePeers([
+        ...peers,
+        if (offered != null) ...offered.peers.values,
+        if (offeredRef != null) ...offeredRef.peers.values,
+        ...await _storedContentSourcePeers(contentId),
+      ]),
+    );
+    _recordPendingDownload(
+      contentId,
+      mode: _PendingDownload.modeFile,
+      savedPath: savedPath,
+      peers: sources,
+    );
+    if (offered != null) {
+      if (sources.isEmpty && offered.peers.isEmpty) {
+        return _requestReofferFromAny(sources, contentId, sink);
+      }
+      final preferred = sources.isNotEmpty
+          ? sources.first
+          : offered.peers.values.first;
+      if (_plainFileStream &&
+          await _pullSwarmStreamToFile(
+            preferred,
+            contentId,
+            offered.manifest,
+            sources,
+            sink,
+            savedPath,
+          )) {
+        return ContentDownloadResult.started;
+      }
+      await _beginFetch(
+        _offerPeer(offered, preferred: preferred),
+        offered.manifest,
+        sink: sink,
+      );
+      return ContentDownloadResult.started;
+    }
+    if (offeredRef != null) {
+      if (sources.isNotEmpty &&
+          await _beginFetchFromManifestRef(
+            _offerRefPeer(offeredRef, preferred: sources.first),
+            contentId,
+            offeredRef.ref,
+            sink,
+            savedPath,
+          )) {
+        return ContentDownloadResult.started;
+      }
+    }
+    if (sources.isNotEmpty &&
+        await _beginFetchFromStreamManifest(
+          sources.first,
+          contentId,
+          sink,
+          savedPath: savedPath,
+          peers: sources,
+        )) {
+      return ContentDownloadResult.started;
+    }
+    return _requestReofferFromAny(sources, contentId, sink);
+  }
+
+  /// Surface user intent immediately. The stream path may spend seconds opening
+  /// an anonymous circuit before the manifest / first verified piece arrives;
+  /// without this, the file bubble looks like the tap was ignored.
+  void _markContentDownloadStarted(String contentId) {
+    if (!_contentProgress.isClosed) {
+      _contentProgress.add((contentId: contentId, done: 0, total: 1));
+    }
+  }
+
+  // ------------------------------------------------------------------------
+  // AUTO-RESUME of interrupted downloads (torrent-like).
+  //
+  // Every explicit download request (the four public entry points) writes a
+  // durable record into the settings KV. The record survives restarts; it is
+  // cleared only when the content completes (contentReceived / blob present /
+  // plaintext savedPath recorded). A driver re-issues the download:
+  //   - on service start (post-unlock), staggered;
+  //   - on node (re)connect (reconcileOnConnect);
+  //   - when an offer/manifest for a pending content id arrives (sender came
+  //     back online);
+  //   - after each contentDownloadFailed, with exponential backoff.
+  // The encrypted tier resumes at PIECE granularity for free (verified pieces
+  // persist in the blob store and the swarm skips them). A plain-file download
+  // resumes at the received offset within a session; across a restart it
+  // restarts from byte 0 into the same destination (the file sink keeps no
+  // durable piece bookkeeping — and on sandboxed macOS the NSSavePanel grant
+  // does not survive the restart anyway, in which case the record is dropped).
+
+  static const String _pendingDownloadsKey = 'pending_downloads';
+  Map<String, _PendingDownload>? _pendingResumeCache;
+  Future<void> _pendingResumeWriteChain = Future.value();
+  final Map<String, Timer> _resumeTimers = {};
+  final Map<String, int> _resumeAttempts = {};
+  final Map<String, DateTime> _resumeProgressAt = {};
+  final Set<String> _resumeInFlight = {};
+  StreamSubscription<String>? _resumeFailedSub;
+  StreamSubscription<({String contentId, int done, int total})>?
+  _resumeProgressSub;
+  StreamSubscription<({String contentId, String name, String? savedToPath})>?
+  _resumeReceivedSub;
+
+  /// Tunable delays (tests shrink these; production keeps the defaults).
+  Duration downloadResumeStartDelay = const Duration(seconds: 8);
+  Duration downloadResumeBackoffBase = const Duration(seconds: 10);
+  Duration downloadResumeBackoffCap = const Duration(minutes: 10);
+  Duration downloadResumeLiveGrace = const Duration(seconds: 10);
+
+  /// Cancel every durable auto-resume: stop the timers, forget the parked
+  /// set + attempt counters, and wipe the persisted registry. Used by the
+  /// bench purge hook to clear zombie pulls (a dead ephemeral holder never
+  /// answers content-GONE, so they otherwise linger the whole 14-day window).
+  /// Returns how many pending downloads were dropped.
+  Future<int> clearPendingDownloads() async {
+    final pending = await _pendingDownloads();
+    final n = pending.length;
+    for (final t in _resumeTimers.values) {
+      t.cancel();
+    }
+    _resumeTimers.clear();
+    _resumeAttempts.clear();
+    _resumeProgressAt.clear();
+    _parkedDownloads.clear();
+    _persistedPendingManifests.clear();
+    _mutatePendingDownloads((map) => map.clear());
+    return n;
+  }
+
+  /// Pending-download records that should auto-resume (test/UI introspection).
+  Future<List<String>> pendingAutoResumeContentIds() async =>
+      (await _pendingDownloads()).keys.toList(growable: false);
+
+  Future<Map<String, _PendingDownload>> _pendingDownloads() async {
+    final cached = _pendingResumeCache;
+    if (cached != null) return cached;
+    final map = <String, _PendingDownload>{};
+    try {
+      final raw = await _storage.getSetting(_pendingDownloadsKey);
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw);
+        if (decoded is List) {
+          for (final entry in decoded) {
+            final p = entry is Map<String, dynamic>
+                ? _PendingDownload.fromJson(entry)
+                : null;
+            if (p == null) continue;
+            // Age out ancient intents so a long-forgotten request cannot keep
+            // probing the network forever.
+            if (DateTime.now().difference(p.requestedAt) >
+                const Duration(days: 14)) {
+              continue;
+            }
+            map[p.contentId] = p;
+          }
+        }
+      }
+    } catch (_) {
+      // Unparseable registry → start empty (requests re-record themselves).
+    }
+    return _pendingResumeCache = map;
+  }
+
+  /// All registry writes are chained so concurrent async mutations cannot
+  /// interleave a read-modify-write.
+  void _mutatePendingDownloads(
+    void Function(Map<String, _PendingDownload> map) fn,
+  ) {
+    _pendingResumeWriteChain = _pendingResumeWriteChain.then((_) async {
+      final map = await _pendingDownloads();
+      fn(map);
+      try {
+        await _storage.putSetting(
+          _pendingDownloadsKey,
+          jsonEncode([for (final p in map.values) p.toJson()]),
+        );
+      } catch (_) {
+        // Store hiccup: the in-RAM cache still drives this session; the next
+        // successful mutation persists the merged state.
+      }
+      _emitResuming(map.keys.toSet());
+    });
+  }
+
+  /// contentIds with a durable auto-resume record right now (queued / retrying
+  /// in the background — the sender may be offline). Distinct from
+  /// [contentProgress], which fires only while a pull is ACTIVELY moving bytes;
+  /// a parked resume shows no progress, so the UI would otherwise look idle.
+  /// The UI shows "resuming…" when a cid is here but has no live progress.
+  final _contentResuming = StreamController<Set<String>>.broadcast();
+  Stream<Set<String>> get contentResuming => _contentResuming.stream;
+  Set<String> _lastResuming = const {};
+
+  void _emitResuming(Set<String> pending) {
+    if (_contentResuming.isClosed) return;
+    // Cheap set-equality gate so a no-change registry rewrite is not an event.
+    if (pending.length == _lastResuming.length &&
+        pending.containsAll(_lastResuming)) {
+      return;
+    }
+    _lastResuming = pending;
+    _contentResuming.add(pending);
+  }
+
+  void _recordPendingDownload(
+    String contentId, {
+    required String mode,
+    String? savedPath,
+    required Iterable<NodeId> peers,
+  }) {
+    if (_disposed) return;
+    final hexes = [for (final p in peers) p.hex];
+    _mutatePendingDownloads((map) {
+      final prior = map[contentId];
+      map[contentId] = _PendingDownload(
+        contentId: contentId,
+        mode: mode,
+        savedPath: savedPath ?? prior?.savedPath,
+        peers: {...?prior?.peers, ...hexes}.toList(growable: false),
+        requestedAt: prior?.requestedAt ?? DateTime.now(),
+      );
+    });
+    // Persist the offered manifest alongside the intent: a post-restart resume
+    // re-injects it so the range swarm can run and SKIP already-stored
+    // verified pieces instead of re-pulling the whole file sequentially.
+    final offered = _offered[contentId];
+    if (offered != null) {
+      unawaited(_persistServeManifest(offered.manifest));
+    }
+  }
+
+  /// Per-content count of pull executions currently in flight (sequential
+  /// [_runPull] / the range swarm). The auto-resume driver consults it so it
+  /// never stacks a second concurrent pull onto a live one — a duplicate
+  /// wastes bandwidth and makes the shared progress channel oscillate.
+  final Map<String, int> _activePullCount = {};
+
+  void _pullStarted(String contentId) =>
+      _activePullCount[contentId] = (_activePullCount[contentId] ?? 0) + 1;
+
+  void _pullEnded(String contentId) {
+    final n = (_activePullCount[contentId] ?? 1) - 1;
+    if (n <= 0) {
+      _activePullCount.remove(contentId);
+    } else {
+      _activePullCount[contentId] = n;
+    }
+  }
+
+  /// True while ANYONE owns a transfer for [contentId]: an executing pull, a
+  /// datagram fetch, or a parked download awaiting a re-advertised manifest.
+  bool _pullActive(String contentId) =>
+      (_activePullCount[contentId] ?? 0) > 0 ||
+      _fetching.containsKey(contentId) ||
+      _pendingDownload.containsKey(contentId);
+
+  /// Persist [m] once if a durable pending download exists for it — offers
+  /// often arrive as manifest-REFS, so the full manifest only becomes known
+  /// mid-pull (stream header / ref resolve); this is what makes a
+  /// piece-granular resume possible after a restart.
+  final Set<String> _persistedPendingManifests = {};
+  Future<void> _persistManifestIfPending(ContentManifest m) async {
+    if (!_persistedPendingManifests.add(m.contentId)) return;
+    if (!(await _pendingDownloads()).containsKey(m.contentId)) {
+      _persistedPendingManifests.remove(m.contentId);
+      return;
+    }
+    await _persistServeManifest(m);
+  }
+
+  Future<ContentManifest?> _loadPersistedManifest(String contentId) async {
+    try {
+      final bytes = await _storage.loadFile('mf:$contentId');
+      if (bytes == null) return null;
+      final m = ContentManifest.fromJson(
+        jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>,
+      );
+      if (m == null || m.contentId != contentId) return null;
+      return m;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void _completePendingDownload(String contentId) {
+    _resumeTimers.remove(contentId)?.cancel();
+    _resumeAttempts.remove(contentId);
+    _resumeProgressAt.remove(contentId);
+    _parkedDownloads.remove(contentId);
+    _persistedPendingManifests.remove(contentId);
+    if (_pendingResumeCache?.containsKey(contentId) ?? true) {
+      _mutatePendingDownloads((map) => map.remove(contentId));
+    }
+  }
+
+  Future<void> _startDownloadResumer() async {
+    _resumeFailedSub ??= contentDownloadFailed.listen((cid) async {
+      if ((await _pendingDownloads()).containsKey(cid)) {
+        _scheduleDownloadResume(cid, backoff: true);
+      }
+    });
+    _resumeProgressSub ??= contentProgress.listen((e) async {
+      if ((await _pendingDownloads()).containsKey(e.contentId)) {
+        _resumeProgressAt[e.contentId] = DateTime.now();
+        // Bytes are flowing — the holder is provably alive, so the fruitless
+        // streak (and any parking) no longer describes reality.
+        _resumeAttempts.remove(e.contentId);
+        _parkedDownloads.remove(e.contentId);
+      }
+    });
+    _resumeReceivedSub ??= contentReceived.listen(
+      (e) => _completePendingDownload(e.contentId),
+    );
+    await _resumeAllPendingDownloads(
+      initial: downloadResumeStartDelay,
+      stagger: const Duration(seconds: 2),
+    );
+  }
+
+  Future<void> _resumeAllPendingDownloads({
+    Duration initial = const Duration(seconds: 2),
+    Duration stagger = Duration.zero,
+  }) async {
+    final pending = await _pendingDownloads();
+    // Pre-warm the outbound path to every known holder in parallel with the
+    // staggered pull schedule: the cold circuit pool otherwise costs the
+    // first attempt its whole manifest window after a restart.
+    final warmed = <String>{};
+    for (final p in pending.values) {
+      for (final hex in p.peers) {
+        if (warmed.add(hex)) _warmStreamPeer(NodeId.fromHex(hex));
+      }
+    }
+    var i = 0;
+    for (final cid in pending.keys.toList(growable: false)) {
+      _scheduleDownloadResume(cid, after: initial + stagger * i++);
+    }
+  }
+
+  /// Best-effort pre-warm of the outbound stream path toward [peer] (see
+  /// [StreamTransport.warmStreamPeer]). Fire-and-forget: never blocks the
+  /// caller and never throws.
+  void _warmStreamPeer(NodeId peer) {
+    final t = _transport;
+    if (t is! StreamTransport) return;
+    unawaited(
+      (t as StreamTransport).warmStreamPeer(peer).catchError((Object e) {
+        devLog(() => 'xVeil[stream]: warm ${peer.short} failed: $e');
+      }),
+    );
+  }
+
+  /// An offer/manifest for a durable-pending content id arrived — the sender
+  /// is provably online, resume soon (the short delay lets an already-running
+  /// pull surface progress, which the liveness check then respects).
+  Future<void> _resumeOnOfferSignal(
+    String contentId, {
+    ContentManifest? manifest,
+  }) async {
+    if (_disposed) return;
+    if (!(await _pendingDownloads()).containsKey(contentId)) return;
+    // Keep the manifest durable for a piece-granular resume after a restart.
+    if (manifest != null) unawaited(_persistServeManifest(manifest));
+    // A live offer proves the holder is back: un-park and forget the fruitless
+    // rounds so the next failure starts the backoff ladder from the bottom.
+    _parkedDownloads.remove(contentId);
+    _resumeAttempts.remove(contentId);
+    if (_resumeTimers.containsKey(contentId)) return; // already queued sooner
+    _scheduleDownloadResume(contentId, after: const Duration(seconds: 3));
+  }
+
+  /// Any inbound traffic from [peer] proves it is online: revive every PARKED
+  /// pending download that lists it as a holder. Cheap no-op on the hot path
+  /// when nothing is parked (the common case).
+  void noteInboundFromPeer(NodeId peer) {
+    if (_disposed || _parkedDownloads.isEmpty) return;
+    final hex = peer.hex;
+    unawaited(() async {
+      final pending = await _pendingDownloads();
+      for (final cid in _parkedDownloads.toList(growable: false)) {
+        final p = pending[cid];
+        if (p == null) {
+          _parkedDownloads.remove(cid);
+          continue;
+        }
+        if (!p.peers.contains(hex)) continue;
+        _parkedDownloads.remove(cid);
+        _resumeAttempts.remove(cid);
+        devLog(
+          () =>
+              'xVeil[content]: holder ${peer.short} is alive — un-parking '
+              '${cid.substring(0, 12)}',
+        );
+        _scheduleDownloadResume(cid, after: const Duration(seconds: 2));
+      }
+    }());
+  }
+
+  void _scheduleDownloadResume(
+    String contentId, {
+    Duration? after,
+    bool backoff = false,
+  }) {
+    if (_disposed) return;
+    Duration delay;
+    if (after != null) {
+      delay = after;
+    } else if (backoff) {
+      final n = (_resumeAttempts[contentId] ?? 0) + 1;
+      _resumeAttempts[contentId] = n;
+      if (n >= _resumeParkAfterAttempts) {
+        // The holder has not produced a manifest, a byte of progress, or a
+        // content-GONE across every backoff round — stop burning circuits on
+        // a timer and wait for a liveness EVENT instead. The durable intent
+        // stays in pending_downloads, so an offer or inbound from the holder
+        // revives the transfer exactly where it left off.
+        _parkedDownloads.add(contentId);
+        _resumeTimers.remove(contentId)?.cancel();
+        devLog(
+          () =>
+              'xVeil[content]: auto-resume PARKED '
+              '${contentId.substring(0, 12)} after $n fruitless attempts — '
+              'will retry on the next offer/inbound from a holder',
+        );
+        return;
+      }
+      final base = downloadResumeBackoffBase * (1 << (n - 1).clamp(0, 6));
+      delay = base > downloadResumeBackoffCap ? downloadResumeBackoffCap : base;
+    } else {
+      delay = Duration.zero;
+    }
+    _resumeTimers[contentId]?.cancel();
+    _resumeTimers[contentId] = Timer(delay, () {
+      _resumeTimers.remove(contentId);
+      if (_resumeInFlight.contains(contentId)) {
+        // An attempt is still running — check back instead of dropping the
+        // wake-up (its failure event may already have consumed this slot).
+        _scheduleDownloadResume(contentId, after: const Duration(seconds: 30));
+      } else {
+        unawaited(_resumeDownload(contentId));
+      }
+    });
+  }
+
+  Future<void> _resumeDownload(String contentId) async {
+    if (_disposed || !_resumeInFlight.add(contentId)) return;
+    final short = contentId.length >= 12
+        ? contentId.substring(0, 12)
+        : contentId;
+    try {
+      final pending = (await _pendingDownloads())[contentId];
+      if (pending == null) return;
+      if (await _storage.hasFile(contentId)) {
+        _completePendingDownload(contentId);
+        return;
+      }
+      // Every known holder said content-GONE — retrying is pointless until a
+      // fresh offer clears the mark; drop the durable intent.
+      if (await isContentUnavailable(contentId)) {
+        _completePendingDownload(contentId);
+        return;
+      }
+      if (pending.mode == _PendingDownload.modeFile &&
+          await contentSavedPath(contentId) != null) {
+        _completePendingDownload(contentId);
+        return;
+      }
+      // Someone still owns a transfer for this content (an executing pull, a
+      // datagram fetch, or a parked plain-file save) — never stack a second
+      // one; its terminal failure event reschedules us. The progress-recency
+      // check below stays as a belt for paths without pull bookkeeping.
+      if (_pullActive(contentId)) {
+        _scheduleDownloadResume(contentId, after: downloadResumeLiveGrace * 2);
+        return;
+      }
+      final lastProgress = _resumeProgressAt[contentId];
+      if (lastProgress != null &&
+          DateTime.now().difference(lastProgress) < downloadResumeLiveGrace) {
+        _scheduleDownloadResume(contentId, after: downloadResumeLiveGrace * 2);
+        return;
+      }
+      final peers = <NodeId>[];
+      for (final hex in pending.peers) {
+        try {
+          peers.add(NodeId.fromHex(hex));
+        } catch (_) {}
+      }
+      // Re-inject a persisted manifest (lost from RAM across the restart) so
+      // the resume takes the swarm path with piece-granular skip of already
+      // stored data — the torrent behavior — rather than a from-zero pull.
+      if (_offered[contentId] == null && peers.isNotEmpty) {
+        final m = await _loadPersistedManifest(contentId);
+        if (m != null) {
+          _offered[contentId] = (
+            manifest: m,
+            peers: {for (final p in peers) p.hex: p},
+          );
+        }
+      }
+      devLog(
+        () =>
+            'xVeil[content]: auto-resume $short '
+            '(mode=${pending.mode}, attempt=${_resumeAttempts[contentId] ?? 0},'
+            ' peers=${peers.length}, manifest=${_offered[contentId] != null})',
+      );
+      // After a failed round, ask the holders to re-advertise before pulling
+      // again: a live holder revives the offer (and the resume proceeds), a
+      // holder that LOST the bytes answers content-GONE — which is what turns
+      // an endless retry loop into the terminal ask-for-a-re-send state.
+      if ((_resumeAttempts[contentId] ?? 0) >= 1) {
+        for (final p in peers) {
+          unawaited(requestContentReoffer(p, contentId));
+        }
+      }
+      if (pending.mode == _PendingDownload.modeFile &&
+          pending.savedPath != null) {
+        await _resumePlainFileDownload(pending, peers);
+      } else {
+        await downloadContentFromAny(peers, contentId);
+      }
+    } catch (e) {
+      devLog(() => 'xVeil[content]: auto-resume $short failed: $e');
+      _scheduleDownloadResume(contentId, backoff: true);
+    } finally {
+      _resumeInFlight.remove(contentId);
+    }
+  }
+
+  /// Attempts after which a durable pending download stops TIMER-driven
+  /// retries and goes event-driven only ("parked"). A holder that is simply
+  /// gone (dead ephemeral identity, wiped store, offline for days) never
+  /// answers content-GONE, so the explicit-GONE give-up never fires — before
+  /// this cap such zombies retried on the 10-minute backoff for the whole
+  /// 14-day registry window, each retry opening stream circuits that crowd
+  /// out live transfers (device-observed: a handful of zombie pulls kept the
+  /// outbound circuit pool churning for hours). A parked download revives on
+  /// the next offer/advertise from any holder ([_resumeOnOfferSignal]) or on
+  /// any inbound message from one ([noteInboundFromPeer]) — both reset the
+  /// attempt counter, so a sender coming back online resumes the transfer
+  /// without user action.
+  static const int _resumeParkAfterAttempts = 8;
+
+  /// contentIds parked after [_resumeParkAfterAttempts] fruitless rounds.
+  final Set<String> _parkedDownloads = {};
+
+  /// Sink opener used to re-drive plain-file downloads (injectable for tests;
+  /// dart:io stays in the data layer). [resume]=true reopens WITHOUT truncating
+  /// and exposes a reader so already-written pieces are hash-verified + skipped.
+  Future<VeilPlainFileSink?> Function(String path, {bool resume})
+  plainFileSinkOpener = veilPlainFileSinkOpener;
+
+  /// Re-drives an unencrypted-to-file download with a service-owned sink.
+  /// Reopened NON-truncating (resume): the swarm hash-verifies each piece off
+  /// disk and re-pulls only the missing ones, so a restart mid-download does
+  /// not re-fetch bytes already saved. Writing anywhere except the user-picked
+  /// path is forbidden on sandboxed macOS. If the destination cannot be
+  /// reopened (a sandboxed release after a restart — the NSSavePanel grant is
+  /// gone), the pending record is dropped: the user must re-pick a path.
+  Future<void> _resumePlainFileDownload(
+    _PendingDownload pending,
+    List<NodeId> peers,
+  ) async {
+    final contentId = pending.contentId;
+    final path = pending.savedPath!;
+    final sink = await plainFileSinkOpener(path, resume: true);
+    if (sink == null) {
+      devLog(
+        () =>
+            'xVeil[content]: auto-resume cannot reopen $path — '
+            'dropping the pending plain-file download',
+      );
+      _completePendingDownload(contentId);
+      return;
+    }
+    final result = await downloadContentToFileFromAny(
+      peers,
+      contentId,
+      path,
+      write: sink.write,
+      close: sink.close,
+      read: sink.read, // resume: hash-verify + skip already-written pieces
+    );
+    // Every other outcome hands the sink to the pull/park machinery, which
+    // closes it on completion or reoffer-timeout; a flat "no offer" does not.
+    if (result == ContentDownloadResult.noOffer) {
+      await sink.close();
+    }
+  }
+
+  /// Destination paths for in-flight unencrypted-to-file downloads (so the
+  /// completion event can report where the plaintext file landed).
+  final Map<String, String> _fetchSavePath = {};
+
+  /// The plaintext path an UNENCRYPTED download of [contentId] was saved to —
+  /// the UI OPENS it on tap instead of re-offering (it isn't in the app store).
+  /// Null if it was never downloaded unencrypted.
+  Future<String?> contentSavedPath(String contentId) =>
+      _storage.getSetting('saved:$contentId');
+
+  Future<bool> _exportStoredContentToSink(
+    String contentId,
+    _FetchSink sink,
+    String savedPath,
+  ) async {
+    final short = contentId.substring(0, 12);
+    if (!await _storage.hasFile(contentId)) return false;
+    try {
+      final mfBytes = await _storage.loadFile('mf:$contentId');
+      if (mfBytes != null) {
+        final manifest = ContentManifest.fromJson(
+          jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>,
+        );
+        if (manifest == null || manifest.contentId != contentId) {
+          throw StateError('stored manifest does not bind content id');
+        }
+        devLog(
+          () =>
+              'xVeil[content]: exporting stored $short '
+              '(${manifest.size}B) -> $savedPath',
+        );
+        const chunkSize = 1024 * 1024;
+        var offset = 0;
+        while (offset < manifest.size) {
+          var want = manifest.size - offset;
+          if (want > chunkSize) want = chunkSize;
+          final bytes = await _storage.readFileRange(contentId, offset, want);
+          if (bytes == null || bytes.length != want) {
+            throw StateError('stored range missing at $offset+$want');
+          }
+          await sink.write(offset, bytes);
+          offset += want;
+          if (!_contentProgress.isClosed) {
+            _contentProgress.add((
+              contentId: contentId,
+              done: offset,
+              total: manifest.size,
+            ));
+          }
+        }
+        await sink.close();
+        await _storage.putSetting('saved:$contentId', savedPath);
+        _fetchSavePath.remove(contentId);
+        if (!_contentReceived.isClosed) {
+          _contentReceived.add((
+            contentId: contentId,
+            name: manifest.name,
+            savedToPath: savedPath,
+          ));
+        }
+        devLog(
+          () =>
+              'xVeil[content]: COMPLETE $short '
+              '(${manifest.size}B) exported to $savedPath',
+        );
+        return true;
+      }
+
+      // Legacy/small-file fallback: old stores may have the blob but no
+      // persisted stream manifest. This can hold the file in RAM, so the normal
+      // streamed-manifest path above remains the preferred one.
+      final bytes = await _storage.loadFile(contentId);
+      if (bytes == null) return false;
+      devLog(
+        () =>
+            'xVeil[content]: exporting stored $short '
+            '(${bytes.length}B, no manifest) -> $savedPath',
+      );
+      await sink.write(0, bytes);
+      await sink.close();
+      await _storage.putSetting('saved:$contentId', savedPath);
+      _fetchSavePath.remove(contentId);
+      if (!_contentProgress.isClosed) {
+        _contentProgress.add((
+          contentId: contentId,
+          done: bytes.length,
+          total: bytes.length,
+        ));
+      }
+      if (!_contentReceived.isClosed) {
+        _contentReceived.add((
+          contentId: contentId,
+          name: contentId,
+          savedToPath: savedPath,
+        ));
+      }
+      return true;
+    } catch (e) {
+      devLog(() => 'xVeil[content]: export stored $short failed: $e');
+      try {
+        await sink.close();
+      } catch (_) {}
+      _fetchSavePath.remove(contentId);
+      if (!_contentFailed.isClosed) _contentFailed.add(contentId);
+      return false;
+    }
+  }
+
+  Future<bool> _consumeParkedPlainFileSave(String contentId) async {
+    if (!_pendingDownload.containsKey(contentId)) return false;
+    final sink = _pendingDownload.remove(contentId);
+    _pendingTimers.remove(contentId)?.cancel();
+    if (sink == null) return false;
+    final savedPath = _fetchSavePath[contentId];
+    if (savedPath == null) {
+      try {
+        await sink.close();
+      } catch (_) {}
+      return true;
+    }
+    await _exportStoredContentToSink(contentId, sink, savedPath);
+    return true;
+  }
+
+  /// Downloads waiting for a re-advertised manifest (contentId → its sink, null
+  /// for an encrypted/in-volume download). [_onContentManifest] consumes these.
+  final Map<String, _FetchSink?> _pendingDownload = {};
+  final Map<String, Timer> _pendingTimers = {};
+  static final Duration _reofferTimeout = Duration(
+    milliseconds: const int.fromEnvironment(
+      'XVEIL_CONTENT_REOFFER_TIMEOUT_MS',
+      defaultValue: 20000,
+    ),
+  );
+
+  /// Ask all known candidate holders to re-advertise [contentId] (we have an
+  /// offer message but not the live manifest) and park the download until one
+  /// manifest arrives. A timeout frees a parked file sink (so a RandomAccessFile
+  /// handle isn't leaked if nobody can serve — then the user must re-send).
+  ContentDownloadResult _requestReofferFromAny(
+    Iterable<NodeId> peers,
+    String contentId,
+    _FetchSink? sink,
+  ) {
+    final sources = _uniquePeers(peers);
+    if (sources.isEmpty) {
+      if (sink != null) unawaited(sink.close());
+      _fetchSavePath.remove(contentId);
+      return ContentDownloadResult.noOffer;
+    }
+    devLog(
+      () =>
+          'xVeil[content]: no live manifest for '
+          '${contentId.substring(0, 12)} — requesting re-advertise from '
+          '${sources.length} source(s)',
+    );
+    _pendingDownload[contentId] = sink;
+    _pendingTimers[contentId]?.cancel();
+    _pendingTimers[contentId] = Timer(_reofferTimeout, () {
+      _pendingTimers.remove(contentId);
+      final parked = _pendingDownload.remove(contentId);
+      if (parked != null) unawaited(parked.close()); // release the file handle
+      _fetchSavePath.remove(contentId);
+      devLog(
+        () =>
+            'xVeil[content]: re-advertise TIMED OUT for '
+            '${contentId.substring(0, 12)} — sender not serving; re-send needed',
+      );
+      if (!_contentFailed.isClosed) _contentFailed.add(contentId);
+    });
+    for (final peer in sources) {
+      unawaited(_send(peer, contentReofferEnvelope(contentId).encode()));
+    }
+    return ContentDownloadResult.requestedReoffer;
+  }
+
+  /// Ask [peer] to re-advertise [contentId] without parking or starting a
+  /// download. Used by headless/test waiters that know the content id from the
+  /// sender's /send_file result and only need the one-shot manifest to
+  /// materialise as an OFFER in storage before they trigger an explicit save.
+  Future<bool> requestContentReoffer(NodeId peer, String contentId) async {
+    final contact = await _storage.getContact(peer);
+    if (contact == null || contact.status != ContactStatus.accepted) {
+      return false;
+    }
+    devLog(
+      () =>
+          'xVeil[content]: requesting manifest re-advertise '
+          '${contentId.substring(0, 12)} from ${peer.short}',
+    );
+    await _send(peer, contentReofferEnvelope(contentId).encode());
+    return true;
+  }
+
+  /// Debug/soak helper: materialise a lost one-shot content offer by fetching
+  /// only the manifest over a reliable stream. The normal app path still relies
+  /// on the advertised manifest/ref and reoffer semantics; headless tests know
+  /// the content id from `/send_file`, so they can safely ask the sender for the
+  /// manifest directly and surface the same offer the datagram would have stored.
+  Future<bool> resolveContentOfferViaStream(
+    NodeId peer,
+    String contentId,
+  ) async {
+    final contact = await _storage.getContact(peer);
+    if (contact == null || contact.status != ContactStatus.accepted) {
+      return false;
+    }
+    if (_offered.containsKey(contentId) ||
+        _offeredRefs.containsKey(contentId) ||
+        await _storage.hasFile(contentId)) {
+      return true;
+    }
+    final manifest = await _fetchManifestFromStream(peer, contentId, [peer]);
+    if (manifest == null) return false;
+    await _surfaceFileOffer(peer, manifest);
+    devLog(
+      () =>
+          'xVeil[content]: offer stream-materialized '
+          '${contentId.substring(0, 12)} <- ${peer.short}',
+    );
+    _signal();
+    return true;
+  }
+
+  /// A peer asked us to re-advertise [contentId] (their manifest handle is gone).
+  /// Re-send the manifest if we are still serving it (refreshing its TTL), or —
+  /// DURABLE offer — re-open the persisted source file and re-serve from the
+  /// persisted manifest (so an offer survives our restart / the serve TTL). Fails
+  /// quietly (→ receiver times out → re-send) if there is no durable record, no
+  /// opener, or the file is gone.
+  Future<void> _onContentReoffer(NodeId peer, String contentId) async {
+    final served = _serving[contentId];
+    if (served != null) {
+      _serving[contentId] = (
+        manifest: served.manifest,
+        source: served.source,
+        servedAt: _now(),
+      );
+      devLog(
+        () =>
+            'xVeil[content]: re-advertising ${contentId.substring(0, 12)} '
+            '-> ${peer.short} (live serving)',
+      );
+      unawaited(_sendContentManifest(peer, served.manifest));
+      return;
+    }
+    if (sourceOpener == null) {
+      devLog(
+        () =>
+            'xVeil[content]: reoffer for UNSERVED '
+            '${contentId.substring(0, 12)} <- ${peer.short} (no opener — re-send)',
+      );
+      unawaited(_replyContentGone(peer, contentId));
+      return;
+    }
+    try {
+      final rec = _parseServedRecord(
+        await _storage.getSetting('served:$contentId'),
+      );
+      final mfBytes = await _storage.loadFile('mf:$contentId');
+      if (rec == null) {
+        devLog(
+          () =>
+              'xVeil[content]: reoffer ${contentId.substring(0, 12)} — no '
+              'durable record <- ${peer.short} (re-send)',
+        );
+        unawaited(_replyContentGone(peer, contentId));
+        return;
+      }
+      ContentManifest? m;
+      if (mfBytes != null) {
+        m = ContentManifest.fromJson(
+          jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>,
+        );
+      }
+      // The mf: blob is the first casualty of a bloated store (IndexFull) —
+      // rebuild it from the source file rather than answering a false GONE
+      // (the bytes are right there on disk).
+      m ??= await _rebuildManifestFromServedRecord(contentId, rec);
+      if (m == null) {
+        unawaited(_replyContentGone(peer, contentId));
+        return;
+      }
+      final src = await sourceOpener!(rec.path);
+      if (src == null) {
+        devLog(
+          () =>
+              'xVeil[content]: reoffer ${contentId.substring(0, 12)} — '
+              'source GONE (${rec.path}) <- ${peer.short} (re-send)',
+        );
+        unawaited(_replyContentGone(peer, contentId));
+        return;
+      }
+      _serving[contentId] = (manifest: m, source: src, servedAt: _now());
+      _evictServing();
+      _ensureContentTimer();
+      devLog(
+        () =>
+            'xVeil[content]: re-advertising ${contentId.substring(0, 12)} '
+            '-> ${peer.short} (DURABLE — re-opened ${rec.path})',
+      );
+      unawaited(_sendContentManifest(peer, m));
+    } catch (e) {
+      devLog(
+        () =>
+            'xVeil[content]: durable reoffer failed for '
+            '${contentId.substring(0, 12)}: $e',
+      );
+    }
+  }
+
+  /// Per-content set of peer hexes that explicitly answered content-GONE this
+  /// session — excluded from source unions so retries stop knocking on them.
+  final Map<String, Set<String>> _goneSources = {};
+
+  /// True when every known holder of [contentId] said GONE — persisted, so the
+  /// chat bubble can render "ask the sender to re-send" across restarts.
+  Future<bool> isContentUnavailable(String contentId) async =>
+      ((await _storage.getSetting('gone:$contentId')) ?? '').isNotEmpty;
+
+  List<NodeId> _filterGoneSources(String contentId, Iterable<NodeId> peers) {
+    final gone = _goneSources[contentId];
+    if (gone == null || gone.isEmpty) return peers.toList(growable: false);
+    return [
+      for (final p in peers)
+        if (!gone.contains(p.hex)) p,
+    ];
+  }
+
+  Future<void> _onContentGone(NodeId peer, String contentId) async {
+    if (contentId.isEmpty) return;
+    if (await _storage.hasFile(contentId)) return; // already complete locally
+    devLog(
+      () =>
+          'xVeil[content]: content-GONE '
+          '${contentId.substring(0, 12)} <- ${peer.short}',
+    );
+    (_goneSources[contentId] ??= {}).add(peer.hex);
+    _offered[contentId]?.peers.remove(peer.hex);
+    _offeredRefs[contentId]?.peers.remove(peer.hex);
+    final remaining = _filterGoneSources(
+      contentId,
+      await _contentSourcePeers(preferred: peer, contentId: contentId),
+    );
+    if (remaining.isNotEmpty) {
+      devLog(
+        () =>
+            'xVeil[content]: ${contentId.substring(0, 12)} still has '
+            '${remaining.length} candidate holder(s) — keep trying',
+      );
+      return;
+    }
+    // Terminal: nobody we know still has the bytes. Persist the mark, stop the
+    // auto-resume driver, release any parked sink, and clear the spinner.
+    await _storage.putSetting('gone:$contentId', _now().toIso8601String());
+    _completePendingDownload(contentId);
+    final parked = _pendingDownload.remove(contentId);
+    _pendingTimers.remove(contentId)?.cancel();
+    if (parked != null) unawaited(parked.close());
+    _fetching.remove(contentId);
+    _fetchSavePath.remove(contentId);
+    if (!_contentFailed.isClosed) _contentFailed.add(contentId);
+    _signal();
+  }
+
+  /// A fresh offer/manifest proves the content is obtainable again (the sender
+  /// re-sent it) — clear the terminal mark and this session's gone set.
+  Future<void> _clearContentGone(String contentId) async {
+    _goneSources.remove(contentId);
+    if (((await _storage.getSetting('gone:$contentId')) ?? '').isNotEmpty) {
+      await _storage.putSetting('gone:$contentId', '');
+      _signal();
+    }
+  }
+
+  /// Honest negative reoffer reply: we provably can no longer produce the
+  /// bytes for [contentId] (deleted message / vanished source, and no stored
+  /// blob either) — say so, instead of leaving the requester to spin forever
+  /// against its 20 s reoffer timeouts. The stored-blob guard keeps this
+  /// truthful for a receiver-held copy that could still stream-serve.
+  Future<void> _replyContentGone(NodeId peer, String contentId) async {
+    try {
+      if (await _storage.hasFile(contentId)) return;
+      devLog(
+        () =>
+            'xVeil[content]: reply content-GONE '
+            '${contentId.substring(0, 12)} -> ${peer.short}',
+      );
+      await _send(peer, contentGoneEnvelope(contentId).encode());
+    } catch (_) {
+      // Best-effort: silence just means the requester keeps its old behavior.
+    }
+  }
+
+  /// Content ids with a [_serveChunks] loop currently running — only ONE serve
+  /// per content at a time. A serve-from-source [RandomAccessFile] is a single
+  /// cursor, so two concurrent serves thrash it ("An async operation is currently
+  /// pending", and almost every read fails → the transfer crawls). A request that
+  /// lands mid-serve is skipped; the receiver's re-request loop re-asks for
+  /// whatever is still missing once the current serve finishes.
+  final Set<String> _servingNow = {};
+
+  void _onPieceRequest(NodeId peer, PieceRequestFrame req) {
+    final served = _serving[req.contentId];
+    if (served == null) {
+      devLog(
+        () =>
+            'xVeil[content]: pieceRequest for UNSERVED '
+            '${req.contentId.substring(0, 12)} <- ${peer.short} (ignored)',
+      );
+      return; // not serving this content
+    }
+    // Refresh freshness on EVERY request (even one we skip) — it isn't evicted
+    // mid-flight, and the live serve loop reads this to know the receiver is
+    // still interested (it STOPS when the requests stop — see [_serveChunks]).
+    _serving[req.contentId] = (
+      manifest: served.manifest,
+      source: served.source,
+      servedAt: _now(),
+    );
+    if (_servingNow.contains(req.contentId)) {
+      devLog(
+        () =>
+            'xVeil[content]: pieceRequest ${req.contentId.substring(0, 12)} '
+            '— a serve is already in flight, skipping <- ${peer.short}',
+      );
+      return; // one serve loop per content (single-cursor source)
+    }
+    final m = served.manifest;
+    // gaps: pieceIndex → chunk indices to serve (null ⇒ every chunk of the piece).
+    final Map<int, List<int>?> gaps;
+    final bm = req.bitmaps;
+    if (bm != null && bm.isNotEmpty) {
+      gaps = {
+        for (final e in bm.entries)
+          if (e.key >= 0 && e.key < m.pieceCount)
+            e.key: _chunksFromBitmap(m, e.key, e.value),
+      };
+      final total = gaps.values.fold<int>(0, (a, b) => a + (b?.length ?? 0));
+      devLog(
+        () =>
+            'xVeil[content]: pieceRequest ${req.contentId.substring(0, 12)} '
+            'CHUNK-granular ($total chunks over ${gaps.length} pieces) '
+            '<- ${peer.short} -> serving',
+      );
+    } else {
+      final indices = req.indices ?? [for (var i = 0; i < m.pieceCount; i++) i];
+      gaps = {for (final p in indices) p: null};
+      devLog(
+        () =>
+            'xVeil[content]: pieceRequest ${req.contentId.substring(0, 12)} '
+            '(${indices.length}/${m.pieceCount} whole pieces) <- ${peer.short} '
+            '-> serving',
+      );
+    }
+    _servingNow.add(req.contentId);
+    unawaited(
+      _serveChunks(
+        peer,
+        m,
+        served.source,
+        gaps,
+      ).whenComplete(() => _servingNow.remove(req.contentId)),
+    );
+  }
+
+  /// Drop served manifests idle past [_servingTtl], then — if still over
+  /// [_servingMaxEntries] — evict the OLDEST until under it. A serve-from-source
+  /// entry's [ServeSource.close] is called as it leaves (release the file
+  /// handle); a later re-request to an evicted entry simply finds nothing served
+  /// and the receiver gives up (a re-send re-opens the source).
+  void _evictServing() {
+    final now = _now();
+    _serving.removeWhere((cid, v) {
+      if ((_activeStreamServes[cid] ?? 0) > 0) return false;
+      if (now.difference(v.servedAt) <= _servingTtl) return false;
+      if (v.source != null) unawaited(v.source!.close());
+      return true;
+    });
+    if (_serving.length <= _servingMaxEntries) return;
+    final byAge = _serving.entries.toList()
+      ..sort((a, b) => a.value.servedAt.compareTo(b.value.servedAt));
+    for (final e in byAge) {
+      if (_serving.length <= _servingMaxEntries) break;
+      if ((_activeStreamServes[e.key] ?? 0) > 0) continue;
+      if (e.value.source != null) unawaited(e.value.source!.close());
+      _serving.remove(e.key);
+    }
+  }
+
+  /// Decode a missing-chunk bitmap into the chunk indices it marks for piece [p].
+  List<int> _chunksFromBitmap(ContentManifest m, int p, Uint8List bm) {
+    final cc = m.chunkCount(p);
+    return [
+      for (var c = 0; c < cc; c++)
+        if ((c >> 3) < bm.length && (bm[c >> 3] & (1 << (c & 7))) != 0) c,
+    ];
+  }
+
+  /// Serve [gaps] (pieceIndex → chunk indices, null ⇒ all chunks of the piece)
+  /// of content [m] to [peer]. Each chunk's bytes are read either from [source]
+  /// (the sender's original file, for a large serve-from-source send) or — when
+  /// [source] is null — from the on-disk blob ([readFileRange]) at the derived
+  /// offset; the file is never held in RAM. Chunk coordinates come from the
+  /// manifest's [ContentManifest.chunkBytes] so they match the receiver.
+  Future<void> _serveChunks(
+    NodeId peer,
+    ContentManifest m,
+    ServeSource? source,
+    Map<int, List<int>?> gaps,
+  ) async {
+    // Flatten the requested (piece, chunk) coordinates into one list so we can
+    // emit them in bounded batches across pieces, not strictly piece-by-piece.
+    final coords = <({int p, int c})>[];
+    for (final entry in gaps.entries) {
+      final p = entry.key;
+      if (p < 0 || p >= m.pieceCount) continue;
+      final n = m.chunkCount(p);
+      final chunks = entry.value ?? [for (var c = 0; c < n; c++) c];
+      for (final c in chunks) {
+        if (c >= 0 && c < n) coords.add((p: p, c: c));
+      }
+    }
+    for (var i = 0; i < coords.length; i += _contentServeBatch) {
+      // Stop a long serve the receiver has ABANDONED: if it stopped re-requesting
+      // (its fetch completed / went stale), our [_serving] freshness goes stale
+      // (refreshed on every pieceRequest). Otherwise the sender grinds out a
+      // whole big file nobody is fetching (the receiver logs "pieceChunk DROPPED"
+      // for every late chunk) — wasted bandwidth + log spam.
+      final cur = _serving[m.contentId];
+      if (cur == null ||
+          _now().difference(cur.servedAt) > _serveAbandonTimeout) {
+        devLog(
+          () =>
+              'xVeil[content]: serve STOPPED ${m.contentId.substring(0, 12)} '
+              'at chunk $i/${coords.length} — receiver no longer requesting',
+        );
+        return;
+      }
+      final end = (i + _contentServeBatch < coords.length)
+          ? i + _contentServeBatch
+          : coords.length;
+      // READ the batch sequentially (a serve-from-source RandomAccessFile is a
+      // single cursor — concurrent reads would race it; on-disk readFileRange is
+      // fine either way), then SEND the batch CONCURRENTLY for throughput — the
+      // re-request loop refills anything the TX queue sheds under load.
+      final batch = <({int p, int c, Uint8List data})>[];
+      for (var j = i; j < end; j++) {
+        final p = coords[j].p, c = coords[j].c;
+        final cb = m.chunkBytes;
+        final plen = m.pieceLength(p);
+        final cstart = p * m.pieceSize + c * cb;
+        final clen = (c * cb + cb <= plen) ? cb : plen - c * cb;
+        Uint8List? data;
+        try {
+          data = source != null
+              ? await source.read(cstart, clen)
+              : await _storage.readFileRange(m.contentId, cstart, clen);
+        } catch (e) {
+          devLog(
+            () =>
+                'xVeil[content]: serve read failed '
+                '${m.contentId.substring(0, 12)} p$p c$c: $e',
+          );
+        }
+        if (data != null) batch.add((p: p, c: c, data: data));
+      }
+      await Future.wait([
+        for (final ch in batch)
+          _send(
+            peer,
+            pieceChunkEnvelope(
+              contentId: m.contentId,
+              pieceIndex: ch.p,
+              chunkIndex: ch.c,
+              chunkCount: m.chunkCount(ch.p),
+              data: ch.data,
+            ).encode(),
+          ),
+      ]);
+      await Future<void>.delayed(
+        _contentPacing,
+      ); // anti-burst pace between batches
+    }
+  }
+
+  // ── Stream-based bulk transfer (S2/S3) ──────────────────────────────────────
+  // Large files ride veil's RELIABLE, window-flow-controlled stream instead of
+  // fire-and-forget datagrams + manual re-request: the transport's congestion
+  // control fills the circuit without overflowing the tx_queue (the datagram path
+  // blasted ~6:1 → ~80% drops). Wire: the receiver opens a stream and writes the
+  // 32-byte contentId; the sender replies [u32 manifest-len][manifest JSON][file
+  // bytes…] then closes (EOF). The receiver checks the manifest binds the
+  // REQUESTED cid (cid binds manifest binds pieces → a malicious sender can't
+  // substitute), then verifies each piece as it reassembles from the byte stream.
+  // Request frame: [cid 32][offset u64][length u64][padding]. A zero length is
+  // the legacy "stream to EOF" form; a non-zero length lets swarm/range pulls
+  // ask a holder for exactly one piece without wasting tail bytes.
+
+  static const int _streamReadChunk =
+      256 * 1024; // source read / wire write unit
+  static const int _streamRequestBytes =
+      48; // fixed request frame: cid + offset + length
+  // The responder may need to wake/reopen its outbound return circuit before a
+  // SYN-ACK/request can complete. Real phone↔desktop logs showed the native
+  // layer reopening a quiet path at ~21s; a 20s app read timeout reset the stream
+  // just before recovery. Keep this above the native quiet-path reopen window.
+  static const Duration _defaultStreamRequestTimeout = Duration(seconds: 60);
+  static const Duration _streamManifestTimeout = Duration(seconds: 25);
+  // Short "did this source even START answering" bound on the manifest read: a
+  // holder that hasn't sent the 4-byte length prefix within this window is
+  // treated as dead so [_fetchManifestFromStream] moves to the NEXT source
+  // immediately, instead of blocking the whole 25s manifest cap on one silent
+  // peer. This is the manifest-phase analogue of the range/data stall-abandon
+  // detector — without it a resume whose first-tried holder is offline stalled
+  // up to 25s per attempt (masked by hedging, but real added latency). The
+  // full 25s cap still governs a manifest that HAS started streaming. Tunable.
+  Duration streamManifestFirstByteTimeout = const Duration(seconds: 8);
+  static const Duration _streamSourceReadTimeout = Duration(seconds: 30);
+  static const Duration _defaultStreamOpenWriteGrace = Duration(
+    milliseconds: 75,
+  );
+  // Receiver-side payload idle. Keep this below the sender's write-idle timeout:
+  // live traces showed the native route layer detecting no-progress within a
+  // few seconds, but the single-stream app pull still waited 60s before retrying
+  // while the sender gave up after 30s. Retrying first preserves the sender's
+  // serving slot/window for resumable pulls instead of waking up to "not
+  // serving" after the old write timed out.
+  static const Duration _defaultStreamPayloadIdleTimeout = Duration(
+    seconds: 20,
+  );
+  // Range streams are independently retryable and verified per piece, but their
+  // idle timer is per worker while all workers share one onion/circuit budget.
+  // At 12 workers a healthy range can legitimately go quiet for several seconds
+  // while other ranges drain; treating that as dead caused resume storms (dozens
+  // of partial 512 KiB ranges timed out at 3s and reopened together). Ten
+  // seconds cuts real zero-progress plateaus quickly enough to avoid long
+  // 64 MiB tail stalls. The current default fanout is p8, not p12, and the
+  // range target is large enough to keep resume storms low: live phone↔desktop
+  // soaks with 1 MiB ranges completed intact above the 1.5 MiB/s target while
+  // 20s left stalled ranges parked too long.
+  static final Duration _streamRangePayloadIdleTimeout =
+      _streamRangePayloadIdleMsDartDefine > 0
+      ? Duration(milliseconds: _streamRangePayloadIdleMsDartDefine)
+      : const Duration(seconds: 10);
+  // Per-stream stall detector for range pulls. The absolute idle timeout above
+  // must stay long enough for a globally quiet circuit (route churn can pause
+  // EVERY stream for seconds), but when OTHER range workers keep receiving
+  // bytes while this stream stays silent, the silence is evidence of a
+  // stalled/black-holed route, not global congestion. Live traces showed the
+  // native layer remapping such a stream after ~2 consecutive RTOs (~3s with
+  // the 1s RTO floor) while the app reader still parked the worker for the
+  // full 10s idle window. Abandoning at 2.5s aborts the read, frees the
+  // sender's serve slot with a RST and resumes from the received byte count on
+  // a fresh stream, which the native pool routes around the cooled relay.
+  static const Duration _streamRangeStallProbe = Duration(milliseconds: 500);
+  // Tail hedging: when the pending queue is empty, an idle worker duplicates
+  // the quietest in-flight range on a fresh stream instead of exiting. At the
+  // tail there may be no "other workers progressing" signal left for the stall
+  // detector, so a single stalled range would otherwise pin the transfer until
+  // its full idle timeout. The duplicate pull also revives the swarm progress
+  // tick, which in turn lets the stalled original abandon early. First result
+  // wins; pieces are verified before write, so a duplicate is byte-identical.
+  static const int _maxStreamRangeHedges = 2;
+  // Experimental: range workers share the same small native route/control pool,
+  // so a future per-route scheduler may want to pace stream opens/retry-opens.
+  // A fixed 25ms default regressed p12 on-device, so keep this opt-in for live
+  // matrix probes instead of production behavior.
+  static final Duration _streamRangeOpenPace =
+      _streamRangeOpenPaceMsDartDefine > 0
+      ? Duration(milliseconds: _streamRangeOpenPaceMsDartDefine)
+      : Duration.zero;
+  // Range workers are already inside a verified, resumable transfer. If a
+  // payload stream died, waiting the full request timeout for every retry-open
+  // turns one bad tail range into a minute-scale completion stall. Keep the
+  // long timeout for initial/sequential opens, but fail range retry-opens fast
+  // so another route/attempt can take over.
+  static final Duration _streamRangeRetryOpenTimeout =
+      _streamRangeRetryOpenMsDartDefine > 0
+      ? Duration(milliseconds: _streamRangeRetryOpenMsDartDefine)
+      : const Duration(seconds: 10);
+  // Sender-side write idle. Keep this close to the receiver's range-idle window:
+  // when a circuit route black-holes, old serve streams can otherwise sit in a
+  // flow-controlled write for minutes and consume all per-content serve slots,
+  // while receiver retry streams see EOF-before-manifest / "not serving".
+  static const Duration _streamPayloadWriteTimeout = Duration(seconds: 30);
+  // The native pinned-circuit backend keeps a small outbound route pool per
+  // peer, so range workers can fan out over multiple receiver rendezvous relays
+  // while each reliable stream remains pinned to its chosen route. On the
+  // phone↔desktop 3-seed stand after the route-RTO/retry-open fixes, p8/p10
+  // completed 64 MiB intact around 1.25 MiB/s, while p12+ repeatedly tripped
+  // rendezvous reset/no-progress storms and regressed below 1 MiB/s. After the
+  // native TX batching work a single stream reaches ~3.5 MiB/s, so fewer,
+  // longer streams beat wide fanout: on-device 64 MiB measured p8/1MiB at
+  // ~2.1 MiB/s vs p4/8MiB at ~3.4 MiB/s (longer DATA runs amortize per-cell
+  // route/pacing/lock work and per-range manifest rounds).
+  //
+  // 2026-07-02: re-measured after the 4 KiB cell flag-day + BBR. p8 looked
+  // faster on a 64 MiB file (13s vs 15.7s) but that was start-up noise; a
+  // head-to-head on 256 MiB (both with zero range resumes) showed p4 holds
+  // ~6.24 MiB/s active while p8 drops to ~4.2 — 8 streams contend on the same
+  // 3 rendezvous routes in steady state. p4 stays the default; higher fanout
+  // remains opt-in via XVEIL_STREAM_RANGE_PARALLELISM.
+  static const int _defaultStreamRangeParallelism = 4;
+  static const int _maxStreamRangeParallelism = 32;
+  static const int _defaultStreamRangeTargetBytes = 8 * 1024 * 1024;
+  // After the native TX batching work a single stream sustains ~6 MiB/s, so
+  // per-range fixed costs (open + request + manifest round) dominate small
+  // ranges: 64 MiB at 1 MiB ranges paid 64 of them (~2.1 MiB/s total) while
+  // 2 MiB ranges reached ~3 MiB/s. Resume stays byte-granular within a range
+  // and verification stays per 256 KiB piece, so coarser ranges do not
+  // meaningfully coarsen recovery; the cap only bounds worst-case hedge
+  // duplication.
+  static const int _maxStreamRangeTargetBytes = 16 * 1024 * 1024;
+  static const int _defaultStreamPullMaxAttempts = 24;
+  final Duration _streamPayloadIdleTimeout;
+  final Duration _streamRangeStallAbandon;
+  final Duration _streamRangeHedgeAfter;
+  final int _streamPullMaxAttempts;
+  final int _streamRangeParallelism;
+  final int _streamRangeTargetBytes;
+  final bool _streamRangeEnabled;
+  // True when range fanout was requested explicitly (constructor or
+  // XVEIL_STREAM_RANGE_PARALLELISM) — then even a single-source pull uses the
+  // range swarm; the sequential-stream shortcut applies only to the default.
+  final bool _explicitRangeFanout;
+  final Duration _streamOpenWriteGrace;
+  final Duration _streamRequestTimeout;
+  bool _acceptingStreams = false;
+
+  static int _clampStreamRangeParallelism(int value) {
+    if (value < 1) return 1;
+    if (value > _maxStreamRangeParallelism) return _maxStreamRangeParallelism;
+    return value;
+  }
+
+  static int _clampStreamRangeTargetBytes(int value) {
+    if (value < 1) return 1;
+    if (value > _maxStreamRangeTargetBytes) {
+      return _maxStreamRangeTargetBytes;
+    }
+    return value;
+  }
+
+  Uint8List _streamRequest(String cid, {int offset = 0, int length = 0}) =>
+      Uint8List(_streamRequestBytes)
+        ..setAll(0, _hexDecode(cid))
+        ..setAll(32, _u64be(offset))
+        ..setAll(40, _u64be(length));
+
+  bool _beginStreamServe(String cid, {int? limit}) {
+    final active = _activeStreamServes[cid] ?? 0;
+    final maxActive = (limit ?? _streamRangeParallelism).clamp(
+      1,
+      _maxStreamRangeParallelism,
+    );
+    if (active >= maxActive) return false;
+    _activeStreamServes[cid] = active + 1;
+    return true;
+  }
+
+  void _endStreamServe(String cid) {
+    final active = (_activeStreamServes[cid] ?? 0) - 1;
+    if (active > 0) {
+      _activeStreamServes[cid] = active;
+      return;
+    }
+    _activeStreamServes.remove(cid);
+    final retired = _retiredAfterStream.remove(cid);
+    if (retired != null) {
+      for (final source in retired) {
+        _retireServeSourceLater(source);
+      }
+    }
+  }
+
+  /// Accept inbound bulk streams + serve the requested file. Started by [start]
+  /// when the transport supports streams; ends on [dispose].
+  Future<void> _acceptStreamLoop() async {
+    if (_acceptingStreams) return;
+    _acceptingStreams = true;
+    final st = _transport as StreamTransport;
+    while (!_disposed) {
+      try {
+        if (_p2pStreamsEnabled && _transport is P2PStreamTransport) {
+          final p2p = await (_transport as P2PStreamTransport).acceptP2PStream(
+            timeout: const Duration(milliseconds: 250),
+          );
+          if (p2p != null) {
+            if (await _p2pStreamAllowed(p2p.src)) {
+              _bulkStreamLog(
+                () => 'xVeil[content]: stream-accept p2p <- ${p2p.src.short}',
+              );
+              unawaited(_serveStream(p2p.src, p2p.stream));
+            } else {
+              devLog(
+                () =>
+                    'xVeil[content]: stream-accept p2p DENIED '
+                    '<- ${p2p.src.short}',
+              );
+              unawaited(p2p.stream.close());
+            }
+            continue;
+          }
+        }
+        final r = await st.acceptStream(timeout: const Duration(seconds: 2));
+        if (r != null) {
+          _bulkStreamLog(
+            () => 'xVeil[content]: stream-accept anon <- ${r.src.short}',
+          );
+          unawaited(_serveStream(r.src, r.stream));
+        }
+      } catch (e) {
+        devLog(() => 'xVeil[content]: acceptStream error: $e');
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      }
+    }
+  }
+
+  /// Serve one inbound bulk stream: read the 32-byte contentId, then write the
+  /// manifest + the file bytes from our source (live serve-from-source, or a
+  /// durable re-open). Closes the stream (EOF) when done / on any failure.
+  Future<void> _serveStream(NodeId peer, ReliableStream stream) async {
+    ServeSource? durable; // opened just for this serve (closed in finally)
+    String? activeCid;
+    var failed = false;
+    try {
+      _bulkStreamLog(
+        () => 'xVeil[content]: stream-serve accepted <- ${peer.short}',
+      );
+      final reqBytes = await _readExactly(
+        stream,
+        _streamRequestBytes,
+      ).timeout(_streamRequestTimeout, onTimeout: () => null);
+      if (reqBytes == null) {
+        devLog(
+          () =>
+              'xVeil[content]: stream-serve EOF/timeout before request '
+              '<- ${peer.short}',
+        );
+        return; // peer hung up before requesting
+      }
+      final cidBytes = Uint8List.sublistView(reqBytes, 0, 32);
+      final cid = _hexEncode(cidBytes);
+      final requestedOffset = reqBytes.length >= 40
+          ? _readU64be(Uint8List.sublistView(reqBytes, 32, 40))
+          : 0;
+      final requestedLength = reqBytes.length >= 48
+          ? _readU64be(Uint8List.sublistView(reqBytes, 40, 48))
+          : 0;
+      _bulkStreamLog(
+        () =>
+            'xVeil[content]: stream-serve request '
+            '${cid.substring(0, 12)}'
+            '${requestedOffset > 0 ? ' @ $requestedOffset' : ''}'
+            '${requestedLength > 0 ? ' +$requestedLength' : ''} '
+            '<- ${peer.short}',
+      );
+      final contact = await _storage.getContact(peer);
+      // Serve accepted 1:1 contacts as always; a NON-contact group member is
+      // served iff it holds a live membership grant for THIS cid (groups
+      // content path — the grant was minted by the authorized signed request).
+      if ((contact == null || contact.status != ContactStatus.accepted) &&
+          !_groupServeGranted(peer, cid)) {
+        devLog(
+          () =>
+              'xVeil[content]: stream-serve DENIED '
+              '${cid.substring(0, 12)} <- ${peer.short} '
+              '(not accepted, no group grant)',
+        );
+        return;
+      }
+      ContentManifest? manifest;
+      ServeSource? source;
+      var canReadStoredBlob = false;
+      final live = _serving[cid];
+      if (live != null) {
+        manifest = live.manifest;
+        // Prefer a per-stream file handle when we persisted the source path.
+        // A repeated send of the same bytes has the same contentId and replaces
+        // the shared live source; if this stream borrowed that shared handle, the
+        // replacement could close it mid-transfer ("File closed"). A reopened
+        // handle is independent and is closed in this method's finally.
+        if (sourceOpener != null) {
+          final rec = _parseServedRecord(
+            await _storage.getSetting('served:$cid'),
+          );
+          if (rec != null) {
+            source = durable = await sourceOpener!(rec.path);
+          }
+        }
+        source ??= live.source;
+      }
+      if (manifest == null) {
+        final mfBytes = await _storage.loadFile('mf:$cid');
+        if (mfBytes != null) {
+          manifest = ContentManifest.fromJson(
+            jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>,
+          );
+        }
+      }
+      if (source == null && sourceOpener != null) {
+        final rec = _parseServedRecord(
+          await _storage.getSetting('served:$cid'),
+        );
+        if (rec != null) {
+          source = durable = await sourceOpener!(rec.path);
+        }
+      }
+      // No mf: blob (its persist is the first casualty of a bloated store —
+      // IndexFull) but the served: record carries the hashing params: rebuild
+      // the manifest from the source file instead of answering UNSERVED.
+      if (manifest == null) {
+        final rec = _parseServedRecord(
+          await _storage.getSetting('served:$cid'),
+        );
+        if (rec != null) {
+          manifest = await _rebuildManifestFromServedRecord(cid, rec);
+        }
+      }
+      if (source == null && manifest != null) {
+        canReadStoredBlob = await _storage.hasFile(cid);
+      }
+      if (manifest == null || (source == null && !canReadStoredBlob)) {
+        devLog(
+          () =>
+              'xVeil[content]: stream-serve UNSERVED '
+              '${cid.substring(0, 12)} <- ${peer.short} (close → re-send)',
+        );
+        return; // close → receiver sees EOF before the manifest
+      }
+      // A single long stream can wedge inside flow-controlled write() until its
+      // write-idle timeout fires. If rangeParallelism is 1, treating that as the
+      // per-content serve limit makes every receiver retry get EOF-before-
+      // manifest while the old stream is still timing out. When we have an
+      // independent per-stream source (durable reopen or stored blob), allow one
+      // extra serve so the retry can resume instead of waiting behind the dead
+      // writer. Shared live sources keep the configured cap to avoid cursor
+      // thrash.
+      final independentSource =
+          durable != null || (source == null && canReadStoredBlob);
+      final serveLimit = independentSource
+          ? (_streamRangeParallelism + 4).clamp(2, _maxStreamRangeParallelism)
+          : _streamRangeParallelism;
+      if (!_beginStreamServe(cid, limit: serveLimit)) {
+        devLog(
+          () =>
+              'xVeil[content]: stream-serve too many active '
+              '${cid.substring(0, 12)} <- ${peer.short} '
+              '(limit=$serveLimit, closing retry)',
+        );
+        return;
+      }
+      activeCid = cid;
+      final m = manifest; // promoted non-null (closures need a final)
+      final src = source;
+      if (src == null) {
+        // Warm the manifest for repeated swarm pulls. A null source means the
+        // bytes are served from this identity's verified stored blob.
+        _serving[cid] = (manifest: m, source: null, servedAt: _now());
+        _evictServing();
+      }
+      _bulkStreamLog(
+        () =>
+            'xVeil[content]: stream-serve ${cid.substring(0, 12)} '
+            '(${m.size}B) -> ${peer.short}',
+      );
+      final mf = Uint8List.fromList(utf8.encode(jsonEncode(m.toJson())));
+      await stream.write(_u32be(mf.length)).timeout(_streamPayloadWriteTimeout);
+      await stream.write(mf).timeout(_streamPayloadWriteTimeout);
+      _bulkStreamLog(
+        () =>
+            'xVeil[content]: stream-serve manifest sent '
+            '${cid.substring(0, 12)} (${mf.length}B) -> ${peer.short}',
+      );
+      final size = m.size;
+      var off = requestedOffset.clamp(0, size).toInt();
+      final end = requestedLength > 0
+          ? (off + requestedLength).clamp(off, size).toInt()
+          : size;
+      if (off > 0 || requestedLength > 0) {
+        _bulkStreamLog(
+          () =>
+              'xVeil[content]: stream-serve range '
+              '${cid.substring(0, 12)} $off..$end/${size}B -> ${peer.short}',
+        );
+      }
+      final serveSw = Stopwatch()..start();
+      var lastServeLogBytes = off;
+      var lastServeLogMs = 0;
+      while (off < end) {
+        final n =
+            ((end - off) < _streamReadChunk ? (end - off) : _streamReadChunk)
+                .toInt();
+        final data = src == null
+            ? await _storage
+                  .readFileRange(cid, off, n)
+                  .timeout(
+                    _streamSourceReadTimeout,
+                    onTimeout: () => throw TimeoutException(
+                      'stored blob idle at $off/$size',
+                      _streamSourceReadTimeout,
+                    ),
+                  )
+            : await src
+                  .read(off, n)
+                  .timeout(
+                    _streamSourceReadTimeout,
+                    onTimeout: () => throw TimeoutException(
+                      'source idle at $off/$size',
+                      _streamSourceReadTimeout,
+                    ),
+                  );
+        if (data == null || data.isEmpty) {
+          throw StateError('source truncated at $off/$size');
+        }
+        await stream
+            .write(data)
+            .timeout(
+              _streamPayloadWriteTimeout,
+              onTimeout: () => throw TimeoutException(
+                'payload write idle at $off/$size',
+                _streamPayloadWriteTimeout,
+              ),
+            ); // flow-controlled (back-pressures)
+        off += data.length;
+        final elapsedMs = serveSw.elapsedMilliseconds;
+        if (off == data.length ||
+            off >= size ||
+            off - lastServeLogBytes >= 1024 * 1024 ||
+            elapsedMs - lastServeLogMs >= 2000) {
+          _bulkStreamLog(
+            () =>
+                'xVeil[content]: stream-serve queued '
+                '${cid.substring(0, 12)} $off/${size}B -> ${peer.short}',
+          );
+          lastServeLogBytes = off;
+          lastServeLogMs = elapsedMs;
+        }
+      }
+      _bulkStreamLog(
+        () =>
+            'xVeil[content]: stream-serve complete '
+            '${cid.substring(0, 12)} $off/${size}B -> ${peer.short}',
+      );
+    } catch (e) {
+      failed = true;
+      devLog(() => 'xVeil[content]: stream-serve failed <- ${peer.short}: $e');
+    } finally {
+      final cid = activeCid;
+      if (cid != null) _endStreamServe(cid);
+      if (durable != null) {
+        try {
+          await durable.close();
+        } catch (_) {}
+      }
+      try {
+        if (failed) {
+          await stream.abort();
+        } else {
+          await stream.close();
+        }
+      } catch (_) {}
+    }
+  }
+
+  /// Try to download [cid] from [peer] over a RELIABLE stream. Returns true if it
+  /// took ownership (runs async to completion / failure); false if streams aren't
+  /// available so the caller falls back to the datagram path. The bytes land in
+  /// [sink] (unencrypted-to-file) or the Storage port (encrypted tier / in-volume)
+  /// with per-piece verification + progress. Works WITHOUT a live offer handle —
+  /// the manifest arrives on the stream, so no reoffer dance.
+  List<NodeId> _uniquePeers(Iterable<NodeId> peers) {
+    final out = <String, NodeId>{};
+    for (final peer in peers) {
+      out[peer.hex] = peer;
+    }
+    return out.values.toList(growable: false);
+  }
+
+  List<NodeId> _orderedPullPeers(NodeId first, Iterable<NodeId> peers) {
+    return _uniquePeers([first, ...peers]);
+  }
+
+  Future<bool> _pullStream(
+    NodeId peer,
+    String cid,
+    _FetchSink? sink, {
+    String? savedPath,
+    Iterable<NodeId> retryPeers = const [],
+  }) async {
+    final peers = _orderedPullPeers(peer, retryPeers);
+    for (final candidate in peers) {
+      final stream = await _openInitialPullStream(candidate, cid);
+      if (stream == null) continue;
+      final runPeers = _orderedPullPeers(candidate, peers);
+      unawaited(
+        _runPull(
+          candidate,
+          cid,
+          sink,
+          stream,
+          savedPath,
+          retryPeers: runPeers,
+        ).then((_) {}),
+      );
+      return true;
+    }
+    return false; // no circuit → caller falls back
+  }
+
+  Future<bool?> _pullStreamToCompletion(
+    NodeId peer,
+    String cid, {
+    _FetchSink? sink,
+    String? savedPath,
+    bool closeSinkOnFailure = true,
+  }) async {
+    final stream = await _openInitialPullStream(peer, cid);
+    if (stream == null) return null;
+    return _runPull(
+      peer,
+      cid,
+      sink,
+      stream,
+      savedPath,
+      emitFailure: false,
+      closeSinkOnFailure: closeSinkOnFailure,
+    );
+  }
+
+  Future<bool> _pullSwarmStream(
+    NodeId preferred,
+    String cid,
+    ContentManifest manifest,
+    Iterable<NodeId> peers,
+  ) async {
+    if (_transport is! StreamTransport) {
+      return false;
+    }
+    if (!_streamRangeEnabled || manifest.pieceCount < 2) {
+      devLog(
+        () =>
+            'xVeil[content]: swarm-range disabled '
+            '${cid.substring(0, 12)}, using sequential stream',
+      );
+      return _pullStream(preferred, cid, null, retryPeers: peers);
+    }
+    final sources = await _acceptedStreamSources(
+      _orderedPullPeers(preferred, peers),
+    );
+    if (sources.isEmpty) return false;
+    if (sources.length < 2 &&
+        !_explicitRangeFanout &&
+        !await _hasStoredPiece(manifest)) {
+      // ONE source and a FRESH download: a single whole-file stream beats the
+      // range swarm — ranges pay per-stream opens + manifest rounds + a fresh
+      // congestion ramp each (measured 64 MiB device A/B: sequential
+      // 11.2-13.7s vs ranged p4 14-21s / p1 23-100s), and the sequential pull
+      // already resumes at piece granularity on retry. The range swarm still
+      // wins when it can fan out over DIFFERENT holders, and still handles a
+      // PARTIALLY stored blob (it skips locally verified pieces; the
+      // sequential stream would re-fetch them). An explicit
+      // XVEIL_STREAM_RANGE_PARALLELISM keeps forcing the swarm path.
+      devLog(
+        () =>
+            'xVeil[content]: swarm-range single-source '
+            '${cid.substring(0, 12)}, using sequential stream',
+      );
+      if (await _pullStream(preferred, cid, null, retryPeers: peers)) {
+        return true;
+      }
+      // No stream could be opened RIGHT NOW (route flap at tap time). The
+      // range swarm keeps retrying opens with backoff, so fall through to it
+      // instead of degrading to the datagram path.
+    }
+    unawaited(_runSwarmPullThenFallback(preferred, cid, manifest, sources));
+    return true;
+  }
+
+  /// True if ANY piece of [manifest] is already in the blob store (a partial
+  /// earlier download). Cheap for a fresh download: every lookup misses and
+  /// the first stored piece short-circuits.
+  Future<bool> _hasStoredPiece(ContentManifest manifest) async {
+    final cid = manifest.contentId;
+    for (var i = 0; i < manifest.pieceCount; i++) {
+      final len = manifest.pieceLength(i);
+      final existing = await _storage.readFileRange(
+        cid,
+        i * manifest.pieceSize,
+        len,
+      );
+      if (existing != null && existing.length == len) return true;
+    }
+    return false;
+  }
+
+  Future<bool> _pullSwarmStreamToFile(
+    NodeId preferred,
+    String cid,
+    ContentManifest manifest,
+    Iterable<NodeId> peers,
+    _FetchSink sink,
+    String savedPath,
+  ) async {
+    if (_transport is! StreamTransport) {
+      return false;
+    }
+    if (!_streamRangeEnabled || manifest.pieceCount < 2) {
+      devLog(
+        () =>
+            'xVeil[content]: swarm-range-to-file disabled '
+            '${cid.substring(0, 12)}, using sequential stream',
+      );
+      return _pullStream(
+        preferred,
+        cid,
+        sink,
+        savedPath: savedPath,
+        retryPeers: peers,
+      );
+    }
+    final sources = await _acceptedStreamSources(
+      _orderedPullPeers(preferred, peers),
+    );
+    if (sources.isEmpty) return false;
+    // A RESUME (sink.read != null) MUST take the range path even for one
+    // source: only the range swarm hash-verifies pieces off disk and skips the
+    // ones already written. The sequential stream would re-fetch from byte 0,
+    // defeating the resume.
+    final isResume = sink.read != null;
+    if (sources.length < 2 && !_explicitRangeFanout && !isResume) {
+      // See _pullSwarmStream: one source → sequential whole-file stream (a FRESH
+      // sink download has no partially stored pieces to skip). Falls through to
+      // the range swarm when no stream opens right now.
+      devLog(
+        () =>
+            'xVeil[content]: swarm-range-to-file single-source '
+            '${cid.substring(0, 12)}, using sequential stream',
+      );
+      if (await _pullStream(
+        preferred,
+        cid,
+        sink,
+        savedPath: savedPath,
+        retryPeers: peers,
+      )) {
+        return true;
+      }
+    }
+    unawaited(
+      _runSwarmFileThenFallback(
+        preferred,
+        cid,
+        manifest,
+        sources,
+        sink,
+        savedPath,
+      ),
+    );
+    return true;
+  }
+
+  Future<List<NodeId>> _acceptedStreamSources(Iterable<NodeId> peers) async {
+    final accepted = <String, NodeId>{};
+    for (final peer in peers) {
+      final contact = await _storage.getContact(peer);
+      if (contact == null || contact.status != ContactStatus.accepted) continue;
+      accepted[peer.hex] = peer;
+    }
+    return accepted.values.toList(growable: false);
+  }
+
+  NodeId _offerRefPeer(
+    ({_ContentManifestRef ref, Map<String, NodeId> peers}) offered, {
+    required NodeId preferred,
+  }) =>
+      offered.peers[preferred.hex] ??
+      (offered.peers.isNotEmpty ? offered.peers.values.first : preferred);
+
+  Future<ContentManifest?> _fetchManifestFromRef(
+    NodeId preferred,
+    String cid,
+    _ContentManifestRef ref,
+    Iterable<NodeId> peers,
+  ) async {
+    final sources = await _acceptedStreamSources(
+      _orderedPullPeers(preferred, peers),
+    );
+    for (final peer in sources) {
+      final m = await _readManifestOnly(peer, cid, ref);
+      if (m == null) continue;
+      _rememberOfferedManifest(peer, m);
+      return m;
+    }
+    return null;
+  }
+
+  Future<ContentManifest?> _readManifestOnly(
+    NodeId peer,
+    String cid,
+    _ContentManifestRef ref,
+  ) async {
+    final stream = await _openInitialPullStream(peer, cid);
+    if (stream == null) return null;
+    var gracefulClose = false;
+    try {
+      final req = _streamRequest(cid, offset: ref.size);
+      await Future<void>.delayed(_streamOpenWriteGrace);
+      await stream.write(req).timeout(_streamRequestTimeout);
+      final lenB = await _readExactly(
+        stream,
+        4,
+      ).timeout(_streamManifestTimeout, onTimeout: () => null);
+      if (lenB == null) throw StateError('no stream manifest');
+      final mfLen = _readU32be(lenB);
+      if (mfLen <= 0 || mfLen > (1 << 20)) {
+        throw StateError('bad stream manifest len');
+      }
+      final mfBytes = await _readExactly(
+        stream,
+        mfLen,
+      ).timeout(_streamManifestTimeout, onTimeout: () => null);
+      if (mfBytes == null) throw StateError('stream manifest truncated');
+      final m = ContentManifest.fromJson(
+        jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>,
+      );
+      if (m == null ||
+          m.contentId != cid ||
+          m.size != ref.size ||
+          m.name != ref.name) {
+        throw StateError('stream manifest does not bind advertised ref');
+      }
+      devLog(
+        () =>
+            'xVeil[content]: manifest stream-resolved '
+            '${cid.substring(0, 12)} pieces=${m.pieceCount} '
+            'piece_size=${m.pieceSize} <- ${peer.short}',
+      );
+      gracefulClose = true;
+      return m;
+    } catch (e) {
+      devLog(
+        () =>
+            'xVeil[content]: manifest stream-resolve failed '
+            '${cid.substring(0, 12)} <- ${peer.short}: $e',
+      );
+      return null;
+    } finally {
+      try {
+        if (gracefulClose) {
+          await stream.close();
+        } else {
+          await stream.abort();
+        }
+      } catch (_) {}
+    }
+  }
+
+  Future<ContentManifest?> _fetchManifestFromStream(
+    NodeId preferred,
+    String cid,
+    Iterable<NodeId> peers,
+  ) async {
+    final sources = await _acceptedStreamSources(
+      _orderedPullPeers(preferred, peers),
+    );
+    for (final peer in sources) {
+      final m = await _readManifestHeader(peer, cid);
+      if (m == null) continue;
+      _rememberOfferedManifest(peer, m);
+      return m;
+    }
+    return null;
+  }
+
+  Future<ContentManifest?> _readManifestHeader(NodeId peer, String cid) async {
+    final stream = await _openInitialPullStream(peer, cid);
+    if (stream == null) return null;
+    var gracefulClose = false;
+    try {
+      // Ask for the smallest possible payload after the manifest so the sender
+      // can finish this probe cleanly. A length of 0 means "stream the whole
+      // content" in the serve path; closing immediately after the manifest then
+      // trips a noisy write-failure and can perturb the shared onion driver.
+      final req = _streamRequest(cid, length: 1);
+      await Future<void>.delayed(_streamOpenWriteGrace);
+      await stream.write(req).timeout(_streamRequestTimeout);
+      // First-byte stall: a source that never sends the length prefix is dead —
+      // abandon it fast (the shorter of the two bounds) so the caller tries the
+      // next holder rather than eating the full 25s cap on one silent peer.
+      final firstByteTimeout =
+          streamManifestFirstByteTimeout < _streamManifestTimeout
+          ? streamManifestFirstByteTimeout
+          : _streamManifestTimeout;
+      final lenB = await _readExactly(
+        stream,
+        4,
+      ).timeout(firstByteTimeout, onTimeout: () => null);
+      if (lenB == null) throw StateError('no stream manifest');
+      final mfLen = _readU32be(lenB);
+      if (mfLen <= 0 || mfLen > (1 << 20)) {
+        throw StateError('bad stream manifest len');
+      }
+      final mfBytes = await _readExactly(
+        stream,
+        mfLen,
+      ).timeout(_streamManifestTimeout, onTimeout: () => null);
+      if (mfBytes == null) throw StateError('stream manifest truncated');
+      final m = ContentManifest.fromJson(
+        jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>,
+      );
+      if (m == null || m.contentId != cid) {
+        throw StateError('stream manifest does not bind requested content');
+      }
+      if (m.size > 0) {
+        await _readExactly(
+          stream,
+          1,
+        ).timeout(_streamManifestTimeout, onTimeout: () => null);
+      }
+      devLog(
+        () =>
+            'xVeil[content]: manifest stream-probed '
+            '${cid.substring(0, 12)} pieces=${m.pieceCount} '
+            'piece_size=${m.pieceSize} <- ${peer.short}',
+      );
+      gracefulClose = true;
+      return m;
+    } catch (e) {
+      devLog(
+        () =>
+            'xVeil[content]: manifest stream-probe failed '
+            '${cid.substring(0, 12)} <- ${peer.short}: $e',
+      );
+      return null;
+    } finally {
+      try {
+        if (gracefulClose) {
+          await stream.close();
+        } else {
+          await stream.abort();
+        }
+      } catch (_) {}
+    }
+  }
+
+  void _rememberOfferedManifest(NodeId peer, ContentManifest manifest) {
+    final cid = manifest.contentId;
+    if (_offered.length >= _maxOffered && !_offered.containsKey(cid)) {
+      _offered.remove(_offered.keys.first);
+    }
+    final existing = _offered[cid];
+    _offered[cid] = (
+      manifest: manifest,
+      peers: {if (existing != null) ...existing.peers, peer.hex: peer},
+    );
+    _offeredRefs.remove(cid);
+  }
+
+  Future<bool> _beginDownloadWithManifest(
+    NodeId peer,
+    String cid,
+    ContentManifest manifest,
+    _FetchSink? sink,
+    String? savedPath,
+  ) async {
+    final retryPeers = await _contentSourcePeers(
+      preferred: peer,
+      contentId: cid,
+    );
+    if (sink != null) {
+      if (_plainFileStream &&
+          await _pullSwarmStreamToFile(
+            peer,
+            cid,
+            manifest,
+            retryPeers,
+            sink,
+            savedPath ?? cid,
+          )) {
+        return true;
+      }
+      await _beginFetch(peer, manifest, sink: sink);
+      return true;
+    }
+    if (await _pullSwarmStream(peer, cid, manifest, retryPeers)) return true;
+    if (await _pullStream(peer, cid, null, retryPeers: retryPeers)) return true;
+    await _beginFetch(peer, manifest);
+    return true;
+  }
+
+  Future<bool> _beginFetchFromManifestRef(
+    NodeId peer,
+    String cid,
+    _ContentManifestRef ref,
+    _FetchSink? sink,
+    String? savedPath,
+  ) async {
+    final offeredRef = _offeredRefs[cid];
+    final sources = _uniquePeers([
+      peer,
+      if (offeredRef != null) ...offeredRef.peers.values,
+      ...await _storedContentSourcePeers(cid),
+    ]);
+    if (await _pipelinedPullToFile(peer, cid, sink, savedPath, sources)) {
+      return true;
+    }
+    final m = await _fetchManifestFromRef(peer, cid, ref, sources);
+    if (m == null) return false;
+    return _beginDownloadWithManifest(peer, cid, m, sink, savedPath);
+  }
+
+  Future<bool> _beginFetchFromStreamManifest(
+    NodeId peer,
+    String cid,
+    _FetchSink? sink, {
+    String? savedPath,
+    Iterable<NodeId> peers = const [],
+  }) async {
+    if (await _pipelinedPullToFile(peer, cid, sink, savedPath, peers)) {
+      return true;
+    }
+    final m = await _fetchManifestFromStream(peer, cid, peers);
+    if (m == null) return false;
+    return _beginDownloadWithManifest(peer, cid, m, sink, savedPath);
+  }
+
+  /// PIPELINE: a plain-file download that would use ONE sequential stream
+  /// anyway skips the standalone manifest probe (open + request + manifest +
+  /// close ≈ two serialized onion RTTs before any payload) and goes straight
+  /// to the pull stream — the serve path sends the manifest as the stream
+  /// header, and that manifest self-authenticates against the requested
+  /// contentId ([ContentManifest.isSelfConsistent] re-derives the id), so the
+  /// probe adds no verification the pull itself lacks. Applies only when the
+  /// swarm cannot be used anyway (range disabled) or would not be chosen
+  /// (single accepted holder, no explicit fanout); sink downloads have no
+  /// locally stored pieces the swarm could skip. Returns false → caller runs
+  /// the classic probe-then-swarm path (which also retries opens).
+  Future<bool> _pipelinedPullToFile(
+    NodeId peer,
+    String cid,
+    _FetchSink? sink,
+    String? savedPath,
+    Iterable<NodeId> peers,
+  ) async {
+    if (sink == null ||
+        !_plainFileStream ||
+        _explicitRangeFanout ||
+        _transport is! StreamTransport) {
+      return false;
+    }
+    final streamSources = await _acceptedStreamSources(
+      _orderedPullPeers(peer, peers),
+    );
+    if (streamSources.isEmpty) return false;
+    if (_streamRangeEnabled && streamSources.length > 1) return false;
+    if (!await _pullStream(
+      streamSources.first,
+      cid,
+      sink,
+      savedPath: savedPath,
+      retryPeers: streamSources,
+    )) {
+      return false; // no stream right now → probing path retries with backoff
+    }
+    devLog(
+      () =>
+          'xVeil[content]: manifest+data pipelined '
+          '${cid.substring(0, 12)} -> ${streamSources.first.short} '
+          '(sequential pull, probe round skipped)',
+    );
+    return true;
+  }
+
+  Future<void> _resumePendingFromManifestRef(
+    NodeId peer,
+    String cid,
+    _ContentManifestRef ref,
+  ) async {
+    if (!_pendingDownload.containsKey(cid)) return;
+    final m = await _fetchManifestFromRef(peer, cid, ref, [peer]);
+    if (m == null || !_pendingDownload.containsKey(cid)) return;
+    final sink = _pendingDownload.remove(cid);
+    _pendingTimers.remove(cid)?.cancel();
+    devLog(
+      () =>
+          'xVeil[content]: manifest ref resolved for '
+          '${cid.substring(0, 12)} — resuming the parked download',
+    );
+    await _beginDownloadWithManifest(peer, cid, m, sink, _fetchSavePath[cid]);
+  }
+
+  Future<void> _runSwarmPullThenFallback(
+    NodeId preferred,
+    String cid,
+    ContentManifest manifest,
+    List<NodeId> peers,
+  ) async {
+    if (await _pullSwarmPiecesToCompletion(peers, manifest) ||
+        await _storage.hasFile(cid)) {
+      return;
+    }
+    devLog(
+      () =>
+          'xVeil[content]: swarm-range failed ${cid.substring(0, 12)}, '
+          'falling back to sequential stream',
+    );
+    final fallbackPeers = _orderedPullPeers(preferred, [
+      ...peers,
+      ...await _contentSourcePeers(preferred: preferred, contentId: cid),
+    ]);
+    for (final peer in fallbackPeers) {
+      final contact = await _storage.getContact(peer);
+      if (contact == null || contact.status != ContactStatus.accepted) continue;
+      final ok = await _pullStreamToCompletion(peer, cid);
+      if (ok == true || await _storage.hasFile(cid)) return;
+    }
+    final ok = await _pullStreamToCompletion(preferred, cid);
+    if (ok == true || await _storage.hasFile(cid)) return;
+    if (!_contentFailed.isClosed) _contentFailed.add(cid);
+  }
+
+  Future<void> _runSwarmFileThenFallback(
+    NodeId preferred,
+    String cid,
+    ContentManifest manifest,
+    List<NodeId> peers,
+    _FetchSink sink,
+    String savedPath,
+  ) async {
+    var ok = false;
+    try {
+      ok = await _pullSwarmPiecesToCompletion(
+        peers,
+        manifest,
+        sink: sink,
+        savedPath: savedPath,
+      );
+      if (ok) return;
+      devLog(
+        () =>
+            'xVeil[content]: swarm-range-to-file failed '
+            '${cid.substring(0, 12)}, falling back to sequential stream',
+      );
+      final fallbackPeers = _orderedPullPeers(preferred, [
+        ...peers,
+        ...await _contentSourcePeers(preferred: preferred, contentId: cid),
+      ]);
+      for (final peer in fallbackPeers) {
+        final contact = await _storage.getContact(peer);
+        if (contact == null || contact.status != ContactStatus.accepted) {
+          continue;
+        }
+        ok =
+            await _pullStreamToCompletion(
+              peer,
+              cid,
+              sink: sink,
+              savedPath: savedPath,
+              closeSinkOnFailure: false,
+            ) ==
+            true;
+        if (ok) return;
+      }
+    } finally {
+      if (!ok) {
+        try {
+          await sink.close();
+        } catch (_) {}
+        if (!_contentFailed.isClosed) _contentFailed.add(cid);
+      }
+    }
+  }
+
+  Future<bool> _pullSwarmPiecesToCompletion(
+    Iterable<NodeId> peers,
+    ContentManifest manifest, {
+    _FetchSink? sink,
+    String? savedPath,
+  }) async {
+    _pullStarted(manifest.contentId);
+    try {
+      return await _pullSwarmPiecesToCompletionInner(
+        peers,
+        manifest,
+        sink: sink,
+        savedPath: savedPath,
+      );
+    } finally {
+      _pullEnded(manifest.contentId);
+    }
+  }
+
+  Future<bool> _pullSwarmPiecesToCompletionInner(
+    Iterable<NodeId> peers,
+    ContentManifest manifest, {
+    _FetchSink? sink,
+    String? savedPath,
+  }) async {
+    final cid = manifest.contentId;
+    unawaited(_persistManifestIfPending(manifest));
+    if (_transport is! StreamTransport ||
+        !_streamRangeEnabled ||
+        manifest.pieceCount < 2) {
+      return false;
+    }
+    final initialPeers = peers.toList(growable: false);
+    final sourceMap = <String, NodeId>{};
+
+    Future<int> refreshSources() async {
+      final before = sourceMap.length;
+      final offered = _offered[cid];
+      final accepted = await _acceptedStreamSources([
+        ...initialPeers,
+        if (offered != null) ...offered.peers.values,
+        ...await _storedContentSourcePeers(cid),
+      ]);
+      for (final peer in accepted) {
+        sourceMap[peer.hex] = peer;
+      }
+      final added = sourceMap.length - before;
+      if (added > 0 && before > 0) {
+        devLog(
+          () =>
+              'xVeil[content]: swarm-range sources refreshed '
+              '${cid.substring(0, 12)} +$added -> ${sourceMap.length}',
+        );
+      }
+      return added;
+    }
+
+    await refreshSources();
+    if (sourceMap.isEmpty) return false;
+    List<NodeId> sourceList() => sourceMap.values.toList(growable: false);
+
+    final pending = <int>[];
+    final completed = <int>{};
+    var completedBytes = 0;
+    // A RESUME reopen of a plain file provides a reader; read each piece back
+    // off disk and hash-verify it (mirror of the encrypted-tier skip below), so
+    // a restart re-pulls only the MISSING pieces instead of the whole file. A
+    // fresh download / encrypted tier: sink.read is null → nothing to skip.
+    final sinkRead = sink?.read;
+    for (var i = 0; i < manifest.pieceCount; i++) {
+      final len = manifest.pieceLength(i);
+      final Uint8List? existing;
+      if (sink == null) {
+        existing = await _storage.readFileRange(
+          cid,
+          i * manifest.pieceSize,
+          len,
+        );
+      } else if (sinkRead != null) {
+        existing = await sinkRead(i * manifest.pieceSize, len);
+      } else {
+        existing = null;
+      }
+      if (existing != null &&
+          existing.length == len &&
+          manifest.verifyPiece(i, existing)) {
+        completed.add(i);
+        completedBytes += len;
+      } else {
+        pending.add(i);
+      }
+    }
+
+    if (!_contentProgress.isClosed && completedBytes > 0) {
+      _contentProgress.add((
+        contentId: cid,
+        done: completedBytes.clamp(0, manifest.size).toInt(),
+        total: manifest.size,
+      ));
+    }
+    if (pending.isEmpty) {
+      if (!await _storage.hasFile(cid)) return false;
+      if (!await _finishReceived(sourceList().first, manifest, null, null)) {
+        return false;
+      }
+      if (!_contentProgress.isClosed) {
+        _contentProgress.add((
+          contentId: cid,
+          done: manifest.size,
+          total: manifest.size,
+        ));
+      }
+      return true;
+    }
+
+    final workerCount = pending.length < _streamRangeParallelism
+        ? pending.length
+        : _streamRangeParallelism;
+    final attempts = List<int>.filled(manifest.pieceCount, 0);
+    int maxAttemptsPerPiece() {
+      final sourceCount = sourceMap.length;
+      final minAttemptsPerPiece = sourceCount < 3 ? 3 : sourceCount;
+      return _streamPullMaxAttempts < minAttemptsPerPiece
+          ? minAttemptsPerPiece
+          : _streamPullMaxAttempts;
+    }
+
+    var failed = false;
+    NodeId? completionPeer;
+    ContentManifest? completionManifest;
+    Future<void> sinkWriteTail = Future<void>.value();
+
+    Future<void> writePiece(int pieceIndex, Uint8List piece) {
+      if (sink == null) {
+        return _storage.storeFilePiece(
+          cid,
+          pieceIndex,
+          manifest.pieceCount,
+          manifest.pieceSize,
+          manifest.size,
+          piece,
+          name: manifest.name,
+        );
+      }
+      final offset = pieceIndex * manifest.pieceSize;
+      final next = sinkWriteTail.then((_) => sink.write(offset, piece));
+      // The UI/soak callers use one RandomAccessFile with setPosition+write.
+      // Serialize those writes here so parallel network pulls do not race the
+      // file cursor.
+      sinkWriteTail = next.catchError((_) {});
+      return next;
+    }
+
+    var adaptiveRangeTargetBytes = _streamRangeTargetBytes;
+    var successfulBytesSinceRangeGrow = 0;
+    const rangeGrowAfterBytes = 8 * 1024 * 1024;
+    // Keep the production default conservative (p8), but make explicit
+    // speed-test overrides literal. Otherwise a requested
+    // `XVEIL_STREAM_RANGE_PARALLELISM=12` silently starts at p8 and never
+    // exceeds p10, which hides whether the native route/circuit fixes can
+    // actually sustain higher fanout.
+    final explicitRangeFanout = _streamRangeParallelismDartDefine > 0;
+    final maxAdaptiveWorkerLimit = explicitRangeFanout
+        ? workerCount
+        : (workerCount < _defaultStreamRangeParallelism + 2
+              ? workerCount
+              : _defaultStreamRangeParallelism + 2);
+    var adaptiveWorkerLimit = explicitRangeFanout
+        ? workerCount
+        : (workerCount < _defaultStreamRangeParallelism
+              ? workerCount
+              : _defaultStreamRangeParallelism);
+    var activeRangeWorkers = 0;
+    var successfulBytesSinceFanoutGrow = 0;
+    var consecutiveRangeFailures = 0;
+    const fanoutGrowAfterBytes = 16 * 1024 * 1024;
+    Future<void> rangeOpenTail = Future<void>.value();
+
+    Future<void> paceRangeStreamOpen() {
+      final previous = rangeOpenTail;
+      final gate = Completer<void>();
+      rangeOpenTail = gate.future;
+      return previous.catchError((_) {}).then((_) async {
+        if (_streamRangeOpenPace > Duration.zero) {
+          await Future<void>.delayed(_streamRangeOpenPace);
+        }
+        gate.complete();
+      });
+    }
+
+    final beforeStreamOpen = _streamRangeOpenPace > Duration.zero
+        ? paceRangeStreamOpen
+        : null;
+
+    void noteRangeFailure(List<int> pieces) {
+      successfulBytesSinceRangeGrow = 0;
+      successfulBytesSinceFanoutGrow = 0;
+      consecutiveRangeFailures++;
+      if (adaptiveWorkerLimit > 1 &&
+          (adaptiveWorkerLimit > _defaultStreamRangeParallelism ||
+              consecutiveRangeFailures >= 3)) {
+        final previousLimit = adaptiveWorkerLimit;
+        adaptiveWorkerLimit--;
+        consecutiveRangeFailures = 0;
+        devLog(
+          () =>
+              'xVeil[content]: swarm-range adapt fanout '
+              '${cid.substring(0, 12)} workers=$previousLimit'
+              '->$adaptiveWorkerLimit after failure '
+              'failed_pieces=${pieces.length}',
+        );
+      }
+      final minTarget = manifest.pieceSize < _streamRangeTargetBytes
+          ? manifest.pieceSize
+          : _streamRangeTargetBytes;
+      if (adaptiveRangeTargetBytes <= minTarget) return;
+      final previous = adaptiveRangeTargetBytes;
+      var next = adaptiveRangeTargetBytes ~/ 2;
+      if (next < minTarget) next = minTarget;
+      adaptiveRangeTargetBytes = next;
+      devLog(
+        () =>
+            'xVeil[content]: swarm-range adapt shrink '
+            '${cid.substring(0, 12)} target_bytes=$previous'
+            '->$adaptiveRangeTargetBytes failed_pieces=${pieces.length}',
+      );
+    }
+
+    void noteRangeSuccess(int bytes) {
+      consecutiveRangeFailures = 0;
+      if (adaptiveWorkerLimit < maxAdaptiveWorkerLimit) {
+        successfulBytesSinceFanoutGrow += bytes;
+        if (successfulBytesSinceFanoutGrow >= fanoutGrowAfterBytes) {
+          final previousLimit = adaptiveWorkerLimit;
+          adaptiveWorkerLimit++;
+          successfulBytesSinceFanoutGrow = 0;
+          devLog(
+            () =>
+                'xVeil[content]: swarm-range adapt fanout '
+                '${cid.substring(0, 12)} workers=$previousLimit'
+                '->$adaptiveWorkerLimit after ${fanoutGrowAfterBytes}B ok',
+          );
+        }
+      }
+      if (adaptiveRangeTargetBytes >= _streamRangeTargetBytes) return;
+      successfulBytesSinceRangeGrow += bytes;
+      if (successfulBytesSinceRangeGrow < rangeGrowAfterBytes) return;
+      final previous = adaptiveRangeTargetBytes;
+      var next = adaptiveRangeTargetBytes * 2;
+      if (next > _streamRangeTargetBytes) next = _streamRangeTargetBytes;
+      adaptiveRangeTargetBytes = next;
+      successfulBytesSinceRangeGrow = 0;
+      devLog(
+        () =>
+            'xVeil[content]: swarm-range adapt grow '
+            '${cid.substring(0, 12)} target_bytes=$previous'
+            '->$adaptiveRangeTargetBytes',
+      );
+    }
+
+    ({List<int> pieces, NodeId peer, int bytes})? takeRange() {
+      if (failed || pending.isEmpty) return null;
+      final sources = sourceList();
+      if (sources.isEmpty) {
+        failed = true;
+        return null;
+      }
+      final first = pending.removeAt(0);
+      final firstAttempt = attempts[first];
+      if (firstAttempt >= maxAttemptsPerPiece()) {
+        failed = true;
+        return null;
+      }
+      final pieces = <int>[first];
+      var rangeBytes = manifest.pieceLength(first);
+      var nextPiece = first + 1;
+      while (nextPiece < manifest.pieceCount) {
+        final pendingIndex = pending.indexOf(nextPiece);
+        if (pendingIndex < 0) break;
+        final nextLen = manifest.pieceLength(nextPiece);
+        if (pieces.isNotEmpty &&
+            rangeBytes + nextLen > adaptiveRangeTargetBytes) {
+          break;
+        }
+        if (attempts[nextPiece] >= maxAttemptsPerPiece()) {
+          failed = true;
+          return null;
+        }
+        pending.removeAt(pendingIndex);
+        pieces.add(nextPiece);
+        rangeBytes += nextLen;
+        nextPiece++;
+      }
+      for (final piece in pieces) {
+        attempts[piece]++;
+      }
+      return (
+        pieces: List<int>.unmodifiable(pieces),
+        peer: sources[(first + firstAttempt) % sources.length],
+        bytes: rangeBytes,
+      );
+    }
+
+    Future<void> requeueAll(List<int> pieces) async {
+      await refreshSources();
+      for (final piece in pieces) {
+        if (attempts[piece] >= maxAttemptsPerPiece()) {
+          failed = true;
+          return;
+        }
+      }
+      for (final piece in pieces) {
+        if (!completed.contains(piece)) {
+          pending.add(piece);
+        }
+      }
+    }
+
+    // Swarm-wide payload progress tick plus per-task last-chunk tracking. The
+    // tick lets an individual range reader distinguish "everything is quiet"
+    // (global route churn — keep the long idle timeout) from "only MY stream is
+    // quiet" (stalled route — abandon early and resume on a fresh stream). The
+    // per-task stopwatches let tail hedging pick the quietest in-flight range.
+    var swarmPayloadTick = 0;
+    int swarmTick() => swarmPayloadTick;
+    final activeTasks = <_ActiveRangeTask>{};
+    var activeHedges = 0;
+
+    void emitProgress() {
+      if (_contentProgress.isClosed) return;
+      _contentProgress.add((
+        contentId: cid,
+        done: completedBytes.clamp(0, manifest.size).toInt(),
+        total: manifest.size,
+      ));
+    }
+
+    void recordPulled(
+      ({NodeId peer, ContentManifest manifest, List<int> pieces}) pulled,
+    ) {
+      completionPeer = pulled.peer;
+      completionManifest = pulled.manifest;
+      for (final piece in pulled.pieces) {
+        if (!completed.add(piece)) continue;
+        completedBytes += manifest.pieceLength(piece);
+      }
+      emitProgress();
+    }
+
+    _ActiveRangeTask? takeHedge() {
+      if (activeHedges >= _maxStreamRangeHedges) return null;
+      _ActiveRangeTask? best;
+      for (final task in activeTasks) {
+        if (task.hedges > 0) continue;
+        if (task.lastChunk.elapsed < _streamRangeHedgeAfter) continue;
+        if (best == null || task.lastChunk.elapsed > best.lastChunk.elapsed) {
+          best = task;
+        }
+      }
+      if (best == null) return null;
+      best.hedges++;
+      return best;
+    }
+
+    Future<void> runHedge(_ActiveRangeTask hedge) async {
+      final pieces = hedge.pieces
+          .where((piece) => !completed.contains(piece))
+          .toList(growable: false);
+      if (pieces.isEmpty) return;
+      activeHedges++;
+      activeRangeWorkers++;
+      var hedgeBytes = 0;
+      for (final piece in pieces) {
+        hedgeBytes += manifest.pieceLength(piece);
+      }
+      devLog(
+        () =>
+            'xVeil[content]: swarm-range hedge ${cid.substring(0, 12)} '
+            'p${pieces.first}..${pieces.last} '
+            'silent=${hedge.lastChunk.elapsed.inMilliseconds}ms',
+      );
+      try {
+        final pulled = await _pullPieceRangeToStorage(
+          hedge.peer,
+          manifest,
+          pieces,
+          writePiece: writePiece,
+          beforeStreamOpen: beforeStreamOpen,
+          swarmTick: swarmTick,
+          onPayloadChunk: () => swarmPayloadTick++,
+        );
+        // A failed hedge is not a transfer failure: the original worker still
+        // owns the range's retry/requeue budget, so do not shrink the adaptive
+        // fanout for it either.
+        if (pulled == null) return;
+        noteRangeSuccess(hedgeBytes);
+        recordPulled(pulled);
+      } finally {
+        activeRangeWorkers--;
+        activeHedges--;
+      }
+    }
+
+    Future<void> worker(int index) async {
+      while (!_disposed && !failed) {
+        while (!_disposed &&
+            !failed &&
+            activeRangeWorkers >= adaptiveWorkerLimit) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+        final task = takeRange();
+        if (task == null) {
+          if (_disposed || failed) return;
+          if (completed.length >= manifest.pieceCount) return;
+          if (pending.isNotEmpty) continue; // requeue raced takeRange
+          // Tail: every remaining piece is in flight on another worker. Hedge
+          // the quietest range on a fresh stream instead of exiting, so one
+          // stalled route cannot pin the transfer until its idle timeout.
+          final hedge = takeHedge();
+          if (hedge != null) {
+            await runHedge(hedge);
+            continue;
+          }
+          if (activeTasks.isEmpty) return;
+          await Future<void>.delayed(const Duration(milliseconds: 200));
+          continue;
+        }
+        final tracked = _ActiveRangeTask(task.pieces, task.peer);
+        activeTasks.add(tracked);
+        activeRangeWorkers++;
+        ({NodeId peer, ContentManifest manifest, List<int> pieces})? pulled;
+        try {
+          pulled = await _pullPieceRangeToStorage(
+            task.peer,
+            manifest,
+            task.pieces,
+            writePiece: writePiece,
+            beforeStreamOpen: beforeStreamOpen,
+            swarmTick: swarmTick,
+            onPayloadChunk: () {
+              swarmPayloadTick++;
+              tracked.lastChunk
+                ..reset()
+                ..start();
+            },
+          );
+        } finally {
+          activeRangeWorkers--;
+          activeTasks.remove(tracked);
+        }
+        if (pulled == null) {
+          if (task.pieces.every(completed.contains)) {
+            // A hedge finished this range while the original attempt was
+            // failing — nothing to requeue and no failure to adapt on.
+            continue;
+          }
+          noteRangeFailure(task.pieces);
+          await requeueAll(task.pieces);
+          final nextDelayAttempt = task.pieces.fold<int>(
+            0,
+            (maxAttempt, piece) =>
+                attempts[piece] > maxAttempt ? attempts[piece] : maxAttempt,
+          );
+          await Future<void>.delayed(_streamPullRetryDelay(nextDelayAttempt));
+          continue;
+        }
+        noteRangeSuccess(task.bytes);
+        recordPulled(pulled);
+      }
+    }
+
+    devLog(
+      () =>
+          'xVeil[content]: swarm-range start ${cid.substring(0, 12)} '
+          'pieces=${manifest.pieceCount} workers=$workerCount '
+          'active_limit=$adaptiveWorkerLimit '
+          'target_bytes=$_streamRangeTargetBytes '
+          'open_pace_ms=${_streamRangeOpenPace.inMilliseconds} '
+          'sources=${sourceMap.length} resume=${completed.length} '
+          'attempts_per_piece=${maxAttemptsPerPiece()}',
+    );
+    await Future.wait<void>([for (var i = 0; i < workerCount; i++) worker(i)]);
+    if (failed ||
+        completed.length < manifest.pieceCount ||
+        (sink == null && !await _storage.hasFile(cid))) {
+      devLog(
+        () =>
+            'xVeil[content]: swarm-range incomplete '
+            '${cid.substring(0, 12)} completed=${completed.length}/'
+            '${manifest.pieceCount} failed=$failed',
+      );
+      return false;
+    }
+    if (!await _finishReceived(
+      completionPeer ?? sourceList().first,
+      completionManifest ?? manifest,
+      sink,
+      savedPath,
+    )) {
+      return false;
+    }
+    if (!_contentProgress.isClosed) {
+      _contentProgress.add((
+        contentId: cid,
+        done: manifest.size,
+        total: manifest.size,
+      ));
+    }
+    return true;
+  }
+
+  Future<({NodeId peer, ContentManifest manifest, List<int> pieces})?>
+  _pullPieceRangeToStorage(
+    NodeId peer,
+    ContentManifest expected,
+    List<int> pieceIndices, {
+    required Future<void> Function(int pieceIndex, Uint8List piece) writePiece,
+    Future<void> Function()? beforeStreamOpen,
+    int Function()? swarmTick,
+    void Function()? onPayloadChunk,
+  }) async {
+    final cid = expected.contentId;
+    if (pieceIndices.isEmpty) return null;
+    final pieces = pieceIndices.toList(growable: false);
+    final firstPiece = pieces.first;
+    final lastPiece = pieces.last;
+    final offset = firstPiece * expected.pieceSize;
+    var rangeLen = 0;
+    for (final piece in pieces) {
+      rangeLen += expected.pieceLength(piece);
+    }
+    if (beforeStreamOpen != null) await beforeStreamOpen();
+    final stream = await _openInitialPullStream(peer, cid);
+    if (stream == null) return null;
+    ReliableStream? current = stream;
+    var failed = false;
+    try {
+      final pulled = await _readRangePayloadResumable(
+        peer,
+        expected,
+        current,
+        offset: offset,
+        rangeLen: rangeLen,
+        firstPiece: firstPiece,
+        lastPiece: lastPiece,
+        beforeStreamOpen: beforeStreamOpen,
+        swarmTick: swarmTick,
+        onPayloadChunk: onPayloadChunk,
+      );
+      current = null; // consumed/closed by _readRangePayloadResumable
+      final m = pulled.manifest;
+      final range = pulled.bytes;
+      var cursor = 0;
+      final verifiedPieces = <({int index, Uint8List bytes})>[];
+      for (final pieceIndex in pieces) {
+        final pieceLen = expected.pieceLength(pieceIndex);
+        final piece = Uint8List.sublistView(range, cursor, cursor + pieceLen);
+        if (!expected.verifyPiece(pieceIndex, piece)) {
+          throw StateError('piece $pieceIndex failed verify');
+        }
+        verifiedPieces.add((index: pieceIndex, bytes: piece));
+        cursor += pieceLen;
+      }
+      for (final piece in verifiedPieces) {
+        await writePiece(piece.index, piece.bytes);
+      }
+      return (peer: peer, manifest: m, pieces: pieces);
+    } catch (e) {
+      failed = true;
+      devLog(
+        () =>
+            'xVeil[content]: swarm-range piece failed '
+            '${cid.substring(0, 12)} p$firstPiece..$lastPiece '
+            '<- ${peer.short}: $e',
+      );
+      return null;
+    } finally {
+      try {
+        if (failed) {
+          await current?.abort();
+        } else {
+          await current?.close();
+        }
+      } catch (_) {}
+    }
+  }
+
+  /// Await one payload chunk while watching for a per-stream stall.
+  ///
+  /// The underlying FFI read blocks a worker isolate until data arrives or the
+  /// stream is aborted, so the read future cannot be cancelled directly. This
+  /// polls the same future in short slices and throws when either the full
+  /// [idle] window elapses ([TimeoutException], same semantics as before) or
+  /// the swarm made progress elsewhere while this stream stayed silent for at
+  /// least [stallAfter] ([_RangeStallTimeout]); the caller then aborts the
+  /// stream, which releases the blocked read.
+  static Future<Uint8List> _awaitPayloadChunk(
+    Future<Uint8List> read, {
+    required Duration idle,
+    required Duration stallAfter,
+    required Stopwatch silence,
+    required int tickAtLastChunk,
+    required int Function()? swarmTick,
+    required String Function(String reason) timeoutLabel,
+  }) async {
+    final chunk = Completer<Uint8List>();
+    read.then(
+      (v) {
+        if (!chunk.isCompleted) chunk.complete(v);
+      },
+      onError: (Object e, StackTrace st) {
+        if (!chunk.isCompleted) chunk.completeError(e, st);
+      },
+    );
+    while (true) {
+      final remaining = idle - silence.elapsed;
+      if (remaining <= Duration.zero) {
+        throw TimeoutException(timeoutLabel('idle'), idle);
+      }
+      final slice = remaining < _streamRangeStallProbe
+          ? remaining
+          : _streamRangeStallProbe;
+      try {
+        return await chunk.future.timeout(slice);
+      } on TimeoutException {
+        final tick = swarmTick?.call();
+        if (tick != null &&
+            tick != tickAtLastChunk &&
+            silence.elapsed >= stallAfter) {
+          throw _RangeStallTimeout(timeoutLabel('stalled'), silence.elapsed);
+        }
+      }
+    }
+  }
+
+  Future<({ContentManifest manifest, Uint8List bytes})>
+  _readRangePayloadResumable(
+    NodeId peer,
+    ContentManifest expected,
+    ReliableStream initialStream, {
+    required int offset,
+    required int rangeLen,
+    required int firstPiece,
+    required int lastPiece,
+    Future<void> Function()? beforeStreamOpen,
+    int Function()? swarmTick,
+    void Function()? onPayloadChunk,
+  }) async {
+    final cid = expected.contentId;
+    final idle = _streamPayloadIdleTimeout < _streamRangePayloadIdleTimeout
+        ? _streamPayloadIdleTimeout
+        : _streamRangePayloadIdleTimeout;
+    final out = BytesBuilder(copy: false);
+    ContentManifest? manifest;
+    ReliableStream? current = initialStream;
+    var got = 0;
+    Object? lastError;
+    for (
+      var attempt = 1;
+      got < rangeLen && attempt <= _streamPullMaxAttempts && !_disposed;
+      attempt++
+    ) {
+      final startGot = got;
+      try {
+        if (current == null && beforeStreamOpen != null) {
+          await beforeStreamOpen();
+        }
+        current ??= await _openRetryStream(
+          peer,
+          cid,
+          attempt,
+          timeout: _streamRangeRetryOpenTimeout,
+        );
+        if (current == null) throw StateError('range retry-open unavailable');
+        final remaining = rangeLen - got;
+        final resumeOffset = offset + got;
+        final req = _streamRequest(
+          cid,
+          offset: resumeOffset,
+          length: remaining,
+        );
+        // veil_anon_stream_open returns once the local stream FSM exists; on the
+        // datagram-backed anonymous stream the peer accept can trail by a few
+        // milliseconds. A tiny grace before the first DATA frame avoids the
+        // observed open/accept/no-request race without affecting bulk throughput.
+        await Future<void>.delayed(_streamOpenWriteGrace);
+        await current.write(req).timeout(_streamRequestTimeout);
+        final lenB = await _readExactly(
+          current,
+          4,
+        ).timeout(_streamManifestTimeout, onTimeout: () => null);
+        if (lenB == null) throw StateError('no manifest (sender not serving)');
+        final mfLen = _readU32be(lenB);
+        if (mfLen <= 0 || mfLen > (1 << 20)) {
+          throw StateError('bad manifest len');
+        }
+        final mfBytes = await _readExactly(
+          current,
+          mfLen,
+        ).timeout(_streamManifestTimeout, onTimeout: () => null);
+        if (mfBytes == null) throw StateError('manifest truncated');
+        final m = ContentManifest.fromJson(
+          jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>,
+        );
+        if (m == null ||
+            m.contentId != cid ||
+            m.size != expected.size ||
+            m.pieceSize != expected.pieceSize ||
+            m.pieceCount != expected.pieceCount) {
+          throw StateError('manifest does not bind requested piece range');
+        }
+        final previous = manifest;
+        if (previous != null &&
+            (previous.size != m.size ||
+                previous.pieceSize != m.pieceSize ||
+                previous.pieceCount != m.pieceCount ||
+                previous.contentId != m.contentId)) {
+          throw StateError('manifest changed across range resume');
+        }
+        manifest ??= m;
+        _bulkStreamLog(
+          () =>
+              'xVeil[content]: swarm-range payload '
+              '${cid.substring(0, 12)} p$firstPiece..$lastPiece '
+              '<- ${peer.short} (${got > 0 ? 'resume=$got/' : ''}$rangeLen)',
+        );
+        final silence = Stopwatch()..start();
+        var tickAtLastChunk = swarmTick?.call() ?? 0;
+        while (got < rangeLen) {
+          final nextRemaining = rangeLen - got;
+          final maxBytes = nextRemaining < _streamReadChunk
+              ? nextRemaining
+              : _streamReadChunk;
+          final chunk = await _awaitPayloadChunk(
+            current.read(maxBytes: maxBytes),
+            idle: idle,
+            stallAfter: _streamRangeStallAbandon,
+            silence: silence,
+            tickAtLastChunk: tickAtLastChunk,
+            swarmTick: swarmTick,
+            timeoutLabel: (reason) =>
+                'pieces $firstPiece..$lastPiece $reason after $got/$rangeLen',
+          );
+          if (chunk.isEmpty) {
+            throw StateError(
+              'pieces $firstPiece..$lastPiece EOF after $got/$rangeLen',
+            );
+          }
+          out.add(chunk);
+          got += chunk.length;
+          onPayloadChunk?.call();
+          silence
+            ..reset()
+            ..start();
+          tickAtLastChunk = swarmTick?.call() ?? 0;
+        }
+      } catch (e) {
+        lastError = e;
+        if (got > startGot || got > 0) {
+          devLog(
+            () =>
+                'xVeil[content]: swarm-range resume '
+                '${cid.substring(0, 12)} p$firstPiece..$lastPiece '
+                '<- ${peer.short} got=$got/$rangeLen after: $e',
+          );
+        }
+        try {
+          await current?.abort();
+        } catch (_) {}
+        current = null;
+        // A zero-byte attempt normally means "sender not serving this range" —
+        // fail the range so the swarm can requeue it elsewhere. A stall
+        // abandon is different: the swarm was demonstrably progressing while
+        // this stream sat on a bad route, so retry in place on a fresh stream
+        // even before the first payload byte.
+        if ((got <= 0 && e is! _RangeStallTimeout) ||
+            attempt >= _streamPullMaxAttempts ||
+            _disposed) {
+          break;
+        }
+        await Future<void>.delayed(_streamPullRetryDelay(attempt));
+      }
+    }
+    try {
+      await current?.close();
+    } catch (_) {}
+    if (got < rangeLen) {
+      throw lastError ??
+          StateError(
+            'pieces $firstPiece..$lastPiece incomplete $got/$rangeLen',
+          );
+    }
+    final m = manifest;
+    if (m == null) throw StateError('range completed without manifest');
+    return (manifest: m, bytes: out.takeBytes());
+  }
+
+  Future<ReliableStream?> _openInitialPullStream(
+    NodeId peer,
+    String cid,
+  ) async {
+    final t = _transport;
+    if (t is! StreamTransport) return null;
+    final sw = Stopwatch()..start();
+    final useP2P =
+        _p2pStreamsEnabled &&
+        !_anonymous &&
+        t is P2PStreamTransport &&
+        await _p2pStreamAllowed(peer);
+    _bulkStreamLog(
+      () =>
+          'xVeil[content]: stream-open ${cid.substring(0, 12)} '
+          '-> ${peer.short} (${useP2P ? 'p2p' : 'anon'})',
+    );
+    final slowLog = Timer(const Duration(seconds: 5), () {
+      devLog(
+        () =>
+            'xVeil[content]: stream-open still pending '
+            '${cid.substring(0, 12)} -> ${peer.short} '
+            '(${sw.elapsedMilliseconds}ms)',
+      );
+    });
+    ReliableStream? stream;
+    try {
+      if (useP2P) {
+        stream = await (t as P2PStreamTransport).openP2PStream(peer);
+      }
+      stream ??= await (t as StreamTransport).openStream(peer);
+    } finally {
+      slowLog.cancel();
+    }
+    if (stream == null) {
+      devLog(
+        () =>
+            'xVeil[content]: stream-open unavailable '
+            '${cid.substring(0, 12)} -> ${peer.short} '
+            '(${sw.elapsedMilliseconds}ms), using datagram fallback',
+      );
+      return null;
+    }
+    _bulkStreamLog(
+      () =>
+          'xVeil[content]: stream-open ok ${cid.substring(0, 12)} '
+          '-> ${peer.short} (${sw.elapsedMilliseconds}ms, '
+          '${useP2P && stream != null ? 'p2p-or-fallback' : 'anon'})',
+    );
+    return stream;
+  }
+
+  Future<bool> _runPull(
+    NodeId peer,
+    String cid,
+    _FetchSink? sink,
+    ReliableStream initialStream,
+    String? savedPath, {
+    bool emitFailure = true,
+    Iterable<NodeId> retryPeers = const [],
+    bool closeSinkOnFailure = true,
+  }) async {
+    var ok = false;
+    Object? lastError;
+    ReliableStream? stream = initialStream;
+    final peers = _orderedPullPeers(peer, retryPeers);
+    // `_streamPullMaxAttempts` protects a single-source transfer from retrying
+    // forever, but a group/swarm transfer may know more holders than that cap.
+    // Give every known holder at least one stream attempt; after that, cycle up
+    // to the configured retry budget.
+    final maxAttempts = _streamPullMaxAttempts < peers.length
+        ? peers.length
+        : _streamPullMaxAttempts;
+    ContentManifest? resumeManifest;
+    var resumePiece = 0;
+    _pullStarted(cid);
+    try {
+      for (var attempt = 1; attempt <= maxAttempts && !_disposed; attempt++) {
+        var payloadStarted = false;
+        var readBytes = 0;
+        var committedPieces = 0;
+        Timer? manifestWait;
+        final attemptStream = stream;
+        stream = null;
+        ReliableStream? current;
+        final attemptPeer = attemptStream != null
+            ? peer
+            : peers[(attempt - 1) % peers.length];
+        var attemptFailed = false;
+        try {
+          current =
+              attemptStream ??
+              await _openRetryStream(attemptPeer, cid, attempt);
+          if (current == null) {
+            throw StateError('stream retry-open unavailable');
+          }
+          devLog(
+            () =>
+                'xVeil[content]: stream-pull request '
+                '${cid.substring(0, 12)} -> ${attemptPeer.short} '
+                '(attempt $attempt)',
+          );
+          final resumeFrom = resumeManifest;
+          final resumeOffset = resumeFrom == null
+              ? 0
+              : (resumePiece * resumeFrom.pieceSize)
+                    .clamp(0, resumeFrom.size)
+                    .toInt();
+          // The sender consumes the whole fixed-size request frame. The first
+          // 32 bytes are contentId; bytes 32..40 carry an optional big-endian
+          // resume offset; bytes 40..48 carry an optional requested length.
+          // Keep this first write to a single onion-stream cell: padding this
+          // to several cells created a request burst before payload pacing had
+          // a chance to smooth the transfer.
+          final req = _streamRequest(cid, offset: resumeOffset);
+          await Future<void>.delayed(_streamOpenWriteGrace);
+          await current.write(req).timeout(_streamRequestTimeout);
+          devLog(
+            () =>
+                'xVeil[content]: stream-pull request sent '
+                '${cid.substring(0, 12)} -> ${attemptPeer.short} '
+                '(${req.length}B'
+                '${resumeOffset > 0 ? ', resume=$resumeOffset' : ''}, '
+                'attempt $attempt)',
+          );
+          manifestWait = Timer(const Duration(seconds: 5), () {
+            devLog(
+              () =>
+                  'xVeil[content]: stream-pull waiting manifest '
+                  '${cid.substring(0, 12)} <- ${attemptPeer.short} '
+                  '(attempt $attempt)',
+            );
+          });
+          // First-byte stall (length prefix): a sender that never emits the
+          // 4-byte manifest length is not serving on this stream — the request
+          // never landed (flaky/stale first circuit) or the serve source is
+          // absent. Abandon it on the SHORTER bound so we retry-open (a fresh
+          // circuit, often a different route) fast instead of eating the full
+          // 25s cap on a silent first attempt — device-observed as ~25s "долго
+          // перед скачиванием" before attempt 2 succeeds. Once the length
+          // prefix arrives the manifest BODY keeps the full timeout (patient
+          // once bytes actually flow). Mirrors the probe path (_readManifestHeader).
+          final firstByteTimeout =
+              streamManifestFirstByteTimeout < _streamManifestTimeout
+              ? streamManifestFirstByteTimeout
+              : _streamManifestTimeout;
+          final lenB = await _readExactly(
+            current,
+            4,
+          ).timeout(firstByteTimeout, onTimeout: () => null);
+          manifestWait.cancel();
+          manifestWait = null;
+          if (lenB == null) {
+            throw StateError('no manifest (sender not serving)');
+          }
+          final mfLen = _readU32be(lenB);
+          if (mfLen <= 0 || mfLen > (1 << 20)) {
+            throw StateError('bad manifest len');
+          }
+          final mfBytes = await _readExactly(
+            current,
+            mfLen,
+          ).timeout(_streamManifestTimeout, onTimeout: () => null);
+          if (mfBytes == null) throw StateError('manifest truncated');
+          final m = ContentManifest.fromJson(
+            jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>,
+          );
+          if (m == null || m.contentId != cid) {
+            throw StateError('manifest does not bind the requested cid');
+          }
+          final previous = resumeManifest;
+          if (previous != null &&
+              (previous.size != m.size ||
+                  previous.pieceSize != m.pieceSize ||
+                  previous.pieceCount != m.pieceCount ||
+                  previous.contentId != m.contentId)) {
+            throw StateError('manifest changed across resume');
+          }
+          resumeManifest ??= m;
+          unawaited(_persistManifestIfPending(m));
+          final startPiece = resumeOffset > 0
+              ? (resumeOffset ~/ m.pieceSize).clamp(0, m.pieceCount)
+              : 0;
+          readBytes = (startPiece * m.pieceSize).clamp(0, m.size).toInt();
+          payloadStarted = true;
+          devLog(
+            () =>
+                'xVeil[content]: stream-pull ${cid.substring(0, 12)} '
+                '(${m.size}B, ${m.pieceCount} pieces) <- ${attemptPeer.short} '
+                '(attempt $attempt'
+                '${readBytes > 0 ? ', resume=$readBytes' : ''})',
+          );
+          if (!_contentProgress.isClosed) {
+            _contentProgress.add((
+              contentId: cid,
+              done: readBytes,
+              total: m.size,
+            ));
+          }
+          var lastProgressBytes = readBytes;
+          var lastProgressMs = 0;
+          final progressSw = Stopwatch()..start();
+          const minProgressBytes = 1024 * 1024; // avoid UI backpressure
+          const minProgressMs = 1000;
+          void emitReadProgress() {
+            if (_contentProgress.isClosed || m.size <= 0) return;
+            final elapsedMs = progressSw.elapsedMilliseconds;
+            if (readBytes < m.size &&
+                readBytes - lastProgressBytes < minProgressBytes &&
+                elapsedMs - lastProgressMs < minProgressMs) {
+              return;
+            }
+            final visibleDone = readBytes < m.size ? readBytes : m.size - 1;
+            _contentProgress.add((
+              contentId: cid,
+              done: visibleDone,
+              total: m.size,
+            ));
+            lastProgressBytes = readBytes;
+            lastProgressMs = elapsedMs;
+          }
+
+          final buf = BytesBuilder(copy: false);
+          var bufLen = 0;
+          for (var pi = startPiece; pi < m.pieceCount; pi++) {
+            final pieceLen = m.pieceLength(pi);
+            while (bufLen < pieceLen) {
+              final chunk = await current
+                  .read(maxBytes: _streamReadChunk)
+                  .timeout(
+                    _streamPayloadIdleTimeout,
+                    onTimeout: () => throw TimeoutException(
+                      'payload idle after $readBytes/${m.size}B',
+                      _streamPayloadIdleTimeout,
+                    ),
+                  );
+              if (chunk.isEmpty) throw StateError('stream EOF mid-piece $pi');
+              buf.add(chunk);
+              bufLen += chunk.length;
+              readBytes = (readBytes + chunk.length).clamp(0, m.size).toInt();
+              emitReadProgress();
+            }
+            final acc = buf.takeBytes(); // clears buf
+            final piece = acc.length == pieceLen
+                ? acc
+                : Uint8List.sublistView(acc, 0, pieceLen);
+            if (!m.verifyPiece(pi, piece)) {
+              throw StateError('piece $pi failed verify');
+            }
+            if (sink != null) {
+              await sink.write(pi * m.pieceSize, piece);
+            } else {
+              await _storage.storeFilePiece(
+                cid,
+                pi,
+                m.pieceCount,
+                m.pieceSize,
+                m.size,
+                piece,
+                name: m.name,
+              );
+            }
+            committedPieces++;
+            if (acc.length > pieceLen) {
+              buf.add(Uint8List.sublistView(acc, pieceLen));
+              bufLen = acc.length - pieceLen;
+            } else {
+              bufLen = 0;
+            }
+          }
+          if (!await _finishReceived(attemptPeer, m, sink, savedPath)) {
+            lastError = StateError('download finalization failed');
+            break;
+          }
+          ok = true;
+          if (!_contentProgress.isClosed) {
+            _contentProgress.add((contentId: cid, done: m.size, total: m.size));
+          }
+          break;
+        } catch (e) {
+          attemptFailed = true;
+          lastError = e;
+          if (payloadStarted && committedPieces > 0) {
+            final completed = (resumePiece + committedPieces)
+                .clamp(
+                  0,
+                  resumeManifest?.pieceCount ?? resumePiece + committedPieces,
+                )
+                .toInt();
+            if (completed > resumePiece) {
+              resumePiece = completed;
+              final m = resumeManifest;
+              final resumeBytes = m == null
+                  ? 0
+                  : (resumePiece * m.pieceSize).clamp(0, m.size).toInt();
+              devLog(
+                () =>
+                    'xVeil[content]: stream-pull resume point '
+                    '${cid.substring(0, 12)} piece=$resumePiece '
+                    'offset=$resumeBytes after attempt $attempt',
+              );
+            }
+          }
+          devLog(
+            () =>
+                'xVeil[content]: stream-pull attempt $attempt failed '
+                '${cid.substring(0, 12)}: $e',
+          );
+          if (attempt == maxAttempts || _disposed) {
+            break;
+          }
+        } finally {
+          manifestWait?.cancel();
+          try {
+            if (attemptFailed) {
+              await current?.abort();
+            } else {
+              await current?.close();
+            }
+          } catch (_) {}
+        }
+
+        await Future<void>.delayed(_streamPullRetryDelay(attempt));
+      }
+    } finally {
+      _pullEnded(cid);
+      if (!ok && lastError != null) {
+        devLog(
+          () =>
+              'xVeil[content]: stream-pull failed '
+              '${cid.substring(0, 12)}: $lastError',
+        );
+      }
+      if (!ok && sink != null && closeSinkOnFailure) {
+        try {
+          await sink.close();
+        } catch (_) {}
+        _fetchSavePath.remove(cid);
+      }
+      if (!ok && emitFailure && !_contentFailed.isClosed) {
+        _contentFailed.add(cid);
+      }
+    }
+    return ok;
+  }
+
+  Future<ReliableStream?> _openRetryStream(
+    NodeId peer,
+    String cid,
+    int attempt, {
+    Duration? timeout,
+  }) async {
+    final t = _transport;
+    if (t is! StreamTransport) return null;
+    final streamTransport = t as StreamTransport;
+    final useP2P =
+        _p2pStreamsEnabled &&
+        !_anonymous &&
+        t is P2PStreamTransport &&
+        await _p2pStreamAllowed(peer);
+    devLog(
+      () =>
+          'xVeil[content]: stream-pull retry-open '
+          '${cid.substring(0, 12)} -> ${peer.short} '
+          '(attempt $attempt, ${useP2P ? 'p2p' : 'anon'})',
+    );
+    try {
+      ReliableStream? stream;
+      if (useP2P) {
+        stream = await (t as P2PStreamTransport)
+            .openP2PStream(peer)
+            .timeout(timeout ?? _streamRequestTimeout, onTimeout: () => null);
+      }
+      return stream ??
+          await streamTransport
+              .openStream(peer)
+              .timeout(timeout ?? _streamRequestTimeout, onTimeout: () => null);
+    } catch (e) {
+      devLog(
+        () =>
+            'xVeil[content]: stream-pull retry-open failed '
+            '${cid.substring(0, 12)} -> ${peer.short}: $e',
+      );
+      return null;
+    }
+  }
+
+  static Duration _streamPullRetryDelay(int attempt) {
+    final ms = 250 * attempt;
+    return Duration(milliseconds: ms > 3000 ? 3000 : ms);
+  }
+
+  /// Finalise a completed RECEIVE: an unencrypted-to-file download closes the
+  /// sink, remembers the path (tap → open), and reports it; an in-app store
+  /// surfaces offer→downloaded. Acks the sender either way (flips sent→delivered).
+  Future<bool> _finishReceived(
+    NodeId peer,
+    ContentManifest m,
+    _FetchSink? sink,
+    String? savedPath,
+  ) async {
+    final ackId = m.msgId ?? m.contentId;
+    if (sink != null) {
+      try {
+        await sink.close();
+      } catch (e) {
+        devLog(
+          () =>
+              'xVeil[content]: plaintext close failed '
+              '${m.contentId.substring(0, 12)} -> $savedPath: $e',
+        );
+        if (!_contentFailed.isClosed) _contentFailed.add(m.contentId);
+        return false;
+      }
+      if (savedPath != null) {
+        try {
+          await _storage.putSetting('saved:${m.contentId}', savedPath);
+          // Serve the saved plaintext back on demand (content-addressed): the
+          // ORIGINAL SENDER can recover a file they deleted, and any accepted
+          // holder can re-seed. Mirrors the sender's serve-from-source model —
+          // persist the manifest + the serve path so a stream request / reoffer
+          // reopens the file. If the user later moves or deletes this plain
+          // file, the reopen fails and the peer gets an honest content-GONE.
+          await _persistServeManifest(m);
+          // JSON record with the hashing params, so a missing mf: blob
+          // (IndexFull) can be rebuilt from the saved file — same contract as
+          // the sender-side durable offer.
+          await _storage.putSetting(
+            'served:${m.contentId}',
+            jsonEncode({
+              'path': savedPath,
+              'size': m.size,
+              'pieceSize': m.pieceSize,
+              'name': m.name,
+            }),
+          );
+          // Durable-only (no RAM _serving entry): every serve/reoffer reopens
+          // the file from served:<cid>, so a since-moved/deleted plain file is
+          // detected and answered with content-GONE instead of a false offer.
+        } catch (_) {}
+      }
+      _fetchSavePath.remove(m.contentId);
+      devLog(
+        () =>
+            'xVeil[content]: COMPLETE ${m.contentId.substring(0, 12)} '
+            '(${m.size}B) saved to $savedPath (serveable)',
+      );
+      await _send(peer, WireEnvelope.ack(ackId).encode());
+      if (!_contentReceived.isClosed) {
+        _contentReceived.add((
+          contentId: m.contentId,
+          name: m.name,
+          savedToPath: savedPath,
+        ));
+      }
+      return true;
+    }
+    devLog(
+      () =>
+          'xVeil[content]: COMPLETE ${m.contentId.substring(0, 12)} '
+          '(${m.size}B) stored',
+    );
+    final persisted = await _persistReceivedContent(peer, m);
+    if (persisted) await _send(peer, WireEnvelope.ack(ackId).encode());
+    if (persisted && await _consumeParkedPlainFileSave(m.contentId)) {
+      return true;
+    }
+    if (!_contentReceived.isClosed) {
+      _contentReceived.add((
+        contentId: m.contentId,
+        name: m.name,
+        savedToPath: null,
+      ));
+    }
+    return persisted;
+  }
+
+  /// Read EXACTLY [n] bytes (looping); null on EOF before [n] arrives.
+  static Future<Uint8List?> _readExactly(ReliableStream s, int n) async {
+    final out = BytesBuilder(copy: false);
+    var got = 0;
+    while (got < n) {
+      final chunk = await s.read(maxBytes: n - got);
+      if (chunk.isEmpty) return null; // EOF
+      out.add(chunk);
+      got += chunk.length;
+    }
+    return out.takeBytes();
+  }
+
+  static Uint8List _u32be(int v) =>
+      Uint8List(4)..buffer.asByteData().setUint32(0, v);
+  static int _readU32be(Uint8List b) =>
+      b.buffer.asByteData(b.offsetInBytes, 4).getUint32(0);
+  static Uint8List _u64be(int v) =>
+      Uint8List(8)..buffer.asByteData().setUint64(0, v);
+  static int _readU64be(Uint8List b) =>
+      b.buffer.asByteData(b.offsetInBytes, 8).getUint64(0);
+
+  static String _hexEncode(Uint8List b) {
+    const d = '0123456789abcdef';
+    final sb = StringBuffer();
+    for (final x in b) {
+      sb
+        ..write(d[(x >> 4) & 0xf])
+        ..write(d[x & 0xf]);
+    }
+    return sb.toString();
+  }
+
+  static Uint8List _hexDecode(String s) {
+    final out = Uint8List(s.length ~/ 2);
+    for (var i = 0; i < out.length; i++) {
+      out[i] = int.parse(s.substring(i * 2, i * 2 + 2), radix: 16);
+    }
+    return out;
+  }
+
+  Future<void> _onPieceChunk(PieceChunkFrame f) async {
+    final fetch = _fetching[f.contentId];
+    if (fetch == null) {
+      // The manifest never arrived (or this content was already completed/
+      // deleted): we hold no reassembler, so the chunk is dropped. A burst of
+      // these means a LOST MANIFEST — the receiver can't reassemble or
+      // re-request without it.
+      devLog(
+        () =>
+            'xVeil[content]: pieceChunk DROPPED — no manifest/fetch for '
+            '${f.contentId.substring(0, 12)} (p${f.pieceIndex} c${f.chunkIndex})',
+      );
+      return; // not fetching this content
+    }
+    _fetchActivity[f.contentId] =
+        _now(); // progress — keep this fetch non-stale
+    final piece = fetch.xfer.addChunk(
+      f.pieceIndex,
+      f.chunkIndex,
+      f.chunkCount,
+      f.data,
+    );
+    if (piece != null) {
+      // Stream the verified piece STRAIGHT to its destination; the reassembler
+      // keeps no piece bytes, so the whole file never sits in RAM (any size).
+      final m = fetch.manifest;
+      try {
+        if (fetch.sink != null) {
+          // UNENCRYPTED download → write the piece to the user's plaintext file
+          // at its byte offset; nothing is kept in the app.
+          await fetch.sink!.write(f.pieceIndex * m.pieceSize, piece);
+        } else {
+          // Store via the Storage port (encrypted on-disk tier / in-volume).
+          await _storage.storeFilePiece(
+            m.contentId,
+            f.pieceIndex,
+            m.pieceCount,
+            m.pieceSize,
+            m.size,
+            piece,
+            name: m.name,
+          );
+        }
+      } catch (e) {
+        fetch.xfer.unverify(f.pieceIndex); // write failed → re-request it
+        devLog(
+          () =>
+              'xVeil[content]: piece ${f.pieceIndex} store/write failed '
+              'for ${m.contentId.substring(0, 12)}: $e',
+        );
+        return;
+      }
+      devLog(
+        () =>
+            'xVeil[content]: piece ${f.pieceIndex} VERIFIED+'
+            '${fetch.sink != null ? 'WRITTEN' : 'STORED'} for '
+            '${m.contentId.substring(0, 12)} '
+            '(${fetch.xfer.verifiedCount}/${fetch.xfer.pieceCount})',
+      );
+      if (!_contentProgress.isClosed) {
+        _contentProgress.add((
+          contentId: f.contentId,
+          done: fetch.xfer.verifiedCount,
+          total: fetch.xfer.pieceCount,
+        ));
+      }
+    }
+    if (!fetch.xfer.isComplete) return;
+    // Every piece verified AND written → done.
+    _fetching.remove(f.contentId);
+    _fetchActivity.remove(f.contentId);
+    final ackId = fetch.manifest.msgId ?? f.contentId;
+    final sink = fetch.sink;
+    if (sink != null) {
+      // UNENCRYPTED-to-file: the bytes are on the user's disk, NOT in the app —
+      // so no offer→downloaded flip; just finalise the file, ack (we received
+      // it), and tell the UI where it landed.
+      final savedPath = _fetchSavePath.remove(f.contentId);
+      try {
+        await sink.close();
+      } catch (e) {
+        devLog(
+          () =>
+              'xVeil[content]: plaintext close failed '
+              '${f.contentId.substring(0, 12)} -> $savedPath: $e',
+        );
+        if (!_contentFailed.isClosed) _contentFailed.add(f.contentId);
+        return;
+      }
+      // Remember where it landed so a later tap OPENS the file instead of
+      // re-offering it (it isn't in the app store → hasFile is false).
+      if (savedPath != null) {
+        try {
+          await _storage.putSetting('saved:${f.contentId}', savedPath);
+        } catch (_) {
+          /* non-fatal */
+        }
+      }
+      devLog(
+        () =>
+            'xVeil[content]: COMPLETE ${f.contentId.substring(0, 12)} '
+            '(${fetch.manifest.size}B) saved UNENCRYPTED to $savedPath',
+      );
+      await _send(fetch.peer, WireEnvelope.ack(ackId).encode());
+      if (!_contentReceived.isClosed) {
+        _contentReceived.add((
+          contentId: f.contentId,
+          name: fetch.name,
+          savedToPath: savedPath,
+        ));
+      }
+      return;
+    }
+    // Stored in the app (encrypted tier / in-volume) → surface offer→downloaded.
+    devLog(
+      () =>
+          'xVeil[content]: COMPLETE ${f.contentId.substring(0, 12)} '
+          '(${fetch.manifest.size}B) streamed to disk',
+    );
+    final persisted = await _persistReceivedContent(fetch.peer, fetch.manifest);
+    // Ack by the per-send msgId (the EVENT identity) so the SENDER's specific
+    // file message flips sent->delivered = actually received (a legacy sender
+    // without msgId falls back to the contentId — old behaviour).
+    if (persisted) {
+      devLog(
+        () =>
+            'xVeil[timeline]: content-ack id=$ackId '
+            'via=direct t=${DateTime.now().millisecondsSinceEpoch}',
+      );
+      await _send(fetch.peer, WireEnvelope.ack(ackId).encode());
+    }
+    if (persisted && await _consumeParkedPlainFileSave(f.contentId)) {
+      return;
+    }
+    if (!_contentReceived.isClosed) {
+      _contentReceived.add((
+        contentId: f.contentId,
+        name: fetch.name,
+        savedToPath: null,
+      ));
+    }
+  }
+
+  /// A content transfer completed: its pieces were already streamed to disk
+  /// (storeFilePiece in [_onPieceChunk]), so the blob is hasFile-complete. Ensure
+  /// the OFFER message exists (idempotent) so it flips offer → downloaded, then
+  /// signal. Returns true (safe to ack = delivered = actually received).
+  Future<bool> _persistReceivedContent(NodeId peer, ContentManifest m) async {
+    _offered.remove(m.contentId);
+    _offeredRefs.remove(m.contentId);
+    await _surfaceFileOffer(peer, m);
+    await _persistServeManifest(m);
+    _serving[m.contentId] = (manifest: m, source: null, servedAt: _now());
+    _evictServing();
+    _ensureContentTimer();
+    _signal();
+    return true;
+  }
+
+  /// Surface a received file as an incoming filePost — an OFFER carrying the
+  /// descriptor (name/size + the contentId to download on demand), NOT the blob.
+  /// Idempotent on the sender's per-send msgId. A re-send of previously-DELETED
+  /// content surfaces as a NEW message (A); a re-delivery of the SAME (deleted)
+  /// event stays gone. The "downloaded" state is derived from hasFile(contentId),
+  /// so no message rewrite is needed when the blob later lands.
+  Future<void> _surfaceFileOffer(NodeId peer, ContentManifest m) async {
+    await _surfaceFileOfferFields(
+      peer,
+      contentId: m.contentId,
+      name: m.name,
+      size: m.size,
+      msgId: m.msgId,
+      seq: m.seq,
+      ts: m.ts,
+      thumb: m.thumbB64,
+    );
+  }
+
+  Future<void> _surfaceFileOfferFields(
+    NodeId peer, {
+    required String contentId,
+    required String name,
+    required int size,
+    String? msgId,
+    int? seq,
+    int? ts,
+    String? thumb,
+  }) async {
+    final msgIdOrContent = msgId ?? contentId; // legacy sender → hash id
+    if (await _hasMessage(peer, msgIdOrContent)) {
+      devLog(
+        () =>
+            'xVeil[content]: offer skip ${contentId.substring(0, 12)} '
+            'msg ${msgIdOrContent.substring(0, 8)} already stored <- ${peer.short}',
+      );
+      return; // already surfaced
+    }
+    if (await _storage.isMessageDeleted(peer.hex, msgIdOrContent)) {
+      devLog(
+        () =>
+            'xVeil[content]: offer skip ${contentId.substring(0, 12)} '
+            'msg ${msgIdOrContent.substring(0, 8)} deleted <- ${peer.short}',
+      );
+      return; // already surfaced / deliberately deleted
+    }
+    await _store(
+      peer,
+      MessageDirection.incoming,
+      '📎 $name',
+      MessageStatus.delivered,
+      fileContentId: contentId,
+      fileSize: size,
+      fileName: name,
+      thumb: thumb,
+      id: msgIdOrContent,
+      seq: seq,
+      timestamp: ts != null ? DateTime.fromMillisecondsSinceEpoch(ts) : _now(),
+    );
+    _emitIncoming(peer, '📎 $name', isFile: true);
+    _signal();
+    devLog(
+      () =>
+          'xVeil[content]: offered ${contentId.substring(0, 12)} as msg '
+          '${msgIdOrContent.substring(0, 8)} (${size}B) <- ${peer.short}',
+    );
+  }
+
+  void _ensureContentTimer() {
+    _contentTimer ??= Timer.periodic(
+      _contentReRequestInterval,
+      (_) => _contentReRequest(),
+    );
+  }
+
+  void _contentReRequest() {
+    if (_fetching.isEmpty) {
+      _contentTimer?.cancel();
+      _contentTimer = null;
+      return;
+    }
+    for (final fetch in _fetching.values) {
+      // Window the re-request to a few unverified pieces and ask for only their
+      // MISSING chunks (bitmaps) — so each round re-sends just the gaps, and the
+      // request itself stays small enough to survive the lossy path.
+      final pieces = fetch.xfer.nextUnverifiedPieces(_reRequestPieceWindow);
+      if (pieces.isEmpty) continue;
+      final bitmaps = {
+        for (final p in pieces) p: fetch.xfer.missingChunkBitmap(p),
+      };
+      final remaining = fetch.xfer.missingPieces().length;
+      devLog(
+        () =>
+            'xVeil[content]: re-request '
+            '${fetch.manifest.contentId.substring(0, 12)} — chunk-granular over '
+            'pieces $pieces ($remaining/${fetch.manifest.pieceCount} unverified) '
+            '-> ${fetch.peer.short}',
+      );
+      unawaited(
+        _send(
+          fetch.peer,
+          pieceRequestEnvelope(
+            contentId: fetch.manifest.contentId,
+            bitmaps: bitmaps,
+          ).encode(),
+        ),
+      );
+    }
+  }
+
+  Future<void> dropLiveServingStateForTest() => _clearServingState();
+
+  Future<void> _clearServingState() async {
+    // Release any open serve-from-source file handles.
+    for (final v in _serving.values) {
+      if (v.source != null) unawaited(v.source!.close());
+    }
+    _serving.clear();
+    for (final sources in _retiredAfterStream.values) {
+      for (final source in sources) {
+        unawaited(source.close());
+      }
+    }
+    _retiredAfterStream.clear();
+    _activeStreamServes.clear();
+  }
+
+  Future<void> dispose() async {
+    _disposed = true; // stops the stream accept loop
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _settingsGcTimer?.cancel();
+    _settingsGcTimer = null;
+    _contentTimer?.cancel();
+    _contentTimer = null;
+    // Auto-resume driver: timers, event taps, and the registry write chain.
+    for (final t in _resumeTimers.values) {
+      t.cancel();
+    }
+    _resumeTimers.clear();
+    await _resumeFailedSub?.cancel();
+    _resumeFailedSub = null;
+    await _resumeProgressSub?.cancel();
+    _resumeProgressSub = null;
+    await _resumeReceivedSub?.cancel();
+    _resumeReceivedSub = null;
+    await _sub?.cancel();
+    _sub = null;
+    await _clearServingState();
+    // Cancel reoffer timers + close any parked download sinks.
+    for (final t in _pendingTimers.values) {
+      t.cancel();
+    }
+    _pendingTimers.clear();
+    for (final s in _pendingDownload.values) {
+      if (s != null) unawaited(s.close());
+    }
+    _pendingDownload.clear();
+    await _changes.close();
+    await _incoming.close();
+    await _signatureAsks.close();
+    await _contentReceived.close();
+    await _contentProgress.close();
+    await _contentFailed.close();
+    await _contentResuming.close();
+  }
+}
+
+/// A durable record of an explicitly-requested download that has not
+/// completed yet — the unit of the torrent-like auto-resume registry
+/// (settings KV, one JSON list under `pending_downloads`).
+class _PendingDownload {
+  const _PendingDownload({
+    required this.contentId,
+    required this.mode,
+    required this.peers,
+    required this.requestedAt,
+    this.savedPath,
+  });
+
+  static const modeStore = 'store'; // encrypted tier / in-volume
+  static const modeFile = 'file'; // plaintext to a user-picked path
+
+  final String contentId;
+  final String mode;
+  final String? savedPath;
+  final List<String> peers; // node-id hexes known to hold the content
+  final DateTime requestedAt;
+
+  Map<String, Object?> toJson() => {
+    'cid': contentId,
+    'mode': mode,
+    if (savedPath != null) 'path': savedPath,
+    'peers': peers,
+    'at': requestedAt.toIso8601String(),
+  };
+
+  static _PendingDownload? fromJson(Map<String, dynamic> json) {
+    final cid = json['cid'];
+    final mode = json['mode'];
+    if (cid is! String || cid.isEmpty || mode is! String) return null;
+    final peers = json['peers'];
+    return _PendingDownload(
+      contentId: cid,
+      mode: mode == modeFile ? modeFile : modeStore,
+      savedPath: json['path'] as String?,
+      peers: [
+        if (peers is List)
+          for (final p in peers)
+            if (p is String) p,
+      ],
+      requestedAt:
+          DateTime.tryParse(json['at'] as String? ?? '') ?? DateTime.now(),
+    );
+  }
+}
+
+/// One in-flight swarm-range pull, tracked for tail hedging: [lastChunk]
+/// restarts on every payload chunk the owning worker receives, so an idle
+/// worker can duplicate the quietest range on a fresh stream. [hedges] caps
+/// duplication at one hedge per task.
+class _ActiveRangeTask {
+  _ActiveRangeTask(this.pieces, this.peer) : lastChunk = Stopwatch()..start();
+
+  final List<int> pieces;
+  final NodeId peer;
+  final Stopwatch lastChunk;
+  int hedges = 0;
+}
+
+/// A range payload read abandoned early because the swarm kept receiving
+/// bytes while this stream stayed silent — evidence of a stalled route rather
+/// than a sender that stopped serving. Distinguished from the plain idle
+/// [TimeoutException] so the resume loop retries in place even at zero
+/// received bytes instead of failing the range.
+class _RangeStallTimeout extends TimeoutException {
+  _RangeStallTimeout(String super.message, Duration super.duration);
+}
