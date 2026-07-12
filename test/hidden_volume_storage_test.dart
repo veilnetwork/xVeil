@@ -742,6 +742,11 @@ void main() {
       Uint8List.fromList([1, 2, 3, 4]),
       name: 'secret.bin',
     );
+    await storage.storeFile(
+      'mf:blob1',
+      Uint8List.fromList([9, 9]),
+      name: 'manifest',
+    );
     final m = Message(
       id: 'filemsg',
       conversationId: conv,
@@ -759,7 +764,153 @@ void main() {
 
     expect(await storage.loadMessages(conv), isEmpty);
     expect(await storage.loadFile('blob1'), isNull); // blob gone, not just row
+    expect(await storage.loadFile('mf:blob1'), isNull);
   });
+
+  test(
+    'a deduplicated blob survives until its last chat reference is deleted',
+    () async {
+      final firstConv = _id(12).hex;
+      final secondConv = _id(13).hex;
+      await storage.storeFile(
+        'shared-blob',
+        Uint8List.fromList([5, 4, 3, 2, 1]),
+        name: 'shared.bin',
+      );
+      for (final entry in [(firstConv, 'first'), (secondConv, 'second')]) {
+        await storage.appendMessage(
+          Message(
+            id: entry.$2,
+            conversationId: entry.$1,
+            direction: MessageDirection.outgoing,
+            body: '📎 shared.bin',
+            timestamp: DateTime(2026, 3, 5),
+            fileId: 'shared-blob',
+            fileName: 'shared.bin',
+          ),
+        );
+      }
+
+      await storage.deleteMessage(firstConv, 'first');
+      expect(await storage.hasFile('shared-blob'), isTrue);
+
+      await storage.deleteMessage(secondConv, 'second');
+      expect(await storage.hasFile('shared-blob'), isFalse);
+    },
+  );
+
+  test(
+    'clearing one chat retains content referenced by another chat',
+    () async {
+      final first = _id(14);
+      final second = _id(15);
+      await storage.storeFile(
+        'clear-shared',
+        Uint8List.fromList([1, 3, 5, 7]),
+        name: 'shared.bin',
+      );
+      for (final entry in [(first, 'clear-first'), (second, 'clear-second')]) {
+        await storage.appendMessage(
+          Message(
+            id: entry.$2,
+            conversationId: entry.$1.hex,
+            direction: MessageDirection.outgoing,
+            body: '📎 shared.bin',
+            timestamp: DateTime(2026, 3, 5),
+            fileId: 'clear-shared',
+            fileName: 'shared.bin',
+          ),
+        );
+      }
+
+      await storage.clearMessages(first);
+      expect(await storage.hasFile('clear-shared'), isTrue);
+
+      await storage.clearMessages(second);
+      expect(await storage.hasFile('clear-shared'), isFalse);
+    },
+  );
+
+  test(
+    'retention pruning keeps a blob referenced outside the pruned chat',
+    () async {
+      final oldPeer = _id(17);
+      final livePeer = _id(18);
+      await storage.storeFile(
+        'prune-shared',
+        Uint8List.fromList([8, 6, 4, 2]),
+        name: 'shared.bin',
+      );
+      await storage.appendMessage(
+        Message(
+          id: 'prune-old',
+          conversationId: oldPeer.hex,
+          direction: MessageDirection.outgoing,
+          body: '📎 shared.bin',
+          timestamp: DateTime(2020),
+          fileId: 'prune-shared',
+          fileName: 'shared.bin',
+        ),
+      );
+      await storage.appendMessage(
+        Message(
+          id: 'prune-live',
+          conversationId: livePeer.hex,
+          direction: MessageDirection.outgoing,
+          body: '📎 shared.bin',
+          timestamp: DateTime.now(),
+          fileId: 'prune-shared',
+          fileName: 'shared.bin',
+        ),
+      );
+
+      expect(await storage.pruneConversation(oldPeer, 30), 1);
+      expect(await storage.hasFile('prune-shared'), isTrue);
+
+      await storage.deleteMessage(livePeer.hex, 'prune-live');
+      expect(await storage.hasFile('prune-shared'), isFalse);
+    },
+  );
+
+  test(
+    'deleting a chat post retains content owned by the cloud index',
+    () async {
+      final conv = _id(16).hex;
+      final cid = List.filled(64, 'b').join();
+      final bytes = Uint8List.fromList([2, 4, 6, 8]);
+      await storage.storeFile(cid, bytes, name: 'cloud-shared.bin');
+      final item = CloudItem(
+        id: 'cloud_chat_owner',
+        kind: CloudItemKind.file,
+        name: 'cloud-shared.bin',
+        contentId: cid,
+        size: bytes.length,
+        createdAtMs: 1,
+        modifiedAtMs: 1,
+        revision: 1,
+        deleted: false,
+      );
+      await storage.putSetting(
+        'cloud.index.v1',
+        jsonEncode([item.toEvent().toBody()]),
+      );
+      await storage.appendMessage(
+        Message(
+          id: 'cloud-share-post',
+          conversationId: conv,
+          direction: MessageDirection.outgoing,
+          body: '📎 cloud-shared.bin',
+          timestamp: DateTime(2026, 3, 5),
+          fileId: cid,
+          fileName: 'cloud-shared.bin',
+        ),
+      );
+
+      await storage.deleteMessage(conv, 'cloud-share-post');
+
+      expect(await storage.loadFile(cid), bytes);
+    },
+  );
 
   test(
     'settings GC retains blobs referenced only by the cloud index',
