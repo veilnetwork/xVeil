@@ -1,4 +1,5 @@
-import 'package:flutter/foundation.dart';
+import 'dart:typed_data';
+
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 
 import 'kv_log_store.dart';

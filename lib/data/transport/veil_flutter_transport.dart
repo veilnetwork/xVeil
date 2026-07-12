@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:veil_flutter/veil_flutter.dart';
+import 'package:veil_flutter/veil_ffi.dart';
 
 import '../../core/ids.dart';
 import '../../core/log.dart';
