@@ -87,6 +87,37 @@ bytes, construct per-recipient key envelopes, expose invite/ACL UI, or provide
 a rich-text CRDT. Those are the next CLOUD-3B2 bricks; ordinary `GroupMessage`
 remains forbidden for collaborative edits.
 
+## Implemented: CLOUD-3B2/2 epoch envelopes and deniable log store
+
+Epoch keys now have a bounded recipient-envelope codec and a production crypto
+adapter over veil's existing ML-KEM mailbox seal/open path. Seal resolves a
+verified recipient certificate; open decrypts under the local identity and
+returns a cryptographically verified sender. A fixed document-key app id and
+endpoint prevent a valid mailbox blob for another purpose from being replayed
+as a document key.
+
+The sealed plaintext is a fixed 101-byte binary record: version, document id,
+epoch, 32-byte key, and a domain-separated commitment. The outer canonical
+bundle binds document id, epoch, commitment, and up to 256 sorted unique
+recipient envelopes (64 KiB cap each). Root/control entries sign SHA-256 of the
+whole bundle. Open requires the expected bundle hash, exact owner, recipient,
+app id, endpoint, document, epoch, and commitment; every mismatch has one local
+reject result. Temporary mutable payload/key copies are wiped where ownership
+allows. The mailbox envelope is delivery crypto, not permanent key storage:
+after successful open the key is persisted inside the deniable hidden volume.
+
+`CloudDocumentStore` persists strict root/control/operation/envelope/key bundles
+in chunked A/B generations, separately from the single-setting size limit. A/B
+read validates the current generation and falls back to the prior valid one.
+The document directory is also A/B. A single serialized pending marker closes
+the document-written/index-not-yet-published crash window: a fully written
+orphan is discoverable after restart and folded into the index by the next
+write. Local keys are commitment-checked before persistence and have an
+explicit RAM wipe method.
+
+This still does **not** replicate the log/envelopes, create invitation flows,
+encrypt CRDT payload blobs, or expose ACL UI. Those remain CLOUD-3B2/3+.
+
 ## Why ordinary `GroupMessage` is not sufficient yet
 
 The current group message signs `groupId/author/seq/body/policyVersion/time`.
