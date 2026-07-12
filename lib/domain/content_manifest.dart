@@ -95,6 +95,19 @@ class ContentManifest {
   /// is what lets a piece's chunks accumulate across re-request rounds.
   static const int defaultChunkBytes = 256;
 
+  /// RAM-bounded piece sizing shared by chat and personal-cloud ingestion.
+  /// Keep ordinary manifests at 256 KiB pieces, then widen only enough to cap
+  /// the hash list near 4096 pieces, with a hard 32 MiB RAM ceiling per piece.
+  /// Beyond that the piece count grows; a ~1 TiB object still has a manifest
+  /// small enough for the deniable file store.
+  static int adaptivePieceSize(int size) {
+    const maxPieces = 4096;
+    const maxPieceBytes = 32 * 1024 * 1024;
+    final needed = (size + maxPieces - 1) ~/ maxPieces;
+    if (needed <= defaultPieceSize) return defaultPieceSize;
+    return needed > maxPieceBytes ? maxPieceBytes : needed;
+  }
+
   int get pieceCount => pieceHashes.length;
 
   /// The plaintext length of piece [index] (the last piece may be short).
@@ -384,7 +397,8 @@ class ContentManifest {
   /// SHA-256 (32 B) over any-length input — content addressing. (The bundled
   /// blake3.dart is single-chunk only and can't hash multi-KiB pieces.)
   static Uint8List _hash(Uint8List b) =>
-      sha256Override?.call(b) ?? Uint8List.fromList(crypto.sha256.convert(b).bytes);
+      sha256Override?.call(b) ??
+      Uint8List.fromList(crypto.sha256.convert(b).bytes);
 
   static Uint8List _concatHashes(List<Uint8List> hs) {
     final out = Uint8List(hs.length * 32);

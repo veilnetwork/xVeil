@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -6,6 +7,7 @@ import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/cloud.dart';
 import 'package:xveil/domain/identity.dart';
 import 'package:xveil/domain/roster.dart';
 
@@ -62,40 +64,40 @@ void main() {
     },
   );
 
-  test(
-    'a pinned conversation sorts above more-recent unpinned ones',
-    () async {
-      // Two contacts: _id(2) has the newer message, _id(3) is pinned but older.
-      await storage.upsertContact(Contact(nodeId: _id(2)));
-      await storage.upsertContact(Contact(nodeId: _id(3), pinned: true));
-      await storage.appendMessage(
-        _msg(
-          conv: _id(3).hex,
-          dir: MessageDirection.incoming,
-          body: 'older-pinned',
-          ts: DateTime(2026, 5, 1),
-        ),
-      );
-      await storage.appendMessage(
-        _msg(
-          conv: _id(2).hex,
-          dir: MessageDirection.incoming,
-          body: 'newer-unpinned',
-          ts: DateTime(2026, 5, 9),
-        ),
-      );
+  test('a pinned conversation sorts above more-recent unpinned ones', () async {
+    // Two contacts: _id(2) has the newer message, _id(3) is pinned but older.
+    await storage.upsertContact(Contact(nodeId: _id(2)));
+    await storage.upsertContact(Contact(nodeId: _id(3), pinned: true));
+    await storage.appendMessage(
+      _msg(
+        conv: _id(3).hex,
+        dir: MessageDirection.incoming,
+        body: 'older-pinned',
+        ts: DateTime(2026, 5, 1),
+      ),
+    );
+    await storage.appendMessage(
+      _msg(
+        conv: _id(2).hex,
+        dir: MessageDirection.incoming,
+        body: 'newer-unpinned',
+        ts: DateTime(2026, 5, 9),
+      ),
+    );
 
-      final convs = await storage.loadConversations();
-      expect(convs.first.peer.nodeId, _id(3),
-          reason: 'the pinned conversation must lead despite its older message');
-      expect(convs.first.peer.pinned, isTrue);
+    final convs = await storage.loadConversations();
+    expect(
+      convs.first.peer.nodeId,
+      _id(3),
+      reason: 'the pinned conversation must lead despite its older message',
+    );
+    expect(convs.first.peer.pinned, isTrue);
 
-      // Unpinning restores recency order (newer conversation leads).
-      await storage.upsertContact(Contact(nodeId: _id(3), pinned: false));
-      final after = await storage.loadConversations();
-      expect(after.first.peer.nodeId, _id(2));
-    },
-  );
+    // Unpinning restores recency order (newer conversation leads).
+    await storage.upsertContact(Contact(nodeId: _id(3), pinned: false));
+    final after = await storage.loadConversations();
+    expect(after.first.peer.nodeId, _id(2));
+  });
 
   test(
     'clearMessages erases history but KEEPS the contact and chat-list entry',
@@ -159,13 +161,13 @@ void main() {
       // Two explicit authors in the SAME conversation get INDEPENDENT, gap-free
       // streams (event-log §15.4 R4/R10).
       Message ev(String id, String author, DateTime ts) => Message(
-            id: id,
-            conversationId: c,
-            direction: MessageDirection.outgoing,
-            body: id,
-            timestamp: ts,
-            author: author,
-          );
+        id: id,
+        conversationId: c,
+        direction: MessageDirection.outgoing,
+        body: id,
+        timestamp: ts,
+        author: author,
+      );
       await storage.appendMessage(ev('a1', 'AAAA', DateTime(2026, 6, 1, 0, 1)));
       await storage.appendMessage(ev('b1', 'BBBB', DateTime(2026, 6, 1, 0, 2)));
       await storage.appendMessage(ev('a2', 'AAAA', DateTime(2026, 6, 1, 0, 3)));
@@ -333,49 +335,57 @@ void main() {
     'cannot reorder a later same-author message before an earlier one',
     () async {
       final c = _id(5).hex;
-      final author = _id(30).hex; // a peer author with wire-carried (author, seq)
+      final author = _id(
+        30,
+      ).hex; // a peer author with wire-carried (author, seq)
       Message ev(int seq, String body, DateTime ts) => Message(
-            id: 'm$seq',
-            conversationId: c,
-            direction: MessageDirection.incoming,
-            body: body,
-            timestamp: ts,
-            author: author,
-            seq: seq,
-          );
+        id: 'm$seq',
+        conversationId: c,
+        direction: MessageDirection.incoming,
+        body: body,
+        timestamp: ts,
+        author: author,
+        seq: seq,
+      );
       // seq 2 carries an EARLIER (skewed-into-the-past) timestamp than seq 1.
       // A bare-timestamp sort would float it ABOVE seq 1; the author-monotone
       // floor keeps causal (seq) order: 1 then 2.
       await storage.appendMessage(ev(1, 'first', DateTime(2026, 7, 1, 12, 0)));
       await storage.appendMessage(ev(2, 'second', DateTime(2020, 1, 1)));
-      expect((await storage.loadMessages(c)).map((m) => m.body),
-          ['first', 'second']);
+      expect((await storage.loadMessages(c)).map((m) => m.body), [
+        'first',
+        'second',
+      ]);
     },
   );
 
-  test(
-    'honest timestamps from two authors still interleave by time',
-    () async {
-      final c = _id(6).hex;
-      final me = _id(31).hex;
-      final them = _id(32).hex;
-      Message ev(String who, int seq, String body, DateTime ts) => Message(
-            id: '$who$seq',
-            conversationId: c,
-            direction: MessageDirection.incoming,
-            body: body,
-            timestamp: ts,
-            author: who,
-            seq: seq,
-          );
-      // Two authors, interleaved honest times — the floor leaves honest order be.
-      await storage.appendMessage(ev(me, 1, 'a@10:00', DateTime(2026, 7, 1, 10)));
-      await storage.appendMessage(ev(them, 1, 'b@10:05', DateTime(2026, 7, 1, 10, 5)));
-      await storage.appendMessage(ev(me, 2, 'a@10:10', DateTime(2026, 7, 1, 10, 10)));
-      expect((await storage.loadMessages(c)).map((m) => m.body),
-          ['a@10:00', 'b@10:05', 'a@10:10']);
-    },
-  );
+  test('honest timestamps from two authors still interleave by time', () async {
+    final c = _id(6).hex;
+    final me = _id(31).hex;
+    final them = _id(32).hex;
+    Message ev(String who, int seq, String body, DateTime ts) => Message(
+      id: '$who$seq',
+      conversationId: c,
+      direction: MessageDirection.incoming,
+      body: body,
+      timestamp: ts,
+      author: who,
+      seq: seq,
+    );
+    // Two authors, interleaved honest times — the floor leaves honest order be.
+    await storage.appendMessage(ev(me, 1, 'a@10:00', DateTime(2026, 7, 1, 10)));
+    await storage.appendMessage(
+      ev(them, 1, 'b@10:05', DateTime(2026, 7, 1, 10, 5)),
+    );
+    await storage.appendMessage(
+      ev(me, 2, 'a@10:10', DateTime(2026, 7, 1, 10, 10)),
+    );
+    expect((await storage.loadMessages(c)).map((m) => m.body), [
+      'a@10:00',
+      'b@10:05',
+      'a@10:10',
+    ]);
+  });
 
   test(
     'incremental log fold matches a full scan across appends + status reads',
@@ -751,25 +761,62 @@ void main() {
     expect(await storage.loadFile('blob1'), isNull); // blob gone, not just row
   });
 
-  test('concurrent file stores do not collide (serialized log-id allocation)',
-      () async {
-    // Sending a file while an inbound one completes drives two storeFile calls at
-    // once. Each reads file_next_log, appends its chunks across several commits,
-    // then bumps the counter LAST — without the file gate they would read the
-    // same base and write colliding chunk log-ids, corrupting both blobs. Fire
-    // several multi-chunk stores at once and assert every blob round-trips.
-    final blobs = {
-      for (var i = 0; i < 6; i++)
-        'f$i': Uint8List.fromList(
-            List.generate(20000, (j) => (i * 97 + j) % 256)),
-    };
-    await Future.wait(
-        [for (final e in blobs.entries) storage.storeFile(e.key, e.value)]);
-    for (final e in blobs.entries) {
-      expect(await storage.loadFile(e.key), e.value,
-          reason: '${e.key} survived concurrent stores intact');
-    }
-  });
+  test(
+    'settings GC retains blobs referenced only by the cloud index',
+    () async {
+      final cid = List.filled(64, 'a').join();
+      final bytes = Uint8List.fromList([1, 2, 3, 4]);
+      await storage.storeFile(cid, bytes, name: 'cloud.bin');
+      await storage.storeFile('mf:$cid', bytes, name: 'cloud-manifest');
+      final item = CloudItem(
+        id: 'cloud_gc',
+        kind: CloudItemKind.file,
+        name: 'cloud.bin',
+        contentId: cid,
+        size: bytes.length,
+        createdAtMs: 1,
+        modifiedAtMs: 1,
+        revision: 1,
+        deleted: false,
+      );
+      await storage.putSetting(
+        'cloud.index.v1',
+        jsonEncode([item.toEvent().toBody()]),
+      );
+
+      await storage.sweepSettingsGarbage();
+
+      expect(await storage.loadFile(cid), bytes);
+      expect(await storage.loadFile('mf:$cid'), bytes);
+    },
+  );
+
+  test(
+    'concurrent file stores do not collide (serialized log-id allocation)',
+    () async {
+      // Sending a file while an inbound one completes drives two storeFile calls at
+      // once. Each reads file_next_log, appends its chunks across several commits,
+      // then bumps the counter LAST — without the file gate they would read the
+      // same base and write colliding chunk log-ids, corrupting both blobs. Fire
+      // several multi-chunk stores at once and assert every blob round-trips.
+      final blobs = {
+        for (var i = 0; i < 6; i++)
+          'f$i': Uint8List.fromList(
+            List.generate(20000, (j) => (i * 97 + j) % 256),
+          ),
+      };
+      await Future.wait([
+        for (final e in blobs.entries) storage.storeFile(e.key, e.value),
+      ]);
+      for (final e in blobs.entries) {
+        expect(
+          await storage.loadFile(e.key),
+          e.value,
+          reason: '${e.key} survived concurrent stores intact',
+        );
+      }
+    },
+  );
 
   test('editing a delivered message preserves its delivery status', () async {
     final conv = _id(12).hex;
@@ -1019,31 +1066,34 @@ void main() {
     // fold lands an incoming event under the sender's seq, letting us script an
     // exact per-author seq set.
     Message ev(String author, int seq) => Message(
-          id: '$author#$seq',
-          conversationId: conv,
-          direction: MessageDirection.incoming,
-          body: 'm$seq',
-          timestamp: DateTime(2026, 6, seq.clamp(1, 28)),
-          author: author,
-          seq: seq,
-        );
+      id: '$author#$seq',
+      conversationId: conv,
+      direction: MessageDirection.incoming,
+      body: 'm$seq',
+      timestamp: DateTime(2026, 6, seq.clamp(1, 28)),
+      author: author,
+      seq: seq,
+    );
 
     Message outgoing(String id, DateTime ts) => Message(
-          id: id,
-          conversationId: conv,
-          direction: MessageDirection.outgoing,
-          body: id,
-          timestamp: ts,
-        );
+      id: id,
+      conversationId: conv,
+      direction: MessageDirection.outgoing,
+      body: id,
+      timestamp: ts,
+    );
 
-    test('a gap-free stream reports the full high-water and no holes', () async {
-      for (final s in [1, 2, 3]) {
-        await storage.appendMessage(ev(authorA, s));
-      }
-      final sync = await storage.conversationSync(conv);
-      expect(sync.highWater[authorA], 3);
-      expect(sync.holes[authorA], isNull);
-    });
+    test(
+      'a gap-free stream reports the full high-water and no holes',
+      () async {
+        for (final s in [1, 2, 3]) {
+          await storage.appendMessage(ev(authorA, s));
+        }
+        final sync = await storage.conversationSync(conv);
+        expect(sync.highWater[authorA], 3);
+        expect(sync.holes[authorA], isNull);
+      },
+    );
 
     test('an interior gap stalls high-water and is named as a hole', () async {
       for (final s in [1, 2, 4]) {
@@ -1099,49 +1149,77 @@ void main() {
       expect(sync.holes, isEmpty);
     });
 
-    test('a locally-allocated post + its edit both advance the high-water',
-        () async {
-      // author=null → storage allocates author=conv, seq 1 (post) then 2 (edit).
-      final post = await storage.appendMessage(outgoing('p1', DateTime(2026, 6, 1)));
-      expect(post.seq, 1);
-      await storage.editMessage(conv, 'p1', 'hi (edited)');
-      final sync = await storage.conversationSync(conv);
-      expect(sync.highWater[conv], 2, reason: 'post seq 1 + edit seq 2');
-      expect(sync.holes[conv], isNull);
-    });
+    test(
+      'a locally-allocated post + its edit both advance the high-water',
+      () async {
+        // author=null → storage allocates author=conv, seq 1 (post) then 2 (edit).
+        final post = await storage.appendMessage(
+          outgoing('p1', DateTime(2026, 6, 1)),
+        );
+        expect(post.seq, 1);
+        await storage.editMessage(conv, 'p1', 'hi (edited)');
+        final sync = await storage.conversationSync(conv);
+        expect(sync.highWater[conv], 2, reason: 'post seq 1 + edit seq 2');
+        expect(sync.holes[conv], isNull);
+      },
+    );
 
-    test('a deleted message KEEPS its seq slot so high-water does not stall (R4)',
-        () async {
-      final stored = [
-        for (var i = 0; i < 3; i++)
-          await storage.appendMessage(outgoing('d$i', DateTime(2026, 6, i + 1))),
-      ];
-      expect((await storage.conversationSync(conv)).highWater[conv], 3,
-          reason: 'sanity: gap-free 1..3');
-      // Delete the MIDDLE message (seq 2): without the R4 slot-preservation its
-      // seq would vanish and high-water would regress to 1 with a hole at 2.
-      final middle = stored.firstWhere((m) => m.seq == 2);
-      await storage.deleteMessage(conv, middle.id);
-      final sync = await storage.conversationSync(conv);
-      expect(sync.highWater[conv], 3,
-          reason: 'the tombstone keeps the seq slot — high-water must not regress');
-      expect(sync.holes[conv], isNull);
-    });
+    test(
+      'a deleted message KEEPS its seq slot so high-water does not stall (R4)',
+      () async {
+        final stored = [
+          for (var i = 0; i < 3; i++)
+            await storage.appendMessage(
+              outgoing('d$i', DateTime(2026, 6, i + 1)),
+            ),
+        ];
+        expect(
+          (await storage.conversationSync(conv)).highWater[conv],
+          3,
+          reason: 'sanity: gap-free 1..3',
+        );
+        // Delete the MIDDLE message (seq 2): without the R4 slot-preservation its
+        // seq would vanish and high-water would regress to 1 with a hole at 2.
+        final middle = stored.firstWhere((m) => m.seq == 2);
+        await storage.deleteMessage(conv, middle.id);
+        final sync = await storage.conversationSync(conv);
+        expect(
+          sync.highWater[conv],
+          3,
+          reason:
+              'the tombstone keeps the seq slot — high-water must not regress',
+        );
+        expect(sync.holes[conv], isNull);
+      },
+    );
 
-    test('deleting an EDITED message keeps both the post and edit seq slots',
-        () async {
-      final post = await storage.appendMessage(outgoing('e1', DateTime(2026, 6, 1)));
-      expect(post.seq, 1);
-      await storage.editMessage(conv, 'e1', 'edited'); // consumes seq 2
-      // A later post at seq 3 so a dropped edit seq would show as an interior
-      // hole (2), not merely a shorter tail.
-      final later = await storage.appendMessage(outgoing('e2', DateTime(2026, 6, 3)));
-      expect(later.seq, 3);
-      await storage.deleteMessage(conv, 'e1'); // tombstones post (1), voids edit (2)
-      final sync = await storage.conversationSync(conv);
-      expect(sync.highWater[conv], 3,
-          reason: 'post (1, tombstone) + edit (2, void) + post (3) all retained');
-      expect(sync.holes[conv], isNull);
-    });
+    test(
+      'deleting an EDITED message keeps both the post and edit seq slots',
+      () async {
+        final post = await storage.appendMessage(
+          outgoing('e1', DateTime(2026, 6, 1)),
+        );
+        expect(post.seq, 1);
+        await storage.editMessage(conv, 'e1', 'edited'); // consumes seq 2
+        // A later post at seq 3 so a dropped edit seq would show as an interior
+        // hole (2), not merely a shorter tail.
+        final later = await storage.appendMessage(
+          outgoing('e2', DateTime(2026, 6, 3)),
+        );
+        expect(later.seq, 3);
+        await storage.deleteMessage(
+          conv,
+          'e1',
+        ); // tombstones post (1), voids edit (2)
+        final sync = await storage.conversationSync(conv);
+        expect(
+          sync.highWater[conv],
+          3,
+          reason:
+              'post (1, tombstone) + edit (2, void) + post (3) all retained',
+        );
+        expect(sync.holes[conv], isNull);
+      },
+    );
   });
 }

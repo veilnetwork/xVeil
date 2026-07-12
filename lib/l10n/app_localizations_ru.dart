@@ -496,6 +496,105 @@ class AppL10nRu extends AppL10n {
   String get comingSoon => 'Скоро';
 
   @override
+  String get cloudTitle => 'Личное облако';
+
+  @override
+  String get cloudUnavailable =>
+      'Облачная синхронизация станет доступна после запуска узла';
+
+  @override
+  String get cloudEmpty => 'Ваше облако пусто';
+
+  @override
+  String get cloudEmptyHint =>
+      'Файлы шифруются локально и реплицируются только между вашими связанными устройствами.';
+
+  @override
+  String get cloudAddFile => 'Добавить файл';
+
+  @override
+  String get cloudImported => 'Файл добавлен в облако';
+
+  @override
+  String get cloudImportFailed => 'Не удалось импортировать файл';
+
+  @override
+  String get cloudLoadFailed => 'Не удалось загрузить индекс облака';
+
+  @override
+  String get cloudReplication => 'Хранить на этом устройстве';
+
+  @override
+  String get cloudModeAll => 'Всё';
+
+  @override
+  String get cloudModeSelected => 'Выбранное';
+
+  @override
+  String get cloudModeIndex => 'Только индекс';
+
+  @override
+  String get cloudModeAllHint =>
+      'Автоматически загружать всё содержимое облака';
+
+  @override
+  String get cloudModeSelectedHint =>
+      'Автоматически загружать выбранные элементы';
+
+  @override
+  String get cloudModeIndexHint =>
+      'Показывать индекс, содержимое загружать по запросу';
+
+  @override
+  String get cloudLocal => 'на устройстве';
+
+  @override
+  String get cloudRemote => 'в облаке';
+
+  @override
+  String cloudReplicas(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count проверенных копий',
+      few: '$count проверенные копии',
+      one: '1 проверенная копия',
+      zero: 'нет проверенных копий',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get cloudDownload => 'Загрузить на устройство';
+
+  @override
+  String get cloudSelect => 'Хранить выбранным';
+
+  @override
+  String get cloudUnselect => 'Не хранить выбранным';
+
+  @override
+  String get cloudVerify => 'Проверить и восстановить';
+
+  @override
+  String get cloudVerifyOk => 'Локальные файлы облака прошли проверку';
+
+  @override
+  String cloudRepairStarted(int count) {
+    return 'Запрошено восстановление повреждённых файлов: $count';
+  }
+
+  @override
+  String get cloudDelete => 'Удалить';
+
+  @override
+  String get cloudDeleteTitle => 'Удалить из облака?';
+
+  @override
+  String get cloudDeleteBody =>
+      'Элемент исчезнет со всех связанных устройств. Это действие нельзя отменить.';
+
+  @override
   String get settingsCatAccount => 'Личности и аккаунт';
 
   @override
