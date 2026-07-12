@@ -2095,6 +2095,13 @@ class AppL10nRu extends AppL10n {
       'Фраза расшифрует суверенный ключ только для этого действия и не сохранится.';
 
   @override
+  String get devicesRecoveryCode => 'Код восстановления';
+
+  @override
+  String get devicesRecoveryCodeHint =>
+      'Код расшифрует сертификат восстановления только для этого действия и не сохранится.';
+
+  @override
   String get devicesTargetInvite => 'Инвайт нового устройства';
 
   @override
@@ -2159,4 +2166,49 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get devicesCancelPending => 'Отменить ожидание';
+
+  @override
+  String get devicesRecoverySection => 'Если потеряны все устройства';
+
+  @override
+  String get devicesCreateRecovery => 'Создать сертификат восстановления';
+
+  @override
+  String get devicesCreateRecoveryHint =>
+      'Сохранит тот же суверенный node ID при потере всех связанных устройств';
+
+  @override
+  String get devicesRecover => 'Восстановить реестр устройств';
+
+  @override
+  String get devicesRecoverHint =>
+      'На чистом реестре используйте сертификат и отдельно сохранённый код';
+
+  @override
+  String get devicesCertificate => 'Сертификат восстановления';
+
+  @override
+  String get devicesCertificateHint =>
+      'Вставьте полное значение xveil-recovery:v1';
+
+  @override
+  String get devicesCertificateReady => 'Сертификат восстановления создан';
+
+  @override
+  String get devicesCertificateWarning =>
+      'Тот, у кого есть оба значения, управляет вашей суверенной идентичностью устройств. Храните сертификат и код раздельно. Код показан только сейчас.';
+
+  @override
+  String get devicesCopyCertificate => 'Копировать сертификат';
+
+  @override
+  String get devicesCopyCode => 'Копировать код восстановления';
+
+  @override
+  String get devicesRecovered =>
+      'Реестр устройств восстановлен с прежним суверенным node ID';
+
+  @override
+  String get devicesFreshRegistryRequired =>
+      'Для восстановления нужен чистый реестр устройств';
 }

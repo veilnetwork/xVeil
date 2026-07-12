@@ -23,6 +23,9 @@ void main() {
       expect(find.text(l.devicesNoGroup), findsOneWidget);
       expect(find.text(l.devicesLinkNew), findsOneWidget);
       expect(find.text(l.devicesJoinExisting), findsOneWidget);
+      expect(find.text(l.devicesRecoverySection), findsOneWidget);
+      expect(find.text(l.devicesCreateRecovery), findsOneWidget);
+      expect(find.text(l.devicesRecover), findsOneWidget);
       final source = tester.widget<ListTile>(
         find.widgetWithText(ListTile, l.devicesLinkNew),
       );
@@ -31,6 +34,20 @@ void main() {
       );
       expect(source.enabled, isFalse);
       expect(target.enabled, isFalse);
+      expect(
+        tester
+            .widget<ListTile>(
+              find.widgetWithText(ListTile, l.devicesCreateRecovery),
+            )
+            .enabled,
+        isFalse,
+      );
+      expect(
+        tester
+            .widget<ListTile>(find.widgetWithText(ListTile, l.devicesRecover))
+            .enabled,
+        isFalse,
+      );
     },
   );
 }

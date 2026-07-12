@@ -802,6 +802,72 @@ void main() {
     );
   });
 
+  test('XVRC disaster recovery preserves sovereign node id and mints fresh gid',
+      () async {
+    final phrase = veil.generateMasterPhrase();
+    final sourceStorage = FakeHvContainer().storage();
+    await sourceStorage.open(password: 'pw', createIfMissing: true);
+    final source = GroupService(sourceStorage, _NativeSovereignVerifier(owner));
+
+    final exported = await source.exportRecoveryCertificate(phrase);
+    expect(exported, isNotNull,
+        reason: 'pre-issuing a certificate provisions XVSB before first link');
+    expect(await source.sovereignCredentialKind(), 'phrase');
+    expect(await source.deviceGroupIdHex(), isNull,
+        reason: 'pre-issuing a certificate does not create device membership');
+    expect(ascii.decode(exported!.certificate.sublist(0, 4)), 'XVRC');
+
+    final recoveredStorage = FakeHvContainer().storage();
+    await recoveredStorage.open(password: 'pw', createIfMissing: true);
+    final recovered =
+        GroupService(recoveredStorage, _NativeSovereignVerifier(bob));
+    final gid = await recovered.recoverDeviceGroupFromCertificate(
+        exported.certificate, exported.code);
+    expect(gid, isNotNull);
+    final bundle = (await recovered.load(gid!))!;
+    expect(bundle.manifest.owner, exported.nodeId);
+    expect(bundle.manifest.sovereignBundleHash, hasLength(32));
+    expect(bundle.sovereignBundle, exported.certificate);
+    expect((await recovered.stateOf(gid))!.isMember(bob), isTrue);
+    expect(await recovered.sovereignCredentialKind(), 'certificate');
+
+    final reopened = await recovered.openLocalSovereign(exported.code);
+    expect(reopened.nodeId, exported.nodeId);
+    reopened.close();
+    await expectLater(
+        recovered.openLocalSovereign(veil.generateSovereignRecoveryCode()),
+        throwsA(anything));
+
+    final rotated = await recovered.exportRecoveryCertificate(exported.code);
+    expect(rotated, isNotNull);
+    expect(rotated!.nodeId, exported.nodeId);
+    final rotatedSigner = NativeSovereignGroupSigner.openRecoveryCertificate(
+        rotated.certificate, rotated.code);
+    expect(rotatedSigner.nodeId, exported.nodeId);
+    rotatedSigner.close();
+
+    final wrongStorage = FakeHvContainer().storage();
+    await wrongStorage.open(password: 'pw', createIfMissing: true);
+    final wrong = GroupService(wrongStorage, _NativeSovereignVerifier(bob));
+    await expectLater(
+        wrong.recoverDeviceGroupFromCertificate(exported.certificate,
+            veil.generateSovereignRecoveryCode()),
+        throwsA(anything));
+    expect(await wrong.localSovereignBundle(), isNull,
+        reason: 'wrong code must fail before persisting any credential');
+    expect(await wrong.deviceGroupIdHex(), isNull);
+
+    final rejectedStorage = FakeHvContainer().storage();
+    await rejectedStorage.open(password: 'pw', createIfMissing: true);
+    final rejected = GroupService(rejectedStorage, _FakeSigner(bob));
+    expect(
+        await rejected.recoverDeviceGroupFromCertificate(
+            exported.certificate, exported.code),
+        isNull);
+    expect(await rejected.localSovereignBundle(), isNull,
+        reason: 'failed manifest verification rolls back the staged XVRC');
+  });
+
   test('guided adoption admits one pinned stranger snapshot then auto-adopts',
       () async {
     final sourceInvite = BootstrapInvite(
