@@ -115,8 +115,40 @@ orphan is discoverable after restart and folded into the index by the next
 write. Local keys are commitment-checked before persistence and have an
 explicit RAM wipe method.
 
-This still does **not** replicate the log/envelopes, create invitation flows,
-encrypt CRDT payload blobs, or expose ACL UI. Those remain CLOUD-3B2/3+.
+## Implemented: CLOUD-3B2/3 replication and explicit adoption
+
+Shared documents now have distinct `cloudDocument` / `cloudDocumentChunk` wire
+kinds. They are durable-outbox frames with bounded in-RAM reassembly and never
+reuse `groupEntry` or its stranger-membership admission. The transport accepts
+them only from an accepted contact. The document layer then independently
+verifies the signed root, owner-only control chain, author chains, epoch
+frontiers, recipient-envelope hashes, and current membership. A chat contact is
+therefore a delivery prerequisite, not document authority.
+
+An invite from the signed root owner is persisted as an A/B pending record in
+the deniable hidden volume. It is inert: receiving or restarting with it does
+not materialize a document and does not decrypt an epoch key. Explicit local
+`adopt` revalidates the complete log, opens only envelopes addressed to the
+local node id through production mailbox crypto, persists the resulting keys in
+the document bundle, wipes temporary key copies, and removes the pending invite.
+The provider is wired eagerly for every unlocked identity, including every
+hosted pipeline in all-online mode rather than only the identity visible in the
+UI. This matters because a durable frame must never be acknowledged and then
+dropped merely because its identity is inactive. The wiring exists before
+document UI, so an inbound invite survives until its later adopt UI.
+
+Snapshot and delta frames merge by immutable signed-record hash and envelope
+epoch. Exact replay is idempotent; a conflicting root/envelope, signature
+failure, sequence fork, incomplete closure, unknown dependency, non-member
+sender, or post-revocation operation rejects the candidate without modifying
+the stored document. The current sender may relay another member's signed
+record while they are a current document member; authority always comes from
+the record signature and folded epoch, not from transport authorship.
+
+This brick still does **not** encrypt/store the CRDT payload bytes named by
+`payloadHash`, expose invitation/ACL UI, or implement rich-text CRDT operations.
+Those remain CLOUD-3B2/4+; a real three-device cross-node invite/adopt run also
+remains device verification rather than a claimed unit-test property.
 
 ## Why ordinary `GroupMessage` is not sufficient yet
 

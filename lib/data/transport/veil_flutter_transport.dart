@@ -228,6 +228,12 @@ class VeilFlutterTransport
   @override
   Future<NodeId> nodeId() async => NodeId(await _client.nodeId());
 
+  /// Recipient-bound mailbox crypto for shared-document epoch envelopes. It
+  /// uses the same live node identity as offline delivery without exposing the
+  /// underlying IPC client.
+  VeilMailboxCrypto mailboxCrypto() =>
+      VeilFlutterMailboxCrypto(_client.mailbox);
+
   /// Endpoints (distinct from the chat inbox at [veilChatEndpointId] = 0) the
   /// offline-mailbox path binds on this same client: a PUT source app (carries a
   /// non-spoofable src_app_id for anonymous deposits) and a FETCH reply app

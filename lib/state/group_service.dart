@@ -32,6 +32,7 @@ import '../data/node/embedded_node.dart';
 import '../data/transport/bootstrap_invite.dart';
 import '../data/storage/storage.dart';
 import 'app_controller.dart';
+import 'cloud_document_providers.dart';
 import 'group_crypto.dart';
 import 'messaging.dart';
 import 'providers.dart';
@@ -2382,6 +2383,9 @@ final groupSignerProvider = FutureProvider<GroupSigner?>((ref) async {
 /// delivery to the messaging layer, and routes inbound snapshots back into
 /// the service (idempotent ingest) — the direct-fanout transport (v1).
 final groupServiceProvider = Provider<GroupService?>((ref) {
+  // Keep document ingress wired for this unlocked identity even before the
+  // document UI exists; pending invites must survive until explicit adopt.
+  ref.watch(cloudDocumentReplicationServiceProvider);
   final signer = ref.watch(groupSignerProvider).valueOrNull;
   if (signer == null) return null;
   final messaging = ref.read(messagingServiceProvider);

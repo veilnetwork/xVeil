@@ -106,6 +106,14 @@ enum WireKind {
   /// Added before [unknown] so an older decoder maps this out-of-range index
   /// to [unknown] and drops it (RULE WC).
   chatDeleted,
+
+  /// Signed shared-document invite/snapshot/delta. This is deliberately not a
+  /// group frame: accepted-contact transport admission is followed by the
+  /// document layer's own root/control/epoch verification.
+  cloudDocument,
+
+  /// One durable chunk of an oversized [cloudDocument] frame.
+  cloudDocumentChunk,
   unknown,
 }
 
@@ -277,6 +285,12 @@ class WireEnvelope {
   /// A signed group content-fetch request — see [WireKind.groupContentRequest].
   const WireEnvelope.groupContentRequest(String requestJson)
     : this(WireKind.groupContentRequest, requestJson);
+
+  const WireEnvelope.cloudDocument(String frameJson)
+    : this(WireKind.cloudDocument, frameJson);
+
+  const WireEnvelope.cloudDocumentChunk(String bodyJson)
+    : this(WireKind.cloudDocumentChunk, bodyJson);
 
   /// The decode-only sentinel for a structured (v:2) frame whose kind this build
   /// does not know — the dispatcher drops it (RULE WC).
@@ -657,3 +671,19 @@ GroupEntryChunkFrame parseGroupEntryChunk(String body) {
     data: base64.decode(j['d'] as String),
   );
 }
+
+/// Document chunks use the same bounded `{tid,i,n,d}` representation as group
+/// snapshots, but a distinct wire kind keeps the authorization paths separate.
+WireEnvelope cloudDocumentChunkEnvelope({
+  required String transferId,
+  required int index,
+  required int count,
+  required Uint8List data,
+}) => WireEnvelope.cloudDocumentChunk(
+  jsonEncode({
+    'tid': transferId,
+    'i': index,
+    'n': count,
+    'd': base64.encode(data),
+  }),
+);

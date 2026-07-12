@@ -5,6 +5,7 @@ import '../core/ids.dart';
 import '../data/storage/storage.dart';
 import '../domain/cloud_document.dart';
 import '../domain/cloud_document_envelope.dart';
+import '../domain/cloud_document_replication.dart';
 
 const int _maxDocumentControls = 4096;
 const int _maxDocumentOperations = 100000;
@@ -186,8 +187,12 @@ class CloudDocumentStore {
 
   static const String _indexKey = 'cloud.documents.index.v1';
   static const String _pendingKey = 'cloud.documents.pending.v1';
+  static const String _inviteIndexKey = 'cloud.document.invites.index.v1';
+  static const String _invitePendingKey = 'cloud.document.invites.pending.v1';
 
   String _documentKey(String documentId) => 'cloud.document.v1.$documentId';
+  String _inviteKey(String documentId) =>
+      'cloud.document.invite.v1.$documentId';
 
   Future<T> _serialized<T>(Future<T> Function() action) {
     final result = _writeTail.then((_) => action());
@@ -274,6 +279,72 @@ class CloudDocumentStore {
     final sorted = ids.toList()..sort();
     return sorted;
   }
+
+  Future<CloudDocumentPendingInvite?> loadPendingInvite(String documentId) =>
+      _loadAtomic(_inviteKey(documentId), CloudDocumentPendingInvite.fromJson);
+
+  Future<List<String>> listPendingInviteIds() async {
+    final result = await _loadAtomic<List<String>>(_inviteIndexKey, (decoded) {
+      if (decoded is! Map || decoded['v'] != 1 || decoded['ids'] is! List) {
+        return null;
+      }
+      final raw = decoded['ids'] as List;
+      final ids = raw.whereType<String>().toList();
+      if (ids.length != raw.length ||
+          ids.length > 100000 ||
+          ids.toSet().length != ids.length) {
+        return null;
+      }
+      try {
+        for (final id in ids) {
+          NodeId.fromHex(id);
+        }
+      } catch (_) {
+        return null;
+      }
+      return ids..sort();
+    });
+    final ids = (result ?? const <String>[]).toSet();
+    final pending = await _storage.getSetting(_invitePendingKey);
+    if (pending != null && pending.isNotEmpty) {
+      try {
+        NodeId.fromHex(pending);
+        if (await loadPendingInvite(pending) != null) ids.add(pending);
+      } catch (_) {}
+    }
+    return ids.toList()..sort();
+  }
+
+  Future<void> savePendingInvite(CloudDocumentPendingInvite invite) =>
+      _serialized(() async {
+        final id = invite.frame.root.documentId.hex;
+        if (invite.sender != invite.frame.root.owner ||
+            CloudDocumentPendingInvite.fromJson(invite.toJson()) == null) {
+          throw ArgumentError('invalid cloud document invite');
+        }
+        final ids = (await listPendingInviteIds()).toSet()..add(id);
+        await _storage.putSetting(_invitePendingKey, id);
+        await _saveAtomic(_inviteKey(id), jsonEncode(invite.toJson()));
+        await _saveAtomic(
+          _inviteIndexKey,
+          jsonEncode({'v': 1, 'ids': (ids.toList()..sort())}),
+        );
+        await _storage.putSetting(_invitePendingKey, '');
+      });
+
+  Future<void> removePendingInvite(String documentId) => _serialized(() async {
+    final ids = (await listPendingInviteIds()).toSet()..remove(documentId);
+    await _saveAtomic(
+      _inviteIndexKey,
+      jsonEncode({'v': 1, 'ids': (ids.toList()..sort())}),
+    );
+    await _storage.deleteStoredFile('${_inviteKey(documentId)}.a');
+    await _storage.deleteStoredFile('${_inviteKey(documentId)}.b');
+    await _storage.putSetting('${_inviteKey(documentId)}.active', '');
+    if (await _storage.getSetting(_invitePendingKey) == documentId) {
+      await _storage.putSetting(_invitePendingKey, '');
+    }
+  });
 
   Future<void> save(CloudDocumentStoredBundle bundle) => _serialized(() async {
     if (!bundle.isStructurallyValid) {
