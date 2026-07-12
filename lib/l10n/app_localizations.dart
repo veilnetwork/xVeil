@@ -4572,6 +4572,120 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Invitation removed'**
   String get cloudDocumentRejected;
+
+  /// No description provided for @cloudSharedNew.
+  ///
+  /// In en, this message translates to:
+  /// **'New shared document'**
+  String get cloudSharedNew;
+
+  /// No description provided for @cloudSharedDocuments.
+  ///
+  /// In en, this message translates to:
+  /// **'Shared documents ({count})'**
+  String cloudSharedDocuments(int count);
+
+  /// No description provided for @cloudSharedDocument.
+  ///
+  /// In en, this message translates to:
+  /// **'Shared {kind} · {id}'**
+  String cloudSharedDocument(String kind, String id);
+
+  /// No description provided for @cloudSharedMembers.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} members · epoch {epoch} · {role}'**
+  String cloudSharedMembers(int count, int epoch, String role);
+
+  /// No description provided for @cloudSharedPickContact.
+  ///
+  /// In en, this message translates to:
+  /// **'Invite an accepted contact'**
+  String get cloudSharedPickContact;
+
+  /// No description provided for @cloudSharedRole.
+  ///
+  /// In en, this message translates to:
+  /// **'Document role'**
+  String get cloudSharedRole;
+
+  /// No description provided for @cloudSharedRoleOwner.
+  ///
+  /// In en, this message translates to:
+  /// **'Owner'**
+  String get cloudSharedRoleOwner;
+
+  /// No description provided for @cloudSharedRoleEditor.
+  ///
+  /// In en, this message translates to:
+  /// **'Editor'**
+  String get cloudSharedRoleEditor;
+
+  /// No description provided for @cloudSharedRoleViewer.
+  ///
+  /// In en, this message translates to:
+  /// **'Viewer'**
+  String get cloudSharedRoleViewer;
+
+  /// No description provided for @cloudSharedCreated.
+  ///
+  /// In en, this message translates to:
+  /// **'Shared document created and invitation queued'**
+  String get cloudSharedCreated;
+
+  /// No description provided for @cloudSharedFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not update the shared document'**
+  String get cloudSharedFailed;
+
+  /// No description provided for @cloudSharedPartial.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved locally, but delivery was not queued for every member'**
+  String get cloudSharedPartial;
+
+  /// No description provided for @cloudSharedAddMember.
+  ///
+  /// In en, this message translates to:
+  /// **'Add member'**
+  String get cloudSharedAddMember;
+
+  /// No description provided for @cloudSharedRevoke.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoke access'**
+  String get cloudSharedRevoke;
+
+  /// No description provided for @cloudSharedRevokeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoke access for {member}?'**
+  String cloudSharedRevokeTitle(String member);
+
+  /// No description provided for @cloudSharedRotate.
+  ///
+  /// In en, this message translates to:
+  /// **'Rotate encryption key'**
+  String get cloudSharedRotate;
+
+  /// No description provided for @cloudSharedRotateTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Rotate the document key for every member?'**
+  String get cloudSharedRotateTitle;
+
+  /// No description provided for @cloudSharedResend.
+  ///
+  /// In en, this message translates to:
+  /// **'Resend invitation'**
+  String get cloudSharedResend;
+
+  /// No description provided for @cloudSharedQueued.
+  ///
+  /// In en, this message translates to:
+  /// **'Update queued'**
+  String get cloudSharedQueued;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

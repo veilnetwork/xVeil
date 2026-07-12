@@ -23,6 +23,7 @@ class _Link implements VeilTransport {
   _Link(this._me);
   final NodeId _me;
   final _inbound = StreamController<InboundMessage>.broadcast();
+  final sent = <Uint8List>[];
   _Link? peer;
 
   @override
@@ -40,6 +41,7 @@ class _Link implements VeilTransport {
     Uint8List payload, {
     bool anonymous = false,
   }) async {
+    sent.add(Uint8List.fromList(payload));
     final p = peer;
     if (p == null || p._me != dst) return;
     p._inbound.add(InboundMessage(src: _me, payload: payload));
@@ -240,10 +242,11 @@ void main() {
       final chunks = _documentChunkFrames(frame, 'doc:${_id(10).hex}:7');
       String? received;
       var calls = 0;
-      mB.onCloudDocumentFrame = (peer, json) {
+      mB.onCloudDocumentFrame = (peer, json) async {
         expect(peer, a);
         received = json;
         calls++;
+        return true;
       };
       for (final chunk in chunks.reversed) {
         expect(chunk.length, lessThanOrEqualTo(6144));
@@ -262,6 +265,49 @@ void main() {
         await _settle();
       }
       expect(calls, 1, reason: 'document frames never use stranger admission');
+    },
+  );
+
+  test(
+    'document chunks withhold ACK until persistence becomes terminal',
+    () async {
+      final frame = jsonEncode({'v': 1, 'body': 'r' * 9000});
+      final chunks = _documentChunkFrames(frame, 'doc:${_id(11).hex}:9');
+      var terminal = false;
+      var calls = 0;
+      mB.onCloudDocumentFrame = (_, _) async {
+        calls++;
+        return terminal;
+      };
+
+      for (final chunk in chunks) {
+        tB.inject(a, chunk);
+        await _settle();
+      }
+      expect(calls, 1);
+      expect(
+        tB.sent.where((wire) => WireEnvelope.decode(wire).kind == WireKind.ack),
+        isEmpty,
+        reason: 'a local storage failure must leave every chunk retryable',
+      );
+
+      terminal = true;
+      for (final chunk in chunks) {
+        tB.inject(a, chunk);
+        await _settle();
+      }
+      expect(calls, 2);
+      final ackIds = tB.sent
+          .map(WireEnvelope.decode)
+          .where((envelope) => envelope.kind == WireKind.ack)
+          .map((envelope) => envelope.id)
+          .whereType<String>()
+          .toSet();
+      expect(ackIds, hasLength(chunks.length));
+
+      tB.inject(a, chunks.first);
+      await _settle();
+      expect(calls, 2, reason: 'terminal chunks dedup and only re-ack');
     },
   );
 }

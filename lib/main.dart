@@ -244,7 +244,8 @@ Future<List<Override>> _bootstrapOverrides() async {
     // ~1.5 MB outbox.db — hundreds of launches quietly cost ~100 MB.
     unawaited(_sweepStaleRuntimeDirs(runtimeBase));
     final port =
-        int.tryParse(Platform.environment['XVEIL_LISTEN_PORT'] ?? '') ?? 9000;
+        int.tryParse(Platform.environment['XVEIL_LISTEN_PORT'] ?? '') ??
+        (Platform.isIOS ? 9002 : 9000);
     // XVEIL_BOOTSTRAP_PEERS points at a local JSON file (gitignored — a testnet
     // set is environment-specific, never committed) listing the network's
     // bootstrap peers. Absent ⇒ the node relies on its compiled-in BUILTIN_SEEDS.
