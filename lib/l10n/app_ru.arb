@@ -788,5 +788,15 @@
   "devicesCopyCertificate": "Копировать сертификат",
   "devicesCopyCode": "Копировать код восстановления",
   "devicesRecovered": "Реестр устройств восстановлен с прежним суверенным node ID",
-  "devicesFreshRegistryRequired": "Для восстановления нужен чистый реестр устройств"
+  "devicesFreshRegistryRequired": "Для восстановления нужен чистый реестр устройств",
+  "actionReject": "Отклонить",
+  "cloudDocumentInvites": "Приглашения в общие документы ({count})",
+  "@cloudDocumentInvites": {"placeholders": {"count": {"type": "int"}}},
+  "cloudDocumentInviteFrom": "Приглашение от {sender}",
+  "@cloudDocumentInviteFrom": {"placeholders": {"sender": {"type": "String"}}},
+  "cloudDocumentInviteKind": "Зашифрованный документ {kind} · неактивен до принятия",
+  "@cloudDocumentInviteKind": {"placeholders": {"kind": {"type": "String"}}},
+  "cloudDocumentAdopted": "Общий документ добавлен",
+  "cloudDocumentAdoptFailed": "Не удалось проверить приглашение",
+  "cloudDocumentRejected": "Приглашение удалено"
 }

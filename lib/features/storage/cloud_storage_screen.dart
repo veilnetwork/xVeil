@@ -8,8 +8,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/ids.dart';
 import '../../domain/cloud.dart';
+import '../../domain/cloud_document_replication.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/cloud_capability_service.dart';
+import '../../state/cloud_document_providers.dart';
+import '../../state/cloud_document_replication_service.dart';
 import '../../state/cloud_service.dart';
 import 'cloud_note_editor.dart';
 
@@ -173,6 +176,7 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
     final l = AppL10n.of(context);
     final service = ref.watch(cloudServiceProvider);
     final items = ref.watch(cloudItemsProvider);
+    final documentService = ref.watch(cloudDocumentReplicationServiceProvider);
     return Scaffold(
       appBar: AppBar(
         title: Text(l.cloudTitle),
@@ -204,6 +208,8 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
           ? Center(child: Text(l.cloudUnavailable))
           : Column(
               children: [
+                if (documentService != null)
+                  _PendingDocumentInvites(service: documentService),
                 _ReplicationProfile(service: service),
                 const Divider(height: 1),
                 Expanded(
@@ -241,6 +247,145 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
               icon: const Icon(Icons.add),
               label: Text(l.cloudAdd),
             ),
+    );
+  }
+}
+
+class _PendingDocumentInvites extends StatefulWidget {
+  const _PendingDocumentInvites({required this.service});
+
+  final CloudDocumentReplicationService service;
+
+  @override
+  State<_PendingDocumentInvites> createState() =>
+      _PendingDocumentInvitesState();
+}
+
+class _PendingDocumentInvitesState extends State<_PendingDocumentInvites> {
+  StreamSubscription<void>? _subscription;
+  List<CloudDocumentPendingInvite> _invites = const [];
+  final Set<String> _busy = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _listen();
+  }
+
+  @override
+  void didUpdateWidget(covariant _PendingDocumentInvites oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.service, widget.service)) _listen();
+  }
+
+  void _listen() {
+    unawaited(_subscription?.cancel());
+    _subscription = widget.service.changes.listen((_) => _reload());
+    unawaited(_reload());
+  }
+
+  Future<void> _reload() async {
+    final invites = await widget.service.pendingInvites();
+    if (mounted) setState(() => _invites = invites);
+  }
+
+  Future<void> _decide(CloudDocumentPendingInvite invite, bool accept) async {
+    final id = invite.frame.root.documentId.hex;
+    if (_busy.contains(id)) return;
+    setState(() => _busy.add(id));
+    var ok = true;
+    try {
+      if (accept) {
+        ok = await widget.service.adopt(id);
+      } else {
+        await widget.service.dismissInvite(id);
+      }
+    } catch (_) {
+      ok = false;
+    } finally {
+      if (mounted) setState(() => _busy.remove(id));
+    }
+    if (!mounted) return;
+    final l = AppL10n.of(context);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            ok
+                ? (accept ? l.cloudDocumentAdopted : l.cloudDocumentRejected)
+                : l.cloudDocumentAdoptFailed,
+          ),
+        ),
+      );
+    await _reload();
+  }
+
+  @override
+  void dispose() {
+    unawaited(_subscription?.cancel());
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_invites.isEmpty) return const SizedBox.shrink();
+    final l = AppL10n.of(context);
+    return Material(
+      color: Theme.of(context).colorScheme.secondaryContainer,
+      child: ExpansionTile(
+        key: const ValueKey('cloud-document-invites'),
+        initiallyExpanded: true,
+        leading: const Icon(Icons.group_add_outlined),
+        title: Text(l.cloudDocumentInvites(_invites.length)),
+        children: [
+          for (final invite in _invites)
+            Padding(
+              key: ValueKey(
+                'cloud-document-invite-${invite.frame.root.documentId.hex}',
+              ),
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    l.cloudDocumentInviteFrom(
+                      invite.sender.hex.substring(0, 8),
+                    ),
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(l.cloudDocumentInviteKind(invite.frame.root.kind.name)),
+                  const SizedBox(height: 4),
+                  Align(
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: _busy.contains(invite.frame.root.documentId.hex)
+                        ? const Padding(
+                            padding: EdgeInsets.all(12),
+                            child: SizedBox.square(
+                              dimension: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          )
+                        : Wrap(
+                            spacing: 4,
+                            children: [
+                              TextButton(
+                                onPressed: () => _decide(invite, false),
+                                child: Text(l.actionReject),
+                              ),
+                              FilledButton(
+                                onPressed: () => _decide(invite, true),
+                                child: Text(l.actionAccept),
+                              ),
+                            ],
+                          ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -315,9 +460,9 @@ class _EmptyCloud extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(32),
+      child: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [

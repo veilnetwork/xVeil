@@ -792,5 +792,15 @@
   "devicesCopyCertificate": "Copy certificate",
   "devicesCopyCode": "Copy recovery code",
   "devicesRecovered": "Device registry recovered with the same sovereign node ID",
-  "devicesFreshRegistryRequired": "Recovery requires a fresh device registry"
+  "devicesFreshRegistryRequired": "Recovery requires a fresh device registry",
+  "actionReject": "Reject",
+  "cloudDocumentInvites": "Shared document invitations ({count})",
+  "@cloudDocumentInvites": {"placeholders": {"count": {"type": "int"}}},
+  "cloudDocumentInviteFrom": "Invitation from {sender}",
+  "@cloudDocumentInviteFrom": {"placeholders": {"sender": {"type": "String"}}},
+  "cloudDocumentInviteKind": "Encrypted {kind} document · inactive until accepted",
+  "@cloudDocumentInviteKind": {"placeholders": {"kind": {"type": "String"}}},
+  "cloudDocumentAdopted": "Shared document added",
+  "cloudDocumentAdoptFailed": "The invitation could not be verified",
+  "cloudDocumentRejected": "Invitation removed"
 }

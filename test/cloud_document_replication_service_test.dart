@@ -5,6 +5,7 @@ import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/transport/veil_mailbox.dart';
 import 'package:xveil/domain/cloud_document.dart';
 import 'package:xveil/domain/cloud_document_replication.dart';
+import 'package:xveil/domain/cloud_document_payload.dart';
 import 'package:xveil/state/cloud_document_envelope_service.dart';
 import 'package:xveil/state/cloud_document_replication_service.dart';
 import 'package:xveil/state/cloud_document_store.dart';
@@ -124,6 +125,24 @@ Future<CloudDocumentStore> _openStore(FakeHvContainer container) async {
   return CloudDocumentStore(storage);
 }
 
+Future<
+  ({CloudDocumentOperation operation, CloudDocumentEncryptedPayload payload})
+>
+_sealedOperation({
+  required CloudDocumentOperation unsigned,
+  required Uint8List key,
+}) async {
+  final payload = await encryptCloudDocumentPayload(
+    operation: unsigned,
+    clearText: _bytes(unsigned.seq + 1, 12),
+    epochKey: key,
+  );
+  return (
+    operation: unsigned.withPayloadHash(payload.payloadHash),
+    payload: payload,
+  );
+}
+
 void main() {
   test(
     'invite is inert, survives restart, and explicit adopt opens key',
@@ -234,29 +253,85 @@ void main() {
     await service.ingest(fixture.owner, invite.encode());
     await service.adopt(fixture.bundle.root.documentId.hex);
 
-    final edit = CloudDocumentOperation(
-      documentId: fixture.bundle.root.documentId,
-      membershipEpoch: 1,
-      author: fixture.editor,
-      seq: 0,
-      prevAuthorHash: '',
-      operationId: _hash(70),
-      parentOperationIds: const [],
-      opType: 'insert',
-      payloadHash: _hash(71),
-      createdAtMs: 2000,
-      authorPubKey: _bytes(2, 32),
-      signature: _bytes(2, 64),
+    final sealedEdit = await _sealedOperation(
+      key: _bytes(31, 32),
+      unsigned: CloudDocumentOperation(
+        documentId: fixture.bundle.root.documentId,
+        membershipEpoch: 1,
+        author: fixture.editor,
+        seq: 0,
+        prevAuthorHash: '',
+        operationId: _hash(70),
+        parentOperationIds: const [],
+        opType: 'insert',
+        payloadHash: _hash(0),
+        createdAtMs: 2000,
+        authorPubKey: _bytes(2, 32),
+        signature: _bytes(2, 64),
+      ),
     );
+    final edit = sealedEdit.operation;
     final delta = CloudDocumentFrame(
       kind: CloudDocumentFrameKind.delta,
       root: fixture.bundle.root,
       controls: fixture.bundle.controls,
       operations: [edit],
       envelopes: fixture.bundle.envelopes,
+      payloads: [sealedEdit.payload],
     );
     expect(await service.ingest(fixture.owner, delta.encode()), isTrue);
     expect(await service.ingest(fixture.owner, delta.encode()), isTrue);
+    expect(
+      (await store.load(fixture.bundle.root.documentId.hex))!.operations,
+      hasLength(1),
+    );
+    expect(
+      await service.decryptOperation(
+        fixture.bundle.root.documentId.hex,
+        edit.operationId,
+      ),
+      _bytes(1, 12),
+    );
+
+    final unsignedGarbage = CloudDocumentOperation(
+      documentId: fixture.bundle.root.documentId,
+      membershipEpoch: 1,
+      author: fixture.editor,
+      seq: 1,
+      prevAuthorHash: edit.recordHash,
+      operationId: _hash(74),
+      parentOperationIds: [edit.operationId],
+      opType: 'insert',
+      payloadHash: _hash(0),
+      createdAtMs: 2500,
+      authorPubKey: _bytes(2, 32),
+      signature: _bytes(2, 64),
+    );
+    final sealedGarbage = await _sealedOperation(
+      unsigned: unsignedGarbage,
+      key: _bytes(31, 32),
+    );
+    final corruptPayload = CloudDocumentEncryptedPayload(
+      documentId: sealedGarbage.payload.documentId,
+      membershipEpoch: sealedGarbage.payload.membershipEpoch,
+      operationId: sealedGarbage.payload.operationId,
+      nonce: sealedGarbage.payload.nonce,
+      cipherText: Uint8List.fromList(sealedGarbage.payload.cipherText)
+        ..[0] ^= 1,
+      mac: sealedGarbage.payload.mac,
+    );
+    final signedGarbage = unsignedGarbage.withPayloadHash(
+      corruptPayload.payloadHash,
+    );
+    final garbageDelta = CloudDocumentFrame(
+      kind: CloudDocumentFrameKind.delta,
+      root: fixture.bundle.root,
+      controls: fixture.bundle.controls,
+      operations: [edit, signedGarbage],
+      envelopes: fixture.bundle.envelopes,
+      payloads: [sealedEdit.payload, corruptPayload],
+    );
+    expect(await service.ingest(fixture.owner, garbageDelta.encode()), isFalse);
     expect(
       (await store.load(fixture.bundle.root.documentId.hex))!.operations,
       hasLength(1),
@@ -298,29 +373,35 @@ void main() {
       controls: [...fixture.bundle.controls, revoke],
       operations: [edit],
       envelopes: [...fixture.bundle.envelopes, epoch2],
+      payloads: [sealedEdit.payload],
     );
     expect(await service.ingest(fixture.owner, revoked.encode()), isTrue);
 
-    final illegal = CloudDocumentOperation(
-      documentId: fixture.bundle.root.documentId,
-      membershipEpoch: 2,
-      author: fixture.editor,
-      seq: 1,
-      prevAuthorHash: edit.recordHash,
-      operationId: _hash(72),
-      parentOperationIds: [_hash(70)],
-      opType: 'insert',
-      payloadHash: _hash(73),
-      createdAtMs: 4000,
-      authorPubKey: _bytes(2, 32),
-      signature: _bytes(2, 64),
+    final sealedIllegal = await _sealedOperation(
+      key: epoch2Key,
+      unsigned: CloudDocumentOperation(
+        documentId: fixture.bundle.root.documentId,
+        membershipEpoch: 2,
+        author: fixture.editor,
+        seq: 1,
+        prevAuthorHash: edit.recordHash,
+        operationId: _hash(72),
+        parentOperationIds: [_hash(70)],
+        opType: 'insert',
+        payloadHash: _hash(0),
+        createdAtMs: 4000,
+        authorPubKey: _bytes(2, 32),
+        signature: _bytes(2, 64),
+      ),
     );
+    final illegal = sealedIllegal.operation;
     final attack = CloudDocumentFrame(
       kind: CloudDocumentFrameKind.delta,
       root: fixture.bundle.root,
       controls: revoked.controls,
       operations: [edit, illegal],
       envelopes: revoked.envelopes,
+      payloads: [sealedEdit.payload, sealedIllegal.payload],
     );
     expect(await service.ingest(fixture.editor, attack.encode()), isFalse);
     expect(

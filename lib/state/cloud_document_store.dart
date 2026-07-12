@@ -6,6 +6,7 @@ import '../data/storage/storage.dart';
 import '../domain/cloud_document.dart';
 import '../domain/cloud_document_envelope.dart';
 import '../domain/cloud_document_replication.dart';
+import '../domain/cloud_document_payload.dart';
 
 const int _maxDocumentControls = 4096;
 const int _maxDocumentOperations = 100000;
@@ -18,15 +19,18 @@ class CloudDocumentStoredBundle {
     required List<CloudDocumentOperation> operations,
     required List<CloudDocumentEpochEnvelopeBundle> envelopes,
     required Map<int, Uint8List> localEpochKeys,
+    List<CloudDocumentEncryptedPayload> payloads = const [],
   }) : controls = List.unmodifiable(controls),
        operations = List.unmodifiable(operations),
        envelopes = List.unmodifiable(envelopes),
-       localEpochKeys = Map.unmodifiable(localEpochKeys);
+       localEpochKeys = Map.unmodifiable(localEpochKeys),
+       payloads = List.unmodifiable(payloads);
 
   final CloudDocumentRoot root;
   final List<CloudDocumentControlEntry> controls;
   final List<CloudDocumentOperation> operations;
   final List<CloudDocumentEpochEnvelopeBundle> envelopes;
+  final List<CloudDocumentEncryptedPayload> payloads;
 
   /// Decrypted keys live only inside the deniable hidden-volume file. Callers
   /// receive fresh byte copies on load and must not write them to ordinary disk.
@@ -39,11 +43,12 @@ class CloudDocumentStoredBundle {
   }
 
   Map<String, dynamic> toJson() => {
-    'v': 1,
+    'v': 2,
     'root': root.toJson(),
     'controls': controls.map((entry) => entry.toJson()).toList(),
     'operations': operations.map((entry) => entry.toJson()).toList(),
     'envelopes': envelopes.map((entry) => entry.toJson()).toList(),
+    'payloads': payloads.map((entry) => entry.toJson()).toList(),
     'keys': {
       for (final epoch in (localEpochKeys.keys.toList()..sort()))
         '$epoch': base64Encode(localEpochKeys[epoch]!),
@@ -55,6 +60,7 @@ class CloudDocumentStoredBundle {
         controls.length > _maxDocumentControls ||
         operations.length > _maxDocumentOperations ||
         envelopes.length > _maxDocumentEpochs ||
+        payloads.length > _maxDocumentOperations ||
         localEpochKeys.length > _maxDocumentEpochs ||
         controls.any(
           (entry) =>
@@ -70,8 +76,26 @@ class CloudDocumentStoredBundle {
           (entry) =>
               entry.documentId != root.documentId ||
               CloudDocumentEpochEnvelopeBundle.fromJson(entry.toJson()) == null,
+        ) ||
+        payloads.any(
+          (entry) =>
+              entry.documentId != root.documentId || !entry.isStructurallyValid,
         )) {
       return false;
+    }
+    final payloadByOperation = <String, CloudDocumentEncryptedPayload>{};
+    for (final payload in payloads) {
+      if (payloadByOperation.containsKey(payload.operationId)) return false;
+      payloadByOperation[payload.operationId] = payload;
+    }
+    if (payloadByOperation.length != operations.length) return false;
+    for (final operation in operations) {
+      final payload = payloadByOperation[operation.operationId];
+      if (payload == null ||
+          payload.membershipEpoch != operation.membershipEpoch ||
+          payload.payloadHash != operation.payloadHash) {
+        return false;
+      }
     }
     final expected = <int, Set<(String, String)>>{
       0: {(root.epochKeyCommitment, root.epochEnvelopeHash)},
@@ -111,12 +135,13 @@ class CloudDocumentStoredBundle {
   }
 
   static CloudDocumentStoredBundle? fromJson(Object? value) {
-    if (value is! Map || value['v'] != 1) return null;
+    if (value is! Map || (value['v'] != 1 && value['v'] != 2)) return null;
     final root = CloudDocumentRoot.fromJson(value['root']);
     final rawControls = value['controls'];
     final rawOperations = value['operations'];
     final rawEnvelopes = value['envelopes'];
     final rawKeys = value['keys'];
+    final rawPayloads = value['v'] == 2 ? value['payloads'] : const [];
     if (root == null ||
         rawControls is! List ||
         rawControls.length > _maxDocumentControls ||
@@ -125,7 +150,9 @@ class CloudDocumentStoredBundle {
         rawEnvelopes is! List ||
         rawEnvelopes.length > _maxDocumentEpochs ||
         rawKeys is! Map ||
-        rawKeys.length > _maxDocumentEpochs) {
+        rawKeys.length > _maxDocumentEpochs ||
+        rawPayloads is! List ||
+        rawPayloads.length > _maxDocumentOperations) {
       return null;
     }
     final controls = rawControls
@@ -140,9 +167,14 @@ class CloudDocumentStoredBundle {
         .map(CloudDocumentEpochEnvelopeBundle.fromJson)
         .whereType<CloudDocumentEpochEnvelopeBundle>()
         .toList();
+    final payloads = rawPayloads
+        .map(CloudDocumentEncryptedPayload.fromJson)
+        .whereType<CloudDocumentEncryptedPayload>()
+        .toList();
     if (controls.length != rawControls.length ||
         operations.length != rawOperations.length ||
-        envelopes.length != rawEnvelopes.length) {
+        envelopes.length != rawEnvelopes.length ||
+        payloads.length != rawPayloads.length) {
       return null;
     }
     final keys = <int, Uint8List>{};
@@ -171,6 +203,7 @@ class CloudDocumentStoredBundle {
       operations: operations,
       envelopes: envelopes,
       localEpochKeys: keys,
+      payloads: payloads,
     );
     if (!bundle.isStructurallyValid) {
       return reject();

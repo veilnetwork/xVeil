@@ -496,6 +496,24 @@ class CloudDocumentOperation {
         signature: sig,
       );
 
+  /// Used before signing: payload encryption produces the hash that the final
+  /// immutable operation must bind.
+  CloudDocumentOperation withPayloadHash(String value) =>
+      CloudDocumentOperation(
+        documentId: documentId,
+        membershipEpoch: membershipEpoch,
+        author: author,
+        seq: seq,
+        prevAuthorHash: prevAuthorHash,
+        operationId: operationId,
+        parentOperationIds: parentOperationIds,
+        opType: opType,
+        payloadHash: value,
+        createdAtMs: createdAtMs,
+        authorPubKey: authorPubKey,
+        signature: signature,
+      );
+
   String get recordHash => cloudDocumentRecordHash(
     domain: 'operation',
     canonicalBytes: canonicalBytes(),

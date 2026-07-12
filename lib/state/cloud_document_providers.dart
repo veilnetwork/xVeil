@@ -28,6 +28,7 @@ final cloudDocumentReplicationServiceProvider =
             ({
               MessagingService messaging,
               void Function(NodeId, String) handler,
+              CloudDocumentReplicationService service,
             })
           >[];
 
@@ -49,7 +50,11 @@ final cloudDocumentReplicationServiceProvider =
         }
 
         messaging.onCloudDocumentFrame = handler;
-        attached.add((messaging: messaging, handler: handler));
+        attached.add((
+          messaging: messaging,
+          handler: handler,
+          service: service,
+        ));
         return service;
       }
 
@@ -89,6 +94,7 @@ final cloudDocumentReplicationServiceProvider =
           if (identical(entry.messaging.onCloudDocumentFrame, entry.handler)) {
             entry.messaging.onCloudDocumentFrame = null;
           }
+          unawaited(entry.service.close());
         }
       });
       return selected;

@@ -4530,6 +4530,48 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Recovery requires a fresh device registry'**
   String get devicesFreshRegistryRequired;
+
+  /// No description provided for @actionReject.
+  ///
+  /// In en, this message translates to:
+  /// **'Reject'**
+  String get actionReject;
+
+  /// No description provided for @cloudDocumentInvites.
+  ///
+  /// In en, this message translates to:
+  /// **'Shared document invitations ({count})'**
+  String cloudDocumentInvites(int count);
+
+  /// No description provided for @cloudDocumentInviteFrom.
+  ///
+  /// In en, this message translates to:
+  /// **'Invitation from {sender}'**
+  String cloudDocumentInviteFrom(String sender);
+
+  /// No description provided for @cloudDocumentInviteKind.
+  ///
+  /// In en, this message translates to:
+  /// **'Encrypted {kind} document · inactive until accepted'**
+  String cloudDocumentInviteKind(String kind);
+
+  /// No description provided for @cloudDocumentAdopted.
+  ///
+  /// In en, this message translates to:
+  /// **'Shared document added'**
+  String get cloudDocumentAdopted;
+
+  /// No description provided for @cloudDocumentAdoptFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The invitation could not be verified'**
+  String get cloudDocumentAdoptFailed;
+
+  /// No description provided for @cloudDocumentRejected.
+  ///
+  /// In en, this message translates to:
+  /// **'Invitation removed'**
+  String get cloudDocumentRejected;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

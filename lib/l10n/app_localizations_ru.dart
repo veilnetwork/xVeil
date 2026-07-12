@@ -2439,4 +2439,31 @@ class AppL10nRu extends AppL10n {
   @override
   String get devicesFreshRegistryRequired =>
       'Для восстановления нужен чистый реестр устройств';
+
+  @override
+  String get actionReject => 'Отклонить';
+
+  @override
+  String cloudDocumentInvites(int count) {
+    return 'Приглашения в общие документы ($count)';
+  }
+
+  @override
+  String cloudDocumentInviteFrom(String sender) {
+    return 'Приглашение от $sender';
+  }
+
+  @override
+  String cloudDocumentInviteKind(String kind) {
+    return 'Зашифрованный документ $kind · неактивен до принятия';
+  }
+
+  @override
+  String get cloudDocumentAdopted => 'Общий документ добавлен';
+
+  @override
+  String get cloudDocumentAdoptFailed => 'Не удалось проверить приглашение';
+
+  @override
+  String get cloudDocumentRejected => 'Приглашение удалено';
 }
