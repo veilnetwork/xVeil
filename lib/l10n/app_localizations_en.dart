@@ -2420,4 +2420,31 @@ class AppL10nEn extends AppL10n {
   @override
   String get devicesFreshRegistryRequired =>
       'Recovery requires a fresh device registry';
+
+  @override
+  String get actionReject => 'Reject';
+
+  @override
+  String cloudDocumentInvites(int count) {
+    return 'Shared document invitations ($count)';
+  }
+
+  @override
+  String cloudDocumentInviteFrom(String sender) {
+    return 'Invitation from $sender';
+  }
+
+  @override
+  String cloudDocumentInviteKind(String kind) {
+    return 'Encrypted $kind document · inactive until accepted';
+  }
+
+  @override
+  String get cloudDocumentAdopted => 'Shared document added';
+
+  @override
+  String get cloudDocumentAdoptFailed => 'The invitation could not be verified';
+
+  @override
+  String get cloudDocumentRejected => 'Invitation removed';
 }

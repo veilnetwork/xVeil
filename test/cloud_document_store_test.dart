@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/cloud_document.dart';
 import 'package:xveil/domain/cloud_document_envelope.dart';
+import 'package:xveil/domain/cloud_document_payload.dart';
 import 'package:xveil/state/cloud_document_store.dart';
 
 import 'support/fake_hv_container.dart';
@@ -46,6 +47,17 @@ CloudDocumentStoredBundle _bundle({int operationCount = 0, int keyByte = 7}) {
     createdAtMs: 1000,
     signature: Uint8List.fromList(List.filled(64, 1)),
   );
+  final payloads = [
+    for (var index = 0; index < operationCount; index++)
+      CloudDocumentEncryptedPayload(
+        documentId: root.documentId,
+        membershipEpoch: 0,
+        operationId: _hash(100 + index),
+        nonce: Uint8List.fromList(List.filled(12, index)),
+        cipherText: Uint8List.fromList([index & 0xff]),
+        mac: Uint8List.fromList(List.filled(16, index + 1)),
+      ),
+  ];
   return CloudDocumentStoredBundle(
     root: root,
     controls: const [],
@@ -60,7 +72,7 @@ CloudDocumentStoredBundle _bundle({int operationCount = 0, int keyByte = 7}) {
           operationId: _hash(100 + index),
           parentOperationIds: const [],
           opType: 'insert',
-          payloadHash: _hash(20 + index),
+          payloadHash: payloads[index].payloadHash,
           createdAtMs: 2000 + index,
           authorPubKey: Uint8List.fromList(List.filled(32, 1)),
           signature: Uint8List.fromList(List.filled(64, 1)),
@@ -68,6 +80,7 @@ CloudDocumentStoredBundle _bundle({int operationCount = 0, int keyByte = 7}) {
     ],
     envelopes: [envelope],
     localEpochKeys: {0: key},
+    payloads: payloads,
   );
 }
 
@@ -182,6 +195,7 @@ void main() {
       operations: valid.operations,
       envelopes: valid.envelopes,
       localEpochKeys: {0: Uint8List.fromList(List.filled(32, 99))},
+      payloads: valid.payloads,
     );
     expect(invalid.isStructurallyValid, isFalse);
     await expectLater(
