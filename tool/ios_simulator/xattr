@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Flutter 26 removes signing-sensitive xattrs recursively from the whole
+# project before every iOS build. xVeil keeps >60 GiB of Rust build cache under
+# third_party/veil/target; none of it enters the app, but scanning it dominates
+# every simulator retry. Restrict only Flutter's exact project-root recursive
+# cleanup to the source/plugin trees that may actually be bundled. Forward all
+# other xattr invocations (including Xcode's build-dir marker) unchanged.
+set -u
+
+if [[ $# -eq 4 && "$1" == "-r" && "$2" == "-d" &&
+      -n "${XVEIL_XATTR_ROOT:-}" && "$4" == "$XVEIL_XATTR_ROOT" ]]; then
+  attribute="$3"
+  /usr/bin/xattr -d "$attribute" "$XVEIL_XATTR_ROOT" 2>/dev/null || true
+  for relative in \
+    ios macos assets lib scripts tool pubspec.yaml pubspec.lock \
+    third_party/veil/flutter \
+    third_party/hidden-volume/experimental/flutter_plugin; do
+    path="$XVEIL_XATTR_ROOT/$relative"
+    [[ -e "$path" ]] || continue
+    /usr/bin/xattr -r -d "$attribute" "$path" 2>/dev/null || true
+  done
+  exit 0
+fi
+
+exec /usr/bin/xattr "$@"
