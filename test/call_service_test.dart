@@ -5,9 +5,49 @@ import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/call.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/state/call_service.dart';
+import 'package:xveil/state/call_slot.dart';
 import 'package:xveil/state/messaging.dart';
 
 void main() {
+  test(
+    'shared call slot excludes group/direct overlap and releases on end',
+    () async {
+      final peer = NodeId.fromHex('c' * 64);
+      final fake = _FakeMessaging();
+      final slot = CallSlot();
+      expect(slot.acquire(CallSlotOwner.group), isTrue);
+      final svc = CallService(fake, callSlot: slot)..start();
+      addTearDown(svc.dispose);
+
+      await svc.placeCall(peer, const CallMedia(audio: true));
+      expect(svc.current, isNull);
+      expect(fake.sent, isEmpty);
+
+      slot.release(CallSlotOwner.group);
+      await svc.placeCall(peer, const CallMedia(audio: true));
+      expect(slot.owner, CallSlotOwner.direct);
+      expect(svc.current?.isLive, isTrue);
+      await svc.cancel();
+      expect(slot.owner, isNull);
+
+      // The same exclusion applies to a later inbound offer.
+      fake.sent.clear();
+      expect(slot.acquire(CallSlotOwner.group), isTrue);
+      fake.onCallSignal!(
+        peer,
+        const CallSignal(
+          callId: 'incoming-after-end',
+          type: CallSignalType.offer,
+          media: CallMedia(audio: true),
+        ),
+      );
+      await pumpEventQueue();
+      expect(svc.current, isNull);
+      expect(fake.sent.single.type, CallSignalType.busy);
+      expect(slot.owner, CallSlotOwner.group);
+    },
+  );
+
   group('negotiateCallTransport — anonymity matrix', () {
     test('anon ↔ anon → full onion', () {
       expect(
@@ -353,8 +393,11 @@ void main() {
         svc.setScreenShareEnabled(false);
         async.flushMicrotasks();
         expect(svc.current?.screenOn, isFalse);
-        expect(media.log, ['screen:true', 'screen:false', 'cam:true'],
-            reason: 'cameraOn stayed true → the share hand-back restores it');
+        expect(
+          media.log,
+          ['screen:true', 'screen:false', 'cam:true'],
+          reason: 'cameraOn stayed true → the share hand-back restores it',
+        );
       });
     });
 
@@ -365,8 +408,11 @@ void main() {
 
         svc.setScreenShareEnabled(true);
         async.flushMicrotasks();
-        expect(svc.current?.screenOn, isFalse,
-            reason: 'no backend / capture failed — nothing changed');
+        expect(
+          svc.current?.screenOn,
+          isFalse,
+          reason: 'no backend / capture failed — nothing changed',
+        );
       });
     });
 
@@ -381,13 +427,17 @@ void main() {
         svc.setCameraEnabled(false); // user turns the camera OFF mid-share
         async.flushMicrotasks();
         expect(svc.current?.cameraOn, isFalse);
-        expect(media.log, isEmpty,
-            reason: 'the share owns the single video source');
+        expect(
+          media.log,
+          isEmpty,
+          reason: 'the share owns the single video source',
+        );
 
         svc.setScreenShareEnabled(false);
         async.flushMicrotasks();
-        expect(media.log, ['screen:false'],
-            reason: 'cameraOn=false → nothing to restore');
+        expect(media.log, [
+          'screen:false',
+        ], reason: 'cameraOn=false → nothing to restore');
       });
     });
 
@@ -405,8 +455,9 @@ void main() {
 
         svc.setScreenShareEnabled(true);
         async.flushMicrotasks();
-        var renegs =
-            fake.sent.where((s) => s.type == CallSignalType.renegotiate);
+        var renegs = fake.sent.where(
+          (s) => s.type == CallSignalType.renegotiate,
+        );
         expect(renegs.single.media?.screen, isTrue);
         expect(svc.current?.media.screen, isTrue);
 
@@ -446,8 +497,11 @@ void main() {
         fake.onCallSignal!(peer, reneg(false, 900));
         fake.onCallSignal!(peer, reneg(false, 1000));
         async.flushMicrotasks();
-        expect(svc.current?.media.screen, isTrue,
-            reason: 'older sentAt must not overwrite the newer set');
+        expect(
+          svc.current?.media.screen,
+          isTrue,
+          reason: 'older sentAt must not overwrite the newer set',
+        );
 
         // The genuinely newer OFF lands.
         fake.onCallSignal!(peer, reneg(false, 1100));

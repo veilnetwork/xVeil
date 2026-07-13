@@ -2199,6 +2199,33 @@ class AppL10nEn extends AppL10n {
   String get callPathP2P => 'Direct (P2P)';
 
   @override
+  String get groupCallTitle => 'Group call';
+
+  @override
+  String get groupCallIncoming => 'Incoming group call';
+
+  @override
+  String get groupCallStartAudio => 'Start group audio call';
+
+  @override
+  String get groupCallStartVideo => 'Start group video call';
+
+  @override
+  String get groupCallBusy => 'Another call is already active';
+
+  @override
+  String get groupCallLeave => 'Leave call';
+
+  @override
+  String get groupCallEndEveryone => 'End for everyone';
+
+  @override
+  String get groupCallMinimize => 'Minimize group call';
+
+  @override
+  String get groupCallExpand => 'Open group call';
+
+  @override
   String get settingsNickname => 'Nickname';
 
   @override
