@@ -128,6 +128,14 @@ Future<void> showCreateGroupDialog(BuildContext context, WidgetRef ref) async {
   if (name == null || name.isEmpty) return;
   final svc = ref.read(groupServiceProvider);
   if (svc == null) return;
-  final gid = await svc.createGroup(name);
-  if (context.mounted) context.push('/group/${gid.hex}');
+  try {
+    final gid = await svc.createGroup(name);
+    if (context.mounted) context.push('/group/${gid.hex}');
+  } catch (_) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l.groupOperationFailed)),
+      );
+    }
+  }
 }

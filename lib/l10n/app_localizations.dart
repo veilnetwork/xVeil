@@ -619,6 +619,24 @@ abstract class AppL10n {
   /// **'Create'**
   String get groupCreateAction;
 
+  /// No description provided for @groupOperationFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not update the group. Check the network and try again.'**
+  String get groupOperationFailed;
+
+  /// No description provided for @groupEncrypted.
+  ///
+  /// In en, this message translates to:
+  /// **'End-to-end encrypted'**
+  String get groupEncrypted;
+
+  /// No description provided for @groupEncryptionPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Encryption upgrade pending'**
+  String get groupEncryptionPending;
+
   /// No description provided for @groupNameHint.
   ///
   /// In en, this message translates to:

@@ -288,6 +288,16 @@ class AppL10nEn extends AppL10n {
   String get groupCreateAction => 'Create';
 
   @override
+  String get groupOperationFailed =>
+      'Could not update the group. Check the network and try again.';
+
+  @override
+  String get groupEncrypted => 'End-to-end encrypted';
+
+  @override
+  String get groupEncryptionPending => 'Encryption upgrade pending';
+
+  @override
   String get groupNameHint => 'Group name';
 
   @override

@@ -9,6 +9,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import '../core/ids.dart';
+import 'group_payload.dart';
 
 /// An inline media attachment carried WHOLE inside a group message (groups
 /// epic, phase 1, media brick 1). Unlike 1:1 media — which ships a tiny thumb
@@ -42,12 +43,12 @@ class GroupAttachment {
 
   /// Canonical, order-stable map — folded into the message the author signs.
   Map<String, dynamic> toCanonical() => {
-        'k': kind,
-        'd': dataB64,
-        'w': w,
-        'h': h,
-        if (cid != null) 'cid': cid,
-      };
+    'k': kind,
+    'd': dataB64,
+    'w': w,
+    'h': h,
+    if (cid != null) 'cid': cid,
+  };
 
   Map<String, dynamic> toJson() => toCanonical();
 
@@ -58,11 +59,61 @@ class GroupAttachment {
     if (w <= 0 || h <= 0 || d.isEmpty) return null;
     final cid = j['cid'];
     return GroupAttachment(
-        kind: k,
-        dataB64: d,
-        w: w,
-        h: h,
-        cid: cid is String && cid.isNotEmpty ? cid : null);
+      kind: k,
+      dataB64: d,
+      w: w,
+      h: h,
+      cid: cid is String && cid.isNotEmpty ? cid : null,
+    );
+  }
+}
+
+/// Decrypted message content. V2 entries encode this object only in RAM before
+/// AEAD encryption and after authenticated decryption; [GroupMessage.toJson]
+/// never serializes it for an encrypted entry.
+class GroupMessageCleartext {
+  const GroupMessageCleartext({
+    required this.body,
+    this.attachment,
+    this.replyTo,
+  });
+
+  final String body;
+  final GroupAttachment? attachment;
+  final String? replyTo;
+
+  Uint8List encode() => Uint8List.fromList(
+    utf8.encode(
+      jsonEncode({
+        'v': 1,
+        'body': body,
+        if (attachment != null) 'att': attachment!.toJson(),
+        if (replyTo != null) 'rt': replyTo,
+      }),
+    ),
+  );
+
+  static GroupMessageCleartext? decode(Uint8List bytes) {
+    if (bytes.length > maxGroupEncryptedPayloadBytes) return null;
+    try {
+      final value = jsonDecode(utf8.decode(bytes, allowMalformed: false));
+      if (value is! Map || value['v'] != 1 || value['body'] is! String) {
+        return null;
+      }
+      final attachment = value.containsKey('att')
+          ? GroupAttachment.fromJson(value['att'])
+          : null;
+      if (value.containsKey('att') && attachment == null) return null;
+      final replyTo = value['rt'];
+      if (replyTo != null && replyTo is! String) return null;
+      return GroupMessageCleartext(
+        body: value['body'] as String,
+        attachment: attachment,
+        replyTo: replyTo as String?,
+      );
+    } catch (_) {
+      return null;
+    }
   }
 }
 
@@ -76,16 +127,22 @@ class GroupMessage {
     required this.policyVersion,
     required this.createdAtMs,
     required this.signature,
+    this.version = 1,
+    this.membershipEpoch,
+    this.encryptedPayload,
     this.attachment,
     this.replyTo,
     Uint8List? authorPubKey,
   }) : authorPubKey = authorPubKey ?? Uint8List(0);
 
   final NodeId groupId;
+  final int version;
   final NodeId author;
   final int seq; // this author's monotonic message seq
   final String prevHash; // hex of the author's previous message hash, or ''
   final String body;
+  final int? membershipEpoch;
+  final GroupEncryptedPayload? encryptedPayload;
   final int policyVersion; // the policy version the author wrote against
   final int createdAtMs;
   final Uint8List signature;
@@ -99,11 +156,91 @@ class GroupMessage {
   /// This message's own stable reference, for another message to [replyTo].
   String get ref => '${author.hex}:$seq';
 
+  bool get isEncrypted =>
+      version == 2 && membershipEpoch != null && encryptedPayload != null;
+
   /// The bytes the author signs — fixed field order, no signature/pubKey. The
   /// 'att'/'rt' keys are emitted ONLY when present, so a plain text message
   /// signs byte-identically to before these fields existed.
   Uint8List canonicalBytes() {
-    final map = {
+    final map = version == 2
+        ? {
+            'v': 2,
+            'gid': groupId.hex,
+            'author': author.hex,
+            'seq': seq,
+            'prev': prevHash,
+            'epoch': membershipEpoch,
+            'enc': encryptedPayload?.toJson(),
+            'pv': policyVersion,
+            'ts': createdAtMs,
+          }
+        : {
+            'gid': groupId.hex,
+            'author': author.hex,
+            'seq': seq,
+            'prev': prevHash,
+            'body': body,
+            'pv': policyVersion,
+            'ts': createdAtMs,
+            if (attachment != null) 'att': attachment!.toCanonical(),
+            if (replyTo != null) 'rt': replyTo,
+          };
+    return Uint8List.fromList(utf8.encode(jsonEncode(map)));
+  }
+
+  GroupMessage withSignature(Uint8List sig, Uint8List pubKey) => GroupMessage(
+    groupId: groupId,
+    author: author,
+    seq: seq,
+    prevHash: prevHash,
+    body: body,
+    version: version,
+    membershipEpoch: membershipEpoch,
+    encryptedPayload: encryptedPayload,
+    policyVersion: policyVersion,
+    createdAtMs: createdAtMs,
+    signature: sig,
+    attachment: attachment,
+    replyTo: replyTo,
+    authorPubKey: pubKey,
+  );
+
+  GroupMessage withDecryptedContent(GroupMessageCleartext cleartext) =>
+      GroupMessage(
+        groupId: groupId,
+        author: author,
+        seq: seq,
+        prevHash: prevHash,
+        body: cleartext.body,
+        version: version,
+        membershipEpoch: membershipEpoch,
+        encryptedPayload: encryptedPayload,
+        policyVersion: policyVersion,
+        createdAtMs: createdAtMs,
+        signature: signature,
+        attachment: cleartext.attachment,
+        replyTo: cleartext.replyTo,
+        authorPubKey: authorPubKey,
+      );
+
+  Map<String, dynamic> toJson() {
+    if (version == 2) {
+      return {
+        'v': 2,
+        'gid': groupId.hex,
+        'author': author.hex,
+        'seq': seq,
+        'prev': prevHash,
+        'epoch': membershipEpoch,
+        'enc': encryptedPayload?.toJson(),
+        'pv': policyVersion,
+        'ts': createdAtMs,
+        'sig': base64Encode(signature),
+        if (authorPubKey.isNotEmpty) 'apk': base64Encode(authorPubKey),
+      };
+    }
+    return {
       'gid': groupId.hex,
       'author': author.hex,
       'seq': seq,
@@ -111,42 +248,17 @@ class GroupMessage {
       'body': body,
       'pv': policyVersion,
       'ts': createdAtMs,
-      if (attachment != null) 'att': attachment!.toCanonical(),
+      if (attachment != null) 'att': attachment!.toJson(),
       if (replyTo != null) 'rt': replyTo,
+      'sig': base64Encode(signature),
+      if (authorPubKey.isNotEmpty) 'apk': base64Encode(authorPubKey),
     };
-    return Uint8List.fromList(utf8.encode(jsonEncode(map)));
   }
-
-  GroupMessage withSignature(Uint8List sig, Uint8List pubKey) => GroupMessage(
-        groupId: groupId,
-        author: author,
-        seq: seq,
-        prevHash: prevHash,
-        body: body,
-        policyVersion: policyVersion,
-        createdAtMs: createdAtMs,
-        signature: sig,
-        attachment: attachment,
-        replyTo: replyTo,
-        authorPubKey: pubKey,
-      );
-
-  Map<String, dynamic> toJson() => {
-        'gid': groupId.hex,
-        'author': author.hex,
-        'seq': seq,
-        'prev': prevHash,
-        'body': body,
-        'pv': policyVersion,
-        'ts': createdAtMs,
-        if (attachment != null) 'att': attachment!.toJson(),
-        if (replyTo != null) 'rt': replyTo,
-        'sig': base64Encode(signature),
-        if (authorPubKey.isNotEmpty) 'apk': base64Encode(authorPubKey),
-      };
 
   static GroupMessage? fromJson(Object? j) {
     if (j is! Map) return null;
+    final version = j['v'] is int ? j['v'] as int : 1;
+    if (version != 1 && version != 2) return null;
     final gid = j['gid'], author = j['author'], seq = j['seq'];
     final prev = j['prev'], body = j['body'], pv = j['pv'], ts = j['ts'];
     final sig = j['sig'];
@@ -154,11 +266,24 @@ class GroupMessage {
         author is! String ||
         seq is! int ||
         prev is! String ||
-        body is! String ||
         pv is! int ||
         ts is! int ||
         sig is! String ||
         seq < 0) {
+      return null;
+    }
+    final encryptedPayload = version == 2
+        ? GroupEncryptedPayload.fromJson(j['enc'])
+        : null;
+    final membershipEpoch = version == 2 ? j['epoch'] : null;
+    if ((version == 1 && body is! String) ||
+        (version == 2 &&
+            (membershipEpoch is! int ||
+                membershipEpoch < 0 ||
+                encryptedPayload == null ||
+                j.containsKey('body') ||
+                j.containsKey('att') ||
+                j.containsKey('rt')))) {
       return null;
     }
     try {
@@ -167,12 +292,15 @@ class GroupMessage {
         author: NodeId.fromHex(author),
         seq: seq,
         prevHash: prev,
-        body: body,
+        body: version == 1 ? body as String : '',
+        version: version,
+        membershipEpoch: membershipEpoch as int?,
+        encryptedPayload: encryptedPayload,
         policyVersion: pv,
         createdAtMs: ts,
         signature: Uint8List.fromList(base64Decode(sig)),
-        attachment: GroupAttachment.fromJson(j['att']),
-        replyTo: j['rt'] is String ? j['rt'] as String : null,
+        attachment: version == 1 ? GroupAttachment.fromJson(j['att']) : null,
+        replyTo: version == 1 && j['rt'] is String ? j['rt'] as String : null,
         authorPubKey: j['apk'] is String
             ? Uint8List.fromList(base64Decode(j['apk'] as String))
             : null,
