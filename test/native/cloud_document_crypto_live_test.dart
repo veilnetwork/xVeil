@@ -7,6 +7,7 @@ import 'package:xveil/core/ids.dart';
 import 'package:xveil/crypto/blake3.dart';
 import 'package:xveil/data/node/embedded_node.dart';
 import 'package:xveil/domain/cloud_document.dart';
+import 'package:xveil/domain/cloud_document_replication.dart';
 import 'package:xveil/state/cloud_document_crypto.dart';
 
 String _hash(int byte) => List.filled(
@@ -107,5 +108,37 @@ void main() {
       signature: operation.signature,
     );
     expect(verifyCloudDocumentOperation(tampered, lib: lib), isFalse);
+
+    final ack = signCloudDocumentQuiescenceAck(
+      identityToml: identityToml,
+      unsigned: CloudDocumentQuiescenceAck(
+        documentId: root.documentId,
+        rootHash: root.recordHash,
+        generation: root.generation,
+        stateHash: _hash(80),
+        roundId: _hash(81),
+        author: owner,
+        issuedAtMs: 4000,
+        authorPubKey: Uint8List(0),
+        signature: Uint8List(0),
+      ),
+      lib: lib,
+    );
+    expect(verifyCloudDocumentQuiescenceAck(ack, lib: lib), isTrue);
+    final replayedForAnotherRound = CloudDocumentQuiescenceAck(
+      documentId: ack.documentId,
+      rootHash: ack.rootHash,
+      generation: ack.generation,
+      stateHash: ack.stateHash,
+      roundId: _hash(82),
+      author: ack.author,
+      issuedAtMs: ack.issuedAtMs,
+      authorPubKey: ack.authorPubKey,
+      signature: ack.signature,
+    );
+    expect(
+      verifyCloudDocumentQuiescenceAck(replayedForAnotherRound, lib: lib),
+      isFalse,
+    );
   }, skip: skip);
 }

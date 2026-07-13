@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:characters/characters.dart';
+import 'package:crypto/crypto.dart' as crypto;
 
 import '../core/ids.dart';
 import '../crypto/blake3.dart';
@@ -20,6 +22,68 @@ import 'cloud_document_store.dart';
 typedef CloudDocumentFrameSender =
     Future<void> Function(NodeId peer, String documentId, String frameJson);
 typedef CloudDocumentAcceptedContact = Future<bool> Function(NodeId peer);
+
+const int defaultCloudDocumentAutoCompactionEntries = 256;
+const int maxCloudDocumentQuiescenceRounds = 128;
+
+class CloudDocumentQuiescenceStatus {
+  const CloudDocumentQuiescenceStatus({
+    required this.stateHash,
+    required this.requiredEditors,
+    required this.acknowledgedEditors,
+  });
+
+  final String stateHash;
+  final Set<String> requiredEditors;
+  final Set<String> acknowledgedEditors;
+
+  bool get complete => requiredEditors.difference(acknowledgedEditors).isEmpty;
+}
+
+class _OwnerQuiescenceRound {
+  _OwnerQuiescenceRound({
+    required this.rootHash,
+    required this.generation,
+    required this.stateHash,
+    required this.roundId,
+    required this.startedAtMs,
+    required this.requiredEditors,
+  });
+
+  final String rootHash;
+  final int generation;
+  final String stateHash;
+  final String roundId;
+  final int startedAtMs;
+  final Set<String> requiredEditors;
+  final Map<String, CloudDocumentQuiescenceAck> acknowledgements = {};
+}
+
+class _MemberQuiescenceFreeze {
+  const _MemberQuiescenceFreeze({
+    required this.rootHash,
+    required this.stateHash,
+    required this.roundId,
+    required this.expiresAtMs,
+  });
+
+  final String rootHash;
+  final String stateHash;
+  final String roundId;
+  final int expiresAtMs;
+}
+
+class _QuiescenceDispatch {
+  const _QuiescenceDispatch({
+    required this.documentId,
+    required this.frameJson,
+    required this.recipients,
+  });
+
+  final String documentId;
+  final String frameJson;
+  final List<NodeId> recipients;
+}
 
 class CloudDocumentView {
   const CloudDocumentView({
@@ -125,8 +189,13 @@ class CloudDocumentReplicationService {
     bool Function(CloudDocumentRoot root)? verifyRoot,
     bool Function(CloudDocumentControlEntry entry)? verifyControl,
     bool Function(CloudDocumentOperation operation)? verifyOperation,
+    bool Function(CloudDocumentQuiescenceAck ack)? verifyQuiescenceAck,
     DateTime Function()? now,
     Random? random,
+    int automaticCompactionEntries = defaultCloudDocumentAutoCompactionEntries,
+    Duration automaticQuiescenceDelay = const Duration(seconds: 2),
+    Duration quiescenceAckMaxAge = const Duration(minutes: 2),
+    Duration quiescenceFreezeDuration = const Duration(minutes: 10),
   }) => CloudDocumentReplicationService._(
     localNodeId: localNodeId,
     ourCertVersion: ourCertVersion,
@@ -138,8 +207,14 @@ class CloudDocumentReplicationService {
     verifyRoot: verifyRoot ?? verifyCloudDocumentRoot,
     verifyControl: verifyControl ?? verifyCloudDocumentControl,
     verifyOperation: verifyOperation ?? verifyCloudDocumentOperation,
+    verifyQuiescenceAck:
+        verifyQuiescenceAck ?? verifyCloudDocumentQuiescenceAck,
     now: now ?? DateTime.now,
     random: random ?? Random.secure(),
+    automaticCompactionEntries: automaticCompactionEntries,
+    automaticQuiescenceDelay: automaticQuiescenceDelay,
+    quiescenceAckMaxAge: quiescenceAckMaxAge,
+    quiescenceFreezeDuration: quiescenceFreezeDuration,
   );
 
   CloudDocumentReplicationService._({
@@ -153,9 +228,17 @@ class CloudDocumentReplicationService {
     required this._verifyRoot,
     required this._verifyControl,
     required this._verifyOperation,
+    required this._verifyQuiescenceAck,
     required this._now,
     required this._random,
-  });
+    required this._automaticCompactionEntries,
+    required this._automaticQuiescenceDelay,
+    required this._quiescenceAckMaxAge,
+    required this._quiescenceFreezeDuration,
+  }) : assert(_automaticCompactionEntries >= 0),
+       assert(!_automaticQuiescenceDelay.isNegative),
+       assert(_quiescenceAckMaxAge > Duration.zero),
+       assert(_quiescenceFreezeDuration >= _quiescenceAckMaxAge);
 
   final NodeId localNodeId;
   final int ourCertVersion;
@@ -167,10 +250,20 @@ class CloudDocumentReplicationService {
   final bool Function(CloudDocumentRoot root) _verifyRoot;
   final bool Function(CloudDocumentControlEntry entry) _verifyControl;
   final bool Function(CloudDocumentOperation operation) _verifyOperation;
+  final bool Function(CloudDocumentQuiescenceAck ack) _verifyQuiescenceAck;
   final DateTime Function() _now;
   final Random _random;
+  final int _automaticCompactionEntries;
+  final Duration _automaticQuiescenceDelay;
+  final Duration _quiescenceAckMaxAge;
+  final Duration _quiescenceFreezeDuration;
   final StreamController<void> _changes = StreamController<void>.broadcast();
   Future<void> _writeTail = Future.value();
+  final LinkedHashMap<String, _OwnerQuiescenceRound> _ownerRounds =
+      LinkedHashMap();
+  final Map<String, _MemberQuiescenceFreeze> _memberFreezes = {};
+  final Map<String, Timer> _automaticQuiescenceTimers = {};
+  final Set<String> _scheduledQuiescentCompactions = {};
 
   Stream<void> get changes => _changes.stream;
 
@@ -191,6 +284,12 @@ class CloudDocumentReplicationService {
   }
 
   Future<void> close() async {
+    for (final timer in _automaticQuiescenceTimers.values) {
+      timer.cancel();
+    }
+    _automaticQuiescenceTimers.clear();
+    _ownerRounds.clear();
+    _memberFreezes.clear();
     // Riverpod/widget listeners can still be paused while their container is
     // being torn down. No producer runs after provider disposal, so initiate
     // completion without waiting for those listeners to cancel.
@@ -362,6 +461,10 @@ class CloudDocumentReplicationService {
     }
     final newCleartexts = <String, Uint8List>{};
     try {
+      if (stored.root.owner != localNodeId &&
+          await _hasActiveMemberFreeze(documentId)) {
+        return null;
+      }
       final oldFrame = _frameFromStored(
         CloudDocumentFrameKind.snapshot,
         stored,
@@ -491,6 +594,10 @@ class CloudDocumentReplicationService {
           failed.add(peer);
         }
       }
+      _scheduleAutomaticQuiescence(
+        documentId,
+        entryCount: bundle.controls.length + bundle.operations.length,
+      );
       return CloudDocumentMutationResult(
         documentId: documentId,
         failedRecipients: List.unmodifiable(failed),
@@ -530,6 +637,10 @@ class CloudDocumentReplicationService {
     }
     final newCleartexts = <String, Uint8List>{};
     try {
+      if (stored.root.owner != localNodeId &&
+          await _hasActiveMemberFreeze(documentId)) {
+        return null;
+      }
       final oldFrame = _frameFromStored(
         CloudDocumentFrameKind.snapshot,
         stored,
@@ -654,6 +765,10 @@ class CloudDocumentReplicationService {
           failed.add(peer);
         }
       }
+      _scheduleAutomaticQuiescence(
+        documentId,
+        entryCount: bundle.controls.length + bundle.operations.length,
+      );
       return CloudDocumentMutationResult(
         documentId: documentId,
         failedRecipients: List.unmodifiable(failed),
@@ -880,6 +995,326 @@ class CloudDocumentReplicationService {
     return frontier;
   }
 
+  String _stateHash(CloudDocumentRoot root, CloudDocumentFoldResult fold) {
+    final currentEpoch = fold.epochs.keys.reduce(
+      (left, right) => left > right ? left : right,
+    );
+    final current = fold.epochs[currentEpoch]!;
+    final frontier = _cumulativeAuthorFrontier(root, fold.acceptedOperations);
+    final authorKeys = frontier.keys.toList()..sort();
+    final memberKeys = current.members.keys.toList()..sort();
+    final controlHead = fold.acceptedControls.isEmpty
+        ? (seq: root.baseControlSeq, hash: root.baseControlHash)
+        : (
+            seq: fold.acceptedControls.last.seq,
+            hash: fold.acceptedControls.last.recordHash,
+          );
+    final canonical = utf8.encode(
+      jsonEncode({
+        'v': 1,
+        'did': root.documentId.hex,
+        'root': root.recordHash,
+        'gen': root.generation,
+        'epoch': currentEpoch,
+        'control': {'seq': controlHead.seq, 'hash': controlHead.hash},
+        'members': {
+          for (final key in memberKeys) key: current.members[key]!.name,
+        },
+        'authors': {
+          for (final key in authorKeys)
+            key: {'seq': frontier[key]!.seq, 'hash': frontier[key]!.hash},
+        },
+      }),
+    );
+    return crypto.sha256.convert(canonical).toString();
+  }
+
+  Future<bool> _hasActiveMemberFreeze(String documentId) async {
+    var freeze = _memberFreezes[documentId];
+    if (freeze == null) {
+      final persisted = await _store.loadQuiescenceFreeze(documentId);
+      if (persisted != null) {
+        freeze = _MemberQuiescenceFreeze(
+          rootHash: persisted.rootHash,
+          stateHash: persisted.stateHash,
+          roundId: persisted.roundId,
+          expiresAtMs: persisted.expiresAtMs,
+        );
+        _memberFreezes[documentId] = freeze;
+      }
+    }
+    if (freeze == null) return false;
+    if (freeze.expiresAtMs <= _now().millisecondsSinceEpoch) {
+      _memberFreezes.remove(documentId);
+      await _store.removeQuiescenceFreeze(documentId);
+      return false;
+    }
+    return true;
+  }
+
+  void _scheduleAutomaticQuiescence(
+    String documentId, {
+    required int entryCount,
+  }) {
+    if (_automaticCompactionEntries <= 0 ||
+        entryCount < _automaticCompactionEntries) {
+      return;
+    }
+    _automaticQuiescenceTimers.remove(documentId)?.cancel();
+    _automaticQuiescenceTimers[documentId] = Timer(
+      _automaticQuiescenceDelay,
+      () {
+        _automaticQuiescenceTimers.remove(documentId);
+        unawaited(requestQuiescence(documentId));
+      },
+    );
+  }
+
+  void _rememberOwnerRound(String documentId, _OwnerQuiescenceRound round) {
+    _ownerRounds.remove(documentId);
+    _ownerRounds[documentId] = round;
+    while (_ownerRounds.length > maxCloudDocumentQuiescenceRounds) {
+      _ownerRounds.remove(_ownerRounds.keys.first);
+    }
+  }
+
+  CloudDocumentQuiescenceStatus? quiescenceStatus(String documentId) {
+    final round = _ownerRounds[documentId];
+    if (round == null) return null;
+    return CloudDocumentQuiescenceStatus(
+      stateHash: round.stateHash,
+      requiredEditors: Set.unmodifiable(round.requiredEditors),
+      acknowledgedEditors: Set.unmodifiable(round.acknowledgements.keys),
+    );
+  }
+
+  Future<bool> requestQuiescence(
+    String documentId, {
+    bool ignoreThreshold = false,
+  }) async {
+    final dispatch = await _serialized(
+      () => _prepareQuiescence(documentId, ignoreThreshold: ignoreThreshold),
+    );
+    if (dispatch == null) return false;
+    // Network delivery is intentionally outside [_serialized]. A recipient
+    // sends its signed ACK before returning the transport-level terminal ACK;
+    // holding the document lock while awaiting this send would deadlock that
+    // response on the owner's ingress path.
+    for (final recipient in dispatch.recipients) {
+      try {
+        await _sendFrame(recipient, dispatch.documentId, dispatch.frameJson);
+      } catch (_) {
+        // Durable transport retries queued frames. A local queue failure is
+        // deliberately not converted into liveness/presence information.
+      }
+    }
+    return true;
+  }
+
+  Future<_QuiescenceDispatch?> _prepareQuiescence(
+    String documentId, {
+    required bool ignoreThreshold,
+  }) async {
+    final signer = _signer;
+    if (signer == null || signer.selfId != localNodeId) return null;
+    final stored = await _store.load(documentId);
+    if (stored == null || stored.root.owner != localNodeId) return null;
+    try {
+      final frame = _frameFromStored(CloudDocumentFrameKind.snapshot, stored);
+      final fold = _fold(frame);
+      if (!_completeAndValid(frame, fold)) return null;
+      if (!ignoreThreshold &&
+          stored.controls.length + stored.operations.length <
+              _automaticCompactionEntries) {
+        return null;
+      }
+      final currentEpoch = fold.epochs.keys.reduce(
+        (left, right) => left > right ? left : right,
+      );
+      final requiredEditors = <String>{
+        for (final member in fold.epochs[currentEpoch]!.members.entries)
+          if (member.key != localNodeId.hex &&
+              member.value == CloudDocumentRole.editor)
+            member.key,
+      };
+      final stateHash = _stateHash(stored.root, fold);
+      final prior = _ownerRounds[documentId];
+      final reusePrior =
+          prior?.stateHash == stateHash &&
+          prior?.rootHash == stored.root.recordHash &&
+          _now().millisecondsSinceEpoch - prior!.startedAtMs <=
+              _quiescenceAckMaxAge.inMilliseconds;
+      final round = _OwnerQuiescenceRound(
+        rootHash: stored.root.recordHash,
+        generation: stored.root.generation,
+        stateHash: stateHash,
+        roundId: reusePrior ? prior.roundId : _randomHex32(),
+        startedAtMs: reusePrior
+            ? prior.startedAtMs
+            : _now().millisecondsSinceEpoch,
+        requiredEditors: Set.unmodifiable(requiredEditors),
+      );
+      if (reusePrior) {
+        round.acknowledgements.addAll(prior.acknowledgements);
+      }
+      _rememberOwnerRound(documentId, round);
+      if (requiredEditors.isEmpty) {
+        _scheduleQuiescentCompaction(documentId, stateHash);
+        return _QuiescenceDispatch(
+          documentId: documentId,
+          frameJson: '',
+          recipients: const [],
+        );
+      }
+      final proposal = _frameFromStored(
+        CloudDocumentFrameKind.quiescence,
+        stored,
+        quiescenceId: round.roundId,
+      );
+      if (!_completeAndValid(proposal, fold) ||
+          CloudDocumentFrame.decode(proposal.encode()) == null) {
+        return null;
+      }
+      return _QuiescenceDispatch(
+        documentId: documentId,
+        frameJson: proposal.encode(),
+        recipients: [
+          for (final member in requiredEditors)
+            if (!round.acknowledgements.containsKey(member))
+              NodeId.fromHex(member),
+        ],
+      );
+    } finally {
+      stored.wipeLocalEpochKeys();
+    }
+  }
+
+  void _scheduleQuiescentCompaction(String documentId, String stateHash) {
+    if (!_scheduledQuiescentCompactions.add(documentId)) return;
+    scheduleMicrotask(() async {
+      try {
+        await _compactDocumentIfQuiescent(documentId, stateHash);
+      } finally {
+        _scheduledQuiescentCompactions.remove(documentId);
+      }
+    });
+  }
+
+  Future<bool> _sendQuiescenceAck(
+    NodeId owner,
+    CloudDocumentStoredBundle stored,
+    CloudDocumentFoldResult fold,
+    String roundId,
+  ) async {
+    final signer = _signer;
+    if (signer == null || signer.selfId != localNodeId) return false;
+    final stateHash = _stateHash(stored.root, fold);
+    final unsigned = CloudDocumentQuiescenceAck(
+      documentId: stored.root.documentId,
+      rootHash: stored.root.recordHash,
+      generation: stored.root.generation,
+      stateHash: stateHash,
+      roundId: roundId,
+      author: localNodeId,
+      issuedAtMs: _now().millisecondsSinceEpoch,
+      authorPubKey: Uint8List(32),
+      signature: Uint8List(64),
+    );
+    final ack = signer.signQuiescenceAck(unsigned);
+    final frame = CloudDocumentFrame(
+      kind: CloudDocumentFrameKind.quiescenceAck,
+      root: stored.root,
+      controls: const [],
+      operations: const [],
+      envelopes: const [],
+      quiescenceAck: ack,
+      quiescenceId: roundId,
+    );
+    final freeze = _MemberQuiescenceFreeze(
+      rootHash: stored.root.recordHash,
+      stateHash: stateHash,
+      roundId: roundId,
+      expiresAtMs:
+          _now().millisecondsSinceEpoch +
+          _quiescenceFreezeDuration.inMilliseconds,
+    );
+    await _store.saveQuiescenceFreeze(
+      CloudDocumentQuiescenceFreezeRecord(
+        documentId: stored.root.documentId.hex,
+        rootHash: freeze.rootHash,
+        stateHash: freeze.stateHash,
+        roundId: freeze.roundId,
+        expiresAtMs: freeze.expiresAtMs,
+      ),
+    );
+    _memberFreezes[stored.root.documentId.hex] = freeze;
+    try {
+      await _sendFrame(owner, stored.root.documentId.hex, frame.encode());
+      return true;
+    } catch (_) {
+      _memberFreezes.remove(stored.root.documentId.hex);
+      await _store.removeQuiescenceFreeze(stored.root.documentId.hex);
+      return false;
+    }
+  }
+
+  Future<bool> _ingestQuiescenceAck(
+    NodeId sender,
+    CloudDocumentFrame frame,
+  ) async {
+    final ack = frame.quiescenceAck;
+    if (ack == null ||
+        sender != ack.author ||
+        frame.root.owner != localNodeId ||
+        !_verifyRoot(frame.root) ||
+        !_verifyQuiescenceAck(ack)) {
+      return false;
+    }
+    final documentId = frame.root.documentId.hex;
+    final round = _ownerRounds[documentId];
+    if (round == null ||
+        round.rootHash != ack.rootHash ||
+        round.generation != ack.generation ||
+        round.stateHash != ack.stateHash ||
+        round.roundId != ack.roundId ||
+        _now().millisecondsSinceEpoch - round.startedAtMs >
+            _quiescenceAckMaxAge.inMilliseconds ||
+        !round.requiredEditors.contains(sender.hex)) {
+      return false;
+    }
+    final stored = await _store.load(documentId);
+    if (stored == null ||
+        stored.root.recordHash != ack.rootHash ||
+        stored.root.generation != ack.generation) {
+      stored?.wipeLocalEpochKeys();
+      return false;
+    }
+    try {
+      final localFrame = _frameFromStored(
+        CloudDocumentFrameKind.snapshot,
+        stored,
+      );
+      final fold = _fold(localFrame);
+      if (!_completeAndValid(localFrame, fold) ||
+          _stateHash(stored.root, fold) != ack.stateHash) {
+        return false;
+      }
+      final epoch = fold.epochs.keys.reduce((a, b) => a > b ? a : b);
+      if (fold.epochs[epoch]!.members[sender.hex] != CloudDocumentRole.editor) {
+        return false;
+      }
+      round.acknowledgements[sender.hex] = ack;
+      if (round.requiredEditors
+          .difference(round.acknowledgements.keys.toSet())
+          .isEmpty) {
+        _scheduleQuiescentCompaction(documentId, round.stateHash);
+      }
+      return true;
+    } finally {
+      stored.wipeLocalEpochKeys();
+    }
+  }
+
   bool _sameRichTextState(
     CloudRichTextSnapshot before,
     CloudRichTextSnapshot after,
@@ -1017,9 +1452,32 @@ class CloudDocumentReplicationService {
   /// Replaces the physical append-only history with an owner-authored typed
   /// checkpoint and a directly chained signed root. Cleartext exists only in
   /// this method's RAM and is wiped before returning.
-  Future<CloudDocumentCompactionResult?> compactDocument(
+  Future<CloudDocumentCompactionResult?> compactDocument(String documentId) =>
+      _serialized(() => _compactDocument(documentId));
+
+  Future<CloudDocumentCompactionResult?> _compactDocumentIfQuiescent(
     String documentId,
+    String expectedStateHash,
   ) => _serialized(() async {
+    final round = _ownerRounds[documentId];
+    if (round == null ||
+        round.stateHash != expectedStateHash ||
+        round.requiredEditors
+            .difference(round.acknowledgements.keys.toSet())
+            .isNotEmpty) {
+      return null;
+    }
+    if (_now().millisecondsSinceEpoch - round.startedAtMs >
+        _quiescenceAckMaxAge.inMilliseconds) {
+      return null;
+    }
+    return _compactDocument(documentId, expectedStateHash: expectedStateHash);
+  });
+
+  Future<CloudDocumentCompactionResult?> _compactDocument(
+    String documentId, {
+    String? expectedStateHash,
+  }) async {
     final signer = _signer;
     if (signer == null || signer.selfId != localNodeId) return null;
     final stored = await _store.load(documentId);
@@ -1032,6 +1490,11 @@ class CloudDocumentReplicationService {
       );
       final oldFold = _fold(oldFrame);
       if (!_completeAndValid(oldFrame, oldFold)) return null;
+      if (expectedStateHash != null &&
+          _stateHash(stored.root, oldFold) != expectedStateHash) {
+        _ownerRounds.remove(documentId);
+        return null;
+      }
       final currentEpoch = oldFold.epochs.keys.reduce(
         (left, right) => left > right ? left : right,
       );
@@ -1191,6 +1654,8 @@ class CloudDocumentReplicationService {
           }
         }
         await _store.save(bundle);
+        _ownerRounds.remove(documentId);
+        _automaticQuiescenceTimers.remove(documentId)?.cancel();
         _emit();
         final failed = <NodeId>[];
         for (final member in current.members.keys) {
@@ -1225,7 +1690,7 @@ class CloudDocumentReplicationService {
       }
       stored.wipeLocalEpochKeys();
     }
-  });
+  }
 
   Future<bool> resendInvite(String documentId, NodeId peer) async {
     if (!await _acceptedContact(peer)) return false;
@@ -1446,6 +1911,10 @@ class CloudDocumentReplicationService {
             op: op,
             target: target,
           );
+          _scheduleAutomaticQuiescence(
+            documentId,
+            entryCount: bundle.controls.length + bundle.operations.length,
+          );
           return CloudDocumentMutationResult(
             documentId: documentId,
             failedRecipients: List.unmodifiable(failed),
@@ -1527,8 +1996,15 @@ class CloudDocumentReplicationService {
   Future<bool> _ingest(NodeId sender, String frameJson) async {
     final incoming = CloudDocumentFrame.decode(frameJson);
     if (incoming == null) return false;
+    if (incoming.kind == CloudDocumentFrameKind.quiescenceAck) {
+      return _ingestQuiescenceAck(sender, incoming);
+    }
     if (incoming.kind == CloudDocumentFrameKind.invite) {
       return _ingestInvite(sender, incoming);
+    }
+    if (incoming.kind == CloudDocumentFrameKind.quiescence &&
+        sender != incoming.root.owner) {
+      return false;
     }
     final existing = await _store.load(incoming.root.documentId.hex);
     if (existing == null) return false;
@@ -1557,16 +2033,51 @@ class CloudDocumentReplicationService {
         if (!await _validateAccessiblePayloads(merged, fold, keys)) {
           return false;
         }
-        await _store.save(
-          CloudDocumentStoredBundle(
-            root: merged.root,
-            controls: fold.acceptedControls,
-            operations: fold.acceptedOperations,
-            envelopes: merged.envelopes,
-            localEpochKeys: keys,
-            payloads: merged.payloads,
-          ),
+        final bundle = CloudDocumentStoredBundle(
+          root: merged.root,
+          controls: fold.acceptedControls,
+          operations: fold.acceptedOperations,
+          envelopes: merged.envelopes,
+          localEpochKeys: keys,
+          payloads: merged.payloads,
         );
+        await _store.save(bundle);
+        if (merged.root.recordHash != existing.root.recordHash) {
+          _memberFreezes.remove(merged.root.documentId.hex);
+          await _store.removeQuiescenceFreeze(merged.root.documentId.hex);
+        }
+        if (incoming.kind == CloudDocumentFrameKind.quiescence) {
+          final incomingFold = _fold(incoming);
+          final exact =
+              _completeAndValid(incoming, incomingFold) &&
+              _stateHash(incoming.root, incomingFold) ==
+                  _stateHash(merged.root, fold);
+          final currentEpoch = fold.epochs.keys.reduce(
+            (left, right) => left > right ? left : right,
+          );
+          if (exact &&
+              fold.epochs[currentEpoch]!.members[localNodeId.hex] ==
+                  CloudDocumentRole.editor) {
+            await _sendQuiescenceAck(
+              sender,
+              bundle,
+              fold,
+              incoming.quiescenceId!,
+            );
+          } else if (!exact) {
+            try {
+              await sendDelta(sender, bundle);
+            } catch (_) {
+              // The local branch remains durable and the next owner proposal
+              // will retry convergence without disclosing why it did not ACK.
+            }
+          }
+        } else if (localNodeId == merged.root.owner) {
+          _scheduleAutomaticQuiescence(
+            merged.root.documentId.hex,
+            entryCount: bundle.controls.length + bundle.operations.length,
+          );
+        }
       } finally {
         for (final key in keys.values) {
           key.fillRange(0, key.length, 0);
@@ -1760,8 +2271,9 @@ class CloudDocumentReplicationService {
     CloudDocumentFrameKind kind,
     CloudDocumentStoredBundle bundle, {
     bool requireOwner = false,
+    String? quiescenceId,
   }) async {
-    final frame = _frameFromStored(kind, bundle);
+    final frame = _frameFromStored(kind, bundle, quiescenceId: quiescenceId);
     final fold = _fold(frame);
     if (!_completeAndValid(frame, fold) ||
         (requireOwner && frame.root.owner != localNodeId)) {
@@ -1776,14 +2288,16 @@ class CloudDocumentReplicationService {
 
   CloudDocumentFrame _frameFromStored(
     CloudDocumentFrameKind kind,
-    CloudDocumentStoredBundle bundle,
-  ) => CloudDocumentFrame(
+    CloudDocumentStoredBundle bundle, {
+    String? quiescenceId,
+  }) => CloudDocumentFrame(
     kind: kind,
     root: bundle.root,
     controls: bundle.controls,
     operations: bundle.operations,
     envelopes: bundle.envelopes,
     payloads: bundle.payloads,
+    quiescenceId: quiescenceId,
   );
 
   CloudDocumentFrame? _merge(

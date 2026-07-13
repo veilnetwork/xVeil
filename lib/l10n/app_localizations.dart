@@ -4684,7 +4684,7 @@ abstract class AppL10n {
   /// No description provided for @cloudSharedCompactTitle.
   ///
   /// In en, this message translates to:
-  /// **'Replace the old encrypted history with a signed checkpoint? Current content, access and edit continuity are preserved. This cannot be undone.'**
+  /// **'Ask current editors to confirm the exact synchronized state, then automatically replace the old encrypted history with a signed checkpoint? Offline editors will safely delay compaction. Current content, access and edit continuity are preserved.'**
   String get cloudSharedCompactTitle;
 
   /// No description provided for @cloudSharedResend.

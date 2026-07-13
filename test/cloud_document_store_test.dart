@@ -261,4 +261,50 @@ void main() {
       await reopened.close();
     },
   );
+
+  test(
+    'quiescence freeze is bounded, durable and explicitly removable',
+    () async {
+      final container = FakeHvContainer();
+      final storage = container.storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final store = CloudDocumentStore(storage);
+      final freeze = CloudDocumentQuiescenceFreezeRecord(
+        documentId: _hash(10),
+        rootHash: _hash(20),
+        stateHash: _hash(21),
+        roundId: _hash(22),
+        expiresAtMs: 12345,
+      );
+      await store.saveQuiescenceFreeze(freeze);
+      expect(
+        (await store.loadQuiescenceFreeze(freeze.documentId))!.roundId,
+        _hash(22),
+      );
+      await storage.close();
+
+      final reopened = container.storage();
+      await reopened.open(password: 'pw');
+      final restarted = CloudDocumentStore(reopened);
+      expect(
+        (await restarted.loadQuiescenceFreeze(freeze.documentId))!.stateHash,
+        _hash(21),
+      );
+      await restarted.removeQuiescenceFreeze(freeze.documentId);
+      expect(await restarted.loadQuiescenceFreeze(freeze.documentId), isNull);
+      await expectLater(
+        restarted.saveQuiescenceFreeze(
+          CloudDocumentQuiescenceFreezeRecord(
+            documentId: 'bad',
+            rootHash: freeze.rootHash,
+            stateHash: freeze.stateHash,
+            roundId: freeze.roundId,
+            expiresAtMs: freeze.expiresAtMs,
+          ),
+        ),
+        throwsArgumentError,
+      );
+      await reopened.close();
+    },
+  );
 }

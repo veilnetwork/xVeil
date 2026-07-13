@@ -2515,7 +2515,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get cloudSharedCompactTitle =>
-      'Replace the old encrypted history with a signed checkpoint? Current content, access and edit continuity are preserved. This cannot be undone.';
+      'Ask current editors to confirm the exact synchronized state, then automatically replace the old encrypted history with a signed checkpoint? Offline editors will safely delay compaction. Current content, access and edit continuity are preserved.';
 
   @override
   String get cloudSharedResend => 'Resend invitation';

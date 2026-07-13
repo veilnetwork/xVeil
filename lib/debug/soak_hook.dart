@@ -371,6 +371,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/cloud_document_compact':
           await _cloudDocumentCompactHook(req);
           return;
+        case '/cloud_document_quiesce':
+          await _cloudDocumentQuiesceHook(req);
+          return;
         case '/cloud_document_adopt':
           await _cloudDocumentAdoptHook(req);
           return;
@@ -1707,6 +1710,26 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'operationsAfter': result?.operationsAfter,
       'fullyQueued': result?.fullyQueued,
       'failed': result?.failedRecipients.map((peer) => peer.hex).toList(),
+    });
+  }
+
+  /// Starts the same signed convergence round used by automatic compaction.
+  /// Only bounded structural counters are exposed on this loopback debug hook.
+  Future<void> _cloudDocumentQuiesceHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(cloudDocumentReplicationServiceProvider);
+    final id = req.uri.queryParameters['id'];
+    if (service == null || id == null) {
+      return _json(req, {'ok': false, 'error': 'need documents+id'});
+    }
+    final started = await service.requestQuiescence(id, ignoreThreshold: true);
+    final status = service.quiescenceStatus(id);
+    return _json(req, {
+      'ok': started,
+      'id': id,
+      'required': status?.requiredEditors.length,
+      'acknowledged': status?.acknowledgedEditors.length,
+      'complete': status?.complete,
     });
   }
 

@@ -212,6 +212,66 @@ class CloudDocumentStoredBundle {
   }
 }
 
+/// Deniable, bounded local prepare marker. It contains no document content or
+/// epoch key; persistence only keeps a restarted editor from writing across a
+/// convergence cut it already acknowledged.
+class CloudDocumentQuiescenceFreezeRecord {
+  const CloudDocumentQuiescenceFreezeRecord({
+    required this.documentId,
+    required this.rootHash,
+    required this.stateHash,
+    required this.roundId,
+    required this.expiresAtMs,
+  });
+
+  final String documentId;
+  final String rootHash;
+  final String stateHash;
+  final String roundId;
+  final int expiresAtMs;
+
+  Map<String, dynamic> toJson() => {
+    'v': 1,
+    'did': documentId,
+    'root': rootHash,
+    'state': stateHash,
+    'round': roundId,
+    'expiresAt': expiresAtMs,
+  };
+
+  static CloudDocumentQuiescenceFreezeRecord? fromJson(Object? value) {
+    if (value is! Map || value['v'] != 1) return null;
+    final documentId = value['did'];
+    final rootHash = value['root'];
+    final stateHash = value['state'];
+    final roundId = value['round'];
+    final expiresAt = value['expiresAt'];
+    bool hash(String? candidate) =>
+        candidate != null &&
+        candidate.length == 64 &&
+        RegExp(r'^[0-9a-f]{64}$').hasMatch(candidate);
+    if (documentId is! String ||
+        !hash(documentId) ||
+        rootHash is! String ||
+        !hash(rootHash) ||
+        stateHash is! String ||
+        !hash(stateHash) ||
+        roundId is! String ||
+        !hash(roundId) ||
+        expiresAt is! int ||
+        expiresAt < 0) {
+      return null;
+    }
+    return CloudDocumentQuiescenceFreezeRecord(
+      documentId: documentId,
+      rootHash: rootHash,
+      stateHash: stateHash,
+      roundId: roundId,
+      expiresAtMs: expiresAt,
+    );
+  }
+}
+
 class CloudDocumentStore {
   CloudDocumentStore(this._storage);
 
@@ -226,6 +286,8 @@ class CloudDocumentStore {
   String _documentKey(String documentId) => 'cloud.document.v1.$documentId';
   String _inviteKey(String documentId) =>
       'cloud.document.invite.v1.$documentId';
+  String _quiescenceKey(String documentId) =>
+      'cloud.document.quiescence.v1.$documentId';
 
   Future<T> _serialized<T>(Future<T> Function() action) {
     final result = _writeTail.then((_) => action());
@@ -315,6 +377,32 @@ class CloudDocumentStore {
 
   Future<CloudDocumentPendingInvite?> loadPendingInvite(String documentId) =>
       _loadAtomic(_inviteKey(documentId), CloudDocumentPendingInvite.fromJson);
+
+  Future<CloudDocumentQuiescenceFreezeRecord?> loadQuiescenceFreeze(
+    String documentId,
+  ) => _loadAtomic(
+    _quiescenceKey(documentId),
+    CloudDocumentQuiescenceFreezeRecord.fromJson,
+  );
+
+  Future<void> saveQuiescenceFreeze(
+    CloudDocumentQuiescenceFreezeRecord freeze,
+  ) => _serialized(() async {
+    if (CloudDocumentQuiescenceFreezeRecord.fromJson(freeze.toJson()) == null) {
+      throw ArgumentError('invalid cloud document quiescence freeze');
+    }
+    await _saveAtomic(
+      _quiescenceKey(freeze.documentId),
+      jsonEncode(freeze.toJson()),
+    );
+  });
+
+  Future<void> removeQuiescenceFreeze(String documentId) =>
+      _serialized(() async {
+        await _storage.deleteStoredFile('${_quiescenceKey(documentId)}.a');
+        await _storage.deleteStoredFile('${_quiescenceKey(documentId)}.b');
+        await _storage.putSetting('${_quiescenceKey(documentId)}.active', '');
+      });
 
   Future<List<String>> listPendingInviteIds() async {
     final result = await _loadAtomic<List<String>>(_inviteIndexKey, (decoded) {
