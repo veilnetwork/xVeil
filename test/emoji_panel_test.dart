@@ -159,10 +159,9 @@ void main() {
     expect(
       tester.getBottomLeft(panel).dy,
       lessThanOrEqualTo(
-        tester.getTopLeft(composerField).dy -
-            (kDesktopExpressionPanelBottomGap - 80),
+        tester.getTopLeft(composerField).dy - (kExpressionPanelBottomGap - 80),
       ),
-      reason: 'desktop expression hub must float above the composer',
+      reason: 'expression hub must float above the composer',
     );
 
     // Search narrows the grid; tapping the hit inserts it and closes.
@@ -179,6 +178,55 @@ void main() {
     expect(find.byIcon(Icons.send), findsOneWidget);
     expect(find.byKey(const ValueKey('composer-video-note')), findsNothing);
     expect(find.byKey(const ValueKey('composer-voice-note')), findsNothing);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('Android expression panel also floats above the composer', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    await tester.binding.setSurfaceSize(const Size(407, 904));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Column(
+              children: [
+                const Expanded(child: SizedBox()),
+                SizedBox(
+                  key: const ValueKey('mobile-composer'),
+                  height: 64,
+                  child: Center(
+                    child: FilledButton(
+                      onPressed: () => showComposerExpressionPanel(context),
+                      child: const Text('Open'),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    final panel = find.byKey(const ValueKey('composer-expression-panel'));
+    final composer = find.byKey(const ValueKey('mobile-composer'));
+    expect(panel, findsOneWidget);
+    expect(
+      tester.getBottomLeft(panel).dy,
+      lessThan(tester.getTopLeft(composer).dy),
+      reason: 'Android hub must not grow below or cover the composer',
+    );
+    expect(tester.getTopLeft(panel).dx, greaterThan(0));
+    expect(tester.getTopRight(panel).dx, lessThan(407));
     debugDefaultTargetPlatformOverride = null;
   });
 }
