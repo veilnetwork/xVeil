@@ -242,6 +242,41 @@ draft when a remote update arrives, and provides formatted editing plus a
 separate ACL surface. The loopback debug hook returns only byte count, digest,
 heads and conflict flags; it never echoes decrypted text.
 
+## Implemented: task and calendar map CRDTs
+
+Shared task lists use `xveil.tasks.map.v1`; shared calendars use
+`xveil.calendar.map.v1`. Both run on the same signed, epoch-bound operation
+log as rich text. A random 256-bit row id owns an LWW register per typed field,
+so concurrent edits to different fields merge instead of replacing an entire
+task or event. Causal descendants win; concurrent writes to one field use the
+signed operation id as the deterministic tie-break. A concurrent deletion wins
+over a create/edit, while a create causally after that deletion is an explicit
+restore.
+
+The cleartext codecs are strict and bounded before JSON allocation or semantic
+materialization: exact keys and wire types, 1 MiB operation ceiling, 4096-row
+checkpoint ceiling, bounded UTF-8 fields and non-negative bounded times. Task
+rows contain title, notes, completion, optional due time and position. Calendar
+rows contain title, notes, start/end, all-day and location; an end before start
+is inert until a later causal patch repairs it.
+
+Only the document owner may author a checkpoint. On grant, the owner
+materializes the current typed rows and encrypts a canonical checkpoint into
+the new membership epoch, so the invitee receives present state without old
+epoch keys. Editors can create, patch and delete rows but cannot replace
+history with a checkpoint. More than 32 collection heads use the same signed
+merge-noop reduction as rich text. The common fold now also rejects an
+authenticated parent cycle and every operation dependent on it: signed parent
+existence is not sufficient proof of a causal DAG when editors can
+pre-coordinate operation ids.
+
+The Storage UI creates notes, task lists or calendars explicitly, exposes
+typed task/event editors to owner/editor roles, and remains read-only for a
+viewer. UI updates emit only fields that actually changed, preserving
+concurrent changes to other registers. The loopback collection hook never
+echoes titles, notes or locations; it returns row count, canonical SHA-256,
+heads, epoch, role and invalid/unavailable counts.
+
 The append-only signed log is still bounded by the existing encrypted frame
 limit. Long-term history compaction requires a separately versioned signed
 checkpoint/root transition; silently dropping old author-chain records is

@@ -8,11 +8,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/cloud.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/cloud_collection_crdt.dart';
 import 'package:xveil/domain/cloud_document.dart';
 import 'package:xveil/domain/cloud_document_replication.dart';
 import 'package:xveil/domain/content_manifest.dart';
 import 'package:xveil/domain/device_sync.dart';
 import 'package:xveil/features/storage/cloud_storage_screen.dart';
+import 'package:xveil/features/storage/cloud_collection_editor.dart';
 import 'package:xveil/features/storage/cloud_shared_document_editor.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/cloud_service.dart';
@@ -96,6 +98,13 @@ class _DocumentSigner implements CloudDocumentSigner {
 Future<void> _pumpTransition(WidgetTester tester) async {
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 500));
+}
+
+Future<void> _pumpUntilFound(WidgetTester tester, Finder finder) async {
+  for (var attempt = 0; attempt < 50; attempt++) {
+    await tester.pump(const Duration(milliseconds: 100));
+    if (finder.evaluate().isNotEmpty) return;
+  }
 }
 
 String _hexFill(int byte) => List.filled(
@@ -250,6 +259,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('New shared document'));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('Note'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Alice'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Editor'));
@@ -259,7 +270,7 @@ void main() {
     expect(find.text('Shared documents (1)'), findsOneWidget);
     await tester.tap(find.text('Shared documents (1)'));
     await tester.pumpAndSettle();
-    await tester.tap(find.textContaining('Shared note').last);
+    await tester.tap(find.textContaining('Shared Note').last);
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('cloud-rich-editor')), findsOneWidget);
     expect(find.byKey(const ValueKey('cloud-rich-close')), findsOneWidget);
@@ -407,6 +418,113 @@ void main() {
         tester.getTopLeft(find.byKey(const ValueKey('cloud-rich-bold'))).dy,
       ),
       reason: 'the wrapped Russian subtitle must end above the toolbar',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('shared collection editors create tasks and calendar events', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final self = NodeId(Uint8List(32)..[0] = 5);
+    final documents = CloudDocumentReplicationService(
+      localNodeId: self,
+      ourCertVersion: 0,
+      store: CloudDocumentStore(storage),
+      envelopes: CloudDocumentEnvelopeService(
+        LoopbackMailboxCrypto(senderForOpen: self),
+      ),
+      sendFrame: (_, _, _) async {},
+      signer: _DocumentSigner(self),
+      verifyRoot: (_) => true,
+      verifyControl: (_) => true,
+      verifyOperation: (_) => true,
+    );
+    final documentId = (await documents.createDocument(
+      kind: CloudDocumentKind.taskList,
+      codec: cloudTaskListCodecV1,
+    ))!.documentId;
+    addTearDown(() {
+      unawaited(documents.close());
+      unawaited(storage.close());
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('ru'),
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        home: Scaffold(
+          body: CloudCollectionEditor(
+            service: documents,
+            documentId: documentId,
+          ),
+        ),
+      ),
+    );
+    await _pumpUntilFound(tester, find.text('Общие задачи'));
+    expect(find.text('Общие задачи'), findsOneWidget);
+    expect(find.text('Задач пока нет'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('cloud-task-add')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('cloud-task-title')),
+      'Проверить CRDT',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'Сохранить'));
+    await tester.pumpAndSettle();
+    expect(find.text('Проверить CRDT'), findsOneWidget);
+    var state = (await documents.loadCollection(documentId))!;
+    expect(state.tasks.single.completed, isFalse);
+
+    await tester.tap(find.byType(Checkbox));
+    await tester.pumpAndSettle();
+    state = (await documents.loadCollection(documentId))!;
+    expect(state.tasks.single.completed, isTrue);
+    tester
+        .state<ScaffoldMessengerState>(find.byType(ScaffoldMessenger))
+        .clearSnackBars();
+    await tester.pumpAndSettle();
+
+    final calendarId = (await documents.createDocument(
+      kind: CloudDocumentKind.calendar,
+      codec: cloudCalendarCodecV1,
+    ))!.documentId;
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('ru'),
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        home: Scaffold(
+          body: CloudCollectionEditor(
+            service: documents,
+            documentId: calendarId,
+          ),
+        ),
+      ),
+    );
+    await _pumpUntilFound(tester, find.text('Общий календарь'));
+    expect(find.text('Общий календарь'), findsOneWidget);
+    final addEvent = find.byKey(const ValueKey('cloud-event-add'));
+    await tester.ensureVisible(addEvent);
+    await tester.tap(addEvent);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('cloud-event-title')),
+      'Встреча',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'Сохранить'));
+    await tester.pumpAndSettle();
+    expect(find.text('Встреча'), findsOneWidget);
+    final calendar = (await documents.loadCollection(calendarId))!;
+    expect(calendar.events.single.title, 'Встреча');
+    expect(
+      calendar.events.single.endAtMs,
+      greaterThan(calendar.events.single.startAtMs),
     );
     expect(tester.takeException(), isNull);
   });

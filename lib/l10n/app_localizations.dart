@@ -4842,6 +4842,174 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Code block'**
   String get cloudRichCodeBlock;
+
+  /// No description provided for @cloudSharedPickKind.
+  ///
+  /// In en, this message translates to:
+  /// **'Shared document type'**
+  String get cloudSharedPickKind;
+
+  /// No description provided for @cloudKindNote.
+  ///
+  /// In en, this message translates to:
+  /// **'Note'**
+  String get cloudKindNote;
+
+  /// No description provided for @cloudKindTasks.
+  ///
+  /// In en, this message translates to:
+  /// **'Task list'**
+  String get cloudKindTasks;
+
+  /// No description provided for @cloudKindCalendar.
+  ///
+  /// In en, this message translates to:
+  /// **'Calendar'**
+  String get cloudKindCalendar;
+
+  /// No description provided for @cloudTasksTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Shared tasks'**
+  String get cloudTasksTitle;
+
+  /// No description provided for @cloudCalendarTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Shared calendar'**
+  String get cloudCalendarTitle;
+
+  /// No description provided for @cloudCollectionCollaborative.
+  ///
+  /// In en, this message translates to:
+  /// **'Encrypted collaborative collection'**
+  String get cloudCollectionCollaborative;
+
+  /// No description provided for @cloudCollectionEmptyTasks.
+  ///
+  /// In en, this message translates to:
+  /// **'No tasks yet'**
+  String get cloudCollectionEmptyTasks;
+
+  /// No description provided for @cloudCollectionEmptyEvents.
+  ///
+  /// In en, this message translates to:
+  /// **'No events yet'**
+  String get cloudCollectionEmptyEvents;
+
+  /// No description provided for @cloudTaskAdd.
+  ///
+  /// In en, this message translates to:
+  /// **'Add task'**
+  String get cloudTaskAdd;
+
+  /// No description provided for @cloudTaskEdit.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit task'**
+  String get cloudTaskEdit;
+
+  /// No description provided for @cloudTaskTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Task'**
+  String get cloudTaskTitle;
+
+  /// No description provided for @cloudTaskNotes.
+  ///
+  /// In en, this message translates to:
+  /// **'Notes'**
+  String get cloudTaskNotes;
+
+  /// No description provided for @cloudTaskDue.
+  ///
+  /// In en, this message translates to:
+  /// **'Due date'**
+  String get cloudTaskDue;
+
+  /// No description provided for @cloudTaskNoDue.
+  ///
+  /// In en, this message translates to:
+  /// **'No due date'**
+  String get cloudTaskNoDue;
+
+  /// No description provided for @cloudEventAdd.
+  ///
+  /// In en, this message translates to:
+  /// **'Add event'**
+  String get cloudEventAdd;
+
+  /// No description provided for @cloudEventEdit.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit event'**
+  String get cloudEventEdit;
+
+  /// No description provided for @cloudEventTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Event'**
+  String get cloudEventTitle;
+
+  /// No description provided for @cloudEventStart.
+  ///
+  /// In en, this message translates to:
+  /// **'Starts'**
+  String get cloudEventStart;
+
+  /// No description provided for @cloudEventEnd.
+  ///
+  /// In en, this message translates to:
+  /// **'Ends'**
+  String get cloudEventEnd;
+
+  /// No description provided for @cloudEventAllDay.
+  ///
+  /// In en, this message translates to:
+  /// **'All day'**
+  String get cloudEventAllDay;
+
+  /// No description provided for @cloudEventLocation.
+  ///
+  /// In en, this message translates to:
+  /// **'Location'**
+  String get cloudEventLocation;
+
+  /// No description provided for @cloudCollectionDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get cloudCollectionDelete;
+
+  /// No description provided for @cloudCollectionDeleteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete \"{title}\"?'**
+  String cloudCollectionDeleteTitle(String title);
+
+  /// No description provided for @cloudCollectionSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'Change saved and queued'**
+  String get cloudCollectionSaved;
+
+  /// No description provided for @cloudCollectionFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not update this shared collection'**
+  String get cloudCollectionFailed;
+
+  /// No description provided for @cloudCollectionInvalidRange.
+  ///
+  /// In en, this message translates to:
+  /// **'The event must end after it starts'**
+  String get cloudCollectionInvalidRange;
+
+  /// No description provided for @cloudCollectionInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'An authenticated but invalid change was kept inert.'**
+  String get cloudCollectionInvalid;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {
