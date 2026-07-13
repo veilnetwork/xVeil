@@ -46,6 +46,26 @@ class CloudDocumentMutationResult {
   bool get fullyQueued => failedRecipients.isEmpty;
 }
 
+class CloudDocumentCompactionResult extends CloudDocumentMutationResult {
+  const CloudDocumentCompactionResult({
+    required super.documentId,
+    required this.generation,
+    required this.controlsBefore,
+    required this.operationsBefore,
+    required this.envelopesBefore,
+    required this.payloadsBefore,
+    required this.operationsAfter,
+    super.failedRecipients,
+  });
+
+  final int generation;
+  final int controlsBefore;
+  final int operationsBefore;
+  final int envelopesBefore;
+  final int payloadsBefore;
+  final int operationsAfter;
+}
+
 class CloudRichTextDocumentState {
   const CloudRichTextDocumentState({
     required this.snapshot,
@@ -371,13 +391,13 @@ class CloudDocumentReplicationService {
 
       final operations = [...oldFold.acceptedOperations];
       final payloads = [...stored.payloads];
-      final authored =
-          operations
-              .where((operation) => operation.author == localNodeId)
-              .toList()
-            ..sort((left, right) => left.seq.compareTo(right.seq));
-      var nextSeq = authored.isEmpty ? 0 : authored.last.seq + 1;
-      var previousAuthorHash = authored.isEmpty ? '' : authored.last.recordHash;
+      final authorHead = _latestAuthorHead(
+        stored.root,
+        operations,
+        localNodeId,
+      );
+      var nextSeq = (authorHead?.seq ?? -1) + 1;
+      var previousAuthorHash = authorHead?.hash ?? '';
 
       Future<CloudDocumentOperation> appendOne(
         CloudRichTextEdit edit,
@@ -539,13 +559,13 @@ class CloudDocumentReplicationService {
 
       final operations = [...oldFold.acceptedOperations];
       final payloads = [...stored.payloads];
-      final authored =
-          operations
-              .where((operation) => operation.author == localNodeId)
-              .toList()
-            ..sort((left, right) => left.seq.compareTo(right.seq));
-      var nextSeq = authored.isEmpty ? 0 : authored.last.seq + 1;
-      var previousAuthorHash = authored.isEmpty ? '' : authored.last.recordHash;
+      final authorHead = _latestAuthorHead(
+        stored.root,
+        operations,
+        localNodeId,
+      );
+      var nextSeq = (authorHead?.seq ?? -1) + 1;
+      var previousAuthorHash = authorHead?.hash ?? '';
 
       Future<CloudDocumentOperation> appendOne(
         CloudCollectionEdit edit,
@@ -823,6 +843,79 @@ class CloudDocumentReplicationService {
       ..sort();
   }
 
+  CloudDocumentAuthorHead? _latestAuthorHead(
+    CloudDocumentRoot root,
+    Iterable<CloudDocumentOperation> operations,
+    NodeId author,
+  ) {
+    var head = root.baseAuthorFrontier[author.hex];
+    for (final operation in operations) {
+      if (operation.author != author) continue;
+      if (head == null || operation.seq > head.seq) {
+        head = CloudDocumentAuthorHead(
+          seq: operation.seq,
+          hash: operation.recordHash,
+        );
+      }
+    }
+    return head;
+  }
+
+  Map<String, CloudDocumentAuthorHead> _cumulativeAuthorFrontier(
+    CloudDocumentRoot root,
+    Iterable<CloudDocumentOperation> operations,
+  ) {
+    final frontier = <String, CloudDocumentAuthorHead>{
+      ...root.baseAuthorFrontier,
+    };
+    for (final operation in operations) {
+      final prior = frontier[operation.author.hex];
+      if (prior == null || operation.seq > prior.seq) {
+        frontier[operation.author.hex] = CloudDocumentAuthorHead(
+          seq: operation.seq,
+          hash: operation.recordHash,
+        );
+      }
+    }
+    return frontier;
+  }
+
+  bool _sameRichTextState(
+    CloudRichTextSnapshot before,
+    CloudRichTextSnapshot after,
+  ) {
+    if (before.text != after.text ||
+        before.hasDocumentDelete != after.hasDocumentDelete ||
+        before.hasConcurrentRecovery != after.hasConcurrentRecovery ||
+        before.atoms.length != after.atoms.length) {
+      return false;
+    }
+    for (var index = 0; index < before.atoms.length; index++) {
+      if (before.atoms[index].value != after.atoms[index].value ||
+          before.atoms[index].style != after.atoms[index].style) {
+        return false;
+      }
+    }
+    return after.invalidOperationIds.isEmpty &&
+        after.unavailableOperationIds.isEmpty;
+  }
+
+  bool _sameCollectionState(
+    CloudCollectionSnapshot before,
+    CloudCollectionSnapshot after,
+  ) {
+    Object rowsJson(CloudCollectionSnapshot snapshot) {
+      final rows = [...snapshot.rows]..sort((a, b) => a.id.compareTo(b.id));
+      return [
+        for (final row in rows) {'id': row.id, 'fields': row.fields},
+      ];
+    }
+
+    return jsonEncode(rowsJson(before)) == jsonEncode(rowsJson(after)) &&
+        after.invalidOperationIds.isEmpty &&
+        after.unavailableOperationIds.isEmpty;
+  }
+
   Future<CloudDocumentMutationResult?> createDocument({
     CloudDocumentKind kind = CloudDocumentKind.note,
     String codec = 'xveil.note.rga.v1',
@@ -921,6 +1014,219 @@ class CloudDocumentReplicationService {
         op: CloudDocumentControlOp.rotateEpoch,
       );
 
+  /// Replaces the physical append-only history with an owner-authored typed
+  /// checkpoint and a directly chained signed root. Cleartext exists only in
+  /// this method's RAM and is wiped before returning.
+  Future<CloudDocumentCompactionResult?> compactDocument(
+    String documentId,
+  ) => _serialized(() async {
+    final signer = _signer;
+    if (signer == null || signer.selfId != localNodeId) return null;
+    final stored = await _store.load(documentId);
+    if (stored == null || stored.root.owner != localNodeId) return null;
+    final cleartexts = <Uint8List>[];
+    try {
+      final oldFrame = _frameFromStored(
+        CloudDocumentFrameKind.snapshot,
+        stored,
+      );
+      final oldFold = _fold(oldFrame);
+      if (!_completeAndValid(oldFrame, oldFold)) return null;
+      final currentEpoch = oldFold.epochs.keys.reduce(
+        (left, right) => left > right ? left : right,
+      );
+      final current = oldFold.epochs[currentEpoch]!;
+      final epochKey = stored.localEpochKeys[currentEpoch];
+      if (epochKey == null) return null;
+      final currentEnvelope = stored.envelopes
+          .where((entry) => entry.epoch == currentEpoch)
+          .firstOrNull;
+      if (currentEnvelope == null) return null;
+
+      CloudRichTextSnapshot? richBefore;
+      CloudCollectionSnapshot? collectionBefore;
+      String? operationType;
+      if (stored.root.kind == CloudDocumentKind.note &&
+          stored.root.codec == cloudRichTextCodecV1) {
+        richBefore = await _materializeRichText(stored, oldFold);
+        if (richBefore == null ||
+            richBefore.invalidOperationIds.isNotEmpty ||
+            richBefore.unavailableOperationIds.isNotEmpty) {
+          return null;
+        }
+        operationType = cloudRichTextOperationType;
+      } else if (stored.root.codec == cloudCollectionCodec(stored.root.kind)) {
+        collectionBefore = await _materializeCollection(stored, oldFold);
+        if (collectionBefore == null ||
+            collectionBefore.invalidOperationIds.isNotEmpty ||
+            collectionBefore.unavailableOperationIds.isNotEmpty) {
+          return null;
+        }
+        operationType = cloudCollectionOperationType(stored.root.kind);
+      }
+      if (operationType == null) return null;
+
+      final authorFrontier = _cumulativeAuthorFrontier(
+        stored.root,
+        oldFold.acceptedOperations,
+      );
+      final controlHead = oldFold.acceptedControls.isEmpty
+          ? (seq: stored.root.baseControlSeq, hash: stored.root.baseControlHash)
+          : (
+              seq: oldFold.acceptedControls.last.seq,
+              hash: oldFold.acceptedControls.last.recordHash,
+            );
+      final unsignedRoot = CloudDocumentRoot(
+        version: 2,
+        documentId: stored.root.documentId,
+        owner: stored.root.owner,
+        ownerPubKey: Uint8List(32),
+        kind: stored.root.kind,
+        codec: stored.root.codec,
+        epochKeyCommitment: current.epochKeyCommitment,
+        epochEnvelopeHash: current.epochEnvelopeHash,
+        controlLogRoot: stored.root.controlLogRoot,
+        createdAtMs: stored.root.createdAtMs,
+        signature: Uint8List(64),
+        generation: stored.root.generation + 1,
+        predecessorRootHash: stored.root.recordHash,
+        baseEpoch: currentEpoch,
+        baseMembers: current.members,
+        baseAuthorFrontier: authorFrontier,
+        baseControlSeq: controlHead.seq,
+        baseControlHash: controlHead.hash,
+      );
+      final root = signer.signRoot(unsignedRoot);
+      if (!isDirectCloudDocumentRootTransition(stored.root, root) ||
+          !_verifyRoot(root)) {
+        return null;
+      }
+
+      final operations = <CloudDocumentOperation>[];
+      final payloads = <CloudDocumentEncryptedPayload>[];
+      var ownerHead = authorFrontier[localNodeId.hex];
+      Future<CloudDocumentOperation> appendCheckpointRecord(
+        Uint8List clear,
+        List<String> parents,
+      ) async {
+        cleartexts.add(clear);
+        final unsigned = CloudDocumentOperation(
+          documentId: root.documentId,
+          membershipEpoch: currentEpoch,
+          author: localNodeId,
+          seq: (ownerHead?.seq ?? -1) + 1,
+          prevAuthorHash: ownerHead?.hash ?? '',
+          operationId: _randomHex32(),
+          parentOperationIds: [...parents]..sort(),
+          opType: operationType!,
+          payloadHash: _randomHex32(),
+          createdAtMs: _now().millisecondsSinceEpoch,
+          authorPubKey: Uint8List(32),
+          signature: Uint8List(64),
+        );
+        final payload = await encryptCloudDocumentPayload(
+          operation: unsigned,
+          clearText: clear,
+          epochKey: epochKey,
+          random: _random,
+        );
+        final operation = signer.signOperation(
+          unsigned.withPayloadHash(payload.payloadHash),
+        );
+        operations.add(operation);
+        payloads.add(payload);
+        ownerHead = CloudDocumentAuthorHead(
+          seq: operation.seq,
+          hash: operation.recordHash,
+        );
+        return operation;
+      }
+
+      if (richBefore != null) {
+        final checkpoint = await appendCheckpointRecord(
+          CloudRichTextEdit.checkpoint(
+            text: richBefore.text,
+            styles: richBefore.atoms.map((atom) => atom.style).toList(),
+          ).encode(),
+          const [],
+        );
+        if (richBefore.hasDocumentDelete) {
+          await appendCheckpointRecord(
+            const CloudRichTextEdit.documentDelete().encode(),
+            richBefore.isDeleted ? [checkpoint.operationId] : const [],
+          );
+        }
+      } else {
+        await appendCheckpointRecord(
+          CloudCollectionEdit.checkpoint(collectionBefore!.rows).encode(),
+          const [],
+        );
+      }
+
+      final keys = {currentEpoch: Uint8List.fromList(epochKey)};
+      final bundle = CloudDocumentStoredBundle(
+        root: root,
+        controls: const [],
+        operations: operations,
+        envelopes: [currentEnvelope],
+        localEpochKeys: keys,
+        payloads: payloads,
+      );
+      try {
+        final frame = _frameFromStored(CloudDocumentFrameKind.snapshot, bundle);
+        final fold = _fold(frame);
+        if (!_completeAndValid(frame, fold) || !bundle.isStructurallyValid) {
+          return null;
+        }
+        if (richBefore != null) {
+          final after = await _materializeRichText(bundle, fold);
+          if (after == null || !_sameRichTextState(richBefore, after)) {
+            return null;
+          }
+        } else {
+          final after = await _materializeCollection(bundle, fold);
+          if (after == null ||
+              !_sameCollectionState(collectionBefore!, after)) {
+            return null;
+          }
+        }
+        await _store.save(bundle);
+        _emit();
+        final failed = <NodeId>[];
+        for (final member in current.members.keys) {
+          if (member == localNodeId.hex) continue;
+          final peer = NodeId.fromHex(member);
+          try {
+            await sendSnapshot(peer, bundle);
+          } catch (_) {
+            failed.add(peer);
+          }
+        }
+        return CloudDocumentCompactionResult(
+          documentId: documentId,
+          generation: root.generation,
+          controlsBefore: stored.controls.length,
+          operationsBefore: stored.operations.length,
+          envelopesBefore: stored.envelopes.length,
+          payloadsBefore: stored.payloads.length,
+          operationsAfter: operations.length,
+          failedRecipients: List.unmodifiable(failed),
+        );
+      } finally {
+        for (final key in keys.values) {
+          key.fillRange(0, key.length, 0);
+        }
+      }
+    } catch (_) {
+      return null;
+    } finally {
+      for (final clear in cleartexts) {
+        clear.fillRange(0, clear.length, 0);
+      }
+      stored.wipeLocalEpochKeys();
+    }
+  });
+
   Future<bool> resendInvite(String documentId, NodeId peer) async {
     if (!await _acceptedContact(peer)) return false;
     final stored = await _store.load(documentId);
@@ -1008,7 +1314,9 @@ class CloudDocumentReplicationService {
             for (final member in nextMembers.keys) NodeId.fromHex(member),
           ],
         );
-        final frontier = <String, CloudDocumentAuthorHead>{};
+        final frontier = <String, CloudDocumentAuthorHead>{
+          ...stored.root.baseAuthorFrontier,
+        };
         for (final operation in oldFold.acceptedOperations) {
           // Closures carry the cumulative per-author head through the epoch,
           // not only records authored inside that one epoch. Otherwise a later
@@ -1025,9 +1333,9 @@ class CloudDocumentReplicationService {
         final unsigned = CloudDocumentControlEntry(
           documentId: stored.root.documentId,
           author: localNodeId,
-          seq: oldFold.acceptedControls.length,
+          seq: stored.root.baseControlSeq + oldFold.acceptedControls.length + 1,
           prevControlHash: oldFold.acceptedControls.isEmpty
-              ? stored.root.controlLogRoot
+              ? stored.root.baseControlHash
               : oldFold.acceptedControls.last.recordHash,
           controlId: _randomHex32(),
           membershipEpoch: currentEpoch,
@@ -1080,17 +1388,17 @@ class CloudDocumentReplicationService {
             }
           }
           if (checkpointClear != null && checkpointOperationType != null) {
-            final authored =
-                oldFold.acceptedOperations
-                    .where((operation) => operation.author == localNodeId)
-                    .toList()
-                  ..sort((left, right) => left.seq.compareTo(right.seq));
+            final authorHead = _latestAuthorHead(
+              stored.root,
+              oldFold.acceptedOperations,
+              localNodeId,
+            );
             final checkpointUnsigned = CloudDocumentOperation(
               documentId: stored.root.documentId,
               membershipEpoch: nextEpoch,
               author: localNodeId,
-              seq: authored.isEmpty ? 0 : authored.last.seq + 1,
-              prevAuthorHash: authored.isEmpty ? '' : authored.last.recordHash,
+              seq: (authorHead?.seq ?? -1) + 1,
+              prevAuthorHash: authorHead?.hash ?? '',
               operationId: _randomHex32(),
               parentOperationIds: _operationHeads(
                 oldFold.acceptedOperations,
@@ -1241,7 +1549,8 @@ class CloudDocumentReplicationService {
       if (!_completeAndValid(merged, fold)) return false;
       final keys = <int, Uint8List>{
         for (final entry in existing.localEpochKeys.entries)
-          entry.key: Uint8List.fromList(entry.value),
+          if (fold.epochs.containsKey(entry.key))
+            entry.key: Uint8List.fromList(entry.value),
       };
       try {
         await _openMissingKeys(merged, fold, keys);
@@ -1483,7 +1792,29 @@ class CloudDocumentReplicationService {
   ) {
     if (jsonEncode(existing.root.toJson()) !=
         jsonEncode(incoming.root.toJson())) {
-      return null;
+      if (incoming.kind != CloudDocumentFrameKind.snapshot ||
+          !isDirectCloudDocumentRootTransition(existing.root, incoming.root)) {
+        return null;
+      }
+      final existingFold = _fold(existing);
+      final incomingFold = _fold(incoming);
+      if (!_completeAndValid(existing, existingFold) ||
+          !_completeAndValid(incoming, incomingFold) ||
+          !_transitionCoversKnownHistory(
+            existing.root,
+            existingFold,
+            incoming.root,
+          )) {
+        return null;
+      }
+      return CloudDocumentFrame(
+        kind: CloudDocumentFrameKind.snapshot,
+        root: incoming.root,
+        controls: incomingFold.acceptedControls,
+        operations: incomingFold.acceptedOperations,
+        envelopes: incoming.envelopes,
+        payloads: incoming.payloads,
+      );
     }
     final controls = <String, CloudDocumentControlEntry>{};
     for (final entry in [...existing.controls, ...incoming.controls]) {
@@ -1513,5 +1844,53 @@ class CloudDocumentReplicationService {
       envelopes: envelopes.values.toList(),
       payloads: payloads.values.toList(),
     );
+  }
+
+  bool _transitionCoversKnownHistory(
+    CloudDocumentRoot oldRoot,
+    CloudDocumentFoldResult oldFold,
+    CloudDocumentRoot nextRoot,
+  ) {
+    final latestEpoch = oldFold.epochs.keys.reduce(
+      (left, right) => left > right ? left : right,
+    );
+    final oldState = oldFold.epochs[latestEpoch]!;
+    if (nextRoot.baseEpoch != latestEpoch ||
+        nextRoot.epochKeyCommitment != oldState.epochKeyCommitment ||
+        nextRoot.epochEnvelopeHash != oldState.epochEnvelopeHash ||
+        !_sameMembers(nextRoot.baseMembers, oldState.members)) {
+      return false;
+    }
+    final knownFrontier = _cumulativeAuthorFrontier(
+      oldRoot,
+      oldFold.acceptedOperations,
+    );
+    for (final entry in knownFrontier.entries) {
+      final covered = nextRoot.baseAuthorFrontier[entry.key];
+      if (covered == null || covered.seq < entry.value.seq) return false;
+      if (covered.seq == entry.value.seq && covered.hash != entry.value.hash) {
+        return false;
+      }
+    }
+    final knownControl = oldFold.acceptedControls.isEmpty
+        ? (seq: oldRoot.baseControlSeq, hash: oldRoot.baseControlHash)
+        : (
+            seq: oldFold.acceptedControls.last.seq,
+            hash: oldFold.acceptedControls.last.recordHash,
+          );
+    if (nextRoot.baseControlSeq < knownControl.seq) return false;
+    return nextRoot.baseControlSeq != knownControl.seq ||
+        nextRoot.baseControlHash == knownControl.hash;
+  }
+
+  bool _sameMembers(
+    Map<String, CloudDocumentRole> left,
+    Map<String, CloudDocumentRole> right,
+  ) {
+    if (left.length != right.length) return false;
+    for (final entry in left.entries) {
+      if (right[entry.key] != entry.value) return false;
+    }
+    return true;
   }
 }

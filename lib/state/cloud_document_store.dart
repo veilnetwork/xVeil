@@ -98,7 +98,7 @@ class CloudDocumentStoredBundle {
       }
     }
     final expected = <int, Set<(String, String)>>{
-      0: {(root.epochKeyCommitment, root.epochEnvelopeHash)},
+      root.baseEpoch: {(root.epochKeyCommitment, root.epochEnvelopeHash)},
     };
     for (final control in controls) {
       expected.putIfAbsent(control.nextEpoch, () => {}).add((

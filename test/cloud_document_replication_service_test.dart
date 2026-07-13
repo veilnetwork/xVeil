@@ -722,6 +722,23 @@ void main() {
       );
 
       sent.clear();
+      final compacted = await ownerService.compactDocument(documentId);
+      expect(compacted, isNotNull);
+      expect(
+        compacted!.operationsAfter,
+        2,
+        reason: 'checkpoint + concurrent document-delete marker',
+      );
+      final compactFrame = CloudDocumentFrame.decode(sent.removeLast().json)!;
+      expect(await editorService.ingest(owner, compactFrame.encode()), isTrue);
+      ownerState = (await ownerService.loadRichText(documentId))!;
+      editorState = (await editorService.loadRichText(documentId))!;
+      expect(ownerState.snapshot.text, ' remote');
+      expect(ownerState.snapshot.hasConcurrentRecovery, isTrue);
+      expect(editorState.snapshot.text, ownerState.snapshot.text);
+      expect(editorState.snapshot.hasConcurrentRecovery, isTrue);
+
+      sent.clear();
       expect(
         await ownerService.setRole(
           documentId,
@@ -853,6 +870,359 @@ void main() {
         editorState.snapshot.headOperationIds,
         ownerState.snapshot.headOperationIds,
       );
+    },
+  );
+
+  test(
+    'signed root compaction shrinks history, converges and rejects replay',
+    () async {
+      final owner = _id(1);
+      final editor = _id(2);
+      final envelopes = CloudDocumentEnvelopeService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      );
+      final ownerContainer = FakeHvContainer();
+      final editorContainer = FakeHvContainer();
+      final ownerStore = await _openStore(ownerContainer);
+      final editorStore = await _openStore(editorContainer);
+      final sent = <({NodeId peer, String documentId, String json})>[];
+      final ownerService = _service(
+        self: owner,
+        store: ownerStore,
+        envelopes: envelopes,
+        sent: sent,
+        signer: _Signer(owner, 1),
+        random: Random(201),
+      );
+      final editorService = _service(
+        self: editor,
+        store: editorStore,
+        envelopes: envelopes,
+        sent: sent,
+        signer: _Signer(editor, 2),
+        random: Random(202),
+      );
+
+      final documentId = (await ownerService.createDocument())!.documentId;
+      var ownerState = (await ownerService.loadRichText(documentId))!;
+      await ownerService.saveRichText(
+        documentId,
+        base: ownerState.snapshot,
+        text: 'before compaction',
+        styles: List.filled(17, const CloudRichTextStyle(bold: true)),
+      );
+      await ownerService.grant(documentId, editor, CloudDocumentRole.editor);
+      final invite = CloudDocumentFrame.decode(sent.removeLast().json)!;
+      expect(await editorService.ingest(owner, invite.encode()), isTrue);
+      expect(await editorService.adopt(documentId), isTrue);
+      var editorState = (await editorService.loadRichText(documentId))!;
+      await editorService.saveRichText(
+        documentId,
+        base: editorState.snapshot,
+        text: 'before compaction plus editor',
+        styles: List.filled(29, const CloudRichTextStyle(italic: true)),
+      );
+      final editorDelta = CloudDocumentFrame.decode(sent.removeLast().json)!;
+      expect(await ownerService.ingest(editor, editorDelta.encode()), isTrue);
+      ownerState = (await ownerService.loadRichText(documentId))!;
+      expect(ownerState.snapshot.text, 'before compaction plus editor');
+
+      final oldStored = (await ownerStore.load(documentId))!;
+      final oldFrame = CloudDocumentFrame(
+        kind: CloudDocumentFrameKind.snapshot,
+        root: oldStored.root,
+        controls: oldStored.controls,
+        operations: oldStored.operations,
+        envelopes: oldStored.envelopes,
+        payloads: oldStored.payloads,
+      );
+      expect(oldStored.operations.length, greaterThan(1));
+      expect(oldStored.controls, isNotEmpty);
+      expect(oldStored.envelopes.length, greaterThan(1));
+      oldStored.wipeLocalEpochKeys();
+
+      sent.clear();
+      final compacted = await ownerService.compactDocument(documentId);
+      expect(compacted, isNotNull);
+      expect(compacted!.generation, 1);
+      expect(compacted.controlsBefore, greaterThan(0));
+      expect(compacted.operationsBefore, greaterThan(1));
+      expect(compacted.operationsAfter, 1);
+      expect(sent, hasLength(1));
+      final compactFrame = CloudDocumentFrame.decode(sent.single.json)!;
+      expect(compactFrame.root.version, 2);
+      expect(compactFrame.root.generation, 1);
+      expect(compactFrame.controls, isEmpty);
+      expect(compactFrame.operations, hasLength(1));
+      expect(compactFrame.envelopes, hasLength(1));
+      expect(await editorService.ingest(owner, compactFrame.encode()), isTrue);
+      ownerState = (await ownerService.loadRichText(documentId))!;
+      editorState = (await editorService.loadRichText(documentId))!;
+      expect(editorState.snapshot.text, ownerState.snapshot.text);
+      expect(
+        editorState.snapshot.atoms.every((atom) => atom.style.italic),
+        isTrue,
+      );
+
+      expect(
+        await editorService.ingest(owner, oldFrame.encode()),
+        isFalse,
+        reason: 'a pre-compaction root must never downgrade local state',
+      );
+      final forkRootJson = Map<String, dynamic>.from(compactFrame.root.toJson())
+        ..['gen'] = 2
+        ..['prevRoot'] = _hash(99);
+      final fork = CloudDocumentFrame(
+        kind: CloudDocumentFrameKind.snapshot,
+        root: CloudDocumentRoot.fromJson(forkRootJson)!,
+        controls: compactFrame.controls,
+        operations: compactFrame.operations,
+        envelopes: compactFrame.envelopes,
+        payloads: compactFrame.payloads,
+      );
+      expect(await editorService.ingest(owner, fork.encode()), isFalse);
+
+      sent.clear();
+      editorState = (await editorService.loadRichText(documentId))!;
+      expect(
+        await editorService.saveRichText(
+          documentId,
+          base: editorState.snapshot,
+          text: '${editorState.snapshot.text}!',
+          styles: [
+            ...editorState.snapshot.atoms.map((atom) => atom.style),
+            const CloudRichTextStyle(underline: true),
+          ],
+        ),
+        isNotNull,
+      );
+      final postCompactDelta = CloudDocumentFrame.decode(
+        sent.removeLast().json,
+      )!;
+      expect(
+        await ownerService.ingest(editor, postCompactDelta.encode()),
+        isTrue,
+      );
+      expect(
+        (await ownerService.loadRichText(documentId))!.snapshot.text,
+        'before compaction plus editor!',
+      );
+
+      sent.clear();
+      expect(
+        await ownerService.setRole(
+          documentId,
+          editor,
+          CloudDocumentRole.viewer,
+        ),
+        isNotNull,
+      );
+      final aclFrame = CloudDocumentFrame.decode(sent.single.json)!;
+      expect(aclFrame.controls.single.seq, 1);
+      expect(
+        aclFrame.controls.single.prevControlHash,
+        aclFrame.root.baseControlHash,
+      );
+      expect(await editorService.ingest(owner, aclFrame.encode()), isTrue);
+      expect(
+        (await editorService.loadRichText(documentId))!.localRole,
+        CloudDocumentRole.viewer,
+      );
+
+      final restartedOwner = _service(
+        self: owner,
+        store: ownerStore,
+        envelopes: envelopes,
+        sent: sent,
+        signer: _Signer(owner, 1),
+      );
+      expect(
+        (await restartedOwner.loadRichText(documentId))!.snapshot.text,
+        'before compaction plus editor!',
+      );
+    },
+  );
+
+  test('task and calendar compaction preserve typed rows', () async {
+    for (final kind in [
+      CloudDocumentKind.taskList,
+      CloudDocumentKind.calendar,
+    ]) {
+      final owner = _id(kind == CloudDocumentKind.taskList ? 3 : 4);
+      final store = await _openStore(FakeHvContainer());
+      final service = _service(
+        self: owner,
+        store: store,
+        envelopes: CloudDocumentEnvelopeService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+        sent: [],
+        signer: _Signer(owner, owner.bytes.first),
+        random: Random(kind.index + 300),
+      );
+      final documentId = (await service.createDocument(
+        kind: kind,
+        codec: cloudCollectionCodec(kind)!,
+      ))!.documentId;
+      final entityId = _hash(kind.index + 80);
+      final state = (await service.loadCollection(documentId))!;
+      final fields = kind == CloudDocumentKind.taskList
+          ? CloudTask(
+              id: entityId,
+              title: 'Task',
+              notes: 'kept',
+              completed: true,
+              position: 7,
+            ).toFields()
+          : CloudCalendarEvent(
+              id: entityId,
+              title: 'Event',
+              notes: 'kept',
+              startAtMs: 100,
+              endAtMs: 200,
+              allDay: false,
+              location: 'Here',
+            ).toFields();
+      await service.appendCollectionEdits(documentId, [
+        CloudCollectionEdit.create(entityId, fields),
+        CloudCollectionEdit.patch(entityId, {'notes': 'preserved'}),
+      ], parentOperationIds: state.snapshot.headOperationIds);
+      final result = await service.compactDocument(documentId);
+      expect(result, isNotNull);
+      expect(result!.operationsAfter, 1);
+      final after = (await service.loadCollection(documentId))!;
+      expect(after.snapshot.rows.single.id, entityId);
+      expect(after.snapshot.rows.single.fields['notes'], 'preserved');
+      final stored = (await store.load(documentId))!;
+      expect(stored.root.generation, 1);
+      expect(stored.controls, isEmpty);
+      expect(stored.operations, hasLength(1));
+      expect(stored.envelopes, hasLength(1));
+      stored.wipeLocalEpochKeys();
+      expect(await service.compactDocument(documentId), isNotNull);
+      final twice = (await store.load(documentId))!;
+      expect(twice.root.generation, 2);
+      expect(twice.operations, hasLength(1));
+      twice.wipeLocalEpochKeys();
+    }
+  });
+
+  test('replica with an unsynchronized edit rejects compaction cut', () async {
+    final owner = _id(1);
+    final editor = _id(2);
+    final envelopes = CloudDocumentEnvelopeService(
+      LoopbackMailboxCrypto(senderForOpen: owner),
+    );
+    final sent = <({NodeId peer, String documentId, String json})>[];
+    final ownerService = _service(
+      self: owner,
+      store: await _openStore(FakeHvContainer()),
+      envelopes: envelopes,
+      sent: sent,
+      signer: _Signer(owner, 1),
+      random: Random(401),
+    );
+    final editorService = _service(
+      self: editor,
+      store: await _openStore(FakeHvContainer()),
+      envelopes: envelopes,
+      sent: sent,
+      signer: _Signer(editor, 2),
+      random: Random(402),
+    );
+    final id = (await ownerService.createDocument())!.documentId;
+    await ownerService.grant(id, editor, CloudDocumentRole.editor);
+    final invite = CloudDocumentFrame.decode(sent.removeLast().json)!;
+    expect(await editorService.ingest(owner, invite.encode()), isTrue);
+    expect(await editorService.adopt(id), isTrue);
+    expect(
+      await editorService.compactDocument(id),
+      isNull,
+      reason: 'an editor cannot mint a replacement owner root',
+    );
+
+    final before = (await editorService.loadRichText(id))!;
+    sent.clear();
+    await editorService.saveRichText(
+      id,
+      base: before.snapshot,
+      text: 'offline branch',
+      styles: List.filled(14, const CloudRichTextStyle()),
+    );
+    final unsentDelta = sent.removeLast();
+    expect(unsentDelta.peer, owner);
+
+    sent.clear();
+    expect(await ownerService.compactDocument(id), isNotNull);
+    final transition = CloudDocumentFrame.decode(sent.single.json)!;
+    expect(await editorService.ingest(owner, transition.encode()), isFalse);
+    expect(
+      (await editorService.loadRichText(id))!.snapshot.text,
+      'offline branch',
+      reason: 'the local branch must remain intact rather than be overwritten',
+    );
+  });
+
+  test(
+    'fresh member adopts from a compacted root without old history',
+    () async {
+      final owner = _id(1);
+      final viewer = _id(3);
+      final envelopes = CloudDocumentEnvelopeService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      );
+      final sent = <({NodeId peer, String documentId, String json})>[];
+      final ownerService = _service(
+        self: owner,
+        store: await _openStore(FakeHvContainer()),
+        envelopes: envelopes,
+        sent: sent,
+        signer: _Signer(owner, 1),
+        random: Random(501),
+      );
+      final viewerStore = await _openStore(FakeHvContainer());
+      final viewerService = _service(
+        self: viewer,
+        store: viewerStore,
+        envelopes: envelopes,
+        sent: sent,
+        random: Random(502),
+      );
+      final id = (await ownerService.createDocument())!.documentId;
+      final empty = (await ownerService.loadRichText(id))!;
+      await ownerService.saveRichText(
+        id,
+        base: empty.snapshot,
+        text: 'compacted invite',
+        styles: List.filled(16, const CloudRichTextStyle()),
+      );
+      expect(await ownerService.compactDocument(id), isNotNull);
+      sent.clear();
+      expect(
+        await ownerService.grant(id, viewer, CloudDocumentRole.viewer),
+        isNotNull,
+      );
+      final invite = CloudDocumentFrame.decode(sent.single.json)!;
+      expect(invite.root.generation, 1);
+      expect(invite.root.baseEpoch, 0);
+      expect(invite.controls.single.seq, 0);
+      expect(
+        invite.operations.length,
+        2,
+        reason: 'compaction checkpoint + grant checkpoint',
+      );
+      expect(await viewerService.ingest(owner, invite.encode()), isTrue);
+      expect(await viewerService.adopt(id), isTrue);
+      final state = (await viewerService.loadRichText(id))!;
+      expect(state.snapshot.text, 'compacted invite');
+      expect(state.localRole, CloudDocumentRole.viewer);
+      final stored = (await viewerStore.load(id))!;
+      expect(
+        stored.localEpochKeys.keys,
+        [1],
+        reason: 'fresh adopt must not acquire pre-compaction epoch keys',
+      );
+      stored.wipeLocalEpochKeys();
     },
   );
 }

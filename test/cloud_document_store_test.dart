@@ -208,4 +208,57 @@ void main() {
     );
     await storage.close();
   });
+
+  test(
+    'versioned compacted root survives A/B persistence and restart',
+    () async {
+      final container = FakeHvContainer();
+      final storage = container.storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final legacy = _bundle();
+      final root = CloudDocumentRoot(
+        version: 2,
+        documentId: legacy.root.documentId,
+        owner: legacy.root.owner,
+        ownerPubKey: legacy.root.ownerPubKey,
+        kind: legacy.root.kind,
+        codec: legacy.root.codec,
+        epochKeyCommitment: legacy.root.epochKeyCommitment,
+        epochEnvelopeHash: legacy.root.epochEnvelopeHash,
+        controlLogRoot: legacy.root.controlLogRoot,
+        createdAtMs: legacy.root.createdAtMs,
+        signature: legacy.root.signature,
+        generation: 1,
+        predecessorRootHash: legacy.root.recordHash,
+        baseEpoch: 0,
+        baseMembers: {legacy.root.owner.hex: CloudDocumentRole.owner},
+        baseAuthorFrontier: const {},
+        baseControlSeq: -1,
+        baseControlHash: legacy.root.controlLogRoot,
+      );
+      final compacted = CloudDocumentStoredBundle(
+        root: root,
+        controls: const [],
+        operations: const [],
+        envelopes: legacy.envelopes,
+        localEpochKeys: legacy.localEpochKeys,
+      );
+      expect(compacted.isStructurallyValid, isTrue);
+      await CloudDocumentStore(storage).save(compacted);
+      await storage.close();
+
+      final reopened = container.storage();
+      await reopened.open(password: 'pw');
+      final loaded = await CloudDocumentStore(
+        reopened,
+      ).load(root.documentId.hex);
+      expect(loaded, isNotNull);
+      expect(loaded!.root.version, 2);
+      expect(loaded.root.generation, 1);
+      expect(loaded.root.predecessorRootHash, legacy.root.recordHash);
+      expect(loaded.root.baseMembers, root.baseMembers);
+      loaded.wipeLocalEpochKeys();
+      await reopened.close();
+    },
+  );
 }

@@ -2530,6 +2530,13 @@ class AppL10nRu extends AppL10n {
       'Сменить ключ документа для всех участников?';
 
   @override
+  String get cloudSharedCompact => 'Сжать историю';
+
+  @override
+  String get cloudSharedCompactTitle =>
+      'Заменить старую зашифрованную историю подписанной контрольной точкой? Текущее содержимое, доступ и непрерывность правок сохранятся. Отменить это действие нельзя.';
+
+  @override
   String get cloudSharedResend => 'Повторить приглашение';
 
   @override

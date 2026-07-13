@@ -84,7 +84,18 @@ class CloudDocumentRoot {
     required this.createdAtMs,
     required this.signature,
     this.version = 1,
-  });
+    this.generation = 0,
+    this.predecessorRootHash = '',
+    this.baseEpoch = 0,
+    Map<String, CloudDocumentRole>? baseMembers,
+    Map<String, CloudDocumentAuthorHead>? baseAuthorFrontier,
+    this.baseControlSeq = -1,
+    String? baseControlHash,
+  }) : baseMembers = Map.unmodifiable(
+         baseMembers ?? {owner.hex: CloudDocumentRole.owner},
+       ),
+       baseAuthorFrontier = Map.unmodifiable(baseAuthorFrontier ?? const {}),
+       baseControlHash = baseControlHash ?? controlLogRoot;
 
   final int version;
   final NodeId documentId;
@@ -97,22 +108,54 @@ class CloudDocumentRoot {
   final String controlLogRoot;
   final int createdAtMs;
   final Uint8List signature;
+  final int generation;
+  final String predecessorRootHash;
+  final int baseEpoch;
+  final Map<String, CloudDocumentRole> baseMembers;
+  final Map<String, CloudDocumentAuthorHead> baseAuthorFrontier;
+  final int baseControlSeq;
+  final String baseControlHash;
 
-  Uint8List canonicalBytes() => Uint8List.fromList(
-    utf8.encode(
-      jsonEncode({
-        'v': version,
-        'did': documentId.hex,
-        'owner': owner.hex,
-        'kind': kind.name,
-        'codec': codec,
-        'epoch': 0,
-        'ekc': epochKeyCommitment,
-        'ekh': epochEnvelopeHash,
-        'control': controlLogRoot,
-        'ts': createdAtMs,
-      }),
-    ),
+  Uint8List canonicalBytes() {
+    final value = version == 1
+        ? <String, dynamic>{
+            'v': version,
+            'did': documentId.hex,
+            'owner': owner.hex,
+            'kind': kind.name,
+            'codec': codec,
+            'epoch': 0,
+            'ekc': epochKeyCommitment,
+            'ekh': epochEnvelopeHash,
+            'control': controlLogRoot,
+            'ts': createdAtMs,
+          }
+        : <String, dynamic>{
+            'v': version,
+            'did': documentId.hex,
+            'owner': owner.hex,
+            'kind': kind.name,
+            'codec': codec,
+            'epoch': baseEpoch,
+            'ekc': epochKeyCommitment,
+            'ekh': epochEnvelopeHash,
+            'control': controlLogRoot,
+            'ts': createdAtMs,
+            'gen': generation,
+            'prevRoot': predecessorRootHash,
+            'members': _membersJson(baseMembers),
+            'authors': _frontierJson(baseAuthorFrontier),
+            'controlSeq': baseControlSeq,
+            'controlHash': baseControlHash,
+          };
+    return Uint8List.fromList(utf8.encode(jsonEncode(value)));
+  }
+
+  String get recordHash => cloudDocumentRecordHash(
+    domain: 'root',
+    canonicalBytes: canonicalBytes(),
+    authorPubKey: ownerPubKey,
+    signature: signature,
   );
 
   /// [pubKey] is excluded from canonical bytes like operation author keys;
@@ -131,25 +174,55 @@ class CloudDocumentRoot {
         createdAtMs: createdAtMs,
         signature: value,
         version: version,
+        generation: generation,
+        predecessorRootHash: predecessorRootHash,
+        baseEpoch: baseEpoch,
+        baseMembers: baseMembers,
+        baseAuthorFrontier: baseAuthorFrontier,
+        baseControlSeq: baseControlSeq,
+        baseControlHash: baseControlHash,
       );
 
-  Map<String, dynamic> toJson() => {
-    'v': version,
-    'did': documentId.hex,
-    'owner': owner.hex,
-    'opk': base64Encode(ownerPubKey),
-    'kind': kind.name,
-    'codec': codec,
-    'epoch': 0,
-    'ekc': epochKeyCommitment,
-    'ekh': epochEnvelopeHash,
-    'control': controlLogRoot,
-    'ts': createdAtMs,
-    'sig': base64Encode(signature),
-  };
+  Map<String, dynamic> toJson() => version == 1
+      ? {
+          'v': version,
+          'did': documentId.hex,
+          'owner': owner.hex,
+          'opk': base64Encode(ownerPubKey),
+          'kind': kind.name,
+          'codec': codec,
+          'epoch': 0,
+          'ekc': epochKeyCommitment,
+          'ekh': epochEnvelopeHash,
+          'control': controlLogRoot,
+          'ts': createdAtMs,
+          'sig': base64Encode(signature),
+        }
+      : {
+          'v': version,
+          'did': documentId.hex,
+          'owner': owner.hex,
+          'opk': base64Encode(ownerPubKey),
+          'kind': kind.name,
+          'codec': codec,
+          'epoch': baseEpoch,
+          'ekc': epochKeyCommitment,
+          'ekh': epochEnvelopeHash,
+          'control': controlLogRoot,
+          'ts': createdAtMs,
+          'gen': generation,
+          'prevRoot': predecessorRootHash,
+          'members': _membersJson(baseMembers),
+          'authors': _frontierJson(baseAuthorFrontier),
+          'controlSeq': baseControlSeq,
+          'controlHash': baseControlHash,
+          'sig': base64Encode(signature),
+        };
 
   static CloudDocumentRoot? fromJson(Object? value) {
-    if (value is! Map || value['v'] != 1 || value['epoch'] != 0) return null;
+    if (value is! Map || (value['v'] != 1 && value['v'] != 2)) return null;
+    final version = value['v'] as int;
+    if (version == 1 && value['epoch'] != 0) return null;
     final did = value['did'];
     final owner = value['owner'];
     final ownerPk = value['opk'];
@@ -159,8 +232,17 @@ class CloudDocumentRoot {
     final commitment = value['ekc'];
     final envelopeHash = value['ekh'];
     final controlRoot = value['control'];
+    final baseEpoch = value['epoch'];
     final timestamp = value['ts'];
     final signature = value['sig'];
+    final generation = version == 1 ? 0 : value['gen'];
+    final predecessor = version == 1 ? '' : value['prevRoot'];
+    final baseMembers = version == 1 ? null : _parseMembers(value['members']);
+    final authorFrontier = version == 1
+        ? null
+        : _parseFrontier(value['authors']);
+    final controlSeq = version == 1 ? -1 : value['controlSeq'];
+    final controlHash = version == 1 ? controlRoot : value['controlHash'];
     if (did is! String ||
         owner is! String ||
         ownerPk is! String ||
@@ -173,8 +255,20 @@ class CloudDocumentRoot {
         !_isHex32(envelopeHash) ||
         controlRoot is! String ||
         !_isHex32(controlRoot) ||
+        baseEpoch is! int ||
+        baseEpoch < 0 ||
         timestamp is! int ||
         timestamp < 0 ||
+        generation is! int ||
+        generation < 0 ||
+        predecessor is! String ||
+        (version == 2 && !_isHex32(predecessor)) ||
+        (version == 2 && baseMembers == null) ||
+        (version == 2 && authorFrontier == null) ||
+        controlSeq is! int ||
+        controlSeq < -1 ||
+        controlHash is! String ||
+        !_isHex32(controlHash) ||
         signature is! String) {
       return null;
     }
@@ -182,7 +276,7 @@ class CloudDocumentRoot {
       final pk = Uint8List.fromList(base64Decode(ownerPk));
       final sig = Uint8List.fromList(base64Decode(signature));
       if (pk.length != 32 || sig.length != 64) return null;
-      return CloudDocumentRoot(
+      final root = CloudDocumentRoot(
         documentId: NodeId.fromHex(did),
         owner: NodeId.fromHex(owner),
         ownerPubKey: pk,
@@ -193,7 +287,16 @@ class CloudDocumentRoot {
         controlLogRoot: controlRoot,
         createdAtMs: timestamp,
         signature: sig,
+        version: version,
+        generation: generation,
+        predecessorRootHash: predecessor,
+        baseEpoch: baseEpoch,
+        baseMembers: baseMembers,
+        baseAuthorFrontier: authorFrontier,
+        baseControlSeq: controlSeq,
+        baseControlHash: controlHash,
       );
+      return _validRootShape(root) ? root : null;
     } catch (_) {
       return null;
     }
@@ -226,6 +329,25 @@ class CloudDocumentAuthorHead {
 
   @override
   int get hashCode => Object.hash(seq, hash);
+}
+
+Map<String, dynamic> _membersJson(Map<String, CloudDocumentRole> members) {
+  final keys = members.keys.toList()..sort();
+  return {for (final key in keys) key: members[key]!.name};
+}
+
+Map<String, CloudDocumentRole>? _parseMembers(Object? value) {
+  if (value is! Map || value.isEmpty || value.length > 256) return null;
+  final result = <String, CloudDocumentRole>{};
+  for (final entry in value.entries) {
+    if (entry.key is! String || !_isHex32(entry.key as String)) return null;
+    final role = CloudDocumentRole.fromName(
+      entry.value is String ? entry.value as String : null,
+    );
+    if (role == null) return null;
+    result[entry.key as String] = role;
+  }
+  return result;
 }
 
 Map<String, dynamic> _frontierJson(
@@ -693,14 +815,71 @@ bool _validControlShape(CloudDocumentControlEntry entry) {
 }
 
 bool _validRootShape(CloudDocumentRoot root) =>
-    root.version == 1 &&
+    (root.version == 1 || root.version == 2) &&
     root.ownerPubKey.length == 32 &&
     root.signature.length == 64 &&
     root.createdAtMs >= 0 &&
     _wireName.hasMatch(root.codec) &&
     _isHex32(root.epochKeyCommitment) &&
     _isHex32(root.epochEnvelopeHash) &&
-    _isHex32(root.controlLogRoot);
+    _isHex32(root.controlLogRoot) &&
+    root.baseEpoch >= 0 &&
+    root.baseMembers.isNotEmpty &&
+    root.baseMembers.length <= 256 &&
+    root.baseMembers[root.owner.hex] == CloudDocumentRole.owner &&
+    root.baseMembers.entries.every(
+      (entry) =>
+          _isHex32(entry.key) &&
+          (entry.key == root.owner.hex ||
+              entry.value != CloudDocumentRole.owner),
+    ) &&
+    root.baseAuthorFrontier.length <= 256 &&
+    root.baseAuthorFrontier.entries.every(
+      (entry) =>
+          _isHex32(entry.key) &&
+          entry.value.seq >= 0 &&
+          _isHex32(entry.value.hash),
+    ) &&
+    root.baseControlSeq >= -1 &&
+    _isHex32(root.baseControlHash) &&
+    (root.version == 1
+        ? root.generation == 0 &&
+              root.predecessorRootHash.isEmpty &&
+              root.baseEpoch == 0 &&
+              root.baseMembers.length == 1 &&
+              root.baseAuthorFrontier.isEmpty &&
+              root.baseControlSeq == -1 &&
+              root.baseControlHash == root.controlLogRoot
+        : root.generation > 0 && _isHex32(root.predecessorRootHash));
+
+/// A compacted root is accepted only as the immediate, owner-signed successor
+/// of the locally trusted root. Immutable document identity fields cannot be
+/// rewritten during compaction.
+bool isDirectCloudDocumentRootTransition(
+  CloudDocumentRoot current,
+  CloudDocumentRoot next,
+) =>
+    _validRootShape(current) &&
+    _validRootShape(next) &&
+    next.version == 2 &&
+    next.generation == current.generation + 1 &&
+    next.predecessorRootHash == current.recordHash &&
+    next.documentId == current.documentId &&
+    next.owner == current.owner &&
+    _bytesEqual(next.ownerPubKey, current.ownerPubKey) &&
+    next.kind == current.kind &&
+    next.codec == current.codec &&
+    next.controlLogRoot == current.controlLogRoot &&
+    next.createdAtMs == current.createdAtMs;
+
+bool _bytesEqual(Uint8List left, Uint8List right) {
+  if (left.length != right.length) return false;
+  var difference = 0;
+  for (var index = 0; index < left.length; index++) {
+    difference |= left[index] ^ right[index];
+  }
+  return difference == 0;
+}
 
 bool _validOperationShape(CloudDocumentOperation operation) {
   if (operation.membershipEpoch < 0 ||
@@ -757,9 +936,9 @@ CloudDocumentFoldResult foldCloudDocumentLog({
   }
 
   final epochs = <int, CloudDocumentEpochState>{
-    0: CloudDocumentEpochState(
-      epoch: 0,
-      members: {root.owner.hex: CloudDocumentRole.owner},
+    root.baseEpoch: CloudDocumentEpochState(
+      epoch: root.baseEpoch,
+      members: root.baseMembers,
       epochKeyCommitment: root.epochKeyCommitment,
       epochEnvelopeHash: root.epochEnvelopeHash,
     ),
@@ -767,9 +946,9 @@ CloudDocumentFoldResult foldCloudDocumentLog({
   final closures = <int, Map<String, CloudDocumentAuthorHead>>{};
   final acceptedControls = <CloudDocumentControlEntry>[];
   final rejectedControls = <CloudDocumentControlEntry>[];
-  var currentEpoch = 0;
-  var expectedSeq = 0;
-  var expectedPrev = root.controlLogRoot;
+  var currentEpoch = root.baseEpoch;
+  var expectedSeq = root.baseControlSeq + 1;
+  var expectedPrev = root.baseControlHash;
   final eligibleControls = <CloudDocumentControlEntry>[];
   for (final entry in allControls) {
     if (entry.documentId == root.documentId &&
@@ -876,22 +1055,23 @@ CloudDocumentFoldResult foldCloudDocumentLog({
         duplicateSeqs.add(authorEntries[index].seq);
       }
     }
-    CloudDocumentOperation? previous;
-    var expectedOperationSeq = 0;
-    var lastEpoch = -1;
+    final baseHead = root.baseAuthorFrontier[authorEntries.first.author.hex];
+    var expectedOperationSeq = (baseHead?.seq ?? -1) + 1;
+    var expectedAuthorHash = baseHead?.hash ?? '';
+    var lastEpoch = root.baseEpoch;
     for (final operation in authorEntries) {
       final valid =
           !duplicateSeqs.contains(operation.seq) &&
           operation.seq == expectedOperationSeq &&
-          operation.prevAuthorHash == (previous?.recordHash ?? '') &&
+          operation.prevAuthorHash == expectedAuthorHash &&
           operation.membershipEpoch >= lastEpoch;
       if (!valid) {
         rejectedOperations.add(operation);
         continue;
       }
       candidates.add(operation);
-      previous = operation;
       expectedOperationSeq++;
+      expectedAuthorHash = operation.recordHash;
       lastEpoch = operation.membershipEpoch;
     }
   }
@@ -940,7 +1120,9 @@ CloudDocumentFoldResult foldCloudDocumentLog({
   final incompleteEpochs = <int>{};
   final taintedFromSeq = <String, int>{};
   for (final closure in closures.entries) {
-    final actual = <String, CloudDocumentAuthorHead>{};
+    final actual = <String, CloudDocumentAuthorHead>{
+      ...root.baseAuthorFrontier,
+    };
     final recordsAtSeq = <(String, int), CloudDocumentOperation>{};
     for (final operation in uniqueCandidates) {
       if (operation.membershipEpoch > closure.key) continue;
@@ -959,7 +1141,9 @@ CloudDocumentFoldResult foldCloudDocumentLog({
       var firstUntrustedSeq = 0;
       if (expected != null) {
         final signedHead = recordsAtSeq[(author, expected.seq)];
-        if (signedHead != null && signedHead.recordHash == expected.hash) {
+        final baseHead = root.baseAuthorFrontier[author];
+        if ((signedHead != null && signedHead.recordHash == expected.hash) ||
+            baseHead == expected) {
           // Preserve the exact history the owner signed into the closure;
           // only a newly supplied suffix is backdated/untrusted.
           firstUntrustedSeq = expected.seq + 1;

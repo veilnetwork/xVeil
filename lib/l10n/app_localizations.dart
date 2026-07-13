@@ -4675,6 +4675,18 @@ abstract class AppL10n {
   /// **'Rotate the document key for every member?'**
   String get cloudSharedRotateTitle;
 
+  /// No description provided for @cloudSharedCompact.
+  ///
+  /// In en, this message translates to:
+  /// **'Compact history'**
+  String get cloudSharedCompact;
+
+  /// No description provided for @cloudSharedCompactTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Replace the old encrypted history with a signed checkpoint? Current content, access and edit continuity are preserved. This cannot be undone.'**
+  String get cloudSharedCompactTitle;
+
   /// No description provided for @cloudSharedResend.
   ///
   /// In en, this message translates to:
