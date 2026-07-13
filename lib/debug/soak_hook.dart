@@ -146,6 +146,15 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
 
   /// Open media datagram channels keyed by peer node hex (Phase 2 probe).
   final Map<String, int> _mediaChannels = {};
+  final Map<
+    String,
+    ({
+      VeilCapabilityEndpoint endpoint,
+      StreamSubscription<Uint8List> subscription,
+      int slot,
+    })
+  >
+  _multiProviderProbes = {};
 
   UiDriver get _driver => _uiDriver ??= UiDriver(_screenshotKey);
 
@@ -179,6 +188,11 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   @override
   void dispose() {
     _uiDriver?.dispose();
+    for (final probe in _multiProviderProbes.values) {
+      unawaited(probe.subscription.cancel());
+      unawaited(probe.endpoint.close());
+    }
+    _multiProviderProbes.clear();
     unawaited(_sub?.cancel());
     unawaited(_server?.close(force: true));
     super.dispose();
@@ -395,6 +409,15 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/cloud_capability_probe':
           await _cloudCapabilityProbeHook(req);
+          return;
+        case '/cloud_multi_provider_host':
+          await _cloudMultiProviderHostHook(req);
+          return;
+        case '/cloud_multi_provider_request':
+          await _cloudMultiProviderRequestHook(req);
+          return;
+        case '/cloud_multi_provider_close':
+          await _cloudMultiProviderCloseHook(req);
           return;
         case '/conv_messages':
           await _convMessagesHook(req);
@@ -2243,6 +2266,184 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       await first?.close();
       await second?.close();
     }
+  }
+
+  /// Debug-only cross-device proof for the native provider-slot protocol.
+  /// Every device derives the same ephemeral service identity and app id from
+  /// a public test tag, but publishes it in its explicit distinct slot. The
+  /// request/response stays anonymous and carries only the slot as proof; no
+  /// sovereign identity or secret seed is returned or written to disk.
+  Future<void> _cloudMultiProviderHostHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final transport = ref.read(veilTransportProvider);
+    final tag = req.uri.queryParameters['tag'];
+    final slot = int.tryParse(req.uri.queryParameters['slot'] ?? '');
+    if (transport is! VeilFlutterTransport ||
+        tag == null ||
+        !RegExp(r'^[A-Za-z0-9_-]{1,48}$').hasMatch(tag) ||
+        slot == null ||
+        slot < 0 ||
+        slot >= 8) {
+      return _json(req, {
+        'ok': false,
+        'error': 'need transport+tag+slot(0..7)',
+      });
+    }
+    await _closeMultiProviderProbe(tag);
+    final seed = Uint8List.fromList(
+      crypto.sha256.convert(utf8.encode('xveil-mp-seed-v1:$tag')).bytes,
+    );
+    VeilCapabilityEndpoint? endpoint;
+    try {
+      endpoint = await transport.hostCapabilityEndpoint(
+        identitySeed: seed,
+        name: 'xveil-mp-app-v1:$tag',
+        endpointId: 52,
+        providerSlot: slot,
+      );
+      final hosted = endpoint;
+      final subscription = hosted.messages.listen((wire) async {
+        try {
+          final decoded = jsonDecode(utf8.decode(wire));
+          if (decoded is! Map || decoded['tag'] != tag) return;
+          final returnService = Uint8List.fromList(
+            base64Url.decode(base64Url.normalize(decoded['return'] as String)),
+          );
+          final returnApp = Uint8List.fromList(
+            base64Url.decode(base64Url.normalize(decoded['app'] as String)),
+          );
+          final returnEndpoint = decoded['endpoint'] as int;
+          final nonce = decoded['nonce'] as String;
+          if (returnService.length != 32 ||
+              returnApp.length != 32 ||
+              returnEndpoint <= 0 ||
+              returnEndpoint > 0xffff ||
+              nonce.length > 128) {
+            return;
+          }
+          await hosted.sendAnonymous(
+            servicePublicKey: returnService,
+            targetAppId: returnApp,
+            targetEndpointId: returnEndpoint,
+            data: Uint8List.fromList(
+              utf8.encode(
+                jsonEncode({'tag': tag, 'nonce': nonce, 'slot': slot}),
+              ),
+            ),
+          );
+        } catch (_) {}
+      });
+      _multiProviderProbes[tag] = (
+        endpoint: hosted,
+        subscription: subscription,
+        slot: slot,
+      );
+      return _json(req, {
+        'ok': true,
+        'tag': tag,
+        'slot': slot,
+        'service': base64Url.encode(hosted.servicePublicKey),
+        'app': base64Url.encode(hosted.appId),
+        'endpoint': hosted.endpointId,
+        'seedZeroized': seed.every((byte) => byte == 0),
+      });
+    } catch (error) {
+      await endpoint?.close();
+      return _json(req, {'ok': false, 'error': '$error'});
+    } finally {
+      seed.fillRange(0, seed.length, 0);
+    }
+  }
+
+  Future<void> _cloudMultiProviderRequestHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final transport = ref.read(veilTransportProvider);
+    final q = req.uri.queryParameters;
+    final tag = q['tag'];
+    if (transport is! VeilFlutterTransport || tag == null) {
+      return _json(req, {'ok': false, 'error': 'need transport+tag'});
+    }
+    VeilCapabilityEndpoint? endpoint;
+    StreamSubscription<Uint8List>? subscription;
+    final response = Completer<Map<String, dynamic>>();
+    final random = Random.secure();
+    final seed = Uint8List.fromList([
+      for (var i = 0; i < 32; i++) random.nextInt(256),
+    ]);
+    try {
+      final service = Uint8List.fromList(
+        base64Url.decode(base64Url.normalize(q['service']!)),
+      );
+      final app = Uint8List.fromList(
+        base64Url.decode(base64Url.normalize(q['app']!)),
+      );
+      final targetEndpoint = int.parse(q['endpoint']!);
+      if (service.length != 32 || app.length != 32) {
+        throw const FormatException('bad service/app key');
+      }
+      endpoint = await transport.hostTransientCapabilityEndpoint(
+        identitySeed: seed,
+        name: 'xveil-mp-return-${DateTime.now().microsecondsSinceEpoch}',
+        endpointId: 53,
+      );
+      final nonce = base64Url.encode(
+        Uint8List.fromList([for (var i = 0; i < 16; i++) random.nextInt(256)]),
+      );
+      subscription = endpoint.messages.listen((wire) {
+        if (response.isCompleted) return;
+        try {
+          final decoded = jsonDecode(utf8.decode(wire));
+          if (decoded is Map &&
+              decoded['tag'] == tag &&
+              decoded['nonce'] == nonce &&
+              decoded['slot'] is int) {
+            response.complete(Map<String, dynamic>.from(decoded));
+          }
+        } catch (_) {}
+      });
+      await endpoint.sendAnonymous(
+        servicePublicKey: service,
+        targetAppId: app,
+        targetEndpointId: targetEndpoint,
+        data: Uint8List.fromList(
+          utf8.encode(
+            jsonEncode({
+              'tag': tag,
+              'nonce': nonce,
+              'return': base64Url.encode(endpoint.servicePublicKey),
+              'app': base64Url.encode(endpoint.appId),
+              'endpoint': endpoint.endpointId,
+            }),
+          ),
+        ),
+      );
+      final received = await response.future.timeout(
+        const Duration(seconds: 30),
+      );
+      return _json(req, {'ok': true, ...received});
+    } catch (error) {
+      return _json(req, {'ok': false, 'error': '$error'});
+    } finally {
+      seed.fillRange(0, seed.length, 0);
+      await subscription?.cancel();
+      await endpoint?.close();
+    }
+  }
+
+  Future<void> _cloudMultiProviderCloseHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final tag = req.uri.queryParameters['tag'];
+    if (tag == null) return _json(req, {'ok': false, 'error': 'need tag'});
+    final existed = _multiProviderProbes.containsKey(tag);
+    await _closeMultiProviderProbe(tag);
+    return _json(req, {'ok': true, 'closed': existed});
+  }
+
+  Future<void> _closeMultiProviderProbe(String tag) async {
+    final probe = _multiProviderProbes.remove(tag);
+    if (probe == null) return;
+    await probe.subscription.cancel();
+    await probe.endpoint.close();
   }
 
   /// The stored 1:1 messages of conversation ?peer= (bodies + direction) —

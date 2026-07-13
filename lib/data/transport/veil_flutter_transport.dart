@@ -139,9 +139,11 @@ class VeilFlutterTransport
   Future<Uint8List> registerEphemeralOnionService(
     Uint8List identitySeed, {
     int hopCount = 3,
+    int providerSlot = 0,
   }) => _capabilityClient.registerEphemeralOnionService(
     identitySeed,
     hopCount: hopCount,
+    providerSlot: providerSlot,
   );
 
   Future<void> withdrawEphemeralOnionService(Uint8List identityVk) =>
@@ -163,6 +165,7 @@ class VeilFlutterTransport
     required Uint8List identitySeed,
     required String name,
     required int endpointId,
+    int providerSlot = 0,
   }) async {
     final app = await bindCapabilityEndpoint(
       name: name,
@@ -171,6 +174,7 @@ class VeilFlutterTransport
     try {
       final servicePublicKey = await registerEphemeralOnionService(
         identitySeed,
+        providerSlot: providerSlot,
       );
       return VeilCapabilityEndpoint._(_capabilityClient, app, servicePublicKey);
     } catch (_) {
@@ -186,6 +190,7 @@ class VeilFlutterTransport
     required Uint8List identitySeed,
     required String name,
     required int endpointId,
+    int providerSlot = 0,
   }) async {
     final client = await VeilClient.connect(_socketPath);
     AppHandle? app;
@@ -197,6 +202,7 @@ class VeilFlutterTransport
       );
       final servicePublicKey = await client.registerEphemeralOnionService(
         identitySeed,
+        providerSlot: providerSlot,
       );
       return VeilCapabilityEndpoint._(
         client,
