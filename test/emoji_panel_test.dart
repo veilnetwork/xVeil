@@ -188,6 +188,12 @@ void main() {
     addTearDown(() => debugDefaultTargetPlatformOverride = null);
     await tester.binding.setSurfaceSize(const Size(407, 904));
     addTearDown(() => tester.binding.setSurfaceSize(null));
+    tester.view.devicePixelRatio = 1;
+    tester.view.padding = const FakeViewPadding(bottom: 48);
+    tester.view.viewPadding = const FakeViewPadding(bottom: 48);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPadding);
+    addTearDown(tester.view.resetViewPadding);
 
     await tester.pumpWidget(
       MaterialApp(
@@ -224,6 +230,11 @@ void main() {
       tester.getBottomLeft(panel).dy,
       lessThan(tester.getTopLeft(composer).dy),
       reason: 'Android hub must not grow below or cover the composer',
+    );
+    expect(
+      tester.getBottomLeft(panel).dy,
+      lessThanOrEqualTo(904 - 48 - kExpressionPanelBottomGap),
+      reason: 'emoji rows must stay above Android navigation controls',
     );
     expect(tester.getTopLeft(panel).dx, greaterThan(0));
     expect(tester.getTopRight(panel).dx, lessThan(407));
