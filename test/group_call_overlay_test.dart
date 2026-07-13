@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:veil_media/veil_media.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/domain/group_call.dart';
@@ -95,6 +96,10 @@ void main() {
       var mic = 0;
       var left = 0;
       var ended = 0;
+      final localFrame = ValueNotifier<VeilVideoFrame?>(_videoFrame(10));
+      final peerFrame = ValueNotifier<VeilVideoFrame?>(_videoFrame(20));
+      addTearDown(localFrame.dispose);
+      addTearDown(peerFrame.dispose);
       await tester.pumpWidget(
         _host(
           GroupCallRoomView(
@@ -110,12 +115,22 @@ void main() {
             onMic: () => mic++,
             onCamera: () {},
             onScreen: () {},
+            localVideoFrame: localFrame,
+            videoFrameFor: (_) => peerFrame,
           ),
         ),
       );
       await tester.pumpAndSettle();
 
       expect(find.byKey(const ValueKey('group-call-camera')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('group-call-video-01010101')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('group-call-video-02020202')),
+        findsOneWidget,
+      );
       expect(
         find.byKey(const ValueKey('group-call-end-everyone')),
         findsOneWidget,
@@ -212,3 +227,9 @@ void main() {
     expect(left, 1);
   });
 }
+
+VeilVideoFrame _videoFrame(int value) => VeilVideoFrame(
+  rgba: Uint8List.fromList(List.filled(16, value)),
+  width: 2,
+  height: 2,
+);
