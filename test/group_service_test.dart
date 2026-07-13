@@ -731,11 +731,16 @@ void main() {
     // JSON round-trip preserves the attachment.
     final rt = GroupMessage.fromJson(base(
             att: const GroupAttachment(
-                kind: 'image', dataB64: 'QQ', w: 2, h: 3))
+                kind: 'image',
+                dataB64: 'QQ',
+                w: 2,
+                h: 3,
+                name: 'photo.png'))
         .toJson())!;
     expect(rt.attachment?.w, 2);
     expect(rt.attachment?.h, 3);
     expect(rt.attachment?.dataB64, 'QQ');
+    expect(rt.attachment?.name, 'photo.png');
   });
 
   test('voice attachment: durationMs rides in w, round-trips, signs stably',

@@ -4171,6 +4171,72 @@ abstract class AppL10n {
   /// **'More actions'**
   String get chatMoreActions;
 
+  /// No description provided for @composerCamera.
+  ///
+  /// In en, this message translates to:
+  /// **'Camera'**
+  String get composerCamera;
+
+  /// No description provided for @composerUploadPhoto.
+  ///
+  /// In en, this message translates to:
+  /// **'Upload photo'**
+  String get composerUploadPhoto;
+
+  /// No description provided for @composerUploadVideo.
+  ///
+  /// In en, this message translates to:
+  /// **'Upload video'**
+  String get composerUploadVideo;
+
+  /// No description provided for @composerUploadFile.
+  ///
+  /// In en, this message translates to:
+  /// **'Upload file'**
+  String get composerUploadFile;
+
+  /// No description provided for @composerPoll.
+  ///
+  /// In en, this message translates to:
+  /// **'Poll'**
+  String get composerPoll;
+
+  /// No description provided for @composerLocation.
+  ///
+  /// In en, this message translates to:
+  /// **'Location'**
+  String get composerLocation;
+
+  /// No description provided for @composerPlanned.
+  ///
+  /// In en, this message translates to:
+  /// **'Planned'**
+  String get composerPlanned;
+
+  /// No description provided for @composerGif.
+  ///
+  /// In en, this message translates to:
+  /// **'GIF'**
+  String get composerGif;
+
+  /// No description provided for @composerGifLocal.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose GIF from device'**
+  String get composerGifLocal;
+
+  /// No description provided for @composerGifPrivacy.
+  ///
+  /// In en, this message translates to:
+  /// **'No external GIF search: your query never leaves xVeil.'**
+  String get composerGifPrivacy;
+
+  /// No description provided for @composerCameraUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Camera capture is unavailable on this device'**
+  String get composerCameraUnavailable;
+
   /// No description provided for @nicknameTitle.
   ///
   /// In en, this message translates to:
