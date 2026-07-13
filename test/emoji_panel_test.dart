@@ -15,6 +15,7 @@ import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/features/chat/chat_screen.dart';
+import 'package:xveil/features/chat/composer_expression_panel.dart';
 import 'package:xveil/features/chat/emoji_data.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/messaging.dart';
@@ -153,6 +154,16 @@ void main() {
     expect(find.text('Emoji'), findsOneWidget);
     expect(find.text('Stickers'), findsOneWidget);
     expect(find.text('GIF'), findsOneWidget);
+    final panel = find.byKey(const ValueKey('composer-expression-panel'));
+    expect(panel, findsOneWidget);
+    expect(
+      tester.getBottomLeft(panel).dy,
+      lessThanOrEqualTo(
+        tester.getTopLeft(composerField).dy -
+            (kDesktopExpressionPanelBottomGap - 80),
+      ),
+      reason: 'desktop expression hub must float above the composer',
+    );
 
     // Search narrows the grid; tapping the hit inserts it and closes.
     await tester.enterText(

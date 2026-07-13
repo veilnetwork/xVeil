@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
@@ -21,17 +22,84 @@ Future<ComposerExpressionResult?> showComposerExpressionPanel(
   bool enableStickers = true,
   bool enableGif = true,
   bool allowStickerPackShare = true,
-}) => showModalBottomSheet<ComposerExpressionResult>(
-  context: context,
-  showDragHandle: true,
-  isScrollControlled: true,
-  constraints: const BoxConstraints(maxWidth: 560),
-  builder: (_) => _ExpressionHub(
+}) {
+  Widget hub() => _ExpressionHub(
     enableStickers: enableStickers,
     enableGif: enableGif,
     allowStickerPackShare: allowStickerPackShare,
-  ),
-);
+  );
+
+  if (_usesDesktopExpressionPanel) {
+    return showGeneralDialog<ComposerExpressionResult>(
+      context: context,
+      useRootNavigator: false,
+      barrierDismissible: true,
+      barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+      barrierColor: Colors.black.withValues(alpha: 0.28),
+      transitionDuration: const Duration(milliseconds: 160),
+      pageBuilder: (dialogContext, _, _) {
+        final available = MediaQuery.sizeOf(dialogContext).height;
+        final height = (available - kDesktopExpressionPanelBottomGap - 32)
+            .clamp(240.0, 480.0);
+        return SafeArea(
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                16,
+                16,
+                16,
+                kDesktopExpressionPanelBottomGap,
+              ),
+              child: Material(
+                key: const ValueKey('composer-expression-panel'),
+                color: Theme.of(dialogContext).colorScheme.surface,
+                elevation: 12,
+                borderRadius: BorderRadius.circular(24),
+                clipBehavior: Clip.antiAlias,
+                child: SizedBox(width: 560, height: height, child: hub()),
+              ),
+            ),
+          ),
+        );
+      },
+      transitionBuilder: (_, animation, _, child) => FadeTransition(
+        opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+        child: SlideTransition(
+          position:
+              Tween<Offset>(
+                begin: const Offset(0, 0.04),
+                end: Offset.zero,
+              ).animate(
+                CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+              ),
+          child: child,
+        ),
+      ),
+    );
+  }
+
+  return showModalBottomSheet<ComposerExpressionResult>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    constraints: const BoxConstraints(maxWidth: 560),
+    builder: (_) => SizedBox(
+      key: const ValueKey('composer-expression-panel'),
+      height: 480,
+      child: hub(),
+    ),
+  );
+}
+
+const double kDesktopExpressionPanelBottomGap = 88;
+
+bool get _usesDesktopExpressionPanel => switch (defaultTargetPlatform) {
+  TargetPlatform.macOS ||
+  TargetPlatform.linux ||
+  TargetPlatform.windows => true,
+  _ => false,
+};
 
 class _ExpressionHub extends StatelessWidget {
   const _ExpressionHub({
@@ -83,14 +151,11 @@ class _ExpressionHub extends StatelessWidget {
     ];
     return DefaultTabController(
       length: tabs.length,
-      child: SizedBox(
-        height: 480,
-        child: Column(
-          children: [
-            TabBar(tabs: tabs),
-            Expanded(child: TabBarView(children: views)),
-          ],
-        ),
+      child: Column(
+        children: [
+          TabBar(tabs: tabs),
+          Expanded(child: TabBarView(children: views)),
+        ],
       ),
     );
   }
