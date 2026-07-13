@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/ids.dart';
 import '../data/storage/storage.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../domain/cloud.dart';
@@ -15,7 +16,9 @@ import 'group_service.dart';
 import 'providers.dart';
 
 abstract interface class CloudCapabilitySyncPort {
+  NodeId get selfId;
   Stream<void> get changes;
+  Future<List<NodeId>> members();
   Future<List<DeviceSyncRecord>> records();
   Future<bool> post(DeviceSyncEvent event);
   Future<void> close();
@@ -32,7 +35,11 @@ class GroupCloudCapabilitySyncPort implements CloudCapabilitySyncPort {
   final StreamController<void> _changes = StreamController.broadcast();
   late final void Function() _listener;
   @override
+  NodeId get selfId => _group.selfId;
+  @override
   Stream<void> get changes => _changes.stream;
+  @override
+  Future<List<NodeId>> members() => _group.deviceMembers();
   @override
   Future<List<DeviceSyncRecord>> records() => _group.deviceSyncRecords();
   @override
@@ -63,6 +70,7 @@ abstract interface class CloudCapabilityNetworkPort {
     required Uint8List identitySeed,
     required String alias,
     required int endpointId,
+    required int providerSlot,
     bool transient = false,
   });
 }
@@ -76,6 +84,7 @@ class VeilCloudCapabilityNetwork implements CloudCapabilityNetworkPort {
     required Uint8List identitySeed,
     required String alias,
     required int endpointId,
+    required int providerSlot,
     bool transient = false,
   }) async => _VeilCapabilityEndpointPort(
     await (transient
@@ -83,11 +92,13 @@ class VeilCloudCapabilityNetwork implements CloudCapabilityNetworkPort {
             identitySeed: identitySeed,
             name: alias,
             endpointId: endpointId,
+            providerSlot: providerSlot,
           )
         : _transport.hostCapabilityEndpoint(
             identitySeed: identitySeed,
             name: alias,
             endpointId: endpointId,
+            providerSlot: providerSlot,
           )),
   );
 }
@@ -150,6 +161,8 @@ class CloudCapabilityService {
 
   static const _registrySetting = 'cloud.capabilities.v1';
   static const _eventsSetting = 'cloud.capability.events.v1';
+  static const _registryFile = 'cloud.capabilities.registry.v2';
+  static const _eventsFile = 'cloud.capability.events.v2';
   static const _manifestPrefix = 'mf:';
   static const _providerEndpointBase = 40;
   static const _returnEndpointId = 48;
@@ -177,7 +190,7 @@ class CloudCapabilityService {
   Future<void> start() => _started ??= _start();
 
   Future<void> _start() async {
-    final raw = await _storage.getSetting(_registrySetting);
+    final raw = await _loadMetadata(_registryFile, _registrySetting);
     final keep = <_RegistryRow>[];
     if (raw != null) {
       try {
@@ -284,10 +297,12 @@ class CloudCapabilityService {
       final endpointId = _allocateProviderEndpoint();
       CloudCapabilityEndpointPort? endpoint;
       try {
+        final providerSlot = await _providerSlot();
         endpoint = await _network.host(
           identitySeed: seed,
           alias: alias,
           endpointId: endpointId,
+          providerSlot: providerSlot,
         );
         if (!seed.every((byte) => byte == 0)) {
           throw StateError('native capability seed was not scrubbed');
@@ -311,7 +326,7 @@ class CloudCapabilityService {
           alias: alias,
           link: link,
         );
-        final hosted = _HostedShare(row, capability, endpoint);
+        final hosted = _HostedShare(row, capability, endpoint, providerSlot);
         _listen(hosted);
         final shareKey = _shareKey(capability.shareId);
         _shares[shareKey] = hosted;
@@ -383,6 +398,7 @@ class CloudCapabilityService {
         identitySeed: seed,
         alias: alias,
         endpointId: _returnEndpointId,
+        providerSlot: 0,
         transient: true,
       );
       if (!seed.every((byte) => byte == 0)) {
@@ -501,17 +517,19 @@ class CloudCapabilityService {
     final seed = _decode32(row.seed);
     CloudCapabilityEndpointPort? endpoint;
     try {
+      final providerSlot = await _providerSlot();
       endpoint = await _network.host(
         identitySeed: seed,
         alias: row.alias,
         endpointId: capability.endpointId,
+        providerSlot: providerSlot,
       );
       if (!_equal(endpoint.servicePublicKey, capability.servicePublicKey) ||
           !_equal(endpoint.appId, capability.appId) ||
           endpoint.endpointId != capability.endpointId) {
         throw StateError('capability registry endpoint mismatch');
       }
-      final hosted = _HostedShare(row, capability, endpoint);
+      final hosted = _HostedShare(row, capability, endpoint, providerSlot);
       _listen(hosted);
       _shares[_shareKey(capability.shareId)] = hosted;
     } catch (_) {
@@ -598,7 +616,7 @@ class CloudCapabilityService {
   }
 
   Future<void> _loadEvents() async {
-    final raw = await _storage.getSetting(_eventsSetting);
+    final raw = await _loadMetadata(_eventsFile, _eventsSetting);
     if (raw == null) return;
     try {
       final values = jsonDecode(raw);
@@ -620,8 +638,8 @@ class CloudCapabilityService {
     } catch (_) {}
   }
 
-  Future<void> _saveEvents() => _storage.putSetting(
-    _eventsSetting,
+  Future<void> _saveEvents() => _saveMetadata(
+    _eventsFile,
     jsonEncode([for (final event in _events.values) event.toBody()]),
   );
 
@@ -698,7 +716,15 @@ class CloudCapabilityService {
       final current = _rows[shareId];
       _rows[shareId] = row;
       _capabilities[shareId] = capability;
-      if (_shares[shareId] == null || current?.link != row.link) {
+      int providerSlot;
+      try {
+        providerSlot = await _providerSlot();
+      } catch (_) {
+        continue;
+      }
+      if (_shares[shareId] == null ||
+          current?.link != row.link ||
+          _shares[shareId]!.providerSlot != providerSlot) {
         await _shares.remove(shareId)?.close();
         try {
           await _host(row, capability);
@@ -722,10 +748,43 @@ class CloudCapabilityService {
     }
   }
 
-  Future<void> _saveRows(List<_RegistryRow> rows) => _storage.putSetting(
-    _registrySetting,
+  Future<void> _saveRows(List<_RegistryRow> rows) => _saveMetadata(
+    _registryFile,
     jsonEncode([for (final row in rows) row.toJson()]),
   );
+
+  Future<String?> _loadMetadata(String fileId, String legacySetting) async {
+    final bytes = await _storage.loadFile(fileId);
+    if (bytes != null) {
+      try {
+        return utf8.decode(bytes);
+      } catch (_) {
+        return null;
+      }
+    }
+    return _storage.getSetting(legacySetting);
+  }
+
+  Future<void> _saveMetadata(String fileId, String value) => _storage.storeFile(
+    fileId,
+    Uint8List.fromList(utf8.encode(value)),
+    name: 'cloud-capability-metadata',
+  );
+
+  Future<int> _providerSlot() async {
+    final sync = _sync;
+    if (sync == null) return 0;
+    final byHex = <String, NodeId>{sync.selfId.hex: sync.selfId};
+    for (final member in await sync.members()) {
+      byHex[member.hex] = member;
+    }
+    final ordered = byHex.keys.toList()..sort();
+    final slot = ordered.indexOf(sync.selfId.hex);
+    if (slot < 0 || slot >= 8) {
+      throw StateError('capability provider device limit reached');
+    }
+    return slot;
+  }
 
   Future<T> _serialized<T>(Future<T> Function() body) {
     final result = _mutation.then((_) => body());
@@ -845,10 +904,11 @@ class _RegistryRow {
 }
 
 class _HostedShare {
-  _HostedShare(this.row, this.capability, this.endpoint);
+  _HostedShare(this.row, this.capability, this.endpoint, this.providerSlot);
   final _RegistryRow row;
   final CloudCapability capability;
   final CloudCapabilityEndpointPort endpoint;
+  final int providerSlot;
   StreamSubscription<Uint8List>? subscription;
 
   CloudPublicShare get public => CloudPublicShare(

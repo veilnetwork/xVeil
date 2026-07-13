@@ -32,6 +32,7 @@ class _Endpoint implements CloudCapabilityEndpointPort {
     this.servicePublicKey,
     this.appId,
     this.endpointId, {
+    required this.providerSlot,
     this.closeGate,
     required this.send,
   });
@@ -41,6 +42,7 @@ class _Endpoint implements CloudCapabilityEndpointPort {
   final Uint8List appId;
   @override
   final int endpointId;
+  final int providerSlot;
   final Completer<void>? closeGate;
   final Future<void> Function({
     required Uint8List servicePublicKey,
@@ -89,6 +91,7 @@ class _Network implements CloudCapabilityNetworkPort {
     required Uint8List identitySeed,
     required String alias,
     required int endpointId,
+    required int providerSlot,
     bool transient = false,
   }) async {
     final serviceKey = Uint8List.fromList(
@@ -102,6 +105,7 @@ class _Network implements CloudCapabilityNetworkPort {
       serviceKey,
       appId,
       endpointId,
+      providerSlot: providerSlot,
       closeGate: nextCloseGate,
       send: _sendAnonymous,
     );
@@ -134,16 +138,23 @@ class _Network implements CloudCapabilityNetworkPort {
 
 class _SyncBackend {
   final rows = <DeviceSyncRecord>[];
+  final members = <String, NodeId>{};
   final changes = StreamController<void>.broadcast();
 }
 
 class _SyncPort implements CloudCapabilitySyncPort {
   _SyncPort(this.backend, int author)
-    : _author = NodeId.fromHex(author.toRadixString(16).padLeft(64, '0'));
+    : _author = NodeId.fromHex(author.toRadixString(16).padLeft(64, '0')) {
+    backend.members[_author.hex] = _author;
+  }
   final _SyncBackend backend;
   final NodeId _author;
   @override
+  NodeId get selfId => _author;
+  @override
   Stream<void> get changes => backend.changes.stream;
+  @override
+  Future<List<NodeId>> members() async => backend.members.values.toList();
   @override
   Future<List<DeviceSyncRecord>> records() async => [...backend.rows];
   @override
@@ -250,16 +261,53 @@ void main() {
       await serviceB.start();
       expect((await serviceB.listShares()).single.link, share.link);
       expect(networkB.endpoints.single.closed, isFalse);
+      expect(networkA.endpoints.single.providerSlot, 0);
+      expect(networkB.endpoints.single.providerSlot, 1);
       expect(
         networkB.endpoints.single.servicePublicKey,
         networkA.endpoints.single.servicePublicKey,
       );
       expect(networkB.endpoints.single.appId, networkA.endpoints.single.appId);
 
+      final earlier = NodeId.fromHex('0'.padLeft(64, '0'));
+      backend.members[earlier.hex] = earlier;
+      backend.changes.add(null);
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      expect(networkA.endpoints, hasLength(2));
+      expect(networkA.endpoints.first.closed, isTrue);
+      expect(networkA.endpoints.last.providerSlot, 1);
+      expect(networkB.endpoints, hasLength(2));
+      expect(networkB.endpoints.first.closed, isTrue);
+      expect(networkB.endpoints.last.providerSlot, 2);
+
+      for (var id = 3; id <= 9; id++) {
+        final member = NodeId.fromHex(id.toRadixString(16).padLeft(64, '0'));
+        backend.members[member.hex] = member;
+      }
+      final overflowContainer = FakeHvContainer();
+      final overflowStorage = overflowContainer.storage();
+      await overflowStorage.open(password: 'c', createIfMissing: true);
+      final overflowNetwork = _Network();
+      final overflowService = CloudCapabilityService(
+        overflowStorage,
+        overflowNetwork,
+        sync: _SyncPort(backend, 9),
+        now: () => DateTime(2030),
+      );
+      await overflowService.start();
+      expect((await overflowService.listShares()).single.link, share.link);
+      expect(
+        overflowNetwork.endpoints,
+        isEmpty,
+        reason: 'devices outside the fixed eight slots must not publish',
+      );
+      await overflowService.close();
+      await overflowStorage.close();
+
       expect(await serviceA.revoke(share.shareId), isTrue);
       await Future<void>.delayed(const Duration(milliseconds: 400));
       expect(await serviceB.listShares(), isEmpty);
-      expect(networkB.endpoints.single.closed, isTrue);
+      expect(networkB.endpoints.every((endpoint) => endpoint.closed), isTrue);
 
       await serviceA.close();
       await serviceB.close();
@@ -373,7 +421,11 @@ void main() {
       expect(network.sent, hasLength(before));
       expect(await second.listShares(), isEmpty);
       expect(
-        jsonDecode((await storage.getSetting('cloud.capabilities.v1'))!),
+        jsonDecode(
+          utf8.decode(
+            (await storage.loadFile('cloud.capabilities.registry.v2'))!,
+          ),
+        ),
         isEmpty,
       );
 
@@ -431,6 +483,64 @@ void main() {
 
       closeGate.complete();
       await service.close();
+      await storage.close();
+    },
+  );
+
+  test(
+    'all six advertised active shares persist beyond settings capacity',
+    () async {
+      final container = FakeHvContainer();
+      final storage = container.storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final network = _Network();
+      final service = CloudCapabilityService(
+        storage,
+        network,
+        random: _Random(),
+      );
+
+      for (
+        var index = 0;
+        index < CloudCapabilityService.maxActiveShares;
+        index++
+      ) {
+        final bytes = Uint8List.fromList(
+          List.generate(64 + index, (offset) => index * 17 + offset),
+        );
+        final manifest = ContentManifest.fromBytes('six-$index.bin', bytes);
+        await storage.storeFile(manifest.contentId, bytes);
+        await storage.storeFile(
+          'mf:${manifest.contentId}',
+          Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+        );
+        await service.createShare(
+          CloudItem(
+            id: 'six-$index',
+            kind: CloudItemKind.file,
+            name: manifest.name,
+            contentId: manifest.contentId,
+            size: bytes.length,
+            createdAtMs: index,
+            modifiedAtMs: index,
+            revision: 1,
+            deleted: false,
+          ),
+        );
+      }
+      expect(await service.listShares(), hasLength(6));
+      expect(network.endpoints, hasLength(6));
+
+      await service.close();
+      final reopened = CloudCapabilityService(storage, network);
+      await reopened.start();
+      expect(await reopened.listShares(), hasLength(6));
+      expect(
+        network.endpoints.where((endpoint) => !endpoint.closed),
+        hasLength(6),
+      );
+
+      await reopened.close();
       await storage.close();
     },
   );

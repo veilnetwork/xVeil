@@ -1,8 +1,7 @@
 # Public cloud capability links
 
-Status: CLOUD-2B single-provider v1 is implemented and cross-device verified.
-Simultaneous multi-provider DHT resolution/failover remains a separate native
-follow-up and must not be described as verified.
+Status: CLOUD-2B multi-provider v2 is implemented and cross-device verified.
+Legacy single-record descriptors remain published for old resolvers.
 
 ## Privacy and authority
 
@@ -41,11 +40,24 @@ blob. Retiring provider endpoints are not reused until native descriptor
 withdrawal finishes.
 
 Owner devices converge the encrypted share seed/link and revoke tombstone via
-the signed sovereign device-group log, and can host the same pseudonymous
-service key and app id. The current blinded DHT descriptor resolves to one
-rendezvous value, however. True simultaneous multi-candidate resolution and
-measured failover between two live owners remain a native follow-up; the present
-implementation must not claim that guarantee.
+the signed sovereign device-group log, and host the same pseudonymous service
+key and app id. Each of at most eight current device members receives its rank
+in the sorted private member set. That rank selects a v2 descriptor DHT key and
+also domain-separates the rendezvous cookie and registration key, so two owners
+that choose the same relay cannot collapse into one relay registration. A
+membership change rehosts every active share if the local rank changed; devices
+outside the first eight retain the encrypted row but do not publish it.
+
+A resolver queries all eight current-period slots plus the legacy record in a
+fixed shape, validates each descriptor and canonical key, and deduplicates
+identical route bodies. Adjacent periods are queried only if the current period
+has no valid candidate. Anonymous capability requests fan out to at most three
+providers; the request nonce rotates the starting candidate across retries.
+Malformed, revoked and unavailable providers still produce no response oracle.
+
+Registry rows and signed device events live in the deniable file-store v2,
+with read migration from the old KV settings. This is required for the stated
+six-active-share limit: the legacy settings payload overflowed at three links.
 
 ## Verification state
 
@@ -70,7 +82,18 @@ after revoke. Test items were deleted after verification; the share remained
 revoked. This proves create → anonymous download/adopt → revoke → post-revoke
 silent denial for the single-provider v1.
 
-A fresh writable two-owner device group is still useful to verify live revoke
-convergence between owner devices and to characterize the remaining one-value
-blinded-DHT failover limitation. That limitation does not invalidate a single
-active provider, but it forbids claiming simultaneous multi-provider failover.
+The v2 native path was verified on 2026-07-13 with macOS and Android hosting the
+same deterministic debug-only service/app identity in slots 0 and 1. An
+independent iOS Simulator requester first received slot 0 with both online,
+then slot 1 with macOS killed, and finally slot 0 with Android force-stopped.
+Both hosts reported identical public keys and scrubbed seed buffers. The probe
+kept the seed in RAM and returned only the provider slot, never a sovereign id.
+
+The old physical macOS/Android fixture could not verify the production
+device-log convergence in this run: both stores still point at device group
+`9e6f04b1…`, but its bundle is absent (`epoch:null`, no members). The Dart
+service test therefore proves distinct sorted slots, membership-driven rehost,
+and the ninth-device no-publish rule, while the physical probe proves the exact
+native DHT/relay/failover path. Repairing that legacy fixture or using a fresh
+sovereign two-owner group remains useful for a full production-row convergence
+rerun; it is not a limitation of the verified multi-candidate transport.
