@@ -289,6 +289,16 @@ class AppL10nRu extends AppL10n {
   String get groupCreateAction => 'Создать';
 
   @override
+  String get groupOperationFailed =>
+      'Не удалось изменить группу. Проверьте сеть и повторите попытку.';
+
+  @override
+  String get groupEncrypted => 'Сквозное шифрование включено';
+
+  @override
+  String get groupEncryptionPending => 'Ожидается обновление шифрования';
+
+  @override
   String get groupNameHint => 'Название группы';
 
   @override

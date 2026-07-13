@@ -16,10 +16,17 @@
 
 import '../core/ids.dart';
 import 'group.dart';
+import 'group_epoch.dart';
 
 /// The folded group state after replaying a (validated) control-log prefix.
 class GroupState {
-  GroupState._(this.members, this.epoch, this.policyVersion, this.name);
+  GroupState._(
+    this.members,
+    this.epoch,
+    this.policyVersion,
+    this.name,
+    this.epochDescriptor,
+  );
 
   /// nodeId hex -> member.
   final Map<String, GroupMember> members;
@@ -33,19 +40,22 @@ class GroupState {
   /// The current display name (genesis manifest name, updated by setName).
   final String name;
 
+  /// Signed recipient-envelope root for the current key epoch. Null means the
+  /// legacy cleartext epoch or an epoch waiting for an authorized rekey.
+  final GroupEpochDescriptor? epochDescriptor;
+
   GroupMember? memberOf(NodeId id) => members[id.hex];
   bool isMember(NodeId id) => members.containsKey(id.hex);
   GroupRole? roleOf(NodeId id) => members[id.hex]?.role;
 
   /// The initial state of a group: the owner (genesis) is the sole member.
   factory GroupState.genesis(NodeId owner, [String name = '']) => GroupState._(
-        {
-          owner.hex: GroupMember(nodeId: owner, role: GroupRole.owner),
-        },
-        0,
-        0,
-        name,
-      );
+    {owner.hex: GroupMember(nodeId: owner, role: GroupRole.owner)},
+    0,
+    0,
+    name,
+    null,
+  );
 }
 
 /// Whether [author] (at [authorRole]) may apply [op] to [targetRole] under the
@@ -118,6 +128,7 @@ GroupFoldResult foldControlLog({
   var epoch = 0;
   var policyVersion = 0;
   var name = initialName;
+  GroupEpochDescriptor? epochDescriptor;
   final rejected = <ControlEntry>[];
 
   // Per-author monotonic seq + prev-hash chaining: process each author's
@@ -171,6 +182,38 @@ GroupFoldResult foldControlLog({
       rejected.add(e);
       continue;
     }
+    final descriptor = e.epochDescriptor;
+    GroupEpochDescriptor? usableDescriptor = descriptor;
+    final canEstablishEpoch =
+        e.op == ControlOp.removeMember ||
+        e.op == ControlOp.ban ||
+        e.op == ControlOp.rotateEpoch;
+    if (descriptor != null) {
+      final expectedRecipients =
+          e.op == ControlOp.removeMember || e.op == ControlOp.ban
+          ? members.length - 1
+          : members.length;
+      if (!canEstablishEpoch ||
+          e.groupId == null ||
+          descriptor.groupId != e.groupId) {
+        rejected.add(e);
+        continue;
+      }
+      if (descriptor.epoch != epoch + 1 ||
+          descriptor.recipientCount != expectedRecipients) {
+        if (e.op == ControlOp.removeMember || e.op == ControlOp.ban) {
+          // A concurrent, deterministically-earlier departure can invalidate
+          // this author's precomputed epoch/count. Membership removal still
+          // applies; its stale key proposal is ignored and the state fails
+          // closed until a fresh rotate. Dropping the whole signed removal
+          // would resurrect a member merely because two admins acted at once.
+          usableDescriptor = null;
+        } else {
+          rejected.add(e);
+          continue;
+        }
+      }
+    }
     // Apply.
     switch (e.op) {
       case ControlOp.addMember:
@@ -179,12 +222,15 @@ GroupFoldResult foldControlLog({
           rejected.add(e);
           continue;
         }
-        members[id.hex] =
-            GroupMember(nodeId: id, role: e.role ?? GroupRole.member);
+        members[id.hex] = GroupMember(
+          nodeId: id,
+          role: e.role ?? GroupRole.member,
+        );
       case ControlOp.removeMember:
       case ControlOp.ban:
         members.remove(e.target!.hex);
         epoch++; // a departure rotates the epoch (agreed design)
+        epochDescriptor = usableDescriptor;
       case ControlOp.setRole:
         final m = members[e.target!.hex]!;
         members[e.target!.hex] = m.copyWith(role: e.role);
@@ -196,6 +242,7 @@ GroupFoldResult foldControlLog({
         members[e.target!.hex] = m.copyWith(muted: false);
       case ControlOp.rotateEpoch:
         epoch++;
+        epochDescriptor = usableDescriptor;
       case ControlOp.setPolicy:
         policyVersion++;
       case ControlOp.setName:
@@ -204,12 +251,15 @@ GroupFoldResult foldControlLog({
         // The author removes themselves; their departure rotates the epoch too.
         members.remove(e.author.hex);
         epoch++;
+        // The departing author must not choose a future key it would know.
+        // Remaining admins publish a separate rotateEpoch descriptor.
+        epochDescriptor = null;
     }
     lastSeq[e.author.hex] = e.seq;
   }
 
   return GroupFoldResult(
-    GroupState._(members, epoch, policyVersion, name),
+    GroupState._(members, epoch, policyVersion, name, epochDescriptor),
     rejected,
   );
 }

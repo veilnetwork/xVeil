@@ -6,13 +6,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:veil_flutter/veil_flutter.dart' as veil;
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/transport/bootstrap_invite.dart';
+import 'package:xveil/data/transport/veil_mailbox.dart';
 import 'package:xveil/domain/device_sync.dart';
 import 'package:xveil/domain/device_link.dart';
 import 'package:xveil/domain/group.dart';
 import 'package:xveil/domain/group_content.dart';
 import 'package:xveil/domain/group_message.dart';
+import 'package:xveil/domain/group_policy.dart';
 import 'package:xveil/domain/group_reaction.dart';
 import 'package:xveil/state/group_service.dart';
+import 'package:xveil/state/group_epoch_service.dart';
 
 import 'support/fake_hv_container.dart';
 
@@ -143,6 +146,318 @@ void main() {
     final groups = await svc.listGroups();
     expect(groups.single.name, 'Family');
     expect(groups.single.groupId, gid);
+  });
+
+  test(
+    'epoch E2EE persists and wires only ciphertext for messages + reactions',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      final ownerSvc = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      final gid = await ownerSvc.createGroup('Encrypted');
+      expect((await ownerSvc.stateOf(gid))!.epoch, 1);
+      expect(
+        await ownerSvc.addControlOp(
+          gid,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      final afterJoin = (await ownerSvc.stateOf(gid))!;
+      expect(afterJoin.epoch, 2);
+      expect(afterJoin.epochDescriptor?.recipientCount, 2);
+
+      const attachment = GroupAttachment(
+        kind: 'image',
+        dataB64: 'c2VjcmV0LWltYWdl',
+        w: 32,
+        h: 24,
+        cid: 'private-content-id',
+      );
+      expect(
+        await ownerSvc.postMessage(
+          gid,
+          'owner secret',
+          attachment: attachment,
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      final ownerBundle = (await ownerSvc.load(gid))!;
+      expect(ownerBundle.messages.single.isEncrypted, isTrue);
+      expect(ownerBundle.messages.single.body, isEmpty);
+      final bobWire = ownerSvc.snapshotJson(ownerBundle, recipient: bob);
+      expect(bobWire, isNot(contains('owner secret')));
+      expect(bobWire, isNot(contains('private-content-id')));
+      expect((jsonDecode(bobWire) as Map)['kk'], isNull);
+      expect(((jsonDecode(bobWire) as Map)['ke'] as List).length, 1);
+
+      final bobStorage = FakeHvContainer().storage();
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      final bobSvc = GroupService(
+        bobStorage,
+        _FakeSigner(bob),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      expect(await bobSvc.ingestSnapshot(bobWire), isTrue);
+      final bobMessages = await bobSvc.messagesOf(gid);
+      expect(bobMessages.single.body, 'owner secret');
+      expect(bobMessages.single.attachment?.cid, 'private-content-id');
+      final persisted = utf8.decode(
+        (await bobStorage.loadFile('group:${gid.hex}'))!,
+      );
+      expect(persisted, isNot(contains('owner secret')));
+      expect(persisted, isNot(contains('private-content-id')));
+
+      expect(
+        await bobSvc.postMessage(gid, 'bob secret', broadcast: false),
+        isTrue,
+      );
+      expect(
+        await bobSvc.react(gid, bobMessages.single.ref, '🔥', broadcast: false),
+        isTrue,
+      );
+      final bobBundle = (await bobSvc.load(gid))!;
+      expect(bobBundle.messages.last.isEncrypted, isTrue);
+      expect(bobBundle.reactions.single.isEncrypted, isTrue);
+      final ownerWire = bobSvc.snapshotJson(bobBundle, recipient: owner);
+      expect(ownerWire, isNot(contains('bob secret')));
+      expect(ownerWire, isNot(contains('🔥')));
+      final concurrentLocal = ownerSvc.postMessage(
+        gid,
+        'concurrent owner secret',
+        broadcast: false,
+      );
+      final concurrentIngest = ownerSvc.ingestSnapshot(ownerWire);
+      expect(await concurrentLocal, isTrue);
+      expect(await concurrentIngest, isTrue);
+      expect(
+        (await ownerSvc.messagesOf(gid)).map((message) => message.body),
+        containsAll(['owner secret', 'bob secret', 'concurrent owner secret']),
+      );
+      expect((await ownerSvc.reactionsOf(gid))[bobMessages.single.ref]?['🔥'], [
+        bob,
+      ]);
+    },
+  );
+
+  test(
+    'new members get only the post-join epoch and removed members get no new key',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final ownerSvc = GroupService(
+        storage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      final gid = await ownerSvc.createGroup('Forward secure');
+      await ownerSvc.addControlOp(
+        gid,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      );
+      await ownerSvc.postMessage(gid, 'before carol', broadcast: false);
+      await ownerSvc.addControlOp(
+        gid,
+        ControlOp.addMember,
+        target: carol,
+        role: GroupRole.member,
+      );
+      await ownerSvc.postMessage(gid, 'after carol', broadcast: false);
+      final bundle = (await ownerSvc.load(gid))!;
+      expect((await ownerSvc.stateOf(gid))!.epoch, 3);
+      final carolWire = ownerSvc.snapshotJson(bundle, recipient: carol);
+      expect(carolWire, isNot(contains('before carol')));
+
+      final carolStorage = FakeHvContainer().storage();
+      await carolStorage.open(password: 'pw', createIfMissing: true);
+      final carolSvc = GroupService(
+        carolStorage,
+        _FakeSigner(carol),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      expect(await carolSvc.ingestSnapshot(carolWire), isTrue);
+      expect((await carolSvc.messagesOf(gid)).map((message) => message.body), [
+        'after carol',
+      ]);
+
+      expect(
+        await ownerSvc.addControlOp(gid, ControlOp.removeMember, target: bob),
+        isTrue,
+      );
+      expect((await ownerSvc.stateOf(gid))!.epoch, 4);
+      await ownerSvc.postMessage(gid, 'after bob removal', broadcast: false);
+      final removedWire = ownerSvc.snapshotJson(
+        (await ownerSvc.load(gid))!,
+        recipient: bob,
+      );
+      final removedJson = jsonDecode(removedWire) as Map;
+      final bobEpochs = (removedJson['ke'] as List? ?? const [])
+          .map((entry) => (entry as Map)['epoch'])
+          .toList();
+      expect(bobEpochs, isNot(contains(4)));
+      expect(removedWire, isNot(contains('after bob removal')));
+    },
+  );
+
+  test('missing/wrong epoch envelope fails closed and clear v1 downgrade drops',
+      () async {
+    final ownerStorage = FakeHvContainer().storage();
+    await ownerStorage.open(password: 'pw', createIfMissing: true);
+    final ownerSvc = GroupService(
+      ownerStorage,
+      _FakeSigner(owner),
+      epochService: GroupEpochService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      ),
+    );
+    final gid = await ownerSvc.createGroup('No downgrade');
+    await ownerSvc.addControlOp(gid, ControlOp.addMember,
+        target: bob, role: GroupRole.member);
+    await ownerSvc.postMessage(gid, 'cipher only', broadcast: false);
+    final validWire = jsonDecode(ownerSvc.snapshotJson(
+      (await ownerSvc.load(gid))!,
+      recipient: bob,
+    )) as Map<String, dynamic>;
+
+    Future<GroupService> receiver(NodeId reportedIssuer) async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      return GroupService(
+        storage,
+        _FakeSigner(bob),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: reportedIssuer),
+        ),
+      );
+    }
+
+    final withoutEnvelope = Map<String, dynamic>.from(validWire)..remove('ke');
+    final missing = await receiver(owner);
+    expect(await missing.ingestSnapshot(jsonEncode(withoutEnvelope)), isTrue);
+    expect(await missing.messagesOf(gid), isEmpty);
+    expect(await missing.postMessage(gid, 'must not fall back'), isFalse);
+
+    final wrongIssuer = await receiver(stranger);
+    expect(await wrongIssuer.ingestSnapshot(jsonEncode(validWire)), isTrue);
+    expect(await wrongIssuer.messagesOf(gid), isEmpty);
+    expect(await wrongIssuer.postMessage(gid, 'must stay closed'), isFalse);
+
+    final downgrade = _FakeSigner(bob).signMessage(GroupMessage(
+      groupId: gid,
+      author: bob,
+      seq: 0,
+      prevHash: '',
+      body: 'clear downgrade',
+      policyVersion: 0,
+      createdAtMs: 9000,
+      signature: Uint8List(0),
+    ));
+    final injected = Map<String, dynamic>.from(validWire)
+      ..['g'] = [downgrade.toJson()];
+    final before = (await ownerSvc.load(gid))!.messages.length;
+    expect(await ownerSvc.ingestSnapshot(jsonEncode(injected)), isTrue);
+    expect((await ownerSvc.load(gid))!.messages.length, before);
+  });
+
+  test('owner boot migration upgrades a legacy group without re-sending clear history',
+      () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final legacy = GroupService(storage, _FakeSigner(owner));
+    final gid = await legacy.createGroup('Legacy');
+    await legacy.addControlOp(gid, ControlOp.addMember,
+        target: bob, role: GroupRole.member);
+    await legacy.postMessage(gid, 'legacy local history', broadcast: false);
+    expect((await legacy.stateOf(gid))!.epochDescriptor, isNull);
+
+    final upgraded = GroupService(
+      storage,
+      _FakeSigner(owner),
+      epochService: GroupEpochService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      ),
+    );
+    await upgraded.nudgeGroupSyncAll();
+    final state = (await upgraded.stateOf(gid))!;
+    expect(state.epochDescriptor, isNotNull);
+    expect(state.epoch, 1);
+    await upgraded.postMessage(gid, 'encrypted future', broadcast: false);
+    final bundle = (await upgraded.load(gid))!;
+    expect(bundle.messages.first.isEncrypted, isFalse);
+    expect(bundle.messages.last.isEncrypted, isTrue);
+    final bobWire = upgraded.snapshotJson(bundle, recipient: bob);
+    expect(bobWire, isNot(contains('legacy local history')));
+    expect(bobWire, isNot(contains('encrypted future')));
+    expect((jsonDecode(bobWire) as Map)['ke'], isNotNull);
+  });
+
+  test('member leave clears the key and owner automatically establishes a fresh epoch',
+      () async {
+    final ownerStorage = FakeHvContainer().storage();
+    await ownerStorage.open(password: 'pw', createIfMissing: true);
+    final ownerSvc = GroupService(
+      ownerStorage,
+      _FakeSigner(owner),
+      epochService: GroupEpochService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      ),
+    );
+    final gid = await ownerSvc.createGroup('Leave rekey');
+    await ownerSvc.addControlOp(gid, ControlOp.addMember,
+        target: bob, role: GroupRole.member);
+
+    final bobStorage = FakeHvContainer().storage();
+    await bobStorage.open(password: 'pw', createIfMissing: true);
+    String? leaveDelta;
+    final bobSvc = GroupService(
+      bobStorage,
+      _FakeSigner(bob),
+      epochService: GroupEpochService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      ),
+      send: (peer, group, json) async {
+        if (peer == owner && group == gid) leaveDelta = json;
+      },
+    );
+    expect(
+      await bobSvc.ingestSnapshot(ownerSvc.snapshotJson(
+        (await ownerSvc.load(gid))!,
+        recipient: bob,
+      )),
+      isTrue,
+    );
+    expect(await bobSvc.leaveGroup(gid), isTrue);
+    expect(leaveDelta, isNotNull);
+    expect(await ownerSvc.ingestSnapshot(leaveDelta!), isTrue);
+    GroupState? state;
+    for (var attempt = 0; attempt < 20; attempt++) {
+      state = await ownerSvc.stateOf(gid);
+      if (state?.epochDescriptor != null) break;
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    expect(state?.isMember(bob), isFalse);
+    expect(state?.epoch, 4);
+    expect(state?.epochDescriptor?.recipientCount, 1);
+    expect(await ownerSvc.postMessage(gid, 'after leave', broadcast: false),
+        isTrue);
+    expect((await ownerSvc.load(gid))!.messages.single.isEncrypted, isTrue);
   });
 
   test('owner adds a member; a plain member cannot add', () async {

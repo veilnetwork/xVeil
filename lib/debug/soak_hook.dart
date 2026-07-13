@@ -795,6 +795,8 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'ok': true,
       'groupId': gid.hex,
       'members': st?.members.length ?? 0,
+      'epoch': st?.epoch ?? 0,
+      'encrypted': st?.epochDescriptor != null,
     });
   }
 
@@ -3005,6 +3007,8 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'ok': added,
       'members': st?.members.length ?? 0,
       'delivered': sent,
+      'epoch': st?.epoch ?? 0,
+      'encrypted': st?.epochDescriptor != null,
     });
   }
 
@@ -3020,12 +3024,25 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     if (st == null) return _json(req, {'ok': false, 'error': 'unknown group'});
     final msgs = await svc.messagesOf(gid);
     final reacts = await svc.reactionsOf(gid);
+    final bundle = await svc.load(gid);
     return _json(req, {
       'ok': true,
       'name': st.name,
       'members': st.members.length,
       'epoch': st.epoch,
       'policyVersion': st.policyVersion,
+      'encrypted': st.epochDescriptor != null,
+      'descriptorEpoch': st.epochDescriptor?.epoch,
+      'localKeyEpochs': bundle == null
+          ? const <int>[]
+          : (bundle.localEpochKeys.keys.toList()..sort()),
+      'storedEncryptedMessages':
+          bundle?.messages.where((message) => message.isEncrypted).length ?? 0,
+      'storedClearMessages':
+          bundle?.messages.where((message) => !message.isEncrypted).length ?? 0,
+      'storedEncryptedReactions':
+          bundle?.reactions.where((reaction) => reaction.isEncrypted).length ??
+          0,
       'bodies': [for (final m in msgs) m.body],
       'images': [
         for (final m in msgs)

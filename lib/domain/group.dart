@@ -13,6 +13,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import '../core/ids.dart';
+import 'group_epoch.dart';
 
 /// A member's role. Higher [rank] can manage lower ranks (see policy).
 enum GroupRole {
@@ -59,6 +60,7 @@ class GroupManifest {
   final int version;
   final String? kind;
   final String? signatureAlgorithm;
+
   /// SHA-256 of the encrypted sovereign bundle replicated with this device
   /// group. Its signed hash prevents a member device from replacing the blob.
   final Uint8List? sovereignBundleHash;
@@ -73,7 +75,9 @@ class GroupManifest {
       signatureAlgorithm != null &&
       signature.isNotEmpty;
 
-  Uint8List canonicalBytes() => Uint8List.fromList(utf8.encode(jsonEncode({
+  Uint8List canonicalBytes() => Uint8List.fromList(
+    utf8.encode(
+      jsonEncode({
         'v': version,
         if (kind != null) 'kind': kind,
         'gid': groupId.hex,
@@ -84,38 +88,39 @@ class GroupManifest {
         if (signatureAlgorithm != null) 'alg': signatureAlgorithm,
         if (sovereignBundleHash != null)
           'sbh': base64Encode(sovereignBundleHash!),
-      })));
+      }),
+    ),
+  );
 
   GroupManifest withSignature(Uint8List value) => GroupManifest(
-        groupId: groupId,
-        owner: owner,
-        genesisPubKey: genesisPubKey,
-        name: name,
-        createdAtMs: createdAtMs,
-        version: version,
-        kind: kind,
-        signatureAlgorithm: signatureAlgorithm,
-        sovereignBundleHash: sovereignBundleHash,
-        signature: value,
-      );
+    groupId: groupId,
+    owner: owner,
+    genesisPubKey: genesisPubKey,
+    name: name,
+    createdAtMs: createdAtMs,
+    version: version,
+    kind: kind,
+    signatureAlgorithm: signatureAlgorithm,
+    sovereignBundleHash: sovereignBundleHash,
+    signature: value,
+  );
 
   bool sameGenesis(GroupManifest other) =>
       base64Encode(canonicalBytes()) == base64Encode(other.canonicalBytes()) &&
       base64Encode(signature) == base64Encode(other.signature);
 
   Map<String, dynamic> toJson() => {
-        'v': version,
-        if (kind != null) 'kind': kind,
-        'gid': groupId.hex,
-        'owner': owner.hex,
-        'gpk': base64Encode(genesisPubKey),
-        'name': name,
-        'ts': createdAtMs,
-        if (signatureAlgorithm != null) 'alg': signatureAlgorithm,
-        if (sovereignBundleHash != null)
-          'sbh': base64Encode(sovereignBundleHash!),
-        if (signature.isNotEmpty) 'msig': base64Encode(signature),
-      };
+    'v': version,
+    if (kind != null) 'kind': kind,
+    'gid': groupId.hex,
+    'owner': owner.hex,
+    'gpk': base64Encode(genesisPubKey),
+    'name': name,
+    'ts': createdAtMs,
+    if (signatureAlgorithm != null) 'alg': signatureAlgorithm,
+    if (sovereignBundleHash != null) 'sbh': base64Encode(sovereignBundleHash!),
+    if (signature.isNotEmpty) 'msig': base64Encode(signature),
+  };
 
   static GroupManifest? fromJson(Object? j) {
     if (j is! Map) return null;
@@ -206,6 +211,7 @@ class ControlEntry {
     required this.createdAtMs,
     required this.signature,
     this.text,
+    this.epochDescriptor,
     Uint8List? authorPubKey,
   }) : authorPubKey = authorPubKey ?? Uint8List(0);
 
@@ -216,9 +222,13 @@ class ControlEntry {
   final int seq;
   final String prevHash; // hex of the author's previous entry hash, or ''
   final ControlOp op;
-  final NodeId? target; // member the op acts on (null for rotateEpoch/setPolicy)
+  final NodeId?
+  target; // member the op acts on (null for rotateEpoch/setPolicy)
   final GroupRole? role; // for setRole/addMember
   final String? text; // string payload (the new name for setName)
+  /// Optional scale-free recipient-envelope root for the epoch established by
+  /// this control entry. Legacy entries omit it and keep identical bytes.
+  final GroupEpochDescriptor? epochDescriptor;
   final int policyVersion;
   final int createdAtMs;
   final Uint8List signature; // ed25519 over canonicalBytes (verified app-side)
@@ -229,19 +239,20 @@ class ControlEntry {
   final Uint8List authorPubKey;
 
   ControlEntry withSignature(Uint8List sig, Uint8List pubKey) => ControlEntry(
-        groupId: groupId,
-        author: author,
-        seq: seq,
-        prevHash: prevHash,
-        op: op,
-        target: target,
-        role: role,
-        text: text,
-        policyVersion: policyVersion,
-        createdAtMs: createdAtMs,
-        signature: sig,
-        authorPubKey: pubKey,
-      );
+    groupId: groupId,
+    author: author,
+    seq: seq,
+    prevHash: prevHash,
+    op: op,
+    target: target,
+    role: role,
+    text: text,
+    epochDescriptor: epochDescriptor,
+    policyVersion: policyVersion,
+    createdAtMs: createdAtMs,
+    signature: sig,
+    authorPubKey: pubKey,
+  );
 
   /// The exact bytes the author signs — a canonical (stable field order) JSON
   /// of everything BUT the signature. Both ends must reproduce this identically
@@ -256,6 +267,7 @@ class ControlEntry {
       if (target != null) 'target': target!.hex,
       if (role != null) 'role': role!.name,
       if (text != null) 'text': text,
+      if (epochDescriptor != null) 'ek': epochDescriptor!.toJson(),
       'pv': policyVersion,
       'ts': createdAtMs,
     };
@@ -263,19 +275,20 @@ class ControlEntry {
   }
 
   Map<String, dynamic> toJson() => {
-        if (groupId != null) 'gid': groupId!.hex,
-        'author': author.hex,
-        'seq': seq,
-        'prev': prevHash,
-        'op': op.name,
-        if (target != null) 'target': target!.hex,
-        if (role != null) 'role': role!.name,
-        if (text != null) 'text': text,
-        'pv': policyVersion,
-        'ts': createdAtMs,
-        'sig': base64Encode(signature),
-        if (authorPubKey.isNotEmpty) 'apk': base64Encode(authorPubKey),
-      };
+    if (groupId != null) 'gid': groupId!.hex,
+    'author': author.hex,
+    'seq': seq,
+    'prev': prevHash,
+    'op': op.name,
+    if (target != null) 'target': target!.hex,
+    if (role != null) 'role': role!.name,
+    if (text != null) 'text': text,
+    if (epochDescriptor != null) 'ek': epochDescriptor!.toJson(),
+    'pv': policyVersion,
+    'ts': createdAtMs,
+    'sig': base64Encode(signature),
+    if (authorPubKey.isNotEmpty) 'apk': base64Encode(authorPubKey),
+  };
 
   static ControlEntry? fromJson(Object? j) {
     if (j is! Map) return null;
@@ -293,10 +306,12 @@ class ControlEntry {
     final op = ControlOp.fromName(opName);
     if (op == null || seq < 0 || pv < 0) return null;
     try {
+      final epochDescriptor = j.containsKey('ek')
+          ? GroupEpochDescriptor.fromJson(j['ek'])
+          : null;
+      if (j.containsKey('ek') && epochDescriptor == null) return null;
       return ControlEntry(
-        groupId: j['gid'] is String
-            ? NodeId.fromHex(j['gid'] as String)
-            : null,
+        groupId: j['gid'] is String ? NodeId.fromHex(j['gid'] as String) : null,
         author: NodeId.fromHex(author),
         seq: seq,
         prevHash: prev,
@@ -306,6 +321,7 @@ class ControlEntry {
             : null,
         role: GroupRole.fromName(j['role'] as String?),
         text: j['text'] is String ? j['text'] as String : null,
+        epochDescriptor: epochDescriptor,
         policyVersion: pv,
         createdAtMs: ts,
         signature: Uint8List.fromList(base64Decode(sig)),
@@ -332,8 +348,8 @@ class GroupMember {
   final bool muted;
 
   GroupMember copyWith({GroupRole? role, bool? muted}) => GroupMember(
-        nodeId: nodeId,
-        role: role ?? this.role,
-        muted: muted ?? this.muted,
-      );
+    nodeId: nodeId,
+    role: role ?? this.role,
+    muted: muted ?? this.muted,
+  );
 }
