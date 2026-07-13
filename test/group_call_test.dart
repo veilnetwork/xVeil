@@ -334,6 +334,7 @@ void main() {
       await bobStorage.open(password: 'pw', createIfMissing: true);
       late GroupService ownerGroups;
       late GroupService bobGroups;
+      final bobSignals = <GroupCallSignal>[];
       ownerGroups = GroupService(
         ownerStorage,
         _Signer(owner),
@@ -358,6 +359,7 @@ void main() {
           LoopbackMailboxCrypto(senderForOpen: owner),
         ),
         sendGroupCallFrame: (peer, signal, json) async {
+          bobSignals.add(signal);
           if (peer == owner) await ownerGroups.ingestGroupCallFrame(bob, json);
         },
       );
@@ -375,7 +377,12 @@ void main() {
       final bobMedia = _Media();
       final ownerCalls = GroupCallService(ownerGroups, media: ownerMedia)
         ..start();
-      final bobCalls = GroupCallService(bobGroups, media: bobMedia)..start();
+      final bobCalls = GroupCallService(
+        bobGroups,
+        media: bobMedia,
+        heartbeatInterval: const Duration(milliseconds: 10),
+        reannounceInterval: const Duration(milliseconds: 25),
+      )..start();
       addTearDown(ownerCalls.dispose);
       addTearDown(bobCalls.dispose);
 
@@ -402,19 +409,103 @@ void main() {
       expect(ownerMedia.updates, greaterThanOrEqualTo(1));
 
       await bobCalls.setMicEnabled(false);
+      await bobCalls.setCameraEnabled(false);
       await pumpEventQueue();
       expect(bobCalls.current?.micOn, isFalse);
       expect(bobCalls.current?.participants[bob.hex]?.media.audio, isFalse);
+      expect(bobCalls.current?.participants[bob.hex]?.media.video, isFalse);
       expect(ownerCalls.current?.participants[bob.hex]?.media.audio, isFalse);
+      expect(ownerCalls.current?.participants[bob.hex]?.media.video, isFalse);
+
+      // Renegotiate is live-only and can be lost. Periodic heartbeat and
+      // reannounce must repeat the CURRENT posture, not restore the room's
+      // original audio+video capabilities. Short injected intervals make this
+      // a fast deterministic regression for the physical-iPhone failure.
+      final afterToggle = bobSignals.length;
+      await Future<void>.delayed(const Duration(milliseconds: 45));
+      await pumpEventQueue();
+      final recoverySignals = bobSignals
+          .skip(afterToggle)
+          .where(
+            (signal) =>
+                signal.type == GroupCallSignalType.heartbeat ||
+                signal.type == GroupCallSignalType.announce,
+          );
+      expect(recoverySignals, isNotEmpty);
+      final recoveryHeartbeats = recoverySignals.where(
+        (signal) => signal.type == GroupCallSignalType.heartbeat,
+      );
+      final recoveryAnnounces = recoverySignals.where(
+        (signal) => signal.type == GroupCallSignalType.announce,
+      );
+      expect(recoveryHeartbeats, isNotEmpty);
+      expect(
+        recoveryHeartbeats.every(
+          (signal) =>
+              signal.media?.audio == false && signal.media?.video == false,
+        ),
+        isTrue,
+      );
+      expect(recoveryAnnounces, isNotEmpty);
+      expect(
+        recoveryAnnounces.every(
+          (signal) =>
+              signal.media?.audio == true && signal.media?.video == true,
+        ),
+        isTrue,
+      );
+      expect(ownerCalls.current?.participants[bob.hex]?.media.audio, isFalse);
+      expect(ownerCalls.current?.participants[bob.hex]?.media.video, isFalse);
 
       // A plain member cannot terminate the room for everyone.
       expect(await bobCalls.endForEveryone(), isFalse);
+      final endedCallId = ownerCalls.current!.callId;
       expect(await ownerCalls.endForEveryone(), isTrue);
       await pumpEventQueue();
       expect(ownerCalls.current?.status, GroupCallStatus.ended);
       expect(bobCalls.current?.status, GroupCallStatus.ended);
       expect(ownerMedia.stops, greaterThanOrEqualTo(1));
       expect(bobMedia.stops, greaterThanOrEqualTo(1));
+
+      // A delayed durable periodic announce must not ring a room again after
+      // its admin end. This happened on the four-device physical-iPhone run.
+      expect(
+        await ownerGroups.broadcastGroupCallSignal(
+          groupId,
+          callId: endedCallId,
+          type: GroupCallSignalType.announce,
+          media: const CallMedia(audio: true, video: true),
+        ),
+        isNotNull,
+      );
+      await pumpEventQueue();
+      expect(bobCalls.current?.callId, endedCallId);
+      expect(bobCalls.current?.status, GroupCallStatus.ended);
+
+      // The same protection must work when durable end arrives before the
+      // first announce for a room (different relay/outbox ordering).
+      const reorderedCallId = 'end-before-announce';
+      expect(
+        await ownerGroups.broadcastGroupCallSignal(
+          groupId,
+          callId: reorderedCallId,
+          type: GroupCallSignalType.end,
+          reason: CallEndReason.hangup,
+        ),
+        isNotNull,
+      );
+      expect(
+        await ownerGroups.broadcastGroupCallSignal(
+          groupId,
+          callId: reorderedCallId,
+          type: GroupCallSignalType.announce,
+          media: const CallMedia(audio: true),
+        ),
+        isNotNull,
+      );
+      await pumpEventQueue();
+      expect(bobCalls.current?.callId, endedCallId);
+      expect(bobCalls.current?.status, GroupCallStatus.ended);
 
       // A fresh room drops a participant from the authoritative projection as
       // soon as the group control fold revokes them; no call signal is required.

@@ -67,6 +67,14 @@ class GroupCallSignal {
 
   bool get isStructurallyValid {
     final callIdLength = utf8.encode(callId).length;
+    // `media` is the non-empty room capability on announce/join. Heartbeat and
+    // renegotiate carry the sender's CURRENT posture, which is legitimately
+    // empty when both microphone and camera are off.
+    final mediaValid =
+        media == null ||
+        !media!.isEmpty ||
+        type == GroupCallSignalType.heartbeat ||
+        type == GroupCallSignalType.renegotiate;
     return protocolVersion == kGroupCallProtocolVersion &&
         membershipEpoch > 0 &&
         membershipEpoch <= 0xffffffff &&
@@ -75,7 +83,7 @@ class GroupCallSignal {
         RegExp(r'^[0-9a-f]{24}$').hasMatch(nonce) &&
         sentAtMs > 0 &&
         type != GroupCallSignalType.unknown &&
-        (media == null || !media!.isEmpty) &&
+        mediaValid &&
         (signature.isEmpty || signature.length == 64) &&
         (authorPubKey.isEmpty || authorPubKey.length == 32);
   }
@@ -221,6 +229,7 @@ class GroupCallParticipant {
     required this.media,
     required this.joinedAt,
     required this.lastSeenAt,
+    this.mediaUpdatedAtMs = 0,
   });
 
   final NodeId nodeId;
@@ -228,13 +237,25 @@ class GroupCallParticipant {
   final DateTime joinedAt;
   final DateTime lastSeenAt;
 
-  GroupCallParticipant copyWith({CallMedia? media, DateTime? lastSeenAt}) =>
-      GroupCallParticipant(
-        nodeId: nodeId,
-        media: media ?? this.media,
-        joinedAt: joinedAt,
-        lastSeenAt: lastSeenAt ?? this.lastSeenAt,
-      );
+  /// Sender timestamp of the newest posture-bearing signal we folded.
+  ///
+  /// Heartbeats and renegotiations may take different overlay paths. Keeping
+  /// this separate from receive-time liveness prevents an older delayed frame
+  /// from restoring a camera or microphone posture that the sender already
+  /// changed.
+  final int mediaUpdatedAtMs;
+
+  GroupCallParticipant copyWith({
+    CallMedia? media,
+    DateTime? lastSeenAt,
+    int? mediaUpdatedAtMs,
+  }) => GroupCallParticipant(
+    nodeId: nodeId,
+    media: media ?? this.media,
+    joinedAt: joinedAt,
+    lastSeenAt: lastSeenAt ?? this.lastSeenAt,
+    mediaUpdatedAtMs: mediaUpdatedAtMs ?? this.mediaUpdatedAtMs,
+  );
 }
 
 /// Local projection of one ephemeral group-call room. Only one room may own

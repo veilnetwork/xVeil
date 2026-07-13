@@ -417,14 +417,27 @@ class GroupService {
       r.groupId == groupId && _signer.verifyReaction(r);
 
   bool _validGroupCallShape(GroupCallSignal signal) {
-    final needsMedia =
-        signal.type == GroupCallSignalType.announce ||
-        signal.type == GroupCallSignalType.join ||
-        signal.type == GroupCallSignalType.renegotiate;
-    if (needsMedia && (signal.media == null || signal.media!.isEmpty)) {
-      return false;
+    switch (signal.type) {
+      case GroupCallSignalType.announce:
+      case GroupCallSignalType.join:
+        // These establish the room capability for a newly-seeing peer.
+        if (signal.media == null || signal.media!.isEmpty) return false;
+        break;
+      case GroupCallSignalType.renegotiate:
+        // Current posture is required but may be all-off.
+        if (signal.media == null) return false;
+        break;
+      case GroupCallSignalType.heartbeat:
+        // Legacy heartbeats omit media; new ones repeat current posture so a
+        // lost live renegotiation converges at the next tick.
+        break;
+      case GroupCallSignalType.leave:
+      case GroupCallSignalType.end:
+      case GroupCallSignalType.busy:
+      case GroupCallSignalType.unknown:
+        if (signal.media != null) return false;
+        break;
     }
-    if (!needsMedia && signal.media != null) return false;
     return signal.isStructurallyValid;
   }
 
