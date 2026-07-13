@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:ui' as ui show ImageFilter, PlatformDispatcher, Image;
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -42,10 +43,10 @@ import '../../state/vnote_record_controller.dart';
 import '../../state/voice_play_controller.dart';
 import '../../state/voice_record_controller.dart';
 import 'voice_waveform.dart';
-import 'emoji_panel.dart';
+import 'camera_capture_screen.dart';
+import 'composer_expression_panel.dart';
 import 'reactors_sheet.dart';
 import 'vnote_preview.dart';
-import 'sticker_panel.dart';
 import 'video_player_screen.dart';
 
 /// The quick-react emoji bar shown atop the message-actions sheet.
@@ -469,14 +470,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// Long-press (or right-click) on a reaction chip: who set what on [m].
   Future<void> _showReactors(Message m) async {
     final l = AppL10n.of(context);
-    final forMsg =
-        ref.read(reactionsProvider(widget.peerHex)).valueOrNull?[m.id];
+    final forMsg = ref
+        .read(reactionsProvider(widget.peerHex))
+        .valueOrNull?[m.id];
     if (forMsg == null || forMsg.isEmpty) return;
     final selfHex = ref.read(appControllerProvider).identity?.nodeId.hex;
-    await showReactorsSheet(context, namesByEmoji: {
-      for (final e in invertReactions(forMsg).entries)
-        e.key: [for (final hex in e.value) _reactorName(hex, selfHex, l)],
-    });
+    await showReactorsSheet(
+      context,
+      namesByEmoji: {
+        for (final e in invertReactions(forMsg).entries)
+          e.key: [for (final hex in e.value) _reactorName(hex, selfHex, l)],
+      },
+    );
   }
 
   Future<void> _accept() =>
@@ -523,17 +528,73 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// Pick a file and send it to the peer (consent-gated in the service). Bytes
   /// are read in full (withData) and bounded by the same cap the receiver
   /// enforces.
-  Future<void> _attach() async {
-    final l = AppL10n.of(context);
+  Future<void> _pickAttachment(ComposerAttachmentAction action) async {
+    switch (action) {
+      case ComposerAttachmentAction.camera:
+        final captured = await captureComposerMedia(context);
+        if (captured == null) {
+          if (mounted && !composerCameraSupported) {
+            _snack(AppL10n.of(context).composerCameraUnavailable);
+          }
+          return;
+        }
+        final source = File(captured.path);
+        try {
+          final size = await source.length();
+          await _attachPlatformFile(
+            PlatformFile(name: captured.name, size: size, path: captured.path),
+            allowStreaming: false,
+          );
+        } finally {
+          try {
+            await source.delete();
+          } catch (_) {}
+        }
+      case ComposerAttachmentAction.photo:
+        await _pickAndAttach(type: FileType.image);
+      case ComposerAttachmentAction.video:
+        await _pickAndAttach(type: FileType.video);
+      case ComposerAttachmentAction.file:
+        await _pickAndAttach();
+      case ComposerAttachmentAction.gif:
+        await _pickAndAttach(
+          type: FileType.custom,
+          allowedExtensions: const ['gif'],
+        );
+      case ComposerAttachmentAction.voice ||
+          ComposerAttachmentAction.videoNote ||
+          ComposerAttachmentAction.poll ||
+          ComposerAttachmentAction.location:
+        // Recording is owned by MessageComposer. Planned entries are disabled.
+        return;
+    }
+  }
+
+  Future<void> _pickAndAttach({
+    FileType type = FileType.any,
+    List<String>? allowedExtensions,
+  }) async {
     // Do NOT force `withData: true`. On Android the picker then tries to load
     // the whole file into a Uint8List up-front, which returns `bytes == null`
     // for large files / SAF content URIs (and risks OOM). Take the cached path
     // and read it ourselves; fall back to `bytes` for platforms with no path
     // (web). The old code did `if (bytes == null) return` SILENTLY — the file
     // just never attached with no feedback ("перестал прикрепляться").
-    final picked = await FilePicker.pickFiles();
+    final picked = await FilePicker.pickFiles(
+      type: type,
+      allowedExtensions: allowedExtensions,
+    );
     final file = picked?.files.firstOrNull;
     if (file == null) return; // cancelled
+
+    await _attachPlatformFile(file);
+  }
+
+  Future<void> _attachPlatformFile(
+    PlatformFile file, {
+    bool allowStreaming = true,
+  }) async {
+    final l = AppL10n.of(context);
 
     // A file too big for the in-RAM path, with a real filesystem path, is
     // STREAMED: read range-by-range off disk so a multi-GB / TB attachment is
@@ -553,7 +614,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       } catch (_) {
         /* unreadable length → keep the picker's size */
       }
-      if (size > kMaxIncomingFileBytes) {
+      if (size > kMaxIncomingFileBytes && !allowStreaming) {
+        if (mounted) _snack(l.chatFileTooLarge);
+        return;
+      }
+      if (size > kMaxIncomingFileBytes && allowStreaming) {
         devLog(() => 'xVeil[attach]: ${file.name} size=$size -> stream');
         // Serve-from-source: the sender already HAS this file, so we don't copy
         // or encrypt it — MessagingService reads chunks straight from disk on
@@ -613,7 +678,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (mounted) _snack(l.chatFileTooLarge);
       return;
     }
-    await ref.read(messagingServiceProvider).sendFile(
+    await ref
+        .read(messagingServiceProvider)
+        .sendFile(
           _peer,
           data,
           file.name,
@@ -648,17 +715,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (key == null) return;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => VideoPlayerScreen(
-          fileKey: key,
-          name: m.fileName ?? '',
-        ),
+        builder: (_) => VideoPlayerScreen(fileKey: key, name: m.fileName ?? ''),
       ),
     );
   }
 
   /// Send a recorded voice clip (from the composer's hold-to-record button).
   void _sendVoiceClip(VoiceClip clip) {
-    ref.read(messagingServiceProvider).sendVoice(
+    ref
+        .read(messagingServiceProvider)
+        .sendVoice(
           _peer,
           clip.bytes,
           clip.durationMs,
@@ -686,12 +752,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         player.dispose();
       }
     }
-    await ref.read(messagingServiceProvider).sendVideoNote(
-          _peer,
-          clip.bytes,
-          clip.durationMs,
-          thumbB64: thumb,
-        );
+    await ref
+        .read(messagingServiceProvider)
+        .sendVideoNote(_peer, clip.bytes, clip.durationMs, thumbB64: thumb);
     _scrollToBottom(force: true);
   }
 
@@ -715,8 +778,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       _scrollToBottom(force: true);
       return;
     }
-    final bytes =
-        await ref.read(storageProvider).loadFile(stickerFileKey(result));
+    final bytes = await ref
+        .read(storageProvider)
+        .loadFile(stickerFileKey(result));
     if (bytes == null) return;
     await ref.read(messagingServiceProvider).sendSticker(_peer, bytes);
     _scrollToBottom(force: true);
@@ -2098,7 +2162,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               message: _replyingTo!,
               onCancel: () => setState(() => _replyingTo = null),
             ),
-          _Composer(
+          MessageComposer(
             controller: _input,
             focusNode: _inputFocus,
             hint: l.savedNoteHint,
@@ -2131,12 +2195,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 message: _replyingTo!,
                 onCancel: () => setState(() => _replyingTo = null),
               ),
-            _Composer(
+            MessageComposer(
               controller: _input,
               focusNode: _inputFocus,
               hint: l.chatNewMessageHint,
               onSend: () => _submit(status),
-              onAttach: _attach,
+              onAttachmentAction: _pickAttachment,
               onVoice: _sendVoiceClip,
               onVideoNote: _sendVnoteClip,
               onSticker: _sendSticker,
@@ -2144,7 +2208,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ],
         );
       case null:
-        return _Composer(
+        return MessageComposer(
           controller: _input,
           focusNode: _inputFocus,
           hint: l.chatRequestHint,
@@ -2470,10 +2534,20 @@ IconData documentIcon(String? name) {
   final ext = FileDownloadPolicy.extensionOf(name);
   return switch (ext) {
     'pdf' => Icons.picture_as_pdf_outlined,
-    'zip' || 'rar' || '7z' || 'tar' || 'gz' || 'xz' || 'bz2' =>
-      Icons.folder_zip_outlined,
-    'mp3' || 'wav' || 'ogg' || 'opus' || 'm4a' || 'flac' || 'aac' =>
-      Icons.audiotrack_outlined,
+    'zip' ||
+    'rar' ||
+    '7z' ||
+    'tar' ||
+    'gz' ||
+    'xz' ||
+    'bz2' => Icons.folder_zip_outlined,
+    'mp3' ||
+    'wav' ||
+    'ogg' ||
+    'opus' ||
+    'm4a' ||
+    'flac' ||
+    'aac' => Icons.audiotrack_outlined,
     'mp4' || 'mov' || 'mkv' || 'webm' || 'avi' => Icons.movie_outlined,
     'doc' || 'docx' || 'odt' || 'rtf' => Icons.description_outlined,
     'xls' || 'xlsx' || 'ods' || 'csv' => Icons.table_chart_outlined,
@@ -2527,11 +2601,11 @@ class _StickerPackCardState extends ConsumerState<_StickerPackCard> {
   Future<void> _install() async {
     setState(() => _installing = true);
     try {
-      final bytes =
-          await ref.read(storageProvider).loadFile(widget.fileKey);
+      final bytes = await ref.read(storageProvider).loadFile(widget.fileKey);
       if (bytes == null) return;
-      final n =
-          await ref.read(stickerControllerProvider.notifier).installPack(bytes);
+      final n = await ref
+          .read(stickerControllerProvider.notifier)
+          .installPack(bytes);
       if (mounted) setState(() => _installed = n);
     } finally {
       if (mounted) setState(() => _installing = false);
@@ -2553,8 +2627,10 @@ class _StickerPackCardState extends ConsumerState<_StickerPackCard> {
             height: 48,
             child: thumb != null
                 ? Image.memory(thumb, fit: BoxFit.contain)
-                : Icon(Icons.sticky_note_2_outlined,
-                    color: scheme.onSurfaceVariant),
+                : Icon(
+                    Icons.sticky_note_2_outlined,
+                    color: scheme.onSurfaceVariant,
+                  ),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -2562,12 +2638,16 @@ class _StickerPackCardState extends ConsumerState<_StickerPackCard> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(l.stickerPackTitle,
-                    style: Theme.of(context).textTheme.labelLarge),
+                Text(
+                  l.stickerPackTitle,
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
                 const SizedBox(height: 4),
                 if (_installed != null)
-                  Text(l.stickerImported(_installed!),
-                      style: Theme.of(context).textTheme.labelSmall)
+                  Text(
+                    l.stickerImported(_installed!),
+                    style: Theme.of(context).textTheme.labelSmall,
+                  )
                 else if (_installing)
                   const SizedBox(
                     width: 16,
@@ -2742,16 +2822,19 @@ class _VnoteBubble extends ConsumerWidget {
                                 .frame,
                           )
                         else if (thumb != null)
-                          Image.memory(thumb,
-                              fit: BoxFit.cover,
-                              filterQuality: FilterQuality.low)
+                          Image.memory(
+                            thumb,
+                            fit: BoxFit.cover,
+                            filterQuality: FilterQuality.low,
+                          )
                         else
                           ColoredBox(color: scheme.surfaceContainerHighest),
                         // Dim + center affordance only when NOT playing (the
                         // playing circle is clean video, Telegram-style).
                         if (!playing) ...[
                           ColoredBox(
-                              color: Colors.black.withValues(alpha: 0.18)),
+                            color: Colors.black.withValues(alpha: 0.18),
+                          ),
                           Center(
                             child: progress != null
                                 ? SizedBox(
@@ -2793,10 +2876,9 @@ class _VnoteBubble extends ConsumerWidget {
           active
               ? formatVoiceDuration(Duration(milliseconds: play.positionMs))
               : formatVoiceDuration(sidecar?.duration),
-          style: Theme.of(context)
-              .textTheme
-              .labelSmall
-              ?.copyWith(color: onBubble.withValues(alpha: 0.8)),
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: onBubble.withValues(alpha: 0.8),
+          ),
         ),
       ],
     );
@@ -2859,89 +2941,97 @@ class _VoiceBubble extends ConsumerWidget {
             children: [
               GestureDetector(
                 onTap: onLead,
-            child: SizedBox(
-              width: 36,
-              height: 36,
-              child: progress != null
-                  ? Padding(
-                      padding: const EdgeInsets.all(6),
-                      child: CircularProgressIndicator(
-                        value: progress == 0 ? null : progress,
-                        strokeWidth: 2,
-                        color: onBubble,
-                      ),
-                    )
-                  : Icon(
-                      !downloaded
-                          ? Icons.download
-                          : (playing ? Icons.pause : Icons.play_arrow),
-                      color: onBubble,
-                      size: 32,
-                    ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: SizedBox(
-              height: 32,
-              child: bars.isEmpty
-                  ? Align(
-                      alignment: Alignment.centerLeft,
-                      child: Icon(Icons.graphic_eq,
-                          size: 20, color: onBubble.withValues(alpha: 0.5)),
-                    )
-                  // Tap anywhere on the waveform of the ACTIVE clip to seek to
-                  // that fraction of the clip.
-                  : LayoutBuilder(
-                      builder: (context, box) => GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTapDown: active && box.maxWidth > 0
-                            ? (d) => ref
-                                .read(voicePlayControllerProvider.notifier)
-                                .seekTo(messageId,
-                                    d.localPosition.dx / box.maxWidth)
-                            : null,
-                        child: VoiceWaveform(
-                          bars: bars,
-                          progress: active ? play.progress : 0,
-                          playedColor: onBubble,
-                          unplayedColor: onBubble.withValues(alpha: 0.4),
+                child: SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: progress != null
+                      ? Padding(
+                          padding: const EdgeInsets.all(6),
+                          child: CircularProgressIndicator(
+                            value: progress == 0 ? null : progress,
+                            strokeWidth: 2,
+                            color: onBubble,
+                          ),
+                        )
+                      : Icon(
+                          !downloaded
+                              ? Icons.download
+                              : (playing ? Icons.pause : Icons.play_arrow),
+                          color: onBubble,
+                          size: 32,
                         ),
-                      ),
-                    ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          // While active, a speed chip (1×/1.5×/2×) cycles playback rate;
-          // otherwise just the duration.
-          if (active)
-            GestureDetector(
-              onTap: () =>
-                  ref.read(voicePlayControllerProvider.notifier).cycleSpeed(),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: onBubble.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '${_speedLabel(play.speed)}×',
-                  style: Theme.of(context)
-                      .textTheme
-                      .labelSmall
-                      ?.copyWith(color: onBubble),
                 ),
               ),
-            )
-          else
-            Text(
-              label,
-              style: Theme.of(context)
-                  .textTheme
-                  .labelSmall
-                  ?.copyWith(color: onBubble.withValues(alpha: 0.8)),
-            ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: SizedBox(
+                  height: 32,
+                  child: bars.isEmpty
+                      ? Align(
+                          alignment: Alignment.centerLeft,
+                          child: Icon(
+                            Icons.graphic_eq,
+                            size: 20,
+                            color: onBubble.withValues(alpha: 0.5),
+                          ),
+                        )
+                      // Tap anywhere on the waveform of the ACTIVE clip to seek to
+                      // that fraction of the clip.
+                      : LayoutBuilder(
+                          builder: (context, box) => GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTapDown: active && box.maxWidth > 0
+                                ? (d) => ref
+                                      .read(
+                                        voicePlayControllerProvider.notifier,
+                                      )
+                                      .seekTo(
+                                        messageId,
+                                        d.localPosition.dx / box.maxWidth,
+                                      )
+                                : null,
+                            child: VoiceWaveform(
+                              bars: bars,
+                              progress: active ? play.progress : 0,
+                              playedColor: onBubble,
+                              unplayedColor: onBubble.withValues(alpha: 0.4),
+                            ),
+                          ),
+                        ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              // While active, a speed chip (1×/1.5×/2×) cycles playback rate;
+              // otherwise just the duration.
+              if (active)
+                GestureDetector(
+                  onTap: () => ref
+                      .read(voicePlayControllerProvider.notifier)
+                      .cycleSpeed(),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: onBubble.withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      '${_speedLabel(play.speed)}×',
+                      style: Theme.of(
+                        context,
+                      ).textTheme.labelSmall?.copyWith(color: onBubble),
+                    ),
+                  ),
+                )
+              else
+                Text(
+                  label,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: onBubble.withValues(alpha: 0.8),
+                  ),
+                ),
             ],
           ),
         ),
@@ -2962,16 +3052,17 @@ class _VoiceBubble extends ConsumerWidget {
     );
     // Lazily load a cached transcript once (idempotent in the controller).
     if (entry == null) {
-      Future.microtask(() => ref
-          .read(transcriptionControllerProvider.notifier)
-          .loadCached(messageId, fileKey));
+      Future.microtask(
+        () => ref
+            .read(transcriptionControllerProvider.notifier)
+            .loadCached(messageId, fileKey),
+      );
     }
     final l = AppL10n.of(context);
     final muted = onBubble.withValues(alpha: 0.7);
-    final style = Theme.of(context)
-        .textTheme
-        .bodySmall
-        ?.copyWith(color: onBubble);
+    final style = Theme.of(
+      context,
+    ).textTheme.bodySmall?.copyWith(color: onBubble);
 
     if (entry != null && entry.isRunning) {
       return Padding(
@@ -2985,11 +3076,12 @@ class _VoiceBubble extends ConsumerWidget {
               child: CircularProgressIndicator(strokeWidth: 1.6, color: muted),
             ),
             const SizedBox(width: 8),
-            Text(l.chatVoiceTranscribing,
-                style: Theme.of(context)
-                    .textTheme
-                    .labelSmall
-                    ?.copyWith(color: muted)),
+            Text(
+              l.chatVoiceTranscribing,
+              style: Theme.of(
+                context,
+              ).textTheme.labelSmall?.copyWith(color: muted),
+            ),
           ],
         ),
       );
@@ -3021,8 +3113,8 @@ class _VoiceBubble extends ConsumerWidget {
             Text(
               failed ? l.chatVoiceTranscribeFailed : l.chatVoiceTranscribe,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: failed ? Theme.of(context).colorScheme.error : muted,
-                  ),
+                color: failed ? Theme.of(context).colorScheme.error : muted,
+              ),
             ),
           ],
         ),
@@ -3309,20 +3401,19 @@ class _ImagePreviewState extends ConsumerState<_ImagePreview> {
               children: [
                 Icon(Icons.image_outlined, size: 20, color: scheme.primary),
                 const SizedBox(width: 8),
-                Flexible(
-                  child: Text(name, overflow: TextOverflow.ellipsis),
-                ),
+                Flexible(child: Text(name, overflow: TextOverflow.ellipsis)),
               ],
             ),
           );
         }
         return GestureDetector(
-          onTap: onView ??
+          onTap:
+              onView ??
               () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => _FullscreenImage(bytes: bytes, name: name),
-                    ),
-                  ),
+                MaterialPageRoute<void>(
+                  builder: (_) => _FullscreenImage(bytes: bytes, name: name),
+                ),
+              ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(10),
             child: ConstrainedBox(
@@ -3346,28 +3437,23 @@ class _ImagePreviewState extends ConsumerState<_ImagePreview> {
 /// its blob living under the hash; loadFile resolves both). [thumb] is the
 /// embedded micro-thumb, the fallback rendering for pages whose blob isn't
 /// downloaded yet.
-typedef GalleryItem = ({
-  String id,
-  String fileKey,
-  String name,
-  String? thumb,
-});
+typedef GalleryItem = ({String id, String fileKey, String name, String? thumb});
 
 /// The swipeable-gallery item set for a loaded conversation: every image
 /// message with a loadable key, in display order. Pure — unit-tested. Pages
 /// without local bytes degrade to the embedded thumb / a placeholder, so an
 /// offered-not-downloaded image doesn't break the swipe sequence.
 List<GalleryItem> conversationGalleryItems(List<Message> messages) => [
-      for (final msg in messages)
-        if (isImageFileName(msg.fileName) &&
-            (msg.fileId ?? msg.fileContentId) != null)
-          (
-            id: msg.id,
-            fileKey: (msg.fileId ?? msg.fileContentId)!,
-            name: msg.fileName ?? '',
-            thumb: msg.thumb,
-          ),
-    ];
+  for (final msg in messages)
+    if (isImageFileName(msg.fileName) &&
+        (msg.fileId ?? msg.fileContentId) != null)
+      (
+        id: msg.id,
+        fileKey: (msg.fileId ?? msg.fileContentId)!,
+        name: msg.fileName ?? '',
+        thumb: msg.thumb,
+      ),
+];
 
 /// Swipeable full-screen gallery over every downloaded image of the
 /// conversation (media epic: "свайп между медиа"). Pages load their bytes
@@ -3417,10 +3503,9 @@ class _MediaGalleryState extends ConsumerState<_MediaGallery> {
             child: Center(
               child: Text(
                 '${_current + 1}/${widget.items.length}',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleSmall
-                    ?.copyWith(color: Colors.white70),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.copyWith(color: Colors.white70),
               ),
             ),
           ),
@@ -3742,8 +3827,7 @@ class _Bubble extends ConsumerWidget {
                   _StickerPackCard(
                     fileKey: message.fileId ?? message.fileContentId ?? '',
                     thumbB64: message.thumb,
-                    downloaded:
-                        progress == null && (message.fileId != null),
+                    downloaded: progress == null && (message.fileId != null),
                     progress: progress,
                     onDownload: onTapFile == null
                         ? null
@@ -3759,12 +3843,13 @@ class _Bubble extends ConsumerWidget {
                   FutureBuilder<_FileAffordance>(
                     future: _affordance(ref),
                     builder: (context, snap) {
-                      final a = snap.data ??
+                      final a =
+                          snap.data ??
                           (message.fileId != null
                               ? _FileAffordance.save
                               : _FileAffordance.download);
-                      final downloaded = progress == null &&
-                          a == _FileAffordance.save;
+                      final downloaded =
+                          progress == null && a == _FileAffordance.save;
                       return _VnoteBubble(
                         messageId: message.id,
                         fileKey: message.fileId ?? message.fileContentId ?? '',
@@ -3782,12 +3867,13 @@ class _Bubble extends ConsumerWidget {
                   FutureBuilder<_FileAffordance>(
                     future: _affordance(ref),
                     builder: (context, snap) {
-                      final a = snap.data ??
+                      final a =
+                          snap.data ??
                           (message.fileId != null
                               ? _FileAffordance.save
                               : _FileAffordance.download);
-                      final downloaded = progress == null &&
-                          a == _FileAffordance.save;
+                      final downloaded =
+                          progress == null && a == _FileAffordance.save;
                       return _VoiceBubble(
                         messageId: message.id,
                         fileKey: message.fileId ?? message.fileContentId ?? '',
@@ -3830,7 +3916,8 @@ class _Bubble extends ConsumerWidget {
                           progress == null && a == _FileAffordance.gone;
                       // A HELD video plays on tap (the in-app player over the
                       // loopback stream); save moves to the trailing button.
-                      final playable = onPlayVideo != null &&
+                      final playable =
+                          onPlayVideo != null &&
                           a == _FileAffordance.save &&
                           isVideoFileName(message.fileName);
                       // A video WITH an embedded preview frame renders as a
@@ -3838,9 +3925,11 @@ class _Bubble extends ConsumerWidget {
                       // the file row. Terminal-degraded states (gone /
                       // resuming) keep the row — its honest status text.
                       final videoThumb =
-                          isVideoFileName(message.fileName) && !gone && !resuming
-                              ? _decodeThumbB64(message.thumb)
-                              : null;
+                          isVideoFileName(message.fileName) &&
+                              !gone &&
+                              !resuming
+                          ? _decodeThumbB64(message.thumb)
+                          : null;
                       if (videoThumb != null) {
                         return _VideoPreviewBox(
                           thumb: videoThumb,
@@ -3852,8 +3941,8 @@ class _Bubble extends ConsumerWidget {
                           onTap: playable
                               ? () => onPlayVideo!(message)
                               : (onTapFile == null
-                                  ? null
-                                  : () => onTapFile!(message)),
+                                    ? null
+                                    : () => onTapFile!(message)),
                           onSave: playable && onTapFile != null
                               ? () => onTapFile!(message)
                               : null,
@@ -3863,8 +3952,8 @@ class _Bubble extends ConsumerWidget {
                         onTap: playable
                             ? () => onPlayVideo!(message)
                             : (onTapFile == null
-                                ? null
-                                : () => onTapFile!(message)),
+                                  ? null
+                                  : () => onTapFile!(message)),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -4032,8 +4121,7 @@ class _Bubble extends ConsumerWidget {
                             InkWell(
                               onTap: selecting || onToggleReaction == null
                                   ? null
-                                  : () =>
-                                        onToggleReaction!(message, entry.key),
+                                  : () => onToggleReaction!(message, entry.key),
                               onLongPress: selecting || onShowReactors == null
                                   ? null
                                   : () => onShowReactors!(message),
@@ -4164,26 +4252,40 @@ class _Bubble extends ConsumerWidget {
 /// Live round self-preview while recording a video note: converts the
 /// controller's latest RGBA frame to a [ui.Image], coalescing decodes (a slow
 /// frame is skipped, never queued) — the calls' remote-video pattern.
-enum _ComposerExtra { emoji, sticker, videoNote }
+enum ComposerAttachmentAction {
+  voice,
+  videoNote,
+  camera,
+  photo,
+  video,
+  file,
+  gif,
+  poll,
+  location,
+}
 
-class _Composer extends ConsumerStatefulWidget {
-  const _Composer({
+class MessageComposer extends ConsumerStatefulWidget {
+  const MessageComposer({
+    super.key,
     required this.controller,
     required this.focusNode,
     required this.hint,
     required this.onSend,
-    this.onAttach,
+    this.onAttachmentAction,
     this.onVoice,
     this.onVideoNote,
     this.onSticker,
+    this.allowStickerPackShare = true,
   });
   final TextEditingController controller;
   final FocusNode focusNode;
   final String hint;
   final VoidCallback onSend;
 
-  /// When set (accepted contacts only), shows a file-attach button.
-  final VoidCallback? onAttach;
+  /// When set, shows the unified attachment menu. Voice/video-note recording
+  /// stays inside this widget; file/camera choices are delegated to the chat.
+  final Future<void> Function(ComposerAttachmentAction action)?
+  onAttachmentAction;
 
   /// When set (accepted contacts only), shows a hold-to-record mic button on
   /// an empty field; releasing sends the recorded [VoiceClip].
@@ -4196,22 +4298,37 @@ class _Composer extends ConsumerStatefulWidget {
   /// When set, a sticker button opens the sticker panel; picking one passes
   /// its store item id here to send.
   final void Function(String itemId)? onSticker;
+  final bool allowStickerPackShare;
 
   @override
-  ConsumerState<_Composer> createState() => _ComposerState();
+  ConsumerState<MessageComposer> createState() => _MessageComposerState();
 }
 
-class _ComposerState extends ConsumerState<_Composer> {
+class _MessageComposerState extends ConsumerState<MessageComposer> {
   TextEditingController get controller => widget.controller;
   FocusNode get focusNode => widget.focusNode;
   VoidCallback get onSend => widget.onSend;
-  VoidCallback? get onAttach => widget.onAttach;
 
   /// Rolling recent capture levels, painted as the live waveform while
   /// recording. Fed from the record controller's poll ticks.
   final List<double> _liveLevels = [];
 
   bool _fieldHovered = false;
+  bool _expressionOpen = false;
+  bool _expressionHoverArmed = true;
+  Timer? _expressionHoverTimer;
+
+  bool get _supportsHover =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.macOS ||
+          defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.linux);
+
+  @override
+  void dispose() {
+    _expressionHoverTimer?.cancel();
+    super.dispose();
+  }
 
   /// Wrap the current selection (or insert at the cursor) with a formatting
   /// marker, keeping focus + the wrapped selection so the user can keep typing
@@ -4248,25 +4365,39 @@ class _ComposerState extends ConsumerState<_Composer> {
   /// Enter is claimed by the send shortcut.
   void _insertNewline() => _insertText('\n');
 
-  Future<void> _openEmoji(BuildContext context) async {
-    final picked = await showEmojiPanel(context);
-    if (picked != null) _insertText(picked);
-  }
-
-  Future<void> _openSticker(BuildContext context) async {
-    final itemId = await showStickerPanel(context);
-    if (itemId != null) widget.onSticker?.call(itemId);
-  }
-
-  Future<void> _openExtra(BuildContext context, _ComposerExtra extra) async {
-    switch (extra) {
-      case _ComposerExtra.emoji:
-        await _openEmoji(context);
-      case _ComposerExtra.sticker:
-        await _openSticker(context);
-      case _ComposerExtra.videoNote:
-        await _startVnoteRecording();
+  Future<void> _openExpressions(BuildContext context) async {
+    if (_expressionOpen || !mounted) return;
+    _expressionOpen = true;
+    _expressionHoverArmed = false;
+    _expressionHoverTimer?.cancel();
+    try {
+      final picked = await showComposerExpressionPanel(
+        context,
+        enableStickers: widget.onSticker != null,
+        enableGif: widget.onAttachmentAction != null,
+        allowStickerPackShare: widget.allowStickerPackShare,
+      );
+      if (!mounted || picked == null) return;
+      switch (picked.kind) {
+        case ComposerExpressionKind.emoji:
+          if (picked.value != null) _insertText(picked.value!);
+        case ComposerExpressionKind.sticker:
+          if (picked.value != null) widget.onSticker?.call(picked.value!);
+        case ComposerExpressionKind.gif:
+          await widget.onAttachmentAction?.call(ComposerAttachmentAction.gif);
+      }
+    } finally {
+      _expressionOpen = false;
     }
+  }
+
+  void _scheduleExpressionHover(BuildContext context) {
+    if (!_supportsHover || _expressionOpen || !_expressionHoverArmed) return;
+    _expressionHoverArmed = false;
+    _expressionHoverTimer?.cancel();
+    _expressionHoverTimer = Timer(const Duration(milliseconds: 220), () {
+      if (mounted) unawaited(_openExpressions(context));
+    });
   }
 
   /// Prefix every line spanned by the selection (or the cursor's line) with
@@ -4283,7 +4414,8 @@ class _ComposerState extends ConsumerState<_Composer> {
     if (lineEnd < 0) lineEnd = text.length;
     final region = text.substring(lineStart, lineEnd);
     final quoted = region.split('\n').map((l) => '> $l').join('\n');
-    final newText = text.substring(0, lineStart) + quoted + text.substring(lineEnd);
+    final newText =
+        text.substring(0, lineStart) + quoted + text.substring(lineEnd);
     controller.value = v.copyWith(
       text: newText,
       selection: TextSelection.collapsed(
@@ -4341,8 +4473,9 @@ class _ComposerState extends ConsumerState<_Composer> {
         _showCenterToast(l.chatVoiceRecordFailed);
       }
       if (prev?.isRecording == true && next.phase == VnoteRecordPhase.idle) {
-        final auto =
-            ref.read(vnoteRecordControllerProvider.notifier).takeAutoStopped();
+        final auto = ref
+            .read(vnoteRecordControllerProvider.notifier)
+            .takeAutoStopped();
         if (auto != null) widget.onVideoNote?.call(auto);
       }
     });
@@ -4412,17 +4545,35 @@ class _ComposerState extends ConsumerState<_Composer> {
             keyboardType: TextInputType.multiline,
             decoration: InputDecoration(
               hintText: widget.hint,
-              // Telegram-style quick emoji entry lives inside/over the field:
-              // quiet at rest, fully visible on pointer hover or focus, and
-              // always tappable on touch devices.
-              suffixIcon: AnimatedOpacity(
-                duration: const Duration(milliseconds: 140),
-                opacity: _fieldHovered || focusNode.hasFocus ? 1 : 0.55,
-                child: IconButton(
-                  tooltip: l.chatEmojiTooltip,
-                  icon: const Icon(Icons.emoji_emotions_outlined),
-                  onPressed: () => _openEmoji(context),
-                ),
+              suffixIconConstraints: const BoxConstraints(
+                minWidth: 88,
+                maxWidth: 96,
+              ),
+              // Formatting + expression hub are part of the field's right
+              // edge on every platform. The smiley opens by tap everywhere
+              // and, after a short dwell, by hover on desktop.
+              suffixIcon: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _formatButton(l),
+                  MouseRegion(
+                    onEnter: (_) => _scheduleExpressionHover(context),
+                    onExit: (_) {
+                      _expressionHoverTimer?.cancel();
+                      if (!_expressionOpen) _expressionHoverArmed = true;
+                    },
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 140),
+                      opacity: _fieldHovered || focusNode.hasFocus ? 1 : 0.62,
+                      child: IconButton(
+                        key: const ValueKey('composer-expression-button'),
+                        tooltip: l.chatEmojiTooltip,
+                        icon: const Icon(Icons.emoji_emotions_outlined),
+                        onPressed: () => _openExpressions(context),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -4435,113 +4586,31 @@ class _ComposerState extends ConsumerState<_Composer> {
         padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
         child: Row(
           children: [
-            if (onAttach != null)
-              IconButton(
-                onPressed: onAttach,
-                icon: const Icon(Icons.attach_file),
-                tooltip: l.chatAttachTooltip,
-              ),
+            if (widget.onAttachmentAction != null ||
+                widget.onVoice != null ||
+                widget.onVideoNote != null)
+              _attachmentButton(l),
             Expanded(child: field),
-            // Rare send modes stay behind one predictable menu instead of a
-            // permanent row of emoji/sticker/camera buttons.
-            if (widget.onSticker != null || widget.onVideoNote != null)
-              PopupMenuButton<_ComposerExtra>(
-                icon: const Icon(Icons.add_circle_outline),
-                tooltip: l.chatMoreActions,
-                onSelected: (v) => _openExtra(context, v),
-                itemBuilder: (_) => [
-                  PopupMenuItem(
-                    value: _ComposerExtra.emoji,
-                    child: ListTile(
-                      leading: const Icon(Icons.emoji_emotions_outlined),
-                      title: Text(l.chatEmojiTooltip),
-                    ),
-                  ),
-                  if (widget.onSticker != null)
-                    PopupMenuItem(
-                      value: _ComposerExtra.sticker,
-                      child: ListTile(
-                        leading: const Icon(Icons.sticky_note_2_outlined),
-                        title: Text(l.stickerTitle),
-                      ),
-                    ),
-                  if (widget.onVideoNote != null)
-                    PopupMenuItem(
-                      value: _ComposerExtra.videoNote,
-                      child: ListTile(
-                        leading: const Icon(Icons.videocam_outlined),
-                        title: Text(l.chatVnoteTooltip),
-                      ),
-                    ),
-                ],
-              ),
-            // Formatting remains directly discoverable beside the extras.
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.text_format),
-              tooltip: l.chatFormatTooltip,
-              onSelected: (v) => v == '>' ? _prefixQuote() : _wrap(v),
-              itemBuilder: (_) => [
-                PopupMenuItem(
-                  value: '**',
-                  child: Text(
-                    l.chatFormatBold,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ),
-                PopupMenuItem(
-                  value: '*',
-                  child: Text(
-                    l.chatFormatItalic,
-                    style: const TextStyle(fontStyle: FontStyle.italic),
-                  ),
-                ),
-                PopupMenuItem(
-                  value: '__',
-                  child: Text(
-                    l.chatFormatUnderline,
-                    style: const TextStyle(
-                      decoration: TextDecoration.underline,
-                    ),
-                  ),
-                ),
-                PopupMenuItem(
-                  value: '~~',
-                  child: Text(
-                    l.chatFormatStrike,
-                    style: const TextStyle(
-                      decoration: TextDecoration.lineThrough,
-                    ),
-                  ),
-                ),
-                PopupMenuItem(
-                  value: '`',
-                  child: Text(
-                    l.chatFormatCode,
-                    style: const TextStyle(fontFamily: 'monospace'),
-                  ),
-                ),
-                PopupMenuItem(value: '||', child: Text(l.chatFormatSpoiler)),
-                PopupMenuItem(
-                  value: '>',
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.format_quote, size: 18),
-                      const SizedBox(width: 8),
-                      Text(l.chatFormatQuote),
-                    ],
-                  ),
-                ),
-              ],
-            ),
             const SizedBox(width: 4),
-            // Empty field + voice enabled → tap-to-record capture button (mic
-            // or, with the toggle, a round video note); otherwise send.
+            // Empty field → explicit video-note + voice controls. Any text
+            // replaces BOTH with one send button, identically on touch/desktop.
             if (widget.onVoice != null)
               ValueListenableBuilder<TextEditingValue>(
                 valueListenable: controller,
                 builder: (_, value, child) => value.text.trim().isEmpty
-                    ? _micButton(context)
+                    ? Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (widget.onVideoNote != null)
+                            IconButton.filledTonal(
+                              key: const ValueKey('composer-video-note'),
+                              tooltip: l.chatVnoteTooltip,
+                              onPressed: _startVnoteRecording,
+                              icon: const Icon(Icons.videocam_outlined),
+                            ),
+                          _micButton(context),
+                        ],
+                      )
                     : IconButton.filled(
                         tooltip: l.chatSend,
                         onPressed: onSend,
@@ -4560,16 +4629,166 @@ class _ComposerState extends ConsumerState<_Composer> {
     );
   }
 
+  Widget _formatButton(AppL10n l) => PopupMenuButton<String>(
+    key: const ValueKey('composer-format-button'),
+    padding: EdgeInsets.zero,
+    icon: const Icon(Icons.text_format),
+    tooltip: l.chatFormatTooltip,
+    onSelected: (value) => value == '>' ? _prefixQuote() : _wrap(value),
+    itemBuilder: (_) => [
+      PopupMenuItem(
+        value: '**',
+        child: Text(
+          l.chatFormatBold,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+      ),
+      PopupMenuItem(
+        value: '*',
+        child: Text(
+          l.chatFormatItalic,
+          style: const TextStyle(fontStyle: FontStyle.italic),
+        ),
+      ),
+      PopupMenuItem(
+        value: '__',
+        child: Text(
+          l.chatFormatUnderline,
+          style: const TextStyle(decoration: TextDecoration.underline),
+        ),
+      ),
+      PopupMenuItem(
+        value: '~~',
+        child: Text(
+          l.chatFormatStrike,
+          style: const TextStyle(decoration: TextDecoration.lineThrough),
+        ),
+      ),
+      PopupMenuItem(
+        value: '`',
+        child: Text(
+          l.chatFormatCode,
+          style: const TextStyle(fontFamily: 'monospace'),
+        ),
+      ),
+      PopupMenuItem(value: '||', child: Text(l.chatFormatSpoiler)),
+      PopupMenuItem(
+        value: '>',
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.format_quote, size: 18),
+            const SizedBox(width: 8),
+            Text(l.chatFormatQuote),
+          ],
+        ),
+      ),
+    ],
+  );
+
+  Widget _attachmentButton(AppL10n l) =>
+      PopupMenuButton<ComposerAttachmentAction>(
+        key: const ValueKey('composer-attachment-button'),
+        icon: const Icon(Icons.attach_file),
+        tooltip: l.chatAttachTooltip,
+        onSelected: (action) async {
+          switch (action) {
+            case ComposerAttachmentAction.voice:
+              await _startRecording();
+            case ComposerAttachmentAction.videoNote:
+              await _startVnoteRecording();
+            case ComposerAttachmentAction.camera ||
+                ComposerAttachmentAction.photo ||
+                ComposerAttachmentAction.video ||
+                ComposerAttachmentAction.file ||
+                ComposerAttachmentAction.gif:
+              await widget.onAttachmentAction?.call(action);
+            case ComposerAttachmentAction.poll ||
+                ComposerAttachmentAction.location:
+              return;
+          }
+        },
+        itemBuilder: (_) => [
+          if (widget.onVoice != null)
+            PopupMenuItem(
+              value: ComposerAttachmentAction.voice,
+              child: ListTile(
+                leading: const Icon(Icons.mic_none),
+                title: Text(l.chatVoiceTooltip),
+              ),
+            ),
+          if (widget.onVideoNote != null)
+            PopupMenuItem(
+              value: ComposerAttachmentAction.videoNote,
+              child: ListTile(
+                leading: const Icon(Icons.video_camera_front_outlined),
+                title: Text(l.chatVnoteTooltip),
+              ),
+            ),
+          if (widget.onAttachmentAction != null) ...[
+            PopupMenuItem(
+              value: ComposerAttachmentAction.camera,
+              child: ListTile(
+                leading: const Icon(Icons.photo_camera_outlined),
+                title: Text(l.composerCamera),
+              ),
+            ),
+            PopupMenuItem(
+              value: ComposerAttachmentAction.photo,
+              child: ListTile(
+                leading: const Icon(Icons.image_outlined),
+                title: Text(l.composerUploadPhoto),
+              ),
+            ),
+            PopupMenuItem(
+              value: ComposerAttachmentAction.video,
+              child: ListTile(
+                leading: const Icon(Icons.video_file_outlined),
+                title: Text(l.composerUploadVideo),
+              ),
+            ),
+            PopupMenuItem(
+              value: ComposerAttachmentAction.file,
+              child: ListTile(
+                leading: const Icon(Icons.insert_drive_file_outlined),
+                title: Text(l.composerUploadFile),
+              ),
+            ),
+          ],
+          PopupMenuItem(
+            enabled: false,
+            value: ComposerAttachmentAction.poll,
+            child: ListTile(
+              enabled: false,
+              leading: const Icon(Icons.poll_outlined),
+              title: Text(l.composerPoll),
+              subtitle: Text(l.composerPlanned),
+            ),
+          ),
+          PopupMenuItem(
+            enabled: false,
+            value: ComposerAttachmentAction.location,
+            child: ListTile(
+              enabled: false,
+              leading: const Icon(Icons.location_on_outlined),
+              title: Text(l.composerLocation),
+              subtitle: Text(l.composerPlanned),
+            ),
+          ),
+        ],
+      );
+
   /// Tap-to-record mic button (hands-free): a tap starts recording; the
   /// recording bar's Send/Cancel then finish or discard — no hold required, so
   /// it works the same on desktop and mobile and the stop action is explicit.
   Widget _micButton(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return IconButton.filled(
+    return IconButton.filledTonal(
+      key: const ValueKey('composer-voice-note'),
       tooltip: AppL10n.of(context).chatVoiceTooltip,
       onPressed: _startRecording,
       icon: const Icon(Icons.mic),
-      color: scheme.onPrimary,
+      color: scheme.onSecondaryContainer,
     );
   }
 
@@ -4577,7 +4796,10 @@ class _ComposerState extends ConsumerState<_Composer> {
   /// + Send. The preview repaints off the controller's frame notifier, not the
   /// widget state (12 fps repaints must not rebuild the whole composer).
   Widget _vnoteRecordingBar(
-      BuildContext context, AppL10n l, VnoteRecordState rec) {
+    BuildContext context,
+    AppL10n l,
+    VnoteRecordState rec,
+  ) {
     final scheme = Theme.of(context).colorScheme;
     final ctrl = ref.read(vnoteRecordControllerProvider.notifier);
     final elapsed = formatVoiceDuration(Duration(milliseconds: rec.elapsedMs));
@@ -4592,8 +4814,7 @@ class _ComposerState extends ConsumerState<_Composer> {
         const SizedBox(width: 8),
         SizedBox(
           width: 44,
-          child:
-              Text(elapsed, style: Theme.of(context).textTheme.labelMedium),
+          child: Text(elapsed, style: Theme.of(context).textTheme.labelMedium),
         ),
         Expanded(
           child: Center(
@@ -4633,8 +4854,7 @@ class _ComposerState extends ConsumerState<_Composer> {
         const SizedBox(width: 8),
         SizedBox(
           width: 44,
-          child: Text(elapsed,
-              style: Theme.of(context).textTheme.labelMedium),
+          child: Text(elapsed, style: Theme.of(context).textTheme.labelMedium),
         ),
         Expanded(
           child: SizedBox(
@@ -4677,8 +4897,7 @@ class _ComposerState extends ConsumerState<_Composer> {
           child: Material(
             color: Colors.transparent,
             child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
               decoration: BoxDecoration(
                 color: Colors.black.withValues(alpha: 0.72),
                 borderRadius: BorderRadius.circular(12),

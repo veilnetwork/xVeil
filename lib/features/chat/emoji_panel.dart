@@ -14,17 +14,28 @@ Future<String?> showEmojiPanel(BuildContext context) =>
       showDragHandle: true,
       // Cap the sheet: a grid wants height, but the chat must stay visible.
       constraints: const BoxConstraints(maxWidth: 560),
-      builder: (_) => const _EmojiSheet(),
+      builder: (sheetContext) => EmojiPicker(
+        onSelected: (emoji) => Navigator.of(sheetContext).pop(emoji),
+      ),
     );
 
-class _EmojiSheet extends StatefulWidget {
-  const _EmojiSheet();
+/// Reusable emoji grid used both by the standalone picker and the unified
+/// composer expression hub.
+class EmojiPicker extends StatefulWidget {
+  const EmojiPicker({
+    super.key,
+    required this.onSelected,
+    this.autofocus = true,
+  });
+
+  final ValueChanged<String> onSelected;
+  final bool autofocus;
 
   @override
-  State<_EmojiSheet> createState() => _EmojiSheetState();
+  State<EmojiPicker> createState() => _EmojiPickerState();
 }
 
-class _EmojiSheetState extends State<_EmojiSheet> {
+class _EmojiPickerState extends State<EmojiPicker> {
   String _query = '';
   int _group = 0;
   final _scroll = ScrollController();
@@ -36,28 +47,28 @@ class _EmojiSheetState extends State<_EmojiSheet> {
   }
 
   Widget _grid(List<EmojiEntry> entries) => GridView.builder(
-        controller: _scroll,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-          maxCrossAxisExtent: 44,
+    controller: _scroll,
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+    gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+      maxCrossAxisExtent: 44,
+    ),
+    itemCount: entries.length,
+    itemBuilder: (context, i) {
+      final e = entries[i];
+      return InkWell(
+        key: ValueKey('emoji:${e.char}'),
+        borderRadius: BorderRadius.circular(8),
+        onTap: () => widget.onSelected(e.char),
+        child: Tooltip(
+          message: e.name,
+          waitDuration: const Duration(milliseconds: 600),
+          child: Center(
+            child: Text(e.char, style: const TextStyle(fontSize: 24)),
+          ),
         ),
-        itemCount: entries.length,
-        itemBuilder: (context, i) {
-          final e = entries[i];
-          return InkWell(
-            key: ValueKey('emoji:${e.char}'),
-            borderRadius: BorderRadius.circular(8),
-            onTap: () => Navigator.of(context).pop(e.char),
-            child: Tooltip(
-              message: e.name,
-              waitDuration: const Duration(milliseconds: 600),
-              child: Center(
-                child: Text(e.char, style: const TextStyle(fontSize: 24)),
-              ),
-            ),
-          );
-        },
       );
+    },
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -72,7 +83,7 @@ class _EmojiSheetState extends State<_EmojiSheet> {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: TextField(
-              autofocus: true,
+              autofocus: widget.autofocus,
               decoration: InputDecoration(
                 prefixIcon: const Icon(Icons.search, size: 20),
                 hintText: l.emojiSearchHint,
@@ -114,8 +125,8 @@ class _EmojiSheetState extends State<_EmojiSheet> {
           Expanded(
             child: searching
                 ? (hits.isEmpty
-                    ? Center(child: Text(l.searchNoResults))
-                    : _grid(hits))
+                      ? Center(child: Text(l.searchNoResults))
+                      : _grid(hits))
                 : _grid(emojiGroups[_group].entries),
           ),
         ],

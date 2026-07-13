@@ -2217,6 +2217,41 @@ class AppL10nEn extends AppL10n {
   String get chatMoreActions => 'More actions';
 
   @override
+  String get composerCamera => 'Camera';
+
+  @override
+  String get composerUploadPhoto => 'Upload photo';
+
+  @override
+  String get composerUploadVideo => 'Upload video';
+
+  @override
+  String get composerUploadFile => 'Upload file';
+
+  @override
+  String get composerPoll => 'Poll';
+
+  @override
+  String get composerLocation => 'Location';
+
+  @override
+  String get composerPlanned => 'Planned';
+
+  @override
+  String get composerGif => 'GIF';
+
+  @override
+  String get composerGifLocal => 'Choose GIF from device';
+
+  @override
+  String get composerGifPrivacy =>
+      'No external GIF search: your query never leaves xVeil.';
+
+  @override
+  String get composerCameraUnavailable =>
+      'Camera capture is unavailable on this device';
+
+  @override
   String get nicknameTitle => 'Nickname';
 
   @override

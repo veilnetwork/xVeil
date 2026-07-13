@@ -20,20 +20,28 @@ import '../../domain/group_reaction.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service.dart';
 import '../../state/messaging.dart'
-    show conversationsProvider, contentProgressProvider, messagingServiceProvider;
+    show
+        conversationsProvider,
+        contentProgressProvider,
+        kMaxIncomingFileBytes,
+        messagingServiceProvider;
 import '../../state/notifications.dart' show activeConversationProvider;
 import '../../state/providers.dart';
 import '../../state/reactions_visibility_controller.dart';
 import '../../state/sticker_store.dart';
 import '../../state/thumbnail.dart';
+import '../../state/video_thumb.dart';
 import '../../state/vnote_play_controller.dart';
 import '../../state/vnote_record_controller.dart';
 import '../../state/voice_message.dart' show formatVoiceDuration;
 import '../../state/voice_play_controller.dart';
 import '../../state/voice_record_controller.dart';
 import '../chat/vnote_preview.dart';
+import '../chat/camera_capture_screen.dart';
+import '../chat/chat_screen.dart'
+    show ComposerAttachmentAction, MessageComposer, documentIcon;
 import '../chat/reactors_sheet.dart';
-import '../chat/sticker_panel.dart';
+import '../chat/video_player_screen.dart';
 
 class GroupChatScreen extends ConsumerStatefulWidget {
   const GroupChatScreen({super.key, required this.groupIdHex});
@@ -45,7 +53,9 @@ class GroupChatScreen extends ConsumerStatefulWidget {
 
 class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   final _input = TextEditingController();
+  final _inputFocus = FocusNode();
   late final NodeId _gid = NodeId.fromHex(widget.groupIdHex);
+  StateController<String?>? _activeConversation;
 
   /// The message the composer is replying to, or null.
   GroupMessage? _replyTarget;
@@ -58,17 +68,18 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     // not be written during build).
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      ref.read(activeConversationProvider.notifier).state =
-          'group:${widget.groupIdHex}';
+      _activeConversation = ref.read(activeConversationProvider.notifier);
+      _activeConversation!.state = 'group:${widget.groupIdHex}';
     });
   }
 
   @override
   void dispose() {
-    if (ref.read(activeConversationProvider) == 'group:${widget.groupIdHex}') {
-      ref.read(activeConversationProvider.notifier).state = null;
+    if (_activeConversation?.state == 'group:${widget.groupIdHex}') {
+      _activeConversation!.state = null;
     }
     _input.dispose();
+    _inputFocus.dispose();
     super.dispose();
   }
 
@@ -102,7 +113,8 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   static const _quickEmojis = ['👍', '❤', '😂', '😮', '😢', '🙏'];
 
   Future<(List<GroupMessage>, Map<String, MessageReactions>)> _loadFeed(
-      GroupService svc) async {
+    GroupService svc,
+  ) async {
     final msgs = await svc.messagesOf(_gid);
     final reacts = await svc.reactionsOf(_gid);
     // Everything rendered is read — advance the unread watermark (covers both
@@ -172,10 +184,13 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   /// Long-press on a reaction chip: who set what on this message.
   Future<void> _showReactors(GroupService svc, MessageReactions r) {
     final l = AppL10n.of(context);
-    return showReactorsSheet(context, namesByEmoji: {
-      for (final e in r.entries)
-        e.key: [for (final n in e.value) _reactorName(n, svc, l)],
-    });
+    return showReactorsSheet(
+      context,
+      namesByEmoji: {
+        for (final e in r.entries)
+          e.key: [for (final n in e.value) _reactorName(n, svc, l)],
+      },
+    );
   }
 
   Future<void> _send(GroupService svc) async {
@@ -192,6 +207,8 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     if (k == 'sticker') return '😊 ${l.groupSendSticker}';
     if (k == 'voice') return '🎤 ${l.groupVoiceMessage}';
     if (k == 'vnote') return '📹 ${l.groupVnoteRecord}';
+    if (k == 'video') return '🎞 ${m.attachment?.name ?? ''}'.trim();
+    if (k == 'file') return '📎 ${m.attachment?.name ?? ''}'.trim();
     return '…';
   }
 
@@ -204,14 +221,8 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   /// clip as an inline `voice` attachment. durationMs travels in the signed
   /// attachment's `w` (and h=1) — reusing the existing fields keeps the
   /// canonical bytes identical for builds that predate voice.
-  Future<void> _toggleVoiceRecording(GroupService svc) async {
-    final ctl = ref.read(voiceRecordControllerProvider.notifier);
-    if (!ref.read(voiceRecordControllerProvider).isRecording) {
-      await ctl.start();
-      return;
-    }
-    final clip = ctl.stop();
-    if (clip == null || clip.bytes.isEmpty) return;
+  Future<void> _sendVoiceClip(GroupService svc, VoiceClip clip) async {
+    if (clip.bytes.isEmpty) return;
     if (clip.bytes.length > _kGroupVoiceRawMax) {
       // Long clip: over the content path (register + ref, members stream it)
       // instead of the old "too long" refusal. dataB64 must be non-empty per
@@ -246,14 +257,8 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
 
   /// Tap the camera: start a video-note recording; tap again: finish + post
   /// as a content-path REF (VN01 bytes are far too big for inline chunks).
-  Future<void> _toggleVnoteRecording(GroupService svc) async {
-    final ctl = ref.read(vnoteRecordControllerProvider.notifier);
-    if (!ref.read(vnoteRecordControllerProvider).isRecording) {
-      await ctl.start();
-      return;
-    }
-    final clip = ctl.stop();
-    if (clip == null || clip.bytes.isEmpty) return;
+  Future<void> _sendVnoteClip(GroupService svc, VnoteClip clip) async {
+    if (clip.bytes.isEmpty) return;
     final cid = await ref
         .read(messagingServiceProvider)
         .registerGroupContent(clip.bytes, name: 'vnote.vn01');
@@ -289,13 +294,17 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(t.author.short,
-                    style: Theme.of(context)
-                        .textTheme
-                        .labelSmall
-                        ?.copyWith(color: scheme.primary)),
-                Text(_msgPreview(t, l),
-                    maxLines: 1, overflow: TextOverflow.ellipsis),
+                Text(
+                  t.author.short,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelSmall?.copyWith(color: scheme.primary),
+                ),
+                Text(
+                  _msgPreview(t, l),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ],
             ),
           ),
@@ -311,23 +320,39 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   /// Pick an image and post it inline (groups media brick 1). The picture is
   /// downscaled + size-capped into the signed message so every member renders
   /// it without a content fetch; any caption typed in the composer rides along.
-  Future<void> _attachImage(GroupService svc) async {
+  Future<void> _attachImage(GroupService svc, {PlatformFile? selected}) async {
     final l = AppL10n.of(context);
-    final picked = await FilePicker.pickFiles();
-    final file = picked?.files.firstOrNull;
+    final picked = selected == null
+        ? await FilePicker.pickFiles(type: FileType.image)
+        : null;
+    final file = selected ?? picked?.files.firstOrNull;
     if (file == null) return; // cancelled
     if (!isImageFileName(file.name)) {
       if (mounted) _snack(l.groupImageOnly);
       return;
+    }
+    if (file.path != null) {
+      try {
+        if (await File(file.path!).length() > kMaxIncomingFileBytes) {
+          if (mounted) _snack(l.chatFileTooLarge);
+          return;
+        }
+      } catch (_) {}
     }
     Uint8List? bytes = file.bytes;
     final path = file.path;
     if (bytes == null && path != null) {
       try {
         bytes = await File(path).readAsBytes();
-      } catch (_) {/* fall through to the null check */}
+      } catch (_) {
+        /* fall through to the null check */
+      }
     }
     if (bytes == null) return;
+    if (bytes.length > kMaxIncomingFileBytes) {
+      if (mounted) _snack(l.chatFileTooLarge);
+      return;
+    }
     // Content path (doc/GROUPS-CONTENT-PATH.md): the message carries only a
     // small thumb + the contentId; members stream the ORIGINAL bytes from us.
     // Fall back to the legacy full-inline payload when no thumb rung fits.
@@ -347,6 +372,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
           w: thumb.w,
           h: thumb.h,
           cid: cid,
+          name: file.name,
         ),
       );
       return;
@@ -365,6 +391,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
         dataB64: img.b64,
         w: img.w,
         h: img.h,
+        name: file.name,
       ),
     );
   }
@@ -373,17 +400,130 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   /// (~9 chunks), big enough to preview while the full bytes stream in.
   static const int _kRefThumbRawMax = 16000;
 
-  void _snack(String msg) => ScaffoldMessenger.of(context)
-      .showSnackBar(SnackBar(content: Text(msg)));
+  Future<void> _pickGroupAttachment(
+    GroupService svc, {
+    FileType type = FileType.any,
+    List<String>? allowedExtensions,
+  }) async {
+    final picked = await FilePicker.pickFiles(
+      type: type,
+      allowedExtensions: allowedExtensions,
+    );
+    final file = picked?.files.firstOrNull;
+    if (file != null) await _postGroupFile(svc, file);
+  }
+
+  Future<Uint8List?> _readPlatformFile(PlatformFile file) async {
+    if (file.bytes != null) return file.bytes;
+    if (file.path == null) return null;
+    try {
+      return await File(file.path!).readAsBytes();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Generic group content path. Images keep their existing signed thumbnail
+  /// treatment; video/document rows carry only an optional micro-preview,
+  /// filename, byte size and membership-authorized cid.
+  Future<void> _postGroupFile(GroupService svc, PlatformFile file) async {
+    if (isImageFileName(file.name)) {
+      await _attachImage(svc, selected: file);
+      return;
+    }
+    var size = file.size;
+    if (file.path != null) {
+      try {
+        size = await File(file.path!).length();
+      } catch (_) {}
+    }
+    if (size > kMaxIncomingFileBytes) {
+      if (mounted) _snack(AppL10n.of(context).chatFileTooLarge);
+      return;
+    }
+    final bytes = await _readPlatformFile(file);
+    if (bytes == null || bytes.isEmpty) {
+      if (mounted) _snack(AppL10n.of(context).chatFileUnreadable);
+      return;
+    }
+    final cid = await ref
+        .read(messagingServiceProvider)
+        .registerGroupContent(bytes, name: file.name);
+    String? thumb;
+    if (isVideoFileName(file.name) && file.path != null) {
+      thumb = await makeVideoThumbB64(file.path!);
+    }
+    await _postGroupMessage(
+      svc,
+      _input.text.trim(),
+      clearInput: true,
+      attachment: GroupAttachment(
+        kind: isVideoFileName(file.name) ? 'video' : 'file',
+        dataB64: thumb ?? 'QQ==',
+        w: bytes.isEmpty ? 1 : bytes.length,
+        h: 1,
+        cid: cid,
+        name: file.name,
+      ),
+    );
+  }
+
+  Future<void> _handleAttachmentAction(
+    GroupService svc,
+    ComposerAttachmentAction action,
+  ) async {
+    switch (action) {
+      case ComposerAttachmentAction.camera:
+        final captured = await captureComposerMedia(context);
+        if (captured == null) {
+          if (mounted && !composerCameraSupported) {
+            _snack(AppL10n.of(context).composerCameraUnavailable);
+          }
+          return;
+        }
+        final source = File(captured.path);
+        try {
+          final size = await source.length();
+          await _postGroupFile(
+            svc,
+            PlatformFile(name: captured.name, size: size, path: captured.path),
+          );
+        } finally {
+          try {
+            await source.delete();
+          } catch (_) {}
+        }
+      case ComposerAttachmentAction.photo:
+        await _pickGroupAttachment(svc, type: FileType.image);
+      case ComposerAttachmentAction.video:
+        await _pickGroupAttachment(svc, type: FileType.video);
+      case ComposerAttachmentAction.file:
+        await _pickGroupAttachment(svc);
+      case ComposerAttachmentAction.gif:
+        await _pickGroupAttachment(
+          svc,
+          type: FileType.custom,
+          allowedExtensions: const ['gif'],
+        );
+      case ComposerAttachmentAction.voice ||
+          ComposerAttachmentAction.videoNote ||
+          ComposerAttachmentAction.poll ||
+          ComposerAttachmentAction.location:
+        return;
+    }
+  }
+
+  void _snack(String msg) =>
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
 
   /// Pick a sticker from the user's library and post it inline (kind='sticker'
   /// → borderless render). Reuses the 1:1 sticker sheet; a small static sticker
   /// fits the inline-attachment path (delta-broadcast, one-time chunk cost).
-  Future<void> _attachSticker(GroupService svc) async {
-    final picked = await showStickerPanel(context);
-    if (picked == null || picked.startsWith('pack:')) return; // no pack-share
-    final bytes =
-        await ref.read(storageProvider).loadFile(stickerFileKey(picked));
+  Future<void> _sendGroupSticker(GroupService svc, String picked) async {
+    if (picked.startsWith('pack:')) return; // no group pack-share yet
+    final bytes = await ref
+        .read(storageProvider)
+        .loadFile(stickerFileKey(picked));
     if (bytes == null) return;
     final img = await makeInlineImageB64(bytes);
     if (img == null) return;
@@ -424,11 +564,13 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
               );
             }
             final myRole = state.roleOf(svc.selfId);
-            final canAdd = myRole != null &&
+            final canAdd =
+                myRole != null &&
                 canApply(
-                    authorRole: myRole,
-                    op: ControlOp.addMember,
-                    newRole: GroupRole.member);
+                  authorRole: myRole,
+                  op: ControlOp.addMember,
+                  newRole: GroupRole.member,
+                );
             return SafeArea(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -438,8 +580,10 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                     child: Row(
                       children: [
                         Expanded(
-                          child: Text(l.groupMembers(state.members.length),
-                              style: Theme.of(context).textTheme.titleMedium),
+                          child: Text(
+                            l.groupMembers(state.members.length),
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
                         ),
                         if (canAdd)
                           TextButton.icon(
@@ -461,11 +605,16 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                   ),
                   if (myRole != null && myRole != GroupRole.owner)
                     ListTile(
-                      leading: Icon(Icons.logout,
-                          color: Theme.of(context).colorScheme.error),
-                      title: Text(l.groupLeave,
-                          style: TextStyle(
-                              color: Theme.of(context).colorScheme.error)),
+                      leading: Icon(
+                        Icons.logout,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                      title: Text(
+                        l.groupLeave,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
                       onTap: () => _leaveGroup(svc),
                     ),
                 ],
@@ -501,9 +650,9 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     final left = await svc.leaveGroup(_gid);
     if (!mounted) return;
     if (!left) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.groupOperationFailed)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.groupOperationFailed)));
       return;
     }
     final nav = Navigator.of(context);
@@ -512,48 +661,64 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   }
 
   Widget _memberTile(
-      GroupService svc, GroupRole? myRole, GroupMember m, AppL10n l) {
+    GroupService svc,
+    GroupRole? myRole,
+    GroupMember m,
+    AppL10n l,
+  ) {
     final isSelf = m.nodeId == svc.selfId;
     final actions = <PopupMenuEntry<String>>[];
     if (myRole != null && !isSelf) {
       final tr = m.role;
       if (canApply(
-          authorRole: myRole,
-          op: m.muted ? ControlOp.unmute : ControlOp.mute,
-          targetRole: tr)) {
-        actions.add(PopupMenuItem(
+        authorRole: myRole,
+        op: m.muted ? ControlOp.unmute : ControlOp.mute,
+        targetRole: tr,
+      )) {
+        actions.add(
+          PopupMenuItem(
             value: m.muted ? 'unmute' : 'mute',
-            child: Text(m.muted ? l.groupUnmute : l.groupMute)));
+            child: Text(m.muted ? l.groupUnmute : l.groupMute),
+          ),
+        );
       }
       if (m.role == GroupRole.member &&
           canApply(
-              authorRole: myRole,
-              op: ControlOp.setRole,
-              targetRole: tr,
-              newRole: GroupRole.admin)) {
-        actions
-            .add(PopupMenuItem(value: 'promote', child: Text(l.groupPromote)));
+            authorRole: myRole,
+            op: ControlOp.setRole,
+            targetRole: tr,
+            newRole: GroupRole.admin,
+          )) {
+        actions.add(
+          PopupMenuItem(value: 'promote', child: Text(l.groupPromote)),
+        );
       }
       if (m.role == GroupRole.admin &&
           canApply(
-              authorRole: myRole,
-              op: ControlOp.setRole,
-              targetRole: tr,
-              newRole: GroupRole.member)) {
+            authorRole: myRole,
+            op: ControlOp.setRole,
+            targetRole: tr,
+            newRole: GroupRole.member,
+          )) {
         actions.add(PopupMenuItem(value: 'demote', child: Text(l.groupDemote)));
       }
       if (canApply(
-          authorRole: myRole, op: ControlOp.removeMember, targetRole: tr)) {
+        authorRole: myRole,
+        op: ControlOp.removeMember,
+        targetRole: tr,
+      )) {
         actions.add(PopupMenuItem(value: 'remove', child: Text(l.groupRemove)));
       }
     }
     return ListTile(
       dense: true,
-      leading: Icon(m.role == GroupRole.owner
-          ? Icons.star
-          : (m.role == GroupRole.admin
-              ? Icons.shield_outlined
-              : Icons.person_outline)),
+      leading: Icon(
+        m.role == GroupRole.owner
+            ? Icons.star
+            : (m.role == GroupRole.admin
+                  ? Icons.shield_outlined
+                  : Icons.person_outline),
+      ),
       title: Text(m.nodeId.short),
       subtitle: Text(m.role.name),
       trailing: actions.isEmpty
@@ -566,7 +731,10 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   }
 
   Future<void> _memberAction(
-      GroupService svc, GroupMember m, String action) async {
+    GroupService svc,
+    GroupMember m,
+    String action,
+  ) async {
     var applied = false;
     switch (action) {
       case 'mute':
@@ -635,16 +803,16 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
             for (final c in candidates)
               ListTile(
                 leading: CircleAvatar(
-                  child: Text(((c.name?.isNotEmpty ?? false)
-                          ? c.name!
-                          : c.nodeId.short)
-                      .characters
-                      .first
-                      .toUpperCase()),
+                  child: Text(
+                    ((c.name?.isNotEmpty ?? false) ? c.name! : c.nodeId.short)
+                        .characters
+                        .first
+                        .toUpperCase(),
+                  ),
                 ),
-                title: Text((c.name?.isNotEmpty ?? false)
-                    ? c.name!
-                    : c.nodeId.short),
+                title: Text(
+                  (c.name?.isNotEmpty ?? false) ? c.name! : c.nodeId.short,
+                ),
                 subtitle: Text(c.nodeId.short),
                 onTap: () => Navigator.of(context).pop(c.nodeId),
               ),
@@ -660,9 +828,9 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       role: GroupRole.member,
     );
     if (!added && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.groupOperationFailed)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.groupOperationFailed)));
     }
   }
 
@@ -699,9 +867,9 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     final ok = await svc.renameGroup(_gid, name);
     if (!mounted) return;
     if (!ok) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.groupRenameDenied)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.groupRenameDenied)));
     }
   }
 
@@ -765,154 +933,78 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
           Expanded(
             child: AnimatedBuilder(
               animation: svc.changes,
-              builder: (context, _) => FutureBuilder<
-                  (List<GroupMessage>, Map<String, MessageReactions>)>(
-                future: _loadFeed(svc),
-                builder: (context, snap) {
-                  final msgs = snap.data?.$1 ?? const <GroupMessage>[];
-                  final showReactions = ref.watch(showReactionsProvider);
-                  final reacts = !showReactions
-                      ? const <String, MessageReactions>{}
-                      : snap.data?.$2 ?? const <String, MessageReactions>{};
-                  if (msgs.isEmpty) {
-                    return Center(child: Text(l.groupNoMessages));
-                  }
-                  final byRef = {for (final m in msgs) m.ref: m};
-                  return ListView.builder(
-                    padding: const EdgeInsets.all(8),
-                    itemCount: msgs.length,
-                    itemBuilder: (context, i) {
-                      final m = msgs[i];
-                      final mine = m.author == svc.selfId;
-                      return _GroupBubble(
-                        message: m,
-                        mine: mine,
-                        selfId: svc.selfId,
-                        quoted: m.replyTo == null ? null : byRef[m.replyTo],
-                        reactions: reacts[m.ref],
-                        onLongPress: () => _showMessageMenu(svc, m),
-                        onToggleReaction: (e) => svc.react(_gid, m.ref, e),
-                        onShowReactors: () {
-                          final r = reacts[m.ref];
-                          if (r != null && r.isNotEmpty) _showReactors(svc, r);
+              builder: (context, _) =>
+                  FutureBuilder<
+                    (List<GroupMessage>, Map<String, MessageReactions>)
+                  >(
+                    future: _loadFeed(svc),
+                    builder: (context, snap) {
+                      final msgs = snap.data?.$1 ?? const <GroupMessage>[];
+                      final showReactions = ref.watch(showReactionsProvider);
+                      final reacts = !showReactions
+                          ? const <String, MessageReactions>{}
+                          : snap.data?.$2 ?? const <String, MessageReactions>{};
+                      if (msgs.isEmpty) {
+                        return Center(child: Text(l.groupNoMessages));
+                      }
+                      final byRef = {for (final m in msgs) m.ref: m};
+                      return ListView.builder(
+                        padding: const EdgeInsets.all(8),
+                        itemCount: msgs.length,
+                        itemBuilder: (context, i) {
+                          final m = msgs[i];
+                          final mine = m.author == svc.selfId;
+                          return _GroupBubble(
+                            message: m,
+                            mine: mine,
+                            selfId: svc.selfId,
+                            quoted: m.replyTo == null ? null : byRef[m.replyTo],
+                            reactions: reacts[m.ref],
+                            onLongPress: () => _showMessageMenu(svc, m),
+                            onToggleReaction: (e) => svc.react(_gid, m.ref, e),
+                            onShowReactors: () {
+                              final r = reacts[m.ref];
+                              if (r != null && r.isNotEmpty) {
+                                _showReactors(svc, r);
+                              }
+                            },
+                            onFetchContent: m.attachment?.cid == null
+                                ? null
+                                : () => svc.fetchGroupContent(
+                                    _gid,
+                                    m.attachment!.cid!,
+                                    m.author,
+                                  ),
+                          );
                         },
-                        onFetchContent: m.attachment?.cid == null
-                            ? null
-                            : () => svc.fetchGroupContent(
-                                _gid, m.attachment!.cid!, m.author),
                       );
                     },
-                  );
-                },
-              ),
+                  ),
             ),
           ),
-          SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (_replyTarget != null) _replyBar(context, l),
-                  Row(
-                children: [
-                  IconButton(
-                    onPressed: () => _attachImage(svc),
-                    tooltip: l.groupAttachImage,
-                    icon: const Icon(Icons.image_outlined),
-                  ),
-                  IconButton(
-                    onPressed: () => _attachSticker(svc),
-                    tooltip: l.groupSendSticker,
-                    icon: const Icon(Icons.emoji_emotions_outlined),
-                  ),
-                  // Voice note: tap to record, tap again to stop + post. While
-                  // recording the icon turns into a red stop + elapsed clock.
-                  Builder(builder: (context) {
-                    final rec = ref.watch(voiceRecordControllerProvider);
-                    return Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          onPressed: () => _toggleVoiceRecording(svc),
-                          tooltip: rec.isRecording
-                              ? l.groupVoiceStop
-                              : l.groupVoiceRecord,
-                          icon: Icon(
-                            rec.isRecording
-                                ? Icons.stop_circle
-                                : Icons.mic_none,
-                            color: rec.isRecording
-                                ? Theme.of(context).colorScheme.error
-                                : null,
-                          ),
-                        ),
-                        if (rec.isRecording)
-                          Text(
-                            formatVoiceDuration(
-                                Duration(milliseconds: rec.elapsedMs)),
-                            style: Theme.of(context).textTheme.labelSmall,
-                          ),
-                      ],
-                    );
-                  }),
-                  // Video note: tap to record (live round self-preview shows
-                  // while capturing), tap again to stop + post as a ref.
-                  Builder(builder: (context) {
-                    final vrec = ref.watch(vnoteRecordControllerProvider);
-                    return Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          onPressed: () => _toggleVnoteRecording(svc),
-                          tooltip: vrec.isRecording
-                              ? l.groupVoiceStop
-                              : l.groupVnoteRecord,
-                          icon: Icon(
-                            vrec.isRecording
-                                ? Icons.stop_circle
-                                : Icons.videocam_outlined,
-                            color: vrec.isRecording
-                                ? Theme.of(context).colorScheme.error
-                                : null,
-                          ),
-                        ),
-                        if (vrec.isRecording)
-                          SizedBox(
-                            width: 44,
-                            height: 44,
-                            child: ClipOval(
-                              child: VnotePreview(
-                                frameListenable: ref
-                                    .read(vnoteRecordControllerProvider
-                                        .notifier)
-                                    .preview,
-                              ),
-                            ),
-                          ),
-                      ],
-                    );
-                  }),
-                  Expanded(
-                    child: TextField(
-                      controller: _input,
-                      minLines: 1,
-                      maxLines: 5,
-                      decoration: InputDecoration(hintText: l.chatRequestHint),
-                      onSubmitted: (_) => _send(svc),
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  IconButton.filled(
-                    onPressed: () => _send(svc),
-                    icon: const Icon(Icons.send),
-                  ),
-                ],
-                  ),
-                ],
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_replyTarget != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: _replyBar(context, l),
+                ),
+              MessageComposer(
+                key: const ValueKey('group-message-composer'),
+                controller: _input,
+                focusNode: _inputFocus,
+                hint: l.chatNewMessageHint,
+                onSend: () => _send(svc),
+                onAttachmentAction: (action) =>
+                    _handleAttachmentAction(svc, action),
+                onVoice: (clip) => unawaited(_sendVoiceClip(svc, clip)),
+                onVideoNote: (clip) => unawaited(_sendVnoteClip(svc, clip)),
+                onSticker: (itemId) =>
+                    unawaited(_sendGroupSticker(svc, itemId)),
+                allowStickerPackShare: false,
               ),
-            ),
+            ],
           ),
         ],
       ),
@@ -975,8 +1067,7 @@ class _GroupBubble extends StatelessWidget {
               onSecondaryTap: onShowReactors,
               borderRadius: BorderRadius.circular(12),
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: e.value.any((n) => n == selfId)
                       ? scheme.primaryContainer
@@ -986,8 +1077,10 @@ class _GroupBubble extends StatelessWidget {
                       ? Border.all(color: scheme.primary, width: 1)
                       : null,
                 ),
-                child: Text('${e.key} ${e.value.length}',
-                    style: const TextStyle(fontSize: 12)),
+                child: Text(
+                  '${e.key} ${e.value.length}',
+                  style: const TextStyle(fontSize: 12),
+                ),
               ),
             ),
         ],
@@ -1003,6 +1096,8 @@ class _GroupBubble extends StatelessWidget {
     if (k == 'sticker') return '😊';
     if (k == 'voice') return '🎤';
     if (k == 'vnote') return '📹';
+    if (k == 'video') return '🎞 ${m.attachment?.name ?? ''}'.trim();
+    if (k == 'file') return '📎 ${m.attachment?.name ?? ''}'.trim();
     return '…';
   }
 
@@ -1021,15 +1116,18 @@ class _GroupBubble extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(q.author.short,
-              style: Theme.of(context)
-                  .textTheme
-                  .labelSmall
-                  ?.copyWith(color: scheme.primary)),
-          Text(_preview(q),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall),
+          Text(
+            q.author.short,
+            style: Theme.of(
+              context,
+            ).textTheme.labelSmall?.copyWith(color: scheme.primary),
+          ),
+          Text(
+            _preview(q),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
         ],
       ),
     );
@@ -1045,124 +1143,299 @@ class _GroupBubble extends StatelessWidget {
         behavior: HitTestBehavior.opaque,
         onLongPress: onLongPress,
         child: Align(
-        alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 4),
-          child: Column(
-            crossAxisAlignment:
-                mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (!mine)
-                Text(message.author.short,
-                    style: Theme.of(context)
-                        .textTheme
-                        .labelSmall
-                        ?.copyWith(color: scheme.primary)),
-              SizedBox(
-                width: 140,
-                height: 140,
-                child: Image.memory(
-                  base64Decode(att.dataB64),
-                  fit: BoxFit.contain,
-                  gaplessPlayback: true,
-                  errorBuilder: (_, _, _) =>
-                      const Icon(Icons.broken_image_outlined),
+          alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 4),
+            child: Column(
+              crossAxisAlignment: mine
+                  ? CrossAxisAlignment.end
+                  : CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (!mine)
+                  Text(
+                    message.author.short,
+                    style: Theme.of(
+                      context,
+                    ).textTheme.labelSmall?.copyWith(color: scheme.primary),
+                  ),
+                SizedBox(
+                  width: 140,
+                  height: 140,
+                  child: Image.memory(
+                    base64Decode(att.dataB64),
+                    fit: BoxFit.contain,
+                    gaplessPlayback: true,
+                    errorBuilder: (_, _, _) =>
+                        const Icon(Icons.broken_image_outlined),
+                  ),
                 ),
-              ),
-              _reactionChips(context),
-            ],
+                _reactionChips(context),
+              ],
+            ),
           ),
         ),
-      ),
       );
     }
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onLongPress: onLongPress,
       child: Align(
-      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Column(
-        crossAxisAlignment:
-            mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-      Container(
-        margin: const EdgeInsets.symmetric(vertical: 3),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.75,
-        ),
-        decoration: BoxDecoration(
-          color: mine ? scheme.primaryContainer : scheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(14),
-        ),
+        alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: mine
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (!mine)
-              Text(
-                message.author.short,
-                style: Theme.of(context)
-                    .textTheme
-                    .labelSmall
-                    ?.copyWith(color: scheme.primary),
+            Container(
+              margin: const EdgeInsets.symmetric(vertical: 3),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.75,
               ),
-            if (quoted != null) _quoteBlock(context),
-            if (message.attachment != null &&
-                message.attachment!.kind == 'voice')
-              _GroupVoiceRow(
-                messageRef: message.ref,
-                attachment: message.attachment!,
-                onFetch: onFetchContent,
+              decoration: BoxDecoration(
+                color: mine
+                    ? scheme.primaryContainer
+                    : scheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(14),
               ),
-            if (message.attachment != null &&
-                message.attachment!.kind == 'vnote')
-              _GroupVnoteCircle(
-                messageRef: message.ref,
-                attachment: message.attachment!,
-                onFetch: onFetchContent,
-              ),
-            if (message.attachment != null &&
-                message.attachment!.kind == 'image')
-              Padding(
-                padding: EdgeInsets.only(bottom: message.body.isEmpty ? 0 : 6),
-                child: ConstrainedBox(
-                  // Keep an inline photo to a sensible size regardless of the
-                  // (small) encoded resolution or a wide desktop bubble.
-                  constraints: const BoxConstraints(
-                      maxWidth: 240, maxHeight: 320),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: AspectRatio(
-                      aspectRatio: message.attachment!.h == 0
-                          ? 1
-                          : message.attachment!.w / message.attachment!.h,
-                      child: message.attachment!.cid != null
-                          ? _GroupRefImage(
-                              attachment: message.attachment!,
-                              onFetch: onFetchContent,
-                            )
-                          : Image.memory(
-                              base64Decode(message.attachment!.dataB64),
-                              fit: BoxFit.cover,
-                              gaplessPlayback: true,
-                              errorBuilder: (_, _, _) =>
-                                  const Icon(Icons.broken_image_outlined),
-                            ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (!mine)
+                    Text(
+                      message.author.short,
+                      style: Theme.of(
+                        context,
+                      ).textTheme.labelSmall?.copyWith(color: scheme.primary),
                     ),
-                  ),
-                ),
+                  if (quoted != null) _quoteBlock(context),
+                  if (message.attachment != null &&
+                      message.attachment!.kind == 'voice')
+                    _GroupVoiceRow(
+                      messageRef: message.ref,
+                      attachment: message.attachment!,
+                      onFetch: onFetchContent,
+                    ),
+                  if (message.attachment != null &&
+                      message.attachment!.kind == 'vnote')
+                    _GroupVnoteCircle(
+                      messageRef: message.ref,
+                      attachment: message.attachment!,
+                      onFetch: onFetchContent,
+                    ),
+                  if (message.attachment != null &&
+                      message.attachment!.kind == 'image')
+                    Padding(
+                      padding: EdgeInsets.only(
+                        bottom: message.body.isEmpty ? 0 : 6,
+                      ),
+                      child: ConstrainedBox(
+                        // Keep an inline photo to a sensible size regardless of the
+                        // (small) encoded resolution or a wide desktop bubble.
+                        constraints: const BoxConstraints(
+                          maxWidth: 240,
+                          maxHeight: 320,
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: AspectRatio(
+                            aspectRatio: message.attachment!.h == 0
+                                ? 1
+                                : message.attachment!.w / message.attachment!.h,
+                            child: message.attachment!.cid != null
+                                ? _GroupRefImage(
+                                    attachment: message.attachment!,
+                                    onFetch: onFetchContent,
+                                  )
+                                : Image.memory(
+                                    base64Decode(message.attachment!.dataB64),
+                                    fit: BoxFit.cover,
+                                    gaplessPlayback: true,
+                                    errorBuilder: (_, _, _) =>
+                                        const Icon(Icons.broken_image_outlined),
+                                  ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (message.attachment != null &&
+                      (message.attachment!.kind == 'video' ||
+                          message.attachment!.kind == 'file'))
+                    _GroupFileAttachment(
+                      attachment: message.attachment!,
+                      onFetch: onFetchContent,
+                    ),
+                  if (message.body.isNotEmpty) Text(message.body),
+                ],
               ),
-            if (message.body.isNotEmpty) Text(message.body),
+            ),
+            _reactionChips(context),
           ],
         ),
       ),
-          _reactionChips(context),
-        ],
-      ),
-    ),
+    );
+  }
+}
+
+String _formatGroupBytes(int bytes) {
+  if (bytes < 1024) return '$bytes B';
+  final kb = bytes / 1024;
+  if (kb < 1024) return '${kb.toStringAsFixed(kb < 10 ? 1 : 0)} KB';
+  final mb = kb / 1024;
+  return '${mb.toStringAsFixed(mb < 10 ? 1 : 0)} MB';
+}
+
+class _GroupFileAttachment extends ConsumerWidget {
+  const _GroupFileAttachment({required this.attachment, this.onFetch});
+
+  final GroupAttachment attachment;
+  final VoidCallback? onFetch;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cid = attachment.cid;
+    if (cid == null) return const SizedBox.shrink();
+    final progress = ref.watch(contentProgressProvider.select((m) => m[cid]));
+    final isVideo = attachment.kind == 'video';
+    Uint8List? thumb;
+    if (isVideo && attachment.dataB64 != 'QQ==') {
+      try {
+        thumb = base64Decode(attachment.dataB64);
+      } catch (_) {}
+    }
+    return FutureBuilder<bool>(
+      future: ref.read(storageProvider).hasFile(cid).catchError((_) => false),
+      builder: (context, snapshot) {
+        final held = snapshot.data ?? false;
+        final scheme = Theme.of(context).colorScheme;
+        if (isVideo && thumb != null) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: InkWell(
+              onTap: held
+                  ? () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => VideoPlayerScreen(
+                            fileKey: cid,
+                            name: attachment.name ?? '',
+                          ),
+                        ),
+                      )
+                  : onFetch,
+              borderRadius: BorderRadius.circular(10),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: SizedBox(
+                  width: 220,
+                  height: 124,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    alignment: Alignment.center,
+                    children: [
+                      Image.memory(thumb, fit: BoxFit.cover),
+                      ColoredBox(color: Colors.black.withValues(alpha: 0.18)),
+                      if (progress != null)
+                        Center(
+                          child: CircularProgressIndicator(
+                            value: progress == 0 ? null : progress,
+                          ),
+                        )
+                      else
+                        Center(
+                          child: Icon(
+                            held
+                                ? Icons.play_circle_fill
+                                : Icons.download_for_offline_outlined,
+                            size: 42,
+                            color: Colors.white,
+                          ),
+                        ),
+                      Positioned(
+                        left: 8,
+                        right: 8,
+                        bottom: 6,
+                        child: Text(
+                          attachment.name ?? '',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            shadows: [Shadow(blurRadius: 4)],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+        return InkWell(
+          onTap: held && isVideo
+              ? () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => VideoPlayerScreen(
+                        fileKey: cid,
+                        name: attachment.name ?? '',
+                      ),
+                    ),
+                  )
+              : held
+                  ? null
+                  : onFetch,
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(documentIcon(attachment.name), color: scheme.primary),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        attachment.name ?? 'file',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        progress == null
+                            ? _formatGroupBytes(attachment.w)
+                            : '${(progress * 100).round()}%',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                if (progress != null)
+                  SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      value: progress == 0 ? null : progress,
+                      strokeWidth: 2,
+                    ),
+                  )
+                else
+                  Icon(
+                    held ? Icons.check_circle_outline : Icons.download_outlined,
+                    size: 20,
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -1179,13 +1452,9 @@ class _GroupRefImage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final cid = attachment.cid!;
-    final progress =
-        ref.watch(contentProgressProvider.select((m) => m[cid]));
+    final progress = ref.watch(contentProgressProvider.select((m) => m[cid]));
     return FutureBuilder<Uint8List?>(
-      future: ref
-          .read(storageProvider)
-          .loadFile(cid)
-          .catchError((_) => null),
+      future: ref.read(storageProvider).loadFile(cid).catchError((_) => null),
       builder: (context, snap) {
         final full = snap.connectionState == ConnectionState.done
             ? snap.data
@@ -1193,7 +1462,9 @@ class _GroupRefImage extends ConsumerWidget {
         Uint8List? thumbBytes;
         try {
           thumbBytes = base64Decode(attachment.dataB64);
-        } catch (_) {/* corrupt thumb — icon fallback below */}
+        } catch (_) {
+          /* corrupt thumb — icon fallback below */
+        }
         final img = full ?? thumbBytes;
         return Stack(
           alignment: Alignment.center,
@@ -1385,8 +1656,7 @@ class _GroupVnoteCircle extends ConsumerWidget {
                       else
                         ColoredBox(color: scheme.surfaceContainerHighest),
                       if (!playing) ...[
-                        ColoredBox(
-                            color: Colors.black.withValues(alpha: 0.18)),
+                        ColoredBox(color: Colors.black.withValues(alpha: 0.18)),
                         Center(
                           child: fetching != null
                               ? SizedBox(
@@ -1412,8 +1682,7 @@ class _GroupVnoteCircle extends ConsumerWidget {
             ),
             Padding(
               padding: const EdgeInsets.only(top: 2, left: 6),
-              child:
-                  Text(label, style: Theme.of(context).textTheme.labelSmall),
+              child: Text(label, style: Theme.of(context).textTheme.labelSmall),
             ),
           ],
         );

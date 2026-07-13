@@ -25,17 +25,28 @@ Future<String?> showStickerPanel(BuildContext context) =>
       context: context,
       showDragHandle: true,
       constraints: const BoxConstraints(maxWidth: 560),
-      builder: (_) => const _StickerSheet(),
+      builder: (sheetContext) => StickerPicker(
+        onSelected: (itemId) => Navigator.of(sheetContext).pop(itemId),
+      ),
     );
 
-class _StickerSheet extends ConsumerStatefulWidget {
-  const _StickerSheet();
+/// Reusable sticker library used by the standalone sheet and the unified
+/// composer expression hub.
+class StickerPicker extends ConsumerStatefulWidget {
+  const StickerPicker({
+    super.key,
+    required this.onSelected,
+    this.allowPackShare = true,
+  });
+
+  final ValueChanged<String> onSelected;
+  final bool allowPackShare;
 
   @override
-  ConsumerState<_StickerSheet> createState() => _StickerSheetState();
+  ConsumerState<StickerPicker> createState() => _StickerPickerState();
 }
 
-class _StickerSheetState extends ConsumerState<_StickerSheet> {
+class _StickerPickerState extends ConsumerState<StickerPicker> {
   bool _importing = false;
 
   Future<void> _import() async {
@@ -84,15 +95,21 @@ class _StickerSheetState extends ConsumerState<_StickerSheet> {
             child: Row(
               children: [
                 Expanded(
-                  child: Text(l.stickerTitle,
-                      style: Theme.of(context).textTheme.titleMedium),
+                  child: Text(
+                    l.stickerTitle,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                 ),
                 // Share the whole library as a pack to this chat.
-                if ((packs.valueOrNull ?? const []).any((p) => p.items.isNotEmpty))
+                if (widget.allowPackShare &&
+                    (packs.valueOrNull ?? const []).any(
+                      (p) => p.items.isNotEmpty,
+                    ))
                   IconButton(
                     icon: const Icon(Icons.ios_share),
                     tooltip: l.stickerSharePack,
-                    onPressed: () => Navigator.of(context).pop('pack:$_defaultSharePackId'),
+                    onPressed: () =>
+                        widget.onSelected('pack:$_defaultSharePackId'),
                   ),
                 _importing
                     ? const Padding(
@@ -113,8 +130,7 @@ class _StickerSheetState extends ConsumerState<_StickerSheet> {
           ),
           Expanded(
             child: packs.when(
-              loading: () =>
-                  const Center(child: CircularProgressIndicator()),
+              loading: () => const Center(child: CircularProgressIndicator()),
               error: (_, _) => Center(child: Text(l.stickerEmpty)),
               data: (list) {
                 final items = [
@@ -126,14 +142,16 @@ class _StickerSheetState extends ConsumerState<_StickerSheet> {
                 }
                 return GridView.builder(
                   padding: const EdgeInsets.all(12),
-                  gridDelegate:
-                      const SliverGridDelegateWithMaxCrossAxisExtent(
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
                     maxCrossAxisExtent: 96,
                     mainAxisSpacing: 8,
                     crossAxisSpacing: 8,
                   ),
                   itemCount: items.length,
-                  itemBuilder: (context, i) => _StickerCell(itemId: items[i]),
+                  itemBuilder: (context, i) => _StickerCell(
+                    itemId: items[i],
+                    onSelected: widget.onSelected,
+                  ),
                 );
               },
             ),
@@ -144,35 +162,38 @@ class _StickerSheetState extends ConsumerState<_StickerSheet> {
   }
 
   Widget _empty(BuildContext context, AppL10n l) => Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.emoji_emotions_outlined,
-                size: 48,
-                color: Theme.of(context).colorScheme.onSurfaceVariant),
-            const SizedBox(height: 12),
-            Text(l.stickerEmpty),
-            const SizedBox(height: 12),
-            FilledButton.tonalIcon(
-              onPressed: _importing ? null : _import,
-              icon: const Icon(Icons.add_photo_alternate_outlined),
-              label: Text(l.stickerImport),
-            ),
-          ],
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          Icons.emoji_emotions_outlined,
+          size: 48,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
         ),
-      );
+        const SizedBox(height: 12),
+        Text(l.stickerEmpty),
+        const SizedBox(height: 12),
+        FilledButton.tonalIcon(
+          onPressed: _importing ? null : _import,
+          icon: const Icon(Icons.add_photo_alternate_outlined),
+          label: Text(l.stickerImport),
+        ),
+      ],
+    ),
+  );
 }
 
 class _StickerCell extends ConsumerWidget {
-  const _StickerCell({required this.itemId});
+  const _StickerCell({required this.itemId, required this.onSelected});
   final String itemId;
+  final ValueChanged<String> onSelected;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return InkWell(
       key: ValueKey('sticker:$itemId'),
       borderRadius: BorderRadius.circular(8),
-      onTap: () => Navigator.of(context).pop(itemId),
+      onTap: () => onSelected(itemId),
       child: FutureBuilder<Uint8List?>(
         future: ref.read(storageProvider).loadFile(stickerFileKey(itemId)),
         builder: (context, snap) {
