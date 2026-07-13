@@ -189,6 +189,14 @@ class HeadlessRuntime {
         callState: () => null,
         callAction: (_) async {},
         callsAvailable: false,
+        groups: () async => const [],
+        createGroup: (_) async => null,
+        groupMessages: (_, _) async => null,
+        sendGroupMessage: (_, _, _) async => 'groups unavailable',
+        // GroupService still imports Flutter/Riverpod. Keep the headless
+        // binary honestly Flutter-free and return machine-detectable 501 until
+        // the pure group core is split out and can be wired here.
+        groupsAvailable: false,
         webhook: () => webhookUrl,
         setWebhook: (url) async {
           webhookUrl = url;
