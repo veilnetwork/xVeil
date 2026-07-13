@@ -928,9 +928,26 @@ class _DocumentAclSheetState extends State<_DocumentAclSheet> {
       ),
     );
     if (confirmed == true && mounted) {
-      await _runMutation(
-        () => widget.service.compactDocument(widget.documentId),
+      if (_busy) return;
+      setState(() => _busy = true);
+      var started = false;
+      try {
+        started = await widget.service.requestQuiescence(
+          widget.documentId,
+          ignoreThreshold: true,
+        );
+      } catch (_) {
+        started = false;
+      } finally {
+        if (mounted) setState(() => _busy = false);
+      }
+      if (!mounted) return;
+      _notice(
+        started
+            ? AppL10n.of(context).cloudSharedQueued
+            : AppL10n.of(context).cloudSharedFailed,
       );
+      await _reload();
     }
   }
 

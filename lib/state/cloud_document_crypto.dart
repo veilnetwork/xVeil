@@ -3,6 +3,7 @@ import 'dart:ffi';
 import '../core/ids.dart';
 import '../data/node/embedded_node.dart';
 import '../domain/cloud_document.dart';
+import '../domain/cloud_document_replication.dart';
 
 abstract interface class CloudDocumentSigner {
   NodeId get selfId;
@@ -10,6 +11,9 @@ abstract interface class CloudDocumentSigner {
   CloudDocumentRoot signRoot(CloudDocumentRoot unsigned);
   CloudDocumentControlEntry signControl(CloudDocumentControlEntry unsigned);
   CloudDocumentOperation signOperation(CloudDocumentOperation unsigned);
+  CloudDocumentQuiescenceAck signQuiescenceAck(
+    CloudDocumentQuiescenceAck unsigned,
+  );
 }
 
 final class NativeCloudDocumentSigner implements CloudDocumentSigner {
@@ -47,6 +51,15 @@ final class NativeCloudDocumentSigner implements CloudDocumentSigner {
         unsigned: unsigned,
         lib: lib,
       );
+
+  @override
+  CloudDocumentQuiescenceAck signQuiescenceAck(
+    CloudDocumentQuiescenceAck unsigned,
+  ) => signCloudDocumentQuiescenceAck(
+    identityToml: identityToml,
+    unsigned: unsigned,
+    lib: lib,
+  );
 }
 
 CloudDocumentRoot signCloudDocumentRoot({
@@ -138,6 +151,39 @@ bool verifyCloudDocumentOperation(
       publicKey: operation.authorPubKey,
       message: operation.canonicalBytes(),
       signature: operation.signature,
+      lib: lib,
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+CloudDocumentQuiescenceAck signCloudDocumentQuiescenceAck({
+  required String identityToml,
+  required CloudDocumentQuiescenceAck unsigned,
+  DynamicLibrary? lib,
+}) {
+  final result = EmbeddedNode.signMessage(
+    identityToml,
+    unsigned.canonicalBytes(),
+    lib: lib,
+  );
+  return unsigned.withSignature(result.signature, result.publicKey);
+}
+
+bool verifyCloudDocumentQuiescenceAck(
+  CloudDocumentQuiescenceAck ack, {
+  DynamicLibrary? lib,
+}) {
+  if (ack.authorPubKey.length != 32 || ack.signature.length != 64) {
+    return false;
+  }
+  try {
+    return EmbeddedNode.verifyMessage(
+      nodeId: ack.author.bytes,
+      publicKey: ack.authorPubKey,
+      message: ack.canonicalBytes(),
+      signature: ack.signature,
       lib: lib,
     );
   } catch (_) {
