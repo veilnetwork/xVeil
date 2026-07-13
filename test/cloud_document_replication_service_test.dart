@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/transport/veil_mailbox.dart';
+import 'package:xveil/domain/cloud_collection_crdt.dart';
 import 'package:xveil/domain/cloud_document.dart';
 import 'package:xveil/domain/cloud_document_replication.dart';
 import 'package:xveil/domain/cloud_document_payload.dart';
@@ -741,6 +742,116 @@ void main() {
           styles: List.filled(9, const CloudRichTextStyle()),
         ),
         isNull,
+      );
+    },
+  );
+
+  test(
+    'task document checkpoints on grant and concurrent fields converge',
+    () async {
+      final owner = _id(1);
+      final editor = _id(2);
+      final envelopes = CloudDocumentEnvelopeService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      );
+      final ownerStore = await _openStore(FakeHvContainer());
+      final editorStore = await _openStore(FakeHvContainer());
+      final sent = <({NodeId peer, String documentId, String json})>[];
+      final ownerService = _service(
+        self: owner,
+        store: ownerStore,
+        envelopes: envelopes,
+        sent: sent,
+        signer: _Signer(owner, 1),
+        random: Random(101),
+      );
+      final editorService = _service(
+        self: editor,
+        store: editorStore,
+        envelopes: envelopes,
+        sent: sent,
+        signer: _Signer(editor, 2),
+        random: Random(102),
+      );
+
+      expect(
+        await ownerService.createDocument(
+          kind: CloudDocumentKind.calendar,
+          codec: cloudTaskListCodecV1,
+        ),
+        isNull,
+        reason: 'kind and codec must be an exact protocol pair',
+      );
+      final documentId = (await ownerService.createDocument(
+        kind: CloudDocumentKind.taskList,
+        codec: cloudTaskListCodecV1,
+      ))!.documentId;
+      final taskId = _hash(77);
+      var ownerState = (await ownerService.loadCollection(documentId))!;
+      expect(ownerState.tasks, isEmpty);
+      expect(
+        await ownerService.appendCollectionEdits(documentId, [
+          CloudCollectionEdit.create(
+            taskId,
+            CloudTask(
+              id: taskId,
+              title: 'Initial',
+              notes: '',
+              completed: false,
+              position: 0,
+            ).toFields(),
+          ),
+        ], parentOperationIds: ownerState.snapshot.headOperationIds),
+        isNotNull,
+      );
+      ownerState = (await ownerService.loadCollection(documentId))!;
+      expect(ownerState.tasks.single.title, 'Initial');
+
+      sent.clear();
+      expect(
+        await ownerService.grant(documentId, editor, CloudDocumentRole.editor),
+        isNotNull,
+      );
+      final invite = CloudDocumentFrame.decode(sent.removeLast().json)!;
+      expect(await editorService.ingest(owner, invite.encode()), isTrue);
+      expect(await editorService.adopt(documentId), isTrue);
+      var editorState = (await editorService.loadCollection(documentId))!;
+      expect(editorState.tasks.single.title, 'Initial');
+      expect(editorState.snapshot.unavailableOperationIds, isNotEmpty);
+      expect(editorState.snapshot.invalidOperationIds, isEmpty);
+      ownerState = (await ownerService.loadCollection(documentId))!;
+      expect(
+        editorState.snapshot.headOperationIds,
+        ownerState.snapshot.headOperationIds,
+      );
+
+      sent.clear();
+      expect(
+        await ownerService.appendCollectionEdits(documentId, [
+          CloudCollectionEdit.patch(taskId, {'title': 'Owner rename'}),
+        ], parentOperationIds: ownerState.snapshot.headOperationIds),
+        isNotNull,
+      );
+      final ownerFrame = CloudDocumentFrame.decode(sent.removeLast().json)!;
+      expect(
+        await editorService.appendCollectionEdits(documentId, [
+          CloudCollectionEdit.patch(taskId, {'completed': true}),
+        ], parentOperationIds: editorState.snapshot.headOperationIds),
+        isNotNull,
+      );
+      final editorFrame = CloudDocumentFrame.decode(sent.removeLast().json)!;
+      expect(await ownerService.ingest(editor, editorFrame.encode()), isTrue);
+      expect(await editorService.ingest(owner, ownerFrame.encode()), isTrue);
+
+      ownerState = (await ownerService.loadCollection(documentId))!;
+      editorState = (await editorService.loadCollection(documentId))!;
+      expect(ownerState.tasks.single.title, 'Owner rename');
+      expect(ownerState.tasks.single.completed, isTrue);
+      expect(editorState.tasks.single.title, ownerState.tasks.single.title);
+      expect(editorState.tasks.single.completed, isTrue);
+      expect(
+        editorState.snapshot.headOperationIds,
+        ownerState.snapshot.headOperationIds,
       );
     },
   );

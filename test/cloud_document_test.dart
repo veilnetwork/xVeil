@@ -337,6 +337,37 @@ void main() {
     expect(result.withheldOperations, [operation]);
   });
 
+  test('authenticated parent cycle and its descendants are rejected', () {
+    final left = _operation(
+      author: _id(1),
+      seq: 0,
+      epoch: 0,
+      id: _hash(80),
+      parents: [_hash(81)],
+    );
+    final right = _operation(
+      author: _id(1),
+      seq: 1,
+      epoch: 0,
+      id: _hash(81),
+      prev: left.recordHash,
+      parents: [_hash(80)],
+    );
+    final descendant = _operation(
+      author: _id(1),
+      seq: 2,
+      epoch: 0,
+      id: _hash(82),
+      prev: right.recordHash,
+      parents: [_hash(81)],
+    );
+
+    final result = _fold(operations: [descendant, right, left]);
+    expect(result.acceptedOperations, isEmpty);
+    expect(result.rejectedOperations, containsAll([left, right, descendant]));
+    expect(result.withheldOperations, isEmpty);
+  });
+
   test('duplicate author sequence fails closed instead of choosing a fork', () {
     final left = _operation(
       author: _id(1),
