@@ -4,12 +4,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/ids.dart';
+import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call_signal.dart';
 import '../domain/group.dart';
 import '../domain/group_call.dart';
 import 'call_service.dart';
 import 'call_slot.dart';
 import 'group_service.dart';
+import 'providers.dart';
+import 'veil_group_call_media.dart';
 
 const _uuid = Uuid();
 const Duration kGroupCallRingTimeout = Duration(seconds: 45);
@@ -60,6 +63,7 @@ class GroupCallService {
   bool _started = false;
 
   GroupCall? get current => _current;
+  GroupCallMediaController? get mediaController => _media;
   Stream<GroupCall?> get changes => _changes.stream;
 
   void start() {
@@ -552,8 +556,16 @@ final groupCallServiceProvider = Provider<GroupCallService?>((ref) {
   final groups = ref.watch(groupServiceProvider);
   if (groups == null) return null;
   final directCalls = ref.watch(callServiceProvider);
+  final transport = ref.read(veilTransportProvider);
   final service = GroupCallService(
     groups,
+    media:
+        transport is VeilFlutterTransport &&
+            VeilGroupCallMediaController.isSupportedPlatform
+        ? VeilGroupCallMediaController(
+            VeilGroupMediaChannelTransport(transport),
+          )
+        : null,
     callSlot: ref.read(callSlotProvider),
     otherCallBusy: () => directCalls.current?.isLive ?? false,
   )..start();

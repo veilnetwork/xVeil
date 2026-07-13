@@ -53,6 +53,7 @@ import '../state/mac_media_permissions.dart';
 import '../state/messaging.dart';
 import '../state/nickname_peers.dart';
 import '../state/veil_call_media.dart' show remoteVideoFrame;
+import '../state/veil_group_call_media.dart';
 import '../state/providers.dart';
 import '../state/sticker_message.dart';
 import '../state/sticker_store.dart';
@@ -4724,7 +4725,10 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final service = ref.read(groupCallServiceProvider);
     final groupHex = req.uri.queryParameters['group'];
     if (service == null || groupHex == null) {
-      return _json(req, {'ok': false, 'error': 'no service/group'}, status: 409);
+      return _json(req, {
+        'ok': false,
+        'error': 'no service/group',
+      }, status: 409);
     }
     final NodeId groupId;
     try {
@@ -4758,7 +4762,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   }
 
   Future<void> _groupCallState(HttpRequest req, {bool? actionOk}) async {
-    final call = ref.read(groupCallServiceProvider)?.current;
+    final service = ref.read(groupCallServiceProvider);
+    final call = service?.current;
+    final media = service?.mediaController;
     await _json(req, {
       'ok': actionOk ?? true,
       'call': call == null
@@ -4787,6 +4793,13 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
               'micOn': call.micOn,
               'cameraOn': call.cameraOn,
               'screenOn': call.screenOn,
+              'mediaPlane': media is VeilGroupCallMediaController
+                  ? {
+                      'nativeAudio': media.audioRunning,
+                      'peerChannels': media.connectedPeerCount,
+                      'rxPeers': media.receivingPeerCount,
+                    }
+                  : null,
             },
     });
   }
