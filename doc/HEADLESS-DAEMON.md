@@ -95,8 +95,12 @@ The daemon serves the same authenticated API, WebSocket event feed and
 loopback webhook implementation as the GUI. HTTP always binds only
 `127.0.0.1`; expose it remotely only through a separately authenticated tunnel.
 Calls return HTTP 501 because the headless host has no audio/video media engine.
-Messaging, contacts, files, OpenAPI, scoped tokens, WebSocket events and
-loopback webhooks use the normal production code paths.
+Messaging, contacts, files, groups, OpenAPI, scoped tokens, WebSocket events
+and loopback webhooks use the normal production code paths. Group list/create
+and message read/post are available at `/v1/groups` and
+`/v1/groups/messages`; incoming group messages also appear in the WebSocket
+and webhook feed as `group_message` events. The daemon uses the same signed
+group log and epoch-E2EE service as the GUI, not an API-only shadow store.
 
 SIGINT or SIGTERM stops the API, mailbox and node, closes the encrypted store,
 and removes the identity-free runtime socket directory.

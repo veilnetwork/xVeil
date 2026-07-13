@@ -8,7 +8,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/ids.dart';
 import '../../l10n/app_localizations.dart';
-import '../../state/group_service.dart';
+import '../../state/group_service_providers.dart';
 
 class GroupListScreen extends ConsumerWidget {
   const GroupListScreen({super.key});
@@ -68,8 +68,8 @@ class GroupListScreen extends ConsumerWidget {
             ),
       body: svc == null
           ? const Center(child: CircularProgressIndicator())
-          : AnimatedBuilder(
-              animation: svc.changes,
+          : StreamBuilder<int>(
+              stream: svc.changes.stream,
               builder: (context, _) => FutureBuilder<
                       List<
                           ({

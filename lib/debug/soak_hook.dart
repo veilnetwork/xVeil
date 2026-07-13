@@ -29,7 +29,7 @@ import '../domain/device_sync.dart';
 import '../domain/group.dart';
 import '../domain/group_policy.dart';
 import '../state/group_crypto.dart';
-import '../state/group_service.dart';
+import '../state/group_service_providers.dart';
 import '../state/group_call_service.dart';
 import '../routing/router.dart';
 import '../domain/call_log.dart';

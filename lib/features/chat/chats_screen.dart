@@ -17,7 +17,7 @@ import '../../state/messaging.dart';
 import '../../state/nickname_peers.dart';
 import 'chat_actions.dart';
 import 'chat_search.dart';
-import '../../state/group_service.dart';
+import '../../state/group_service_providers.dart';
 import '../groups/group_tile.dart';
 import '../../state/folder_panel_controller.dart';
 import '../../state/vnote_message.dart';

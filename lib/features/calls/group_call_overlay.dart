@@ -15,7 +15,7 @@ import '../../domain/group_policy.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/group_call_service.dart';
-import '../../state/group_service.dart';
+import '../../state/group_service_providers.dart';
 import '../../state/veil_group_call_media.dart';
 
 /// Global room surface for the signed group-call control plane.

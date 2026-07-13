@@ -10,7 +10,7 @@ import '../domain/group.dart';
 import '../domain/group_call.dart';
 import 'call_service.dart';
 import 'call_slot.dart';
-import 'group_service.dart';
+import 'group_service_providers.dart';
 import 'providers.dart';
 import 'veil_group_call_media.dart';
 

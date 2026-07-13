@@ -19,7 +19,7 @@ import '../../domain/group_message.dart';
 import '../../domain/group_policy.dart';
 import '../../domain/group_reaction.dart';
 import '../../l10n/app_localizations.dart';
-import '../../state/group_service.dart';
+import '../../state/group_service_providers.dart';
 import '../../state/group_call_service.dart';
 import '../../state/messaging.dart'
     show
@@ -561,8 +561,8 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => AnimatedBuilder(
-        animation: svc.changes,
+      builder: (_) => StreamBuilder<int>(
+        stream: svc.changes.stream,
         builder: (context, _) => FutureBuilder<GroupState?>(
           future: svc.stateOf(_gid),
           builder: (context, snap) {
@@ -956,8 +956,8 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       body: Column(
         children: [
           Expanded(
-            child: AnimatedBuilder(
-              animation: svc.changes,
+            child: StreamBuilder<int>(
+              stream: svc.changes.stream,
               builder: (context, _) =>
                   FutureBuilder<
                     (List<GroupMessage>, Map<String, MessageReactions>)

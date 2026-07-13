@@ -15,7 +15,7 @@ import '../domain/chat.dart';
 import '../domain/group_message.dart';
 import 'app_controller.dart';
 import 'call_service.dart' show callServiceProvider, currentCallProvider;
-import 'group_service.dart';
+import 'group_service_providers.dart';
 import 'messaging.dart' show conversationsProvider, messagingServiceProvider;
 import 'providers.dart';
 

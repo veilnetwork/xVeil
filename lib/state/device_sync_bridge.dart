@@ -3,7 +3,7 @@
 // mirrors 1:1 messages. EMIT taps fire only on LOCAL changes (each apply path
 // writes below its tap), so nothing a device applies ever echoes back; APPLY
 // consumes the same [GroupService.deviceIncoming] stream as the msgMirror
-// bridge (which lives with the service itself in group_service.dart).
+// bridge (which lives with the service itself in group_service_providers.dart).
 //
 // Events can arrive in any order (catch-up snapshots, re-drives), so applies
 // are gated by a newest-wins timestamp per (kind, key) — the in-RAM twin of
@@ -20,7 +20,7 @@ import '../domain/chat.dart' show ContactStatus, SignaturePolicy;
 import '../domain/device_sync.dart';
 import 'call_log.dart';
 import 'device_settings_sync.dart';
-import 'group_service.dart';
+import 'group_service_providers.dart';
 import 'locale_controller.dart';
 import 'messaging.dart';
 import 'reactions_visibility_controller.dart';

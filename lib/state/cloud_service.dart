@@ -14,7 +14,7 @@ import '../domain/cloud_capability.dart';
 import '../domain/content_manifest.dart';
 import '../domain/device_sync.dart';
 import '../domain/group_message.dart';
-import 'group_service.dart';
+import 'group_service_providers.dart';
 import 'messaging.dart';
 import 'providers.dart';
 

@@ -10,7 +10,7 @@ import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/domain/identity.dart';
 import 'package:xveil/state/api_server.dart';
 import 'package:xveil/state/app_controller.dart';
-import 'package:xveil/state/group_service.dart';
+import 'package:xveil/state/group_service_providers.dart';
 import 'package:xveil/state/providers.dart';
 
 late Storage _activeStorage;
