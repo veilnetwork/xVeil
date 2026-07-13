@@ -11,7 +11,8 @@ import 'package:veil_flutter/veil_ffi.dart'
 import '../core/ids.dart';
 import '../data/transport/relay_key_cache.dart';
 import '../data/transport/veil_addressing.dart';
-import '../data/transport/veil_mailbox_network.dart' show MailboxDrainUnreachable;
+import '../data/transport/veil_mailbox_network.dart'
+    show MailboxDrainUnreachable;
 import '../data/transport/veil_transport.dart';
 import 'mailbox_orchestrator.dart';
 import 'package:xveil/core/log.dart';
@@ -64,13 +65,13 @@ class MailboxService implements MailboxSink {
     RelayKeyCache? relayKeyCache,
     int ourCertVersion = 0,
     Duration drainInterval = const Duration(seconds: 10),
-  })  : _client = client,
-        _me = me,
-        _orchestrator = orchestrator,
-        _deliver = deliver,
-        _relayKeyCache = relayKeyCache,
-        _ourCertVersion = ourCertVersion,
-        _drainInterval = drainInterval;
+  }) : _client = client,
+       _me = me,
+       _orchestrator = orchestrator,
+       _deliver = deliver,
+       _relayKeyCache = relayKeyCache,
+       _ourCertVersion = ourCertVersion,
+       _drainInterval = drainInterval;
 
   final VeilClient _client;
   final NodeId _me;
@@ -142,6 +143,10 @@ class MailboxService implements MailboxSink {
   // the timer instead of busy-looping; a fresh stack rebuild starts a NEW mailbox
   // on the live transport (see messagingServiceProvider).
   bool _handleDead = false;
+  bool _disposed = false;
+  final Completer<void> _disposeSignal = Completer<void>();
+  Future<void>? _startInFlight;
+  Completer<void>? _drainCompletion;
   // Relay candidates kept so the periodic tick can KEEP retrying registration
   // until one resolves (a relay's published key can appear minutes after we
   // first look — e.g. a just-restarted relay), not just during start()'s window.
@@ -182,8 +187,19 @@ class MailboxService implements MailboxSink {
   /// the drain timer is only armed once. Candidates that aren't relay-capable
   /// (no resolvable relay-key record) are simply skipped — the resolve itself
   /// validates the choice, so a wrong/derived node_id is non-fatal.
-  Future<void> start({required List<NodeId> relays}) async {
-    if (_handleDead) return; // this service is bound to a dead handle; no-op
+  Future<void> start({required List<NodeId> relays}) {
+    if (_handleDead || _disposed) return Future<void>.value();
+    final running = _startInFlight;
+    if (running != null) return running;
+    late final Future<void> run;
+    run = _start(relays).whenComplete(() {
+      if (identical(_startInFlight, run)) _startInFlight = null;
+    });
+    _startInFlight = run;
+    return run;
+  }
+
+  Future<void> _start(List<NodeId> relays) async {
     // Order candidates by Kademlia XOR distance to our own node_id so we
     // deterministically prefer the SAME relay across restarts AND converge with
     // veil's built-in receiver task (pick_rendezvous_relay_deterministic uses the
@@ -197,14 +213,15 @@ class MailboxService implements MailboxSink {
     // deposit to. It still has to resolve; if the relay is gone we fall straight
     // through to the XOR order. No-op when there's no cache (loopback/dev).
     final preferred = await _relayKeyCache?.getPreferredRelay();
+    if (_disposed || _handleDead) return;
     if (preferred != null && _relays.any((r) => r.hex == preferred.hex)) {
-      _relays = [
-        preferred,
-        ..._relays.where((r) => r.hex != preferred.hex),
-      ];
+      _relays = [preferred, ..._relays.where((r) => r.hex != preferred.hex)];
     }
-    devLog(() => 'xVeil[mailbox]: start — ${relays.length} relay candidate(s), '
-        'me=${_me.short}, alreadyRegistered=$_registered');
+    devLog(
+      () =>
+          'xVeil[mailbox]: start — ${relays.length} relay candidate(s), '
+          'me=${_me.short}, alreadyRegistered=$_registered',
+    );
     // Resolving a relay's KEM key is a DHT FIND_VALUE; right after the node
     // connects its routing table is barely warm, so the first attempt often
     // returns null even though the relay DOES advertise an entry. A quick
@@ -213,12 +230,21 @@ class MailboxService implements MailboxSink {
     // relay resolves — so a relay whose key only appears later (e.g. a restarted
     // seed) is still picked up. Idempotent; stops as soon as one sticks.
     const backoffSecs = [0, 4, 8, 16];
-    for (var attempt = 0; attempt < backoffSecs.length && !_registered; attempt++) {
+    for (
+      var attempt = 0;
+      attempt < backoffSecs.length && !_registered;
+      attempt++
+    ) {
       if (backoffSecs[attempt] > 0) {
-        await Future<void>.delayed(Duration(seconds: backoffSecs[attempt]));
+        await Future.any<void>([
+          Future<void>.delayed(Duration(seconds: backoffSecs[attempt])),
+          _disposeSignal.future,
+        ]);
       }
+      if (_disposed || _handleDead) return;
       await _tryRegister();
     }
+    if (_disposed || _handleDead) return;
     devLog(() => 'xVeil[mailbox]: start done — registered=$_registered');
     if (_drainTimer == null) _armDrainLoop();
     // In-network deposit wake: a mailbox relay that just STORED a deposit for
@@ -237,7 +263,7 @@ class MailboxService implements MailboxSink {
   /// already debounces per receiver) and open the burst window for the rest of
   /// the exchange. A drain already in flight is respected by [_drainTick].
   void onDepositWake() {
-    if (_handleDead || _drainTimer == null) return;
+    if (_disposed || _handleDead || _drainTimer == null) return;
     devLog(() => 'xVeil[mailbox]: deposit wake — draining now');
     _heat();
     _drainSkips = 0;
@@ -252,12 +278,14 @@ class MailboxService implements MailboxSink {
   /// cadence follow the hot window without stacking timers; the loop stops
   /// whenever [_drainTimer] is cleared (dispose / dead handle).
   void _armDrainLoop() {
-    if (_handleDead) return;
+    if (_disposed || _handleDead) return;
     _drainTimer?.cancel();
     _drainTimer = Timer(_isHot ? hotDrainInterval : _drainInterval, () {
       unawaited(
         _drainTick().whenComplete(() {
-          if (_drainTimer != null && !_handleDead) _armDrainLoop();
+          if (_drainTimer != null && !_disposed && !_handleDead) {
+            _armDrainLoop();
+          }
         }),
       );
     });
@@ -276,12 +304,15 @@ class MailboxService implements MailboxSink {
   /// entries (the node's built-in refresh keeps them alive, preserving KEM).
   Future<void> _tryRegister() async {
     for (final relay in _relays) {
+      if (_disposed || _handleDead) return;
       await _register(relay);
     }
   }
 
   Future<void> _register(NodeId relay) async {
-    if (_publisherRegistered.contains(relay.hex)) return;
+    if (_disposed || _handleDead || _publisherRegistered.contains(relay.hex)) {
+      return;
+    }
     // Prefer a FRESH, verified resolve — now a one-hop fast path straight to the
     // connected relay (see veil's connected-peer resolver), so it succeeds even
     // on a cold routing table right after a restart. Only if that genuinely
@@ -289,17 +320,23 @@ class MailboxService implements MailboxSink {
     // hiccup doesn't leave us unreachable. We never cache a miss; only a fresh
     // key is written back, and a cached key that then fails to register is
     // evicted (it may be stale).
-    var kem = await _client.lookupRelayX25519(relay.bytes);
-    final fromFresh = kem != null;
-    kem ??= await _relayKeyCache?.get(relay);
-    if (kem == null) {
-      // No fresh resolve and no usable cached key — a later start()/reconnect
-      // retries.
-      devLog(() => 'xVeil[mailbox]: relay ${relay.short} — KEM key NOT resolved '
-          '(no relay-dir entry, no cached key); skipping');
-      return;
-    }
+    var fromFresh = false;
     try {
+      var kem = await _client.lookupRelayX25519(relay.bytes);
+      fromFresh = kem != null;
+      kem ??= await _relayKeyCache?.get(relay);
+      if (kem == null || _disposed || _handleDead) {
+        // No fresh resolve and no usable cached key — a later start()/reconnect
+        // retries.
+        if (kem == null) {
+          devLog(
+            () =>
+                'xVeil[mailbox]: relay ${relay.short} — KEM key NOT resolved '
+                '(no relay-dir entry, no cached key); skipping',
+          );
+        }
+        return;
+      }
       await _client.registerRendezvousPublisher(
         rendezvousNodeId: relay.bytes,
         authCookie: _cookie,
@@ -325,12 +362,15 @@ class MailboxService implements MailboxSink {
         // Persist the freshly-verified key for a future cold start.
         unawaited(_relayKeyCache?.put(relay, kem) ?? Future.value());
       }
-      devLog(() => 'xVeil[mailbox]: REGISTERED rendezvous publisher @ relay '
-          '${relay.short} (me=${_me.short} reachable by node_id now; '
-          'key=${fromFresh ? "fresh" : "cached"})');
+      devLog(
+        () =>
+            'xVeil[mailbox]: REGISTERED rendezvous publisher @ relay '
+            '${relay.short} (me=${_me.short} reachable by node_id now; '
+            'key=${fromFresh ? "fresh" : "cached"})',
+      );
     } catch (e) {
       devLog(() => 'xVeil[mailbox]: register @ ${relay.short} FAILED: $e');
-      if (!fromFresh) {
+      if (!fromFresh && !_disposed) {
         // We registered with a cached key and it failed — it may be stale; drop
         // it so the next tick resolves fresh instead of reusing a bad key.
         unawaited(_relayKeyCache?.evict(relay) ?? Future.value());
@@ -342,8 +382,11 @@ class MailboxService implements MailboxSink {
         _handleDead = true;
         _drainTimer?.cancel();
         _drainTimer = null;
-        devLog(() => 'xVeil[mailbox]: handle dead — stopping retries until a fresh '
-            'stack rebuilds this service');
+        devLog(
+          () =>
+              'xVeil[mailbox]: handle dead — stopping retries until a fresh '
+              'stack rebuilds this service',
+        );
       }
     }
   }
@@ -377,8 +420,9 @@ class MailboxService implements MailboxSink {
   Future<void> _warmNextCandidate() async {
     final cache = _relayKeyCache;
     if (cache == null) return;
-    final unwarmed =
-        _relays.where((r) => !_warmedRelays.contains(r.hex)).toList();
+    final unwarmed = _relays
+        .where((r) => !_warmedRelays.contains(r.hex))
+        .toList();
     if (unwarmed.isEmpty) return;
     final relay = unwarmed[_warmCursor++ % unwarmed.length];
     try {
@@ -415,7 +459,7 @@ class MailboxService implements MailboxSink {
   /// round, debounced, and a no-op while a drain is already in flight.
   @override
   void nudgeDrain() {
-    if (_handleDead || _drainTimer == null) return;
+    if (_disposed || _handleDead || _drainTimer == null) return;
     // A live frame = an active conversation: open the burst window so the
     // NEXT few polls run at the fast cadence too, not just this one.
     _heat();
@@ -440,7 +484,7 @@ class MailboxService implements MailboxSink {
   /// user actions and expires on silence.
   @override
   void noteActivity() {
-    if (_handleDead || _drainTimer == null) return;
+    if (_disposed || _handleDead || _drainTimer == null) return;
     _heat();
     _drainSkips = 0;
     _emptyDrainStreak = 0;
@@ -448,8 +492,19 @@ class MailboxService implements MailboxSink {
     // timer would otherwise delay the first fast poll by up to _drainInterval)
   }
 
-  Future<void> _drainTick() async {
-    if (_draining || _handleDead) return;
+  Future<void> _drainTick() {
+    if (_draining || _disposed || _handleDead) return Future<void>.value();
+    _draining = true;
+    final completion = Completer<void>();
+    _drainCompletion = completion;
+    return _runDrainTick().whenComplete(() {
+      _draining = false;
+      if (identical(_drainCompletion, completion)) _drainCompletion = null;
+      if (!completion.isCompleted) completion.complete();
+    });
+  }
+
+  Future<void> _runDrainTick() async {
     // Warm candidate relay KEM keys BEFORE the back-off gate. The registered
     // relay keeps returning our un-openable dead blobs (recovered=empty), which
     // escalates the empty-drain back-off and would SKIP the body below — so if we
@@ -466,7 +521,6 @@ class MailboxService implements MailboxSink {
       _drainSkips--;
       return; // in backoff after empty/failed drains — don't stall the IPC
     }
-    _draining = true;
     var gotMail = false;
     var unreachable = false;
     try {
@@ -525,7 +579,6 @@ class MailboxService implements MailboxSink {
       // polling), never like a confirmed-empty inbox.
       unreachable = true;
     } finally {
-      _draining = false;
       if (gotMail) {
         // Mail delivered — clear all back-off and re-poll promptly (more may be
         // queued at the relay), and open the burst window: an incoming message
@@ -533,7 +586,9 @@ class MailboxService implements MailboxSink {
         _heat();
         _emptyDrainStreak = 0;
         _drainSkips = 0;
-        if (_drainTimer != null) _armDrainLoop(); // switch to the hot cadence NOW
+        if (_drainTimer != null) {
+          _armDrainLoop(); // switch to the hot cadence NOW
+        }
       } else if (unreachable) {
         // Transient: bounded retry. Don't touch the idle streak (a relay never
         // confirmed empty), and cap the skip low so pending mail is stranded for
@@ -557,10 +612,16 @@ class MailboxService implements MailboxSink {
   }
 
   Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
+    _handleDead = true;
+    if (!_disposeSignal.isCompleted) _disposeSignal.complete();
     _drainTimer?.cancel();
     _drainTimer = null;
     await _wakeSub?.cancel();
     _wakeSub = null;
+    await _startInFlight;
+    await _drainCompletion?.future;
   }
 
   /// Stable per-identity rendezvous cookie: the two halves of the 32-byte

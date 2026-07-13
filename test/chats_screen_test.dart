@@ -8,7 +8,7 @@ import 'package:xveil/domain/chat.dart';
 import 'package:xveil/features/channels/channels_screen.dart';
 import 'package:xveil/features/chat/chats_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
-import 'package:xveil/state/group_service.dart';
+import 'package:xveil/state/group_service_providers.dart';
 import 'package:xveil/state/messaging.dart';
 
 NodeId _id(int s) => NodeId(Uint8List.fromList(List.filled(32, s)));

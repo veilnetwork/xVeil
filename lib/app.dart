@@ -11,7 +11,7 @@ import 'state/call_log.dart';
 import 'state/cloud_capability_service.dart';
 import 'state/cloud_service.dart';
 import 'state/device_sync_bridge.dart';
-import 'state/group_service.dart';
+import 'state/group_service_providers.dart';
 import 'state/group_call_service.dart';
 import 'state/locale_controller.dart';
 import 'theme/app_theme.dart';

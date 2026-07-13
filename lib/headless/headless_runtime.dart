@@ -3,10 +3,12 @@ import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import '../api/api_server.dart';
 import '../core/ids.dart';
 import '../core/log.dart';
+import '../data/node/embedded_node.dart';
 import '../data/node/node_controller.dart';
 import '../data/native_libs.dart';
 import '../data/serve_source.dart';
@@ -15,9 +17,13 @@ import '../data/storage/hidden_volume_storage.dart';
 import '../data/transport/bootstrap_invite.dart';
 import '../data/transport/relay_key_cache.dart';
 import '../data/transport/veil_flutter_transport.dart';
+import '../data/transport/veil_mailbox.dart';
 import '../data/veil_stack.dart';
 import '../domain/chat.dart';
+import '../domain/group_message.dart';
 import '../domain/identity.dart';
+import '../state/group_epoch_service.dart';
+import '../state/group_service.dart';
 import '../state/mailbox_orchestrator.dart';
 import '../state/mailbox_service.dart';
 import '../state/messaging_core.dart';
@@ -35,6 +41,7 @@ class HeadlessRuntime {
     required this.storage,
     required this.stack,
     required this.messaging,
+    required this.groups,
     required this.api,
     required this.tokens,
     this._mailbox,
@@ -46,6 +53,7 @@ class HeadlessRuntime {
   final HiddenVolumeStorage storage;
   final RealVeilStack stack;
   final MessagingService messaging;
+  final GroupService groups;
   final ApiServer api;
   final List<ApiToken> tokens;
 
@@ -70,6 +78,7 @@ class HeadlessRuntime {
     )..useOnDiskTier(Directory(config.blobDir));
     RealVeilStack? stack;
     MessagingService? messaging;
+    GroupService? groups;
     ApiServer? api;
     MailboxService? mailbox;
     StreamSubscription<NodeStatus>? nodeStatus;
@@ -113,6 +122,43 @@ class HeadlessRuntime {
       )..sourceOpener = veilSourceOpener;
       messaging.start();
 
+      final identityToml = await storage.loadNodeConfig();
+      if (identityToml == null) {
+        throw StateError('running veil node has no deniable identity config');
+      }
+      final groupNative = _veilNativeHandle();
+      final groupProbe = EmbeddedNode.signMessage(
+        identityToml,
+        Uint8List(0),
+        lib: groupNative,
+      );
+      final groupSigner = NativeGroupSigner(
+        identityToml: identityToml,
+        selfId: nodeId,
+        selfPubKey: groupProbe.publicKey,
+        lib: groupNative,
+      );
+      final epochCrypto = stack.transport is VeilFlutterTransport
+          ? (stack.transport as VeilFlutterTransport).mailboxCrypto()
+          : LoopbackMailboxCrypto(senderForOpen: nodeId);
+      groups = GroupService(
+        storage,
+        groupSigner,
+        epochService: GroupEpochService(epochCrypto),
+        ourCertVersion: 1,
+        send: (peer, groupId, json) =>
+            messaging!.sendGroupSnapshot(peer, groupId.hex, json),
+        sendContentRequest: (holder, json) =>
+            messaging!.sendGroupContentRequest(holder, json),
+        sendGroupCallFrame: (peer, signal, json) =>
+            messaging!.sendGroupCallSignal(peer, signal, json),
+        grantContentServe: messaging.grantGroupContentServe,
+        startContentPull: (holder, contentId) async {
+          await messaging!.downloadContent(holder, contentId);
+        },
+      );
+      _wireGroupIngress(messaging, groups);
+
       final relays = mailboxRelayCandidates(config.bootstrapPeers);
       if (stack.transport case final VeilFlutterTransport transport
           when relays.isNotEmpty) {
@@ -155,14 +201,7 @@ class HeadlessRuntime {
 
       var webhookUrl = await storage.getSetting(_webhookKey);
       if (webhookUrl?.isEmpty ?? false) webhookUrl = null;
-      final events = messaging.incoming.map(
-        (n) => <String, dynamic>{
-          'type': 'message',
-          'from': n.from.hex,
-          'preview': n.preview,
-          'isFile': n.isFile,
-        },
-      );
+      final events = _events(messaging, groups);
       webhookPump = _WebhookPump(events);
 
       final handler = ApiHandler(
@@ -189,14 +228,11 @@ class HeadlessRuntime {
         callState: () => null,
         callAction: (_) async {},
         callsAvailable: false,
-        groups: () async => const [],
-        createGroup: (_) async => null,
-        groupMessages: (_, _) async => null,
-        sendGroupMessage: (_, _, _) async => 'groups unavailable',
-        // GroupService still imports Flutter/Riverpod. Keep the headless
-        // binary honestly Flutter-free and return machine-detectable 501 until
-        // the pure group core is split out and can be wired here.
-        groupsAvailable: false,
+        groups: () => _groups(groups!),
+        createGroup: (name) => _createGroup(groups!, name),
+        groupMessages: (group, limit) => _groupMessages(groups!, group, limit),
+        sendGroupMessage: (group, body, replyTo) =>
+            _sendGroupMessage(groups!, group, body, replyTo),
         webhook: () => webhookUrl,
         setWebhook: (url) async {
           webhookUrl = url;
@@ -213,6 +249,7 @@ class HeadlessRuntime {
         storage: storage,
         stack: stack,
         messaging: messaging,
+        groups: groups,
         api: api,
         tokens: List.unmodifiable(loadedTokens),
         mailbox: mailbox,
@@ -225,10 +262,144 @@ class HeadlessRuntime {
       await nodeStatus?.cancel();
       await mailbox?.dispose();
       await messaging?.dispose();
+      await groups?.dispose();
       await stack?.dispose();
       await storage.close();
       rethrow;
     }
+  }
+
+  static void _wireGroupIngress(
+    MessagingService messaging,
+    GroupService groups,
+  ) {
+    messaging.onGroupEntry = (peer, bundleJson) {
+      unawaited(groups.ingestGroupEntry(peer, bundleJson));
+    };
+    messaging.onGroupContentRequest = (peer, requestJson) {
+      unawaited(groups.handleContentRequest(requestJson));
+    };
+    messaging.onGroupCallSignal = groups.ingestGroupCallFrame;
+    messaging.onGroupEntryFromStranger = (peer, bundleJson) {
+      unawaited(groups.ingestGroupEntryFromStranger(peer, bundleJson));
+    };
+    messaging.allowStrangerGroupSync = groups.allowStrangerGroupSync;
+    unawaited(groups.nudgeGroupSyncAll());
+  }
+
+  static Stream<Map<String, dynamic>> _events(
+    MessagingService messaging,
+    GroupService groups,
+  ) => Stream.multi((controller) {
+    final subscriptions = <StreamSubscription<dynamic>>[
+      messaging.incoming.listen(
+        (notice) => controller.add({
+          'type': 'message',
+          'from': notice.from.hex,
+          'preview': notice.preview,
+          'isFile': notice.isFile,
+        }),
+        onError: controller.addError,
+      ),
+      groups.incoming.listen(
+        (event) => controller.add({
+          'type': 'group_message',
+          'groupId': event.groupId.hex,
+          'from': event.message.author.hex,
+          'preview': GroupService.previewOf(event.message),
+          'isFile': event.message.attachment != null,
+        }),
+        onError: controller.addError,
+      ),
+    ];
+    controller.onCancel = () async {
+      for (final subscription in subscriptions) {
+        await subscription.cancel();
+      }
+    };
+  }, isBroadcast: true);
+
+  static Future<List<Map<String, dynamic>>> _groups(
+    GroupService groups,
+  ) async => [
+    for (final group in await groups.listGroups())
+      {
+        'groupId': group.groupId.hex,
+        'name': group.name,
+        'unread': group.unread,
+        'muted': group.muted,
+        'preview': group.preview,
+        'lastTs': group.lastTs,
+      },
+  ];
+
+  static Future<String?> _createGroup(GroupService groups, String name) async {
+    try {
+      return (await groups.createGroup(name)).hex;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Map<String, dynamic> _groupMessageJson(GroupMessage message) => {
+    'id': message.ref,
+    'author': message.author.hex,
+    'body': message.body,
+    'sentAt': message.createdAtMs,
+    if (message.replyTo != null) 'replyTo': message.replyTo,
+    if (message.attachment != null)
+      'attachment': {
+        'kind': message.attachment!.kind,
+        'width': message.attachment!.w,
+        'height': message.attachment!.h,
+        if (message.attachment!.name != null) 'name': message.attachment!.name,
+        if (message.attachment!.cid != null)
+          'contentId': message.attachment!.cid,
+      },
+  };
+
+  static Future<List<Map<String, dynamic>>?> _groupMessages(
+    GroupService groups,
+    String groupHex,
+    int limit,
+  ) async {
+    final NodeId groupId;
+    try {
+      groupId = NodeId.fromHex(groupHex);
+    } catch (_) {
+      return null;
+    }
+    final visible = (await groups.listGroups()).any(
+      (entry) => entry.groupId == groupId,
+    );
+    if (!visible) return null;
+    final all = await groups.messagesOf(groupId);
+    return [
+      for (final message in all.skip(
+        all.length > limit ? all.length - limit : 0,
+      ))
+        _groupMessageJson(message),
+    ];
+  }
+
+  static Future<String?> _sendGroupMessage(
+    GroupService groups,
+    String groupHex,
+    String body,
+    String? replyTo,
+  ) async {
+    final NodeId groupId;
+    try {
+      groupId = NodeId.fromHex(groupHex);
+    } catch (_) {
+      return 'invalid group';
+    }
+    final visible = (await groups.listGroups()).any(
+      (entry) => entry.groupId == groupId,
+    );
+    if (!visible) return 'group not found';
+    final sent = await groups.postMessage(groupId, body, replyTo: replyTo);
+    return sent ? null : 'not a writable group member';
   }
 
   static Future<List<ApiToken>> _loadTokens(HiddenVolumeStorage storage) async {
@@ -419,6 +590,7 @@ class HeadlessRuntime {
     await _nodeStatus?.cancel();
     await _mailbox?.dispose();
     await messaging.dispose();
+    await groups.dispose();
     await stack.dispose();
     await storage.close();
   }

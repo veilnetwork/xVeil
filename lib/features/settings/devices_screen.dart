@@ -12,7 +12,7 @@ import '../../domain/device_link.dart';
 import '../../domain/sovereign_recovery.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
-import '../../state/group_service.dart';
+import '../../state/group_service_providers.dart';
 import '../../state/providers.dart';
 import '../contacts/qr_scan_screen.dart';
 

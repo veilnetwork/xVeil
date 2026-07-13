@@ -11,7 +11,7 @@ import 'package:xveil/domain/group_message.dart';
 import 'package:xveil/domain/group_reaction.dart';
 import 'package:xveil/features/groups/group_chat_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
-import 'package:xveil/state/group_service.dart';
+import 'package:xveil/state/group_service_providers.dart';
 import 'package:xveil/state/providers.dart';
 
 import 'support/fake_hv_container.dart';

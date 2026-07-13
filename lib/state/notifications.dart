@@ -6,7 +6,7 @@ import '../core/ids.dart';
 import '../core/log.dart';
 import '../data/notifications/notification_service.dart';
 import '../routing/router.dart';
-import 'group_service.dart' show groupServiceProvider;
+import 'group_service_providers.dart' show groupServiceProvider;
 import 'messaging.dart';
 import 'providers.dart';
 

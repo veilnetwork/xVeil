@@ -15,12 +15,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:math';
-import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:veil_flutter/veil_flutter.dart' as veil;
+import 'dart:typed_data';
+import 'package:veil_flutter/veil_ffi.dart' as veil;
 
 import '../core/ids.dart';
-import '../domain/chat.dart' show MessageDirection;
+import '../core/log.dart';
 import '../domain/call_signal.dart';
 import '../domain/device_sync.dart';
 import '../domain/device_link.dart';
@@ -32,17 +31,61 @@ import '../domain/group_message.dart';
 import '../domain/group_payload.dart';
 import '../domain/group_policy.dart';
 import '../domain/group_reaction.dart';
-import '../data/node/embedded_node.dart';
 import '../data/transport/bootstrap_invite.dart';
-import '../data/transport/veil_flutter_transport.dart';
-import '../data/transport/veil_mailbox.dart';
 import '../data/storage/storage.dart';
-import 'app_controller.dart';
-import 'cloud_document_providers.dart';
 import 'group_crypto.dart';
 import 'group_epoch_service.dart';
-import 'messaging.dart';
-import 'providers.dart';
+
+bool _listEquals<T>(List<T>? left, List<T>? right) {
+  if (identical(left, right)) return true;
+  if (left == null || right == null || left.length != right.length) {
+    return false;
+  }
+  for (var index = 0; index < left.length; index++) {
+    if (left[index] != right[index]) return false;
+  }
+  return true;
+}
+
+/// Flutter-free change signal used by both the GUI provider and headless host.
+/// It intentionally mirrors the tiny `ValueNotifier<int>` surface the group
+/// list needs without pulling the Flutter engine into the group core.
+final class GroupChangeSignal {
+  int _value = 0;
+  bool _disposed = false;
+  final List<void Function()> _listeners = <void Function()>[];
+  final StreamController<int> _controller = StreamController<int>.broadcast(
+    sync: true,
+  );
+
+  int get value => _value;
+  Stream<int> get stream => _controller.stream;
+
+  set value(int next) {
+    if (_disposed || next == _value) return;
+    _value = next;
+    _controller.add(next);
+    for (final listener in List<void Function()>.of(_listeners)) {
+      listener();
+    }
+  }
+
+  void addListener(void Function() listener) {
+    if (_disposed) return;
+    if (!_listeners.contains(listener)) _listeners.add(listener);
+  }
+
+  void removeListener(void Function() listener) {
+    _listeners.remove(listener);
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    _listeners.clear();
+    unawaited(_controller.close());
+  }
+}
 
 /// The identity operations the service needs — injectable for tests.
 abstract class GroupSigner {
@@ -310,7 +353,7 @@ class GroupService {
 
   /// Bumped on every persisted mutation (local op/post OR an ingested
   /// snapshot) so open group screens re-fetch. Cheap: the UI reads on change.
-  final ValueNotifier<int> changes = ValueNotifier(0);
+  final GroupChangeSignal changes = GroupChangeSignal();
 
   /// Our own node id — the composer uses it to align outgoing bubbles.
   NodeId get selfId => _signer.selfId;
@@ -381,7 +424,7 @@ class GroupService {
     if (encryptedBundle == null || encryptedBundle.length > 16 * 1024) {
       return false;
     }
-    return listEquals(veil.VeilCrypto.sha256(encryptedBundle), expected);
+    return _listEquals(veil.VeilCrypto.sha256(encryptedBundle), expected);
   }
 
   bool _validControlFor(GroupManifest manifest, ControlEntry e) {
@@ -395,7 +438,7 @@ class GroupService {
       return _validManifest(manifest) &&
           e.groupId == manifest.groupId &&
           e.author == manifest.owner &&
-          listEquals(e.authorPubKey, manifest.genesisPubKey) &&
+          _listEquals(e.authorPubKey, manifest.genesisPubKey) &&
           membershipOp &&
           shapeOk &&
           _signer.verifySovereign(
@@ -1668,7 +1711,7 @@ class GroupService {
       verify: (e) => _validControlFor(b.manifest, e),
     ).state;
     if (!state.isMember(peer)) {
-      debugPrint('xVeil[groups]: sync request from non-member — drop');
+      devLog(() => 'xVeil[groups]: sync request from non-member — drop');
       return false;
     }
     // -1, not 0: seqs start at 0, so "never seen this author" must sit BELOW
@@ -2047,7 +2090,7 @@ class GroupService {
     final req = r;
     final st = await stateOf(req.groupId);
     if (st == null) {
-      debugPrint('xVeil[groups]: content request for unknown group — drop');
+      devLog(() => 'xVeil[groups]: content request for unknown group — drop');
       return false;
     }
     final denial = authorizeGroupContentRequest(
@@ -2059,8 +2102,8 @@ class GroupService {
       verify: _signer.verifyContentRequest,
     );
     if (denial != null) {
-      debugPrint(
-        'xVeil[groups]: content request DENIED (${denial.name}) — drop',
+      devLog(
+        () => 'xVeil[groups]: content request DENIED (${denial.name}) — drop',
       );
       return false;
     }
@@ -2110,7 +2153,7 @@ class GroupService {
     final pending = await _tryPendingDeviceSnapshot(peer, bundleJson);
     if (pending != null) return pending;
     if (!await allowStrangerGroupSync(peer, gidHex)) {
-      debugPrint('xVeil[groups]: stranger snapshot DENIED — drop');
+      devLog(() => 'xVeil[groups]: stranger snapshot DENIED — drop');
       return false;
     }
     return ingestSnapshot(bundleJson);
@@ -2133,7 +2176,7 @@ class GroupService {
       return false;
     }
     if (manifest == null || manifest.groupId != pending.groupId) return null;
-    if (!listEquals(_manifestHash(manifest), pending.manifestHash))
+    if (!_listEquals(_manifestHash(manifest), pending.manifestHash))
       return false;
     if (!await ingestSnapshot(bundleJson)) return false;
     if (!await adoptDeviceGroup(pending.groupId)) return false;
@@ -2655,7 +2698,7 @@ class GroupService {
   ) async {
     if (await deviceGroupIdHex() != null) return null;
     final existing = await localSovereignBundle();
-    if (existing != null && !listEquals(existing, certificate)) return null;
+    if (existing != null && !_listEquals(existing, certificate)) return null;
     final signer = NativeSovereignGroupSigner.openRecoveryCertificate(
       certificate,
       recoveryCode,
@@ -2749,7 +2792,7 @@ class GroupService {
       manifest.isSovereignDevice &&
       manifest.signatureAlgorithm == sovereign.algorithm &&
       manifest.owner == sovereign.nodeId &&
-      listEquals(manifest.genesisPubKey, sovereign.publicKey);
+      _listEquals(manifest.genesisPubKey, sovereign.publicKey);
 
   bool _canUpgradeSovereign(
     GroupManifest manifest,
@@ -2759,7 +2802,7 @@ class GroupService {
       manifest.signatureAlgorithm == 'ed25519' &&
       sovereign.algorithm == 'ed25519+falcon512' &&
       sovereign.publicKey.length == 929 &&
-      listEquals(manifest.genesisPubKey, sovereign.publicKey.sublist(0, 32));
+      _listEquals(manifest.genesisPubKey, sovereign.publicKey.sublist(0, 32));
 
   Future<NodeId?> _mintSovereignDeviceGroup(
     SovereignGroupSigner sovereign,
@@ -3348,6 +3391,16 @@ class GroupService {
     }
     return n;
   }
+
+  /// Releases the pure-Dart event surfaces owned by this identity instance.
+  /// Hosts must call this before replacing/closing the active identity so a
+  /// stale group feed cannot survive an identity switch.
+  Future<void> dispose() async {
+    changes.dispose();
+    await _groupCallIncomingCtl.close();
+    await _deviceIncomingCtl.close();
+    await _incomingCtl.close();
+  }
 }
 
 /// One row of the user-facing group list (the shape [GroupService.listGroups]
@@ -3359,198 +3412,4 @@ typedef GroupListEntry = ({
   bool muted,
   String preview,
   int lastTs,
-});
-
-/// The group list as a stream: re-emits on every service change signal, so
-/// the chats screen (which now inlines groups) rebuilds like any provider.
-final groupListProvider = StreamProvider<List<GroupListEntry>>((ref) async* {
-  final svc = ref.watch(groupServiceProvider);
-  if (svc == null) {
-    yield const [];
-    return;
-  }
-  yield await svc.listGroups();
-  final ticks = StreamController<void>();
-  void onTick() {
-    if (!ticks.isClosed) ticks.add(null);
-  }
-
-  svc.changes.addListener(onTick);
-  ref.onDispose(() {
-    svc.changes.removeListener(onTick);
-    ticks.close();
-  });
-  await for (final _ in ticks.stream) {
-    yield await svc.listGroups();
-  }
-});
-
-/// Builds the real signer from the app's identity, or null before ready.
-final groupSignerProvider = FutureProvider<GroupSigner?>((ref) async {
-  // WATCH the identity: the eager app-scope bridge builds this at boot when the
-  // identity is still null; without a watch the null result would cache forever
-  // and no group would ever sign. Re-runs once the identity is ready.
-  final selfId = ref.watch(
-    appControllerProvider.select((s) => s.identity?.nodeId),
-  );
-  if (selfId == null) return null;
-  final toml = await ref.read(storageProvider).loadNodeConfig();
-  if (toml == null) return null;
-  // Learn our public key by signing an empty probe (stateless native crypto);
-  // the native verifier later re-binds it to selfId (node_id == BLAKE3(pk)).
-  try {
-    final res = EmbeddedNode.signMessage(toml, Uint8List(0));
-    return NativeGroupSigner(
-      identityToml: toml,
-      selfId: selfId,
-      selfPubKey: res.publicKey,
-    );
-  } catch (_) {
-    return null;
-  }
-});
-
-/// The service, or null until the signer is ready. Wires group snapshot
-/// delivery to the messaging layer, and routes inbound snapshots back into
-/// the service (idempotent ingest) — the direct-fanout transport (v1).
-final groupServiceProvider = Provider<GroupService?>((ref) {
-  // Keep document ingress wired for this unlocked identity even before the
-  // document UI exists; pending invites must survive until explicit adopt.
-  ref.watch(cloudDocumentReplicationServiceProvider);
-  final signer = ref.watch(groupSignerProvider).valueOrNull;
-  if (signer == null) return null;
-  final messaging = ref.read(messagingServiceProvider);
-  final transport = ref.watch(veilTransportProvider);
-  final epochCrypto = transport is VeilFlutterTransport
-      ? transport.mailboxCrypto()
-      : LoopbackMailboxCrypto(senderForOpen: signer.selfId);
-  final svc = GroupService(
-    ref.read(storageProvider),
-    signer,
-    epochService: GroupEpochService(epochCrypto),
-    ourCertVersion: 1,
-    send: (peer, groupId, json) =>
-        messaging.sendGroupSnapshot(peer, groupId.hex, json),
-    sendContentRequest: (holder, json) =>
-        messaging.sendGroupContentRequest(holder, json),
-    sendGroupCallFrame: (peer, signal, json) =>
-        messaging.sendGroupCallSignal(peer, signal, json),
-    grantContentServe: messaging.grantGroupContentServe,
-    startContentPull: (holder, cid) async {
-      await messaging.downloadContent(holder, cid);
-    },
-  );
-  messaging.onGroupEntry = (peer, bundleJson) async {
-    await svc.ingestGroupEntry(peer, bundleJson);
-  };
-  // Membership-authorized fetch requests (content path): judged entirely by
-  // the service (signature + fold + referenced + replay).
-  messaging.onGroupContentRequest = (peer, requestJson) {
-    unawaited(svc.handleContentRequest(requestJson));
-  };
-  messaging.onGroupCallSignal = svc.ingestGroupCallFrame;
-  // Scale-free log sync: a NON-contact member's snapshot merges into groups
-  // we hold (guarded); chunk reassembly asks the same admission up front.
-  messaging.onGroupEntryFromStranger = (peer, bundleJson) {
-    unawaited(svc.ingestGroupEntryFromStranger(peer, bundleJson));
-  };
-  messaging.allowStrangerGroupSync = svc.allowStrangerGroupSync;
-  // Reliability brick G1: fan each group's sync VECTOR to a few members once
-  // per boot — recovers deltas that died while every entry node was down.
-  unawaited(svc.nudgeGroupSyncAll());
-
-  // ── Multi-device mirror loop (doc/MULTIDEVICE-DESIGN.md, bricks 3+4b) ─────
-  // EMIT: a stored 1:1 message becomes a msgMirror event on my device group.
-  // Skip Saved Messages (peer == self, local-only). A FILE message (either
-  // direction) mirrors LAZILY: the event carries name/size/cid and a real
-  // attachment ref (micro-thumb + contentId) — never the bytes; the ref is
-  // what authorizes the other device's membership pull when the user taps
-  // download there. postDeviceEvent is a no-op until a device group exists,
-  // so this is inert on a single-device install.
-  messaging.onMessageStored = (peer, m) {
-    if (peer == svc.selfId) return;
-    unawaited(() async {
-      // The device-PAIR conversation never mirrors: each side names it by the
-      // OTHER device's id, so a mirrored row would land in the wrong (even
-      // self-) conversation on the sibling. Intra-owner chat is local-only.
-      if (await svc.isMyDevice(peer)) return;
-      final cid = m.fileContentId ?? m.fileId;
-      if (cid == null) {
-        if (m.body.isEmpty) return;
-        await svc.postDeviceEvent(
-          DeviceSyncEvent(
-            kind: DeviceSyncKind.msgMirror,
-            key: m.id,
-            tsMs: m.timestamp.millisecondsSinceEpoch,
-            payload: {
-              'peer': peer.hex,
-              'dir': m.direction.name,
-              'body': m.body,
-            },
-          ),
-        );
-        return;
-      }
-      await svc.postDeviceEvent(
-        DeviceSyncEvent(
-          kind: DeviceSyncKind.msgMirror,
-          key: m.id,
-          tsMs: m.timestamp.millisecondsSinceEpoch,
-          payload: {
-            'peer': peer.hex,
-            'dir': m.direction.name,
-            'body': m.body,
-            'cid': cid,
-            'fname': m.fileName,
-            'fsize': m.fileSize,
-          },
-        ),
-        // The ref that puts cid into referencedContentIds. dataB64 must be
-        // non-empty by the codec's contract — the micro-thumb when we have
-        // one, a one-byte placeholder otherwise (w/h are meaningless here).
-        attachment: GroupAttachment(
-          kind: 'file',
-          dataB64: (m.thumb?.isNotEmpty ?? false) ? m.thumb! : 'AA==',
-          w: 1,
-          h: 1,
-          cid: cid,
-        ),
-      );
-    }());
-  };
-  // APPLY: a device-group message from another device → fold → write the
-  // mirrored 1:1 row (idempotent + deniability-safe in applyMirroredMessage).
-  // A file mirror lands as an OFFER-shaped row (fileContentId, no bytes) —
-  // the bytes arrive only when the user downloads, via the membership pull.
-  svc.deviceIncoming.listen((gm) {
-    final e = DeviceSyncEvent.fromBody(gm.body);
-    if (e == null || e.kind != DeviceSyncKind.msgMirror) return;
-    final peerHex = e.payload['peer'];
-    final body = e.payload['body'];
-    final dir = e.payload['dir'] == 'outgoing'
-        ? MessageDirection.outgoing
-        : MessageDirection.incoming;
-    if (peerHex is! String || body is! String) return;
-    // A mirror naming THIS device as the conversation peer would write a
-    // conversation-with-myself row (the device-pair chat seen from the other
-    // side) — drop it; the emit side skips device members too.
-    if (peerHex == svc.selfId.hex) return;
-    final cid = e.payload['cid'], fname = e.payload['fname'];
-    final fsize = e.payload['fsize'];
-    final thumb = gm.attachment?.dataB64;
-    unawaited(
-      messaging.applyMirroredMessage(
-        peer: NodeId.fromHex(peerHex),
-        msgId: e.key,
-        direction: dir,
-        body: body,
-        tsMs: e.tsMs,
-        fileContentId: cid is String && cid.isNotEmpty ? cid : null,
-        fileName: fname is String ? fname : null,
-        fileSize: fsize is int ? fsize : null,
-        thumb: thumb != null && thumb != 'AA==' ? thumb : null,
-      ),
-    );
-  });
-  return svc;
 });
