@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:characters/characters.dart';
 
+import '../core/ids.dart';
 import 'cloud_document.dart';
 
 const cloudRichTextCodecV1 = 'xveil.note.rga.v1';
@@ -433,6 +434,7 @@ class _Atom {
 CloudRichTextSnapshot materializeCloudRichText({
   required Iterable<CloudDocumentOperation> operations,
   required Map<String, Uint8List> cleartextByOperationId,
+  required NodeId checkpointOwner,
 }) {
   final relevant = <String, CloudDocumentOperation>{};
   for (final operation in operations) {
@@ -544,6 +546,10 @@ CloudRichTextSnapshot materializeCloudRichText({
         }
         break;
       case CloudRichTextEditKind.checkpoint:
+        if (operation.author != checkpointOwner) {
+          invalid.add(operation.operationId);
+          continue;
+        }
         checkpoints.add(operation.operationId);
         var after = null as String?;
         var offset = 0;

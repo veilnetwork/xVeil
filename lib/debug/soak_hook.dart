@@ -33,6 +33,7 @@ import '../state/group_service.dart';
 import '../routing/router.dart';
 import '../domain/call_log.dart';
 import '../domain/cloud.dart';
+import '../domain/cloud_collection_crdt.dart';
 import '../domain/cloud_rich_text_crdt.dart';
 import '../domain/cloud_document.dart';
 import '../state/api_server.dart';
@@ -358,6 +359,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/cloud_document_rich':
           await _cloudDocumentRichHook(req);
+          return;
+        case '/cloud_document_collection':
+          await _cloudDocumentCollectionHook(req);
           return;
         case '/cloud_fetch':
           await _cloudFetchHook(req);
@@ -1559,7 +1563,21 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       return _json(req, {'ok': false, 'error': 'role must be editor/viewer'});
     }
     try {
-      final created = await service.createDocument();
+      final kind = switch (q['kind']) {
+        null || 'note' => CloudDocumentKind.note,
+        'tasks' || 'taskList' => CloudDocumentKind.taskList,
+        'calendar' => CloudDocumentKind.calendar,
+        _ => null,
+      };
+      if (kind == null) {
+        return _json(req, {'ok': false, 'error': 'bad kind'});
+      }
+      final codec = switch (kind) {
+        CloudDocumentKind.note => cloudRichTextCodecV1,
+        CloudDocumentKind.taskList => cloudTaskListCodecV1,
+        CloudDocumentKind.calendar => cloudCalendarCodecV1,
+      };
+      final created = await service.createDocument(kind: kind, codec: codec);
       if (created == null) {
         return _json(req, {'ok': false, 'error': 'create rejected'});
       }
@@ -1713,6 +1731,148 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         'unavailable': state.snapshot.unavailableOperationIds.length,
         'fullyQueued': mutation?.fullyQueued,
       });
+    } catch (error) {
+      return _json(req, {'ok': false, 'error': '$error'});
+    }
+  }
+
+  /// Drives encrypted task/calendar collections. Cleartext fields are accepted
+  /// only on loopback, materialized only in RAM, and never echoed. The response
+  /// contains bounded structural metadata plus a digest of canonical rows.
+  Future<void> _cloudDocumentCollectionHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(cloudDocumentReplicationServiceProvider);
+    final q = req.uri.queryParameters;
+    final id = q['id'];
+    final action = q['action'] ?? 'probe';
+    if (service == null || id == null) {
+      return _json(req, {'ok': false, 'error': 'need documents+id'});
+    }
+    try {
+      var state = await service.loadCollection(id);
+      if (state == null) {
+        return _json(req, {
+          'ok': false,
+          'error': 'collection document unavailable',
+        });
+      }
+      CloudDocumentMutationResult? mutation;
+      final heads = state.snapshot.headOperationIds;
+      switch (action) {
+        case 'probe':
+          break;
+        case 'task_create':
+          if (state.kind != CloudDocumentKind.taskList) {
+            return _json(req, {'ok': false, 'error': 'not tasks'});
+          }
+          final title = q['title']?.trim();
+          if (title == null || title.isEmpty) {
+            return _json(req, {'ok': false, 'error': 'need title'});
+          }
+          final entityId = service.newCollectionEntityId();
+          mutation = await service.appendCollectionEdits(id, [
+            CloudCollectionEdit.create(
+              entityId,
+              CloudTask(
+                id: entityId,
+                title: title,
+                notes: q['notes'] ?? '',
+                completed: false,
+                dueAtMs: int.tryParse(q['due'] ?? ''),
+                position: state.tasks.length,
+              ).toFields(),
+            ),
+          ], parentOperationIds: heads);
+          break;
+        case 'task_toggle_first':
+          if (state.kind != CloudDocumentKind.taskList || state.tasks.isEmpty) {
+            return _json(req, {'ok': false, 'error': 'no task'});
+          }
+          final task = state.tasks.first;
+          mutation = await service.appendCollectionEdits(id, [
+            CloudCollectionEdit.patch(task.id, {'completed': !task.completed}),
+          ], parentOperationIds: heads);
+          break;
+        case 'event_create':
+          if (state.kind != CloudDocumentKind.calendar) {
+            return _json(req, {'ok': false, 'error': 'not calendar'});
+          }
+          final title = q['title']?.trim();
+          final start = int.tryParse(q['start'] ?? '');
+          final end = int.tryParse(q['end'] ?? '');
+          if (title == null ||
+              title.isEmpty ||
+              start == null ||
+              end == null ||
+              end < start) {
+            return _json(req, {'ok': false, 'error': 'need title/start/end'});
+          }
+          final entityId = service.newCollectionEntityId();
+          mutation = await service.appendCollectionEdits(id, [
+            CloudCollectionEdit.create(
+              entityId,
+              CloudCalendarEvent(
+                id: entityId,
+                title: title,
+                notes: q['notes'] ?? '',
+                startAtMs: start,
+                endAtMs: end,
+                allDay: q['all_day'] == '1',
+                location: q['location'] ?? '',
+              ).toFields(),
+            ),
+          ], parentOperationIds: heads);
+          break;
+        case 'delete_first':
+          final firstId = state.snapshot.rows.firstOrNull?.id;
+          if (firstId == null) {
+            return _json(req, {'ok': false, 'error': 'collection empty'});
+          }
+          mutation = await service.appendCollectionEdits(id, [
+            CloudCollectionEdit.delete(firstId),
+          ], parentOperationIds: heads);
+          break;
+        default:
+          return _json(req, {'ok': false, 'error': 'bad action'});
+      }
+      if (action != 'probe' && mutation == null) {
+        return _json(req, {'ok': false, 'error': 'mutation rejected'});
+      }
+      if (mutation != null) state = await service.loadCollection(id);
+      if (state == null) {
+        return _json(req, {'ok': false, 'error': 'reload failed'});
+      }
+      final canonical = Uint8List.fromList(
+        utf8.encode(
+          jsonEncode([
+            for (final row in state.snapshot.rows)
+              {
+                'id': row.id,
+                'fields': {
+                  for (final key in row.fields.keys.toList()..sort())
+                    key: row.fields[key],
+                },
+              },
+          ]),
+        ),
+      );
+      try {
+        return _json(req, {
+          'ok': true,
+          'id': id,
+          'kind': state.kind.name,
+          'count': state.snapshot.rows.length,
+          'sha256': crypto.sha256.convert(canonical).toString(),
+          'heads': state.snapshot.headOperationIds.length,
+          'epoch': state.currentEpoch,
+          'role': state.localRole?.name,
+          'invalid': state.snapshot.invalidOperationIds.length,
+          'unavailable': state.snapshot.unavailableOperationIds.length,
+          'fullyQueued': mutation?.fullyQueued,
+        });
+      } finally {
+        canonical.fillRange(0, canonical.length, 0);
+      }
     } catch (error) {
       return _json(req, {'ok': false, 'error': '$error'});
     }

@@ -31,6 +31,15 @@ Map<String, Uint8List> _payloads(Map<int, CloudRichTextEdit> edits) => {
   for (final entry in edits.entries) _id(entry.key): entry.value.encode(),
 };
 
+CloudRichTextSnapshot _materialize({
+  required Iterable<CloudDocumentOperation> operations,
+  required Map<String, Uint8List> cleartextByOperationId,
+}) => materializeCloudRichText(
+  operations: operations,
+  cleartextByOperationId: cleartextByOperationId,
+  checkpointOwner: NodeId(Uint8List.fromList(List.filled(32, 1))),
+);
+
 void main() {
   test('payload codec is strict, bounded and preserves grapheme text', () {
     const style = CloudRichTextStyle(
@@ -76,11 +85,11 @@ void main() {
         3: CloudRichTextEdit.insert(afterAtomId: '${_id(1)}:0', text: 'Y'),
       });
 
-      final first = materializeCloudRichText(
+      final first = _materialize(
         operations: [base, left, right],
         cleartextByOperationId: payloads,
       );
-      final second = materializeCloudRichText(
+      final second = _materialize(
         operations: [right, base, left],
         cleartextByOperationId: payloads,
       );
@@ -97,7 +106,7 @@ void main() {
     () {
       final initial = _operation(1);
       final later = _operation(2, parents: [1]);
-      final snapshot = materializeCloudRichText(
+      final snapshot = _materialize(
         operations: [initial, later],
         cleartextByOperationId: _payloads({
           1: CloudRichTextEdit.insert(afterAtomId: null, text: 'AC'),
@@ -110,7 +119,7 @@ void main() {
 
   test('long insertion materializes iteratively without stack growth', () {
     final text = List.filled(20000, 'x').join();
-    final snapshot = materializeCloudRichText(
+    final snapshot = _materialize(
       operations: [_operation(1)],
       cleartextByOperationId: _payloads({
         1: CloudRichTextEdit.insert(afterAtomId: null, text: text),
@@ -124,7 +133,7 @@ void main() {
     final insert = _operation(1);
     final format = _operation(2, parents: [1]);
     final remove = _operation(3, parents: [2]);
-    final snapshot = materializeCloudRichText(
+    final snapshot = _materialize(
       operations: [remove, insert, format],
       cleartextByOperationId: _payloads({
         1: CloudRichTextEdit.insert(afterAtomId: null, text: 'abc'),
@@ -144,7 +153,7 @@ void main() {
     final base = _operation(1);
     final deletion = _operation(2, parents: [1], author: 1);
     final unseen = _operation(3, parents: [1], author: 2);
-    final snapshot = materializeCloudRichText(
+    final snapshot = _materialize(
       operations: [deletion, unseen, base],
       cleartextByOperationId: _payloads({
         1: CloudRichTextEdit.insert(afterAtomId: null, text: 'old'),
@@ -164,7 +173,7 @@ void main() {
       final base = _operation(1);
       final edit = _operation(2, parents: [1], author: 2);
       final deletion = _operation(3, parents: [2]);
-      final empty = materializeCloudRichText(
+      final empty = _materialize(
         operations: [base, edit, deletion],
         cleartextByOperationId: _payloads({
           1: CloudRichTextEdit.insert(afterAtomId: null, text: 'old'),
@@ -177,7 +186,7 @@ void main() {
       expect(empty.hasConcurrentRecovery, isFalse);
 
       final restore = _operation(4, parents: [3]);
-      final restored = materializeCloudRichText(
+      final restored = _materialize(
         operations: [restore, deletion, edit, base],
         cleartextByOperationId: {
           ..._payloads({
@@ -203,7 +212,7 @@ void main() {
       bold: true,
       block: CloudRichTextBlock.quote,
     );
-    final snapshot = materializeCloudRichText(
+    final snapshot = _materialize(
       operations: [historical, checkpoint],
       cleartextByOperationId: {
         _id(2): CloudRichTextEdit.checkpoint(
@@ -223,7 +232,7 @@ void main() {
     () {
       final historical = _operation(9);
       final checkpoint = _operation(2, epoch: 1);
-      final snapshot = materializeCloudRichText(
+      final snapshot = _materialize(
         operations: [checkpoint, historical],
         cleartextByOperationId: _payloads({
           9: CloudRichTextEdit.insert(afterAtomId: null, text: 'obsolete'),
@@ -238,11 +247,32 @@ void main() {
   );
 
   test(
+    'editor-authored checkpoint is rejected instead of replacing history',
+    () {
+      final historical = _operation(1);
+      final forgedCheckpoint = _operation(2, parents: [1], author: 2, epoch: 1);
+      final snapshot = _materialize(
+        operations: [historical, forgedCheckpoint],
+        cleartextByOperationId: _payloads({
+          1: CloudRichTextEdit.insert(afterAtomId: null, text: 'owner text'),
+          2: CloudRichTextEdit.checkpoint(
+            text: 'forged',
+            styles: List.filled(6, const CloudRichTextStyle()),
+          ),
+        }),
+      );
+
+      expect(snapshot.text, 'owner text');
+      expect(snapshot.invalidOperationIds, [_id(2)]);
+    },
+  );
+
+  test(
     'malformed semantic operation stays inert without poisoning descendants',
     () {
       final malformed = _operation(1);
       final valid = _operation(2, parents: [1]);
-      final snapshot = materializeCloudRichText(
+      final snapshot = _materialize(
         operations: [malformed, valid],
         cleartextByOperationId: {
           _id(1): Uint8List.fromList('{"v":1,"k":"wat"}'.codeUnits),

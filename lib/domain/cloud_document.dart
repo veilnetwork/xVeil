@@ -923,6 +923,20 @@ CloudDocumentFoldResult foldCloudDocumentLog({
     }
   }
 
+  // Parent links are the causal clock used by every document CRDT. Two
+  // authenticated editors can pre-coordinate operation ids, so signature and
+  // parent-existence checks alone do not prove that this graph is acyclic.
+  // Reject the cycle and every operation causally dependent on it: Kahn's
+  // remainder is exactly the subgraph that can never be topologically emitted.
+  final cyclicOrDependentIds = _cyclicOrDependentOperationIds(uniqueCandidates);
+  if (cyclicOrDependentIds.isNotEmpty) {
+    for (final operation in [...uniqueCandidates]) {
+      if (!cyclicOrDependentIds.contains(operation.operationId)) continue;
+      uniqueCandidates.remove(operation);
+      rejectedOperations.add(operation);
+    }
+  }
+
   final incompleteEpochs = <int>{};
   final taintedFromSeq = <String, int>{};
   for (final closure in closures.entries) {
@@ -1001,4 +1015,40 @@ CloudDocumentFoldResult foldCloudDocumentLog({
     withheldOperations: List.unmodifiable(withheld),
     incompleteEpochs: Set.unmodifiable(incompleteEpochs),
   );
+}
+
+Set<String> _cyclicOrDependentOperationIds(
+  List<CloudDocumentOperation> operations,
+) {
+  final byId = {
+    for (final operation in operations) operation.operationId: operation,
+  };
+  final indegree = <String, int>{};
+  final children = <String, List<String>>{};
+  for (final operation in operations) {
+    var count = 0;
+    for (final parent in operation.parentOperationIds) {
+      if (!byId.containsKey(parent)) continue;
+      count++;
+      children.putIfAbsent(parent, () => []).add(operation.operationId);
+    }
+    indegree[operation.operationId] = count;
+  }
+  final ready = indegree.entries
+      .where((entry) => entry.value == 0)
+      .map((entry) => entry.key)
+      .toList();
+  var cursor = 0;
+  while (cursor < ready.length) {
+    final id = ready[cursor++];
+    for (final child in children[id] ?? const []) {
+      final next = indegree[child]! - 1;
+      indegree[child] = next;
+      if (next == 0) ready.add(child);
+    }
+  }
+  return {
+    for (final entry in indegree.entries)
+      if (entry.value > 0) entry.key,
+  };
 }

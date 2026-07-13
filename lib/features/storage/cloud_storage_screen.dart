@@ -9,13 +9,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/ids.dart';
 import '../../domain/cloud.dart';
 import '../../domain/chat.dart';
+import '../../domain/cloud_collection_crdt.dart';
 import '../../domain/cloud_document.dart';
 import '../../domain/cloud_document_replication.dart';
+import '../../domain/cloud_rich_text_crdt.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/cloud_capability_service.dart';
 import '../../state/cloud_document_providers.dart';
 import '../../state/cloud_document_replication_service.dart';
 import '../../state/cloud_service.dart';
+import 'cloud_collection_editor.dart';
 import 'cloud_note_editor.dart';
 import 'cloud_shared_document_editor.dart';
 
@@ -177,10 +180,45 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
     );
   }
 
+  Future<CloudDocumentKind?> _pickDocumentKind() {
+    final l = AppL10n.of(context);
+    return showDialog<CloudDocumentKind>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: Text(l.cloudSharedPickKind),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, CloudDocumentKind.note),
+            child: ListTile(
+              leading: const Icon(Icons.edit_note_outlined),
+              title: Text(l.cloudKindNote),
+            ),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, CloudDocumentKind.taskList),
+            child: ListTile(
+              leading: const Icon(Icons.task_alt_outlined),
+              title: Text(l.cloudKindTasks),
+            ),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, CloudDocumentKind.calendar),
+            child: ListTile(
+              leading: const Icon(Icons.calendar_month_outlined),
+              title: Text(l.cloudKindCalendar),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _createSharedDocument() async {
     final documents = _documentService;
     final cloud = _service;
     if (documents == null || cloud == null || _busy) return;
+    final kind = await _pickDocumentKind();
+    if (kind == null || !mounted) return;
     final peer = await _pickAcceptedContact(await cloud.acceptedContacts());
     if (peer == null || !mounted) return;
     final role = await _pickDocumentRole();
@@ -188,7 +226,12 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
     setState(() => _busy = true);
     CloudDocumentMutationResult? result;
     try {
-      final created = await documents.createDocument();
+      final codec = switch (kind) {
+        CloudDocumentKind.note => cloudRichTextCodecV1,
+        CloudDocumentKind.taskList => cloudTaskListCodecV1,
+        CloudDocumentKind.calendar => cloudCalendarCodecV1,
+      };
+      final created = await documents.createDocument(kind: kind, codec: codec);
       if (created != null) {
         result = await documents.grant(created.documentId, peer, role);
       }
@@ -464,7 +507,11 @@ class _PendingDocumentInvitesState extends State<_PendingDocumentInvites> {
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
                   const SizedBox(height: 2),
-                  Text(l.cloudDocumentInviteKind(invite.frame.root.kind.name)),
+                  Text(
+                    l.cloudDocumentInviteKind(
+                      _documentKindLabel(l, invite.frame.root.kind),
+                    ),
+                  ),
                   const SizedBox(height: 4),
                   Align(
                     alignment: AlignmentDirectional.centerEnd,
@@ -504,6 +551,18 @@ String _documentRoleLabel(AppL10n l, CloudDocumentRole? role) => switch (role) {
   CloudDocumentRole.editor => l.cloudSharedRoleEditor,
   CloudDocumentRole.viewer => l.cloudSharedRoleViewer,
   null => '—',
+};
+
+String _documentKindLabel(AppL10n l, CloudDocumentKind kind) => switch (kind) {
+  CloudDocumentKind.note => l.cloudKindNote,
+  CloudDocumentKind.taskList => l.cloudKindTasks,
+  CloudDocumentKind.calendar => l.cloudKindCalendar,
+};
+
+IconData _documentKindIcon(CloudDocumentKind kind) => switch (kind) {
+  CloudDocumentKind.note => Icons.description_outlined,
+  CloudDocumentKind.taskList => Icons.task_alt_outlined,
+  CloudDocumentKind.calendar => Icons.calendar_month_outlined,
 };
 
 class _SharedDocumentSection extends StatefulWidget {
@@ -547,17 +606,30 @@ class _SharedDocumentSectionState extends State<_SharedDocumentSection> {
     var manage = false;
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
-        builder: (pageContext) => Scaffold(
-          body: CloudSharedDocumentEditor(
-            service: widget.service,
-            documentId: document.root.documentId.hex,
-            onClose: () => Navigator.pop(pageContext),
-            onManage: () {
-              manage = true;
-              Navigator.pop(pageContext);
-            },
-          ),
-        ),
+        builder: (pageContext) {
+          void close() => Navigator.pop(pageContext);
+          void openManage() {
+            manage = true;
+            Navigator.pop(pageContext);
+          }
+
+          final editor = switch (document.root.kind) {
+            CloudDocumentKind.note => CloudSharedDocumentEditor(
+              service: widget.service,
+              documentId: document.root.documentId.hex,
+              onClose: close,
+              onManage: openManage,
+            ),
+            CloudDocumentKind.taskList ||
+            CloudDocumentKind.calendar => CloudCollectionEditor(
+              service: widget.service,
+              documentId: document.root.documentId.hex,
+              onClose: close,
+              onManage: openManage,
+            ),
+          };
+          return Scaffold(body: editor);
+        },
       ),
     );
     if (manage && mounted) await _manage(document);
@@ -597,10 +669,10 @@ class _SharedDocumentSectionState extends State<_SharedDocumentSection> {
             key: ValueKey(
               'cloud-shared-document-${document.root.documentId.hex}',
             ),
-            leading: const Icon(Icons.description_outlined),
+            leading: Icon(_documentKindIcon(document.root.kind)),
             title: Text(
               l.cloudSharedDocument(
-                document.root.kind.name,
+                _documentKindLabel(l, document.root.kind),
                 document.root.documentId.short,
               ),
             ),

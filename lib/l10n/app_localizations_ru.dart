@@ -2619,4 +2619,94 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get cloudRichCodeBlock => 'Блок кода';
+
+  @override
+  String get cloudSharedPickKind => 'Тип общего документа';
+
+  @override
+  String get cloudKindNote => 'Заметка';
+
+  @override
+  String get cloudKindTasks => 'Список задач';
+
+  @override
+  String get cloudKindCalendar => 'Календарь';
+
+  @override
+  String get cloudTasksTitle => 'Общие задачи';
+
+  @override
+  String get cloudCalendarTitle => 'Общий календарь';
+
+  @override
+  String get cloudCollectionCollaborative =>
+      'Совместная коллекция с шифрованием';
+
+  @override
+  String get cloudCollectionEmptyTasks => 'Задач пока нет';
+
+  @override
+  String get cloudCollectionEmptyEvents => 'Событий пока нет';
+
+  @override
+  String get cloudTaskAdd => 'Добавить задачу';
+
+  @override
+  String get cloudTaskEdit => 'Изменить задачу';
+
+  @override
+  String get cloudTaskTitle => 'Задача';
+
+  @override
+  String get cloudTaskNotes => 'Заметки';
+
+  @override
+  String get cloudTaskDue => 'Срок';
+
+  @override
+  String get cloudTaskNoDue => 'Без срока';
+
+  @override
+  String get cloudEventAdd => 'Добавить событие';
+
+  @override
+  String get cloudEventEdit => 'Изменить событие';
+
+  @override
+  String get cloudEventTitle => 'Событие';
+
+  @override
+  String get cloudEventStart => 'Начало';
+
+  @override
+  String get cloudEventEnd => 'Окончание';
+
+  @override
+  String get cloudEventAllDay => 'Весь день';
+
+  @override
+  String get cloudEventLocation => 'Место';
+
+  @override
+  String get cloudCollectionDelete => 'Удалить';
+
+  @override
+  String cloudCollectionDeleteTitle(String title) {
+    return 'Удалить «$title»?';
+  }
+
+  @override
+  String get cloudCollectionSaved =>
+      'Изменение сохранено и поставлено в отправку';
+
+  @override
+  String get cloudCollectionFailed => 'Не удалось изменить общую коллекцию';
+
+  @override
+  String get cloudCollectionInvalidRange =>
+      'Событие должно закончиться после начала';
+
+  @override
+  String get cloudCollectionInvalid =>
+      'Подписанное, но некорректное изменение оставлено неактивным.';
 }

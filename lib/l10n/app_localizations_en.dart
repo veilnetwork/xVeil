@@ -2598,4 +2598,93 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get cloudRichCodeBlock => 'Code block';
+
+  @override
+  String get cloudSharedPickKind => 'Shared document type';
+
+  @override
+  String get cloudKindNote => 'Note';
+
+  @override
+  String get cloudKindTasks => 'Task list';
+
+  @override
+  String get cloudKindCalendar => 'Calendar';
+
+  @override
+  String get cloudTasksTitle => 'Shared tasks';
+
+  @override
+  String get cloudCalendarTitle => 'Shared calendar';
+
+  @override
+  String get cloudCollectionCollaborative =>
+      'Encrypted collaborative collection';
+
+  @override
+  String get cloudCollectionEmptyTasks => 'No tasks yet';
+
+  @override
+  String get cloudCollectionEmptyEvents => 'No events yet';
+
+  @override
+  String get cloudTaskAdd => 'Add task';
+
+  @override
+  String get cloudTaskEdit => 'Edit task';
+
+  @override
+  String get cloudTaskTitle => 'Task';
+
+  @override
+  String get cloudTaskNotes => 'Notes';
+
+  @override
+  String get cloudTaskDue => 'Due date';
+
+  @override
+  String get cloudTaskNoDue => 'No due date';
+
+  @override
+  String get cloudEventAdd => 'Add event';
+
+  @override
+  String get cloudEventEdit => 'Edit event';
+
+  @override
+  String get cloudEventTitle => 'Event';
+
+  @override
+  String get cloudEventStart => 'Starts';
+
+  @override
+  String get cloudEventEnd => 'Ends';
+
+  @override
+  String get cloudEventAllDay => 'All day';
+
+  @override
+  String get cloudEventLocation => 'Location';
+
+  @override
+  String get cloudCollectionDelete => 'Delete';
+
+  @override
+  String cloudCollectionDeleteTitle(String title) {
+    return 'Delete \"$title\"?';
+  }
+
+  @override
+  String get cloudCollectionSaved => 'Change saved and queued';
+
+  @override
+  String get cloudCollectionFailed => 'Could not update this shared collection';
+
+  @override
+  String get cloudCollectionInvalidRange =>
+      'The event must end after it starts';
+
+  @override
+  String get cloudCollectionInvalid =>
+      'An authenticated but invalid change was kept inert.';
 }
