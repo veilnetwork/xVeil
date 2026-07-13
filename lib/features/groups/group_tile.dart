@@ -8,7 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../l10n/app_localizations.dart';
-import '../../state/group_service.dart';
+import '../../state/group_service_providers.dart';
 
 class GroupTile extends ConsumerWidget {
   const GroupTile({super.key, required this.entry});

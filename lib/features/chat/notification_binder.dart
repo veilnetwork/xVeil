@@ -8,7 +8,7 @@ import '../../core/log.dart';
 import '../../domain/chat.dart';
 import '../../domain/group_message.dart';
 import '../../l10n/app_localizations.dart';
-import '../../state/group_service.dart';
+import '../../state/group_service_providers.dart';
 import '../../state/messaging.dart';
 import '../../state/notifications.dart';
 import '../../state/providers.dart';

@@ -60,6 +60,26 @@ Future<Map<String, dynamic>> _post(
   }
 }
 
+Future<Map<String, dynamic>> _get(int port, String token, String path) async {
+  final client = HttpClient();
+  try {
+    final request = await client.getUrl(
+      Uri.parse('http://127.0.0.1:$port$path'),
+    );
+    request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+    final response = await request.close();
+    final decoded =
+        jsonDecode(await utf8.decoder.bind(response).join())
+            as Map<String, dynamic>;
+    if (response.statusCode != 200) {
+      throw StateError('$path failed ${response.statusCode}: $decoded');
+    }
+    return decoded;
+  } finally {
+    client.close(force: true);
+  }
+}
+
 Future<void> _waitUntil(Future<bool> Function() predicate) async {
   final until = DateTime.now().add(const Duration(seconds: 30));
   while (DateTime.now().isBefore(until)) {
@@ -105,6 +125,14 @@ void main() {
         expect(initial['host'], 'headless');
         expect(initial['ok'], isTrue);
         final nodeId = initial['nodeId'];
+        final created = await _post(first.api.port!, token, '/v1/groups', {
+          'name': 'headless-persisted-group',
+        });
+        final groupId = NodeId.fromHex(created['groupId'] as String);
+        await _post(first.api.port!, token, '/v1/groups/messages', {
+          'group': groupId.hex,
+          'body': 'headless-persisted-message',
+        });
         await first.close();
         first = null;
         expect(await Directory(config.runtimeDir).exists(), isFalse);
@@ -116,6 +144,28 @@ void main() {
         final reopened = await _health(second.api.port!, token);
         expect(reopened['nodeId'], nodeId);
         expect(reopened['ok'], isTrue);
+        final reopenedGroups = await _get(
+          second.api.port!,
+          token,
+          '/v1/groups',
+        );
+        expect(
+          (reopenedGroups['groups'] as List).whereType<Map>().any(
+            (group) => group['groupId'] == groupId.hex,
+          ),
+          isTrue,
+        );
+        final reopenedMessages = await _get(
+          second.api.port!,
+          token,
+          '/v1/groups/messages?group=${groupId.hex}',
+        );
+        expect(
+          (reopenedMessages['messages'] as List).whereType<Map>().any(
+            (message) => message['body'] == 'headless-persisted-message',
+          ),
+          isTrue,
+        );
 
         final peerConfig = HeadlessConfig(
           storePath: '${temp.path}/peer.hv',

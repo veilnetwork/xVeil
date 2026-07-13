@@ -14,10 +14,15 @@ NodeId _id(int s) => NodeId(Uint8List.fromList(List.filled(32, s)));
 class _FakeClient implements VeilClient {
   final events_ = StreamController<VeilEvent>.broadcast();
   final registeredRelays = <String>[];
+  Completer<Uint8List?>? lookupBlock;
+  int lookups = 0;
   @override
   dynamic noSuchMethod(Invocation i) {
     final name = i.memberName.toString();
     if (name.contains('lookupRelayX25519')) {
+      lookups++;
+      final block = lookupBlock;
+      if (block != null) return block.future;
       return Future<Uint8List?>.value(Uint8List(32));
     }
     if (name.contains('registerRendezvousPublisher')) {
@@ -157,6 +162,40 @@ void main() {
     });
     // Idempotent within the session: no duplicate registrations per relay.
     expect(client.registeredRelays.length, 3);
+  });
+
+  test('concurrent starts coalesce and dispose waits for the native lookup',
+      () async {
+    final client = _FakeClient();
+    final lookup = Completer<Uint8List?>();
+    client.lookupBlock = lookup;
+    final svc2 = MailboxService(
+      client: client,
+      me: _id(1),
+      orchestrator: orch,
+      deliver: (_) {},
+      drainInterval: const Duration(seconds: 30),
+    );
+    addTearDown(() async {
+      await svc2.dispose();
+      await client.events_.close();
+    });
+
+    final first = svc2.start(relays: [_id(7)]);
+    final repeated = svc2.start(relays: [_id(7)]);
+    expect(identical(first, repeated), isTrue);
+    await Future<void>.delayed(Duration.zero);
+    expect(client.lookups, 1);
+
+    var disposed = false;
+    final closing = svc2.dispose().then((_) => disposed = true);
+    await Future<void>.delayed(Duration.zero);
+    expect(disposed, isFalse);
+    lookup.complete(Uint8List(32));
+    await closing;
+    await first;
+    expect(client.registeredRelays, isEmpty,
+        reason: 'dispose must prevent a late native registration');
   });
 
   test('a MAILBOX_WAKE event drains immediately (no debounce) and opens the '
