@@ -825,7 +825,7 @@
   "cloudSharedRotate": "Rotate encryption key",
   "cloudSharedRotateTitle": "Rotate the document key for every member?",
   "cloudSharedCompact": "Compact history",
-  "cloudSharedCompactTitle": "Replace the old encrypted history with a signed checkpoint? Current content, access and edit continuity are preserved. This cannot be undone.",
+  "cloudSharedCompactTitle": "Ask current editors to confirm the exact synchronized state, then automatically replace the old encrypted history with a signed checkpoint? Offline editors will safely delay compaction. Current content, access and edit continuity are preserved.",
   "cloudSharedResend": "Resend invitation",
   "cloudSharedQueued": "Update queued",
   "cloudRichTitle": "Shared note",

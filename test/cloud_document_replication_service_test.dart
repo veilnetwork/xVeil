@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'dart:math';
 
@@ -57,6 +58,11 @@ class _Signer implements CloudDocumentSigner {
   @override
   CloudDocumentOperation signOperation(CloudDocumentOperation unsigned) =>
       unsigned.withSignature(_bytes(byte, 64), _bytes(byte, 32));
+
+  @override
+  CloudDocumentQuiescenceAck signQuiescenceAck(
+    CloudDocumentQuiescenceAck unsigned,
+  ) => unsigned.withSignature(_bytes(byte, 64), _bytes(byte, 32));
 }
 
 Future<_Fixture> _fixture() async {
@@ -132,6 +138,10 @@ CloudDocumentReplicationService _service({
   CloudDocumentSigner? signer,
   CloudDocumentAcceptedContact? acceptedContact,
   Random? random,
+  bool Function(CloudDocumentQuiescenceAck)? verifyQuiescenceAck,
+  int automaticCompactionEntries = defaultCloudDocumentAutoCompactionEntries,
+  Duration automaticQuiescenceDelay = const Duration(seconds: 2),
+  DateTime Function()? now,
 }) => CloudDocumentReplicationService(
   localNodeId: self,
   ourCertVersion: 0,
@@ -146,7 +156,10 @@ CloudDocumentReplicationService _service({
   verifyRoot: (_) => true,
   verifyControl: (_) => true,
   verifyOperation: (_) => true,
-  now: () => DateTime.fromMillisecondsSinceEpoch(9000),
+  verifyQuiescenceAck: verifyQuiescenceAck ?? (_) => true,
+  now: now ?? () => DateTime.fromMillisecondsSinceEpoch(9000),
+  automaticCompactionEntries: automaticCompactionEntries,
+  automaticQuiescenceDelay: automaticQuiescenceDelay,
 );
 
 Future<CloudDocumentStore> _openStore(FakeHvContainer container) async {
@@ -174,6 +187,47 @@ _sealedOperation({
 }
 
 void main() {
+  test('quiescence frame codec is versioned, bounded and root-bound', () async {
+    final fixture = await _fixture();
+    final ack = CloudDocumentQuiescenceAck(
+      documentId: fixture.bundle.root.documentId,
+      rootHash: fixture.bundle.root.recordHash,
+      generation: fixture.bundle.root.generation,
+      stateHash: _hash(91),
+      roundId: _hash(92),
+      author: fixture.editor,
+      issuedAtMs: 9000,
+      authorPubKey: _bytes(2, 32),
+      signature: _bytes(2, 64),
+    );
+    final frame = CloudDocumentFrame(
+      kind: CloudDocumentFrameKind.quiescenceAck,
+      root: fixture.bundle.root,
+      controls: const [],
+      operations: const [],
+      envelopes: const [],
+      quiescenceAck: ack,
+      quiescenceId: _hash(92),
+    );
+    final decoded = CloudDocumentFrame.decode(frame.encode())!;
+    expect(decoded.kind, CloudDocumentFrameKind.quiescenceAck);
+    expect(decoded.quiescenceAck!.stateHash, _hash(91));
+    expect(decoded.quiescenceAck!.canonicalBytes(), ack.canonicalBytes());
+
+    final badState = Map<String, dynamic>.from(frame.toJson());
+    badState['ack'] = Map<String, dynamic>.from(badState['ack'] as Map)
+      ..['state'] = '00';
+    expect(CloudDocumentFrame.fromJson(badState), isNull);
+    final wrongVersionKind = Map<String, dynamic>.from(frame.toJson())
+      ..['kind'] = CloudDocumentFrameKind.snapshot.name
+      ..remove('ack');
+    expect(CloudDocumentFrame.fromJson(wrongVersionKind), isNull);
+    final proposalWithAck = Map<String, dynamic>.from(frame.toJson())
+      ..['kind'] = CloudDocumentFrameKind.quiescence.name;
+    expect(CloudDocumentFrame.fromJson(proposalWithAck), isNull);
+    fixture.bundle.wipeLocalEpochKeys();
+  });
+
   test(
     'owner creates, invites, rotates roles and revokes with closed frontier',
     () async {
@@ -870,6 +924,402 @@ void main() {
         editorState.snapshot.headOperationIds,
         ownerState.snapshot.headOperationIds,
       );
+    },
+  );
+
+  test(
+    'automatic quiescence ACK compacts only an exact frozen editor state',
+    () async {
+      final owner = _id(1);
+      final editor = _id(2);
+      final envelopes = CloudDocumentEnvelopeService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      );
+      final ownerStore = await _openStore(FakeHvContainer());
+      final editorStore = await _openStore(FakeHvContainer());
+      final sent = <({NodeId peer, String documentId, String json})>[];
+      final ownerService = _service(
+        self: owner,
+        store: ownerStore,
+        envelopes: envelopes,
+        sent: sent,
+        signer: _Signer(owner, 1),
+        random: Random(181),
+        automaticCompactionEntries: 3,
+        automaticQuiescenceDelay: Duration.zero,
+      );
+      var editorService = _service(
+        self: editor,
+        store: editorStore,
+        envelopes: envelopes,
+        sent: sent,
+        signer: _Signer(editor, 2),
+        random: Random(182),
+      );
+
+      final id = (await ownerService.createDocument())!.documentId;
+      await ownerService.grant(id, editor, CloudDocumentRole.editor);
+      final invite = sent
+          .map((entry) => CloudDocumentFrame.decode(entry.json))
+          .whereType<CloudDocumentFrame>()
+          .firstWhere((frame) => frame.kind == CloudDocumentFrameKind.invite);
+      expect(await editorService.ingest(owner, invite.encode()), isTrue);
+      expect(await editorService.adopt(id), isTrue);
+
+      sent.clear();
+      final base = (await ownerService.loadRichText(id))!;
+      expect(
+        await ownerService.saveRichText(
+          id,
+          base: base.snapshot,
+          text: 'automatic cut',
+          styles: List.filled(13, const CloudRichTextStyle(bold: true)),
+        ),
+        isNotNull,
+      );
+      for (var attempt = 0; attempt < 20; attempt++) {
+        await Future<void>.delayed(Duration.zero);
+        if (sent.any(
+          (entry) =>
+              CloudDocumentFrame.decode(entry.json)?.kind ==
+              CloudDocumentFrameKind.quiescence,
+        )) {
+          break;
+        }
+      }
+      final delta = sent.firstWhere(
+        (entry) =>
+            CloudDocumentFrame.decode(entry.json)?.kind ==
+            CloudDocumentFrameKind.delta,
+      );
+      final proposal = sent.firstWhere(
+        (entry) =>
+            CloudDocumentFrame.decode(entry.json)?.kind ==
+            CloudDocumentFrameKind.quiescence,
+      );
+      expect(await editorService.ingest(owner, delta.json), isTrue);
+      sent.clear();
+      expect(await editorService.ingest(owner, proposal.json), isTrue);
+      final ack = sent.singleWhere(
+        (entry) =>
+            CloudDocumentFrame.decode(entry.json)?.kind ==
+            CloudDocumentFrameKind.quiescenceAck,
+      );
+      final frozen = (await editorService.loadRichText(id))!;
+      expect(
+        await editorService.saveRichText(
+          id,
+          base: frozen.snapshot,
+          text: 'must wait',
+          styles: List.filled(9, const CloudRichTextStyle()),
+        ),
+        isNull,
+        reason: 'an ACK is a short write-freeze, not a racy observation',
+      );
+      await editorService.close();
+      editorService = _service(
+        self: editor,
+        store: editorStore,
+        envelopes: envelopes,
+        sent: sent,
+        signer: _Signer(editor, 2),
+        random: Random(186),
+      );
+      final afterRestart = (await editorService.loadRichText(id))!;
+      expect(
+        await editorService.saveRichText(
+          id,
+          base: afterRestart.snapshot,
+          text: 'restart must still wait',
+          styles: List.filled(23, const CloudRichTextStyle()),
+        ),
+        isNull,
+        reason: 'the prepare marker must survive an application restart',
+      );
+
+      sent.clear();
+      expect(await ownerService.ingest(editor, ack.json), isTrue);
+      CloudDocumentFrame? transition;
+      for (var attempt = 0; attempt < 50; attempt++) {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+        for (final entry in sent) {
+          final frame = CloudDocumentFrame.decode(entry.json);
+          if (frame != null && frame.root.generation == 1) transition = frame;
+        }
+        if (transition != null) break;
+      }
+      expect(transition, isNotNull);
+      expect((await ownerStore.load(id))!.root.generation, 1);
+      expect(await editorService.ingest(owner, transition!.encode()), isTrue);
+      final after = (await editorService.loadRichText(id))!;
+      expect(after.snapshot.text, 'automatic cut');
+      expect(
+        await editorService.saveRichText(
+          id,
+          base: after.snapshot,
+          text: 'automatic cut!',
+          styles: [
+            ...after.snapshot.atoms.map((atom) => atom.style),
+            const CloudRichTextStyle(underline: true),
+          ],
+        ),
+        isNotNull,
+        reason: 'the accepted root transition releases the writer',
+      );
+      await ownerService.close();
+      await editorService.close();
+    },
+  );
+
+  test(
+    'quiescence returns an offline branch and rejects a stale ACK',
+    () async {
+      var ownerNowMs = 9000;
+      final owner = _id(1);
+      final editor = _id(2);
+      final envelopes = CloudDocumentEnvelopeService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      );
+      final ownerStore = await _openStore(FakeHvContainer());
+      final editorStore = await _openStore(FakeHvContainer());
+      final sent = <({NodeId peer, String documentId, String json})>[];
+      final ownerService = _service(
+        self: owner,
+        store: ownerStore,
+        envelopes: envelopes,
+        sent: sent,
+        signer: _Signer(owner, 1),
+        random: Random(183),
+        now: () => DateTime.fromMillisecondsSinceEpoch(ownerNowMs),
+      );
+      final editorService = _service(
+        self: editor,
+        store: editorStore,
+        envelopes: envelopes,
+        sent: sent,
+        signer: _Signer(editor, 2),
+        random: Random(184),
+      );
+      final id = (await ownerService.createDocument())!.documentId;
+      await ownerService.grant(id, editor, CloudDocumentRole.editor);
+      final invite = sent
+          .map((entry) => CloudDocumentFrame.decode(entry.json))
+          .whereType<CloudDocumentFrame>()
+          .firstWhere((frame) => frame.kind == CloudDocumentFrameKind.invite);
+      expect(await editorService.ingest(owner, invite.encode()), isTrue);
+      expect(await editorService.adopt(id), isTrue);
+
+      sent.clear();
+      final editorState = (await editorService.loadRichText(id))!;
+      await editorService.saveRichText(
+        id,
+        base: editorState.snapshot,
+        text: 'offline branch',
+        styles: List.filled(14, const CloudRichTextStyle()),
+      );
+      final offlineDelta = sent.single;
+      sent.clear();
+      expect(
+        await ownerService.requestQuiescence(id, ignoreThreshold: true),
+        isTrue,
+      );
+      final staleProposal = sent.single;
+      sent.clear();
+      expect(await editorService.ingest(owner, staleProposal.json), isTrue);
+      expect(
+        sent.any(
+          (entry) =>
+              CloudDocumentFrame.decode(entry.json)?.kind ==
+              CloudDocumentFrameKind.quiescenceAck,
+        ),
+        isFalse,
+      );
+      final returnedDelta = sent.singleWhere(
+        (entry) =>
+            CloudDocumentFrame.decode(entry.json)?.kind ==
+            CloudDocumentFrameKind.delta,
+      );
+      expect(await ownerService.ingest(editor, returnedDelta.json), isTrue);
+      expect(
+        (await ownerService.loadRichText(id))!.snapshot.text,
+        'offline branch',
+      );
+
+      sent.clear();
+      expect(
+        await ownerService.requestQuiescence(id, ignoreThreshold: true),
+        isTrue,
+      );
+      final exactProposal = sent.single;
+      sent.clear();
+      expect(await editorService.ingest(owner, exactProposal.json), isTrue);
+      final oldAck = sent.single;
+
+      ownerNowMs += const Duration(minutes: 3).inMilliseconds;
+      sent.clear();
+      expect(
+        await ownerService.requestQuiescence(id, ignoreThreshold: true),
+        isTrue,
+      );
+      final renewedProposal = CloudDocumentFrame.decode(sent.single.json)!;
+      final oldAckFrame = CloudDocumentFrame.decode(oldAck.json)!;
+      expect(
+        renewedProposal.quiescenceId,
+        isNot(oldAckFrame.quiescenceId),
+        reason: 'an expired round must receive a fresh random challenge',
+      );
+      expect(await ownerService.ingest(editor, oldAck.json), isFalse);
+
+      final ownerState = (await ownerService.loadRichText(id))!;
+      await ownerService.saveRichText(
+        id,
+        base: ownerState.snapshot,
+        text: 'offline branch changed',
+        styles: List.filled(22, const CloudRichTextStyle()),
+      );
+      expect(await ownerService.ingest(editor, oldAck.json), isFalse);
+      expect((await ownerStore.load(id))!.root.generation, 0);
+      expect(
+        await ownerService.ingest(_id(9), oldAck.json),
+        isFalse,
+        reason: 'a copied member ACK cannot be replayed by another peer',
+      );
+      // The original offline packet is equivalent to the returned delta and
+      // remains a harmless deduplicated replay.
+      expect(await ownerService.ingest(editor, offlineDelta.json), isTrue);
+      await ownerService.close();
+      await editorService.close();
+    },
+  );
+
+  test(
+    'owner ingests member ACK while durable proposal send is still pending',
+    () async {
+      final owner = _id(1);
+      final editor = _id(2);
+      final envelopes = CloudDocumentEnvelopeService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      );
+      final ownerStore = await _openStore(FakeHvContainer());
+      final editorStore = await _openStore(FakeHvContainer());
+      final sent = <({NodeId peer, String documentId, String json})>[];
+      var blockOwnerSend = false;
+      var sendGate = Completer<void>();
+      final ownerService = CloudDocumentReplicationService(
+        localNodeId: owner,
+        ourCertVersion: 0,
+        store: ownerStore,
+        envelopes: envelopes,
+        sendFrame: (peer, documentId, json) async {
+          sent.add((peer: peer, documentId: documentId, json: json));
+          if (blockOwnerSend) await sendGate.future;
+        },
+        signer: _Signer(owner, 1),
+        verifyRoot: (_) => true,
+        verifyControl: (_) => true,
+        verifyOperation: (_) => true,
+        verifyQuiescenceAck: (_) => true,
+        now: () => DateTime.fromMillisecondsSinceEpoch(9000),
+        random: Random(187),
+      );
+      final editorService = _service(
+        self: editor,
+        store: editorStore,
+        envelopes: envelopes,
+        sent: sent,
+        signer: _Signer(editor, 2),
+        random: Random(188),
+      );
+      final id = (await ownerService.createDocument())!.documentId;
+      await ownerService.grant(id, editor, CloudDocumentRole.editor);
+      final invite = sent
+          .map((entry) => CloudDocumentFrame.decode(entry.json))
+          .whereType<CloudDocumentFrame>()
+          .firstWhere((frame) => frame.kind == CloudDocumentFrameKind.invite);
+      expect(await editorService.ingest(owner, invite.encode()), isTrue);
+      expect(await editorService.adopt(id), isTrue);
+
+      sent.clear();
+      blockOwnerSend = true;
+      final request = ownerService.requestQuiescence(id, ignoreThreshold: true);
+      for (var attempt = 0; attempt < 20 && sent.isEmpty; attempt++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      final proposal = sent.single;
+      sent.clear();
+      expect(await editorService.ingest(owner, proposal.json), isTrue);
+      final ack = sent.single;
+      expect(
+        await ownerService
+            .ingest(editor, ack.json)
+            .timeout(const Duration(seconds: 1)),
+        isTrue,
+        reason: 'network await must not retain the document serialization lock',
+      );
+      sendGate.complete();
+      expect(await request, isTrue);
+      for (var attempt = 0; attempt < 50; attempt++) {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+        final stored = await ownerStore.load(id);
+        final generation = stored?.root.generation;
+        stored?.wipeLocalEpochKeys();
+        if (generation == 1) break;
+      }
+      final compacted = (await ownerStore.load(id))!;
+      expect(compacted.root.generation, 1);
+      compacted.wipeLocalEpochKeys();
+      blockOwnerSend = false;
+      await ownerService.close();
+      await editorService.close();
+    },
+  );
+
+  test(
+    'offline editor blocks automatic compaction until owner revokes it',
+    () async {
+      final owner = _id(1);
+      final editor = _id(2);
+      final envelopes = CloudDocumentEnvelopeService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      );
+      final store = await _openStore(FakeHvContainer());
+      final sent = <({NodeId peer, String documentId, String json})>[];
+      final service = _service(
+        self: owner,
+        store: store,
+        envelopes: envelopes,
+        sent: sent,
+        signer: _Signer(owner, 1),
+        random: Random(185),
+      );
+      final id = (await service.createDocument())!.documentId;
+      await service.grant(id, editor, CloudDocumentRole.editor);
+      sent.clear();
+      expect(
+        await service.requestQuiescence(id, ignoreThreshold: true),
+        isTrue,
+      );
+      expect(service.quiescenceStatus(id)!.complete, isFalse);
+      await Future<void>.delayed(Duration.zero);
+      expect((await store.load(id))!.root.generation, 0);
+
+      expect(await service.revoke(id, editor), isNotNull);
+      sent.clear();
+      expect(
+        await service.requestQuiescence(id, ignoreThreshold: true),
+        isTrue,
+      );
+      for (var attempt = 0; attempt < 50; attempt++) {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+        final stored = await store.load(id);
+        final generation = stored?.root.generation;
+        stored?.wipeLocalEpochKeys();
+        if (generation == 1) break;
+      }
+      final compacted = (await store.load(id))!;
+      expect(compacted.root.generation, 1);
+      compacted.wipeLocalEpochKeys();
+      await service.close();
     },
   );
 

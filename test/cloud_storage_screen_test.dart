@@ -93,6 +93,14 @@ class _DocumentSigner implements CloudDocumentSigner {
         Uint8List(64)..fillRange(0, 64, 7),
         Uint8List(32)..fillRange(0, 32, 7),
       );
+
+  @override
+  CloudDocumentQuiescenceAck signQuiescenceAck(
+    CloudDocumentQuiescenceAck unsigned,
+  ) => unsigned.withSignature(
+    Uint8List(64)..fillRange(0, 64, 7),
+    Uint8List(32)..fillRange(0, 32, 7),
+  );
 }
 
 Future<void> _pumpTransition(WidgetTester tester) async {
@@ -363,7 +371,7 @@ void main() {
     await tester.tap(find.widgetWithText(OutlinedButton, 'Compact history'));
     await tester.pumpAndSettle();
     expect(
-      find.textContaining('Replace the old encrypted history'),
+      find.textContaining('Ask current editors to confirm'),
       findsOneWidget,
     );
     await tester.tap(find.widgetWithText(FilledButton, 'Compact history'));
