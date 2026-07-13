@@ -1,8 +1,8 @@
 # Public cloud capability links
 
-Status: CLOUD-2B is implemented locally and verified on macOS. Cross-device
-download, simultaneous multi-provider failover and revoke convergence still
-require a fresh writable device group and must not be described as verified.
+Status: CLOUD-2B single-provider v1 is implemented and cross-device verified.
+Simultaneous multi-provider DHT resolution/failover remains a separate native
+follow-up and must not be described as verified.
 
 ## Privacy and authority
 
@@ -57,7 +57,20 @@ active/revoke convergence.
 
 The macOS fixture has verified seed zeroization, stable pseudonymous service/app
 identity, idempotent withdrawal, full host/probe/response behavior, UI entry
-points, link creation, local adoption and revoke. Phone/cross-node fetch is
-deliberately pending until the physical Android device is connected. A fresh
-writable two-owner device group is also required to verify real revoke
-convergence and to characterize the remaining DHT failover limitation.
+points, link creation, local adoption and revoke.
+
+The final cross-device run on 2026-07-13 closed the previously blocked bearer
+path without resetting any fixture. macOS created and hosted an 8192-byte
+revision; Android fetched it anonymously, adopted the exact content id, passed
+integrity verification and retained a local replica across app restart. The
+owner then revoked the share. A third device (iOS Simulator), which did not
+already possess that content id, received no response and committed neither an
+item nor a partial blob. The owner's active registry was empty immediately
+after revoke. Test items were deleted after verification; the share remained
+revoked. This proves create → anonymous download/adopt → revoke → post-revoke
+silent denial for the single-provider v1.
+
+A fresh writable two-owner device group is still useful to verify live revoke
+convergence between owner devices and to characterize the remaining one-value
+blinded-DHT failover limitation. That limitation does not invalidate a single
+active provider, but it forbids claiming simultaneous multi-provider failover.
