@@ -13,6 +13,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OVERRIDE="$ROOT/pubspec_overrides.yaml"
 STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/xveil-ios-simulator.XXXXXX")"
+export XVEIL_XATTR_ROOT="$ROOT"
+export PATH="$ROOT/tool/ios_simulator:$PATH"
 TRACKED_IOS_STATE=(
   "ios/Podfile.lock"
   "ios/Runner.xcodeproj/project.pbxproj"

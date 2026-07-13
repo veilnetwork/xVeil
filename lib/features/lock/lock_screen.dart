@@ -91,72 +91,85 @@ class _LockScreenState extends ConsumerState<LockScreen> {
     );
     return Scaffold(
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Spacer(),
-              Icon(Icons.lock_outline, size: 56, color: scheme.primary),
-              const SizedBox(height: 24),
-              Text(
-                l.lockTitle,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-              const SizedBox(height: 32),
-              TextField(
-                controller: _ctrl,
-                obscureText: true,
-                autofocus: true,
-                onSubmitted: (_) => _unlock(),
-                decoration: InputDecoration(
-                  labelText: l.lockPasswordHint,
-                  errorText: hasError ? l.lockWrong : null,
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: (constraints.maxHeight - 48).clamp(
+                  0,
+                  double.infinity,
                 ),
               ),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: _busy ? null : _unlock,
-                child: _busy
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Text(l.lockUnlock),
-              ),
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: _busy ? null : _startOver,
-                child: Text(l.lockStartOver),
-              ),
-              const Spacer(flex: 2),
-              // Low-emphasis, corner-tucked destructive action (typed-phrase
-              // gated) so it can't be hit by an accidental double-tap.
-              Align(
-                alignment: Alignment.bottomRight,
-                child: TextButton.icon(
-                  onPressed: _busy ? null : _wipe,
-                  icon: Icon(
-                    Icons.delete_forever_outlined,
-                    size: 16,
-                    color: scheme.error.withValues(alpha: 0.7),
-                  ),
-                  label: Text(
-                    l.lockWipe,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: scheme.error.withValues(alpha: 0.7),
+              child: IntrinsicHeight(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Spacer(),
+                    Icon(Icons.lock_outline, size: 56, color: scheme.primary),
+                    const SizedBox(height: 24),
+                    Text(
+                      l.lockTitle,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.headlineSmall,
                     ),
-                  ),
-                  style: TextButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                  ),
+                    const SizedBox(height: 32),
+                    TextField(
+                      controller: _ctrl,
+                      obscureText: true,
+                      autofocus: true,
+                      onSubmitted: (_) => _unlock(),
+                      decoration: InputDecoration(
+                        labelText: l.lockPasswordHint,
+                        errorText: hasError ? l.lockWrong : null,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    FilledButton(
+                      onPressed: _busy ? null : _unlock,
+                      child: _busy
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Text(l.lockUnlock),
+                    ),
+                    const SizedBox(height: 8),
+                    TextButton(
+                      onPressed: _busy ? null : _startOver,
+                      child: Text(l.lockStartOver),
+                    ),
+                    const Spacer(flex: 2),
+                    // Low-emphasis, corner-tucked destructive action (typed-phrase
+                    // gated) so it can't be hit by an accidental double-tap.
+                    Align(
+                      alignment: Alignment.bottomRight,
+                      child: TextButton.icon(
+                        onPressed: _busy ? null : _wipe,
+                        icon: Icon(
+                          Icons.delete_forever_outlined,
+                          size: 16,
+                          color: scheme.error.withValues(alpha: 0.7),
+                        ),
+                        label: Text(
+                          l.lockWipe,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: scheme.error.withValues(alpha: 0.7),
+                          ),
+                        ),
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
+            ),
           ),
         ),
       ),

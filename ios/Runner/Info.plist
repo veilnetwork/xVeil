@@ -67,6 +67,8 @@
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>xVeil uses the camera only to scan a contact's invite QR code. Nothing is recorded or sent.</string>
+	<string>xVeil uses the camera only when you scan an invite, take media, or enable video in a call. Nothing is captured or sent without your action.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>xVeil uses the microphone only when you record a message or join a call with audio enabled.</string>
 </dict>
 </plist>

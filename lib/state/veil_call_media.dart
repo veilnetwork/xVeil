@@ -79,7 +79,7 @@ class VeilCallMediaController implements CallMediaController {
     if (_engine != null || (_chan != null && _chanPeer != call.peer.hex)) {
       await stop();
     }
-    // Present the macOS mic (and camera for video) TCC prompt via
+    // Present the Apple mic (and camera for video) TCC prompt via
     // AVCaptureDevice BEFORE the engine touches CoreAudio — but NEVER let the
     // prompt block the call FSM: bound the wait, and proceed regardless (the
     // engine still comes up; capture starts once permission lands).
@@ -149,9 +149,9 @@ class VeilCallMediaController implements CallMediaController {
       videoOk = engine.startVideo(send: true, recv: true);
       devLog(() => 'xVeil[call-media]: startVideo=$videoOk');
       // Drive the send stream from the real camera for a video call (screen
-      // capture is a separate path). macOS captures natively inside the engine
-      // (AVCaptureSession); Android streams via the `camera` plugin and pushes
-      // I420 frames in from Dart.
+      // capture is a separate path). Apple platforms capture natively inside
+      // the engine (AVCaptureSession); Android streams via the `camera` plugin
+      // and pushes I420 frames in from Dart.
       if (call.media.video) {
         if (Platform.isAndroid) {
           // Do not hold the call FSM in `connecting` while the camera plugin
