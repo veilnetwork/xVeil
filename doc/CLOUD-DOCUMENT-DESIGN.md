@@ -1,9 +1,9 @@
 # Shared cloud documents
 
-Status: CLOUD-3B1 implements the owner-device whole-note revision DAG. Contact
-collaboration is deliberately not wired through ordinary group chat messages:
-the current message format has no membership epoch and `messagesOf` filters by
-current membership, which is insufficient for durable document authorization.
+Status: CLOUD-3B2 implements encrypted contact collaboration for rich text,
+tasks and calendars, including a versioned owner-signed root transition for
+physical history compaction. Collaboration deliberately does not use ordinary
+group chat messages: that format has no document membership epoch.
 
 ## Implemented prerequisite: branch-preserving notes
 
@@ -277,10 +277,42 @@ concurrent changes to other registers. The loopback collection hook never
 echoes titles, notes or locations; it returns row count, canonical SHA-256,
 heads, epoch, role and invalid/unavailable counts.
 
-The append-only signed log is still bounded by the existing encrypted frame
-limit. Long-term history compaction requires a separately versioned signed
-checkpoint/root transition; silently dropping old author-chain records is
-forbidden and is not claimed here.
+## Implemented: signed root transition and physical compaction
+
+Root v1 remains byte-for-byte compatible as generation zero. A compacted root
+uses wire version two and signs its generation, the exact predecessor signed
+root hash, current membership epoch and ACL, current key commitment/envelope
+hash, cumulative per-author `(seq, signed-record-hash)` heads, and the current
+owner control `(seq, signed-record-hash)` head. Document id, owner key, kind,
+codec, genesis control root and creation time are immutable across a
+transition.
+
+The owner materializes the authenticated current state in RAM and writes one
+encrypted owner checkpoint in the current epoch (plus a document-delete record
+when required to preserve delete/recovery semantics). The new deniable bundle
+then contains only that checkpoint payload, the current recipient envelope and
+current epoch key. Older controls, operations, ciphertext payloads, envelopes
+and local epoch keys are physically absent. The A/B document-store write makes
+the replacement crash-safe; cleartext and temporary key copies are wiped.
+
+Fold starts at the root's base epoch/ACL and seeds author and control sequence
+validation from the signed frontiers. New edits and ACL rotations therefore
+continue their original hash chains rather than restarting at sequence zero.
+Epoch closures include both compacted base heads and post-transition records.
+
+An existing replica accepts only generation `N+1` whose predecessor is its
+exact trusted generation `N`. A downgrade, skipped generation, parallel fork,
+rewritten immutable field or invalid owner signature is rejected. The new base
+must cover every author/control head already known locally and preserve the
+exact current epoch, key commitments and membership. Thus a device with a
+newer unsynchronized local edit retains its old generation and rejects the
+transition instead of silently losing that edit. Operationally, the owner
+should compact after replicas have converged; a future acknowledgement protocol
+can automate that quiescence decision.
+
+Fresh invite/adopt works directly from a compacted root without old epoch keys
+or records. The owner-only Storage control and loopback metadata hook expose
+compaction; the hook never returns checkpoint cleartext or ciphertext.
 
 ## Why ordinary `GroupMessage` is not sufficient yet
 

@@ -354,6 +354,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/cloud_document_acl':
           await _cloudDocumentAclHook(req);
           return;
+        case '/cloud_document_compact':
+          await _cloudDocumentCompactHook(req);
+          return;
         case '/cloud_document_adopt':
           await _cloudDocumentAdoptHook(req);
           return;
@@ -1507,6 +1510,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
             'owner': document.root.owner.hex,
             'kind': document.root.kind.name,
             'codec': document.root.codec,
+            'generation': document.root.generation,
             'epoch': document.currentEpoch,
             'role': document.localRole?.name,
             'members': {
@@ -1657,6 +1661,30 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     } catch (error) {
       return _json(req, {'ok': false, 'error': '$error'});
     }
+  }
+
+  /// Owner-only physical compaction. The response is structural metadata;
+  /// neither checkpoint cleartext nor encrypted payload bytes are exposed.
+  Future<void> _cloudDocumentCompactHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(cloudDocumentReplicationServiceProvider);
+    final id = req.uri.queryParameters['id'];
+    if (service == null || id == null) {
+      return _json(req, {'ok': false, 'error': 'need documents+id'});
+    }
+    final result = await service.compactDocument(id);
+    return _json(req, {
+      'ok': result != null,
+      'id': id,
+      'generation': result?.generation,
+      'controlsBefore': result?.controlsBefore,
+      'operationsBefore': result?.operationsBefore,
+      'envelopesBefore': result?.envelopesBefore,
+      'payloadsBefore': result?.payloadsBefore,
+      'operationsAfter': result?.operationsAfter,
+      'fullyQueued': result?.fullyQueued,
+      'failed': result?.failedRecipients.map((peer) => peer.hex).toList(),
+    });
   }
 
   Future<void> _cloudDocumentAdoptHook(HttpRequest req) async {

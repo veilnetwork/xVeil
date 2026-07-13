@@ -824,6 +824,8 @@
   "@cloudSharedRevokeTitle": {"placeholders": {"member": {"type": "String"}}},
   "cloudSharedRotate": "Rotate encryption key",
   "cloudSharedRotateTitle": "Rotate the document key for every member?",
+  "cloudSharedCompact": "Compact history",
+  "cloudSharedCompactTitle": "Replace the old encrypted history with a signed checkpoint? Current content, access and edit continuity are preserved. This cannot be undone.",
   "cloudSharedResend": "Resend invitation",
   "cloudSharedQueued": "Update queued",
   "cloudRichTitle": "Shared note",

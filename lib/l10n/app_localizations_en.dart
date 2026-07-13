@@ -2511,6 +2511,13 @@ class AppL10nEn extends AppL10n {
       'Rotate the document key for every member?';
 
   @override
+  String get cloudSharedCompact => 'Compact history';
+
+  @override
+  String get cloudSharedCompactTitle =>
+      'Replace the old encrypted history with a signed checkpoint? Current content, access and edit continuity are preserved. This cannot be undone.';
+
+  @override
   String get cloudSharedResend => 'Resend invitation';
 
   @override

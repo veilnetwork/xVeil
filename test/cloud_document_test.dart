@@ -132,6 +132,66 @@ void main() {
     },
   );
 
+  test('compacted root roundtrip seeds epoch, ACL and log frontiers', () {
+    final legacy = _root();
+    final root = CloudDocumentRoot(
+      version: 2,
+      documentId: legacy.documentId,
+      owner: legacy.owner,
+      ownerPubKey: legacy.ownerPubKey,
+      kind: legacy.kind,
+      codec: legacy.codec,
+      epochKeyCommitment: _hash(43),
+      epochEnvelopeHash: _hash(44),
+      controlLogRoot: legacy.controlLogRoot,
+      createdAtMs: legacy.createdAtMs,
+      signature: legacy.signature,
+      generation: 1,
+      predecessorRootHash: legacy.recordHash,
+      baseEpoch: 3,
+      baseMembers: {
+        legacy.owner.hex: CloudDocumentRole.owner,
+        _id(2).hex: CloudDocumentRole.editor,
+      },
+      baseAuthorFrontier: {
+        _id(2).hex: CloudDocumentAuthorHead(seq: 6, hash: _hash(45)),
+      },
+      baseControlSeq: 2,
+      baseControlHash: _hash(46),
+    );
+    final decoded = CloudDocumentRoot.fromJson(root.toJson());
+    expect(decoded, isNotNull);
+    expect(decoded!.canonicalBytes(), root.canonicalBytes());
+    expect(decoded.recordHash, root.recordHash);
+    expect(isDirectCloudDocumentRootTransition(legacy, decoded), isTrue);
+
+    final next = _operation(
+      author: _id(2),
+      seq: 7,
+      epoch: 3,
+      id: _hash(80),
+      prev: _hash(45),
+    );
+    final folded = foldCloudDocumentLog(
+      root: decoded,
+      controls: const [],
+      operations: [next],
+      verifyRoot: (_) => true,
+      verifyControl: (_) => true,
+      verifyOperation: (_) => true,
+    );
+    expect(folded.rootValid, isTrue);
+    expect(folded.epochs.keys, [3]);
+    expect(folded.epochs[3]!.roleOf(_id(2)), CloudDocumentRole.editor);
+    expect(folded.acceptedOperations, [next]);
+
+    final downgrade = Map<String, dynamic>.from(root.toJson())
+      ..['gen'] = 2
+      ..['prevRoot'] = _hash(99);
+    final fork = CloudDocumentRoot.fromJson(downgrade)!;
+    expect(isDirectCloudDocumentRootTransition(root, fork), isFalse);
+  });
+
   test('operation parser rejects noncanonical parents and self-parenting', () {
     final operation = _operation(
       author: _id(2),

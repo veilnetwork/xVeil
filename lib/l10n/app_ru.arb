@@ -820,6 +820,8 @@
   "@cloudSharedRevokeTitle": {"placeholders": {"member": {"type": "String"}}},
   "cloudSharedRotate": "Сменить ключ шифрования",
   "cloudSharedRotateTitle": "Сменить ключ документа для всех участников?",
+  "cloudSharedCompact": "Сжать историю",
+  "cloudSharedCompactTitle": "Заменить старую зашифрованную историю подписанной контрольной точкой? Текущее содержимое, доступ и непрерывность правок сохранятся. Отменить это действие нельзя.",
   "cloudSharedResend": "Повторить приглашение",
   "cloudSharedQueued": "Изменение поставлено в отправку",
   "cloudRichTitle": "Общая заметка",

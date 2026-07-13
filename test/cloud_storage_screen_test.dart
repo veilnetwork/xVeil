@@ -359,6 +359,16 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect((await documents.listDocuments()).single.currentEpoch, 4);
+
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Compact history'));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('Replace the old encrypted history'),
+      findsOneWidget,
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'Compact history'));
+    await tester.pumpAndSettle();
+    expect((await documents.listDocuments()).single.root.generation, 1);
     semantics.dispose();
   });
 
