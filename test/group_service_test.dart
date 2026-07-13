@@ -10,6 +10,7 @@ import 'package:xveil/data/transport/veil_mailbox.dart';
 import 'package:xveil/domain/device_sync.dart';
 import 'package:xveil/domain/device_link.dart';
 import 'package:xveil/domain/group.dart';
+import 'package:xveil/domain/group_call.dart';
 import 'package:xveil/domain/group_content.dart';
 import 'package:xveil/domain/group_message.dart';
 import 'package:xveil/domain/group_policy.dart';
@@ -45,11 +46,17 @@ class _FakeSigner implements GroupSigner {
   GroupContentRequest signContentRequest(GroupContentRequest u) =>
       u.withSignature(Uint8List(64), u.requester.bytes);
   @override
+  GroupCallSignal signCallSignal(GroupCallSignal u) =>
+      u.withSignature(Uint8List(64), u.author.bytes);
+  @override
   bool verifyControl(ControlEntry e) =>
       e.signature.length == 64 && e.authorPubKey.length == 32;
   @override
   bool verifyContentRequest(GroupContentRequest r) =>
       r.signature.length == 64 && r.authorPubKey.length == 32;
+  @override
+  bool verifyCallSignal(GroupCallSignal s) =>
+      s.signature.length == 64 && s.authorPubKey.length == 32;
   @override
   bool verifyMessage(GroupMessage m) =>
       m.signature.length == 64 && m.authorPubKey.length == 32;

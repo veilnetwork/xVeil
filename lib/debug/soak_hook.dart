@@ -30,6 +30,7 @@ import '../domain/group.dart';
 import '../domain/group_policy.dart';
 import '../state/group_crypto.dart';
 import '../state/group_service.dart';
+import '../state/group_call_service.dart';
 import '../routing/router.dart';
 import '../domain/call_log.dart';
 import '../domain/cloud.dart';
@@ -539,6 +540,24 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/call_state':
           await _callState(req);
+          return;
+        case '/group_call_start':
+          await _groupCallStart(req);
+          return;
+        case '/group_call_join':
+          await _groupCallAction(req, (service) => service.join());
+          return;
+        case '/group_call_leave':
+          await _groupCallAction(req, (service) async {
+            await service.leave();
+            return true;
+          });
+          return;
+        case '/group_call_end':
+          await _groupCallAction(req, (service) => service.endForEveryone());
+          return;
+        case '/group_call_state':
+          await _groupCallState(req);
           return;
         case '/media_open':
           await _mediaOpen(req);
@@ -4694,6 +4713,80 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
               'micOn': c.micOn,
               'cameraOn': c.cameraOn,
               'screenOn': c.screenOn,
+            },
+    });
+  }
+
+  // ---- group-call control plane (no key/body material in debug output) ----
+
+  Future<void> _groupCallStart(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(groupCallServiceProvider);
+    final groupHex = req.uri.queryParameters['group'];
+    if (service == null || groupHex == null) {
+      return _json(req, {'ok': false, 'error': 'no service/group'}, status: 409);
+    }
+    final NodeId groupId;
+    try {
+      groupId = NodeId.fromHex(groupHex);
+    } catch (_) {
+      return _json(req, {'ok': false, 'error': 'bad group'}, status: 400);
+    }
+    final media = req.uri.queryParameters['media']?.trim() ?? 'audio';
+    final ok = await service.startCall(
+      groupId,
+      CallMedia(
+        audio: true,
+        video: media == 'video' || media == 'screen',
+        screen: media == 'screen',
+      ),
+    );
+    await _groupCallState(req, actionOk: ok);
+  }
+
+  Future<void> _groupCallAction(
+    HttpRequest req,
+    Future<bool> Function(GroupCallService service) action,
+  ) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(groupCallServiceProvider);
+    if (service == null) {
+      return _json(req, {'ok': false, 'error': 'no service'}, status: 409);
+    }
+    final ok = await action(service);
+    await _groupCallState(req, actionOk: ok);
+  }
+
+  Future<void> _groupCallState(HttpRequest req, {bool? actionOk}) async {
+    final call = ref.read(groupCallServiceProvider)?.current;
+    await _json(req, {
+      'ok': actionOk ?? true,
+      'call': call == null
+          ? null
+          : {
+              'groupId': call.groupId.hex,
+              'callId': call.callId,
+              'initiator': call.initiator.hex,
+              'epoch': call.membershipEpoch,
+              'status': call.status.name,
+              'media': {
+                'audio': call.media.audio,
+                'video': call.media.video,
+                'screen': call.media.screen,
+              },
+              'participants': [
+                for (final participant in call.participants.values)
+                  {
+                    'nodeId': participant.nodeId.hex,
+                    'audio': participant.media.audio,
+                    'video': participant.media.video,
+                    'screen': participant.media.screen,
+                  },
+              ],
+              'endReason': call.endReason?.name,
+              'micOn': call.micOn,
+              'cameraOn': call.cameraOn,
+              'screenOn': call.screenOn,
             },
     });
   }

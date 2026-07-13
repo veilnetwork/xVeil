@@ -12,6 +12,7 @@ import '../data/storage/storage.dart';
 import '../data/transport/veil_transport.dart';
 import '../data/transport/wire_envelope.dart';
 import '../domain/call_signal.dart';
+import '../domain/group_call.dart';
 import '../domain/chat.dart';
 import '../domain/chat_folder.dart';
 import '../domain/content_manifest.dart';
@@ -606,6 +607,11 @@ class MessagingService {
   /// the chunk-path admission, checked BEFORE reassembly RAM is spent.
   Future<bool> Function(NodeId peer, String gidHex)? allowStrangerGroupSync;
 
+  /// Epoch-encrypted group-call frame. Deliberately not contact-gated: the
+  /// group layer authenticates the sender, current membership, epoch, AEAD,
+  /// signature, replay id and TTL before emitting anything to the call FSM.
+  Future<bool> Function(NodeId peer, String frameJson)? onGroupCallSignal;
+
   /// Ship a signed group content-fetch request to [dst] (the content holder)
   /// durably. Keyed by content so a re-mint of the same request dedups; a
   /// frame that outlives the 10-minute authorization window is simply refused
@@ -616,6 +622,34 @@ class MessagingService {
         'gcr:${requestJson.hashCode & 0x7fffffff}',
         WireEnvelope.groupContentRequest(requestJson),
       );
+
+  /// Send one already-signed+epoch-encrypted group-call signal. Lifecycle
+  /// transitions are durable for short outage tolerance; heartbeats are live
+  /// only so stale liveness work never accumulates in an outbox/mailbox.
+  Future<void> sendGroupCallSignal(
+    NodeId dst,
+    GroupCallSignal signal,
+    String frameJson,
+  ) async {
+    final envelope = WireEnvelope.groupCallSignal(
+      frameJson,
+      sentAtMs: signal.sentAtMs,
+    );
+    if (signal.type == GroupCallSignalType.heartbeat) {
+      try {
+        await _send(dst, envelope.encode());
+      } catch (_) {
+        // A subsequent heartbeat supersedes this best-effort frame.
+      }
+      return;
+    }
+    await sendDurable(
+      dst,
+      'gcall:${signal.groupId.hex}:${signal.callId}:'
+      '${signal.type.name}:${signal.nonce}',
+      envelope,
+    );
+  }
 
   /// Membership-authorized serve grants: `<peerHex>|<cid>` → expiry (ms).
   /// Granted by the group layer after [onGroupContentRequest] authorizes; lets
@@ -1880,11 +1914,21 @@ class MessagingService {
       } catch (_) {
         continue;
       }
-      if (contact == null) {
+      var groupMemberCarrier = false;
+      if (contact == null || contact.status != ContactStatus.accepted) {
+        final parts = f.frameId.split(':');
+        if (parts.length >= 3 && parts.first == 'gcall') {
+          groupMemberCarrier =
+              await allowStrangerGroupSync?.call(peer, parts[1]) ?? false;
+        }
+      }
+      if (contact == null && !groupMemberCarrier) {
         _retireOutboxFrame(f.frameId);
         continue;
       }
-      if (contact.status == ContactStatus.blocked) continue;
+      if (contact?.status == ContactStatus.blocked && !groupMemberCarrier) {
+        continue;
+      }
       // A peer whose identity can't be resolved at all is backed off wholesale
       // (same gate the message flush applies) — don't hammer resolve/seal.
       final pb = _peerUnresolvedBackoff[f.peerHex];
@@ -1927,12 +1971,16 @@ class MessagingService {
   static const _callSignalOutboxTtl = Duration(minutes: 2);
 
   bool _retireExpiredCallOutboxFrame(OutboxFrame frame) {
-    if (!frame.frameId.startsWith('call:')) return false;
+    final direct = frame.frameId.startsWith('call:');
+    final group = frame.frameId.startsWith('gcall:');
+    if (!direct && !group) return false;
     try {
       final env = WireEnvelope.decode(frame.wire);
-      if (env.kind != WireKind.callSignal) return false;
-      final signal = CallSignal.tryDecode(env.body);
-      final sentAtMs = signal?.sentAtMs ?? env.sentAtMs;
+      if (direct && env.kind != WireKind.callSignal) return false;
+      if (group && env.kind != WireKind.groupCallSignal) return false;
+      final sentAtMs = direct
+          ? (CallSignal.tryDecode(env.body)?.sentAtMs ?? env.sentAtMs)
+          : env.sentAtMs;
       if (sentAtMs == null) return false;
       final sentAt = DateTime.fromMillisecondsSinceEpoch(sentAtMs);
       final age = _now().difference(sentAt);
@@ -1944,6 +1992,25 @@ class MessagingService {
       );
       _retireOutboxFrame(frame.frameId);
       return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// A non-contact may ACK only the exact pending group-call frame addressed to
+  /// it while it is still a current member of that gid. This is narrower than
+  /// the ordinary accepted-contact ACK gate and cannot forge delivery of chat
+  /// messages or frames belonging to another peer/group.
+  Future<bool> _authorizedGroupCallAck(NodeId peer, String frameId) async {
+    final parts = frameId.split(':');
+    if (parts.length < 5 || parts.first != 'gcall') return false;
+    if (!(await allowStrangerGroupSync?.call(peer, parts[1]) ?? false)) {
+      return false;
+    }
+    try {
+      return (await _storage.pendingOutboxFrames()).any(
+        (frame) => frame.frameId == frameId && frame.peerHex == peer.hex,
+      );
     } catch (_) {
       return false;
     }
@@ -2192,8 +2259,18 @@ class MessagingService {
     final deferredDocumentAck =
         env.kind == WireKind.cloudDocument ||
         env.kind == WireKind.cloudDocumentChunk;
+    final deferredGroupCallAck = env.kind == WireKind.groupCallSignal;
+    if (fid != null && deferredGroupCallAck && _seenFrames.contains(fid)) {
+      // This exact frame passed membership+AEAD+signature once already. A
+      // re-drive means our prior ACK was lost; re-ACK without reprocessing.
+      await _ackFrame(m, fid);
+      return;
+    }
     if (fid != null && existing?.status == ContactStatus.accepted) {
-      if (deferredDocumentAck) {
+      if (deferredGroupCallAck) {
+        // Authorization is the group frame itself, not ContactStatus. The
+        // groupCallSignal switch arm ACKs only after the group layer accepts.
+      } else if (deferredDocumentAck) {
         if (_seenFrames.contains(fid)) {
           await _ackFrame(m, fid);
           return;
@@ -2302,9 +2379,12 @@ class MessagingService {
         // ack an arbitrary (guessed) id to forge a "delivered" mark and cancel
         // our retry backoff in any conversation. A legit ack only comes from a
         // peer we already accepted (we send messages — hence acks — only to them).
-        if (existing?.status != ContactStatus.accepted) return;
         // The peer confirms delivery of our message [env.id] — stop re-sending.
         final ackId = env.id;
+        if (existing?.status != ContactStatus.accepted &&
+            (ackId == null || !await _authorizedGroupCallAck(m.src, ackId))) {
+          return;
+        }
         if (ackId != null) {
           // Retire a durable control frame the peer just confirmed (sign, edit,
           // del, clear, accept, reconnect): stop re-driving + re-stashing it.
@@ -2558,6 +2638,16 @@ class MessagingService {
         // inside is the authorization; the group layer verifies against its
         // own folded state and grants (or silently drops — no oracle).
         onGroupContentRequest?.call(m.src, env.body);
+        return;
+      case WireKind.groupCallSignal:
+        // No contact gate: current group membership + epoch AEAD + node-bound
+        // signature are the authorization. Invalid/removed/stale senders are
+        // silently dropped by the group layer (no membership/read oracle).
+        final accepted = await onGroupCallSignal?.call(m.src, env.body) ?? false;
+        if (accepted && fid != null) {
+          await _ackFrame(m, fid);
+          _seenFrames.add(fid);
+        }
         return;
       case WireKind.chatDeleted:
         // The peer deleted this conversation on their device and explicitly

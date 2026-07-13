@@ -9,6 +9,7 @@ import 'dart:ffi';
 
 import '../data/node/embedded_node.dart';
 import '../domain/group.dart';
+import '../domain/group_call.dart';
 import '../domain/group_content.dart';
 import '../domain/group_message.dart';
 import '../domain/group_reaction.dart';
@@ -136,6 +137,38 @@ bool verifyGroupContentRequest(GroupContentRequest r, {DynamicLibrary? lib}) {
       publicKey: r.authorPubKey,
       message: r.canonicalBytes(),
       signature: r.signature,
+      lib: lib,
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+/// Sign an ephemeral group-call signal with the deniable identity key.
+GroupCallSignal signGroupCallSignal({
+  required String identityToml,
+  required GroupCallSignal unsigned,
+  DynamicLibrary? lib,
+}) {
+  final result = EmbeddedNode.signMessage(
+    identityToml,
+    unsigned.canonicalBytes(),
+    lib: lib,
+  );
+  return unsigned.withSignature(result.signature, result.publicKey);
+}
+
+/// Verify the signature and bind the author public key to its node id.
+bool verifyGroupCallSignal(GroupCallSignal signal, {DynamicLibrary? lib}) {
+  if (signal.authorPubKey.length != 32 || signal.signature.length != 64) {
+    return false;
+  }
+  try {
+    return EmbeddedNode.verifyMessage(
+      nodeId: signal.author.bytes,
+      publicKey: signal.authorPubKey,
+      message: signal.canonicalBytes(),
+      signature: signal.signature,
       lib: lib,
     );
   } catch (_) {

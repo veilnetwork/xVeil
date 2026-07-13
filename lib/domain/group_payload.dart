@@ -228,6 +228,76 @@ Future<Uint8List> decryptGroupReactionPayload({
   }
 }
 
+Future<GroupEncryptedPayload> encryptGroupCallPayload({
+  required NodeId groupId,
+  required int membershipEpoch,
+  required NodeId author,
+  required Uint8List clearText,
+  required Uint8List epochKey,
+  Random? random,
+}) async {
+  if (membershipEpoch <= 0 ||
+      clearText.length > maxGroupEncryptedPayloadBytes ||
+      epochKey.length != 32) {
+    throw ArgumentError('invalid group call payload input');
+  }
+  final nonce = Uint8List(12);
+  final rng = random ?? Random.secure();
+  for (var index = 0; index < nonce.length; index++) {
+    nonce[index] = rng.nextInt(256);
+  }
+  final box = await _groupAead.encrypt(
+    clearText,
+    secretKey: SecretKey(epochKey),
+    nonce: nonce,
+    aad: groupCallPayloadAad(
+      groupId: groupId,
+      membershipEpoch: membershipEpoch,
+      author: author,
+    ),
+  );
+  return GroupEncryptedPayload(
+    nonce: nonce,
+    cipherText: Uint8List.fromList(box.cipherText),
+    mac: Uint8List.fromList(box.mac.bytes),
+  );
+}
+
+Future<Uint8List> decryptGroupCallPayload({
+  required NodeId groupId,
+  required int membershipEpoch,
+  required NodeId author,
+  required GroupEncryptedPayload payload,
+  required Uint8List epochKey,
+}) async {
+  if (membershipEpoch <= 0 ||
+      !payload.isStructurallyValid ||
+      epochKey.length != 32) {
+    throw const FormatException('group call payload rejected');
+  }
+  try {
+    final clear = await _groupAead.decrypt(
+      SecretBox(
+        payload.cipherText,
+        nonce: payload.nonce,
+        mac: Mac(payload.mac),
+      ),
+      secretKey: SecretKey(epochKey),
+      aad: groupCallPayloadAad(
+        groupId: groupId,
+        membershipEpoch: membershipEpoch,
+        author: author,
+      ),
+    );
+    if (clear.length > maxGroupEncryptedPayloadBytes) {
+      throw const FormatException('group call payload rejected');
+    }
+    return Uint8List.fromList(clear);
+  } on SecretBoxAuthenticationError {
+    throw const FormatException('group call payload rejected');
+  }
+}
+
 Uint8List groupPayloadAad({
   required NodeId groupId,
   required int membershipEpoch,
@@ -266,6 +336,21 @@ Uint8List groupReactionPayloadAad({
       'author': author.hex,
       'seq': seq,
       'ts': createdAtMs,
+    }),
+  ),
+]);
+
+Uint8List groupCallPayloadAad({
+  required NodeId groupId,
+  required int membershipEpoch,
+  required NodeId author,
+}) => Uint8List.fromList([
+  ...utf8.encode('xveil.group-call.payload-aad.v1\u0000'),
+  ...utf8.encode(
+    jsonEncode({
+      'gid': groupId.hex,
+      'epoch': membershipEpoch,
+      'author': author.hex,
     }),
   ),
 ]);

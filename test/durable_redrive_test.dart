@@ -10,6 +10,7 @@ import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/call_signal.dart';
+import 'package:xveil/domain/group_call.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/state/messaging.dart';
 
@@ -417,6 +418,82 @@ void main() {
       expect(await sA.pendingOutboxFrames(), isEmpty,
           reason: 'liveness beats are superseded by the next beat and must not '
               'survive as restart/outbox work');
+    });
+
+    test('non-contact group-call lifecycle re-drives by membership and dispatches',
+        () async {
+      await sA.removeConversation(b);
+      await sB.removeConversation(a);
+      final gid = _id(8);
+      mA.allowStrangerGroupSync = (peer, groupIdHex) async =>
+          peer == b && groupIdHex == gid.hex;
+      String? received;
+      mB.onGroupCallSignal = (peer, frameJson) async {
+        if (peer == a) received = frameJson;
+        return true;
+      };
+      final signal = GroupCallSignal(
+        groupId: gid,
+        callId: 'room',
+        author: a,
+        membershipEpoch: 1,
+        type: GroupCallSignalType.announce,
+        media: const CallMedia(audio: true),
+        sentAtMs: clock.millisecondsSinceEpoch,
+        nonce: '00112233445566778899aabb',
+        signature: Uint8List(64),
+        authorPubKey: Uint8List(32),
+      );
+      tA.online = false;
+      await mA.sendGroupCallSignal(b, signal, '{"ciphertext":true}');
+      await _settle();
+      expect(received, isNull);
+      expect(
+        (await sA.pendingOutboxFrames()).single.frameId,
+        startsWith('gcall:${gid.hex}:room:announce:'),
+      );
+
+      tA.online = true;
+      clock = clock.add(const Duration(seconds: 21));
+      await flushA();
+      expect(received, '{"ciphertext":true}');
+      expect(
+        (await sA.pendingOutboxFrames()).map((frame) => frame.frameId),
+        isEmpty,
+      );
+    });
+
+    test('stale group-call lifecycle retires before a non-contact re-drive',
+        () async {
+      await sA.removeConversation(b);
+      await sB.removeConversation(a);
+      final gid = _id(8);
+      mA.allowStrangerGroupSync = (peer, groupIdHex) async => true;
+      var received = false;
+      mB.onGroupCallSignal = (_, _) async {
+        received = true;
+        return true;
+      };
+      final signal = GroupCallSignal(
+        groupId: gid,
+        callId: 'stale-room',
+        author: a,
+        membershipEpoch: 1,
+        type: GroupCallSignalType.announce,
+        media: const CallMedia(audio: true),
+        sentAtMs: clock.millisecondsSinceEpoch,
+        nonce: 'ffeeddccbbaa998877665544',
+        signature: Uint8List(64),
+        authorPubKey: Uint8List(32),
+      );
+      tA.online = false;
+      await mA.sendGroupCallSignal(b, signal, '{}');
+      await _settle();
+      clock = clock.add(const Duration(minutes: 3));
+      tA.online = true;
+      await flushA();
+      expect(received, isFalse);
+      expect(await sA.pendingOutboxFrames(), isEmpty);
     });
 
     test('repeated renegotiates enqueue DISTINCT durable frames (a type-only '
