@@ -584,6 +584,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/media_request_mic':
           await _mediaRequestMic(req);
           return;
+        case '/media_request_camera':
+          await _mediaRequestCamera(req);
+          return;
         case '/screenshot':
           await _screenshot(req);
           return;
@@ -4925,7 +4928,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     }
   }
 
-  // Trigger the macOS microphone TCC prompt via AVCaptureDevice.requestAccess.
+  // Trigger the platform microphone consent prompt through the app channel.
   Future<void> _mediaRequestMic(HttpRequest req) async {
     final before = await MacMediaPermissions.microphoneStatus();
     final granted = await MacMediaPermissions.requestMicrophone();
@@ -4938,9 +4941,21 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     });
   }
 
-  // Construct the full engine (webrtc::Call + ADM + AudioState) and enumerate
-  // audio devices — proves the WebRTC stack builds in the real app context.
-  // No mic capture, so no TCC prompt. Uses a dummy channel (0).
+  Future<void> _mediaRequestCamera(HttpRequest req) async {
+    final before = await MacMediaPermissions.cameraStatus();
+    final granted = await MacMediaPermissions.requestCamera();
+    final after = await MacMediaPermissions.cameraStatus();
+    await _json(req, {
+      'ok': true,
+      'granted': granted,
+      'before': before,
+      'after': after,
+    });
+  }
+
+  // Construct the full engine (webrtc::Call + ADM + AudioState), enumerate
+  // audio devices and optionally drive camera capture. Uses a dummy channel
+  // (0); permission prompts are explicit and bounded by the caller.
   // Serve the latest decoded remote video frame as PNG — lets the stand verify
   // the decode+render path (I420 -> RGBA -> displayable) over veil without
   // eyeballing the device.
@@ -5005,9 +5020,19 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       // + the built-in test source under VEIL_MEDIA_TEST_VIDEO) so a runtime
       // crash surfaces here without a peer. RTP goes to the dummy channel.
       final wantVideo = req.uri.queryParameters['video'] == '1';
+      final wantCamera = req.uri.queryParameters['camera'] == '1';
       bool videoStarted = false;
       if (wantVideo) videoStarted = e.startVideo(send: true, recv: true);
+      final cameraGranted =
+          !wantCamera ||
+          await MacMediaPermissions.requestCamera().timeout(
+            const Duration(seconds: 30),
+            onTimeout: () => false,
+          );
+      final cameraStarted = wantCamera && cameraGranted && e.startCamera();
       await Future<void>.delayed(const Duration(seconds: 5));
+      final cameraFrame = cameraStarted ? e.getLocalVideoFrame() : null;
+      if (cameraStarted) e.stopCamera();
       if (wantVideo) e.stopVideo();
       e.stopAudio();
       e.dispose();
@@ -5016,6 +5041,11 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         'created': true,
         'audio_started': started,
         'video_started': videoStarted,
+        'camera_granted': cameraGranted,
+        'camera_started': cameraStarted,
+        'camera_frame': cameraFrame != null,
+        'camera_width': cameraFrame?.width,
+        'camera_height': cameraFrame?.height,
         'mics': mics.length,
         'speakers': spk.length,
         'mic_labels': [for (final m in mics) m.label],

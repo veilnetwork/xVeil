@@ -3,8 +3,9 @@
 # artifacts exactly where each Flutter plugin's podspec / gradle expects them,
 # so a subsequent `flutter build ios|apk` Just Works.
 #
-#   ios      veilclient_ffi (device aarch64) -> veil_flutter/ios/Frameworks/
-#            hidden_volume_ffi (device+sim)  -> hidden_volume/ios/*.xcframework
+#   ios      veilclient_ffi (device/sim arm64) -> veil_flutter/ios/Frameworks/
+#            veil_media + WebRTC (matching device/sim arm64) -> veil_media/ios/Frameworks/
+#            hidden_volume_ffi (device+sim) -> hidden_volume/ios/*.xcframework
 #   android  per-ABI .so for both plugins (handled by each plugin's gradle
 #            cargo-ndk task on `flutter build apk`; this just preflights the
 #            toolchain and can pre-build via the submodule scripts)
@@ -54,6 +55,16 @@ build_ios() {
   mkdir -p "$dest"
   cp "$a" "$dest/libveilclient_ffi.a"
   echo "    staged -> $dest/libveilclient_ffi.a"
+
+  # Group-call media is another process-global FFI surface. Its archive must
+  # match the currently selected device/simulator slice exactly, just like
+  # veilclient_ffi above.
+  echo "==> veil_media for $veil_triple (Opus + VP8, native RTP path)"
+  if $SIM; then
+    "$VEIL/flutter/veil_media/ios/build_veil_media_ios.sh" --sim
+  else
+    "$VEIL/flutter/veil_media/ios/build_veil_media_ios.sh"
+  fi
 
   # hidden-volume: build-ios.sh self-stages the xcframework into the plugin
   # (device + arm64/x86_64 simulator slices, all platforms in one bundle).

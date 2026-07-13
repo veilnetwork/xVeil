@@ -60,6 +60,10 @@ abstract interface class GroupAudioEngine {
 
 typedef GroupAudioEngineFactory = GroupAudioEngine? Function(Uint8List localId);
 
+@visibleForTesting
+bool supportsNativeGroupMedia(String operatingSystem) =>
+    const {'macos', 'ios', 'android', 'linux'}.contains(operatingSystem);
+
 class NativeGroupAudioEngine implements GroupAudioEngine {
   NativeGroupAudioEngine._(this._engine);
 
@@ -146,9 +150,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
        _now = now ?? DateTime.now;
 
   // Keep this in sync with the platforms that bundle the group-engine ABI.
-  // Linux source support exists, but its shipped libveil_media.so has not yet
-  // been rebuilt with these symbols.
-  static bool get isSupportedPlatform => Platform.isMacOS || Platform.isAndroid;
+  static bool get isSupportedPlatform =>
+      supportsNativeGroupMedia(Platform.operatingSystem);
 
   final GroupMediaChannelTransport _transport;
   final GroupAudioEngineFactory _engineFactory;
@@ -206,7 +209,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       final micGranted = await _requestMicrophone();
       devLog(() => 'xVeil[group-call-media]: mic permission=$micGranted');
     }
-    if ((call.media.video || call.media.screen) && Platform.isMacOS) {
+    if ((call.media.video || call.media.screen) &&
+        (Platform.isMacOS || Platform.isIOS)) {
       final cameraGranted = await _requestCamera();
       devLog(() => 'xVeil[group-call-media]: camera permission=$cameraGranted');
     }

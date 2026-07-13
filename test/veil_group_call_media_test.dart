@@ -33,6 +33,14 @@ GroupCall _call(NodeId self, List<NodeId> peers, {bool video = false}) {
 }
 
 void main() {
+  test('native group media capability includes iOS and rebuilt Linux ABI', () {
+    expect(supportsNativeGroupMedia('macos'), isTrue);
+    expect(supportsNativeGroupMedia('ios'), isTrue);
+    expect(supportsNativeGroupMedia('android'), isTrue);
+    expect(supportsNativeGroupMedia('linux'), isTrue);
+    expect(supportsNativeGroupMedia('windows'), isFalse);
+  });
+
   test(
     'one engine reconciles peer channels and never opens a self channel',
     () async {
