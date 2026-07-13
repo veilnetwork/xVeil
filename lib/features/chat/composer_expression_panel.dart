@@ -42,19 +42,24 @@ Future<ComposerExpressionResult?> showComposerExpressionPanel(
     transitionDuration: const Duration(milliseconds: 160),
     pageBuilder: (dialogContext, _, _) {
       final available = MediaQuery.sizeOf(dialogContext).height;
-      final height = (available - kExpressionPanelBottomGap - 32).clamp(
-        240.0,
-        480.0,
-      );
+      final viewPadding = MediaQuery.viewPaddingOf(dialogContext);
+      final bottomPadding = kExpressionPanelBottomGap + viewPadding.bottom;
+      final height =
+          (available -
+                  viewPadding.top -
+                  bottomPadding -
+                  kExpressionPanelOuterTopGap)
+              .clamp(240.0, 480.0);
       return SafeArea(
+        bottom: false,
         child: Align(
           alignment: Alignment.bottomCenter,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(
+            padding: EdgeInsets.fromLTRB(
               16,
+              kExpressionPanelOuterTopGap,
               16,
-              16,
-              kExpressionPanelBottomGap,
+              bottomPadding,
             ),
             child: Material(
               key: const ValueKey('composer-expression-panel'),
@@ -82,6 +87,7 @@ Future<ComposerExpressionResult?> showComposerExpressionPanel(
 }
 
 const double kExpressionPanelBottomGap = 88;
+const double kExpressionPanelOuterTopGap = 16;
 
 class _ExpressionHub extends StatelessWidget {
   const _ExpressionHub({
