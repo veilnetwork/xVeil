@@ -1,8 +1,11 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show Timer, unawaited;
 import 'dart:io' show Platform;
+import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:veil_media/veil_media.dart' show VeilVideoFrame;
 
 import '../../core/ids.dart';
 import '../../domain/call_signal.dart';
@@ -13,6 +16,7 @@ import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/group_call_service.dart';
 import '../../state/group_service.dart';
+import '../../state/veil_group_call_media.dart';
 
 /// Global room surface for the signed group-call control plane.
 ///
@@ -64,6 +68,10 @@ class _GroupCallOverlayState extends ConsumerState<GroupCallOverlay> {
               : name;
           final role = state?.roleOf(groups.selfId);
           final isAdmin = role != null && role.rank >= GroupRole.admin.rank;
+          final media = calls.mediaController;
+          final nativeMedia = media is VeilGroupCallMediaController
+              ? media
+              : null;
           if (_minimized && call.status != GroupCallStatus.ringing) {
             return GroupCallMiniView(
               call: call,
@@ -92,6 +100,8 @@ class _GroupCallOverlayState extends ConsumerState<GroupCallOverlay> {
                     unawaited(calls.setCameraEnabled(!call.cameraOn)),
                 onScreen: () =>
                     unawaited(calls.setScreenShareEnabled(!call.screenOn)),
+                localVideoFrame: nativeMedia?.localVideoFrame,
+                videoFrameFor: nativeMedia?.videoFrameFor,
               ),
             ),
           );
@@ -118,6 +128,8 @@ class GroupCallRoomView extends StatelessWidget {
     required this.onCamera,
     required this.onScreen,
     this.onMinimize,
+    this.localVideoFrame,
+    this.videoFrameFor,
   });
 
   final GroupCall call;
@@ -132,6 +144,8 @@ class GroupCallRoomView extends StatelessWidget {
   final VoidCallback onMic;
   final VoidCallback onCamera;
   final VoidCallback onScreen;
+  final ValueListenable<VeilVideoFrame?>? localVideoFrame;
+  final ValueListenable<VeilVideoFrame?>? Function(NodeId)? videoFrameFor;
 
   @override
   Widget build(BuildContext context) {
@@ -227,6 +241,9 @@ class GroupCallRoomView extends StatelessWidget {
                     participant: participant,
                     label: isSelf ? l.reactorsYou : participant.nodeId.short,
                     media: media,
+                    videoFrame: isSelf
+                        ? localVideoFrame
+                        : videoFrameFor?.call(participant.nodeId),
                   );
                 },
               );
@@ -264,11 +281,13 @@ class _ParticipantCard extends StatelessWidget {
     required this.participant,
     required this.label,
     required this.media,
+    this.videoFrame,
   });
 
   final GroupCallParticipant participant;
   final String label;
   final CallMedia media;
+  final ValueListenable<VeilVideoFrame?>? videoFrame;
 
   @override
   Widget build(BuildContext context) {
@@ -281,43 +300,202 @@ class _ParticipantCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: Colors.white12),
         ),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: Stack(
+            fit: StackFit.expand,
             children: [
-              CircleAvatar(
-                radius: 28,
-                child: Text(
-                  label.characters.first.toUpperCase(),
-                  style: const TextStyle(fontSize: 22),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _MediaDot(
-                    icon: media.audio ? Icons.mic : Icons.mic_off,
-                    enabled: media.audio,
+              if ((media.video || media.screen) && videoFrame != null)
+                _GroupVideoFrameView(
+                  key: ValueKey('group-call-video-${participant.nodeId.short}'),
+                  frameListenable: videoFrame!,
+                )
+              else
+                Center(
+                  child: CircleAvatar(
+                    radius: 28,
+                    child: Text(
+                      label.characters.first.toUpperCase(),
+                      style: const TextStyle(fontSize: 22),
+                    ),
                   ),
-                  if (media.video)
-                    const _MediaDot(icon: Icons.videocam, enabled: true),
-                  if (media.screen)
-                    const _MediaDot(icon: Icons.screen_share, enabled: true),
-                ],
+                ),
+              Align(
+                alignment: Alignment.bottomCenter,
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(10, 20, 10, 9),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Colors.transparent, Colors.black54],
+                    ),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          _MediaDot(
+                            icon: media.audio ? Icons.mic : Icons.mic_off,
+                            enabled: media.audio,
+                          ),
+                          if (media.video)
+                            const _MediaDot(
+                              icon: Icons.videocam,
+                              enabled: true,
+                            ),
+                          if (media.screen)
+                            const _MediaDot(
+                              icon: Icons.screen_share,
+                              enabled: true,
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Coalescing raw-RGBA renderer. At most one ui decode is in flight and the
+/// newest pending frame replaces stale ones, so an N-party grid cannot build
+/// an unbounded decode queue when the UI thread is busy.
+class _GroupVideoFrameView extends StatefulWidget {
+  const _GroupVideoFrameView({super.key, required this.frameListenable});
+
+  final ValueListenable<VeilVideoFrame?> frameListenable;
+
+  @override
+  State<_GroupVideoFrameView> createState() => _GroupVideoFrameViewState();
+}
+
+class _GroupVideoFrameViewState extends State<_GroupVideoFrameView> {
+  static const _minDecodeInterval = Duration(milliseconds: 66);
+
+  ui.Image? _image;
+  VeilVideoFrame? _pending;
+  bool _busy = false;
+  Timer? _decodeTimer;
+  DateTime? _lastDecodeAt;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.frameListenable.addListener(_onFrame);
+    _onFrame();
+  }
+
+  @override
+  void didUpdateWidget(covariant _GroupVideoFrameView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.frameListenable == widget.frameListenable) return;
+    oldWidget.frameListenable.removeListener(_onFrame);
+    widget.frameListenable.addListener(_onFrame);
+    _onFrame();
+  }
+
+  @override
+  void dispose() {
+    widget.frameListenable.removeListener(_onFrame);
+    _decodeTimer?.cancel();
+    _image?.dispose();
+    super.dispose();
+  }
+
+  void _onFrame() {
+    final frame = widget.frameListenable.value;
+    if (frame == null) {
+      _pending = null;
+      if (_image != null && mounted) {
+        setState(() {
+          _image?.dispose();
+          _image = null;
+        });
+      }
+      return;
+    }
+    _pending = frame;
+    _scheduleDrain();
+  }
+
+  void _scheduleDrain() {
+    if (_busy || _decodeTimer != null) return;
+    final last = _lastDecodeAt;
+    if (last == null) {
+      _drain();
+      return;
+    }
+    final elapsed = DateTime.now().difference(last);
+    if (elapsed >= _minDecodeInterval) {
+      _drain();
+      return;
+    }
+    _decodeTimer = Timer(_minDecodeInterval - elapsed, () {
+      _decodeTimer = null;
+      if (mounted) _drain();
+    });
+  }
+
+  void _drain() {
+    final frame = _pending;
+    if (frame == null) {
+      _busy = false;
+      return;
+    }
+    _pending = null;
+    _busy = true;
+    _lastDecodeAt = DateTime.now();
+    ui.decodeImageFromPixels(
+      frame.rgba,
+      frame.width,
+      frame.height,
+      ui.PixelFormat.rgba8888,
+      (image) {
+        if (!mounted) {
+          image.dispose();
+          return;
+        }
+        setState(() {
+          _image?.dispose();
+          _image = image;
+        });
+        _busy = false;
+        if (_pending != null) _scheduleDrain();
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final image = _image;
+    if (image == null) {
+      return Center(
+        child: Icon(
+          Icons.videocam_outlined,
+          color: Colors.white.withValues(alpha: 0.35),
+          size: 38,
+        ),
+      );
+    }
+    return ColoredBox(
+      color: Colors.black,
+      child: RawImage(image: image, fit: BoxFit.cover),
     );
   }
 }

@@ -4796,8 +4796,11 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
               'mediaPlane': media is VeilGroupCallMediaController
                   ? {
                       'nativeAudio': media.audioRunning,
+                      'nativeVideo': media.videoRunning,
                       'peerChannels': media.connectedPeerCount,
                       'rxPeers': media.receivingPeerCount,
+                      'videoPeers': media.renderingPeerCount,
+                      'localVideo': media.localVideoReady,
                     }
                   : null,
             },
