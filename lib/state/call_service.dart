@@ -9,6 +9,7 @@ import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call.dart';
 import '../domain/call_signal.dart';
 import 'messaging.dart';
+import 'call_slot.dart';
 import 'p2p_policy_controller.dart';
 import 'providers.dart';
 import 'veil_call_media.dart';
@@ -106,17 +107,21 @@ class CallService {
     this._messaging, {
     DateTime Function()? now,
     CallMediaController? media,
+    CallSlot? callSlot,
     Future<bool> Function(NodeId peer)? localAllowsP2P,
     Future<bool> Function(NodeId peer)? peerReachableForP2P,
   }) : _now = now ?? DateTime.now,
        // ignore: prefer_initializing_formals — public `media:` param → private field.
        _media = media,
+       // ignore: prefer_initializing_formals — public `callSlot:` → private field.
+       _callSlot = callSlot,
        _localAllowsP2P = localAllowsP2P ?? _neverP2P,
        _peerReachableForP2P = peerReachableForP2P ?? _neverP2P;
 
   final MessagingService _messaging;
   final DateTime Function() _now;
   final CallMediaController? _media;
+  final CallSlot? _callSlot;
   final Future<bool> Function(NodeId peer) _localAllowsP2P;
   final Future<bool> Function(NodeId peer) _peerReachableForP2P;
 
@@ -157,6 +162,7 @@ class CallService {
   Future<void> placeCall(NodeId peer, CallMedia media) async {
     if (_current != null && _current!.isLive) return; // one call at a time
     if (media.isEmpty) return;
+    if (!(_callSlot?.acquire(CallSlotOwner.direct) ?? true)) return;
     final callId = _uuid.v4();
     final posture = _localPosture;
     _set(
@@ -414,6 +420,13 @@ class CallService {
         return;
       }
     }
+    if (existing == null &&
+        !(_callSlot?.acquire(CallSlotOwner.direct) ?? true)) {
+      unawaited(
+        _sendControl(peer, sig.callId, CallSignalType.busy, CallEndReason.busy),
+      );
+      return;
+    }
     _set(
       Call(
         callId: sig.callId,
@@ -609,10 +622,24 @@ class CallService {
     }
   }
 
+  Future<void> _stopMediaAndReleaseSlot() async {
+    try {
+      await _media?.stop();
+    } catch (_) {
+      // Teardown is best-effort, but the global slot must never leak.
+    } finally {
+      _callSlot?.release(CallSlotOwner.direct);
+    }
+  }
+
   void _end(CallEndReason reason) {
     _cancelRingTimeout();
     _cancelHeartbeat();
-    unawaited(_media?.stop());
+    if (_media == null) {
+      _callSlot?.release(CallSlotOwner.direct);
+    } else {
+      unawaited(_stopMediaAndReleaseSlot());
+    }
     final c = _current;
     if (c != null && !_changes.isClosed) {
       // Emit the terminal snapshot (so the UI can show "call ended" / reason),
@@ -633,6 +660,11 @@ class CallService {
     _cancelRingTimeout();
     _cancelHeartbeat();
     if (_messaging.onCallSignal == _handler) _messaging.onCallSignal = null;
+    if (_media == null) {
+      _callSlot?.release(CallSlotOwner.direct);
+    } else {
+      unawaited(_stopMediaAndReleaseSlot());
+    }
     _changes.close();
   }
 }
@@ -651,6 +683,7 @@ final callServiceProvider = Provider<CallService>((ref) {
   final svc = CallService(
     messaging,
     media: media,
+    callSlot: ref.read(callSlotProvider),
     localAllowsP2P: (peer) =>
         ref.read(p2pPolicyProvider.notifier).allowsPeer(peer),
     peerReachableForP2P: (peer) async {

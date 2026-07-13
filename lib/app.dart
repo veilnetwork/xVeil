@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'features/calls/call_overlay.dart';
+import 'features/calls/group_call_overlay.dart';
 import 'features/calls/call_lifecycle_bridge.dart';
 import 'l10n/app_localizations.dart';
 import 'routing/router.dart';
@@ -38,6 +39,7 @@ class XVeilApp extends ConsumerWidget {
           ?child,
           const CallLifecycleBridge(),
           const CallOverlay(),
+          const GroupCallOverlay(),
           // Eagerly build the group service once the identity is ready, so its
           // inbound-snapshot bridge is attached BEFORE any group frame arrives
           // (a member added on another device pushes a snapshot immediately).

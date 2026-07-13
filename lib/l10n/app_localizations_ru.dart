@@ -2215,6 +2215,33 @@ class AppL10nRu extends AppL10n {
   String get callPathP2P => 'Напрямую (P2P)';
 
   @override
+  String get groupCallTitle => 'Групповой звонок';
+
+  @override
+  String get groupCallIncoming => 'Входящий групповой звонок';
+
+  @override
+  String get groupCallStartAudio => 'Начать групповой аудиозвонок';
+
+  @override
+  String get groupCallStartVideo => 'Начать групповой видеозвонок';
+
+  @override
+  String get groupCallBusy => 'Уже активен другой звонок';
+
+  @override
+  String get groupCallLeave => 'Выйти из звонка';
+
+  @override
+  String get groupCallEndEveryone => 'Завершить для всех';
+
+  @override
+  String get groupCallMinimize => 'Свернуть групповой звонок';
+
+  @override
+  String get groupCallExpand => 'Открыть групповой звонок';
+
+  @override
   String get settingsNickname => 'Никнейм';
 
   @override

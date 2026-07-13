@@ -401,6 +401,12 @@ void main() {
       );
       expect(ownerMedia.updates, greaterThanOrEqualTo(1));
 
+      await bobCalls.setMicEnabled(false);
+      await pumpEventQueue();
+      expect(bobCalls.current?.micOn, isFalse);
+      expect(bobCalls.current?.participants[bob.hex]?.media.audio, isFalse);
+      expect(ownerCalls.current?.participants[bob.hex]?.media.audio, isFalse);
+
       // A plain member cannot terminate the room for everyone.
       expect(await bobCalls.endForEveryone(), isFalse);
       expect(await ownerCalls.endForEveryone(), isTrue);

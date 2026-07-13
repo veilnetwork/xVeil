@@ -4135,6 +4135,60 @@ abstract class AppL10n {
   /// **'Direct (P2P)'**
   String get callPathP2P;
 
+  /// No description provided for @groupCallTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Group call'**
+  String get groupCallTitle;
+
+  /// No description provided for @groupCallIncoming.
+  ///
+  /// In en, this message translates to:
+  /// **'Incoming group call'**
+  String get groupCallIncoming;
+
+  /// No description provided for @groupCallStartAudio.
+  ///
+  /// In en, this message translates to:
+  /// **'Start group audio call'**
+  String get groupCallStartAudio;
+
+  /// No description provided for @groupCallStartVideo.
+  ///
+  /// In en, this message translates to:
+  /// **'Start group video call'**
+  String get groupCallStartVideo;
+
+  /// No description provided for @groupCallBusy.
+  ///
+  /// In en, this message translates to:
+  /// **'Another call is already active'**
+  String get groupCallBusy;
+
+  /// No description provided for @groupCallLeave.
+  ///
+  /// In en, this message translates to:
+  /// **'Leave call'**
+  String get groupCallLeave;
+
+  /// No description provided for @groupCallEndEveryone.
+  ///
+  /// In en, this message translates to:
+  /// **'End for everyone'**
+  String get groupCallEndEveryone;
+
+  /// No description provided for @groupCallMinimize.
+  ///
+  /// In en, this message translates to:
+  /// **'Minimize group call'**
+  String get groupCallMinimize;
+
+  /// No description provided for @groupCallExpand.
+  ///
+  /// In en, this message translates to:
+  /// **'Open group call'**
+  String get groupCallExpand;
+
   /// No description provided for @settingsNickname.
   ///
   /// In en, this message translates to:

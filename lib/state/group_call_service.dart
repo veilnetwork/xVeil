@@ -8,6 +8,7 @@ import '../domain/call_signal.dart';
 import '../domain/group.dart';
 import '../domain/group_call.dart';
 import 'call_service.dart';
+import 'call_slot.dart';
 import 'group_service.dart';
 
 const _uuid = Uuid();
@@ -33,16 +34,20 @@ class GroupCallService {
   GroupCallService(
     this._groups, {
     GroupCallMediaController? media,
+    CallSlot? callSlot,
     DateTime Function()? now,
     bool Function()? otherCallBusy,
   }) : // Named public `media:` parameter intentionally initializes private field.
        // ignore: prefer_initializing_formals
        _media = media,
+       // ignore: prefer_initializing_formals
+       _callSlot = callSlot,
        _now = now ?? DateTime.now,
        _otherCallBusy = otherCallBusy ?? (() => false);
 
   final GroupService _groups;
   final GroupCallMediaController? _media;
+  final CallSlot? _callSlot;
   final DateTime Function() _now;
   final bool Function() _otherCallBusy;
   final StreamController<GroupCall?> _changes = StreamController.broadcast();
@@ -97,8 +102,12 @@ class GroupCallService {
     if (media.isEmpty || (_current?.isLive ?? false) || _otherCallBusy()) {
       return false;
     }
+    if (!(_callSlot?.acquire(CallSlotOwner.group) ?? true)) return false;
     final state = await _groups.stateOf(groupId);
-    if (state == null || !state.isMember(_groups.selfId)) return false;
+    if (state == null || !state.isMember(_groups.selfId)) {
+      _callSlot?.release(CallSlotOwner.group);
+      return false;
+    }
     final now = _now();
     final call = GroupCall(
       groupId: groupId,
@@ -223,6 +232,7 @@ class GroupCallService {
     if (call == null || !call.isLive || call.micOn == enabled) return;
     _set(call.copyWith(micOn: enabled));
     await _media?.setMicMuted(!enabled);
+    await _announceMedia();
   }
 
   Future<void> setCameraEnabled(bool enabled) async {
@@ -258,17 +268,30 @@ class GroupCallService {
   }
 
   Future<void> _announceMedia() async {
-    final call = _current;
+    var call = _current;
     if (call == null || !call.isLive || !call.isJoined(_groups.selfId)) return;
+    final media = CallMedia(
+      audio: call.micOn,
+      video: call.media.video && call.cameraOn,
+      screen: call.media.video && call.screenOn,
+    );
+    final participants = Map<String, GroupCallParticipant>.from(
+      call.participants,
+    );
+    final self = participants[_groups.selfId.hex];
+    if (self != null) {
+      participants[_groups.selfId.hex] = self.copyWith(
+        media: media,
+        lastSeenAt: _now(),
+      );
+      call = call.copyWith(participants: participants);
+      _set(call);
+    }
     await _groups.broadcastGroupCallSignal(
       call.groupId,
       callId: call.callId,
       type: GroupCallSignalType.renegotiate,
-      media: CallMedia(
-        audio: call.micOn,
-        video: call.cameraOn,
-        screen: call.screenOn,
-      ),
+      media: media,
     );
   }
 
@@ -277,6 +300,7 @@ class GroupCallService {
     if (signal.type == GroupCallSignalType.announce) {
       if (call == null || !call.isLive) {
         if (_otherCallBusy()) return;
+        if (!(_callSlot?.acquire(CallSlotOwner.group) ?? true)) return;
         final at = DateTime.fromMillisecondsSinceEpoch(signal.sentAtMs);
         final media = signal.media!;
         call = GroupCall(
@@ -481,6 +505,16 @@ class GroupCallService {
     if (!_changes.isClosed) _changes.add(call);
   }
 
+  Future<void> _stopMediaAndReleaseSlot() async {
+    try {
+      await _media?.stop();
+    } catch (_) {
+      // Teardown is best-effort, but the global slot must never leak.
+    } finally {
+      _callSlot?.release(CallSlotOwner.group);
+    }
+  }
+
   void _end(CallEndReason reason) {
     final call = _current;
     if (call == null) return;
@@ -489,7 +523,11 @@ class GroupCallService {
     _heartbeatTimer = null;
     _reannounceTimer?.cancel();
     _reannounceTimer = null;
-    unawaited(_media?.stop());
+    if (_media == null) {
+      _callSlot?.release(CallSlotOwner.group);
+    } else {
+      unawaited(_stopMediaAndReleaseSlot());
+    }
     _set(
       call.copyWith(
         status: GroupCallStatus.ended,
@@ -505,7 +543,7 @@ class GroupCallService {
     _heartbeatTimer?.cancel();
     _reannounceTimer?.cancel();
     await _subscription?.cancel();
-    await _media?.stop();
+    await _stopMediaAndReleaseSlot();
     await _changes.close();
   }
 }
@@ -516,6 +554,7 @@ final groupCallServiceProvider = Provider<GroupCallService?>((ref) {
   final directCalls = ref.watch(callServiceProvider);
   final service = GroupCallService(
     groups,
+    callSlot: ref.read(callSlotProvider),
     otherCallBusy: () => directCalls.current?.isLive ?? false,
   )..start();
   ref.onDispose(service.dispose);

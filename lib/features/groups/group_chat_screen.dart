@@ -13,12 +13,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/ids.dart';
 import '../../domain/chat.dart';
+import '../../domain/call_signal.dart';
 import '../../domain/group.dart';
 import '../../domain/group_message.dart';
 import '../../domain/group_policy.dart';
 import '../../domain/group_reaction.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service.dart';
+import '../../state/group_call_service.dart';
 import '../../state/messaging.dart'
     show
         conversationsProvider,
@@ -516,6 +518,17 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   void _snack(String msg) =>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
 
+  Future<void> _startGroupCall({required bool video}) async {
+    final calls = ref.read(groupCallServiceProvider);
+    final started = await calls?.startCall(
+      _gid,
+      CallMedia(audio: true, video: video),
+    );
+    if (started != true && mounted) {
+      _snack(AppL10n.of(context).groupCallBusy);
+    }
+  }
+
   /// Pick a sticker from the user's library and post it inline (kind='sticker'
   /// → borderless render). Reuses the 1:1 sticker sheet; a small static sticker
   /// fits the inline-attachment path (delta-broadcast, one-time chunk cost).
@@ -922,6 +935,18 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
         ),
         actions: [
           IconButton(
+            key: const ValueKey('group-call-start-audio'),
+            icon: const Icon(Icons.call_outlined),
+            tooltip: l.groupCallStartAudio,
+            onPressed: () => _startGroupCall(video: false),
+          ),
+          IconButton(
+            key: const ValueKey('group-call-start-video'),
+            icon: const Icon(Icons.videocam_outlined),
+            tooltip: l.groupCallStartVideo,
+            onPressed: () => _startGroupCall(video: true),
+          ),
+          IconButton(
             icon: const Icon(Icons.group_outlined),
             tooltip: l.groupMembersTooltip,
             onPressed: () => _showMembers(svc),
@@ -1317,13 +1342,13 @@ class _GroupFileAttachment extends ConsumerWidget {
             child: InkWell(
               onTap: held
                   ? () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => VideoPlayerScreen(
-                            fileKey: cid,
-                            name: attachment.name ?? '',
-                          ),
+                      MaterialPageRoute<void>(
+                        builder: (_) => VideoPlayerScreen(
+                          fileKey: cid,
+                          name: attachment.name ?? '',
                         ),
-                      )
+                      ),
+                    )
                   : onFetch,
               borderRadius: BorderRadius.circular(10),
               child: ClipRRect(
@@ -1377,16 +1402,16 @@ class _GroupFileAttachment extends ConsumerWidget {
         return InkWell(
           onTap: held && isVideo
               ? () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => VideoPlayerScreen(
-                        fileKey: cid,
-                        name: attachment.name ?? '',
-                      ),
+                  MaterialPageRoute<void>(
+                    builder: (_) => VideoPlayerScreen(
+                      fileKey: cid,
+                      name: attachment.name ?? '',
                     ),
-                  )
+                  ),
+                )
               : held
-                  ? null
-                  : onFetch,
+              ? null
+              : onFetch,
           borderRadius: BorderRadius.circular(8),
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 4),
