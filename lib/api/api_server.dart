@@ -105,6 +105,28 @@ Map<String, dynamic> openApiSpec() {
             'fileId': {'type': 'string'},
           },
         },
+        'Group': {
+          'type': obj,
+          'properties': {
+            'groupId': {'type': 'string'},
+            'name': {'type': 'string'},
+            'unread': {'type': 'integer'},
+            'muted': {'type': 'boolean'},
+            'preview': {'type': 'string'},
+            'lastTs': {'type': 'integer', 'format': 'int64'},
+          },
+        },
+        'GroupMessage': {
+          'type': obj,
+          'properties': {
+            'id': {'type': 'string'},
+            'author': {'type': 'string'},
+            'body': {'type': 'string'},
+            'sentAt': {'type': 'integer', 'format': 'int64'},
+            'replyTo': {'type': 'string'},
+            'attachment': {'type': obj},
+          },
+        },
       },
     },
     'paths': {
@@ -216,6 +238,91 @@ Map<String, dynamic> openApiSpec() {
               'ok': {'type': 'boolean'},
             },
           }),
+        },
+      },
+      '/groups': {
+        'get': {
+          'summary': 'User-visible groups for the active identity',
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'groups': {
+                'type': 'array',
+                'items': {r'$ref': '#/components/schemas/Group'},
+              },
+            },
+          }),
+        },
+        'post': {
+          'summary': 'Create an encrypted group owned by the active identity',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['name'],
+                  'properties': {
+                    'name': {'type': 'string', 'maxLength': 64},
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'ok': {'type': 'boolean'},
+              'groupId': {'type': 'string'},
+            },
+          }),
+        },
+      },
+      '/groups/messages': {
+        'get': {
+          'summary': 'Recent validated messages of one group',
+          'parameters': [
+            {
+              'name': 'group',
+              'in': 'query',
+              'required': true,
+              'schema': {'type': 'string'},
+            },
+            {
+              'name': 'limit',
+              'in': 'query',
+              'schema': {'type': 'integer', 'default': 50},
+            },
+          ],
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'messages': {
+                'type': 'array',
+                'items': {r'$ref': '#/components/schemas/GroupMessage'},
+              },
+            },
+          }),
+        },
+        'post': {
+          'summary': 'Post a text message to a group',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['group', 'body'],
+                  'properties': {
+                    'group': {'type': 'string'},
+                    'body': {'type': 'string', 'maxLength': 524288},
+                    'replyTo': {'type': 'string'},
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({'type': obj}),
         },
       },
       '/files': {
@@ -492,6 +599,11 @@ class ApiHandler {
     required this.callState,
     required this.callAction,
     this.callsAvailable = true,
+    required this.groups,
+    required this.createGroup,
+    required this.groupMessages,
+    required this.sendGroupMessage,
+    this.groupsAvailable = true,
     this.webhook,
     this.setWebhook,
   });
@@ -539,6 +651,17 @@ class ApiHandler {
   /// Headless hosts have no media engine. Keeping the routes in the shared
   /// contract but returning 501 is honest and machine-detectable.
   final bool callsAvailable;
+
+  /// Groups belong to the active identity just like contacts/messages. A host
+  /// that cannot wire the group core (currently the Flutter-free headless
+  /// runtime) keeps the stable routes but returns 501 via [groupsAvailable].
+  final Future<List<Map<String, dynamic>>> Function() groups;
+  final Future<String?> Function(String name) createGroup;
+  final Future<List<Map<String, dynamic>>?> Function(String groupHex, int limit)
+  groupMessages;
+  final Future<String?> Function(String groupHex, String body, String? replyTo)
+  sendGroupMessage;
+  final bool groupsAvailable;
 
   /// The configured webhook URL (null = none). Optional: hosts without the
   /// webhook feature wired just 404 the /v1/webhook routes.
@@ -644,6 +767,57 @@ class ApiHandler {
         return const ApiResponse(400, {'error': 'to + body required'});
       }
       final err = await send(to, text);
+      return err == null
+          ? const ApiResponse(200, {'ok': true})
+          : ApiResponse(400, {'error': err});
+    }
+    if (path.startsWith('/v1/groups') && !groupsAvailable) {
+      return const ApiResponse(501, {
+        'error': 'groups unavailable on this host',
+      });
+    }
+    if (method == 'GET' && path == '/v1/groups') {
+      return ApiResponse(200, {'groups': await groups()});
+    }
+    if (method == 'POST' && path == '/v1/groups') {
+      final rawName = body?['name'];
+      final name = rawName is String ? rawName.trim() : '';
+      if (name.isEmpty || name.length > 64) {
+        return const ApiResponse(400, {'error': 'name required (max 64)'});
+      }
+      final groupId = await createGroup(name);
+      return groupId == null
+          ? const ApiResponse(400, {'error': 'group creation failed'})
+          : ApiResponse(200, {'ok': true, 'groupId': groupId});
+    }
+    if (method == 'GET' && path == '/v1/groups/messages') {
+      final group = uri.queryParameters['group'];
+      if (group == null || group.isEmpty) {
+        return const ApiResponse(400, {'error': 'group required'});
+      }
+      final limit = int.tryParse(uri.queryParameters['limit'] ?? '') ?? 50;
+      final messages = await groupMessages(group, limit.clamp(1, 500));
+      return messages == null
+          ? const ApiResponse(404, {'error': 'group not found'})
+          : ApiResponse(200, {'messages': messages});
+    }
+    if (method == 'POST' && path == '/v1/groups/messages') {
+      final group = body?['group'];
+      final text = body?['body'];
+      final replyTo = body?['replyTo'];
+      if (group is! String ||
+          group.isEmpty ||
+          text is! String ||
+          text.isEmpty ||
+          (replyTo != null &&
+              (replyTo is! String ||
+                  !RegExp(r'^[0-9a-fA-F]{64}:[0-9]+$').hasMatch(replyTo)))) {
+        return const ApiResponse(400, {'error': 'group + body required'});
+      }
+      if (utf8.encode(text).length > 512 * 1024) {
+        return const ApiResponse(413, {'error': 'group body too large'});
+      }
+      final err = await sendGroupMessage(group, text, replyTo as String?);
       return err == null
           ? const ApiResponse(200, {'ok': true})
           : ApiResponse(400, {'error': err});
