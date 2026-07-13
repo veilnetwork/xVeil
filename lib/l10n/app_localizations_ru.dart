@@ -2233,6 +2233,41 @@ class AppL10nRu extends AppL10n {
   String get chatMoreActions => 'Дополнительные действия';
 
   @override
+  String get composerCamera => 'Камера';
+
+  @override
+  String get composerUploadPhoto => 'Загрузить фото';
+
+  @override
+  String get composerUploadVideo => 'Загрузить видео';
+
+  @override
+  String get composerUploadFile => 'Загрузить файл';
+
+  @override
+  String get composerPoll => 'Опрос';
+
+  @override
+  String get composerLocation => 'Местоположение';
+
+  @override
+  String get composerPlanned => 'Планируется';
+
+  @override
+  String get composerGif => 'GIF';
+
+  @override
+  String get composerGifLocal => 'Выбрать GIF с устройства';
+
+  @override
+  String get composerGifPrivacy =>
+      'Без внешнего GIF-поиска: запрос не покидает xVeil.';
+
+  @override
+  String get composerCameraUnavailable =>
+      'Съёмка камерой недоступна на этом устройстве';
+
+  @override
   String get nicknameTitle => 'Никнейм';
 
   @override

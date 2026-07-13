@@ -26,12 +26,14 @@ class GroupAttachment {
     required this.w,
     required this.h,
     this.cid,
+    this.name,
   });
 
   final String kind; // 'image' | 'sticker' | 'voice' | …
   final String dataB64; // base64 payload — or the micro-thumb in ref form
   final int w; // encoded pixel dimensions (durationMs for 'voice')
   final int h;
+  final String? name;
 
   /// Content-path reference (doc/GROUPS-CONTENT-PATH.md): when set, [dataB64]
   /// carries only a micro-thumb and the full bytes are fetched by this
@@ -48,6 +50,7 @@ class GroupAttachment {
     'w': w,
     'h': h,
     if (cid != null) 'cid': cid,
+    if (name != null) 'n': name,
   };
 
   Map<String, dynamic> toJson() => toCanonical();
@@ -58,12 +61,14 @@ class GroupAttachment {
     if (k is! String || d is! String || w is! int || h is! int) return null;
     if (w <= 0 || h <= 0 || d.isEmpty) return null;
     final cid = j['cid'];
+    final name = j['n'];
     return GroupAttachment(
       kind: k,
       dataB64: d,
       w: w,
       h: h,
       cid: cid is String && cid.isNotEmpty ? cid : null,
+      name: name is String && name.isNotEmpty ? name : null,
     );
   }
 }
