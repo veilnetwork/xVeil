@@ -11,6 +11,7 @@ import 'state/cloud_capability_service.dart';
 import 'state/cloud_service.dart';
 import 'state/device_sync_bridge.dart';
 import 'state/group_service.dart';
+import 'state/group_call_service.dart';
 import 'state/locale_controller.dart';
 import 'theme/app_theme.dart';
 
@@ -57,6 +58,9 @@ class _GroupBridge extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     ref.watch(groupServiceProvider);
+    // Keep ephemeral group-call signaling attached from identity-ready onward;
+    // an incoming announce must not be lost merely because no call UI is open.
+    ref.watch(groupCallServiceProvider);
     // Multi-device brick 4: contacts/settings/call-journal sync taps, plus the
     // journal recorder itself (calls are journaled even without a journal UI).
     ref.watch(deviceSyncBridgeProvider);
