@@ -909,6 +909,31 @@ class _DocumentAclSheetState extends State<_DocumentAclSheet> {
     }
   }
 
+  Future<void> _compact() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(AppL10n.of(context).cloudSharedCompact),
+        content: Text(AppL10n.of(context).cloudSharedCompactTitle),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(AppL10n.of(context).actionCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(AppL10n.of(context).cloudSharedCompact),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await _runMutation(
+        () => widget.service.compactDocument(widget.documentId),
+      );
+    }
+  }
+
   @override
   void dispose() {
     unawaited(_subscription?.cancel());
@@ -972,6 +997,11 @@ class _DocumentAclSheetState extends State<_DocumentAclSheet> {
                       onPressed: _busy ? null : _rotate,
                       icon: const Icon(Icons.key_outlined),
                       label: Text(l.cloudSharedRotate),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _busy ? null : _compact,
+                      icon: const Icon(Icons.compress_outlined),
+                      label: Text(l.cloudSharedCompact),
                     ),
                   ],
                 ),
