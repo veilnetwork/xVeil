@@ -25,15 +25,20 @@ import '../domain/device_sync.dart';
 import '../domain/device_link.dart';
 import '../domain/group.dart';
 import '../domain/group_content.dart';
+import '../domain/group_epoch.dart';
 import '../domain/group_message.dart';
+import '../domain/group_payload.dart';
 import '../domain/group_policy.dart';
 import '../domain/group_reaction.dart';
 import '../data/node/embedded_node.dart';
 import '../data/transport/bootstrap_invite.dart';
+import '../data/transport/veil_flutter_transport.dart';
+import '../data/transport/veil_mailbox.dart';
 import '../data/storage/storage.dart';
 import 'app_controller.dart';
 import 'cloud_document_providers.dart';
 import 'group_crypto.dart';
+import 'group_epoch_service.dart';
 import 'messaging.dart';
 import 'providers.dart';
 
@@ -182,13 +187,42 @@ class GroupBundle {
     required this.control,
     required this.messages,
     this.reactions = const [],
+    this.epochEnvelopes = const [],
+    this.localEpochKeys = const {},
     this.sovereignBundle,
   });
   final GroupManifest manifest;
   final List<ControlEntry> control;
   final List<GroupMessage> messages;
   final List<GroupReaction> reactions;
+
+  /// Recipient-specific ML-KEM records. A creator keeps every record it
+  /// minted so direct fanout can be tailored per recipient; a receiver stores
+  /// only records addressed to itself. These are sealed and safe to persist.
+  final List<GroupEpochRecipientEnvelope> epochEnvelopes;
+
+  /// Decrypted epoch keys live only in the deniable hidden-volume bundle.
+  /// They are deliberately omitted from every wire snapshot/delta.
+  final Map<int, Uint8List> localEpochKeys;
   final Uint8List? sovereignBundle;
+
+  GroupBundle copyWith({
+    GroupManifest? manifest,
+    List<ControlEntry>? control,
+    List<GroupMessage>? messages,
+    List<GroupReaction>? reactions,
+    List<GroupEpochRecipientEnvelope>? epochEnvelopes,
+    Map<int, Uint8List>? localEpochKeys,
+    Uint8List? sovereignBundle,
+  }) => GroupBundle(
+    manifest: manifest ?? this.manifest,
+    control: control ?? this.control,
+    messages: messages ?? this.messages,
+    reactions: reactions ?? this.reactions,
+    epochEnvelopes: epochEnvelopes ?? this.epochEnvelopes,
+    localEpochKeys: localEpochKeys ?? this.localEpochKeys,
+    sovereignBundle: sovereignBundle ?? this.sovereignBundle,
+  );
 }
 
 class GroupLogCompaction {
@@ -223,13 +257,21 @@ class GroupService {
     this._storage,
     this._signer, {
     GroupSnapshotSender? send,
+    GroupEpochService? epochService,
+    this.ourCertVersion = 1,
     this.sendContentRequest,
     this.grantContentServe,
     this.startContentPull,
-  }) : _send = send;
+  }) : _send = send,
+       // Named public constructor parameter cannot use a private initializing
+       // formal; keep the externally-used `epochService:` API.
+       // ignore: prefer_initializing_formals
+       _epochService = epochService;
   final Storage _storage;
   final GroupSigner _signer;
   final GroupSnapshotSender? _send;
+  final GroupEpochService? _epochService;
+  final int ourCertVersion;
 
   /// Ships a signed content-fetch request to the holder (wire layer).
   final Future<void> Function(NodeId holder, String requestJson)?
@@ -247,6 +289,31 @@ class GroupService {
 
   /// Our own node id — the composer uses it to align outgoing bubbles.
   NodeId get selfId => _signer.selfId;
+
+  final Map<String, Future<void>> _mutationTails = <String, Future<void>>{};
+
+  /// Serialize every read-modify-write of one group. Wire ingest and local UI
+  /// actions share this gate, so a concurrently arriving delta cannot restore
+  /// an older bundle and erase a freshly persisted message/epoch key.
+  Future<T> _serialized<T>(NodeId groupId, Future<T> Function() action) async {
+    final id = groupId.hex;
+    final previous = _mutationTails[id] ?? Future<void>.value();
+    final gate = Completer<void>();
+    _mutationTails[id] = gate.future;
+    try {
+      try {
+        await previous;
+      } catch (_) {
+        // A prior mutation reports its own failure; the queue must keep moving.
+      }
+      return await action();
+    } finally {
+      gate.complete();
+      if (identical(_mutationTails[id], gate.future)) {
+        _mutationTails.remove(id);
+      }
+    }
+  }
 
   int _now() => DateTime.now().millisecondsSinceEpoch;
 
@@ -314,14 +381,246 @@ class GroupService {
   bool _validReactionFor(NodeId groupId, GroupReaction r) =>
       r.groupId == groupId && _signer.verifyReaction(r);
 
-  List<GroupReaction> _compactReactions(
-    NodeId groupId,
-    List<GroupReaction> input,
+  bool _sameEpochDescriptor(
+    GroupEpochDescriptor left,
+    GroupEpochDescriptor right,
+  ) =>
+      left.groupId == right.groupId &&
+      left.epoch == right.epoch &&
+      left.keyCommitment == right.keyCommitment &&
+      left.envelopeRoot == right.envelopeRoot &&
+      left.recipientCount == right.recipientCount;
+
+  List<ControlEntry> _acceptedControl(
+    GroupManifest manifest,
+    List<ControlEntry> control,
   ) {
+    final folded = foldControlLog(
+      owner: manifest.owner,
+      entries: control,
+      verify: (entry) => _validControlFor(manifest, entry),
+      initialName: manifest.name,
+    );
+    return [
+      for (final entry in control)
+        if (!folded.rejected.contains(entry)) entry,
+    ];
+  }
+
+  ControlEntry? _descriptorEntry(
+    GroupManifest manifest,
+    List<ControlEntry> control,
+    GroupEpochDescriptor descriptor,
+  ) {
+    for (final entry in _acceptedControl(manifest, control)) {
+      final candidate = entry.epochDescriptor;
+      if (candidate != null && _sameEpochDescriptor(candidate, descriptor)) {
+        return entry;
+      }
+    }
+    return null;
+  }
+
+  bool _encryptionEstablished(
+    GroupManifest manifest,
+    List<ControlEntry> control,
+  ) => _acceptedControl(
+    manifest,
+    control,
+  ).any((entry) => entry.epochDescriptor != null);
+
+  bool _validLocalEpochKey(
+    GroupManifest manifest,
+    List<ControlEntry> control,
+    int epoch,
+    Uint8List key,
+  ) {
+    if (key.length != 32) return false;
+    for (final entry in _acceptedControl(manifest, control)) {
+      final descriptor = entry.epochDescriptor;
+      if (descriptor == null || descriptor.epoch != epoch) continue;
+      return descriptor.keyCommitment ==
+          groupEpochKeyCommitment(
+            groupId: manifest.groupId,
+            epoch: epoch,
+            key: key,
+          );
+    }
+    return false;
+  }
+
+  Future<GroupMessage?> _materializeEncryptedMessage(
+    GroupBundle bundle,
+    GroupMessage message,
+  ) async {
+    if (!message.isEncrypted) return message;
+    final epoch = message.membershipEpoch!;
+    final key = bundle.localEpochKeys[epoch];
+    if (key == null ||
+        !_validLocalEpochKey(bundle.manifest, bundle.control, epoch, key)) {
+      return null;
+    }
+    Uint8List? clear;
+    try {
+      clear = await decryptGroupPayload(
+        groupId: bundle.manifest.groupId,
+        membershipEpoch: epoch,
+        author: message.author,
+        seq: message.seq,
+        prevHash: message.prevHash,
+        policyVersion: message.policyVersion,
+        createdAtMs: message.createdAtMs,
+        payload: message.encryptedPayload!,
+        epochKey: key,
+      );
+      final decoded = GroupMessageCleartext.decode(clear);
+      return decoded == null ? null : message.withDecryptedContent(decoded);
+    } catch (_) {
+      return null;
+    } finally {
+      clear?.fillRange(0, clear.length, 0);
+    }
+  }
+
+  Future<GroupReaction?> _materializeEncryptedReaction(
+    GroupBundle bundle,
+    GroupReaction reaction,
+  ) async {
+    if (!reaction.isEncrypted) return reaction;
+    final epoch = reaction.membershipEpoch!;
+    final key = bundle.localEpochKeys[epoch];
+    if (key == null ||
+        !_validLocalEpochKey(bundle.manifest, bundle.control, epoch, key)) {
+      return null;
+    }
+    Uint8List? clear;
+    try {
+      clear = await decryptGroupReactionPayload(
+        groupId: bundle.manifest.groupId,
+        membershipEpoch: epoch,
+        author: reaction.author,
+        seq: reaction.seq,
+        createdAtMs: reaction.createdAtMs,
+        payload: reaction.encryptedPayload!,
+        epochKey: key,
+      );
+      final decoded = GroupReactionCleartext.decode(clear);
+      return decoded == null ? null : reaction.withDecryptedContent(decoded);
+    } catch (_) {
+      return null;
+    } finally {
+      clear?.fillRange(0, clear.length, 0);
+    }
+  }
+
+  Future<
+    ({List<GroupEpochRecipientEnvelope> envelopes, Map<int, Uint8List> keys})
+  >
+  _mergeEpochMaterial({
+    required GroupManifest manifest,
+    required List<ControlEntry> control,
+    required List<GroupEpochRecipientEnvelope> existingEnvelopes,
+    required Map<int, Uint8List> existingKeys,
+    required List<GroupEpochRecipientEnvelope> incomingEnvelopes,
+  }) async {
+    final accepted = _acceptedControl(manifest, control);
+    final keys = <int, Uint8List>{
+      for (final entry in existingKeys.entries)
+        if (_validLocalEpochKey(manifest, control, entry.key, entry.value))
+          entry.key: entry.value,
+    };
+    final envelopes = <GroupEpochRecipientEnvelope>[];
+    final seen = <String>{};
+
+    void acceptEnvelope(
+      GroupEpochRecipientEnvelope envelope, {
+      required bool fromWire,
+    }) {
+      GroupEpochDescriptor? descriptor;
+      for (final entry in accepted) {
+        final candidate = entry.epochDescriptor;
+        if (candidate != null &&
+            candidate.groupId == envelope.groupId &&
+            candidate.epoch == envelope.epoch &&
+            candidate.keyCommitment == envelope.keyCommitment &&
+            candidate.recipientCount == envelope.recipientCount &&
+            verifyGroupEpochEnvelope(
+              descriptor: candidate,
+              envelope: envelope,
+            )) {
+          descriptor = candidate;
+          break;
+        }
+      }
+      if (descriptor == null ||
+          (fromWire && envelope.recipient != _signer.selfId) ||
+          !verifyGroupEpochEnvelope(
+            descriptor: descriptor,
+            envelope: envelope,
+          )) {
+        return;
+      }
+      final identity =
+          '${envelope.epoch}:${envelope.recipient.hex}:${envelope.keyCommitment}';
+      if (seen.add(identity)) envelopes.add(envelope);
+    }
+
+    for (final envelope in existingEnvelopes) {
+      acceptEnvelope(envelope, fromWire: false);
+    }
+    for (final envelope in incomingEnvelopes) {
+      acceptEnvelope(envelope, fromWire: true);
+    }
+
+    final opener = _epochService;
+    if (opener != null) {
+      for (final envelope in envelopes) {
+        if (envelope.recipient != _signer.selfId ||
+            keys.containsKey(envelope.epoch)) {
+          continue;
+        }
+        GroupEpochDescriptor? descriptor;
+        for (final entry in accepted) {
+          final candidate = entry.epochDescriptor;
+          if (candidate != null &&
+              candidate.epoch == envelope.epoch &&
+              candidate.keyCommitment == envelope.keyCommitment &&
+              verifyGroupEpochEnvelope(
+                descriptor: candidate,
+                envelope: envelope,
+              )) {
+            descriptor = candidate;
+            break;
+          }
+        }
+        if (descriptor == null) continue;
+        final issuer = _descriptorEntry(manifest, control, descriptor)?.author;
+        if (issuer == null) continue;
+        try {
+          final opened = await opener.openEpoch(
+            descriptor: descriptor,
+            envelope: envelope,
+            recipient: _signer.selfId,
+            expectedIssuer: issuer,
+            ourCertVersion: ourCertVersion,
+          );
+          keys[opened.epoch] = opened.key;
+        } catch (_) {
+          // Invalid, copied, stale or wrong-recipient epoch material is a
+          // terminal silent drop: never reveal membership/key possession.
+        }
+      }
+    }
+    return (envelopes: envelopes, keys: keys);
+  }
+
+  Future<List<GroupReaction>> _compactReactions(GroupBundle bundle) async {
     final latest = <String, GroupReaction>{};
     final heads = <String, GroupReaction>{};
-    for (final r in input) {
-      if (!_validReactionFor(groupId, r)) continue;
+    for (final stored in bundle.reactions) {
+      if (!_validReactionFor(bundle.manifest.groupId, stored)) continue;
+      final r = await _materializeEncryptedReaction(bundle, stored);
+      if (r == null) continue;
       final key = '${r.author.hex}|${r.target}';
       final current = latest[key];
       if (current == null || isNewerGroupReaction(r, current)) {
@@ -335,8 +634,8 @@ class GroupService {
       for (final r in heads.values) '${r.author.hex}:${r.seq}',
     };
     return [
-      for (final r in input)
-        if (_validReactionFor(groupId, r) &&
+      for (final r in bundle.reactions)
+        if (_validReactionFor(bundle.manifest.groupId, r) &&
             keep.contains('${r.author.hex}:${r.seq}'))
           r,
     ];
@@ -394,6 +693,10 @@ class GroupService {
   /// row, preserving the current fold, next-seq allocation, and gap-fill
   /// high-water. Invalid/cross-group rows are scrubbed as part of the rewrite.
   Future<GroupLogCompaction?> compactStateLogs(NodeId groupId) async {
+    return _serialized(groupId, () => _compactStateLogs(groupId));
+  }
+
+  Future<GroupLogCompaction?> _compactStateLogs(NodeId groupId) async {
     final b = await load(groupId);
     if (b == null) return null;
     final control = [
@@ -406,7 +709,7 @@ class GroupService {
             for (final m in b.messages)
               if (_validMessageFor(groupId, m)) m,
           ];
-    final reactions = _compactReactions(groupId, b.reactions);
+    final reactions = await _compactReactions(b);
     final result = GroupLogCompaction(
       messagesBefore: b.messages.length,
       messagesAfter: messages.length,
@@ -417,13 +720,7 @@ class GroupService {
     );
     if (result.changed) {
       await _save(
-        GroupBundle(
-          manifest: b.manifest,
-          control: control,
-          messages: messages,
-          reactions: reactions,
-          sovereignBundle: b.sovereignBundle,
-        ),
+        b.copyWith(control: control, messages: messages, reactions: reactions),
       );
     }
     return result;
@@ -474,15 +771,48 @@ class GroupService {
           .map(GroupReaction.fromJson)
           .whereType<GroupReaction>()
           .toList();
+      final epochEnvelopes = (d['ke'] as List? ?? const [])
+          .map(GroupEpochRecipientEnvelope.fromJson)
+          .whereType<GroupEpochRecipientEnvelope>()
+          .toList();
+      final localEpochKeys = <int, Uint8List>{};
+      final rawKeys = d['kk'];
+      if (rawKeys is Map) {
+        for (final entry in rawKeys.entries) {
+          final epoch = int.tryParse('${entry.key}');
+          if (epoch == null ||
+              epoch < 0 ||
+              epoch > 0xffffffff ||
+              entry.value is! String) {
+            continue;
+          }
+          try {
+            final key = Uint8List.fromList(base64Decode(entry.value as String));
+            if (key.length == 32) localEpochKeys[epoch] = key;
+          } catch (_) {
+            // Corrupt local key rows are ignored; the retained sealed envelope
+            // can recover the key on a later load/ingest.
+          }
+        }
+      }
       final sovereignBundle = d['s'] is String
           ? Uint8List.fromList(base64Decode(d['s'] as String))
           : null;
       if (!_validSovereignBundle(manifest, sovereignBundle)) return null;
+      final material = await _mergeEpochMaterial(
+        manifest: manifest,
+        control: control,
+        existingEnvelopes: epochEnvelopes,
+        existingKeys: localEpochKeys,
+        incomingEnvelopes: const [],
+      );
       return GroupBundle(
         manifest: manifest,
         control: control,
         messages: messages,
         reactions: reactions,
+        epochEnvelopes: material.envelopes,
+        localEpochKeys: material.keys,
         sovereignBundle: sovereignBundle,
       );
     } catch (_) {
@@ -499,6 +829,13 @@ class GroupService {
       'c': b.control.map((e) => e.toJson()).toList(),
       'g': b.messages.map((m) => m.toJson()).toList(),
       'r': b.reactions.map((x) => x.toJson()).toList(),
+      if (b.epochEnvelopes.isNotEmpty)
+        'ke': b.epochEnvelopes.map((entry) => entry.toJson()).toList(),
+      if (b.localEpochKeys.isNotEmpty)
+        'kk': {
+          for (final entry in b.localEpochKeys.entries)
+            '${entry.key}': base64Encode(entry.value),
+        },
       if (b.sovereignBundle != null) 's': base64Encode(b.sovereignBundle!),
     });
     await _storage.storeFile(
@@ -583,7 +920,54 @@ class GroupService {
       name: name,
       createdAtMs: _now(),
     );
-    await _save(GroupBundle(manifest: manifest, control: [], messages: []));
+    var bundle = GroupBundle(manifest: manifest, control: [], messages: []);
+    final epochService = _epochService;
+    if (epochService != null) {
+      final key = _randomEpochKey();
+      try {
+        final sealed = await epochService.sealEpoch(
+          groupId: gid,
+          epoch: 1,
+          epochKey: key,
+          recipients: [_signer.selfId],
+        );
+        final signed = _signer.signControl(
+          ControlEntry(
+            groupId: gid,
+            author: _signer.selfId,
+            seq: 0,
+            prevHash: '',
+            op: ControlOp.rotateEpoch,
+            target: null,
+            role: null,
+            policyVersion: 0,
+            createdAtMs: _now(),
+            signature: Uint8List(0),
+            epochDescriptor: sealed.descriptor,
+          ),
+        );
+        final folded = foldControlLog(
+          owner: manifest.owner,
+          entries: [signed],
+          verify: (entry) => _validControlFor(manifest, entry),
+          initialName: manifest.name,
+        );
+        if (folded.rejected.isNotEmpty ||
+            folded.state.epochDescriptor == null) {
+          throw StateError('initial group epoch rejected');
+        }
+        bundle = GroupBundle(
+          manifest: manifest,
+          control: [signed],
+          messages: const [],
+          epochEnvelopes: sealed.envelopes,
+          localEpochKeys: {1: Uint8List.fromList(key)},
+        );
+      } finally {
+        key.fillRange(0, key.length, 0);
+      }
+    }
+    await _save(bundle);
     final idx = await _index();
     idx.add(gid.hex);
     await _setIndex(idx);
@@ -594,6 +978,13 @@ class GroupService {
     final rnd = Random.secure();
     return NodeId(
       Uint8List.fromList(List.generate(32, (_) => rnd.nextInt(256))),
+    );
+  }
+
+  Uint8List _randomEpochKey() {
+    final random = Random.secure();
+    return Uint8List.fromList(
+      List<int>.generate(32, (_) => random.nextInt(256)),
     );
   }
 
@@ -626,11 +1017,22 @@ class GroupService {
     NodeId? target,
     GroupRole? role,
     String? text,
+  }) => _serialized(
+    groupId,
+    () => _addControlOp(groupId, op, target: target, role: role, text: text),
+  );
+
+  Future<bool> _addControlOp(
+    NodeId groupId,
+    ControlOp op, {
+    NodeId? target,
+    GroupRole? role,
+    String? text,
   }) async {
     final b = await load(groupId);
     if (b == null) return false;
     if (b.manifest.name == kDeviceGroupName) return false;
-    final mySeq = _nextSeq(
+    var mySeq = _nextSeq(
       b.control
           .where(
             (e) =>
@@ -644,53 +1046,145 @@ class GroupService {
       verify: (e) => _validControlFor(b.manifest, e),
     ).state;
     final pv = state.policyVersion;
-    final unsigned = ControlEntry(
-      groupId: groupId,
-      author: _signer.selfId,
-      seq: mySeq,
-      prevHash: '',
-      op: op,
-      target: target,
-      role: role,
-      text: text,
-      policyVersion: pv,
-      createdAtMs: _now(),
-      signature: Uint8List(0),
-    );
-    final signed = _signer.signControl(unsigned);
-    // Validate against a fold INCLUDING the new entry: if it's rejected (no
-    // permission), don't persist — we never commit an op that wouldn't apply.
-    final candidate = [...b.control, signed];
-    final folded = foldControlLog(
-      owner: b.manifest.owner,
-      entries: candidate,
-      verify: (e) => _validControlFor(b.manifest, e),
-    );
-    if (folded.rejected.any(
-      (e) =>
-          identical(e, signed) ||
-          (e.author == signed.author && e.seq == signed.seq),
-    )) {
+    final epochService = _epochService;
+    final generatedKeys = <Uint8List>[];
+    final controls = <ControlEntry>[];
+    final envelopes = [...b.epochEnvelopes];
+    final localKeys = <int, Uint8List>{
+      for (final entry in b.localEpochKeys.entries)
+        entry.key: entry.value,
+    };
+    try {
+      GroupEpochSealSet? prepared;
+      Uint8List? preparedKey;
+      if (epochService != null &&
+          (op == ControlOp.removeMember ||
+              op == ControlOp.ban ||
+              op == ControlOp.rotateEpoch)) {
+        final recipients = [
+          for (final member in state.members.values)
+            if ((op != ControlOp.removeMember && op != ControlOp.ban) ||
+                member.nodeId != target)
+              member.nodeId,
+        ];
+        if (recipients.isEmpty) return false;
+        preparedKey = _randomEpochKey();
+        generatedKeys.add(preparedKey);
+        prepared = await epochService.sealEpoch(
+          groupId: groupId,
+          epoch: state.epoch + 1,
+          epochKey: preparedKey,
+          recipients: recipients,
+        );
+      }
+
+      final createdAt = _now();
+      final signed = _signer.signControl(
+        ControlEntry(
+          groupId: groupId,
+          author: _signer.selfId,
+          seq: mySeq,
+          prevHash: '',
+          op: op,
+          target: target,
+          role: role,
+          text: text,
+          policyVersion: pv,
+          createdAtMs: createdAt,
+          signature: Uint8List(0),
+          epochDescriptor: prepared?.descriptor,
+        ),
+      );
+      controls.add(signed);
+      var candidate = [...b.control, signed];
+      var folded = foldControlLog(
+        owner: b.manifest.owner,
+        entries: candidate,
+        verify: (entry) => _validControlFor(b.manifest, entry),
+        initialName: b.manifest.name,
+      );
+      if (folded.rejected.any(
+        (entry) =>
+            identical(entry, signed) ||
+            (entry.author == signed.author && entry.seq == signed.seq),
+      )) {
+        return false;
+      }
+      if (prepared != null && preparedKey != null) {
+        envelopes.addAll(prepared.envelopes);
+        localKeys[prepared.descriptor.epoch] = Uint8List.fromList(preparedKey);
+      }
+
+      // An add itself must remain readable by legacy peers, then an immediately
+      // following signed rotate establishes a key for the post-add membership.
+      // New members receive no older envelopes: forward secrecy is the default.
+      if (op == ControlOp.addMember && epochService != null) {
+        final key = _randomEpochKey();
+        generatedKeys.add(key);
+        final sealed = await epochService.sealEpoch(
+          groupId: groupId,
+          epoch: folded.state.epoch + 1,
+          epochKey: key,
+          recipients: folded.state.members.values.map(
+            (member) => member.nodeId,
+          ),
+        );
+        mySeq++;
+        final rotate = _signer.signControl(
+          ControlEntry(
+            groupId: groupId,
+            author: _signer.selfId,
+            seq: mySeq,
+            prevHash: '',
+            op: ControlOp.rotateEpoch,
+            target: null,
+            role: null,
+            policyVersion: folded.state.policyVersion,
+            createdAtMs: createdAt + 1,
+            signature: Uint8List(0),
+            epochDescriptor: sealed.descriptor,
+          ),
+        );
+        candidate = [...candidate, rotate];
+        folded = foldControlLog(
+          owner: b.manifest.owner,
+          entries: candidate,
+          verify: (entry) => _validControlFor(b.manifest, entry),
+          initialName: b.manifest.name,
+        );
+        if (folded.rejected.any(
+          (entry) =>
+              identical(entry, rotate) ||
+              (entry.author == rotate.author && entry.seq == rotate.seq),
+        )) {
+          return false;
+        }
+        controls.add(rotate);
+        envelopes.addAll(sealed.envelopes);
+        localKeys[sealed.descriptor.epoch] = Uint8List.fromList(key);
+      }
+
+      await _save(
+        b.copyWith(
+          control: candidate,
+          epochEnvelopes: envelopes,
+          localEpochKeys: localKeys,
+        ),
+      );
+      // A join needs the whole log; every other mutation is a bounded delta.
+      if (op == ControlOp.addMember) {
+        unawaited(broadcast(groupId));
+      } else {
+        unawaited(broadcastDelta(groupId, control: controls));
+      }
+      return true;
+    } catch (_) {
       return false;
+    } finally {
+      for (final key in generatedKeys) {
+        key.fillRange(0, key.length, 0);
+      }
     }
-    await _save(
-      GroupBundle(
-        manifest: b.manifest,
-        control: candidate,
-        messages: b.messages,
-        reactions: b.reactions,
-        sovereignBundle: b.sovereignBundle,
-      ),
-    );
-    // Adding a member: that peer needs the WHOLE history → full snapshot to all
-    // (idempotent for existing members). Every other op ships as a delta so we
-    // don't re-send the group's messages/images on a mute/role/policy change.
-    if (op == ControlOp.addMember) {
-      unawaited(broadcast(groupId));
-    } else {
-      unawaited(broadcastDelta(groupId, control: [signed]));
-    }
-    return true;
   }
 
   /// Rename [groupId] (admins+). The name folds into every member's view via a
@@ -701,7 +1195,10 @@ class GroupService {
   /// Leave [groupId]: append a signed `leave` op (removes only us), tell the
   /// remaining members, and let [listGroups] hide it (the fold drops us). Idempotent
   /// if we already aren't a member; false for the owner (who cannot leave, v1).
-  Future<bool> leaveGroup(NodeId groupId) async {
+  Future<bool> leaveGroup(NodeId groupId) =>
+      _serialized(groupId, () => _leaveGroup(groupId));
+
+  Future<bool> _leaveGroup(NodeId groupId) async {
     final b = await load(groupId);
     if (b == null) return false;
     if (b.manifest.name == kDeviceGroupName) return false;
@@ -745,15 +1242,7 @@ class GroupService {
     )) {
       return false;
     }
-    await _save(
-      GroupBundle(
-        manifest: b.manifest,
-        control: candidate,
-        messages: b.messages,
-        reactions: b.reactions,
-        sovereignBundle: b.sovereignBundle,
-      ),
-    );
+    await _save(b.copyWith(control: candidate));
     // Tell the members who remain (broadcastDelta folds AFTER the leave, so it
     // fans out to them and never to us). They drop us from their roster.
     await broadcastDelta(groupId, control: [signed]);
@@ -771,6 +1260,23 @@ class GroupService {
     // Test/repro-only escape hatch: append WITHOUT the delta fanout —
     // simulates a delta lost in transit (total-outage class), so the
     // gap-fill path has a deterministic stand target.
+    bool broadcast = true,
+  }) => _serialized(
+    groupId,
+    () => _postMessage(
+      groupId,
+      body,
+      attachment: attachment,
+      replyTo: replyTo,
+      broadcast: broadcast,
+    ),
+  );
+
+  Future<bool> _postMessage(
+    NodeId groupId,
+    String body, {
+    GroupAttachment? attachment,
+    String? replyTo,
     bool broadcast = true,
   }) async {
     final b = await load(groupId);
@@ -791,28 +1297,67 @@ class GroupService {
           )
           .map((m) => m.seq),
     );
-    final unsigned = GroupMessage(
-      groupId: groupId,
-      author: _signer.selfId,
-      seq: mySeq,
-      prevHash: '',
-      body: body,
-      policyVersion: state.policyVersion,
-      createdAtMs: _now(),
-      signature: Uint8List(0),
-      attachment: attachment,
-      replyTo: replyTo,
-    );
+    final descriptor = state.epochDescriptor;
+    final encryptionEstablished = _encryptionEstablished(b.manifest, b.control);
+    final key = descriptor == null ? null : b.localEpochKeys[state.epoch];
+    if (encryptionEstablished &&
+        (descriptor == null ||
+            key == null ||
+            !_validLocalEpochKey(b.manifest, b.control, state.epoch, key))) {
+      return false;
+    }
+    final createdAt = _now();
+    late final GroupMessage unsigned;
+    if (descriptor != null && key != null) {
+      final clear = GroupMessageCleartext(
+        body: body,
+        attachment: attachment,
+        replyTo: replyTo,
+      ).encode();
+      try {
+        final encrypted = await encryptGroupPayload(
+          groupId: groupId,
+          membershipEpoch: state.epoch,
+          author: _signer.selfId,
+          seq: mySeq,
+          prevHash: '',
+          policyVersion: state.policyVersion,
+          createdAtMs: createdAt,
+          clearText: clear,
+          epochKey: key,
+        );
+        unsigned = GroupMessage(
+          groupId: groupId,
+          author: _signer.selfId,
+          seq: mySeq,
+          prevHash: '',
+          body: '',
+          version: 2,
+          membershipEpoch: state.epoch,
+          encryptedPayload: encrypted,
+          policyVersion: state.policyVersion,
+          createdAtMs: createdAt,
+          signature: Uint8List(0),
+        );
+      } finally {
+        clear.fillRange(0, clear.length, 0);
+      }
+    } else {
+      unsigned = GroupMessage(
+        groupId: groupId,
+        author: _signer.selfId,
+        seq: mySeq,
+        prevHash: '',
+        body: body,
+        policyVersion: state.policyVersion,
+        createdAtMs: createdAt,
+        signature: Uint8List(0),
+        attachment: attachment,
+        replyTo: replyTo,
+      );
+    }
     final signed = _signer.signMessage(unsigned);
-    await _save(
-      GroupBundle(
-        manifest: b.manifest,
-        control: b.control,
-        messages: [...b.messages, signed],
-        reactions: b.reactions,
-        sovereignBundle: b.sovereignBundle,
-      ),
-    );
+    await _save(b.copyWith(messages: [...b.messages, signed]));
     // Ship only the NEW message (delta), not the whole log — a post to a group
     // that already holds an image must not re-chunk that image over the wire.
     if (broadcast) unawaited(broadcastDelta(groupId, messages: [signed]));
@@ -867,6 +1412,8 @@ class GroupService {
             .where((r) => _validReactionFor(groupId, r))
             .map((r) => (r.author, r.seq)),
       ),
+      if (b.localEpochKeys.isNotEmpty)
+        'ke': (b.localEpochKeys.keys.toList()..sort()),
     };
   }
 
@@ -900,9 +1447,21 @@ class GroupService {
     // the first seq or seq-0 entries can never gap-fill (see [vector]).
     int seen(Object? vec, NodeId author) =>
         (vec is Map && vec[author.hex] is int) ? vec[author.hex] as int : -1;
+    final heldEpochs = req['ke'] is List
+        ? (req['ke'] as List).whereType<int>().toSet()
+        : const <int>{};
+    final missingEpochEnvelopes = [
+      for (final envelope in _epochEnvelopesFor(b, peer))
+        if (!heldEpochs.contains(envelope.epoch)) envelope,
+    ];
     final missingMsgs = [
       for (final m in b.messages)
-        if (_validMessageFor(gid, m) && m.seq > seen(req['g'], m.author)) m,
+        if (_validMessageFor(gid, m) &&
+            m.seq > seen(req['g'], m.author) &&
+            (!_encryptionEstablished(b.manifest, b.control) ||
+                (m.isEncrypted &&
+                    _peerCanDecryptEpoch(b, peer, m.membershipEpoch!))))
+          m,
     ];
     final missingCtl = [
       for (final e in b.control)
@@ -914,9 +1473,17 @@ class GroupService {
     // over-send harmless.
     final missingRx = [
       for (final r in b.reactions)
-        if (_validReactionFor(gid, r) && r.seq > seen(req['r'], r.author)) r,
+        if (_validReactionFor(gid, r) &&
+            r.seq > seen(req['r'], r.author) &&
+            (!_encryptionEstablished(b.manifest, b.control) ||
+                (r.isEncrypted &&
+                    _peerCanDecryptEpoch(b, peer, r.membershipEpoch!))))
+          r,
     ];
-    if (missingMsgs.isEmpty && missingCtl.isEmpty && missingRx.isEmpty) {
+    if (missingMsgs.isEmpty &&
+        missingCtl.isEmpty &&
+        missingRx.isEmpty &&
+        missingEpochEnvelopes.isEmpty) {
       return false;
     }
     await send(
@@ -927,6 +1494,10 @@ class GroupService {
         'c': [for (final e in missingCtl) e.toJson()],
         'g': [for (final m in missingMsgs) m.toJson()],
         'r': [for (final r in missingRx) r.toJson()],
+        if (missingEpochEnvelopes.isNotEmpty)
+          'ke': [
+            for (final envelope in missingEpochEnvelopes) envelope.toJson(),
+          ],
       }),
     );
     return true;
@@ -966,7 +1537,6 @@ class GroupService {
   /// JSON), and the reply path ships only what this device actually lacks.
   Future<void> nudgeGroupSyncAll() async {
     final send = _send;
-    if (send == null) return;
     for (final gidHex in await _index()) {
       final NodeId gid;
       try {
@@ -974,7 +1544,31 @@ class GroupService {
       } catch (_) {
         continue;
       }
+      final beforeUpgrade = await load(gid);
+      final beforeState = beforeUpgrade == null
+          ? null
+          : foldControlLog(
+              owner: beforeUpgrade.manifest.owner,
+              entries: beforeUpgrade.control,
+              verify: (entry) =>
+                  _validControlFor(beforeUpgrade.manifest, entry),
+              initialName: beforeUpgrade.manifest.name,
+            ).state;
+      if (_epochService != null &&
+          beforeUpgrade != null &&
+          beforeUpgrade.manifest.name != kDeviceGroupName &&
+          beforeUpgrade.manifest.owner == _signer.selfId &&
+          beforeState != null &&
+          !_encryptionEstablished(
+            beforeUpgrade.manifest,
+            beforeUpgrade.control,
+          )) {
+        // One-time migration for legacy groups: the genesis owner establishes
+        // the first signed epoch and fans its recipient envelopes on boot.
+        await addControlOp(gid, ControlOp.rotateEpoch);
+      }
       await compactStateLogs(gid);
+      if (send == null) continue;
       final bundle = await load(gid);
       final req = await buildGroupSyncRequest(gid);
       final st = await stateOf(gid);
@@ -1006,9 +1600,14 @@ class GroupService {
     final out = <GroupMessage>[];
     for (final m in b.messages) {
       if (!_validMessageFor(groupId, m)) continue;
-      final mem = state.memberOf(m.author);
-      if (mem == null || mem.muted) continue;
-      out.add(m);
+      if (!m.isEncrypted) {
+        final mem = state.memberOf(m.author);
+        if (mem == null || mem.muted) continue;
+        out.add(m);
+        continue;
+      }
+      final materialized = await _materializeEncryptedMessage(b, m);
+      if (materialized != null) out.add(materialized);
     }
     out.sort((a, b) {
       final t = a.createdAtMs.compareTo(b.createdAtMs);
@@ -1031,6 +1630,16 @@ class GroupService {
     String msgRef,
     String emoji, {
     bool broadcast = true,
+  }) => _serialized(
+    groupId,
+    () => _react(groupId, msgRef, emoji, broadcast: broadcast),
+  );
+
+  Future<bool> _react(
+    NodeId groupId,
+    String msgRef,
+    String emoji, {
+    bool broadcast = true,
   }) async {
     final b = await load(groupId);
     if (b == null) return false;
@@ -1042,11 +1651,17 @@ class GroupService {
     final me = state.memberOf(_signer.selfId);
     if (me == null || me.muted) return false;
     // My current reaction on this message (if any) → tapping it again clears it.
+    final visibleReactions = <GroupReaction>[];
+    for (final reaction in b.reactions) {
+      if (!_validReactionFor(groupId, reaction) ||
+          !state.isMember(reaction.author)) {
+        continue;
+      }
+      final materialized = await _materializeEncryptedReaction(b, reaction);
+      if (materialized != null) visibleReactions.add(materialized);
+    }
     final onMsg =
-        foldGroupReactions(
-          b.reactions.where((r) => _validReactionFor(groupId, r)),
-          _signer.verifyReaction,
-        )[msgRef] ??
+        foldGroupReactions(visibleReactions, _signer.verifyReaction)[msgRef] ??
         const <String, List<NodeId>>{};
     String? mine;
     for (final e in onMsg.entries) {
@@ -1065,26 +1680,60 @@ class GroupService {
           )
           .map((r) => r.seq),
     );
-    final signed = _signer.signReaction(
-      GroupReaction(
+    final descriptor = state.epochDescriptor;
+    final encryptionEstablished = _encryptionEstablished(b.manifest, b.control);
+    final key = descriptor == null ? null : b.localEpochKeys[state.epoch];
+    if (encryptionEstablished &&
+        (descriptor == null ||
+            key == null ||
+            !_validLocalEpochKey(b.manifest, b.control, state.epoch, key))) {
+      return false;
+    }
+    final createdAt = _now();
+    late final GroupReaction unsigned;
+    if (descriptor != null && key != null) {
+      final clear = GroupReactionCleartext(
+        target: msgRef,
+        emoji: next,
+      ).encode();
+      try {
+        final encrypted = await encryptGroupReactionPayload(
+          groupId: groupId,
+          membershipEpoch: state.epoch,
+          author: _signer.selfId,
+          seq: mySeq,
+          createdAtMs: createdAt,
+          clearText: clear,
+          epochKey: key,
+        );
+        unsigned = GroupReaction(
+          groupId: groupId,
+          author: _signer.selfId,
+          seq: mySeq,
+          target: '',
+          emoji: '',
+          version: 2,
+          membershipEpoch: state.epoch,
+          encryptedPayload: encrypted,
+          createdAtMs: createdAt,
+          signature: Uint8List(0),
+        );
+      } finally {
+        clear.fillRange(0, clear.length, 0);
+      }
+    } else {
+      unsigned = GroupReaction(
         groupId: groupId,
         author: _signer.selfId,
         seq: mySeq,
         target: msgRef,
         emoji: next,
-        createdAtMs: _now(),
+        createdAtMs: createdAt,
         signature: Uint8List(0),
-      ),
-    );
-    await _save(
-      GroupBundle(
-        manifest: b.manifest,
-        control: b.control,
-        messages: b.messages,
-        reactions: [...b.reactions, signed],
-        sovereignBundle: b.sovereignBundle,
-      ),
-    );
+      );
+    }
+    final signed = _signer.signReaction(unsigned);
+    await _save(b.copyWith(reactions: [...b.reactions, signed]));
     if (broadcast) unawaited(broadcastDelta(groupId, reactions: [signed]));
     return true;
   }
@@ -1098,12 +1747,16 @@ class GroupService {
       entries: b.control,
       verify: (e) => _validControlFor(b.manifest, e),
     ).state;
-    return foldGroupReactions(
-      b.reactions.where(
-        (r) => _validReactionFor(groupId, r) && state.isMember(r.author),
-      ),
-      _signer.verifyReaction,
-    );
+    final materialized = <GroupReaction>[];
+    for (final reaction in b.reactions) {
+      if (!_validReactionFor(groupId, reaction) ||
+          !state.isMember(reaction.author)) {
+        continue;
+      }
+      final visible = await _materializeEncryptedReaction(b, reaction);
+      if (visible != null) materialized.add(visible);
+    }
+    return foldGroupReactions(materialized, _signer.verifyReaction);
   }
 
   // ── Content path (doc/GROUPS-CONTENT-PATH.md) ─────────────────────────────
@@ -1286,7 +1939,10 @@ class GroupService {
   /// Ingest an externally-received control entry (from a peer-sync brick, or a
   /// hook). Appends if it isn't already present; the fold decides validity on
   /// read, so a bogus entry simply never applies.
-  Future<void> ingestControl(NodeId groupId, ControlEntry e) async {
+  Future<void> ingestControl(NodeId groupId, ControlEntry e) =>
+      _serialized(groupId, () => _ingestControl(groupId, e));
+
+  Future<void> _ingestControl(NodeId groupId, ControlEntry e) async {
     final b = await load(groupId);
     if (b == null) return;
     if (!_validControlFor(b.manifest, e)) return;
@@ -1298,39 +1954,120 @@ class GroupService {
     )) {
       return;
     }
-    await _save(
-      GroupBundle(
-        manifest: b.manifest,
-        control: [...b.control, e],
-        messages: b.messages,
-        reactions: b.reactions,
-        sovereignBundle: b.sovereignBundle,
-      ),
-    );
+    await _save(b.copyWith(control: [...b.control, e]));
   }
 
-  /// Serialize a group's full snapshot (manifest + logs) for the wire.
-  String snapshotJson(GroupBundle b) => jsonEncode({
-    'm': b.manifest.toJson(),
-    'c': b.control
-        .where((e) => _validControlFor(b.manifest, e))
-        .map((e) => e.toJson())
-        .toList(),
-    'g': b.messages
-        .where((m) => _validMessageFor(b.manifest.groupId, m))
-        .map((m) => m.toJson())
-        .toList(),
-    'r': b.reactions
-        .where((r) => _validReactionFor(b.manifest.groupId, r))
-        .map((r) => r.toJson())
-        .toList(),
-    if (b.sovereignBundle != null) 's': base64Encode(b.sovereignBundle!),
-  });
+  List<GroupEpochRecipientEnvelope> _epochEnvelopesFor(
+    GroupBundle bundle,
+    NodeId recipient, {
+    Iterable<ControlEntry>? controls,
+  }) {
+    final descriptors =
+        (controls ?? _acceptedControl(bundle.manifest, bundle.control))
+            .map((entry) => entry.epochDescriptor)
+            .whereType<GroupEpochDescriptor>()
+            .toList();
+    return [
+      for (final envelope in bundle.epochEnvelopes)
+        if (envelope.recipient == recipient &&
+            descriptors.any(
+              (descriptor) => verifyGroupEpochEnvelope(
+                descriptor: descriptor,
+                envelope: envelope,
+              ),
+            ))
+          envelope,
+    ];
+  }
+
+  bool _peerCanDecryptEpoch(GroupBundle bundle, NodeId peer, int epoch) {
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+    ).state;
+    if (state.epochDescriptor?.epoch == epoch && state.isMember(peer)) {
+      return true;
+    }
+    return _epochEnvelopesFor(
+      bundle,
+      peer,
+    ).any((envelope) => envelope.epoch == epoch);
+  }
+
+  /// Serialize a full snapshot tailored to one recipient. Epoch envelopes are
+  /// never broadcast as a member list: the peer receives only its own sealed
+  /// record and only ciphertext epochs it can open. [recipient] may be omitted
+  /// by legacy unit/debug callers; such snapshots contain no epoch material.
+  String snapshotJson(GroupBundle b, {NodeId? recipient}) {
+    final encryptionEstablished = _encryptionEstablished(b.manifest, b.control);
+    final epochEnvelopes = recipient == null
+        ? const <GroupEpochRecipientEnvelope>[]
+        : _epochEnvelopesFor(b, recipient);
+    return jsonEncode({
+      'm': b.manifest.toJson(),
+      'c': b.control
+          .where((e) => _validControlFor(b.manifest, e))
+          .map((e) => e.toJson())
+          .toList(),
+      'g': b.messages
+          .where(
+            (message) =>
+                _validMessageFor(b.manifest.groupId, message) &&
+                (!encryptionEstablished
+                    ? true
+                    : message.isEncrypted &&
+                          recipient != null &&
+                          _peerCanDecryptEpoch(
+                            b,
+                            recipient,
+                            message.membershipEpoch!,
+                          )),
+          )
+          .map((message) => message.toJson())
+          .toList(),
+      'r': b.reactions
+          .where(
+            (reaction) =>
+                _validReactionFor(b.manifest.groupId, reaction) &&
+                (!encryptionEstablished
+                    ? true
+                    : reaction.isEncrypted &&
+                          recipient != null &&
+                          _peerCanDecryptEpoch(
+                            b,
+                            recipient,
+                            reaction.membershipEpoch!,
+                          )),
+          )
+          .map((r) => r.toJson())
+          .toList(),
+      if (epochEnvelopes.isNotEmpty)
+        'ke': epochEnvelopes.map((entry) => entry.toJson()).toList(),
+      if (b.sovereignBundle != null) 's': base64Encode(b.sovereignBundle!),
+    });
+  }
 
   /// Ingest a received snapshot: materialize the group if new (manifest +
   /// index), then merge control + message entries (dedup by author+seq).
   /// Idempotent — re-delivery of the same snapshot is a no-op.
   Future<bool> ingestSnapshot(String bundleJson) async {
+    try {
+      final value = jsonDecode(bundleJson);
+      final manifest = value is Map ? value['m'] : null;
+      final gid = manifest is Map ? manifest['gid'] : null;
+      if (gid is! String) return false;
+      return _serialized(
+        NodeId.fromHex(gid),
+        () => _ingestSnapshot(bundleJson),
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> _ingestSnapshot(String bundleJson) async {
     Map<String, dynamic> d;
     try {
       d = jsonDecode(bundleJson) as Map<String, dynamic>;
@@ -1358,6 +2095,10 @@ class GroupService {
     final inReactions = (d['r'] as List? ?? const [])
         .map(GroupReaction.fromJson)
         .whereType<GroupReaction>()
+        .toList();
+    final inEpochEnvelopes = (d['ke'] as List? ?? const [])
+        .map(GroupEpochRecipientEnvelope.fromJson)
+        .whereType<GroupEpochRecipientEnvelope>()
         .toList();
 
     final existing = await load(manifest.groupId);
@@ -1394,10 +2135,32 @@ class GroupService {
       verify: (e) => _validControlFor(man, e),
       initialName: man.name,
     ).state;
+    final material = await _mergeEpochMaterial(
+      manifest: man,
+      control: control,
+      existingEnvelopes:
+          existing?.epochEnvelopes ?? const <GroupEpochRecipientEnvelope>[],
+      existingKeys: existing?.localEpochKeys ?? const <int, Uint8List>{},
+      incomingEnvelopes: inEpochEnvelopes,
+    );
+    final encryptionEstablished = _encryptionEstablished(man, control);
     final fresh = <GroupMessage>[];
     for (final m in inMsgs) {
-      if (!_validMessageFor(manifest.groupId, m) ||
-          !mergedState.isMember(m.author)) {
+      if (!_validMessageFor(manifest.groupId, m)) {
+        continue;
+      }
+      if (m.isEncrypted) {
+        final epoch = m.membershipEpoch!;
+        final key = material.keys[epoch];
+        if (key == null ||
+            !_validLocalEpochKey(man, control, epoch, key) ||
+            !mergedState.isMember(m.author)) {
+          continue;
+        }
+      } else if (encryptionEstablished || !mergedState.isMember(m.author)) {
+        // Once a signed epoch descriptor exists, a clear v1 row is a
+        // downgrade attempt. Historical local v1 rows remain readable but are
+        // never newly imported into an encrypted group.
         continue;
       }
       if (!messages.any(
@@ -1416,8 +2179,18 @@ class GroupService {
       }
     }
     for (final r in inReactions) {
-      if (!_validReactionFor(manifest.groupId, r) ||
-          !mergedState.isMember(r.author)) {
+      if (!_validReactionFor(manifest.groupId, r)) {
+        continue;
+      }
+      if (r.isEncrypted) {
+        final epoch = r.membershipEpoch!;
+        final key = material.keys[epoch];
+        if (key == null ||
+            !_validLocalEpochKey(man, control, epoch, key) ||
+            !mergedState.isMember(r.author)) {
+          continue;
+        }
+      } else if (encryptionEstablished || !mergedState.isMember(r.author)) {
         continue;
       }
       if (!reactions.any(
@@ -1429,21 +2202,32 @@ class GroupService {
         reactions.add(r);
       }
     }
-    await _save(
-      GroupBundle(
-        manifest: man,
-        control: control,
-        messages: messages,
-        reactions: reactions,
-        sovereignBundle: existing?.sovereignBundle ?? incomingSovereignBundle,
-      ),
+    final saved = GroupBundle(
+      manifest: man,
+      control: control,
+      messages: messages,
+      reactions: reactions,
+      epochEnvelopes: material.envelopes,
+      localEpochKeys: material.keys,
+      sovereignBundle: existing?.sovereignBundle ?? incomingSovereignBundle,
     );
+    await _save(saved);
     if (existing == null) {
       final idx = await _index();
       if (!idx.contains(man.groupId.hex)) {
         idx.add(man.groupId.hex);
         await _setIndex(idx);
       }
+    }
+    if (man.name != kDeviceGroupName &&
+        _epochService != null &&
+        _encryptionEstablished(man, control) &&
+        mergedState.epochDescriptor == null &&
+        mergedState.memberOf(_signer.selfId)?.role == GroupRole.owner) {
+      // A leave or a concurrent stale departure descriptor advances
+      // membership without a usable key. Only the genesis owner repairs it,
+      // avoiding an admin race; writes remain fail-closed until this succeeds.
+      unawaited(addControlOp(man.groupId, ControlOp.rotateEpoch));
     }
     // Device-group traffic is sync machinery, not chat: it must never buzz
     // the notification layer or count as chat-unread. It routes to a SEPARATE
@@ -1454,12 +2238,16 @@ class GroupService {
       // looking infrastructure group and drive sync apply side effects.
       if (await deviceGroupIdHex() == man.groupId.hex) {
         for (final m in fresh) {
-          _deviceIncomingCtl.add(m);
+          final materialized = await _materializeEncryptedMessage(saved, m);
+          if (materialized != null) _deviceIncomingCtl.add(materialized);
         }
       }
     } else {
       for (final m in fresh) {
-        _incomingCtl.add((groupId: man.groupId, message: m));
+        final materialized = await _materializeEncryptedMessage(saved, m);
+        if (materialized != null) {
+          _incomingCtl.add((groupId: man.groupId, message: materialized));
+        }
       }
     }
     return true;
@@ -1993,15 +2781,7 @@ class GroupService {
     )) {
       return false;
     }
-    await _save(
-      GroupBundle(
-        manifest: bundle.manifest,
-        control: candidate,
-        messages: bundle.messages,
-        reactions: bundle.reactions,
-        sovereignBundle: bundle.sovereignBundle,
-      ),
-    );
+    await _save(bundle.copyWith(control: candidate));
     _deviceMembersCache = null;
     if (op == ControlOp.addMember && broadcastSnapshot) {
       await broadcast(bundle.manifest.groupId);
@@ -2265,14 +3045,13 @@ class GroupService {
       entries: b.control,
       verify: (e) => _validControlFor(b.manifest, e),
     ).state;
-    final json = snapshotJson(b);
     var n = 0;
     for (final m in state.members.values) {
       if (m.nodeId == _signer.selfId ||
           (b.manifest.isSovereignDevice && m.nodeId == b.manifest.owner)) {
         continue;
       }
-      await send(m.nodeId, groupId, json);
+      await send(m.nodeId, groupId, snapshotJson(b, recipient: m.nodeId));
       n++;
     }
     return n;
@@ -2300,19 +3079,43 @@ class GroupService {
       entries: b.control,
       verify: (e) => _validControlFor(b.manifest, e),
     ).state;
-    final json = jsonEncode({
-      'm': b.manifest.toJson(),
-      'c': control.map((e) => e.toJson()).toList(),
-      'g': messages.map((m) => m.toJson()).toList(),
-      'r': reactions.map((x) => x.toJson()).toList(),
-    });
     var n = 0;
     for (final m in state.members.values) {
       if (m.nodeId == _signer.selfId ||
           (b.manifest.isSovereignDevice && m.nodeId == b.manifest.owner)) {
         continue;
       }
-      await send(m.nodeId, groupId, json);
+      final epochEnvelopes = _epochEnvelopesFor(b, m.nodeId, controls: control);
+      final encryptionEstablished = _encryptionEstablished(
+        b.manifest,
+        b.control,
+      );
+      final peerMessages = [
+        for (final message in messages)
+          if (!encryptionEstablished ||
+              (message.isEncrypted &&
+                  _peerCanDecryptEpoch(b, m.nodeId, message.membershipEpoch!)))
+            message,
+      ];
+      final peerReactions = [
+        for (final reaction in reactions)
+          if (!encryptionEstablished ||
+              (reaction.isEncrypted &&
+                  _peerCanDecryptEpoch(b, m.nodeId, reaction.membershipEpoch!)))
+            reaction,
+      ];
+      await send(
+        m.nodeId,
+        groupId,
+        jsonEncode({
+          'm': b.manifest.toJson(),
+          'c': control.map((entry) => entry.toJson()).toList(),
+          'g': peerMessages.map((message) => message.toJson()).toList(),
+          'r': peerReactions.map((reaction) => reaction.toJson()).toList(),
+          if (epochEnvelopes.isNotEmpty)
+            'ke': epochEnvelopes.map((entry) => entry.toJson()).toList(),
+        }),
+      );
       n++;
     }
     return n;
@@ -2389,9 +3192,15 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   final signer = ref.watch(groupSignerProvider).valueOrNull;
   if (signer == null) return null;
   final messaging = ref.read(messagingServiceProvider);
+  final transport = ref.watch(veilTransportProvider);
+  final epochCrypto = transport is VeilFlutterTransport
+      ? transport.mailboxCrypto()
+      : LoopbackMailboxCrypto(senderForOpen: signer.selfId);
   final svc = GroupService(
     ref.read(storageProvider),
     signer,
+    epochService: GroupEpochService(epochCrypto),
+    ourCertVersion: 1,
     send: (peer, groupId, json) =>
         messaging.sendGroupSnapshot(peer, groupId.hex, json),
     sendContentRequest: (holder, json) =>

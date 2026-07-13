@@ -72,10 +72,30 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     super.dispose();
   }
 
-  String? _takeReplyRef() {
-    final r = _replyTarget?.ref;
-    if (_replyTarget != null) setState(() => _replyTarget = null);
-    return r;
+  Future<bool> _postGroupMessage(
+    GroupService svc,
+    String body, {
+    GroupAttachment? attachment,
+    bool clearInput = false,
+    bool consumeReply = true,
+  }) async {
+    final reply = consumeReply ? _replyTarget?.ref : null;
+    final posted = await svc.postMessage(
+      _gid,
+      body,
+      attachment: attachment,
+      replyTo: reply,
+    );
+    if (!mounted) return posted;
+    if (!posted) {
+      _snack(AppL10n.of(context).groupOperationFailed);
+      return false;
+    }
+    if (clearInput) _input.clear();
+    if (consumeReply && _replyTarget != null) {
+      setState(() => _replyTarget = null);
+    }
+    return true;
   }
 
   /// Quick reactions offered in the long-press sheet.
@@ -161,8 +181,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   Future<void> _send(GroupService svc) async {
     final text = _input.text.trim();
     if (text.isEmpty) return;
-    _input.clear();
-    await svc.postMessage(_gid, text, replyTo: _takeReplyRef());
+    await _postGroupMessage(svc, text, clearInput: true);
   }
 
   /// A one-line preview of [m] for the reply bar / quote block.
@@ -200,10 +219,9 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       final cid = await ref
           .read(messagingServiceProvider)
           .registerGroupContent(clip.bytes, name: 'voice.vop1');
-      await svc.postMessage(
-        _gid,
+      await _postGroupMessage(
+        svc,
         '',
-        replyTo: _takeReplyRef(),
         attachment: GroupAttachment(
           kind: 'voice',
           dataB64: 'QQ==',
@@ -214,10 +232,9 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       );
       return;
     }
-    await svc.postMessage(
-      _gid,
+    await _postGroupMessage(
+      svc,
       '',
-      replyTo: _takeReplyRef(),
       attachment: GroupAttachment(
         kind: 'voice',
         dataB64: base64Encode(clip.bytes),
@@ -240,10 +257,9 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     final cid = await ref
         .read(messagingServiceProvider)
         .registerGroupContent(clip.bytes, name: 'vnote.vn01');
-    await svc.postMessage(
-      _gid,
+    await _postGroupMessage(
+      svc,
       '',
-      replyTo: _takeReplyRef(),
       attachment: GroupAttachment(
         kind: 'vnote',
         dataB64: 'QQ==',
@@ -321,11 +337,10 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       final cid = await ref
           .read(messagingServiceProvider)
           .registerGroupContent(bytes, name: file.name);
-      _input.clear();
-      await svc.postMessage(
-        _gid,
+      await _postGroupMessage(
+        svc,
         caption,
-        replyTo: _takeReplyRef(),
+        clearInput: true,
         attachment: GroupAttachment(
           kind: 'image',
           dataB64: thumb.b64,
@@ -341,11 +356,10 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       if (mounted) _snack(l.groupImageTooLarge);
       return;
     }
-    _input.clear();
-    await svc.postMessage(
-      _gid,
+    await _postGroupMessage(
+      svc,
       caption,
-      replyTo: _takeReplyRef(),
+      clearInput: true,
       attachment: GroupAttachment(
         kind: 'image',
         dataB64: img.b64,
@@ -373,9 +387,10 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     if (bytes == null) return;
     final img = await makeInlineImageB64(bytes);
     if (img == null) return;
-    await svc.postMessage(
-      _gid,
+    await _postGroupMessage(
+      svc,
       '',
+      consumeReply: false,
       attachment: GroupAttachment(
         kind: 'sticker',
         dataB64: img.b64,
@@ -483,8 +498,14 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       ),
     );
     if (ok != true) return;
-    await svc.leaveGroup(_gid);
+    final left = await svc.leaveGroup(_gid);
     if (!mounted) return;
+    if (!left) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l.groupOperationFailed)),
+      );
+      return;
+    }
     final nav = Navigator.of(context);
     nav.pop(); // close the member sheet
     nav.pop(); // return to the group list
@@ -546,19 +567,45 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
 
   Future<void> _memberAction(
       GroupService svc, GroupMember m, String action) async {
+    var applied = false;
     switch (action) {
       case 'mute':
-        await svc.addControlOp(_gid, ControlOp.mute, target: m.nodeId);
+        applied = await svc.addControlOp(
+          _gid,
+          ControlOp.mute,
+          target: m.nodeId,
+        );
       case 'unmute':
-        await svc.addControlOp(_gid, ControlOp.unmute, target: m.nodeId);
+        applied = await svc.addControlOp(
+          _gid,
+          ControlOp.unmute,
+          target: m.nodeId,
+        );
       case 'promote':
-        await svc.addControlOp(_gid, ControlOp.setRole,
-            target: m.nodeId, role: GroupRole.admin);
+        applied = await svc.addControlOp(
+          _gid,
+          ControlOp.setRole,
+          target: m.nodeId,
+          role: GroupRole.admin,
+        );
       case 'demote':
-        await svc.addControlOp(_gid, ControlOp.setRole,
-            target: m.nodeId, role: GroupRole.member);
+        applied = await svc.addControlOp(
+          _gid,
+          ControlOp.setRole,
+          target: m.nodeId,
+          role: GroupRole.member,
+        );
       case 'remove':
-        await svc.addControlOp(_gid, ControlOp.removeMember, target: m.nodeId);
+        applied = await svc.addControlOp(
+          _gid,
+          ControlOp.removeMember,
+          target: m.nodeId,
+        );
+    }
+    if (!applied && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppL10n.of(context).groupOperationFailed)),
+      );
     }
   }
 
@@ -606,8 +653,17 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       ),
     );
     if (picked == null) return;
-    await svc.addControlOp(_gid, ControlOp.addMember,
-        target: picked, role: GroupRole.member);
+    final added = await svc.addControlOp(
+      _gid,
+      ControlOp.addMember,
+      target: picked,
+      role: GroupRole.member,
+    );
+    if (!added && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l.groupOperationFailed)),
+      );
+    }
   }
 
   /// Tap the title → rename the group. Admins+ succeed (the op folds into every
@@ -661,11 +717,37 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
         title: FutureBuilder<GroupState?>(
           future: svc.stateOf(_gid),
           builder: (context, snap) {
-            final name = snap.data?.name;
+            final state = snap.data;
+            final name = state?.name;
             return InkWell(
               onTap: () => _renameDialog(svc, name ?? ''),
-              child: Text(
-                name == null || name.isEmpty ? l.navChannels : name,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      name == null || name.isEmpty ? l.navChannels : name,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (state != null) ...[
+                    const SizedBox(width: 8),
+                    Tooltip(
+                      message: state.epochDescriptor != null
+                          ? l.groupEncrypted
+                          : l.groupEncryptionPending,
+                      child: Icon(
+                        state.epochDescriptor != null
+                            ? Icons.lock_outline
+                            : Icons.lock_open_outlined,
+                        size: 16,
+                        color: state.epochDescriptor != null
+                            ? Theme.of(context).colorScheme.primary
+                            : Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ],
+                ],
               ),
             );
           },
