@@ -114,6 +114,13 @@ enum WireKind {
 
   /// One durable chunk of an oversized [cloudDocument] frame.
   cloudDocumentChunk,
+
+  /// Ephemeral, epoch-encrypted and node-id-signed group-call control frame.
+  /// It is separate from [groupEntry]: call lifecycle must never be persisted
+  /// into or replayed from the group message log. Admission and decryption are
+  /// performed by the group layer against its current membership epoch, so
+  /// non-contact members can participate without bypassing group ACL.
+  groupCallSignal,
   unknown,
 }
 
@@ -285,6 +292,9 @@ class WireEnvelope {
   /// A signed group content-fetch request — see [WireKind.groupContentRequest].
   const WireEnvelope.groupContentRequest(String requestJson)
     : this(WireKind.groupContentRequest, requestJson);
+
+  const WireEnvelope.groupCallSignal(String frameJson, {int? sentAtMs})
+    : this(WireKind.groupCallSignal, frameJson, sentAtMs: sentAtMs);
 
   const WireEnvelope.cloudDocument(String frameJson)
     : this(WireKind.cloudDocument, frameJson);

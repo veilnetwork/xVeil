@@ -21,9 +21,11 @@ import 'package:veil_flutter/veil_flutter.dart' as veil;
 
 import '../core/ids.dart';
 import '../domain/chat.dart' show MessageDirection;
+import '../domain/call_signal.dart';
 import '../domain/device_sync.dart';
 import '../domain/device_link.dart';
 import '../domain/group.dart';
+import '../domain/group_call.dart';
 import '../domain/group_content.dart';
 import '../domain/group_epoch.dart';
 import '../domain/group_message.dart';
@@ -52,10 +54,12 @@ abstract class GroupSigner {
   GroupMessage signMessage(GroupMessage unsigned);
   GroupReaction signReaction(GroupReaction unsigned);
   GroupContentRequest signContentRequest(GroupContentRequest unsigned);
+  GroupCallSignal signCallSignal(GroupCallSignal unsigned);
   bool verifyControl(ControlEntry e);
   bool verifyMessage(GroupMessage m);
   bool verifyReaction(GroupReaction r);
   bool verifyContentRequest(GroupContentRequest r);
+  bool verifyCallSignal(GroupCallSignal signal);
   bool verifySovereign({
     required String algorithm,
     required NodeId nodeId,
@@ -154,6 +158,13 @@ class NativeGroupSigner implements GroupSigner {
         lib: lib,
       );
   @override
+  GroupCallSignal signCallSignal(GroupCallSignal unsigned) =>
+      signGroupCallSignal(
+        identityToml: identityToml,
+        unsigned: unsigned,
+        lib: lib,
+      );
+  @override
   bool verifyControl(ControlEntry e) => verifyControlEntry(e, lib: lib);
   @override
   bool verifyMessage(GroupMessage m) => verifyGroupMessage(m, lib: lib);
@@ -162,6 +173,9 @@ class NativeGroupSigner implements GroupSigner {
   @override
   bool verifyContentRequest(GroupContentRequest r) =>
       verifyGroupContentRequest(r, lib: lib);
+  @override
+  bool verifyCallSignal(GroupCallSignal signal) =>
+      verifyGroupCallSignal(signal, lib: lib);
   @override
   bool verifySovereign({
     required String algorithm,
@@ -252,6 +266,13 @@ class GroupLogCompaction {
 typedef GroupSnapshotSender =
     Future<void> Function(NodeId peer, NodeId groupId, String bundleJson);
 
+typedef GroupCallFrameSender =
+    Future<void> Function(
+      NodeId peer,
+      GroupCallSignal signal,
+      String frameJson,
+    );
+
 class GroupService {
   GroupService(
     this._storage,
@@ -260,6 +281,7 @@ class GroupService {
     GroupEpochService? epochService,
     this.ourCertVersion = 1,
     this.sendContentRequest,
+    this.sendGroupCallFrame,
     this.grantContentServe,
     this.startContentPull,
   }) : _send = send,
@@ -277,6 +299,9 @@ class GroupService {
   final Future<void> Function(NodeId holder, String requestJson)?
   sendContentRequest;
 
+  /// Ships a short-lived encrypted call-control frame to one current member.
+  final GroupCallFrameSender? sendGroupCallFrame;
+
   /// Opens the serve gate for an authorized member (wire layer grant).
   final void Function(NodeId peer, String cid)? grantContentServe;
 
@@ -291,6 +316,16 @@ class GroupService {
   NodeId get selfId => _signer.selfId;
 
   final Map<String, Future<void>> _mutationTails = <String, Future<void>>{};
+
+  final StreamController<GroupCallSignal> _groupCallIncomingCtl =
+      StreamController.broadcast();
+  Stream<GroupCallSignal> get groupCallIncoming => _groupCallIncomingCtl.stream;
+
+  /// Replay ids are RAM-only: wire frame dedup is the first line, while this
+  /// signed-signal set also catches a malicious re-wrapping under a fresh AEAD
+  /// nonce/frame id. Signals expire quickly, so restart persistence is neither
+  /// useful nor desirable.
+  final Map<String, int> _seenGroupCallSignals = <String, int>{};
 
   /// Serialize every read-modify-write of one group. Wire ingest and local UI
   /// actions share this gate, so a concurrently arriving delta cannot restore
@@ -380,6 +415,187 @@ class GroupService {
 
   bool _validReactionFor(NodeId groupId, GroupReaction r) =>
       r.groupId == groupId && _signer.verifyReaction(r);
+
+  bool _validGroupCallShape(GroupCallSignal signal) {
+    final needsMedia =
+        signal.type == GroupCallSignalType.announce ||
+        signal.type == GroupCallSignalType.join ||
+        signal.type == GroupCallSignalType.renegotiate;
+    if (needsMedia && (signal.media == null || signal.media!.isEmpty)) {
+      return false;
+    }
+    if (!needsMedia && signal.media != null) return false;
+    return signal.isStructurallyValid;
+  }
+
+  String _freshGroupCallNonce() {
+    final random = Random.secure();
+    return List<int>.generate(
+      12,
+      (_) => random.nextInt(256),
+    ).map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+  }
+
+  void _pruneSeenGroupCallSignals(int nowMs) {
+    _seenGroupCallSignals.removeWhere(
+      (_, seenAt) => nowMs - seenAt > const Duration(minutes: 3).inMilliseconds,
+    );
+    while (_seenGroupCallSignals.length > 2048) {
+      _seenGroupCallSignals.remove(_seenGroupCallSignals.keys.first);
+    }
+  }
+
+  /// Sign, epoch-encrypt and fan one ephemeral call-control event to every
+  /// other CURRENT member. No call plaintext or key is persisted.
+  Future<GroupCallSignal?> broadcastGroupCallSignal(
+    NodeId groupId, {
+    required String callId,
+    required GroupCallSignalType type,
+    CallMedia? media,
+    CallEndReason? reason,
+  }) => _serialized(groupId, () async {
+    final sender = sendGroupCallFrame;
+    final bundle = await load(groupId);
+    if (sender == null || bundle == null || bundle.manifest.isSovereignDevice) {
+      return null;
+    }
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+    ).state;
+    if (!state.isMember(_signer.selfId) ||
+        !_encryptionEstablished(bundle.manifest, bundle.control)) {
+      return null;
+    }
+    final descriptor = state.epochDescriptor;
+    final key = bundle.localEpochKeys[state.epoch];
+    if (descriptor == null ||
+        descriptor.epoch != state.epoch ||
+        key == null ||
+        !_validLocalEpochKey(
+          bundle.manifest,
+          bundle.control,
+          state.epoch,
+          key,
+        )) {
+      return null;
+    }
+    final unsigned = GroupCallSignal(
+      groupId: groupId,
+      callId: callId,
+      author: _signer.selfId,
+      membershipEpoch: state.epoch,
+      type: type,
+      media: media,
+      reason: reason,
+      sentAtMs: _now(),
+      nonce: _freshGroupCallNonce(),
+      signature: Uint8List(0),
+      authorPubKey: Uint8List(0),
+    );
+    if (!_validGroupCallShape(unsigned)) return null;
+    final signed = _signer.signCallSignal(unsigned);
+    if (!_validGroupCallShape(signed) || !_signer.verifyCallSignal(signed)) {
+      return null;
+    }
+    final clear = Uint8List.fromList(utf8.encode(signed.encode()));
+    try {
+      final encrypted = await encryptGroupCallPayload(
+        groupId: groupId,
+        membershipEpoch: state.epoch,
+        author: _signer.selfId,
+        clearText: clear,
+        epochKey: key,
+      );
+      final frame = GroupCallWireFrame(
+        groupId: groupId,
+        membershipEpoch: state.epoch,
+        payload: encrypted,
+      ).encode();
+      for (final member in state.members.values) {
+        if (member.nodeId == _signer.selfId) continue;
+        await sender(member.nodeId, signed, frame);
+      }
+      return signed;
+    } catch (_) {
+      return null;
+    } finally {
+      clear.fillRange(0, clear.length, 0);
+    }
+  });
+
+  /// Authenticate and decrypt an inbound group-call frame. Every refusal is a
+  /// silent false: callers must not learn whether a gid, member or epoch exists.
+  Future<bool> ingestGroupCallFrame(NodeId peer, String frameJson) async {
+    final frame = GroupCallWireFrame.tryDecode(frameJson);
+    if (frame == null) return false;
+    return _serialized(frame.groupId, () async {
+      final bundle = await load(frame.groupId);
+      if (bundle == null || bundle.manifest.isSovereignDevice) return false;
+      final state = foldControlLog(
+        owner: bundle.manifest.owner,
+        entries: bundle.control,
+        verify: (entry) => _validControlFor(bundle.manifest, entry),
+        initialName: bundle.manifest.name,
+      ).state;
+      if (!state.isMember(peer) ||
+          frame.membershipEpoch != state.epoch ||
+          state.epochDescriptor?.epoch != state.epoch) {
+        return false;
+      }
+      final key = bundle.localEpochKeys[state.epoch];
+      if (key == null ||
+          !_validLocalEpochKey(
+            bundle.manifest,
+            bundle.control,
+            state.epoch,
+            key,
+          )) {
+        return false;
+      }
+      Uint8List? clear;
+      try {
+        clear = await decryptGroupCallPayload(
+          groupId: frame.groupId,
+          membershipEpoch: frame.membershipEpoch,
+          author: peer,
+          payload: frame.payload,
+          epochKey: key,
+        );
+        if (clear.length > maxGroupCallSignalBytes) return false;
+        final signal = GroupCallSignal.tryDecode(utf8.decode(clear));
+        if (signal == null ||
+            signal.groupId != frame.groupId ||
+            signal.membershipEpoch != frame.membershipEpoch ||
+            signal.author != peer ||
+            !_validGroupCallShape(signal) ||
+            !_signer.verifyCallSignal(signal)) {
+          return false;
+        }
+        final nowMs = _now();
+        final ageMs = nowMs - signal.sentAtMs;
+        if (ageMs < -const Duration(seconds: 30).inMilliseconds ||
+            ageMs > const Duration(minutes: 2).inMilliseconds) {
+          return false;
+        }
+        _pruneSeenGroupCallSignals(nowMs);
+        final replayId =
+            '${signal.author.hex}:${signal.callId}:${signal.nonce}';
+        if (_seenGroupCallSignals.containsKey(replayId)) return false;
+        _seenGroupCallSignals[replayId] = nowMs;
+        if (!_groupCallIncomingCtl.isClosed) {
+          _groupCallIncomingCtl.add(signal);
+        }
+        return true;
+      } catch (_) {
+        return false;
+      } finally {
+        clear?.fillRange(0, clear.length, 0);
+      }
+    });
+  }
 
   bool _sameEpochDescriptor(
     GroupEpochDescriptor left,
@@ -1051,8 +1267,7 @@ class GroupService {
     final controls = <ControlEntry>[];
     final envelopes = [...b.epochEnvelopes];
     final localKeys = <int, Uint8List>{
-      for (final entry in b.localEpochKeys.entries)
-        entry.key: entry.value,
+      for (final entry in b.localEpochKeys.entries) entry.key: entry.value,
     };
     try {
       GroupEpochSealSet? prepared;
@@ -3205,6 +3420,8 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
         messaging.sendGroupSnapshot(peer, groupId.hex, json),
     sendContentRequest: (holder, json) =>
         messaging.sendGroupContentRequest(holder, json),
+    sendGroupCallFrame: (peer, signal, json) =>
+        messaging.sendGroupCallSignal(peer, signal, json),
     grantContentServe: messaging.grantGroupContentServe,
     startContentPull: (holder, cid) async {
       await messaging.downloadContent(holder, cid);
@@ -3218,6 +3435,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   messaging.onGroupContentRequest = (peer, requestJson) {
     unawaited(svc.handleContentRequest(requestJson));
   };
+  messaging.onGroupCallSignal = svc.ingestGroupCallFrame;
   // Scale-free log sync: a NON-contact member's snapshot merges into groups
   // we hold (guarded); chunk reassembly asks the same admission up front.
   messaging.onGroupEntryFromStranger = (peer, bundleJson) {
