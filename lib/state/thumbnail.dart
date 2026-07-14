@@ -35,7 +35,12 @@ Future<String?> makeRgbaThumbB64(Uint8List rgba, int width, int height) async {
   if (rgba.isEmpty || width <= 0 || height <= 0) return null;
   final completer = Completer<ui.Image>();
   ui.decodeImageFromPixels(
-      rgba, width, height, ui.PixelFormat.rgba8888, completer.complete);
+    rgba,
+    width,
+    height,
+    ui.PixelFormat.rgba8888,
+    completer.complete,
+  );
   final src = await completer.future;
   try {
     for (final dim in _thumbDims) {
@@ -124,8 +129,7 @@ Future<InlineImage?> makeInlineImageB64(
           );
           if (data != null && data.lengthInBytes <= rawMax) {
             return InlineImage(
-              b64: base64Encode(
-                  data.buffer.asUint8List(0, data.lengthInBytes)),
+              b64: base64Encode(data.buffer.asUint8List(0, data.lengthInBytes)),
               w: tw,
               h: th,
             );
@@ -137,6 +141,60 @@ Future<InlineImage?> makeInlineImageB64(
         codec.dispose();
       }
       if (scale >= 1) break; // source already smaller than the rung.
+    }
+    return null;
+  } catch (_) {
+    return null;
+  } finally {
+    desc?.dispose();
+    buf?.dispose();
+  }
+}
+
+/// File-backed variant of [makeInlineImageB64]. The engine opens the encoded
+/// image straight from [path], so a high-resolution/large compressed source is
+/// never first materialized as a Dart [Uint8List]. Used by the few-GB group
+/// content path to make an optional signed preview while the original remains
+/// a range-served source.
+Future<InlineImage?> makeInlineImageFromPath(
+  String path, {
+  int rawMax = kInlineImageRawMax,
+}) async {
+  ui.ImmutableBuffer? buf;
+  ui.ImageDescriptor? desc;
+  try {
+    buf = await ui.ImmutableBuffer.fromFilePath(path);
+    desc = await ui.ImageDescriptor.encoded(buf);
+    final w = desc.width, h = desc.height;
+    if (w <= 0 || h <= 0) return null;
+    for (final dim in _inlineDims) {
+      final scale = dim / math.max(w, h);
+      final tw = scale >= 1 ? w : math.max(1, (w * scale).round());
+      final th = scale >= 1 ? h : math.max(1, (h * scale).round());
+      final codec = await desc.instantiateCodec(
+        targetWidth: tw,
+        targetHeight: th,
+      );
+      try {
+        final frame = await codec.getNextFrame();
+        try {
+          final data = await frame.image.toByteData(
+            format: ui.ImageByteFormat.png,
+          );
+          if (data != null && data.lengthInBytes <= rawMax) {
+            return InlineImage(
+              b64: base64Encode(data.buffer.asUint8List(0, data.lengthInBytes)),
+              w: tw,
+              h: th,
+            );
+          }
+        } finally {
+          frame.image.dispose();
+        }
+      } finally {
+        codec.dispose();
+      }
+      if (scale >= 1) break;
     }
     return null;
   } catch (_) {
