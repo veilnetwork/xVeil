@@ -11,7 +11,11 @@ import 'package:xveil/l10n/app_localizations.dart';
 
 NodeId _id(int byte) => NodeId(Uint8List.fromList(List.filled(32, byte)));
 
-GroupCall _call({required GroupCallStatus status, bool video = false}) {
+GroupCall _call({
+  required GroupCallStatus status,
+  bool video = false,
+  bool peerScreen = false,
+}) {
   final self = _id(1);
   final peer = _id(2);
   final now = DateTime(2026, 7, 13, 12);
@@ -33,7 +37,7 @@ GroupCall _call({required GroupCallStatus status, bool video = false}) {
       ),
       peer.hex: GroupCallParticipant(
         nodeId: peer,
-        media: const CallMedia(audio: false, video: true),
+        media: CallMedia(audio: false, video: true, screen: peerScreen),
         joinedAt: now,
         lastSeenAt: now,
       ),
@@ -187,6 +191,60 @@ void main() {
     final minimize = find.bySemanticsLabel('Minimize group call');
     expect(minimize, findsOneWidget);
     expect(tester.getRect(minimize).width, lessThanOrEqualTo(64));
+  });
+
+  testWidgets('screen participant shows badge and available static frame', (
+    tester,
+  ) async {
+    final staleCamera = ValueNotifier<VeilVideoFrame?>(_videoFrame(20));
+    addTearDown(staleCamera.dispose);
+    await tester.pumpWidget(
+      _host(
+        GroupCallRoomView(
+          call: _call(
+            status: GroupCallStatus.active,
+            video: true,
+            peerScreen: true,
+          ),
+          title: 'Private room',
+          selfId: _id(1),
+          isAdmin: false,
+          onMinimize: () {},
+          onAccept: () {},
+          onDecline: () {},
+          onLeave: () {},
+          onEndEveryone: () {},
+          onMic: () {},
+          onCamera: () {},
+          onScreen: () {},
+          videoFrameFor: (_) => staleCamera,
+        ),
+      ),
+    );
+    for (var i = 0; i < 20; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+      await tester.pump();
+      final frame = find.descendant(
+        of: find.byKey(const ValueKey('group-call-video-02020202')),
+        matching: find.byKey(const ValueKey('call-video-frame')),
+      );
+      if (frame.evaluate().isNotEmpty) break;
+    }
+
+    expect(
+      find.byKey(const ValueKey('group-call-screen-badge-02020202')),
+      findsOneWidget,
+    );
+    expect(find.text('Waiting for shared screen…'), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('group-call-video-02020202')),
+        matching: find.byKey(const ValueKey('call-video-frame')),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('mini room stays bounded and exposes expand/leave targets', (

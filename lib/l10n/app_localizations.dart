@@ -4117,6 +4117,18 @@ abstract class AppL10n {
   /// **'Share screen'**
   String get callScreenOff;
 
+  /// No description provided for @callScreenWaiting.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for shared screen…'**
+  String get callScreenWaiting;
+
+  /// No description provided for @callVideoWaiting.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for video…'**
+  String get callVideoWaiting;
+
   /// No description provided for @callPathOnion.
   ///
   /// In en, this message translates to:

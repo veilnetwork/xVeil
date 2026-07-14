@@ -1,6 +1,5 @@
-import 'dart:async' show Timer, unawaited;
+import 'dart:async' show unawaited;
 import 'dart:io' show Platform;
-import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -17,6 +16,7 @@ import '../../state/app_controller.dart';
 import '../../state/group_call_service.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/veil_group_call_media.dart';
+import 'video_frame_view.dart';
 
 /// Global room surface for the signed group-call control plane.
 ///
@@ -292,6 +292,7 @@ class _ParticipantCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final l = AppL10n.of(context);
     return Semantics(
       label: label,
       child: DecoratedBox(
@@ -306,9 +307,17 @@ class _ParticipantCard extends StatelessWidget {
             fit: StackFit.expand,
             children: [
               if ((media.video || media.screen) && videoFrame != null)
-                _GroupVideoFrameView(
+                CallVideoFrameView(
                   key: ValueKey('group-call-video-${participant.nodeId.short}'),
                   frameListenable: videoFrame!,
+                  freshnessToken: (participant.nodeId.hex, media.screen),
+                  waitingLabel: media.screen
+                      ? l.callScreenWaiting
+                      : l.callVideoWaiting,
+                  placeholderIcon: media.screen
+                      ? Icons.screen_share_outlined
+                      : Icons.videocam_outlined,
+                  fit: BoxFit.cover,
                 )
               else
                 Center(
@@ -317,6 +326,47 @@ class _ParticipantCard extends StatelessWidget {
                     child: Text(
                       label.characters.first.toUpperCase(),
                       style: const TextStyle(fontSize: 22),
+                    ),
+                  ),
+                ),
+              if (media.screen)
+                Positioned(
+                  left: 8,
+                  top: 8,
+                  child: Semantics(
+                    label: l.callScreenOn,
+                    liveRegion: true,
+                    child: Container(
+                      key: ValueKey(
+                        'group-call-screen-badge-${participant.nodeId.short}',
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: scheme.primaryContainer.withValues(alpha: 0.9),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.screen_share,
+                            size: 14,
+                            color: scheme.onPrimaryContainer,
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            l.callScreenOn,
+                            style: TextStyle(
+                              color: scheme.onPrimaryContainer,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -369,133 +419,6 @@ class _ParticipantCard extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-/// Coalescing raw-RGBA renderer. At most one ui decode is in flight and the
-/// newest pending frame replaces stale ones, so an N-party grid cannot build
-/// an unbounded decode queue when the UI thread is busy.
-class _GroupVideoFrameView extends StatefulWidget {
-  const _GroupVideoFrameView({super.key, required this.frameListenable});
-
-  final ValueListenable<VeilVideoFrame?> frameListenable;
-
-  @override
-  State<_GroupVideoFrameView> createState() => _GroupVideoFrameViewState();
-}
-
-class _GroupVideoFrameViewState extends State<_GroupVideoFrameView> {
-  static const _minDecodeInterval = Duration(milliseconds: 66);
-
-  ui.Image? _image;
-  VeilVideoFrame? _pending;
-  bool _busy = false;
-  Timer? _decodeTimer;
-  DateTime? _lastDecodeAt;
-
-  @override
-  void initState() {
-    super.initState();
-    widget.frameListenable.addListener(_onFrame);
-    _onFrame();
-  }
-
-  @override
-  void didUpdateWidget(covariant _GroupVideoFrameView oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.frameListenable == widget.frameListenable) return;
-    oldWidget.frameListenable.removeListener(_onFrame);
-    widget.frameListenable.addListener(_onFrame);
-    _onFrame();
-  }
-
-  @override
-  void dispose() {
-    widget.frameListenable.removeListener(_onFrame);
-    _decodeTimer?.cancel();
-    _image?.dispose();
-    super.dispose();
-  }
-
-  void _onFrame() {
-    final frame = widget.frameListenable.value;
-    if (frame == null) {
-      _pending = null;
-      if (_image != null && mounted) {
-        setState(() {
-          _image?.dispose();
-          _image = null;
-        });
-      }
-      return;
-    }
-    _pending = frame;
-    _scheduleDrain();
-  }
-
-  void _scheduleDrain() {
-    if (_busy || _decodeTimer != null) return;
-    final last = _lastDecodeAt;
-    if (last == null) {
-      _drain();
-      return;
-    }
-    final elapsed = DateTime.now().difference(last);
-    if (elapsed >= _minDecodeInterval) {
-      _drain();
-      return;
-    }
-    _decodeTimer = Timer(_minDecodeInterval - elapsed, () {
-      _decodeTimer = null;
-      if (mounted) _drain();
-    });
-  }
-
-  void _drain() {
-    final frame = _pending;
-    if (frame == null) {
-      _busy = false;
-      return;
-    }
-    _pending = null;
-    _busy = true;
-    _lastDecodeAt = DateTime.now();
-    ui.decodeImageFromPixels(
-      frame.rgba,
-      frame.width,
-      frame.height,
-      ui.PixelFormat.rgba8888,
-      (image) {
-        if (!mounted) {
-          image.dispose();
-          return;
-        }
-        setState(() {
-          _image?.dispose();
-          _image = image;
-        });
-        _busy = false;
-        if (_pending != null) _scheduleDrain();
-      },
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final image = _image;
-    if (image == null) {
-      return Center(
-        child: Icon(
-          Icons.videocam_outlined,
-          color: Colors.white.withValues(alpha: 0.35),
-          size: 38,
-        ),
-      );
-    }
-    return ColoredBox(
-      color: Colors.black,
-      child: RawImage(image: image, fit: BoxFit.cover),
     );
   }
 }

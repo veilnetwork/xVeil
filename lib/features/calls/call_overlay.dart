@@ -1,11 +1,8 @@
-import 'dart:async';
-import 'dart:ui' as ui;
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:veil_media/veil_media.dart' show VeilVideoFrame;
 
 import '../../domain/call.dart';
 import '../../domain/call_signal.dart';
@@ -15,6 +12,7 @@ import '../../state/call_service.dart';
 import '../../state/veil_call_media.dart'
     show localVideoFrame, remoteVideoFrame;
 import 'call_lifecycle_bridge.dart' show callPipMode;
+import 'video_frame_view.dart';
 
 /// Full-screen call UI that floats above every route. Mounted once from
 /// [MaterialApp.router]'s `builder`, it watches [currentCallProvider] and shows
@@ -23,6 +21,8 @@ import 'call_lifecycle_bridge.dart' show callPipMode;
 /// present but inert (wired to real capture in Phases 3–5); End/Accept/Reject/
 /// Cancel drive the [CallService] FSM.
 enum _OverlayMode { full, mini, hidden }
+
+bool _peerScreenSharing(Call call) => call.media.screen && !call.screenOn;
 
 class CallOverlay extends ConsumerStatefulWidget {
   const CallOverlay({super.key});
@@ -104,7 +104,7 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
     }
     final videoStage = _isVideoStage(call);
     if (_pipActive && videoStage) {
-      return const Positioned.fill(child: _PipVideoView());
+      return Positioned.fill(child: _PipVideoView(call));
     }
     if (videoStage && !_autoMiniAfterConnect) {
       _autoMiniAfterConnect = true;
@@ -281,12 +281,20 @@ class _CallBody extends ConsumerWidget {
   }
 
   Widget _videoLayout(BuildContext context, AppL10n l, CallService svc) {
+    final peerScreen = _peerScreenSharing(call);
     return Stack(
       fit: StackFit.expand,
       children: [
         ColoredBox(
           color: Colors.black,
-          child: _VideoFrameView(frameListenable: remoteVideoFrame),
+          child: CallVideoFrameView(
+            frameListenable: remoteVideoFrame,
+            freshnessToken: (call.callId, peerScreen),
+            waitingLabel: peerScreen ? l.callScreenWaiting : l.callVideoWaiting,
+            placeholderIcon: peerScreen
+                ? Icons.screen_share_outlined
+                : Icons.videocam_outlined,
+          ),
         ),
         // Scrims so the white text/controls stay legible over any frame.
         const _Scrim(top: true),
@@ -399,13 +407,24 @@ class _CallBody extends ConsumerWidget {
 }
 
 class _PipVideoView extends StatelessWidget {
-  const _PipVideoView();
+  const _PipVideoView(this.call);
+
+  final Call call;
 
   @override
   Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    final peerScreen = _peerScreenSharing(call);
     return ColoredBox(
       color: Colors.black,
-      child: _VideoFrameView(frameListenable: remoteVideoFrame),
+      child: CallVideoFrameView(
+        frameListenable: remoteVideoFrame,
+        freshnessToken: (call.callId, peerScreen),
+        waitingLabel: peerScreen ? l.callScreenWaiting : l.callVideoWaiting,
+        placeholderIcon: peerScreen
+            ? Icons.screen_share_outlined
+            : Icons.videocam_outlined,
+      ),
     );
   }
 }
@@ -498,6 +517,8 @@ class _FloatingCallTile extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final svc = ref.read(callServiceProvider);
+    final l = AppL10n.of(context);
+    final peerScreen = _peerScreenSharing(call);
     return Positioned(
       left: offset.dx,
       top: offset.dy,
@@ -513,7 +534,16 @@ class _FloatingCallTile extends ConsumerWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              _VideoFrameView(frameListenable: remoteVideoFrame),
+              CallVideoFrameView(
+                frameListenable: remoteVideoFrame,
+                freshnessToken: (call.callId, peerScreen),
+                waitingLabel: peerScreen
+                    ? l.callScreenWaiting
+                    : l.callVideoWaiting,
+                placeholderIcon: peerScreen
+                    ? Icons.screen_share_outlined
+                    : Icons.videocam_outlined,
+              ),
               Positioned.fill(
                 child: DecoratedBox(
                   decoration: BoxDecoration(
@@ -683,6 +713,7 @@ class _SelfPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
     return Material(
       color: Colors.black.withValues(alpha: 0.88),
       elevation: 8,
@@ -694,7 +725,17 @@ class _SelfPreview extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            _VideoFrameView(frameListenable: localVideoFrame),
+            CallVideoFrameView(
+              frameListenable: localVideoFrame,
+              freshnessToken: (call.callId, call.screenOn),
+              waitingLabel: call.screenOn
+                  ? l.callScreenWaiting
+                  : l.callVideoWaiting,
+              placeholderIcon: call.screenOn
+                  ? Icons.screen_share_outlined
+                  : Icons.videocam_outlined,
+              fit: BoxFit.cover,
+            ),
             if (!call.cameraOn)
               const ColoredBox(
                 color: Colors.black54,
@@ -965,132 +1006,6 @@ class _RoundButton extends StatelessWidget {
         Text(label, style: const TextStyle(color: Colors.white70)),
       ],
     );
-  }
-}
-
-/// Renders decoded RGBA video frames from a [ValueListenable]. Each new frame is
-/// turned into a `ui.Image` off the widget tree; decodes are coalesced so a slow
-/// decode drops stale frames instead of queuing them.
-class _VideoFrameView extends StatefulWidget {
-  const _VideoFrameView({required this.frameListenable});
-
-  final ValueListenable<VeilVideoFrame?> frameListenable;
-
-  @override
-  State<_VideoFrameView> createState() => _VideoFrameViewState();
-}
-
-class _VideoFrameViewState extends State<_VideoFrameView> {
-  static const _minDecodeInterval = Duration(milliseconds: 66);
-
-  ui.Image? _image;
-  VeilVideoFrame? _pending; // newest frame awaiting decode
-  bool _busy = false;
-  Timer? _decodeTimer;
-  DateTime? _lastDecodeAt;
-
-  @override
-  void initState() {
-    super.initState();
-    widget.frameListenable.addListener(_onFrame);
-    _onFrame();
-  }
-
-  @override
-  void didUpdateWidget(covariant _VideoFrameView oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.frameListenable == widget.frameListenable) return;
-    oldWidget.frameListenable.removeListener(_onFrame);
-    widget.frameListenable.addListener(_onFrame);
-    _onFrame();
-  }
-
-  @override
-  void dispose() {
-    widget.frameListenable.removeListener(_onFrame);
-    _decodeTimer?.cancel();
-    _image?.dispose();
-    super.dispose();
-  }
-
-  void _onFrame() {
-    final f = widget.frameListenable.value;
-    if (f == null) {
-      _pending = null;
-      if (_image != null && mounted) {
-        setState(() {
-          _image?.dispose();
-          _image = null;
-        });
-      }
-      return;
-    }
-    _pending = f;
-    _scheduleDrain();
-  }
-
-  void _scheduleDrain() {
-    if (_busy || _decodeTimer != null) return;
-    final last = _lastDecodeAt;
-    if (last == null) {
-      _drain();
-      return;
-    }
-    final elapsed = DateTime.now().difference(last);
-    if (elapsed >= _minDecodeInterval) {
-      _drain();
-      return;
-    }
-    _decodeTimer = Timer(_minDecodeInterval - elapsed, () {
-      _decodeTimer = null;
-      if (mounted) _drain();
-    });
-  }
-
-  void _drain() {
-    final f = _pending;
-    if (f == null) {
-      _busy = false;
-      return;
-    }
-    _pending = null;
-    _busy = true;
-    _lastDecodeAt = DateTime.now();
-    ui.decodeImageFromPixels(
-      f.rgba,
-      f.width,
-      f.height,
-      ui.PixelFormat.rgba8888,
-      (img) {
-        if (!mounted) {
-          img.dispose();
-          return;
-        }
-        setState(() {
-          _image?.dispose();
-          _image = img;
-        });
-        _busy = false;
-        if (_pending != null) _scheduleDrain();
-      },
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final img = _image;
-    if (img == null) {
-      return Center(
-        child: Text(
-          '…',
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.5),
-            fontSize: 40,
-          ),
-        ),
-      );
-    }
-    return RawImage(image: img, fit: BoxFit.contain);
   }
 }
 
