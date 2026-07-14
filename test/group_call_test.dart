@@ -514,6 +514,9 @@ void main() {
         isTrue,
       );
       await pumpEventQueue();
+      expect(ownerCalls.current?.micOn, isTrue);
+      expect(ownerCalls.current?.cameraOn, isFalse);
+      expect(ownerCalls.current?.screenOn, isFalse);
       expect(await bobCalls.join(), isTrue);
       await pumpEventQueue();
       expect(ownerCalls.current?.participants, hasLength(2));
@@ -528,6 +531,19 @@ void main() {
       await pumpEventQueue();
       expect(ownerCalls.current?.participants.keys, [owner.hex]);
       expect(ownerMedia.latest?.participants.keys, [owner.hex]);
+
+      await ownerCalls.leave();
+      expect(
+        await ownerCalls.startCall(
+          groupId,
+          const CallMedia(audio: true, video: true, screen: true),
+        ),
+        isTrue,
+      );
+      await pumpEventQueue();
+      expect(ownerCalls.current?.micOn, isTrue);
+      expect(ownerCalls.current?.cameraOn, isFalse);
+      expect(ownerCalls.current?.screenOn, isTrue);
     },
   );
 }

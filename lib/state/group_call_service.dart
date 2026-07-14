@@ -137,6 +137,9 @@ class GroupCallService {
       status: GroupCallStatus.connecting,
       startedAt: now,
       joinedAt: now,
+      micOn: media.audio,
+      cameraOn: media.video && !media.screen,
+      screenOn: media.screen,
       participants: {
         _groups.selfId.hex: GroupCallParticipant(
           nodeId: _groups.selfId,
@@ -331,6 +334,9 @@ class GroupCallService {
           media: media,
           status: GroupCallStatus.ringing,
           startedAt: at,
+          micOn: media.audio,
+          cameraOn: media.video && !media.screen,
+          screenOn: media.screen,
           participants: {
             signal.author.hex: GroupCallParticipant(
               nodeId: signal.author,
