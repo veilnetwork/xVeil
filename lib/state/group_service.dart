@@ -327,6 +327,9 @@ class GroupService {
     this.sendGroupCallFrame,
     this.grantContentServe,
     this.startContentPull,
+    this.startContentPullFromAny,
+    this.contentRequestFanoutTimeout = const Duration(seconds: 8),
+    this.contentGrantDelay = const Duration(seconds: 4),
   }) : _send = send,
        // Named public constructor parameter cannot use a private initializing
        // formal; keep the externally-used `epochService:` API.
@@ -350,6 +353,21 @@ class GroupService {
 
   /// Starts the standard content pull of [cid] from a holder (wire layer).
   final Future<void> Function(NodeId holder, String cid)? startContentPull;
+
+  /// Starts a membership-scoped pull from every current candidate member.
+  /// The messaging layer tries holders until one actually has the verified
+  /// blob; no persistent/read-receipt holder advertisement is created.
+  final Future<void> Function(List<NodeId> holders, String cid)?
+  startContentPullFromAny;
+
+  /// Bounds only the foreground wait for durable request fanout. The durable
+  /// sends keep running after this deadline; an offline member must not delay
+  /// a reachable seeder indefinitely.
+  final Duration contentRequestFanoutTimeout;
+
+  /// Gives durable membership requests time to reach candidate holders before
+  /// the first stream open. Injectable so closed-loop tests need no wall clock.
+  final Duration contentGrantDelay;
 
   /// Bumped on every persisted mutation (local op/post OR an ingested
   /// snapshot) so open group screens re-fetch. Cheap: the UI reads on change.
@@ -2184,26 +2202,76 @@ class GroupService {
     return true;
   }
 
-  /// Fetch [cid] of [groupId] from [holder] (normally the message author):
-  /// ship the signed membership request, give the grant a moment to land at
-  /// the holder, then start the standard stream pull. For holders that are
-  /// also accepted 1:1 contacts the pull would pass anyway; the request makes
-  /// the same flow work for pure co-members. Fire-and-forget: progress /
-  /// completion surface through the content providers like any 1:1 download.
+  /// Fetch [cid] of [groupId], preferring [holder] (normally the message
+  /// author) but authorizing EVERY other current member as a candidate seeder.
+  /// Thus a member that downloaded and verified the blob can keep serving it
+  /// after the author goes offline. We intentionally do not publish persistent
+  /// holder/read advertisements: one explicit user fetch sends the same signed
+  /// membership request to all candidates, non-holders deny silently, and the
+  /// content-addressed pull stops at the first verified source.
   Future<bool> fetchGroupContent(
     NodeId groupId,
     String cid,
     NodeId holder,
   ) async {
-    final pull = startContentPull;
-    if (pull == null) return false;
-    await requestGroupContent(groupId, cid, holder);
-    // The durable request needs a wire round-trip before the grant exists —
-    // pulling instantly would burn the first stream attempt on a DENIED. The
-    // pull machinery retries, so this delay is a fast-path nicety, not a
-    // correctness requirement.
-    await Future<void>.delayed(const Duration(seconds: 4));
-    await pull(holder, cid);
+    final pullAny = startContentPullFromAny;
+    final pullOne = startContentPull;
+    if (pullAny == null && pullOne == null) return false;
+    final state = await stateOf(groupId);
+    if (state == null || !state.isMember(_signer.selfId)) return false;
+    if (!(await referencedContentIds(groupId)).contains(cid)) return false;
+
+    final members = [
+      for (final member in state.members.values)
+        if (member.nodeId != _signer.selfId) member.nodeId,
+    ]..sort((a, b) => a.hex.compareTo(b.hex));
+    if (members.isEmpty) return false;
+    final candidates = <NodeId>[
+      if (members.contains(holder)) holder,
+      for (final member in members)
+        if (member != holder) member,
+    ];
+
+    // Best-effort fanout: one temporarily unreachable member must not prevent
+    // a reachable downloaded holder from receiving its authorization.
+    final requestTargets = [
+      for (final candidate in candidates.skip(1)) candidate,
+      candidates.first,
+    ];
+    await Future.wait<bool>([
+      // Launch fallback members before the preferred author: the pull still
+      // prefers the author, but its dead route cannot queue every grant behind
+      // it inside a serialized transport.
+      for (final candidate in requestTargets)
+        requestGroupContent(groupId, cid, candidate).catchError((Object e) {
+          devLog(
+            () =>
+                'xVeil[groups]: content request to '
+                '${candidate.short} failed locally: $e',
+          );
+          return false;
+        }),
+    ]).timeout(
+      contentRequestFanoutTimeout,
+      onTimeout: () {
+        devLog(
+          () =>
+              'xVeil[groups]: content request fanout deadline reached; '
+              'starting scoped pull',
+        );
+        return const <bool>[];
+      },
+    );
+    // Durable requests need a wire round-trip before grants exist. Pull retries
+    // preserve correctness; this delay avoids burning the first open on DENIED.
+    if (contentGrantDelay > Duration.zero) {
+      await Future<void>.delayed(contentGrantDelay);
+    }
+    if (pullAny != null) {
+      await pullAny(candidates, cid);
+    } else {
+      await pullOne!(candidates.first, cid);
+    }
     return true;
   }
 

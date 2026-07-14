@@ -13,6 +13,7 @@ import '../data/transport/veil_transport.dart';
 import '../data/transport/wire_envelope.dart';
 import '../domain/call_signal.dart';
 import '../domain/group_call.dart';
+import '../domain/group_content.dart';
 import '../domain/chat.dart';
 import '../domain/chat_folder.dart';
 import '../domain/content_manifest.dart';
@@ -613,15 +614,41 @@ class MessagingService {
   Future<bool> Function(NodeId peer, String frameJson)? onGroupCallSignal;
 
   /// Ship a signed group content-fetch request to [dst] (the content holder)
-  /// durably. Keyed by content so a re-mint of the same request dedups; a
-  /// frame that outlives the 10-minute authorization window is simply refused
-  /// by the holder's gate.
-  Future<void> sendGroupContentRequest(NodeId dst, String requestJson) =>
-      sendDurable(
-        dst,
-        'gcr:${requestJson.hashCode & 0x7fffffff}',
-        WireEnvelope.groupContentRequest(requestJson),
-      );
+  /// durably. The group id in the frame key lets the outbox re-drive to a pure
+  /// co-member without opening a general stranger-send gate. Live delivery is
+  /// detached after persistence so one offline candidate cannot serialize the
+  /// request fanout ahead of reachable seeders. Non-contact holders never ACK
+  /// this frame (no membership/read oracle); it retires at the signed request's
+  /// own ten-minute freshness deadline.
+  Future<void> sendGroupContentRequest(NodeId dst, String requestJson) async {
+    GroupContentRequest? request;
+    try {
+      request = GroupContentRequest.fromJson(jsonDecode(requestJson));
+    } catch (_) {
+      /* malformed local request → do not enqueue */
+    }
+    if (request == null) return;
+    final frameId =
+        'gcr:${request.groupId.hex}:${request.contentId}:${request.nonce}';
+    final wire = WireEnvelope.groupContentRequest(
+      requestJson,
+    ).withFrameId(frameId).encode();
+    await _storage.enqueueOutboxFrame(frameId, dst.hex, wire);
+    _outboxLiveBackoff[frameId] = (
+      count: 1,
+      nextAt: _now().add(_outboxLiveResend),
+      peer: dst.hex,
+      lastSentAt: _now(),
+    );
+    unawaited(() async {
+      try {
+        await _send(dst, wire);
+      } catch (_) {
+        // Mailbox copy + outbox re-drive remain authoritative.
+      }
+    }());
+    unawaited(_maybeStash(dst, frameId, wire));
+  }
 
   /// Send one already-signed+epoch-encrypted group-call signal. Lifecycle
   /// transitions are durable for short outage tolerance; heartbeats are live
@@ -657,6 +684,13 @@ class MessagingService {
   /// restart the member's retry re-authorizes.
   final Map<String, int> _groupServeGrants = {};
 
+  /// Receiver-side mirror of the group content authorization: these peers are
+  /// current group members that the group layer has just sent a signed fetch
+  /// request for THIS cid. It only permits us to attempt a stream; the holder
+  /// still independently verifies membership+reference and silently denies the
+  /// stream unless [_groupServeGrants] contains the matching requester/cid.
+  final Map<String, int> _groupPullSources = {};
+
   /// Allow [peer] to pull [cid] for [ttl] (defaults to the request window).
   void grantGroupContentServe(
     NodeId peer,
@@ -677,6 +711,27 @@ class MessagingService {
   bool _groupServeGranted(NodeId peer, String cid) =>
       (_groupServeGrants['${peer.hex}|$cid'] ?? 0) >
       DateTime.now().millisecondsSinceEpoch;
+
+  void _allowGroupPullSources(
+    String cid,
+    Iterable<NodeId> peers, {
+    Duration ttl = const Duration(minutes: 10),
+  }) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    _groupPullSources.removeWhere((_, exp) => exp <= now);
+    final expires = now + ttl.inMilliseconds;
+    for (final peer in peers) {
+      _groupPullSources['${peer.hex}|$cid'] = expires;
+    }
+  }
+
+  bool _groupPullSourceAllowed(NodeId peer, String cid) =>
+      (_groupPullSources['${peer.hex}|$cid'] ?? 0) >
+      DateTime.now().millisecondsSinceEpoch;
+
+  void _clearGroupPullSources(String cid) {
+    _groupPullSources.removeWhere((key, _) => key.endsWith('|$cid'));
+  }
 
   /// Register in-RAM [bytes] as fetchable group content: the blob goes into
   /// the file store under its contentId and the manifest under `mf:<cid>`, so
@@ -1903,7 +1958,7 @@ class MessagingService {
       return;
     }
     for (final f in pending) {
-      if (_retireExpiredCallOutboxFrame(f)) continue;
+      if (_retireExpiredTransientOutboxFrame(f)) continue;
       final peer = NodeId.fromHex(f.peerHex);
       // A frame to a peer we no longer hold AT ALL (conversation removed) is
       // moot — retire it. A BLOCKED peer only PAUSES it, mirroring the message
@@ -1917,7 +1972,8 @@ class MessagingService {
       var groupMemberCarrier = false;
       if (contact == null || contact.status != ContactStatus.accepted) {
         final parts = f.frameId.split(':');
-        if (parts.length >= 3 && parts.first == 'gcall') {
+        if (parts.length >= 3 &&
+            (parts.first == 'gcall' || parts.first == 'gcr')) {
           groupMemberCarrier =
               await allowStrangerGroupSync?.call(peer, parts[1]) ?? false;
         }
@@ -1970,12 +2026,29 @@ class MessagingService {
   static const _outboxLiveResendCap = Duration(minutes: 10);
   static const _callSignalOutboxTtl = Duration(minutes: 2);
 
-  bool _retireExpiredCallOutboxFrame(OutboxFrame frame) {
+  bool _retireExpiredTransientOutboxFrame(OutboxFrame frame) {
     final direct = frame.frameId.startsWith('call:');
     final group = frame.frameId.startsWith('gcall:');
-    if (!direct && !group) return false;
+    final groupContent = frame.frameId.startsWith('gcr:');
+    if (!direct && !group && !groupContent) return false;
     try {
       final env = WireEnvelope.decode(frame.wire);
+      if (groupContent) {
+        if (env.kind != WireKind.groupContentRequest) return false;
+        final request = GroupContentRequest.fromJson(jsonDecode(env.body));
+        if (request == null) return false;
+        final age = _now().difference(
+          DateTime.fromMillisecondsSinceEpoch(request.tsMs),
+        );
+        if (age <= kGroupContentRequestWindow) return false;
+        devLog(
+          () =>
+              'xVeil[durable]: retire stale group content request '
+              'fid=${frame.frameId} age=${age.inSeconds}s',
+        );
+        _retireOutboxFrame(frame.frameId);
+        return true;
+      }
       if (direct && env.kind != WireKind.callSignal) return false;
       if (group && env.kind != WireKind.groupCallSignal) return false;
       final sentAtMs = direct
@@ -5380,16 +5453,34 @@ class MessagingService {
     return ContentDownloadResult.started;
   }
 
-  /// Swarm/group download primitive: fetch [contentId] from the first accepted
-  /// peer that can actually serve it. This is deliberately content-addressed —
-  /// any holder of the verified blob can seed the same bytes, so a group/torrent
-  /// layer can pass all known holders instead of depending on the original
-  /// sender staying online.
+  /// Swarm/group download primitive: fetch [contentId] from the first eligible
+  /// source that can actually serve it (an accepted contact, or a peer scoped
+  /// to this cid by [downloadGroupContentFromAny]). This is deliberately
+  /// content-addressed — any holder of the verified blob can seed the same
+  /// bytes, so a group/torrent layer can pass current members instead of
+  /// depending on the original sender staying online.
   ///
   /// The normal one-peer [downloadContent] path starts the pull and returns
   /// immediately for UI responsiveness. This method awaits each stream attempt
   /// to a terminal result before trying the next source, so a dead/non-seeding
-  /// peer does not strand the transfer when another accepted peer has the blob.
+  /// peer does not strand the transfer when another eligible peer has the blob.
+  Future<ContentDownloadResult> downloadGroupContentFromAny(
+    Iterable<NodeId> currentMembers,
+    String contentId,
+  ) {
+    final sources = _uniquePeers(currentMembers);
+    if (sources.isEmpty) {
+      return Future.value(ContentDownloadResult.noOffer);
+    }
+    // GroupService has already checked that self/currentMembers belong to the
+    // folded group and that cid is referenced by a validated group message,
+    // then sent every candidate a signed membership request. Keep this scoped
+    // to (peer,cid,TTL): it must never turn group membership into a generic
+    // read/probe capability.
+    _allowGroupPullSources(contentId, sources);
+    return downloadContentFromAny(sources, contentId);
+  }
+
   Future<ContentDownloadResult> downloadContentFromAny(
     Iterable<NodeId> peers,
     String contentId, {
@@ -5441,10 +5532,7 @@ class MessagingService {
     }
     for (final peer in sources) {
       if (!seen.add(peer.hex)) continue;
-      final contact = await _storage.getContact(peer);
-      if (contact == null || contact.status != ContactStatus.accepted) {
-        continue;
-      }
+      if (!await _eligiblePullSource(peer, contentId)) continue;
       attempted++;
       devLog(
         () =>
@@ -5468,6 +5556,12 @@ class MessagingService {
     );
     if (!_contentFailed.isClosed) _contentFailed.add(contentId);
     return ContentDownloadResult.noOffer;
+  }
+
+  Future<bool> _eligiblePullSource(NodeId peer, String contentId) async {
+    final contact = await _storage.getContact(peer);
+    return (contact != null && contact.status == ContactStatus.accepted) ||
+        _groupPullSourceAllowed(peer, contentId);
   }
 
   NodeId _offerPeer(
@@ -5740,6 +5834,7 @@ class MessagingService {
   /// bytes (the transport/storage core deliberately has no dart:io access).
   Future<String?> cancelContentDownload(String contentId) async {
     _cancelledDownloads.add(contentId);
+    _clearGroupPullSources(contentId);
     final savedPath = _fetchSavePath.remove(contentId);
     _completePendingDownload(contentId);
     _pendingTimers.remove(contentId)?.cancel();
@@ -6420,6 +6515,7 @@ class MessagingService {
           savedToPath: savedPath,
         ));
       }
+      _clearGroupPullSources(contentId);
       return true;
     } catch (e) {
       devLog(() => 'xVeil[content]: export stored $short failed: $e');
@@ -7480,8 +7576,9 @@ class MessagingService {
       );
       return _pullStream(preferred, cid, null, retryPeers: peers);
     }
-    final sources = await _acceptedStreamSources(
+    final sources = await _eligibleStreamSources(
       _orderedPullPeers(preferred, peers),
+      contentId: cid,
     );
     if (sources.isEmpty) return false;
     if (sources.length < 2 &&
@@ -7554,8 +7651,9 @@ class MessagingService {
         retryPeers: peers,
       );
     }
-    final sources = await _acceptedStreamSources(
+    final sources = await _eligibleStreamSources(
       _orderedPullPeers(preferred, peers),
+      contentId: cid,
     );
     if (sources.isEmpty) return false;
     // A RESUME (sink.read != null) MUST take the range path even for one
@@ -7595,11 +7693,13 @@ class MessagingService {
     return true;
   }
 
-  Future<List<NodeId>> _acceptedStreamSources(Iterable<NodeId> peers) async {
+  Future<List<NodeId>> _eligibleStreamSources(
+    Iterable<NodeId> peers, {
+    required String contentId,
+  }) async {
     final accepted = <String, NodeId>{};
     for (final peer in peers) {
-      final contact = await _storage.getContact(peer);
-      if (contact == null || contact.status != ContactStatus.accepted) continue;
+      if (!await _eligiblePullSource(peer, contentId)) continue;
       accepted[peer.hex] = peer;
     }
     return accepted.values.toList(growable: false);
@@ -7618,8 +7718,9 @@ class MessagingService {
     _ContentManifestRef ref,
     Iterable<NodeId> peers,
   ) async {
-    final sources = await _acceptedStreamSources(
+    final sources = await _eligibleStreamSources(
       _orderedPullPeers(preferred, peers),
+      contentId: cid,
     );
     for (final peer in sources) {
       final m = await _readManifestOnly(peer, cid, ref);
@@ -7696,8 +7797,9 @@ class MessagingService {
     String cid,
     Iterable<NodeId> peers,
   ) async {
-    final sources = await _acceptedStreamSources(
+    final sources = await _eligibleStreamSources(
       _orderedPullPeers(preferred, peers),
+      contentId: cid,
     );
     for (final peer in sources) {
       final m = await _readManifestHeader(peer, cid);
@@ -7884,8 +7986,9 @@ class MessagingService {
         _transport is! StreamTransport) {
       return false;
     }
-    final streamSources = await _acceptedStreamSources(
+    final streamSources = await _eligibleStreamSources(
       _orderedPullPeers(peer, peers),
+      contentId: cid,
     );
     if (streamSources.isEmpty) return false;
     if (_streamRangeEnabled && streamSources.length > 1) return false;
@@ -8054,11 +8157,11 @@ class MessagingService {
     Future<int> refreshSources() async {
       final before = sourceMap.length;
       final offered = _offered[cid];
-      final accepted = await _acceptedStreamSources([
+      final accepted = await _eligibleStreamSources([
         ...initialPeers,
         if (offered != null) ...offered.peers.values,
         ...await _storedContentSourcePeers(cid),
-      ]);
+      ], contentId: cid);
       for (final peer in accepted) {
         sourceMap[peer.hex] = peer;
       }
@@ -9317,6 +9420,7 @@ class MessagingService {
           savedToPath: savedPath,
         ));
       }
+      _clearGroupPullSources(m.contentId);
       return true;
     }
     devLog(
@@ -9326,6 +9430,7 @@ class MessagingService {
     );
     final persisted = await _persistReceivedContent(peer, m);
     if (persisted) await _send(peer, WireEnvelope.ack(ackId).encode());
+    if (persisted) _clearGroupPullSources(m.contentId);
     if (persisted && await _consumeParkedPlainFileSave(m.contentId)) {
       return true;
     }
@@ -9697,6 +9802,8 @@ class MessagingService {
       if (s != null) unawaited(s.close());
     }
     _pendingDownload.clear();
+    _groupServeGrants.clear();
+    _groupPullSources.clear();
     final pullStreams = [
       for (final streams in _activePullStreams.values) ...streams,
     ];

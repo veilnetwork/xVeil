@@ -1187,6 +1187,64 @@ void main() {
   );
 
   test(
+    'GROUP swarm: a non-contact member re-seeds after the author goes offline',
+    () async {
+      final data = _rnd(530000, 19);
+      final cid = ContentManifest.fromBytes('group-reseed.bin', data).contentId;
+      await mB.setFileDownloadPolicy(
+        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+
+      // Author A seeds member B. B keeps only the verified encrypted blob and
+      // manifest; the original source is deliberately absent from phase two.
+      await mA.sendFileStreaming(
+        b,
+        'group-reseed.bin',
+        data.length,
+        (o, l) async => Uint8List.sublistView(data, o, o + l),
+        close: () async {},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      final gotB = mB.contentReceived.firstWhere((e) => e.contentId == cid);
+      expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+      await gotB.timeout(const Duration(seconds: 20));
+      expect(await sB.loadFile(cid), data);
+
+      final c = _id(3);
+      final tC = _StreamLink(c);
+      final sC = HiddenVolumeStorage(_mem());
+      await sC.open(password: 'c', createIfMissing: true);
+      final mC = MessagingService(
+        tC,
+        sC,
+        contentPacing: Duration.zero,
+        plainFileStream: true,
+      )..start();
+      addTearDown(() async {
+        await mC.dispose();
+        await sC.close();
+      });
+
+      // No B<->C contact exists. GroupService would mint this exact scoped
+      // grant after validating C's signed membership request for the cid.
+      mB.grantGroupContentServe(c, cid);
+      tC.peer = null; // A is offline; no fallback route may accidentally hit B.
+      tC.routes[b.hex] = tB;
+      tB.routes[c.hex] = tC;
+
+      final gotC = mC.contentReceived.firstWhere((e) => e.contentId == cid);
+      expect(
+        await mC.downloadGroupContentFromAny([a, b], cid),
+        ContentDownloadResult.started,
+      );
+      final event = await gotC.timeout(const Duration(seconds: 20));
+      expect(event.contentId, cid);
+      expect(await sC.loadFile(cid), data);
+      expect(await sC.getContact(b), isNull, reason: 'no 1:1 gate was created');
+    },
+  );
+
+  test(
     'STREAM swarm download falls through to the next accepted source',
     () async {
       final data = _rnd(540000, 23);
