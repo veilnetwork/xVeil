@@ -9,6 +9,7 @@ import '../core/log.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../domain/group_call.dart';
 import 'android_camera_capture.dart';
+import 'android_screen_capture.dart';
 import 'group_call_service.dart';
 import 'mac_media_permissions.dart';
 
@@ -159,6 +160,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   final Future<bool> Function() _requestCamera;
   final Duration _statsInterval;
   final DateTime Function() _now;
+  final AndroidScreenCaptureFactory _screenCaptureFactory =
+      createAndroidScreenCapture;
   final Map<String, _GroupPeerChannel> _peers = {};
   final Map<String, int> _lastRxPackets = {};
   final Map<String, DateTime> _lastRxAt = {};
@@ -169,6 +172,9 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   Timer? _statsTimer;
   Timer? _frameTimer;
   AndroidCameraCapture? _androidCamera;
+  AndroidScreenCaptureSource? _androidScreen;
+  bool _androidScreenPushLogged = false;
+  final StreamController<void> _screenShareStops = StreamController.broadcast();
   bool _videoRunning = false;
   Future<void> _tail = Future<void>.value();
 
@@ -201,6 +207,9 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   }
 
   @override
+  Stream<void> get screenShareStopped => _screenShareStops.stream;
+
+  @override
   Future<bool> start(GroupCall call) => _locked(() async {
     await _stopLocked();
     // Match direct calls: bound the permission prompt, then bring up playout
@@ -231,9 +240,13 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
           (_) => _pollFrames(engine),
         );
         if (call.screenOn || call.media.screen) {
-          try {
-            engine.startScreen();
-          } catch (_) {}
+          if (Platform.isAndroid) {
+            await _startAndroidScreen(engine);
+          } else {
+            try {
+              engine.startScreen();
+            } catch (_) {}
+          }
         } else if (call.cameraOn && call.media.video) {
           if (Platform.isAndroid) {
             unawaited(_startAndroidCamera(engine));
@@ -386,7 +399,24 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   @override
   Future<bool> setScreenShareEnabled(bool enabled) async {
     final engine = _engine;
-    if (engine == null || !_videoRunning || !Platform.isMacOS) return false;
+    if (engine == null || !_videoRunning) return false;
+    if (Platform.isAndroid) {
+      if (!enabled) {
+        final screen = _androidScreen;
+        _androidScreen = null;
+        if (screen != null) await screen.stop();
+        return true;
+      }
+      if (_androidScreen != null) return true;
+      final cameraWasRunning = _androidCamera != null;
+      final camera = _androidCamera;
+      _androidCamera = null;
+      if (camera != null) await camera.stop();
+      final started = await _startAndroidScreen(engine);
+      if (!started && cameraWasRunning) await _startAndroidCamera(engine);
+      return started;
+    }
+    if (!Platform.isMacOS) return false;
     try {
       if (enabled) return engine.startScreen();
       return engine.stopScreen();
@@ -408,6 +438,13 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     if (androidCamera != null) {
       try {
         await androidCamera.stop();
+      } catch (_) {}
+    }
+    final androidScreen = _androidScreen;
+    _androidScreen = null;
+    if (androidScreen != null) {
+      try {
+        await androidScreen.stop();
       } catch (_) {}
     }
     localVideoFrame.value = null;
@@ -462,6 +499,32 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       } catch (_) {}
     });
     if (!started && _androidCamera == camera) _androidCamera = null;
+  }
+
+  Future<bool> _startAndroidScreen(GroupAudioEngine engine) async {
+    _androidScreenPushLogged = false;
+    late final AndroidScreenCaptureSource screen;
+    screen = _screenCaptureFactory(() {
+      if (_androidScreen != screen) return;
+      _androidScreen = null;
+      localVideoFrame.value = null;
+      _screenShareStops.add(null);
+    });
+    _androidScreen = screen;
+    final started = await screen.start((y, u, v, width, height) {
+      if (_engine != engine || !_videoRunning || _androidScreen != screen) {
+        return;
+      }
+      try {
+        final pushed = engine.pushVideoFrame(y, u, v, width, height);
+        if (!_androidScreenPushLogged) {
+          _androidScreenPushLogged = true;
+          debugPrint('veil-screen: first group engine push=$pushed');
+        }
+      } catch (_) {}
+    });
+    if (!started && _androidScreen == screen) _androidScreen = null;
+    return started;
   }
 
   bool get audioRunning => _engine != null;

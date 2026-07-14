@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:clock/clock.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -416,6 +418,22 @@ void main() {
       });
     });
 
+    test('an OS-revoked share returns to camera state and tells the peer', () {
+      fakeAsync((async) {
+        final (svc, media) = liveVideoCall(async);
+        svc.setScreenShareEnabled(true);
+        async.flushMicrotasks();
+        expect(svc.current?.screenOn, isTrue);
+        media.log.clear();
+
+        media.screenStops.add(null);
+        async.flushMicrotasks();
+
+        expect(svc.current?.screenOn, isFalse);
+        expect(media.log, ['screen:false', 'cam:true']);
+      });
+    });
+
     test('camera toggle while sharing flips only the INTENT: no source '
         'switch, and the share hand-back honours the final value', () {
       fakeAsync((async) {
@@ -543,6 +561,10 @@ void main() {
 class _FakeMedia extends CallMediaController {
   bool screenOk = true;
   final List<String> log = [];
+  final StreamController<void> screenStops = StreamController.broadcast();
+
+  @override
+  Stream<void> get screenShareStopped => screenStops.stream;
 
   @override
   Future<bool> start(Call call) async => true;

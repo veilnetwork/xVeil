@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
@@ -88,6 +89,10 @@ class _Media extends GroupCallMediaController {
   int updates = 0;
   int stops = 0;
   GroupCall? latest;
+  final StreamController<void> screenStops = StreamController.broadcast();
+
+  @override
+  Stream<void> get screenShareStopped => screenStops.stream;
 
   @override
   Future<bool> start(GroupCall call) async {
@@ -544,6 +549,14 @@ void main() {
       expect(ownerCalls.current?.micOn, isTrue);
       expect(ownerCalls.current?.cameraOn, isFalse);
       expect(ownerCalls.current?.screenOn, isTrue);
+
+      ownerMedia.screenStops.add(null);
+      await pumpEventQueue();
+      expect(
+        ownerCalls.current?.screenOn,
+        isFalse,
+        reason: 'an OS-revoked projection is folded into room state',
+      );
     },
   );
 }

@@ -320,13 +320,18 @@ class _CallBody extends ConsumerWidget {
                   // renegotiate; when WE share, screenOn is true instead).
                   if (call.media.screen && !call.screenOn) ...[
                     const SizedBox(width: 12),
-                    const Icon(Icons.screen_share,
-                        color: Colors.white70, size: 14),
+                    const Icon(
+                      Icons.screen_share,
+                      color: Colors.white70,
+                      size: 14,
+                    ),
                     const SizedBox(width: 4),
                     Text(
                       l.callScreenOn,
-                      style:
-                          const TextStyle(color: Colors.white70, fontSize: 13),
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                      ),
                     ),
                   ],
                 ],
@@ -785,9 +790,10 @@ class _VideoControlsBar extends StatelessWidget {
                 active: call.cameraOn,
                 onTap: () => svc.setCameraEnabled(!call.cameraOn),
               ),
-              // Screen share replaces the camera as the video source; the
-              // capture backend is macOS-only for now.
-              if (defaultTargetPlatform == TargetPlatform.macOS) ...[
+              // Screen share replaces the camera as the video source. Android
+              // presents its native MediaProjection consent sheet on tap.
+              if (defaultTargetPlatform == TargetPlatform.macOS ||
+                  defaultTargetPlatform == TargetPlatform.android) ...[
                 const SizedBox(width: 8),
                 _CallBarButton(
                   icon: call.screenOn
@@ -901,7 +907,8 @@ class _Controls extends StatelessWidget {
                     onTap: () => svc.setCameraEnabled(!call.cameraOn),
                   ),
                 if (call.media.video &&
-                    defaultTargetPlatform == TargetPlatform.macOS)
+                    (defaultTargetPlatform == TargetPlatform.macOS ||
+                        defaultTargetPlatform == TargetPlatform.android))
                   _MiniToggle(
                     call.screenOn
                         ? Icons.stop_screen_share

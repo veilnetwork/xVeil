@@ -9,6 +9,7 @@ import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call.dart';
 import '../domain/call_signal.dart';
 import 'android_camera_capture.dart';
+import 'android_screen_capture.dart';
 import 'call_service.dart';
 import 'mac_media_permissions.dart';
 
@@ -40,12 +41,20 @@ class VeilCallMediaController implements CallMediaController {
   String? _chanPeer; // hex of the peer _chan was opened for
   Timer? _frameTimer; // pulls decoded remote frames at the display rate
   AndroidCameraCapture? _androidCam; // Dart camera SEND path (Android only)
+  AndroidScreenCaptureSource? _androidScreen;
+  bool _androidScreenPushLogged = false;
+  final AndroidScreenCaptureFactory _screenCaptureFactory =
+      createAndroidScreenCapture;
+  final StreamController<void> _screenShareStops = StreamController.broadcast();
   Timer? _statsTimer; // polls rx_pkts for the call-liveness signal
   DateTime? _lastRxAt; // wall-clock when rx_pkts last increased
   int _lastRxPkts = 0;
 
   @override
   DateTime? get lastMediaRxAt => _lastRxAt;
+
+  @override
+  Stream<void> get screenShareStopped => _screenShareStops.stream;
 
   @override
   Future<void> prewarm(Call call) async {
@@ -198,6 +207,13 @@ class VeilCallMediaController implements CallMediaController {
         await cam.stop();
       } catch (_) {}
     }
+    final screen = _androidScreen;
+    _androidScreen = null;
+    if (screen != null) {
+      try {
+        await screen.stop();
+      } catch (_) {}
+    }
     final e = _engine;
     _engine = null;
     if (e != null) {
@@ -274,10 +290,22 @@ class VeilCallMediaController implements CallMediaController {
   Future<bool> setScreenShareEnabled(bool enabled) async {
     final engine = _engine;
     if (engine == null) return false;
-    // Native backend is macOS-only for now (AVCaptureScreenInput). Android
-    // needs the MediaProjection consent flow (a future brick); the engine
-    // returns an error there rather than crashing, but don't even try where
-    // we know there is no backend — the UI hides the button anyway.
+    if (Platform.isAndroid) {
+      if (!enabled) {
+        final screen = _androidScreen;
+        _androidScreen = null;
+        if (screen != null) await screen.stop();
+        return true;
+      }
+      if (_androidScreen != null) return true;
+      final cameraWasRunning = _androidCam != null;
+      final cam = _androidCam;
+      _androidCam = null;
+      if (cam != null) await cam.stop();
+      final started = await _startAndroidScreen(engine);
+      if (!started && cameraWasRunning) await _startAndroidCam(engine);
+      return started;
+    }
     if (!Platform.isMacOS) return false;
     try {
       if (enabled) return engine.startScreen();
@@ -285,6 +313,30 @@ class VeilCallMediaController implements CallMediaController {
     } catch (_) {
       return false;
     }
+  }
+
+  Future<bool> _startAndroidScreen(VeilMediaEngine engine) async {
+    _androidScreenPushLogged = false;
+    late final AndroidScreenCaptureSource screen;
+    screen = _screenCaptureFactory(() {
+      if (_androidScreen != screen) return;
+      _androidScreen = null;
+      localVideoFrame.value = null;
+      _screenShareStops.add(null);
+    });
+    _androidScreen = screen;
+    final started = await screen.start((y, u, v, w, h) {
+      if (_engine != engine || _androidScreen != screen) return;
+      try {
+        final pushed = engine.pushVideoFrame(y, u, v, w, h);
+        if (!_androidScreenPushLogged) {
+          _androidScreenPushLogged = true;
+          debugPrint('veil-screen: first direct engine push=$pushed');
+        }
+      } catch (_) {}
+    });
+    if (!started && _androidScreen == screen) _androidScreen = null;
+    return started;
   }
 
   /// Start the Dart-side Android camera capture (camera plugin -> pushVideoFrame).
