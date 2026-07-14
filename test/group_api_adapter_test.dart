@@ -85,11 +85,16 @@ void main() {
       final service = GroupService(storage, _Signer(owner));
       final api = GroupApiAdapter(
         service,
-        registerContent: (bytes, {required name}) async {
-          const cid = 'c0ffee';
-          await storage.storeFile(cid, bytes, name: name);
-          return cid;
-        },
+        registerContentSource:
+            (name, size, read, {required close, sourcePath}) async {
+              const cid = 'c0ffee';
+              try {
+                await storage.storeFile(cid, await read(0, size), name: name);
+              } finally {
+                await close();
+              }
+              return cid;
+            },
         loadContent: storage.loadFile,
       );
       final directory = await Directory.systemTemp.createTemp(
@@ -147,6 +152,59 @@ void main() {
     },
   );
 
+  test('group file API passes an over-legacy-cap source through without an '
+      'all-file read', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final owner = _id(19);
+    final service = GroupService(storage, _Signer(owner));
+    const size = 9 * 1024 * 1024 + 7;
+    var maxRead = 0;
+    var closed = false;
+    String? durablePath;
+    final api = GroupApiAdapter(
+      service,
+      registerContentSource:
+          (name, declaredSize, read, {required close, sourcePath}) async {
+            expect(declaredSize, size);
+            durablePath = sourcePath;
+            final first = await read(0, 4096);
+            final last = await read(size - 7, 7);
+            maxRead = [
+              first.length,
+              last.length,
+            ].reduce((a, b) => a > b ? a : b);
+            await close();
+            closed = true;
+            return 'large-cid';
+          },
+      loadContent: storage.loadFile,
+    );
+    final directory = await Directory.systemTemp.createTemp(
+      'xveil-group-api-large-',
+    );
+    try {
+      final group = (await api.create('Large'))!;
+      final source = File('${directory.path}/archive.bin');
+      final raf = await source.open(mode: FileMode.write);
+      await raf.setPosition(size - 1);
+      await raf.writeByte(23);
+      await raf.close();
+
+      final sent = await api.sendFile(group, source.path, null, '', null);
+      expect(sent.error, isNull);
+      expect(sent.contentId, 'large-cid');
+      expect(closed, isTrue);
+      expect(maxRead, 4096, reason: 'the adapter never materializes the file');
+      expect(durablePath, source.absolute.path);
+      final message = (await service.messagesOf(NodeId.fromHex(group))).single;
+      expect(message.attachment?.w, size);
+    } finally {
+      await service.dispose();
+      await directory.delete(recursive: true);
+    }
+  });
+
   test(
     'one adapter contract drives list/messages and full group administration',
     () async {
@@ -156,15 +214,25 @@ void main() {
       final bob = _id(2);
       final carol = _id(3);
       final ownerService = GroupService(storage, _Signer(owner));
-      Future<String> register(Uint8List bytes, {required String name}) async {
-        final cid = 'api-${bytes.length}-$name';
-        await storage.storeFile(cid, bytes, name: name);
+      Future<String> register(
+        String name,
+        int size,
+        Future<Uint8List> Function(int, int) read, {
+        required Future<void> Function() close,
+        String? sourcePath,
+      }) async {
+        final cid = 'api-$size-$name';
+        try {
+          await storage.storeFile(cid, await read(0, size), name: name);
+        } finally {
+          await close();
+        }
         return cid;
       }
 
       GroupApiAdapter apiFor(GroupService service) => GroupApiAdapter(
         service,
-        registerContent: register,
+        registerContentSource: register,
         loadContent: storage.loadFile,
       );
 

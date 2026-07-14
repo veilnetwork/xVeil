@@ -528,9 +528,9 @@ class ApiServerController extends Notifier<ApiConfig> {
         ? null
         : GroupApiAdapter(
             groupService,
-            registerContent: ref
+            registerContentSource: ref
                 .read(messagingServiceProvider)
-                .registerGroupContent,
+                .registerGroupContentStreaming,
             loadContent: ref.read(storageProvider).loadFile,
           );
     final groupCalls = groupService == null

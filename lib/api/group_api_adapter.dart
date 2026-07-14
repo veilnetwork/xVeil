@@ -6,23 +6,31 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../core/ids.dart';
+import '../data/serve_source.dart';
 import '../domain/group.dart';
 import '../domain/group_message.dart';
 import '../domain/media_file_name.dart';
 import '../domain/group_policy.dart';
 import '../state/group_service.dart';
-import '../state/messaging_core.dart' show kMaxIncomingFileBytes;
+
+typedef RegisterGroupContentSource =
+    Future<String> Function(
+      String name,
+      int size,
+      Future<Uint8List> Function(int offset, int length) read, {
+      required Future<void> Function() close,
+      String? sourcePath,
+    });
 
 final class GroupApiAdapter {
   const GroupApiAdapter(
     this._groups, {
-    required this.registerContent,
+    required this.registerContentSource,
     required this.loadContent,
   });
 
   final GroupService _groups;
-  final Future<String> Function(Uint8List bytes, {required String name})
-  registerContent;
+  final RegisterGroupContentSource registerContentSource;
   final Future<List<int>?> Function(String contentId) loadContent;
 
   Future<List<Map<String, dynamic>>> list() async => [
@@ -90,9 +98,9 @@ final class GroupApiAdapter {
   }
 
   /// Register a local file in the existing membership-authorized content path
-  /// and post only its signed content reference to the group. The source path
-  /// is an explicit local API input; bytes are read into RAM and then stored by
-  /// the encrypted file store, never copied to a plaintext staging file.
+  /// and post only its signed content reference to the group. The source is
+  /// hashed and served by bounded range reads: no all-file RAM copy and no
+  /// plaintext staging file, including for multi-gigabyte inputs.
   Future<({String? error, String? contentId})> sendFile(
     String groupHex,
     String path,
@@ -115,9 +123,6 @@ final class GroupApiAdapter {
       }
       final size = await file.length();
       if (size <= 0) return (error: 'source is empty', contentId: null);
-      if (size > kMaxIncomingFileBytes) {
-        return (error: 'group file too large', contentId: null);
-      }
       final fallbackName = file.uri.pathSegments.isEmpty
           ? 'file'
           : file.uri.pathSegments.last;
@@ -127,38 +132,36 @@ final class GroupApiAdapter {
       if (name.length > 255) {
         return (error: 'file name too long', contentId: null);
       }
-      final bytes = await file.readAsBytes();
-      if (bytes.isEmpty) return (error: 'source is empty', contentId: null);
-      try {
-        // The storage callback may take ownership of its buffer (the in-memory
-        // adapter does), so give it a dedicated copy and wipe only our source
-        // read below. Wiping the transferred buffer would corrupt the blob.
-        final cid = await registerContent(
-          Uint8List.fromList(bytes),
-          name: name,
-        );
-        final posted = await _groups.postMessage(
-          visible.$1,
-          caption,
-          replyTo: replyTo,
-          attachment: GroupAttachment(
-            // A video has a dedicated player even without a poster. Other
-            // sources use the generic file row; image-specific rendering needs
-            // a real signed micro-thumbnail, which headless cannot fabricate.
-            kind: isVideoFileName(name) ? 'video' : 'file',
-            dataB64: 'QQ==',
-            w: bytes.length,
-            h: 1,
-            cid: cid,
-            name: name,
-          ),
-        );
-        return posted
-            ? (error: null, contentId: cid)
-            : (error: 'group mutation failed', contentId: null);
-      } finally {
-        bytes.fillRange(0, bytes.length, 0);
+      final source = await veilSourceOpener(file.absolute.path);
+      if (source == null) {
+        return (error: 'source unreadable', contentId: null);
       }
+      final cid = await registerContentSource(
+        name,
+        size,
+        source.read,
+        close: source.close,
+        sourcePath: file.absolute.path,
+      );
+      final posted = await _groups.postMessage(
+        visible.$1,
+        caption,
+        replyTo: replyTo,
+        attachment: GroupAttachment(
+          // A video has a dedicated player even without a poster. Other
+          // sources use the generic file row; image-specific rendering needs
+          // a real signed micro-thumbnail, which headless cannot fabricate.
+          kind: isVideoFileName(name) ? 'video' : 'file',
+          dataB64: 'QQ==',
+          w: size,
+          h: 1,
+          cid: cid,
+          name: name,
+        ),
+      );
+      return posted
+          ? (error: null, contentId: cid)
+          : (error: 'group mutation failed', contentId: null);
     } on FileSystemException {
       return (error: 'source unreadable', contentId: null);
     } catch (_) {

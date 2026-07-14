@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/ids.dart';
+import '../../data/serve_source.dart';
 import '../../domain/chat.dart';
 import '../../domain/call_signal.dart';
 import '../../domain/group.dart';
@@ -341,16 +342,58 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       if (mounted) _snack(l.groupImageOnly);
       return;
     }
-    if (file.path != null) {
+    final path = file.path;
+    int? diskSize;
+    if (path != null) {
       try {
-        if (await File(file.path!).length() > kMaxIncomingFileBytes) {
-          if (mounted) _snack(l.chatFileTooLarge);
-          return;
-        }
+        diskSize = await File(path).length();
       } catch (_) {}
     }
+    if (path != null && diskSize != null && diskSize > kMaxIncomingFileBytes) {
+      final size = diskSize;
+      final sourcePath = File(path).absolute.path;
+      final source = await veilSourceOpener(sourcePath);
+      if (source == null) {
+        if (mounted) _snack(l.chatFileUnreadable);
+        return;
+      }
+      final InlineImage? thumb = await makeInlineImageFromPath(
+        sourcePath,
+        rawMax: _kRefThumbRawMax,
+      );
+      final String cid;
+      try {
+        cid = await ref
+            .read(messagingServiceProvider)
+            .registerGroupContentStreaming(
+              file.name,
+              size,
+              source.read,
+              close: source.close,
+              sourcePath: sourcePath,
+            );
+      } catch (_) {
+        if (mounted) _snack(l.chatFileUnreadable);
+        return;
+      }
+      await _postGroupMessage(
+        svc,
+        _input.text.trim(),
+        clearInput: true,
+        attachment: GroupAttachment(
+          // If the platform codec cannot make a bounded preview, keep the
+          // bytes accessible as a normal file row instead of rejecting it.
+          kind: thumb == null ? 'file' : 'image',
+          dataB64: thumb?.b64 ?? 'QQ==',
+          w: thumb?.w ?? size,
+          h: thumb?.h ?? 1,
+          cid: cid,
+          name: file.name,
+        ),
+      );
+      return;
+    }
     Uint8List? bytes = file.bytes;
-    final path = file.path;
     if (bytes == null && path != null) {
       try {
         bytes = await File(path).readAsBytes();
@@ -447,18 +490,46 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
         size = await File(file.path!).length();
       } catch (_) {}
     }
-    if (size > kMaxIncomingFileBytes) {
-      if (mounted) _snack(AppL10n.of(context).chatFileTooLarge);
-      return;
-    }
-    final bytes = await _readPlatformFile(file);
-    if (bytes == null || bytes.isEmpty) {
+    if (size <= 0) {
       if (mounted) _snack(AppL10n.of(context).chatFileUnreadable);
       return;
     }
-    final cid = await ref
-        .read(messagingServiceProvider)
-        .registerGroupContent(bytes, name: file.name);
+    final messaging = ref.read(messagingServiceProvider);
+    final String cid;
+    if (file.path != null) {
+      final path = File(file.path!).absolute.path;
+      final source = await veilSourceOpener(path);
+      if (source == null) {
+        if (mounted) _snack(AppL10n.of(context).chatFileUnreadable);
+        return;
+      }
+      try {
+        cid = await messaging.registerGroupContentStreaming(
+          file.name,
+          size,
+          source.read,
+          close: source.close,
+          sourcePath: path,
+        );
+      } catch (_) {
+        if (mounted) _snack(AppL10n.of(context).chatFileUnreadable);
+        return;
+      }
+    } else {
+      // Native pickers provide a path. Keep the bounded in-memory fallback for
+      // pathless platforms, but never accept an already-materialized giant
+      // buffer into this route.
+      if (size > kMaxIncomingFileBytes) {
+        if (mounted) _snack(AppL10n.of(context).chatFileTooLarge);
+        return;
+      }
+      final bytes = await _readPlatformFile(file);
+      if (bytes == null || bytes.isEmpty) {
+        if (mounted) _snack(AppL10n.of(context).chatFileUnreadable);
+        return;
+      }
+      cid = await messaging.registerGroupContent(bytes, name: file.name);
+    }
     String? thumb;
     if (isVideoFileName(file.name) && file.path != null) {
       thumb = await makeVideoThumbB64(file.path!);
@@ -470,7 +541,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       attachment: GroupAttachment(
         kind: isVideoFileName(file.name) ? 'video' : 'file',
         dataB64: thumb ?? 'QQ==',
-        w: bytes.isEmpty ? 1 : bytes.length,
+        w: size,
         h: 1,
         cid: cid,
         name: file.name,

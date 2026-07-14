@@ -628,6 +628,13 @@ class MessagingService {
       /* malformed local request → do not enqueue */
     }
     if (request == null) return;
+    // Authorize the reply path BEFORE the request leaves this process. A
+    // verified holder answers an accepted group request with a live
+    // manifest/ref advertisement; without this early receiver-side scope the
+    // normal contact gate would drop that advertisement before the delayed
+    // group pull starts. The holder still independently verifies membership,
+    // the group reference and freshness before it sends anything.
+    _allowGroupPullSources(request.contentId, [dst]);
     final frameId =
         'gcr:${request.groupId.hex}:${request.contentId}:${request.nonce}';
     final wire = WireEnvelope.groupContentRequest(
@@ -706,6 +713,38 @@ class MessagingService {
           '${cid.substring(0, cid.length < 12 ? cid.length : 12)} '
           '-> ${peer.short}',
     );
+    // A successful signed membership check is also a safe, live holder
+    // announcement. Send it only when we really have the verified blob; a
+    // non-holder remains completely silent, preserving the no-read-oracle
+    // contract. This avoids blind stream opens to every group member (and the
+    // native timeout of each offline member) before the requester reaches the
+    // one member that downloaded the content.
+    unawaited(_advertiseGrantedGroupContent(peer, cid));
+  }
+
+  Future<void> _advertiseGrantedGroupContent(NodeId peer, String cid) async {
+    if (!await _storage.hasFile(cid)) return;
+    final manifest =
+        _serving[cid]?.manifest ?? await _loadPersistedManifest(cid);
+    if (manifest == null || manifest.contentId != cid) return;
+    try {
+      await _sendContentManifest(peer, _baseContentManifest(manifest));
+      devLog(
+        () =>
+            'xVeil[content]: group holder announced '
+            '${cid.substring(0, cid.length < 12 ? cid.length : 12)} '
+            '-> ${peer.short}',
+      );
+    } catch (e) {
+      // Best-effort live hint. The signed request remains durable and the
+      // requester retains the blind, content-addressed stream fallback.
+      devLog(
+        () =>
+            'xVeil[content]: group holder announcement failed '
+            '${cid.substring(0, cid.length < 12 ? cid.length : 12)} '
+            '-> ${peer.short}: $e',
+      );
+    }
   }
 
   bool _groupServeGranted(NodeId peer, String cid) =>
@@ -733,11 +772,28 @@ class MessagingService {
     _groupPullSources.removeWhere((key, _) => key.endsWith('|$cid'));
   }
 
+  Future<void> _persistRequiredGroupManifest(ContentManifest manifest) async {
+    final cid = manifest.contentId;
+    // The manifest is what makes the blob/source SERVABLE — a swallowed failure
+    // here mints a ref nobody can fetch. Retry the transient first-write failure
+    // once, then make the caller refuse to post the group reference.
+    final mfBytes = Uint8List.fromList(
+      utf8.encode(jsonEncode(manifest.toJson())),
+    );
+    try {
+      await _storage.storeFile('mf:$cid', mfBytes, name: 'manifest');
+    } catch (e) {
+      devLog(() => 'xVeil[content]: group manifest persist retry after: $e');
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      await _storage.storeFile('mf:$cid', mfBytes, name: 'manifest');
+    }
+  }
+
   /// Register in-RAM [bytes] as fetchable group content: the blob goes into
-  /// the file store under its contentId and the manifest under `mf:<cid>`, so
-  /// [_serveStream] can serve it (to accepted contacts as always, and to
-  /// membership-granted members). Idempotent — the cid is content-derived.
-  /// Returns the contentId the group message's ref should carry.
+  /// the encrypted file store under its contentId and the manifest under
+  /// `mf:<cid>`, so [_serveStream] can serve it to membership-granted members.
+  /// Idempotent — the cid is content-derived. Returns the contentId the signed
+  /// group message should carry.
   Future<String> registerGroupContent(
     Uint8List bytes, {
     required String name,
@@ -747,22 +803,96 @@ class MessagingService {
     if (!await _storage.hasFile(cid)) {
       await _storage.storeFile(cid, bytes, name: name);
     }
-    // The manifest is what makes the blob SERVABLE — a swallowed failure here
-    // mints a ref nobody can fetch (device-observed: the very first write
-    // after app start failed transiently while the blob write succeeded).
-    // Retry once, then rethrow so the caller refuses to post the ref.
-    final mfBytes = Uint8List.fromList(utf8.encode(jsonEncode(m.toJson())));
-    try {
-      await _storage.storeFile('mf:$cid', mfBytes, name: 'manifest');
-    } catch (e) {
-      devLog(() => 'xVeil[content]: group manifest persist retry after: $e');
-      await Future<void>.delayed(const Duration(milliseconds: 300));
-      await _storage.storeFile('mf:$cid', mfBytes, name: 'manifest');
-    }
+    await _persistRequiredGroupManifest(m);
     devLog(
       () =>
           'xVeil[content]: group content registered '
           '${cid.substring(0, 12)} (${bytes.length}B)',
+    );
+    return cid;
+  }
+
+  /// Register arbitrarily large group content directly from the user's source
+  /// file. Hashing and later serving are range-based, so RAM is bounded by one
+  /// adaptive piece and the cleartext is never copied to a staging file or the
+  /// hidden volume. [close] ownership transfers to this service on entry.
+  ///
+  /// When [sourcePath] is present, the source and hashing parameters are also
+  /// recorded so a restart can reopen/revalidate it for a later group pull.
+  Future<String> registerGroupContentStreaming(
+    String name,
+    int size,
+    Future<Uint8List> Function(int offset, int length) read, {
+    required Future<void> Function() close,
+    String? sourcePath,
+  }) async {
+    if (size <= 0) {
+      await close();
+      throw ArgumentError.value(size, 'size', 'must be positive');
+    }
+    final source = (read: read, close: close);
+    final ContentManifest manifest;
+    try {
+      manifest = await ContentManifest.fromReader(
+        name: name,
+        size: size,
+        pieceSize: adaptivePieceSize(size),
+        chunkBytes: _contentChunkBytes,
+        readRange: read,
+      );
+      await _persistRequiredGroupManifest(manifest);
+    } catch (_) {
+      await close();
+      rethrow;
+    }
+    final cid = manifest.contentId;
+    if (sourcePath != null) {
+      try {
+        await _storage.putSetting(
+          'served:$cid',
+          jsonEncode({
+            'path': sourcePath,
+            'size': size,
+            'pieceSize': manifest.pieceSize,
+            'name': name,
+          }),
+        );
+      } catch (e) {
+        // The live source remains valid. This only loses restart durability.
+        devLog(
+          () =>
+              'xVeil[content]: group durable source persist failed for '
+              '${cid.substring(0, 12)}: $e',
+        );
+      }
+    }
+
+    final previous = _serving[cid];
+    final activePrevious = (_activeStreamServes[cid] ?? 0) > 0
+        ? previous?.source
+        : null;
+    if (activePrevious != null) {
+      // Same bytes are already flowing from another handle. Keep that source
+      // stable and release the newly-hashed duplicate.
+      await close();
+      _serving[cid] = (
+        manifest: manifest,
+        source: activePrevious,
+        servedAt: _now(),
+      );
+    } else {
+      if (previous?.source != null &&
+          !_sameServeSource(previous!.source!, source)) {
+        _retireServeSourceForContent(cid, previous.source!);
+      }
+      _serving[cid] = (manifest: manifest, source: source, servedAt: _now());
+    }
+    _evictServing();
+    _ensureContentTimer();
+    devLog(
+      () =>
+          'xVeil[content]: group source registered '
+          '${cid.substring(0, 12)} (${manifest.pieceCount} pieces, ${size}B)',
     );
     return cid;
   }
@@ -2613,6 +2743,11 @@ class MessagingService {
         // A peer advertises a content manifest (the "torrent"): verify it,
         // register a transfer, request the pieces we lack.
         if (existing?.status != ContactStatus.accepted) {
+          final groupCid = _groupScopedManifestContentId(env.body);
+          if (groupCid != null && _groupPullSourceAllowed(m.src, groupCid)) {
+            await _onGroupContentManifest(m.src, env.body);
+            return;
+          }
           devLog(
             () =>
                 'xVeil[content]: manifest DROPPED — ${m.src.short} '
@@ -5262,6 +5397,64 @@ class MessagingService {
     }
   }
 
+  /// Parse and retain a holder advertisement that arrived through the
+  /// membership-scoped group reply path. Unlike a normal 1:1 offer this must
+  /// not materialise a direct-chat row, auto-download, or emit an ACK/read
+  /// oracle. The already-running group fetch consumes the hint and still
+  /// verifies the full content-addressed manifest and every piece.
+  Future<void> _onGroupContentManifest(NodeId peer, String body) async {
+    Map<String, dynamic> decoded;
+    try {
+      decoded = jsonDecode(body) as Map<String, dynamic>;
+    } catch (_) {
+      return;
+    }
+    final ref = _parseContentManifestRef(decoded);
+    if (ref != null) {
+      final cid = ref.contentId;
+      if (!_groupPullSourceAllowed(peer, cid)) return;
+      if (_offeredRefs.length >= _maxOffered &&
+          !_offeredRefs.containsKey(cid)) {
+        _offeredRefs.remove(_offeredRefs.keys.first);
+      }
+      final existing = _offeredRefs[cid];
+      _offeredRefs[cid] = (
+        ref: ref,
+        peers: {if (existing != null) ...existing.peers, peer.hex: peer},
+      );
+      devLog(
+        () =>
+            'xVeil[content]: group holder ref '
+            '${cid.substring(0, 12)} <- ${peer.short}',
+      );
+      unawaited(_clearContentGone(cid));
+      return;
+    }
+    final manifest = ContentManifest.fromJson(decoded);
+    if (manifest == null ||
+        !_groupPullSourceAllowed(peer, manifest.contentId)) {
+      return;
+    }
+    _rememberOfferedManifest(peer, manifest);
+    devLog(
+      () =>
+          'xVeil[content]: group holder manifest '
+          '${manifest.contentId.substring(0, 12)} <- ${peer.short}',
+    );
+    unawaited(_clearContentGone(manifest.contentId));
+  }
+
+  String? _groupScopedManifestContentId(String body) {
+    try {
+      final decoded = jsonDecode(body) as Map<String, dynamic>;
+      final ref = _parseContentManifestRef(decoded);
+      if (ref != null) return ref.contentId;
+      return ContentManifest.fromJson(decoded)?.contentId;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _onContentManifestRef(
     NodeId peer,
     _ContentManifestRef ref,
@@ -5515,9 +5708,21 @@ class MessagingService {
       mode: _PendingDownload.modeStore,
       peers: sources,
     );
-    if (offered != null &&
-        await _pullSwarmPiecesToCompletion(sources, offered.manifest)) {
-      return ContentDownloadResult.started;
+    if (offered != null) {
+      // A fresh advertisement identifies peers that actually answered with
+      // this content. Start the range swarm from those holders only; mixing
+      // every merely-eligible group member back in here would put offline
+      // non-holders ahead of the live announcer and recreate the timeout the
+      // holder hint is meant to avoid. The blind candidate loop below remains
+      // the compatibility fallback if every advertised holder fails.
+      final advertisedSources = _uniquePeers(offered.peers.values);
+      if (advertisedSources.isNotEmpty &&
+          await _pullSwarmPiecesToCompletion(
+            advertisedSources,
+            offered.manifest,
+          )) {
+        return ContentDownloadResult.started;
+      }
     }
     if (offeredRef != null &&
         sources.isNotEmpty &&
@@ -5529,6 +5734,26 @@ class MessagingService {
           null,
         )) {
       return ContentDownloadResult.started;
+    }
+    // No live offer survived (the common group-reseed case after a requester
+    // restart). Probe every authorized candidate in parallel for the manifest
+    // instead of spending one full native stream-open timeout per offline or
+    // non-holding member. The probe asks for one payload byte, validates the
+    // content-addressed manifest, and closes; the first real holder wins.
+    final discovered = await _raceManifestHeaders(sources, contentId);
+    if (discovered != null) {
+      seen.add(discovered.$1.hex);
+      attempted++;
+      _rememberOfferedManifest(discovered.$1, discovered.$2);
+      devLog(
+        () =>
+            'xVeil[content]: swarm manifest race '
+            '${contentId.substring(0, 12)} won by ${discovered.$1.short}',
+      );
+      final ok = await _pullStreamToCompletion(discovered.$1, contentId);
+      if (ok == true || await _storage.hasFile(contentId)) {
+        return ContentDownloadResult.started;
+      }
     }
     for (final peer in sources) {
       if (!seen.add(peer.hex)) continue;
@@ -5556,6 +5781,36 @@ class MessagingService {
     );
     if (!_contentFailed.isClosed) _contentFailed.add(contentId);
     return ContentDownloadResult.noOffer;
+  }
+
+  Future<(NodeId, ContentManifest)?> _raceManifestHeaders(
+    Iterable<NodeId> peers,
+    String cid,
+  ) {
+    final candidates = _uniquePeers(peers);
+    if (candidates.isEmpty) {
+      return Future.value(null);
+    }
+    final result = Completer<(NodeId, ContentManifest)?>();
+    var pending = candidates.length;
+    void finish(NodeId peer, ContentManifest? manifest) {
+      pending--;
+      if (manifest != null && !result.isCompleted) {
+        result.complete((peer, manifest));
+      } else if (pending == 0 && !result.isCompleted) {
+        result.complete(null);
+      }
+    }
+
+    for (final peer in candidates) {
+      unawaited(
+        _readManifestHeader(peer, cid).then(
+          (manifest) => finish(peer, manifest),
+          onError: (Object _, StackTrace _) => finish(peer, null),
+        ),
+      );
+    }
+    return result.future;
   }
 
   Future<bool> _eligiblePullSource(NodeId peer, String contentId) async {
