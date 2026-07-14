@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -76,6 +77,77 @@ final class _Signer implements GroupSigner {
 
 void main() {
   test(
+    'group file API posts a signed ref and scopes reads to its message',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final owner = _id(9);
+      final service = GroupService(storage, _Signer(owner));
+      final api = GroupApiAdapter(
+        service,
+        registerContent: (bytes, {required name}) async {
+          const cid = 'c0ffee';
+          await storage.storeFile(cid, bytes, name: name);
+          return cid;
+        },
+        loadContent: storage.loadFile,
+      );
+      final directory = await Directory.systemTemp.createTemp(
+        'xveil-group-api-',
+      );
+      try {
+        final group = (await api.create('Media'))!;
+        final source = File('${directory.path}/clip.mp4');
+        await source.writeAsBytes([9, 8, 7, 6]);
+        final sent = await api.sendFile(
+          group,
+          source.path,
+          null,
+          'watch',
+          null,
+        );
+        expect(sent.error, isNull);
+        expect(sent.contentId, 'c0ffee');
+
+        final message = (await service.messagesOf(
+          NodeId.fromHex(group),
+        )).single;
+        expect(message.body, 'watch');
+        expect(message.attachment?.kind, 'video');
+        expect(message.attachment?.cid, 'c0ffee');
+        expect(message.attachment?.name, 'clip.mp4');
+        expect(message.attachment?.w, 4);
+
+        final loaded = await api.loadFile(group, message.ref);
+        expect(loaded.error, isNull);
+        expect(loaded.bytes, [9, 8, 7, 6]);
+        expect(
+          await api.fetchFile(group, message.ref),
+          isNull,
+          reason: 'an already-held blob needs no network pull',
+        );
+        expect(
+          (await api.loadFile(group, '${owner.hex}:999')).error,
+          'group message attachment not found',
+        );
+        expect(
+          (await api.sendFile(
+            group,
+            '${directory.path}/missing',
+            null,
+            '',
+            null,
+          )).error,
+          'source not found',
+        );
+      } finally {
+        await service.dispose();
+        await directory.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
     'one adapter contract drives list/messages and full group administration',
     () async {
       final storage = FakeHvContainer().storage();
@@ -84,7 +156,19 @@ void main() {
       final bob = _id(2);
       final carol = _id(3);
       final ownerService = GroupService(storage, _Signer(owner));
-      final ownerApi = GroupApiAdapter(ownerService);
+      Future<String> register(Uint8List bytes, {required String name}) async {
+        final cid = 'api-${bytes.length}-$name';
+        await storage.storeFile(cid, bytes, name: name);
+        return cid;
+      }
+
+      GroupApiAdapter apiFor(GroupService service) => GroupApiAdapter(
+        service,
+        registerContent: register,
+        loadContent: storage.loadFile,
+      );
+
+      final ownerApi = apiFor(ownerService);
 
       final group = await ownerApi.create('Bots');
       expect(group, isNotNull);
@@ -119,7 +203,7 @@ void main() {
         await ownerApi.memberAction(group, 'add', carol.hex, 'member'),
         isNull,
       );
-      final carolApi = GroupApiAdapter(GroupService(storage, _Signer(carol)));
+      final carolApi = apiFor(GroupService(storage, _Signer(carol)));
       expect(
         await carolApi.rename(group, 'Hijacked'),
         'operation rejected by group policy',
@@ -138,7 +222,7 @@ void main() {
         reason: 'the genesis owner cannot leave in group policy v1',
       );
 
-      final bobApi = GroupApiAdapter(GroupService(storage, _Signer(bob)));
+      final bobApi = apiFor(GroupService(storage, _Signer(bob)));
       expect((await bobApi.members(group))!['selfRole'], 'admin');
       expect(await bobApi.leave(group), isNull);
       expect(await bobApi.members(group), isNull);
