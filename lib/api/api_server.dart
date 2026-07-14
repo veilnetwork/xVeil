@@ -68,7 +68,8 @@ Map<String, dynamic> openApiSpec() {
           'receive incoming-message events '
           '`{type:"message", from, preview, isFile}` — or register a '
           'loopback webhook (`POST /v1/webhook`) to have the same events '
-          'POSTed to your local HTTP server. '
+          'POSTed to your local HTTP server. Group-call state changes use '
+          '`{type:"group_call", call}`. '
           'A read-only token refuses every write (non-GET) with 403.',
     },
     'servers': [
@@ -138,6 +139,40 @@ Map<String, dynamic> openApiSpec() {
             },
             'muted': {'type': 'boolean'},
             'self': {'type': 'boolean'},
+          },
+        },
+        'GroupCallParticipant': {
+          'type': obj,
+          'properties': {
+            'nodeId': {'type': 'string'},
+            'self': {'type': 'boolean'},
+            'audio': {'type': 'boolean'},
+            'video': {'type': 'boolean'},
+            'screen': {'type': 'boolean'},
+          },
+        },
+        'GroupCall': {
+          'type': obj,
+          'properties': {
+            'groupId': {'type': 'string'},
+            'callId': {'type': 'string'},
+            'initiator': {'type': 'string'},
+            'epoch': {'type': 'integer'},
+            'status': {
+              'type': 'string',
+              'enum': ['ringing', 'connecting', 'active', 'ended'],
+            },
+            'media': {'type': obj},
+            'participants': {
+              'type': 'array',
+              'items': {r'$ref': '#/components/schemas/GroupCallParticipant'},
+            },
+            'joined': {'type': 'boolean'},
+            'micOn': {'type': 'boolean'},
+            'cameraOn': {'type': 'boolean'},
+            'screenOn': {'type': 'boolean'},
+            'mediaAvailable': {'type': 'boolean'},
+            'endReason': {'type': 'string', 'nullable': true},
           },
         },
       },
@@ -437,6 +472,90 @@ Map<String, dynamic> openApiSpec() {
           'responses': ok({'type': obj}),
         },
       },
+      '/groups/calls': {
+        'get': {
+          'summary': 'Current or most recently ended group-call state',
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'call': {
+                'allOf': [
+                  {r'$ref': '#/components/schemas/GroupCall'},
+                ],
+                'nullable': true,
+              },
+            },
+          }),
+        },
+        'post': {
+          'summary': 'Start an encrypted group call',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['group'],
+                  'properties': {
+                    'group': {'type': 'string'},
+                    'media': {
+                      'type': 'string',
+                      'enum': ['audio', 'video', 'screen'],
+                      'default': 'audio',
+                    },
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({'type': obj}),
+        },
+      },
+      '/groups/calls/join': {
+        'post': {
+          'summary': 'Join the ringing group call',
+          'responses': ok({'type': obj}),
+        },
+      },
+      '/groups/calls/decline': {
+        'post': {
+          'summary': 'Decline the ringing group call locally',
+          'responses': ok({'type': obj}),
+        },
+      },
+      '/groups/calls/leave': {
+        'post': {
+          'summary': 'Leave the current group call',
+          'responses': ok({'type': obj}),
+        },
+      },
+      '/groups/calls/end': {
+        'post': {
+          'summary': 'End the current group call for everyone (admin)',
+          'responses': ok({'type': obj}),
+        },
+      },
+      '/groups/calls/posture': {
+        'post': {
+          'summary': 'Change local group-call microphone/camera/screen posture',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'properties': {
+                    'mic': {'type': 'boolean'},
+                    'camera': {'type': 'boolean'},
+                    'screen': {'type': 'boolean'},
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({'type': obj}),
+        },
+      },
       '/files': {
         'post': {
           'summary': 'Send a local file to a peer (streamed)',
@@ -720,6 +839,11 @@ class ApiHandler {
     required this.renameGroup,
     required this.leaveGroup,
     this.groupsAvailable = true,
+    required this.startGroupCall,
+    required this.groupCallState,
+    required this.groupCallAction,
+    required this.groupCallPosture,
+    this.groupCallsAvailable = true,
     this.webhook,
     this.setWebhook,
   });
@@ -788,6 +912,15 @@ class ApiHandler {
   final Future<String?> Function(String groupHex, String name) renameGroup;
   final Future<String?> Function(String groupHex) leaveGroup;
   final bool groupsAvailable;
+
+  /// Group-call control and local media posture. Headless hosts keep the
+  /// stable routes but return 501 because they have no audio/video engine.
+  final Future<String?> Function(String groupHex, String media) startGroupCall;
+  final Map<String, dynamic>? Function() groupCallState;
+  final Future<String?> Function(String action) groupCallAction;
+  final Future<String?> Function(bool? mic, bool? camera, bool? screen)
+  groupCallPosture;
+  final bool groupCallsAvailable;
 
   /// The configured webhook URL (null = none). Optional: hosts without the
   /// webhook feature wired just 404 the /v1/webhook routes.
@@ -896,6 +1029,11 @@ class ApiHandler {
       return err == null
           ? const ApiResponse(200, {'ok': true})
           : ApiResponse(400, {'error': err});
+    }
+    if (path.startsWith('/v1/groups/calls') && !groupCallsAvailable) {
+      return const ApiResponse(501, {
+        'error': 'group calls unavailable on this host',
+      });
     }
     if (path.startsWith('/v1/groups') && !groupsAvailable) {
       return const ApiResponse(501, {
@@ -1007,6 +1145,46 @@ class ApiHandler {
       }
       return _groupMutationResponse(await leaveGroup(group));
     }
+    if (method == 'GET' && path == '/v1/groups/calls') {
+      return ApiResponse(200, {'call': groupCallState()});
+    }
+    if (method == 'POST' && path == '/v1/groups/calls') {
+      final group = body?['group'];
+      final media = body?['media'] ?? 'audio';
+      const mediaKinds = {'audio', 'video', 'screen'};
+      if (group is! String ||
+          !RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(group) ||
+          media is! String ||
+          !mediaKinds.contains(media)) {
+        return const ApiResponse(400, {
+          'error': '64-hex group + audio|video|screen media required',
+        });
+      }
+      return _groupCallResponse(await startGroupCall(group, media));
+    }
+    if (method == 'POST' &&
+        (path == '/v1/groups/calls/join' ||
+            path == '/v1/groups/calls/decline' ||
+            path == '/v1/groups/calls/leave' ||
+            path == '/v1/groups/calls/end')) {
+      return _groupCallResponse(await groupCallAction(path.split('/').last));
+    }
+    if (method == 'POST' && path == '/v1/groups/calls/posture') {
+      final mic = body?['mic'];
+      final camera = body?['camera'];
+      final screen = body?['screen'];
+      if ((mic == null && camera == null && screen == null) ||
+          (mic != null && mic is! bool) ||
+          (camera != null && camera is! bool) ||
+          (screen != null && screen is! bool)) {
+        return const ApiResponse(400, {
+          'error': 'at least one boolean mic|camera|screen required',
+        });
+      }
+      return _groupCallResponse(
+        await groupCallPosture(mic as bool?, camera as bool?, screen as bool?),
+      );
+    }
     if (method == 'POST' && path == '/v1/files') {
       final to = body?['to'];
       final filePath = body?['path'];
@@ -1090,6 +1268,20 @@ class ApiHandler {
       'operation rejected by group policy' => 403,
       'member already exists' => 409,
       'group mutation failed' => 409,
+      _ => 400,
+    };
+    return ApiResponse(status, {'error': error});
+  }
+
+  ApiResponse _groupCallResponse(String? error) {
+    if (error == null) return ApiResponse(200, {'call': groupCallState()});
+    final status = switch (error) {
+      'group not found' => 404,
+      'operation rejected by group policy' => 403,
+      'group call unavailable' => 409,
+      'group call action unavailable' => 409,
+      'group call media unavailable' => 409,
+      'screen share unavailable' => 409,
       _ => 400,
     };
     return ApiResponse(status, {'error': error});

@@ -13,8 +13,12 @@ import '../data/serve_source.dart';
 import '../data/transport/bootstrap_invite.dart';
 import '../domain/call_signal.dart' show CallMedia;
 import '../domain/chat.dart';
+import '../domain/group.dart' show GroupRole;
+import '../domain/group_call.dart' show GroupCallStatus;
 import 'app_controller.dart';
 import 'call_service.dart' show callServiceProvider, currentCallProvider;
+import 'group_call_service.dart'
+    show GroupCallService, groupCallServiceProvider;
 import 'group_service_providers.dart';
 import 'messaging.dart' show conversationsProvider, messagingServiceProvider;
 import 'providers.dart';
@@ -317,39 +321,186 @@ class ApiServerController extends Notifier<ApiConfig> {
     }
   }
 
-  Stream<Map<String, dynamic>> _events(GroupService? groups) =>
-      Stream.multi((controller) {
-        final subscriptions = <StreamSubscription<dynamic>>[
-          ref
-              .read(messagingServiceProvider)
-              .incoming
-              .listen(
-                (notice) => controller.add({
-                  'type': 'message',
-                  'from': notice.from.hex,
-                  'preview': notice.preview,
-                  'isFile': notice.isFile,
-                }),
-                onError: controller.addError,
-              ),
-          if (groups != null)
-            groups.incoming.listen(
-              (event) => controller.add({
-                'type': 'group_message',
-                'groupId': event.groupId.hex,
-                'from': event.message.author.hex,
-                'preview': GroupService.previewOf(event.message),
-                'isFile': event.message.attachment != null,
-              }),
-              onError: controller.addError,
-            ),
-        ];
-        controller.onCancel = () async {
-          for (final subscription in subscriptions) {
-            await subscription.cancel();
-          }
-        };
-      }, isBroadcast: true);
+  Future<String?> _startGroupCall(String groupHex, String media) async {
+    final groups = ref.read(groupServiceProvider);
+    final service = ref.read(groupCallServiceProvider);
+    if (groups == null || service == null) return 'group call unavailable';
+    final NodeId groupId;
+    try {
+      groupId = NodeId.fromHex(groupHex);
+    } catch (_) {
+      return 'invalid group';
+    }
+    final state = await groups.stateOf(groupId);
+    if (state == null || !state.isMember(groups.selfId)) {
+      return 'group not found';
+    }
+    final started = await service.startCall(
+      groupId,
+      CallMedia(
+        audio: true,
+        video: media == 'video' || media == 'screen',
+        screen: media == 'screen',
+      ),
+    );
+    return started ? null : 'group call unavailable';
+  }
+
+  Map<String, dynamic>? _groupCallState() {
+    final groups = ref.read(groupServiceProvider);
+    final service = ref.read(groupCallServiceProvider);
+    final call = service?.current;
+    if (groups == null || service == null || call == null) return null;
+    final participants = call.participants.values.toList()
+      ..sort((a, b) => a.nodeId.hex.compareTo(b.nodeId.hex));
+    return {
+      'groupId': call.groupId.hex,
+      'callId': call.callId,
+      'initiator': call.initiator.hex,
+      'epoch': call.membershipEpoch,
+      'status': call.status.name,
+      'media': {
+        'audio': call.media.audio,
+        'video': call.media.video,
+        'screen': call.media.screen,
+      },
+      'participants': [
+        for (final participant in participants)
+          {
+            'nodeId': participant.nodeId.hex,
+            'self': participant.nodeId == groups.selfId,
+            'audio': participant.media.audio,
+            'video': participant.media.video,
+            'screen': participant.media.screen,
+          },
+      ],
+      'joined': call.isJoined(groups.selfId),
+      'micOn': call.micOn,
+      'cameraOn': call.cameraOn,
+      'screenOn': call.screenOn,
+      'mediaAvailable': service.mediaController != null,
+      'endReason': call.endReason?.name,
+    };
+  }
+
+  Future<String?> _groupCallAction(String action) async {
+    final groups = ref.read(groupServiceProvider);
+    final service = ref.read(groupCallServiceProvider);
+    final call = service?.current;
+    if (groups == null || service == null || call == null || !call.isLive) {
+      return 'group call action unavailable';
+    }
+    switch (action) {
+      case 'join':
+        return await service.join() ? null : 'group call action unavailable';
+      case 'decline':
+        if (call.status != GroupCallStatus.ringing) {
+          return 'group call action unavailable';
+        }
+        await service.decline();
+        return null;
+      case 'leave':
+        await service.leave();
+        return null;
+      case 'end':
+        final state = await groups.stateOf(call.groupId);
+        final role = state?.roleOf(groups.selfId);
+        if (role == null || role.rank < GroupRole.admin.rank) {
+          return 'operation rejected by group policy';
+        }
+        return await service.endForEveryone()
+            ? null
+            : 'group call action unavailable';
+      default:
+        return 'invalid group call action';
+    }
+  }
+
+  Future<String?> _groupCallPosture(
+    bool? mic,
+    bool? camera,
+    bool? screen,
+  ) async {
+    final groups = ref.read(groupServiceProvider);
+    final service = ref.read(groupCallServiceProvider);
+    var call = service?.current;
+    if (groups == null ||
+        service == null ||
+        call == null ||
+        !call.isLive ||
+        !call.isJoined(groups.selfId)) {
+      return 'group call action unavailable';
+    }
+    if ((camera == true || screen == true) && !call.media.video) {
+      return 'group call media unavailable';
+    }
+    // Screen enable is the only posture operation that can be unsupported.
+    // Attempt it first so a failed multi-field request does not partially
+    // mutate microphone/camera state.
+    if (screen != null) {
+      await service.setScreenShareEnabled(screen);
+      call = service.current;
+      if (screen && call?.screenOn != true) {
+        return 'screen share unavailable';
+      }
+    }
+    if (camera != null) await service.setCameraEnabled(camera);
+    if (mic != null) await service.setMicEnabled(mic);
+    return null;
+  }
+
+  Stream<Map<String, dynamic>> _events(
+    GroupService? groups,
+    GroupCallService? groupCalls,
+  ) => Stream.multi((controller) {
+    String? lastGroupCallJson;
+    void emitGroupCall() {
+      final event = {'type': 'group_call', 'call': _groupCallState()};
+      final encoded = jsonEncode(event);
+      // Heartbeats refresh internal last-seen timestamps every five
+      // seconds. They must not flood bot feeds when public call state did
+      // not change.
+      if (encoded == lastGroupCallJson) return;
+      lastGroupCallJson = encoded;
+      controller.add(event);
+    }
+
+    final subscriptions = <StreamSubscription<dynamic>>[
+      ref
+          .read(messagingServiceProvider)
+          .incoming
+          .listen(
+            (notice) => controller.add({
+              'type': 'message',
+              'from': notice.from.hex,
+              'preview': notice.preview,
+              'isFile': notice.isFile,
+            }),
+            onError: controller.addError,
+          ),
+      if (groups != null)
+        groups.incoming.listen(
+          (event) => controller.add({
+            'type': 'group_message',
+            'groupId': event.groupId.hex,
+            'from': event.message.author.hex,
+            'preview': GroupService.previewOf(event.message),
+            'isFile': event.message.attachment != null,
+          }),
+          onError: controller.addError,
+        ),
+      if (groupCalls != null)
+        groupCalls.changes.listen(
+          (_) => emitGroupCall(),
+          onError: controller.addError,
+        ),
+    ];
+    controller.onCancel = () async {
+      for (final subscription in subscriptions) {
+        await subscription.cancel();
+      }
+    };
+  }, isBroadcast: true);
 
   /// Bring the socket in line with [state]: run (with a fresh handler carrying
   /// the current token) iff enabled + tokened, else stop. The webhook
@@ -376,6 +527,9 @@ class ApiServerController extends Notifier<ApiConfig> {
     final groupApi = groupService == null
         ? null
         : GroupApiAdapter(groupService);
+    final groupCalls = groupService == null
+        ? null
+        : ref.read(groupCallServiceProvider);
     final handler = ApiHandler(
       tokens: state.tokens,
       status: _status,
@@ -408,12 +562,17 @@ class ApiServerController extends Notifier<ApiConfig> {
           ? (_) async => 'groups unavailable'
           : groupApi.leave,
       groupsAvailable: groupService != null,
+      startGroupCall: _startGroupCall,
+      groupCallState: _groupCallState,
+      groupCallAction: _groupCallAction,
+      groupCallPosture: _groupCallPosture,
+      groupCallsAvailable: groupCalls != null,
       webhook: () => state.webhookUrl,
       setWebhook: setWebhook,
     );
     // The bot event feed: incoming-message notices as JSON. `.map` on a
     // broadcast stream stays broadcast, so many WS clients can each subscribe.
-    final events = _events(groupService);
+    final events = _events(groupService, groupCalls);
     _server = ApiServer(handler, events);
     try {
       await _server!.start(kApiPort);
@@ -443,6 +602,7 @@ class ApiServerController extends Notifier<ApiConfig> {
     // WebSocket open.
     _webhookSub = _events(
       groupService ?? ref.read(groupServiceProvider),
+      ref.read(groupCallServiceProvider),
     ).listen((event) => unawaited(_pushWebhook(hook, event)));
   }
 

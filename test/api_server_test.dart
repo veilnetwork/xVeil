@@ -11,14 +11,17 @@ void main() {
   final groupPosts = <(String, String, String?)>[];
   final groupActions = <(String, String, String, String?)>[];
   Map<String, dynamic>? _call;
+  Map<String, dynamic>? groupCall;
   ApiHandler make({
     String token = 'secret-token',
     bool readOnly = false,
     bool callsAvailable = true,
+    bool groupCallsAvailable = true,
   }) {
     sent.clear();
     groupPosts.clear();
     groupActions.clear();
+    groupCall = null;
     return ApiHandler(
       tokens: token.isEmpty
           ? const []
@@ -120,6 +123,43 @@ void main() {
           : group == 'denied'
           ? 'operation rejected by group policy'
           : null,
+      startGroupCall: (group, media) async {
+        if (group == '00' * 32) return 'group not found';
+        if (groupCall != null) return 'group call unavailable';
+        groupCall = {
+          'groupId': group,
+          'callId': 'call-1',
+          'status': 'connecting',
+          'media': media,
+          'joined': true,
+          'micOn': true,
+          'cameraOn': media != 'audio',
+          'screenOn': media == 'screen',
+        };
+        return null;
+      },
+      groupCallState: () => groupCall,
+      groupCallAction: (action) async {
+        if (groupCall == null) return 'group call action unavailable';
+        if (action == 'end' && groupCall!['groupId'] == 'dd' * 32) {
+          return 'operation rejected by group policy';
+        }
+        groupCall = {
+          ...groupCall!,
+          'status': action == 'join' ? 'active' : 'ended',
+        };
+        return null;
+      },
+      groupCallPosture: (mic, camera, screen) async {
+        if (groupCall == null) return 'group call action unavailable';
+        final next = <String, dynamic>{...groupCall!};
+        if (mic != null) next['micOn'] = mic;
+        if (camera != null) next['cameraOn'] = camera;
+        if (screen != null) next['screenOn'] = screen;
+        groupCall = next;
+        return null;
+      },
+      groupCallsAvailable: groupCallsAvailable,
     );
   }
 
@@ -167,6 +207,10 @@ void main() {
         groupMemberAction: (_, _, _, _) async => null,
         renameGroup: (_, _) async => null,
         leaveGroup: (_) async => null,
+        startGroupCall: (_, _) async => null,
+        groupCallState: () => null,
+        groupCallAction: (_) async => null,
+        groupCallPosture: (_, _, _) async => null,
       );
       // An unknown token → 401.
       expect(
@@ -223,6 +267,12 @@ void main() {
         ),
         ('/v1/groups/name', {'group': 'g', 'name': 'G'}),
         ('/v1/groups/leave', {'group': 'g'}),
+        ('/v1/groups/calls', {'group': 'aa' * 32, 'media': 'video'}),
+        ('/v1/groups/calls/join', {}),
+        ('/v1/groups/calls/decline', {}),
+        ('/v1/groups/calls/leave', {}),
+        ('/v1/groups/calls/end', {}),
+        ('/v1/groups/calls/posture', {'mic': false}),
       ]) {
         final res = await h.handle(
           'POST',
@@ -500,6 +550,11 @@ void main() {
       renameGroup: base.renameGroup,
       leaveGroup: base.leaveGroup,
       groupsAvailable: false,
+      startGroupCall: base.startGroupCall,
+      groupCallState: base.groupCallState,
+      groupCallAction: base.groupCallAction,
+      groupCallPosture: base.groupCallPosture,
+      groupCallsAvailable: false,
     );
     expect(
       (await h.handle('GET', u('/v1/groups'), 'Bearer secret-token')).status,
@@ -685,6 +740,140 @@ void main() {
     },
   );
 
+  test(
+    'group-call routes validate, expose state, posture and policy failures',
+    () async {
+      final h = make();
+      final group = 'aa' * 32;
+
+      final idle = await h.handle(
+        'GET',
+        u('/v1/groups/calls'),
+        'Bearer secret-token',
+      );
+      expect(idle.status, 200);
+      expect((idle.body as Map)['call'], isNull);
+
+      for (final body in <Map<String, dynamic>>[
+        {'group': 'bad'},
+        {'group': group, 'media': 'hologram'},
+      ]) {
+        expect(
+          (await h.handle(
+            'POST',
+            u('/v1/groups/calls'),
+            'Bearer secret-token',
+            body: body,
+          )).status,
+          400,
+        );
+      }
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/groups/calls'),
+          'Bearer secret-token',
+          body: {'group': '00' * 32},
+        )).status,
+        404,
+      );
+
+      final started = await h.handle(
+        'POST',
+        u('/v1/groups/calls'),
+        'Bearer secret-token',
+        body: {'group': group, 'media': 'video'},
+      );
+      expect(started.status, 200);
+      expect((started.body as Map)['call'], containsPair('groupId', group));
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/groups/calls'),
+          'Bearer secret-token',
+          body: {'group': group},
+        )).status,
+        409,
+      );
+
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/groups/calls/posture'),
+          'Bearer secret-token',
+          body: const {},
+        )).status,
+        400,
+      );
+      final posture = await h.handle(
+        'POST',
+        u('/v1/groups/calls/posture'),
+        'Bearer secret-token',
+        body: {'mic': false, 'camera': false},
+      );
+      expect(posture.status, 200);
+      expect((posture.body as Map)['call'], containsPair('micOn', false));
+      expect((posture.body as Map)['call'], containsPair('cameraOn', false));
+
+      final left = await h.handle(
+        'POST',
+        u('/v1/groups/calls/leave'),
+        'Bearer secret-token',
+      );
+      expect(left.status, 200);
+      expect((left.body as Map)['call'], containsPair('status', 'ended'));
+
+      final noCall = make();
+      expect(
+        (await noCall.handle(
+          'POST',
+          u('/v1/groups/calls/join'),
+          'Bearer secret-token',
+        )).status,
+        409,
+      );
+
+      final denied = make();
+      expect(
+        (await denied.handle(
+          'POST',
+          u('/v1/groups/calls'),
+          'Bearer secret-token',
+          body: {'group': 'dd' * 32},
+        )).status,
+        200,
+      );
+      expect(
+        (await denied.handle(
+          'POST',
+          u('/v1/groups/calls/end'),
+          'Bearer secret-token',
+        )).status,
+        403,
+      );
+    },
+  );
+
+  test('a host without group media reports group-call routes as 501', () async {
+    final h = make(groupCallsAvailable: false);
+    for (final request in <(String, String, Map<String, dynamic>?)>[
+      ('GET', '/v1/groups/calls', null),
+      ('POST', '/v1/groups/calls', {'group': 'aa' * 32}),
+      ('POST', '/v1/groups/calls/join', null),
+      ('POST', '/v1/groups/calls/posture', {'mic': false}),
+    ]) {
+      expect(
+        (await h.handle(
+          request.$1,
+          u(request.$2),
+          'Bearer secret-token',
+          body: request.$3,
+        )).status,
+        501,
+      );
+    }
+  });
+
   test('POST /v1/files validates to+path; reports send errors', () async {
     final h = make();
     expect(
@@ -857,6 +1046,12 @@ void main() {
           '/groups/members',
           '/groups/name',
           '/groups/leave',
+          '/groups/calls',
+          '/groups/calls/join',
+          '/groups/calls/decline',
+          '/groups/calls/leave',
+          '/groups/calls/end',
+          '/groups/calls/posture',
           '/files',
           '/files/download',
           '/calls',
@@ -947,6 +1142,10 @@ void main() {
         groupMemberAction: (_, _, _, _) async => null,
         renameGroup: (_, _) async => null,
         leaveGroup: (_) async => null,
+        startGroupCall: (_, _) async => null,
+        groupCallState: () => null,
+        groupCallAction: (_) async => null,
+        groupCallPosture: (_, _, _) async => null,
         webhook: () => hook,
         setWebhook: (url) async => hook = url,
       );
