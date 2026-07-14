@@ -13,6 +13,7 @@ import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/content_manifest.dart';
+import 'package:xveil/domain/group_content.dart';
 import 'package:xveil/state/messaging.dart';
 
 NodeId _id(int s) => NodeId(Uint8List.fromList(List.filled(32, s)));
@@ -239,6 +240,8 @@ class _StreamLink
   final _p2pAccepts = <({ReliableStream stream, NodeId src})>[];
   final acceptStreamWrappers =
       <ReliableStream Function(ReliableStream stream)>[];
+  final openStreamDelays = <String, Duration>{};
+  final openStreamAttemptsByPeer = <String, int>{};
   int openStreamFailures = 0;
   int openStreamAttemptCount = 0;
   int openedStreamCount = 0;
@@ -281,6 +284,9 @@ class _StreamLink
   @override
   Future<ReliableStream?> openStream(NodeId dst) async {
     openStreamAttemptCount++;
+    openStreamAttemptsByPeer.update(dst.hex, (n) => n + 1, ifAbsent: () => 1);
+    final delay = openStreamDelays[dst.hex];
+    if (delay != null) await Future<void>.delayed(delay);
     if (openStreamFailures > 0) {
       openStreamFailures--;
       return null;
@@ -1225,17 +1231,62 @@ void main() {
         await sC.close();
       });
 
-      // No B<->C contact exists. GroupService would mint this exact scoped
-      // grant after validating C's signed membership request for the cid.
-      mB.grantGroupContentServe(c, cid);
-      tC.peer = null; // A is offline; no fallback route may accidentally hit B.
+      // No B<->C contact exists. Model the wire tail after GroupService has
+      // validated C's signed membership request: sending the request scopes the
+      // receiver before B's grant announces that it really holds the blob.
+      tC.peer = null; // A is offline; only the explicit B route is viable.
+      // A native route discovery can occupy an initial open for tens of
+      // seconds. The live holder announcement must select B without opening A.
+      tC.openStreamDelays[a.hex] = const Duration(seconds: 2);
       tC.routes[b.hex] = tB;
       tB.routes[c.hex] = tC;
+      final grantObserved = Completer<void>();
+      mB.onGroupContentRequest = (peer, _) {
+        mB.grantGroupContentServe(peer, cid);
+        if (!grantObserved.isCompleted) grantObserved.complete();
+      };
+      final request = GroupContentRequest(
+        groupId: _id(9),
+        contentId: cid,
+        requester: c,
+        nonce: '01',
+        tsMs: DateTime.now().millisecondsSinceEpoch,
+        signature: Uint8List(0),
+      );
+      await mC.sendGroupContentRequest(b, jsonEncode(request.toJson()));
+      await grantObserved.future.timeout(const Duration(seconds: 2));
+      final holderAdvertised = Completer<void>();
+      Timer.periodic(const Duration(milliseconds: 10), (timer) {
+        final sent = tB.sentPayloads.any((payload) {
+          try {
+            return WireEnvelope.decode(payload).kind ==
+                WireKind.contentManifest;
+          } catch (_) {
+            return false;
+          }
+        });
+        if (!sent) return;
+        timer.cancel();
+        if (!holderAdvertised.isCompleted) holderAdvertised.complete();
+      });
+      await holderAdvertised.future.timeout(const Duration(seconds: 2));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
 
       final gotC = mC.contentReceived.firstWhere((e) => e.contentId == cid);
+      final sw = Stopwatch()..start();
       expect(
         await mC.downloadGroupContentFromAny([a, b], cid),
         ContentDownloadResult.started,
+      );
+      expect(
+        tC.openStreamAttemptsByPeer[a.hex] ?? 0,
+        0,
+        reason: 'the holder hint must bypass the offline author entirely',
+      );
+      expect(
+        sw.elapsed,
+        lessThan(const Duration(milliseconds: 1500)),
+        reason: 'the live member must win without waiting for offline A',
       );
       final event = await gotC.timeout(const Duration(seconds: 20));
       expect(event.contentId, cid);

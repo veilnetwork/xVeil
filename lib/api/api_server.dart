@@ -376,7 +376,8 @@ Map<String, dynamic> openApiSpec() {
       '/groups/files': {
         'post': {
           'summary':
-              'Post a local file through the group content path (max 8 MiB)',
+              'Post an any-size local file through the range-served group '
+              'content path',
           'requestBody': {
             'required': true,
             'content': {

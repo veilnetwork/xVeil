@@ -13,7 +13,8 @@ import 'package:cryptography/cryptography.dart';
 ///  * pieces arrive in ANY order over the lossy path → each is its own file, so
 ///    there is no random-offset seeking and a half-written piece (temp+rename) is
 ///    never seen as complete;
-///  * the content layer caps a file at ≤70 pieces, so a blob is ≤70 files;
+///  * piece presence is the filesystem directory itself, so adaptive manifests
+///    may grow to thousands of pieces without a volume-row/index ceiling;
 ///  * the nonce is derived from the piece index (unique per piece under the
 ///    blob's one-time random key → no nonce reuse), so nothing but the ciphertext
 ///    is stored, and a ranged/streamed read decrypts only the covering pieces —

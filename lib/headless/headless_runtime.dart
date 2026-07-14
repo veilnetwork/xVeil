@@ -205,7 +205,7 @@ class HeadlessRuntime {
       webhookPump = _WebhookPump(events);
       final groupApi = GroupApiAdapter(
         groups,
-        registerContent: messaging.registerGroupContent,
+        registerContentSource: messaging.registerGroupContentStreaming,
         loadContent: storage.loadFile,
       );
 

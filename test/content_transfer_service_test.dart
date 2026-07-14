@@ -269,6 +269,48 @@ void main() {
     );
   });
 
+  test('group source registration lifts the 8 MiB ceiling without an all-file '
+      'RAM read or sender-side duplicate', () async {
+    const size = 9 * 1024 * 1024 + 7;
+    var totalRead = 0;
+    var maxRead = 0;
+    var closed = false;
+    Future<Uint8List> read(int offset, int length) async {
+      totalRead += length;
+      if (length > maxRead) maxRead = length;
+      return Uint8List.fromList(
+        List<int>.generate(length, (i) => (offset + i) & 0xff),
+      );
+    }
+
+    final cid = await mA.registerGroupContentStreaming(
+      'large-group.bin',
+      size,
+      read,
+      close: () async => closed = true,
+      sourcePath: 'mem://large-group',
+    );
+
+    expect(totalRead, size, reason: 'hashing makes one bounded source pass');
+    expect(
+      maxRead,
+      lessThanOrEqualTo(ContentManifest.adaptivePieceSize(size)),
+      reason: 'no read request materializes the complete source',
+    );
+    expect(await sA.hasFile(cid), isFalse, reason: 'the source is not copied');
+    final encoded = await sA.loadFile('mf:$cid');
+    expect(encoded, isNotNull);
+    final manifest = ContentManifest.fromJson(
+      jsonDecode(utf8.decode(encoded!)) as Map<String, dynamic>,
+    );
+    expect(manifest?.size, size);
+    expect(manifest?.contentId, cid);
+    expect(await sA.getSetting('served:$cid'), contains('mem://large-group'));
+    expect(closed, isFalse, reason: 'the live group seeder retains the source');
+    await mA.dispose();
+    expect(closed, isTrue);
+  });
+
   test(
     'DURABLE offer: a reoffer after the SENDER restarts re-opens the source '
     'file and re-serves (offer survives the sender losing its serve state)',
