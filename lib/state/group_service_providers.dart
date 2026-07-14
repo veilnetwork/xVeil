@@ -90,6 +90,9 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     startContentPull: (holder, contentId) async {
       await messaging.downloadContent(holder, contentId);
     },
+    startContentPullFromAny: (holders, contentId) async {
+      await messaging.downloadGroupContentFromAny(holders, contentId);
+    },
   );
   ref.onDispose(() => unawaited(service.dispose()));
 

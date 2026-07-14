@@ -808,23 +808,48 @@ void main() {
     expect(grants, hasLength(1));
   });
 
-  test('fetchGroupContent ships the signed request, then starts the pull',
+  test('fetchGroupContent authorizes every current member and pulls from any',
       () async {
     final storage = FakeHvContainer().storage();
     await storage.open(password: 'pw', createIfMissing: true);
-    final sentReq = <String>[];
-    final pulls = <(NodeId, String)>[];
+    final sentTo = <NodeId>[];
+    final pulls = <(List<NodeId>, String)>[];
     final svc = GroupService(storage, _FakeSigner(bob),
-        sendContentRequest: (holder, json) async => sentReq.add(json),
-        startContentPull: (holder, cid) async => pulls.add((holder, cid)));
+        sendContentRequest: (holder, json) async {
+          sentTo.add(holder);
+          if (holder == carol) {
+            await Future<void>.delayed(const Duration(milliseconds: 50));
+          }
+        },
+        startContentPullFromAny: (holders, cid) async =>
+            pulls.add((holders, cid)),
+        contentRequestFanoutTimeout: const Duration(milliseconds: 5),
+        contentGrantDelay: Duration.zero);
     final gid = await svc.createGroup('G');
+    await svc.addControlOp(gid, ControlOp.addMember,
+        target: owner, role: GroupRole.member);
+    await svc.addControlOp(gid, ControlOp.addMember,
+        target: carol, role: GroupRole.member);
+    await svc.postMessage(gid, '',
+        attachment: const GroupAttachment(
+            kind: 'file',
+            dataB64: 'QQ==',
+            w: 10,
+            h: 1,
+            cid: 'c0ffee'));
+
     expect(await svc.fetchGroupContent(gid, 'c0ffee', owner), isTrue);
-    expect(sentReq, hasLength(1), reason: 'the membership proof went first');
-    expect(pulls.single.$1, owner);
+    expect(sentTo.toSet(), {owner, carol});
+    expect(pulls.single.$1, [owner, carol], reason: 'author stays preferred');
     expect(pulls.single.$2, 'c0ffee');
+    expect(await svc.fetchGroupContent(gid, 'not-referenced', owner), isFalse,
+        reason: 'membership must not become an arbitrary cid probe');
+    expect(sentTo, hasLength(2));
+
     // Without a pull sink the flow reports not-started (nothing to drive).
     final noPull = GroupService(storage, _FakeSigner(bob),
-        sendContentRequest: (holder, json) async => sentReq.add(json));
+        sendContentRequest: (holder, json) async => sentTo.add(holder),
+        contentGrantDelay: Duration.zero);
     expect(await noPull.fetchGroupContent(gid, 'c0ffee', owner), isFalse);
   });
 
