@@ -17,6 +17,7 @@ void main() {
     bool readOnly = false,
     bool callsAvailable = true,
     bool groupCallsAvailable = true,
+    bool groupMediaAvailable = true,
   }) {
     sent.clear();
     groupPosts.clear();
@@ -87,6 +88,19 @@ void main() {
         groupPosts.add((group, body, replyTo));
         return null;
       },
+      sendGroupFile: (group, path, name, caption, replyTo) async =>
+          group == 'missing'
+          ? (error: 'group not found', contentId: null)
+          : group == 'large'
+          ? (error: 'group file too large', contentId: null)
+          : (error: null, contentId: 'group-content'),
+      fetchGroupFile: (group, message) async =>
+          group == 'missing' ? 'group message attachment not found' : null,
+      loadGroupFile: (group, message) async => group == 'missing'
+          ? (error: 'group message attachment not found', bytes: null)
+          : group == 'pending'
+          ? (error: 'group content not downloaded', bytes: null)
+          : (error: null, bytes: <int>[4, 5, 6]),
       groupMembers: (group) async => group == 'missing'
           ? null
           : {
@@ -123,6 +137,7 @@ void main() {
           : group == 'denied'
           ? 'operation rejected by group policy'
           : null,
+      groupMediaAvailable: groupMediaAvailable,
       startGroupCall: (group, media) async {
         if (group == '00' * 32) return 'group not found';
         if (groupCall != null) return 'group call unavailable';
@@ -203,6 +218,9 @@ void main() {
         createGroup: (_) async => 'gid',
         groupMessages: (_, _) async => const [],
         sendGroupMessage: (_, _, _) async => null,
+        sendGroupFile: (_, _, _, _, _) async => (error: null, contentId: 'cid'),
+        fetchGroupFile: (_, _) async => null,
+        loadGroupFile: (_, _) async => (error: null, bytes: <int>[]),
         groupMembers: (_) async => const {},
         groupMemberAction: (_, _, _, _) async => null,
         renameGroup: (_, _) async => null,
@@ -261,6 +279,11 @@ void main() {
         ('/v1/calls/hangup', {}),
         ('/v1/groups', {'name': 'G'}),
         ('/v1/groups/messages', {'group': 'g', 'body': 'x'}),
+        ('/v1/groups/files', {'group': 'g', 'path': '/x'}),
+        (
+          '/v1/groups/files/fetch',
+          {'group': 'g', 'messageId': '${'01' * 32}:1'},
+        ),
         (
           '/v1/groups/members',
           {'group': 'g', 'action': 'add', 'peer': '01' * 32, 'role': 'member'},
@@ -528,6 +551,163 @@ void main() {
     );
   });
 
+  test(
+    'group files send, explicit fetch and scoped download validate/dispatch',
+    () async {
+      final h = make();
+      final message = '${'ab' * 32}:1';
+
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/groups/files'),
+          'Bearer secret-token',
+          body: {'group': 'aa'},
+        )).status,
+        400,
+      );
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/groups/files'),
+          'Bearer secret-token',
+          body: {'group': 'aa', 'path': '/tmp/x', 'replyTo': 'bad'},
+        )).status,
+        400,
+      );
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/groups/files'),
+          'Bearer secret-token',
+          body: {
+            'group': 'aa',
+            'path': '/tmp/x',
+            'caption': 'я' * (300 * 1024),
+          },
+        )).status,
+        413,
+      );
+      final sentFile = await h.handle(
+        'POST',
+        u('/v1/groups/files'),
+        'Bearer secret-token',
+        body: {
+          'group': 'aa',
+          'path': '/tmp/x',
+          'name': 'clip.mp4',
+          'caption': 'watch',
+          'replyTo': message,
+        },
+      );
+      expect(sentFile.status, 200);
+      expect((sentFile.body as Map)['contentId'], 'group-content');
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/groups/files'),
+          'Bearer secret-token',
+          body: {'group': 'large', 'path': '/tmp/x'},
+        )).status,
+        413,
+      );
+
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/groups/files/fetch'),
+          'Bearer secret-token',
+          body: {'group': 'aa', 'messageId': 'bad'},
+        )).status,
+        400,
+      );
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/groups/files/fetch'),
+          'Bearer secret-token',
+          body: {'group': 'aa', 'messageId': message},
+        )).status,
+        200,
+      );
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/groups/files/fetch'),
+          'Bearer secret-token',
+          body: {'group': 'missing', 'messageId': message},
+        )).status,
+        404,
+      );
+
+      expect(
+        (await h.handle(
+          'GET',
+          u('/v1/groups/files/download?group=aa'),
+          'Bearer secret-token',
+        )).status,
+        400,
+      );
+      final downloaded = await h.handle(
+        'GET',
+        u('/v1/groups/files/download?group=aa&messageId=$message'),
+        'Bearer secret-token',
+      );
+      expect(downloaded.status, 200);
+      expect(downloaded.bytes, [4, 5, 6]);
+      expect(
+        (await h.handle(
+          'GET',
+          u('/v1/groups/files/download?group=pending&messageId=$message'),
+          'Bearer secret-token',
+        )).status,
+        409,
+      );
+      expect(
+        (await h.handle(
+          'GET',
+          u('/v1/groups/files/download?group=missing&messageId=$message'),
+          'Bearer secret-token',
+        )).status,
+        404,
+      );
+    },
+  );
+
+  test(
+    'a host without group content reports its three routes as 501',
+    () async {
+      final h = make(groupMediaAvailable: false);
+      final message = '${'ab' * 32}:1';
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/groups/files'),
+          'Bearer secret-token',
+          body: {'group': 'aa', 'path': '/tmp/x'},
+        )).status,
+        501,
+      );
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/groups/files/fetch'),
+          'Bearer secret-token',
+          body: {'group': 'aa', 'messageId': message},
+        )).status,
+        501,
+      );
+      expect(
+        (await h.handle(
+          'GET',
+          u('/v1/groups/files/download?group=aa&messageId=$message'),
+          'Bearer secret-token',
+        )).status,
+        501,
+      );
+    },
+  );
+
   test('a host without group core reports every group route as 501', () async {
     final base = make();
     final h = ApiHandler(
@@ -545,11 +725,15 @@ void main() {
       createGroup: base.createGroup,
       groupMessages: base.groupMessages,
       sendGroupMessage: base.sendGroupMessage,
+      sendGroupFile: base.sendGroupFile,
+      fetchGroupFile: base.fetchGroupFile,
+      loadGroupFile: base.loadGroupFile,
       groupMembers: base.groupMembers,
       groupMemberAction: base.groupMemberAction,
       renameGroup: base.renameGroup,
       leaveGroup: base.leaveGroup,
       groupsAvailable: false,
+      groupMediaAvailable: false,
       startGroupCall: base.startGroupCall,
       groupCallState: base.groupCallState,
       groupCallAction: base.groupCallAction,
@@ -566,6 +750,15 @@ void main() {
         u('/v1/groups/messages'),
         'Bearer secret-token',
         body: {'group': 'g', 'body': 'x'},
+      )).status,
+      501,
+    );
+    expect(
+      (await h.handle(
+        'POST',
+        u('/v1/groups/files'),
+        'Bearer secret-token',
+        body: {'group': 'g', 'path': '/x'},
       )).status,
       501,
     );
@@ -854,25 +1047,28 @@ void main() {
     },
   );
 
-  test('a host without group media reports group-call routes as 501', () async {
-    final h = make(groupCallsAvailable: false);
-    for (final request in <(String, String, Map<String, dynamic>?)>[
-      ('GET', '/v1/groups/calls', null),
-      ('POST', '/v1/groups/calls', {'group': 'aa' * 32}),
-      ('POST', '/v1/groups/calls/join', null),
-      ('POST', '/v1/groups/calls/posture', {'mic': false}),
-    ]) {
-      expect(
-        (await h.handle(
-          request.$1,
-          u(request.$2),
-          'Bearer secret-token',
-          body: request.$3,
-        )).status,
-        501,
-      );
-    }
-  });
+  test(
+    'a host without group-call media reports group-call routes as 501',
+    () async {
+      final h = make(groupCallsAvailable: false);
+      for (final request in <(String, String, Map<String, dynamic>?)>[
+        ('GET', '/v1/groups/calls', null),
+        ('POST', '/v1/groups/calls', {'group': 'aa' * 32}),
+        ('POST', '/v1/groups/calls/join', null),
+        ('POST', '/v1/groups/calls/posture', {'mic': false}),
+      ]) {
+        expect(
+          (await h.handle(
+            request.$1,
+            u(request.$2),
+            'Bearer secret-token',
+            body: request.$3,
+          )).status,
+          501,
+        );
+      }
+    },
+  );
 
   test('POST /v1/files validates to+path; reports send errors', () async {
     final h = make();
@@ -1043,6 +1239,9 @@ void main() {
           '/messages',
           '/groups',
           '/groups/messages',
+          '/groups/files',
+          '/groups/files/fetch',
+          '/groups/files/download',
           '/groups/members',
           '/groups/name',
           '/groups/leave',
@@ -1138,6 +1337,9 @@ void main() {
         createGroup: (_) async => 'gid',
         groupMessages: (_, _) async => const [],
         sendGroupMessage: (_, _, _) async => null,
+        sendGroupFile: (_, _, _, _, _) async => (error: null, contentId: 'cid'),
+        fetchGroupFile: (_, _) async => null,
+        loadGroupFile: (_, _) async => (error: null, bytes: <int>[]),
         groupMembers: (_) async => const {},
         groupMemberAction: (_, _, _, _) async => null,
         renameGroup: (_, _) async => null,

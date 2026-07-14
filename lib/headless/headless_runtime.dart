@@ -203,7 +203,11 @@ class HeadlessRuntime {
       if (webhookUrl?.isEmpty ?? false) webhookUrl = null;
       final events = _events(messaging, groups);
       webhookPump = _WebhookPump(events);
-      final groupApi = GroupApiAdapter(groups);
+      final groupApi = GroupApiAdapter(
+        groups,
+        registerContent: messaging.registerGroupContent,
+        loadContent: storage.loadFile,
+      );
 
       final handler = ApiHandler(
         tokens: loadedTokens,
@@ -233,6 +237,9 @@ class HeadlessRuntime {
         createGroup: groupApi.create,
         groupMessages: groupApi.messages,
         sendGroupMessage: groupApi.sendMessage,
+        sendGroupFile: groupApi.sendFile,
+        fetchGroupFile: groupApi.fetchFile,
+        loadGroupFile: groupApi.loadFile,
         groupMembers: groupApi.members,
         groupMemberAction: groupApi.memberAction,
         renameGroup: groupApi.rename,
