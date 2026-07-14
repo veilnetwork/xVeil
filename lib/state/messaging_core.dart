@@ -2643,7 +2643,8 @@ class MessagingService {
         // No contact gate: current group membership + epoch AEAD + node-bound
         // signature are the authorization. Invalid/removed/stale senders are
         // silently dropped by the group layer (no membership/read oracle).
-        final accepted = await onGroupCallSignal?.call(m.src, env.body) ?? false;
+        final accepted =
+            await onGroupCallSignal?.call(m.src, env.body) ?? false;
         if (accepted && fid != null) {
           await _ackFrame(m, fid);
           _seenFrames.add(fid);
@@ -4233,6 +4234,18 @@ class MessagingService {
   final _contentFailed = StreamController<String>.broadcast();
   Stream<String> get contentDownloadFailed => _contentFailed.stream;
 
+  /// Fires when the user explicitly cancels a content transfer. Kept separate
+  /// from [contentDownloadFailed]: cancellation clears progress without showing
+  /// the misleading "sender no longer serves this file" error.
+  final _contentCancelled = StreamController<String>.broadcast();
+  Stream<String> get contentDownloadCancelled => _contentCancelled.stream;
+
+  /// User-cancelled ids stay latched until a fresh explicit download request.
+  /// Every stream/datagram retry path consults this set, so aborting one stream
+  /// cannot silently fail over to another holder behind the user's back.
+  final Set<String> _cancelledDownloads = {};
+  final Map<String, Set<_TrackedPullStream>> _activePullStreams = {};
+
   Timer? _contentTimer;
 
   /// Re-request cadence for still-missing pieces (injectable for tests).
@@ -5253,6 +5266,12 @@ class MessagingService {
     ContentManifest m, {
     _FetchSink? sink,
   }) async {
+    if (_cancelledDownloads.contains(m.contentId)) {
+      try {
+        await sink?.close();
+      } catch (_) {}
+      return;
+    }
     final existing = _fetching[m.contentId];
     if (existing != null) {
       if (sink != null) {
@@ -5309,6 +5328,7 @@ class MessagingService {
       _signal();
       return ContentDownloadResult.started;
     }
+    _cancelledDownloads.remove(contentId);
     devLog(() => 'xVeil[content]: user download ${contentId.substring(0, 12)}');
     // Multi-device: in parallel, ask my OTHER devices for the bytes over the
     // membership pull (no-op unless this cid is a mirrored attachment). The
@@ -5372,11 +5392,17 @@ class MessagingService {
   /// peer does not strand the transfer when another accepted peer has the blob.
   Future<ContentDownloadResult> downloadContentFromAny(
     Iterable<NodeId> peers,
-    String contentId,
-  ) async {
+    String contentId, {
+    bool userInitiated = true,
+  }) async {
     if (await _storage.hasFile(contentId)) {
       _signal();
       return ContentDownloadResult.started;
+    }
+    if (userInitiated) {
+      _cancelledDownloads.remove(contentId);
+    } else if (_cancelledDownloads.contains(contentId)) {
+      return ContentDownloadResult.noOffer;
     }
     final offered = _offered[contentId];
     final offeredRef = _offeredRefs[contentId];
@@ -5523,6 +5549,7 @@ class MessagingService {
     required Future<void> Function(int offset, Uint8List bytes) write,
     required Future<void> Function() close,
   }) async {
+    _cancelledDownloads.remove(contentId);
     final sink = (write: write, close: close, read: null);
     _fetchSavePath[contentId] = savedPath;
     devLog(
@@ -5612,7 +5639,13 @@ class MessagingService {
     // Non-null on a RESUME: reads pieces back off disk so the swarm skips the
     // ones already written (see [_FetchSink.read]).
     Future<Uint8List?> Function(int offset, int length)? read,
+    bool userInitiated = true,
   }) async {
+    if (userInitiated) {
+      _cancelledDownloads.remove(contentId);
+    } else if (_cancelledDownloads.contains(contentId)) {
+      return ContentDownloadResult.noOffer;
+    }
     final sink = (write: write, close: close, read: read);
     _fetchSavePath[contentId] = savedPath;
     devLog(
@@ -5700,6 +5733,47 @@ class MessagingService {
     if (!_contentProgress.isClosed) {
       _contentProgress.add((contentId: contentId, done: 0, total: 1));
     }
+  }
+
+  /// Cancel an in-flight or parked user download. Returns the plaintext target
+  /// path, when this was a download-to-file, so the UI can delete partial clear
+  /// bytes (the transport/storage core deliberately has no dart:io access).
+  Future<String?> cancelContentDownload(String contentId) async {
+    _cancelledDownloads.add(contentId);
+    final savedPath = _fetchSavePath.remove(contentId);
+    _completePendingDownload(contentId);
+    _pendingTimers.remove(contentId)?.cancel();
+    final parkedSink = _pendingDownload.remove(contentId);
+    final fetch = _fetching.remove(contentId);
+    _fetchActivity.remove(contentId);
+
+    final sinks = <_FetchSink>{?parkedSink, ?fetch?.sink};
+    final streams =
+        _activePullStreams[contentId]?.toList(growable: false) ??
+        const <_TrackedPullStream>[];
+    await Future.wait([for (final stream in streams) stream.abort()]);
+    if (!_contentCancelled.isClosed) _contentCancelled.add(contentId);
+
+    // Aborting wakes native reads promptly. Wait briefly for their retry loops
+    // to observe the cancellation latch before allowing an immediate re-tap to
+    // clear it and start a genuinely new transfer.
+    final deadline = DateTime.now().add(const Duration(seconds: 2));
+    while (((_activePullCount[contentId] ?? 0) > 0 ||
+            _resumeInFlight.contains(contentId)) &&
+        DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    // No receiver should still be writing when the plaintext sink is closed.
+    for (final sink in sinks) {
+      try {
+        await sink.close();
+      } catch (_) {}
+    }
+    // Make the cancellation durable before returning; otherwise an immediate
+    // process death could leave the old auto-resume intent on disk.
+    await _pendingResumeWriteChain;
+    _signal();
+    return savedPath;
   }
 
   // ------------------------------------------------------------------------
@@ -6111,6 +6185,7 @@ class MessagingService {
     try {
       final pending = (await _pendingDownloads())[contentId];
       if (pending == null) return;
+      if (_cancelledDownloads.contains(contentId)) return;
       if (await _storage.hasFile(contentId)) {
         _completePendingDownload(contentId);
         return;
@@ -6177,7 +6252,7 @@ class MessagingService {
           pending.savedPath != null) {
         await _resumePlainFileDownload(pending, peers);
       } else {
-        await downloadContentFromAny(peers, contentId);
+        await downloadContentFromAny(peers, contentId, userInitiated: false);
       }
     } catch (e) {
       devLog(() => 'xVeil[content]: auto-resume $short failed: $e');
@@ -6240,6 +6315,7 @@ class MessagingService {
       write: sink.write,
       close: sink.close,
       read: sink.read, // resume: hash-verify + skip already-written pieces
+      userInitiated: false,
     );
     // Every other outcome hands the sink to the pull/park machinery, which
     // closes it on completion or reoffer-timeout; a flat "no offer" does not.
@@ -6392,6 +6468,11 @@ class MessagingService {
     String contentId,
     _FetchSink? sink,
   ) {
+    if (_cancelledDownloads.contains(contentId)) {
+      if (sink != null) unawaited(sink.close());
+      _fetchSavePath.remove(contentId);
+      return ContentDownloadResult.noOffer;
+    }
     final sources = _uniquePeers(peers);
     if (sources.isEmpty) {
       if (sink != null) unawaited(sink.close());
@@ -6407,6 +6488,7 @@ class MessagingService {
     _pendingDownload[contentId] = sink;
     _pendingTimers[contentId]?.cancel();
     _pendingTimers[contentId] = Timer(_reofferTimeout, () {
+      if (_cancelledDownloads.contains(contentId)) return;
       _pendingTimers.remove(contentId);
       final parked = _pendingDownload.remove(contentId);
       if (parked != null) unawaited(parked.close()); // release the file handle
@@ -7853,6 +7935,7 @@ class MessagingService {
         await _storage.hasFile(cid)) {
       return;
     }
+    if (_cancelledDownloads.contains(cid)) return;
     devLog(
       () =>
           'xVeil[content]: swarm-range failed ${cid.substring(0, 12)}, '
@@ -7867,10 +7950,13 @@ class MessagingService {
       if (contact == null || contact.status != ContactStatus.accepted) continue;
       final ok = await _pullStreamToCompletion(peer, cid);
       if (ok == true || await _storage.hasFile(cid)) return;
+      if (_cancelledDownloads.contains(cid)) return;
     }
     final ok = await _pullStreamToCompletion(preferred, cid);
     if (ok == true || await _storage.hasFile(cid)) return;
-    if (!_contentFailed.isClosed) _contentFailed.add(cid);
+    if (!_cancelledDownloads.contains(cid) && !_contentFailed.isClosed) {
+      _contentFailed.add(cid);
+    }
   }
 
   Future<void> _runSwarmFileThenFallback(
@@ -7890,6 +7976,7 @@ class MessagingService {
         savedPath: savedPath,
       );
       if (ok) return;
+      if (_cancelledDownloads.contains(cid)) return;
       devLog(
         () =>
             'xVeil[content]: swarm-range-to-file failed '
@@ -7914,13 +8001,16 @@ class MessagingService {
             ) ==
             true;
         if (ok) return;
+        if (_cancelledDownloads.contains(cid)) return;
       }
     } finally {
       if (!ok) {
         try {
           await sink.close();
         } catch (_) {}
-        if (!_contentFailed.isClosed) _contentFailed.add(cid);
+        if (!_cancelledDownloads.contains(cid) && !_contentFailed.isClosed) {
+          _contentFailed.add(cid);
+        }
       }
     }
   }
@@ -7951,6 +8041,7 @@ class MessagingService {
     String? savedPath,
   }) async {
     final cid = manifest.contentId;
+    if (_cancelledDownloads.contains(cid)) return false;
     unawaited(_persistManifestIfPending(manifest));
     if (_transport is! StreamTransport ||
         !_streamRangeEnabled ||
@@ -8186,7 +8277,9 @@ class MessagingService {
     }
 
     ({List<int> pieces, NodeId peer, int bytes})? takeRange() {
-      if (failed || pending.isEmpty) return null;
+      if (_cancelledDownloads.contains(cid) || failed || pending.isEmpty) {
+        return null;
+      }
       final sources = sourceList();
       if (sources.isEmpty) {
         failed = true;
@@ -8329,15 +8422,16 @@ class MessagingService {
     }
 
     Future<void> worker(int index) async {
-      while (!_disposed && !failed) {
+      while (!_disposed && !_cancelledDownloads.contains(cid) && !failed) {
         while (!_disposed &&
+            !_cancelledDownloads.contains(cid) &&
             !failed &&
             activeRangeWorkers >= adaptiveWorkerLimit) {
           await Future<void>.delayed(const Duration(milliseconds: 10));
         }
         final task = takeRange();
         if (task == null) {
-          if (_disposed || failed) return;
+          if (_disposed || _cancelledDownloads.contains(cid) || failed) return;
           if (completed.length >= manifest.pieceCount) return;
           if (pending.isNotEmpty) continue; // requeue raced takeRange
           // Tail: every remaining piece is in flight on another worker. Hedge
@@ -8407,7 +8501,8 @@ class MessagingService {
           'attempts_per_piece=${maxAttemptsPerPiece()}',
     );
     await Future.wait<void>([for (var i = 0; i < workerCount; i++) worker(i)]);
-    if (failed ||
+    if (_cancelledDownloads.contains(cid) ||
+        failed ||
         completed.length < manifest.pieceCount ||
         (sink == null && !await _storage.hasFile(cid))) {
       devLog(
@@ -8584,7 +8679,10 @@ class MessagingService {
     Object? lastError;
     for (
       var attempt = 1;
-      got < rangeLen && attempt <= _streamPullMaxAttempts && !_disposed;
+      got < rangeLen &&
+          attempt <= _streamPullMaxAttempts &&
+          !_disposed &&
+          !_cancelledDownloads.contains(cid);
       attempt++
     ) {
       final startGot = got;
@@ -8702,7 +8800,8 @@ class MessagingService {
         // even before the first payload byte.
         if ((got <= 0 && e is! _RangeStallTimeout) ||
             attempt >= _streamPullMaxAttempts ||
-            _disposed) {
+            _disposed ||
+            _cancelledDownloads.contains(cid)) {
           break;
         }
         await Future<void>.delayed(_streamPullRetryDelay(attempt));
@@ -8726,6 +8825,7 @@ class MessagingService {
     NodeId peer,
     String cid,
   ) async {
+    if (_cancelledDownloads.contains(cid)) return null;
     final t = _transport;
     if (t is! StreamTransport) return null;
     final sw = Stopwatch()..start();
@@ -8765,13 +8865,17 @@ class MessagingService {
       );
       return null;
     }
+    if (_cancelledDownloads.contains(cid)) {
+      await stream.abort();
+      return null;
+    }
     _bulkStreamLog(
       () =>
           'xVeil[content]: stream-open ok ${cid.substring(0, 12)} '
           '-> ${peer.short} (${sw.elapsedMilliseconds}ms, '
           '${useP2P && stream != null ? 'p2p-or-fallback' : 'anon'})',
     );
-    return stream;
+    return _trackPullStream(cid, stream);
   }
 
   Future<bool> _runPull(
@@ -8784,6 +8888,10 @@ class MessagingService {
     Iterable<NodeId> retryPeers = const [],
     bool closeSinkOnFailure = true,
   }) async {
+    if (_cancelledDownloads.contains(cid)) {
+      await initialStream.abort();
+      return false;
+    }
     var ok = false;
     Object? lastError;
     ReliableStream? stream = initialStream;
@@ -8799,7 +8907,13 @@ class MessagingService {
     var resumePiece = 0;
     _pullStarted(cid);
     try {
-      for (var attempt = 1; attempt <= maxAttempts && !_disposed; attempt++) {
+      for (
+        var attempt = 1;
+        attempt <= maxAttempts &&
+            !_disposed &&
+            !_cancelledDownloads.contains(cid);
+        attempt++
+      ) {
         var payloadStarted = false;
         var readBytes = 0;
         var committedPieces = 0;
@@ -8992,7 +9106,8 @@ class MessagingService {
               bufLen = 0;
             }
           }
-          if (!await _finishReceived(attemptPeer, m, sink, savedPath)) {
+          if (_cancelledDownloads.contains(cid) ||
+              !await _finishReceived(attemptPeer, m, sink, savedPath)) {
             lastError = StateError('download finalization failed');
             break;
           }
@@ -9030,7 +9145,9 @@ class MessagingService {
                 'xVeil[content]: stream-pull attempt $attempt failed '
                 '${cid.substring(0, 12)}: $e',
           );
-          if (attempt == maxAttempts || _disposed) {
+          if (attempt == maxAttempts ||
+              _disposed ||
+              _cancelledDownloads.contains(cid)) {
             break;
           }
         } finally {
@@ -9055,13 +9172,19 @@ class MessagingService {
               '${cid.substring(0, 12)}: $lastError',
         );
       }
-      if (!ok && sink != null && closeSinkOnFailure) {
+      if (!ok &&
+          !_cancelledDownloads.contains(cid) &&
+          sink != null &&
+          closeSinkOnFailure) {
         try {
           await sink.close();
         } catch (_) {}
         _fetchSavePath.remove(cid);
       }
-      if (!ok && emitFailure && !_contentFailed.isClosed) {
+      if (!ok &&
+          !_cancelledDownloads.contains(cid) &&
+          emitFailure &&
+          !_contentFailed.isClosed) {
         _contentFailed.add(cid);
       }
     }
@@ -9074,6 +9197,7 @@ class MessagingService {
     int attempt, {
     Duration? timeout,
   }) async {
+    if (_cancelledDownloads.contains(cid)) return null;
     final t = _transport;
     if (t is! StreamTransport) return null;
     final streamTransport = t as StreamTransport;
@@ -9095,10 +9219,15 @@ class MessagingService {
             .openP2PStream(peer)
             .timeout(timeout ?? _streamRequestTimeout, onTimeout: () => null);
       }
-      return stream ??
-          await streamTransport
-              .openStream(peer)
-              .timeout(timeout ?? _streamRequestTimeout, onTimeout: () => null);
+      stream ??= await streamTransport
+          .openStream(peer)
+          .timeout(timeout ?? _streamRequestTimeout, onTimeout: () => null);
+      if (stream == null) return null;
+      if (_cancelledDownloads.contains(cid)) {
+        await stream.abort();
+        return null;
+      }
+      return _trackPullStream(cid, stream);
     } catch (e) {
       devLog(
         () =>
@@ -9107,6 +9236,17 @@ class MessagingService {
       );
       return null;
     }
+  }
+
+  ReliableStream _trackPullStream(String contentId, ReliableStream stream) {
+    late final _TrackedPullStream tracked;
+    tracked = _TrackedPullStream(stream, () {
+      final active = _activePullStreams[contentId];
+      active?.remove(tracked);
+      if (active?.isEmpty ?? false) _activePullStreams.remove(contentId);
+    });
+    _activePullStreams.putIfAbsent(contentId, () => {}).add(tracked);
+    return tracked;
   }
 
   static Duration _streamPullRetryDelay(int attempt) {
@@ -9557,13 +9697,53 @@ class MessagingService {
       if (s != null) unawaited(s.close());
     }
     _pendingDownload.clear();
+    final pullStreams = [
+      for (final streams in _activePullStreams.values) ...streams,
+    ];
+    await Future.wait([for (final stream in pullStreams) stream.abort()]);
+    _activePullStreams.clear();
     await _changes.close();
     await _incoming.close();
     await _signatureAsks.close();
     await _contentReceived.close();
     await _contentProgress.close();
     await _contentFailed.close();
+    await _contentCancelled.close();
     await _contentResuming.close();
+  }
+}
+
+/// Registers a receive-side stream until it closes or aborts. This gives a
+/// user cancellation a concrete native handle to interrupt even while Dart is
+/// blocked in [ReliableStream.read].
+class _TrackedPullStream implements ReliableStream {
+  _TrackedPullStream(this._inner, this._onDone);
+
+  final ReliableStream _inner;
+  final void Function() _onDone;
+  bool _done = false;
+
+  @override
+  Future<void> write(Uint8List data) => _inner.write(data);
+
+  @override
+  Future<Uint8List> read({int maxBytes = 64 * 1024}) =>
+      _inner.read(maxBytes: maxBytes);
+
+  @override
+  Future<void> close() => _finish(_inner.close);
+
+  @override
+  Future<void> abort() => _finish(_inner.abort);
+
+  Future<void> _finish(Future<void> Function() action) async {
+    if (_done) return;
+    _done = true;
+    try {
+      await action();
+    } finally {
+      _onDone();
+    }
   }
 }
 

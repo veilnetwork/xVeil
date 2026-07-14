@@ -25,6 +25,7 @@ import '../../state/messaging.dart'
     show
         conversationsProvider,
         contentProgressProvider,
+        contentResumingProvider,
         kMaxIncomingFileBytes,
         messagingServiceProvider;
 import '../../state/notifications.dart' show activeConversationProvider;
@@ -39,11 +40,18 @@ import '../../state/voice_message.dart' show formatVoiceDuration;
 import '../../state/voice_play_controller.dart';
 import '../../state/voice_record_controller.dart';
 import '../chat/vnote_preview.dart';
+import '../chat/cancelable_download_progress.dart';
 import '../chat/camera_capture_screen.dart';
 import '../chat/chat_screen.dart'
     show ComposerAttachmentAction, MessageComposer, documentIcon;
 import '../chat/reactors_sheet.dart';
 import '../chat/video_player_screen.dart';
+
+void _cancelGroupContentDownload(WidgetRef ref, String contentId) {
+  unawaited(
+    ref.read(messagingServiceProvider).cancelContentDownload(contentId),
+  );
+}
 
 class GroupChatScreen extends ConsumerStatefulWidget {
   const GroupChatScreen({super.key, required this.groupIdHex});
@@ -1324,6 +1332,11 @@ class _GroupFileAttachment extends ConsumerWidget {
     final cid = attachment.cid;
     if (cid == null) return const SizedBox.shrink();
     final progress = ref.watch(contentProgressProvider.select((m) => m[cid]));
+    final resuming = ref.watch(
+      contentResumingProvider.select((ids) => ids.contains(cid)),
+    );
+    final downloading = progress != null || resuming;
+    void cancel() => _cancelGroupContentDownload(ref, cid);
     final isVideo = attachment.kind == 'video';
     Uint8List? thumb;
     if (isVideo && attachment.dataB64 != 'QQ==') {
@@ -1340,7 +1353,9 @@ class _GroupFileAttachment extends ConsumerWidget {
           return Padding(
             padding: const EdgeInsets.only(bottom: 6),
             child: InkWell(
-              onTap: held
+              onTap: downloading
+                  ? cancel
+                  : held
                   ? () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
                         builder: (_) => VideoPlayerScreen(
@@ -1362,10 +1377,14 @@ class _GroupFileAttachment extends ConsumerWidget {
                     children: [
                       Image.memory(thumb, fit: BoxFit.cover),
                       ColoredBox(color: Colors.black.withValues(alpha: 0.18)),
-                      if (progress != null)
+                      if (downloading)
                         Center(
-                          child: CircularProgressIndicator(
-                            value: progress == 0 ? null : progress,
+                          child: CancelableDownloadProgress(
+                            progress: progress,
+                            onCancel: cancel,
+                            size: 42,
+                            strokeWidth: 3,
+                            color: Colors.white,
                           ),
                         )
                       else
@@ -1400,7 +1419,9 @@ class _GroupFileAttachment extends ConsumerWidget {
           );
         }
         return InkWell(
-          onTap: held && isVideo
+          onTap: downloading
+              ? cancel
+              : held && isVideo
               ? () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => VideoPlayerScreen(
@@ -1431,8 +1452,10 @@ class _GroupFileAttachment extends ConsumerWidget {
                         overflow: TextOverflow.ellipsis,
                       ),
                       Text(
-                        progress == null
+                        !downloading
                             ? _formatGroupBytes(attachment.w)
+                            : progress == null
+                            ? AppL10n.of(context).fileResuming
                             : '${(progress * 100).round()}%',
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
                           color: scheme.onSurfaceVariant,
@@ -1442,14 +1465,12 @@ class _GroupFileAttachment extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                if (progress != null)
-                  SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      value: progress == 0 ? null : progress,
-                      strokeWidth: 2,
-                    ),
+                if (downloading)
+                  CancelableDownloadProgress(
+                    progress: progress,
+                    onCancel: cancel,
+                    size: 22,
+                    strokeWidth: 2,
                   )
                 else
                   Icon(
@@ -1478,6 +1499,11 @@ class _GroupRefImage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final cid = attachment.cid!;
     final progress = ref.watch(contentProgressProvider.select((m) => m[cid]));
+    final resuming = ref.watch(
+      contentResumingProvider.select((ids) => ids.contains(cid)),
+    );
+    final downloading = progress != null || resuming;
+    void cancel() => _cancelGroupContentDownload(ref, cid);
     return FutureBuilder<Uint8List?>(
       future: ref.read(storageProvider).loadFile(cid).catchError((_) => null),
       builder: (context, snap) {
@@ -1505,12 +1531,16 @@ class _GroupRefImage extends ConsumerWidget {
               )
             else
               const Icon(Icons.broken_image_outlined),
-            if (full == null && progress != null)
-              CircularProgressIndicator(
-                value: progress == 0 ? null : progress,
-                strokeWidth: 3,
+            if (full == null && downloading)
+              Center(
+                child: CancelableDownloadProgress(
+                  progress: progress,
+                  onCancel: cancel,
+                  size: 40,
+                  strokeWidth: 3,
+                ),
               ),
-            if (full == null && progress == null && onFetch != null)
+            if (full == null && !downloading && onFetch != null)
               IconButton.filledTonal(
                 onPressed: onFetch,
                 icon: const Icon(Icons.download),
@@ -1548,6 +1578,10 @@ class _GroupVoiceRow extends ConsumerWidget {
     final fetching = cid == null
         ? null
         : ref.watch(contentProgressProvider.select((m) => m[cid]));
+    final resuming =
+        cid != null &&
+        ref.watch(contentResumingProvider.select((ids) => ids.contains(cid)));
+    final downloading = fetching != null || resuming;
     // durationMs rides in the attachment's `w` (see _toggleVoiceRecording).
     final label = active
         ? formatVoiceDuration(Duration(milliseconds: play.positionMs))
@@ -1566,6 +1600,10 @@ class _GroupVoiceRow extends ConsumerWidget {
             IconButton(
               visualDensity: VisualDensity.compact,
               onPressed: () {
+                if (downloading && cid != null) {
+                  _cancelGroupContentDownload(ref, cid);
+                  return;
+                }
                 if (!held) {
                   onFetch?.call();
                   return;
@@ -1586,11 +1624,12 @@ class _GroupVoiceRow extends ConsumerWidget {
                     .read(voicePlayControllerProvider.notifier)
                     .toggleBytes(messageRef, bytes);
               },
-              icon: fetching != null
-                  ? const SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2.5),
+              icon: downloading
+                  ? CancelableDownloadProgress(
+                      progress: fetching,
+                      onCancel: () => _cancelGroupContentDownload(ref, cid!),
+                      size: 24,
+                      strokeWidth: 2.5,
                     )
                   : Icon(
                       !held
@@ -1642,6 +1681,10 @@ class _GroupVnoteCircle extends ConsumerWidget {
     final fetching = cid == null
         ? null
         : ref.watch(contentProgressProvider.select((m) => m[cid]));
+    final resuming =
+        cid != null &&
+        ref.watch(contentResumingProvider.select((ids) => ids.contains(cid)));
+    final downloading = fetching != null || resuming;
     final label = active
         ? formatVoiceDuration(Duration(milliseconds: play.positionMs))
         : formatVoiceDuration(Duration(milliseconds: attachment.w));
@@ -1657,6 +1700,10 @@ class _GroupVnoteCircle extends ConsumerWidget {
           children: [
             GestureDetector(
               onTap: () {
+                if (downloading && cid != null) {
+                  _cancelGroupContentDownload(ref, cid);
+                  return;
+                }
                 if (!held) {
                   onFetch?.call();
                   return;
@@ -1683,15 +1730,14 @@ class _GroupVnoteCircle extends ConsumerWidget {
                       if (!playing) ...[
                         ColoredBox(color: Colors.black.withValues(alpha: 0.18)),
                         Center(
-                          child: fetching != null
-                              ? SizedBox(
-                                  width: 36,
-                                  height: 36,
-                                  child: CircularProgressIndicator(
-                                    value: fetching == 0 ? null : fetching,
-                                    strokeWidth: 3,
-                                    color: Colors.white,
-                                  ),
+                          child: downloading
+                              ? CancelableDownloadProgress(
+                                  progress: fetching,
+                                  onCancel: () =>
+                                      _cancelGroupContentDownload(ref, cid!),
+                                  size: 36,
+                                  strokeWidth: 3,
+                                  color: Colors.white,
                                 )
                               : Icon(
                                   held ? Icons.play_arrow : Icons.download,
