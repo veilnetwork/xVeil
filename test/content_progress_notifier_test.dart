@@ -8,20 +8,24 @@ typedef _Ev = ({String contentId, int done, int total});
 void main() {
   late StreamController<_Ev> progress;
   late StreamController<String> failed;
+  late StreamController<String> cancelled;
   late ContentProgressNotifier notifier;
 
   setUp(() {
     progress = StreamController<_Ev>.broadcast();
     failed = StreamController<String>.broadcast();
+    cancelled = StreamController<String>.broadcast();
     notifier = ContentProgressNotifier.forStreams(
       progress.stream,
       failed.stream,
+      cancelled: cancelled.stream,
     );
   });
   tearDown(() async {
     notifier.dispose();
     await progress.close();
     await failed.close();
+    await cancelled.close();
   });
 
   Future<void> emit(String cid, int done, int total) async {
@@ -54,17 +58,29 @@ void main() {
     expect(notifier.state['c1'], 0.1);
   });
 
-  test('late echoes of a completed transfer do not resurrect the bar',
-      () async {
-    await emit('c1', 10, 10);
-    expect(notifier.state['c1'], 1.0);
-    // Completion cleanup removes the entry shortly after.
-    await Future<void>.delayed(const Duration(milliseconds: 900));
-    expect(notifier.state.containsKey('c1'), isFalse);
-    // A still-draining duplicate pull keeps emitting — must stay ignored.
-    await emit('c1', 5, 10);
-    expect(notifier.state.containsKey('c1'), isFalse);
-  });
+  test(
+    'an explicit cancellation clears visible progress without a failure',
+    () async {
+      await emit('c1', 7, 10);
+      cancelled.add('c1');
+      await Future<void>.delayed(Duration.zero);
+      expect(notifier.state.containsKey('c1'), isFalse);
+    },
+  );
+
+  test(
+    'late echoes of a completed transfer do not resurrect the bar',
+    () async {
+      await emit('c1', 10, 10);
+      expect(notifier.state['c1'], 1.0);
+      // Completion cleanup removes the entry shortly after.
+      await Future<void>.delayed(const Duration(milliseconds: 900));
+      expect(notifier.state.containsKey('c1'), isFalse);
+      // A still-draining duplicate pull keeps emitting — must stay ignored.
+      await emit('c1', 5, 10);
+      expect(notifier.state.containsKey('c1'), isFalse);
+    },
+  );
 
   test('independent contents track independently', () async {
     await emit('c1', 5, 10);
