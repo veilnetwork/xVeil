@@ -31,6 +31,7 @@ abstract class GroupCallMediaController {
   Future<void> setMicMuted(bool muted) async {}
   Future<void> setCameraEnabled(bool enabled) async {}
   Future<bool> setScreenShareEnabled(bool enabled) async => false;
+  Stream<void> get screenShareStopped => const Stream<void>.empty();
   DateTime? lastMediaRxAt(NodeId peer) => null;
 }
 
@@ -65,6 +66,7 @@ class GroupCallService {
   final StreamController<GroupCall?> _changes = StreamController.broadcast();
 
   StreamSubscription<GroupCallSignal>? _subscription;
+  StreamSubscription<void>? _screenShareStoppedSubscription;
   Timer? _ringTimer;
   Timer? _heartbeatTimer;
   Timer? _reannounceTimer;
@@ -88,6 +90,11 @@ class GroupCallService {
     _subscription = _groups.groupCallIncoming.listen(
       (signal) => unawaited(_onSignal(signal)),
     );
+    _screenShareStoppedSubscription = _media?.screenShareStopped.listen((_) {
+      if (_current?.screenOn == true) {
+        unawaited(setScreenShareEnabled(false));
+      }
+    });
   }
 
   void _onGroupChanged() => unawaited(_reconcileMembership());
@@ -641,6 +648,7 @@ class GroupCallService {
     _heartbeatTimer?.cancel();
     _reannounceTimer?.cancel();
     await _subscription?.cancel();
+    await _screenShareStoppedSubscription?.cancel();
     await _stopMediaAndReleaseSlot();
     await _changes.close();
   }

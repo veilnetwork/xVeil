@@ -589,7 +589,7 @@ class _ActiveControls extends StatelessWidget {
               label: call.cameraOn ? l.callCameraOn : l.callCameraOff,
               onPressed: onCamera,
             ),
-            if (Platform.isMacOS) ...[
+            if (Platform.isMacOS || Platform.isAndroid) ...[
               const SizedBox(width: 12),
               _CallButton(
                 key: const ValueKey('group-call-screen'),

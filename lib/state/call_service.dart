@@ -88,6 +88,11 @@ abstract class CallMediaController {
   /// no media session is running.
   Future<bool> setScreenShareEnabled(bool enabled) async => false;
 
+  /// Emits when the OS revokes an active local screen-capture session (for
+  /// example from Android's system sharing chip). The FSM folds that external
+  /// stop back into local state and announces it to the peer.
+  Stream<void> get screenShareStopped => const Stream<void>.empty();
+
   /// Wall-clock of the last time media packets were seen ARRIVING from the peer
   /// (rx_pkts increased), or null if none yet / no media. The FSM treats this as
   /// proof of life for the liveness timeout: while the peer's media is flowing,
@@ -130,6 +135,7 @@ class CallService {
   Call? _current;
   Timer? _ringTimer;
   Timer? _heartbeatTimer;
+  StreamSubscription<void>? _screenShareStoppedSub;
   DateTime? _lastPeerSignalAt;
   bool _started = false;
 
@@ -153,6 +159,11 @@ class CallService {
     _started = true;
     _handler = _onSignal;
     _messaging.onCallSignal = _handler;
+    _screenShareStoppedSub = _media?.screenShareStopped.listen((_) {
+      if (_current?.screenOn == true) {
+        unawaited(setScreenShareEnabled(false));
+      }
+    });
   }
 
   // ---- outbound user actions ---------------------------------------------
@@ -660,6 +671,8 @@ class CallService {
     _cancelRingTimeout();
     _cancelHeartbeat();
     if (_messaging.onCallSignal == _handler) _messaging.onCallSignal = null;
+    unawaited(_screenShareStoppedSub?.cancel());
+    _screenShareStoppedSub = null;
     if (_media == null) {
       _callSlot?.release(CallSlotOwner.direct);
     } else {

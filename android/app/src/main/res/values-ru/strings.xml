@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="screen_share_channel_name">Демонстрация экрана</string>
+    <string name="screen_share_channel_description">Показывает, когда xVeil демонстрирует экран</string>
+    <string name="screen_share_notification_text">Демонстрация экрана включена</string>
+</resources>
