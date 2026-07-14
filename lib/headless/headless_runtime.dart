@@ -237,6 +237,11 @@ class HeadlessRuntime {
         groupMemberAction: groupApi.memberAction,
         renameGroup: groupApi.rename,
         leaveGroup: groupApi.leave,
+        startGroupCall: (_, _) async => 'group calls unavailable',
+        groupCallState: () => null,
+        groupCallAction: (_) async => 'group calls unavailable',
+        groupCallPosture: (_, _, _) async => 'group calls unavailable',
+        groupCallsAvailable: false,
         webhook: () => webhookUrl,
         setWebhook: (url) async {
           webhookUrl = url;
