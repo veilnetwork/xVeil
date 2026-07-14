@@ -8,6 +8,10 @@
     <!-- Microphone for calls (veil audio engine, AAudio capture). Runtime grant;
          requested when a call goes active, not at startup. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Screen sharing is explicit, user-consented MediaProjection. Android
+         14+ requires both the generic and typed foreground-service grants. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <!-- Battery-optimisation exemption: lets the keep-alive foreground service
          actually keep the node receiving in the background (Doze + aggressive
          OEMs suspend the process otherwise). Requested only when the user opts
@@ -51,6 +55,11 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <service
+            android:name=".ScreenCaptureService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection"
+            android:stopWithTask="true" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

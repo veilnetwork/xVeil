@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="screen_share_channel_name">Screen sharing</string>
+    <string name="screen_share_channel_description">Shows when xVeil is sharing your screen</string>
+    <string name="screen_share_notification_text">Screen sharing is active</string>
+</resources>

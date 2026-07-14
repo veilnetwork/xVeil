@@ -1,9 +1,12 @@
 package network.veil.xveil
 
 import android.Manifest
+import android.app.Activity
 import android.app.PictureInPictureParams
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.util.Rational
 import androidx.core.app.ActivityCompat
@@ -23,10 +26,14 @@ class MainActivity : FlutterActivity() {
     private val pipChannelName = "xveil/pip"
     private val pipEventsChannelName = "xveil/pip_events"
     private val callActionChannelName = "xveil/call_actions"
+    private val screenCaptureChannelName = "xveil/screen_capture"
     private val micRequestCode = 0x4D49 // 'MI'
+    private val screenCaptureRequestCode = 0x5343 // 'SC'
     private var pending: MethodChannel.Result? = null
+    private var pendingScreenCapture: MethodChannel.Result? = null
     private var callActionChannel: MethodChannel? = null
     private var pipEventsChannel: MethodChannel? = null
+    private var screenCaptureChannel: MethodChannel? = null
     private var pendingCallAction: String? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -58,6 +65,22 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+        screenCaptureChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            screenCaptureChannelName,
+        ).also { channel ->
+            ScreenCaptureBridge.attach(channel)
+            channel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "start" -> requestScreenCapture(result)
+                    "stop" -> {
+                        stopScreenCapture()
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        }
         // Media epic: one representative frame of a video the user is SENDING
         // (their own plaintext source file) for the message micro-thumb.
         // MediaMetadataRetriever decodes — keep it off the UI thread.
@@ -117,6 +140,43 @@ class MainActivity : FlutterActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         deliverCallAction(intent)
+    }
+
+    private fun requestScreenCapture(result: MethodChannel.Result) {
+        if (pendingScreenCapture != null) {
+            result.success(false)
+            return
+        }
+        val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        pendingScreenCapture = result
+        try {
+            @Suppress("DEPRECATION")
+            startActivityForResult(manager.createScreenCaptureIntent(), screenCaptureRequestCode)
+        } catch (error: Exception) {
+            pendingScreenCapture = null
+            result.error("screen_capture", error.message, null)
+        }
+    }
+
+    @Deprecated("MediaProjection consent still uses the platform activity-result contract")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == screenCaptureRequestCode) {
+            val result = pendingScreenCapture
+            pendingScreenCapture = null
+            if (result == null) return
+            if (resultCode == Activity.RESULT_OK && data != null) {
+                try {
+                    ScreenCaptureService.start(this, resultCode, data)
+                    result.success(true)
+                } catch (error: Exception) {
+                    result.error("screen_capture", error.message, null)
+                }
+            } else {
+                result.success(false)
+            }
+            return
+        }
+        super.onActivityResult(requestCode, resultCode, data)
     }
 
     /**
@@ -200,5 +260,26 @@ class MainActivity : FlutterActivity() {
             pending?.success(ok)
             pending = null
         }
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        stopScreenCapture()
+        screenCaptureChannel?.let(ScreenCaptureBridge::detach)
+        screenCaptureChannel = null
+        super.cleanUpFlutterEngine(flutterEngine)
+    }
+
+    private fun stopScreenCapture() {
+        val pendingResult = pendingScreenCapture
+        pendingScreenCapture = null
+        if (pendingResult != null) {
+            try {
+                @Suppress("DEPRECATION")
+                finishActivity(screenCaptureRequestCode)
+            } catch (_: Exception) {
+            }
+            pendingResult.success(false)
+        }
+        ScreenCaptureService.stop(this)
     }
 }
