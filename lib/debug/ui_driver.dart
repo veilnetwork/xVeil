@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -6,6 +7,51 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
 import '../core/log.dart';
+
+/// Maximum raw RGBA surface allocated for one debug screenshot.
+///
+/// PNG encoding needs additional native buffers, so keep the render target
+/// bounded to 48 MiB even when automation asks for scale=4 on a large desktop
+/// window. Phone screenshots at 407x904 and scale=4 remain below this limit.
+const int maxDebugScreenshotPixels = 12 * 1024 * 1024;
+
+/// Cap [requestedScale] so [logicalSize] cannot exceed the screenshot surface
+/// budget. Kept pure for the Scudo/OOM regression test.
+double boundedScreenshotScale(Size logicalSize, double requestedScale) {
+  final requested = requestedScale.isFinite && requestedScale > 0
+      ? requestedScale
+      : 1.0;
+  final area = logicalSize.width * logicalSize.height;
+  if (!area.isFinite || area <= 0) return requested;
+  final cap = math.sqrt(maxDebugScreenshotPixels / area);
+  return math.min(requested, cap);
+}
+
+/// FIFO gate used around the complete screenshot response lifecycle.
+///
+/// Flutter's raster thread tends to serialize `toImage` itself, but without a
+/// gate every completed request may still retain its RGBA/PNG buffers while
+/// the next one starts. A burst of scale=4 requests therefore used to create
+/// hundreds of MiB of live native allocations in a media-heavy debug build.
+class ScreenshotOperationGate {
+  Future<void> _tail = Future<void>.value();
+
+  Future<T> run<T>(Future<T> Function() operation) {
+    final previous = _tail;
+    final released = Completer<void>();
+    _tail = released.future;
+    return () async {
+      await previous;
+      try {
+        return await operation();
+      } finally {
+        released.complete();
+      }
+    }();
+  }
+}
+
+typedef UiScreenshot = ({Uint8List bytes, double scale});
 
 /// Debug-only UI driver behind the soak/debug HTTP hook: lets an automated
 /// agent fully drive the running app's UI — inspect the semantics tree, tap,
@@ -359,7 +405,7 @@ class UiDriver {
 
   /// PNG of the whole UI. scale=1 → pixels are logical coordinates (matches
   /// /ui_tree rects and /tap); pass the devicePixelRatio for a native-res shot.
-  Future<Uint8List?> screenshot({double scale = 1.0}) async {
+  Future<UiScreenshot?> screenshot({double scale = 1.0}) async {
     final renderObject = screenshotBoundary.currentContext?.findRenderObject();
     if (renderObject is! RenderRepaintBoundary) {
       devLog(() => 'xVeil[ui-driver]: screenshot boundary not found');
@@ -374,10 +420,25 @@ class UiDriver {
         );
       } catch (_) {}
     }
-    final image = await renderObject.toImage(pixelRatio: scale);
+    final actualScale = boundedScreenshotScale(renderObject.size, scale);
+    if (actualScale < scale) {
+      devLog(
+        () =>
+            'xVeil[ui-driver]: screenshot scale capped '
+            '${scale.toStringAsFixed(2)}→${actualScale.toStringAsFixed(2)}',
+      );
+    }
+    final image = await renderObject.toImage(pixelRatio: actualScale);
     try {
       final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-      return bytes?.buffer.asUint8List();
+      if (bytes == null) return null;
+      return (
+        bytes: bytes.buffer.asUint8List(
+          bytes.offsetInBytes,
+          bytes.lengthInBytes,
+        ),
+        scale: actualScale,
+      );
     } finally {
       image.dispose();
     }

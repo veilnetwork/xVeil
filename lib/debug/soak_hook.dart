@@ -145,6 +145,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   StreamSubscription<HttpRequest>? _sub;
   final GlobalKey _screenshotKey = GlobalKey();
   UiDriver? _uiDriver;
+  final ScreenshotOperationGate _screenshotGate = ScreenshotOperationGate();
 
   /// Open media datagram channels keyed by peer node hex (Phase 2 probe).
   final Map<String, int> _mediaChannels = {};
@@ -4055,11 +4056,15 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     }
   }
 
-  Future<void> _screenshot(HttpRequest req) async {
+  Future<void> _screenshot(HttpRequest req) =>
+      _screenshotGate.run(() => _screenshotExclusive(req));
+
+  Future<void> _screenshotExclusive(HttpRequest req) async {
     final scale =
         double.tryParse(req.uri.queryParameters['scale']?.trim() ?? '') ?? 1.0;
-    final bytes = await _driver.screenshot(scale: scale.clamp(0.1, 4.0));
-    if (bytes == null) {
+    final requestedScale = scale.clamp(0.1, 4.0);
+    final shot = await _driver.screenshot(scale: requestedScale);
+    if (shot == null) {
       return _json(req, {
         'ok': false,
         'error': 'screenshot unavailable',
@@ -4067,8 +4072,16 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     }
     req.response.statusCode = 200;
     req.response.headers.contentType = ContentType('image', 'png');
-    req.response.contentLength = bytes.length;
-    req.response.add(bytes);
+    req.response.headers.set(
+      'x-xveil-screenshot-scale',
+      shot.scale.toStringAsFixed(4),
+    );
+    req.response.headers.set(
+      'x-xveil-screenshot-capped',
+      shot.scale < requestedScale ? 'true' : 'false',
+    );
+    req.response.contentLength = shot.bytes.length;
+    req.response.add(shot.bytes);
     await req.response.close();
   }
 
