@@ -11,6 +11,7 @@ import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/domain/group_call.dart';
+import 'package:xveil/domain/group_content.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/state/messaging.dart';
 
@@ -493,6 +494,49 @@ void main() {
       tA.online = true;
       await flushA();
       expect(received, isFalse);
+      expect(await sA.pendingOutboxFrames(), isEmpty);
+    });
+
+    test('non-contact group content request re-drives by membership then expires',
+        () async {
+      await sA.removeConversation(b);
+      await sB.removeConversation(a);
+      final gid = _id(8);
+      mA.allowStrangerGroupSync = (peer, groupIdHex) async =>
+          peer == b && groupIdHex == gid.hex;
+      String? received;
+      mB.onGroupContentRequest = (peer, requestJson) {
+        if (peer == a) received = requestJson;
+      };
+      final request = GroupContentRequest(
+        groupId: gid,
+        contentId: 'c0ffee',
+        requester: a,
+        nonce: '00112233445566778899aabb',
+        tsMs: clock.millisecondsSinceEpoch,
+        signature: Uint8List(64),
+        authorPubKey: Uint8List(32),
+      );
+      final json = jsonEncode(request.toJson());
+
+      tA.online = false;
+      await mA.sendGroupContentRequest(b, json);
+      await _settle();
+      expect(received, isNull);
+      expect(
+        (await sA.pendingOutboxFrames()).single.frameId,
+        'gcr:${gid.hex}:c0ffee:00112233445566778899aabb',
+      );
+
+      tA.online = true;
+      clock = clock.add(const Duration(seconds: 21));
+      await flushA();
+      expect(received, json);
+      expect(await sA.pendingOutboxFrames(), hasLength(1),
+          reason: 'a non-contact gets no ACK oracle');
+
+      clock = clock.add(kGroupContentRequestWindow + const Duration(seconds: 1));
+      await flushA();
       expect(await sA.pendingOutboxFrames(), isEmpty);
     });
 
