@@ -44,6 +44,7 @@ import '../../state/voice_play_controller.dart';
 import '../../state/voice_record_controller.dart';
 import 'voice_waveform.dart';
 import 'camera_capture_screen.dart';
+import 'cancelable_download_progress.dart';
 import 'composer_expression_panel.dart';
 import 'reactors_sheet.dart';
 import 'vnote_preview.dart';
@@ -51,6 +52,26 @@ import 'video_player_screen.dart';
 
 /// The quick-react emoji bar shown atop the message-actions sheet.
 const kQuickReactions = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
+String _safeDownloadName(String? value) {
+  final sanitized = (value ?? 'file').trim().replaceAll(
+    RegExp(r'[/\\\x00]'),
+    '_',
+  );
+  return sanitized.isEmpty ? 'file' : sanitized;
+}
+
+Future<void> _cancelContentDownload(WidgetRef ref, String contentId) async {
+  final partialPath = await ref
+      .read(messagingServiceProvider)
+      .cancelContentDownload(contentId);
+  if (partialPath == null) return;
+  try {
+    await File(partialPath).delete();
+  } catch (_) {
+    // Already absent or the platform revoked the picker grant.
+  }
+}
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key, required this.peerHex, this.initialJumpTo});
@@ -874,11 +895,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     String? deletePath,
     Iterable<String> deletePaths = const [],
   }) {
-    ref
-        .read(messagingServiceProvider)
-        .contentDownloadFailed
-        .firstWhere((c) => c == cid)
-        .then((_) async {
+    final messaging = ref.read(messagingServiceProvider);
+    final terminal = Completer<bool>();
+    late final StreamSubscription<String> failureSubscription;
+    late final StreamSubscription<String> cancellationSubscription;
+
+    failureSubscription = messaging.contentDownloadFailed.listen((failedCid) {
+      if (failedCid == cid && !terminal.isCompleted) {
+        terminal.complete(true);
+      }
+    });
+    cancellationSubscription = messaging.contentDownloadCancelled.listen((
+      cancelledCid,
+    ) {
+      if (cancelledCid == cid && !terminal.isCompleted) {
+        terminal.complete(false);
+      }
+    });
+
+    terminal.future
+        .then((failed) async {
+          await failureSubscription.cancel();
+          await cancellationSubscription.cancel();
+          if (!failed) return;
           for (final path in [?deletePath, ...deletePaths]) {
             try {
               await File(path).delete();
@@ -957,7 +996,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (ok != true) return;
       if (!mounted) return;
     }
-    final name = m.fileName ?? 'file';
+    final name = _safeDownloadName(m.fileName);
     String? dest;
     if (!Platform.isAndroid && !Platform.isIOS) {
       dest = await FilePicker.saveFile(fileName: name);
@@ -1018,14 +1057,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final key = m.fileId ?? m.fileContentId;
     if (key == null) return;
 
-    // Large file on DESKTOP → STREAM it to the chosen path (decrypt chunk by
-    // chunk) so a multi-GB blob is never held whole in RAM. (On mobile the save
-    // plugin wants the bytes up-front, so the small/in-RAM path below is used.)
+    // Large file → STREAM it out of the encrypted store chunk by chunk so a
+    // multi-GB blob is never held whole in RAM. Android/iOS file_picker requires
+    // all bytes up front for saveFile (a 128 MiB export can OOM the platform
+    // MethodChannel), so mobile uses the same app-documents destination as the
+    // direct plaintext-download path. Desktop can safely pick an exact path.
     final size = m.fileSize ?? 0;
-    if (size > kMaxIncomingFileBytes &&
-        !Platform.isAndroid &&
-        !Platform.isIOS) {
-      final dest = await FilePicker.saveFile(fileName: m.fileName ?? 'file');
+    if (size > kMaxIncomingFileBytes) {
+      final String? dest;
+      if (Platform.isAndroid || Platform.isIOS) {
+        dest =
+            '${(await getApplicationDocumentsDirectory()).path}/${_safeDownloadName(m.fileName)}';
+      } else {
+        dest = await FilePicker.saveFile(
+          fileName: _safeDownloadName(m.fileName),
+        );
+      }
       if (dest == null) return; // cancelled
       final storage = ref.read(storageProvider);
       final sink = File(dest).openWrite();
@@ -1058,7 +1105,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // required" and the save did nothing. On desktop `bytes` is accepted too but
     // the plugin only returns a chosen path, so we still write it ourselves.
     final path = await FilePicker.saveFile(
-      fileName: m.fileName ?? 'file',
+      fileName: _safeDownloadName(m.fileName),
       bytes: bytes,
     );
     if (path == null) return; // cancelled
@@ -2656,15 +2703,11 @@ class _StickerPackCardState extends ConsumerState<_StickerPackCard> {
                   )
                 else if (!widget.downloaded)
                   (widget.progress != null
-                      ? SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            value: widget.progress == 0
-                                ? null
-                                : widget.progress,
-                          ),
+                      ? CancelableDownloadProgress(
+                          progress: widget.progress,
+                          onCancel: widget.onDownload!,
+                          size: 24,
+                          strokeWidth: 2,
                         )
                       : TextButton(
                           onPressed: widget.onDownload,
@@ -2693,11 +2736,15 @@ class _StickerContent extends ConsumerWidget {
     required this.fileKey,
     required this.thumbB64,
     this.progress,
+    this.onCancel,
+    this.onDownload,
   });
 
   final String fileKey;
   final String? thumbB64;
   final double? progress;
+  final VoidCallback? onCancel;
+  final VoidCallback? onDownload;
 
   static const double _side = 160;
 
@@ -2740,15 +2787,20 @@ class _StickerContent extends ConsumerWidget {
           ColoredBox(
             color: Theme.of(context).colorScheme.surfaceContainerHighest,
           ),
-        if (progress != null)
+        if (progress != null && onCancel != null)
           Center(
-            child: SizedBox(
-              width: 32,
-              height: 32,
-              child: CircularProgressIndicator(
-                value: progress == 0 ? null : progress,
-                strokeWidth: 3,
-              ),
+            child: CancelableDownloadProgress(
+              progress: progress,
+              onCancel: onCancel!,
+              size: 32,
+              strokeWidth: 3,
+            ),
+          )
+        else if (onDownload != null)
+          Center(
+            child: IconButton.filledTonal(
+              onPressed: onDownload,
+              icon: const Icon(Icons.download),
             ),
           ),
       ],
@@ -2837,14 +2889,12 @@ class _VnoteBubble extends ConsumerWidget {
                           ),
                           Center(
                             child: progress != null
-                                ? SizedBox(
-                                    width: 36,
-                                    height: 36,
-                                    child: CircularProgressIndicator(
-                                      value: progress == 0 ? null : progress,
-                                      strokeWidth: 3,
-                                      color: Colors.white,
-                                    ),
+                                ? CancelableDownloadProgress(
+                                    progress: progress,
+                                    onCancel: onDownload!,
+                                    size: 36,
+                                    strokeWidth: 3,
+                                    color: Colors.white,
                                   )
                                 : Icon(
                                     downloaded
@@ -2945,13 +2995,12 @@ class _VoiceBubble extends ConsumerWidget {
                   width: 36,
                   height: 36,
                   child: progress != null
-                      ? Padding(
-                          padding: const EdgeInsets.all(6),
-                          child: CircularProgressIndicator(
-                            value: progress == 0 ? null : progress,
-                            strokeWidth: 2,
-                            color: onBubble,
-                          ),
+                      ? CancelableDownloadProgress(
+                          progress: progress,
+                          onCancel: onDownload!,
+                          size: 32,
+                          strokeWidth: 2,
+                          color: onBubble,
                         )
                       : Icon(
                           !downloaded
@@ -3187,14 +3236,12 @@ class _VideoPreviewBox extends StatelessWidget {
                   child: Padding(
                     padding: const EdgeInsets.all(8),
                     child: progress != null
-                        ? SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(
-                              value: progress == 0 ? null : progress,
-                              strokeWidth: 2.5,
-                              color: Colors.white,
-                            ),
+                        ? CancelableDownloadProgress(
+                            progress: progress,
+                            onCancel: onTap!,
+                            size: 24,
+                            strokeWidth: 2.5,
+                            color: Colors.white,
                           )
                         : Icon(
                             playable ? Icons.play_arrow : Icons.download,
@@ -3263,6 +3310,8 @@ class _ImagePreview extends ConsumerStatefulWidget {
     required this.fileKey,
     required this.name,
     this.thumbB64,
+    this.progress,
+    this.onCancel,
     this.onOpen,
     this.onView,
   });
@@ -3276,6 +3325,8 @@ class _ImagePreview extends ConsumerStatefulWidget {
   /// Embedded micro-thumb (base64 PNG travelling IN the message) — rendered
   /// blurred/upscaled while the blob itself is not yet downloaded.
   final String? thumbB64;
+  final double? progress;
+  final VoidCallback? onCancel;
 
   /// Fallback tap (download/open) when the bytes aren't in the store yet.
   final VoidCallback? onOpen;
@@ -3309,6 +3360,8 @@ class _ImagePreviewState extends ConsumerState<_ImagePreview> {
   String? get thumbB64 => widget.thumbB64;
   VoidCallback? get onOpen => widget.onOpen;
   VoidCallback? get onView => widget.onView;
+  double? get progress => widget.progress;
+  VoidCallback? get onCancel => widget.onCancel;
 
   @override
   Widget build(BuildContext context) {
@@ -3341,7 +3394,7 @@ class _ImagePreviewState extends ConsumerState<_ImagePreview> {
           }
           if (thumb != null) {
             return GestureDetector(
-              onTap: onOpen,
+              onTap: progress != null ? onCancel : onOpen,
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(10),
                 // Fixed preview box: a 32-px micro-thumb has a tiny intrinsic
@@ -3373,20 +3426,28 @@ class _ImagePreviewState extends ConsumerState<_ImagePreview> {
                       // Download affordance over the preview (Center keeps it
                       // intrinsic-sized under StackFit.expand).
                       Center(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.35),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Padding(
-                            padding: EdgeInsets.all(8),
-                            child: Icon(
-                              Icons.download,
-                              size: 24,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
+                        child: progress != null && onCancel != null
+                            ? CancelableDownloadProgress(
+                                progress: progress,
+                                onCancel: onCancel!,
+                                size: 40,
+                                strokeWidth: 3,
+                                color: Colors.white,
+                              )
+                            : DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.35),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Padding(
+                                  padding: EdgeInsets.all(8),
+                                  child: Icon(
+                                    Icons.download,
+                                    size: 24,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
                       ),
                     ],
                   ),
@@ -3395,13 +3456,22 @@ class _ImagePreviewState extends ConsumerState<_ImagePreview> {
             );
           }
           return InkWell(
-            onTap: onOpen,
+            onTap: progress != null ? onCancel : onOpen,
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(Icons.image_outlined, size: 20, color: scheme.primary),
                 const SizedBox(width: 8),
                 Flexible(child: Text(name, overflow: TextOverflow.ellipsis)),
+                if (progress != null && onCancel != null) ...[
+                  const SizedBox(width: 8),
+                  CancelableDownloadProgress(
+                    progress: progress,
+                    onCancel: onCancel!,
+                    size: 24,
+                    strokeWidth: 2,
+                  ),
+                ],
               ],
             ),
           );
@@ -3737,6 +3807,9 @@ class _Bubble extends ConsumerWidget {
         cid != null &&
         progress == null &&
         ref.watch(contentResumingProvider.select((s) => s.contains(cid)));
+    final cancelDownload = cid == null
+        ? null
+        : () => unawaited(_cancelContentDownload(ref, cid));
     return Container(
       // Selected rows get a full-width tint so the selection reads at a glance.
       color: selected ? scheme.primary.withValues(alpha: 0.12) : null,
@@ -3829,7 +3902,9 @@ class _Bubble extends ConsumerWidget {
                     thumbB64: message.thumb,
                     downloaded: progress == null && (message.fileId != null),
                     progress: progress,
-                    onDownload: onTapFile == null
+                    onDownload: progress != null
+                        ? cancelDownload
+                        : onTapFile == null
                         ? null
                         : () => onTapFile!(message),
                   )
@@ -3838,6 +3913,10 @@ class _Bubble extends ConsumerWidget {
                     fileKey: message.fileId ?? message.fileContentId ?? '',
                     thumbB64: message.thumb,
                     progress: progress,
+                    onCancel: cancelDownload,
+                    onDownload: onTapFile == null
+                        ? null
+                        : () => onTapFile!(message),
                   )
                 else if (message.isFile && isVnoteFileName(message.fileName))
                   FutureBuilder<_FileAffordance>(
@@ -3857,7 +3936,9 @@ class _Bubble extends ConsumerWidget {
                         outgoing: outgoing,
                         downloaded: downloaded,
                         progress: progress,
-                        onDownload: (!downloaded && onTapFile != null)
+                        onDownload: progress != null
+                            ? cancelDownload
+                            : (!downloaded && onTapFile != null)
                             ? () => onTapFile!(message)
                             : null,
                       );
@@ -3881,7 +3962,9 @@ class _Bubble extends ConsumerWidget {
                         outgoing: outgoing,
                         downloaded: downloaded,
                         progress: progress,
-                        onDownload: (!downloaded && onTapFile != null)
+                        onDownload: progress != null
+                            ? cancelDownload
+                            : (!downloaded && onTapFile != null)
                             ? () => onTapFile!(message)
                             : null,
                       );
@@ -3894,6 +3977,8 @@ class _Bubble extends ConsumerWidget {
                     fileKey: (message.fileId ?? message.fileContentId)!,
                     name: message.fileName ?? '',
                     thumbB64: message.thumb,
+                    progress: progress,
+                    onCancel: cancelDownload,
                     onOpen: onTapFile == null
                         ? null
                         : () => onTapFile!(message),
@@ -3938,7 +4023,9 @@ class _Bubble extends ConsumerWidget {
                           sizeLabel: message.fileSize != null
                               ? _formatBytes(message.fileSize!)
                               : null,
-                          onTap: playable
+                          onTap: progress != null
+                              ? cancelDownload
+                              : playable
                               ? () => onPlayVideo!(message)
                               : (onTapFile == null
                                     ? null
@@ -3949,7 +4036,9 @@ class _Bubble extends ConsumerWidget {
                         );
                       }
                       return InkWell(
-                        onTap: playable
+                        onTap: progress != null || resuming
+                            ? cancelDownload
+                            : playable
                             ? () => onPlayVideo!(message)
                             : (onTapFile == null
                                   ? null
@@ -4029,24 +4118,20 @@ class _Bubble extends ConsumerWidget {
                             // keeps the file but the bubble looked un-fetched);
                             // tapping it still exports/saves.
                             if (progress != null)
-                              SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  value: progress == 0 ? null : progress,
-                                  strokeWidth: 2,
-                                  color: scheme.onSurfaceVariant,
-                                ),
+                              CancelableDownloadProgress(
+                                progress: progress,
+                                onCancel: cancelDownload!,
+                                size: 20,
+                                strokeWidth: 2,
+                                color: scheme.onSurfaceVariant,
                               )
                             else if (resuming)
-                              // Indeterminate: a parked resume has no fraction yet.
-                              SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: scheme.onSurfaceVariant,
-                                ),
+                              CancelableDownloadProgress(
+                                progress: null,
+                                onCancel: cancelDownload!,
+                                size: 20,
+                                strokeWidth: 2,
+                                color: scheme.onSurfaceVariant,
                               )
                             else if (playable)
                               // Row-tap plays; saving the video moved here.

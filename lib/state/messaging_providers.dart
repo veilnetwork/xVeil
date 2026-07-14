@@ -152,13 +152,18 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
 /// state instead of lingering at 100%.
 class ContentProgressNotifier extends StateNotifier<Map<String, double>> {
   ContentProgressNotifier(MessagingService svc)
-    : this.forStreams(svc.contentProgress, svc.contentDownloadFailed);
+    : this.forStreams(
+        svc.contentProgress,
+        svc.contentDownloadFailed,
+        cancelled: svc.contentDownloadCancelled,
+      );
 
   @visibleForTesting
   ContentProgressNotifier.forStreams(
     Stream<({String contentId, int done, int total})> progress,
-    Stream<String> failed,
-  ) : super(const {}) {
+    Stream<String> failed, {
+    Stream<String> cancelled = const Stream.empty(),
+  }) : super(const {}) {
     _sub = progress.listen((e) {
       final frac = e.total <= 0 ? 0.0 : e.done / e.total;
       // Late echoes of a transfer that already completed (a duplicate pull
@@ -187,16 +192,21 @@ class ContentProgressNotifier extends StateNotifier<Map<String, double>> {
     _failedSub = failed.listen((contentId) {
       state = {...state}..remove(contentId);
     });
+    _cancelledSub = cancelled.listen((contentId) {
+      state = {...state}..remove(contentId);
+    });
   }
 
   final Map<String, DateTime> _completedAt = {};
   StreamSubscription<({String contentId, int done, int total})>? _sub;
   StreamSubscription<String>? _failedSub;
+  StreamSubscription<String>? _cancelledSub;
 
   @override
   void dispose() {
     _sub?.cancel();
     _failedSub?.cancel();
+    _cancelledSub?.cancel();
     super.dispose();
   }
 }

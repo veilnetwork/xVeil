@@ -72,7 +72,10 @@ class _PipeEnd implements ReliableStream {
   @override
   Future<void> close() async => _w.close();
   @override
-  Future<void> abort() async => _w.close();
+  Future<void> abort() async {
+    _w.close();
+    _r.close();
+  }
 }
 
 /// Test fault: after [passBytes] bytes written by this endpoint, the write side
@@ -435,6 +438,45 @@ void main() {
         data,
         reason: 'pulled + verified the whole',
       );
+    },
+  );
+
+  test(
+    'user cancel aborts the live stream, clears durable resume, and permits a '
+    'fresh retry',
+    () async {
+      final data = _rnd(600000, 701);
+      final cid = await advertiseFromA(data, name: 'cancel.bin');
+      final blocked = Completer<_GateWriteStream>();
+      tA.acceptStreamWrappers.add(
+        (stream) => _GateWriteStream(
+          stream,
+          chunkBytes: 4096,
+          onBlocked: (gate) {
+            if (!blocked.isCompleted) blocked.complete(gate);
+          },
+        ),
+      );
+
+      final cancelled = mB.contentDownloadCancelled.firstWhere(
+        (value) => value == cid,
+      );
+      expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+      final gate = await blocked.future.timeout(const Duration(seconds: 5));
+
+      expect(await mB.pendingAutoResumeContentIds(), contains(cid));
+      expect(await mB.cancelContentDownload(cid), isNull);
+      expect(await cancelled.timeout(const Duration(seconds: 2)), cid);
+      expect(await mB.pendingAutoResumeContentIds(), isNot(contains(cid)));
+      expect(await sB.hasFile(cid), isFalse);
+
+      gate.release();
+      final got = mB.contentReceived.firstWhere(
+        (event) => event.contentId == cid,
+      );
+      expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+      await got.timeout(const Duration(seconds: 20));
+      expect(await sB.loadFile(cid), data);
     },
   );
 
