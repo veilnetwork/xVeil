@@ -2,16 +2,28 @@
 // Flutter-free headless daemon use this adapter, so validation, visibility and
 // policy outcomes cannot drift between the two runtimes.
 
+import 'dart:io';
+import 'dart:typed_data';
+
 import '../core/ids.dart';
 import '../domain/group.dart';
 import '../domain/group_message.dart';
+import '../domain/media_file_name.dart';
 import '../domain/group_policy.dart';
 import '../state/group_service.dart';
+import '../state/messaging_core.dart' show kMaxIncomingFileBytes;
 
 final class GroupApiAdapter {
-  const GroupApiAdapter(this._groups);
+  const GroupApiAdapter(
+    this._groups, {
+    required this.registerContent,
+    required this.loadContent,
+  });
 
   final GroupService _groups;
+  final Future<String> Function(Uint8List bytes, {required String name})
+  registerContent;
+  final Future<List<int>?> Function(String contentId) loadContent;
 
   Future<List<Map<String, dynamic>>> list() async => [
     for (final group in await _groups.listGroups())
@@ -75,6 +87,137 @@ final class GroupApiAdapter {
     if (await _visible(groupHex) == null) return 'group not found';
     final sent = await _groups.postMessage(parsed, body, replyTo: replyTo);
     return sent ? null : 'not a writable group member';
+  }
+
+  /// Register a local file in the existing membership-authorized content path
+  /// and post only its signed content reference to the group. The source path
+  /// is an explicit local API input; bytes are read into RAM and then stored by
+  /// the encrypted file store, never copied to a plaintext staging file.
+  Future<({String? error, String? contentId})> sendFile(
+    String groupHex,
+    String path,
+    String? requestedName,
+    String caption,
+    String? replyTo,
+  ) async {
+    final visible = await _visible(groupHex);
+    if (visible == null) {
+      return (error: 'group not found', contentId: null);
+    }
+    final me = visible.$2.memberOf(_groups.selfId);
+    if (me == null || me.muted) {
+      return (error: 'not a writable group member', contentId: null);
+    }
+    final file = File(path);
+    try {
+      if (!await file.exists()) {
+        return (error: 'source not found', contentId: null);
+      }
+      final size = await file.length();
+      if (size <= 0) return (error: 'source is empty', contentId: null);
+      if (size > kMaxIncomingFileBytes) {
+        return (error: 'group file too large', contentId: null);
+      }
+      final fallbackName = file.uri.pathSegments.isEmpty
+          ? 'file'
+          : file.uri.pathSegments.last;
+      final name = requestedName?.trim().isNotEmpty == true
+          ? requestedName!.trim()
+          : fallbackName;
+      if (name.length > 255) {
+        return (error: 'file name too long', contentId: null);
+      }
+      final bytes = await file.readAsBytes();
+      if (bytes.isEmpty) return (error: 'source is empty', contentId: null);
+      try {
+        // The storage callback may take ownership of its buffer (the in-memory
+        // adapter does), so give it a dedicated copy and wipe only our source
+        // read below. Wiping the transferred buffer would corrupt the blob.
+        final cid = await registerContent(
+          Uint8List.fromList(bytes),
+          name: name,
+        );
+        final posted = await _groups.postMessage(
+          visible.$1,
+          caption,
+          replyTo: replyTo,
+          attachment: GroupAttachment(
+            // A video has a dedicated player even without a poster. Other
+            // sources use the generic file row; image-specific rendering needs
+            // a real signed micro-thumbnail, which headless cannot fabricate.
+            kind: isVideoFileName(name) ? 'video' : 'file',
+            dataB64: 'QQ==',
+            w: bytes.length,
+            h: 1,
+            cid: cid,
+            name: name,
+          ),
+        );
+        return posted
+            ? (error: null, contentId: cid)
+            : (error: 'group mutation failed', contentId: null);
+      } finally {
+        bytes.fillRange(0, bytes.length, 0);
+      }
+    } on FileSystemException {
+      return (error: 'source unreadable', contentId: null);
+    } catch (_) {
+      return (error: 'content registration failed', contentId: null);
+    }
+  }
+
+  /// Start the normal signed membership fetch for the exact attachment
+  /// referenced by [messageRef]. The caller never supplies a holder node id:
+  /// the validated message author is authoritative, avoiding a content oracle.
+  Future<String?> fetchFile(String groupHex, String messageRef) async {
+    final resolved = await _resolveAttachment(groupHex, messageRef);
+    if (resolved == null) return 'group message attachment not found';
+    try {
+      if (await loadContent(resolved.$2) != null) return null;
+      return await _groups.fetchGroupContent(
+            resolved.$1,
+            resolved.$2,
+            resolved.$3,
+          )
+          ? null
+          : 'group content fetch unavailable';
+    } catch (_) {
+      return 'group content fetch failed';
+    }
+  }
+
+  /// Load an encrypted-store blob only when a validated message in the named
+  /// visible group references it. This deliberately accepts no bare contentId.
+  Future<({String? error, List<int>? bytes})> loadFile(
+    String groupHex,
+    String messageRef,
+  ) async {
+    final resolved = await _resolveAttachment(groupHex, messageRef);
+    if (resolved == null) {
+      return (error: 'group message attachment not found', bytes: null);
+    }
+    try {
+      final bytes = await loadContent(resolved.$2);
+      return bytes == null
+          ? (error: 'group content not downloaded', bytes: null)
+          : (error: null, bytes: bytes);
+    } catch (_) {
+      return (error: 'group content load failed', bytes: null);
+    }
+  }
+
+  Future<(NodeId, String, NodeId)?> _resolveAttachment(
+    String groupHex,
+    String messageRef,
+  ) async {
+    final visible = await _visible(groupHex);
+    if (visible == null) return null;
+    for (final message in await _groups.messagesOf(visible.$1)) {
+      if (message.ref == messageRef && message.attachment?.cid != null) {
+        return (visible.$1, message.attachment!.cid!, message.author);
+      }
+    }
+    return null;
   }
 
   /// Current validated roster. Only user-visible groups that still contain the

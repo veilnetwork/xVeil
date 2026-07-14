@@ -526,7 +526,13 @@ class ApiServerController extends Notifier<ApiConfig> {
     final groupService = ref.read(groupServiceProvider);
     final groupApi = groupService == null
         ? null
-        : GroupApiAdapter(groupService);
+        : GroupApiAdapter(
+            groupService,
+            registerContent: ref
+                .read(messagingServiceProvider)
+                .registerGroupContent,
+            loadContent: ref.read(storageProvider).loadFile,
+          );
     final groupCalls = groupService == null
         ? null
         : ref.read(groupCallServiceProvider);
@@ -551,6 +557,16 @@ class ApiServerController extends Notifier<ApiConfig> {
       sendGroupMessage: groupApi == null
           ? (_, _, _) async => 'groups unavailable'
           : groupApi.sendMessage,
+      sendGroupFile: groupApi == null
+          ? (_, _, _, _, _) async =>
+                (error: 'group media unavailable', contentId: null)
+          : groupApi.sendFile,
+      fetchGroupFile: groupApi == null
+          ? (_, _) async => 'group media unavailable'
+          : groupApi.fetchFile,
+      loadGroupFile: groupApi == null
+          ? (_, _) async => (error: 'group media unavailable', bytes: null)
+          : groupApi.loadFile,
       groupMembers: groupApi == null ? (_) async => null : groupApi.members,
       groupMemberAction: groupApi == null
           ? (_, _, _, _) async => 'groups unavailable'
@@ -562,6 +578,7 @@ class ApiServerController extends Notifier<ApiConfig> {
           ? (_) async => 'groups unavailable'
           : groupApi.leave,
       groupsAvailable: groupService != null,
+      groupMediaAvailable: groupApi != null,
       startGroupCall: _startGroupCall,
       groupCallState: _groupCallState,
       groupCallAction: _groupCallAction,

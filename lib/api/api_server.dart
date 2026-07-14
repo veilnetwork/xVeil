@@ -373,6 +373,97 @@ Map<String, dynamic> openApiSpec() {
           'responses': ok({'type': obj}),
         },
       },
+      '/groups/files': {
+        'post': {
+          'summary':
+              'Post a local file through the group content path (max 8 MiB)',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['group', 'path'],
+                  'properties': {
+                    'group': {'type': 'string'},
+                    'path': {'type': 'string'},
+                    'name': {'type': 'string', 'maxLength': 255},
+                    'caption': {'type': 'string', 'maxLength': 524288},
+                    'replyTo': {'type': 'string'},
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'ok': {'type': 'boolean'},
+              'contentId': {'type': 'string'},
+            },
+          }),
+        },
+      },
+      '/groups/files/fetch': {
+        'post': {
+          'summary':
+              'Start a membership-authorized fetch for a group attachment',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['group', 'messageId'],
+                  'properties': {
+                    'group': {'type': 'string'},
+                    'messageId': {'type': 'string'},
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'ok': {'type': 'boolean'},
+              'started': {'type': 'boolean'},
+            },
+          }),
+        },
+      },
+      '/groups/files/download': {
+        'get': {
+          'summary':
+              'Read a downloaded group attachment after group/message validation',
+          'parameters': [
+            {
+              'name': 'group',
+              'in': 'query',
+              'required': true,
+              'schema': {'type': 'string'},
+            },
+            {
+              'name': 'messageId',
+              'in': 'query',
+              'required': true,
+              'schema': {'type': 'string'},
+            },
+          ],
+          'responses': {
+            '200': {
+              'description': 'Attachment bytes',
+              'content': {
+                'application/octet-stream': {
+                  'schema': {'type': 'string', 'format': 'binary'},
+                },
+              },
+            },
+            '404': {'description': 'Unknown group attachment'},
+            '409': {'description': 'Attachment is not downloaded yet'},
+          },
+        },
+      },
       '/groups/members': {
         'get': {
           'summary': 'Validated roster and policy state of one group',
@@ -834,11 +925,15 @@ class ApiHandler {
     required this.createGroup,
     required this.groupMessages,
     required this.sendGroupMessage,
+    required this.sendGroupFile,
+    required this.fetchGroupFile,
+    required this.loadGroupFile,
     required this.groupMembers,
     required this.groupMemberAction,
     required this.renameGroup,
     required this.leaveGroup,
     this.groupsAvailable = true,
+    this.groupMediaAvailable = true,
     required this.startGroupCall,
     required this.groupCallState,
     required this.groupCallAction,
@@ -893,14 +988,29 @@ class ApiHandler {
   final bool callsAvailable;
 
   /// Groups belong to the active identity just like contacts/messages. A host
-  /// that cannot wire the group core (currently the Flutter-free headless
-  /// runtime) keeps the stable routes but returns 501 via [groupsAvailable].
+  /// that cannot wire the group core keeps the stable routes but returns 501
+  /// via [groupsAvailable].
   final Future<List<Map<String, dynamic>>> Function() groups;
   final Future<String?> Function(String name) createGroup;
   final Future<List<Map<String, dynamic>>?> Function(String groupHex, int limit)
   groupMessages;
   final Future<String?> Function(String groupHex, String body, String? replyTo)
   sendGroupMessage;
+  final Future<({String? error, String? contentId})> Function(
+    String groupHex,
+    String path,
+    String? name,
+    String caption,
+    String? replyTo,
+  )
+  sendGroupFile;
+  final Future<String?> Function(String groupHex, String messageRef)
+  fetchGroupFile;
+  final Future<({String? error, List<int>? bytes})> Function(
+    String groupHex,
+    String messageRef,
+  )
+  loadGroupFile;
   final Future<Map<String, dynamic>?> Function(String groupHex) groupMembers;
   final Future<String?> Function(
     String groupHex,
@@ -912,6 +1022,11 @@ class ApiHandler {
   final Future<String?> Function(String groupHex, String name) renameGroup;
   final Future<String?> Function(String groupHex) leaveGroup;
   final bool groupsAvailable;
+
+  /// File refs, membership-authorized fetch, and encrypted-store reads. Kept
+  /// as a separate capability so a future constrained host can expose text
+  /// groups honestly while returning 501 for group content operations.
+  final bool groupMediaAvailable;
 
   /// Group-call control and local media posture. Headless hosts keep the
   /// stable routes but return 501 because they have no audio/video engine.
@@ -1035,6 +1150,11 @@ class ApiHandler {
         'error': 'group calls unavailable on this host',
       });
     }
+    if (path.startsWith('/v1/groups/files') && !groupMediaAvailable) {
+      return const ApiResponse(501, {
+        'error': 'group media unavailable on this host',
+      });
+    }
     if (path.startsWith('/v1/groups') && !groupsAvailable) {
       return const ApiResponse(501, {
         'error': 'groups unavailable on this host',
@@ -1085,6 +1205,67 @@ class ApiHandler {
       return err == null
           ? const ApiResponse(200, {'ok': true})
           : ApiResponse(400, {'error': err});
+    }
+    if (method == 'POST' && path == '/v1/groups/files') {
+      final group = body?['group'];
+      final filePath = body?['path'];
+      final name = body?['name'];
+      final caption = body?['caption'] ?? '';
+      final replyTo = body?['replyTo'];
+      if (group is! String ||
+          group.isEmpty ||
+          filePath is! String ||
+          filePath.isEmpty ||
+          (name != null && name is! String) ||
+          caption is! String ||
+          (replyTo != null &&
+              (replyTo is! String ||
+                  !RegExp(r'^[0-9a-fA-F]{64}:[0-9]+$').hasMatch(replyTo)))) {
+        return const ApiResponse(400, {
+          'error': 'group + path required; optional name/caption/replyTo',
+        });
+      }
+      if (utf8.encode(caption).length > 512 * 1024) {
+        return const ApiResponse(413, {'error': 'group caption too large'});
+      }
+      final result = await sendGroupFile(
+        group,
+        filePath,
+        name as String?,
+        caption,
+        replyTo as String?,
+      );
+      return result.error == null
+          ? ApiResponse(200, {'ok': true, 'contentId': result.contentId})
+          : _groupFileError(result.error!);
+    }
+    if (method == 'POST' && path == '/v1/groups/files/fetch') {
+      final group = body?['group'];
+      final message = body?['messageId'];
+      if (group is! String ||
+          group.isEmpty ||
+          message is! String ||
+          !RegExp(r'^[0-9a-fA-F]{64}:[0-9]+$').hasMatch(message)) {
+        return const ApiResponse(400, {'error': 'group + messageId required'});
+      }
+      final error = await fetchGroupFile(group, message);
+      return error == null
+          ? const ApiResponse(200, {'ok': true, 'started': true})
+          : _groupFileError(error);
+    }
+    if (method == 'GET' && path == '/v1/groups/files/download') {
+      final group = uri.queryParameters['group'];
+      final message = uri.queryParameters['messageId'];
+      if (group == null ||
+          group.isEmpty ||
+          message == null ||
+          !RegExp(r'^[0-9a-fA-F]{64}:[0-9]+$').hasMatch(message)) {
+        return const ApiResponse(400, {'error': 'group + messageId required'});
+      }
+      final result = await loadGroupFile(group, message);
+      return result.error == null
+          ? ApiResponse.binary(result.bytes!)
+          : _groupFileError(result.error!);
     }
     if (method == 'GET' && path == '/v1/groups/members') {
       final group = uri.queryParameters['group'];
@@ -1268,6 +1449,24 @@ class ApiHandler {
       'operation rejected by group policy' => 403,
       'member already exists' => 409,
       'group mutation failed' => 409,
+      _ => 400,
+    };
+    return ApiResponse(status, {'error': error});
+  }
+
+  ApiResponse _groupFileError(String error) {
+    final status = switch (error) {
+      'group not found' => 404,
+      'group message attachment not found' => 404,
+      'source not found' => 404,
+      'not a writable group member' => 403,
+      'group file too large' => 413,
+      'group mutation failed' => 409,
+      'group content fetch unavailable' => 409,
+      'group content fetch failed' => 500,
+      'group content not downloaded' => 409,
+      'group content load failed' => 500,
+      'content registration failed' => 500,
       _ => 400,
     };
     return ApiResponse(status, {'error': error});
