@@ -53,6 +53,10 @@ cleanup() {
     if [[ -e "$STATE_DIR/$relative_path.absent" ]]; then
       rm -f "$ROOT/$relative_path"
     else
+      # CocoaPods may remove the whole SwiftPM state directory while swapping
+      # the production MLKit graph for the simulator stub. Recreate the
+      # original parent before restoring the saved tracked file.
+      mkdir -p "$ROOT/$(dirname "$relative_path")"
       cp -p "$STATE_DIR/$relative_path" "$ROOT/$relative_path"
     fi
   done
