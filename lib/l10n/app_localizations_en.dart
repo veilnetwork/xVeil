@@ -2190,6 +2190,12 @@ class AppL10nEn extends AppL10n {
   String get callScreenOff => 'Share screen';
 
   @override
+  String get callScreenWaiting => 'Waiting for shared screen…';
+
+  @override
+  String get callVideoWaiting => 'Waiting for video…';
+
+  @override
   String get callPathOnion => 'Anonymous (onion)';
 
   @override

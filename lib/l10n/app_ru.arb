@@ -715,6 +715,8 @@
   "callCameraOff": "Камера выкл",
   "callScreenOn": "Показ экрана",
   "callScreenOff": "Показать экран",
+  "callScreenWaiting": "Ожидание показа экрана…",
+  "callVideoWaiting": "Ожидание видео…",
   "callPathOnion": "Анонимно (onion)",
   "callPathRelay": "Через реле",
   "callPathP2P": "Напрямую (P2P)",

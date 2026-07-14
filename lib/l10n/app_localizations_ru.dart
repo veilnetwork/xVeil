@@ -2206,6 +2206,12 @@ class AppL10nRu extends AppL10n {
   String get callScreenOff => 'Показать экран';
 
   @override
+  String get callScreenWaiting => 'Ожидание показа экрана…';
+
+  @override
+  String get callVideoWaiting => 'Ожидание видео…';
+
+  @override
   String get callPathOnion => 'Анонимно (onion)';
 
   @override

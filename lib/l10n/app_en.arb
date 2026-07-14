@@ -719,6 +719,8 @@
   "callCameraOff": "Camera off",
   "callScreenOn": "Sharing screen",
   "callScreenOff": "Share screen",
+  "callScreenWaiting": "Waiting for shared screen…",
+  "callVideoWaiting": "Waiting for video…",
   "callPathOnion": "Anonymous (onion)",
   "callPathRelay": "Relayed",
   "callPathP2P": "Direct (P2P)",
