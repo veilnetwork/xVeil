@@ -7,12 +7,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/api_server.dart';
+import '../api/group_api_adapter.dart';
 import '../core/ids.dart';
 import '../data/serve_source.dart';
 import '../data/transport/bootstrap_invite.dart';
 import '../domain/call_signal.dart' show CallMedia;
 import '../domain/chat.dart';
-import '../domain/group_message.dart';
 import 'app_controller.dart';
 import 'call_service.dart' show callServiceProvider, currentCallProvider;
 import 'group_service_providers.dart';
@@ -317,89 +317,6 @@ class ApiServerController extends Notifier<ApiConfig> {
     }
   }
 
-  Future<List<Map<String, dynamic>>> _groups(GroupService service) async => [
-    for (final group in await service.listGroups())
-      {
-        'groupId': group.groupId.hex,
-        'name': group.name,
-        'unread': group.unread,
-        'muted': group.muted,
-        'preview': group.preview,
-        'lastTs': group.lastTs,
-      },
-  ];
-
-  Future<String?> _createGroup(GroupService service, String name) async {
-    try {
-      return (await service.createGroup(name)).hex;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Map<String, dynamic> _groupMessageJson(GroupMessage message) => {
-    'id': message.ref,
-    'author': message.author.hex,
-    'body': message.body,
-    'sentAt': message.createdAtMs,
-    if (message.replyTo != null) 'replyTo': message.replyTo,
-    if (message.attachment != null)
-      'attachment': {
-        'kind': message.attachment!.kind,
-        'width': message.attachment!.w,
-        'height': message.attachment!.h,
-        if (message.attachment!.name != null) 'name': message.attachment!.name,
-        if (message.attachment!.cid != null)
-          'contentId': message.attachment!.cid,
-      },
-  };
-
-  Future<List<Map<String, dynamic>>?> _groupMessages(
-    GroupService service,
-    String groupHex,
-    int limit,
-  ) async {
-    final NodeId groupId;
-    try {
-      groupId = NodeId.fromHex(groupHex);
-    } catch (_) {
-      return null;
-    }
-    // listGroups is the authoritative user-visible membership filter: it also
-    // excludes the infrastructure device group.
-    final visible = (await service.listGroups()).any(
-      (entry) => entry.groupId == groupId,
-    );
-    if (!visible) return null;
-    final all = await service.messagesOf(groupId);
-    return [
-      for (final message in all.skip(
-        all.length > limit ? all.length - limit : 0,
-      ))
-        _groupMessageJson(message),
-    ];
-  }
-
-  Future<String?> _sendGroupMessage(
-    GroupService service,
-    String groupHex,
-    String body,
-    String? replyTo,
-  ) async {
-    final NodeId groupId;
-    try {
-      groupId = NodeId.fromHex(groupHex);
-    } catch (_) {
-      return 'invalid group';
-    }
-    final visible = (await service.listGroups()).any(
-      (entry) => entry.groupId == groupId,
-    );
-    if (!visible) return 'group not found';
-    final ok = await service.postMessage(groupId, body, replyTo: replyTo);
-    return ok ? null : 'not a writable group member';
-  }
-
   Stream<Map<String, dynamic>> _events(GroupService? groups) =>
       Stream.multi((controller) {
         final subscriptions = <StreamSubscription<dynamic>>[
@@ -456,6 +373,9 @@ class ApiServerController extends Notifier<ApiConfig> {
       return;
     }
     final groupService = ref.read(groupServiceProvider);
+    final groupApi = groupService == null
+        ? null
+        : GroupApiAdapter(groupService);
     final handler = ApiHandler(
       tokens: state.tokens,
       status: _status,
@@ -469,19 +389,24 @@ class ApiServerController extends Notifier<ApiConfig> {
       placeCall: _placeCall,
       callState: _callState,
       callAction: _callAction,
-      groups: groupService == null
-          ? () async => const []
-          : () => _groups(groupService),
-      createGroup: groupService == null
-          ? (_) async => null
-          : (name) => _createGroup(groupService, name),
-      groupMessages: groupService == null
+      groups: groupApi == null ? () async => const [] : groupApi.list,
+      createGroup: groupApi == null ? (_) async => null : groupApi.create,
+      groupMessages: groupApi == null
           ? (_, _) async => null
-          : (group, limit) => _groupMessages(groupService, group, limit),
-      sendGroupMessage: groupService == null
+          : groupApi.messages,
+      sendGroupMessage: groupApi == null
           ? (_, _, _) async => 'groups unavailable'
-          : (group, body, replyTo) =>
-                _sendGroupMessage(groupService, group, body, replyTo),
+          : groupApi.sendMessage,
+      groupMembers: groupApi == null ? (_) async => null : groupApi.members,
+      groupMemberAction: groupApi == null
+          ? (_, _, _, _) async => 'groups unavailable'
+          : groupApi.memberAction,
+      renameGroup: groupApi == null
+          ? (_, _) async => 'groups unavailable'
+          : groupApi.rename,
+      leaveGroup: groupApi == null
+          ? (_) async => 'groups unavailable'
+          : groupApi.leave,
       groupsAvailable: groupService != null,
       webhook: () => state.webhookUrl,
       setWebhook: setWebhook,
