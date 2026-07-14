@@ -127,6 +127,19 @@ Map<String, dynamic> openApiSpec() {
             'attachment': {'type': obj},
           },
         },
+        'GroupMember': {
+          'type': obj,
+          'properties': {
+            'nodeId': {'type': 'string'},
+            'short': {'type': 'string'},
+            'role': {
+              'type': 'string',
+              'enum': ['owner', 'admin', 'member'],
+            },
+            'muted': {'type': 'boolean'},
+            'self': {'type': 'boolean'},
+          },
+        },
       },
     },
     'paths': {
@@ -317,6 +330,105 @@ Map<String, dynamic> openApiSpec() {
                     'group': {'type': 'string'},
                     'body': {'type': 'string', 'maxLength': 524288},
                     'replyTo': {'type': 'string'},
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({'type': obj}),
+        },
+      },
+      '/groups/members': {
+        'get': {
+          'summary': 'Validated roster and policy state of one group',
+          'parameters': [
+            {
+              'name': 'group',
+              'in': 'query',
+              'required': true,
+              'schema': {'type': 'string'},
+            },
+          ],
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'groupId': {'type': 'string'},
+              'name': {'type': 'string'},
+              'epoch': {'type': 'integer'},
+              'policyVersion': {'type': 'integer'},
+              'selfRole': {
+                'type': 'string',
+                'enum': ['owner', 'admin', 'member'],
+              },
+              'members': {
+                'type': 'array',
+                'items': {r'$ref': '#/components/schemas/GroupMember'},
+              },
+            },
+          }),
+        },
+        'post': {
+          'summary':
+              'Add/remove/moderate a member through the signed group log',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['group', 'action', 'peer'],
+                  'properties': {
+                    'group': {'type': 'string'},
+                    'action': {
+                      'type': 'string',
+                      'enum': ['add', 'remove', 'set_role', 'mute', 'unmute'],
+                    },
+                    'peer': {'type': 'string'},
+                    'role': {
+                      'type': 'string',
+                      'enum': ['admin', 'member'],
+                    },
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({'type': obj}),
+        },
+      },
+      '/groups/name': {
+        'post': {
+          'summary': 'Rename a group (admin or owner)',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['group', 'name'],
+                  'properties': {
+                    'group': {'type': 'string'},
+                    'name': {'type': 'string', 'maxLength': 64},
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({'type': obj}),
+        },
+      },
+      '/groups/leave': {
+        'post': {
+          'summary': 'Leave a group as the active non-owner identity',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['group'],
+                  'properties': {
+                    'group': {'type': 'string'},
                   },
                 },
               },
@@ -603,6 +715,10 @@ class ApiHandler {
     required this.createGroup,
     required this.groupMessages,
     required this.sendGroupMessage,
+    required this.groupMembers,
+    required this.groupMemberAction,
+    required this.renameGroup,
+    required this.leaveGroup,
     this.groupsAvailable = true,
     this.webhook,
     this.setWebhook,
@@ -661,6 +777,16 @@ class ApiHandler {
   groupMessages;
   final Future<String?> Function(String groupHex, String body, String? replyTo)
   sendGroupMessage;
+  final Future<Map<String, dynamic>?> Function(String groupHex) groupMembers;
+  final Future<String?> Function(
+    String groupHex,
+    String action,
+    String peerHex,
+    String? role,
+  )
+  groupMemberAction;
+  final Future<String?> Function(String groupHex, String name) renameGroup;
+  final Future<String?> Function(String groupHex) leaveGroup;
   final bool groupsAvailable;
 
   /// The configured webhook URL (null = none). Optional: hosts without the
@@ -822,6 +948,65 @@ class ApiHandler {
           ? const ApiResponse(200, {'ok': true})
           : ApiResponse(400, {'error': err});
     }
+    if (method == 'GET' && path == '/v1/groups/members') {
+      final group = uri.queryParameters['group'];
+      if (group == null || group.isEmpty) {
+        return const ApiResponse(400, {'error': 'group required'});
+      }
+      final roster = await groupMembers(group);
+      return roster == null
+          ? const ApiResponse(404, {'error': 'group not found'})
+          : ApiResponse(200, roster);
+    }
+    if (method == 'POST' && path == '/v1/groups/members') {
+      final group = body?['group'];
+      final action = body?['action'];
+      final peer = body?['peer'];
+      final role = body?['role'];
+      const actions = {'add', 'remove', 'set_role', 'mute', 'unmute'};
+      const roles = {'admin', 'member'};
+      final roleRequired = action == 'add' || action == 'set_role';
+      if (group is! String ||
+          group.isEmpty ||
+          action is! String ||
+          !actions.contains(action) ||
+          peer is! String ||
+          !RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(peer) ||
+          (roleRequired && (role is! String || !roles.contains(role))) ||
+          (!roleRequired && role != null)) {
+        return const ApiResponse(400, {
+          'error': 'group + action + peer required; role for add/set_role',
+        });
+      }
+      final error = await groupMemberAction(
+        group,
+        action,
+        peer,
+        role as String?,
+      );
+      return _groupMutationResponse(error);
+    }
+    if (method == 'POST' && path == '/v1/groups/name') {
+      final group = body?['group'];
+      final rawName = body?['name'];
+      final name = rawName is String ? rawName.trim() : '';
+      if (group is! String ||
+          group.isEmpty ||
+          name.isEmpty ||
+          name.length > 64) {
+        return const ApiResponse(400, {
+          'error': 'group + name required (name max 64)',
+        });
+      }
+      return _groupMutationResponse(await renameGroup(group, name));
+    }
+    if (method == 'POST' && path == '/v1/groups/leave') {
+      final group = body?['group'];
+      if (group is! String || group.isEmpty) {
+        return const ApiResponse(400, {'error': 'group required'});
+      }
+      return _groupMutationResponse(await leaveGroup(group));
+    }
     if (method == 'POST' && path == '/v1/files') {
       final to = body?['to'];
       final filePath = body?['path'];
@@ -895,6 +1080,19 @@ class ApiHandler {
       }
     }
     return const ApiResponse(404, {'error': 'not found'});
+  }
+
+  ApiResponse _groupMutationResponse(String? error) {
+    if (error == null) return const ApiResponse(200, {'ok': true});
+    final status = switch (error) {
+      'group not found' => 404,
+      'member not found' => 404,
+      'operation rejected by group policy' => 403,
+      'member already exists' => 409,
+      'group mutation failed' => 409,
+      _ => 400,
+    };
+    return ApiResponse(status, {'error': error});
   }
 }
 

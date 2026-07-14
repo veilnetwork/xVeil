@@ -6,6 +6,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import '../api/api_server.dart';
+import '../api/group_api_adapter.dart';
 import '../core/ids.dart';
 import '../core/log.dart';
 import '../data/node/embedded_node.dart';
@@ -20,7 +21,6 @@ import '../data/transport/veil_flutter_transport.dart';
 import '../data/transport/veil_mailbox.dart';
 import '../data/veil_stack.dart';
 import '../domain/chat.dart';
-import '../domain/group_message.dart';
 import '../domain/identity.dart';
 import '../state/group_epoch_service.dart';
 import '../state/group_service.dart';
@@ -203,6 +203,7 @@ class HeadlessRuntime {
       if (webhookUrl?.isEmpty ?? false) webhookUrl = null;
       final events = _events(messaging, groups);
       webhookPump = _WebhookPump(events);
+      final groupApi = GroupApiAdapter(groups);
 
       final handler = ApiHandler(
         tokens: loadedTokens,
@@ -228,11 +229,14 @@ class HeadlessRuntime {
         callState: () => null,
         callAction: (_) async {},
         callsAvailable: false,
-        groups: () => _groups(groups!),
-        createGroup: (name) => _createGroup(groups!, name),
-        groupMessages: (group, limit) => _groupMessages(groups!, group, limit),
-        sendGroupMessage: (group, body, replyTo) =>
-            _sendGroupMessage(groups!, group, body, replyTo),
+        groups: groupApi.list,
+        createGroup: groupApi.create,
+        groupMessages: groupApi.messages,
+        sendGroupMessage: groupApi.sendMessage,
+        groupMembers: groupApi.members,
+        groupMemberAction: groupApi.memberAction,
+        renameGroup: groupApi.rename,
+        leaveGroup: groupApi.leave,
         webhook: () => webhookUrl,
         setWebhook: (url) async {
           webhookUrl = url;
@@ -318,89 +322,6 @@ class HeadlessRuntime {
       }
     };
   }, isBroadcast: true);
-
-  static Future<List<Map<String, dynamic>>> _groups(
-    GroupService groups,
-  ) async => [
-    for (final group in await groups.listGroups())
-      {
-        'groupId': group.groupId.hex,
-        'name': group.name,
-        'unread': group.unread,
-        'muted': group.muted,
-        'preview': group.preview,
-        'lastTs': group.lastTs,
-      },
-  ];
-
-  static Future<String?> _createGroup(GroupService groups, String name) async {
-    try {
-      return (await groups.createGroup(name)).hex;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  static Map<String, dynamic> _groupMessageJson(GroupMessage message) => {
-    'id': message.ref,
-    'author': message.author.hex,
-    'body': message.body,
-    'sentAt': message.createdAtMs,
-    if (message.replyTo != null) 'replyTo': message.replyTo,
-    if (message.attachment != null)
-      'attachment': {
-        'kind': message.attachment!.kind,
-        'width': message.attachment!.w,
-        'height': message.attachment!.h,
-        if (message.attachment!.name != null) 'name': message.attachment!.name,
-        if (message.attachment!.cid != null)
-          'contentId': message.attachment!.cid,
-      },
-  };
-
-  static Future<List<Map<String, dynamic>>?> _groupMessages(
-    GroupService groups,
-    String groupHex,
-    int limit,
-  ) async {
-    final NodeId groupId;
-    try {
-      groupId = NodeId.fromHex(groupHex);
-    } catch (_) {
-      return null;
-    }
-    final visible = (await groups.listGroups()).any(
-      (entry) => entry.groupId == groupId,
-    );
-    if (!visible) return null;
-    final all = await groups.messagesOf(groupId);
-    return [
-      for (final message in all.skip(
-        all.length > limit ? all.length - limit : 0,
-      ))
-        _groupMessageJson(message),
-    ];
-  }
-
-  static Future<String?> _sendGroupMessage(
-    GroupService groups,
-    String groupHex,
-    String body,
-    String? replyTo,
-  ) async {
-    final NodeId groupId;
-    try {
-      groupId = NodeId.fromHex(groupHex);
-    } catch (_) {
-      return 'invalid group';
-    }
-    final visible = (await groups.listGroups()).any(
-      (entry) => entry.groupId == groupId,
-    );
-    if (!visible) return 'group not found';
-    final sent = await groups.postMessage(groupId, body, replyTo: replyTo);
-    return sent ? null : 'not a writable group member';
-  }
 
   static Future<List<ApiToken>> _loadTokens(HiddenVolumeStorage storage) async {
     final raw = await storage.getSetting(_tokensKey);

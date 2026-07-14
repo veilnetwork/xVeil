@@ -9,6 +9,7 @@ import 'package:xveil/state/api_server.dart';
 void main() {
   final sent = <(String, String)>[];
   final groupPosts = <(String, String, String?)>[];
+  final groupActions = <(String, String, String, String?)>[];
   Map<String, dynamic>? _call;
   ApiHandler make({
     String token = 'secret-token',
@@ -17,6 +18,7 @@ void main() {
   }) {
     sent.clear();
     groupPosts.clear();
+    groupActions.clear();
     return ApiHandler(
       tokens: token.isEmpty
           ? const []
@@ -82,6 +84,42 @@ void main() {
         groupPosts.add((group, body, replyTo));
         return null;
       },
+      groupMembers: (group) async => group == 'missing'
+          ? null
+          : {
+              'groupId': group,
+              'name': 'Family',
+              'epoch': 2,
+              'policyVersion': 0,
+              'selfRole': 'owner',
+              'members': [
+                {
+                  'nodeId': '01' * 32,
+                  'short': '01010101',
+                  'role': 'owner',
+                  'muted': false,
+                  'self': true,
+                },
+              ],
+            },
+      groupMemberAction: (group, action, peer, role) async {
+        if (group == 'missing') return 'group not found';
+        if (group == 'denied') return 'operation rejected by group policy';
+        if (group == 'failed') return 'group mutation failed';
+        if (group == 'exists') return 'member already exists';
+        groupActions.add((group, action, peer, role));
+        return null;
+      },
+      renameGroup: (group, name) async => group == 'missing'
+          ? 'group not found'
+          : group == 'denied'
+          ? 'operation rejected by group policy'
+          : null,
+      leaveGroup: (group) async => group == 'missing'
+          ? 'group not found'
+          : group == 'denied'
+          ? 'operation rejected by group policy'
+          : null,
     );
   }
 
@@ -125,6 +163,10 @@ void main() {
         createGroup: (_) async => 'gid',
         groupMessages: (_, _) async => const [],
         sendGroupMessage: (_, _, _) async => null,
+        groupMembers: (_) async => const {},
+        groupMemberAction: (_, _, _, _) async => null,
+        renameGroup: (_, _) async => null,
+        leaveGroup: (_) async => null,
       );
       // An unknown token → 401.
       expect(
@@ -175,6 +217,12 @@ void main() {
         ('/v1/calls/hangup', {}),
         ('/v1/groups', {'name': 'G'}),
         ('/v1/groups/messages', {'group': 'g', 'body': 'x'}),
+        (
+          '/v1/groups/members',
+          {'group': 'g', 'action': 'add', 'peer': '01' * 32, 'role': 'member'},
+        ),
+        ('/v1/groups/name', {'group': 'g', 'name': 'G'}),
+        ('/v1/groups/leave', {'group': 'g'}),
       ]) {
         final res = await h.handle(
           'POST',
@@ -384,7 +432,6 @@ void main() {
       )).status,
       404,
     );
-
     expect(
       (await h.handle(
         'POST',
@@ -448,6 +495,10 @@ void main() {
       createGroup: base.createGroup,
       groupMessages: base.groupMessages,
       sendGroupMessage: base.sendGroupMessage,
+      groupMembers: base.groupMembers,
+      groupMemberAction: base.groupMemberAction,
+      renameGroup: base.renameGroup,
+      leaveGroup: base.leaveGroup,
       groupsAvailable: false,
     );
     expect(
@@ -464,6 +515,175 @@ void main() {
       501,
     );
   });
+
+  test(
+    'group roster and admin routes validate, dispatch and preserve policy',
+    () async {
+      final h = make();
+      final peer = '02' * 32;
+
+      expect(
+        (await h.handle(
+          'GET',
+          u('/v1/groups/members'),
+          'Bearer secret-token',
+        )).status,
+        400,
+      );
+      final roster = await h.handle(
+        'GET',
+        u('/v1/groups/members?group=aa'),
+        'Bearer secret-token',
+      );
+      expect(roster.status, 200);
+      expect((roster.body as Map)['selfRole'], 'owner');
+      expect(((roster.body as Map)['members'] as List).single['role'], 'owner');
+      expect(
+        (await h.handle(
+          'GET',
+          u('/v1/groups/members?group=missing'),
+          'Bearer secret-token',
+        )).status,
+        404,
+      );
+
+      for (final body in <Map<String, dynamic>>[
+        {'group': 'aa', 'action': 'add', 'peer': peer}, // role required
+        {'group': 'aa', 'action': 'remove', 'peer': peer, 'role': 'member'},
+        {'group': 'aa', 'action': 'ban', 'peer': peer},
+        {
+          'group': 'aa',
+          'action': 'add',
+          'peer': 'not-a-node',
+          'role': 'member',
+        },
+        {'group': 'aa', 'action': 'set_role', 'peer': peer, 'role': 'owner'},
+      ]) {
+        expect(
+          (await h.handle(
+            'POST',
+            u('/v1/groups/members'),
+            'Bearer secret-token',
+            body: body,
+          )).status,
+          400,
+          reason: '$body must be rejected before the group core',
+        );
+      }
+
+      for (final action in ['add', 'set_role']) {
+        final response = await h.handle(
+          'POST',
+          u('/v1/groups/members'),
+          'Bearer secret-token',
+          body: {
+            'group': 'aa',
+            'action': action,
+            'peer': peer,
+            'role': action == 'add' ? 'member' : 'admin',
+          },
+        );
+        expect(response.status, 200);
+      }
+      for (final action in ['mute', 'unmute', 'remove']) {
+        expect(
+          (await h.handle(
+            'POST',
+            u('/v1/groups/members'),
+            'Bearer secret-token',
+            body: {'group': 'aa', 'action': action, 'peer': peer},
+          )).status,
+          200,
+        );
+      }
+      expect(groupActions, [
+        ('aa', 'add', peer, 'member'),
+        ('aa', 'set_role', peer, 'admin'),
+        ('aa', 'mute', peer, null),
+        ('aa', 'unmute', peer, null),
+        ('aa', 'remove', peer, null),
+      ]);
+
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/groups/members'),
+          'Bearer secret-token',
+          body: {'group': 'denied', 'action': 'remove', 'peer': peer},
+        )).status,
+        403,
+      );
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/groups/members'),
+          'Bearer secret-token',
+          body: {'group': 'missing', 'action': 'remove', 'peer': peer},
+        )).status,
+        404,
+      );
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/groups/members'),
+          'Bearer secret-token',
+          body: {'group': 'failed', 'action': 'remove', 'peer': peer},
+        )).status,
+        409,
+      );
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/groups/members'),
+          'Bearer secret-token',
+          body: {
+            'group': 'exists',
+            'action': 'add',
+            'peer': peer,
+            'role': 'member',
+          },
+        )).status,
+        409,
+      );
+
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/groups/name'),
+          'Bearer secret-token',
+          body: {'group': 'aa', 'name': '  New name  '},
+        )).status,
+        200,
+      );
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/groups/name'),
+          'Bearer secret-token',
+          body: {'group': 'aa', 'name': 'x' * 65},
+        )).status,
+        400,
+      );
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/groups/leave'),
+          'Bearer secret-token',
+          body: {'group': 'denied'},
+        )).status,
+        403,
+      );
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/groups/leave'),
+          'Bearer secret-token',
+          body: {'group': 'aa'},
+        )).status,
+        200,
+      );
+    },
+  );
 
   test('POST /v1/files validates to+path; reports send errors', () async {
     final h = make();
@@ -634,6 +854,9 @@ void main() {
           '/messages',
           '/groups',
           '/groups/messages',
+          '/groups/members',
+          '/groups/name',
+          '/groups/leave',
           '/files',
           '/files/download',
           '/calls',
@@ -720,6 +943,10 @@ void main() {
         createGroup: (_) async => 'gid',
         groupMessages: (_, _) async => const [],
         sendGroupMessage: (_, _, _) async => null,
+        groupMembers: (_) async => const {},
+        groupMemberAction: (_, _, _, _) async => null,
+        renameGroup: (_, _) async => null,
+        leaveGroup: (_) async => null,
         webhook: () => hook,
         setWebhook: (url) async => hook = url,
       );
