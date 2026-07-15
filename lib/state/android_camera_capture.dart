@@ -4,18 +4,24 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 
 /// Receives one captured frame as tightly-packed I420 (y=w*h, u=v=cw*ch).
-typedef I420FrameSink = void Function(
-    Uint8List y, Uint8List u, Uint8List v, int width, int height);
+typedef I420FrameSink =
+    void Function(Uint8List y, Uint8List u, Uint8List v, int width, int height);
 
 /// Android camera SEND path for a video call. macOS captures natively inside
 /// libveil_media (AVCaptureSession); Android has no native backend, so this
-/// Dart capturer streams low-res YUV420 frames from the `camera` plugin,
+/// Dart capturer streams YUV420 frames from the `camera` plugin,
 /// converts each to I420, and hands them to a sink that pushes into the engine.
 ///
-/// Low resolution on purpose: the veil path caps VP8 at ~150kbps and pads every
-/// RTP packet to a 16KB onion cell, so a small frame keeps latency down (same
-/// reason the macOS capturer downscales). One capturer per live call.
+/// Anonymous media stays deliberately low-res because every RTP packet occupies
+/// a padded 16KB onion cell. Direct P2P uses the medium capture preset and lets
+/// WebRTC adapt it under the larger route-specific bitrate budget.
+/// One capturer per live call.
 class AndroidCameraCapture {
+  AndroidCameraCapture({this.highQuality = false});
+
+  /// Direct P2P can afford a 720p capture source that WebRTC scales/adapts;
+  /// padded onion media keeps the old low-resolution source.
+  final bool highQuality;
   CameraController? _ctrl;
   Uint8List? _y, _u, _v; // reused I420 planes (sensor orientation)
   Uint8List? _ry, _ru, _rv; // reused rotated-upright I420 planes
@@ -36,11 +42,13 @@ class AndroidCameraCapture {
       // the front sensor here reports 90 -> a 90° CW rotation lands upright; the
       // earlier 360-sensor form produced 270° = upside-down.)
       _rotCw = cam.sensorOrientation % 360;
-      debugPrint('veil-cam: lens=${cam.lensDirection} '
-          'sensor=${cam.sensorOrientation} rotCw=$_rotCw');
+      debugPrint(
+        'veil-cam: lens=${cam.lensDirection} '
+        'sensor=${cam.sensorOrientation} rotCw=$_rotCw',
+      );
       final ctrl = CameraController(
         cam,
-        ResolutionPreset.low, // ~320x240 — small on purpose (see class doc)
+        highQuality ? ResolutionPreset.medium : ResolutionPreset.low,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.yuv420,
       );
@@ -56,8 +64,7 @@ class AndroidCameraCapture {
 
   final Stopwatch _sw = Stopwatch()..start();
   int _lastPushMs = -1000;
-  static const int _minGapMs = 80; // ~12fps — the phone also decodes the
-  // incoming stream, so cap encode load to keep both legs low-latency.
+  int get _minGapMs => highQuality ? 50 : 80; // direct ~20fps, onion ~12fps
 
   void _onImage(CameraImage img, I420FrameSink sink) {
     if (img.format.group != ImageFormatGroup.yuv420 || img.planes.length < 3) {

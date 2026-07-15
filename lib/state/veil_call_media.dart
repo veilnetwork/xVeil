@@ -25,6 +25,33 @@ final ValueNotifier<VeilVideoFrame?> remoteVideoFrame =
 final ValueNotifier<VeilVideoFrame?> localVideoFrame =
     ValueNotifier<VeilVideoFrame?>(null);
 
+class _CallVideoProfile {
+  const _CallVideoProfile({
+    required this.maxBitrateKbps,
+    required this.maxFps,
+    required this.cameraWidth,
+    required this.cameraHeight,
+  });
+
+  final int maxBitrateKbps;
+  final int maxFps;
+  final int cameraWidth;
+  final int cameraHeight;
+}
+
+const _directVideoProfile = _CallVideoProfile(
+  maxBitrateKbps: 900,
+  maxFps: 20,
+  cameraWidth: 640,
+  cameraHeight: 360,
+);
+const _anonymousVideoProfile = _CallVideoProfile(
+  maxBitrateKbps: 150,
+  maxFps: 15,
+  cameraWidth: 352,
+  cameraHeight: 198,
+);
+
 /// The real [CallMediaController]: opens a veil media datagram channel to the
 /// call peer and drives the libwebrtc audio engine (libveil_media.dylib) over
 /// it. Per-packet RTP/RTCP flows native↔native (the C++ Transport shim calls
@@ -39,6 +66,7 @@ class VeilCallMediaController implements CallMediaController {
   VeilMediaEngine? _engine;
   int? _chan;
   String? _chanPeer; // hex of the peer _chan was opened for
+  bool _chanDirect = false; // actual route; false after P2P→anon fallback
   Timer? _frameTimer; // pulls decoded remote frames at the display rate
   AndroidCameraCapture? _androidCam; // Dart camera SEND path (Android only)
   AndroidScreenCaptureSource? _androidScreen;
@@ -64,13 +92,14 @@ class VeilCallMediaController implements CallMediaController {
     final peerHex = call.peer.hex;
     if (_chan != null && _chanPeer == peerHex) return;
     try {
-      final chan = await _openMediaChannelFor(call);
+      final opened = await _openMediaChannelFor(call);
       // start() may have raced ahead and opened its own channel; don't clobber.
       if (_chan == null) {
-        _chan = chan;
+        _chan = opened.channel;
         _chanPeer = peerHex;
-      } else if (_chan != chan) {
-        _transport.closeMediaChannel(chan);
+        _chanDirect = opened.direct;
+      } else if (_chan != opened.channel) {
+        _transport.closeMediaChannel(opened.channel);
       }
     } catch (_) {
       // best-effort warmup; start() will open the channel if this failed
@@ -109,10 +138,16 @@ class VeilCallMediaController implements CallMediaController {
     final localId = (await _transport.nodeId()).bytes;
     final peerId = call.peer.bytes;
     // Reuse the prewarmed channel if present (circuit already warming); else open.
-    final direct = call.transport == CallTransportKind.p2p;
-    final chan = (_chan != null && _chanPeer == call.peer.hex)
-        ? _chan!
-        : await _openMediaChannelFor(call);
+    final int chan;
+    final bool direct;
+    if (_chan != null && _chanPeer == call.peer.hex) {
+      chan = _chan!;
+      direct = _chanDirect;
+    } else {
+      final opened = await _openMediaChannelFor(call);
+      chan = opened.channel;
+      direct = opened.direct;
+    }
     devLog(
       () =>
           'xVeil[call-media]: media channel=$chan '
@@ -120,6 +155,7 @@ class VeilCallMediaController implements CallMediaController {
     );
     _chan = chan;
     _chanPeer = call.peer.hex;
+    _chanDirect = direct;
     final engine = VeilMediaEngine.create(
       veilChan: chan,
       localId: localId,
@@ -155,7 +191,13 @@ class VeilCallMediaController implements CallMediaController {
     // Capture/render wiring lands with the platform capturer; the pipeline is
     // driven by the built-in test source under VEIL_MEDIA_TEST_VIDEO meanwhile.
     if (call.media.video || call.media.screen) {
-      videoOk = engine.startVideo(send: true, recv: true);
+      final profile = direct ? _directVideoProfile : _anonymousVideoProfile;
+      videoOk = engine.startVideo(
+        send: true,
+        recv: true,
+        maxBitrateKbps: profile.maxBitrateKbps,
+        maxFps: profile.maxFps,
+      );
       devLog(() => 'xVeil[call-media]: startVideo=$videoOk');
       // Drive the send stream from the real camera for a video call (screen
       // capture is a separate path). Apple platforms capture natively inside
@@ -166,10 +208,14 @@ class VeilCallMediaController implements CallMediaController {
           // Do not hold the call FSM in `connecting` while the camera plugin
           // opens or waits for permission; the native video pipeline is already
           // mounted, and frames will start flowing once capture is ready.
-          unawaited(_startAndroidCam(engine));
+          unawaited(_startAndroidCam(engine, direct: direct));
         } else {
           try {
-            engine.startCamera();
+            engine.startCamera(
+              width: profile.cameraWidth,
+              height: profile.cameraHeight,
+              fps: profile.maxFps,
+            );
           } catch (_) {}
         }
       }
@@ -230,6 +276,7 @@ class VeilCallMediaController implements CallMediaController {
     final ch = _chan;
     _chan = null;
     _chanPeer = null;
+    _chanDirect = false;
     if (ch != null) {
       try {
         _transport.closeMediaChannel(ch);
@@ -237,10 +284,14 @@ class VeilCallMediaController implements CallMediaController {
     }
   }
 
-  Future<int> _openMediaChannelFor(Call call) async {
+  Future<({int channel, bool direct})> _openMediaChannelFor(Call call) async {
     if (call.transport == CallTransportKind.p2p) {
       try {
-        return await _transport.openMediaChannel(call.peer.bytes, direct: true);
+        final channel = await _transport.openMediaChannel(
+          call.peer.bytes,
+          direct: true,
+        );
+        return (channel: channel, direct: true);
       } catch (e) {
         devLog(
           () =>
@@ -249,7 +300,8 @@ class VeilCallMediaController implements CallMediaController {
         );
       }
     }
-    return _transport.openMediaChannel(call.peer.bytes);
+    final channel = await _transport.openMediaChannel(call.peer.bytes);
+    return (channel: channel, direct: false);
   }
 
   @override
@@ -265,7 +317,7 @@ class VeilCallMediaController implements CallMediaController {
     if (engine == null) return;
     if (Platform.isAndroid) {
       if (enabled) {
-        await _startAndroidCam(engine);
+        await _startAndroidCam(engine, direct: _chanDirect);
       } else {
         final cam = _androidCam;
         _androidCam = null;
@@ -278,7 +330,14 @@ class VeilCallMediaController implements CallMediaController {
     } else {
       try {
         if (enabled) {
-          engine.startCamera();
+          final profile = _chanDirect
+              ? _directVideoProfile
+              : _anonymousVideoProfile;
+          engine.startCamera(
+            width: profile.cameraWidth,
+            height: profile.cameraHeight,
+            fps: profile.maxFps,
+          );
         } else {
           engine.stopCamera();
         }
@@ -303,12 +362,19 @@ class VeilCallMediaController implements CallMediaController {
       _androidCam = null;
       if (cam != null) await cam.stop();
       final started = await _startAndroidScreen(engine);
-      if (!started && cameraWasRunning) await _startAndroidCam(engine);
+      if (!started && cameraWasRunning) {
+        await _startAndroidCam(engine, direct: _chanDirect);
+      }
       return started;
     }
     if (!Platform.isMacOS) return false;
     try {
-      if (enabled) return engine.startScreen();
+      if (enabled) {
+        return engine.startScreen(
+          width: _chanDirect ? 960 : 640,
+          fps: _chanDirect ? 15 : 10,
+        );
+      }
       return engine.stopScreen();
     } catch (_) {
       return false;
@@ -341,9 +407,12 @@ class VeilCallMediaController implements CallMediaController {
 
   /// Start the Dart-side Android camera capture (camera plugin -> pushVideoFrame).
   /// Idempotent; used by both start() and setCameraEnabled().
-  Future<void> _startAndroidCam(VeilMediaEngine engine) async {
+  Future<void> _startAndroidCam(
+    VeilMediaEngine engine, {
+    required bool direct,
+  }) async {
     if (_androidCam != null) return;
-    final cam = AndroidCameraCapture();
+    final cam = AndroidCameraCapture(highQuality: direct);
     _androidCam = cam;
     final ok = await cam.start((y, u, v, w, h) {
       if (_engine != engine) return;
