@@ -72,10 +72,10 @@ enum CallPosture {
 
 /// The negotiated (or proposed) media path.
 enum CallTransportKind {
-  /// Full standard onion circuit (used whenever either party is anonymous).
+  /// Full standard onion circuit (used when either party requires anonymity).
   onion,
 
-  /// Media forwarded through one shared rendezvous relay (mixed / fallback).
+  /// Media forwarded through relay(s) without onion (direct identities only).
   relay,
 
   /// Direct peer-to-peer obfs4 (only when both are direct, both consent, and a

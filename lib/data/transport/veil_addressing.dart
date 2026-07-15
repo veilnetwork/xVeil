@@ -70,3 +70,10 @@ const veilMediaEndpointId = 13;
 
 Uint8List mediaAppIdFor(NodeId peer) =>
     deriveAppId(peer, veilChatNamespace, veilMediaName);
+
+/// Sender-only endpoint for latency-critical call control. The destination is
+/// still the peer's ordinary chat inbox; the separate local binding merely
+/// gives signaling an independent IPC writer/client so mailbox or DHT work on
+/// the main client cannot head-of-line block accept/end frames.
+const veilRealtimeName = 'call-control-tx';
+const veilRealtimeEndpointId = 14;
