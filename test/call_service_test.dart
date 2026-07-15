@@ -61,20 +61,20 @@ void main() {
       );
     });
 
-    test('mixed (anon ↔ direct) → relay, both orderings', () {
+    test('mixed (anon ↔ direct) → onion, both orderings', () {
       expect(
         negotiateCallTransport(
           local: CallPosture.anonymous,
           peer: CallPosture.direct,
         ),
-        CallTransportKind.relay,
+        CallTransportKind.onion,
       );
       expect(
         negotiateCallTransport(
           local: CallPosture.direct,
           peer: CallPosture.anonymous,
         ),
-        CallTransportKind.relay,
+        CallTransportKind.onion,
       );
     });
 
@@ -218,8 +218,10 @@ void main() {
     test('outgoing direct call proposes p2p only when local policy and '
         'reachability allow it', () async {
       final fake = _FakeMessaging();
+      final media = _FakeMedia();
       final svc = CallService(
         fake,
+        media: media,
         localAllowsP2P: (_) async => true,
         peerReachableForP2P: (_) async => true,
       )..start();
@@ -228,6 +230,118 @@ void main() {
 
       expect(fake.sent.single.type, CallSignalType.offer);
       expect(fake.sent.single.transport?.kind, CallTransportKind.p2p);
+      expect(media.startedWith, isEmpty);
+
+      final callId = svc.current!.callId;
+      fake.onCallSignal!(
+        peer,
+        CallSignal(
+          callId: callId,
+          type: CallSignalType.answer,
+          posture: CallPosture.direct,
+          transport: const CallTransportProposal(CallTransportKind.p2p),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(media.startedWith, [CallTransportKind.p2p]);
+    });
+
+    test(
+      'relay fallback arriving before answer is applied after posture proof',
+      () async {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia()..openedTransport = CallTransportKind.relay;
+        final svc = CallService(
+          fake,
+          media: media,
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => true,
+        )..start();
+
+        await svc.placeCall(peer, const CallMedia(audio: true));
+        final callId = svc.current!.callId;
+
+        // The callee's direct open failed immediately. Its fast transportInfo
+        // overtakes the durable answer on the caller's receive path.
+        fake.onCallSignal!(
+          peer,
+          CallSignal(
+            callId: callId,
+            type: CallSignalType.transportInfo,
+            transport: const CallTransportProposal(CallTransportKind.relay),
+          ),
+        );
+        fake.onCallSignal!(
+          peer,
+          CallSignal(
+            callId: callId,
+            type: CallSignalType.answer,
+            posture: CallPosture.direct,
+            transport: const CallTransportProposal(CallTransportKind.p2p),
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(media.startedWith, [CallTransportKind.relay]);
+        expect(media.switches, isEmpty);
+        expect(svc.current?.transport, CallTransportKind.relay);
+        expect(svc.current?.status, CallStatus.active);
+      },
+    );
+
+    test('answer cannot override a local P2P denial', () async {
+      final fake = _FakeMessaging();
+      final media = _FakeMedia()..openedTransport = CallTransportKind.relay;
+      final svc = CallService(
+        fake,
+        media: media,
+        localAllowsP2P: (_) async => false,
+        peerReachableForP2P: (_) async => true,
+      )..start();
+
+      await svc.placeCall(peer, const CallMedia(audio: true));
+      expect(fake.sent.single.transport?.kind, CallTransportKind.relay);
+      final callId = svc.current!.callId;
+      fake.onCallSignal!(
+        peer,
+        CallSignal(
+          callId: callId,
+          type: CallSignalType.answer,
+          posture: CallPosture.direct,
+          transport: const CallTransportProposal(CallTransportKind.p2p),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(media.startedWith, [CallTransportKind.relay]);
+      expect(svc.current?.transport, CallTransportKind.relay);
+    });
+
+    test('two direct identities never accept onion from an answer', () async {
+      final fake = _FakeMessaging();
+      final media = _FakeMedia()..openedTransport = CallTransportKind.relay;
+      final svc = CallService(
+        fake,
+        media: media,
+        localAllowsP2P: (_) async => true,
+        peerReachableForP2P: (_) async => true,
+      )..start();
+
+      await svc.placeCall(peer, const CallMedia(audio: true));
+      final callId = svc.current!.callId;
+      fake.onCallSignal!(
+        peer,
+        CallSignal(
+          callId: callId,
+          type: CallSignalType.answer,
+          posture: CallPosture.direct,
+          transport: const CallTransportProposal(CallTransportKind.onion),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(media.startedWith, [CallTransportKind.relay]);
+      expect(svc.current?.transport, CallTransportKind.relay);
     });
 
     test('anonymous outgoing call never proposes p2p', () async {
@@ -246,8 +360,10 @@ void main() {
     test('incoming p2p offer is accepted as p2p only with local consent and '
         'reachability', () async {
       final fake = _FakeMessaging();
+      final media = _FakeMedia();
       final svc = CallService(
         fake,
+        media: media,
         localAllowsP2P: (_) async => true,
         peerReachableForP2P: (_) async => true,
       )..start();
@@ -261,20 +377,25 @@ void main() {
           transport: CallTransportProposal(CallTransportKind.p2p),
         ),
       );
+      expect(media.startedWith, isEmpty);
 
       await svc.accept();
+      await Future<void>.delayed(Duration.zero);
 
       expect(svc.current?.transport, CallTransportKind.p2p);
       expect(fake.sent.single.type, CallSignalType.answer);
       expect(fake.sent.single.transport?.kind, CallTransportKind.p2p);
+      expect(media.startedWith, [CallTransportKind.p2p]);
     });
 
     test(
       'incoming p2p offer falls back to relay when local policy denies',
       () async {
         final fake = _FakeMessaging();
+        final media = _FakeMedia();
         final svc = CallService(
           fake,
+          media: media,
           localAllowsP2P: (_) async => false,
           peerReachableForP2P: (_) async => true,
         )..start();
@@ -290,9 +411,11 @@ void main() {
         );
 
         await svc.accept();
+        await Future<void>.delayed(Duration.zero);
 
         expect(svc.current?.transport, CallTransportKind.relay);
         expect(fake.sent.single.transport?.kind, CallTransportKind.relay);
+        expect(media.startedWith, [CallTransportKind.relay]);
       },
     );
   });
@@ -421,9 +544,207 @@ void main() {
         expect(media.repairs, 1);
       });
     });
+
+    test('silent P2P is repaired in place and never announces onion', () async {
+      final fake = _FakeMessaging();
+      final media = _FakeMedia()..openedTransport = CallTransportKind.p2p;
+      final svc = CallService(
+        fake,
+        media: media,
+        localAllowsP2P: (_) async => true,
+        peerReachableForP2P: (_) async => true,
+      )..start();
+      fake.onCallSignal!(
+        peer,
+        const CallSignal(
+          callId: 'p2p-repair',
+          type: CallSignalType.offer,
+          media: CallMedia(audio: true, video: true),
+          posture: CallPosture.direct,
+          transport: CallTransportProposal(CallTransportKind.p2p),
+        ),
+      );
+      await svc.accept();
+      await Future<void>.delayed(Duration.zero);
+      expect(svc.current?.transport, CallTransportKind.p2p);
+      fake.sent.clear();
+
+      fake.onCallSignal!(
+        peer,
+        const CallSignal(
+          callId: 'p2p-repair',
+          type: CallSignalType.health,
+          mediaRepairRequested: true,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(media.repairs, 1);
+      expect(svc.current?.transport, CallTransportKind.p2p);
+      expect(fake.sent, isEmpty);
+    });
+
+    test('failed P2P repair falls back to relay and tells the peer', () async {
+      final fake = _FakeMessaging();
+      final media = _FakeMedia()
+        ..openedTransport = CallTransportKind.p2p
+        ..repairTo = CallTransportKind.relay;
+      final svc = CallService(
+        fake,
+        media: media,
+        localAllowsP2P: (_) async => true,
+        peerReachableForP2P: (_) async => true,
+      )..start();
+      fake.onCallSignal!(
+        peer,
+        const CallSignal(
+          callId: 'p2p-relay-repair',
+          type: CallSignalType.offer,
+          media: CallMedia(audio: true),
+          posture: CallPosture.direct,
+          transport: CallTransportProposal(CallTransportKind.p2p),
+        ),
+      );
+      await svc.accept();
+      await Future<void>.delayed(Duration.zero);
+      fake.sent.clear();
+
+      fake.onCallSignal!(
+        peer,
+        const CallSignal(
+          callId: 'p2p-relay-repair',
+          type: CallSignalType.health,
+          mediaRepairRequested: true,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(svc.current?.transport, CallTransportKind.relay);
+      expect(fake.sent.single.type, CallSignalType.transportInfo);
+      expect(fake.sent.single.transport?.kind, CallTransportKind.relay);
+    });
+
+    test('peer onion downgrade is ignored without local consent', () async {
+      final fake = _FakeMessaging();
+      final media = _FakeMedia()..openedTransport = CallTransportKind.p2p;
+      final svc = CallService(
+        fake,
+        media: media,
+        localAllowsP2P: (_) async => true,
+        peerReachableForP2P: (_) async => true,
+      )..start();
+      fake.onCallSignal!(
+        peer,
+        const CallSignal(
+          callId: 'p2p-follow',
+          type: CallSignalType.offer,
+          media: CallMedia(audio: true),
+          posture: CallPosture.direct,
+          transport: CallTransportProposal(CallTransportKind.p2p),
+        ),
+      );
+      await svc.accept();
+      await Future<void>.delayed(Duration.zero);
+      fake.sent.clear();
+
+      fake.onCallSignal!(
+        peer,
+        const CallSignal(
+          callId: 'p2p-follow',
+          type: CallSignalType.transportInfo,
+          transport: CallTransportProposal(CallTransportKind.onion),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(media.repairs, 0);
+      expect(svc.current?.transport, CallTransportKind.p2p);
+      expect(fake.sent, isEmpty);
+    });
+
+    test('peer relay fallback is followed for a direct P2P call', () async {
+      final fake = _FakeMessaging();
+      final media = _FakeMedia()..openedTransport = CallTransportKind.p2p;
+      final svc = CallService(
+        fake,
+        media: media,
+        localAllowsP2P: (_) async => true,
+        peerReachableForP2P: (_) async => true,
+      )..start();
+      fake.onCallSignal!(
+        peer,
+        const CallSignal(
+          callId: 'p2p-relay-follow',
+          type: CallSignalType.offer,
+          media: CallMedia(audio: true),
+          posture: CallPosture.direct,
+          transport: CallTransportProposal(CallTransportKind.p2p),
+        ),
+      );
+      await svc.accept();
+      await Future<void>.delayed(Duration.zero);
+      fake.sent.clear();
+
+      fake.onCallSignal!(
+        peer,
+        const CallSignal(
+          callId: 'p2p-relay-follow',
+          type: CallSignalType.transportInfo,
+          transport: CallTransportProposal(CallTransportKind.relay),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(media.switches, [CallTransportKind.relay]);
+      expect(svc.current?.transport, CallTransportKind.relay);
+      expect(fake.sent, isEmpty);
+    });
+
+    test(
+      'relay follow supersedes an in-flight P2P start without ending call',
+      () async {
+        final fake = _FakeMessaging();
+        final media = _GatedStartMedia()
+          ..openedTransport = CallTransportKind.p2p;
+        final svc = CallService(
+          fake,
+          media: media,
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => true,
+        )..start();
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'p2p-start-race',
+            type: CallSignalType.offer,
+            media: CallMedia(audio: true),
+            posture: CallPosture.direct,
+            transport: CallTransportProposal(CallTransportKind.p2p),
+          ),
+        );
+        await svc.accept();
+        await Future<void>.delayed(Duration.zero);
+
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'p2p-start-race',
+            type: CallSignalType.transportInfo,
+            transport: CallTransportProposal(CallTransportKind.relay),
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+        media.initialStart.complete(false);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(media.switches, [CallTransportKind.relay]);
+        expect(svc.current?.transport, CallTransportKind.relay);
+        expect(svc.current?.status, CallStatus.active);
+      },
+    );
   });
 
-  test('active call exposes the route actually opened by media', () {
+  test('a route mismatch fails closed instead of changing posture', () {
     fakeAsync((async) {
       final peer = NodeId.fromHex('d' * 64);
       final fake = _FakeMessaging();
@@ -449,12 +770,9 @@ void main() {
       svc.accept();
       async.flushMicrotasks();
 
-      expect(svc.current?.status, CallStatus.active);
-      expect(
-        svc.current?.transport,
-        CallTransportKind.onion,
-        reason: 'the UI/debug state must not keep claiming negotiated P2P',
-      );
+      expect(svc.current, isNull);
+      expect(fake.sent.last.type, CallSignalType.end);
+      expect(fake.sent.last.reason, CallEndReason.error);
     });
   });
 
@@ -661,9 +979,12 @@ void main() {
 class _FakeMedia extends CallMediaController {
   bool screenOk = true;
   CallTransportKind? openedTransport;
+  CallTransportKind? repairTo;
   DateTime? rxAt;
   int repairs = 0;
+  final List<CallTransportKind> switches = [];
   final List<String> log = [];
+  final List<CallTransportKind?> startedWith = [];
   final StreamController<void> screenStops = StreamController.broadcast();
 
   @override
@@ -676,14 +997,26 @@ class _FakeMedia extends CallMediaController {
   DateTime? get lastMediaRxAt => rxAt;
 
   @override
-  Future<bool> start(Call call) async => true;
+  Future<bool> start(Call call) async {
+    startedWith.add(call.transport);
+    return true;
+  }
 
   @override
   Future<void> stop() async {}
 
   @override
-  Future<void> repairRoute() async {
+  Future<bool> repairRoute() async {
     repairs++;
+    if (repairTo != null) openedTransport = repairTo;
+    return true;
+  }
+
+  @override
+  Future<bool> switchRoute(CallTransportKind transport) async {
+    switches.add(transport);
+    openedTransport = transport;
+    return true;
   }
 
   @override
@@ -695,6 +1028,16 @@ class _FakeMedia extends CallMediaController {
   Future<bool> setScreenShareEnabled(bool enabled) async {
     log.add('screen:$enabled');
     return enabled ? screenOk : true;
+  }
+}
+
+class _GatedStartMedia extends _FakeMedia {
+  final Completer<bool> initialStart = Completer<bool>();
+
+  @override
+  Future<bool> start(Call call) {
+    startedWith.add(call.transport);
+    return initialStart.future;
   }
 }
 
