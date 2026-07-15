@@ -125,6 +125,21 @@ abstract interface class VeilTransport {
   Future<void> dispose();
 }
 
+/// Optional latency-critical datagram egress on an IPC connection isolated
+/// from bulk, mailbox and media control work.
+///
+/// Call signaling uses this surface so an answer/end frame cannot sit behind a
+/// long native lookup on the main client. [anonymous] has exactly the same
+/// no-clearnet-fallback contract as [VeilTransport.send]: an anonymous identity
+/// still sends only through the onion rendezvous path.
+abstract interface class RealtimeTransport {
+  Future<void> sendRealtime(
+    NodeId dst,
+    Uint8List payload, {
+    bool anonymous = false,
+  });
+}
+
 /// A reliable, ordered, FLOW-CONTROLLED byte-stream to a peer — the transport's
 /// windowed bulk channel (veil's SCTP-like stream: window-based flow control,
 /// ordered delivery, retransmission). Unlike [VeilTransport.send] (fire-and-

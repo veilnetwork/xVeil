@@ -66,7 +66,7 @@ class VeilCallMediaController implements CallMediaController {
   VeilMediaEngine? _engine;
   int? _chan;
   String? _chanPeer; // hex of the peer _chan was opened for
-  bool _chanDirect = false; // actual route; false after P2P→anon fallback
+  CallTransportKind? _chanTransport;
   Timer? _frameTimer; // pulls decoded remote frames at the display rate
   AndroidCameraCapture? _androidCam; // Dart camera SEND path (Android only)
   AndroidScreenCaptureSource? _androidScreen;
@@ -77,58 +77,74 @@ class VeilCallMediaController implements CallMediaController {
   Timer? _statsTimer; // polls rx_pkts for the call-liveness signal
   DateTime? _lastRxAt; // wall-clock when rx_pkts last increased
   int _lastRxPkts = 0;
+  int _lastNativeRxCount = 0;
   DateTime? _lastRepairAt;
+  Call? _activeCall;
+  bool _routeRepairing = false;
+  int _mediaEpoch = 0;
 
   @override
-  CallTransportKind? get activeTransport => _chan == null
-      ? null
-      : (_chanDirect ? CallTransportKind.p2p : CallTransportKind.onion);
+  CallTransportKind? get activeTransport =>
+      _chan == null ? null : _chanTransport;
+
+  bool get _highQualityRoute => _chanTransport != CallTransportKind.onion;
 
   @override
   DateTime? get lastMediaRxAt => _lastRxAt;
 
   @override
-  Future<void> repairRoute() async {
+  Future<bool> repairRoute() async {
     final ch = _chan;
-    if (ch == null || _chanDirect) return;
+    if (ch == null || _routeRepairing) return false;
     final now = DateTime.now();
     final previous = _lastRepairAt;
     if (previous != null && now.difference(previous) < kCallMediaRepairAfter) {
-      return;
+      return true;
     }
     _lastRepairAt = now;
+    if (_chanTransport != CallTransportKind.onion) {
+      final call = _activeCall;
+      if (call == null) return false;
+      _routeRepairing = true;
+      try {
+        // A non-onion channel can be admitted yet black-holed end-to-end.
+        // Rebuild its actual P2P/relay route. Failure is never implicit consent
+        // to use the anonymous network.
+        await _stopSession(clearActiveCall: false);
+        if (_activeCall?.callId != call.callId) return false;
+        final ok = await start(call);
+        _lastRepairAt = now;
+        devLog(
+          () =>
+              'xVeil[call-media]: silent ${call.transport?.name} route rebuilt '
+              'call=${call.callId} ok=$ok',
+        );
+        return ok && activeTransport == call.transport;
+      } finally {
+        _routeRepairing = false;
+      }
+    }
     final rc = _transport.repairMediaChannel(ch);
     devLog(
       () =>
           'xVeil[call-media]: end-to-end silence route repair '
           'channel=$ch result=$rc',
     );
+    return rc == 0;
+  }
+
+  @override
+  Future<bool> switchRoute(CallTransportKind transport) async {
+    final call = _activeCall;
+    if (call == null || transport != CallTransportKind.relay) return false;
+    await _stopSession(clearActiveCall: false);
+    if (_activeCall?.callId != call.callId) return false;
+    final ok = await start(call.copyWith(transport: transport));
+    return ok && activeTransport == transport;
   }
 
   @override
   Stream<void> get screenShareStopped => _screenShareStops.stream;
-
-  @override
-  Future<void> prewarm(Call call) async {
-    // Open the media channel toward the peer now — openMediaChannel kicks off the
-    // onion circuit build (ensure_outbound_opening), so it's warm by the time
-    // start() sends the first RTP. Idempotent: keep one channel per peer.
-    final peerHex = call.peer.hex;
-    if (_chan != null && _chanPeer == peerHex) return;
-    try {
-      final opened = await _openMediaChannelFor(call);
-      // start() may have raced ahead and opened its own channel; don't clobber.
-      if (_chan == null) {
-        _chan = opened.channel;
-        _chanPeer = peerHex;
-        _chanDirect = opened.direct;
-      } else if (_chan != opened.channel) {
-        _transport.closeMediaChannel(opened.channel);
-      }
-    } catch (_) {
-      // best-effort warmup; start() will open the channel if this failed
-    }
-  }
 
   @override
   Future<bool> start(Call call) async {
@@ -136,11 +152,14 @@ class VeilCallMediaController implements CallMediaController {
       () =>
           'xVeil[call-media]: controller start platform=${Platform.operatingSystem}',
     );
-    // Reuse the channel prewarm() opened for this peer (its circuit is already
-    // warming); only tear down a stale session for a different peer.
+    // Never open a route while the call is only ringing: the final route is
+    // known only after both peers have applied their consent policy. Reuse is
+    // therefore limited to this controller's already-finalized call lifecycle.
     if (_engine != null || (_chan != null && _chanPeer != call.peer.hex)) {
       await stop();
     }
+    final epoch = ++_mediaEpoch;
+    _activeCall = call;
     // Present the Apple mic (and camera for video) TCC prompt via
     // AVCaptureDevice BEFORE the engine touches CoreAudio — but NEVER let the
     // prompt block the call FSM: bound the wait, and proceed regardless (the
@@ -161,25 +180,34 @@ class VeilCallMediaController implements CallMediaController {
     }
     final localId = (await _transport.nodeId()).bytes;
     final peerId = call.peer.bytes;
-    // Reuse the prewarmed channel if present (circuit already warming); else open.
+    // Open only the route finalized by call negotiation.
     final int chan;
-    final bool direct;
+    final CallTransportKind transport;
     if (_chan != null && _chanPeer == call.peer.hex) {
       chan = _chan!;
-      direct = _chanDirect;
+      transport = _chanTransport!;
     } else {
       final opened = await _openMediaChannelFor(call);
       chan = opened.channel;
-      direct = opened.direct;
+      transport = opened.transport;
+    }
+    if (epoch != _mediaEpoch || _activeCall?.callId != call.callId) {
+      _transport.closeMediaChannel(chan);
+      return false;
     }
     devLog(
       () =>
           'xVeil[call-media]: media channel=$chan '
-          '(${direct ? 'p2p-direct' : 'anon'})',
+          '(${transport.name})',
     );
     _chan = chan;
     _chanPeer = call.peer.hex;
-    _chanDirect = direct;
+    _chanTransport = transport;
+    // A negotiated P2P open may have taken the explicitly permitted non-onion
+    // relay fallback. Keep subsequent repair/switch operations anchored to the
+    // route that is actually carrying this call, not the stale proposal.
+    _activeCall = call.copyWith(transport: transport);
+    final highQuality = transport != CallTransportKind.onion;
     final engine = VeilMediaEngine.create(
       veilChan: chan,
       localId: localId,
@@ -198,15 +226,18 @@ class VeilCallMediaController implements CallMediaController {
     _statsTimer?.cancel();
     _lastRxAt = null;
     _lastRxPkts = 0;
+    _lastNativeRxCount = _transport.mediaRecvCount(call.peer.bytes);
     _lastRepairAt = null;
     _statsTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_engine != engine) return;
       try {
         final rx = (engine.getStats()['rx_pkts'] as num?)?.toInt() ?? 0;
-        if (rx > _lastRxPkts) {
-          _lastRxPkts = rx;
+        final nativeRx = _transport.mediaRecvCount(call.peer.bytes);
+        if (rx > _lastRxPkts || nativeRx > _lastNativeRxCount) {
           _lastRxAt = DateTime.now();
         }
+        _lastRxPkts = rx;
+        _lastNativeRxCount = nativeRx;
       } catch (_) {}
     });
     final audioOk = engine.startAudio(send: true, recv: true);
@@ -216,7 +247,9 @@ class VeilCallMediaController implements CallMediaController {
     // Capture/render wiring lands with the platform capturer; the pipeline is
     // driven by the built-in test source under VEIL_MEDIA_TEST_VIDEO meanwhile.
     if (call.media.video || call.media.screen) {
-      final profile = direct ? _directVideoProfile : _anonymousVideoProfile;
+      final profile = highQuality
+          ? _directVideoProfile
+          : _anonymousVideoProfile;
       videoOk = engine.startVideo(
         send: true,
         recv: true,
@@ -233,7 +266,7 @@ class VeilCallMediaController implements CallMediaController {
           // Do not hold the call FSM in `connecting` while the camera plugin
           // opens or waits for permission; the native video pipeline is already
           // mounted, and frames will start flowing once capture is ready.
-          unawaited(_startAndroidCam(engine, direct: direct));
+          unawaited(_startAndroidCam(engine, highQuality: highQuality));
         } else {
           try {
             engine.startCamera(
@@ -262,13 +295,18 @@ class VeilCallMediaController implements CallMediaController {
   }
 
   @override
-  Future<void> stop() async {
+  Future<void> stop() => _stopSession(clearActiveCall: true);
+
+  Future<void> _stopSession({required bool clearActiveCall}) async {
+    _mediaEpoch++;
+    if (clearActiveCall) _activeCall = null;
     _frameTimer?.cancel();
     _frameTimer = null;
     _statsTimer?.cancel();
     _statsTimer = null;
     _lastRxAt = null;
     _lastRxPkts = 0;
+    _lastNativeRxCount = 0;
     remoteVideoFrame.value = null;
     localVideoFrame.value = null;
     final cam = _androidCam;
@@ -301,7 +339,7 @@ class VeilCallMediaController implements CallMediaController {
     final ch = _chan;
     _chan = null;
     _chanPeer = null;
-    _chanDirect = false;
+    _chanTransport = null;
     if (ch != null) {
       try {
         _transport.closeMediaChannel(ch);
@@ -309,24 +347,43 @@ class VeilCallMediaController implements CallMediaController {
     }
   }
 
-  Future<({int channel, bool direct})> _openMediaChannelFor(Call call) async {
+  Future<({int channel, CallTransportKind transport})> _openMediaChannelFor(
+    Call call,
+  ) async {
     if (call.transport == CallTransportKind.p2p) {
       try {
         final channel = await _transport.openMediaChannel(
           call.peer.bytes,
           direct: true,
         );
-        return (channel: channel, direct: true);
+        return (channel: channel, transport: CallTransportKind.p2p);
       } catch (e) {
         devLog(
           () =>
-              'xVeil[call-media]: direct media open failed for '
-              '${call.peer.short}, falling back to anon: $e',
+              'xVeil[call-media]: direct open failed for ${call.peer.short}; '
+              'using non-onion relay: $e',
         );
+        final channel = await _transport.openMediaChannel(
+          call.peer.bytes,
+          relay: true,
+        );
+        return (channel: channel, transport: CallTransportKind.relay);
       }
     }
+    if (call.transport == CallTransportKind.relay) {
+      final channel = await _transport.openMediaChannel(
+        call.peer.bytes,
+        relay: true,
+      );
+      return (channel: channel, transport: CallTransportKind.relay);
+    }
+    if (call.transport != CallTransportKind.onion) {
+      throw StateError(
+        'negotiated ${call.transport?.name ?? 'unset'} media has no implemented route',
+      );
+    }
     final channel = await _transport.openMediaChannel(call.peer.bytes);
-    return (channel: channel, direct: false);
+    return (channel: channel, transport: CallTransportKind.onion);
   }
 
   @override
@@ -342,7 +399,7 @@ class VeilCallMediaController implements CallMediaController {
     if (engine == null) return;
     if (Platform.isAndroid) {
       if (enabled) {
-        await _startAndroidCam(engine, direct: _chanDirect);
+        await _startAndroidCam(engine, highQuality: _highQualityRoute);
       } else {
         final cam = _androidCam;
         _androidCam = null;
@@ -355,7 +412,7 @@ class VeilCallMediaController implements CallMediaController {
     } else {
       try {
         if (enabled) {
-          final profile = _chanDirect
+          final profile = _highQualityRoute
               ? _directVideoProfile
               : _anonymousVideoProfile;
           engine.startCamera(
@@ -388,7 +445,7 @@ class VeilCallMediaController implements CallMediaController {
       if (cam != null) await cam.stop();
       final started = await _startAndroidScreen(engine);
       if (!started && cameraWasRunning) {
-        await _startAndroidCam(engine, direct: _chanDirect);
+        await _startAndroidCam(engine, highQuality: _highQualityRoute);
       }
       return started;
     }
@@ -396,8 +453,8 @@ class VeilCallMediaController implements CallMediaController {
     try {
       if (enabled) {
         return engine.startScreen(
-          width: _chanDirect ? 960 : 640,
-          fps: _chanDirect ? 15 : 10,
+          width: _highQualityRoute ? 960 : 640,
+          fps: _highQualityRoute ? 15 : 10,
         );
       }
       return engine.stopScreen();
@@ -434,10 +491,10 @@ class VeilCallMediaController implements CallMediaController {
   /// Idempotent; used by both start() and setCameraEnabled().
   Future<void> _startAndroidCam(
     VeilMediaEngine engine, {
-    required bool direct,
+    required bool highQuality,
   }) async {
     if (_androidCam != null) return;
-    final cam = AndroidCameraCapture(highQuality: direct);
+    final cam = AndroidCameraCapture(highQuality: highQuality);
     _androidCam = cam;
     final ok = await cam.start((y, u, v, w, h) {
       if (_engine != engine) return;

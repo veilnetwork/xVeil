@@ -2026,8 +2026,10 @@ class MessagingService {
   Future<void> sendDurable(
     NodeId peer,
     String frameId,
-    WireEnvelope env,
-  ) async {
+    WireEnvelope env, {
+    Future<void> Function(Uint8List wire)? liveSender,
+    bool awaitLive = true,
+  }) async {
     final wire = env.withFrameId(frameId).encode();
     await _storage.enqueueOutboxFrame(frameId, peer.hex, wire);
     _outboxLiveBackoff[frameId] = (
@@ -2036,21 +2038,44 @@ class MessagingService {
       peer: peer.hex,
       lastSentAt: _now(),
     );
-    try {
-      await _send(peer, wire);
-    } catch (_) {
-      // Live path down — the mailbox copy + flush re-drive still deliver.
+    Future<void> tryLive() async {
+      try {
+        await (liveSender?.call(wire) ?? _send(peer, wire));
+      } catch (_) {
+        // Live path down — the mailbox copy + flush re-drive still deliver.
+      }
+    }
+
+    if (awaitLive) {
+      await tryLive();
+    } else {
+      // Latency-critical control returns after durable enqueue. Its isolated
+      // live attempt continues in parallel, while the ordinary outbox re-drive
+      // remains the reliable fallback.
+      unawaited(tryLive());
     }
     unawaited(_maybeStash(peer, frameId, wire));
+  }
+
+  Future<void> _sendRealtime(NodeId peer, Uint8List wire) {
+    final transport = _transport;
+    if (transport is RealtimeTransport) {
+      return (transport as RealtimeTransport).sendRealtime(
+        peer,
+        wire,
+        anonymous: _anonymous,
+      );
+    }
+    return _send(peer, wire);
   }
 
   /// Send a call control-plane [signal] to [peer]. Ring/accept/reject/cancel/
   /// busy/end/renegotiate go via the durable pipeline — keyed `call:<id>:<type>`
   /// so a dropped frame re-drives and a re-delivery is acked+processed once.
-  /// Best-effort [CallSignalType.transportInfo] (late reachability candidates)
-  /// and [CallSignalType.health] (liveness heartbeat) go via the plain live send
-  /// only: they are real-time hints, and persisting them would create stale
-  /// outbox/mailbox work after a call has already ended.
+  /// [CallSignalType.health] is the sole best-effort signal: the next heartbeat
+  /// supersedes it. A P2P→relay [CallSignalType.transportInfo] transition is
+  /// durable because losing it can leave the peers on different media routes;
+  /// stale re-delivery after call end is harmlessly ignored by the call-id FSM.
   Future<void> sendCallSignal(NodeId peer, CallSignal signal) async {
     final contact = await _storage.getContact(peer);
     if (contact == null || contact.status != ContactStatus.accepted) return;
@@ -2058,10 +2083,9 @@ class MessagingService {
         ? signal.copyWith(sentAtMs: _now().millisecondsSinceEpoch)
         : signal;
     final env = WireEnvelope.callSignal(stamped.encode());
-    if (stamped.type == CallSignalType.transportInfo ||
-        stamped.type == CallSignalType.health) {
+    if (stamped.type == CallSignalType.health) {
       try {
-        await _send(peer, env.encode());
+        await _sendRealtime(peer, env.encode());
       } catch (_) {
         // Live path down — the next heartbeat/candidate supersedes this one.
       }
@@ -2074,7 +2098,13 @@ class MessagingService {
     final fid = stamped.type == CallSignalType.renegotiate
         ? 'call:${signal.callId}:${signal.type.name}:${stamped.sentAtMs}'
         : 'call:${signal.callId}:${signal.type.name}';
-    await sendDurable(peer, fid, env);
+    await sendDurable(
+      peer,
+      fid,
+      env,
+      liveSender: (wire) => _sendRealtime(peer, wire),
+      awaitLive: false,
+    );
   }
 
   /// Re-drive un-acked durable frames: re-deposit at the mailbox (idempotent via

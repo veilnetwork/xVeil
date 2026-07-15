@@ -34,16 +34,15 @@ const Duration kCallLivenessTimeout = Duration(seconds: 20);
 
 /// A connected media engine should exchange RTP or RTCP even when speech is
 /// quiet. If none arrives for this long while signaling is demonstrably alive,
-/// ask the peer to refresh its outbound onion route. Kept below the call
-/// liveness timeout so repair gets a chance before teardown.
+/// ask the peer to refresh its outbound route. Repair must preserve onion for
+/// either anonymous party; two direct parties may only fall back P2P → relay.
 const Duration kCallMediaRepairAfter = Duration(seconds: 10);
 
 /// Pure transport negotiation: given both parties' postures (+ P2P consent and
 /// reachability for the direct case), pick the media path per the design matrix.
 /// **Anonymity is never sacrificed** — if EITHER side is anonymous the media
-/// stays inside the network (onion when both are anon, relay when mixed). A
-/// direct P2P path is used only when BOTH sides are non-anonymous, BOTH consent,
-/// and the peer is reachable — otherwise it falls back to a relay.
+/// uses onion. When both sides are non-anonymous, direct P2P is preferred when
+/// both consent and the peer is reachable; otherwise media uses a relay.
 CallTransportKind negotiateCallTransport({
   required CallPosture local,
   required CallPosture peer,
@@ -53,8 +52,7 @@ CallTransportKind negotiateCallTransport({
 }) {
   final localAnon = local == CallPosture.anonymous;
   final peerAnon = peer == CallPosture.anonymous;
-  if (localAnon && peerAnon) return CallTransportKind.onion;
-  if (localAnon || peerAnon) return CallTransportKind.relay; // mixed
+  if (localAnon || peerAnon) return CallTransportKind.onion;
   if (localConsentsP2P && peerConsentsP2P && peerReachable) {
     return CallTransportKind.p2p;
   }
@@ -71,16 +69,10 @@ abstract class CallMediaController {
   /// channel + start the audio engine). Returns true if media is up.
   Future<bool> start(Call call);
 
-  /// The route the media engine actually opened. This may differ from the
-  /// negotiated proposal when a direct open races/fails and safely falls back
-  /// to the anonymous network. Null until a channel is open.
+  /// The route the media engine actually opened. It must equal the negotiated
+  /// route, except for the explicitly permitted direct P2P → non-onion relay
+  /// fallback. Null until a channel is open.
   CallTransportKind? get activeTransport => null;
-
-  /// Optionally pre-open the media channel toward the peer so the onion circuit
-  /// is warming while the call is still ringing/connecting — otherwise the first
-  /// seconds of audio are dropped on a cold circuit (or lost entirely if the
-  /// call is short). Default no-op; idempotent; safe to call repeatedly.
-  Future<void> prewarm(Call call) async {}
 
   /// Tear down any running media session. Idempotent.
   Future<void> stop();
@@ -111,10 +103,14 @@ abstract class CallMediaController {
   /// delayed — signaling silence alone must not drop a call that's clearly up.
   DateTime? get lastMediaRxAt => null;
 
-  /// Refresh the current anonymous outbound route after the peer reports
-  /// end-to-end media silence. Implementations must be idempotent/rate-limited;
-  /// direct media treats this as a no-op.
-  Future<void> repairRoute() async {}
+  /// Rebuild/refresh the current outbound route after the peer reports
+  /// end-to-end media silence. Implementations must preserve the negotiated
+  /// route kind, be idempotent/rate-limited, and return whether media is usable.
+  Future<bool> repairRoute() async => true;
+
+  /// Follow a mutually safe mid-call fallback. The only currently valid switch
+  /// is P2P -> non-onion relay for two direct identities.
+  Future<bool> switchRoute(CallTransportKind transport) async => false;
 }
 
 /// The call-session state machine (control plane). One active call at a time.
@@ -154,6 +150,16 @@ class CallService {
   StreamSubscription<void>? _screenShareStoppedSub;
   DateTime? _lastPeerSignalAt;
   bool _started = false;
+
+  /// A callee may discover that P2P is unusable immediately after accepting
+  /// and send `transportInfo(relay)` before its durable `answer` reaches the
+  /// caller. Keep that safe downgrade until the answer proves both parties are
+  /// direct; otherwise an out-of-order signal would be silently lost and the
+  /// two media engines would open different routes.
+  String? _pendingRelayCallId;
+  NodeId? _pendingRelayPeer;
+  CallTransportKind? _outgoingProposal;
+  int _mediaOperationEpoch = 0;
 
   /// sentAtMs of the newest peer renegotiate applied to the current call —
   /// re-drives and out-of-order deliveries fold strictly-newer (an old
@@ -214,6 +220,13 @@ class CallService {
           ? CallTransportKind.onion
           : (mayOfferP2P ? CallTransportKind.p2p : CallTransportKind.relay),
     );
+    final current = _current;
+    if (current == null ||
+        current.callId != callId ||
+        current.status != CallStatus.dialing) {
+      return;
+    }
+    _outgoingProposal = proposal.kind;
     await _messaging.sendCallSignal(
       peer,
       CallSignal(
@@ -225,9 +238,6 @@ class CallService {
         // mediaKey (SRTP keying) is filled in Phase 3 — control plane only now.
       ),
     );
-    // Start warming the media circuit to the peer now (while it rings), so audio
-    // flows the instant the call is answered instead of after a cold-circuit wait.
-    unawaited(_media?.prewarm(_current!));
     _armRingTimeout();
   }
 
@@ -396,13 +406,38 @@ class CallService {
       case CallSignalType.health:
         // Liveness already refreshed above. A repair request is end-to-end
         // evidence that OUR outbound media is black-holed after its first hop.
-        if (sig.mediaRepairRequested) unawaited(_media?.repairRoute());
+        if (sig.mediaRepairRequested) {
+          unawaited(_repairMediaRoute(peer, sig.callId));
+        }
         break;
       case CallSignalType.renegotiate:
         _onRenegotiate(peer, sig);
       case CallSignalType.transportInfo:
+        final c = _current;
+        final requested = sig.transport?.kind;
+        if (c != null &&
+            c.callId == sig.callId &&
+            c.peer == peer &&
+            c.direction == CallDirection.outgoing &&
+            c.status == CallStatus.dialing &&
+            c.localPosture == CallPosture.direct &&
+            requested == CallTransportKind.relay) {
+          _pendingRelayCallId = sig.callId;
+          _pendingRelayPeer = peer;
+        } else if (c != null &&
+            c.callId == sig.callId &&
+            c.peer == peer &&
+            c.isLive &&
+            c.transport == CallTransportKind.p2p &&
+            requested == CallTransportKind.relay &&
+            c.localPosture == CallPosture.direct &&
+            c.peerPosture == CallPosture.direct) {
+          unawaited(_followRelayFallback(peer, sig.callId));
+        }
+        // Onion is never accepted here: the original posture negotiation is
+        // the only authority that can select it.
+        break;
       case CallSignalType.unknown:
-        // Phase 6 (mid-call path changes) — ignored for now.
         break;
     }
   }
@@ -424,6 +459,100 @@ class CallService {
     _lastRenegotiateAtMs = at;
     _set(c.copyWith(media: media));
   }
+
+  Future<void> _repairMediaRoute(NodeId peer, String callId) async {
+    final media = _media;
+    final before = _current;
+    if (media == null ||
+        before == null ||
+        before.callId != callId ||
+        before.peer != peer ||
+        !before.isLive) {
+      return;
+    }
+    var repaired = false;
+    try {
+      repaired = await media.repairRoute();
+    } catch (e) {
+      devLog(() => 'xVeil[call-media]: route repair failed call=$callId: $e');
+    }
+    final cur = _current;
+    if (cur == null ||
+        cur.callId != callId ||
+        cur.peer != peer ||
+        !cur.isLive) {
+      return;
+    }
+    final actual = media.activeTransport;
+    if (repaired && actual == cur.transport) return;
+    if (repaired &&
+        cur.transport == CallTransportKind.p2p &&
+        actual == CallTransportKind.relay &&
+        cur.localPosture == CallPosture.direct &&
+        cur.peerPosture == CallPosture.direct) {
+      _set(cur.copyWith(transport: CallTransportKind.relay));
+      await _announceRelayFallback(cur);
+      return;
+    }
+    // Fail closed. A broken route must not silently become onion (or any other
+    // route) merely to keep the call UI alive.
+    unawaited(
+      _sendControl(peer, callId, CallSignalType.end, CallEndReason.error),
+    );
+    _end(CallEndReason.error);
+  }
+
+  Future<void> _followRelayFallback(NodeId peer, String callId) async {
+    final media = _media;
+    final before = _current;
+    if (media == null ||
+        before == null ||
+        before.callId != callId ||
+        before.peer != peer ||
+        !before.isLive) {
+      return;
+    }
+    // Supersede an in-flight P2P start. Its eventual failure belongs to the
+    // abandoned route and must not tear down the relay session opened below.
+    _mediaOperationEpoch++;
+    var ok = false;
+    try {
+      ok = await media.switchRoute(CallTransportKind.relay);
+    } catch (e) {
+      devLog(() => 'xVeil[call-media]: relay follow failed call=$callId: $e');
+    }
+    final cur = _current;
+    if (cur == null ||
+        cur.callId != callId ||
+        cur.peer != peer ||
+        !cur.isLive) {
+      return;
+    }
+    if (ok && media.activeTransport == CallTransportKind.relay) {
+      _set(
+        cur.copyWith(
+          transport: CallTransportKind.relay,
+          status: cur.status == CallStatus.connecting
+              ? CallStatus.active
+              : cur.status,
+        ),
+      );
+      return;
+    }
+    unawaited(
+      _sendControl(peer, callId, CallSignalType.end, CallEndReason.error),
+    );
+    _end(CallEndReason.error);
+  }
+
+  Future<void> _announceRelayFallback(Call call) => _messaging.sendCallSignal(
+    call.peer,
+    CallSignal(
+      callId: call.callId,
+      type: CallSignalType.transportInfo,
+      transport: const CallTransportProposal(CallTransportKind.relay),
+    ),
+  );
 
   void _onOffer(NodeId peer, CallSignal sig) {
     final existing = _current;
@@ -469,9 +598,6 @@ class CallService {
         transport: sig.transport?.kind,
       ),
     );
-    // Warm the media circuit back toward the caller while we ring, so audio is
-    // ready the moment the user accepts.
-    unawaited(_media?.prewarm(_current!));
     _armRingTimeout();
   }
 
@@ -485,12 +611,30 @@ class CallService {
       return;
     }
     _cancelRingTimeout();
-    final transport =
-        sig.transport?.kind ??
-        negotiateCallTransport(
-          local: c.localPosture,
-          peer: sig.posture ?? CallPosture.anonymous,
-        );
+    final peerPosture = sig.posture ?? CallPosture.anonymous;
+    final proposed = sig.transport?.kind;
+    // The answer is a proposal, not authority to weaken either side's policy.
+    // Any anonymous party forces onion. Two direct parties use P2P only when
+    // our own offer also allowed it; every other answer is a non-onion relay.
+    var transport =
+        c.localPosture == CallPosture.anonymous ||
+            peerPosture != CallPosture.direct
+        ? CallTransportKind.onion
+        : proposed == CallTransportKind.p2p &&
+              _outgoingProposal == CallTransportKind.p2p
+        ? CallTransportKind.p2p
+        : CallTransportKind.relay;
+    _outgoingProposal = null;
+    final pendingRelay =
+        _pendingRelayCallId == sig.callId && _pendingRelayPeer == peer;
+    _pendingRelayCallId = null;
+    _pendingRelayPeer = null;
+    if (pendingRelay &&
+        transport == CallTransportKind.p2p &&
+        c.localPosture == CallPosture.direct &&
+        sig.posture == CallPosture.direct) {
+      transport = CallTransportKind.relay;
+    }
     _set(
       c.copyWith(
         status: CallStatus.connecting,
@@ -608,7 +752,12 @@ class CallService {
   }
 
   void _set(Call call) {
-    if (_current?.callId != call.callId) _lastRenegotiateAtMs = 0;
+    if (_current?.callId != call.callId) {
+      _lastRenegotiateAtMs = 0;
+      _pendingRelayCallId = null;
+      _pendingRelayPeer = null;
+      _outgoingProposal = null;
+    }
     _current = call;
     if (!_changes.isClosed) _changes.add(call);
   }
@@ -626,6 +775,7 @@ class CallService {
     final c = _current;
     if (c == null || c.status != CallStatus.connecting) return;
     final callId = c.callId;
+    final operationEpoch = ++_mediaOperationEpoch;
     bool ok = false;
     try {
       devLog(
@@ -649,18 +799,51 @@ class CallService {
       ok = false;
     }
     final cur = _current;
-    if (ok &&
-        cur != null &&
-        cur.callId == callId &&
-        cur.status == CallStatus.connecting) {
-      final actualTransport = media.activeTransport;
-      _set(
-        cur.copyWith(
-          status: CallStatus.active,
-          transport: actualTransport ?? cur.transport,
-        ),
-      );
+    if (operationEpoch != _mediaOperationEpoch ||
+        cur == null ||
+        cur.callId != callId ||
+        cur.status != CallStatus.connecting) {
+      return;
     }
+    if (ok) {
+      final actualTransport = media.activeTransport;
+      if (actualTransport != null && actualTransport != cur.transport) {
+        if (cur.transport == CallTransportKind.p2p &&
+            actualTransport == CallTransportKind.relay &&
+            cur.localPosture == CallPosture.direct &&
+            cur.peerPosture == CallPosture.direct) {
+          final relayed = cur.copyWith(
+            status: CallStatus.active,
+            transport: CallTransportKind.relay,
+          );
+          _set(relayed);
+          unawaited(_announceRelayFallback(relayed));
+          return;
+        }
+        devLog(
+          () =>
+              'xVeil[call-media]: refused route mismatch call=$callId '
+              'negotiated=${cur.transport?.name ?? 'unset'} '
+              'actual=${actualTransport.name}',
+        );
+        unawaited(
+          _sendControl(
+            cur.peer,
+            callId,
+            CallSignalType.end,
+            CallEndReason.error,
+          ),
+        );
+        _end(CallEndReason.error);
+        return;
+      }
+      _set(cur.copyWith(status: CallStatus.active));
+      return;
+    }
+    unawaited(
+      _sendControl(cur.peer, callId, CallSignalType.end, CallEndReason.error),
+    );
+    _end(CallEndReason.error);
   }
 
   Future<void> _stopMediaAndReleaseSlot() async {
@@ -676,6 +859,10 @@ class CallService {
   void _end(CallEndReason reason) {
     _cancelRingTimeout();
     _cancelHeartbeat();
+    _pendingRelayCallId = null;
+    _pendingRelayPeer = null;
+    _outgoingProposal = null;
+    _mediaOperationEpoch++;
     if (_media == null) {
       _callSlot?.release(CallSlotOwner.direct);
     } else {
@@ -729,18 +916,12 @@ final callServiceProvider = Provider<CallService>((ref) {
     callSlot: ref.read(callSlotProvider),
     localAllowsP2P: (peer) =>
         ref.read(p2pPolicyProvider.notifier).allowsPeer(peer),
-    peerReachableForP2P: (peer) async {
-      final transport = ref.read(veilTransportProvider);
-      final peers = await transport.peers();
-      if (peers.any((p) => p.nodeId == peer && p.isActive)) return true;
-      // In the embedded runtime `peers()` reports live transport sessions, not
-      // every accepted chat identity. A contact can still be reachable for app
-      // datagrams (the same path that delivered this call offer/answer) without
-      // appearing there, so policy consent is enough to attempt P2P media. The
-      // media controller falls back to the anonymous channel if direct open
-      // fails.
-      return ref.read(p2pPolicyProvider.notifier).allowsPeer(peer);
-    },
+    // The proposal means "consented to ATTEMPT direct", not proof that a live
+    // route exists. Asking the daemon for peers here can block call acceptance
+    // for many seconds and is still only a racy snapshot. The native direct
+    // media open is the authoritative admission gate: it requires a live P-Net
+    // session and otherwise falls back to the non-onion relay route.
+    peerReachableForP2P: (_) async => true,
   )..start();
   ref.onDispose(svc.dispose);
   return svc;

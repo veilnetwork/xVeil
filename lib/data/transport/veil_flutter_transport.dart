@@ -17,48 +17,51 @@ import 'veil_transport.dart';
 /// named endpoint, so a peer is addressable from its node id alone (its app_id
 /// is derived — see [chatAppIdFor], verified against the native bindNamed).
 class VeilFlutterTransport
-    implements VeilTransport, StreamTransport, P2PStreamTransport {
+    implements
+        VeilTransport,
+        RealtimeTransport,
+        StreamTransport,
+        P2PStreamTransport {
   VeilFlutterTransport._(
     this._socketPath,
+    this._nodeId,
     this._client,
     this._capabilityClient,
+    this._realtimeClient,
     this._app,
     this._mediaApp,
-  ) {
-    _mediaMessages = _mediaApp.messages().listen((m) {
-      final src = NodeId(m.srcNodeId);
-      if (!_bytesEqual(m.srcAppId, mediaAppIdFor(src))) {
-        devLog(
-          () =>
-              'xVeil[media-p2p]: drop direct media from ${src.short} '
-              '(unexpected app id)',
-        );
-        return;
-      }
-      _client.dispatchDirectMediaDatagram(
-        srcNodeId: m.srcNodeId,
-        payload: m.data,
-      );
-    });
-  }
+    this._realtimeApp,
+  );
 
   final String _socketPath;
+  final NodeId _nodeId;
   final VeilClient _client;
   final VeilClient _capabilityClient;
+  final VeilClient _realtimeClient;
   final AppHandle _app;
   final AppHandle _mediaApp;
-  StreamSubscription<dynamic>? _mediaMessages;
+  final AppHandle _realtimeApp;
 
   /// Connect to a running node's app IPC socket and bind the chat endpoint.
   static Future<VeilFlutterTransport> connect(String socketPath) async {
     final client = await VeilClient.connect(socketPath);
     VeilClient? capabilityClient;
+    VeilClient? realtimeClient;
+    AppHandle? realtimeApp;
     try {
+      // Node identity is immutable for this transport lifetime. Cache it while
+      // the IPC connection is otherwise idle so call setup never queues a
+      // node-id RPC behind discovery/mailbox work on the shared client mutex.
+      final nodeId = NodeId(await client.nodeId());
       // Capability hosting/fetch uses a separate IPC connection. The main
       // client may spend seconds inside mailbox/rendezvous lookups while
       // holding its native mutex; sharing it made public-link bind/send wait
       // behind unrelated traffic even though Flutter itself was responsive.
       capabilityClient = await VeilClient.connect(socketPath);
+      // Call accept/end must not queue behind a slow mailbox/DHT operation on
+      // the main IPC client. A separate sender-only binding preserves the same
+      // node identity and destination inbox while isolating its writer/locks.
+      realtimeClient = await VeilClient.connect(socketPath);
       final app = await client.bindNamed(
         namespace: veilChatNamespace,
         name: veilChatName,
@@ -69,14 +72,28 @@ class VeilFlutterTransport
         name: veilMediaName,
         endpointId: veilMediaEndpointId,
       );
+      mediaApp.startDirectMediaReceiver(
+        sourceNamespace: veilChatNamespace,
+        sourceName: veilMediaName,
+      );
+      realtimeApp = await realtimeClient.bindNamed(
+        namespace: veilChatNamespace,
+        name: veilRealtimeName,
+        endpointId: veilRealtimeEndpointId,
+      );
       return VeilFlutterTransport._(
         socketPath,
+        nodeId,
         client,
         capabilityClient,
+        realtimeClient,
         app,
         mediaApp,
+        realtimeApp,
       );
     } catch (_) {
+      await realtimeApp?.close();
+      await realtimeClient?.close();
       await capabilityClient?.close();
       await client.close();
       rethrow;
@@ -104,9 +121,23 @@ class VeilFlutterTransport
 
   /// Open a lossy media datagram channel to [dstNode] (32 bytes). Returns the
   /// channel id used by [sendMediaDatagram]/[closeMediaChannel].
-  Future<int> openMediaChannel(Uint8List dstNode, {bool direct = false}) async {
-    if (!direct) return _client.openMediaChannel(dstNodeId: dstNode);
+  Future<int> openMediaChannel(
+    Uint8List dstNode, {
+    bool direct = false,
+    bool relay = false,
+  }) async {
+    if (direct && relay) {
+      throw ArgumentError('media channel cannot be both direct and relay');
+    }
+    if (!direct && !relay) return _client.openMediaChannel(dstNodeId: dstNode);
     final peer = NodeId(dstNode);
+    if (relay) {
+      return _mediaApp.openRelayMediaChannel(
+        dstNodeId: dstNode,
+        dstAppId: mediaAppIdFor(peer),
+        dstEndpointId: veilMediaEndpointId,
+      );
+    }
     return _mediaApp.openDirectMediaChannel(
       dstNodeId: dstNode,
       dstAppId: mediaAppIdFor(peer),
@@ -237,7 +268,7 @@ class VeilFlutterTransport
   );
 
   @override
-  Future<NodeId> nodeId() async => NodeId(await _client.nodeId());
+  Future<NodeId> nodeId() async => _nodeId;
 
   /// Recipient-bound mailbox crypto for shared-document epoch envelopes. It
   /// uses the same live node identity as offline delivery without exposing the
@@ -313,6 +344,28 @@ class VeilFlutterTransport
       );
     }
     return _app.send(
+      dstNodeId: dst.bytes,
+      dstAppId: chatAppIdFor(dst),
+      dstEndpointId: veilChatEndpointId,
+      data: payload,
+    );
+  }
+
+  @override
+  Future<void> sendRealtime(
+    NodeId dst,
+    Uint8List payload, {
+    bool anonymous = false,
+  }) {
+    if (anonymous) {
+      return _realtimeApp.sendAnonymousAuthenticated(
+        dstNodeId: dst.bytes,
+        dstAppId: chatAppIdFor(dst),
+        dstEndpointId: veilChatEndpointId,
+        data: payload,
+      );
+    }
+    return _realtimeApp.send(
       dstNodeId: dst.bytes,
       dstAppId: chatAppIdFor(dst),
       dstEndpointId: veilChatEndpointId,
@@ -478,11 +531,10 @@ class VeilFlutterTransport
 
   @override
   Future<void> dispose() async {
-    final mediaMessages = _mediaMessages;
-    _mediaMessages = null;
-    await mediaMessages?.cancel();
+    await _realtimeApp.close();
     await _mediaApp.close();
     await _app.close();
+    await _realtimeClient.close();
     await _capabilityClient.close();
     await _client.close();
   }
@@ -537,15 +589,6 @@ class VeilCapabilityEndpoint {
       }
     }
   }
-}
-
-bool _bytesEqual(Uint8List a, Uint8List b) {
-  if (a.length != b.length) return false;
-  var diff = 0;
-  for (var i = 0; i < a.length; i++) {
-    diff |= a[i] ^ b[i];
-  }
-  return diff == 0;
 }
 
 /// Adapts veil_flutter's [VeilStream] to the transport-agnostic [ReliableStream]
