@@ -111,6 +111,10 @@ abstract class CallMediaController {
   /// Follow a mutually safe mid-call fallback. The only currently valid switch
   /// is P2P -> non-onion relay for two direct identities.
   Future<bool> switchRoute(CallTransportKind transport) async => false;
+
+  /// Non-sensitive live transport counters for diagnostics. Implementations
+  /// must not include media bytes, keys, peer addresses, or cleartext.
+  Map<String, Object?> get diagnostics => const {};
 }
 
 /// The call-session state machine (control plane). One active call at a time.
@@ -168,6 +172,7 @@ class CallService {
 
   /// The single active (or just-ended) call, or null when idle.
   Call? get current => _current;
+  Map<String, Object?> get mediaDiagnostics => _media?.diagnostics ?? const {};
 
   /// Emits on every FSM transition, and null when the call slot clears.
   Stream<Call?> get changes => _changes.stream;
