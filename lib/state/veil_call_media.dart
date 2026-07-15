@@ -77,9 +77,33 @@ class VeilCallMediaController implements CallMediaController {
   Timer? _statsTimer; // polls rx_pkts for the call-liveness signal
   DateTime? _lastRxAt; // wall-clock when rx_pkts last increased
   int _lastRxPkts = 0;
+  DateTime? _lastRepairAt;
+
+  @override
+  CallTransportKind? get activeTransport => _chan == null
+      ? null
+      : (_chanDirect ? CallTransportKind.p2p : CallTransportKind.onion);
 
   @override
   DateTime? get lastMediaRxAt => _lastRxAt;
+
+  @override
+  Future<void> repairRoute() async {
+    final ch = _chan;
+    if (ch == null || _chanDirect) return;
+    final now = DateTime.now();
+    final previous = _lastRepairAt;
+    if (previous != null && now.difference(previous) < kCallMediaRepairAfter) {
+      return;
+    }
+    _lastRepairAt = now;
+    final rc = _transport.repairMediaChannel(ch);
+    devLog(
+      () =>
+          'xVeil[call-media]: end-to-end silence route repair '
+          'channel=$ch result=$rc',
+    );
+  }
 
   @override
   Stream<void> get screenShareStopped => _screenShareStops.stream;
@@ -174,6 +198,7 @@ class VeilCallMediaController implements CallMediaController {
     _statsTimer?.cancel();
     _lastRxAt = null;
     _lastRxPkts = 0;
+    _lastRepairAt = null;
     _statsTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_engine != engine) return;
       try {

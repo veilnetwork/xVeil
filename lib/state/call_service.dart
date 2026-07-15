@@ -32,6 +32,12 @@ const Duration kCallHeartbeatInterval = Duration(seconds: 5);
 /// jitter over the durable channel never drops a still-live call.
 const Duration kCallLivenessTimeout = Duration(seconds: 20);
 
+/// A connected media engine should exchange RTP or RTCP even when speech is
+/// quiet. If none arrives for this long while signaling is demonstrably alive,
+/// ask the peer to refresh its outbound onion route. Kept below the call
+/// liveness timeout so repair gets a chance before teardown.
+const Duration kCallMediaRepairAfter = Duration(seconds: 10);
+
 /// Pure transport negotiation: given both parties' postures (+ P2P consent and
 /// reachability for the direct case), pick the media path per the design matrix.
 /// **Anonymity is never sacrificed** — if EITHER side is anonymous the media
@@ -64,6 +70,11 @@ abstract class CallMediaController {
   /// Bring up the media session for [call] (open the veil media datagram
   /// channel + start the audio engine). Returns true if media is up.
   Future<bool> start(Call call);
+
+  /// The route the media engine actually opened. This may differ from the
+  /// negotiated proposal when a direct open races/fails and safely falls back
+  /// to the anonymous network. Null until a channel is open.
+  CallTransportKind? get activeTransport => null;
 
   /// Optionally pre-open the media channel toward the peer so the onion circuit
   /// is warming while the call is still ringing/connecting — otherwise the first
@@ -99,6 +110,11 @@ abstract class CallMediaController {
   /// the call is alive even if the (flakier) durable signaling heartbeat is
   /// delayed — signaling silence alone must not drop a call that's clearly up.
   DateTime? get lastMediaRxAt => null;
+
+  /// Refresh the current anonymous outbound route after the peer reports
+  /// end-to-end media silence. Implementations must be idempotent/rate-limited;
+  /// direct media treats this as a no-op.
+  Future<void> repairRoute() async {}
 }
 
 /// The call-session state machine (control plane). One active call at a time.
@@ -378,7 +394,9 @@ class CallService {
       case CallSignalType.end:
         _onRemoteEnd(peer, sig, sig.reason ?? CallEndReason.hangup);
       case CallSignalType.health:
-        // Liveness already refreshed above; a heartbeat carries no state change.
+        // Liveness already refreshed above. A repair request is end-to-end
+        // evidence that OUR outbound media is black-holed after its first hop.
+        if (sig.mediaRepairRequested) unawaited(_media?.repairRoute());
         break;
       case CallSignalType.renegotiate:
         _onRenegotiate(peer, sig);
@@ -570,6 +588,12 @@ class CallService {
           CallSignal(
             callId: c.callId,
             type: CallSignalType.health,
+            mediaRepairRequested:
+                c.status == CallStatus.active &&
+                _now().difference(
+                      _media?.lastMediaRxAt ?? c.connectedAt ?? c.startedAt,
+                    ) >=
+                    kCallMediaRepairAfter,
             sentAtMs: _now().millisecondsSinceEpoch,
           ),
         ),
@@ -629,7 +653,13 @@ class CallService {
         cur != null &&
         cur.callId == callId &&
         cur.status == CallStatus.connecting) {
-      _set(cur.copyWith(status: CallStatus.active));
+      final actualTransport = media.activeTransport;
+      _set(
+        cur.copyWith(
+          status: CallStatus.active,
+          transport: actualTransport ?? cur.transport,
+        ),
+      );
     }
   }
 

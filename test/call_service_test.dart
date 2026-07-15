@@ -183,6 +183,20 @@ void main() {
       expect(back.media, isNull);
     });
 
+    test('health round-trips the additive media-repair request', () {
+      const sig = CallSignal(
+        callId: 'repair',
+        type: CallSignalType.health,
+        mediaRepairRequested: true,
+      );
+      final back = CallSignal.tryDecode(sig.encode())!;
+      expect(back.mediaRepairRequested, isTrue);
+      expect(
+        CallSignal.tryDecode('{"c":"old","k":8}')!.mediaRepairRequested,
+        isFalse,
+      );
+    });
+
     test('an out-of-range enum index decodes to the .unknown sentinel', () {
       // Simulate a newer peer's added type/posture (indices past this build).
       final body = '{"c":"id","k":9999,"p":9999,"t":{"k":9999},"v":1}';
@@ -355,6 +369,92 @@ void main() {
             .length;
         expect(beats, greaterThanOrEqualTo(3));
       });
+    });
+
+    test(
+      'end-to-end media silence asks the peer to repair its outbound route',
+      () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _FakeMedia();
+          final svc = CallService(fake, now: () => clock.now(), media: media)
+            ..start();
+          fake.onCallSignal!(peer, offer('call-repair-request'));
+          svc.accept();
+          async.flushMicrotasks();
+          expect(svc.current?.status, CallStatus.active);
+          fake.sent.clear();
+
+          async.elapse(kCallMediaRepairAfter + const Duration(seconds: 1));
+          async.flushMicrotasks();
+
+          expect(
+            fake.sent
+                .where((s) => s.type == CallSignalType.health)
+                .any((s) => s.mediaRepairRequested),
+            isTrue,
+          );
+        });
+      },
+    );
+
+    test('peer media-repair request refreshes our outbound route', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia();
+        final svc = CallService(fake, now: () => clock.now(), media: media)
+          ..start();
+        fake.onCallSignal!(peer, offer('call-repair-apply'));
+        svc.accept();
+        async.flushMicrotasks();
+
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'call-repair-apply',
+            type: CallSignalType.health,
+            mediaRepairRequested: true,
+          ),
+        );
+        async.flushMicrotasks();
+
+        expect(media.repairs, 1);
+      });
+    });
+  });
+
+  test('active call exposes the route actually opened by media', () {
+    fakeAsync((async) {
+      final peer = NodeId.fromHex('d' * 64);
+      final fake = _FakeMessaging();
+      final media = _FakeMedia()..openedTransport = CallTransportKind.onion;
+      final svc = CallService(
+        fake,
+        now: () => clock.now(),
+        media: media,
+        localAllowsP2P: (_) async => true,
+        peerReachableForP2P: (_) async => true,
+      )..start();
+      fake.onCallSignal!(
+        peer,
+        const CallSignal(
+          callId: 'actual-route',
+          type: CallSignalType.offer,
+          media: CallMedia(audio: true),
+          posture: CallPosture.direct,
+          transport: CallTransportProposal(CallTransportKind.p2p),
+        ),
+      );
+
+      svc.accept();
+      async.flushMicrotasks();
+
+      expect(svc.current?.status, CallStatus.active);
+      expect(
+        svc.current?.transport,
+        CallTransportKind.onion,
+        reason: 'the UI/debug state must not keep claiming negotiated P2P',
+      );
     });
   });
 
@@ -560,6 +660,9 @@ void main() {
 /// accepting or refusing to start the capture.
 class _FakeMedia extends CallMediaController {
   bool screenOk = true;
+  CallTransportKind? openedTransport;
+  DateTime? rxAt;
+  int repairs = 0;
   final List<String> log = [];
   final StreamController<void> screenStops = StreamController.broadcast();
 
@@ -567,10 +670,21 @@ class _FakeMedia extends CallMediaController {
   Stream<void> get screenShareStopped => screenStops.stream;
 
   @override
+  CallTransportKind? get activeTransport => openedTransport;
+
+  @override
+  DateTime? get lastMediaRxAt => rxAt;
+
+  @override
   Future<bool> start(Call call) async => true;
 
   @override
   Future<void> stop() async {}
+
+  @override
+  Future<void> repairRoute() async {
+    repairs++;
+  }
 
   @override
   Future<void> setCameraEnabled(bool enabled) async {
