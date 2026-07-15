@@ -93,6 +93,27 @@ class VeilCallMediaController implements CallMediaController {
   DateTime? get lastMediaRxAt => _lastRxAt;
 
   @override
+  Map<String, Object?> get diagnostics {
+    final engine = _engine;
+    if (engine == null) {
+      return {'transport': _chanTransport?.name, 'running': false};
+    }
+    try {
+      return {
+        'transport': _chanTransport?.name,
+        'running': true,
+        ...engine.getStats(),
+      };
+    } catch (_) {
+      return {
+        'transport': _chanTransport?.name,
+        'running': true,
+        'statsUnavailable': true,
+      };
+    }
+  }
+
+  @override
   Future<bool> repairRoute() async {
     final ch = _chan;
     if (ch == null || _routeRepairing) return false;
