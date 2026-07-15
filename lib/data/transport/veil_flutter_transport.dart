@@ -118,6 +118,11 @@ class VeilFlutterTransport
   int sendMediaDatagram(int chan, Uint8List payload) =>
       _client.sendMediaDatagram(chan, payload);
 
+  /// Refresh a black-holed anonymous media route after end-to-end silence.
+  /// Direct channels reject this with -1; callers should only invoke it for an
+  /// actual anonymous route.
+  int repairMediaChannel(int chan) => _client.repairMediaChannel(chan);
+
   /// Inbound media datagrams received from [peerNode] (32 bytes) since start.
   int mediaRecvCount(Uint8List peerNode) => _client.mediaRecvCount(peerNode);
 

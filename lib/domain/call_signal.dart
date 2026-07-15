@@ -11,7 +11,7 @@ import 'dart:convert';
 ///
 /// Wire form is compact JSON with short keys so re-sends stay cheap:
 ///   {c:callId, k:type, m:{a,v,s}, p:posture, t:{k,r,e}, mk:mediaKey, r:reason,
-///    v:protocolVersion, ts:sentAtMs}
+///    mr:mediaRepairRequested, v:protocolVersion, ts:sentAtMs}
 /// Unknown keys are ignored on decode, and an unknown [type]/[posture]/[kind]
 /// enum index decodes to its `.unknown` sentinel so a newer peer's additions
 /// degrade gracefully instead of throwing.
@@ -95,6 +95,7 @@ enum CallEndReason {
   timeout,
   cancelled,
   error,
+
   /// The peer's build lacks calling, or none of the offered media is supported.
   unsupported,
   unknown,
@@ -102,7 +103,11 @@ enum CallEndReason {
 
 /// Which media streams a call offers/carries. All three can combine.
 class CallMedia {
-  const CallMedia({this.audio = false, this.video = false, this.screen = false});
+  const CallMedia({
+    this.audio = false,
+    this.video = false,
+    this.screen = false,
+  });
 
   final bool audio;
   final bool video;
@@ -111,16 +116,16 @@ class CallMedia {
   bool get isEmpty => !audio && !video && !screen;
 
   CallMedia copyWith({bool? audio, bool? video, bool? screen}) => CallMedia(
-        audio: audio ?? this.audio,
-        video: video ?? this.video,
-        screen: screen ?? this.screen,
-      );
+    audio: audio ?? this.audio,
+    video: video ?? this.video,
+    screen: screen ?? this.screen,
+  );
 
   Map<String, dynamic> toJson() => {
-        if (audio) 'a': true,
-        if (video) 'v': true,
-        if (screen) 's': true,
-      };
+    if (audio) 'a': true,
+    if (video) 'v': true,
+    if (screen) 's': true,
+  };
 
   static CallMedia fromJson(Map<String, dynamic>? j) => j == null
       ? const CallMedia()
@@ -149,14 +154,18 @@ class CallTransportProposal {
   final List<String>? p2pEndpoints;
 
   Map<String, dynamic> toJson() => {
-        'k': kind.index,
-        if (relayNodeId != null) 'r': relayNodeId,
-        if (p2pEndpoints != null && p2pEndpoints!.isNotEmpty) 'e': p2pEndpoints,
-      };
+    'k': kind.index,
+    if (relayNodeId != null) 'r': relayNodeId,
+    if (p2pEndpoints != null && p2pEndpoints!.isNotEmpty) 'e': p2pEndpoints,
+  };
 
   static CallTransportProposal fromJson(Map<String, dynamic> j) =>
       CallTransportProposal(
-        _enumFromIndex(CallTransportKind.values, j['k'], CallTransportKind.unknown),
+        _enumFromIndex(
+          CallTransportKind.values,
+          j['k'],
+          CallTransportKind.unknown,
+        ),
         relayNodeId: j['r'] as String?,
         p2pEndpoints: (j['e'] as List?)?.cast<String>(),
       );
@@ -179,6 +188,7 @@ class CallSignal {
     this.transport,
     this.mediaKey,
     this.reason,
+    this.mediaRepairRequested = false,
     this.protocolVersion = kCallSignalProtocolVersion,
     this.sentAtMs,
   });
@@ -206,6 +216,12 @@ class CallSignal {
   /// Present on reject/end/cancel/busy.
   final CallEndReason? reason;
 
+  /// End-to-end liveness feedback carried on [CallSignalType.health]. `true`
+  /// means signaling still reaches the sender but no RTP/RTCP has arrived at
+  /// this receiver for the repair grace period. The sender should refresh its
+  /// anonymous outbound route; older peers ignore this additive key.
+  final bool mediaRepairRequested;
+
   final int protocolVersion;
 
   /// Sender wall-clock (Unix ms) — for ring-timeout / stale-signal handling.
@@ -222,31 +238,33 @@ class CallSignal {
     CallTransportProposal? transport,
     String? mediaKey,
     CallEndReason? reason,
+    bool? mediaRepairRequested,
     int? sentAtMs,
-  }) =>
-      CallSignal(
-        callId: callId,
-        type: type ?? this.type,
-        media: media ?? this.media,
-        posture: posture ?? this.posture,
-        transport: transport ?? this.transport,
-        mediaKey: mediaKey ?? this.mediaKey,
-        reason: reason ?? this.reason,
-        protocolVersion: protocolVersion,
-        sentAtMs: sentAtMs ?? this.sentAtMs,
-      );
+  }) => CallSignal(
+    callId: callId,
+    type: type ?? this.type,
+    media: media ?? this.media,
+    posture: posture ?? this.posture,
+    transport: transport ?? this.transport,
+    mediaKey: mediaKey ?? this.mediaKey,
+    reason: reason ?? this.reason,
+    mediaRepairRequested: mediaRepairRequested ?? this.mediaRepairRequested,
+    protocolVersion: protocolVersion,
+    sentAtMs: sentAtMs ?? this.sentAtMs,
+  );
 
   Map<String, dynamic> toJson() => {
-        'c': callId,
-        'k': type.index,
-        if (media != null && !media!.isEmpty) 'm': media!.toJson(),
-        if (posture != null) 'p': posture!.index,
-        if (transport != null) 't': transport!.toJson(),
-        if (mediaKey != null) 'mk': mediaKey,
-        if (reason != null) 'r': reason!.index,
-        'v': protocolVersion,
-        if (sentAtMs != null) 'ts': sentAtMs,
-      };
+    'c': callId,
+    'k': type.index,
+    if (media != null && !media!.isEmpty) 'm': media!.toJson(),
+    if (posture != null) 'p': posture!.index,
+    if (transport != null) 't': transport!.toJson(),
+    if (mediaKey != null) 'mk': mediaKey,
+    if (reason != null) 'r': reason!.index,
+    if (mediaRepairRequested) 'mr': true,
+    'v': protocolVersion,
+    if (sentAtMs != null) 'ts': sentAtMs,
+  };
 
   /// The string that goes in the `WireKind.callSignal` envelope body.
   String encode() => jsonEncode(toJson());
@@ -259,7 +277,11 @@ class CallSignal {
       if (callId == null || callId.isEmpty) return null;
       return CallSignal(
         callId: callId,
-        type: _enumFromIndex(CallSignalType.values, j['k'], CallSignalType.unknown),
+        type: _enumFromIndex(
+          CallSignalType.values,
+          j['k'],
+          CallSignalType.unknown,
+        ),
         media: j['m'] == null
             ? null
             : CallMedia.fromJson((j['m'] as Map).cast<String, dynamic>()),
@@ -268,11 +290,18 @@ class CallSignal {
             : _enumFromIndex(CallPosture.values, j['p'], CallPosture.unknown),
         transport: j['t'] == null
             ? null
-            : CallTransportProposal.fromJson((j['t'] as Map).cast<String, dynamic>()),
+            : CallTransportProposal.fromJson(
+                (j['t'] as Map).cast<String, dynamic>(),
+              ),
         mediaKey: j['mk'] as String?,
         reason: j['r'] == null
             ? null
-            : _enumFromIndex(CallEndReason.values, j['r'], CallEndReason.unknown),
+            : _enumFromIndex(
+                CallEndReason.values,
+                j['r'],
+                CallEndReason.unknown,
+              ),
+        mediaRepairRequested: j['mr'] == true,
         protocolVersion: (j['v'] as num?)?.toInt() ?? 1,
         sentAtMs: (j['ts'] as num?)?.toInt(),
       );
