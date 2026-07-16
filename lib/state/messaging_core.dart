@@ -1671,6 +1671,109 @@ class MessagingService {
     _signal();
   }
 
+  /// Append a FILE note to Saved Messages — the local half of [sendFile]
+  /// (store the blob + record the message) with NO wire frames, consent gate
+  /// or mailbox: notes to self never leave the device. Small files take the
+  /// whole-blob [HiddenVolumeStorage.storeFile] tier; larger ones the
+  /// content-layer piece store under their contentId — the SAME on-disk
+  /// layouts a real send produces, so the existing file/image bubbles render
+  /// a saved note unchanged (and identical bytes de-dup against any past or
+  /// future real send).
+  Future<void> saveFileNote(
+    Uint8List bytes,
+    String name, {
+    String? sourcePath,
+    String? forwardedFrom,
+  }) async {
+    final selfId = NodeId.fromHex(await _selfHex());
+    // Micro-thumb like a real send: images from the in-RAM bytes; videos need
+    // the on-disk source (the platform grabber can't decode from bytes alone).
+    String? thumb;
+    if (isImageFileName(name)) {
+      thumb = await _imageThumbMaker(bytes);
+    } else if (isVideoFileName(name) && sourcePath != null) {
+      try {
+        thumb = await _videoThumbMaker(sourcePath);
+      } catch (e) {
+        devLog(() => 'xVeil[saved]: video thumb skipped for $name: $e');
+      }
+    }
+    if (bytes.length > _contentThreshold) {
+      // Content-tier: hash once, persist the piece blob keyed by contentId.
+      final base = ContentManifest.fromBytes(
+        name,
+        bytes,
+        pieceSize: adaptivePieceSize(bytes.length),
+        chunkBytes: _contentChunkBytes,
+      );
+      await _storeServedBlob(base, bytes);
+      await _store(
+        selfId,
+        MessageDirection.outgoing,
+        '📎 $name',
+        // Delivered, not sent — same reasoning as [saveNote] (no peer to ack;
+        // `sent` would make _maybeReconnect fire a reconnect at ourselves).
+        MessageStatus.delivered,
+        fileId: base.contentId,
+        fileName: name,
+        fileSize: bytes.length,
+        thumb: thumb,
+        forwardedFrom: forwardedFrom,
+        timestamp: _now(),
+      );
+    } else {
+      // Whole-blob tier, bounded by the atomic-delete cap like any stored
+      // file (the UI pre-checks with a friendly error; drop silently here).
+      if (bytes.length > kMaxStoredFileBytes) {
+        devLog(() => 'xVeil[saved]: ${bytes.length}B over cap — dropped');
+        return;
+      }
+      final fileId = _uuid.v4();
+      await _storage.storeFile(fileId, bytes, name: name);
+      await _store(
+        selfId,
+        MessageDirection.outgoing,
+        '📎 $name',
+        MessageStatus.delivered,
+        fileId: fileId,
+        fileName: name,
+        fileSize: bytes.length,
+        thumb: thumb,
+        id: fileId,
+        forwardedFrom: forwardedFrom,
+        timestamp: _now(),
+      );
+    }
+    _signal();
+  }
+
+  /// Forward an already-HELD file message into Saved Messages as a copy-
+  /// reference: a NEW message row pointing at the SAME stored blob (blobs are
+  /// keyed globally by fileId/contentId), so nothing is copied, re-sent or
+  /// re-downloaded. Returns false when the blob is NOT held locally (an
+  /// undownloaded offer) — the caller hides the action instead of promising
+  /// a forward it can't perform without pulling bytes off the wire.
+  Future<bool> saveFileNoteRef(Message m, {String? forwardedFrom}) async {
+    final key = m.fileId ?? m.fileContentId;
+    if (key == null || !await _storage.hasFile(key)) return false;
+    final selfId = NodeId.fromHex(await _selfHex());
+    await _store(
+      selfId,
+      MessageDirection.outgoing,
+      m.body,
+      MessageStatus.delivered,
+      fileId: m.fileId,
+      fileName: m.fileName,
+      fileSize: m.fileSize,
+      fileContentId: m.fileContentId,
+      thumb: m.thumb,
+      forwardedFrom: forwardedFrom,
+      timestamp: _now(),
+    );
+    _signal();
+    return true;
+  }
+
   Future<Message> _store(
     NodeId peer,
     MessageDirection dir,

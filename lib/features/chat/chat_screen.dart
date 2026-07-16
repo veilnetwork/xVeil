@@ -616,6 +616,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     bool allowStreaming = true,
   }) async {
     final l = AppL10n.of(context);
+    // Saved Messages has no receiver to stream to — a file note is bounded by
+    // the in-RAM path's cap (an honest "too large" instead of a silent drop).
+    final canStream = allowStreaming && !_saved;
 
     // A file too big for the in-RAM path, with a real filesystem path, is
     // STREAMED: read range-by-range off disk so a multi-GB / TB attachment is
@@ -635,11 +638,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       } catch (_) {
         /* unreadable length → keep the picker's size */
       }
-      if (size > kMaxIncomingFileBytes && !allowStreaming) {
+      if (size > kMaxIncomingFileBytes && !canStream) {
         if (mounted) _snack(l.chatFileTooLarge);
         return;
       }
-      if (size > kMaxIncomingFileBytes && allowStreaming) {
+      if (size > kMaxIncomingFileBytes && canStream) {
         devLog(() => 'xVeil[attach]: ${file.name} size=$size -> stream');
         // Serve-from-source: the sender already HAS this file, so we don't copy
         // or encrypt it — MessagingService reads chunks straight from disk on
@@ -699,16 +702,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (mounted) _snack(l.chatFileTooLarge);
       return;
     }
-    await ref
-        .read(messagingServiceProvider)
-        .sendFile(
-          _peer,
-          data,
-          file.name,
-          // For a small VIDEO the platform frame-grabber needs the on-disk
-          // source — the bytes alone can't produce a preview frame.
-          sourcePath: file.path,
-        );
+    if (_saved) {
+      // Saved Messages: a purely local file note — stored encrypted, never
+      // on the wire (sendFile would drop it anyway: self isn't a contact).
+      await ref
+          .read(messagingServiceProvider)
+          .saveFileNote(data, file.name, sourcePath: file.path);
+    } else {
+      await ref
+          .read(messagingServiceProvider)
+          .sendFile(
+            _peer,
+            data,
+            file.name,
+            // For a small VIDEO the platform frame-grabber needs the on-disk
+            // source — the bytes alone can't produce a preview frame.
+            sourcePath: file.path,
+          );
+    }
     _scrollToBottom(force: true);
   }
 
@@ -1129,6 +1140,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final l = AppL10n.of(context);
     final own = m.direction == MessageDirection.outgoing;
     final showReactions = ref.read(showReactionsProvider);
+    // A file is forwardable only to Saved Messages and only when its blob is
+    // already HELD locally (a copy-reference — no re-download). An
+    // undownloaded offer honestly gets no forward entry at all.
+    final fileKey = m.fileId ?? m.fileContentId;
+    final fileHeld =
+        m.isFile &&
+        fileKey != null &&
+        await ref.read(storageProvider).hasFile(fileKey);
+    if (!mounted) return;
     await showModalBottomSheet<void>(
       context: context,
       // Scrollable: with reply/forward/select/copy/edit/delete/history/info the
@@ -1168,7 +1188,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   _startReply(m);
                 },
               ),
-              if (!m.isFile)
+              if (!m.isFile || fileHeld)
                 ListTile(
                   leading: const Icon(Icons.forward_outlined),
                   title: Text(l.chatMsgForward),
@@ -1339,10 +1359,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// no cryptographic signature (that would make authorship non-repudiable and
   /// break veil's deniability). Sends in on-screen order to the chosen peer.
   Future<void> _forwardMessages(List<Message> msgs) async {
-    final toForward = msgs.where((m) => !m.isFile).toList(growable: false);
+    // Files forward ONLY to Saved Messages, and only when the blob is already
+    // held locally — the saved row is a copy-reference to the same stored
+    // blob, so nothing is re-sent or re-downloaded. Wire-forwarding a file to
+    // another peer is a real (re-)send and stays out of scope here.
+    final storage = ref.read(storageProvider);
+    final heldFiles = <String>{};
+    for (final m in msgs.where((m) => m.isFile)) {
+      final key = m.fileId ?? m.fileContentId;
+      if (key != null && await storage.hasFile(key)) heldFiles.add(m.id);
+    }
+    final toForward = msgs
+        .where((m) => !m.isFile || heldFiles.contains(m.id))
+        .toList(growable: false);
     if (toForward.isEmpty) return;
+    if (!mounted) return;
     final myHex = ref.read(appControllerProvider).identity?.nodeId.hex;
-    final target = await _pickForwardTarget();
+    // A files-only forward can land nowhere but Saved — offer only that.
+    final target = await _pickForwardTarget(
+      savedOnly: toForward.every((m) => m.isFile),
+    );
     if (target == null || !mounted) return;
     final svc = ref.read(messagingServiceProvider);
     final toSaved = myHex != null && target.hex == myHex;
@@ -1355,7 +1391,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           (m.direction == MessageDirection.outgoing
               ? (myHex ?? widget.peerHex)
               : (m.author ?? widget.peerHex));
-      if (toSaved) {
+      if (m.isFile) {
+        // Held-file copy-reference; skipped for a wire target (mixed
+        // selections keep the pre-existing text-only behavior there).
+        if (toSaved) await svc.saveFileNoteRef(m, forwardedFrom: originHex);
+      } else if (toSaved) {
         await svc.saveNote(m.body, forwardedFrom: originHex);
       } else {
         await svc.sendText(target, m.body, forwardedFrom: originHex);
@@ -1371,18 +1411,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   /// Pick an accepted contact to forward to (a simple searchable list is a later
   /// polish — the accepted set is small). Returns the chosen peer or null.
-  Future<NodeId?> _pickForwardTarget() async {
+  /// [savedOnly] hides the contact list — a files-only forward is a local
+  /// copy-reference, so Saved Messages is the only honest destination.
+  Future<NodeId?> _pickForwardTarget({bool savedOnly = false}) async {
     final l = AppL10n.of(context);
     final convs = await ref.read(storageProvider).loadConversations();
     if (!mounted) return null;
     final myHex = ref.read(appControllerProvider).identity?.nodeId.hex;
-    final accepted = convs
-        .where(
-          (c) =>
-              c.peer.status == ContactStatus.accepted &&
-              c.peer.nodeId.hex != myHex,
-        )
-        .toList(growable: false);
+    final accepted = savedOnly
+        ? const <Conversation>[]
+        : convs
+              .where(
+                (c) =>
+                    c.peer.status == ContactStatus.accepted &&
+                    c.peer.nodeId.hex != myHex,
+              )
+              .toList(growable: false);
     return showModalBottomSheet<NodeId>(
       context: context,
       builder: (sheet) => SafeArea(
@@ -2214,8 +2258,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             focusNode: _inputFocus,
             hint: l.savedNoteHint,
             onSend: () => _submit(status),
-            // v1 notes are text-only (matches forward-to-saved, which skips
-            // files); file notes land with the media-message work.
+            // File notes: the paperclip stores the pick LOCALLY (saveFileNote
+            // — never the wire). Voice/vnote/sticker notes are a later polish.
+            onAttachmentAction: _pickAttachment,
           ),
         ],
       );
@@ -4953,7 +4998,14 @@ class _MessageComposerState extends ConsumerState<MessageComposer> {
               child: SizedBox(
                 width: 96,
                 height: 96,
-                child: VnotePreview(frameListenable: ctrl.preview),
+                // Mirrored like a mirror: the vnote capture is always the
+                // front-facing lens, and an unmirrored self-view reads as
+                // "wrong way round" while framing. Recorded frames ship
+                // unmirrored — this flip is preview-only.
+                child: VnotePreview(
+                  frameListenable: ctrl.preview,
+                  mirror: true,
+                ),
               ),
             ),
           ),
