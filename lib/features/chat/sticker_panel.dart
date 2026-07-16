@@ -1,7 +1,9 @@
-// Sticker panel (stickers epic, brick 2): a bottom sheet showing the user's
-// sticker packs with an import button. Picking a sticker returns its item id;
-// the composer loads the bytes and sends it. Import reads images through the
-// file picker, normalizes them, and adds them to the default pack.
+// Sticker panel (stickers epic, brick 2 + pack-management polish): a bottom
+// sheet showing the user's sticker packs as SECTIONS with a per-pack manage
+// menu (share / rename / delete) and an import button. Picking a sticker
+// returns its item id; the composer loads the bytes and sends it. Import
+// reads images through the file picker, normalizes them, and lands them in a
+// pack the user chooses (existing or freshly created).
 
 import 'dart:io';
 import 'dart:typed_data';
@@ -13,10 +15,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/providers.dart';
 import '../../state/sticker_store.dart';
-
-/// The default pack shared by the header share button (v1: the single
-/// import pack). Kept in sync with the store's default pack id.
-const String _defaultSharePackId = 'my';
 
 /// Opens the sticker sheet; resolves to either a sticker item id (send that
 /// sticker), `pack:<packId>` (share that pack to the chat), or null.
@@ -68,10 +66,23 @@ class _StickerPickerState extends ConsumerState<StickerPicker> {
         }
         if (bytes != null && bytes.isNotEmpty) images.add(bytes);
       }
-      if (images.isEmpty) return;
-      final n = await ref
-          .read(stickerControllerProvider.notifier)
-          .importImages(images);
+      if (images.isEmpty || !mounted) return;
+      // Which pack the import lands in: with an existing library the user
+      // picks (or creates) the target; an empty library skips the question.
+      final ctrl = ref.read(stickerControllerProvider.notifier);
+      final packs = ref.read(stickerControllerProvider).valueOrNull ?? const [];
+      String? packId;
+      if (packs.isNotEmpty) {
+        packId = await _pickTargetPack(packs);
+        if (packId == null) return; // cancelled
+        if (packId == _newPackSentinel) {
+          if (!mounted) return;
+          final name = await _promptPackName(initial: '');
+          if (name == null || name.isEmpty) return;
+          packId = await ctrl.createPack(name);
+        }
+      }
+      final n = await ctrl.importImages(images, packId: packId);
       if (mounted && n > 0) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(AppL10n.of(context).stickerImported(n))),
@@ -81,6 +92,101 @@ class _StickerPickerState extends ConsumerState<StickerPicker> {
       if (mounted) setState(() => _importing = false);
     }
   }
+
+  static const String _newPackSentinel = '__new__';
+
+  /// Existing pack ids + a "new pack" sentinel; null when dismissed.
+  Future<String?> _pickTargetPack(List<StickerPack> packs) {
+    final l = AppL10n.of(context);
+    return showDialog<String>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: Text(l.stickerPackChooseTarget),
+        children: [
+          for (final p in packs)
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(dialogContext).pop(p.id),
+              child: Text(_packLabel(l, p)),
+            ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.of(dialogContext).pop(_newPackSentinel),
+            child: Row(
+              children: [
+                const Icon(Icons.add, size: 18),
+                const SizedBox(width: 8),
+                Text(l.stickerPackNew),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<String?> _promptPackName({required String initial}) async {
+    final l = AppL10n.of(context);
+    final field = TextEditingController(text: initial);
+    try {
+      return await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(l.stickerPackNameHint),
+          content: TextField(
+            controller: field,
+            autofocus: true,
+            maxLength: 64,
+            decoration: InputDecoration(hintText: l.stickerPackNameHint),
+            onSubmitted: (v) => Navigator.of(dialogContext).pop(v.trim()),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(l.actionCancel),
+            ),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(field.text.trim()),
+              child: Text(l.actionDone),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      field.dispose();
+    }
+  }
+
+  Future<void> _renamePack(StickerPack pack) async {
+    final name = await _promptPackName(initial: pack.name);
+    if (name == null || name.isEmpty || name == pack.name) return;
+    await ref.read(stickerControllerProvider.notifier).renamePack(pack.id, name);
+  }
+
+  Future<void> _deletePack(StickerPack pack) async {
+    final l = AppL10n.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l.stickerPackDelete),
+        content: Text(l.stickerPackDeleteConfirm(_packLabel(l, pack))),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l.actionCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(l.chatDeleteConfirm),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await ref.read(stickerControllerProvider.notifier).deletePack(pack.id);
+  }
+
+  String _packLabel(AppL10n l, StickerPack p) =>
+      p.name.isEmpty ? l.stickerPackTitle : p.name;
 
   @override
   Widget build(BuildContext context) {
@@ -100,17 +206,6 @@ class _StickerPickerState extends ConsumerState<StickerPicker> {
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
-                // Share the whole library as a pack to this chat.
-                if (widget.allowPackShare &&
-                    (packs.valueOrNull ?? const []).any(
-                      (p) => p.items.isNotEmpty,
-                    ))
-                  IconButton(
-                    icon: const Icon(Icons.ios_share),
-                    tooltip: l.stickerSharePack,
-                    onPressed: () =>
-                        widget.onSelected('pack:$_defaultSharePackId'),
-                  ),
                 _importing
                     ? const Padding(
                         padding: EdgeInsets.all(12),
@@ -133,25 +228,14 @@ class _StickerPickerState extends ConsumerState<StickerPicker> {
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (_, _) => Center(child: Text(l.stickerEmpty)),
               data: (list) {
-                final items = [
-                  for (final p in list)
-                    for (final id in p.items) id,
-                ];
-                if (items.isEmpty) {
-                  return _empty(context, l);
-                }
-                return GridView.builder(
-                  padding: const EdgeInsets.all(12),
-                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                    maxCrossAxisExtent: 96,
-                    mainAxisSpacing: 8,
-                    crossAxisSpacing: 8,
-                  ),
-                  itemCount: items.length,
-                  itemBuilder: (context, i) => _StickerCell(
-                    itemId: items[i],
-                    onSelected: widget.onSelected,
-                  ),
+                // Empty packs still render (they're manageable); only a bare
+                // library gets the import call-to-action.
+                if (list.isEmpty) return _empty(context, l);
+                return ListView(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                  children: [
+                    for (final p in list) ..._packSection(context, l, p),
+                  ],
                 );
               },
             ),
@@ -160,6 +244,69 @@ class _StickerPickerState extends ConsumerState<StickerPicker> {
       ),
     );
   }
+
+  /// One pack: a header row (name + count + manage menu) and its grid.
+  List<Widget> _packSection(BuildContext context, AppL10n l, StickerPack p) => [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 8, 0, 0),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${_packLabel(l, p)} · ${p.items.length}',
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                ),
+              ),
+              PopupMenuButton<String>(
+                key: ValueKey('pack-menu:${p.id}'),
+                icon: const Icon(Icons.more_horiz, size: 20),
+                onSelected: (action) {
+                  switch (action) {
+                    case 'share':
+                      widget.onSelected('pack:${p.id}');
+                    case 'rename':
+                      _renamePack(p);
+                    case 'delete':
+                      _deletePack(p);
+                  }
+                },
+                itemBuilder: (context) => [
+                  if (widget.allowPackShare && p.items.isNotEmpty)
+                    PopupMenuItem(
+                      value: 'share',
+                      child: Text(l.stickerSharePack),
+                    ),
+                  PopupMenuItem(
+                    value: 'rename',
+                    child: Text(l.stickerPackRename),
+                  ),
+                  PopupMenuItem(
+                    value: 'delete',
+                    child: Text(l.stickerPackDelete),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 96,
+            mainAxisSpacing: 8,
+            crossAxisSpacing: 8,
+          ),
+          itemCount: p.items.length,
+          itemBuilder: (context, i) => _StickerCell(
+            itemId: p.items[i],
+            onSelected: widget.onSelected,
+          ),
+        ),
+      ];
 
   Widget _empty(BuildContext context, AppL10n l) => Center(
     child: Column(
