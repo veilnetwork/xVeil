@@ -4907,7 +4907,14 @@ class _MessageComposerState extends ConsumerState<MessageComposer> {
               child: SizedBox(
                 width: 96,
                 height: 96,
-                child: VnotePreview(frameListenable: ctrl.preview),
+                // Mirrored like a mirror: the vnote capture is always the
+                // front-facing lens, and an unmirrored self-view reads as
+                // "wrong way round" while framing. Recorded frames ship
+                // unmirrored — this flip is preview-only.
+                child: VnotePreview(
+                  frameListenable: ctrl.preview,
+                  mirror: true,
+                ),
               ),
             ),
           ),
