@@ -8,10 +8,17 @@
 // across the whole app (starting a new clip stops the current one), so the
 // bubble UI can show a single live progress + play/pause and cycle speed.
 //
+// On Linux there is no video_player implementation at all, so the loopback
+// path is dead there; playback instead uses libveil_media's OWN native player
+// (the pre-loopback voice path, still shipped on every platform): Opus -> PCM
+// in RAM -> the WebRTC default ADM (PulseAudio/ALSA, dlopen'd at runtime).
+// Same canon (nothing plaintext on disk), same [VoicePlayer] surface.
+//
 // The player is behind a small [VoicePlayer] interface with an injectable
 // factory, so widget tests drive the flow with a fake.
 
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -87,11 +94,46 @@ class _WavVoicePlayer implements VoicePlayer {
   }
 }
 
+/// Native fallback for platforms without a video_player implementation
+/// (Linux): play through libveil_media's own decoder + ADM speaker — the
+/// clip is decoded to PCM in RAM and pulled by the platform audio thread,
+/// so nothing plaintext touches disk and no OS media framework is needed.
+class _NativeVoicePlayer implements VoicePlayer {
+  _NativeVoicePlayer._(this._p);
+
+  final VeilAudioPlayer _p;
+
+  static Future<VoicePlayer?> create(Uint8List voiceOpus) async {
+    final p = VeilAudioPlayer.create(voiceOpus);
+    return p == null ? null : _NativeVoicePlayer._(p);
+  }
+
+  @override
+  Future<bool> start() async => _p.start();
+  @override
+  Future<void> pause() async => _p.pause();
+  @override
+  Future<void> resume() async => _p.resume();
+  @override
+  Future<void> seekMs(int ms) async => _p.seekMs(ms);
+  @override
+  Future<void> setSpeed(double speed) async => _p.setSpeed(speed);
+  @override
+  Future<int> positionMs() async => _p.positionMs;
+  @override
+  int get durationMs => _p.durationMs;
+  @override
+  bool get isPlaying => _p.isPlaying;
+  @override
+  Future<void> dispose() async => _p.dispose();
+}
+
 /// Builds a player over the clip [bytes]; overridden in tests.
 typedef VoicePlayerFactory = Future<VoicePlayer?> Function(Uint8List bytes);
 
 final voicePlayerFactoryProvider = Provider<VoicePlayerFactory>(
-  (ref) => _WavVoicePlayer.create,
+  (ref) =>
+      Platform.isLinux ? _NativeVoicePlayer.create : _WavVoicePlayer.create,
 );
 
 /// The available speeds, cycled by the bubble's speed chip.
