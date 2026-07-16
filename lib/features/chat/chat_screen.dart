@@ -2621,7 +2621,10 @@ Uint8List? _decodeThumbB64(String? tb) {
 
 /// A shared sticker pack: an install card (first-sticker thumb + name/count +
 /// an Install button once the blob is held; a download affordance before).
-/// Installing decodes the STKP1 blob into a new local pack.
+/// Installing decodes the STKP blob into a new local pack. A held blob also
+/// shows its provenance — signed-by-author (v2) or an honest "unsigned"
+/// (legacy v1) — and a signed pack whose signature does NOT verify refuses
+/// to install with a visible error instead of silently landing.
 class _StickerPackCard extends ConsumerStatefulWidget {
   const _StickerPackCard({
     required this.fileKey,
@@ -2644,9 +2647,14 @@ class _StickerPackCard extends ConsumerStatefulWidget {
 class _StickerPackCardState extends ConsumerState<_StickerPackCard> {
   bool _installing = false;
   int? _installed;
+  bool _badSignature = false;
+  Future<StickerPackBundle?>? _bundle;
 
   Future<void> _install() async {
-    setState(() => _installing = true);
+    setState(() {
+      _installing = true;
+      _badSignature = false;
+    });
     try {
       final bytes = await ref.read(storageProvider).loadFile(widget.fileKey);
       if (bytes == null) return;
@@ -2654,9 +2662,39 @@ class _StickerPackCardState extends ConsumerState<_StickerPackCard> {
           .read(stickerControllerProvider.notifier)
           .installPack(bytes);
       if (mounted) setState(() => _installed = n);
+    } on StickerPackBadSignature {
+      if (mounted) setState(() => _badSignature = true);
     } finally {
       if (mounted) setState(() => _installing = false);
     }
+  }
+
+  /// Provenance line under the title once the blob is held: who signed the
+  /// pack, or an explicit "unsigned" for a legacy v1 container.
+  Widget _provenance(AppL10n l, ColorScheme scheme) {
+    _bundle ??= ref
+        .read(storageProvider)
+        .loadFile(widget.fileKey)
+        .then((b) => b == null ? null : decodeStickerPack(b));
+    return FutureBuilder<StickerPackBundle?>(
+      future: _bundle,
+      builder: (context, snap) {
+        final bundle = snap.data;
+        if (bundle == null) return const SizedBox.shrink();
+        final style = Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+            );
+        return Text(
+          bundle.isSigned
+              ? l.stickerPackSignedBy(
+                  NodeId(Uint8List.fromList(bundle.authorId!)).short,
+                )
+              : l.stickerPackUnsigned,
+          overflow: TextOverflow.ellipsis,
+          style: style,
+        );
+      },
+    );
   }
 
   @override
@@ -2689,8 +2727,16 @@ class _StickerPackCardState extends ConsumerState<_StickerPackCard> {
                   l.stickerPackTitle,
                   style: Theme.of(context).textTheme.labelLarge,
                 ),
+                if (widget.downloaded) _provenance(l, scheme),
                 const SizedBox(height: 4),
-                if (_installed != null)
+                if (_badSignature)
+                  Text(
+                    l.stickerPackBadSignature,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: scheme.error,
+                        ),
+                  )
+                else if (_installed != null)
                   Text(
                     l.stickerImported(_installed!),
                     style: Theme.of(context).textTheme.labelSmall,
