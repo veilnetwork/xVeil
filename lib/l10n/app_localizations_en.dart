@@ -429,6 +429,38 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
+  String get stickerPackChooseTarget => 'Add to which pack?';
+
+  @override
+  String get stickerPackNew => 'New pack…';
+
+  @override
+  String get stickerPackNameHint => 'Pack name';
+
+  @override
+  String get stickerPackRename => 'Rename';
+
+  @override
+  String get stickerPackDelete => 'Delete pack';
+
+  @override
+  String stickerPackDeleteConfirm(String name) {
+    return 'Delete \"$name\" and its stickers?';
+  }
+
+  @override
+  String get stickerPackUnsigned => 'Unsigned pack';
+
+  @override
+  String stickerPackSignedBy(String author) {
+    return 'Signed by $author';
+  }
+
+  @override
+  String get stickerPackBadSignature =>
+      'Signature check failed — pack not installed';
+
+  @override
   String get chatVnoteDenied => 'Camera or microphone access denied';
 
   @override

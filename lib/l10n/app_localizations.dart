@@ -859,6 +859,60 @@ abstract class AppL10n {
   /// **'{count, plural, =1{1 sticker added} other{{count} stickers added}}'**
   String stickerImported(int count);
 
+  /// No description provided for @stickerPackChooseTarget.
+  ///
+  /// In en, this message translates to:
+  /// **'Add to which pack?'**
+  String get stickerPackChooseTarget;
+
+  /// No description provided for @stickerPackNew.
+  ///
+  /// In en, this message translates to:
+  /// **'New pack…'**
+  String get stickerPackNew;
+
+  /// No description provided for @stickerPackNameHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Pack name'**
+  String get stickerPackNameHint;
+
+  /// No description provided for @stickerPackRename.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename'**
+  String get stickerPackRename;
+
+  /// No description provided for @stickerPackDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete pack'**
+  String get stickerPackDelete;
+
+  /// No description provided for @stickerPackDeleteConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete \"{name}\" and its stickers?'**
+  String stickerPackDeleteConfirm(String name);
+
+  /// No description provided for @stickerPackUnsigned.
+  ///
+  /// In en, this message translates to:
+  /// **'Unsigned pack'**
+  String get stickerPackUnsigned;
+
+  /// No description provided for @stickerPackSignedBy.
+  ///
+  /// In en, this message translates to:
+  /// **'Signed by {author}'**
+  String stickerPackSignedBy(String author);
+
+  /// No description provided for @stickerPackBadSignature.
+  ///
+  /// In en, this message translates to:
+  /// **'Signature check failed — pack not installed'**
+  String get stickerPackBadSignature;
+
   /// No description provided for @chatVnoteDenied.
   ///
   /// In en, this message translates to:

@@ -431,6 +431,38 @@ class AppL10nRu extends AppL10n {
   }
 
   @override
+  String get stickerPackChooseTarget => 'В какой пак добавить?';
+
+  @override
+  String get stickerPackNew => 'Новый пак…';
+
+  @override
+  String get stickerPackNameHint => 'Название пака';
+
+  @override
+  String get stickerPackRename => 'Переименовать';
+
+  @override
+  String get stickerPackDelete => 'Удалить пак';
+
+  @override
+  String stickerPackDeleteConfirm(String name) {
+    return 'Удалить «$name» и его стикеры?';
+  }
+
+  @override
+  String get stickerPackUnsigned => 'Пак без подписи';
+
+  @override
+  String stickerPackSignedBy(String author) {
+    return 'Подписал $author';
+  }
+
+  @override
+  String get stickerPackBadSignature =>
+      'Подпись не сошлась — пак не установлен';
+
+  @override
   String get chatVnoteDenied => 'Нет доступа к камере или микрофону';
 
   @override
