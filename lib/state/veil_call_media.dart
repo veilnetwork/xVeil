@@ -76,9 +76,10 @@ class VeilCallMediaController implements CallMediaController {
       createAndroidScreenCapture;
   final StreamController<void> _screenShareStops = StreamController.broadcast();
   Timer? _statsTimer; // polls rx_pkts for the call-liveness signal
-  DateTime? _lastRxAt; // wall-clock when rx_pkts last increased
+  DateTime? _lastRxAt; // wall-clock when ENGINE rx_pkts last increased
   int _lastRxPkts = 0;
   int _lastNativeRxCount = 0;
+  DateTime? _engineRxStalledSince; // node receives, engine doesn't — since when
   CallBitrateAdapter? _bitrateAdapter; // sender-side video quality ladder
   DateTime? _lastRepairAt;
   Call? _activeCall;
@@ -251,6 +252,7 @@ class VeilCallMediaController implements CallMediaController {
     _lastRxAt = null;
     _lastRxPkts = 0;
     _lastNativeRxCount = _transport.mediaRecvCount(call.peer.bytes);
+    _engineRxStalledSince = null;
     _lastRepairAt = null;
     _bitrateAdapter = null; // re-armed below when this call carries video
     _statsTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -259,8 +261,27 @@ class VeilCallMediaController implements CallMediaController {
         final stats = engine.getStats();
         final rx = (stats['rx_pkts'] as num?)?.toInt() ?? 0;
         final nativeRx = _transport.mediaRecvCount(call.peer.bytes);
-        if (rx > _lastRxPkts || nativeRx > _lastNativeRxCount) {
+        if (rx > _lastRxPkts) {
           _lastRxAt = DateTime.now();
+          _engineRxStalledSince = null;
+        } else if (nativeRx > _lastNativeRxCount) {
+          // The node keeps receiving the peer's media while the engine gets
+          // none of it: the failure is OUR local channel/engine wiring, not
+          // the peer's outbound route. Asking the peer to repair can't help
+          // (its packets already arrive), and this native flow must NOT count
+          // as media liveness — that would mask the outage from the FSM
+          // forever. Self-heal with a local session rebuild instead.
+          final now = DateTime.now();
+          _engineRxStalledSince ??= now;
+          if (now.difference(_engineRxStalledSince!) >= kCallMediaRepairAfter) {
+            _engineRxStalledSince = null;
+            devLog(
+              () =>
+                  'xVeil[call-media]: node receives but engine starved '
+                  '(native=$nativeRx engine=$rx) — local session rebuild',
+            );
+            unawaited(repairRoute());
+          }
         }
         _lastRxPkts = rx;
         _lastNativeRxCount = nativeRx;
@@ -363,6 +384,7 @@ class VeilCallMediaController implements CallMediaController {
     _lastRxAt = null;
     _lastRxPkts = 0;
     _lastNativeRxCount = 0;
+    _engineRxStalledSince = null;
     _bitrateAdapter = null;
     remoteVideoFrame.value = null;
     localVideoFrame.value = null;
