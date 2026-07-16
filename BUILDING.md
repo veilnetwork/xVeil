@@ -206,6 +206,14 @@ Output: `build/linux/<architecture>/release/bundle/`.
 For a debug build, omit `--release` from the native script and use
 `flutter build linux --debug`; the native and Flutter profiles must match.
 
+Optional on-device voice transcription: build the whisper wrapper with
+`native/whisper/build_veil_whisper_linux.sh` (uses a whisper.cpp checkout at
+`WHISPER_SRC`, building its static CPU libs when missing) and place the ggml
+model (`ggml-base-q5_1.bin`) next to the produced `.so` in
+`native/whisper/linux/`; the app CMake bundles both into the bundle's `lib/`
+automatically. A model in the XDG data dir
+(`~/.local/share/network.veil.xveil/`) or via `XVEIL_WHISPER_MODEL` works too.
+
 ### Windows
 
 The hidden-volume Windows plugin has automatic DLL bundling. The veil DLL still
@@ -469,6 +477,14 @@ flutter build linux --release
 
 Для debug-сборки уберите `--release` у нативного скрипта и используйте
 `flutter build linux --debug`. Профили Rust- и Flutter-сборки должны совпадать.
+
+Опциональная локальная транскрипция голосовых: соберите whisper-обёртку
+скриптом `native/whisper/build_veil_whisper_linux.sh` (использует чекаут
+whisper.cpp в `WHISPER_SRC`, при отсутствии сам собирает статические
+CPU-библиотеки) и положите ggml-модель (`ggml-base-q5_1.bin`) рядом с
+полученной `.so` в `native/whisper/linux/` — CMake приложения сам добавит
+обе в `lib/` бандла. Модель также ищется в XDG-каталоге данных
+(`~/.local/share/network.veil.xveil/`) и через `XVEIL_WHISPER_MODEL`.
 
 ### Windows
 

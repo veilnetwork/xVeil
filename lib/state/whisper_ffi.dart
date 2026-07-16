@@ -104,8 +104,10 @@ class WhisperTranscriber {
   static bool _resolvedOnce = false;
 
   /// Resolve the model path once. On Android this queries the app-specific
-  /// external + support dirs (the only accessible model locations); elsewhere
-  /// it is synchronous so this is a cheap no-op. Safe to call repeatedly.
+  /// external + support dirs (the only accessible model locations); on Linux
+  /// the XDG data dir (getApplicationSupportDirectory) is checked after the
+  /// bundle locations; elsewhere it is synchronous so this is a cheap no-op.
+  /// Safe to call repeatedly.
   static Future<void> ensureResolved() async {
     if (_resolvedOnce) return;
     _resolvedModel = _syncModelPath();
@@ -120,6 +122,16 @@ class WhisperTranscriber {
           _resolvedModel = p;
           break;
         }
+      }
+    } else if (_resolvedModel == null && Platform.isLinux) {
+      // XDG data dir (~/.local/share/<app>) — a user-supplied model that
+      // survives app-bundle upgrades.
+      try {
+        final dir = await getApplicationSupportDirectory();
+        final p = '${dir.path}/$_modelFile';
+        if (File(p).existsSync()) _resolvedModel = p;
+      } catch (_) {
+        // No usable data dir — transcription simply stays unavailable.
       }
     }
     _resolvedOnce = true;

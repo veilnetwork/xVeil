@@ -106,6 +106,23 @@ foreach(bundled_library ${PLUGIN_BUNDLED_LIBRARIES})
     COMPONENT Runtime)
 endforeach(bundled_library)
 
+# On-device voice transcription (whisper.cpp) — OPTIONAL, mirrors the macOS
+# bundle step (scripts/bundle-macos-dylibs.sh): stage the wrapper .so built by
+# native/whisper/build_veil_whisper_linux.sh (plus, optionally, the ggml model
+# next to it) in native/whisper/linux/ and both land in the bundle's lib/,
+# where the Dart side (whisper_ffi.dart / native_libs.dart) resolves them.
+# Absent artifacts just mean the Transcribe affordance stays hidden.
+set(VEIL_WHISPER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../native/whisper/linux")
+foreach(whisper_artifact
+  "${VEIL_WHISPER_DIR}/libveil_whisper.so"
+  "${VEIL_WHISPER_DIR}/ggml-base-q5_1.bin")
+  if(EXISTS "${whisper_artifact}")
+    install(FILES "${whisper_artifact}"
+      DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+      COMPONENT Runtime)
+  endif()
+endforeach()
+
 # Copy the native assets provided by the build.dart from all packages.
 set(NATIVE_ASSETS_DIR "${PROJECT_BUILD_DIR}native_assets/linux/")
 install(DIRECTORY "${NATIVE_ASSETS_DIR}"
