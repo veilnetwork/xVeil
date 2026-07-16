@@ -946,6 +946,142 @@ void main() {
       });
     });
 
+    test('camera ON upgrades an audio-only call to video and tells the peer', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia();
+        final svc = CallService(fake, now: () => clock.now(), media: media)
+          ..start();
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'call-up',
+            type: CallSignalType.offer,
+            media: CallMedia(audio: true),
+            posture: CallPosture.direct,
+          ),
+        );
+        svc.accept();
+        async.flushMicrotasks();
+        expect(svc.current?.media.video, isFalse);
+        media.log.clear();
+        fake.sent.clear();
+
+        svc.setCameraEnabled(true);
+        async.flushMicrotasks();
+        expect(svc.current?.media.video, isTrue, reason: 'call became video');
+        expect(svc.current?.cameraOn, isTrue);
+        expect(media.log, ['video:true', 'cam:true']);
+        final reneg = fake.sent.where(
+          (s) => s.type == CallSignalType.renegotiate,
+        );
+        expect(reneg, hasLength(1));
+        expect(reneg.single.media?.video, isTrue);
+
+        // Camera OFF after the upgrade is the ordinary mid-video toggle.
+        svc.setCameraEnabled(false);
+        async.flushMicrotasks();
+        expect(svc.current?.media.video, isTrue, reason: 'stays a video call');
+        expect(svc.current?.cameraOn, isFalse);
+      });
+    });
+
+    test('failed video mount leaves the call audio-only', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia()..videoOk = false;
+        final svc = CallService(fake, now: () => clock.now(), media: media)
+          ..start();
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'call-up2',
+            type: CallSignalType.offer,
+            media: CallMedia(audio: true),
+            posture: CallPosture.direct,
+          ),
+        );
+        svc.accept();
+        async.flushMicrotasks();
+        fake.sent.clear();
+
+        svc.setCameraEnabled(true);
+        async.flushMicrotasks();
+        expect(svc.current?.media.video, isFalse, reason: 'still audio-only');
+        expect(
+          fake.sent.where((s) => s.type == CallSignalType.renegotiate),
+          isEmpty,
+          reason: 'no renegotiate for a set that did not change',
+        );
+      });
+    });
+
+    test('camera OFF on an audio-only call stays a no-op', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia();
+        final svc = CallService(fake, now: () => clock.now(), media: media)
+          ..start();
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'call-up3',
+            type: CallSignalType.offer,
+            media: CallMedia(audio: true),
+            posture: CallPosture.direct,
+          ),
+        );
+        svc.accept();
+        async.flushMicrotasks();
+        media.log.clear();
+
+        svc.setCameraEnabled(false);
+        async.flushMicrotasks();
+        expect(svc.current?.media.video, isFalse);
+        expect(media.log, isEmpty);
+      });
+    });
+
+    test('peer video upgrade via renegotiate mounts local video with the '
+        'camera left off', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia();
+        final svc = CallService(fake, now: () => clock.now(), media: media)
+          ..start();
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'call-up4',
+            type: CallSignalType.offer,
+            media: CallMedia(audio: true),
+            posture: CallPosture.direct,
+          ),
+        );
+        svc.accept();
+        async.flushMicrotasks();
+        media.log.clear();
+
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'call-up4',
+            type: CallSignalType.renegotiate,
+            media: CallMedia(audio: true, video: true),
+            sentAtMs: 2000,
+          ),
+        );
+        async.flushMicrotasks();
+        expect(svc.current?.media.video, isTrue);
+        expect(media.log, ['video:true'], reason: 'mount only, no camera');
+        expect(
+          svc.current?.cameraOn,
+          isFalse,
+          reason: 'receiving video never implies transmitting it',
+        );
+      });
+    });
+
     test('share is a no-op on an audio-only call', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();
@@ -978,6 +1114,7 @@ void main() {
 /// accepting or refusing to start the capture.
 class _FakeMedia extends CallMediaController {
   bool screenOk = true;
+  bool videoOk = true;
   CallTransportKind? openedTransport;
   CallTransportKind? repairTo;
   DateTime? rxAt;
@@ -1022,6 +1159,12 @@ class _FakeMedia extends CallMediaController {
   @override
   Future<void> setCameraEnabled(bool enabled) async {
     log.add('cam:$enabled');
+  }
+
+  @override
+  Future<bool> setVideoEnabled(bool enabled) async {
+    log.add('video:$enabled');
+    return videoOk;
   }
 
   @override
