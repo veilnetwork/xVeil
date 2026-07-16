@@ -940,13 +940,14 @@ class _Controls extends StatelessWidget {
                   enabled: true,
                   onTap: () => svc.setMicEnabled(!call.micOn),
                 ),
-                if (call.media.video)
-                  _MiniToggle(
-                    call.cameraOn ? Icons.videocam : Icons.videocam_off,
-                    call.cameraOn ? l.callCameraOn : l.callCameraOff,
-                    enabled: true,
-                    onTap: () => svc.setCameraEnabled(!call.cameraOn),
-                  ),
+                // Shown for audio-only calls too: turning the camera on
+                // upgrades the live call to video (route unchanged).
+                _MiniToggle(
+                  call.cameraOn ? Icons.videocam : Icons.videocam_off,
+                  call.cameraOn ? l.callCameraOn : l.callCameraOff,
+                  enabled: true,
+                  onTap: () => svc.setCameraEnabled(!call.cameraOn),
+                ),
                 if (call.media.video &&
                     (defaultTargetPlatform == TargetPlatform.macOS ||
                         defaultTargetPlatform == TargetPlatform.android))

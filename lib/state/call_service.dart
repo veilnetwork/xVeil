@@ -85,6 +85,12 @@ abstract class CallMediaController {
   /// video). No-op if no media session is running or the call has no video.
   Future<void> setCameraEnabled(bool enabled) async {}
 
+  /// Mount the video pipeline (send + receive) on the live session of a call
+  /// that started audio-only — the mid-call audio→video upgrade. Does NOT
+  /// start the camera; that stays behind [setCameraEnabled]. Returns false
+  /// when there is no live session or no video backend.
+  Future<bool> setVideoEnabled(bool enabled) async => false;
+
   /// Start/stop sharing the local screen as the call's video source (replaces
   /// the camera while on — single VP8 track). Returns false when this
   /// platform has no screen backend or capture can't start; a no-op false if
@@ -342,13 +348,32 @@ class CallService {
     await _media?.setMicMuted(!on);
   }
 
-  /// Toggle the local camera on/off during a live video call (camera button).
+  /// Toggle the local camera on/off during a live call (camera button).
   /// While a screen share is running the camera stays off at the source (the
   /// share owns the single video track) — only the INTENT flag flips, and
   /// ending the share restores whatever it says.
+  ///
+  /// On an audio-only call, turning the camera ON upgrades the call to video:
+  /// the already-negotiated route (and its privacy posture) is untouched —
+  /// only the media set grows, exactly like a screen share start — and the
+  /// peer learns about it via the same renegotiate signal.
   Future<void> setCameraEnabled(bool on) async {
     final c = _current;
-    if (c == null || !c.isLive || !c.media.video || c.cameraOn == on) return;
+    if (c == null || !c.isLive) return;
+    if (!c.media.video) {
+      if (!on) return; // nothing to turn off in an audio-only call
+      final ok = await _media?.setVideoEnabled(true) ?? false;
+      if (!ok) return; // no video backend — stay an audio call
+      final cur = _current;
+      if (cur == null || !cur.isLive || cur.callId != c.callId) return;
+      _set(
+        cur.copyWith(media: cur.media.copyWith(video: true), cameraOn: true),
+      );
+      await _media?.setCameraEnabled(true);
+      await _announceMediaSet();
+      return;
+    }
+    if (c.cameraOn == on) return;
     _set(c.copyWith(cameraOn: on));
     if (!c.screenOn) await _media?.setCameraEnabled(on);
   }
@@ -370,17 +395,22 @@ class CallService {
       _set(c.copyWith(screenOn: false, media: c.media.copyWith(screen: false)));
       if (c.cameraOn) await _media?.setCameraEnabled(true);
     }
+    await _announceMediaSet();
+  }
+
+  /// Tell the peer the call's media set changed (camera upgrade, screen share
+  /// start/end) via a renegotiate signal carrying the full current set.
+  Future<void> _announceMediaSet() async {
     final cur = _current;
-    if (cur != null && cur.isLive) {
-      await _messaging.sendCallSignal(
-        cur.peer,
-        CallSignal(
-          callId: cur.callId,
-          type: CallSignalType.renegotiate,
-          media: cur.media,
-        ),
-      );
-    }
+    if (cur == null || !cur.isLive) return;
+    await _messaging.sendCallSignal(
+      cur.peer,
+      CallSignal(
+        callId: cur.callId,
+        type: CallSignalType.renegotiate,
+        media: cur.media,
+      ),
+    );
   }
 
   // ---- inbound signal handling -------------------------------------------
@@ -462,7 +492,18 @@ class CallService {
     if (media == null || media.isEmpty || at == null) return;
     if (at <= _lastRenegotiateAtMs) return; // stale or duplicate re-drive
     _lastRenegotiateAtMs = at;
-    _set(c.copyWith(media: media));
+    final gainedVideo = media.video && !c.media.video;
+    if (gainedVideo) {
+      // The peer upgraded an audio call to video: mount our own video
+      // pipeline (send + receive) on the live session so their frames render.
+      // Receiving video never implies transmitting it — our camera is OFF
+      // until the user turns it on (audio-only calls carry the constructor's
+      // default cameraOn=true, which was meaningless without video).
+      _set(c.copyWith(media: media, cameraOn: false));
+      unawaited(_media?.setVideoEnabled(true));
+    } else {
+      _set(c.copyWith(media: media));
+    }
   }
 
   Future<void> _repairMediaRoute(NodeId peer, String callId) async {
