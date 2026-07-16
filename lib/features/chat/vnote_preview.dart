@@ -11,8 +11,20 @@ import 'package:flutter/material.dart';
 import 'package:veil_media/veil_media.dart' show VeilVideoFrame;
 
 class VnotePreview extends StatefulWidget {
-  const VnotePreview({super.key, required this.frameListenable});
+  const VnotePreview({
+    super.key,
+    required this.frameListenable,
+    this.mirror = false,
+  });
   final ValueListenable<VeilVideoFrame?> frameListenable;
+
+  /// Horizontally flip the painted frames. The RECORDING self-preview sets
+  /// this: the source is always the front-facing lens (Android's vnote
+  /// capturer is hard-wired to the front camera; macOS has the one built-in
+  /// user-facing camera), and people expect to see themselves as in a mirror
+  /// (Telegram behavior). Display-only — the recorded frames and playback
+  /// stay unmirrored, which is how the clip should look to the receiver.
+  final bool mirror;
 
   @override
   State<VnotePreview> createState() => _VnotePreviewState();
@@ -40,18 +52,23 @@ class _VnotePreviewState extends State<VnotePreview> {
     final f = widget.frameListenable.value;
     if (f == null || _decoding) return;
     _decoding = true;
-    ui.decodeImageFromPixels(f.rgba, f.width, f.height, ui.PixelFormat.rgba8888,
-        (img) {
-      _decoding = false;
-      if (!mounted) {
-        img.dispose();
-        return;
-      }
-      setState(() {
-        _image?.dispose();
-        _image = img;
-      });
-    });
+    ui.decodeImageFromPixels(
+      f.rgba,
+      f.width,
+      f.height,
+      ui.PixelFormat.rgba8888,
+      (img) {
+        _decoding = false;
+        if (!mounted) {
+          img.dispose();
+          return;
+        }
+        setState(() {
+          _image?.dispose();
+          _image = img;
+        });
+      },
+    );
   }
 
   @override
@@ -63,6 +80,12 @@ class _VnotePreviewState extends State<VnotePreview> {
         child: Center(child: Icon(Icons.videocam, size: 28)),
       );
     }
-    return RawImage(image: img, fit: BoxFit.cover);
+    final frame = RawImage(image: img, fit: BoxFit.cover);
+    if (!widget.mirror) return frame;
+    return Transform.flip(
+      key: const ValueKey('vnote-preview-mirror'),
+      flipX: true,
+      child: frame,
+    );
   }
 }
