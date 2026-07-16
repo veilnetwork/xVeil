@@ -447,6 +447,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/rt_trace':
           await _rtTraceHook(req);
           return;
+        case '/publish_pause':
+          await _publishPauseHook(req);
+          return;
         case '/call_log_add':
           await _callLogAddHook(req);
           return;
@@ -2703,6 +2706,21 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final on = req.uri.queryParameters['on'] == '1';
     try {
       veil.veilDebugSetRtTrace(on ? 1 : 0);
+      return _json(req, {'ok': true, 'on': on});
+    } catch (e) {
+      return _json(req, {'ok': false, 'error': '$e'});
+    }
+  }
+
+  /// Pause/resume the embedded node's periodic publish machinery (?on=1|0):
+  /// rendezvous-ad refresh ticks and DHT republish fan-out. RTT-spike
+  /// experiment switch — pause ONLY mid-call for the duration of a
+  /// measurement (paused ads age toward their validity horizon), mirror of
+  /// the /mailbox_pause experiment pattern.
+  Future<void> _publishPauseHook(HttpRequest req) async {
+    final on = req.uri.queryParameters['on'] == '1';
+    try {
+      veil.veilDebugSetPublishPause(on ? 1 : 0);
       return _json(req, {'ok': true, 'on': on});
     } catch (e) {
       return _json(req, {'ok': false, 'error': '$e'});
