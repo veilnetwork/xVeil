@@ -10,6 +10,7 @@ import '../domain/call.dart';
 import '../domain/call_signal.dart';
 import 'android_camera_capture.dart';
 import 'android_screen_capture.dart';
+import 'call_bitrate_adapter.dart';
 import 'call_service.dart';
 import 'mac_media_permissions.dart';
 
@@ -78,6 +79,7 @@ class VeilCallMediaController implements CallMediaController {
   DateTime? _lastRxAt; // wall-clock when rx_pkts last increased
   int _lastRxPkts = 0;
   int _lastNativeRxCount = 0;
+  CallBitrateAdapter? _bitrateAdapter; // sender-side video quality ladder
   DateTime? _lastRepairAt;
   Call? _activeCall;
   bool _routeRepairing = false;
@@ -102,6 +104,7 @@ class VeilCallMediaController implements CallMediaController {
       return {
         'transport': _chanTransport?.name,
         'running': true,
+        if (_bitrateAdapter != null) 'adaptLevel': _bitrateAdapter!.level,
         ...engine.getStats(),
       };
     } catch (_) {
@@ -249,16 +252,42 @@ class VeilCallMediaController implements CallMediaController {
     _lastRxPkts = 0;
     _lastNativeRxCount = _transport.mediaRecvCount(call.peer.bytes);
     _lastRepairAt = null;
+    _bitrateAdapter = null; // re-armed below when this call carries video
     _statsTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_engine != engine) return;
       try {
-        final rx = (engine.getStats()['rx_pkts'] as num?)?.toInt() ?? 0;
+        final stats = engine.getStats();
+        final rx = (stats['rx_pkts'] as num?)?.toInt() ?? 0;
         final nativeRx = _transport.mediaRecvCount(call.peer.bytes);
         if (rx > _lastRxPkts || nativeRx > _lastNativeRxCount) {
           _lastRxAt = DateTime.now();
         }
         _lastRxPkts = rx;
         _lastNativeRxCount = nativeRx;
+        final adapter = _bitrateAdapter;
+        if (adapter != null) {
+          // Sender-side ladder driven by what the REMOTE receiver reports for
+          // our outbound leg (RTCP report blocks) plus local queue drops. The
+          // route profile stays the ceiling; adaptation only spends less.
+          final change = adapter.onSample(
+            rttMs: (stats['rtt_ms'] as num?)?.toInt() ?? 0,
+            txJitterMs: (stats['tx_jitter_ms'] as num?)?.toInt() ?? 0,
+            txLossPct: (stats['tx_loss_pct'] as num?)?.toInt() ?? 0,
+            txDrops: (stats['tx_drops'] as num?)?.toInt() ?? 0,
+          );
+          if (change != null) {
+            final ok = engine.setVideoBitrate(
+              maxBitrateKbps: change.maxBitrateKbps,
+              maxFps: change.maxFps,
+            );
+            devLog(
+              () =>
+                  'xVeil[call-media]: link-quality retune level='
+                  '${adapter.level} ${change.maxBitrateKbps}kbps@'
+                  '${change.maxFps}fps ok=$ok',
+            );
+          }
+        }
       } catch (_) {}
     });
     final audioOk = engine.startAudio(send: true, recv: true);
@@ -278,6 +307,12 @@ class VeilCallMediaController implements CallMediaController {
         maxFps: profile.maxFps,
       );
       devLog(() => 'xVeil[call-media]: startVideo=$videoOk');
+      if (videoOk) {
+        _bitrateAdapter = CallBitrateAdapter(
+          baseBitrateKbps: profile.maxBitrateKbps,
+          baseFps: profile.maxFps,
+        );
+      }
       // Drive the send stream from the real camera for a video call (screen
       // capture is a separate path). Apple platforms capture natively inside
       // the engine (AVCaptureSession); Android streams via the `camera` plugin
@@ -328,6 +363,7 @@ class VeilCallMediaController implements CallMediaController {
     _lastRxAt = null;
     _lastRxPkts = 0;
     _lastNativeRxCount = 0;
+    _bitrateAdapter = null;
     remoteVideoFrame.value = null;
     localVideoFrame.value = null;
     final cam = _androidCam;
