@@ -41,6 +41,7 @@ import '../state/api_server.dart';
 import '../state/app_controller.dart';
 import '../state/call_log.dart';
 import '../state/call_service.dart';
+import '../state/mailbox_service.dart';
 import '../state/cloud_service.dart';
 import '../state/cloud_capability_service.dart';
 import '../state/cloud_document_providers.dart';
@@ -546,6 +547,18 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
             (svc) =>
                 svc.setCameraEnabled(req.uri.queryParameters['on'] != '0'),
           );
+          return;
+        case '/mailbox_pause':
+          // Stand experiment switch: suspend/resume the periodic mailbox
+          // drain to isolate its FETCH traffic from live call media.
+          final svc = MailboxService.debugCurrent;
+          if (svc != null) {
+            svc.debugDrainPaused = req.uri.queryParameters['on'] != '0';
+          }
+          await _json(req, {
+            'ok': svc != null,
+            'paused': svc?.debugDrainPaused,
+          });
           return;
         case '/call_state':
           await _callState(req);
