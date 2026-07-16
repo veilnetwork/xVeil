@@ -31,6 +31,10 @@ tests under `test/native/`.
 
 ## Develop
 
+For complete native build instructions in English and Russian, including
+macOS, Android, iOS, Linux, Windows, release signing, and production network
+material, see [`BUILDING.md`](BUILDING.md).
+
 ```sh
 git clone --recurse-submodules git@github.com:veilnetwork/xVeil.git
 cd xVeil
