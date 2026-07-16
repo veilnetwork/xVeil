@@ -1,16 +1,18 @@
 // Call-journal store + recorder (multi-device epic, brick 4). The store keeps
-// a capped, newest-first list of [CallLogEntry] rows in the encrypted settings
-// namespace ('call_log'); the recorder folds the call FSM's terminal snapshots
-// into it. The device-sync bridge taps [CallLogStore.onAdded] to mirror local
-// rows to my other devices and feeds mirrored rows in via [addMirrored] (no
-// tap — a mirrored row must never re-mirror).
+// a capped, newest-first journal of [CallLogEntry] rows — one immutable
+// encrypted record per call (Storage.appendCallLogEntry; the journal must
+// never be a single rewritten settings value, see the PayloadTooLarge note on
+// the port). The recorder folds the call FSM's terminal snapshots into it.
+// The device-sync bridge taps [CallLogStore.onAdded] to mirror local rows to
+// my other devices and feeds mirrored rows in via [addMirrored] (no tap — a
+// mirrored row must never re-mirror).
 
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/log.dart';
 import '../domain/call.dart';
 import '../domain/call_log.dart';
 import '../domain/call_signal.dart';
@@ -24,7 +26,6 @@ const int kCallLogCap = 200;
 class CallLogStore {
   CallLogStore(this._storage);
 
-  static const _key = 'call_log';
   final Storage _storage;
 
   /// Fired for LOCALLY recorded rows only (never from [addMirrored]) — the
@@ -40,20 +41,7 @@ class CallLogStore {
   Future<void> _chain = Future.value();
 
   /// Newest-first journal.
-  Future<List<CallLogEntry>> list() async {
-    final raw = await _storage.getSetting(_key);
-    if (raw == null || raw.isEmpty) return const [];
-    try {
-      final d = jsonDecode(raw);
-      if (d is! List) return const [];
-      return [
-        for (final j in d)
-          if (j is Map) ?CallLogEntry.fromJson(Map<String, dynamic>.from(j)),
-      ];
-    } catch (_) {
-      return const [];
-    }
-  }
+  Future<List<CallLogEntry>> list() => _storage.callLogEntries();
 
   /// Record a LOCAL row: idempotent by [CallLogEntry.id], capped, then fires
   /// [onAdded]. Returns whether a new row was written.
@@ -69,15 +57,9 @@ class CallLogStore {
 
   Future<bool> _insert(CallLogEntry e) {
     final done = _chain.then((_) async {
-      final cur = await list();
-      if (cur.any((x) => x.id == e.id)) return false;
-      final next = [...cur, e]..sort((a, b) => b.atMs.compareTo(a.atMs));
-      await _storage.putSetting(
-        _key,
-        jsonEncode([for (final x in next.take(kCallLogCap)) x.toJson()]),
-      );
-      changes.value++;
-      return true;
+      final wrote = await _storage.appendCallLogEntry(e, cap: kCallLogCap);
+      if (wrote) changes.value++;
+      return wrote;
     });
     _chain = done.then((_) {}, onError: (_) {});
     return done;
@@ -99,21 +81,28 @@ final callLogRecorderProvider = Provider<void>((ref) {
     if (c == null || c.status != CallStatus.ended) return;
     final connected = c.connectedAt != null;
     final endedAt = c.endedAt ?? DateTime.now();
-    unawaited(store.add(CallLogEntry(
-      id: c.callId,
-      peerHex: c.peer.hex,
-      outgoing: c.direction == CallDirection.outgoing,
-      video: c.media.video || c.media.screen,
-      outcome: callLogOutcomeFor(
-        outgoing: c.direction == CallDirection.outgoing,
-        connected: connected,
-        reason: c.endReason ?? CallEndReason.unknown,
-      ),
-      atMs: c.startedAt.millisecondsSinceEpoch,
-      durationSec: connected
-          ? endedAt.difference(c.connectedAt!).inSeconds
-          : 0,
-    )));
+    // Fire-and-forget, but never SILENT: a journal row that fails to persist
+    // is exactly the bug class that hid the PayloadTooLarge loss for weeks.
+    unawaited(store
+        .add(CallLogEntry(
+          id: c.callId,
+          peerHex: c.peer.hex,
+          outgoing: c.direction == CallDirection.outgoing,
+          video: c.media.video || c.media.screen,
+          outcome: callLogOutcomeFor(
+            outgoing: c.direction == CallDirection.outgoing,
+            connected: connected,
+            reason: c.endReason ?? CallEndReason.unknown,
+          ),
+          atMs: c.startedAt.millisecondsSinceEpoch,
+          durationSec: connected
+              ? endedAt.difference(c.connectedAt!).inSeconds
+              : 0,
+        ))
+        .catchError((Object e) {
+      devLog(() => 'xVeil[call-log]: journal write failed ${c.callId}: $e');
+      return false;
+    }));
   });
   ref.onDispose(sub.cancel);
 });

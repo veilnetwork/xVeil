@@ -19,6 +19,13 @@ class Ns {
   /// recipient acks. Chat messages have their own durability via [messageLog];
   /// this gives everything else the same guarantee by construction.
   static const int outbox = 6;
+
+  /// Append-log namespace for the CALL JOURNAL: one immutable record per
+  /// finished call. The journal must NOT live in a single rewritten KV value —
+  /// the at-rest store bounds one commit's DataBatch to ~4KB and a hot key's
+  /// accumulated versions made every whole-journal rewrite throw
+  /// PayloadTooLarge after ~11 rows (rows were then silently lost).
+  static const int callLog = 7;
 }
 
 /// A single write in an atomic [KvLogStore.commit] batch. Mirrors
