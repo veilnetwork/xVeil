@@ -4,6 +4,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import '../../core/ids.dart';
+import '../../domain/call_log.dart';
 import '../../domain/chat.dart';
 import '../../domain/event.dart';
 import '../../domain/identity.dart';
@@ -1715,6 +1716,8 @@ class HiddenVolumeStorage implements Storage {
       Ns.messageLog,
       Ns.media,
       Ns.fileChunks,
+      Ns.outbox,
+      Ns.callLog,
     ]) {
       await _as.eraseNamespace(ns);
     }
@@ -1961,6 +1964,8 @@ class HiddenVolumeStorage implements Storage {
     'messageLog': await _as.count(Ns.messageLog),
     'media': await _as.count(Ns.media),
     'fileChunks': await _as.count(Ns.fileChunks),
+    'outbox': await _as.count(Ns.outbox),
+    'callLog': await _as.count(Ns.callLog),
   };
 
   @override
@@ -2039,6 +2044,141 @@ class HiddenVolumeStorage implements Storage {
     await _commitAtNextLogId(
       (logId) => [AppendLogOp(Ns.messageLog, logId, _sk(payload))],
     );
+  }
+
+  // ── Call journal (Ns.callLog append-log) ────────────────────────────────────
+  // One immutable record per finished call, folded on read like the outbox.
+  // The journal's previous home — ONE settings KV value rewritten per call —
+  // hit the at-rest store's ~4KB DataBatch bound through the hot key's
+  // accumulated versions: putSetting threw PayloadTooLarge after ~11 rows and
+  // the unawaited recorder dropped calls silently. Append-log records take a
+  // fresh id each, so nothing here ever rewrites a hot key, and the namespace
+  // stays tiny (≤ the caller's cap, rows of ~150 B).
+
+  /// The legacy single-value journal key, drained into [Ns.callLog] once.
+  static const _legacyCallLogKey = 'call_log';
+  bool _callLogMigrated = false;
+
+  @override
+  Future<bool> appendCallLogEntry(
+    CallLogEntry entry, {
+    required int cap,
+  }) async {
+    final cur = await _callLogRecords();
+    if (cur.any((r) => r.entry.id == entry.id)) return false;
+    // Same bound semantics as the old single-blob store: of (existing + new),
+    // keep the newest [cap] by ring time; the overflow is deleted in the SAME
+    // commit, freeing its bounded log-index slots. A row older than a full
+    // journal is accepted-then-aged-out (never an error to the recorder).
+    final all = <({int? logId, CallLogEntry entry})>[
+      (logId: null, entry: entry),
+      for (final r in cur) (logId: r.logId, entry: r.entry),
+    ]..sort((a, b) {
+      final c = b.entry.atMs.compareTo(a.entry.atMs);
+      if (c != 0) return c;
+      // Same ring time: the incoming row sorts newer; stored rows by
+      // descending log id (later write = newer).
+      if (a.logId == null) return -1;
+      if (b.logId == null) return 1;
+      return b.logId!.compareTo(a.logId!);
+    });
+    final evicted = all.skip(cap).toList(growable: false);
+    final doomed = [
+      for (final r in evicted)
+        if (r.logId != null) DeleteLogOp(Ns.callLog, r.logId!),
+    ];
+    final keepNew = !evicted.any((r) => r.logId == null);
+    if (!keepNew && doomed.isEmpty) return true;
+    await _commitAtNextLogId(
+      (logId) => [
+        if (keepNew)
+          AppendLogOp(Ns.callLog, logId, _sk(jsonEncode(entry.toJson()))),
+        ...doomed,
+      ],
+    );
+    return true;
+  }
+
+  @override
+  Future<List<CallLogEntry>> callLogEntries() async {
+    final cur = await _callLogRecords();
+    cur.sort((a, b) {
+      final c = b.entry.atMs.compareTo(a.entry.atMs);
+      return c != 0 ? c : b.logId.compareTo(a.logId);
+    });
+    return [for (final r in cur) r.entry];
+  }
+
+  Future<List<({int logId, CallLogEntry entry})>> _callLogRecords() async {
+    await _migrateLegacyCallLog();
+    return _readCallLogNamespace();
+  }
+
+  Future<List<({int logId, CallLogEntry entry})>>
+  _readCallLogNamespace() async {
+    final out = <({int logId, CallLogEntry entry})>[];
+    try {
+      final rows = await _as.iterLogRange(
+        namespace: Ns.callLog,
+        start: null,
+        limit: _logScanLimit,
+      );
+      for (final r in rows) {
+        try {
+          final m = jsonDecode(utf8.decode(r.payload));
+          if (m is! Map) continue;
+          final e = CallLogEntry.fromJson(Map<String, dynamic>.from(m));
+          if (e != null) out.add((logId: r.logId, entry: e));
+        } catch (_) {
+          // Skip one unreadable row; never lose the journal to a bad record.
+        }
+      }
+    } catch (_) {
+      // Unreadable namespace → empty journal (same stance as the outbox).
+    }
+    return out;
+  }
+
+  /// One-time drain of the legacy single-value journal into [Ns.callLog],
+  /// then the hot key is deleted so nothing ever rewrites it again. Runs
+  /// lazily before the first journal read/append of each open; a failed drain
+  /// leaves the legacy key intact for the next attempt.
+  Future<void> _migrateLegacyCallLog() async {
+    if (_callLogMigrated) return;
+    _callLogMigrated = true;
+    try {
+      final raw = await _as.get(Ns.settings, _sk('set:$_legacyCallLogKey'));
+      if (raw == null) return;
+      final have = {for (final r in await _readCallLogNamespace()) r.entry.id};
+      final ops = <KvLogOp>[];
+      try {
+        final d = jsonDecode(utf8.decode(raw));
+        if (d is List) {
+          for (final j in d) {
+            if (j is! Map) continue;
+            final e = CallLogEntry.fromJson(Map<String, dynamic>.from(j));
+            if (e == null || !have.add(e.id)) continue;
+            ops.add(
+              AppendLogOp(
+                Ns.callLog,
+                await _allocLogId(),
+                _sk(jsonEncode(e.toJson())),
+              ),
+            );
+          }
+        }
+      } catch (_) {
+        // Unreadable legacy blob — nothing to carry over; still delete it.
+      }
+      await _commitBatched([
+        ...ops,
+        DeleteOp(Ns.settings, _sk('set:$_legacyCallLogKey')),
+        if (ops.isNotEmpty)
+          PutOp(Ns.settings, _sk('msg_next_id'), _sk('${_nextIdCache!}')),
+      ]);
+    } catch (_) {
+      _callLogMigrated = false;
+    }
   }
 
   // ── Durable frame outbox (Ns.outbox append-log) ────────────────────────────
@@ -2260,6 +2400,8 @@ class HiddenVolumeStorage implements Storage {
     // scrub/vacuum that may renumber the log, invalidates it — re-read lazily.
     _nextIdCache = null;
     _idInit = null;
+    // A different space may still carry a legacy single-value call journal.
+    _callLogMigrated = false;
   }
 
   Future<void> _invalidateScanCache() =>

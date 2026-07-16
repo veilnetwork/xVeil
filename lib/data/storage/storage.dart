@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../../core/ids.dart';
+import '../../domain/call_log.dart';
 import '../../domain/chat.dart';
 import '../../domain/event.dart';
 import '../../domain/identity.dart';
@@ -153,6 +154,24 @@ abstract interface class Storage {
     String messageId,
     MessageSignature signature,
   );
+
+  // ── Call journal ───────────────────────────────────────────────────────────
+  // One immutable row per finished call, in its own tiny append-log namespace.
+  // The journal must never be a single rewritten KV value: the at-rest store
+  // bounds one commit's DataBatch (~4KB) and a hot key's accumulated versions
+  // made whole-journal rewrites throw PayloadTooLarge after ~11 rows, silently
+  // losing calls from the journal.
+
+  /// Append one call-journal row. Idempotent by [CallLogEntry.id]. Keeps the
+  /// newest [cap] rows by ring time ([CallLogEntry.atMs]) — the overflow is
+  /// deleted in the same commit so the bounded per-namespace log index never
+  /// accumulates dead journal slots. Returns false when [entry]'s id is
+  /// already journaled (a mirrored duplicate), true otherwise — including the
+  /// rare row older than a full journal, which is accepted then aged out.
+  Future<bool> appendCallLogEntry(CallLogEntry entry, {required int cap});
+
+  /// Every call-journal row, newest-first (by [CallLogEntry.atMs]).
+  Future<List<CallLogEntry>> callLogEntries();
 
   // ── Durable frame outbox ───────────────────────────────────────────────────
   // Persist a control frame that MUST reach a peer so a flush re-drives it (live
