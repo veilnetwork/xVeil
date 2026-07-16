@@ -108,4 +108,25 @@ void main() {
       expect(EmbeddedNode.withObfs4PskFile(toml, '/tmp/psk.b64'), toml);
     });
   });
+
+  group('EmbeddedNode.withDebugMetrics', () {
+    test('no-op without a port', () {
+      const toml = 'listen = "x"\n';
+      expect(EmbeddedNode.withDebugMetrics(toml, null), toml);
+      expect(EmbeddedNode.withDebugMetrics(toml, 0), toml);
+      expect(EmbeddedNode.withDebugMetrics(toml, -1), toml);
+    });
+
+    test('appends a loopback-only [metrics] table', () {
+      final out = EmbeddedNode.withDebugMetrics('listen = "x"\n', 39997);
+      expect(out, contains('[metrics]'));
+      expect(out, contains('listen = "tcp://127.0.0.1:39997"'));
+      expect(out, contains('path = "/metrics"'));
+    });
+
+    test('idempotent when a [metrics] table already exists', () {
+      const toml = '[metrics]\nlisten = "tcp://127.0.0.1:1"\n';
+      expect(EmbeddedNode.withDebugMetrics(toml, 39997), toml);
+    });
+  });
 }

@@ -244,6 +244,22 @@ class EmbeddedNode {
     return '$toml\n[transport]\n$line\n';
   }
 
+  /// Append a `[metrics]` table exposing the node's Prometheus counters on a
+  /// LOOPBACK listener — the stand's per-node twin of the relay's metrics
+  /// endpoint, for correlating the node's own periodic work (DHT publishes,
+  /// lookups, transport bytes) against live-call latency. Pure helper (no
+  /// FFI) so it is unit-testable; debug builds alone decide whether to call
+  /// it (same convention as the debug hook). No-op when [port] is null/zero
+  /// or a `[metrics]` table already exists.
+  static String withDebugMetrics(String toml, int? port) {
+    if (port == null || port <= 0) return toml;
+    if (toml.contains('[metrics]')) return toml;
+    return '$toml\n[metrics]\n'
+        'listen = "tcp://127.0.0.1:$port"\n'
+        'path = "/metrics"\n'
+        'allow_unauthenticated_remote_metrics = true\n';
+  }
+
   /// Append `[[bootstrap_peers]]` tables so the node dials a known network
   /// (a seed set / testnet) at boot — without them an embedded node only sees
   /// the compiled-in BUILTIN_SEEDS. Pure helper (no FFI) so it is unit-testable.

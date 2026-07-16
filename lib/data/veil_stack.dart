@@ -2,6 +2,8 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:flutter/foundation.dart' show kDebugMode;
+
 import 'native_libs.dart' show processLibFor;
 import 'node/embedded_node.dart';
 import 'node/node_controller.dart';
@@ -204,7 +206,7 @@ class RealVeilStack {
     // is a reload that does not re-apply it but DOES warn `config.anonymity.
     // reload_ignored` if its [anonymity] differs from the boot state. Keeping the
     // applied config's anonymity consistent with the stub's avoids that warning.
-    final fullConfig = EmbeddedNode.composeConfig(
+    var fullConfig = EmbeddedNode.composeConfig(
       identityToml: identityToml,
       listenTransport: listen,
       ipcSocket: ipcEndpoint,
@@ -216,6 +218,17 @@ class RealVeilStack {
       obfs4PskFile: obfs4PskFile,
       proxy: proxy,
     );
+    // Debug stands only: loopback Prometheus metrics for the embedded node,
+    // the per-node twin of a relay's [metrics] endpoint. Follows the debug
+    // hook's gating (compiled out of release; explicit opt-out via the same
+    // define family). Never binds a non-loopback interface.
+    if (kDebugMode &&
+        const bool.fromEnvironment('XVEIL_DEBUG_HOOK', defaultValue: true)) {
+      fullConfig = EmbeddedNode.withDebugMetrics(
+        fullConfig,
+        (Platform.isAndroid || Platform.isIOS) ? 39998 : 39997,
+      );
+    }
     if (proxy.isActive) {
       // Proxy services spawn from the APPLIED config (spawn_all_services runs on
       // apply-config reload too), so unlike [anonymity] this needs no stub
