@@ -444,6 +444,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/call_log':
           await _callLogHook(req);
           return;
+        case '/rt_trace':
+          await _rtTraceHook(req);
+          return;
         case '/call_log_add':
           await _callLogAddHook(req);
           return;
@@ -2689,6 +2692,21 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           ),
         );
     return _json(req, {'ok': wrote});
+  }
+
+  /// Toggle the embedded node's slow-inbound-dispatch trace (?on=1|0). While
+  /// on, any single inbound dispatch stalling a session loop ≥25ms surfaces
+  /// in the node log as `session.rt_trace.slow_dispatch` naming the frame
+  /// family/size — the call-RTT-spike investigation's probe for inbound
+  /// PROCESSING head-of-line ahead of REALTIME media.
+  Future<void> _rtTraceHook(HttpRequest req) async {
+    final on = req.uri.queryParameters['on'] == '1';
+    try {
+      veil.veilDebugSetRtTrace(on ? 1 : 0);
+      return _json(req, {'ok': true, 'on': on});
+    } catch (e) {
+      return _json(req, {'ok': false, 'error': '$e'});
+    }
   }
 
   /// Mark conversation ?peer= read through the REAL messaging path (what an
