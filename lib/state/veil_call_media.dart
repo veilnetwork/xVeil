@@ -354,21 +354,65 @@ class VeilCallMediaController implements CallMediaController {
           } catch (_) {}
         }
       }
-      // Pump decoded remote frames (~20fps) into the shared notifier for the UI.
-      _frameTimer?.cancel();
-      _frameTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
-        if (_engine != engine) return;
-        try {
-          final f = engine.getVideoFrame();
-          if (f != null) remoteVideoFrame.value = f;
-          final local = engine.getLocalVideoFrame();
-          if (local != null) localVideoFrame.value = local;
-        } catch (_) {}
-      });
+      _startFramePump(engine);
     }
     final ok = audioOk || videoOk;
     devLog(() => 'xVeil[call-media]: controller start result=$ok');
     return ok;
+  }
+
+  /// Pump decoded remote frames (~20fps) into the shared notifier for the UI.
+  void _startFramePump(VeilMediaEngine engine) {
+    _frameTimer?.cancel();
+    _frameTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
+      if (_engine != engine) return;
+      try {
+        final f = engine.getVideoFrame();
+        if (f != null) remoteVideoFrame.value = f;
+        final local = engine.getLocalVideoFrame();
+        if (local != null) localVideoFrame.value = local;
+      } catch (_) {}
+    });
+  }
+
+  @override
+  Future<bool> setVideoEnabled(bool enabled) async {
+    final engine = _engine;
+    final call = _activeCall;
+    if (!enabled || engine == null || call == null) return false;
+    if (call.media.video || call.media.screen) return true; // already mounted
+    // Same bounded Apple TCC pre-prompt as a video call's start(): never let
+    // the permission sheet block the running call.
+    final granted = await MacMediaPermissions.requestCamera().timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => false,
+    );
+    devLog(() => 'xVeil[call-media]: mid-call camera permission=$granted');
+    final profile = _highQualityRoute
+        ? _directVideoProfile
+        : _anonymousVideoProfile;
+    final bool ok;
+    try {
+      ok = engine.startVideo(
+        send: true,
+        recv: true,
+        maxBitrateKbps: profile.maxBitrateKbps,
+        maxFps: profile.maxFps,
+      );
+    } catch (_) {
+      return false;
+    }
+    devLog(() => 'xVeil[call-media]: mid-call video mount=$ok');
+    if (!ok) return false;
+    // Keep the session's own call view carrying video, so a route repair or
+    // switch rebuilds the upgraded media set rather than the audio-only offer.
+    _activeCall = call.copyWith(media: call.media.copyWith(video: true));
+    _bitrateAdapter ??= CallBitrateAdapter(
+      baseBitrateKbps: profile.maxBitrateKbps,
+      baseFps: profile.maxFps,
+    );
+    if (_frameTimer == null) _startFramePump(engine);
+    return true;
   }
 
   @override

@@ -540,6 +540,13 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
                 svc.setScreenShareEnabled(req.uri.queryParameters['on'] != '0'),
           );
           return;
+        case '/call_camera':
+          await _callAction(
+            req,
+            (svc) =>
+                svc.setCameraEnabled(req.uri.queryParameters['on'] != '0'),
+          );
+          return;
         case '/call_state':
           await _callState(req);
           return;
