@@ -187,8 +187,13 @@ class MailboxService implements MailboxSink {
   /// the drain timer is only armed once. Candidates that aren't relay-capable
   /// (no resolvable relay-key record) are simply skipped — the resolve itself
   /// validates the choice, so a wrong/derived node_id is non-fatal.
+  /// The most recently started service, for debug-hook access only (the hook
+  /// flips [debugDrainPaused] during stand experiments). Cleared on dispose.
+  static MailboxService? debugCurrent;
+
   Future<void> start({required List<NodeId> relays}) {
     if (_handleDead || _disposed) return Future<void>.value();
+    debugCurrent = this;
     final running = _startInFlight;
     if (running != null) return running;
     late final Future<void> run;
@@ -492,7 +497,14 @@ class MailboxService implements MailboxSink {
     // timer would otherwise delay the first fast poll by up to _drainInterval)
   }
 
+  /// Debug-only stand switch: suspend the drain cadence without touching the
+  /// timer plumbing (the loop keeps re-arming and resumes the moment this
+  /// clears). Used to isolate whether periodic mailbox FETCH traffic is what
+  /// perturbs live call media on the shared session.
+  bool debugDrainPaused = false;
+
   Future<void> _drainTick() {
+    if (debugDrainPaused) return Future<void>.value();
     if (_draining || _disposed || _handleDead) return Future<void>.value();
     _draining = true;
     final completion = Completer<void>();
@@ -615,6 +627,7 @@ class MailboxService implements MailboxSink {
     if (_disposed) return;
     _disposed = true;
     _handleDead = true;
+    if (identical(debugCurrent, this)) debugCurrent = null;
     if (!_disposeSignal.isCompleted) _disposeSignal.complete();
     _drainTimer?.cancel();
     _drainTimer = null;
