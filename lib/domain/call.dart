@@ -44,6 +44,7 @@ class Call {
     this.micOn = true,
     this.cameraOn = true,
     this.screenOn = false,
+    this.peerProtocolVersion,
   });
 
   /// Stable id shared with the peer for the whole call (see [CallSignal.callId]).
@@ -95,6 +96,13 @@ class Call {
   /// the camera when it is still true. Desktop-only for now.
   final bool screenOn;
 
+  /// The peer's [CallSignal.protocolVersion], learned from its offer
+  /// (incoming) or answer (outgoing). Gates capabilities that would be
+  /// silent noise to an older build — e.g. relay media batching (v2) — so
+  /// they only turn on against a peer that provably decodes them. Null
+  /// before the first peer signal.
+  final int? peerProtocolVersion;
+
   bool get isIncoming => direction == CallDirection.incoming;
   bool get isOutgoing => direction == CallDirection.outgoing;
 
@@ -118,6 +126,7 @@ class Call {
     bool? micOn,
     bool? cameraOn,
     bool? screenOn,
+    int? peerProtocolVersion,
   }) =>
       Call(
         callId: callId,
@@ -135,6 +144,7 @@ class Call {
         micOn: micOn ?? this.micOn,
         cameraOn: cameraOn ?? this.cameraOn,
         screenOn: screenOn ?? this.screenOn,
+        peerProtocolVersion: peerProtocolVersion ?? this.peerProtocolVersion,
       );
 
   @override
