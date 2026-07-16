@@ -642,6 +642,7 @@ class CallService {
         peerPosture: sig.posture,
         startedAt: _now(),
         transport: sig.transport?.kind,
+        peerProtocolVersion: sig.protocolVersion,
       ),
     );
     _armRingTimeout();
@@ -687,6 +688,7 @@ class CallService {
         peerPosture: sig.posture,
         transport: transport,
         connectedAt: _now(),
+        peerProtocolVersion: sig.protocolVersion,
       ),
     );
     _startHeartbeat();

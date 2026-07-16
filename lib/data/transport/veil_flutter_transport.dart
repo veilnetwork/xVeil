@@ -149,6 +149,13 @@ class VeilFlutterTransport
   int sendMediaDatagram(int chan, Uint8List payload) =>
       _client.sendMediaDatagram(chan, payload);
 
+  /// Enable audio/RTCP batching on a RELAY media channel — several small
+  /// datagrams share one relay envelope, amortizing the per-packet
+  /// envelope+padding overhead. Callers gate this on the peer's call
+  /// protocol version: a batched cell is silent noise to an older build.
+  int setRelayMediaBatching(int chan, bool on) =>
+      _mediaApp.setRelayMediaBatching(chan, on);
+
   /// Refresh a black-holed anonymous media route after end-to-end silence.
   /// Direct channels reject this with -1; callers should only invoke it for an
   /// actual anonymous route.

@@ -228,6 +228,17 @@ class VeilCallMediaController implements CallMediaController {
     _chan = chan;
     _chanPeer = call.peer.hex;
     _chanTransport = transport;
+    // Relay media pays a full E2E envelope + padding PER datagram (~24× for
+    // Opus-sized packets — the device-measured last-mile saturation class,
+    // ROADMAP section S). When the peer's call protocol version proves it
+    // decodes batched cells, let the native sender amortize small audio/RTCP
+    // datagrams into one envelope. Version-gated: to an older build a
+    // batched cell is silent noise.
+    if (transport == CallTransportKind.relay &&
+        (call.peerProtocolVersion ?? 1) >= kCallRelayBatchingMinVersion) {
+      final rc = _transport.setRelayMediaBatching(chan, true);
+      devLog(() => 'xVeil[call-media]: relay batching enable rc=$rc');
+    }
     // A negotiated P2P open may have taken the explicitly permitted non-onion
     // relay fallback. Keep subsequent repair/switch operations anchored to the
     // route that is actually carrying this call, not the stale proposal.

@@ -177,7 +177,16 @@ class CallTransportProposal {
 
 /// Current call-signal protocol version. Bump on incompatible schema changes;
 /// the receiver may downgrade behavior for a lower [CallSignal.protocolVersion].
-const int kCallSignalProtocolVersion = 1;
+///
+/// v2 (2026-07-17): this build decodes MEDIA_BATCH_MAGIC-prefixed cells on
+/// the RELAY media path, so a v2 peer may batch several small audio/RTCP
+/// datagrams into one relay envelope (amortizing the ~24× per-datagram
+/// envelope+padding overhead that saturated slow last-mile links — ROADMAP
+/// section S). The signal wire schema itself is unchanged.
+const int kCallSignalProtocolVersion = 2;
+
+/// The peer decodes relay media batching from this protocol version on.
+const int kCallRelayBatchingMinVersion = 2;
 
 class CallSignal {
   const CallSignal({
