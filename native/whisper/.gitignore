@@ -2,6 +2,7 @@
 # checkout). The whisper.cpp source + ggml model live out-of-repo.
 Frameworks/
 jniLibs/
+linux/
 *.dylib
 *.so
 *.bin
