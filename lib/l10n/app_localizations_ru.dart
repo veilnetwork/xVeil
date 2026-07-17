@@ -2026,6 +2026,13 @@ class AppL10nRu extends AppL10n {
   String get networkBackgroundOpenSettings => 'Настройки приложения';
 
   @override
+  String get callBatteryAllowTitle => 'Не прерывать звонки в фоне?';
+
+  @override
+  String get callBatteryAllowBody =>
+      'Некоторые телефоны останавливают звонок, когда вы уходите из xVeil. Разрешите игнорировать оптимизацию батареи, чтобы звонки продолжались в фоне.';
+
+  @override
   String get networkBackgroundLater => 'Позже';
 
   @override
