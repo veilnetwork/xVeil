@@ -274,10 +274,32 @@ class VeilCallMediaController implements CallMediaController {
     _engineRxStalledSince = null;
     _lastRepairAt = null;
     _bitrateAdapter = null; // re-armed below when this call carries video
+    var statsTick = 0;
     _statsTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_engine != engine) return;
       try {
         final stats = engine.getStats();
+        // Per-second quality trace into the devLog ring (2 s cadence to leave
+        // ring headroom): the live "delay grows over the call" report needs
+        // the full curve — RTCP rtt/jitter AND the direct receive-pipeline
+        // delays — from BOTH sides of a user-driven call, which one-shot
+        // /call_state sampling around a short repro keeps missing.
+        if ((statsTick++).isEven) {
+          devLog(
+            () =>
+                'xVeil[call-stats]: rtt=${stats['rtt_ms']} '
+                'jit=${stats['jitter_ms']}/${stats['tx_jitter_ms']} '
+                'loss=${stats['loss_pct']}/${stats['tx_loss_pct']} '
+                'aud=${stats['audio_delay_ms']}/${stats['audio_jb_ms']} '
+                'vid=${stats['video_delay_ms']}/${stats['video_jb_ms']} '
+                'pacer=${stats['pacer_delay_ms']} '
+                'sdelay=${stats['video_send_delay_ms']} '
+                'adapt=${_bitrateAdapter?.level} '
+                'base=${_bitrateAdapter?.rttBaselineMs} '
+                'tx=${stats['tx_pkts']} rx=${stats['rx_pkts']} '
+                'drops=${stats['tx_drops']}/${stats['rx_drops']}',
+          );
+        }
         final rx = (stats['rx_pkts'] as num?)?.toInt() ?? 0;
         final nativeRx = _transport.mediaRecvCount(call.peer.bytes);
         if (rx > _lastRxPkts) {
