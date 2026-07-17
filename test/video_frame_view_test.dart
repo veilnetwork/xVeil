@@ -93,6 +93,63 @@ void main() {
     expect(find.text('Waiting for video…'), findsOneWidget);
   });
 
+  testWidgets('a stalled remote stream badges the frozen frame and recovers', (
+    tester,
+  ) async {
+    final frames = ValueNotifier<VeilVideoFrame?>(null);
+    addTearDown(frames.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData.dark(),
+        home: ColoredBox(
+          color: Colors.black,
+          child: CallVideoFrameView(
+            frameListenable: frames,
+            freshnessToken: 'camera',
+            waitingLabel: 'Waiting',
+            staleLabel: 'Video paused',
+            staleAfter: const Duration(seconds: 3),
+          ),
+        ),
+      ),
+    );
+    expect(find.byKey(const ValueKey('call-video-waiting')), findsOneWidget);
+
+    frames.value = _frame(10);
+    await _settleImageDecode(tester);
+    expect(find.byKey(const ValueKey('call-video-frame')), findsOneWidget);
+    expect(find.byKey(const ValueKey('call-video-stale')), findsNothing);
+
+    // Frames keep arriving → never stale.
+    for (var i = 0; i < 3; i++) {
+      await tester.pump(const Duration(seconds: 1));
+      frames.value = _frame(20 + i);
+      await _settleImageDecode(tester);
+    }
+    expect(find.byKey(const ValueKey('call-video-stale')), findsNothing);
+
+    // The stream stops (backgrounded peer app / stopped camera): the frozen
+    // frame must be badged, not left masquerading as live video.
+    await tester.pump(const Duration(seconds: 4));
+    expect(find.byKey(const ValueKey('call-video-stale')), findsOneWidget);
+    expect(find.text('Video paused'), findsOneWidget);
+
+    // A fresh frame clears the badge at once.
+    frames.value = _frame(90);
+    await _settleImageDecode(tester);
+    expect(find.byKey(const ValueKey('call-video-stale')), findsNothing);
+
+    // The waiting placeholder (no image) never shows the stale badge.
+    frames.value = null;
+    await tester.pump(const Duration(seconds: 5));
+    expect(find.byKey(const ValueKey('call-video-waiting')), findsOneWidget);
+    expect(find.byKey(const ValueKey('call-video-stale')), findsNothing);
+
+    // Dispose the view so its 1 s stale timer does not outlive the test.
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('new surface accepts an already-confirmed static screen frame', (
     tester,
   ) async {

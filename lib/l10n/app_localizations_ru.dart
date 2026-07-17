@@ -2241,6 +2241,9 @@ class AppL10nRu extends AppL10n {
   String get callScreenWaiting => 'Ожидание показа экрана…';
 
   @override
+  String get callVideoPaused => 'Видео приостановлено';
+
+  @override
   String get callVideoWaiting => 'Ожидание видео…';
 
   @override
