@@ -86,6 +86,11 @@ class VeilCallMediaController implements CallMediaController {
   bool _routeRepairing = false;
   int _mediaEpoch = 0;
 
+  /// Whether the native relay channel currently batches audio/RTCP (v2-peer
+  /// gate accepted). Surfaced in [diagnostics] so a live stand run can SEE
+  /// the gate outcome — devLog is invisible on a shell-launched app.
+  bool _relayBatching = false;
+
   @override
   CallTransportKind? get activeTransport =>
       _chan == null ? null : _chanTransport;
@@ -105,6 +110,7 @@ class VeilCallMediaController implements CallMediaController {
       return {
         'transport': _chanTransport?.name,
         'running': true,
+        'batching': _relayBatching,
         if (_bitrateAdapter != null) 'adaptLevel': _bitrateAdapter!.level,
         ...engine.getStats(),
       };
@@ -234,9 +240,11 @@ class VeilCallMediaController implements CallMediaController {
     // decodes batched cells, let the native sender amortize small audio/RTCP
     // datagrams into one envelope. Version-gated: to an older build a
     // batched cell is silent noise.
+    _relayBatching = false;
     if (transport == CallTransportKind.relay &&
         (call.peerProtocolVersion ?? 1) >= kCallRelayBatchingMinVersion) {
       final rc = _transport.setRelayMediaBatching(chan, true);
+      _relayBatching = rc == 0;
       devLog(() => 'xVeil[call-media]: relay batching enable rc=$rc');
     }
     // A negotiated P2P open may have taken the explicitly permitted non-onion
@@ -474,6 +482,7 @@ class VeilCallMediaController implements CallMediaController {
     _chan = null;
     _chanPeer = null;
     _chanTransport = null;
+    _relayBatching = false;
     if (ch != null) {
       try {
         _transport.closeMediaChannel(ch);
