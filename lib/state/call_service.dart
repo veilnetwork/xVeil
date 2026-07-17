@@ -19,7 +19,15 @@ Future<bool> _neverP2P(NodeId peer) async => false;
 
 /// How long an unanswered call rings before it auto-ends (the caller's "no
 /// answer" and the callee's "missed call").
-const Duration kCallRingTimeout = Duration(seconds: 45);
+/// 45 s covered the happy path but not this network's real control-plane
+/// tail: when the first live send of the callee's `answer` is lost, the
+/// durable copy arrives via the mailbox path (deposit → relay wake → drain),
+/// which legitimately takes tens of seconds — the caller's dial timeout then
+/// fired exactly as the callee accepted, tearing down a call both users
+/// wanted (observed live 2026-07-17). 75 s spans the mailbox tail plus the
+/// fast call-signal re-drive ladder, and is within ordinary telephony ring
+/// times.
+const Duration kCallRingTimeout = Duration(seconds: 75);
 
 /// Once a call is connecting/active, each side sends a [CallSignalType.health]
 /// heartbeat this often.
@@ -720,6 +728,11 @@ class CallService {
     _ringTimer = Timer(kCallRingTimeout, () {
       final c = _current;
       if (c == null || !c.isLive) return;
+      devLog(
+        () =>
+            'xVeil[call]: ring timeout call=${c.callId} '
+            'dir=${c.direction.name} status=${c.status.name}',
+      );
       // Auto-end an unanswered call, telling the peer so their side stops ringing.
       unawaited(
         _sendControl(

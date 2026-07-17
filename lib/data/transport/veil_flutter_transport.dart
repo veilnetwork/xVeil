@@ -347,7 +347,10 @@ class VeilFlutterTransport
     final relay = VeilNetworkMailboxRelay(
       client: _mailboxClient,
       fetchApp: reply,
-      srcAppId: src.appId,
+      // The relay RETAINS the handle (not just its app_id): a dropped handle
+      // is GC-finalized into veil_app_close → daemon unbind → every deposit
+      // rejected SPOOFED_SRC. See VeilNetworkMailboxRelay.srcApp.
+      srcApp: src,
       replyEndpointId: _mailboxReplyEndpointId,
       // The KEM-key-given FETCH: when this relay's published KEM key is cached
       // (populated at registration), the drain routes straight to it instead of

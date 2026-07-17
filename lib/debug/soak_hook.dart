@@ -233,6 +233,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
             'ready': ref.read(appControllerProvider).phase == AppPhase.ready,
           });
           return;
+        case '/dev_log':
+          await _devLogTail(req);
+          return;
         case '/wait_ready':
           await _waitReady(req);
           return;
@@ -3676,6 +3679,28 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'ok': true,
       'phase': state.phase.name,
       'identity': _identityJson(state),
+    });
+  }
+
+  /// GET /dev_log[?limit=N][&grep=substr] — newest devLog lines from the
+  /// in-RAM ring (oldest first). Stand diagnostics only: developer.log is
+  /// invisible to nohup/logcat capture, this is the only remote view of the
+  /// Dart-side trace. RAM-only, debug builds only (release ring stays empty).
+  Future<void> _devLogTail(HttpRequest req) async {
+    final params = req.uri.queryParameters;
+    final limit = int.tryParse(params['limit'] ?? '') ?? 500;
+    final grep = params['grep'];
+    final snap = devLogSnapshot(limit: limit.clamp(1, 4000));
+    var lines = snap.lines;
+    if (grep != null && grep.isNotEmpty) {
+      lines = lines.where((l) => l.contains(grep)).toList(growable: false);
+    }
+    return _json(req, {
+      'ok': true,
+      'total': snap.total,
+      'dropped': snap.dropped,
+      'count': lines.length,
+      'lines': lines,
     });
   }
 
