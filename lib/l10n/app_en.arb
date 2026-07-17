@@ -731,6 +731,8 @@
   "callScreenOn": "Sharing screen",
   "callScreenOff": "Share screen",
   "callScreenWaiting": "Waiting for shared screen…",
+  "groupCallOngoing": "Group call in progress",
+  "groupCallJoinAction": "Join",
   "callVideoPaused": "Video paused",
   "callVideoWaiting": "Waiting for video…",
   "callPathOnion": "Anonymous (onion)",

@@ -727,6 +727,8 @@
   "callScreenOn": "Показ экрана",
   "callScreenOff": "Показать экран",
   "callScreenWaiting": "Ожидание показа экрана…",
+  "groupCallOngoing": "Идёт групповой звонок",
+  "groupCallJoinAction": "Присоединиться",
   "callVideoPaused": "Видео приостановлено",
   "callVideoWaiting": "Ожидание видео…",
   "callPathOnion": "Анонимно (onion)",

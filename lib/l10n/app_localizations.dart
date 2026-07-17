@@ -4177,6 +4177,18 @@ abstract class AppL10n {
   /// **'Waiting for shared screen…'**
   String get callScreenWaiting;
 
+  /// No description provided for @groupCallOngoing.
+  ///
+  /// In en, this message translates to:
+  /// **'Group call in progress'**
+  String get groupCallOngoing;
+
+  /// No description provided for @groupCallJoinAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Join'**
+  String get groupCallJoinAction;
+
   /// No description provided for @callVideoPaused.
   ///
   /// In en, this message translates to:
