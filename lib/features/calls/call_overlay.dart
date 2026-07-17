@@ -90,6 +90,11 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
     if (call == null || call.status == CallStatus.ended) {
       _callId = null;
       _autoMiniAfterConnect = false;
+      // The Android PiP window can outlive the call for a moment (the bridge
+      // dismisses it asynchronously). Never let that window show the shrunk
+      // app UI — the chat list floating over the launcher is both broken
+      // layout and a privacy leak.
+      if (_pipActive) return const Positioned.fill(child: _PipEndedCover());
       return const SizedBox.shrink();
     }
     final isNewCall = _callId != call.callId;
@@ -103,8 +108,12 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
       _mode = _OverlayMode.full;
     }
     final videoStage = _isVideoStage(call);
-    if (_pipActive && videoStage) {
-      return Positioned.fill(child: _PipVideoView(call));
+    if (_pipActive) {
+      // In PiP the window is tiny: only the dedicated video surface (or a
+      // plain cover for a non-video stage) may render — the regular layouts
+      // overflow and expose whatever screen was open underneath.
+      if (videoStage) return Positioned.fill(child: _PipVideoView(call));
+      return const Positioned.fill(child: _PipEndedCover());
     }
     if (videoStage && !_autoMiniAfterConnect) {
       _autoMiniAfterConnect = true;
@@ -405,6 +414,23 @@ class _CallBody extends ConsumerWidget {
     CallStatus.active => l.callActive,
     CallStatus.ended => l.callEnded,
   };
+}
+
+/// Minimal opaque fill for a PiP window whose call is gone or has no video
+/// stage yet. Deliberately content-free: nothing from the app may leak into
+/// the floating window.
+class _PipEndedCover extends StatelessWidget {
+  const _PipEndedCover();
+
+  @override
+  Widget build(BuildContext context) {
+    return const ColoredBox(
+      color: Colors.black,
+      child: Center(
+        child: Icon(Icons.call_end, color: Colors.white38, size: 30),
+      ),
+    );
+  }
 }
 
 class _PipVideoView extends StatelessWidget {
