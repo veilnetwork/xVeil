@@ -3781,6 +3781,18 @@ abstract class AppL10n {
   /// **'App settings'**
   String get networkBackgroundOpenSettings;
 
+  /// No description provided for @callBatteryAllowTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep calls alive in the background?'**
+  String get callBatteryAllowTitle;
+
+  /// No description provided for @callBatteryAllowBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Some phones stop a call when you switch away from xVeil. Allow it to ignore battery optimization so backgrounded calls keep running.'**
+  String get callBatteryAllowBody;
+
   /// No description provided for @networkBackgroundLater.
   ///
   /// In en, this message translates to:

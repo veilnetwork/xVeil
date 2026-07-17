@@ -1,17 +1,20 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 
 import '../../core/log.dart';
 import '../../domain/call.dart';
 import '../../domain/group_call.dart';
+import '../../l10n/app_localizations.dart';
+import '../../routing/router.dart' show rootNavigatorKey;
 import '../../state/background_node_controller.dart';
 import '../../state/call_service.dart';
 import '../../state/group_call_service.dart';
+import '../../state/providers.dart';
 
 final callPipMode = ValueNotifier<bool>(false);
 
@@ -33,6 +36,9 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
   String? _lastServiceKey;
   bool _ownsForegroundService = false;
   bool _videoCallActive = false;
+  bool _batteryPromptChecked = false;
+
+  static const _kBatteryPromptKey = 'call_battery_prompted';
 
   @override
   void initState() {
@@ -82,7 +88,64 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
     }
     _syncRinger(call);
     _syncForegroundService(call, groupCall);
+    // First time a call actually connects, offer the battery-optimization
+    // exemption once: aggressive OEMs (MIUI et al.) kill a backgrounded call
+    // even with the foreground service unless the app is whitelisted, which is
+    // exactly when the user just discovered they want calls to survive.
+    final connected =
+        (call != null &&
+            (call.status == CallStatus.connecting ||
+                call.status == CallStatus.active)) ||
+        (groupCall != null &&
+            (groupCall.status == GroupCallStatus.connecting ||
+                groupCall.status == GroupCallStatus.active));
+    if (connected) unawaited(_maybeOfferBatteryExemption());
     return const SizedBox.shrink();
+  }
+
+  Future<void> _maybeOfferBatteryExemption() async {
+    if (_batteryPromptChecked || !Platform.isAndroid) return;
+    _batteryPromptChecked = true; // once per app run regardless of outcome
+    try {
+      final prefs = await ref.read(prefsProvider.future);
+      if (prefs.getBool(_kBatteryPromptKey) ?? false) return;
+      if (await VeilBackground.isIgnoringBatteryOptimizations()) {
+        await prefs.setBool(_kBatteryPromptKey, true);
+        return;
+      }
+      // Resolve the navigator AFTER the last await so the context never
+      // crosses an async gap (the pref write is done above).
+      if ((rootNavigatorKey.currentState?.context.mounted ?? false) == false) {
+        _batteryPromptChecked = false; // navigator not ready — retry next call
+        return;
+      }
+      await prefs.setBool(_kBatteryPromptKey, true);
+      final ctx = rootNavigatorKey.currentContext;
+      if (ctx == null || !ctx.mounted) return;
+      final l = AppL10n.of(ctx);
+      await showDialog<void>(
+        context: ctx,
+        builder: (dialogCtx) => AlertDialog(
+          title: Text(l.callBatteryAllowTitle),
+          content: Text(l.callBatteryAllowBody),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx),
+              child: Text(l.networkBackgroundLater),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(dialogCtx);
+                VeilBackground.requestIgnoreBatteryOptimizations();
+              },
+              child: Text(l.networkBackgroundAllowGrant),
+            ),
+          ],
+        ),
+      );
+    } catch (_) {
+      // Prefs closed / no navigator — never let the prompt break a call.
+    }
   }
 
   Future<void> _exitPip() async {

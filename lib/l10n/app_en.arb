@@ -653,6 +653,8 @@
   "networkBackgroundAllowBody": "For messages to arrive while xVeil is in the background, allow it to run without battery restrictions. On some phones (e.g. Xiaomi, Samsung) you must ALSO enable “Autostart” / remove battery limits in the app's settings.",
   "networkBackgroundAllowGrant": "Allow",
   "networkBackgroundOpenSettings": "App settings",
+  "callBatteryAllowTitle": "Keep calls alive in the background?",
+  "callBatteryAllowBody": "Some phones stop a call when you switch away from xVeil. Allow it to ignore battery optimization so backgrounded calls keep running.",
   "networkBackgroundLater": "Later",
 
   "peersTitle": "Connected peers",
