@@ -78,6 +78,20 @@ const _debugHookEnabled = bool.fromEnvironment(
   'XVEIL_DEBUG_HOOK',
   defaultValue: true,
 );
+// Profile-build opt-in (default OFF): an AOT profile build behaves like
+// production Dart, which debug builds cannot represent — the RTT-stall
+// campaign needed /call_state measurements on AOT to separate app-runtime
+// jank from the veil stack. Release builds stay hook-free unconditionally
+// (kReleaseMode is excluded by [_hookBuildAllowed]); a profile build only
+// gains the hook when BOTH defines opt in.
+const _debugHookProfileOptIn = bool.fromEnvironment(
+  'XVEIL_DEBUG_HOOK_PROFILE',
+);
+// Every hook use site gates on this instead of raw [kDebugMode]. Debug =
+// same behavior as before; profile = explicit double opt-in; release =
+// always false, so the whole hook tree-shakes out of store builds.
+const _hookBuildAllowed =
+    kDebugMode || (kProfileMode && _debugHookProfileOptIn);
 // 0 = "define absent" (a real hook port is never 0): fall through to the
 // stand's per-platform convention — desktop 38765, phone 38766 — so an APK
 // built without the PORT define no longer silently binds the desktop port
@@ -165,7 +179,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   @override
   void initState() {
     super.initState();
-    if (kDebugMode && _debugHookEnabled) {
+    if (_hookBuildAllowed && _debugHookEnabled) {
       unawaited(_start());
     }
   }
@@ -203,7 +217,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   }
 
   @override
-  Widget build(BuildContext context) => kDebugMode && _debugHookEnabled
+  Widget build(BuildContext context) => _hookBuildAllowed && _debugHookEnabled
       ? RepaintBoundary(key: _screenshotKey, child: widget.child)
       : widget.child;
 
