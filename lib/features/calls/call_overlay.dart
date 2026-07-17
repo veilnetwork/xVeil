@@ -111,8 +111,14 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
     if (_pipActive) {
       // In PiP the window is tiny: only the dedicated video surface (or a
       // plain cover for a non-video stage) may render — the regular layouts
-      // overflow and expose whatever screen was open underneath.
-      if (videoStage) return Positioned.fill(child: _PipVideoView(call));
+      // overflow and expose whatever screen was open underneath. Material
+      // ancestor: the frame view's text placeholders otherwise render with
+      // the bare default style (yellow underline).
+      if (videoStage) {
+        return Positioned.fill(
+          child: Material(color: Colors.black, child: _PipVideoView(call)),
+        );
+      }
       return const Positioned.fill(child: _PipEndedCover());
     }
     if (videoStage && !_autoMiniAfterConnect) {

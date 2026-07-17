@@ -230,12 +230,18 @@ class GroupCallService {
   Future<void> leave() async {
     final call = _current;
     if (call == null || !call.isLive) return;
+    // Local teardown never waits on the network: the leave broadcast is a
+    // durable enqueue PER MEMBER, so awaiting it held the UI "in call" for
+    // seconds (same class as the 1:1 hangup fix). A lost leave only costs the
+    // peers one liveness timeout before they drop us.
     if (call.isJoined(_groups.selfId)) {
-      await _groups.broadcastGroupCallSignal(
-        call.groupId,
-        callId: call.callId,
-        type: GroupCallSignalType.leave,
-        reason: CallEndReason.hangup,
+      unawaited(
+        _groups.broadcastGroupCallSignal(
+          call.groupId,
+          callId: call.callId,
+          type: GroupCallSignalType.leave,
+          reason: CallEndReason.hangup,
+        ),
       );
     }
     _end(CallEndReason.hangup);
@@ -244,16 +250,20 @@ class GroupCallService {
   Future<bool> endForEveryone() async {
     final call = _current;
     if (call == null || !call.isLive) return false;
+    // The permission gate stays synchronous-local (group state read); the
+    // room-wide end broadcast rides in the background like every other
+    // teardown signal — an admin's hangup must clear the UI instantly.
     final state = await _groups.stateOf(call.groupId);
     final role = state?.roleOf(_groups.selfId);
     if (role == null || role.rank < GroupRole.admin.rank) return false;
-    final sent = await _groups.broadcastGroupCallSignal(
-      call.groupId,
-      callId: call.callId,
-      type: GroupCallSignalType.end,
-      reason: CallEndReason.hangup,
+    unawaited(
+      _groups.broadcastGroupCallSignal(
+        call.groupId,
+        callId: call.callId,
+        type: GroupCallSignalType.end,
+        reason: CallEndReason.hangup,
+      ),
     );
-    if (sent == null) return false;
     _end(CallEndReason.hangup);
     return true;
   }
