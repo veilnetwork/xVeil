@@ -28,6 +28,7 @@ class VeilFlutterTransport
     this._client,
     this._capabilityClient,
     this._realtimeClient,
+    this._mediaClient,
     this._app,
     this._mediaApp,
     this._realtimeApp,
@@ -38,6 +39,7 @@ class VeilFlutterTransport
   final VeilClient _client;
   final VeilClient _capabilityClient;
   final VeilClient _realtimeClient;
+  final VeilClient _mediaClient;
   final AppHandle _app;
   final AppHandle _mediaApp;
   final AppHandle _realtimeApp;
@@ -47,6 +49,7 @@ class VeilFlutterTransport
     final client = await VeilClient.connect(socketPath);
     VeilClient? capabilityClient;
     VeilClient? realtimeClient;
+    VeilClient? mediaClient;
     AppHandle? realtimeApp;
     try {
       // Node identity is immutable for this transport lifetime. Cache it while
@@ -62,12 +65,21 @@ class VeilFlutterTransport
       // the main IPC client. A separate sender-only binding preserves the same
       // node identity and destination inbox while isolating its writer/locks.
       realtimeClient = await VeilClient.connect(socketPath);
+      // Per-packet call media gets its OWN IPC connection too. The node
+      // handles each connection's requests inline in one loop, so a single
+      // slow send on the shared main client (an anonymous send inside a
+      // rendezvous resolve runs for SECONDS) froze both directions of every
+      // endpoint bound to it — live RTP stalled 2-9 s bidirectionally while
+      // the wire, the relay and the peer's node all measured healthy
+      // (RTT-stall campaign, 2026-07-17). Same isolation precedent as
+      // capabilityClient/realtimeClient above.
+      mediaClient = await VeilClient.connect(socketPath);
       final app = await client.bindNamed(
         namespace: veilChatNamespace,
         name: veilChatName,
         endpointId: veilChatEndpointId,
       );
-      final mediaApp = await client.bindNamed(
+      final mediaApp = await mediaClient.bindNamed(
         namespace: veilChatNamespace,
         name: veilMediaName,
         endpointId: veilMediaEndpointId,
@@ -87,6 +99,7 @@ class VeilFlutterTransport
         client,
         capabilityClient,
         realtimeClient,
+        mediaClient,
         app,
         mediaApp,
         realtimeApp,
@@ -94,6 +107,7 @@ class VeilFlutterTransport
     } catch (_) {
       await realtimeApp?.close();
       await realtimeClient?.close();
+      await mediaClient?.close();
       await capabilityClient?.close();
       await client.close();
       rethrow;
@@ -129,7 +143,7 @@ class VeilFlutterTransport
     if (direct && relay) {
       throw ArgumentError('media channel cannot be both direct and relay');
     }
-    if (!direct && !relay) return _client.openMediaChannel(dstNodeId: dstNode);
+    if (!direct && !relay) return _mediaClient.openMediaChannel(dstNodeId: dstNode);
     final peer = NodeId(dstNode);
     if (relay) {
       return _mediaApp.openRelayMediaChannel(
@@ -542,6 +556,7 @@ class VeilFlutterTransport
     await _mediaApp.close();
     await _app.close();
     await _realtimeClient.close();
+    await _mediaClient.close();
     await _capabilityClient.close();
     await _client.close();
   }
