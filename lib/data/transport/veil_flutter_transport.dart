@@ -29,6 +29,7 @@ class VeilFlutterTransport
     this._capabilityClient,
     this._realtimeClient,
     this._mediaClient,
+    this._mailboxClient,
     this._app,
     this._mediaApp,
     this._realtimeApp,
@@ -40,6 +41,7 @@ class VeilFlutterTransport
   final VeilClient _capabilityClient;
   final VeilClient _realtimeClient;
   final VeilClient _mediaClient;
+  final VeilClient _mailboxClient;
   final AppHandle _app;
   final AppHandle _mediaApp;
   final AppHandle _realtimeApp;
@@ -50,6 +52,7 @@ class VeilFlutterTransport
     VeilClient? capabilityClient;
     VeilClient? realtimeClient;
     VeilClient? mediaClient;
+    VeilClient? mailboxClient;
     AppHandle? realtimeApp;
     try {
       // Node identity is immutable for this transport lifetime. Cache it while
@@ -74,6 +77,18 @@ class VeilFlutterTransport
       // (RTT-stall campaign, 2026-07-17). Same isolation precedent as
       // capabilityClient/realtimeClient above.
       mediaClient = await VeilClient.connect(socketPath);
+      // The offline mailbox drives the node's SLOWEST inline IPC requests —
+      // a drain FETCH warms the relay directory over the network (~5 s), a
+      // relay-key lookup walks the DHT (3-9 s), sealing resolves the
+      // recipient's cert. On the shared main client every one of those froze
+      // messaging sends, file streams and the UI's peer polls for its full
+      // duration (the node serves each connection's requests strictly in
+      // order). Same isolation move as media above: the whole mailbox
+      // domain — PUT source, FETCH reply endpoint, relay sends, crypto,
+      // wake events — lives on this one dedicated connection, which also
+      // keeps the non-spoofable src_app_id check (per-connection state)
+      // intact.
+      mailboxClient = await VeilClient.connect(socketPath);
       final app = await client.bindNamed(
         namespace: veilChatNamespace,
         name: veilChatName,
@@ -100,6 +115,7 @@ class VeilFlutterTransport
         capabilityClient,
         realtimeClient,
         mediaClient,
+        mailboxClient,
         app,
         mediaApp,
         realtimeApp,
@@ -108,6 +124,7 @@ class VeilFlutterTransport
       await realtimeApp?.close();
       await realtimeClient?.close();
       await mediaClient?.close();
+      await mailboxClient?.close();
       await capabilityClient?.close();
       await client.close();
       rethrow;
@@ -295,12 +312,14 @@ class VeilFlutterTransport
   /// uses the same live node identity as offline delivery without exposing the
   /// underlying IPC client.
   VeilMailboxCrypto mailboxCrypto() =>
-      VeilFlutterMailboxCrypto(_client.mailbox);
+      VeilFlutterMailboxCrypto(_mailboxClient.mailbox);
 
   /// Endpoints (distinct from the chat inbox at [veilChatEndpointId] = 0) the
-  /// offline-mailbox path binds on this same client: a PUT source app (carries a
-  /// non-spoofable src_app_id for anonymous deposits) and a FETCH reply app
-  /// (the relay answers our drains over its one-time reply path here).
+  /// offline-mailbox path binds on the DEDICATED mailbox client: a PUT source
+  /// app (carries a non-spoofable src_app_id for anonymous deposits — the
+  /// spoof check is per-connection, so source bind and relay sends must share
+  /// one connection) and a FETCH reply app (the relay answers our drains over
+  /// its one-time reply path here).
   static const _mailboxSrcEndpointId = 10;
   static const _mailboxReplyEndpointId = 11;
 
@@ -315,18 +334,18 @@ class VeilFlutterTransport
     RelayKeyCache? relayKeyCache,
     PoisonedBlobRegistry? poisonedBlobs,
   }) async {
-    final src = await _client.bind(
+    final src = await _mailboxClient.bind(
       namespace: veilChatNamespace,
       name: 'mailbox-src',
       endpointId: _mailboxSrcEndpointId,
     );
-    final reply = await _client.bind(
+    final reply = await _mailboxClient.bind(
       namespace: veilChatNamespace,
       name: 'mailbox-reply',
       endpointId: _mailboxReplyEndpointId,
     );
     final relay = VeilNetworkMailboxRelay(
-      client: _client,
+      client: _mailboxClient,
       fetchApp: reply,
       srcAppId: src.appId,
       replyEndpointId: _mailboxReplyEndpointId,
@@ -335,10 +354,10 @@ class VeilFlutterTransport
       // the flaky rendezvous-ad self-resolve. Best-effort; absent → self-resolve.
       relayKeyCache: relayKeyCache,
     );
-    final crypto = VeilFlutterMailboxCrypto(_client.mailbox);
-    final me = NodeId(await _client.nodeId());
+    final crypto = VeilFlutterMailboxCrypto(_mailboxClient.mailbox);
+    final me = NodeId(await _mailboxClient.nodeId());
     return MailboxService(
-      client: _client,
+      client: _mailboxClient,
       me: me,
       orchestrator: MailboxOrchestrator(crypto, relay, poisoned: poisonedBlobs),
       deliver: deliver,
@@ -557,6 +576,7 @@ class VeilFlutterTransport
     await _app.close();
     await _realtimeClient.close();
     await _mediaClient.close();
+    await _mailboxClient.close();
     await _capabilityClient.close();
     await _client.close();
   }
