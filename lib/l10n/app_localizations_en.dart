@@ -2012,6 +2012,13 @@ class AppL10nEn extends AppL10n {
   String get networkBackgroundOpenSettings => 'App settings';
 
   @override
+  String get callBatteryAllowTitle => 'Keep calls alive in the background?';
+
+  @override
+  String get callBatteryAllowBody =>
+      'Some phones stop a call when you switch away from xVeil. Allow it to ignore battery optimization so backgrounded calls keep running.';
+
+  @override
   String get networkBackgroundLater => 'Later';
 
   @override

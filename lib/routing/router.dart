@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -76,6 +77,11 @@ String? redirectForPhase(
   }
 }
 
+/// The router's root navigator. Exposed so widgets floated ABOVE the router
+/// (the call overlay stack) can present dialogs on the real navigator — they
+/// sit outside its subtree and have no Navigator ancestor of their own.
+final rootNavigatorKey = GlobalKey<NavigatorState>();
+
 /// Builds the app router and gates navigation on [AppPhase]. A [ValueNotifier]
 /// bridges Riverpod state changes into go_router's [refreshListenable] so
 /// redirects re-run whenever the phase changes.
@@ -95,6 +101,7 @@ final routerProvider = Provider<GoRouter>((ref) {
   String? resumeAfterPrepare;
 
   return GoRouter(
+    navigatorKey: rootNavigatorKey,
     initialLocation: '/splash',
     refreshListenable: refresh,
     redirect: (context, state) {
