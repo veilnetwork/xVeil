@@ -545,6 +545,41 @@ void main() {
       });
     });
 
+    test('a repair request landing mid-rebuild does not kill the call', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        // repairRoute reports success while activeTransport is still null —
+        // exactly what a peer sees when its request lands while our local
+        // session rebuild is in flight (channel closed, engine not yet up).
+        final media = _FakeMedia();
+        final svc = CallService(fake, now: () => clock.now(), media: media)
+          ..start();
+        fake.onCallSignal!(peer, offer('call-repair-pending'));
+        svc.accept();
+        async.flushMicrotasks();
+        expect(svc.current?.status, CallStatus.active);
+        fake.sent.clear();
+
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'call-repair-pending',
+            type: CallSignalType.health,
+            mediaRepairRequested: true,
+          ),
+        );
+        async.flushMicrotasks();
+
+        expect(media.repairs, 1);
+        expect(
+          svc.current?.isLive,
+          isTrue,
+          reason: 'a pending repair must not fail closed',
+        );
+        expect(fake.sent.where((s) => s.type == CallSignalType.end), isEmpty);
+      });
+    });
+
     test('silent P2P is repaired in place and never announces onion', () async {
       final fake = _FakeMessaging();
       final media = _FakeMedia()..openedTransport = CallTransportKind.p2p;
@@ -986,6 +1021,40 @@ void main() {
       });
     });
 
+    test('an audio-only call starts with camera intent OFF on both ends', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia();
+        final svc = CallService(fake, now: () => clock.now(), media: media)
+          ..start();
+        // Incoming audio-only offer: cameraOn must be false, or the UI camera
+        // toggle reads "on" and its tap (→ off) is a no-op that makes the
+        // audio→video upgrade unreachable (user report 2026-07-17).
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'call-audio-intent',
+            type: CallSignalType.offer,
+            media: CallMedia(audio: true),
+            posture: CallPosture.direct,
+          ),
+        );
+        expect(svc.current?.cameraOn, isFalse);
+        svc.hangup();
+        async.flushMicrotasks();
+
+        // Outgoing: audio-only dial → camera OFF; video dial → camera ON.
+        svc.placeCall(peer, const CallMedia(audio: true));
+        async.flushMicrotasks();
+        expect(svc.current?.cameraOn, isFalse);
+        svc.cancel();
+        async.flushMicrotasks();
+        svc.placeCall(peer, const CallMedia(audio: true, video: true));
+        async.flushMicrotasks();
+        expect(svc.current?.cameraOn, isTrue);
+      });
+    });
+
     test('failed video mount leaves the call audio-only', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();
@@ -1108,6 +1177,88 @@ void main() {
       });
     });
   });
+
+  group('CallService instant local teardown', () {
+    final peer = NodeId.fromHex('d' * 64);
+
+    test('hangup while dialing clears the call before the signal is sent', () async {
+      final fake = _FakeMessaging();
+      final svc = CallService(fake)..start();
+      addTearDown(svc.dispose);
+
+      await svc.placeCall(peer, const CallMedia(audio: true));
+      expect(svc.current?.status, CallStatus.dialing);
+
+      // The durable control-signal enqueue is slow (encrypted-store write) —
+      // the local teardown must not be gated on it.
+      fake.sendGate = Completer<void>();
+      await svc.hangup().timeout(const Duration(milliseconds: 100));
+      expect(svc.current, isNull);
+      expect(
+        fake.sent.where((s) => s.type == CallSignalType.cancel),
+        isEmpty,
+        reason: 'cancel is still in flight behind the gate',
+      );
+
+      fake.sendGate!.complete();
+      await pumpEventQueue();
+      expect(fake.sent.last.type, CallSignalType.cancel);
+    });
+
+    test('reject while ringing clears the call before the signal is sent', () async {
+      final fake = _FakeMessaging();
+      final svc = CallService(fake)..start();
+      addTearDown(svc.dispose);
+
+      fake.onCallSignal!(
+        peer,
+        const CallSignal(
+          callId: 'ring-1',
+          type: CallSignalType.offer,
+          media: CallMedia(audio: true),
+          posture: CallPosture.direct,
+        ),
+      );
+      expect(svc.current?.status, CallStatus.ringing);
+
+      fake.sendGate = Completer<void>();
+      await svc.reject().timeout(const Duration(milliseconds: 100));
+      expect(svc.current, isNull);
+      expect(fake.sent.where((s) => s.type == CallSignalType.reject), isEmpty);
+
+      fake.sendGate!.complete();
+      await pumpEventQueue();
+      expect(fake.sent.last.type, CallSignalType.reject);
+    });
+
+    test('hangup on a connected call clears the call before the signal is '
+        'sent', () async {
+      final fake = _FakeMessaging();
+      final svc = CallService(fake)..start();
+      addTearDown(svc.dispose);
+
+      await svc.placeCall(peer, const CallMedia(audio: true));
+      final callId = svc.current!.callId;
+      fake.onCallSignal!(
+        peer,
+        CallSignal(
+          callId: callId,
+          type: CallSignalType.answer,
+          posture: CallPosture.direct,
+        ),
+      );
+      expect(svc.current?.status, CallStatus.connecting);
+
+      fake.sendGate = Completer<void>();
+      await svc.hangup().timeout(const Duration(milliseconds: 100));
+      expect(svc.current, isNull);
+      expect(fake.sent.where((s) => s.type == CallSignalType.end), isEmpty);
+
+      fake.sendGate!.complete();
+      await pumpEventQueue();
+      expect(fake.sent.last.type, CallSignalType.end);
+    });
+  });
 }
 
 /// Records camera/screen toggles; [screenOk] fakes the platform backend
@@ -1191,6 +1342,10 @@ class _FakeMessaging implements MessagingService {
   bool anon = false;
   final List<CallSignal> sent = [];
 
+  /// When set, [sendCallSignal] records the signal only after the gate
+  /// completes — models the slow durable (encrypted-store) enqueue.
+  Completer<void>? sendGate;
+
   @override
   bool get isAnonymousIdentity => anon;
 
@@ -1199,6 +1354,8 @@ class _FakeMessaging implements MessagingService {
 
   @override
   Future<void> sendCallSignal(NodeId peer, CallSignal signal) async {
+    final gate = sendGate;
+    if (gate != null) await gate.future;
     sent.add(signal);
   }
 
