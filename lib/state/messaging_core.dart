@@ -669,9 +669,15 @@ class MessagingService {
       frameJson,
       sentAtMs: signal.sentAtMs,
     );
+    // Group-call control rides the REALTIME IPC connection, mirroring
+    // sendCallSignal below. It previously went through _send (the MAIN
+    // client), where ring/join/heartbeat queued behind mailbox drains,
+    // anonymous sends and file streams on the node's sequential
+    // per-connection loop — the same head-of-line class that stalled call
+    // media for seconds until media got its own connection (2026-07-17).
     if (signal.type == GroupCallSignalType.heartbeat) {
       try {
-        await _send(dst, envelope.encode());
+        await _sendRealtime(dst, envelope.encode());
       } catch (_) {
         // A subsequent heartbeat supersedes this best-effort frame.
       }
@@ -682,6 +688,8 @@ class MessagingService {
       'gcall:${signal.groupId.hex}:${signal.callId}:'
       '${signal.type.name}:${signal.nonce}',
       envelope,
+      liveSender: (wire) => _sendRealtime(dst, wire),
+      awaitLive: false,
     );
   }
 
