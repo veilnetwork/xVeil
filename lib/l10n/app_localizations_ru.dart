@@ -2241,6 +2241,12 @@ class AppL10nRu extends AppL10n {
   String get callScreenWaiting => 'Ожидание показа экрана…';
 
   @override
+  String get groupCallOngoing => 'Идёт групповой звонок';
+
+  @override
+  String get groupCallJoinAction => 'Присоединиться';
+
+  @override
   String get callVideoPaused => 'Видео приостановлено';
 
   @override

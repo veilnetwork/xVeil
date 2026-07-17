@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
@@ -20,6 +21,33 @@ const Duration kGroupCallHeartbeatInterval = Duration(seconds: 5);
 const Duration kGroupCallLivenessTimeout = Duration(seconds: 20);
 const Duration kGroupCallReannounceInterval = Duration(seconds: 60);
 const Duration kGroupCallTombstoneTtl = Duration(minutes: 3);
+
+/// How long after the last received `announce` a room still counts as ongoing
+/// for the passive "group call in progress" banner. Joined members re-announce
+/// every [kGroupCallReannounceInterval]; 2.5 minutes tolerates one lost
+/// announce plus delivery jitter before the banner honestly disappears.
+const Duration kGroupCallRoomTtl = Duration(seconds: 150);
+
+/// A group room known to be ongoing from its periodic `announce` frames —
+/// the state behind the chat-header "join the call" banner. Purely passive:
+/// holding one of these neither rings nor joins.
+class ActiveGroupRoom {
+  const ActiveGroupRoom({
+    required this.groupId,
+    required this.callId,
+    required this.initiator,
+    required this.membershipEpoch,
+    required this.media,
+    required this.lastAnnounceAt,
+  });
+
+  final NodeId groupId;
+  final String callId;
+  final NodeId initiator;
+  final int membershipEpoch;
+  final CallMedia media;
+  final DateTime lastAnnounceAt;
+}
 
 /// Native/media-plane boundary for an N-party room. The control FSM is useful
 /// and fully testable independently, while the production implementation owns
@@ -77,7 +105,23 @@ class GroupCallService {
   /// two-minute durable call-frame TTL. An admin `end` and an older periodic
   /// `announce` can traverse different relays and arrive out of order; without
   /// this guard the delayed announce rings the already-ended room again.
+  /// Holds only rooms that are OVER (admin end / we lost membership) — a
+  /// decline or missed ring must not bury a room that is still going.
   final Map<String, DateTime> _endedCallTombstones = <String, DateTime>{};
+
+  /// Call ids that already had their one full-screen ring on this device
+  /// (declined, missed, or left). Later announces refresh the passive room
+  /// banner but never ring again — re-ringing every tombstone expiry was the
+  /// old behavior and it reads as harassment, not as an invitation.
+  final Set<String> _ringSuppressedCallIds = <String>{};
+
+  /// Ongoing rooms learned from periodic announces, keyed by group hex —
+  /// feeds the chat-header "group call in progress" banner. Purely passive.
+  final Map<String, ActiveGroupRoom> _knownRooms = <String, ActiveGroupRoom>{};
+
+  /// Bumped whenever [_knownRooms] changes so banner widgets can listen
+  /// without the service pushing full call snapshots at them.
+  final ValueNotifier<int> roomsRevision = ValueNotifier<int>(0);
 
   GroupCall? get current => _current;
   GroupCallMediaController? get mediaController => _media;
@@ -104,7 +148,7 @@ class GroupCallService {
     if (call == null || !call.isLive) return;
     final state = await _groups.stateOf(call.groupId);
     if (state == null || !state.isMember(_groups.selfId)) {
-      _end(CallEndReason.error);
+      _end(CallEndReason.error, roomOver: true);
       return;
     }
     final participants = Map<String, GroupCallParticipant>.from(
@@ -165,7 +209,7 @@ class GroupCallService {
       media: media,
     );
     if (sent == null) {
-      _end(CallEndReason.error);
+      _end(CallEndReason.error, roomOver: true);
       return false;
     }
     _startTimers();
@@ -183,7 +227,7 @@ class GroupCallService {
     }
     final state = await _groups.stateOf(call.groupId);
     if (state == null || !state.isMember(_groups.selfId)) {
-      _end(CallEndReason.error);
+      _end(CallEndReason.error, roomOver: true);
       return false;
     }
     final now = _now();
@@ -223,8 +267,47 @@ class GroupCallService {
     final call = _current;
     if (call == null || call.status != GroupCallStatus.ringing) return;
     // Declining is local-only. Broadcasting it would disclose a recipient's
-    // choice to the whole group while adding no room state.
+    // choice to the whole group while adding no room state. The room keeps
+    // going without us — the banner still offers a way in.
     _end(CallEndReason.declined);
+  }
+
+  /// Join an ongoing room from the passive banner: a declined or missed ring,
+  /// or re-joining after leave. Adopts the announced room as a local ringing
+  /// call, then runs the ordinary join path.
+  Future<bool> joinRoom(NodeId groupId) async {
+    final current = _current;
+    if (current != null && current.isLive) return false;
+    if (_otherCallBusy()) return false;
+    final room = activeRoomFor(groupId);
+    if (room == null) return false;
+    if (!(_callSlot?.acquire(CallSlotOwner.group) ?? true)) return false;
+    _suppressRing(room.callId);
+    final at = room.lastAnnounceAt;
+    _set(
+      GroupCall(
+        groupId: room.groupId,
+        callId: room.callId,
+        initiator: room.initiator,
+        membershipEpoch: room.membershipEpoch,
+        media: room.media,
+        status: GroupCallStatus.ringing,
+        startedAt: at,
+        micOn: room.media.audio,
+        cameraOn: room.media.video && !room.media.screen,
+        screenOn: room.media.screen,
+        participants: {
+          room.initiator.hex: GroupCallParticipant(
+            nodeId: room.initiator,
+            media: room.media,
+            joinedAt: at,
+            lastSeenAt: _now(),
+            mediaUpdatedAtMs: at.millisecondsSinceEpoch,
+          ),
+        },
+      ),
+    );
+    return join();
   }
 
   Future<void> leave() async {
@@ -264,7 +347,7 @@ class GroupCallService {
         reason: CallEndReason.hangup,
       ),
     );
-    _end(CallEndReason.hangup);
+    _end(CallEndReason.hangup, roomOver: true);
     return true;
   }
 
@@ -338,7 +421,12 @@ class GroupCallService {
     var call = _current;
     if (signal.type == GroupCallSignalType.announce) {
       if (_isEndedCall(signal.groupId, signal.callId)) return;
+      // Every announce for a room that is not known-dead keeps the passive
+      // banner alive — including ones that must not ring (already declined,
+      // busy in another call, no free slot).
+      _recordRoom(signal);
       if (call == null || !call.isLive) {
+        if (_ringSuppressedCallIds.contains(signal.callId)) return;
         if (_otherCallBusy()) return;
         if (!(_callSlot?.acquire(CallSlotOwner.group) ?? true)) return;
         final at = DateTime.fromMillisecondsSinceEpoch(signal.sentAtMs);
@@ -398,6 +486,7 @@ class GroupCallService {
       final role = state?.roleOf(signal.author);
       if (role != null && role.rank >= GroupRole.admin.rank) {
         _rememberEndedCall(signal.groupId, signal.callId);
+        _forgetRoom(signal.groupId.hex);
       }
       return;
     }
@@ -417,7 +506,7 @@ class GroupCallService {
         final state = await _groups.stateOf(call.groupId);
         final role = state?.roleOf(signal.author);
         if (role != null && role.rank >= GroupRole.admin.rank) {
-          _end(signal.reason ?? CallEndReason.hangup);
+          _end(signal.reason ?? CallEndReason.hangup, roomOver: true);
         }
       case GroupCallSignalType.heartbeat:
         _touchParticipant(signal, joinedIfMissing: false);
@@ -606,10 +695,19 @@ class GroupCallService {
     }
   }
 
-  void _end(CallEndReason reason) {
+  void _end(CallEndReason reason, {bool roomOver = false}) {
     final call = _current;
     if (call == null) return;
-    _rememberEndedCall(call.groupId, call.callId);
+    if (roomOver) {
+      // The room itself is finished (admin end / membership lost): bury the
+      // call id and drop the banner.
+      _rememberEndedCall(call.groupId, call.callId);
+      _forgetRoom(call.groupId.hex);
+    } else {
+      // WE left the room (decline / missed / hangup) but it keeps going for
+      // the others: never ring this call id again, keep the banner offer.
+      _suppressRing(call.callId);
+    }
     _cancelRingTimer();
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
@@ -627,6 +725,52 @@ class GroupCallService {
         endReason: reason,
       ),
     );
+  }
+
+  void _recordRoom(GroupCallSignal signal) {
+    final media = signal.media;
+    if (media == null || media.isEmpty) return;
+    _pruneRooms();
+    _knownRooms[signal.groupId.hex] = ActiveGroupRoom(
+      groupId: signal.groupId,
+      callId: signal.callId,
+      initiator: signal.author,
+      membershipEpoch: signal.membershipEpoch,
+      media: media,
+      lastAnnounceAt: _now(),
+    );
+    roomsRevision.value++;
+  }
+
+  void _forgetRoom(String groupHex) {
+    if (_knownRooms.remove(groupHex) != null) roomsRevision.value++;
+  }
+
+  void _pruneRooms() {
+    final now = _now();
+    final before = _knownRooms.length;
+    _knownRooms.removeWhere(
+      (_, room) => now.difference(room.lastAnnounceAt) > kGroupCallRoomTtl,
+    );
+    if (_knownRooms.length != before) roomsRevision.value++;
+  }
+
+  void _suppressRing(String callId) {
+    while (_ringSuppressedCallIds.length > 256) {
+      _ringSuppressedCallIds.remove(_ringSuppressedCallIds.first);
+    }
+    _ringSuppressedCallIds.add(callId);
+  }
+
+  /// The ongoing room to offer in [groupId]'s banner, or null. The room we
+  /// are currently inside is excluded — the in-call UI owns that state.
+  ActiveGroupRoom? activeRoomFor(NodeId groupId) {
+    _pruneRooms();
+    final room = _knownRooms[groupId.hex];
+    if (room == null) return null;
+    final call = _current;
+    if (call != null && call.isLive && call.callId == room.callId) return null;
+    return room;
   }
 
   String _endedCallKey(NodeId groupId, String callId) =>
