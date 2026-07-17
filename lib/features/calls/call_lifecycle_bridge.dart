@@ -71,10 +71,24 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
       // too late for the platform to honor — with nothing armed, backgrounding
       // a video call keeps the camera paused and the peer sees a frozen frame.
       unawaited(_setPipAuto(_videoCallActive));
+      // A PiP window that outlives its video call must be dismissed, or it
+      // keeps floating over the launcher showing the shrunk app UI (user-
+      // observed: the chats screen crammed into the tiny window).
+      if (!_videoCallActive && callPipMode.value) unawaited(_exitPip());
     }
     _syncRinger(call);
     _syncForegroundService(call);
     return const SizedBox.shrink();
+  }
+
+  Future<void> _exitPip() async {
+    if (!Platform.isAndroid) return;
+    try {
+      final ok = await _pip.invokeMethod<bool>('exit');
+      devLog(() => 'xVeil[call-pip]: exit ok=$ok');
+    } catch (e) {
+      devLog(() => 'xVeil[call-pip]: exit failed: $e');
+    }
   }
 
   Future<void> _setPipAuto(bool enabled) async {

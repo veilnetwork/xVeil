@@ -64,6 +64,18 @@ class MainActivity : FlutterActivity() {
                             result.success(false)
                         }
                     }
+                    // Leave an ACTIVE PiP window (call ended / lost its video).
+                    // There is no direct "exit PiP" API; finishing the activity
+                    // would tear down the Flutter engine (and the embedded
+                    // node's Dart owners) — moveTaskToBack unpins the task and
+                    // dismisses the window while keeping the activity alive.
+                    "exit" -> {
+                        val inPip =
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                                isInPictureInPictureMode
+                        if (inPip) moveTaskToBack(true)
+                        result.success(inPip)
+                    }
                     // Arm/disarm PiP for the CURRENT video call. Dart's
                     // paused-lifecycle callback fires after the activity has
                     // already left the resumed state, when the platform refuses
