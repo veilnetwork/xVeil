@@ -2,7 +2,7 @@
 // composer that posts (auto-fanned to members by the service). The member
 // count sits in the app bar; an overflow menu opens the member sheet.
 
-import 'dart:async' show unawaited;
+import 'dart:async' show Timer, unawaited;
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -52,6 +52,94 @@ void _cancelGroupContentDownload(WidgetRef ref, String contentId) {
   unawaited(
     ref.read(messagingServiceProvider).cancelContentDownload(contentId),
   );
+}
+
+/// Passive "group call in progress — join" strip under the app bar. Fed by
+/// [GroupCallService.activeRoomFor] (periodic announces); tapping joins the
+/// ongoing room. This is how a member who declined/missed the one full-screen
+/// ring — or left mid-call — gets back in: the ring never repeats.
+class _GroupCallBanner extends ConsumerStatefulWidget {
+  const _GroupCallBanner({required this.gid});
+  final NodeId gid;
+
+  @override
+  ConsumerState<_GroupCallBanner> createState() => _GroupCallBannerState();
+}
+
+class _GroupCallBannerState extends ConsumerState<_GroupCallBanner> {
+  Timer? _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    // Room records expire only by TTL (announces stop when the room dies); a
+    // coarse tick makes the banner honestly disappear without an event.
+    _tick = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final calls = ref.watch(groupCallServiceProvider);
+    if (calls == null) return const SizedBox.shrink();
+    // Re-evaluate when our own call state flips (the room we are inside is
+    // excluded from the banner).
+    ref.watch(currentGroupCallProvider);
+    final l = AppL10n.of(context);
+    return ListenableBuilder(
+      listenable: calls.roomsRevision,
+      builder: (context, _) {
+        final room = calls.activeRoomFor(widget.gid);
+        if (room == null) return const SizedBox.shrink();
+        final scheme = Theme.of(context).colorScheme;
+        return Material(
+          key: const ValueKey('group-call-banner'),
+          color: scheme.primaryContainer,
+          child: InkWell(
+            onTap: () => unawaited(calls.joinRoom(widget.gid)),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 10,
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    room.media.video ? Icons.videocam : Icons.call,
+                    size: 18,
+                    color: scheme.onPrimaryContainer,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      l.groupCallOngoing,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: scheme.onPrimaryContainer),
+                    ),
+                  ),
+                  Text(
+                    l.groupCallJoinAction,
+                    key: const ValueKey('group-call-banner-join'),
+                    style: TextStyle(
+                      color: scheme.onPrimaryContainer,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
 
 class GroupChatScreen extends ConsumerStatefulWidget {
@@ -1034,6 +1122,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       ),
       body: Column(
         children: [
+          _GroupCallBanner(gid: _gid),
           Expanded(
             child: StreamBuilder<int>(
               stream: svc.changes.stream,

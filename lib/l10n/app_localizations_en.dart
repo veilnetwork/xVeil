@@ -2225,6 +2225,12 @@ class AppL10nEn extends AppL10n {
   String get callScreenWaiting => 'Waiting for shared screen…';
 
   @override
+  String get groupCallOngoing => 'Group call in progress';
+
+  @override
+  String get groupCallJoinAction => 'Join';
+
+  @override
   String get callVideoPaused => 'Video paused';
 
   @override
