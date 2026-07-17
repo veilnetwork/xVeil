@@ -8,8 +8,10 @@ import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 
 import '../../core/log.dart';
 import '../../domain/call.dart';
+import '../../domain/group_call.dart';
 import '../../state/background_node_controller.dart';
 import '../../state/call_service.dart';
+import '../../state/group_call_service.dart';
 
 final callPipMode = ValueNotifier<bool>(false);
 
@@ -63,8 +65,10 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
   @override
   Widget build(BuildContext context) {
     final call = ref.watch(currentCallProvider);
+    final groupCall = ref.watch(currentGroupCallProvider).valueOrNull;
     final wasVideoCallActive = _videoCallActive;
-    _videoCallActive = _isVideoCallActive(call);
+    _videoCallActive =
+        _isVideoCallActive(call) || _isGroupVideoCallActive(groupCall);
     if (wasVideoCallActive != _videoCallActive) {
       // Arm the platform's own PiP transition (autoEnter on Android 12+,
       // onUserLeaveHint before that). The paused-lifecycle _enterPip below is
@@ -77,7 +81,7 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
       if (!_videoCallActive && callPipMode.value) unawaited(_exitPip());
     }
     _syncRinger(call);
-    _syncForegroundService(call);
+    _syncForegroundService(call, groupCall);
     return const SizedBox.shrink();
   }
 
@@ -132,11 +136,24 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
 
   Future<void> _applyCallAction(String? action) async {
     final svc = ref.read(callServiceProvider);
+    // The notification's buttons belong to whichever call is actually live:
+    // the 1:1 FSM when it holds a call, else the group room (its foreground
+    // service reuses the same action channel).
+    final groupSvc = ref.read(groupCallServiceProvider);
+    final direct = svc.current;
     switch (action) {
       case 'accept':
-        await svc.accept();
+        if (direct != null && direct.isLive) {
+          await svc.accept();
+        } else if (groupSvc?.current?.isLive ?? false) {
+          await groupSvc!.join();
+        }
       case 'hangup':
-        await svc.hangup();
+        if (direct != null && direct.isLive) {
+          await svc.hangup();
+        } else if (groupSvc?.current?.isLive ?? false) {
+          await groupSvc!.leave();
+        }
     }
   }
 
@@ -155,18 +172,24 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
     });
   }
 
-  void _syncForegroundService(Call? call) {
-    final key = call == null || call.status == CallStatus.ended
-        ? 'none'
-        : '${call.callId}:${call.status.name}:${call.peer.short}';
+  void _syncForegroundService(Call? call, GroupCall? groupCall) {
+    final directLive = call != null && call.status != CallStatus.ended;
+    final groupLive = groupCall != null && groupCall.isLive;
+    final key = directLive
+        ? 'direct:${call.callId}:${call.status.name}:${call.peer.short}'
+        : groupLive
+        ? 'group:${groupCall.callId}:${groupCall.status.name}'
+        : 'none';
     if (key == _lastServiceKey) return;
     _lastServiceKey = key;
-    unawaited(_applyForegroundService(call));
+    unawaited(_applyForegroundService(call, groupCall));
   }
 
-  Future<void> _applyForegroundService(Call? call) async {
+  Future<void> _applyForegroundService(Call? call, GroupCall? groupCall) async {
     if (!Platform.isAndroid) return;
-    if (call == null || call.status == CallStatus.ended) {
+    final directLive = call != null && call.status != CallStatus.ended;
+    final groupLive = groupCall != null && groupCall.isLive;
+    if (!directLive && !groupLive) {
       if (!_ownsForegroundService) return;
       _ownsForegroundService = false;
       if (ref.read(backgroundNodeProvider)) {
@@ -177,16 +200,29 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
       return;
     }
     _ownsForegroundService = true;
-    final title = switch (call.status) {
-      CallStatus.ringing when call.isIncoming => 'Incoming xVeil call',
-      CallStatus.dialing => 'Calling with xVeil',
-      _ => 'xVeil call in progress',
-    };
+    if (directLive) {
+      final title = switch (call.status) {
+        CallStatus.ringing when call.isIncoming => 'Incoming xVeil call',
+        CallStatus.dialing => 'Calling with xVeil',
+        _ => 'xVeil call in progress',
+      };
+      await VeilBackground.start(
+        title: title,
+        text: call.peer.short,
+        hangupAction: true,
+        ringing: call.isIncoming && call.status == CallStatus.ringing,
+      );
+      return;
+    }
+    // A live GROUP room needs the same call-grade (microphone|camera)
+    // foreground service: without it a backgrounded group call loses mic
+    // capture and the process itself to the OS while the 1:1 path survives.
+    final ringing = groupCall!.status == GroupCallStatus.ringing;
     await VeilBackground.start(
-      title: title,
-      text: call.peer.short,
+      title: ringing ? 'Incoming xVeil group call' : 'xVeil group call',
+      text: groupCall.groupId.short,
       hangupAction: true,
-      ringing: call.isIncoming && call.status == CallStatus.ringing,
+      ringing: ringing,
     );
   }
 
@@ -203,5 +239,13 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
     if (call == null || !(call.media.video || call.media.screen)) return false;
     return call.status == CallStatus.connecting ||
         call.status == CallStatus.active;
+  }
+
+  /// Group twin of [_isVideoCallActive]: a JOINED room carrying video —
+  /// connecting/active only, a ringing invite must not arm PiP.
+  static bool _isGroupVideoCallActive(GroupCall? call) {
+    if (call == null || !(call.media.video || call.media.screen)) return false;
+    return call.status == GroupCallStatus.connecting ||
+        call.status == GroupCallStatus.active;
   }
 }
