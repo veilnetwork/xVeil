@@ -16,6 +16,7 @@ import '../../state/app_controller.dart';
 import '../../state/group_call_service.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/veil_group_call_media.dart';
+import 'call_lifecycle_bridge.dart' show callPipMode;
 import 'video_frame_view.dart';
 
 /// Global room surface for the signed group-call control plane.
@@ -34,6 +35,25 @@ class GroupCallOverlay extends ConsumerStatefulWidget {
 class _GroupCallOverlayState extends ConsumerState<GroupCallOverlay> {
   String? _callId;
   bool _minimized = false;
+  bool _pipActive = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _pipActive = callPipMode.value;
+    callPipMode.addListener(_onPipModeChanged);
+  }
+
+  @override
+  void dispose() {
+    callPipMode.removeListener(_onPipModeChanged);
+    super.dispose();
+  }
+
+  void _onPipModeChanged() {
+    if (!mounted) return;
+    setState(() => _pipActive = callPipMode.value);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -72,6 +92,24 @@ class _GroupCallOverlayState extends ConsumerState<GroupCallOverlay> {
           final nativeMedia = media is VeilGroupCallMediaController
               ? media
               : null;
+          // Android PiP window: only a dedicated video surface (first remote
+          // participant with video) or an opaque cover may render — the full
+          // room grid overflows the tiny window and would expose whatever
+          // screen sat underneath (same rule as the 1:1 overlay).
+          if (_pipActive) {
+            // Material ancestor: the frame view's text placeholders otherwise
+            // render with the bare default style (yellow underline).
+            return Positioned.fill(
+              child: Material(
+                color: Colors.black,
+                child: _GroupPipView(
+                  call: call,
+                  selfId: groups.selfId,
+                  videoFrameFor: nativeMedia?.videoFrameFor,
+                ),
+              ),
+            );
+          }
           if (_minimized && call.status != GroupCallStatus.ringing) {
             return GroupCallMiniView(
               call: call,
@@ -244,6 +282,11 @@ class GroupCallRoomView extends StatelessWidget {
                     videoFrame: isSelf
                         ? localVideoFrame
                         : videoFrameFor?.call(participant.nodeId),
+                    // A remote tile whose stream stalls (backgrounded peer
+                    // app, dead leg) must badge the frozen frame — same
+                    // honesty rule as the 1:1 call view. The self preview
+                    // stays unbadged: local capture state is visible anyway.
+                    staleLabel: isSelf ? null : l.callVideoPaused,
                   );
                 },
               );
@@ -276,18 +319,67 @@ class GroupCallRoomView extends StatelessWidget {
       };
 }
 
+/// Content of the Android PiP window for a group call: the first remote
+/// participant that is sending video (badged when its stream stalls), or an
+/// opaque group-call cover. Never the room grid — and never the app UI.
+class _GroupPipView extends StatelessWidget {
+  const _GroupPipView({
+    required this.call,
+    required this.selfId,
+    this.videoFrameFor,
+  });
+
+  final GroupCall call;
+  final NodeId selfId;
+  final ValueListenable<VeilVideoFrame?>? Function(NodeId)? videoFrameFor;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    for (final participant in call.participants.values) {
+      if (participant.nodeId == selfId) continue;
+      if (!(participant.media.video || participant.media.screen)) continue;
+      final frames = videoFrameFor?.call(participant.nodeId);
+      if (frames == null) continue;
+      return ColoredBox(
+        color: Colors.black,
+        child: CallVideoFrameView(
+          frameListenable: frames,
+          freshnessToken: (participant.nodeId.hex, participant.media.screen),
+          waitingLabel: participant.media.screen
+              ? l.callScreenWaiting
+              : l.callVideoWaiting,
+          staleLabel: l.callVideoPaused,
+          placeholderIcon: participant.media.screen
+              ? Icons.screen_share_outlined
+              : Icons.videocam_outlined,
+          fit: BoxFit.cover,
+        ),
+      );
+    }
+    return const ColoredBox(
+      color: Colors.black,
+      child: Center(
+        child: Icon(Icons.groups_rounded, color: Colors.white38, size: 30),
+      ),
+    );
+  }
+}
+
 class _ParticipantCard extends StatelessWidget {
   const _ParticipantCard({
     required this.participant,
     required this.label,
     required this.media,
     this.videoFrame,
+    this.staleLabel,
   });
 
   final GroupCallParticipant participant;
   final String label;
   final CallMedia media;
   final ValueListenable<VeilVideoFrame?>? videoFrame;
+  final String? staleLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -314,6 +406,7 @@ class _ParticipantCard extends StatelessWidget {
                   waitingLabel: media.screen
                       ? l.callScreenWaiting
                       : l.callVideoWaiting,
+                  staleLabel: staleLabel,
                   placeholderIcon: media.screen
                       ? Icons.screen_share_outlined
                       : Icons.videocam_outlined,
