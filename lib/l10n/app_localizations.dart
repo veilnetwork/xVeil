@@ -4177,6 +4177,12 @@ abstract class AppL10n {
   /// **'Waiting for shared screen…'**
   String get callScreenWaiting;
 
+  /// No description provided for @callVideoPaused.
+  ///
+  /// In en, this message translates to:
+  /// **'Video paused'**
+  String get callVideoPaused;
+
   /// No description provided for @callVideoWaiting.
   ///
   /// In en, this message translates to:

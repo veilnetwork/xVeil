@@ -35,6 +35,8 @@ class MainActivity : FlutterActivity() {
     private var pipEventsChannel: MethodChannel? = null
     private var screenCaptureChannel: MethodChannel? = null
     private var pendingCallAction: String? = null
+    private var pipAutoWanted = false
+    private var pipAspect = Rational(16, 9)
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -61,6 +63,41 @@ class MainActivity : FlutterActivity() {
                         } else {
                             result.success(false)
                         }
+                    }
+                    // Arm/disarm PiP for the CURRENT video call. Dart's
+                    // paused-lifecycle callback fires after the activity has
+                    // already left the resumed state, when the platform refuses
+                    // enterPictureInPictureMode — so backgrounding a video call
+                    // froze the peer's view instead of continuing in PiP. The
+                    // supported paths are autoEnter params (API 31+) and
+                    // onUserLeaveHint (below) for older releases.
+                    "setAuto" -> {
+                        pipAutoWanted = call.argument<Boolean>("enabled") ?: false
+                        val width = call.argument<Int>("width") ?: 16
+                        val height = call.argument<Int>("height") ?: 9
+                        pipAspect = Rational(width, height)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            try {
+                                setPictureInPictureParams(
+                                    PictureInPictureParams.Builder()
+                                        .setAspectRatio(pipAspect)
+                                        .setAutoEnterEnabled(pipAutoWanted)
+                                        .build()
+                                )
+                                android.util.Log.i(
+                                    "xveil-pip",
+                                    "setAuto applied enabled=$pipAutoWanted"
+                                )
+                            } catch (error: Exception) {
+                                // PiP unsupported/disabled by device policy —
+                                // surface it, a silent drop cost a debug cycle.
+                                android.util.Log.w(
+                                    "xveil-pip",
+                                    "setPictureInPictureParams failed: $error"
+                                )
+                            }
+                        }
+                        result.success(true)
                     }
                     else -> result.notImplemented()
                 }
@@ -123,6 +160,25 @@ class MainActivity : FlutterActivity() {
             }
         }
         deliverCallAction(intent)
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        // Pre-API-31 has no autoEnter params; this hint is the only moment the
+        // platform still accepts a programmatic PiP entry on the way out.
+        if (pipAutoWanted &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.S
+        ) {
+            try {
+                enterPictureInPictureMode(
+                    PictureInPictureParams.Builder()
+                        .setAspectRatio(pipAspect)
+                        .build()
+                )
+            } catch (_: Exception) {
+            }
+        }
     }
 
     override fun onPictureInPictureModeChanged(

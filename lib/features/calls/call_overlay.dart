@@ -291,6 +291,7 @@ class _CallBody extends ConsumerWidget {
             frameListenable: remoteVideoFrame,
             freshnessToken: (call.callId, peerScreen),
             waitingLabel: peerScreen ? l.callScreenWaiting : l.callVideoWaiting,
+            staleLabel: l.callVideoPaused,
             placeholderIcon: peerScreen
                 ? Icons.screen_share_outlined
                 : Icons.videocam_outlined,
@@ -421,6 +422,7 @@ class _PipVideoView extends StatelessWidget {
         frameListenable: remoteVideoFrame,
         freshnessToken: (call.callId, peerScreen),
         waitingLabel: peerScreen ? l.callScreenWaiting : l.callVideoWaiting,
+        staleLabel: l.callVideoPaused,
         placeholderIcon: peerScreen
             ? Icons.screen_share_outlined
             : Icons.videocam_outlined,
@@ -540,6 +542,7 @@ class _FloatingCallTile extends ConsumerWidget {
                 waitingLabel: peerScreen
                     ? l.callScreenWaiting
                     : l.callVideoWaiting,
+                staleLabel: l.callVideoPaused,
                 placeholderIcon: peerScreen
                     ? Icons.screen_share_outlined
                     : Icons.videocam_outlined,

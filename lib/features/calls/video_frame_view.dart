@@ -22,6 +22,8 @@ class CallVideoFrameView extends StatefulWidget {
     required this.waitingLabel,
     this.fit = BoxFit.contain,
     this.placeholderIcon = Icons.videocam_outlined,
+    this.staleLabel,
+    this.staleAfter = const Duration(seconds: 4),
   });
 
   final ValueListenable<VeilVideoFrame?> frameListenable;
@@ -29,6 +31,13 @@ class CallVideoFrameView extends StatefulWidget {
   final String waitingLabel;
   final BoxFit fit;
   final IconData placeholderIcon;
+
+  /// When set, a stream that STOPS delivering new frames (backgrounded peer
+  /// app, stopped camera, stalled route) badges the last frame with this label
+  /// after [staleAfter] instead of silently freezing — a frozen frame reads
+  /// as a broken call, and nothing else tells the viewer the difference.
+  final String? staleLabel;
+  final Duration staleAfter;
 
   @override
   State<CallVideoFrameView> createState() => _CallVideoFrameViewState();
@@ -45,6 +54,12 @@ class _CallVideoFrameViewState extends State<CallVideoFrameView> {
   Timer? _decodeTimer;
   DateTime? _lastDecodeAt;
   int _generation = 0;
+  // Whole seconds of the 1 s stale timer since the last accepted frame.
+  // Tick-counted (not wall-clock) so the widget-test fake clock drives it.
+  int _ticksSinceFrame = 0;
+  bool _hasFrameSource = false;
+  bool _stale = false;
+  Timer? _staleTimer;
 
   @override
   void initState() {
@@ -54,6 +69,11 @@ class _CallVideoFrameViewState extends State<CallVideoFrameView> {
     // already-confirmed static screen frame. Only a token transition inside a
     // living surface proves that its current frame belongs to the old source.
     _resetSource(blockCurrent: false);
+    if (widget.staleLabel != null) {
+      _staleTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        _refreshStale();
+      });
+    }
   }
 
   @override
@@ -75,8 +95,18 @@ class _CallVideoFrameViewState extends State<CallVideoFrameView> {
   void dispose() {
     widget.frameListenable.removeListener(_onFrame);
     _decodeTimer?.cancel();
+    _staleTimer?.cancel();
     _image?.dispose();
     super.dispose();
+  }
+
+  void _refreshStale() {
+    if (_hasFrameSource) _ticksSinceFrame++;
+    final stale =
+        _image != null &&
+        _hasFrameSource &&
+        _ticksSinceFrame >= widget.staleAfter.inSeconds;
+    if (stale != _stale && mounted) setState(() => _stale = stale);
   }
 
   void _resetSource({required bool blockCurrent}) {
@@ -85,6 +115,9 @@ class _CallVideoFrameViewState extends State<CallVideoFrameView> {
     _decodeTimer = null;
     _pending = null;
     _lastDecodeAt = null;
+    _ticksSinceFrame = 0;
+    _hasFrameSource = false;
+    _stale = false;
     _image?.dispose();
     _image = null;
     final current = widget.frameListenable.value;
@@ -103,6 +136,9 @@ class _CallVideoFrameViewState extends State<CallVideoFrameView> {
       _decodeTimer?.cancel();
       _decodeTimer = null;
       _pending = null;
+      _ticksSinceFrame = 0;
+      _hasFrameSource = false;
+      _stale = false;
       if (!_waitingForFreshFrame && _image != null && mounted) {
         setState(() {
           _image?.dispose();
@@ -114,6 +150,9 @@ class _CallVideoFrameViewState extends State<CallVideoFrameView> {
     if (_waitingForFreshFrame && identical(frame, _blockedFrame)) return;
     _blockedFrame = null;
     _waitingForFreshFrame = false;
+    _ticksSinceFrame = 0;
+    _hasFrameSource = true;
+    if (_stale && mounted) setState(() => _stale = false);
     _pending = frame;
     _scheduleDrain();
   }
@@ -174,10 +213,43 @@ class _CallVideoFrameViewState extends State<CallVideoFrameView> {
   Widget build(BuildContext context) {
     final image = _image;
     if (image != null) {
+      final staleLabel = widget.staleLabel;
       return ColoredBox(
         key: const ValueKey('call-video-frame'),
         color: Colors.black,
-        child: RawImage(image: image, fit: widget.fit),
+        child: _stale && staleLabel != null
+            ? Stack(
+                fit: StackFit.expand,
+                children: [
+                  RawImage(image: image, fit: widget.fit),
+                  ColoredBox(
+                    key: const ValueKey('call-video-stale'),
+                    color: Colors.black54,
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.pause_circle_outline,
+                            color: Colors.white.withValues(alpha: 0.7),
+                            size: 34,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            staleLabel,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.8),
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              )
+            : RawImage(image: image, fit: widget.fit),
       );
     }
     return Semantics(
