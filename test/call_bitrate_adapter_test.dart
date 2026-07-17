@@ -137,6 +137,57 @@ void main() {
     expect(a.level, 1);
   });
 
+  test('bufferbloat above the call baseline degrades below the 400ms rail', () {
+    final a = direct();
+    // Establish a ~70ms baseline (loss-free TCP-like relay leg).
+    for (var i = 0; i < 10; i++) {
+      a.onSample(rttMs: 70, txJitterMs: 10, txLossPct: 0, txDrops: 0);
+    }
+    expect(a.level, 0);
+    // Standing queue builds: rtt 230 is FAR below the absolute 400ms rail but
+    // 160ms over the baseline — the TCP relay hides it as zero loss, so the
+    // baseline-relative verdict is the only signal that can fire.
+    a.onSample(rttMs: 230, txJitterMs: 10, txLossPct: 0, txDrops: 0);
+    a.onSample(rttMs: 230, txJitterMs: 10, txLossPct: 0, txDrops: 0);
+    expect(a.level, 1, reason: 'bloat over baseline must step down');
+  });
+
+  test('draining the queue back to the baseline recovers the rung', () {
+    final a = direct();
+    for (var i = 0; i < 10; i++) {
+      a.onSample(rttMs: 70, txJitterMs: 10, txLossPct: 0, txDrops: 0);
+    }
+    a.onSample(rttMs: 240, txJitterMs: 10, txLossPct: 0, txDrops: 0);
+    a.onSample(rttMs: 240, txJitterMs: 10, txLossPct: 0, txDrops: 0);
+    expect(a.level, 1);
+    // Queue drained: rtt back within bloatRecoverMs of the floor.
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
+      a.onSample(rttMs: 90, txJitterMs: 10, txLossPct: 0, txDrops: 0);
+    }
+    expect(a.level, 0, reason: 'recovery near the baseline steps back up');
+  });
+
+  test('a genuine route change re-learns the baseline within two windows', () {
+    final a = direct();
+    // Old fast route: floor 70ms.
+    for (var i = 0; i < 10; i++) {
+      a.onSample(rttMs: 70, txJitterMs: 10, txLossPct: 0, txDrops: 0);
+    }
+    // Route changes to a legitimately slower path (240ms floor, healthy). The
+    // stale 70ms floor first reads as bloat and may step down, but after both
+    // min-filter windows roll over the 240ms floor is the new baseline and
+    // sustained good samples recover the rung — the ladder must not stay
+    // pinned at the bottom on a longer-but-clean path.
+    for (var i = 0; i < CallBitrateAdapter.minWindowSamples * 2 + 1; i++) {
+      a.onSample(rttMs: 240, txJitterMs: 10, txLossPct: 0, txDrops: 0);
+    }
+    expect(a.rttBaselineMs, 240);
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter * 4; i++) {
+      a.onSample(rttMs: 240, txJitterMs: 10, txLossPct: 0, txDrops: 0);
+    }
+    expect(a.level, 0, reason: 're-baselined path must fully recover');
+  });
+
   test('anonymous profile never exceeds its route budget', () {
     final a = CallBitrateAdapter(baseBitrateKbps: 150, baseFps: 15);
     lossy(a);
