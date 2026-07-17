@@ -110,7 +110,7 @@ void main() {
       final relayS = VeilNetworkMailboxRelay(
         client: clientS,
         fetchApp: sReply,
-        srcAppId: sSrc.appId,
+        srcApp: sSrc,
         replyEndpointId: replyEndpointId,
         putHopCount: 1, // direct S->R; multi-hop anonymity validated separately
       );
@@ -149,7 +149,7 @@ void main() {
       final relayF = VeilNetworkMailboxRelay(
         client: clientF,
         fetchApp: fReply,
-        srcAppId: fSrc.appId,
+        srcApp: fSrc,
         replyEndpointId: replyEndpointId,
         putHopCount: 1,
       );

@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:developer' as developer;
 
 /// Diagnostic logging that is COMPILED OUT of release builds.
@@ -21,8 +22,42 @@ import 'dart:developer' as developer;
 const _releaseDiagnosticLog = bool.fromEnvironment('XVEIL_RELEASE_LOG');
 const _productMode = bool.fromEnvironment('dart.vm.product');
 
+/// Bounded in-RAM tail of recent [devLog] lines, readable through the debug
+/// hook (`/dev_log`) so a stand driver can see the diagnostic trace without a
+/// VM-service attach (developer.log is invisible to nohup/logcat capture).
+/// Isolate-local (the hook reads the MAIN isolate's buffer); same compile-time
+/// gate as the log itself, so release builds keep emitting nothing and the
+/// buffer stays empty. RAM-only by design — never persisted.
+const int _devLogRingCapacity = 4000;
+final ListQueue<String> _devLogRing = ListQueue<String>();
+int _devLogDropped = 0;
+int _devLogSeq = 0;
+
 void devLog(String Function() message) {
   if (!_productMode || _releaseDiagnosticLog) {
-    developer.log(message(), name: 'xVeil');
+    final line = message();
+    developer.log(line, name: 'xVeil');
+    _devLogSeq++;
+    _devLogRing.addLast(
+      '${DateTime.now().toIso8601String()} #$_devLogSeq $line',
+    );
+    if (_devLogRing.length > _devLogRingCapacity) {
+      _devLogRing.removeFirst();
+      _devLogDropped++;
+    }
   }
+}
+
+/// Snapshot of the newest [limit] buffered lines (oldest first), plus how many
+/// older lines were dropped by the ring. Debug-hook consumer only.
+({List<String> lines, int dropped, int total}) devLogSnapshot({
+  int limit = 500,
+}) {
+  final all = _devLogRing.toList(growable: false);
+  final start = all.length > limit ? all.length - limit : 0;
+  return (
+    lines: all.sublist(start),
+    dropped: _devLogDropped + start,
+    total: _devLogSeq,
+  );
 }

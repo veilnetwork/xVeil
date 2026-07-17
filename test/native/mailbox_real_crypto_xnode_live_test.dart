@@ -106,7 +106,7 @@ void main() {
       final relayS = VeilNetworkMailboxRelay(
         client: clientS,
         fetchApp: sReply,
-        srcAppId: sSrc.appId,
+        srcApp: sSrc,
         replyEndpointId: replyEndpointId,
         putHopCount: 1,
       );
@@ -143,7 +143,7 @@ void main() {
       final relayF = VeilNetworkMailboxRelay(
         client: clientF,
         fetchApp: fReply,
-        srcAppId: fSrc.appId,
+        srcApp: fSrc,
         replyEndpointId: replyEndpointId,
         putHopCount: 1,
         // A real (KB-sized) blob's FETCH reply is fragmented over the onion
