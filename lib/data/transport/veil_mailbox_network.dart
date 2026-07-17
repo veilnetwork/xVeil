@@ -199,7 +199,13 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
   VeilNetworkMailboxRelay({
     required veil.VeilClient client,
     required veil.AppHandle fetchApp,
-    required Uint8List srcAppId,
+    // The PUT-source AppHandle — retained HERE for the relay's whole lifetime.
+    // Passing only its app_id let the caller's local handle become garbage: the
+    // AppHandle NativeFinalizer then fired veil_app_close on GC, the daemon
+    // unbound the endpoint, and EVERY subsequent deposit was rejected as
+    // SPOOFED_SRC (status 4) until app restart — killing the offline-mailbox
+    // path minutes after startup (GC timing) on 2026-07-17's stand.
+    required veil.AppHandle srcApp,
     required int replyEndpointId,
     int putHopCount = 1,
     int putReplicaFanout = 3,
@@ -216,20 +222,24 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     RelayKeyCache? relayKeyCache,
   })  : _client = client,
         _fetchApp = fetchApp,
-        _srcAppId = srcAppId,
+        _srcApp = srcApp,
         _replyEndpointId = replyEndpointId,
         _putHopCount = putHopCount,
         _putReplicaFanout = putReplicaFanout,
         _fetchTimeout = fetchTimeout,
         _relayKeyCache = relayKeyCache {
     if (_srcAppId.length != 32) {
-      throw ArgumentError('srcAppId must be 32 bytes, got ${_srcAppId.length}');
+      throw ArgumentError(
+        'srcApp.appId must be 32 bytes, got ${_srcAppId.length}',
+      );
     }
   }
 
   final veil.VeilClient _client;
   final veil.AppHandle _fetchApp;
-  final Uint8List _srcAppId;
+  final veil.AppHandle _srcApp;
+
+  Uint8List get _srcAppId => _srcApp.appId;
   final int _replyEndpointId;
   final int _putHopCount;
   final int _putReplicaFanout;

@@ -324,9 +324,20 @@ class MailboxOrchestrator {
         // open is an invisible "message never arrived" — so LOG it, QUARANTINE
         // the cid (before the registry it was re-fetched + re-failed every
         // drain tick for its whole relay TTL), then ack and move on.
+        //
+        // Quarantine DURABLY at once (not lazily on a same-session
+        // re-sighting): a relay that never applies our ack re-serves the blob
+        // forever, and each failed open costs the node's full cert-resolve
+        // timeout (~20 s observed live). With the lazy promote every app
+        // RESTART re-paid that per junk blob before the in-RAM tier saw a
+        // second sighting — 2 junk blobs alone held a fresh call `answer`
+        // behind ~40 s of dead opens, past the caller's dial window. The
+        // registry's FIFO cap already bounds what a live junk producer can
+        // make us persist.
         devLog(() => 'xVeil[drain]: OPEN FAILED contentId=${_shortHex(b.contentId)} '
             'senderHint=${b.senderId.short} — $e');
-        _openFailedOnce.add(cidHex); // durable only on a re-sighting (above)
+        _openFailedOnce.add(cidHex);
+        await _poisoned?.add(b.contentId);
         await _ack(me, b.contentId, authCookie, knownRelays);
         continue;
       }

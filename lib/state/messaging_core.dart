@@ -2143,17 +2143,35 @@ class MessagingService {
   }) async {
     final wire = env.withFrameId(frameId).encode();
     await _storage.enqueueOutboxFrame(frameId, peer.hex, wire);
+    // Call-signal frames start on the FAST re-drive ladder (see
+    // _flushOutboxFrames): the first live attempt fails silently often
+    // enough that a 20 s first retry alone ate half a ring window.
+    final firstRetry =
+        frameId.startsWith('call:') || frameId.startsWith('gcall:')
+        ? _callSignalLiveResend
+        : _outboxLiveResend;
     _outboxLiveBackoff[frameId] = (
       count: 1,
-      nextAt: _now().add(_outboxLiveResend),
+      nextAt: _now().add(firstRetry),
       peer: peer.hex,
       lastSentAt: _now(),
     );
     Future<void> tryLive() async {
+      final sw = Stopwatch()..start();
       try {
         await (liveSender?.call(wire) ?? _send(peer, wire));
-      } catch (_) {
+        devLog(
+          () =>
+              'xVeil[durable]: live leg ok fid=$frameId '
+              'peer=${peer.short} in ${sw.elapsedMilliseconds}ms',
+        );
+      } catch (e) {
         // Live path down — the mailbox copy + flush re-drive still deliver.
+        devLog(
+          () =>
+              'xVeil[durable]: live leg FAILED fid=$frameId '
+              'peer=${peer.short} after ${sw.elapsedMilliseconds}ms: $e',
+        );
       }
     }
 
@@ -2193,6 +2211,11 @@ class MessagingService {
     final stamped = signal.sentAtMs == null
         ? signal.copyWith(sentAtMs: _now().millisecondsSinceEpoch)
         : signal;
+    devLog(
+      () =>
+          'xVeil[call-sig]: out type=${stamped.type.name} '
+          'call=${stamped.callId} to=${peer.short}',
+    );
     final env = WireEnvelope.callSignal(stamped.encode());
     if (stamped.type == CallSignalType.health) {
       try {
@@ -2271,9 +2294,21 @@ class MessagingService {
       final bo = _outboxLiveBackoff[f.frameId];
       if (bo != null && now.isBefore(bo.nextAt)) continue;
       final count = (bo?.count ?? 0) + 1;
-      final delayMs =
-          (_outboxLiveResend.inMilliseconds * (1 << (count - 1).clamp(0, 10)))
-              .clamp(0, _outboxLiveResendCap.inMilliseconds);
+      // Call-signal frames (direct + group) get a FAST re-drive ladder: they
+      // are tiny control frames whose usefulness ends with the ring window
+      // (their outbox TTL is 2 min), and the first live attempt is a
+      // fire-and-forget onion send that fails silently often enough that the
+      // stock 20 s base left only ~2 tries inside a ring window — an answer
+      // whose first send was lost then arrived AFTER the caller's dial
+      // timeout, killing the call at the moment of accept. 4 s → 8 → 16 → 32
+      // gives ~5 tries in the first minute; the short TTL bounds total cost.
+      final isCallSignal =
+          f.frameId.startsWith('call:') || f.frameId.startsWith('gcall:');
+      final baseMs = isCallSignal
+          ? _callSignalLiveResend.inMilliseconds
+          : _outboxLiveResend.inMilliseconds;
+      final delayMs = (baseMs * (1 << (count - 1).clamp(0, 10)))
+          .clamp(0, _outboxLiveResendCap.inMilliseconds);
       _outboxLiveBackoff[f.frameId] = (
         count: count,
         nextAt: now.add(Duration(milliseconds: delayMs)),
@@ -2294,6 +2329,11 @@ class MessagingService {
   }
 
   static const _outboxLiveResend = Duration(seconds: 20);
+
+  /// Fast live re-drive base for call-signal frames (`call:`/`gcall:`) — see
+  /// the ladder rationale at the use site. Bounded overall by
+  /// [_callSignalOutboxTtl].
+  static const _callSignalLiveResend = Duration(seconds: 4);
   static const _outboxLiveResendCap = Duration(minutes: 10);
   static const _callSignalOutboxTtl = Duration(minutes: 2);
 
@@ -2946,7 +2986,17 @@ class MessagingService {
         // none is attached — e.g. a headless/loopback context).
         if (existing?.status != ContactStatus.accepted) return;
         final callSig = CallSignal.tryDecode(env.body);
-        if (callSig != null) onCallSignal?.call(m.src, callSig);
+        if (callSig != null) {
+          devLog(() {
+            final at = callSig.sentAtMs;
+            final age = at == null
+                ? 'n/a'
+                : '${_now().millisecondsSinceEpoch - at}ms';
+            return 'xVeil[call-sig]: in type=${callSig.type.name} '
+                'call=${callSig.callId} from=${m.src.short} age=$age';
+          });
+          onCallSignal?.call(m.src, callSig);
+        }
         return;
       case WireKind.reaction:
         // The peer reacted to a message in THIS conversation. A side annotation

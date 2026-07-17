@@ -565,6 +565,12 @@ class MailboxService implements MailboxSink {
       for (final r in _relays) {
         if (_warmedRelays.contains(r.hex)) drainSet[r.hex] = r;
       }
+      final sw = Stopwatch()..start();
+      devLog(
+        () =>
+            'xVeil[mailbox]: drain start relays='
+            '${drainSet.values.map((r) => r.short).join(",")} hot=$_isHot',
+      );
       final recovered = await _orchestrator.drain(
         me: _me,
         authCookie: Uint8List(0), // ignored on the network path
@@ -574,6 +580,11 @@ class MailboxService implements MailboxSink {
         // same content id), so we re-deliver everything the relay returns and
         // let that gate duplicates — keeps this layer storage-free.
         alreadyHave: (_) async => false,
+      );
+      devLog(
+        () =>
+            'xVeil[mailbox]: drain done recovered=${recovered.length} '
+            'in ${sw.elapsedMilliseconds}ms',
       );
       gotMail = recovered.isNotEmpty;
       for (final m in recovered) {
@@ -620,6 +631,12 @@ class MailboxService implements MailboxSink {
         _emptyDrainStreak++;
         _drainSkips = 1 << _emptyDrainStreak.clamp(1, 5); // 2,4,8,16,32 ticks
       }
+      devLog(
+        () =>
+            'xVeil[mailbox]: drain verdict gotMail=$gotMail '
+            'unreachable=$unreachable skips=$_drainSkips '
+            'emptyStreak=$_emptyDrainStreak hot=$_isHot',
+      );
     }
   }
 
