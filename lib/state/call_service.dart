@@ -226,6 +226,10 @@ class CallService {
         status: CallStatus.dialing,
         localPosture: posture,
         startedAt: _now(),
+        // Camera intent tracks the offered media set. An audio-only call must
+        // start with the camera OFF, or the UI toggle reads "on" and its tap
+        // (→ off) is a no-op — making the audio→video upgrade unreachable.
+        cameraOn: media.video,
       ),
     );
     // Advisory proposal from our side; the answer finalizes the path once the
@@ -306,11 +310,16 @@ class CallService {
         c.status != CallStatus.ringing) {
       return;
     }
-    await _sendControl(
-      c.peer,
-      c.callId,
-      CallSignalType.reject,
-      CallEndReason.declined,
+    // The user's decision must clear the UI instantly: the control signal's
+    // durable leg awaits an encrypted-store outbox write, which can take
+    // seconds. Send it in the background; _end() never depends on it.
+    unawaited(
+      _sendControl(
+        c.peer,
+        c.callId,
+        CallSignalType.reject,
+        CallEndReason.declined,
+      ),
     );
     _end(CallEndReason.declined);
   }
@@ -323,11 +332,13 @@ class CallService {
         c.status != CallStatus.dialing) {
       return;
     }
-    await _sendControl(
-      c.peer,
-      c.callId,
-      CallSignalType.cancel,
-      CallEndReason.cancelled,
+    unawaited(
+      _sendControl(
+        c.peer,
+        c.callId,
+        CallSignalType.cancel,
+        CallEndReason.cancelled,
+      ),
     );
     _end(CallEndReason.cancelled);
   }
@@ -339,11 +350,8 @@ class CallService {
     if (c == null || !c.isLive) return;
     if (c.status == CallStatus.dialing) return cancel();
     if (c.status == CallStatus.ringing) return reject();
-    await _sendControl(
-      c.peer,
-      c.callId,
-      CallSignalType.end,
-      CallEndReason.hangup,
+    unawaited(
+      _sendControl(c.peer, c.callId, CallSignalType.end, CallEndReason.hangup),
     );
     _end(CallEndReason.hangup);
   }
@@ -539,6 +547,11 @@ class CallService {
     }
     final actual = media.activeTransport;
     if (repaired && actual == cur.transport) return;
+    // repaired with NO open channel = a rebuild is still converging (repair
+    // pending). Ending here would kill a call that is seconds from recovery;
+    // a genuinely failed rebuild resurfaces as repaired=false on the peer's
+    // next repair request and fails closed below.
+    if (repaired && actual == null) return;
     if (repaired &&
         cur.transport == CallTransportKind.p2p &&
         actual == CallTransportKind.relay &&
@@ -639,18 +652,20 @@ class CallService {
       );
       return;
     }
+    final offeredMedia = sig.media ?? const CallMedia(audio: true);
     _set(
       Call(
         callId: sig.callId,
         peer: peer,
         direction: CallDirection.incoming,
-        media: sig.media ?? const CallMedia(audio: true),
+        media: offeredMedia,
         status: CallStatus.ringing,
         localPosture: _localPosture,
         peerPosture: sig.posture,
         startedAt: _now(),
         transport: sig.transport?.kind,
         peerProtocolVersion: sig.protocolVersion,
+        cameraOn: offeredMedia.video,
       ),
     );
     _armRingTimeout();

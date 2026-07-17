@@ -80,6 +80,14 @@ class VeilCallMediaController implements CallMediaController {
   int _lastRxPkts = 0;
   int _lastNativeRxCount = 0;
   DateTime? _engineRxStalledSince; // node receives, engine doesn't — since when
+  // Full-session rebuilds triggered by the starved detector within ONE call.
+  // A rebuild that failed to revive rx will fail again: the inbound leg does
+  // not depend on the outbound channel, so tearing the session down repeatedly
+  // only guarantees dead registry windows (device-observed repair storm:
+  // channels churning 2→7 in ~60 s until liveness killed the call). Two
+  // attempts cover a transient wiring glitch; after that keep the session and
+  // let the diag trace show where the packets die.
+  int _starvedRebuilds = 0;
   CallBitrateAdapter? _bitrateAdapter; // sender-side video quality ladder
   DateTime? _lastRepairAt;
   Call? _activeCall;
@@ -125,8 +133,13 @@ class VeilCallMediaController implements CallMediaController {
 
   @override
   Future<bool> repairRoute() async {
+    // A repair already in flight is PENDING, not failed: a peer repair request
+    // landing mid-rebuild (the rebuild leaves _chan null for seconds) must not
+    // read as a broken route — the FSM fails closed on false and would kill a
+    // call whose repair was about to converge (device-observed repair storm).
+    if (_routeRepairing) return true;
     final ch = _chan;
-    if (ch == null || _routeRepairing) return false;
+    if (ch == null) return false;
     final now = DateTime.now();
     final previous = _lastRepairAt;
     if (previous != null && now.difference(previous) < kCallMediaRepairAfter) {
@@ -316,12 +329,23 @@ class VeilCallMediaController implements CallMediaController {
           _engineRxStalledSince ??= now;
           if (now.difference(_engineRxStalledSince!) >= kCallMediaRepairAfter) {
             _engineRxStalledSince = null;
-            devLog(
-              () =>
-                  'xVeil[call-media]: node receives but engine starved '
-                  '(native=$nativeRx engine=$rx) — local session rebuild',
-            );
-            unawaited(repairRoute());
+            if (_starvedRebuilds >= 2) {
+              devLog(
+                () =>
+                    'xVeil[call-media]: engine starved persists '
+                    '(native=$nativeRx engine=$rx chan=$_chan) — rebuild cap '
+                    'reached, keeping session',
+              );
+            } else {
+              _starvedRebuilds++;
+              devLog(
+                () =>
+                    'xVeil[call-media]: node receives but engine starved '
+                    '(native=$nativeRx engine=$rx chan=$_chan) — local session '
+                    'rebuild #$_starvedRebuilds',
+              );
+              unawaited(repairRoute());
+            }
           }
         }
         _lastRxPkts = rx;
@@ -461,7 +485,12 @@ class VeilCallMediaController implements CallMediaController {
 
   Future<void> _stopSession({required bool clearActiveCall}) async {
     _mediaEpoch++;
-    if (clearActiveCall) _activeCall = null;
+    if (clearActiveCall) {
+      _activeCall = null;
+      // The rebuild cap is per CALL, not per session: a repair's stop+start
+      // (clearActiveCall: false) must not refill the budget it just spent.
+      _starvedRebuilds = 0;
+    }
     _frameTimer?.cancel();
     _frameTimer = null;
     _statsTimer?.cancel();
