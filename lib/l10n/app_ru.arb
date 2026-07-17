@@ -727,6 +727,7 @@
   "callScreenOn": "Показ экрана",
   "callScreenOff": "Показать экран",
   "callScreenWaiting": "Ожидание показа экрана…",
+  "callVideoPaused": "Видео приостановлено",
   "callVideoWaiting": "Ожидание видео…",
   "callPathOnion": "Анонимно (onion)",
   "callPathRelay": "Через реле",

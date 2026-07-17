@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 
+import '../../core/log.dart';
 import '../../domain/call.dart';
 import '../../state/background_node_controller.dart';
 import '../../state/call_service.dart';
@@ -62,10 +63,33 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
   @override
   Widget build(BuildContext context) {
     final call = ref.watch(currentCallProvider);
+    final wasVideoCallActive = _videoCallActive;
     _videoCallActive = _isVideoCallActive(call);
+    if (wasVideoCallActive != _videoCallActive) {
+      // Arm the platform's own PiP transition (autoEnter on Android 12+,
+      // onUserLeaveHint before that). The paused-lifecycle _enterPip below is
+      // too late for the platform to honor — with nothing armed, backgrounding
+      // a video call keeps the camera paused and the peer sees a frozen frame.
+      unawaited(_setPipAuto(_videoCallActive));
+    }
     _syncRinger(call);
     _syncForegroundService(call);
     return const SizedBox.shrink();
+  }
+
+  Future<void> _setPipAuto(bool enabled) async {
+    if (!Platform.isAndroid) return;
+    try {
+      final ok = await _pip.invokeMethod<bool>('setAuto', {
+        'enabled': enabled,
+        'width': 16,
+        'height': 9,
+      });
+      devLog(() => 'xVeil[call-pip]: setAuto enabled=$enabled ok=$ok');
+    } catch (e) {
+      // PiP is best-effort and depends on Android/API/device policy.
+      devLog(() => 'xVeil[call-pip]: setAuto enabled=$enabled failed: $e');
+    }
   }
 
   Future<void> _handleNativeCallAction(MethodCall call) async {

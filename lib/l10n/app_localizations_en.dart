@@ -2225,6 +2225,9 @@ class AppL10nEn extends AppL10n {
   String get callScreenWaiting => 'Waiting for shared screen…';
 
   @override
+  String get callVideoPaused => 'Video paused';
+
+  @override
   String get callVideoWaiting => 'Waiting for video…';
 
   @override
