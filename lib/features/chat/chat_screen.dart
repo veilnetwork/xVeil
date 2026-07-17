@@ -3427,24 +3427,64 @@ class _ImagePreview extends ConsumerStatefulWidget {
 }
 
 class _ImagePreviewState extends ConsumerState<_ImagePreview> {
-  /// Memoized ONCE per fileKey. Creating the future inline in build() made
-  /// every list rebuild (messagesProvider re-yields on each mailbox/drain
-  /// signal) restart the load: bubbles flip-flopped spinner↔image and the
-  /// whole chat visibly jittered (user-reported: «чат дрожит, скролл лечит»).
-  late Future<Uint8List?> _bytes;
+  /// Resolved image bytes, or null while loading / when the blob is not in
+  /// the store. State-based (not a memoized FutureBuilder) so a RE-check can
+  /// run silently: the first load shows the spinner, every later attempt
+  /// keeps rendering the current state until bytes actually appear. The
+  /// memoized-future version fixed the rebuild jitter («чат дрожит») but
+  /// never re-read the store, so an incoming photo stayed a blurred
+  /// download-affordance forever after its download completed (its fileKey —
+  /// the content hash — does not change) and the next tap fell through to
+  /// save-file instead of the viewer.
+  Uint8List? _resolved;
+  bool _initialLoading = true;
+  bool _loadInFlight = false;
+  DateTime? _lastAttemptAt;
 
   @override
   void initState() {
     super.initState();
-    _bytes = ref.read(storageProvider).loadFile(widget.fileKey);
+    unawaited(_load());
+  }
+
+  Future<void> _load() async {
+    if (_loadInFlight) return;
+    _loadInFlight = true;
+    _lastAttemptAt = DateTime.now();
+    try {
+      final bytes = await ref.read(storageProvider).loadFile(widget.fileKey);
+      if (!mounted) return;
+      if (bytes != null || _initialLoading) {
+        setState(() {
+          _resolved = bytes;
+          _initialLoading = false;
+        });
+      }
+    } finally {
+      _loadInFlight = false;
+    }
   }
 
   @override
   void didUpdateWidget(covariant _ImagePreview old) {
     super.didUpdateWidget(old);
     if (old.fileKey != widget.fileKey) {
-      _bytes = ref.read(storageProvider).loadFile(widget.fileKey);
+      _resolved = null;
+      _initialLoading = true;
+      unawaited(_load());
+      return;
     }
+    if (_resolved != null || _initialLoading) return;
+    // Undownloaded so far — quietly re-check on rebuilds (messagesProvider
+    // re-yields on every signal, including download completion). A finished
+    // download is the progress → null edge; the throttle covers completions
+    // whose progress stream never emitted.
+    final downloadEnded = old.progress != null && widget.progress == null;
+    final last = _lastAttemptAt;
+    final throttleOk =
+        last == null ||
+        DateTime.now().difference(last) > const Duration(seconds: 2);
+    if (downloadEnded || throttleOk) unawaited(_load());
   }
 
   String get name => widget.name;
@@ -3457,19 +3497,18 @@ class _ImagePreviewState extends ConsumerState<_ImagePreview> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return FutureBuilder<Uint8List?>(
-      future: _bytes,
-      builder: (context, snap) {
-        // Still loading → spinner. Loaded-but-absent (not in store) → a
+    return Builder(
+      builder: (context) {
+        // First load → spinner. Loaded-but-absent (not in store) → a
         // tappable file chip (download/open), NEVER a perpetual spinner.
-        if (snap.connectionState != ConnectionState.done) {
+        if (_initialLoading) {
           return const SizedBox(
             height: 120,
             width: 120,
             child: Center(child: CircularProgressIndicator()),
           );
         }
-        final bytes = snap.data;
+        final bytes = _resolved;
         if (bytes == null) {
           // Not downloaded yet. With an embedded micro-thumb → an instant
           // blurred preview (tap = the same download affordance); without →
