@@ -49,6 +49,7 @@ class P2PEndpointService {
     required int Function() listenPort,
     required bool Function() lanListenEnabled,
     Future<List<String>> Function()? localAddresses,
+    Future<List<String>> Function()? listenTransports,
     DateTime Function()? now,
   }) : _localAllowsP2P = localAllowsP2P,
        _joinEndpoint = joinEndpoint,
@@ -57,6 +58,7 @@ class P2PEndpointService {
        _listenPort = listenPort,
        _lanListenEnabled = lanListenEnabled,
        _localAddresses = localAddresses ?? _defaultLocalAddresses,
+       _listenTransports = listenTransports,
        _now = now ?? DateTime.now;
 
   final MessagingService _messaging;
@@ -68,6 +70,12 @@ class P2PEndpointService {
   final int Function() _listenPort;
   final bool Function() _lanListenEnabled;
   final Future<List<String>> Function() _localAddresses;
+
+  /// Daemon listener-URI snapshot (null when the running stack can't provide
+  /// one — loopback/dev transport). After the node's server-reflexive NAT
+  /// probe the wildcard listener host is rewritten to the observed external
+  /// IP, which is where the srflx endpoint candidate comes from (Stage B).
+  final Future<List<String>> Function()? _listenTransports;
   final DateTime Function() _now;
 
   /// Newest endpoint URIs a peer shared with us (in-memory; endpoints are
@@ -229,20 +237,77 @@ class P2PEndpointService {
 
   /// Build one bootstrap URI per usable local address: identity (pubkey +
   /// nonce + algo) from the running stack, transport `tcp://<ip>:<port>`.
+  ///
+  /// Stage B: additionally append the server-reflexive candidate — the
+  /// node's own listener as rewritten by the srflx NAT probe
+  /// (`tcp://<observed external ip>:<listenPort>`). LAN candidates stay
+  /// FIRST so a same-network peer dials the cheap route before trying the
+  /// external one. A bare dial to the external address works for
+  /// port-forwarded / full-cone NATs; symmetric/CGNAT still needs the punch
+  /// layer and falls back to relay honestly.
   Future<List<String>> _mintLocalUris() async {
     final port = _listenPort();
     if (port <= 0) return const [];
     final identity = _myIdentity();
     final addrs = await _localAddresses();
+    final srflx = await _srflxAddresses(port, exclude: addrs.toSet());
+    final transports = [
+      for (final ip in addrs) 'tcp://$ip:$port',
+      for (final ip in srflx) 'tcp://$ip:$port',
+    ];
     return [
-      for (final ip in addrs.take(_maxEndpointsPerFrame))
+      for (final t in transports.take(_maxEndpointsPerFrame))
         BootstrapInvite(
           publicKey: identity.publicKey,
           nonce: identity.nonce,
           algo: identity.algo,
-          transport: 'tcp://$ip:$port',
+          transport: t,
         ).toUri(),
     ];
+  }
+
+  /// Public IPv4 hosts of our own listener as the daemon currently
+  /// advertises it — non-empty only after the node's srflx probe rewrote
+  /// the wildcard listener host to the observed external IP.
+  Future<List<String>> _srflxAddresses(
+    int listenPort, {
+    required Set<String> exclude,
+  }) async {
+    final query = _listenTransports;
+    if (query == null) return const [];
+    List<String> uris;
+    try {
+      uris = await query();
+    } catch (e) {
+      devLog(() => 'xVeil[p2p]: listen transports unavailable: $e');
+      return const [];
+    }
+    final out = <String>[];
+    for (final uri in uris) {
+      // `srflx://ip:port` = raw observed external address (the port is the
+      // probe session's NAT mapping — we substitute our own listen port).
+      // `tcp://ip:<listenPort>` = an operator-advertised listener that
+      // happens to be ours; usable verbatim.
+      final srflx = RegExp(r'^srflx://([0-9.]+):\d+$').firstMatch(uri);
+      final tcp = RegExp(r'^tcp://([0-9.]+):(\d+)$').firstMatch(uri);
+      final String host;
+      if (srflx != null) {
+        host = srflx.group(1)!;
+      } else if (tcp != null && int.tryParse(tcp.group(2)!) == listenPort) {
+        host = tcp.group(1)!;
+      } else {
+        continue;
+      }
+      if (host == '0.0.0.0' ||
+          host.startsWith('127.') ||
+          _isPrivateV4(host) ||
+          exclude.contains(host) ||
+          out.contains(host)) {
+        continue;
+      }
+      out.add(host);
+    }
+    return out;
   }
 
   /// Private (RFC1918) IPv4 addresses of this device's live interfaces —
@@ -295,6 +360,7 @@ final p2pEndpointServiceProvider = Provider<P2PEndpointService?>((ref) {
     myIdentity: () => stack.myInvite,
     listenPort: () => stack.listenPort,
     lanListenEnabled: () => stack.lanListen,
+    listenTransports: transport.listenTransports,
   )..start();
   ref.onDispose(svc.dispose);
   return svc;

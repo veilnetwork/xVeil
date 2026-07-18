@@ -226,6 +226,12 @@ class VeilFlutterTransport
   Future<({bool admitted, bool hasCert})> peerPnetStatus(Uint8List peerNode) =>
       _client.peerPnetStatus(peerNode);
 
+  /// Daemon listener-URI snapshot (real-P2P epic, Stage B). After the node's
+  /// server-reflexive NAT probe the wildcard listener host is rewritten to
+  /// the observed external IP — the app mines this for its own external
+  /// `ip:port` endpoint candidate.
+  Future<List<String>> listenTransports() => _client.listenTransports();
+
   /// Native CLOUD-2B primitive: host a blinded service under a random
   /// application-owned identity. [identitySeed] is scrubbed by veil_flutter
   /// before this future yields and again by native at the ABI boundary.
