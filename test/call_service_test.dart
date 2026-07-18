@@ -545,6 +545,47 @@ void main() {
       });
     });
 
+    test('repair request is ignored while initial media is still starting', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia()..startGate = Completer<bool>();
+        final svc = CallService(fake, now: () => clock.now(), media: media)
+          ..start();
+        svc.placeCall(peer, const CallMedia(audio: true, video: true));
+        async.flushMicrotasks();
+        final callId = svc.current!.callId;
+        fake.onCallSignal!(
+          peer,
+          CallSignal(
+            callId: callId,
+            type: CallSignalType.answer,
+            posture: CallPosture.direct,
+          ),
+        );
+        async.flushMicrotasks();
+        expect(svc.current?.status, CallStatus.connecting);
+        fake.sent.clear();
+
+        fake.onCallSignal!(
+          peer,
+          CallSignal(
+            callId: callId,
+            type: CallSignalType.health,
+            mediaRepairRequested: true,
+          ),
+        );
+        async.flushMicrotasks();
+
+        expect(media.repairs, 0);
+        expect(svc.current?.status, CallStatus.connecting);
+        expect(fake.sent.where((s) => s.type == CallSignalType.end), isEmpty);
+
+        media.startGate!.complete(true);
+        async.flushMicrotasks();
+        expect(svc.current?.status, CallStatus.active);
+      });
+    });
+
     test('a repair request landing mid-rebuild does not kill the call', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();
@@ -981,45 +1022,52 @@ void main() {
       });
     });
 
-    test('camera ON upgrades an audio-only call to video and tells the peer', () {
-      fakeAsync((async) {
-        final fake = _FakeMessaging();
-        final media = _FakeMedia();
-        final svc = CallService(fake, now: () => clock.now(), media: media)
-          ..start();
-        fake.onCallSignal!(
-          peer,
-          const CallSignal(
-            callId: 'call-up',
-            type: CallSignalType.offer,
-            media: CallMedia(audio: true),
-            posture: CallPosture.direct,
-          ),
-        );
-        svc.accept();
-        async.flushMicrotasks();
-        expect(svc.current?.media.video, isFalse);
-        media.log.clear();
-        fake.sent.clear();
+    test(
+      'camera ON upgrades an audio-only call to video and tells the peer',
+      () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _FakeMedia();
+          final svc = CallService(fake, now: () => clock.now(), media: media)
+            ..start();
+          fake.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: 'call-up',
+              type: CallSignalType.offer,
+              media: CallMedia(audio: true),
+              posture: CallPosture.direct,
+            ),
+          );
+          svc.accept();
+          async.flushMicrotasks();
+          expect(svc.current?.media.video, isFalse);
+          media.log.clear();
+          fake.sent.clear();
 
-        svc.setCameraEnabled(true);
-        async.flushMicrotasks();
-        expect(svc.current?.media.video, isTrue, reason: 'call became video');
-        expect(svc.current?.cameraOn, isTrue);
-        expect(media.log, ['video:true', 'cam:true']);
-        final reneg = fake.sent.where(
-          (s) => s.type == CallSignalType.renegotiate,
-        );
-        expect(reneg, hasLength(1));
-        expect(reneg.single.media?.video, isTrue);
+          svc.setCameraEnabled(true);
+          async.flushMicrotasks();
+          expect(svc.current?.media.video, isTrue, reason: 'call became video');
+          expect(svc.current?.cameraOn, isTrue);
+          expect(media.log, ['video:true', 'cam:true']);
+          final reneg = fake.sent.where(
+            (s) => s.type == CallSignalType.renegotiate,
+          );
+          expect(reneg, hasLength(1));
+          expect(reneg.single.media?.video, isTrue);
 
-        // Camera OFF after the upgrade is the ordinary mid-video toggle.
-        svc.setCameraEnabled(false);
-        async.flushMicrotasks();
-        expect(svc.current?.media.video, isTrue, reason: 'stays a video call');
-        expect(svc.current?.cameraOn, isFalse);
-      });
-    });
+          // Camera OFF after the upgrade is the ordinary mid-video toggle.
+          svc.setCameraEnabled(false);
+          async.flushMicrotasks();
+          expect(
+            svc.current?.media.video,
+            isTrue,
+            reason: 'stays a video call',
+          );
+          expect(svc.current?.cameraOn, isFalse);
+        });
+      },
+    );
 
     test('an audio-only call starts with camera intent OFF on both ends', () {
       fakeAsync((async) {
@@ -1181,55 +1229,64 @@ void main() {
   group('CallService instant local teardown', () {
     final peer = NodeId.fromHex('d' * 64);
 
-    test('hangup while dialing clears the call before the signal is sent', () async {
-      final fake = _FakeMessaging();
-      final svc = CallService(fake)..start();
-      addTearDown(svc.dispose);
+    test(
+      'hangup while dialing clears the call before the signal is sent',
+      () async {
+        final fake = _FakeMessaging();
+        final svc = CallService(fake)..start();
+        addTearDown(svc.dispose);
 
-      await svc.placeCall(peer, const CallMedia(audio: true));
-      expect(svc.current?.status, CallStatus.dialing);
+        await svc.placeCall(peer, const CallMedia(audio: true));
+        expect(svc.current?.status, CallStatus.dialing);
 
-      // The durable control-signal enqueue is slow (encrypted-store write) —
-      // the local teardown must not be gated on it.
-      fake.sendGate = Completer<void>();
-      await svc.hangup().timeout(const Duration(milliseconds: 100));
-      expect(svc.current, isNull);
-      expect(
-        fake.sent.where((s) => s.type == CallSignalType.cancel),
-        isEmpty,
-        reason: 'cancel is still in flight behind the gate',
-      );
+        // The durable control-signal enqueue is slow (encrypted-store write) —
+        // the local teardown must not be gated on it.
+        fake.sendGate = Completer<void>();
+        await svc.hangup().timeout(const Duration(milliseconds: 100));
+        expect(svc.current, isNull);
+        expect(
+          fake.sent.where((s) => s.type == CallSignalType.cancel),
+          isEmpty,
+          reason: 'cancel is still in flight behind the gate',
+        );
 
-      fake.sendGate!.complete();
-      await pumpEventQueue();
-      expect(fake.sent.last.type, CallSignalType.cancel);
-    });
+        fake.sendGate!.complete();
+        await pumpEventQueue();
+        expect(fake.sent.last.type, CallSignalType.cancel);
+      },
+    );
 
-    test('reject while ringing clears the call before the signal is sent', () async {
-      final fake = _FakeMessaging();
-      final svc = CallService(fake)..start();
-      addTearDown(svc.dispose);
+    test(
+      'reject while ringing clears the call before the signal is sent',
+      () async {
+        final fake = _FakeMessaging();
+        final svc = CallService(fake)..start();
+        addTearDown(svc.dispose);
 
-      fake.onCallSignal!(
-        peer,
-        const CallSignal(
-          callId: 'ring-1',
-          type: CallSignalType.offer,
-          media: CallMedia(audio: true),
-          posture: CallPosture.direct,
-        ),
-      );
-      expect(svc.current?.status, CallStatus.ringing);
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'ring-1',
+            type: CallSignalType.offer,
+            media: CallMedia(audio: true),
+            posture: CallPosture.direct,
+          ),
+        );
+        expect(svc.current?.status, CallStatus.ringing);
 
-      fake.sendGate = Completer<void>();
-      await svc.reject().timeout(const Duration(milliseconds: 100));
-      expect(svc.current, isNull);
-      expect(fake.sent.where((s) => s.type == CallSignalType.reject), isEmpty);
+        fake.sendGate = Completer<void>();
+        await svc.reject().timeout(const Duration(milliseconds: 100));
+        expect(svc.current, isNull);
+        expect(
+          fake.sent.where((s) => s.type == CallSignalType.reject),
+          isEmpty,
+        );
 
-      fake.sendGate!.complete();
-      await pumpEventQueue();
-      expect(fake.sent.last.type, CallSignalType.reject);
-    });
+        fake.sendGate!.complete();
+        await pumpEventQueue();
+        expect(fake.sent.last.type, CallSignalType.reject);
+      },
+    );
 
     test('hangup on a connected call clears the call before the signal is '
         'sent', () async {
@@ -1270,6 +1327,7 @@ class _FakeMedia extends CallMediaController {
   CallTransportKind? repairTo;
   DateTime? rxAt;
   int repairs = 0;
+  Completer<bool>? startGate;
   final List<CallTransportKind> switches = [];
   final List<String> log = [];
   final List<CallTransportKind?> startedWith = [];
@@ -1287,7 +1345,7 @@ class _FakeMedia extends CallMediaController {
   @override
   Future<bool> start(Call call) async {
     startedWith.add(call.transport);
-    return true;
+    return startGate?.future ?? true;
   }
 
   @override
