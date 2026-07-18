@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
@@ -149,6 +150,7 @@ class CallService {
     DateTime Function()? now,
     CallMediaController? media,
     CallSlot? callSlot,
+    bool startMuted = false,
     Future<bool> Function(NodeId peer)? localAllowsP2P,
     Future<bool> Function(NodeId peer)? peerReachableForP2P,
   }) : _now = now ?? DateTime.now,
@@ -156,6 +158,8 @@ class CallService {
        _media = media,
        // ignore: prefer_initializing_formals — public `callSlot:` → private field.
        _callSlot = callSlot,
+       // ignore: prefer_initializing_formals — public `startMuted:` → private field.
+       _startMuted = startMuted,
        _localAllowsP2P = localAllowsP2P ?? _neverP2P,
        _peerReachableForP2P = peerReachableForP2P ?? _neverP2P;
 
@@ -163,6 +167,7 @@ class CallService {
   final DateTime Function() _now;
   final CallMediaController? _media;
   final CallSlot? _callSlot;
+  final bool _startMuted;
   final Future<bool> Function(NodeId peer) _localAllowsP2P;
   final Future<bool> Function(NodeId peer) _peerReachableForP2P;
 
@@ -236,6 +241,7 @@ class CallService {
         status: CallStatus.dialing,
         localPosture: posture,
         startedAt: _now(),
+        micOn: !_startMuted,
         // Camera intent tracks the offered media set. An audio-only call must
         // start with the camera OFF, or the UI toggle reads "on" and its tap
         // (→ off) is a no-op — making the audio→video upgrade unreachable.
@@ -683,6 +689,7 @@ class CallService {
         startedAt: _now(),
         transport: sig.transport?.kind,
         peerProtocolVersion: sig.protocolVersion,
+        micOn: !_startMuted,
         cameraOn: offeredMedia.video,
       ),
     );
@@ -1008,6 +1015,11 @@ final callServiceProvider = Provider<CallService>((ref) {
     messaging,
     media: media,
     callSlot: ref.read(callSlotProvider),
+    // The physical phone is used as a receive/camera endpoint and must never
+    // begin transmitting room audio merely because a call connected. The user
+    // can explicitly unmute from the call controls. Keep desktop behavior
+    // unchanged; iOS currently has a separate device posture/test flow.
+    startMuted: Platform.isAndroid,
     localAllowsP2P: (peer) =>
         ref.read(p2pPolicyProvider.notifier).allowsPeer(peer),
     // Real-P2P epic: "reachable" now means "a live direct session exists, or

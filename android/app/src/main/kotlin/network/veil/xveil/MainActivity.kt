@@ -7,6 +7,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
 import android.os.Build
 import android.util.Rational
 import androidx.core.app.ActivityCompat
@@ -27,6 +29,7 @@ class MainActivity : FlutterActivity() {
     private val pipEventsChannelName = "xveil/pip_events"
     private val callActionChannelName = "xveil/call_actions"
     private val screenCaptureChannelName = "xveil/screen_capture"
+    private val cameraCapabilitiesChannelName = "xveil/camera_capabilities"
     private val micRequestCode = 0x4D49 // 'MI'
     private val screenCaptureRequestCode = 0x5343 // 'SC'
     private var pending: MethodChannel.Result? = null
@@ -49,6 +52,22 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            cameraCapabilitiesChannelName,
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "exactFps" -> {
+                    val cameraId = call.argument<String>("cameraId")
+                    if (cameraId == null) {
+                        result.error("bad_args", "cameraId required", null)
+                    } else {
+                        result.success(exactCameraFps(cameraId))
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, pipChannelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -223,6 +242,37 @@ class MainActivity : FlutterActivity() {
         } catch (error: Exception) {
             pendingScreenCapture = null
             result.error("screen_capture", error.message, null)
+        }
+    }
+
+    /**
+     * Exact AE target ranges supported by the selected Camera2 device.
+     *
+     * Querying Camera2 before configuring the Flutter controller avoids asking
+     * the backend for an unsupported fixed range (for example 60..60, which a
+     * compatibility layer may silently broaden to 10..30). Returning only
+     * lower==upper ranges lets Dart preserve 60 fps on capable cameras while
+     * choosing a stable 30 on the common front-camera profile that tops out
+     * there.
+     */
+    private fun exactCameraFps(cameraId: String): List<Int> {
+        return try {
+            val manager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            val characteristics = manager.getCameraCharacteristics(cameraId)
+            val ranges = characteristics.get(
+                CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES,
+            ) ?: emptyArray()
+            ranges
+                .filter { it.lower == it.upper && it.upper > 0 }
+                .map { it.upper }
+                .distinct()
+                .sorted()
+        } catch (error: Exception) {
+            android.util.Log.w(
+                "xveil-camera",
+                "Unable to query exact FPS ranges for camera $cameraId: $error",
+            )
+            emptyList()
         }
     }
 
