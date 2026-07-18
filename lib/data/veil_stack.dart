@@ -61,6 +61,8 @@ class RealVeilStack {
     String? configPath,
     VeilFlutterTransport? nodeIpc,
     String? runtimeDir,
+    this.listenPort = 0,
+    this.lanListen = false,
   }) : _cli = veilCliPath,
        _config = configPath,
        _flutterTransport = nodeIpc,
@@ -69,6 +71,14 @@ class RealVeilStack {
   final NodeController controller;
   final VeilTransport transport;
   final BootstrapInvite myInvite;
+
+  /// The port this instance's node listener is bound on, and whether that bind
+  /// is LAN-wide (`0.0.0.0`, P2P policy allowed it) or loopback-only. The P2P
+  /// endpoint service combines [listenPort] with the device's LAN addresses to
+  /// mint the direct-dial URIs it shares with consenting contacts; when
+  /// [lanListen] is false it shares nothing (nobody could dial us anyway).
+  final int listenPort;
+  final bool lanListen;
 
   // Legacy file path uses veil-cli + a config file for invite/join...
   final String? _cli;
@@ -135,6 +145,12 @@ class RealVeilStack {
     required String runtimeDir,
     DynamicLibrary? lib,
     int listenPort = 9000,
+    // P2P direct-session epic: bind the node's listener on all interfaces so
+    // LAN contacts can dial the exchanged `tcp://<lan-ip>:<listenPort>`
+    // endpoint. Gated by the caller on the P2P policy (never for an anonymous
+    // posture, never when policy=denied) — a loopback-only node stays
+    // undialable, which is the deniable default.
+    bool lanListen = false,
     bool anonymous = false,
     bool lazyMining = false,
     List<BootstrapPeerCfg> bootstrapPeers = const [],
@@ -189,7 +205,9 @@ class RealVeilStack {
     final adminEndpoint = tcpLocalEndpoints
         ? 'tcp://127.0.0.1:0?runtime_dir=$runtimeDir'
         : adminSock;
-    final listen = 'tcp://127.0.0.1:$listenPort';
+    final listen = lanListen
+        ? 'tcp://0.0.0.0:$listenPort'
+        : 'tcp://127.0.0.1:$listenPort';
 
     // Deployment-wide obfs4 PSK (networks that pin a shared anti-probe key):
     // drop it in the runtime dir and reference it from the config. Identity-free
@@ -314,11 +332,13 @@ class RealVeilStack {
       await controller.stop();
       rethrow;
     }
-    // IDENTITY-ONLY invite: the deniable node always binds its listener on
-    // loopback (`tcp://127.0.0.1:$listenPort`), so its direct-dial address is
-    // never reachable by a contact. Strip it — peers reach this node by node_id
-    // over the rendezvous network, not by dialing an address. (Sharing real
-    // bootstrap peers is a separate, opt-in action; never the loopback.)
+    // IDENTITY-ONLY invite: the deniable node binds its listener on loopback
+    // (or the 0.0.0.0 wildcard when [lanListen]), so the invite's advertise
+    // address is never a URI a remote contact could meaningfully dial. Strip
+    // it — peers reach this node by node_id over the rendezvous network, not
+    // by dialing an address. Real direct-dial endpoints (LAN ip:port) travel
+    // separately over the E2E contact channel with mutual P2P consent — see
+    // P2PEndpointService — never inside the shareable invite.
     final veilInvite = BootstrapInvite.parse(await transport.createInvite());
     final invite = BootstrapInvite(
       publicKey: veilInvite.publicKey,
@@ -334,6 +354,8 @@ class RealVeilStack {
       myInvite: invite,
       nodeIpc: transport,
       runtimeDir: runtimeDir,
+      listenPort: listenPort,
+      lanListen: lanListen,
     );
   }
 

@@ -2253,6 +2253,9 @@ class AppL10nEn extends AppL10n {
   String get callPathP2P => 'Direct (P2P)';
 
   @override
+  String get callPathNoDirectSession => 'no direct link';
+
+  @override
   String get groupCallTitle => 'Group call';
 
   @override

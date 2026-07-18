@@ -52,6 +52,7 @@ import '../state/reactions_visibility_controller.dart';
 import '../state/signature_policy_controller.dart';
 import '../state/mac_media_permissions.dart';
 import '../state/messaging.dart';
+import '../state/p2p_endpoint_service.dart';
 import '../state/nickname_peers.dart';
 import '../state/veil_call_media.dart' show remoteVideoFrame;
 import '../state/veil_group_call_media.dart';
@@ -585,6 +586,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/call_state':
           await _callState(req);
+          return;
+        case '/p2p_status':
+          await _p2pStatus(req);
+          return;
+        case '/p2p_exchange':
+          await _p2pExchange(req);
           return;
         case '/group_call_start':
           await _groupCallStart(req);
@@ -4821,6 +4828,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
               'localPosture': c.localPosture.name,
               'peerPosture': c.peerPosture?.name,
               'transport': c.transport?.name,
+              'transportFallbackReason': ref
+                  .read(callServiceProvider)
+                  .transportFallbackReason,
               'endReason': c.endReason?.name,
               'micOn': c.micOn,
               'cameraOn': c.cameraOn,
@@ -4828,6 +4838,77 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
               'mediaStats': ref.read(callServiceProvider).mediaDiagnostics,
             },
     });
+  }
+
+  // ---- P2P direct-session establishment (real-P2P epic) -------------------
+
+  /// `/p2p_status?peer=<hex>` → live admission status + what the endpoint
+  /// service knows. No addresses are echoed beyond a count (debug builds only,
+  /// but endpoint URIs still carry LAN topology — the count answers "did the
+  /// exchange happen" without leaking it into logs).
+  Future<void> _p2pStatus(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final peerHex = req.uri.queryParameters['peer'];
+    if (peerHex == null) {
+      return _json(req, {'ok': false, 'error': 'peer required'}, status: 400);
+    }
+    final NodeId peer;
+    try {
+      peer = NodeId.fromHex(peerHex);
+    } catch (_) {
+      return _json(req, {'ok': false, 'error': 'bad peer'}, status: 400);
+    }
+    final svc = ref.read(p2pEndpointServiceProvider);
+    final transport = ref.read(veilTransportProvider);
+    bool? admitted;
+    bool? hasCert;
+    String? statusError;
+    if (transport is VeilFlutterTransport) {
+      try {
+        final s = await transport.peerPnetStatus(peer.bytes);
+        admitted = s.admitted;
+        hasCert = s.hasCert;
+      } catch (e) {
+        statusError = '$e';
+      }
+    }
+    final stack = ref.read(realStackProvider);
+    await _json(req, {
+      'ok': true,
+      'service': svc != null,
+      'lanListen': stack?.lanListen,
+      'listenPort': stack?.listenPort,
+      'admitted': admitted,
+      'hasCert': hasCert,
+      if (statusError != null) 'statusError': statusError,
+      'knownPeerEndpoints': svc?.knownEndpoints(peer).length ?? 0,
+    });
+  }
+
+  /// `/p2p_exchange?peer=<hex>` → force an endpoint share + dial cycle and
+  /// report whether a direct session came up within the budget.
+  Future<void> _p2pExchange(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final peerHex = req.uri.queryParameters['peer'];
+    if (peerHex == null) {
+      return _json(req, {'ok': false, 'error': 'peer required'}, status: 400);
+    }
+    final NodeId peer;
+    try {
+      peer = NodeId.fromHex(peerHex);
+    } catch (_) {
+      return _json(req, {'ok': false, 'error': 'bad peer'}, status: 400);
+    }
+    final svc = ref.read(p2pEndpointServiceProvider);
+    if (svc == null) {
+      return _json(req, {'ok': false, 'error': 'no p2p service'}, status: 409);
+    }
+    await svc.maybeShare(peer, force: true);
+    final admitted = await svc.ensureReady(
+      peer,
+      budget: const Duration(seconds: 6),
+    );
+    await _json(req, {'ok': true, 'admitted': admitted});
   }
 
   // ---- group-call control plane (no key/body material in debug output) ----

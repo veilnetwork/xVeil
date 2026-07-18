@@ -286,7 +286,14 @@ class _CallBody extends ConsumerWidget {
         _MediaChips(call.media),
         if (call.transport != null) ...[
           const SizedBox(height: 10),
-          _TransportBadge(call.transport!),
+          _TransportBadge(
+            call.transport!,
+            fallbackReason:
+                call.transport == CallTransportKind.relay &&
+                    svc.transportFallbackReason != null
+                ? l.callPathNoDirectSession
+                : null,
+          ),
         ],
         const Spacer(),
         _Controls(call: call, svc: svc, l: l),
@@ -338,7 +345,16 @@ class _CallBody extends ConsumerWidget {
                   ),
                   if (call.transport != null) ...[
                     const SizedBox(width: 12),
-                    _TransportBadge(call.transport!),
+                    Flexible(
+                      child: _TransportBadge(
+                        call.transport!,
+                        fallbackReason:
+                            call.transport == CallTransportKind.relay &&
+                                svc.transportFallbackReason != null
+                            ? l.callPathNoDirectSession
+                            : null,
+                      ),
+                    ),
                   ],
                   // The PEER is sharing their screen (media.screen arrives via
                   // renegotiate; when WE share, screenOn is true instead).
@@ -491,8 +507,12 @@ class _MediaChips extends StatelessWidget {
 }
 
 class _TransportBadge extends StatelessWidget {
-  const _TransportBadge(this.kind);
+  const _TransportBadge(this.kind, {this.fallbackReason});
   final CallTransportKind kind;
+
+  /// Why the route is not the negotiated one (p2p → relay fallback), when it
+  /// isn't — shown inline so "relay" answers "why not p2p?" at a glance.
+  final String? fallbackReason;
 
   @override
   Widget build(BuildContext context) {
@@ -519,12 +539,20 @@ class _TransportBadge extends StatelessWidget {
         Colors.white54,
       ),
     };
+    final reason = fallbackReason;
+    final text = reason == null || reason.isEmpty ? label : '$label · $reason';
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Icon(icon, size: 16, color: color),
         const SizedBox(width: 6),
-        Text(label, style: TextStyle(color: color, fontSize: 13)),
+        Flexible(
+          child: Text(
+            text,
+            style: TextStyle(color: color, fontSize: 13),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
       ],
     );
   }
