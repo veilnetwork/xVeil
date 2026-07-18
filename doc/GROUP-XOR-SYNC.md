@@ -1,6 +1,7 @@
 # Group chat XOR synchronization
 
-Status: implemented (`k = 3`).
+Status: implemented (default `k = 5`, locally configurable per chat from
+`1` to `20`).
 
 Ordinary group chat history no longer sends every message and reaction
 directly to every participant. For a local node id `S`, the group service:
@@ -16,7 +17,8 @@ existing cryptographic identities; no new group-scoped identifier is exposed.
 
 ## Live propagation
 
-Messages and reactions are sent to the three XOR-closest members. The delta
+Messages and reactions are sent to the configured number of XOR-closest
+members. The delta
 contains `ov`, a SHA-256 id derived from the group id and signed log-row
 identities. A receiving member first validates and persists the rows, then
 forwards its exact persisted copies to its own XOR neighbours (excluding the
@@ -49,5 +51,7 @@ recovered gap to continue converging beyond the first requester.
   realtime/content paths and are unchanged.
 
 The topology is recomputed after every folded membership change. With fewer
-than four other members it naturally degenerates to the previous all-member
-delivery behavior.
+members than the configured `k`, it naturally degenerates to the previous
+all-member delivery behavior. The chat header's hub action changes `k` for the
+current device and immediately starts an anti-entropy exchange with the newly
+selected neighbours; it does not write a signed group control operation.

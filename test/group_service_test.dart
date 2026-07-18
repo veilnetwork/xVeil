@@ -687,7 +687,7 @@ void main() {
     expect(nearestGroupNodesByXor(self, peers, k: 0), isEmpty);
   });
 
-  test('chat deltas use three XOR neighbours and relay once transitively',
+  test('chat deltas use five XOR neighbours and relay once transitively',
       () async {
     final sent = <(NodeId, String)>[];
     final storage = FakeHvContainer().storage();
@@ -709,7 +709,8 @@ void main() {
     for (var i = 0; i < 6; i++) {
       await Future<void>.delayed(const Duration(milliseconds: 5));
     }
-    expect(sent.map((entry) => entry.$1).toSet(), {_id(0), _id(3), _id(2)});
+    expect(sent.map((entry) => entry.$1).toSet(),
+        {_id(0), _id(3), _id(2), _id(5), _id(4)});
     expect(sent, hasLength(GroupService.kGroupSyncNeighbors));
     final delta = sent.first.$2;
     final wire = jsonDecode(delta) as Map;
@@ -748,6 +749,7 @@ void main() {
       await svc.addControlOp(gid, ControlOp.addMember,
           target: member, role: GroupRole.member);
     }
+    await svc.setGroupSyncNeighborCount(gid, 2);
     for (var i = 0; i < 6; i++) {
       await Future<void>.delayed(const Duration(milliseconds: 5));
     }
@@ -755,10 +757,27 @@ void main() {
 
     await svc.nudgeGroupSyncAll();
 
-    expect(sent.map((entry) => entry.$1).toSet(), {_id(0), _id(3), _id(2)});
-    expect(sent, hasLength(GroupService.kGroupSyncNeighbors));
+    expect(sent.map((entry) => entry.$1).toSet(), {_id(0), _id(3)});
+    expect(sent, hasLength(2));
     expect(sent.every((entry) => (jsonDecode(entry.$2) as Map)['sreq'] == 1),
         isTrue);
+  });
+
+  test('per-chat XOR neighbour count persists and defaults to five', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final svc = GroupService(storage, _FakeSigner(owner));
+    final gid = await svc.createGroup('configurable-overlay');
+
+    expect(await svc.groupSyncNeighborCount(gid), 5);
+    await svc.setGroupSyncNeighborCount(gid, 8);
+    expect(await svc.groupSyncNeighborCount(gid), 8);
+    expect(await GroupService(storage, _FakeSigner(owner))
+        .groupSyncNeighborCount(gid), 8);
+    expect(svc.setGroupSyncNeighborCount(gid, 0),
+        throwsA(isA<RangeError>()));
+    expect(svc.setGroupSyncNeighborCount(gid, 21),
+        throwsA(isA<RangeError>()));
   });
 
   test('inline image attachment persists + survives snapshot round-trip',

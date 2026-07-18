@@ -105,10 +105,7 @@ class _GroupCallBannerState extends ConsumerState<_GroupCallBanner> {
           child: InkWell(
             onTap: () => unawaited(calls.joinRoom(widget.gid)),
             child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 10,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               child: Row(
                 children: [
                   Icon(
@@ -1053,6 +1050,59 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     }
   }
 
+  Future<void> _showSyncSettings(GroupService svc) async {
+    final l = AppL10n.of(context);
+    var selected = await svc.groupSyncNeighborCount(_gid);
+    if (!mounted) return;
+    final saved = await showDialog<int>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(l.groupSyncNeighborsTitle),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(l.groupSyncNeighborsLabel(selected)),
+                Slider(
+                  key: const ValueKey('group-sync-neighbors-slider'),
+                  min: GroupService.kMinGroupSyncNeighbors.toDouble(),
+                  max: GroupService.kMaxGroupSyncNeighbors.toDouble(),
+                  divisions:
+                      GroupService.kMaxGroupSyncNeighbors -
+                      GroupService.kMinGroupSyncNeighbors,
+                  value: selected.toDouble(),
+                  label: '$selected',
+                  onChanged: (value) =>
+                      setDialogState(() => selected = value.round()),
+                ),
+                Text(
+                  l.groupSyncNeighborsHint,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(l.actionCancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(selected),
+              child: Text(l.actionSave),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (saved == null) return;
+    await svc.setGroupSyncNeighborCount(_gid, saved);
+    unawaited(svc.nudgeGroupSync(_gid));
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
@@ -1117,6 +1167,12 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
             icon: const Icon(Icons.group_outlined),
             tooltip: l.groupMembersTooltip,
             onPressed: () => _showMembers(svc),
+          ),
+          IconButton(
+            key: const ValueKey('group-sync-settings'),
+            icon: const Icon(Icons.hub_outlined),
+            tooltip: l.groupSyncSettingsTooltip,
+            onPressed: () => _showSyncSettings(svc),
           ),
         ],
       ),

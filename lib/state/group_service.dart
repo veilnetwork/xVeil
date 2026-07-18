@@ -1696,11 +1696,46 @@ class GroupService {
   // sampled member that is itself behind just yields nothing this round).
 
   /// Number of outbound XOR neighbours in the sparse chat-sync overlay.
-  static const int kGroupSyncNeighbors = 3;
+  static const int kGroupSyncNeighbors = 5;
+  static const int kMinGroupSyncNeighbors = 1;
+  static const int kMaxGroupSyncNeighbors = 20;
 
   /// Compatibility name for debug/test callers from before the XOR overlay.
   @Deprecated('Use kGroupSyncNeighbors')
   static const int kGroupSyncFanout = kGroupSyncNeighbors;
+
+  String _groupSyncNeighborsKey(NodeId groupId) =>
+      'group.sync.neighbors:${groupId.hex}';
+
+  /// Local outbound overlay degree for one chat. It is deliberately a local
+  /// transport preference: each member may choose a different resource /
+  /// redundancy trade-off without mutating the signed group policy.
+  Future<int> groupSyncNeighborCount(NodeId groupId) async {
+    final raw = await _storage.getSetting(_groupSyncNeighborsKey(groupId));
+    final parsed = int.tryParse(raw ?? '');
+    if (parsed == null ||
+        parsed < kMinGroupSyncNeighbors ||
+        parsed > kMaxGroupSyncNeighbors) {
+      return kGroupSyncNeighbors;
+    }
+    return parsed;
+  }
+
+  Future<void> setGroupSyncNeighborCount(NodeId groupId, int count) async {
+    if (count < kMinGroupSyncNeighbors || count > kMaxGroupSyncNeighbors) {
+      throw RangeError.range(
+        count,
+        kMinGroupSyncNeighbors,
+        kMaxGroupSyncNeighbors,
+        'count',
+      );
+    }
+    await _storage.putSetting(
+      _groupSyncNeighborsKey(groupId),
+      count == kGroupSyncNeighbors ? '' : '$count',
+    );
+    changes.value++;
+  }
 
   /// The compact "what I hold" vector for [groupId], or null when unknown.
   Future<Map<String, dynamic>?> buildGroupSyncRequest(NodeId groupId) async {
@@ -1953,7 +1988,6 @@ class GroupService {
   /// Cheap when in sync (one small JSON), and the reply path ships only what
   /// this device actually lacks.
   Future<void> nudgeGroupSyncAll() async {
-    final send = _send;
     for (final gidHex in await _index()) {
       final NodeId gid;
       try {
@@ -1985,29 +2019,37 @@ class GroupService {
         await addControlOp(gid, ControlOp.rotateEpoch);
       }
       await compactStateLogs(gid);
-      if (send == null) continue;
-      final bundle = await load(gid);
-      final req = await buildGroupSyncRequest(gid);
-      final st = await stateOf(gid);
-      if (bundle == null || req == null || st == null) continue;
-      final others = <NodeId>[
-        for (final m in st.members.values)
-          if (m.nodeId != _signer.selfId &&
-              (!bundle.manifest.isSovereignDevice ||
-                  m.nodeId != bundle.manifest.owner))
-            m.nodeId,
-      ];
-      final peers = bundle.manifest.name == kDeviceGroupName
-          ? others
-          : nearestGroupNodesByXor(
-              _signer.selfId,
-              others,
-              k: kGroupSyncNeighbors,
-            );
-      for (final peer in peers) {
-        await send(peer, gid, jsonEncode(req));
-      }
+      await nudgeGroupSync(gid);
     }
+  }
+
+  /// Starts one compact anti-entropy exchange with this chat's current XOR
+  /// neighbours. Used at boot and immediately after changing the local `k`.
+  Future<int> nudgeGroupSync(NodeId groupId) async {
+    final send = _send;
+    if (send == null) return 0;
+    final bundle = await load(groupId);
+    final req = await buildGroupSyncRequest(groupId);
+    final state = await stateOf(groupId);
+    if (bundle == null || req == null || state == null) return 0;
+    final others = <NodeId>[
+      for (final member in state.members.values)
+        if (member.nodeId != _signer.selfId &&
+            (!bundle.manifest.isSovereignDevice ||
+                member.nodeId != bundle.manifest.owner))
+          member.nodeId,
+    ];
+    final peers = bundle.manifest.name == kDeviceGroupName
+        ? others
+        : nearestGroupNodesByXor(
+            _signer.selfId,
+            others,
+            k: await groupSyncNeighborCount(groupId),
+          );
+    for (final peer in peers) {
+      await send(peer, groupId, jsonEncode(req));
+    }
+    return peers.length;
   }
 
   /// The VALIDATED, time-ordered messages of [groupId]: signature ok AND the
@@ -3561,12 +3603,11 @@ class GroupService {
           member.nodeId,
     ];
     final sparse = control.isEmpty && b.manifest.name != kDeviceGroupName;
+    final neighborCount = sparse
+        ? await groupSyncNeighborCount(groupId)
+        : kGroupSyncNeighbors;
     final peers = sparse
-        ? nearestGroupNodesByXor(
-            _signer.selfId,
-            candidates,
-            k: kGroupSyncNeighbors,
-          )
+        ? nearestGroupNodesByXor(_signer.selfId, candidates, k: neighborCount)
         : candidates;
     final deltaId = sparse
         ? (overlayId ?? _overlayDeltaId(groupId, messages, reactions))
