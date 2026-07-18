@@ -674,6 +674,93 @@ void main() {
     expect(sent.every((e) => e.$2 == gid), isTrue);
   });
 
+  test('XOR neighbour selection is deterministic, unique, and capped at k',
+      () {
+    final self = _id(1);
+    final peers = [_id(7), _id(2), self, _id(5), _id(3), _id(0), _id(3)];
+
+    expect(nearestGroupNodesByXor(self, peers, k: 3),
+        [_id(0), _id(3), _id(2)],
+        reason: 'distance is numeric XOR, not membership/insertion order');
+    expect(nearestGroupNodesByXor(self, peers.reversed, k: 3),
+        [_id(0), _id(3), _id(2)]);
+    expect(nearestGroupNodesByXor(self, peers, k: 0), isEmpty);
+  });
+
+  test('chat deltas use three XOR neighbours and relay once transitively',
+      () async {
+    final sent = <(NodeId, String)>[];
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final svc = GroupService(storage, _FakeSigner(owner),
+        send: (peer, gid, json) async => sent.add((peer, json)));
+    final gid = await svc.createGroup('overlay');
+    final members = [_id(0), _id(2), _id(3), _id(4), _id(5), _id(7)];
+    for (final member in members) {
+      await svc.addControlOp(gid, ControlOp.addMember,
+          target: member, role: GroupRole.member);
+    }
+    for (var i = 0; i < 6; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    sent.clear();
+
+    await svc.postMessage(gid, 'sparse');
+    for (var i = 0; i < 6; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    expect(sent.map((entry) => entry.$1).toSet(), {_id(0), _id(3), _id(2)});
+    expect(sent, hasLength(GroupService.kGroupSyncNeighbors));
+    final delta = sent.first.$2;
+    final wire = jsonDecode(delta) as Map;
+    expect(wire['ov'], isA<String>(),
+        reason: 'the stable overlay id breaks relay cycles');
+
+    final relayStorage = FakeHvContainer().storage();
+    await relayStorage.open(password: 'pw', createIfMissing: true);
+    final relayed = <NodeId>[];
+    final relay = GroupService(relayStorage, _FakeSigner(_id(3)),
+        send: (peer, gid, json) async => relayed.add(peer));
+    final ownerBundle = (await svc.load(gid))!;
+    // Materialize membership without the new message, then deliver its delta
+    // through real ingress so the sparse overlay forwards it.
+    final beforeMessage = ownerBundle.copyWith(messages: const []);
+    expect(
+        await relay.ingestSnapshot(
+            svc.snapshotJson(beforeMessage, recipient: _id(3))),
+        isTrue);
+    expect(await relay.ingestGroupEntry(owner, delta), isTrue);
+    expect(relayed, isNotEmpty);
+    final once = relayed.length;
+    expect(await relay.ingestGroupEntry(owner, delta), isTrue);
+    expect(relayed, hasLength(once), reason: 'a duplicate is not relayed');
+  });
+
+  test('boot gap-fill contacts the same deterministic XOR neighbours',
+      () async {
+    final sent = <(NodeId, String)>[];
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final svc = GroupService(storage, _FakeSigner(owner),
+        send: (peer, gid, json) async => sent.add((peer, json)));
+    final gid = await svc.createGroup('boot-overlay');
+    for (final member in [_id(0), _id(2), _id(3), _id(4), _id(5), _id(7)]) {
+      await svc.addControlOp(gid, ControlOp.addMember,
+          target: member, role: GroupRole.member);
+    }
+    for (var i = 0; i < 6; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    sent.clear();
+
+    await svc.nudgeGroupSyncAll();
+
+    expect(sent.map((entry) => entry.$1).toSet(), {_id(0), _id(3), _id(2)});
+    expect(sent, hasLength(GroupService.kGroupSyncNeighbors));
+    expect(sent.every((entry) => (jsonDecode(entry.$2) as Map)['sreq'] == 1),
+        isTrue);
+  });
+
   test('inline image attachment persists + survives snapshot round-trip',
       () async {
     // A realistic-size payload (~40 KB) so the bundle overflows the single
@@ -1477,6 +1564,8 @@ void main() {
     final reply = jsonDecode(toBob.single) as Map;
     expect((reply['g'] as List).length, 1,
         reason: 'only the missing message ships, not the whole log');
+    expect(reply['ov'], isA<String>(),
+        reason: 'a repaired content gap continues through the XOR overlay');
     await bobSvc.ingestSnapshot(toBob.single);
     final bodies =
         (await bobSvc.messagesOf(gid)).map((m) => m.body).toList();

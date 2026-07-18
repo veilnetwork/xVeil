@@ -16,6 +16,7 @@ import 'dart:convert';
 import 'dart:ffi';
 import 'dart:math';
 import 'dart:typed_data';
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:veil_flutter/veil_ffi.dart' as veil;
 
 import '../core/ids.dart';
@@ -45,6 +46,32 @@ bool _listEquals<T>(List<T>? left, List<T>? right) {
     if (left[index] != right[index]) return false;
   }
   return true;
+}
+
+int _compareXorDistance(NodeId origin, NodeId left, NodeId right) {
+  for (var i = 0; i < origin.bytes.length; i++) {
+    final l = origin.bytes[i] ^ left.bytes[i];
+    final r = origin.bytes[i] ^ right.bytes[i];
+    if (l != r) return l.compareTo(r);
+  }
+  return left.hex.compareTo(right.hex);
+}
+
+/// Deterministically selects the [k] node ids closest to [self] by XOR
+/// distance. Duplicate ids and [self] are ignored; callers do not need to
+/// preserve any particular membership iteration order.
+List<NodeId> nearestGroupNodesByXor(
+  NodeId self,
+  Iterable<NodeId> members, {
+  int k = GroupService.kGroupSyncNeighbors,
+}) {
+  if (k <= 0) return const [];
+  final unique = <String, NodeId>{
+    for (final member in members)
+      if (member != self) member.hex: member,
+  }.values.toList();
+  unique.sort((left, right) => _compareXorDistance(self, left, right));
+  return unique.length <= k ? unique : unique.sublist(0, k);
 }
 
 /// Flutter-free change signal used by both the GUI provider and headless host.
@@ -377,6 +404,12 @@ class GroupService {
   NodeId get selfId => _signer.selfId;
 
   final Map<String, Future<void>> _mutationTails = <String, Future<void>>{};
+
+  // Overlay deltas are flooded transitively across each node's sparse XOR
+  // links. This bounded RAM set makes the flood exactly-once per live process;
+  // the underlying log merge remains the durable/idempotent safety net.
+  static const int _kSeenOverlayDeltaLimit = 4096;
+  final Set<String> _seenOverlayDeltas = <String>{};
 
   final StreamController<GroupCallSignal> _groupCallIncomingCtl =
       StreamController.broadcast();
@@ -1655,14 +1688,19 @@ class GroupService {
 
   // ── Group log gap-fill (reliability brick G1) ─────────────────────────────
   // A delta that dies while EVERY entry node is down is lost for good — the
-  // full snapshot only ships on join. Each device therefore fans a compact
-  // per-author high-water VECTOR of both logs to a few members on boot; a
+  // full snapshot only ships on join. Each device therefore sends a compact
+  // per-author high-water VECTOR to its deterministic XOR neighbours on boot;
+  // a
   // member that holds more replies with ONLY the missing entries. Bandwidth
   // is one small JSON each way when in sync; convergence is eventual (a
   // sampled member that is itself behind just yields nothing this round).
 
-  /// How many members a boot sync-vector is sent to per group.
-  static const int kGroupSyncFanout = 3;
+  /// Number of outbound XOR neighbours in the sparse chat-sync overlay.
+  static const int kGroupSyncNeighbors = 3;
+
+  /// Compatibility name for debug/test callers from before the XOR overlay.
+  @Deprecated('Use kGroupSyncNeighbors')
+  static const int kGroupSyncFanout = kGroupSyncNeighbors;
 
   /// The compact "what I hold" vector for [groupId], or null when unknown.
   Future<Map<String, dynamic>?> buildGroupSyncRequest(NodeId groupId) async {
@@ -1775,6 +1813,13 @@ class GroupService {
         missingEpochEnvelopes.isEmpty) {
       return false;
     }
+    final overlayId =
+        b.manifest.name != kDeviceGroupName &&
+            missingCtl.isEmpty &&
+            (missingMsgs.isNotEmpty || missingRx.isNotEmpty)
+        ? _overlayDeltaId(gid, missingMsgs, missingRx)
+        : null;
+    if (overlayId != null) _rememberOverlayDelta(overlayId);
     await send(
       peer,
       gid,
@@ -1787,6 +1832,7 @@ class GroupService {
           'ke': [
             for (final envelope in missingEpochEnvelopes) envelope.toJson(),
           ],
+        if (overlayId != null) 'ov': overlayId,
       }),
     );
     return true;
@@ -1797,33 +1843,115 @@ class GroupService {
   /// snapshot/delta ingest. The wire wiring points here instead of calling
   /// [ingestSnapshot] directly.
   Future<bool> ingestGroupEntry(NodeId peer, String json) async {
+    Map? decoded;
     try {
       final d = jsonDecode(json);
       if (d is Map && d['sreq'] == 1) return handleGroupSyncRequest(peer, d);
+      if (d is Map) decoded = d;
     } catch (_) {
       return false; // malformed — drop
     }
     final pending = await _tryPendingDeviceSnapshot(peer, json);
     if (pending != null) return pending;
-    return ingestSnapshot(json);
+    final accepted = await ingestSnapshot(json);
+    if (accepted && decoded != null) {
+      await _relayOverlayDelta(peer, decoded);
+    }
+    return accepted;
   }
 
   /// The NON-contact variant of [ingestGroupEntry]: a member's sync vector is
   /// answered (the handler's own membership gate is the same admission), a
   /// bundle goes through the stranger-guarded ingest.
   Future<bool> ingestGroupEntryFromStranger(NodeId peer, String json) async {
+    Map? decoded;
     try {
       final d = jsonDecode(json);
       if (d is Map && d['sreq'] == 1) return handleGroupSyncRequest(peer, d);
+      if (d is Map) decoded = d;
     } catch (_) {
       return false; // malformed — drop
     }
-    return ingestSnapshotFromStranger(peer, json);
+    final accepted = await ingestSnapshotFromStranger(peer, json);
+    if (accepted && decoded != null) {
+      await _relayOverlayDelta(peer, decoded);
+    }
+    return accepted;
   }
 
-  /// Boot catch-up for EVERY group: fan my sync vector to up to
-  /// [kGroupSyncFanout] members per group. Cheap when in sync (one small
-  /// JSON), and the reply path ships only what this device actually lacks.
+  Future<void> _relayOverlayDelta(NodeId source, Map wire) async {
+    final overlayId = wire['ov'];
+    if (overlayId is! String || overlayId.length != 64) return;
+    final manifest = GroupManifest.fromJson(wire['m']);
+    if (manifest == null ||
+        wire['c'] is! List ||
+        (wire['c'] as List).isNotEmpty) {
+      return;
+    }
+    final messages = (wire['g'] as List? ?? const [])
+        .map(GroupMessage.fromJson)
+        .whereType<GroupMessage>()
+        .toList();
+    final reactions = (wire['r'] as List? ?? const [])
+        .map(GroupReaction.fromJson)
+        .whereType<GroupReaction>()
+        .toList();
+    if (messages.isEmpty && reactions.isEmpty) return;
+    if (_overlayDeltaId(manifest.groupId, messages, reactions) != overlayId) {
+      return;
+    }
+    // Relay the validated rows we actually persisted, never attacker-supplied
+    // lookalikes that merely reuse a legitimate (author, seq) identity.
+    final stored = await load(manifest.groupId);
+    if (stored == null) return;
+    GroupMessage? storedMessage(GroupMessage incoming) {
+      for (final candidate in stored.messages) {
+        if (candidate.author == incoming.author &&
+            candidate.seq == incoming.seq &&
+            jsonEncode(candidate.toJson()) == jsonEncode(incoming.toJson())) {
+          return candidate;
+        }
+      }
+      return null;
+    }
+
+    GroupReaction? storedReaction(GroupReaction incoming) {
+      for (final candidate in stored.reactions) {
+        if (candidate.author == incoming.author &&
+            candidate.seq == incoming.seq &&
+            jsonEncode(candidate.toJson()) == jsonEncode(incoming.toJson())) {
+          return candidate;
+        }
+      }
+      return null;
+    }
+
+    final validMessages = messages
+        .map(storedMessage)
+        .whereType<GroupMessage>()
+        .toList();
+    final validReactions = reactions
+        .map(storedReaction)
+        .whereType<GroupReaction>()
+        .toList();
+    if (validMessages.length != messages.length ||
+        validReactions.length != reactions.length ||
+        !_rememberOverlayDelta(overlayId)) {
+      return;
+    }
+    await broadcastDelta(
+      manifest.groupId,
+      messages: validMessages,
+      reactions: validReactions,
+      exclude: {source},
+      overlayId: overlayId,
+    );
+  }
+
+  /// Boot catch-up for EVERY group. Chat groups use the same deterministic
+  /// XOR neighbours as live deltas; device groups retain all-device delivery.
+  /// Cheap when in sync (one small JSON), and the reply path ships only what
+  /// this device actually lacks.
   Future<void> nudgeGroupSyncAll() async {
     final send = _send;
     for (final gidHex in await _index()) {
@@ -1862,14 +1990,21 @@ class GroupService {
       final req = await buildGroupSyncRequest(gid);
       final st = await stateOf(gid);
       if (bundle == null || req == null || st == null) continue;
-      final others = [
+      final others = <NodeId>[
         for (final m in st.members.values)
           if (m.nodeId != _signer.selfId &&
               (!bundle.manifest.isSovereignDevice ||
                   m.nodeId != bundle.manifest.owner))
             m.nodeId,
-      ]..shuffle(Random());
-      for (final peer in others.take(kGroupSyncFanout)) {
+      ];
+      final peers = bundle.manifest.name == kDeviceGroupName
+          ? others
+          : nearestGroupNodesByXor(
+              _signer.selfId,
+              others,
+              k: kGroupSyncNeighbors,
+            );
+      for (final peer in peers) {
         await send(peer, gid, jsonEncode(req));
       }
     }
@@ -3396,19 +3531,19 @@ class GroupService {
     return n;
   }
 
-  /// Fan a DELTA (only the just-added [control]/[messages] entries) out to every
-  /// OTHER member — the hot path for posts and ops, so an established group does
-  /// NOT re-ship its whole history (incl. inline images) on every change. A new
-  /// member still gets a full [broadcast] on join. Convergence holds: each delta
-  /// is a durable frame (retried until acked) and [ingestSnapshot] merges by
-  /// (author, seq); the manifest rides along so a delta that races ahead of the
-  /// join snapshot still materializes the group (its entries validate once the
-  /// control-log catches up). Returns how many peers it was shipped to.
+  /// Fan a DELTA (only the just-added entries). Chat messages and reactions go
+  /// to the [kGroupSyncNeighbors] XOR-closest members and are relayed across
+  /// that sparse overlay. Control changes and device-group events still reach
+  /// every member: roster/key changes carry per-recipient epoch material and
+  /// cannot safely depend on a relay that does not own everybody's envelope.
+  /// A new member still gets a full [broadcast] on join.
   Future<int> broadcastDelta(
     NodeId groupId, {
     List<ControlEntry> control = const [],
     List<GroupMessage> messages = const [],
     List<GroupReaction> reactions = const [],
+    Set<NodeId> exclude = const {},
+    String? overlayId,
   }) async {
     final send = _send;
     final b = await load(groupId);
@@ -3418,13 +3553,29 @@ class GroupService {
       entries: b.control,
       verify: (e) => _validControlFor(b.manifest, e),
     ).state;
+    final candidates = <NodeId>[
+      for (final member in state.members.values)
+        if (member.nodeId != _signer.selfId &&
+            (!b.manifest.isSovereignDevice ||
+                member.nodeId != b.manifest.owner))
+          member.nodeId,
+    ];
+    final sparse = control.isEmpty && b.manifest.name != kDeviceGroupName;
+    final peers = sparse
+        ? nearestGroupNodesByXor(
+            _signer.selfId,
+            candidates,
+            k: kGroupSyncNeighbors,
+          )
+        : candidates;
+    final deltaId = sparse
+        ? (overlayId ?? _overlayDeltaId(groupId, messages, reactions))
+        : null;
+    if (deltaId != null) _rememberOverlayDelta(deltaId);
     var n = 0;
-    for (final m in state.members.values) {
-      if (m.nodeId == _signer.selfId ||
-          (b.manifest.isSovereignDevice && m.nodeId == b.manifest.owner)) {
-        continue;
-      }
-      final epochEnvelopes = _epochEnvelopesFor(b, m.nodeId, controls: control);
+    for (final peer in peers) {
+      if (exclude.contains(peer)) continue;
+      final epochEnvelopes = _epochEnvelopesFor(b, peer, controls: control);
       final encryptionEstablished = _encryptionEstablished(
         b.manifest,
         b.control,
@@ -3433,18 +3584,18 @@ class GroupService {
         for (final message in messages)
           if (!encryptionEstablished ||
               (message.isEncrypted &&
-                  _peerCanDecryptEpoch(b, m.nodeId, message.membershipEpoch!)))
+                  _peerCanDecryptEpoch(b, peer, message.membershipEpoch!)))
             message,
       ];
       final peerReactions = [
         for (final reaction in reactions)
           if (!encryptionEstablished ||
               (reaction.isEncrypted &&
-                  _peerCanDecryptEpoch(b, m.nodeId, reaction.membershipEpoch!)))
+                  _peerCanDecryptEpoch(b, peer, reaction.membershipEpoch!)))
             reaction,
       ];
       await send(
-        m.nodeId,
+        peer,
         groupId,
         jsonEncode({
           'm': b.manifest.toJson(),
@@ -3453,11 +3604,35 @@ class GroupService {
           'r': peerReactions.map((reaction) => reaction.toJson()).toList(),
           if (epochEnvelopes.isNotEmpty)
             'ke': epochEnvelopes.map((entry) => entry.toJson()).toList(),
+          if (deltaId != null) 'ov': deltaId,
         }),
       );
       n++;
     }
     return n;
+  }
+
+  String _overlayDeltaId(
+    NodeId groupId,
+    Iterable<GroupMessage> messages,
+    Iterable<GroupReaction> reactions,
+  ) {
+    final identities = <String>[
+      for (final message in messages) 'm:${message.author.hex}:${message.seq}',
+      for (final reaction in reactions)
+        'r:${reaction.author.hex}:${reaction.seq}',
+    ]..sort();
+    return crypto.sha256
+        .convert(utf8.encode('${groupId.hex}|${identities.join('|')}'))
+        .toString();
+  }
+
+  bool _rememberOverlayDelta(String id) {
+    if (!_seenOverlayDeltas.add(id)) return false;
+    if (_seenOverlayDeltas.length > _kSeenOverlayDeltaLimit) {
+      _seenOverlayDeltas.remove(_seenOverlayDeltas.first);
+    }
+    return true;
   }
 
   /// Releases the pure-Dart event surfaces owned by this identity instance.
