@@ -1,5 +1,6 @@
 import 'dart:io' show Platform;
 
+import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,6 +9,8 @@ import '../../domain/call.dart';
 import '../../domain/call_signal.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
+import '../../state/android_camera_capture.dart'
+    show androidCallCameraPreviewController;
 import '../../state/call_service.dart';
 import '../../state/veil_call_media.dart'
     show localVideoFrame, remoteVideoFrame;
@@ -788,17 +791,20 @@ class _SelfPreview extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            CallVideoFrameView(
-              frameListenable: localVideoFrame,
-              freshnessToken: (call.callId, call.screenOn),
-              waitingLabel: call.screenOn
-                  ? l.callScreenWaiting
-                  : l.callVideoWaiting,
-              placeholderIcon: call.screenOn
-                  ? Icons.screen_share_outlined
-                  : Icons.videocam_outlined,
-              fit: BoxFit.cover,
-            ),
+            if (Platform.isAndroid && call.cameraOn && !call.screenOn)
+              _AndroidCameraSelfPreview(waitingLabel: l.callVideoWaiting)
+            else
+              CallVideoFrameView(
+                frameListenable: localVideoFrame,
+                freshnessToken: (call.callId, call.screenOn),
+                waitingLabel: call.screenOn
+                    ? l.callScreenWaiting
+                    : l.callVideoWaiting,
+                placeholderIcon: call.screenOn
+                    ? Icons.screen_share_outlined
+                    : Icons.videocam_outlined,
+                fit: BoxFit.cover,
+              ),
             if (!call.cameraOn)
               const ColoredBox(
                 color: Colors.black54,
@@ -840,6 +846,47 @@ class _SelfPreview extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _AndroidCameraSelfPreview extends StatelessWidget {
+  const _AndroidCameraSelfPreview({required this.waitingLabel});
+
+  final String waitingLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<CameraController?>(
+      valueListenable: androidCallCameraPreviewController,
+      builder: (context, controller, _) {
+        final size = controller?.value.previewSize;
+        if (controller == null ||
+            !controller.value.isInitialized ||
+            size == null) {
+          return CallVideoFrameView(
+            frameListenable: localVideoFrame,
+            freshnessToken: 'android-camera-starting',
+            waitingLabel: waitingLabel,
+            fit: BoxFit.cover,
+          );
+        }
+        final portrait =
+            MediaQuery.orientationOf(context) == Orientation.portrait;
+        return ColoredBox(
+          color: Colors.black,
+          child: ClipRect(
+            child: FittedBox(
+              fit: BoxFit.cover,
+              child: SizedBox(
+                width: portrait ? size.height : size.width,
+                height: portrait ? size.width : size.height,
+                child: CameraPreview(controller),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

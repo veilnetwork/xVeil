@@ -85,9 +85,7 @@ const _debugHookEnabled = bool.fromEnvironment(
 // jank from the veil stack. Release builds stay hook-free unconditionally
 // (kReleaseMode is excluded by [_hookBuildAllowed]); a profile build only
 // gains the hook when BOTH defines opt in.
-const _debugHookProfileOptIn = bool.fromEnvironment(
-  'XVEIL_DEBUG_HOOK_PROFILE',
-);
+const _debugHookProfileOptIn = bool.fromEnvironment('XVEIL_DEBUG_HOOK_PROFILE');
 // Every hook use site gates on this instead of raw [kDebugMode]. Debug =
 // same behavior as before; profile = explicit double opt-in; release =
 // always false, so the whole hook tree-shakes out of store builds.
@@ -558,6 +556,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/call_hangup':
           await _callAction(req, (svc) => svc.hangup());
           return;
+        case '/call_mic':
+          await _callAction(
+            req,
+            (svc) => svc.setMicEnabled(req.uri.queryParameters['on'] != '0'),
+          );
+          return;
         case '/call_screen':
           await _callAction(
             req,
@@ -568,8 +572,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/call_camera':
           await _callAction(
             req,
-            (svc) =>
-                svc.setCameraEnabled(req.uri.queryParameters['on'] != '0'),
+            (svc) => svc.setCameraEnabled(req.uri.queryParameters['on'] != '0'),
           );
           return;
         case '/mailbox_pause':

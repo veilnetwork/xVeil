@@ -3,7 +3,7 @@ import 'package:xveil/state/call_bitrate_adapter.dart';
 
 void main() {
   CallBitrateAdapter direct() =>
-      CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 20);
+      CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60);
 
   ({int maxBitrateKbps, int maxFps})? good(CallBitrateAdapter a) =>
       a.onSample(rttMs: 80, txJitterMs: 10, txLossPct: 0, txDrops: 0);
@@ -17,7 +17,7 @@ void main() {
       expect(good(a), isNull);
     }
     expect(a.level, 0);
-    expect(a.target, (maxBitrateKbps: 900, maxFps: 20));
+    expect(a.target, (maxBitrateKbps: 900, maxFps: 60));
   });
 
   test('one bad sample does not degrade (hysteresis)', () {
@@ -34,7 +34,7 @@ void main() {
     expect(first, isNotNull);
     expect(a.level, 1);
     expect(first!.maxBitrateKbps, 675);
-    expect(first.maxFps, 20);
+    expect(first.maxFps, 60);
 
     expect(lossy(a), isNull);
     final second = lossy(a);
@@ -50,7 +50,7 @@ void main() {
     }
     expect(a.level, CallBitrateAdapter.ladder.length - 1);
     expect(last!.maxBitrateKbps, 270);
-    expect(last.maxFps, 13); // 20 * 2/3 rounded
+    expect(last.maxFps, 40); // 60 * 2/3 rounded
     // Further bad samples keep the floor.
     for (var i = 0; i < 10; i++) {
       expect(lossy(a), isNull);
@@ -116,8 +116,7 @@ void main() {
         isNull,
       );
     }
-    final up =
-        a.onSample(rttMs: 50, txJitterMs: 5, txLossPct: 0, txDrops: 12);
+    final up = a.onSample(rttMs: 50, txJitterMs: 5, txLossPct: 0, txDrops: 12);
     expect(up, isNotNull);
     expect(a.level, 0);
   });
