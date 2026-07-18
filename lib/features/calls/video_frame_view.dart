@@ -44,15 +44,6 @@ class CallVideoFrameView extends StatefulWidget {
 }
 
 class _CallVideoFrameViewState extends State<CallVideoFrameView> {
-  // The direct-P2P profile produces 20 fps. The old 66 ms renderer cap was
-  // only ~15 fps, so one frame in four was discarded after it had already
-  // crossed the network and decoded successfully. That presented as regular
-  // judder even on a clean LAN call. Keep the UI ceiling aligned with the
-  // profile; [_pending] still coalesces while an image decode is busy, so a
-  // slow device retains latest-frame semantics instead of building a stale
-  // render queue.
-  static const _minDecodeInterval = Duration(milliseconds: 50);
-
   ui.Image? _image;
   VeilVideoFrame? _pending;
   VeilVideoFrame? _blockedFrame;
@@ -60,6 +51,7 @@ class _CallVideoFrameViewState extends State<CallVideoFrameView> {
   bool _waitingForFreshFrame = false;
   Timer? _decodeTimer;
   DateTime? _lastDecodeAt;
+  Duration _minDecodeInterval = const Duration(microseconds: 16667);
   int _generation = 0;
   // Whole seconds of the 1 s stale timer since the last accepted frame.
   // Tick-counted (not wall-clock) so the widget-test fake clock drives it.
@@ -81,6 +73,22 @@ class _CallVideoFrameViewState extends State<CallVideoFrameView> {
         _refreshStale();
       });
     }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Decode no faster than this Flutter view can present. A 60 Hz display
+    // gets a 60 fps ceiling, a 120 Hz display can present all source frames,
+    // and a 30 Hz external display avoids decoding frames that cannot be
+    // shown. The source itself remains the lower bound (normally 30 or 60).
+    final refreshRate = View.of(context).display.refreshRate;
+    final safeRate = refreshRate.isFinite && refreshRate > 1
+        ? refreshRate
+        : 60.0;
+    _minDecodeInterval = Duration(
+      microseconds: (1000000 / safeRate).round().clamp(1000, 1000000),
+    );
   }
 
   @override
