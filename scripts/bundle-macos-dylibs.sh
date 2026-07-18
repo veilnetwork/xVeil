@@ -32,6 +32,28 @@ for f in "$HV" "$VC"; do
   [ -f "$f" ] || { echo "missing dylib: $f — build the native lib first" >&2; exit 1; }
 done
 
+# A Flutter/Xcode rebuild does not rebuild the runtime-loaded Rust dylibs. Do
+# not silently package yesterday's FFI after a Rust fix: that exact mismatch
+# left the pre-IPC-keepalive veilclient in an otherwise fresh debug app, so the
+# desktop node died after 15 minutes of silence and every call offer failed
+# with `connection closed`. Cargo's own dependency graph decides what to
+# rebuild; this is only an early, actionable packaging guard.
+newer_veil_source="$(find "$ROOT/third_party/veil/crates" \
+  "$ROOT/third_party/veil/veilclient" \
+  "$ROOT/third_party/veil/veilcore" \
+  -type f \( -name '*.rs' -o -name 'Cargo.toml' \) \
+  -newer "$VC" -print -quit)"
+if [ -z "$newer_veil_source" ]; then
+  newer_veil_source="$(find "$ROOT/third_party/veil" -maxdepth 1 -type f \
+    \( -name 'Cargo.toml' -o -name 'Cargo.lock' \) \
+    -newer "$VC" -print -quit)"
+fi
+if [ -n "$newer_veil_source" ]; then
+  echo "ERROR: $VC is older than Rust source $newer_veil_source" >&2
+  echo "run: cargo build -p veilclient-ffi --features node-embedded" >&2
+  exit 1
+fi
+
 # The veil dylib MUST carry the embedded-node FFI (built --features node-embedded),
 # else the app degrades to a non-deniable boot. Fail loudly if it doesn't.
 if ! nm -gU "$VC" 2>/dev/null | grep -q 'veil_config_init'; then
