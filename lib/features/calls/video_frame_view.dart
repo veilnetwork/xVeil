@@ -44,7 +44,14 @@ class CallVideoFrameView extends StatefulWidget {
 }
 
 class _CallVideoFrameViewState extends State<CallVideoFrameView> {
-  static const _minDecodeInterval = Duration(milliseconds: 66);
+  // The direct-P2P profile produces 20 fps. The old 66 ms renderer cap was
+  // only ~15 fps, so one frame in four was discarded after it had already
+  // crossed the network and decoded successfully. That presented as regular
+  // judder even on a clean LAN call. Keep the UI ceiling aligned with the
+  // profile; [_pending] still coalesces while an image decode is busy, so a
+  // slow device retains latest-frame semantics instead of building a stale
+  // render queue.
+  static const _minDecodeInterval = Duration(milliseconds: 50);
 
   ui.Image? _image;
   VeilVideoFrame? _pending;
