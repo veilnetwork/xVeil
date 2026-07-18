@@ -9,6 +9,7 @@ import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call.dart';
 import '../domain/call_signal.dart';
 import 'android_camera_capture.dart';
+import 'android_native_call_camera.dart';
 import 'android_screen_capture.dart';
 import 'call_bitrate_adapter.dart';
 import 'call_service.dart';
@@ -69,7 +70,8 @@ class VeilCallMediaController implements CallMediaController {
   String? _chanPeer; // hex of the peer _chan was opened for
   CallTransportKind? _chanTransport;
   Timer? _frameTimer; // pulls decoded remote frames at the display rate
-  AndroidCameraCapture? _androidCam; // Dart camera SEND path (Android only)
+  AndroidNativeCallCamera? _androidNativeCam; // zero-copy call camera path
+  AndroidCameraCapture? _androidCam; // plugin fallback (Android only)
   AndroidScreenCaptureSource? _androidScreen;
   bool _androidScreenPushLogged = false;
   final AndroidScreenCaptureFactory _screenCaptureFactory =
@@ -147,7 +149,12 @@ class VeilCallMediaController implements CallMediaController {
       return {'transport': _chanTransport?.name, 'running': false};
     }
     try {
+      final nativeCamera = _androidNativeCam;
+      final nativeDiagnostics = nativeCamera?.diagnostics ?? const {};
       final androidCamera = _androidCam;
+      final cameraDiagnostics = nativeDiagnostics.isNotEmpty
+          ? nativeDiagnostics
+          : androidCamera?.diagnostics ?? const <String, Object?>{};
       return {
         'transport': _chanTransport?.name,
         'running': true,
@@ -157,17 +164,19 @@ class VeilCallMediaController implements CallMediaController {
         'remote_frame_max_gap_ms': _maxRemoteGapUs ~/ 1000,
         'remote_frame_holds_75ms': _remoteHoldsOver75Ms,
         'remote_frames': _remoteFrames,
-        'local_frame_fps': androidCamera?.captureFps ?? _localFrameFps,
-        'local_frame_max_gap_ms': androidCamera == null
-            ? _maxLocalGapUs ~/ 1000
-            : androidCamera.diagnostics['camera_capture_max_gap_ms'],
-        'local_frame_holds_75ms': androidCamera == null
-            ? _localHoldsOver75Ms
-            : androidCamera.diagnostics['camera_capture_holds_75ms'],
-        'local_frames': androidCamera == null
-            ? _localFrames
-            : androidCamera.diagnostics['camera_capture_frames'],
-        if (androidCamera != null) ...androidCamera.diagnostics,
+        'local_frame_fps':
+            cameraDiagnostics['camera_capture_fps'] ??
+            androidCamera?.captureFps ??
+            _localFrameFps,
+        'local_frame_max_gap_ms':
+            cameraDiagnostics['camera_capture_max_gap_ms'] ??
+            _maxLocalGapUs ~/ 1000,
+        'local_frame_holds_75ms':
+            cameraDiagnostics['camera_capture_holds_75ms'] ??
+            _localHoldsOver75Ms,
+        'local_frames':
+            cameraDiagnostics['camera_capture_frames'] ?? _localFrames,
+        if (cameraDiagnostics.isNotEmpty) ...cameraDiagnostics,
         ...engine.getStats(),
       };
     } catch (_) {
@@ -370,6 +379,7 @@ class VeilCallMediaController implements CallMediaController {
     var statsTick = 0;
     _statsTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_engine != engine) return;
+      unawaited(_androidNativeCam?.refreshStats() ?? Future<void>.value());
       try {
         final stats = engine.getStats();
         // Per-second quality trace into the devLog ring (2 s cadence to leave
@@ -487,13 +497,13 @@ class VeilCallMediaController implements CallMediaController {
       }
       // Drive the send stream from the real camera for a video call (screen
       // capture is a separate path). Apple platforms capture natively inside
-      // the engine (AVCaptureSession); Android streams via the `camera` plugin
-      // and pushes I420 frames in from Dart.
+      // the engine. Android uses an app-owned Camera2 SurfaceTexture + direct
+      // JNI YUV bridge; the Flutter camera plugin is only a compatibility
+      // fallback if the native session cannot open.
       if (call.media.video) {
         if (Platform.isAndroid) {
-          // Do not hold the call FSM in `connecting` while the camera plugin
-          // opens or waits for permission; the native video pipeline is already
-          // mounted, and frames will start flowing once capture is ready.
+          // Do not hold the call FSM in `connecting` while camera permission or
+          // device opening completes; the receive pipeline is already mounted.
           unawaited(_startAndroidCam(engine, highQuality: highQuality));
         } else {
           try {
@@ -550,7 +560,9 @@ class VeilCallMediaController implements CallMediaController {
         // per tick on the UI isolate and was the main source of preview hitches.
         // Screen sharing and other platforms still use the RGBA notifier.
         final local =
-            Platform.isAndroid && _androidCam != null && _androidScreen == null
+            Platform.isAndroid &&
+                (_androidNativeCam != null || _androidCam != null) &&
+                _androidScreen == null
             ? null
             : engine.getLocalVideoFrame();
         if (local != null) {
@@ -633,6 +645,15 @@ class VeilCallMediaController implements CallMediaController {
     _bitrateAdapter = null;
     remoteVideoFrame.value = null;
     localVideoFrame.value = null;
+    final nativeCam = _androidNativeCam;
+    _androidNativeCam = null;
+    if (nativeCam != null) {
+      try {
+        // Awaited platform stop is also the JNI-handler lifetime fence. The
+        // engine below cannot be destroyed while a frame push is in flight.
+        await nativeCam.stop();
+      } catch (_) {}
+    }
     final cam = _androidCam;
     _androidCam = null;
     if (cam != null) {
@@ -755,6 +776,13 @@ class VeilCallMediaController implements CallMediaController {
       if (enabled) {
         await _startAndroidCam(engine, highQuality: _highQualityRoute);
       } else {
+        final nativeCam = _androidNativeCam;
+        _androidNativeCam = null;
+        if (nativeCam != null) {
+          try {
+            await nativeCam.stop();
+          } catch (_) {}
+        }
         final cam = _androidCam;
         _androidCam = null;
         if (cam != null) {
@@ -793,7 +821,10 @@ class VeilCallMediaController implements CallMediaController {
         return true;
       }
       if (_androidScreen != null) return true;
-      final cameraWasRunning = _androidCam != null;
+      final cameraWasRunning = _androidNativeCam != null || _androidCam != null;
+      final nativeCam = _androidNativeCam;
+      _androidNativeCam = null;
+      if (nativeCam != null) await nativeCam.stop();
       final cam = _androidCam;
       _androidCam = null;
       if (cam != null) await cam.stop();
@@ -841,13 +872,43 @@ class VeilCallMediaController implements CallMediaController {
     return started;
   }
 
-  /// Start the Dart-side Android camera capture (camera plugin -> pushVideoFrame).
-  /// Idempotent; used by both start() and setCameraEnabled().
+  /// Start the Android call camera. Camera2 normally owns preview and pushes
+  /// direct buffers into libveil_media; the plugin path remains a bounded
+  /// compatibility fallback for devices whose Camera2 session cannot open.
   Future<void> _startAndroidCam(
     VeilMediaEngine engine, {
     required bool highQuality,
   }) async {
+    final existingNative = _androidNativeCam;
+    if (existingNative?.isRunning ?? false) return;
+    if (existingNative != null) {
+      _androidNativeCam = null;
+      await existingNative.stop();
+    }
     if (_androidCam != null) return;
+    final profile = highQuality ? _directVideoProfile : _anonymousVideoProfile;
+    final nativeCam = AndroidNativeCallCamera();
+    _androidNativeCam = nativeCam;
+    final nativeOk = await nativeCam.start(
+      engineAddress: engine.nativeAddress,
+      width: profile.cameraWidth,
+      height: profile.cameraHeight,
+      fps: profile.maxFps,
+    );
+    if (_engine != engine || _androidNativeCam != nativeCam) {
+      if (nativeOk) await nativeCam.stop();
+      return;
+    }
+    if (nativeOk) {
+      devLog(
+        () =>
+            'xVeil[call-media]: native Camera2 started '
+            '${profile.cameraWidth}x${profile.cameraHeight}@${profile.maxFps}',
+      );
+      return;
+    }
+    _androidNativeCam = null;
+    devLog(() => 'xVeil[call-media]: native Camera2 failed; plugin fallback');
     final cam = AndroidCameraCapture(highQuality: highQuality);
     _androidCam = cam;
     final ok = await cam.startAndroid420((

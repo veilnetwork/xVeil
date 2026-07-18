@@ -11,6 +11,7 @@ import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/android_camera_capture.dart'
     show androidCallCameraPreviewController;
+import '../../state/android_native_call_camera.dart';
 import '../../state/call_service.dart';
 import '../../state/veil_call_media.dart'
     show localVideoFrame, remoteVideoFrame;
@@ -852,6 +853,60 @@ class _SelfPreview extends StatelessWidget {
 
 class _AndroidCameraSelfPreview extends StatelessWidget {
   const _AndroidCameraSelfPreview({required this.waitingLabel});
+
+  final String waitingLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<AndroidNativeCameraPreview?>(
+      valueListenable: androidNativeCallCameraPreview,
+      builder: (context, nativePreview, _) {
+        if (nativePreview != null) {
+          return _NativeAndroidCameraTexture(preview: nativePreview);
+        }
+        return _PluginAndroidCameraPreview(waitingLabel: waitingLabel);
+      },
+    );
+  }
+}
+
+class _NativeAndroidCameraTexture extends StatelessWidget {
+  const _NativeAndroidCameraTexture({required this.preview});
+
+  final AndroidNativeCameraPreview preview;
+
+  @override
+  Widget build(BuildContext context) {
+    final quarterTurns = preview.rotation ~/ 90;
+    final swapsAxes = quarterTurns.isOdd;
+    final displayWidth = swapsAxes ? preview.height : preview.width;
+    final displayHeight = swapsAxes ? preview.width : preview.height;
+    Widget texture = RotatedBox(
+      quarterTurns: quarterTurns,
+      child: Texture(
+        textureId: preview.textureId,
+        filterQuality: FilterQuality.low,
+      ),
+    );
+    if (preview.mirror) texture = Transform.flip(flipX: true, child: texture);
+    return ColoredBox(
+      color: Colors.black,
+      child: ClipRect(
+        child: FittedBox(
+          fit: BoxFit.cover,
+          child: SizedBox(
+            width: displayWidth.toDouble(),
+            height: displayHeight.toDouble(),
+            child: texture,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PluginAndroidCameraPreview extends StatelessWidget {
+  const _PluginAndroidCameraPreview({required this.waitingLabel});
 
   final String waitingLabel;
 
