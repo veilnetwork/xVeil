@@ -99,6 +99,15 @@ class VeilCallMediaController implements CallMediaController {
   /// the gate outcome — devLog is invisible on a shell-launched app.
   bool _relayBatching = false;
 
+  /// WHY a negotiated p2p route fell back to relay (real-P2P epic, layer 5) —
+  /// null while the active route is the negotiated one. Set/cleared on every
+  /// channel open; the badge and /call_state surface it verbatim.
+  String? _transportFallbackReason;
+
+  @override
+  String? get transportFallbackReason =>
+      _chan == null ? null : _transportFallbackReason;
+
   @override
   CallTransportKind? get activeTransport =>
       _chan == null ? null : _chanTransport;
@@ -550,6 +559,7 @@ class VeilCallMediaController implements CallMediaController {
           call.peer.bytes,
           direct: true,
         );
+        _transportFallbackReason = null;
         return (channel: channel, transport: CallTransportKind.p2p);
       } catch (e) {
         devLog(
@@ -557,6 +567,12 @@ class VeilCallMediaController implements CallMediaController {
               'xVeil[call-media]: direct open failed for ${call.peer.short}; '
               'using non-onion relay: $e',
         );
+        // Layer-5 diagnostics (real-P2P epic): keep WHY the negotiated p2p
+        // route fell back so the transport badge / /call_state can say
+        // "relay — no direct session" instead of a bare "relay".
+        _transportFallbackReason = '$e'.contains('not active')
+            ? 'no direct session to peer'
+            : 'direct open failed';
         final channel = await _transport.openMediaChannel(
           call.peer.bytes,
           relay: true,
@@ -564,6 +580,7 @@ class VeilCallMediaController implements CallMediaController {
         return (channel: channel, transport: CallTransportKind.relay);
       }
     }
+    _transportFallbackReason = null;
     if (call.transport == CallTransportKind.relay) {
       final channel = await _transport.openMediaChannel(
         call.peer.bytes,

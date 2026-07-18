@@ -121,6 +121,18 @@ enum WireKind {
   /// performed by the group layer against its current membership epoch, so
   /// non-contact members can participate without bypassing group ACL.
   groupCallSignal,
+
+  /// P2P direct-endpoint exchange (real-P2P epic). Body = JSON
+  /// `{v:1, ts:<ms>, e:[<bootstrap URI>...]}` — the sender's CURRENT direct
+  /// dial endpoints (LAN ip:port today; observed external later), each a full
+  /// `veil:bootstrap?...` URI carrying pubkey+nonce so the receiver can redeem
+  /// it via the standard join path. PRIVACY: sent only to an ACCEPTED contact
+  /// and only when the local P2P policy allows that peer (mutual consent —
+  /// the receiver applies its own policy before dialing and before replying
+  /// with its endpoints); never published to DHT/ads. Contact-gated on receive
+  /// like [callSignal]. Added before [unknown] (RULE WC) so older builds drop
+  /// it silently.
+  p2pEndpoints,
   unknown,
 }
 
@@ -301,6 +313,10 @@ class WireEnvelope {
 
   const WireEnvelope.cloudDocumentChunk(String bodyJson)
     : this(WireKind.cloudDocumentChunk, bodyJson);
+
+  /// P2P direct-endpoint exchange frame — see [WireKind.p2pEndpoints].
+  const WireEnvelope.p2pEndpoints(String bodyJson)
+    : this(WireKind.p2pEndpoints, bodyJson);
 
   /// The decode-only sentinel for a structured (v:2) frame whose kind this build
   /// does not know — the dispatcher drops it (RULE WC).

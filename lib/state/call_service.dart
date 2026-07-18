@@ -10,6 +10,7 @@ import '../domain/call.dart';
 import '../domain/call_signal.dart';
 import 'messaging.dart';
 import 'call_slot.dart';
+import 'p2p_endpoint_service.dart';
 import 'p2p_policy_controller.dart';
 import 'providers.dart';
 import 'veil_call_media.dart';
@@ -81,6 +82,11 @@ abstract class CallMediaController {
   /// route, except for the explicitly permitted direct P2P → non-onion relay
   /// fallback. Null until a channel is open.
   CallTransportKind? get activeTransport => null;
+
+  /// Human-readable reason the active route differs from the negotiated one
+  /// (the p2p → relay fallback), or null when the route is as negotiated.
+  /// Surfaced by the transport badge so "relay" answers "why not p2p?".
+  String? get transportFallbackReason => null;
 
   /// Tear down any running media session. Idempotent.
   Future<void> stop();
@@ -187,6 +193,10 @@ class CallService {
   /// The single active (or just-ended) call, or null when idle.
   Call? get current => _current;
   Map<String, Object?> get mediaDiagnostics => _media?.diagnostics ?? const {};
+
+  /// Why the live route differs from the negotiated one (p2p → relay
+  /// fallback), or null. For the transport badge / diagnostics.
+  String? get transportFallbackReason => _media?.transportFallbackReason;
 
   /// Emits on every FSM transition, and null when the call slot clears.
   Stream<Call?> get changes => _changes.stream;
@@ -992,12 +1002,18 @@ final callServiceProvider = Provider<CallService>((ref) {
     callSlot: ref.read(callSlotProvider),
     localAllowsP2P: (peer) =>
         ref.read(p2pPolicyProvider.notifier).allowsPeer(peer),
-    // The proposal means "consented to ATTEMPT direct", not proof that a live
-    // route exists. Asking the daemon for peers here can block call acceptance
-    // for many seconds and is still only a racy snapshot. The native direct
-    // media open is the authoritative admission gate: it requires a live P-Net
-    // session and otherwise falls back to the non-onion relay route.
-    peerReachableForP2P: (_) async => true,
+    // Real-P2P epic: "reachable" now means "a live direct session exists, or
+    // came up within the endpoint service's small dial budget" — the service
+    // exchanges LAN endpoints with the consenting contact and dials them, so
+    // the proposal only says p2p when direct media can actually flow. The
+    // native direct media open stays the authoritative admission gate. When
+    // the service is unavailable (loopback/dev stack) keep the old optimistic
+    // answer and let that native gate decide.
+    peerReachableForP2P: (peer) async {
+      final p2p = ref.read(p2pEndpointServiceProvider);
+      if (p2p == null) return true;
+      return p2p.ensureReady(peer);
+    },
   )..start();
   ref.onDispose(svc.dispose);
   return svc;

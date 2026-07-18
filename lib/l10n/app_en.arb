@@ -740,6 +740,7 @@
   "callPathOnion": "Anonymous (onion)",
   "callPathRelay": "Relayed",
   "callPathP2P": "Direct (P2P)",
+  "callPathNoDirectSession": "no direct link",
   "groupCallTitle": "Group call",
   "groupCallIncoming": "Incoming group call",
   "groupCallStartAudio": "Start group audio call",

@@ -4231,6 +4231,12 @@ abstract class AppL10n {
   /// **'Direct (P2P)'**
   String get callPathP2P;
 
+  /// No description provided for @callPathNoDirectSession.
+  ///
+  /// In en, this message translates to:
+  /// **'no direct link'**
+  String get callPathNoDirectSession;
+
   /// No description provided for @groupCallTitle.
   ///
   /// In en, this message translates to:

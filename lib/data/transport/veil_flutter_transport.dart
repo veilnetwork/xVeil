@@ -207,6 +207,25 @@ class VeilFlutterTransport
     }
   }
 
+  /// Redeem a P2P direct-dial endpoint URI (LAN/observed address a contact
+  /// shared over the E2E channel). Unlike [joinInvite], `alreadyRegistered` is
+  /// SUCCESS here: the node refreshes the stored dial address and re-dials —
+  /// that's the endpoint-exchange refresh semantic, not a conflict.
+  Future<void> joinP2PEndpoint(String uri) async {
+    final r = await _client.joinBootstrapUri(uri: uri);
+    if (r.status != JoinBootstrapStatus.ok &&
+        r.status != JoinBootstrapStatus.alreadyRegistered) {
+      throw StateError('p2p join failed: ${r.status.name} ${r.detail ?? ''}');
+    }
+  }
+
+  /// Live P-Net/session status for [peerNode] (32 bytes): `admitted` == true
+  /// iff the node holds a live direct session — the same gate the direct
+  /// media-channel open enforces. Poll after [joinP2PEndpoint] to learn when
+  /// the direct session is actually up.
+  Future<({bool admitted, bool hasCert})> peerPnetStatus(Uint8List peerNode) =>
+      _client.peerPnetStatus(peerNode);
+
   /// Native CLOUD-2B primitive: host a blinded service under a random
   /// application-owned identity. [identitySeed] is scrubbed by veil_flutter
   /// before this future yields and again by native at the ABI boundary.

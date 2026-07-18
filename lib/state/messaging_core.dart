@@ -471,6 +471,13 @@ class MessagingService {
   /// attached — the signal is then dropped.
   void Function(NodeId peer, CallSignal signal)? onCallSignal;
 
+  /// Attached by the P2P endpoint service: an inbound
+  /// [WireKind.p2pEndpoints] direct-endpoint exchange ([bodyJson]) from an
+  /// accepted [peer]. The service applies the LOCAL P2P policy before dialing
+  /// anything or replying with its own endpoints — transport admission here
+  /// only guarantees the sender is an accepted contact. Dropped when unset.
+  void Function(NodeId peer, String bodyJson)? onP2PEndpoints;
+
   /// Attached by the group layer: an inbound group snapshot ([bundleJson]) from
   /// an accepted [peer], to ingest idempotently. Dropped when unset.
   void Function(NodeId peer, String bundleJson)? onGroupEntry;
@@ -2241,6 +2248,34 @@ class MessagingService {
     );
   }
 
+  /// Share this device's direct dial endpoints with an accepted contact (P2P
+  /// epic). [bodyJson] is the [WireKind.p2pEndpoints] payload built by the
+  /// endpoint service, which ALSO enforces the P2P policy before calling this —
+  /// here we only re-assert the contact gate. Durable with a live leg, keyed by
+  /// [sentAtMs] so a refreshed endpoint set is a NEW frame (the old one may
+  /// still be un-acked in the outbox); the receiver treats each frame
+  /// idempotently and stale addresses simply fail to dial.
+  Future<void> sendP2PEndpoints(
+    NodeId peer,
+    String bodyJson, {
+    required int sentAtMs,
+  }) async {
+    final contact = await _storage.getContact(peer);
+    if (contact == null || contact.status != ContactStatus.accepted) return;
+    devLog(
+      () => 'xVeil[p2p]: out endpoints to=${peer.short} '
+          '(${bodyJson.length} B)',
+    );
+    final env = WireEnvelope.p2pEndpoints(bodyJson);
+    await sendDurable(
+      peer,
+      'p2p:ep:$sentAtMs',
+      env,
+      liveSender: (wire) => _sendRealtime(peer, wire),
+      awaitLive: false,
+    );
+  }
+
   /// Re-drive un-acked durable frames: re-deposit at the mailbox (idempotent via
   /// the stash dedup) and, backed off per frame, re-send live. Called from
   /// [flushOutbox].
@@ -2997,6 +3032,18 @@ class MessagingService {
           });
           onCallSignal?.call(m.src, callSig);
         }
+        return;
+      case WireKind.p2pEndpoints:
+        // A contact shared its direct dial endpoints (P2P epic). Consent-gated
+        // at transport admission; the endpoint service re-checks the local P2P
+        // policy (mutual consent) before acting on or answering it.
+        if (existing?.status != ContactStatus.accepted) return;
+        devLog(
+          () =>
+              'xVeil[p2p]: in endpoints from=${m.src.short} '
+              '(${env.body.length} B)',
+        );
+        onP2PEndpoints?.call(m.src, env.body);
         return;
       case WireKind.reaction:
         // The peer reacted to a message in THIS conversation. A side annotation
