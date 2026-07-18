@@ -554,31 +554,52 @@ class VeilCallMediaController implements CallMediaController {
     Call call,
   ) async {
     if (call.transport == CallTransportKind.p2p) {
-      try {
-        final channel = await _transport.openMediaChannel(
-          call.peer.bytes,
-          direct: true,
-        );
-        _transportFallbackReason = null;
-        return (channel: channel, transport: CallTransportKind.p2p);
-      } catch (e) {
-        devLog(
-          () =>
-              'xVeil[call-media]: direct open failed for ${call.peer.short}; '
-              'using non-onion relay: $e',
-        );
-        // Layer-5 diagnostics (real-P2P epic): keep WHY the negotiated p2p
-        // route fell back so the transport badge / /call_state can say
-        // "relay — no direct session" instead of a bare "relay".
-        _transportFallbackReason = '$e'.contains('not active')
-            ? 'no direct session to peer'
-            : 'direct open failed';
-        final channel = await _transport.openMediaChannel(
-          call.peer.bytes,
-          relay: true,
-        );
-        return (channel: channel, transport: CallTransportKind.relay);
+      // The native admission probe is bounded but can lose its whole budget
+      // to a transient stall (busy client mutex, silently rate-limited
+      // query) even while the direct session is admitted. A timed-out probe
+      // is NOT an authoritative "no session" — give it one more attempt
+      // before surrendering the negotiated p2p route to relay.
+      Object? lastError;
+      for (var attempt = 0; attempt < 2; attempt++) {
+        try {
+          final channel = await _transport.openMediaChannel(
+            call.peer.bytes,
+            direct: true,
+          );
+          _transportFallbackReason = null;
+          return (channel: channel, transport: CallTransportKind.p2p);
+        } catch (e) {
+          lastError = e;
+          devLog(
+            () =>
+                'xVeil[call-media]: direct open attempt ${attempt + 1} failed '
+                'for ${call.peer.short}: $e',
+          );
+          final transient =
+              '$e'.contains('timed out') || '$e'.contains('probe failed');
+          if (!transient) break;
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+        }
       }
+      devLog(
+        () =>
+            'xVeil[call-media]: direct open failed for ${call.peer.short}; '
+            'using non-onion relay: $lastError',
+      );
+      // Layer-5 diagnostics (real-P2P epic): keep WHY the negotiated p2p
+      // route fell back so the transport badge / /call_state can say
+      // "relay — no direct session" instead of a bare "relay".
+      final es = '$lastError';
+      _transportFallbackReason = es.contains('not active')
+          ? 'no direct session to peer'
+          : es.contains('timed out')
+              ? 'direct probe timed out'
+              : 'direct open failed';
+      final channel = await _transport.openMediaChannel(
+        call.peer.bytes,
+        relay: true,
+      );
+      return (channel: channel, transport: CallTransportKind.relay);
     }
     _transportFallbackReason = null;
     if (call.transport == CallTransportKind.relay) {
