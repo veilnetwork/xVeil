@@ -4873,6 +4873,14 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       }
     }
     final stack = ref.read(realStackProvider);
+    // Stage B diagnostics: the daemon's listener snapshot — the wildcard
+    // host flips to the observed external IP once the srflx probe landed.
+    List<String>? listenTransports;
+    if (transport is VeilFlutterTransport) {
+      try {
+        listenTransports = await transport.listenTransports();
+      } catch (_) {}
+    }
     await _json(req, {
       'ok': true,
       'service': svc != null,
@@ -4882,6 +4890,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'hasCert': hasCert,
       if (statusError != null) 'statusError': statusError,
       'knownPeerEndpoints': svc?.knownEndpoints(peer).length ?? 0,
+      if (listenTransports != null) 'listenTransports': listenTransports,
     });
   }
 

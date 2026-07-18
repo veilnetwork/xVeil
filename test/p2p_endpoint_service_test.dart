@@ -39,6 +39,7 @@ class _Harness {
     this.allows = true,
     this.lanListen = true,
     List<String>? addresses,
+    this.listenTransports,
   }) : addresses = addresses ?? ['192.168.1.70', '10.0.0.5'] {
     svc; // force the late-final service (attaches onP2PEndpoints)
   }
@@ -47,6 +48,7 @@ class _Harness {
   bool allows;
   bool lanListen;
   List<String> addresses;
+  List<String>? listenTransports;
   bool admitted = false;
   final List<String> joined = [];
   DateTime now = DateTime.utc(2026, 7, 18, 12);
@@ -60,6 +62,9 @@ class _Harness {
     listenPort: () => 9000,
     lanListenEnabled: () => lanListen,
     localAddresses: () async => addresses,
+    listenTransports: listenTransports == null
+        ? null
+        : () async => listenTransports!,
     now: () => now,
   )..start();
 }
@@ -79,6 +84,37 @@ void main() {
     final invite = BootstrapInvite.parse(uris.first);
     expect(invite.publicKey, _identity().publicKey);
     expect(invite.transport, 'tcp://192.168.1.70:9000');
+  });
+
+  test('maybeShare appends the srflx listener candidate after LAN addresses',
+      () async {
+    final h = _Harness(
+      addresses: ['192.168.1.70'],
+      listenTransports: [
+        'srflx://203.0.113.42:61812', // observed external addr (probe port)
+        'srflx://203.0.113.42:52001', // same IP re-observed — dedup
+        'srflx://192.168.1.70:40000', // private observation — same-NAT peer
+        'tcp://203.0.113.42:5556', // other listener port — not ours
+        'tcp://0.0.0.0:9000', // wildcard — never dialable
+        'obfs4-tcp://198.51.100.9:5599', // non-tcp scheme
+      ],
+    );
+    await h.svc.maybeShare(_peer(1));
+    final body = jsonDecode(h.messaging.sentEndpoints.single.$2) as Map;
+    final uris = (body['e'] as List).cast<String>();
+    expect(uris, hasLength(2));
+    expect(uris[0], contains('t=tcp://192.168.1.70:9000'));
+    expect(uris[1], contains('t=tcp://203.0.113.42:9000'));
+  });
+
+  test('maybeShare mints LAN-only when the listener snapshot is unavailable',
+      () async {
+    final h = _Harness(addresses: ['192.168.1.70']);
+    await h.svc.maybeShare(_peer(1));
+    final body = jsonDecode(h.messaging.sentEndpoints.single.$2) as Map;
+    final uris = (body['e'] as List).cast<String>();
+    expect(uris, hasLength(1));
+    expect(uris.single, contains('t=tcp://192.168.1.70:9000'));
   });
 
   test('maybeShare is silent when policy denies or listener is loopback-only',
