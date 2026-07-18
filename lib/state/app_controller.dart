@@ -13,6 +13,7 @@ import '../core/ids.dart';
 import '../data/node/node_controller.dart';
 import '../data/veil_stack.dart';
 import '../domain/identity.dart';
+import '../domain/p2p_policy.dart';
 import '../domain/roster.dart';
 import 'background_node_controller.dart';
 import 'keep_all_online_controller.dart';
@@ -1313,6 +1314,23 @@ class AppController extends Notifier<AppState> {
     );
   }
 
+  /// P2P direct-session epic: whether the node's listener may bind on all
+  /// interfaces (LAN-dialable) instead of loopback. Never for an anonymous
+  /// posture (P2P is hard-forbidden there — an open LAN port is a linkable
+  /// beacon), and never when the stored global P2P policy is `denied`. Storage
+  /// is open at `_ensureRealStack` time, so the policy setting is readable.
+  Future<bool> _p2pLanListenAllowed() async {
+    if (_activeAnonymous()) return false;
+    try {
+      final raw = await ref
+          .read(storageProvider)
+          .getSetting(kP2PGlobalPolicySettingKey);
+      return p2pGlobalPolicyFromName(raw) != P2PGlobalPolicy.denied;
+    } catch (_) {
+      return kDefaultP2PGlobalPolicy != P2PGlobalPolicy.denied;
+    }
+  }
+
   /// Build the in-process deniable stack post-unlock (storage is open) when the
   /// embedded boot is configured and not already running.
   Future<void> _ensureRealStack() async {
@@ -1326,6 +1344,7 @@ class AppController extends Notifier<AppState> {
         // Offset alternates after every teardown (see _teardownRealStack) so
         // a switch/relock never rebinds the just-freed port.
         listenPort: boot.listenPort + _oneActivePortOffset,
+        lanListen: await _p2pLanListenAllowed(),
         anonymous: _activeAnonymous(),
         lazyMining: _singleLazyMining,
         // Deliberately DON'T inject `[[bootstrap_peers]]` into the node config:

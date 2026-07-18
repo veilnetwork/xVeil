@@ -736,6 +736,7 @@
   "callPathOnion": "Анонимно (onion)",
   "callPathRelay": "Через реле",
   "callPathP2P": "Напрямую (P2P)",
+  "callPathNoDirectSession": "нет прямой связи",
   "groupCallTitle": "Групповой звонок",
   "groupCallIncoming": "Входящий групповой звонок",
   "groupCallStartAudio": "Начать групповой аудиозвонок",

@@ -2269,6 +2269,9 @@ class AppL10nRu extends AppL10n {
   String get callPathP2P => 'Напрямую (P2P)';
 
   @override
+  String get callPathNoDirectSession => 'нет прямой связи';
+
+  @override
   String get groupCallTitle => 'Групповой звонок';
 
   @override
