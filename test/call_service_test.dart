@@ -1103,6 +1103,31 @@ void main() {
       });
     });
 
+    test('start-muted policy applies to outgoing and incoming calls', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final svc = CallService(fake, now: () => clock.now(), startMuted: true)
+          ..start();
+
+        svc.placeCall(peer, const CallMedia(audio: true, video: true));
+        async.flushMicrotasks();
+        expect(svc.current?.micOn, isFalse);
+        svc.cancel();
+        async.flushMicrotasks();
+
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'incoming-muted',
+            type: CallSignalType.offer,
+            media: CallMedia(audio: true, video: true),
+            posture: CallPosture.direct,
+          ),
+        );
+        expect(svc.current?.micOn, isFalse);
+      });
+    });
+
     test('failed video mount leaves the call audio-only', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();

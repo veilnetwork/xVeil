@@ -270,23 +270,37 @@ class VeilCallMediaController implements CallMediaController {
     }
     final epoch = ++_mediaEpoch;
     _activeCall = call;
-    // Present the Apple mic (and camera for video) TCC prompt via
-    // AVCaptureDevice BEFORE the engine touches CoreAudio — but NEVER let the
-    // prompt block the call FSM: bound the wait, and proceed regardless (the
-    // engine still comes up; capture starts once permission lands).
+    // Present the platform mic/camera prompts before native capture starts,
+    // but do not serialize them: two independent five-second waits used to
+    // exceed CallService's whole media-start budget and tear down an otherwise
+    // usable receive-only call. Begin both requests together and give the OS a
+    // short shared preflight window. The futures keep running after the bound,
+    // so a prompt can still complete while the call comes up.
+    final permissionRequests = <Future<void>>[];
     if (call.media.audio) {
-      final granted = await MacMediaPermissions.requestMicrophone().timeout(
-        const Duration(seconds: 5),
-        onTimeout: () => false,
+      permissionRequests.add(
+        MacMediaPermissions.requestMicrophone().then(
+          (granted) =>
+              devLog(() => 'xVeil[call-media]: mic permission=$granted'),
+        ),
       );
-      devLog(() => 'xVeil[call-media]: mic permission=$granted');
     }
     if (call.media.video) {
-      final granted = await MacMediaPermissions.requestCamera().timeout(
-        const Duration(seconds: 5),
-        onTimeout: () => false,
+      permissionRequests.add(
+        MacMediaPermissions.requestCamera().then(
+          (granted) =>
+              devLog(() => 'xVeil[call-media]: camera permission=$granted'),
+        ),
       );
-      devLog(() => 'xVeil[call-media]: camera permission=$granted');
+    }
+    if (permissionRequests.isNotEmpty) {
+      await Future.wait(permissionRequests).timeout(
+        const Duration(seconds: 3),
+        onTimeout: () {
+          devLog(() => 'xVeil[call-media]: permission preflight continuing');
+          return const <void>[];
+        },
+      );
     }
     final localId = (await _transport.nodeId()).bytes;
     final peerId = call.peer.bytes;
@@ -443,6 +457,12 @@ class VeilCallMediaController implements CallMediaController {
       } catch (_) {}
     });
     final audioOk = engine.startAudio(send: true, recv: true);
+    if (audioOk && !call.micOn) {
+      // Apply the initial posture before returning an active session. Relying
+      // only on a later UI toggle creates a short microphone leak on calls
+      // whose platform policy starts muted (Android phone endpoint).
+      engine.setMicMuted(true);
+    }
     devLog(() => 'xVeil[call-media]: startAudio=$audioOk');
     var videoOk = false;
     // VP8 video over the same veil channel when the call requests video/screen.
@@ -525,7 +545,7 @@ class VeilCallMediaController implements CallMediaController {
           _remoteFrames++;
           remoteVideoFrame.value = f;
         }
-        // Android renders the camera self-preview through CameraX's native
+        // Android renders the camera self-preview through Camera2's native
         // texture. Pulling the same frame back as RGBA here copied nearly a MB
         // per tick on the UI isolate and was the main source of preview hitches.
         // Screen sharing and other platforms still use the RGBA notifier.
@@ -830,11 +850,35 @@ class VeilCallMediaController implements CallMediaController {
     if (_androidCam != null) return;
     final cam = AndroidCameraCapture(highQuality: highQuality);
     _androidCam = cam;
-    final ok = await cam.start((y, u, v, w, h) {
-      if (_engine != engine) return;
+    final ok = await cam.startAndroid420((
+      y,
+      u,
+      v,
+      w,
+      h,
+      yStride,
+      uStride,
+      vStride,
+      uvPixelStride,
+      rotation,
+    ) {
+      if (_engine != engine) return false;
       try {
-        engine.pushVideoFrame(y, u, v, w, h);
-      } catch (_) {}
+        return engine.pushAndroid420Frame(
+          y,
+          u,
+          v,
+          w,
+          h,
+          yStride: yStride,
+          uStride: uStride,
+          vStride: vStride,
+          uvPixelStride: uvPixelStride,
+          rotation: rotation,
+        );
+      } catch (_) {
+        return false;
+      }
     });
     if (!ok) _androidCam = null;
   }
