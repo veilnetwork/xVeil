@@ -3,16 +3,49 @@ import 'dart:isolate';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 /// Receives one captured frame as tightly-packed I420 (y=w*h, u=v=cw*ch).
 typedef I420FrameSink =
     void Function(Uint8List y, Uint8List u, Uint8List v, int width, int height);
 
-/// Native CameraX texture used by the in-call self-preview. Unlike the RGBA
+typedef Android420FrameSink =
+    bool Function(
+      Uint8List y,
+      Uint8List u,
+      Uint8List v,
+      int width,
+      int height,
+      int yStride,
+      int uStride,
+      int vStride,
+      int uvPixelStride,
+      int rotation,
+    );
+
+/// Native camera texture used by the in-call self-preview. Unlike the RGBA
 /// diagnostic/presentation path this is composited without a YUV -> RGBA copy
 /// through Dart, so the preview can follow the camera/display cadence.
 final ValueNotifier<CameraController?> androidCallCameraPreviewController =
     ValueNotifier(null);
+
+const MethodChannel _cameraCapabilitiesChannel = MethodChannel(
+  'xveil/camera_capabilities',
+);
+
+/// Chooses the highest exact capture cadence that the camera reports, capped
+/// at 60 fps. Exact ranges matter: a compatibility layer may accept an
+/// unsupported 60 fps request but silently broaden it to 10-30, producing a
+/// visibly uneven stream instead of failing initialization and letting us
+/// retry at 30.
+@visibleForTesting
+int preferredExactCameraFps(Iterable<int> available) {
+  final rates = available.where((fps) => fps > 0 && fps <= 60).toSet();
+  if (rates.contains(60)) return 60;
+  if (rates.contains(30)) return 30;
+  if (rates.isEmpty) return 30;
+  return rates.reduce((a, b) => a > b ? a : b);
+}
 
 /// Android camera SEND path for a video call. macOS captures natively inside
 /// libveil_media (AVCaptureSession); Android has no native backend, so this
@@ -36,6 +69,7 @@ class AndroidCameraCapture {
   StreamSubscription<Object?>? _workerSubscription;
   SendPort? _workerJobs;
   I420FrameSink? _sink;
+  Android420FrameSink? _rawSink;
   bool _workerBusy = false;
   int? _requestedFps;
   int _inputFrames = 0;
@@ -48,8 +82,22 @@ class AndroidCameraCapture {
   /// Open the front camera (falls back to the first) and stream frames to
   /// [sink]. Returns false if no camera / permission denied / init failed.
   Future<bool> start(I420FrameSink sink) async {
+    return _start(i420Sink: sink);
+  }
+
+  /// Call-only fast path: hand Camera2's strided Android420 planes to libyuv
+  /// instead of de-striding and rotating every pixel in Dart.
+  Future<bool> startAndroid420(Android420FrameSink sink) async {
+    return _start(rawSink: sink);
+  }
+
+  Future<bool> _start({
+    I420FrameSink? i420Sink,
+    Android420FrameSink? rawSink,
+  }) async {
     try {
-      await _startWorker(sink);
+      _rawSink = rawSink;
+      if (i420Sink != null) await _startWorker(i420Sink);
       final cams = await availableCameras();
       if (cams.isEmpty) return false;
       final cam = cams.firstWhere(
@@ -122,14 +170,32 @@ class AndroidCameraCapture {
     _workerJobs = await ready.future.timeout(const Duration(seconds: 3));
   }
 
-  /// Ask CameraX for 60 fps on a direct route, but do not make camera support
+  /// Ask the Android camera backend for the best stable exact rate on a direct
+  /// route, but do not make camera support
   /// for that exact mode a call prerequisite. Devices commonly expose only
-  /// 30 fps for the selected front-camera resolution, and some CameraX
-  /// backends reject an unsupported exact FPS range instead of selecting the
-  /// closest one. In that case retry at 30, then with the platform default.
+  /// 30 fps for the selected front-camera resolution, and camera backends may
+  /// reject an unsupported exact FPS range instead of selecting the closest
+  /// one. In that case retry with the platform default.
   Future<CameraController> _openController(CameraDescription cam) async {
+    var directFps = 30;
+    if (highQuality) {
+      try {
+        final exactRates = await _cameraCapabilitiesChannel
+            .invokeListMethod<int>('exactFps', {'cameraId': cam.name});
+        directFps = preferredExactCameraFps(exactRates ?? const <int>[]);
+        debugPrint(
+          'veil-cam: camera=${cam.name} exactFps=$exactRates selected=$directFps',
+        );
+      } catch (error) {
+        // Stable 30 is a safer compatibility fallback than an unsupported 60:
+        // A compatibility layer may accept the latter but silently turn it
+        // into variable 10-30. The channel is app-owned and can be absent in
+        // older test hosts.
+        debugPrint('veil-cam: exact FPS query failed, using 30: $error');
+      }
+    }
     final requestedRates = highQuality
-        ? const <int?>[60, 30, null]
+        ? <int?>[directFps, null]
         : const <int?>[null];
     Object? lastError;
     for (final fps in requestedRates) {
@@ -162,9 +228,9 @@ class AndroidCameraCapture {
     if (img.format.group != ImageFormatGroup.yuv420 || img.planes.length < 3) {
       return;
     }
-    // Direct calls use every frame the camera can supply (requested at 60 fps;
-    // see [_openController]). Padded onion calls stay near 12 fps to protect
-    // CPU and cell bandwidth.
+    // Direct calls use every frame at the highest exact cadence reported by
+    // the camera (up to 60 fps; see [_openController]). Padded onion calls stay
+    // near 12 fps to protect CPU and cell bandwidth.
     final now = _sw.elapsedMilliseconds;
     if (_minGapMs > 0 && now - _lastPushMs < _minGapMs) return;
     _lastPushMs = now;
@@ -178,6 +244,29 @@ class AndroidCameraCapture {
     }
     _lastInputUs = nowUs;
     _inputFrames++;
+
+    final rawSink = _rawSink;
+    if (rawSink != null) {
+      final p0 = img.planes[0], p1 = img.planes[1], p2 = img.planes[2];
+      final uPixelStride = p1.bytesPerPixel ?? 1;
+      final vPixelStride = p2.bytesPerPixel ?? 1;
+      if (uPixelStride == vPixelStride &&
+          rawSink(
+            p0.bytes,
+            p1.bytes,
+            p2.bytes,
+            img.width,
+            img.height,
+            p0.bytesPerRow,
+            p1.bytesPerRow,
+            p2.bytesPerRow,
+            uPixelStride,
+            _rotCw,
+          )) {
+        _outputFrames++;
+      }
+      return;
+    }
 
     // Camera callbacks arrive on Flutter's UI isolate. Keep that callback
     // bounded to ownership transfer; de-striding and rotating hundreds of
@@ -206,6 +295,7 @@ class AndroidCameraCapture {
 
   Future<void> stop() async {
     _sink = null;
+    _rawSink = null;
     final c = _ctrl;
     _ctrl = null;
     if (identical(androidCallCameraPreviewController.value, c)) {
