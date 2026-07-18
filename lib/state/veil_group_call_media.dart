@@ -235,8 +235,11 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       videoReady = engine.startVideo();
       _videoRunning = videoReady;
       if (videoReady) {
+        // Poll above the nominal display cadence so equal-rate timer phase
+        // drift cannot turn a steady native stream into alternating 50/100 ms
+        // UI holds. _pollFrames only publishes a newly sequenced frame.
         _frameTimer = Timer.periodic(
-          const Duration(milliseconds: 50),
+          const Duration(milliseconds: 33),
           (_) => _pollFrames(engine),
         );
         if (call.screenOn || call.media.screen) {
