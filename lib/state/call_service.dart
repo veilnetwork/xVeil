@@ -539,7 +539,15 @@ class CallService {
         before == null ||
         before.callId != callId ||
         before.peer != peer ||
-        !before.isLive) {
+        !before.isLive ||
+        before.status != CallStatus.active) {
+      // A peer can become active first and request repair while this side is
+      // still opening its initial media channel (Apple TCC prompts make that
+      // window several seconds). There is no established local route to
+      // repair yet: repairRoute() correctly returns false for a null channel,
+      // but treating that as a terminal repair failure tears down a healthy
+      // call just before startup completes. The normal heartbeat will request
+      // again if media is still silent after both sides are active.
       return;
     }
     var repaired = false;
