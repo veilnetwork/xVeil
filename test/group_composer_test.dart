@@ -97,6 +97,19 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    expect(find.byKey(const ValueKey('group-sync-settings')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('group-sync-settings')));
+    await tester.pumpAndSettle();
+    expect(find.text('XOR neighbours: 5'), findsOneWidget);
+    final slider = tester.widget<Slider>(
+      find.byKey(const ValueKey('group-sync-neighbors-slider')),
+    );
+    slider.onChanged!(8);
+    await tester.pump();
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(await service.groupSyncNeighborCount(groupId), 8);
+
     expect(
       find.byKey(const ValueKey('group-message-composer')),
       findsOneWidget,

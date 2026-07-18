@@ -310,6 +310,21 @@ class AppL10nEn extends AppL10n {
   String get groupMembersTooltip => 'Members';
 
   @override
+  String get groupSyncSettingsTooltip => 'Chat synchronization';
+
+  @override
+  String get groupSyncNeighborsTitle => 'Chat synchronization';
+
+  @override
+  String groupSyncNeighborsLabel(int count) {
+    return 'XOR neighbours: $count';
+  }
+
+  @override
+  String get groupSyncNeighborsHint =>
+      'How many XOR-closest members this device connects to for chat history. More neighbours improve redundancy but use more traffic. This setting is local to this device.';
+
+  @override
   String get groupRenameTitle => 'Rename group';
 
   @override

@@ -661,6 +661,30 @@ abstract class AppL10n {
   /// **'Members'**
   String get groupMembersTooltip;
 
+  /// No description provided for @groupSyncSettingsTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Chat synchronization'**
+  String get groupSyncSettingsTooltip;
+
+  /// No description provided for @groupSyncNeighborsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Chat synchronization'**
+  String get groupSyncNeighborsTitle;
+
+  /// No description provided for @groupSyncNeighborsLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'XOR neighbours: {count}'**
+  String groupSyncNeighborsLabel(int count);
+
+  /// No description provided for @groupSyncNeighborsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'How many XOR-closest members this device connects to for chat history. More neighbours improve redundancy but use more traffic. This setting is local to this device.'**
+  String get groupSyncNeighborsHint;
+
   /// No description provided for @groupRenameTitle.
   ///
   /// In en, this message translates to:

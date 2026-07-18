@@ -311,6 +311,21 @@ class AppL10nRu extends AppL10n {
   String get groupMembersTooltip => 'Участники';
 
   @override
+  String get groupSyncSettingsTooltip => 'Синхронизация чата';
+
+  @override
+  String get groupSyncNeighborsTitle => 'Синхронизация чата';
+
+  @override
+  String groupSyncNeighborsLabel(int count) {
+    return 'XOR-соседей: $count';
+  }
+
+  @override
+  String get groupSyncNeighborsHint =>
+      'Со сколькими ближайшими по XOR участниками это устройство связывается для синхронизации истории. Больше соседей повышает надёжность, но расходует больше трафика. Настройка локальна для этого устройства.';
+
+  @override
   String get groupRenameTitle => 'Переименовать группу';
 
   @override
