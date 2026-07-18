@@ -42,7 +42,7 @@ class _CallVideoProfile {
 
 const _directVideoProfile = _CallVideoProfile(
   maxBitrateKbps: 900,
-  maxFps: 20,
+  maxFps: 60,
   cameraWidth: 640,
   cameraHeight: 360,
 );
@@ -94,13 +94,28 @@ class VeilCallMediaController implements CallMediaController {
   bool _routeRepairing = false;
   int _mediaEpoch = 0;
 
-  // Poll above the 20 fps source/display cadence instead of at the exact same
-  // 50 ms period. Equal-rate timers drift in and out of phase: some ticks see
+  // Frame cadence measured at the Dart/native boundary. Packet counters can
+  // look perfect while decoded video still arrives in visible bursts, so keep
+  // this lightweight telemetry in /call_state for live diagnosis.
+  final Stopwatch _frameCadenceClock = Stopwatch();
+  int _remoteFrames = 0;
+  int _localFrames = 0;
+  int? _firstRemoteFrameUs;
+  int? _lastRemoteFrameUs;
+  int _maxRemoteGapUs = 0;
+  int _remoteHoldsOver75Ms = 0;
+  int? _firstLocalFrameUs;
+  int? _lastLocalFrameUs;
+  int _maxLocalGapUs = 0;
+  int _localHoldsOver75Ms = 0;
+
+  // Poll above the 60 fps source/display cadence instead of at the exact same
+  // 16.7 ms period. Equal-rate timers drift in and out of phase: some ticks see
   // the previous native frame and the next tick skips ahead, producing visible
-  // 100 ms holds despite a steady decoder. Pulling at ~30 Hz is cheap because
+  // holds despite a steady decoder. Pulling at ~83 Hz is cheap because
   // getVideoFrame returns null without copying when the native sequence did
-  // not advance; the renderer remains capped at 20 fps and coalesces latest.
-  static const Duration _framePollInterval = Duration(milliseconds: 33);
+  // not advance; the renderer follows the display and coalesces latest.
+  static const Duration _framePollInterval = Duration(milliseconds: 12);
 
   /// Whether the native relay channel currently batches audio/RTCP (v2-peer
   /// gate accepted). Surfaced in [diagnostics] so a live stand run can SEE
@@ -132,11 +147,27 @@ class VeilCallMediaController implements CallMediaController {
       return {'transport': _chanTransport?.name, 'running': false};
     }
     try {
+      final androidCamera = _androidCam;
       return {
         'transport': _chanTransport?.name,
         'running': true,
         'batching': _relayBatching,
         if (_bitrateAdapter != null) 'adaptLevel': _bitrateAdapter!.level,
+        'remote_frame_fps': _remoteFrameFps,
+        'remote_frame_max_gap_ms': _maxRemoteGapUs ~/ 1000,
+        'remote_frame_holds_75ms': _remoteHoldsOver75Ms,
+        'remote_frames': _remoteFrames,
+        'local_frame_fps': androidCamera?.captureFps ?? _localFrameFps,
+        'local_frame_max_gap_ms': androidCamera == null
+            ? _maxLocalGapUs ~/ 1000
+            : androidCamera.diagnostics['camera_capture_max_gap_ms'],
+        'local_frame_holds_75ms': androidCamera == null
+            ? _localHoldsOver75Ms
+            : androidCamera.diagnostics['camera_capture_holds_75ms'],
+        'local_frames': androidCamera == null
+            ? _localFrames
+            : androidCamera.diagnostics['camera_capture_frames'],
+        if (androidCamera != null) ...androidCamera.diagnostics,
         ...engine.getStats(),
       };
     } catch (_) {
@@ -146,6 +177,24 @@ class VeilCallMediaController implements CallMediaController {
         'statsUnavailable': true,
       };
     }
+  }
+
+  double get _remoteFrameFps {
+    final first = _firstRemoteFrameUs;
+    final last = _lastRemoteFrameUs;
+    if (first == null || last == null || last <= first || _remoteFrames < 2) {
+      return 0;
+    }
+    return ((_remoteFrames - 1) * 1000000 / (last - first) * 10).round() / 10;
+  }
+
+  double get _localFrameFps {
+    final first = _firstLocalFrameUs;
+    final last = _lastLocalFrameUs;
+    if (first == null || last == null || last <= first || _localFrames < 2) {
+      return 0;
+    }
+    return ((_localFrames - 1) * 1000000 / (last - first) * 10).round() / 10;
   }
 
   @override
@@ -446,13 +495,57 @@ class VeilCallMediaController implements CallMediaController {
   /// Pump the latest decoded frames into the shared notifier for the UI.
   void _startFramePump(VeilMediaEngine engine) {
     _frameTimer?.cancel();
+    _frameCadenceClock
+      ..reset()
+      ..start();
+    _remoteFrames = 0;
+    _localFrames = 0;
+    _firstRemoteFrameUs = null;
+    _lastRemoteFrameUs = null;
+    _maxRemoteGapUs = 0;
+    _remoteHoldsOver75Ms = 0;
+    _firstLocalFrameUs = null;
+    _lastLocalFrameUs = null;
+    _maxLocalGapUs = 0;
+    _localHoldsOver75Ms = 0;
     _frameTimer = Timer.periodic(_framePollInterval, (_) {
       if (_engine != engine) return;
       try {
         final f = engine.getVideoFrame();
-        if (f != null) remoteVideoFrame.value = f;
-        final local = engine.getLocalVideoFrame();
-        if (local != null) localVideoFrame.value = local;
+        if (f != null) {
+          final nowUs = _frameCadenceClock.elapsedMicroseconds;
+          final previousUs = _lastRemoteFrameUs;
+          _firstRemoteFrameUs ??= nowUs;
+          if (previousUs != null) {
+            final gapUs = nowUs - previousUs;
+            if (gapUs > _maxRemoteGapUs) _maxRemoteGapUs = gapUs;
+            if (gapUs >= 75000) _remoteHoldsOver75Ms++;
+          }
+          _lastRemoteFrameUs = nowUs;
+          _remoteFrames++;
+          remoteVideoFrame.value = f;
+        }
+        // Android renders the camera self-preview through CameraX's native
+        // texture. Pulling the same frame back as RGBA here copied nearly a MB
+        // per tick on the UI isolate and was the main source of preview hitches.
+        // Screen sharing and other platforms still use the RGBA notifier.
+        final local =
+            Platform.isAndroid && _androidCam != null && _androidScreen == null
+            ? null
+            : engine.getLocalVideoFrame();
+        if (local != null) {
+          final nowUs = _frameCadenceClock.elapsedMicroseconds;
+          final previousUs = _lastLocalFrameUs;
+          _firstLocalFrameUs ??= nowUs;
+          if (previousUs != null) {
+            final gapUs = nowUs - previousUs;
+            if (gapUs > _maxLocalGapUs) _maxLocalGapUs = gapUs;
+            if (gapUs >= 75000) _localHoldsOver75Ms++;
+          }
+          _lastLocalFrameUs = nowUs;
+          _localFrames++;
+          localVideoFrame.value = local;
+        }
       } catch (_) {}
     });
   }
@@ -510,6 +603,7 @@ class VeilCallMediaController implements CallMediaController {
     }
     _frameTimer?.cancel();
     _frameTimer = null;
+    _frameCadenceClock.stop();
     _statsTimer?.cancel();
     _statsTimer = null;
     _lastRxAt = null;
@@ -601,8 +695,8 @@ class VeilCallMediaController implements CallMediaController {
       _transportFallbackReason = es.contains('not active')
           ? 'no direct session to peer'
           : es.contains('timed out')
-              ? 'direct probe timed out'
-              : 'direct open failed';
+          ? 'direct probe timed out'
+          : 'direct open failed';
       final channel = await _transport.openMediaChannel(
         call.peer.bytes,
         relay: true,
