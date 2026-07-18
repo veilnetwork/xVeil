@@ -30,6 +30,7 @@ class MainActivity : FlutterActivity() {
     private val callActionChannelName = "xveil/call_actions"
     private val screenCaptureChannelName = "xveil/screen_capture"
     private val cameraCapabilitiesChannelName = "xveil/camera_capabilities"
+    private val nativeCallCameraChannelName = "xveil/native_call_camera"
     private val micRequestCode = 0x4D49 // 'MI'
     private val screenCaptureRequestCode = 0x5343 // 'SC'
     private var pending: MethodChannel.Result? = null
@@ -37,12 +38,14 @@ class MainActivity : FlutterActivity() {
     private var callActionChannel: MethodChannel? = null
     private var pipEventsChannel: MethodChannel? = null
     private var screenCaptureChannel: MethodChannel? = null
+    private var nativeCallCamera: NativeCallCamera? = null
     private var pendingCallAction: String? = null
     private var pipAutoWanted = false
     private var pipAspect = Rational(16, 9)
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        nativeCallCamera = NativeCallCamera(this, flutterEngine.renderer)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
             .setMethodCallHandler { call, result ->
                 val type = call.argument<String>("type") ?: "audio"
@@ -65,6 +68,42 @@ class MainActivity : FlutterActivity() {
                         result.success(exactCameraFps(cameraId))
                     }
                 }
+                else -> result.notImplemented()
+            }
+        }
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            nativeCallCameraChannelName,
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "start" -> {
+                    if (!granted("video")) {
+                        result.error("permission", "Camera permission is not granted", null)
+                        return@setMethodCallHandler
+                    }
+                    val engine = call.argument<Number>("engine")?.toLong() ?: 0L
+                    val width = call.argument<Int>("width") ?: 640
+                    val height = call.argument<Int>("height") ?: 480
+                    val fps = call.argument<Int>("fps") ?: 30
+                    nativeCallCamera?.start(engine, width, height, fps) { value, error ->
+                        runOnUiThread {
+                            if (error == null) {
+                                result.success(value)
+                            } else {
+                                result.error("camera_start", error, null)
+                            }
+                        }
+                    } ?: result.error("camera_start", "Camera bridge is unavailable", null)
+                }
+                "stop" -> {
+                    val camera = nativeCallCamera
+                    if (camera == null) {
+                        result.success(true)
+                    } else {
+                        camera.stop { runOnUiThread { result.success(true) } }
+                    }
+                }
+                "stats" -> result.success(nativeCallCamera?.stats() ?: emptyMap<String, Any>())
                 else -> result.notImplemented()
             }
         }
@@ -381,6 +420,8 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        nativeCallCamera?.stop()
+        nativeCallCamera = null
         stopScreenCapture()
         screenCaptureChannel?.let(ScreenCaptureBridge::detach)
         screenCaptureChannel = null
