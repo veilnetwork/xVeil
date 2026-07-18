@@ -94,6 +94,14 @@ class VeilCallMediaController implements CallMediaController {
   bool _routeRepairing = false;
   int _mediaEpoch = 0;
 
+  // Poll above the 20 fps source/display cadence instead of at the exact same
+  // 50 ms period. Equal-rate timers drift in and out of phase: some ticks see
+  // the previous native frame and the next tick skips ahead, producing visible
+  // 100 ms holds despite a steady decoder. Pulling at ~30 Hz is cheap because
+  // getVideoFrame returns null without copying when the native sequence did
+  // not advance; the renderer remains capped at 20 fps and coalesces latest.
+  static const Duration _framePollInterval = Duration(milliseconds: 33);
+
   /// Whether the native relay channel currently batches audio/RTCP (v2-peer
   /// gate accepted). Surfaced in [diagnostics] so a live stand run can SEE
   /// the gate outcome — devLog is invisible on a shell-launched app.
@@ -435,10 +443,10 @@ class VeilCallMediaController implements CallMediaController {
     return ok;
   }
 
-  /// Pump decoded remote frames (~20fps) into the shared notifier for the UI.
+  /// Pump the latest decoded frames into the shared notifier for the UI.
   void _startFramePump(VeilMediaEngine engine) {
     _frameTimer?.cancel();
-    _frameTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
+    _frameTimer = Timer.periodic(_framePollInterval, (_) {
       if (_engine != engine) return;
       try {
         final f = engine.getVideoFrame();
