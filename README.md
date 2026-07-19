@@ -26,8 +26,9 @@ veil overlay, including:
 The app still builds/runs/tests on **in-memory fakes** behind clean ports (no native
 stack needed); the real stack activates via env (`XVEIL_VEIL_CLI`/`XVEIL_VEIL_CONFIG`,
 `XVEIL_NODE_MODE=embedded`). See [`doc/REAL-MODE.md`](doc/REAL-MODE.md) and
-[`doc/ARCHITECTURE.md`](doc/ARCHITECTURE.md). ~52 unit/widget tests + env-gated live
-tests under `test/native/`.
+[`doc/ARCHITECTURE.md`](doc/ARCHITECTURE.md). The automated suite covers the
+application, protocol, storage, media, and recovery layers; hardware-dependent
+live checks remain explicitly env-gated under `test/native/`.
 
 ## Develop
 

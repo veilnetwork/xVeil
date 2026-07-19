@@ -8,6 +8,7 @@ import '../../domain/call_log.dart';
 import '../../domain/chat.dart';
 import '../../domain/event.dart';
 import '../../domain/identity.dart';
+import '../../domain/inline_custom_emoji.dart';
 import '../../domain/p2p_policy.dart';
 import '../../domain/roster.dart';
 import '../transport/wire_envelope.dart' show isServiceEchoBody;
@@ -777,6 +778,7 @@ class HiddenVolumeStorage implements Storage {
             fileContentId: message.fileContentId,
             fileExternal: message.fileExternal,
             thumb: message.thumb,
+            customEmoji: message.customEmoji,
             replyToId: message.replyToId,
             forwardedFrom: message.forwardedFrom,
             author: author,
@@ -981,6 +983,7 @@ class HiddenVolumeStorage implements Storage {
           ts: ts,
           replyTo: null,
           forwardedFrom: null,
+          customEmoji: const [],
         ));
       } else if (m['k'] == EventKind.edit.index) {
         events.add((
@@ -993,6 +996,7 @@ class HiddenVolumeStorage implements Storage {
           ts: ts,
           replyTo: null,
           forwardedFrom: null,
+          customEmoji: parseInlineCustomEmoji(m['b'] as String? ?? '', m['ce']),
         ));
       } else {
         final k = m['k'] as int?;
@@ -1008,6 +1012,7 @@ class HiddenVolumeStorage implements Storage {
           ts: ts,
           replyTo: m['rt'] as String?,
           forwardedFrom: m['fw'] as String?,
+          customEmoji: parseInlineCustomEmoji(m['b'] as String? ?? '', m['ce']),
         ));
       }
     }
@@ -1103,6 +1108,7 @@ class HiddenVolumeStorage implements Storage {
     if (m.fileExternal) 'fx': 1, // blob in the external store, not in-container
     // Embedded micro-thumb (b64 PNG) — additive; old builds ignore the key.
     if (m.thumb != null) 'tb': m.thumb,
+    if (m.customEmoji.isNotEmpty) 'ce': encodeInlineCustomEmoji(m.customEmoji),
     if (m.replyToId != null) 'rt': m.replyToId,
     if (m.forwardedFrom != null) 'fw': m.forwardedFrom,
     // Opt-in attestation state (omitted when `none` so legacy rows stay clean).
@@ -1143,6 +1149,7 @@ class HiddenVolumeStorage implements Storage {
     String messageId,
     String newBody, {
     int? seq,
+    List<InlineCustomEmoji> customEmoji = const [],
   }) async {
     final hit = await _liveEntryFor(conversationId, messageId);
     if (hit == null) return null;
@@ -1197,6 +1204,8 @@ class HiddenVolumeStorage implements Storage {
               'au': author,
               'sq': editSeq,
               'b': newBody,
+              if (customEmoji.isNotEmpty)
+                'ce': encodeInlineCustomEmoji(customEmoji),
               't': DateTime.now().millisecondsSinceEpoch,
             }),
           ),
@@ -2070,18 +2079,19 @@ class HiddenVolumeStorage implements Storage {
     // keep the newest [cap] by ring time; the overflow is deleted in the SAME
     // commit, freeing its bounded log-index slots. A row older than a full
     // journal is accepted-then-aged-out (never an error to the recorder).
-    final all = <({int? logId, CallLogEntry entry})>[
-      (logId: null, entry: entry),
-      for (final r in cur) (logId: r.logId, entry: r.entry),
-    ]..sort((a, b) {
-      final c = b.entry.atMs.compareTo(a.entry.atMs);
-      if (c != 0) return c;
-      // Same ring time: the incoming row sorts newer; stored rows by
-      // descending log id (later write = newer).
-      if (a.logId == null) return -1;
-      if (b.logId == null) return 1;
-      return b.logId!.compareTo(a.logId!);
-    });
+    final all =
+        <({int? logId, CallLogEntry entry})>[
+          (logId: null, entry: entry),
+          for (final r in cur) (logId: r.logId, entry: r.entry),
+        ]..sort((a, b) {
+          final c = b.entry.atMs.compareTo(a.entry.atMs);
+          if (c != 0) return c;
+          // Same ring time: the incoming row sorts newer; stored rows by
+          // descending log id (later write = newer).
+          if (a.logId == null) return -1;
+          if (b.logId == null) return 1;
+          return b.logId!.compareTo(a.logId!);
+        });
     final evicted = all.skip(cap).toList(growable: false);
     final doomed = [
       for (final r in evicted)
@@ -2572,6 +2582,10 @@ class HiddenVolumeStorage implements Storage {
           if (authorOk && newer) {
             _scanById[tk] = post.copyWith(
               body: m['b'] as String? ?? post.body,
+              customEmoji: parseInlineCustomEmoji(
+                m['b'] as String? ?? post.body,
+                m['ce'],
+              ),
               edited: true,
             );
             if (editSeq != null) _scanEditWinSeq[tk] = editSeq;
@@ -2614,6 +2628,7 @@ class HiddenVolumeStorage implements Storage {
         fileContentId: m['fc'] as String?,
         fileExternal: m['fx'] == 1,
         thumb: m['tb'] as String?,
+        customEmoji: parseInlineCustomEmoji(m['b'] as String, m['ce']),
         author: m['au'] as String?,
         seq: m['sq'] as int?,
         replyToId: m['rt'] as String?,

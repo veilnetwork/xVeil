@@ -395,6 +395,7 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
       floatingActionButton: service == null
           ? null
           : FloatingActionButton.extended(
+              heroTag: 'xveil-cloud-add',
               onPressed: _busy ? null : _showAddMenu,
               icon: const Icon(Icons.add),
               label: Text(l.cloudAdd),

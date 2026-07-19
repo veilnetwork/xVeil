@@ -48,8 +48,8 @@ class PoisonedBlobRegistry {
   PoisonedBlobRegistry({
     required Future<String?> Function(String key) getSetting,
     required Future<void> Function(String key, String value) putSetting,
-  })  : _get = getSetting,
-        _put = putSetting;
+  }) : _get = getSetting,
+       _put = putSetting;
 
   static const String _key = 'mailbox.poisoned.v1';
   static const int _cap = 64;
@@ -115,8 +115,15 @@ class PoisonedBlobRegistry {
 /// relay-infrastructure decision; they are passed in so this state machine can be
 /// built + tested ([LoopbackMailboxCrypto] + [InMemoryMailboxRelay]) ahead of it.
 class MailboxOrchestrator {
-  MailboxOrchestrator(this._crypto, this._relay, {PoisonedBlobRegistry? poisoned})
-      : _poisoned = poisoned;
+  // Named public API keeps `poisoned`; a private initializing formal would
+  // expose `_poisoned` to callers, which Dart forbids across libraries.
+  MailboxOrchestrator(
+    this._crypto,
+    this._relay, {
+    PoisonedBlobRegistry? poisoned,
+  })
+    // ignore: prefer_initializing_formals
+    : _poisoned = poisoned;
 
   final VeilMailboxCrypto _crypto;
   final VeilMailboxRelay _relay;
@@ -213,6 +220,7 @@ class MailboxOrchestrator {
     required int ourCertVersion,
     required Future<bool> Function(Uint8List contentId) alreadyHave,
     List<NodeId> knownRelays = const [],
+    bool Function()? shouldContinue,
   }) async {
     final delivered = <DrainedMessage>[];
     final seenThisDrain = <String>{};
@@ -229,11 +237,20 @@ class MailboxOrchestrator {
     //     beat for it and re-fetch so the NEXT oldest surfaces THIS drain.
     var ackSettleRetries = 0;
     for (var round = 0; round < _maxDrainRounds; round++) {
+      if (shouldContinue?.call() == false) break;
       final blobs = await _relay.fetch(
-          me: me, authCookie: authCookie, knownRelays: knownRelays);
+        me: me,
+        authCookie: authCookie,
+        knownRelays: knownRelays,
+      );
+      // A call may have started while the native FETCH was in flight. Leave
+      // the returned blobs unacked at the relay and stop before decrypt/ack;
+      // the first post-call drain will recover them normally.
+      if (shouldContinue?.call() == false) break;
       if (blobs.isEmpty) break; // relays truly empty — done
-      final fresh =
-          blobs.where((b) => seenThisDrain.add(_cidHex(b.contentId))).toList();
+      final fresh = blobs
+          .where((b) => seenThisDrain.add(_cidHex(b.contentId)))
+          .toList();
       if (fresh.isEmpty) {
         // Relays re-serving only blobs we've handled — their ack removal is
         // still in flight. Wait briefly and retry rather than deferring the
@@ -252,6 +269,7 @@ class MailboxOrchestrator {
         alreadyHave: alreadyHave,
         knownRelays: knownRelays,
         delivered: delivered,
+        shouldContinue: shouldContinue,
       );
     }
     return delivered;
@@ -265,8 +283,10 @@ class MailboxOrchestrator {
     required Future<bool> Function(Uint8List contentId) alreadyHave,
     required List<NodeId> knownRelays,
     required List<DrainedMessage> delivered,
+    bool Function()? shouldContinue,
   }) async {
     for (final b in blobs) {
+      if (shouldContinue?.call() == false) return;
       // Quarantined: this cid already failed open PERMANENTLY (decryption is
       // deterministic). Skip the decrypt — but keep acking so a relay that
       // supports the ack endpoint finally drops it (replicas that missed an
@@ -309,9 +329,11 @@ class MailboxOrchestrator {
               _transientOpenFails.remove(_transientOpenFails.keys.first);
             }
             _transientOpenFails[cidHex] = n;
-            devLog(() =>
-                'xVeil[drain]: open TIMED OUT contentId=${_shortHex(b.contentId)} '
-                '(attempt $n/$_transientOpenCap) — NOT acked, will retry: $e');
+            devLog(
+              () =>
+                  'xVeil[drain]: open TIMED OUT contentId=${_shortHex(b.contentId)} '
+                  '(attempt $n/$_transientOpenCap) — NOT acked, will retry: $e',
+            );
             continue;
           }
           // Cap reached — fall through to the permanent path below.
@@ -334,25 +356,30 @@ class MailboxOrchestrator {
         // behind ~40 s of dead opens, past the caller's dial window. The
         // registry's FIFO cap already bounds what a live junk producer can
         // make us persist.
-        devLog(() => 'xVeil[drain]: OPEN FAILED contentId=${_shortHex(b.contentId)} '
-            'senderHint=${b.senderId.short} — $e');
+        devLog(
+          () =>
+              'xVeil[drain]: OPEN FAILED contentId=${_shortHex(b.contentId)} '
+              'senderHint=${b.senderId.short} — $e',
+        );
         _openFailedOnce.add(cidHex);
         await _poisoned?.add(b.contentId);
         await _ack(me, b.contentId, authCookie, knownRelays);
         continue;
       }
       _transientOpenFails.remove(cidHex); // opened fine — forget old timeouts
-      delivered.add(DrainedMessage(
-        // The CRYPTO-VERIFIED sender, recovered from the blob's sidecar and
-        // confirmed by the auth-deliver signature — NOT the relay-supplied wire
-        // hint (which is 0 on the anonymous path). This is the trustworthy
-        // attribution for the message.
-        sender: opened.verifiedSender,
-        contentId: b.contentId,
-        appId: opened.appId,
-        endpointId: opened.endpointId,
-        data: opened.data,
-      ));
+      delivered.add(
+        DrainedMessage(
+          // The CRYPTO-VERIFIED sender, recovered from the blob's sidecar and
+          // confirmed by the auth-deliver signature — NOT the relay-supplied wire
+          // hint (which is 0 on the anonymous path). This is the trustworthy
+          // attribution for the message.
+          sender: opened.verifiedSender,
+          contentId: b.contentId,
+          appId: opened.appId,
+          endpointId: opened.endpointId,
+          data: opened.data,
+        ),
+      );
       await _ack(me, b.contentId, authCookie, knownRelays);
     }
   }
@@ -362,13 +389,12 @@ class MailboxOrchestrator {
     Uint8List contentId,
     Uint8List authCookie,
     List<NodeId> knownRelays,
-  ) =>
-      _relay.ack(
-        me: me,
-        contentId: contentId,
-        authCookie: authCookie,
-        knownRelays: knownRelays,
-      );
+  ) => _relay.ack(
+    me: me,
+    contentId: contentId,
+    authCookie: authCookie,
+    knownRelays: knownRelays,
+  );
 }
 
 /// Full hex of a content id — the in-RAM quarantine key.

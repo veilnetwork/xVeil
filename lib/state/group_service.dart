@@ -32,6 +32,7 @@ import '../domain/group_message.dart';
 import '../domain/group_payload.dart';
 import '../domain/group_policy.dart';
 import '../domain/group_reaction.dart';
+import '../domain/inline_custom_emoji.dart';
 import '../data/transport/bootstrap_invite.dart';
 import '../data/storage/storage.dart';
 import 'group_crypto.dart';
@@ -47,6 +48,12 @@ bool _listEquals<T>(List<T>? left, List<T>? right) {
   }
   return true;
 }
+
+/// SHA-256 here hashes only public manifests and encrypted credential blobs.
+/// Keep this protocol primitive in the pure-Dart group core so ordinary group
+/// and adoption tests do not require loading the native identity library.
+Uint8List _sha256(List<int> bytes) =>
+    Uint8List.fromList(crypto.sha256.convert(bytes).bytes);
 
 int _compareXorDistance(NodeId origin, NodeId left, NodeId right) {
   for (var i = 0; i < origin.bytes.length; i++) {
@@ -186,11 +193,10 @@ final class NativeSovereignGroupSigner implements SovereignGroupSigner {
 class NativeGroupSigner implements GroupSigner {
   NativeGroupSigner({
     required this.identityToml,
-    required NodeId selfId,
-    required Uint8List selfPubKey,
+    required this._selfId,
+    required this._selfPubKey,
     this.lib,
-  }) : _selfId = selfId,
-       _selfPubKey = selfPubKey;
+  });
 
   final String identityToml;
   final DynamicLibrary? lib;
@@ -347,8 +353,8 @@ class GroupService {
   GroupService(
     this._storage,
     this._signer, {
-    GroupSnapshotSender? send,
-    GroupEpochService? epochService,
+    this._send,
+    this._epochService,
     this.ourCertVersion = 1,
     this.sendContentRequest,
     this.sendGroupCallFrame,
@@ -357,11 +363,7 @@ class GroupService {
     this.startContentPullFromAny,
     this.contentRequestFanoutTimeout = const Duration(seconds: 8),
     this.contentGrantDelay = const Duration(seconds: 4),
-  }) : _send = send,
-       // Named public constructor parameter cannot use a private initializing
-       // formal; keep the externally-used `epochService:` API.
-       // ignore: prefer_initializing_formals
-       _epochService = epochService;
+  });
   final Storage _storage;
   final GroupSigner _signer;
   final GroupSnapshotSender? _send;
@@ -475,7 +477,7 @@ class GroupService {
     if (encryptedBundle == null || encryptedBundle.length > 16 * 1024) {
       return false;
     }
-    return _listEquals(veil.VeilCrypto.sha256(encryptedBundle), expected);
+    return _listEquals(_sha256(encryptedBundle), expected);
   }
 
   bool _validControlFor(GroupManifest manifest, ControlEntry e) {
@@ -1579,6 +1581,7 @@ class GroupService {
     String body, {
     GroupAttachment? attachment,
     String? replyTo,
+    List<InlineCustomEmoji> customEmoji = const [],
     // Test/repro-only escape hatch: append WITHOUT the delta fanout —
     // simulates a delta lost in transit (total-outage class), so the
     // gap-fill path has a deterministic stand target.
@@ -1590,6 +1593,7 @@ class GroupService {
       body,
       attachment: attachment,
       replyTo: replyTo,
+      customEmoji: customEmoji,
       broadcast: broadcast,
     ),
   );
@@ -1599,8 +1603,10 @@ class GroupService {
     String body, {
     GroupAttachment? attachment,
     String? replyTo,
+    List<InlineCustomEmoji> customEmoji = const [],
     bool broadcast = true,
   }) async {
+    if (!isValidInlineCustomEmoji(body, customEmoji)) return false;
     final b = await load(groupId);
     if (b == null) return false;
     final state = foldControlLog(
@@ -1635,6 +1641,7 @@ class GroupService {
         body: body,
         attachment: attachment,
         replyTo: replyTo,
+        customEmoji: customEmoji,
       ).encode();
       try {
         final encrypted = await encryptGroupPayload(
@@ -1676,6 +1683,7 @@ class GroupService {
         signature: Uint8List(0),
         attachment: attachment,
         replyTo: replyTo,
+        customEmoji: customEmoji,
       );
     }
     final signed = _signer.signMessage(unsigned);
@@ -1867,7 +1875,7 @@ class GroupService {
           'ke': [
             for (final envelope in missingEpochEnvelopes) envelope.toJson(),
           ],
-        if (overlayId != null) 'ov': overlayId,
+        'ov': ?overlayId,
       }),
     );
     return true;
@@ -2085,7 +2093,7 @@ class GroupService {
     return out;
   }
 
-  /// Toggle our reaction [emoji] on the message [msgRef] ("<authorHex>:<seq>"):
+  /// Toggle our reaction [emoji] on [msgRef] (`<authorHex>:<seq>`):
   /// reacting with the emoji we already have removes it. Rejected (false) if we
   /// are not a non-muted member. The signed reaction is delta-broadcast.
   /// [broadcast]=false stores the signed reaction WITHOUT the delta fanout —
@@ -2371,8 +2379,9 @@ class GroupService {
       return false;
     }
     if (manifest == null || manifest.groupId != pending.groupId) return null;
-    if (!_listEquals(_manifestHash(manifest), pending.manifestHash))
+    if (!_listEquals(_manifestHash(manifest), pending.manifestHash)) {
       return false;
+    }
     if (!await ingestSnapshot(bundleJson)) return false;
     if (!await adoptDeviceGroup(pending.groupId)) return false;
     await cancelPendingDeviceAdoption();
@@ -2973,9 +2982,8 @@ class GroupService {
     }
   }
 
-  Uint8List _manifestHash(GroupManifest manifest) => veil.VeilCrypto.sha256(
-    Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
-  );
+  Uint8List _manifestHash(GroupManifest manifest) =>
+      _sha256(utf8.encode(jsonEncode(manifest.toJson())));
 
   Future<DeviceLinkToken?> pendingDeviceAdoption() async {
     final raw = await _storage.getSetting(kPendingDeviceAdoptionSetting);
@@ -3071,7 +3079,7 @@ class GroupService {
       signatureAlgorithm: sovereign.algorithm,
       sovereignBundleHash: encryptedSovereign == null
           ? null
-          : veil.VeilCrypto.sha256(encryptedSovereign),
+          : _sha256(encryptedSovereign),
     );
     final manifest = unsignedManifest.withSignature(
       sovereign.sign(unsignedManifest.canonicalBytes()),
@@ -3144,6 +3152,7 @@ class GroupService {
           createdAtMs: old.createdAtMs,
           signature: Uint8List(0),
           attachment: old.attachment,
+          customEmoji: old.customEmoji,
         );
         migratedMessages.add(_signer.signMessage(unsigned));
       }
@@ -3645,7 +3654,7 @@ class GroupService {
           'r': peerReactions.map((reaction) => reaction.toJson()).toList(),
           if (epochEnvelopes.isNotEmpty)
             'ke': epochEnvelopes.map((entry) => entry.toJson()).toList(),
-          if (deltaId != null) 'ov': deltaId,
+          'ov': ?deltaId,
         }),
       );
       n++;

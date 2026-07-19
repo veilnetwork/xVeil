@@ -20,6 +20,7 @@ class VeilFlutterTransport
     implements
         VeilTransport,
         RealtimeTransport,
+        RealtimeInboundTransport,
         StreamTransport,
         P2PStreamTransport {
   VeilFlutterTransport._(
@@ -45,6 +46,23 @@ class VeilFlutterTransport
   final AppHandle _app;
   final AppHandle _mediaApp;
   final AppHandle _realtimeApp;
+  int _debugRealtimeRxCount = 0;
+
+  bool get debugChatBindingMatches =>
+      _sameBytes(_app.appId, chatAppIdFor(_nodeId));
+  bool get debugRealtimeBindingMatches =>
+      _sameBytes(_realtimeApp.appId, realtimeAppIdFor(_nodeId));
+  int get debugChatEndpointId => _app.endpointId;
+  int get debugRealtimeEndpointId => _realtimeApp.endpointId;
+  int get debugRealtimeRxCount => _debugRealtimeRxCount;
+
+  static bool _sameBytes(Uint8List a, Uint8List b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
 
   /// Connect to a running node's app IPC socket and bind the chat endpoint.
   static Future<VeilFlutterTransport> connect(String socketPath) async {
@@ -160,7 +178,9 @@ class VeilFlutterTransport
     if (direct && relay) {
       throw ArgumentError('media channel cannot be both direct and relay');
     }
-    if (!direct && !relay) return _mediaClient.openMediaChannel(dstNodeId: dstNode);
+    if (!direct && !relay) {
+      return _mediaClient.openMediaChannel(dstNodeId: dstNode);
+    }
     final peer = NodeId(dstNode);
     if (relay) {
       return _mediaApp.openRelayMediaChannel(
@@ -180,12 +200,15 @@ class VeilFlutterTransport
   int sendMediaDatagram(int chan, Uint8List payload) =>
       _client.sendMediaDatagram(chan, payload);
 
-  /// Enable audio/RTCP batching on a RELAY media channel — several small
-  /// datagrams share one relay envelope, amortizing the per-packet
-  /// envelope+padding overhead. Callers gate this on the peer's call
-  /// protocol version: a batched cell is silent noise to an older build.
+  /// Enable audio/RTCP batching on a relay media channel. Callers gate this on
+  /// the peer's call protocol version: a batched cell is silent noise to an
+  /// older build.
   int setRelayMediaBatching(int chan, bool on) =>
       _mediaApp.setRelayMediaBatching(chan, on);
+
+  /// Relay drain queue/IPC timing for live call diagnostics.
+  Map<String, int>? mediaChannelStats(int chan) =>
+      _mediaApp.mediaChannelStats(chan);
 
   /// Refresh a black-holed anonymous media route after end-to-end silence.
   /// Direct channels reject this with -1; callers should only invoke it for an
@@ -433,10 +456,16 @@ class VeilFlutterTransport
         data: payload,
       );
     }
-    return _realtimeApp.send(
+    // APP_RT_SEND is a genuine direct-session datagram at REALTIME priority.
+    // The old implementation merely called ordinary `send` on a separate IPC
+    // connection: it avoided a local mutex but still entered route discovery,
+    // so an accepted call answer could arrive minutes after the ring timeout.
+    // A no-session error is intentional; call control is also persisted through
+    // the durable outbox/mailbox and will retry there.
+    return _realtimeApp.sendRealtime(
       dstNodeId: dst.bytes,
-      dstAppId: chatAppIdFor(dst),
-      dstEndpointId: veilChatEndpointId,
+      dstAppId: realtimeAppIdFor(dst),
+      dstEndpointId: veilRealtimeEndpointId,
       data: payload,
     );
   }
@@ -544,12 +573,23 @@ class VeilFlutterTransport
 
   @override
   Stream<InboundMessage> messages() => _app.messages().map(
-    (m) => InboundMessage(
-      src: NodeId(m.srcNodeId),
-      payload: m.data,
-      replyId: m.replyId,
+    (message) => InboundMessage(
+      src: NodeId(message.srcNodeId),
+      payload: message.data,
+      replyId: message.replyId,
     ),
   );
+
+  @override
+  Stream<InboundMessage> realtimeMessages() =>
+      _realtimeApp.messages().map((message) {
+        _debugRealtimeRxCount += 1;
+        return InboundMessage(
+          src: NodeId(message.srcNodeId),
+          payload: message.data,
+          replyId: message.replyId,
+        );
+      });
 
   @override
   Stream<int> sessionCount() async* {
@@ -615,9 +655,8 @@ class VeilCapabilityEndpoint {
     this._client,
     this._app,
     this.servicePublicKey, {
-    bool closeClient = false,
-  }) : // ignore: prefer_initializing_formals
-       _closeClient = closeClient;
+    this._closeClient = false,
+  });
 
   final VeilClient _client;
   final AppHandle _app;

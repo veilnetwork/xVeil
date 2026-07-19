@@ -83,7 +83,7 @@ void main() {
         relayKemAlgo: 0,
         relayKemPk: rKem!,
       );
-      print('[2d] F advertised R as its mailbox relay (KEM ${rKem.length}B)');
+      stdout.writeln('[2d] F advertised R as its mailbox relay (KEM ${rKem.length}B)');
 
       // The crux: S — NOT F — must resolve F's ad over the DHT cross-node.
       // (F is "offline" in the sense that it never has to be reachable for the
@@ -99,7 +99,7 @@ void main() {
       expect(viaS, isNotNull,
           reason: 'S could not resolve F\'s mailbox ad cross-node (needs the ad '
               'to replicate + S to walk recursively)');
-      print('[2d] S resolved F\'s ad cross-node → relay=${_short(viaS!.relayNodeId)}');
+      stdout.writeln('[2d] S resolved F\'s ad cross-node → relay=${_short(viaS!.relayNodeId)}');
 
       // S binds its PUT source app (anti-SPOOFED_SRC). The reply endpoint is
       // unused by the fire-and-forget PUT but the relay ctor requires one.
@@ -138,7 +138,7 @@ void main() {
           await Future<void>.delayed(const Duration(seconds: 2));
         }
       }
-      print('[2d] S deposited at R: $stashed${stashed ? "" : " ($stashErr)"}');
+      stdout.writeln('[2d] S deposited at R: $stashed${stashed ? "" : " ($stashErr)"}');
       expect(stashed, isTrue, reason: 'S could not deposit for F at R: $stashErr');
 
       // Now F comes online and drains its mailbox.
@@ -167,7 +167,7 @@ void main() {
           await Future<void>.delayed(const Duration(seconds: 2));
         }
       }
-      print('[2d] F drained ${drained.length} message(s)');
+      stdout.writeln('[2d] F drained ${drained.length} message(s)');
       expect(drained, isNotEmpty,
           reason: 'F drained nothing — S\'s cross-node deposit never landed at R');
 
@@ -176,7 +176,7 @@ void main() {
       expect(got.contentId, contentId, reason: 'content id must round-trip');
       expect(got.appId, inboxAppId, reason: 'destination app id must round-trip');
       expect(got.endpointId, inboxEndpointId);
-      print('[2d] ✓ offline round-trip: S → R → F recovered '
+      stdout.writeln('[2d] ✓ offline round-trip: S → R → F recovered '
           '"${utf8.decode(got.data)}" via the cross-node mailbox path');
     } finally {
       sSrc?.close();

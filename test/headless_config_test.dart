@@ -20,6 +20,7 @@ void main() {
         'listen_port': 9000,
         'api_port': 8787,
         'anonymous': true,
+        'udp_reflectors': ['127.0.0.1:39999'],
         'bootstrap_peers': [
           {
             'transport': 'tcp://127.0.0.1:1',
@@ -37,6 +38,7 @@ void main() {
     expect(config.listenPort, 9000);
     expect(config.anonymous, isFalse);
     expect(config.bootstrapPeers.single.algo, 'ed25519');
+    expect(config.udpReflectors, ['127.0.0.1:39999']);
     expect(config.storePath, File('${temp.path}/store.hv').absolute.path);
   });
 
@@ -60,6 +62,14 @@ void main() {
       );
     }
     await write({...base, 'api_port': 70000});
+    await expectLater(
+      HeadlessConfig.load('${temp.path}/headless.json', environment: const {}),
+      throwsFormatException,
+    );
+    await write({
+      ...base,
+      'udp_reflectors': ['reflector.example:39999'],
+    });
     await expectLater(
       HeadlessConfig.load('${temp.path}/headless.json', environment: const {}),
       throwsFormatException,

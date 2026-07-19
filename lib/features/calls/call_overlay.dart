@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:camera/camera.dart';
@@ -12,6 +13,7 @@ import '../../state/app_controller.dart';
 import '../../state/android_camera_capture.dart'
     show androidCallCameraPreviewController;
 import '../../state/android_native_call_camera.dart';
+import '../../state/android_native_call_video.dart';
 import '../../state/call_service.dart';
 import '../../state/veil_call_media.dart'
     show localVideoFrame, remoteVideoFrame;
@@ -313,8 +315,7 @@ class _CallBody extends ConsumerWidget {
       children: [
         ColoredBox(
           color: Colors.black,
-          child: CallVideoFrameView(
-            frameListenable: remoteVideoFrame,
+          child: _RemoteCallVideoView(
             freshnessToken: (call.callId, peerScreen),
             waitingLabel: peerScreen ? l.callScreenWaiting : l.callVideoWaiting,
             staleLabel: l.callVideoPaused,
@@ -459,6 +460,180 @@ class _PipEndedCover extends StatelessWidget {
   }
 }
 
+class _RemoteCallVideoView extends StatelessWidget {
+  const _RemoteCallVideoView({
+    required this.freshnessToken,
+    required this.waitingLabel,
+    this.placeholderIcon = Icons.videocam_outlined,
+    this.staleLabel,
+  });
+
+  final Object freshnessToken;
+  final String waitingLabel;
+  final IconData placeholderIcon;
+  final String? staleLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    if (Platform.isAndroid) {
+      return _AndroidNativeRemoteVideoView(
+        freshnessToken: freshnessToken,
+        waitingLabel: waitingLabel,
+        fit: BoxFit.contain,
+        placeholderIcon: placeholderIcon,
+        staleLabel: staleLabel,
+      );
+    }
+    return CallVideoFrameView(
+      frameListenable: remoteVideoFrame,
+      freshnessToken: freshnessToken,
+      waitingLabel: waitingLabel,
+      fit: BoxFit.contain,
+      placeholderIcon: placeholderIcon,
+      staleLabel: staleLabel,
+    );
+  }
+}
+
+class _AndroidNativeRemoteVideoView extends StatefulWidget {
+  const _AndroidNativeRemoteVideoView({
+    required this.freshnessToken,
+    required this.waitingLabel,
+    required this.fit,
+    required this.placeholderIcon,
+    required this.staleLabel,
+  });
+
+  final Object freshnessToken;
+  final String waitingLabel;
+  final BoxFit fit;
+  final IconData placeholderIcon;
+  final String? staleLabel;
+
+  @override
+  State<_AndroidNativeRemoteVideoView> createState() =>
+      _AndroidNativeRemoteVideoViewState();
+}
+
+class _AndroidNativeRemoteVideoViewState
+    extends State<_AndroidNativeRemoteVideoView> {
+  int? _blockedThroughFrame;
+  Timer? _staleTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    androidNativeCallVideoTexture.addListener(_onTexture);
+    if (widget.staleLabel != null) {
+      _staleTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() {});
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _AndroidNativeRemoteVideoView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.freshnessToken != widget.freshnessToken) {
+      _blockedThroughFrame = androidNativeCallVideoTexture.value?.frames ?? 0;
+    }
+    if ((oldWidget.staleLabel == null) != (widget.staleLabel == null)) {
+      _staleTimer?.cancel();
+      _staleTimer = widget.staleLabel == null
+          ? null
+          : Timer.periodic(const Duration(seconds: 1), (_) {
+              if (mounted) setState(() {});
+            });
+    }
+  }
+
+  @override
+  void dispose() {
+    androidNativeCallVideoTexture.removeListener(_onTexture);
+    _staleTimer?.cancel();
+    super.dispose();
+  }
+
+  void _onTexture() {
+    final value = androidNativeCallVideoTexture.value;
+    final blocked = _blockedThroughFrame;
+    if (blocked != null && value != null && value.frames > blocked) {
+      _blockedThroughFrame = null;
+    }
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final value = androidNativeCallVideoTexture.value;
+    final blocked = _blockedThroughFrame;
+    if (value == null ||
+        !value.hasFrame ||
+        (blocked != null && value.frames <= blocked)) {
+      return CallVideoFrameView(
+        frameListenable: remoteVideoFrame,
+        freshnessToken: widget.freshnessToken,
+        waitingLabel: widget.waitingLabel,
+        fit: widget.fit,
+        placeholderIcon: widget.placeholderIcon,
+        staleLabel: widget.staleLabel,
+      );
+    }
+    final lastFrameAt = value.lastFrameAt;
+    final stale =
+        widget.staleLabel != null &&
+        lastFrameAt != null &&
+        DateTime.now().difference(lastFrameAt) >= const Duration(seconds: 4);
+    final texture = ColoredBox(
+      color: Colors.black,
+      child: ClipRect(
+        child: FittedBox(
+          fit: widget.fit,
+          child: SizedBox(
+            width: value.width.toDouble(),
+            height: value.height.toDouble(),
+            child: Texture(
+              textureId: value.textureId,
+              filterQuality: FilterQuality.low,
+            ),
+          ),
+        ),
+      ),
+    );
+    if (!stale) return texture;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        texture,
+        ColoredBox(
+          color: Colors.black54,
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.pause_circle_outline,
+                  color: Colors.white.withValues(alpha: 0.7),
+                  size: 34,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  widget.staleLabel!,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.8),
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _PipVideoView extends StatelessWidget {
   const _PipVideoView(this.call);
 
@@ -470,8 +645,7 @@ class _PipVideoView extends StatelessWidget {
     final peerScreen = _peerScreenSharing(call);
     return ColoredBox(
       color: Colors.black,
-      child: CallVideoFrameView(
-        frameListenable: remoteVideoFrame,
+      child: _RemoteCallVideoView(
         freshnessToken: (call.callId, peerScreen),
         waitingLabel: peerScreen ? l.callScreenWaiting : l.callVideoWaiting,
         staleLabel: l.callVideoPaused,
@@ -600,8 +774,7 @@ class _FloatingCallTile extends ConsumerWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              CallVideoFrameView(
-                frameListenable: remoteVideoFrame,
+              _RemoteCallVideoView(
                 freshnessToken: (call.callId, peerScreen),
                 waitingLabel: peerScreen
                     ? l.callScreenWaiting

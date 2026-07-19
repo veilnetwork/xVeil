@@ -112,14 +112,14 @@ void main() {
     await mB.dispose();
   });
 
-  Uint8List _rnd(int n, int seed) {
+  Uint8List rnd(int n, int seed) {
     final r = Random(seed);
     return Uint8List.fromList(List.generate(n, (_) => r.nextInt(256)));
   }
 
   test('content transfer: advertise → request → serve → verify → reassemble '
       '(multi-piece, hash-verified end to end)', () async {
-    final data = _rnd(300000, 7); // ~2 pieces at the 256 KiB adaptive size
+    final data = rnd(300000, 7); // ~2 pieces at the 256 KiB adaptive size
     final got = mB.contentReceived.first;
     await mA.sendContent(b, data, 'movie.bin');
     final received = await got.timeout(const Duration(seconds: 10));
@@ -134,7 +134,7 @@ void main() {
   test(
     'stored cloud blob shares as a fresh filePost without a second copy',
     () async {
-      final data = _rnd(300000, 71);
+      final data = rnd(300000, 71);
       final manifest = ContentManifest.fromBytes(
         'cloud.bin',
         data,
@@ -170,7 +170,7 @@ void main() {
   test(
     'a dropped piece is re-requested and the transfer still completes',
     () async {
-      final data = _rnd(300000, 8);
+      final data = rnd(300000, 8);
       // Content flows A→B over tA.send — drop a piece-1 chunk there, once.
       tA.dropPiecesOnce.add(1);
       final got = mB.contentReceived.first;
@@ -188,7 +188,7 @@ void main() {
   test(
     'large file becomes delivered only after receiver verifies and stores it',
     () async {
-      final data = _rnd(1024 * 1024 + 1, 9); // force the content-layer path
+      final data = rnd(1024 * 1024 + 1, 9); // force the content-layer path
       final got = mB.contentReceived.first;
       await mA.sendFile(b, data, 'large.bin');
 
@@ -218,7 +218,7 @@ void main() {
 
   test('a large send is SERVED FROM SOURCE (no duplicated copy on the sender) '
       'and still delivers + verifies on the receiver', () async {
-    final source = _rnd(700000, 11); // ~3 pieces; stands in for a too-big file
+    final source = rnd(700000, 11); // ~3 pieces; stands in for a too-big file
     var closed = false;
     // The analogue of RandomAccessFile.read(offset, length): the sender reads
     // each chunk straight from the source on request — never the whole file.
@@ -315,7 +315,7 @@ void main() {
     'DURABLE offer: a reoffer after the SENDER restarts re-opens the source '
     'file and re-serves (offer survives the sender losing its serve state)',
     () async {
-      final data = _rnd(300000, 52);
+      final data = rnd(300000, 52);
       final cid = ContentManifest.fromBytes('d.bin', data).contentId;
       Future<Uint8List> read(int o, int l) async =>
           Uint8List.sublistView(data, o, o + l);
@@ -374,7 +374,7 @@ void main() {
 
   test('a download with no live manifest RE-REQUESTS it from the sender and '
       'resumes (offer survived a restart, manifest did not)', () async {
-    final data = _rnd(300000, 41);
+    final data = rnd(300000, 41);
     final cid = ContentManifest.fromBytes('r.bin', data).contentId;
     // A's first advertise is lost → A is SERVING but B never registered the offer.
     tA.dropManifestOnce = true;
@@ -397,7 +397,7 @@ void main() {
   });
 
   test('download emits monotonic progress, ending at done == total', () async {
-    final data = _rnd(300000, 31); // multi-piece, auto-downloads (< 2 MB cap)
+    final data = rnd(300000, 31); // multi-piece, auto-downloads (< 2 MB cap)
     final events = <({String contentId, int done, int total})>[];
     final sub = mB.contentProgress.listen(events.add);
     addTearDown(sub.cancel);
@@ -419,7 +419,7 @@ void main() {
 
   test('UNENCRYPTED download: pieces are written straight to a plaintext file; '
       'NOTHING is stored in the app; completion reports the path', () async {
-    final data = _rnd(300000, 22); // multi-piece, served from source
+    final data = rnd(300000, 22); // multi-piece, served from source
     final cid = ContentManifest.fromBytes('clip.bin', data).contentId;
     // "Always ask" so the file stays an OFFER (not auto-downloaded) → the user
     // gets to choose the unencrypted-to-file path.

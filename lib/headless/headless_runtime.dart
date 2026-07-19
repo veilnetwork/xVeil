@@ -103,6 +103,7 @@ class HeadlessRuntime {
         listenPort: config.listenPort,
         anonymous: config.anonymous,
         bootstrapPeers: config.bootstrapPeers,
+        udpReflectors: config.udpReflectors,
         obfs4Psk: psk,
         identityPhrase: identityPhrase,
         lib: _veilNativeHandle(),

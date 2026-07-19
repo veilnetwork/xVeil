@@ -1,4 +1,5 @@
 import '../core/ids.dart';
+import 'inline_custom_emoji.dart';
 import 'p2p_policy.dart';
 
 /// Relationship state with a peer — gates messaging so strangers can't write
@@ -150,6 +151,7 @@ class Message {
     this.replyToId,
     this.forwardedFrom,
     this.signature = MessageSignature.none,
+    this.customEmoji = const [],
   });
 
   final String id;
@@ -217,6 +219,10 @@ class Message {
   /// Opt-in authorship-attestation state (see [MessageSignature]).
   final MessageSignature signature;
 
+  /// Small inline images anchored to ordinary `☺` fallback characters in
+  /// [body]. Additive metadata: older clients ignore it and keep readable text.
+  final List<InlineCustomEmoji> customEmoji;
+
   /// A file message — whether already downloaded ([fileId]) or merely OFFERED
   /// ([fileContentId], awaiting an opt-in download).
   bool get isFile => fileId != null || fileContentId != null;
@@ -230,6 +236,7 @@ class Message {
     bool? edited,
     String? fileId,
     MessageSignature? signature,
+    List<InlineCustomEmoji>? customEmoji,
   }) => Message(
     id: id,
     conversationId: conversationId,
@@ -249,6 +256,7 @@ class Message {
     replyToId: replyToId,
     forwardedFrom: forwardedFrom,
     signature: signature ?? this.signature,
+    customEmoji: customEmoji ?? this.customEmoji,
   );
 }
 

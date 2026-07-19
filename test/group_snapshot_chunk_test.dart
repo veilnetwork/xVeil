@@ -225,7 +225,7 @@ void main() {
 
   test('an incomplete snapshot never fires onGroupEntry', () async {
     var calls = 0;
-    mB.onGroupEntry = (_, __) => calls++;
+    mB.onGroupEntry = (_, _) => calls++;
     final frames = _chunkFrames(bundle, 'grp:z:3');
     // Deliver everything EXCEPT the last chunk.
     for (final fr in frames.take(frames.length - 1)) {

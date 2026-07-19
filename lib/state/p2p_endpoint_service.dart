@@ -10,7 +10,6 @@ import '../core/log.dart';
 import '../data/transport/bootstrap_invite.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import 'messaging.dart';
-import 'messaging_core.dart';
 import 'p2p_policy_controller.dart';
 import 'providers.dart';
 
@@ -41,24 +40,17 @@ import 'providers.dart';
 class P2PEndpointService {
   P2PEndpointService(
     this._messaging, {
-    required Future<bool> Function(NodeId peer) localAllowsP2P,
-    required Future<void> Function(String uri) joinEndpoint,
-    required Future<({bool admitted, bool hasCert})> Function(Uint8List peer)
-    pnetStatus,
-    required BootstrapInvite Function() myIdentity,
-    required int Function() listenPort,
-    required bool Function() lanListenEnabled,
+    required this._localAllowsP2P,
+    required this._joinEndpoint,
+    required this._pnetStatus,
+    required this._myIdentity,
+    required this._listenPort,
+    required this._listenScheme,
+    required this._lanListenEnabled,
     Future<List<String>> Function()? localAddresses,
-    Future<List<String>> Function()? listenTransports,
+    this._listenTransports,
     DateTime Function()? now,
-  }) : _localAllowsP2P = localAllowsP2P,
-       _joinEndpoint = joinEndpoint,
-       _pnetStatus = pnetStatus,
-       _myIdentity = myIdentity,
-       _listenPort = listenPort,
-       _lanListenEnabled = lanListenEnabled,
-       _localAddresses = localAddresses ?? _defaultLocalAddresses,
-       _listenTransports = listenTransports,
+  }) : _localAddresses = localAddresses ?? _defaultLocalAddresses,
        _now = now ?? DateTime.now;
 
   final MessagingService _messaging;
@@ -68,6 +60,7 @@ class P2PEndpointService {
   _pnetStatus;
   final BootstrapInvite Function() _myIdentity;
   final int Function() _listenPort;
+  final String Function() _listenScheme;
   final bool Function() _lanListenEnabled;
   final Future<List<String>> Function() _localAddresses;
 
@@ -248,12 +241,18 @@ class P2PEndpointService {
   Future<List<String>> _mintLocalUris() async {
     final port = _listenPort();
     if (port <= 0) return const [];
+    final scheme = _listenScheme();
+    if (scheme != 'tcp' && scheme != 'quic') return const [];
     final identity = _myIdentity();
     final addrs = await _localAddresses();
-    final srflx = await _srflxAddresses(port, exclude: addrs.toSet());
+    final srflx = await _srflxAddresses(
+      port,
+      scheme: scheme,
+      exclude: addrs.toSet(),
+    );
     final transports = [
-      for (final ip in addrs) 'tcp://$ip:$port',
-      for (final ip in srflx) 'tcp://$ip:$port',
+      for (final ip in addrs) '$scheme://$ip:$port',
+      for (final ip in srflx) '$scheme://$ip:$port',
     ];
     return [
       for (final t in transports.take(_maxEndpointsPerFrame))
@@ -271,6 +270,7 @@ class P2PEndpointService {
   /// the wildcard listener host to the observed external IP.
   Future<List<String>> _srflxAddresses(
     int listenPort, {
+    required String scheme,
     required Set<String> exclude,
   }) async {
     final query = _listenTransports;
@@ -286,15 +286,18 @@ class P2PEndpointService {
     for (final uri in uris) {
       // `srflx://ip:port` = raw observed external address (the port is the
       // probe session's NAT mapping — we substitute our own listen port).
-      // `tcp://ip:<listenPort>` = an operator-advertised listener that
-      // happens to be ours; usable verbatim.
+      // `<scheme>://ip:<listenPort>` = an operator-advertised listener that
+      // happens to be ours; usable verbatim without changing TCP/QUIC.
       final srflx = RegExp(r'^srflx://([0-9.]+):\d+$').firstMatch(uri);
-      final tcp = RegExp(r'^tcp://([0-9.]+):(\d+)$').firstMatch(uri);
+      final advertised = RegExp(
+        '^${RegExp.escape(scheme)}://([0-9.]+):(\\d+)\$',
+      ).firstMatch(uri);
       final String host;
       if (srflx != null) {
         host = srflx.group(1)!;
-      } else if (tcp != null && int.tryParse(tcp.group(2)!) == listenPort) {
-        host = tcp.group(1)!;
+      } else if (advertised != null &&
+          int.tryParse(advertised.group(2)!) == listenPort) {
+        host = advertised.group(1)!;
       } else {
         continue;
       }
@@ -359,6 +362,7 @@ final p2pEndpointServiceProvider = Provider<P2PEndpointService?>((ref) {
     pnetStatus: transport.peerPnetStatus,
     myIdentity: () => stack.myInvite,
     listenPort: () => stack.listenPort,
+    listenScheme: () => stack.listenScheme,
     lanListenEnabled: () => stack.lanListen,
     listenTransports: transport.listenTransports,
   )..start();

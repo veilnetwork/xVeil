@@ -107,7 +107,7 @@ void main() {
     await mB.dispose();
   });
 
-  List<Message> _bodies(List<Message> m) => m;
+  List<Message> bodies0(List<Message> m) => m;
 
   test('a message lost on the live path self-heals via the gap-fill beacon',
       () async {
@@ -339,10 +339,10 @@ void main() {
     await mB.reconcileOnConnect();
     await _settle();
 
-    expect(_bodies(await sB.loadMessages(a.hex)).map((m) => m.body),
+    expect(bodies0(await sB.loadMessages(a.hex)).map((m) => m.body),
         contains('a-lost'),
         reason: "B recovered A's lost message");
-    expect(_bodies(await sA.loadMessages(b.hex)).map((m) => m.body),
+    expect(bodies0(await sA.loadMessages(b.hex)).map((m) => m.body),
         contains('b-lost'),
         reason: "A recovered B's lost message via the beacon-back");
   });

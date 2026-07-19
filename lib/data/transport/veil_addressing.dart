@@ -77,3 +77,9 @@ Uint8List mediaAppIdFor(NodeId peer) =>
 /// the main client cannot head-of-line block accept/end frames.
 const veilRealtimeName = 'call-control-tx';
 const veilRealtimeEndpointId = 14;
+
+/// The dedicated direct-session call-control endpoint exposed by [peer].
+/// Durable retries still target [chatAppIdFor]; only loss-tolerant realtime
+/// delivery uses this isolated binding.
+Uint8List realtimeAppIdFor(NodeId peer) =>
+    deriveAppId(peer, veilChatNamespace, veilRealtimeName);

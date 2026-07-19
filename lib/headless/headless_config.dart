@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import '../data/node/embedded_node.dart' show BootstrapPeerCfg;
+import '../data/node/embedded_node.dart' show BootstrapPeerCfg, EmbeddedNode;
 
 /// Public, non-secret daemon configuration. Passwords, recovery phrases and
 /// bearer tokens deliberately do not belong here: they are supplied through a
@@ -15,6 +15,7 @@ class HeadlessConfig {
     required this.apiPort,
     required this.anonymous,
     required this.bootstrapPeers,
+    this.udpReflectors = const [],
     this.obfs4PskFile,
   });
 
@@ -25,6 +26,7 @@ class HeadlessConfig {
   final int apiPort;
   final bool anonymous;
   final List<BootstrapPeerCfg> bootstrapPeers;
+  final List<String> udpReflectors;
   final String? obfs4PskFile;
 
   static Future<HeadlessConfig> load(
@@ -82,6 +84,21 @@ class HeadlessConfig {
     if (psk != null && psk is! String) {
       throw const FormatException('obfs4_psk_file must be a path');
     }
+    final reflectorsRaw = env['XVEIL_UDP_REFLECTORS'] != null
+        ? env['XVEIL_UDP_REFLECTORS']!.split(',')
+        : decoded['udp_reflectors'] ?? const <dynamic>[];
+    if (reflectorsRaw is! List || reflectorsRaw.any((e) => e is! String)) {
+      throw const FormatException('udp_reflectors must be an array of strings');
+    }
+    final reflectorStrings = reflectorsRaw.cast<String>();
+    final udpReflectors = EmbeddedNode.normalizeUdpReflectors(reflectorStrings);
+    if (reflectorStrings.any(
+      (e) => EmbeddedNode.normalizeUdpReflectors([e]).isEmpty,
+    )) {
+      throw const FormatException(
+        'udp_reflectors must contain numeric IP:port endpoints',
+      );
+    }
     return HeadlessConfig(
       storePath: File(text('XVEIL_STORE', 'store')).absolute.path,
       runtimeDir: Directory(
@@ -92,6 +109,7 @@ class HeadlessConfig {
       apiPort: number('XVEIL_API_PORT', 'api_port', 8787),
       anonymous: flag('XVEIL_ANONYMOUS', 'anonymous', true),
       bootstrapPeers: BootstrapPeerCfg.listFromJson(peersRaw),
+      udpReflectors: udpReflectors,
       obfs4PskFile: psk is String && psk.trim().isNotEmpty
           ? File(psk.trim()).absolute.path
           : null,

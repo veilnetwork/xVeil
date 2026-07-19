@@ -57,8 +57,8 @@ class VoiceSidecar {
 }
 
 /// Encode [durationMs] + optional [lang] + [bars] (each 0..1) into the compact
-/// `thumb` sidecar string `vw1:<durationMs>:<lang>:<base64 of one byte per
-/// bar>`. [lang] (the sender's language) may be empty. Bars are quantized to a
+/// `thumb` sidecar string `vw1:durationMs:lang:base64(bytes)`. [lang] (the
+/// sender's language) may be empty. Bars are quantized to a
 /// single byte (0..255) — inaudible precision loss, tiny payload.
 String encodeVoiceSidecar(int durationMs, List<double> bars, {String? lang}) {
   final bytes = Uint8List(bars.length);

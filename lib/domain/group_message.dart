@@ -10,6 +10,7 @@ import 'dart:typed_data';
 
 import '../core/ids.dart';
 import 'group_payload.dart';
+import 'inline_custom_emoji.dart';
 
 /// An inline media attachment carried WHOLE inside a group message (groups
 /// epic, phase 1, media brick 1). Unlike 1:1 media — which ships a tiny thumb
@@ -81,11 +82,13 @@ class GroupMessageCleartext {
     required this.body,
     this.attachment,
     this.replyTo,
+    this.customEmoji = const [],
   });
 
   final String body;
   final GroupAttachment? attachment;
   final String? replyTo;
+  final List<InlineCustomEmoji> customEmoji;
 
   Uint8List encode() => Uint8List.fromList(
     utf8.encode(
@@ -94,6 +97,7 @@ class GroupMessageCleartext {
         'body': body,
         if (attachment != null) 'att': attachment!.toJson(),
         if (replyTo != null) 'rt': replyTo,
+        if (customEmoji.isNotEmpty) 'ce': encodeInlineCustomEmoji(customEmoji),
       }),
     ),
   );
@@ -115,6 +119,10 @@ class GroupMessageCleartext {
         body: value['body'] as String,
         attachment: attachment,
         replyTo: replyTo as String?,
+        customEmoji: parseInlineCustomEmoji(
+          value['body'] as String,
+          value['ce'],
+        ),
       );
     } catch (_) {
       return null;
@@ -137,6 +145,7 @@ class GroupMessage {
     this.encryptedPayload,
     this.attachment,
     this.replyTo,
+    this.customEmoji = const [],
     Uint8List? authorPubKey,
   }) : authorPubKey = authorPubKey ?? Uint8List(0);
 
@@ -152,6 +161,8 @@ class GroupMessage {
   final int createdAtMs;
   final Uint8List signature;
   final GroupAttachment? attachment; // optional inline media
+  final List<InlineCustomEmoji> customEmoji;
+
   /// The `<authorHex>:<seq>` reference of the message this one replies to, or
   /// null. Group messages have no single id, but (author, seq) is a permanent
   /// identity (groups have no edit/delete), so it resolves stably on any device.
@@ -190,6 +201,8 @@ class GroupMessage {
             'ts': createdAtMs,
             if (attachment != null) 'att': attachment!.toCanonical(),
             if (replyTo != null) 'rt': replyTo,
+            if (customEmoji.isNotEmpty)
+              'ce': encodeInlineCustomEmoji(customEmoji),
           };
     return Uint8List.fromList(utf8.encode(jsonEncode(map)));
   }
@@ -208,6 +221,7 @@ class GroupMessage {
     signature: sig,
     attachment: attachment,
     replyTo: replyTo,
+    customEmoji: customEmoji,
     authorPubKey: pubKey,
   );
 
@@ -226,6 +240,7 @@ class GroupMessage {
         signature: signature,
         attachment: cleartext.attachment,
         replyTo: cleartext.replyTo,
+        customEmoji: cleartext.customEmoji,
         authorPubKey: authorPubKey,
       );
 
@@ -255,6 +270,7 @@ class GroupMessage {
       'ts': createdAtMs,
       if (attachment != null) 'att': attachment!.toJson(),
       if (replyTo != null) 'rt': replyTo,
+      if (customEmoji.isNotEmpty) 'ce': encodeInlineCustomEmoji(customEmoji),
       'sig': base64Encode(signature),
       if (authorPubKey.isNotEmpty) 'apk': base64Encode(authorPubKey),
     };
@@ -288,7 +304,8 @@ class GroupMessage {
                 encryptedPayload == null ||
                 j.containsKey('body') ||
                 j.containsKey('att') ||
-                j.containsKey('rt')))) {
+                j.containsKey('rt') ||
+                j.containsKey('ce')))) {
       return null;
     }
     try {
@@ -306,6 +323,9 @@ class GroupMessage {
         signature: Uint8List.fromList(base64Decode(sig)),
         attachment: version == 1 ? GroupAttachment.fromJson(j['att']) : null,
         replyTo: version == 1 && j['rt'] is String ? j['rt'] as String : null,
+        customEmoji: version == 1
+            ? parseInlineCustomEmoji(body as String, j['ce'])
+            : const [],
         authorPubKey: j['apk'] is String
             ? Uint8List.fromList(base64Decode(j['apk'] as String))
             : null,

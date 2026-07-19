@@ -283,8 +283,9 @@ class AppController extends Notifier<AppState> {
         // prefs load is in flight, which must not override an explicit
         // one-active opt-out.
         final boot = ref.read(deniableBootProvider);
-        final allOnline =
-            await ref.read(keepAllOnlineProvider.notifier).resolved();
+        final allOnline = await ref
+            .read(keepAllOnlineProvider.notifier)
+            .resolved();
         if (allOnline && boot?.storePath != null) {
           try {
             await _enterAllOnline(roster, boot!);
@@ -512,6 +513,7 @@ class AppController extends Notifier<AppState> {
       // PSK (cannot join the production network), no lazy-mining setting, and no
       // traffic routing.
       obfs4Psk: boot.obfs4Psk,
+      udpReflectors: boot.udpReflectors,
       lazyMining: _singleLazyMining,
       proxy: ref.read(proxyRoutingProvider),
       paddingPreset: leanPadding
@@ -1356,6 +1358,7 @@ class AppController extends Notifier<AppState> {
         // boot.bootstrapPeers directly (see messaging.dart), independent of the
         // node config — so the rendezvous ad still publishes.
         bootstrapPeers: const [],
+        udpReflectors: boot.udpReflectors,
         obfs4Psk: boot.obfs4Psk,
         proxy: ref.read(proxyRoutingProvider),
         identityPhrase: _pendingIdentityPhrase,

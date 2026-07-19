@@ -114,6 +114,48 @@ void main() {
     },
   );
 
+  test('text note is trimmed, delivered, and never touches the wire', () async {
+    await mA.saveNote('  remember this  ', forwardedFrom: b.hex);
+
+    final note = (await sA.loadMessages(a.hex)).single;
+    expect(note.body, 'remember this');
+    expect(note.direction, MessageDirection.outgoing);
+    expect(note.status, MessageStatus.delivered);
+    expect(note.forwardedFrom, b.hex);
+    expect(tA.sent, isEmpty);
+  });
+
+  test('self reaction stays local and can be removed', () async {
+    await mA.sendReaction(a, 'note-1', '👍');
+    expect(await mA.loadReactions(a.hex), {
+      'note-1': {a.hex: '👍'},
+    });
+    expect(tA.sent, isEmpty);
+
+    await mA.sendReaction(a, 'note-1', '');
+    expect(await mA.loadReactions(a.hex), isEmpty);
+    expect(tA.sent, isEmpty);
+  });
+
+  test('peer reaction crosses the durable consent-gated path', () async {
+    await mA.sendRequest(b, 'hi');
+    await _pump();
+    await mB.acceptContact(a);
+    await _pump();
+    tA.sent.clear();
+
+    await mA.sendReaction(b, 'message-1', '🔥');
+    await _pump();
+
+    expect(await mA.loadReactions(b.hex), {
+      'message-1': {a.hex: '🔥'},
+    });
+    expect(await mB.loadReactions(a.hex), {
+      'message-1': {a.hex: '🔥'},
+    });
+    expect(tA.sent, isNotEmpty);
+  });
+
   test('image note carries the micro-thumb from the injected maker', () async {
     await mA.saveFileNote(_bytes(5000), 'pic.png');
     final m = (await sA.loadMessages(a.hex)).singleWhere((m) => m.isFile);

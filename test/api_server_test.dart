@@ -10,7 +10,7 @@ void main() {
   final sent = <(String, String)>[];
   final groupPosts = <(String, String, String?)>[];
   final groupActions = <(String, String, String, String?)>[];
-  Map<String, dynamic>? _call;
+  Map<String, dynamic>? call;
   Map<String, dynamic>? groupCall;
   ApiHandler make({
     String token = 'secret-token',
@@ -59,8 +59,8 @@ void main() {
       sendFile: (to, path, name) async => to == 'bad' ? 'invalid peer' : null,
       loadFile: (fileId) async => fileId == 'known' ? [1, 2, 3] : null,
       placeCall: (to, media) async => to == 'bad' ? 'invalid peer' : null,
-      callState: () => _call,
-      callAction: (action) async => _call = null,
+      callState: () => call,
+      callAction: (action) async => call = null,
       callsAvailable: callsAvailable,
       groups: () async => [
         {
@@ -1141,7 +1141,7 @@ void main() {
   test(
     'calls: place validates to; GET reflects state; actions clear it',
     () async {
-      _call = null;
+      call = null;
       final h = make();
       // POST place requires `to`.
       expect(
@@ -1162,7 +1162,7 @@ void main() {
       );
       expect(bad.status, 400);
       // Place ok → 200 with the (test) call state.
-      _call = {'callId': 'c1', 'status': 'ringing'};
+      call = {'callId': 'c1', 'status': 'ringing'};
       final placed = await h.handle(
         'POST',
         u('/v1/calls'),

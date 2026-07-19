@@ -57,7 +57,7 @@ void main() {
         senderId: Uint8List.fromList(List.filled(32, 0xAB)),
         blob: blob,
       );
-      print('[fetch] B stored a blob for S');
+      stdout.writeln('[fetch] B stored a blob for S');
 
       // S binds a reply endpoint and listens for the FETCH reply. The relay's
       // reply is TERMINAL (carries no further reply block), so it surfaces as a
@@ -98,16 +98,16 @@ void main() {
           Future<void>.delayed(const Duration(seconds: 2)),
         ]);
       }
-      print('[fetch] FETCH attempts=$attempts sendsOk=$sendsOk '
+      stdout.writeln('[fetch] FETCH attempts=$attempts sendsOk=$sendsOk '
           'received=${re.isCompleted} lastErr=$lastErr');
       expect(re.isCompleted, isTrue,
           reason: 'no FETCH reply over onion; sendsOk=$sendsOk lastErr=$lastErr');
       final reply = await re.future;
       await sub.cancel();
-      print('[fetch] S got reply: replyId=${reply.replyId}, ${reply.data.length} bytes');
+      stdout.writeln('[fetch] S got reply: replyId=${reply.replyId}, ${reply.data.length} bytes');
 
       final got = _firstBlobOfFetchResp(reply.data);
-      print('[fetch] decoded blob: ${got == null ? "NONE" : utf8.decode(got)}');
+      stdout.writeln('[fetch] decoded blob: ${got == null ? "NONE" : utf8.decode(got)}');
       expect(got, isNotNull, reason: 'reply carried no blob');
       expect(got, blob, reason: 'fetched blob must equal what B stored for S');
     } finally {

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -9,6 +10,7 @@ import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/inline_custom_emoji.dart';
 import 'package:xveil/state/mailbox_service.dart';
 import 'package:xveil/state/messaging.dart';
 
@@ -35,7 +37,11 @@ class _FakeTransport implements VeilTransport {
   @override
   Future<void> sendReply(int replyId, Uint8List payload) async {}
   @override
-  Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) async {
+  Future<void> send(
+    NodeId dst,
+    Uint8List payload, {
+    bool anonymous = false,
+  }) async {
     if (!online) return; // disconnected — drop
     peer?._inbound.add(InboundMessage(src: _me, payload: payload));
   }
@@ -51,6 +57,9 @@ class _FakeTransport implements VeilTransport {
 class _BlockingMailboxSink implements MailboxSink {
   final _release = Completer<void>();
   int calls = 0;
+
+  @override
+  bool backgroundDrainPaused = false;
 
   @override
   Future<void> stash({
@@ -115,14 +124,18 @@ void main() {
     await mA.sendText(b, 'meet at noon');
     await _pump();
     final id = (await aMsg('meet at noon')).id;
-    expect((await sB.loadMessages(a.hex)).any((m) => m.body == 'meet at noon'),
-        isTrue);
+    expect(
+      (await sB.loadMessages(a.hex)).any((m) => m.body == 'meet at noon'),
+      isTrue,
+    );
 
     // 2. A edits its own message; B's copy updates in place (same id).
     await mA.editOwnMessage(id, 'meet at one');
     await _pump();
-    expect((await sA.loadMessages(b.hex)).firstWhere((m) => m.id == id).body,
-        'meet at one');
+    expect(
+      (await sA.loadMessages(b.hex)).firstWhere((m) => m.id == id).body,
+      'meet at one',
+    );
     final bEdited = (await sB.loadMessages(a.hex)).where((m) => m.id == id);
     expect(bEdited.length, 1, reason: 'edit replaces, never duplicates');
     expect(bEdited.first.body, 'meet at one');
@@ -138,8 +151,11 @@ void main() {
     await mA.flushOutbox();
     await _pump();
     expect((await sA.loadMessages(b.hex)).any((m) => m.id == id), isFalse);
-    expect((await sB.loadMessages(a.hex)).any((m) => m.id == id), isFalse,
-        reason: 'deleted message stays gone across the full flow');
+    expect(
+      (await sB.loadMessages(a.hex)).any((m) => m.id == id),
+      isFalse,
+      reason: 'deleted message stays gone across the full flow',
+    );
   });
 
   test('deleting a file message erases its blob, not just the chat row '
@@ -154,171 +170,233 @@ void main() {
     // that lingers in the container after the row is gone is a deniability hole.
     await mB.deleteMessageLocally(fileMsg.id);
     expect((await sB.loadMessages(a.hex)).any((m) => m.isFile), isFalse);
-    expect(await sB.loadFile(fileMsg.fileId!), isNull,
-        reason: 'the file blob must be erased when its message is deleted');
+    expect(
+      await sB.loadFile(fileMsg.fileId!),
+      isNull,
+      reason: 'the file blob must be erased when its message is deleted',
+    );
   });
 
-  test('the connection greeting is not duplicated on the recipient by a flush',
-      () async {
-    // setUp already ran A.sendRequest('hi') + B.acceptContact: B holds the
-    // greeting once. The greeting is stored on A as an outgoing `sent` message
-    // (the request flow never acks it), so A's outbox re-sends it as a message.
-    // It must dedup against the copy B stored from the request — not duplicate.
-    expect((await sB.loadMessages(a.hex)).where((m) => m.body == 'hi').length, 1);
-    await mA.flushOutbox();
-    await _pump();
-    expect((await sB.loadMessages(a.hex)).where((m) => m.body == 'hi').length, 1,
-        reason: 'greeting must dedup, not double via the outbox re-send');
-  });
+  test(
+    'the connection greeting is not duplicated on the recipient by a flush',
+    () async {
+      // setUp already ran A.sendRequest('hi') + B.acceptContact: B holds the
+      // greeting once. The greeting is stored on A as an outgoing `sent` message
+      // (the request flow never acks it), so A's outbox re-sends it as a message.
+      // It must dedup against the copy B stored from the request — not duplicate.
+      expect(
+        (await sB.loadMessages(a.hex)).where((m) => m.body == 'hi').length,
+        1,
+      );
+      await mA.flushOutbox();
+      await _pump();
+      expect(
+        (await sB.loadMessages(a.hex)).where((m) => m.body == 'hi').length,
+        1,
+        reason: 'greeting must dedup, not double via the outbox re-send',
+      );
+    },
+  );
 
-  test('a deleted message does not resurrect when the sender re-delivers it',
-      () async {
-    await mA.sendText(b, 'secret');
-    await _pump();
-    final id = (await aMsg('secret')).id; // wire id == stored id
-    expect((await sB.loadMessages(a.hex)).where((m) => m.body == 'secret').length,
-        1);
+  test(
+    'a deleted message does not resurrect when the sender re-delivers it',
+    () async {
+      await mA.sendText(b, 'secret');
+      await _pump();
+      final id = (await aMsg('secret')).id; // wire id == stored id
+      expect(
+        (await sB.loadMessages(a.hex)).where((m) => m.body == 'secret').length,
+        1,
+      );
 
-    // B erases it (deniable delete).
-    final bMsg =
-        (await sB.loadMessages(a.hex)).firstWhere((m) => m.body == 'secret');
-    await mB.deleteMessageLocally(bMsg.id);
-    expect((await sB.loadMessages(a.hex)).where((m) => m.body == 'secret').length,
-        0);
-
-    // The sender re-delivers the SAME id (an outbox retry that raced the
-    // delete). Deniability core: deleted must stay deleted, never resurrect.
-    await tA.send(b, WireEnvelope.message('secret', id: id).encode());
-    await _pump();
-    expect((await sB.loadMessages(a.hex)).where((m) => m.body == 'secret').length,
+      // B erases it (deniable delete).
+      final bMsg = (await sB.loadMessages(
+        a.hex,
+      )).firstWhere((m) => m.body == 'secret');
+      await mB.deleteMessageLocally(bMsg.id);
+      expect(
+        (await sB.loadMessages(a.hex)).where((m) => m.body == 'secret').length,
         0,
-        reason: 'a deleted message must not resurrect on re-delivery');
-  });
+      );
+
+      // The sender re-delivers the SAME id (an outbox retry that raced the
+      // delete). Deniability core: deleted must stay deleted, never resurrect.
+      await tA.send(b, WireEnvelope.message('secret', id: id).encode());
+      await _pump();
+      expect(
+        (await sB.loadMessages(a.hex)).where((m) => m.body == 'secret').length,
+        0,
+        reason: 'a deleted message must not resurrect on re-delivery',
+      );
+    },
+  );
 
   test('a duplicate fileMeta does not reset an in-progress transfer', () async {
     const tid = 'transfer-1';
-    Uint8List meta() =>
-        fileMetaEnvelope(transferId: tid, name: 'f.bin', size: 2, count: 2)
-            .encode();
+    Uint8List meta() => fileMetaEnvelope(
+      transferId: tid,
+      name: 'f.bin',
+      size: 2,
+      count: 2,
+    ).encode();
     await tA.send(b, meta());
     await tA.send(
-        b,
-        fileChunkEnvelope(
-                transferId: tid,
-                index: 0,
-                total: 2,
-                data: Uint8List.fromList([10]))
-            .encode());
+      b,
+      fileChunkEnvelope(
+        transferId: tid,
+        index: 0,
+        total: 2,
+        data: Uint8List.fromList([10]),
+      ).encode(),
+    );
     await tA.send(b, meta()); // DUPLICATE meta mid-transfer — must not reset
     await tA.send(
-        b,
-        fileChunkEnvelope(
-                transferId: tid,
-                index: 1,
-                total: 2,
-                data: Uint8List.fromList([20]))
-            .encode());
+      b,
+      fileChunkEnvelope(
+        transferId: tid,
+        index: 1,
+        total: 2,
+        data: Uint8List.fromList([20]),
+      ).encode(),
+    );
     await _pump();
     // Both chunks survived the duplicate meta → the transfer completes + stores.
     expect(
-        (await sB.loadMessages(a.hex))
-            .any((m) => m.isFile && m.fileName == 'f.bin'),
-        isTrue,
-        reason: 'a duplicate meta must not discard already-received chunks');
+      (await sB.loadMessages(
+        a.hex,
+      )).any((m) => m.isFile && m.fileName == 'f.bin'),
+      isTrue,
+      reason: 'a duplicate meta must not discard already-received chunks',
+    );
   });
 
-  test('a deleted file does not resurrect when the transfer is re-delivered',
-      () async {
-    const tid = 'file-xfer-1';
-    Future<void> deliver() async {
-      await tA.send(
+  test(
+    'a deleted file does not resurrect when the transfer is re-delivered',
+    () async {
+      const tid = 'file-xfer-1';
+      Future<void> deliver() async {
+        await tA.send(
           b,
-          fileMetaEnvelope(transferId: tid, name: 'doc.bin', size: 3, count: 1)
-              .encode());
-      await tA.send(
+          fileMetaEnvelope(
+            transferId: tid,
+            name: 'doc.bin',
+            size: 3,
+            count: 1,
+          ).encode(),
+        );
+        await tA.send(
           b,
           fileChunkEnvelope(
-                  transferId: tid,
-                  index: 0,
-                  total: 1,
-                  data: Uint8List.fromList([1, 2, 3]))
-              .encode());
-    }
+            transferId: tid,
+            index: 0,
+            total: 1,
+            data: Uint8List.fromList([1, 2, 3]),
+          ).encode(),
+        );
+      }
 
-    await deliver();
-    await _pump();
-    final fileMsg = (await sB.loadMessages(a.hex)).firstWhere((m) => m.isFile);
-    await mB.deleteMessageLocally(fileMsg.id);
-    expect((await sB.loadMessages(a.hex)).any((m) => m.isFile), isFalse);
+      await deliver();
+      await _pump();
+      final fileMsg = (await sB.loadMessages(
+        a.hex,
+      )).firstWhere((m) => m.isFile);
+      await mB.deleteMessageLocally(fileMsg.id);
+      expect((await sB.loadMessages(a.hex)).any((m) => m.isFile), isFalse);
 
-    // Re-deliver the SAME transfer (a hostile re-send) — must stay deleted.
-    await deliver();
-    await _pump();
-    expect((await sB.loadMessages(a.hex)).any((m) => m.isFile), isFalse,
-        reason: 'a deleted file must not resurrect on re-delivery');
-  });
+      // Re-deliver the SAME transfer (a hostile re-send) — must stay deleted.
+      await deliver();
+      await _pump();
+      expect(
+        (await sB.loadMessages(a.hex)).any((m) => m.isFile),
+        isFalse,
+        reason: 'a deleted file must not resurrect on re-delivery',
+      );
+    },
+  );
 
   test('an edit for a deleted message does not resurrect it', () async {
     await mA.sendText(b, 'secret');
     await _pump();
-    final bMsg =
-        (await sB.loadMessages(a.hex)).firstWhere((m) => m.body == 'secret');
+    final bMsg = (await sB.loadMessages(
+      a.hex,
+    )).firstWhere((m) => m.body == 'secret');
     await mB.deleteMessageLocally(bMsg.id);
-    expect((await sB.loadMessages(a.hex)).where((m) => m.body == 'secret').length,
-        0);
+    expect(
+      (await sB.loadMessages(a.hex)).where((m) => m.body == 'secret').length,
+      0,
+    );
 
     // The sender edits the message the recipient deleted — the edit must NOT
     // bring it back (deniability: deleted stays deleted across every vector).
     await tA.send(b, WireEnvelope.edit(bMsg.id, 'secret v2').encode());
     await _pump();
     expect(
-        (await sB.loadMessages(a.hex)).where((m) => m.body.startsWith('secret')),
-        isEmpty,
-        reason: 'an edit must not resurrect a deleted message');
+      (await sB.loadMessages(a.hex)).where((m) => m.body.startsWith('secret')),
+      isEmpty,
+      reason: 'an edit must not resurrect a deleted message',
+    );
   });
 
   test('an ack flips the sender message sent -> delivered', () async {
     await mA.sendText(b, 'hello');
     await _pump();
-    expect((await sB.loadMessages(a.hex)).map((m) => m.body), contains('hello'));
+    expect(
+      (await sB.loadMessages(a.hex)).map((m) => m.body),
+      contains('hello'),
+    );
     expect((await aMsg('hello')).status, MessageStatus.delivered);
   });
 
-  test('a completed file transfer flips the sender file message to delivered',
-      () async {
-    await mA.sendFile(b, Uint8List.fromList([1, 2, 3, 4, 5]), 'doc.txt');
-    await _pump();
-    // B received + reassembled the file.
-    expect(
-        (await sB.loadMessages(a.hex))
-            .any((m) => m.isFile && m.fileName == 'doc.txt'),
-        isTrue);
-    // A's file message must flip to delivered (B acks on completion), not stay
-    // 'sent' forever like text without an ack.
-    final fileMsg = (await sA.loadMessages(b.hex)).firstWhere((m) => m.isFile);
-    expect(fileMsg.status, MessageStatus.delivered,
-        reason: 'receiver must ack a completed file transfer');
-  });
+  test(
+    'a completed file transfer flips the sender file message to delivered',
+    () async {
+      await mA.sendFile(b, Uint8List.fromList([1, 2, 3, 4, 5]), 'doc.txt');
+      await _pump();
+      // B received + reassembled the file.
+      expect(
+        (await sB.loadMessages(
+          a.hex,
+        )).any((m) => m.isFile && m.fileName == 'doc.txt'),
+        isTrue,
+      );
+      // A's file message must flip to delivered (B acks on completion), not stay
+      // 'sent' forever like text without an ack.
+      final fileMsg = (await sA.loadMessages(
+        b.hex,
+      )).firstWhere((m) => m.isFile);
+      expect(
+        fileMsg.status,
+        MessageStatus.delivered,
+        reason: 'receiver must ack a completed file transfer',
+      );
+    },
+  );
 
-  test('message composed offline stays sent, then flush delivers it on reconnect',
-      () async {
-    tA.online = false; // A goes offline
-    await mA.sendText(b, 'composed offline');
-    await _pump();
-    // Stored locally as un-acked, never reached B.
-    expect((await aMsg('composed offline')).status, MessageStatus.sent);
-    expect((await sB.loadMessages(a.hex)).any((m) => m.body == 'composed offline'),
-        isFalse);
+  test(
+    'message composed offline stays sent, then flush delivers it on reconnect',
+    () async {
+      tA.online = false; // A goes offline
+      await mA.sendText(b, 'composed offline');
+      await _pump();
+      // Stored locally as un-acked, never reached B.
+      expect((await aMsg('composed offline')).status, MessageStatus.sent);
+      expect(
+        (await sB.loadMessages(a.hex)).any((m) => m.body == 'composed offline'),
+        isFalse,
+      );
 
-    tA.online = true; // reconnect
-    await mA.flushOutbox();
-    await _pump();
-    expect((await sB.loadMessages(a.hex)).any((m) => m.body == 'composed offline'),
-        isTrue);
-    expect((await aMsg('composed offline')).status, MessageStatus.delivered);
-  });
+      tA.online = true; // reconnect
+      await mA.flushOutbox();
+      await _pump();
+      expect(
+        (await sB.loadMessages(a.hex)).any((m) => m.body == 'composed offline'),
+        isTrue,
+      );
+      expect((await aMsg('composed offline')).status, MessageStatus.delivered);
+    },
+  );
 
-  test('flush keeps live retries moving while mailbox stash is slow', () async {
+  test('flush keeps live retries moving and dedupes a slow stash', () async {
     final mailbox = _BlockingMailboxSink();
     addTearDown(mailbox.release);
     mA.attachMailbox(mailbox);
@@ -329,20 +407,80 @@ void main() {
     expect((await aMsg('queued behind mailbox')).status, MessageStatus.sent);
 
     await mA.flushOutbox().timeout(const Duration(milliseconds: 100));
-    expect(mailbox.calls, greaterThanOrEqualTo(2),
-        reason: 'sendText and flush should both start a deposit attempt');
+    expect(
+      mailbox.calls,
+      1,
+      reason: 'sendText and flush must share one in-flight deposit',
+    );
   });
 
-  test('re-sending an already-delivered message does not duplicate it', () async {
-    await mA.sendText(b, 'hello');
-    await _pump();
-    final id = (await aMsg('hello')).id;
+  test(
+    'background durable stashes are bounded while one deposit is slow',
+    () async {
+      final mailbox = _BlockingMailboxSink();
+      addTearDown(mailbox.release);
+      mA.attachMailbox(mailbox);
+      tA.online = false;
 
-    // Sender's outbox re-sends the same id (e.g. it missed the first ack).
-    await tA.send(b, WireEnvelope.message('hello', id: id).encode());
-    await _pump();
-    expect((await sB.loadMessages(a.hex)).where((m) => m.body == 'hello').length, 1);
-  });
+      await mA.sendDurable(b, 'test:one', const WireEnvelope.reconnect('one'));
+      await mA.sendDurable(b, 'test:two', const WireEnvelope.reconnect('two'));
+      await _pump();
+
+      expect(
+        mailbox.calls,
+        1,
+        reason: 'a durable backlog must not fan out KEM stashes in parallel',
+      );
+    },
+  );
+
+  test(
+    'a call can pause background stash without losing the durable frame',
+    () async {
+      final mailbox = _BlockingMailboxSink();
+      addTearDown(mailbox.release);
+      mA.attachMailbox(mailbox);
+      tA.online = false;
+      mA.backgroundStashPaused = true;
+      expect(mailbox.backgroundDrainPaused, isTrue);
+
+      await mA.sendDurable(
+        b,
+        'test:during-call',
+        const WireEnvelope.reconnect('call'),
+      );
+      await _pump();
+      expect(mailbox.calls, 0);
+      expect(
+        (await sA.pendingOutboxFrames()).map((f) => f.frameId),
+        contains('test:during-call'),
+        reason: 'pausing mailbox work must not drop its durable source',
+      );
+
+      mA.backgroundStashPaused = false;
+      expect(mailbox.backgroundDrainPaused, isFalse);
+      await mA.flushOutbox();
+      await _pump();
+      expect(mailbox.calls, 1);
+    },
+  );
+
+  test(
+    're-sending an already-delivered message does not duplicate it',
+    () async {
+      await mA.sendText(b, 'hello');
+      await _pump();
+      final id = (await aMsg('hello')).id;
+
+      // Sender's outbox re-sends the same id (e.g. it missed the first ack).
+      await tA.send(b, WireEnvelope.message('hello', id: id).encode());
+      await _pump();
+      expect(
+        (await sB.loadMessages(a.hex)).where((m) => m.body == 'hello').length,
+        1,
+      );
+    },
+  );
 
   test('flush is a no-op for already-delivered messages', () async {
     await mA.sendText(b, 'hello');
@@ -350,7 +488,50 @@ void main() {
     await mA.flushOutbox();
     await _pump();
     // No duplicate appeared on the receiver.
-    expect((await sB.loadMessages(a.hex)).where((m) => m.body == 'hello').length, 1);
+    expect(
+      (await sB.loadMessages(a.hex)).where((m) => m.body == 'hello').length,
+      1,
+    );
+  });
+
+  test('custom emoji survives send, offline retry, storage, and edit', () async {
+    final first = InlineCustomEmoji(
+      offset: 3,
+      dataB64: base64Encode([1, 2, 3]),
+    );
+    tA.online = false;
+    await mA.sendText(b, 'hi ☺', customEmoji: [first]);
+    final local = (await sA.loadMessages(b.hex)).singleWhere(
+      (m) => m.body == 'hi ☺',
+    );
+    expect(local.customEmoji.single.dataB64, first.dataB64);
+
+    tA.online = true;
+    await mA.flushOutbox();
+    await _pump();
+    final received = (await sB.loadMessages(a.hex)).singleWhere(
+      (m) => m.id == local.id,
+    );
+    expect(received.customEmoji.single.offset, 3);
+
+    final editedEmoji = InlineCustomEmoji(
+      offset: 4,
+      dataB64: base64Encode([4, 5, 6]),
+    );
+    await mA.editOwnMessage(
+      local.id,
+      'now ☺!',
+      customEmoji: [editedEmoji],
+    );
+    await _pump();
+    for (final stored in [
+      (await sA.loadMessages(b.hex)).singleWhere((m) => m.id == local.id),
+      (await sB.loadMessages(a.hex)).singleWhere((m) => m.id == local.id),
+    ]) {
+      expect(stored.body, 'now ☺!');
+      expect(stored.customEmoji.single.offset, 4);
+      expect(stored.customEmoji.single.dataB64, editedEmoji.dataB64);
+    }
   });
 
   test('editOwnMessage replaces the text and marks it edited', () async {
@@ -378,8 +559,12 @@ void main() {
     final theirs = (await sB.loadMessages(a.hex)).firstWhere((m) => m.id == id);
     expect(theirs.body, 'the meeting is at 6');
     expect(theirs.edited, isTrue);
-    expect((await sB.loadMessages(a.hex)).any((m) => m.body == 'teh meeting is at 5'),
-        isFalse);
+    expect(
+      (await sB.loadMessages(
+        a.hex,
+      )).any((m) => m.body == 'teh meeting is at 5'),
+      isFalse,
+    );
   });
 
   test('deleteForEveryone unsends from the recipient too', () async {
@@ -394,67 +579,94 @@ void main() {
     expect((await sB.loadMessages(a.hex)).any((m) => m.id == id), isFalse);
   });
 
-  test('a peer cannot edit or delete OUR outgoing message (authz by direction)',
-      () async {
-    await mA.sendText(b, 'our statement');
-    await _pump();
-    final id = (await aMsg('our statement')).id;
+  test(
+    'a peer cannot edit or delete OUR outgoing message (authz by direction)',
+    () async {
+      await mA.sendText(b, 'our statement');
+      await _pump();
+      final id = (await aMsg('our statement')).id;
 
-    // B (an accepted peer) maliciously sends edit + del for A's OWN message id.
-    await tB.send(a, WireEnvelope.edit(id, 'doctored').encode());
-    await tB.send(a, WireEnvelope.del(id).encode());
-    await _pump();
+      // B (an accepted peer) maliciously sends edit + del for A's OWN message id.
+      await tB.send(a, WireEnvelope.edit(id, 'doctored').encode());
+      await tB.send(a, WireEnvelope.del(id).encode());
+      await _pump();
 
-    final ours = await sA.loadMessages(b.hex);
-    expect(ours.any((m) => m.id == id && m.body == 'our statement'), isTrue,
-        reason: 'a peer must not rewrite or destroy our own sent message');
-    expect(ours.any((m) => m.body == 'doctored'), isFalse);
-  });
+      final ours = await sA.loadMessages(b.hex);
+      expect(
+        ours.any((m) => m.id == id && m.body == 'our statement'),
+        isTrue,
+        reason: 'a peer must not rewrite or destroy our own sent message',
+      );
+      expect(ours.any((m) => m.body == 'doctored'), isFalse);
+    },
+  );
 
-  test('deleteForEveryone is a no-op on a received message (can only unsend own)',
-      () async {
-    await mA.sendText(b, 'from A');
-    await _pump();
-    final received = (await sB.loadMessages(a.hex)).firstWhere((m) => m.body == 'from A');
+  test(
+    'deleteForEveryone is a no-op on a received message (can only unsend own)',
+    () async {
+      await mA.sendText(b, 'from A');
+      await _pump();
+      final received = (await sB.loadMessages(
+        a.hex,
+      )).firstWhere((m) => m.body == 'from A');
 
-    await mB.deleteForEveryone(received.id); // B did not send it
-    await _pump();
+      await mB.deleteForEveryone(received.id); // B did not send it
+      await _pump();
 
-    // Nothing removed on either side.
-    expect((await sB.loadMessages(a.hex)).any((m) => m.id == received.id), isTrue);
-    expect((await sA.loadMessages(b.hex)).any((m) => m.body == 'from A'), isTrue);
-  });
+      // Nothing removed on either side.
+      expect(
+        (await sB.loadMessages(a.hex)).any((m) => m.id == received.id),
+        isTrue,
+      );
+      expect(
+        (await sA.loadMessages(b.hex)).any((m) => m.body == 'from A'),
+        isTrue,
+      );
+    },
+  );
 
-  test('deleteMessageLocally on your OWN message is delete-for-me, not unsend',
-      () async {
-    await mA.sendText(b, 'oops');
-    await _pump();
-    final id = (await aMsg('oops')).id;
+  test(
+    'deleteMessageLocally on your OWN message is delete-for-me, not unsend',
+    () async {
+      await mA.sendText(b, 'oops');
+      await _pump();
+      final id = (await aMsg('oops')).id;
 
-    // A deletes its own message for ITSELF only (not deleteForEveryone).
-    await mA.deleteMessageLocally(id);
-    await _pump();
+      // A deletes its own message for ITSELF only (not deleteForEveryone).
+      await mA.deleteMessageLocally(id);
+      await _pump();
 
-    // A's copy is gone, but B STILL has it — delete-for-me never propagates
-    // (contrast deleteForEveryone, which unsends the peer copy).
-    expect((await sA.loadMessages(b.hex)).any((m) => m.id == id), isFalse);
-    expect((await sB.loadMessages(a.hex)).any((m) => m.body == 'oops'), isTrue,
-        reason: 'delete-for-me must not unsend the peer copy');
-  });
+      // A's copy is gone, but B STILL has it — delete-for-me never propagates
+      // (contrast deleteForEveryone, which unsends the peer copy).
+      expect((await sA.loadMessages(b.hex)).any((m) => m.id == id), isFalse);
+      expect(
+        (await sB.loadMessages(a.hex)).any((m) => m.body == 'oops'),
+        isTrue,
+        reason: 'delete-for-me must not unsend the peer copy',
+      );
+    },
+  );
 
-  test('deleteMessageLocally purges a received message from this device',
-      () async {
-    await mA.sendText(b, 'sensitive');
-    await _pump();
-    final received =
-        (await sB.loadMessages(a.hex)).firstWhere((m) => m.body == 'sensitive');
+  test(
+    'deleteMessageLocally purges a received message from this device',
+    () async {
+      await mA.sendText(b, 'sensitive');
+      await _pump();
+      final received = (await sB.loadMessages(
+        a.hex,
+      )).firstWhere((m) => m.body == 'sensitive');
 
-    await mB.deleteMessageLocally(received.id);
+      await mB.deleteMessageLocally(received.id);
 
-    expect((await sB.loadMessages(a.hex)).any((m) => m.body == 'sensitive'),
-        isFalse);
-    // The sender's own copy is untouched (local-only delete).
-    expect((await sA.loadMessages(b.hex)).any((m) => m.body == 'sensitive'),
-        isTrue);
-  });
+      expect(
+        (await sB.loadMessages(a.hex)).any((m) => m.body == 'sensitive'),
+        isFalse,
+      );
+      // The sender's own copy is untouched (local-only delete).
+      expect(
+        (await sA.loadMessages(b.hex)).any((m) => m.body == 'sensitive'),
+        isTrue,
+      );
+    },
+  );
 }

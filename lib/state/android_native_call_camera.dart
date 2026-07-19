@@ -27,7 +27,15 @@ class AndroidNativeCameraPreview {
     final textureId = (value['textureId'] as num?)?.toInt();
     final width = (value['width'] as num?)?.toInt();
     final height = (value['height'] as num?)?.toInt();
-    final rotation = (value['rotation'] as num?)?.toInt();
+    // Camera2's ImageReader frames and its SurfaceTexture preview have
+    // different orientation contracts. Native code rotates the former before
+    // encoding; Flutter's external-texture renderer already consumes the
+    // latter's producer matrix. Keep this explicitly preview-only. The legacy
+    // key remains a compatibility fallback for an older platform half during
+    // hot restart.
+    final rotation =
+        (value['previewRotation'] as num?)?.toInt() ??
+        (value['rotation'] as num?)?.toInt();
     final fps = (value['fps'] as num?)?.toInt();
     final mirror = value['mirror'];
     if (textureId == null ||

@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/domain/inline_custom_emoji.dart';
 import 'package:xveil/features/chat/message_markdown.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 
@@ -44,5 +47,28 @@ void main() {
     await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
     await tester.pumpAndSettle();
     expect(find.text('Open link?'), findsNothing);
+  });
+
+  testWidgets('inline custom emoji renders inside formatted text', (
+    tester,
+  ) async {
+    // 1×1 transparent PNG; production uses a bounded derived PNG too.
+    const png =
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: FormattedText(
+            'before **☺** after',
+            customEmoji: const [InlineCustomEmoji(offset: 9, dataB64: png)],
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('inline-custom-emoji:9')), findsOneWidget);
+    expect(base64Decode(png), isNotEmpty);
+    expect(tester.takeException(), isNull);
   });
 }

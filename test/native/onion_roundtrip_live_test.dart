@@ -76,14 +76,14 @@ void main() {
         ]);
       }
 
-      print('[roundtrip] attempts=$attempts sendsOk=$sendsOk '
+      stdout.writeln('[roundtrip] attempts=$attempts sendsOk=$sendsOk '
           'received=${received.isCompleted} lastSendError=$lastSendError');
       expect(received.isCompleted, isTrue,
           reason: 'B did not receive over onion; sendsOk=$sendsOk '
               'lastSendError=$lastSendError');
       final got = await received.future;
       expect(utf8.decode(got), body);
-      print('[roundtrip] B received the message over onion');
+      stdout.writeln('[roundtrip] B received the message over onion');
       await sub.cancel();
     } finally {
       await appB.close();

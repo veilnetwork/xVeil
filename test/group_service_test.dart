@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -15,6 +16,7 @@ import 'package:xveil/domain/group_content.dart';
 import 'package:xveil/domain/group_message.dart';
 import 'package:xveil/domain/group_policy.dart';
 import 'package:xveil/domain/group_reaction.dart';
+import 'package:xveil/domain/inline_custom_emoji.dart';
 import 'package:xveil/state/group_service.dart';
 import 'package:xveil/state/group_epoch_service.dart';
 
@@ -129,6 +131,8 @@ class _FakeSovereign implements SovereignGroupSigner {
 }
 
 void main() {
+  final hasVeilFfi =
+      (Platform.environment['VEIL_FFI_DYLIB'] ?? '').isNotEmpty;
   final owner = _id(1);
   final bob = _id(3);
   final carol = _id(4);
@@ -189,11 +193,13 @@ void main() {
         h: 24,
         cid: 'private-content-id',
       );
+      const customEmoji = InlineCustomEmoji(offset: 6, dataB64: 'AQID');
       expect(
         await ownerSvc.postMessage(
           gid,
-          'owner secret',
+          'owner ☺ secret',
           attachment: attachment,
+          customEmoji: const [customEmoji],
           broadcast: false,
         ),
         isTrue,
@@ -202,7 +208,8 @@ void main() {
       expect(ownerBundle.messages.single.isEncrypted, isTrue);
       expect(ownerBundle.messages.single.body, isEmpty);
       final bobWire = ownerSvc.snapshotJson(ownerBundle, recipient: bob);
-      expect(bobWire, isNot(contains('owner secret')));
+      expect(bobWire, isNot(contains('owner ☺ secret')));
+      expect(bobWire, isNot(contains('AQID')));
       expect(bobWire, isNot(contains('private-content-id')));
       expect((jsonDecode(bobWire) as Map)['kk'], isNull);
       expect(((jsonDecode(bobWire) as Map)['ke'] as List).length, 1);
@@ -218,12 +225,15 @@ void main() {
       );
       expect(await bobSvc.ingestSnapshot(bobWire), isTrue);
       final bobMessages = await bobSvc.messagesOf(gid);
-      expect(bobMessages.single.body, 'owner secret');
+      expect(bobMessages.single.body, 'owner ☺ secret');
+      expect(bobMessages.single.customEmoji.single.offset, 6);
+      expect(bobMessages.single.customEmoji.single.dataB64, 'AQID');
       expect(bobMessages.single.attachment?.cid, 'private-content-id');
       final persisted = utf8.decode(
         (await bobStorage.loadFile('group:${gid.hex}'))!,
       );
-      expect(persisted, isNot(contains('owner secret')));
+      expect(persisted, isNot(contains('owner ☺ secret')));
+      expect(persisted, isNot(contains('AQID')));
       expect(persisted, isNot(contains('private-content-id')));
 
       expect(
@@ -250,7 +260,11 @@ void main() {
       expect(await concurrentIngest, isTrue);
       expect(
         (await ownerSvc.messagesOf(gid)).map((message) => message.body),
-        containsAll(['owner secret', 'bob secret', 'concurrent owner secret']),
+        containsAll([
+          'owner ☺ secret',
+          'bob secret',
+          'concurrent owner secret',
+        ]),
       );
       expect((await ownerSvc.reactionsOf(gid))[bobMessages.single.ref]?['🔥'], [
         bob,
@@ -1258,7 +1272,7 @@ void main() {
       'not-base64%%%',
       reason: 'corruption must fail closed, never rotate sovereign identity',
     );
-  });
+  }, skip: hasVeilFfi ? false : 'set VEIL_FFI_DYLIB to test hybrid XVSB');
 
   test('XVRC disaster recovery preserves sovereign node id and mints fresh gid',
       () async {
@@ -1324,7 +1338,7 @@ void main() {
         isNull);
     expect(await rejected.localSovereignBundle(), isNull,
         reason: 'failed manifest verification rolls back the staged XVRC');
-  });
+  }, skip: hasVeilFfi ? false : 'set VEIL_FFI_DYLIB to test XVRC recovery');
 
   test('guided adoption admits one pinned stranger snapshot then auto-adopts',
       () async {

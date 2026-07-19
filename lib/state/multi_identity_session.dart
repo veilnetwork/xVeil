@@ -31,6 +31,7 @@ class IdentityBootSpec {
     required this.listenPort,
     required this.anonymous,
     this.obfs4Psk,
+    this.udpReflectors = const [],
     this.lazyMining = false,
     this.proxy = ProxyRouting.disabled,
   });
@@ -46,6 +47,7 @@ class IdentityBootSpec {
   /// node booted with NO obfs4 PSK (so it could not join the obfs4-protected
   /// production network), no lazy-mining setting, and no traffic routing.
   final String? obfs4Psk;
+  final List<String> udpReflectors;
   final bool lazyMining;
   final ProxyRouting proxy;
 }
@@ -76,6 +78,7 @@ Future<List<IdentityBootSpec>> planIdentityBoots(
   required String runtimeDirBase,
   required int listenPortBase,
   String? obfs4Psk,
+  List<String> udpReflectors = const [],
   bool lazyMining = false,
   ProxyRouting proxy = ProxyRouting.disabled,
 }) async {
@@ -86,6 +89,7 @@ Future<List<IdentityBootSpec>> planIdentityBoots(
         label: roster[i].label,
         spaceId: await backing.openSpace(roster[i].spaceKeys),
         obfs4Psk: obfs4Psk,
+        udpReflectors: udpReflectors,
         lazyMining: lazyMining,
         proxy: proxy,
         // Deniability: the runtime dir name must NOT be the human-readable
@@ -133,6 +137,7 @@ Future<IdentityNode> _realBoot(IdentityBootSpec spec, Storage storage) async {
     // [[bootstrap_peers]] into the node config (it ENOENT-failed on Android);
     // the seeds are used as mailbox-relay candidates via messaging.dart instead.
     bootstrapPeers: const <BootstrapPeerCfg>[],
+    udpReflectors: spec.udpReflectors,
     obfs4Psk: spec.obfs4Psk,
     proxy: spec.proxy,
   );
@@ -160,12 +165,14 @@ class MultiIdentitySession {
     required String runtimeDirBase,
     required int listenPortBase,
     String? obfs4Psk,
+    List<String> udpReflectors = const [],
     bool lazyMining = false,
     ProxyRouting proxy = ProxyRouting.disabled,
     IdentityNodeBoot boot = _realBoot,
   }) : _runtimeDirBase = runtimeDirBase,
        _listenPortBase = listenPortBase,
        _obfs4Psk = obfs4Psk,
+       _udpReflectors = udpReflectors,
        _lazyMining = lazyMining,
        _proxy = proxy,
        _boot = boot;
@@ -178,6 +185,7 @@ class MultiIdentitySession {
   /// lockstep with the single-identity boot (obfs4 PSK to join the network,
   /// lazy-mining setting, traffic routing).
   final String? _obfs4Psk;
+  final List<String> _udpReflectors;
   final bool _lazyMining;
   final ProxyRouting _proxy;
   final IdentityNodeBoot _boot;
@@ -207,6 +215,7 @@ class MultiIdentitySession {
       runtimeDirBase: _runtimeDirBase,
       listenPortBase: _listenPortBase,
       obfs4Psk: _obfs4Psk,
+      udpReflectors: _udpReflectors,
       lazyMining: _lazyMining,
       proxy: _proxy,
     );

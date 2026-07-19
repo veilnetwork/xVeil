@@ -9,6 +9,7 @@ import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/hv_kv_log_store.dart';
 import 'package:xveil/data/storage/hv_native.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
+import 'package:xveil/domain/call_log.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/identity.dart';
 import 'package:xveil/domain/roster.dart';
@@ -64,6 +65,58 @@ void main() {
         // Wrong password unlocks nothing (AuthFailed -> false), no leak.
         final attacker = HiddenVolumeStorage(opener());
         expect(await attacker.open(password: 'guess'), isFalse);
+      } finally {
+        dir.deleteSync(recursive: true);
+      }
+    },
+    skip: skipReason,
+  );
+
+  test(
+    'call journal grows past the legacy hot-key limit in a real container and '
+    'survives reopen',
+    () async {
+      final dir = Directory.systemTemp.createTempSync('xveil_hv_calls_');
+      final path = '${dir.path}/test.store';
+      SpaceOpener opener() => hvSpaceOpener(path, argon: hv.ArgonPreset.min);
+
+      try {
+        final storage = HiddenVolumeStorage(opener());
+        expect(
+          await storage.open(password: 'calls', createIfMissing: true),
+          isTrue,
+        );
+        // The retired single settings value failed around 11 rows because its
+        // versions accumulated in one bounded DataBatch. Cross that boundary
+        // several times on the real native store, not only the in-memory fake.
+        for (var i = 0; i < 48; i++) {
+          expect(
+            await storage.appendCallLogEntry(
+              CallLogEntry(
+                id: 'native-call-$i',
+                peerHex: 'aa',
+                outgoing: i.isEven,
+                video: i % 3 == 0,
+                outcome: CallLogOutcome.completed,
+                atMs: 1000 + i,
+                durationSec: i,
+              ),
+              cap: 200,
+            ),
+            isTrue,
+          );
+        }
+        expect(await storage.getSetting('call_log'), isNull);
+        await storage.close();
+
+        final reopened = HiddenVolumeStorage(opener());
+        expect(await reopened.open(password: 'calls'), isTrue);
+        final rows = await reopened.callLogEntries();
+        expect(rows.length, 48);
+        expect(rows.first.id, 'native-call-47');
+        expect(rows.last.id, 'native-call-0');
+        expect(await reopened.getSetting('call_log'), isNull);
+        await reopened.close();
       } finally {
         dir.deleteSync(recursive: true);
       }
