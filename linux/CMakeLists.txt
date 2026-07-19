@@ -72,6 +72,12 @@ set_target_properties(${BINARY_NAME}
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
+# media_kit_libs_linux defaults to downloading and compiling a static mimalloc
+# archive during CMake configuration, even though applications must explicitly
+# link that object themselves. xVeil does not replace the process allocator, so
+# disable the unused network fetch and keep Linux builds reproducible/offline.
+set(MIMALLOC_USE_STATIC_LIBS OFF CACHE BOOL
+  "Do not build the unused media_kit mimalloc override" FORCE)
 include(flutter/generated_plugins.cmake)
 
 
@@ -79,9 +85,12 @@ include(flutter/generated_plugins.cmake)
 # By default, "installing" just makes a relocatable bundle in the build
 # directory.
 set(BUILD_BUNDLE_DIR "${PROJECT_BINARY_DIR}/bundle")
-if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
-  set(CMAKE_INSTALL_PREFIX "${BUILD_BUNDLE_DIR}" CACHE PATH "..." FORCE)
-endif()
+# Flutter's Linux build is a bundle assembly, never a system-wide install.
+# Force the destination on every configure: after a failed first configure,
+# CMake no longer reports the default prefix as freshly initialized and would
+# otherwise install a later successful retry into /usr/local.
+set(CMAKE_INSTALL_PREFIX "${BUILD_BUNDLE_DIR}" CACHE PATH
+  "xVeil Linux bundle output" FORCE)
 
 # Start with a clean build bundle directory every time.
 install(CODE "

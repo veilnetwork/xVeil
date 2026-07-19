@@ -115,8 +115,12 @@ dependencies:
   # In-chat video playback (media epic). Latest floats: probed 2026-07-10 —
   # media3 1.9.2 needs only compileSdk 35 (minAGP 1.0), so the AGP 8.7.3 pin
   # holds WITHOUT a platform-package pin (unlike url_launcher_android).
-  # Linux has no official implementation — video is desktop-macOS/mobile v1.
+  # The official plugin still omits Linux. video_player_media_kit supplies the
+  # same platform interface there, backed by the distro's system libmpv (the
+  # tiny Linux glue package does NOT bundle the rejected 40-80 MiB codec stack).
   video_player: ^2.11.0
+  video_player_media_kit: ^2.0.0
+  media_kit_libs_linux: ^1.2.1
   url_launcher: ^6.3.0
   url_launcher_android: 6.3.14
   # Non-call capture (attachments/video notes) still uses the plugin. Calls use
