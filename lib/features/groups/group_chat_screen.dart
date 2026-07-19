@@ -19,6 +19,7 @@ import '../../domain/group.dart';
 import '../../domain/group_message.dart';
 import '../../domain/group_policy.dart';
 import '../../domain/group_reaction.dart';
+import '../../domain/inline_custom_emoji.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/group_call_service.dart';
@@ -45,6 +46,8 @@ import '../chat/cancelable_download_progress.dart';
 import '../chat/camera_capture_screen.dart';
 import '../chat/chat_screen.dart'
     show ComposerAttachmentAction, MessageComposer, documentIcon;
+import '../chat/custom_emoji_controller.dart';
+import '../chat/message_markdown.dart';
 import '../chat/reactors_sheet.dart';
 import '../chat/video_player_screen.dart';
 
@@ -148,7 +151,7 @@ class GroupChatScreen extends ConsumerStatefulWidget {
 }
 
 class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
-  final _input = TextEditingController();
+  final _input = CustomEmojiEditingController();
   final _inputFocus = FocusNode();
   late final NodeId _gid = NodeId.fromHex(widget.groupIdHex);
   StateController<String?>? _activeConversation;
@@ -183,6 +186,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     GroupService svc,
     String body, {
     GroupAttachment? attachment,
+    List<InlineCustomEmoji> customEmoji = const [],
     bool clearInput = false,
     bool consumeReply = true,
   }) async {
@@ -192,13 +196,14 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       body,
       attachment: attachment,
       replyTo: reply,
+      customEmoji: customEmoji,
     );
     if (!mounted) return posted;
     if (!posted) {
       _snack(AppL10n.of(context).groupOperationFailed);
       return false;
     }
-    if (clearInput) _input.clear();
+    if (clearInput) _input.clearWithCustomEmoji();
     if (consumeReply && _replyTarget != null) {
       setState(() => _replyTarget = null);
     }
@@ -290,9 +295,14 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   }
 
   Future<void> _send(GroupService svc) async {
-    final text = _input.text.trim();
-    if (text.isEmpty) return;
-    await _postGroupMessage(svc, text, clearInput: true);
+    final wire = _input.toWireValue();
+    if (wire.body.isEmpty) return;
+    await _postGroupMessage(
+      svc,
+      wire.body,
+      customEmoji: wire.customEmoji,
+      clearInput: true,
+    );
   }
 
   /// A one-line preview of [m] for the reply bar / quote block.
@@ -461,9 +471,11 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
         if (mounted) _snack(l.chatFileUnreadable);
         return;
       }
+      final caption = _input.toWireValue();
       await _postGroupMessage(
         svc,
-        _input.text.trim(),
+        caption.body,
+        customEmoji: caption.customEmoji,
         clearInput: true,
         attachment: GroupAttachment(
           // If the platform codec cannot make a bounded preview, keep the
@@ -495,14 +507,15 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     // small thumb + the contentId; members stream the ORIGINAL bytes from us.
     // Fall back to the legacy full-inline payload when no thumb rung fits.
     final thumb = await makeInlineImageB64(bytes, rawMax: _kRefThumbRawMax);
-    final caption = _input.text.trim();
+    final caption = _input.toWireValue();
     if (thumb != null) {
       final cid = await ref
           .read(messagingServiceProvider)
           .registerGroupContent(bytes, name: file.name);
       await _postGroupMessage(
         svc,
-        caption,
+        caption.body,
+        customEmoji: caption.customEmoji,
         clearInput: true,
         attachment: GroupAttachment(
           kind: 'image',
@@ -522,7 +535,8 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     }
     await _postGroupMessage(
       svc,
-      caption,
+      caption.body,
+      customEmoji: caption.customEmoji,
       clearInput: true,
       attachment: GroupAttachment(
         kind: 'image',
@@ -619,9 +633,11 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     if (isVideoFileName(file.name) && file.path != null) {
       thumb = await makeVideoThumbB64(file.path!);
     }
+    final caption = _input.toWireValue();
     await _postGroupMessage(
       svc,
-      _input.text.trim(),
+      caption.body,
+      customEmoji: caption.customEmoji,
       clearInput: true,
       attachment: GroupAttachment(
         kind: isVideoFileName(file.name) ? 'video' : 'file',
@@ -1517,7 +1533,11 @@ class _GroupBubble extends StatelessWidget {
                       attachment: message.attachment!,
                       onFetch: onFetchContent,
                     ),
-                  if (message.body.isNotEmpty) Text(message.body),
+                  if (message.body.isNotEmpty)
+                    FormattedText(
+                      message.body,
+                      customEmoji: message.customEmoji,
+                    ),
                 ],
               ),
             ),

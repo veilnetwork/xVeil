@@ -277,7 +277,17 @@ class CallService {
         // mediaKey (SRTP keying) is filled in Phase 3 — control plane only now.
       ),
     );
-    _armRingTimeout();
+    // The realtime leg can deliver the offer and its answer while the durable
+    // enqueue above is still completing. In that race `_onAnswer` already
+    // moved this call to connecting/active before this future resumes; arming
+    // a 75-second timer here would later cancel a perfectly healthy call.
+    final stillDialing = _current;
+    if (stillDialing != null &&
+        stillDialing.callId == callId &&
+        stillDialing.peer == peer &&
+        stillDialing.status == CallStatus.dialing) {
+      _armRingTimeout(callId);
+    }
   }
 
   /// Accept the ringing incoming call.
@@ -693,7 +703,7 @@ class CallService {
         cameraOn: offeredMedia.video,
       ),
     );
-    _armRingTimeout();
+    _armRingTimeout(sig.callId);
   }
 
   void _onAnswer(NodeId peer, CallSignal sig) {
@@ -763,11 +773,17 @@ class CallService {
     );
   }
 
-  void _armRingTimeout() {
+  void _armRingTimeout(String callId) {
     _cancelRingTimeout();
     _ringTimer = Timer(kCallRingTimeout, () {
       final c = _current;
-      if (c == null || !c.isLive) return;
+      // Defense in depth: a ring timer belongs to exactly one unanswered call.
+      // It must never act on a replacement call or on this call after answer.
+      if (c == null ||
+          c.callId != callId ||
+          (c.status != CallStatus.dialing && c.status != CallStatus.ringing)) {
+        return;
+      }
       devLog(
         () =>
             'xVeil[call]: ring timeout call=${c.callId} '
@@ -859,6 +875,11 @@ class CallService {
       _pendingRelayPeer = null;
       _outgoingProposal = null;
     }
+    // Offline mailbox deposits do ML-KEM sealing and multi-relay onion fanout.
+    // Keep that durable work parked while realtime call setup/media is live;
+    // the messaging outbox retains every frame and resumes on the next flush
+    // after `_end` clears this gate.
+    _messaging.backgroundStashPaused = call.status != CallStatus.ended;
     _current = call;
     if (!_changes.isClosed) _changes.add(call);
   }
@@ -964,6 +985,7 @@ class CallService {
     _pendingRelayPeer = null;
     _outgoingProposal = null;
     _mediaOperationEpoch++;
+    _messaging.backgroundStashPaused = false;
     if (_media == null) {
       _callSlot?.release(CallSlotOwner.direct);
     } else {
@@ -989,6 +1011,7 @@ class CallService {
     _cancelRingTimeout();
     _cancelHeartbeat();
     if (_messaging.onCallSignal == _handler) _messaging.onCallSignal = null;
+    _messaging.backgroundStashPaused = false;
     unawaited(_screenShareStoppedSub?.cancel());
     _screenShareStoppedSub = null;
     if (_media == null) {

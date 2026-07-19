@@ -5,6 +5,7 @@ import '../../domain/call_log.dart';
 import '../../domain/chat.dart';
 import '../../domain/event.dart';
 import '../../domain/identity.dart';
+import '../../domain/inline_custom_emoji.dart';
 import '../../domain/roster.dart';
 
 /// Settings key recording HOW this space's node identity came to be:
@@ -209,6 +210,7 @@ abstract interface class Storage {
     String messageId,
     String newBody, {
     int? seq,
+    List<InlineCustomEmoji> customEmoji = const [],
   });
 
   /// The forward log events authored by [author] in [conversationId] with seq

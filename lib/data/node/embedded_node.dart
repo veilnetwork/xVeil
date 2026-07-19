@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
@@ -41,14 +42,14 @@ class BootstrapPeerCfg {
   /// Parse a JSON array of `{transport, public_key, nonce, algo?}` objects
   /// (the shape mirrors the ansible inventory's `veil_bootstrap_peers`).
   static List<BootstrapPeerCfg> listFromJson(List<dynamic> json) => [
-        for (final e in json)
-          BootstrapPeerCfg(
-            transport: (e as Map)['transport'] as String,
-            publicKey: e['public_key'] as String,
-            nonce: e['nonce'] as String,
-            algo: (e['algo'] as String?) ?? 'ed25519',
-          ),
-      ];
+    for (final e in json)
+      BootstrapPeerCfg(
+        transport: (e as Map)['transport'] as String,
+        publicKey: e['public_key'] as String,
+        nonce: e['nonce'] as String,
+        algo: (e['algo'] as String?) ?? 'ed25519',
+      ),
+  ];
 }
 
 // C ABI from veilclient-ffi (node-embedded feature):
@@ -58,47 +59,102 @@ class BootstrapPeerCfg {
 //   int       veil_node_apply_config(const VeilNode*, const uint8_t*, size_t, char** err_out);
 //   void      veil_node_stop(VeilNode*);
 //   void      veil_free_string(char*);
-typedef _StartNative = Pointer<Void> Function(
-    Pointer<Uint8>, IntPtr, Pointer<Pointer<Utf8>>);
-typedef _StartDart = Pointer<Void> Function(
-    Pointer<Uint8>, int, Pointer<Pointer<Utf8>>);
+typedef _StartNative =
+    Pointer<Void> Function(Pointer<Uint8>, IntPtr, Pointer<Pointer<Utf8>>);
+typedef _StartDart =
+    Pointer<Void> Function(Pointer<Uint8>, int, Pointer<Pointer<Utf8>>);
 // Deferred boot carries an extra `bool anonymous` (arms onion at boot).
-typedef _StartDeferredNative = Pointer<Void> Function(
-    Pointer<Uint8>, IntPtr, Bool, Pointer<Pointer<Utf8>>);
-typedef _StartDeferredDart = Pointer<Void> Function(
-    Pointer<Uint8>, int, bool, Pointer<Pointer<Utf8>>);
+typedef _StartDeferredNative =
+    Pointer<Void> Function(
+      Pointer<Uint8>,
+      IntPtr,
+      Bool,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _StartDeferredDart =
+    Pointer<Void> Function(Pointer<Uint8>, int, bool, Pointer<Pointer<Utf8>>);
 typedef _StopNative = Void Function(Pointer<Void>);
 typedef _StopDart = void Function(Pointer<Void>);
 typedef _FreeStrNative = Void Function(Pointer<Utf8>);
 typedef _FreeStrDart = void Function(Pointer<Utf8>);
-typedef _ConfigInitNative = Pointer<Utf8> Function(
-    Uint32, Pointer<Pointer<Utf8>>);
-typedef _ConfigInitDart = Pointer<Utf8> Function(
-    int, Pointer<Pointer<Utf8>>);
-typedef _ComposeNative = Pointer<Utf8> Function(
-    Pointer<Uint8>, IntPtr, Pointer<Uint8>, IntPtr, Pointer<Uint8>, IntPtr,
-    Pointer<Uint8>, IntPtr, Pointer<Pointer<Utf8>>);
-typedef _ComposeDart = Pointer<Utf8> Function(
-    Pointer<Uint8>, int, Pointer<Uint8>, int, Pointer<Uint8>, int,
-    Pointer<Uint8>, int, Pointer<Pointer<Utf8>>);
-typedef _ApplyConfigNative = Int32 Function(
-    Pointer<Void>, Pointer<Uint8>, IntPtr, Pointer<Pointer<Utf8>>);
-typedef _ApplyConfigDart = int Function(
-    Pointer<Void>, Pointer<Uint8>, int, Pointer<Pointer<Utf8>>);
+typedef _ConfigInitNative =
+    Pointer<Utf8> Function(Uint32, Pointer<Pointer<Utf8>>);
+typedef _ConfigInitDart = Pointer<Utf8> Function(int, Pointer<Pointer<Utf8>>);
+typedef _ComposeNative =
+    Pointer<Utf8> Function(
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _ComposeDart =
+    Pointer<Utf8> Function(
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint8>,
+      int,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _ApplyConfigNative =
+    Int32 Function(
+      Pointer<Void>,
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _ApplyConfigDart =
+    int Function(Pointer<Void>, Pointer<Uint8>, int, Pointer<Pointer<Utf8>>);
 // Opt-in message-signature FFI (stateless; no VeilNode handle):
 //   int veil_identity_sign(const uint8_t* toml, size_t, const uint8_t* msg,
 //                          size_t, uint8_t out_sig[64], uint8_t out_pk[32],
 //                          char** err_out);
 //   int veil_identity_verify(const uint8_t node_id[32], const uint8_t pk[32],
 //                            const uint8_t* msg, size_t, const uint8_t sig[64]);
-typedef _SignNative = Int32 Function(Pointer<Uint8>, IntPtr, Pointer<Uint8>,
-    IntPtr, Pointer<Uint8>, Pointer<Uint8>, Pointer<Pointer<Utf8>>);
-typedef _SignDart = int Function(Pointer<Uint8>, int, Pointer<Uint8>, int,
-    Pointer<Uint8>, Pointer<Uint8>, Pointer<Pointer<Utf8>>);
-typedef _VerifyNative = Int32 Function(
-    Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, IntPtr, Pointer<Uint8>);
-typedef _VerifyDart = int Function(
-    Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, int, Pointer<Uint8>);
+typedef _SignNative =
+    Int32 Function(
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Uint8>,
+      Pointer<Uint8>,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _SignDart =
+    int Function(
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint8>,
+      Pointer<Uint8>,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _VerifyNative =
+    Int32 Function(
+      Pointer<Uint8>,
+      Pointer<Uint8>,
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Uint8>,
+    );
+typedef _VerifyDart =
+    int Function(
+      Pointer<Uint8>,
+      Pointer<Uint8>,
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint8>,
+    );
 
 /// True when the loaded veil dylib exposes the embedded-node FFI (i.e. it was
 /// built `--features node-embedded`). Lets the app pick the in-process deniable
@@ -131,10 +187,12 @@ class EmbeddedNode {
   /// default). Mining can take a while — run it off the UI isolate.
   static String mineConfig(int difficulty, {DynamicLibrary? lib}) {
     final dl = lib ?? _veilLib();
-    final initFn =
-        dl.lookupFunction<_ConfigInitNative, _ConfigInitDart>('veil_config_init');
-    final freeStr =
-        dl.lookupFunction<_FreeStrNative, _FreeStrDart>('veil_free_string');
+    final initFn = dl.lookupFunction<_ConfigInitNative, _ConfigInitDart>(
+      'veil_config_init',
+    );
+    final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
+      'veil_free_string',
+    );
     final errOut = calloc<Pointer<Utf8>>();
     try {
       final out = initFn(difficulty, errOut);
@@ -164,18 +222,33 @@ class EmbeddedNode {
     DynamicLibrary? lib,
   }) {
     final dl = lib ?? _veilLib();
-    final initFn = dl.lookupFunction<
-        Pointer<Utf8> Function(
-            Pointer<Uint8>, IntPtr, Uint32, Pointer<Pointer<Utf8>>),
-        Pointer<Utf8> Function(Pointer<Uint8>, int, int,
-            Pointer<Pointer<Utf8>>)>('veil_config_init_from_phrase_zeroize');
-    final freeStr =
-        dl.lookupFunction<_FreeStrNative, _FreeStrDart>('veil_free_string');
+    final initFn = dl
+        .lookupFunction<
+          Pointer<Utf8> Function(
+            Pointer<Uint8>,
+            IntPtr,
+            Uint32,
+            Pointer<Pointer<Utf8>>,
+          ),
+          Pointer<Utf8> Function(
+            Pointer<Uint8>,
+            int,
+            int,
+            Pointer<Pointer<Utf8>>,
+          )
+        >('veil_config_init_from_phrase_zeroize');
+    final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
+      'veil_free_string',
+    );
     final phraseC = phrase.toNativeUtf8();
     final errOut = calloc<Pointer<Utf8>>();
     try {
-      final out =
-          initFn(phraseC.cast<Uint8>(), phraseC.length, difficulty, errOut);
+      final out = initFn(
+        phraseC.cast<Uint8>(),
+        phraseC.length,
+        difficulty,
+        errOut,
+      );
       if (out == nullptr) {
         final err = errOut.value;
         final msg = err == nullptr ? 'unknown error' : err.toDartString();
@@ -205,6 +278,7 @@ class EmbeddedNode {
     bool anonymous = false,
     bool lazyMining = false,
     List<BootstrapPeerCfg> bootstrapPeers = const [],
+    List<String> udpReflectors = const [],
     String? obfs4PskFile,
     ProxyRouting proxy = ProxyRouting.disabled,
   }) {
@@ -217,6 +291,7 @@ class EmbeddedNode {
       anonymous: anonymous,
       lazyMining: lazyMining,
       bootstrapPeers: bootstrapPeers,
+      udpReflectors: udpReflectors,
       obfs4PskFile: obfs4PskFile,
       proxy: proxy,
     );
@@ -277,7 +352,9 @@ class EmbeddedNode {
           !_tomlSafe(p.publicKey) ||
           !_tomlSafe(p.nonce) ||
           !_tomlSafe(p.algo) ||
-          !RegExp(r'^[a-z0-9.+-]+://[^\s\x00-\x1f"\\]+$').hasMatch(p.transport)) {
+          !RegExp(
+            r'^[a-z0-9.+-]+://[^\s\x00-\x1f"\\]+$',
+          ).hasMatch(p.transport)) {
         continue;
       }
       buf
@@ -288,6 +365,73 @@ class EmbeddedNode {
         ..write('algo = "${p.algo}"\n');
     }
     return buf.toString();
+  }
+
+  /// Configure public UDP reflectors used to discover the external address of
+  /// the exact socket later reused by a peer-to-peer QUIC hole punch. Values
+  /// must be numeric `IPv4:port` or `[IPv6]:port`; native config validates them
+  /// again. Replaces a rendered `udp_reflectors = []` instead of duplicating
+  /// `[nat]`.
+  static String withUdpReflectors(String toml, List<String> reflectors) {
+    final normalized = normalizeUdpReflectors(reflectors);
+    if (normalized.isEmpty) return toml;
+
+    final rendered = normalized.map((e) => '"$e"').join(', ');
+    final line = 'udp_reflectors = [$rendered]';
+    final existing = RegExp(
+      r'^\s*udp_reflectors\s*=\s*\[[^\n\r]*\]\s*$',
+      multiLine: true,
+    );
+    if (existing.hasMatch(toml)) return toml.replaceFirst(existing, line);
+
+    final nat = RegExp(r'^\[nat\]\s*$', multiLine: true);
+    final match = nat.firstMatch(toml);
+    if (match != null) {
+      final at = match.end;
+      return '${toml.substring(0, at)}\n$line${toml.substring(at)}';
+    }
+    return '$toml\n[nat]\n$line\n';
+  }
+
+  /// Validate, canonicalize, de-duplicate and bound reflector endpoints.
+  /// Exposed so public config loaders can fail loudly before node startup.
+  static List<String> normalizeUdpReflectors(List<String> reflectors) {
+    final normalized = <String>[];
+    for (final raw in reflectors) {
+      final value = _normalizeUdpReflector(raw);
+      if (value != null && !normalized.contains(value)) normalized.add(value);
+      // Bound accidental or hostile discovery fan-out before native startup.
+      if (normalized.length == 8) break;
+    }
+    return List.unmodifiable(normalized);
+  }
+
+  static String? _normalizeUdpReflector(String raw) {
+    final value = raw.trim();
+    if (value.isEmpty || value.contains(RegExp(r'\s'))) return null;
+
+    String host;
+    String portText;
+    var ipv6 = false;
+    if (value.startsWith('[')) {
+      final match = RegExp(r'^\[([^\]]+)\]:(\d+)$').firstMatch(value);
+      if (match == null) return null;
+      host = match.group(1)!;
+      portText = match.group(2)!;
+      ipv6 = true;
+    } else {
+      final colon = value.lastIndexOf(':');
+      if (colon <= 0 || value.indexOf(':') != colon) return null;
+      host = value.substring(0, colon);
+      portText = value.substring(colon + 1);
+    }
+    final port = int.tryParse(portText);
+    final address = InternetAddress.tryParse(host);
+    if (port == null || port < 1 || port > 65535 || address == null) {
+      return null;
+    }
+    if (ipv6 != (address.type == InternetAddressType.IPv6)) return null;
+    return ipv6 ? '[${address.address}]:$port' : '${address.address}:$port';
   }
 
   /// True when [s] carries no TOML-string-breaking characters, so it is safe to
@@ -408,18 +552,24 @@ class EmbeddedNode {
     bool anonymous = false,
     bool lazyMining = false,
     List<BootstrapPeerCfg> bootstrapPeers = const [],
+    List<String> udpReflectors = const [],
     String? obfs4PskFile,
     ProxyRouting proxy = ProxyRouting.disabled,
   }) {
     final dl = lib ?? _veilLib();
-    final composeFn =
-        dl.lookupFunction<_ComposeNative, _ComposeDart>('veil_config_compose');
-    final freeStr =
-        dl.lookupFunction<_FreeStrNative, _FreeStrDart>('veil_free_string');
+    final composeFn = dl.lookupFunction<_ComposeNative, _ComposeDart>(
+      'veil_config_compose',
+    );
+    final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
+      'veil_free_string',
+    );
 
-    final args = [identityToml, listenTransport, ipcSocket, adminSocket]
-        .map(utf8.encode)
-        .toList();
+    final args = [
+      identityToml,
+      listenTransport,
+      ipcSocket,
+      adminSocket,
+    ].map(utf8.encode).toList();
     final ptrs = <Pointer<Uint8>>[];
     final errOut = calloc<Pointer<Utf8>>();
     try {
@@ -428,8 +578,17 @@ class EmbeddedNode {
         p.asTypedList(bytes.length).setAll(0, bytes);
         ptrs.add(p);
       }
-      final out = composeFn(ptrs[0], args[0].length, ptrs[1], args[1].length,
-          ptrs[2], args[2].length, ptrs[3], args[3].length, errOut);
+      final out = composeFn(
+        ptrs[0],
+        args[0].length,
+        ptrs[1],
+        args[1].length,
+        ptrs[2],
+        args[2].length,
+        ptrs[3],
+        args[3].length,
+        errOut,
+      );
       if (out == nullptr) {
         final err = errOut.value;
         final msg = err == nullptr ? 'unknown error' : err.toDartString();
@@ -438,16 +597,23 @@ class EmbeddedNode {
       }
       final toml = out.toDartString();
       freeStr(out);
-      return withTransportRotation(withSessionKeepalive(withObfs4PskFile(
-        withProxy(
-          withBootstrapPeers(
-            withLazyMining(withAnonymity(toml, anonymous), lazyMining),
-            bootstrapPeers,
+      return withTransportRotation(
+        withSessionKeepalive(
+          withObfs4PskFile(
+            withUdpReflectors(
+              withProxy(
+                withBootstrapPeers(
+                  withLazyMining(withAnonymity(toml, anonymous), lazyMining),
+                  bootstrapPeers,
+                ),
+                proxy,
+              ),
+              udpReflectors,
+            ),
+            obfs4PskFile,
           ),
-          proxy,
         ),
-        obfs4PskFile,
-      )));
+      );
     } finally {
       for (final p in ptrs) {
         calloc.free(p);
@@ -460,9 +626,12 @@ class EmbeddedNode {
   /// (the preloaded libveilclient_ffi). Throws if start fails.
   static EmbeddedNode start(String configPath, {DynamicLibrary? lib}) {
     final dl = lib ?? _veilLib();
-    final startFn = dl.lookupFunction<_StartNative, _StartDart>('veil_node_start');
-    final freeStr =
-        dl.lookupFunction<_FreeStrNative, _FreeStrDart>('veil_free_string');
+    final startFn = dl.lookupFunction<_StartNative, _StartDart>(
+      'veil_node_start',
+    );
+    final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
+      'veil_free_string',
+    );
 
     final bytes = utf8.encode(configPath);
     final pathPtr = calloc<Uint8>(bytes.length);
@@ -493,10 +662,12 @@ class EmbeddedNode {
     DynamicLibrary? lib,
   }) {
     final dl = lib ?? _veilLib();
-    final signFn =
-        dl.lookupFunction<_SignNative, _SignDart>('veil_identity_sign');
-    final freeStr =
-        dl.lookupFunction<_FreeStrNative, _FreeStrDart>('veil_free_string');
+    final signFn = dl.lookupFunction<_SignNative, _SignDart>(
+      'veil_identity_sign',
+    );
+    final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
+      'veil_free_string',
+    );
     final tomlBytes = utf8.encode(identityToml);
     final tomlPtr = calloc<Uint8>(tomlBytes.length);
     // from_raw_parts needs a non-null ptr even for len 0 — allocate at least 1.
@@ -509,8 +680,15 @@ class EmbeddedNode {
       if (message.isNotEmpty) {
         msgPtr.asTypedList(message.length).setAll(0, message);
       }
-      final rc = signFn(tomlPtr, tomlBytes.length, msgPtr, message.length,
-          sigOut, pkOut, errOut);
+      final rc = signFn(
+        tomlPtr,
+        tomlBytes.length,
+        msgPtr,
+        message.length,
+        sigOut,
+        pkOut,
+        errOut,
+      );
       if (rc != 0) {
         final err = errOut.value;
         final msg = err == nullptr ? 'unknown error' : err.toDartString();
@@ -540,12 +718,15 @@ class EmbeddedNode {
     required Uint8List signature,
     DynamicLibrary? lib,
   }) {
-    if (nodeId.length != 32 || publicKey.length != 32 || signature.length != 64) {
+    if (nodeId.length != 32 ||
+        publicKey.length != 32 ||
+        signature.length != 64) {
       return false;
     }
     final dl = lib ?? _veilLib();
-    final verifyFn =
-        dl.lookupFunction<_VerifyNative, _VerifyDart>('veil_identity_verify');
+    final verifyFn = dl.lookupFunction<_VerifyNative, _VerifyDart>(
+      'veil_identity_verify',
+    );
     final nidPtr = calloc<Uint8>(32);
     final pkPtr = calloc<Uint8>(32);
     final msgPtr = calloc<Uint8>(message.isEmpty ? 1 : message.length);
@@ -585,9 +766,11 @@ class EmbeddedNode {
   }) {
     final dl = lib ?? _veilLib();
     final startFn = dl.lookupFunction<_StartDeferredNative, _StartDeferredDart>(
-        'veil_node_start_deferred');
-    final freeStr =
-        dl.lookupFunction<_FreeStrNative, _FreeStrDart>('veil_free_string');
+      'veil_node_start_deferred',
+    );
+    final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
+      'veil_free_string',
+    );
 
     final bytes = utf8.encode(adminEndpoint);
     final sockPtr = calloc<Uint8>(bytes.length);
@@ -618,12 +801,16 @@ class EmbeddedNode {
     // _handle. Closes the realistic same-isolate post-stop UAF; a true
     // cross-isolate stop-vs-in-flight race still needs native refcounting.
     if (_stopped) {
-      throw StateError('applyConfig called after stop() — node handle is freed');
+      throw StateError(
+        'applyConfig called after stop() — node handle is freed',
+      );
     }
-    final applyFn = _dl
-        .lookupFunction<_ApplyConfigNative, _ApplyConfigDart>('veil_node_apply_config');
-    final freeStr =
-        _dl.lookupFunction<_FreeStrNative, _FreeStrDart>('veil_free_string');
+    final applyFn = _dl.lookupFunction<_ApplyConfigNative, _ApplyConfigDart>(
+      'veil_node_apply_config',
+    );
+    final freeStr = _dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
+      'veil_free_string',
+    );
 
     final bytes = utf8.encode(configToml);
     final tomlPtr = calloc<Uint8>(bytes.length);
@@ -662,9 +849,11 @@ class EmbeddedNodeController implements NodeController {
     EmbeddedNode Function()? starter,
     this.readinessTimeout = const Duration(seconds: 25),
     this.pollInterval = const Duration(milliseconds: 300),
-  })  : _starter = starter,
-        assert(configPath != null || starter != null,
-            'provide a configPath or a custom starter');
+  }) : _starter = starter,
+       assert(
+         configPath != null || starter != null,
+         'provide a configPath or a custom starter',
+       );
 
   /// Config file to boot from (file mode). Null when a custom [_starter] is
   /// used — e.g. the deniable path that boots deferred + apply-config.
@@ -720,10 +909,12 @@ class EmbeddedNodeController implements NodeController {
       }
       await Future<void>.delayed(pollInterval);
     }
-    _emit(const NodeStatus(
-      phase: NodePhase.error,
-      message: 'embedded node did not become ready before timeout',
-    ));
+    _emit(
+      const NodeStatus(
+        phase: NodePhase.error,
+        message: 'embedded node did not become ready before timeout',
+      ),
+    );
   }
 
   @override

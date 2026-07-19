@@ -125,19 +125,32 @@ abstract interface class VeilTransport {
   Future<void> dispose();
 }
 
-/// Optional latency-critical datagram egress on an IPC connection isolated
-/// from bulk, mailbox and media control work.
+/// Optional latency-critical datagram egress over an already-active direct
+/// peer session at realtime priority.
 ///
-/// Call signaling uses this surface so an answer/end frame cannot sit behind a
-/// long native lookup on the main client. [anonymous] has exactly the same
-/// no-clearnet-fallback contract as [VeilTransport.send]: an anonymous identity
-/// still sends only through the onion rendezvous path.
+/// Call signaling uses this surface so an answer/end frame cannot enter route
+/// discovery or sit behind bulk, mailbox and media control work. Failure when
+/// no direct session exists is expected: the caller keeps a durable fallback.
+/// [anonymous] has exactly the same no-clearnet-fallback contract as
+/// [VeilTransport.send]: an anonymous identity still sends only through the
+/// onion rendezvous path.
 abstract interface class RealtimeTransport {
   Future<void> sendRealtime(
     NodeId dst,
     Uint8List payload, {
     bool anonymous = false,
   });
+}
+
+/// Optional latency-critical inbound control surface.
+///
+/// Production binds call control to a dedicated app endpoint. Keep that stream
+/// separate from the ordinary inbox all the way into [MessagingService]: an
+/// answer/end frame must not depend on an adapter-side merge controller or sit
+/// behind chat/bulk delivery. Implementations without a dedicated endpoint do
+/// not need to implement this interface.
+abstract interface class RealtimeInboundTransport {
+  Stream<InboundMessage> realtimeMessages();
 }
 
 /// A reliable, ordered, FLOW-CONTROLLED byte-stream to a peer — the transport's

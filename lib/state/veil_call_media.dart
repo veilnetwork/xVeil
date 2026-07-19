@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:veil_media/veil_media.dart';
 
 import '../core/log.dart';
@@ -10,17 +11,51 @@ import '../domain/call.dart';
 import '../domain/call_signal.dart';
 import 'android_camera_capture.dart';
 import 'android_native_call_camera.dart';
+import 'android_native_call_video.dart';
 import 'android_screen_capture.dart';
 import 'call_bitrate_adapter.dart';
 import 'call_service.dart';
 import 'mac_media_permissions.dart';
 
 /// Latest decoded remote video frame for the active call (RGBA), or null. The
-/// media controller pumps it at the display rate; the call UI (and the debug
-/// hook) watch it. Global so the render surface can find it without threading
-/// the controller through the widget tree.
+/// media controller pumps it at the display rate; the fallback call UI watches
+/// it. Global so the render surface can find it without threading the
+/// controller through the widget tree.
 final ValueNotifier<VeilVideoFrame?> remoteVideoFrame =
     ValueNotifier<VeilVideoFrame?>(null);
+
+VeilCallMediaController? _diagnosticMediaController;
+
+/// Copies the latest decoded remote frame only when diagnostics explicitly
+/// asks for it. Android's native texture path deliberately does not move RGBA
+/// through Dart every frame, but `/media_last_frame` must remain capable of
+/// proving the decoded pixels on demand.
+VeilVideoFrame? pullRemoteVideoFrameForDiagnostics() {
+  final alreadyPumped = remoteVideoFrame.value;
+  if (alreadyPumped != null) return alreadyPumped;
+  try {
+    return _diagnosticMediaController?._engine?.getVideoFrame();
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Toggle batching on the currently active direct/relay media channel for a
+/// debug-stand A/B. Returns null when no media controller is active, otherwise
+/// the native channel result (0 = applied). The production policy remains in
+/// [VeilCallMediaController.start]; release builds expose no caller for this.
+int? setActiveMediaBatchingForDiagnostics(bool enabled) =>
+    _diagnosticMediaController?._setMediaBatchingForDiagnostics(enabled);
+
+/// Pins the active encoder target for a physical debug-stand A/B. Returns
+/// null when no media controller is active and otherwise whether libwebrtc
+/// accepted the target. Passing null clears the pin and reapplies the current
+/// adaptive-ladder target.
+bool? setActiveVideoTargetForDiagnostics({int? bitrateKbps, int? fps}) =>
+    _diagnosticMediaController?._setVideoTargetForDiagnostics(
+      bitrateKbps: bitrateKbps,
+      fps: fps,
+    );
 
 /// Latest local camera frame for the active video call (RGBA), or null. Used by
 /// the draggable self-preview tile.
@@ -54,6 +89,15 @@ const _anonymousVideoProfile = _CallVideoProfile(
   cameraHeight: 198,
 );
 
+/// Whether an initial media mount may physically start the camera.
+///
+/// Video receive and camera transmit are independent: the user can turn the
+/// camera off while a call is still dialing/ringing, and the accepted session
+/// must then mount receive-only video without a transient capture leak.
+@visibleForTesting
+bool shouldStartInitialCallCamera(Call call) =>
+    call.media.video && call.cameraOn;
+
 /// The real [CallMediaController]: opens a veil media datagram channel to the
 /// call peer and drives the libwebrtc audio engine (libveil_media.dylib) over
 /// it. Per-packet RTP/RTCP flows native↔native (the C++ Transport shim calls
@@ -65,12 +109,16 @@ class VeilCallMediaController implements CallMediaController {
   VeilCallMediaController(this._transport);
 
   final VeilFlutterTransport _transport;
+  static const MethodChannel _androidCallNetwork = MethodChannel(
+    'xveil/call_network',
+  );
   VeilMediaEngine? _engine;
   int? _chan;
   String? _chanPeer; // hex of the peer _chan was opened for
   CallTransportKind? _chanTransport;
   Timer? _frameTimer; // pulls decoded remote frames at the display rate
   AndroidNativeCallCamera? _androidNativeCam; // zero-copy call camera path
+  AndroidNativeCallVideoRenderer? _androidVideoRenderer;
   AndroidCameraCapture? _androidCam; // plugin fallback (Android only)
   AndroidScreenCaptureSource? _androidScreen;
   bool _androidScreenPushLogged = false;
@@ -94,6 +142,7 @@ class VeilCallMediaController implements CallMediaController {
   DateTime? _lastRepairAt;
   Call? _activeCall;
   bool _routeRepairing = false;
+  bool _androidCallNetworkActive = false;
   int _mediaEpoch = 0;
 
   // Frame cadence measured at the Dart/native boundary. Packet counters can
@@ -119,10 +168,53 @@ class VeilCallMediaController implements CallMediaController {
   // not advance; the renderer follows the display and coalesces latest.
   static const Duration _framePollInterval = Duration(milliseconds: 12);
 
-  /// Whether the native relay channel currently batches audio/RTCP (v2-peer
-  /// gate accepted). Surfaced in [diagnostics] so a live stand run can SEE
-  /// the gate outcome — devLog is invisible on a shell-launched app.
-  bool _relayBatching = false;
+  /// Whether the native channel currently batches media cells. Production
+  /// enables this only for relay; the debug A/B hook can also exercise direct.
+  /// Surfaced in [diagnostics] so a live stand run can see the gate outcome
+  /// even when devLog is unavailable.
+  bool _mediaBatching = false;
+  ({int bitrateKbps, int fps})? _diagnosticVideoTarget;
+
+  int _setMediaBatchingForDiagnostics(bool enabled) {
+    final chan = _chan;
+    if (chan == null || _chanTransport == CallTransportKind.onion) return -1;
+    final rc = _transport.setRelayMediaBatching(chan, enabled);
+    if (rc == 0) _mediaBatching = enabled;
+    devLog(
+      () =>
+          'xVeil[call-media]: diagnostic batching=$enabled '
+          'channel=$chan rc=$rc',
+    );
+    return rc;
+  }
+
+  bool _setVideoTargetForDiagnostics({int? bitrateKbps, int? fps}) {
+    final engine = _engine;
+    final adapter = _bitrateAdapter;
+    if (engine == null || adapter == null) return false;
+    final target = bitrateKbps == null || fps == null
+        ? (
+            bitrateKbps: adapter.target.maxBitrateKbps,
+            fps: adapter.target.maxFps,
+          )
+        : (bitrateKbps: bitrateKbps, fps: fps);
+    final ok = engine.setVideoBitrate(
+      maxBitrateKbps: target.bitrateKbps,
+      maxFps: target.fps,
+    );
+    if (ok) {
+      _diagnosticVideoTarget = bitrateKbps == null || fps == null
+          ? null
+          : target;
+    }
+    devLog(
+      () =>
+          'xVeil[call-media]: diagnostic video target='
+          '${target.bitrateKbps}kbps@${target.fps}fps pinned='
+          '${_diagnosticVideoTarget != null} ok=$ok',
+    );
+    return ok;
+  }
 
   /// WHY a negotiated p2p route fell back to relay (real-P2P epic, layer 5) —
   /// null while the active route is the negotiated one. Set/cleared on every
@@ -149,8 +241,15 @@ class VeilCallMediaController implements CallMediaController {
       return {'transport': _chanTransport?.name, 'running': false};
     }
     try {
+      final chan = _chan;
+      final relayDiagnostics =
+          chan != null && _chanTransport == CallTransportKind.relay
+          ? _transport.mediaChannelStats(chan) ?? const <String, int>{}
+          : const <String, int>{};
       final nativeCamera = _androidNativeCam;
       final nativeDiagnostics = nativeCamera?.diagnostics ?? const {};
+      final nativeVideoDiagnostics =
+          _androidVideoRenderer?.diagnostics ?? const {};
       final androidCamera = _androidCam;
       final cameraDiagnostics = nativeDiagnostics.isNotEmpty
           ? nativeDiagnostics
@@ -158,12 +257,21 @@ class VeilCallMediaController implements CallMediaController {
       return {
         'transport': _chanTransport?.name,
         'running': true,
-        'batching': _relayBatching,
+        'batching': _mediaBatching,
+        if (_diagnosticVideoTarget case final target?)
+          'diagnostic_video_target':
+              '${target.bitrateKbps}kbps@${target.fps}fps',
         if (_bitrateAdapter != null) 'adaptLevel': _bitrateAdapter!.level,
-        'remote_frame_fps': _remoteFrameFps,
-        'remote_frame_max_gap_ms': _maxRemoteGapUs ~/ 1000,
-        'remote_frame_holds_75ms': _remoteHoldsOver75Ms,
-        'remote_frames': _remoteFrames,
+        'remote_frame_fps':
+            nativeVideoDiagnostics['video_texture_fps'] ?? _remoteFrameFps,
+        'remote_frame_max_gap_ms':
+            nativeVideoDiagnostics['video_texture_max_gap_ms'] ??
+            _maxRemoteGapUs ~/ 1000,
+        'remote_frame_holds_75ms':
+            nativeVideoDiagnostics['video_texture_holds_75ms'] ??
+            _remoteHoldsOver75Ms,
+        'remote_frames':
+            nativeVideoDiagnostics['video_texture_frames'] ?? _remoteFrames,
         'local_frame_fps':
             cameraDiagnostics['camera_capture_fps'] ??
             androidCamera?.captureFps ??
@@ -177,6 +285,8 @@ class VeilCallMediaController implements CallMediaController {
         'local_frames':
             cameraDiagnostics['camera_capture_frames'] ?? _localFrames,
         if (cameraDiagnostics.isNotEmpty) ...cameraDiagnostics,
+        if (nativeVideoDiagnostics.isNotEmpty) ...nativeVideoDiagnostics,
+        if (relayDiagnostics.isNotEmpty) ...relayDiagnostics,
         ...engine.getStats(),
       };
     } catch (_) {
@@ -279,6 +389,7 @@ class VeilCallMediaController implements CallMediaController {
     }
     final epoch = ++_mediaEpoch;
     _activeCall = call;
+    await _setAndroidCallNetworkActive(true);
     // Present the platform mic/camera prompts before native capture starts,
     // but do not serialize them: two independent five-second waits used to
     // exceed CallService's whole media-start budget and tear down an otherwise
@@ -336,17 +447,17 @@ class VeilCallMediaController implements CallMediaController {
     _chan = chan;
     _chanPeer = call.peer.hex;
     _chanTransport = transport;
-    // Relay media pays a full E2E envelope + padding PER datagram (~24× for
-    // Opus-sized packets — the device-measured last-mile saturation class,
-    // ROADMAP section S). When the peer's call protocol version proves it
-    // decodes batched cells, let the native sender amortize small audio/RTCP
-    // datagrams into one envelope. Version-gated: to an older build a
-    // batched cell is silent noise.
-    _relayBatching = false;
+    // Relay media pays a full E2E envelope + padding per datagram, so batching
+    // is a large bandwidth win there. Do not enable it for direct P2P: physical
+    // device A/B showed the direct burst scheduler inflating the receiver's
+    // audio jitter buffer into seconds even on a loss-free 7-25 ms path. Onion
+    // already has its own framing. Version-gated because a batched cell is
+    // silent noise to an older build.
+    _mediaBatching = false;
     if (transport == CallTransportKind.relay &&
         (call.peerProtocolVersion ?? 1) >= kCallRelayBatchingMinVersion) {
       final rc = _transport.setRelayMediaBatching(chan, true);
-      _relayBatching = rc == 0;
+      _mediaBatching = rc == 0;
       devLog(() => 'xVeil[call-media]: relay batching enable rc=$rc');
     }
     // A negotiated P2P open may have taken the explicitly permitted non-onion
@@ -367,6 +478,7 @@ class VeilCallMediaController implements CallMediaController {
       return false;
     }
     _engine = engine;
+    _diagnosticMediaController = this;
     // Liveness signal for the call FSM: poll rx_pkts so it can tell the peer's
     // media is still arriving even when the durable signaling heartbeat lags.
     _statsTimer?.cancel();
@@ -451,7 +563,7 @@ class VeilCallMediaController implements CallMediaController {
             txLossPct: (stats['tx_loss_pct'] as num?)?.toInt() ?? 0,
             txDrops: (stats['tx_drops'] as num?)?.toInt() ?? 0,
           );
-          if (change != null) {
+          if (change != null && _diagnosticVideoTarget == null) {
             final ok = engine.setVideoBitrate(
               maxBitrateKbps: change.maxBitrateKbps,
               maxFps: change.maxFps,
@@ -466,13 +578,14 @@ class VeilCallMediaController implements CallMediaController {
         }
       } catch (_) {}
     });
-    final audioOk = engine.startAudio(send: true, recv: true);
-    if (audioOk && !call.micOn) {
-      // Apply the initial posture before returning an active session. Relying
-      // only on a later UI toggle creates a short microphone leak on calls
-      // whose platform policy starts muted (Android phone endpoint).
+    // Establish the initial privacy posture before the ADM is started. The
+    // native engine now keeps physical capture stopped while muted, so an
+    // Android endpoint configured mic-off neither opens AudioRecord briefly
+    // nor burns capture/Opus CPU just to encode silence.
+    if (!call.micOn) {
       engine.setMicMuted(true);
     }
+    final audioOk = engine.startAudio(send: true, recv: true);
     devLog(() => 'xVeil[call-media]: startAudio=$audioOk');
     var videoOk = false;
     // VP8 video over the same veil channel when the call requests video/screen.
@@ -494,13 +607,14 @@ class VeilCallMediaController implements CallMediaController {
           baseBitrateKbps: profile.maxBitrateKbps,
           baseFps: profile.maxFps,
         );
+        if (Platform.isAndroid) await _startAndroidVideoRenderer(engine);
       }
       // Drive the send stream from the real camera for a video call (screen
       // capture is a separate path). Apple platforms capture natively inside
       // the engine. Android uses an app-owned Camera2 SurfaceTexture + direct
       // JNI YUV bridge; the Flutter camera plugin is only a compatibility
       // fallback if the native session cannot open.
-      if (call.media.video) {
+      if (shouldStartInitialCallCamera(call)) {
         if (Platform.isAndroid) {
           // Do not hold the call FSM in `connecting` while camera permission or
           // device opening completes; the receive pipeline is already mounted.
@@ -525,6 +639,7 @@ class VeilCallMediaController implements CallMediaController {
   /// Pump the latest decoded frames into the shared notifier for the UI.
   void _startFramePump(VeilMediaEngine engine) {
     _frameTimer?.cancel();
+    _frameTimer = null;
     _frameCadenceClock
       ..reset()
       ..start();
@@ -538,10 +653,23 @@ class VeilCallMediaController implements CallMediaController {
     _lastLocalFrameUs = null;
     _maxLocalGapUs = 0;
     _localHoldsOver75Ms = 0;
-    _frameTimer = Timer.periodic(_framePollInterval, (_) {
+    final nativeRemote =
+        Platform.isAndroid && (_androidVideoRenderer?.isRunning ?? false);
+    final needsDartLocalFrames =
+        Platform.isAndroid && (_androidScreen != null || _androidCam != null);
+    // Camera2 preview and decoded remote video are both native textures on the
+    // normal Android call path. An 83 Hz Dart timer used to wake the UI isolate
+    // anyway only to discover that neither RGBA frame needed copying. Besides
+    // wasting a core, that empty polling contributed directly to phone heat.
+    // Keep a slower pump only for the plugin/screen fallback's local preview.
+    if (nativeRemote && !needsDartLocalFrames) return;
+    final interval = nativeRemote
+        ? const Duration(milliseconds: 30)
+        : _framePollInterval;
+    _frameTimer = Timer.periodic(interval, (_) {
       if (_engine != engine) return;
       try {
-        final f = engine.getVideoFrame();
+        final f = nativeRemote ? null : engine.getVideoFrame();
         if (f != null) {
           final nowUs = _frameCadenceClock.elapsedMicroseconds;
           final previousUs = _lastRemoteFrameUs;
@@ -611,6 +739,7 @@ class VeilCallMediaController implements CallMediaController {
     }
     devLog(() => 'xVeil[call-media]: mid-call video mount=$ok');
     if (!ok) return false;
+    if (Platform.isAndroid) await _startAndroidVideoRenderer(engine);
     // Keep the session's own call view carrying video, so a route repair or
     // switch rebuilds the upgraded media set rather than the audio-only offer.
     _activeCall = call.copyWith(media: call.media.copyWith(video: true));
@@ -645,6 +774,13 @@ class VeilCallMediaController implements CallMediaController {
     _bitrateAdapter = null;
     remoteVideoFrame.value = null;
     localVideoFrame.value = null;
+    final videoRenderer = _androidVideoRenderer;
+    _androidVideoRenderer = null;
+    if (videoRenderer != null) {
+      try {
+        await videoRenderer.stop();
+      } catch (_) {}
+    }
     final nativeCam = _androidNativeCam;
     _androidNativeCam = null;
     if (nativeCam != null) {
@@ -670,6 +806,9 @@ class VeilCallMediaController implements CallMediaController {
     }
     final e = _engine;
     _engine = null;
+    if (identical(_diagnosticMediaController, this)) {
+      _diagnosticMediaController = null;
+    }
     if (e != null) {
       try {
         e.stopVideo();
@@ -685,11 +824,35 @@ class VeilCallMediaController implements CallMediaController {
     _chan = null;
     _chanPeer = null;
     _chanTransport = null;
-    _relayBatching = false;
+    _mediaBatching = false;
     if (ch != null) {
       try {
         _transport.closeMediaChannel(ch);
       } catch (_) {}
+    }
+    // A route repair tears down and recreates only the media session. Keep the
+    // radio in low-latency mode across that internal gap; release it only when
+    // the call itself ends.
+    if (clearActiveCall) await _setAndroidCallNetworkActive(false);
+  }
+
+  Future<void> _setAndroidCallNetworkActive(bool active) async {
+    if (!Platform.isAndroid || _androidCallNetworkActive == active) return;
+    try {
+      final held = await _androidCallNetwork.invokeMethod<bool>('setActive', {
+        'active': active,
+      });
+      _androidCallNetworkActive = active && held == true;
+      devLog(
+        () =>
+            'xVeil[call-media]: Android low-latency Wi-Fi '
+            'requested=$active held=${held == true}',
+      );
+    } catch (error) {
+      _androidCallNetworkActive = false;
+      devLog(
+        () => 'xVeil[call-media]: Android low-latency Wi-Fi failed: $error',
+      );
     }
   }
 
@@ -790,6 +953,7 @@ class VeilCallMediaController implements CallMediaController {
             await cam.stop();
           } catch (_) {}
         }
+        _startFramePump(engine);
       }
     } else {
       try {
@@ -818,6 +982,7 @@ class VeilCallMediaController implements CallMediaController {
         final screen = _androidScreen;
         _androidScreen = null;
         if (screen != null) await screen.stop();
+        _startFramePump(engine);
         return true;
       }
       if (_androidScreen != null) return true;
@@ -829,6 +994,7 @@ class VeilCallMediaController implements CallMediaController {
       _androidCam = null;
       if (cam != null) await cam.stop();
       final started = await _startAndroidScreen(engine);
+      if (started) _startFramePump(engine);
       if (!started && cameraWasRunning) {
         await _startAndroidCam(engine, highQuality: _highQualityRoute);
       }
@@ -870,6 +1036,30 @@ class VeilCallMediaController implements CallMediaController {
     });
     if (!started && _androidScreen == screen) _androidScreen = null;
     return started;
+  }
+
+  Future<void> _startAndroidVideoRenderer(VeilMediaEngine engine) async {
+    final existing = _androidVideoRenderer;
+    if (existing?.isRunning ?? false) return;
+    if (existing != null) {
+      _androidVideoRenderer = null;
+      await existing.stop();
+    }
+    final renderer = AndroidNativeCallVideoRenderer();
+    _androidVideoRenderer = renderer;
+    final ok = await renderer.start(engineAddress: engine.nativeAddress);
+    if (_engine != engine || _androidVideoRenderer != renderer) {
+      if (ok) await renderer.stop();
+      return;
+    }
+    if (!ok) {
+      _androidVideoRenderer = null;
+      devLog(
+        () => 'xVeil[call-media]: native decoded texture failed; RGBA fallback',
+      );
+      return;
+    }
+    devLog(() => 'xVeil[call-media]: native decoded texture attached');
   }
 
   /// Start the Android call camera. Camera2 normally owns preview and pushes
@@ -941,6 +1131,10 @@ class VeilCallMediaController implements CallMediaController {
         return false;
       }
     });
-    if (!ok) _androidCam = null;
+    if (!ok) {
+      _androidCam = null;
+    } else {
+      _startFramePump(engine);
+    }
   }
 }

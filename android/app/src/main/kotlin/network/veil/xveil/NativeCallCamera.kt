@@ -13,12 +13,14 @@ import android.media.ImageReader
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
+import android.os.Process
 import android.os.SystemClock
 import android.util.Range
 import android.util.Size
 import android.view.Surface
 import io.flutter.view.TextureRegistry
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 
 /**
@@ -40,6 +42,8 @@ class NativeCallCamera(
 
     private var thread: HandlerThread? = null
     private var handler: Handler? = null
+    private var processingThread: HandlerThread? = null
+    private var processingHandler: Handler? = null
     private var textureEntry: TextureRegistry.SurfaceTextureEntry? = null
     private var previewSurface: Surface? = null
     private var imageReader: ImageReader? = null
@@ -59,7 +63,10 @@ class NativeCallCamera(
     private var maxPushNs = 0L
     private var pushHolds16Ms = 0L
     private var pushHolds33Ms = 0L
+    private var replacedFrames = 0L
     private var selectedFps = 0
+    private val pendingImage = AtomicReference<android.media.Image?>(null)
+    private val processorScheduled = AtomicBoolean(false)
 
     companion object {
         init {
@@ -120,10 +127,34 @@ class NativeCallCamera(
                 characteristics.get(CameraCharacteristics.LENS_FACING) ==
                     CameraCharacteristics.LENS_FACING_FRONT
 
-            val cameraThread = HandlerThread("xveil-call-camera").also { it.start() }
+            // Camera2 reports ImageReader availability on this looper. Keep it
+            // at display priority and do only acquire/enqueue work here: a
+            // default-priority callback was visibly starved by the raster and
+            // WebRTC queues during a call, producing 75-100 ms holes in BOTH
+            // the SurfaceTexture preview and the encoded stream.
+            val cameraThread = HandlerThread(
+                "xveil-call-camera",
+                Process.THREAD_PRIORITY_DISPLAY,
+            ).also { it.start() }
             val cameraHandler = Handler(cameraThread.looper)
+            val frameThread = HandlerThread("xveil-call-frame-copy").also { it.start() }
+            val frameHandler = Handler(frameThread.looper)
+            // Some OEM HandlerThread implementations publish the Looper
+            // before applying the constructor priority. Set it again from the
+            // owning threads so the policy is effective before camera open.
+            cameraHandler.post {
+                // THREAD_PRIORITY_DISPLAY is silently reset by this Xiaomi
+                // Camera2 stack; -1 is retained (verified through /proc/top)
+                // and still keeps availability callbacks ahead of normal work.
+                Process.setThreadPriority(Process.THREAD_PRIORITY_MORE_FAVORABLE)
+            }
+            frameHandler.post {
+                Process.setThreadPriority(Process.THREAD_PRIORITY_MORE_FAVORABLE)
+            }
             thread = cameraThread
             handler = cameraHandler
+            processingThread = frameThread
+            processingHandler = frameHandler
             this.engineAddress = engineAddress
             selectedFps = fpsRange.upper
             resetStats()
@@ -160,6 +191,64 @@ class NativeCallCamera(
                                 CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO,
                             )
                             set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, fpsRange)
+                            // TEMPLATE_RECORD enables SIMPLE face detection on
+                            // this OEM and feeds a face-priority scene pipeline.
+                            // A call needs stable low-latency frames, not face
+                            // metadata; explicitly bypass that variable-cost
+                            // analysis while retaining normal AE/AWB/AF.
+                            set(
+                                CaptureRequest.STATISTICS_FACE_DETECT_MODE,
+                                CaptureRequest.STATISTICS_FACE_DETECT_MODE_OFF,
+                            )
+                            set(
+                                CaptureRequest.CONTROL_SCENE_MODE,
+                                CaptureRequest.CONTROL_SCENE_MODE_DISABLED,
+                            )
+                            // The Xiaomi HAL selected its
+                            // `ZSLPreviewRawForThirdPartyApp` graph even for
+                            // TEMPLATE_RECORD. That graph retains/reorders raw
+                            // frames for zero-shutter-lag still capture, which
+                            // is useless in a call and showed up as a repeated
+                            // pause-then-burst cadence at ImageReader. Disable
+                            // it explicitly when this optional request key is
+                            // advertised by the device.
+                            if (characteristics.availableCaptureRequestKeys
+                                    ?.contains(CaptureRequest.CONTROL_ENABLE_ZSL) == true
+                            ) {
+                                set(CaptureRequest.CONTROL_ENABLE_ZSL, false)
+                            }
+                            // Qualcomm's third-party video pipeline otherwise
+                            // keeps the GME/EIS stages live. On this Xiaomi the
+                            // GME node intermittently blocked 100-220 ms; the
+                            // Camera2 input cadence and the remote video froze
+                            // at exactly those timestamps even though native
+                            // frame push, encoder, P2P and renderer were idle.
+                            // A call at 640x360 benefits more from deterministic
+                            // cadence than from crop-based stabilization.
+                            val videoStabilizationModes = characteristics.get(
+                                CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES,
+                            )
+                            if (videoStabilizationModes?.contains(
+                                    CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF,
+                                ) == true
+                            ) {
+                                set(
+                                    CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
+                                    CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF,
+                                )
+                            }
+                            val opticalStabilizationModes = characteristics.get(
+                                CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION,
+                            )
+                            if (opticalStabilizationModes?.contains(
+                                    CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF,
+                                ) == true
+                            ) {
+                                set(
+                                    CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
+                                    CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF,
+                                )
+                            }
                         }
                         device.createCaptureSession(
                             listOf(preview, reader.surface),
@@ -177,7 +266,15 @@ class NativeCallCamera(
                                             "textureId" to entry.id(),
                                             "width" to size.width,
                                             "height" to size.height,
-                                            "rotation" to sensorRotation,
+                                            // The SurfaceTexture path already
+                                            // applies the producer transform
+                                            // matrix in Flutter's external-
+                                            // texture renderer. SENSOR_ORIENTATION
+                                            // is still required by the separate
+                                            // ImageReader/YUV path above, but
+                                            // applying it again in Dart rotates
+                                            // the self-preview onto its side.
+                                            "previewRotation" to 0,
                                             "mirror" to mirror,
                                             "fps" to fpsRange.upper,
                                             "cameraId" to cameraId,
@@ -229,8 +326,13 @@ class NativeCallCamera(
         pending?.invoke(null, "Camera2 start cancelled")
         val oldHandler = handler
         val oldThread = thread
+        val oldProcessingHandler = processingHandler
+        val oldProcessingThread = processingThread
+        val oldReader = imageReader
+        val oldPreviewSurface = previewSurface
+        val oldTextureEntry = textureEntry
         try {
-            imageReader?.setOnImageAvailableListener(null, null)
+            oldReader?.setOnImageAvailableListener(null, null)
         } catch (_: Exception) {}
         try {
             captureSession?.stopRepeating()
@@ -243,31 +345,63 @@ class NativeCallCamera(
             cameraDevice?.close()
         } catch (_: Exception) {}
         cameraDevice = null
-        try {
-            imageReader?.close()
-        } catch (_: Exception) {}
         imageReader = null
-        try {
-            previewSurface?.release()
-        } catch (_: Exception) {}
         previewSurface = null
-        try {
-            textureEntry?.release()
-        } catch (_: Exception) {}
         textureEntry = null
+        pendingImage.getAndSet(null)?.close()
+        processorScheduled.set(false)
         handler = null
         thread = null
+        processingHandler = null
+        processingThread = null
+
+        // Fence BOTH loopers. An ImageReader callback can already have handed
+        // an Image to the copy looper when stop() invalidates engineAddress;
+        // the media engine may be destroyed only after that copy call returns.
+        val resourcesReleased = AtomicBoolean(false)
+        val releaseResources = {
+            if (resourcesReleased.compareAndSet(false, true)) {
+                try {
+                    oldReader?.close()
+                } catch (_: Exception) {}
+                try {
+                    oldPreviewSurface?.release()
+                } catch (_: Exception) {}
+                try {
+                    oldTextureEntry?.release()
+                } catch (_: Exception) {}
+                done?.invoke()
+            }
+        }
+        val finishProcessing = {
+            if (oldProcessingHandler != null && oldProcessingThread != null &&
+                oldProcessingThread.isAlive &&
+                Looper.myLooper() != oldProcessingHandler.looper
+            ) {
+                val posted = oldProcessingHandler.post {
+                    oldProcessingThread.quitSafely()
+                    releaseResources()
+                }
+                if (!posted) {
+                    oldProcessingThread.quitSafely()
+                    releaseResources()
+                }
+            } else {
+                oldProcessingThread?.quitSafely()
+                releaseResources()
+            }
+        }
         if (oldHandler != null && oldThread != null && oldThread.isAlive &&
             Looper.myLooper() != oldHandler.looper
         ) {
             val posted = oldHandler.post {
                 oldThread.quitSafely()
-                done?.invoke()
+                finishProcessing()
             }
             if (posted) return
         }
         oldThread?.quitSafely()
-        done?.invoke()
+        finishProcessing()
     }
 
     fun stats(): Map<String, Any> = synchronized(statsLock) {
@@ -288,6 +422,7 @@ class NativeCallCamera(
             "camera_push_max_ms" to maxPushNs / 1_000_000.0,
             "camera_push_holds_16ms" to pushHolds16Ms,
             "camera_push_holds_33ms" to pushHolds33Ms,
+            "camera_processing_replaced" to replacedFrames,
             "camera_running" to running,
         )
     }
@@ -302,25 +437,63 @@ class NativeCallCamera(
         maxPushNs = 0
         pushHolds16Ms = 0
         pushHolds33Ms = 0
+        replacedFrames = 0
     }
 
     private fun onImage(source: ImageReader, rotation: Int) {
         val image = source.acquireLatestImage() ?: return
+        if (engineAddress == 0L || image.planes.size < 3) {
+            image.close()
+            return
+        }
+        val nowNs = SystemClock.elapsedRealtimeNanos()
+        synchronized(statsLock) {
+            if (firstInputNs == 0L) firstInputNs = nowNs
+            if (lastInputNs != 0L) {
+                val gap = nowNs - lastInputNs
+                if (gap > maxInputGapNs) maxInputGapNs = gap
+                if (gap >= 75_000_000L) inputHolds75Ms++
+            }
+            lastInputNs = nowNs
+            inputFrames++
+        }
+
+        // One image may be in nativePush and one pending. Replacing the latter
+        // keeps latency bounded while maxImages=3 leaves one slot for Camera2;
+        // no FIFO is allowed to accumulate behind a slow copy/conversion.
+        pendingImage.getAndSet(image)?.let { replaced ->
+            replaced.close()
+            synchronized(statsLock) { replacedFrames++ }
+        }
+        scheduleProcessor(rotation)
+    }
+
+    private fun scheduleProcessor(rotation: Int) {
+        if (!processorScheduled.compareAndSet(false, true)) return
+        val target = processingHandler
+        if (target == null || !target.post { drainImages(rotation) }) {
+            processorScheduled.set(false)
+            pendingImage.getAndSet(null)?.close()
+        }
+    }
+
+    private fun drainImages(rotation: Int) {
+        while (true) {
+            val image = pendingImage.getAndSet(null)
+            if (image != null) processImage(image, rotation)
+
+            processorScheduled.set(false)
+            if (pendingImage.get() == null ||
+                !processorScheduled.compareAndSet(false, true)
+            ) return
+        }
+    }
+
+    private fun processImage(image: android.media.Image, rotation: Int) {
         try {
             val address = engineAddress
             val planes = image.planes
             if (address == 0L || planes.size < 3) return
-            val nowNs = SystemClock.elapsedRealtimeNanos()
-            synchronized(statsLock) {
-                if (firstInputNs == 0L) firstInputNs = nowNs
-                if (lastInputNs != 0L) {
-                    val gap = nowNs - lastInputNs
-                    if (gap > maxInputGapNs) maxInputGapNs = gap
-                    if (gap >= 75_000_000L) inputHolds75Ms++
-                }
-                lastInputNs = nowNs
-                inputFrames++
-            }
             val uvPixelStride = planes[1].pixelStride
             if (uvPixelStride != planes[2].pixelStride) return
             val startedNs = SystemClock.elapsedRealtimeNanos()

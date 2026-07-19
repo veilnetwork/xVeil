@@ -51,6 +51,7 @@ class _FakeOrchestrator implements MailboxOrchestrator {
     required int ourCertVersion,
     required Future<bool> Function(Uint8List contentId) alreadyHave,
     List<NodeId> knownRelays = const [],
+    bool Function()? shouldContinue,
   }) async {
     drains++;
     return queued.isEmpty ? const [] : queued.removeAt(0);
@@ -68,12 +69,12 @@ class _FakeOrchestrator implements MailboxOrchestrator {
 }
 
 DrainedMessage _mail() => DrainedMessage(
-      sender: _id(9),
-      contentId: Uint8List(32),
-      appId: Uint8List(16),
-      endpointId: 1,
-      data: Uint8List.fromList([1, 2, 3]),
-    );
+  sender: _id(9),
+  contentId: Uint8List(32),
+  appId: Uint8List(16),
+  endpointId: 1,
+  data: Uint8List.fromList([1, 2, 3]),
+);
 
 void main() {
   late _FakeOrchestrator orch;
@@ -81,20 +82,20 @@ void main() {
 
   setUp(() {
     orch = _FakeOrchestrator();
-    svc = MailboxService(
-      client: _FakeClient(),
-      me: _id(1),
-      orchestrator: orch,
-      deliver: (_) {},
-      drainInterval: const Duration(milliseconds: 100),
-    )
-      ..hotDrainInterval = const Duration(milliseconds: 10)
-      ..hotWindow = const Duration(milliseconds: 250);
+    svc =
+        MailboxService(
+            client: _FakeClient(),
+            me: _id(1),
+            orchestrator: orch,
+            deliver: (_) {},
+            drainInterval: const Duration(milliseconds: 100),
+          )
+          ..hotDrainInterval = const Duration(milliseconds: 10)
+          ..hotWindow = const Duration(milliseconds: 250);
   });
   tearDown(() => svc.dispose());
 
-  test(
-      'idle drains back off exponentially, noteActivity opens a fast burst '
+  test('idle drains back off exponentially, noteActivity opens a fast burst '
       'window, and expiry returns to the idle cadence', () async {
     await svc.start(relays: [_id(7)]);
 
@@ -102,23 +103,32 @@ void main() {
     // 100ms tick only the first drain or two actually run their body.
     await Future<void>.delayed(const Duration(milliseconds: 500));
     final idleDrains = orch.drains;
-    expect(idleDrains, lessThanOrEqualTo(3),
-        reason: 'idle back-off must suppress most ticks');
+    expect(
+      idleDrains,
+      lessThanOrEqualTo(3),
+      reason: 'idle back-off must suppress most ticks',
+    );
 
     // Phase 2 — activity: the burst window polls every hot tick (10ms) and
     // empty results must NOT escalate while it is open.
     svc.noteActivity();
     await Future<void>.delayed(const Duration(milliseconds: 200));
     final burstDrains = orch.drains - idleDrains;
-    expect(burstDrains, greaterThanOrEqualTo(5),
-        reason: 'hot window must poll at the fast cadence');
+    expect(
+      burstDrains,
+      greaterThanOrEqualTo(5),
+      reason: 'hot window must poll at the fast cadence',
+    );
 
     // Phase 3 — the window expired: cadence falls back to idle + back-off.
     await Future<void>.delayed(const Duration(milliseconds: 200));
     final afterExpiry = orch.drains;
     await Future<void>.delayed(const Duration(milliseconds: 400));
-    expect(orch.drains - afterExpiry, lessThanOrEqualTo(4),
-        reason: 'after the window the idle back-off must resume');
+    expect(
+      orch.drains - afterExpiry,
+      lessThanOrEqualTo(4),
+      reason: 'after the window the idle back-off must resume',
+    );
   });
 
   test('drained mail re-arms the burst window by itself', () async {
@@ -127,8 +137,11 @@ void main() {
     orch.queued.add([_mail()]);
     await svc.start(relays: [_id(7)]);
     await Future<void>.delayed(const Duration(milliseconds: 200));
-    expect(orch.drains, greaterThanOrEqualTo(5),
-        reason: 'gotMail must open the burst window');
+    expect(
+      orch.drains,
+      greaterThanOrEqualTo(5),
+      reason: 'gotMail must open the burst window',
+    );
   });
 
   test('nudgeDrain opens the burst window too', () async {
@@ -164,52 +177,60 @@ void main() {
     expect(client.registeredRelays.length, 3);
   });
 
-  test('concurrent starts coalesce and dispose waits for the native lookup',
-      () async {
-    final client = _FakeClient();
-    final lookup = Completer<Uint8List?>();
-    client.lookupBlock = lookup;
-    final svc2 = MailboxService(
-      client: client,
-      me: _id(1),
-      orchestrator: orch,
-      deliver: (_) {},
-      drainInterval: const Duration(seconds: 30),
-    );
-    addTearDown(() async {
-      await svc2.dispose();
-      await client.events_.close();
-    });
+  test(
+    'concurrent starts coalesce and dispose waits for the native lookup',
+    () async {
+      final client = _FakeClient();
+      final lookup = Completer<Uint8List?>();
+      client.lookupBlock = lookup;
+      final svc2 = MailboxService(
+        client: client,
+        me: _id(1),
+        orchestrator: orch,
+        deliver: (_) {},
+        drainInterval: const Duration(seconds: 30),
+      );
+      addTearDown(() async {
+        await svc2.dispose();
+        await client.events_.close();
+      });
 
-    final first = svc2.start(relays: [_id(7)]);
-    final repeated = svc2.start(relays: [_id(7)]);
-    expect(identical(first, repeated), isTrue);
-    await Future<void>.delayed(Duration.zero);
-    expect(client.lookups, 1);
+      final first = svc2.start(relays: [_id(7)]);
+      final repeated = svc2.start(relays: [_id(7)]);
+      expect(identical(first, repeated), isTrue);
+      await Future<void>.delayed(Duration.zero);
+      expect(client.lookups, 1);
 
-    var disposed = false;
-    final closing = svc2.dispose().then((_) => disposed = true);
-    await Future<void>.delayed(Duration.zero);
-    expect(disposed, isFalse);
-    lookup.complete(Uint8List(32));
-    await closing;
-    await first;
-    expect(client.registeredRelays, isEmpty,
-        reason: 'dispose must prevent a late native registration');
-  });
+      var disposed = false;
+      final closing = svc2.dispose().then((_) => disposed = true);
+      await Future<void>.delayed(Duration.zero);
+      expect(disposed, isFalse);
+      lookup.complete(Uint8List(32));
+      await closing;
+      await first;
+      expect(
+        client.registeredRelays,
+        isEmpty,
+        reason: 'dispose must prevent a late native registration',
+      );
+    },
+  );
 
   test('a MAILBOX_WAKE event drains immediately (no debounce) and opens the '
       'burst window', () async {
     final client = _FakeClient();
-    final svc2 = MailboxService(
-      client: client,
-      me: _id(1),
-      orchestrator: orch,
-      deliver: (_) {},
-      drainInterval: const Duration(seconds: 30), // idle tick out of the way
-    )
-      ..hotDrainInterval = const Duration(milliseconds: 10)
-      ..hotWindow = const Duration(milliseconds: 300);
+    final svc2 =
+        MailboxService(
+            client: client,
+            me: _id(1),
+            orchestrator: orch,
+            deliver: (_) {},
+            drainInterval: const Duration(
+              seconds: 30,
+            ), // idle tick out of the way
+          )
+          ..hotDrainInterval = const Duration(milliseconds: 10)
+          ..hotWindow = const Duration(milliseconds: 300);
     addTearDown(() async {
       await svc2.dispose();
       await client.events_.close();
@@ -228,7 +249,10 @@ void main() {
     );
     await Future<void>.delayed(const Duration(milliseconds: 200));
     // One immediate drain + the hot cadence that follows.
-    expect(orch.drains - before, greaterThanOrEqualTo(3),
-        reason: 'wake must drain now and keep the burst cadence');
+    expect(
+      orch.drains - before,
+      greaterThanOrEqualTo(3),
+      reason: 'wake must drain now and keep the burst cadence',
+    );
   });
 }

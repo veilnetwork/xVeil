@@ -13,6 +13,8 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
+import 'package:flutter/services.dart'
+    show MethodChannel, MissingPluginException, PlatformException;
 import 'package:path_provider/path_provider.dart';
 
 import '../data/native_libs.dart';
@@ -33,15 +35,20 @@ class WhisperJob {
   final String lang;
 }
 
-typedef _DecodePcm16k = Int32 Function(
-    Pointer<Uint8>, Size, Pointer<Pointer<Float>>, Pointer<Int32>);
-typedef _DecodePcm16kDart = int Function(
-    Pointer<Uint8>, int, Pointer<Pointer<Float>>, Pointer<Int32>);
+typedef _DecodePcm16k =
+    Int32 Function(
+      Pointer<Uint8>,
+      Size,
+      Pointer<Pointer<Float>>,
+      Pointer<Int32>,
+    );
+typedef _DecodePcm16kDart =
+    int Function(Pointer<Uint8>, int, Pointer<Pointer<Float>>, Pointer<Int32>);
 typedef _FreePcm = Void Function(Pointer<Float>);
-typedef _Transcribe = Pointer<Utf8> Function(
-    Pointer<Utf8>, Pointer<Float>, Int32, Pointer<Utf8>);
-typedef _TranscribeDart = Pointer<Utf8> Function(
-    Pointer<Utf8>, Pointer<Float>, int, Pointer<Utf8>);
+typedef _Transcribe =
+    Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Float>, Int32, Pointer<Utf8>);
+typedef _TranscribeDart =
+    Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Float>, int, Pointer<Utf8>);
 typedef _FreeString = Void Function(Pointer<Utf8>);
 
 /// Top-level: decode the clip to 16kHz PCM and run whisper. Returns the
@@ -50,17 +57,19 @@ typedef _FreeString = Void Function(Pointer<Utf8>);
 String? transcribeVoiceOpus(WhisperJob job) {
   final media = DynamicLibrary.open(job.veilMediaLib);
   final whisper = DynamicLibrary.open(job.whisperLib);
-  final decode = media
-      .lookupFunction<_DecodePcm16k, _DecodePcm16kDart>(
-          'veil_media_decode_pcm16k');
-  final freePcm =
-      media.lookupFunction<_FreePcm, void Function(Pointer<Float>)>(
-          'veil_media_free_pcm');
-  final transcribe = whisper
-      .lookupFunction<_Transcribe, _TranscribeDart>('veil_whisper_transcribe');
-  final freeStr =
-      whisper.lookupFunction<_FreeString, void Function(Pointer<Utf8>)>(
-          'veil_whisper_free_string');
+  final decode = media.lookupFunction<_DecodePcm16k, _DecodePcm16kDart>(
+    'veil_media_decode_pcm16k',
+  );
+  final freePcm = media.lookupFunction<_FreePcm, void Function(Pointer<Float>)>(
+    'veil_media_free_pcm',
+  );
+  final transcribe = whisper.lookupFunction<_Transcribe, _TranscribeDart>(
+    'veil_whisper_transcribe',
+  );
+  final freeStr = whisper
+      .lookupFunction<_FreeString, void Function(Pointer<Utf8>)>(
+        'veil_whisper_free_string',
+      );
 
   final opusBuf = calloc<Uint8>(job.opus.length);
   final outPcm = calloc<Pointer<Float>>();
@@ -97,6 +106,7 @@ class WhisperTranscriber {
   /// app (bundled) or in a dev location.
   static const _modelEnv = 'XVEIL_WHISPER_MODEL';
   static const _modelFile = 'ggml-base-q5_1.bin';
+  static const _androidModelChannel = MethodChannel('xveil/whisper_model');
 
   /// Cached model path resolved by [ensureResolved] (Android needs an async
   /// path_provider lookup — a raw /storage path is blocked by scoped storage).
@@ -112,15 +122,35 @@ class WhisperTranscriber {
     if (_resolvedOnce) return;
     _resolvedModel = _syncModelPath();
     if (_resolvedModel == null && Platform.isAndroid) {
-      for (final dir in [
-        await getExternalStorageDirectory(),
-        await getApplicationSupportDirectory(),
-      ]) {
-        if (dir == null) continue;
-        final p = '${dir.path}/$_modelFile';
-        if (File(p).existsSync()) {
-          _resolvedModel = p;
-          break;
+      // Production APKs carry the model as an uncompressed Android asset. The
+      // native side streams it into noBackupFilesDir, verifies SHA-256, and
+      // atomically publishes a real filesystem path for whisper.cpp. Keep the
+      // older app-directory probes as a development fallback for adb-pushed
+      // models and for a rolling upgrade from pre-bundling builds.
+      try {
+        final installed = await _androidModelChannel.invokeMethod<String>(
+          'ensureInstalled',
+        );
+        if (installed != null && File(installed).existsSync()) {
+          _resolvedModel = installed;
+        }
+      } on MissingPluginException {
+        // Older Android host during hot restart: use the legacy lookup below.
+      } on PlatformException {
+        // Corrupt/missing dev assets leave transcription unavailable; the
+        // release packaging path has already failed closed.
+      }
+      if (_resolvedModel == null) {
+        for (final dir in [
+          await getExternalStorageDirectory(),
+          await getApplicationSupportDirectory(),
+        ]) {
+          if (dir == null) continue;
+          final p = '${dir.path}/$_modelFile';
+          if (File(p).existsSync()) {
+            _resolvedModel = p;
+            break;
+          }
         }
       }
     } else if (_resolvedModel == null && Platform.isLinux) {
@@ -209,12 +239,16 @@ class WhisperTranscriber {
     final whisper = _libRef('veil_whisper');
     final model = modelPath();
     if (media == null || whisper == null || model == null) return null;
-    return Isolate.run(() => transcribeVoiceOpus(WhisperJob(
+    return Isolate.run(
+      () => transcribeVoiceOpus(
+        WhisperJob(
           opus: opus,
           veilMediaLib: media,
           whisperLib: whisper,
           modelPath: model,
           lang: lang,
-        )));
+        ),
+      ),
+    );
   }
 }

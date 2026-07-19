@@ -104,14 +104,36 @@ ls -la "$APP/Contents/Frameworks/" | grep -E 'hidden_volume|veilclient|veil_medi
 # Swapping a dylib invalidates the .app's code-signature seal (its CodeResources
 # still references the OLD dylib hash), so a strict launch — `flutter run`, or
 # Gatekeeper — SIGKILLs the process on dlopen with EXC_BAD_ACCESS / "Code
-# Signature Invalid". Re-sign the whole bundle ad-hoc so the seal matches the
-# freshly-copied dylibs. Without this the app crashes the moment it loads the
-# native store.
+# Signature Invalid". Re-sign the whole bundle so the seal matches the freshly
+# copied dylibs. Without this the app crashes the moment it loads the native
+# store.
 # Re-attach the SAME entitlements flutter applied at build time — a plain
-# `--force` ad-hoc re-sign STRIPS the entitlements blob, which makes the
+# `--force` re-sign STRIPS the entitlements blob, which makes the
 # file_picker plugin throw ENTITLEMENT_NOT_FOUND (the paperclip silently failed).
-echo "re-signing $APP (ad-hoc, deep, entitlements=$ENTITLEMENTS) after the dylib swap…"
-codesign --force --deep --sign - --entitlements "$ENT" "$APP"
+#
+# Repeated ad-hoc signing changes the app's designated requirement to a new
+# cdhash every time a dylib changes. macOS TCC then invalidates the previously
+# granted camera/microphone permission: AVFoundation reports a running session
+# but delivers no frames until another system prompt is accepted. A stable
+# Apple Development identity avoids that local-development regression. Keep
+# release behaviour unchanged unless the caller explicitly supplies the real
+# distribution identity.
+SIGN_IDENTITY="${XVEIL_CODESIGN_IDENTITY:--}"
+if [[ "$PROFILE" == "debug" && -z "${XVEIL_CODESIGN_IDENTITY:-}" ]]; then
+  DEV_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
+    | sed -n 's/.*\([0-9A-F]\{40\}\) "Apple Development:.*/\1/p' \
+    | head -1)"
+  if [[ -n "$DEV_IDENTITY" ]]; then
+    SIGN_IDENTITY="$DEV_IDENTITY"
+  fi
+fi
+if [[ "$SIGN_IDENTITY" == "-" ]]; then
+  SIGN_LABEL="ad-hoc"
+else
+  SIGN_LABEL="$SIGN_IDENTITY"
+fi
+echo "re-signing $APP ($SIGN_LABEL, deep, entitlements=$ENTITLEMENTS) after the dylib swap…"
+codesign --force --deep --sign "$SIGN_IDENTITY" --entitlements "$ENT" "$APP"
 codesign --verify --deep "$APP" \
   && echo "codesign OK — bundle seal matches the new dylibs" \
   || { echo "ERROR: codesign verify failed after re-sign" >&2; exit 1; }

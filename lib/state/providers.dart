@@ -60,6 +60,7 @@ typedef SessionBuilder =
       required String runtimeDir,
       required int listenPort,
       String? obfs4Psk,
+      required List<String> udpReflectors,
       required bool lazyMining,
       required ProxyRouting proxy,
       required hv.PaddingPreset paddingPreset,
@@ -70,6 +71,7 @@ MultiIdentitySession _realSessionBuilder({
   required String runtimeDir,
   required int listenPort,
   String? obfs4Psk,
+  List<String> udpReflectors = const [],
   bool lazyMining = false,
   ProxyRouting proxy = ProxyRouting.disabled,
   hv.PaddingPreset paddingPreset = hv.PaddingPreset.bucket256KiB,
@@ -83,6 +85,7 @@ MultiIdentitySession _realSessionBuilder({
   // Lockstep with the single-identity boot so always-online nodes join the
   // same (obfs4-protected) network and honour the same mining/routing config.
   obfs4Psk: obfs4Psk,
+  udpReflectors: udpReflectors,
   lazyMining: lazyMining,
   proxy: proxy,
 );
@@ -134,6 +137,7 @@ class DeniableBootConfig {
     this.listenPort = 9000,
     this.storePath,
     this.bootstrapPeers = const [],
+    this.udpReflectors = const [],
     this.obfs4Psk,
   });
 
@@ -153,6 +157,10 @@ class DeniableBootConfig {
   /// (seed set / testnet). Empty = rely on the compiled-in BUILTIN_SEEDS.
   /// Loaded by main() from a local, gitignored file (never committed).
   final List<BootstrapPeerCfg> bootstrapPeers;
+
+  /// Legacy static fallback endpoints. Normal app boots leave this empty:
+  /// authenticated live peers advertise reflector availability themselves.
+  final List<String> udpReflectors;
 
   /// Base64 deployment-wide obfs4 pre-shared key. Required to dial peers on a
   /// network that pins a shared obfs4 PSK (e.g. the testnet). Written to a file

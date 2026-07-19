@@ -24,6 +24,7 @@ class ManagedNodesScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(title: Text(l.nodesTitle)),
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'xveil-managed-nodes-add',
         onPressed: () => _editSheet(context, ref, null),
         icon: const Icon(Icons.add),
         label: Text(l.nodesAdd),
@@ -36,9 +37,7 @@ class ManagedNodesScreen extends ConsumerWidget {
             return _Empty(message: l.nodesEmpty, hint: l.nodesEmptyHint);
           }
           return ListView(
-            children: [
-              for (final n in nodes) _NodeTile(node: n),
-            ],
+            children: [for (final n in nodes) _NodeTile(node: n)],
           );
         },
       ),
@@ -83,12 +82,13 @@ class _Empty extends StatelessWidget {
             const SizedBox(height: 16),
             Text(message, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
-            Text(hint,
-                textAlign: TextAlign.center,
-                style: Theme.of(context)
-                    .textTheme
-                    .bodyMedium
-                    ?.copyWith(color: scheme.outline)),
+            Text(
+              hint,
+              textAlign: TextAlign.center,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: scheme.outline),
+            ),
           ],
         ),
       ),
@@ -151,8 +151,9 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
     final nodeId = _nodeId.text.trim();
     setState(() {
       _labelError = label.isEmpty ? l.nodeLabelRequired : null;
-      _nodeIdError =
-          (nodeId.isNotEmpty && !_isHex64(nodeId)) ? l.nodeIdInvalid : null;
+      _nodeIdError = (nodeId.isNotEmpty && !_isHex64(nodeId))
+          ? l.nodeIdInvalid
+          : null;
     });
     if (_labelError != null || _nodeIdError != null) return;
 
@@ -242,17 +243,19 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
     final l = AppL10n.of(context);
     final id = _nodeId.text.trim();
     if (!_isHex64(id)) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(l.nodeNeedsNodeId)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.nodeNeedsNodeId)));
       return;
     }
     final cur = ref.read(proxyRoutingProvider);
-    ref.read(proxyRoutingProvider.notifier).set(
-          cur.copyWith(socks5Enabled: true, exitNodeId: id),
-        );
+    ref
+        .read(proxyRoutingProvider.notifier)
+        .set(cur.copyWith(socks5Enabled: true, exitNodeId: id));
     Navigator.of(context).pop();
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(l.nodeUseAsExitDone)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(l.nodeUseAsExitDone)));
   }
 
   @override
@@ -263,14 +266,20 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
     final canExit = _isHex64(nodeId);
     return Padding(
       padding: EdgeInsets.fromLTRB(
-          20, 0, 20, 20 + MediaQuery.of(context).viewInsets.bottom),
+        20,
+        0,
+        20,
+        20 + MediaQuery.of(context).viewInsets.bottom,
+      ),
       child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(isEdit ? l.nodeEdit : l.nodesAdd,
-                style: Theme.of(context).textTheme.titleLarge),
+            Text(
+              isEdit ? l.nodeEdit : l.nodesAdd,
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
             const SizedBox(height: 16),
             TextField(
               controller: _label,
@@ -348,9 +357,12 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
                         ? const SizedBox(
                             width: 16,
                             height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2))
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
                         : const Icon(Icons.wifi_find),
-                    label: Text(_probing ? l.nodeChecking : l.nodeCheckReachable),
+                    label: Text(
+                      _probing ? l.nodeChecking : l.nodeCheckReachable,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   if (_probeResult != null)
@@ -366,9 +378,11 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
                               : Theme.of(context).colorScheme.error,
                         ),
                         const SizedBox(width: 6),
-                        Text(_probeResult == ProbeResult.reachable
-                            ? l.nodeReachable
-                            : l.nodeUnreachable),
+                        Text(
+                          _probeResult == ProbeResult.reachable
+                              ? l.nodeReachable
+                              : l.nodeUnreachable,
+                        ),
                       ],
                     ),
                 ],
@@ -409,9 +423,11 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
                       sshPort: int.tryParse(_port.text.trim()) ?? 22,
                       sshUser: _user.text.trim(),
                     );
-                    Navigator.of(context).push(MaterialPageRoute<void>(
-                      builder: (_) => NodeProvisionScreen(node: node),
-                    ));
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => NodeProvisionScreen(node: node),
+                      ),
+                    );
                   },
                   icon: const Icon(Icons.rocket_launch, size: 18),
                   label: Text(l.nodeProvision),
@@ -430,11 +446,14 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
               const SizedBox(height: 4),
               TextButton.icon(
                 onPressed: _remove,
-                icon: Icon(Icons.delete_outline,
-                    color: Theme.of(context).colorScheme.error),
-                label: Text(l.nodeRemove,
-                    style:
-                        TextStyle(color: Theme.of(context).colorScheme.error)),
+                icon: Icon(
+                  Icons.delete_outline,
+                  color: Theme.of(context).colorScheme.error,
+                ),
+                label: Text(
+                  l.nodeRemove,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
               ),
             ],
           ],

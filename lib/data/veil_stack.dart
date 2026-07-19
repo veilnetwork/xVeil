@@ -60,13 +60,13 @@ class RealVeilStack {
     String? veilCliPath,
     String? configPath,
     VeilFlutterTransport? nodeIpc,
-    String? runtimeDir,
+    this._runtimeDir,
     this.listenPort = 0,
     this.lanListen = false,
+    this.listenScheme = 'tcp',
   }) : _cli = veilCliPath,
        _config = configPath,
-       _flutterTransport = nodeIpc,
-       _runtimeDir = runtimeDir;
+       _flutterTransport = nodeIpc;
 
   final NodeController controller;
   final VeilTransport transport;
@@ -79,6 +79,11 @@ class RealVeilStack {
   /// [lanListen] is false it shares nothing (nobody could dial us anyway).
   final int listenPort;
   final bool lanListen;
+
+  /// Scheme of the actual peer listener. P2P endpoint exchange must preserve
+  /// it: advertising `tcp://` for a QUIC socket silently falls back to the
+  /// ordered stream path and reintroduces video head-of-line stalls.
+  final String listenScheme;
 
   // Legacy file path uses veil-cli + a config file for invite/join...
   final String? _cli;
@@ -154,6 +159,7 @@ class RealVeilStack {
     bool anonymous = false,
     bool lazyMining = false,
     List<BootstrapPeerCfg> bootstrapPeers = const [],
+    List<String> udpReflectors = const [],
     String? obfs4Psk,
     ProxyRouting proxy = ProxyRouting.disabled,
     // First-run only (onboarding-phrase epic P2): when set and no node config
@@ -205,9 +211,13 @@ class RealVeilStack {
     final adminEndpoint = tcpLocalEndpoints
         ? 'tcp://127.0.0.1:0?runtime_dir=$runtimeDir'
         : adminSock;
+    // Direct peer sessions use QUIC even on a LAN. Besides authenticating and
+    // encrypting the listener transport, this makes QUIC DATAGRAM available
+    // to real-time media; TCP remains supported when dialing older peers.
+    const listenScheme = 'quic';
     final listen = lanListen
-        ? 'tcp://0.0.0.0:$listenPort'
-        : 'tcp://127.0.0.1:$listenPort';
+        ? '$listenScheme://0.0.0.0:$listenPort'
+        : '$listenScheme://127.0.0.1:$listenPort';
 
     // Deployment-wide obfs4 PSK (networks that pin a shared anti-probe key):
     // drop it in the runtime dir and reference it from the config. Identity-free
@@ -233,6 +243,7 @@ class RealVeilStack {
       anonymous: anonymous,
       lazyMining: lazyMining,
       bootstrapPeers: bootstrapPeers,
+      udpReflectors: udpReflectors,
       obfs4PskFile: obfs4PskFile,
       proxy: proxy,
     );
@@ -356,6 +367,7 @@ class RealVeilStack {
       runtimeDir: runtimeDir,
       listenPort: listenPort,
       lanListen: lanListen,
+      listenScheme: listenScheme,
     );
   }
 

@@ -37,6 +37,11 @@ abstract interface class MailboxSink {
   /// relay within seconds — poll at the fast burst cadence for a bounded
   /// window instead of the idle interval. See [MailboxService.noteActivity].
   void noteActivity();
+
+  /// Suspend periodic/immediate FETCH work while latency-critical media owns
+  /// the device. Deposits and recovered-message delivery are unaffected.
+  bool get backgroundDrainPaused;
+  set backgroundDrainPaused(bool value);
 }
 
 /// Runs the offline-delivery side of messaging alongside [MessagingService]:
@@ -268,7 +273,12 @@ class MailboxService implements MailboxSink {
   /// already debounces per receiver) and open the burst window for the rest of
   /// the exchange. A drain already in flight is respected by [_drainTick].
   void onDepositWake() {
-    if (_disposed || _handleDead || _drainTimer == null) return;
+    if (backgroundDrainPaused ||
+        _disposed ||
+        _handleDead ||
+        _drainTimer == null) {
+      return;
+    }
     devLog(() => 'xVeil[mailbox]: deposit wake — draining now');
     _heat();
     _drainSkips = 0;
@@ -464,7 +474,12 @@ class MailboxService implements MailboxSink {
   /// round, debounced, and a no-op while a drain is already in flight.
   @override
   void nudgeDrain() {
-    if (_disposed || _handleDead || _drainTimer == null) return;
+    if (backgroundDrainPaused ||
+        _disposed ||
+        _handleDead ||
+        _drainTimer == null) {
+      return;
+    }
     // A live frame = an active conversation: open the burst window so the
     // NEXT few polls run at the fast cadence too, not just this one.
     _heat();
@@ -489,7 +504,12 @@ class MailboxService implements MailboxSink {
   /// user actions and expires on silence.
   @override
   void noteActivity() {
-    if (_disposed || _handleDead || _drainTimer == null) return;
+    if (backgroundDrainPaused ||
+        _disposed ||
+        _handleDead ||
+        _drainTimer == null) {
+      return;
+    }
     _heat();
     _drainSkips = 0;
     _emptyDrainStreak = 0;
@@ -497,14 +517,30 @@ class MailboxService implements MailboxSink {
     // timer would otherwise delay the first fast poll by up to _drainInterval)
   }
 
-  /// Debug-only stand switch: suspend the drain cadence without touching the
-  /// timer plumbing (the loop keeps re-arming and resumes the moment this
-  /// clears). Used to isolate whether periodic mailbox FETCH traffic is what
-  /// perturbs live call media on the shared session.
-  bool debugDrainPaused = false;
+  bool _backgroundDrainPaused = false;
+
+  @override
+  bool get backgroundDrainPaused => _backgroundDrainPaused;
+
+  @override
+  set backgroundDrainPaused(bool value) {
+    if (_backgroundDrainPaused == value) return;
+    _backgroundDrainPaused = value;
+    if (!value && !_disposed && !_handleDead && _drainTimer != null) {
+      // A call can last longer than the idle backoff. Once media releases the
+      // gate, look for mail promptly instead of waiting several more minutes.
+      _drainSkips = 0;
+      _emptyDrainStreak = 0;
+      unawaited(_drainTick());
+    }
+  }
+
+  /// Stand-only alias retained for the debug hook.
+  bool get debugDrainPaused => backgroundDrainPaused;
+  set debugDrainPaused(bool value) => backgroundDrainPaused = value;
 
   Future<void> _drainTick() {
-    if (debugDrainPaused) return Future<void>.value();
+    if (backgroundDrainPaused) return Future<void>.value();
     if (_draining || _disposed || _handleDead) return Future<void>.value();
     _draining = true;
     final completion = Completer<void>();
@@ -576,6 +612,13 @@ class MailboxService implements MailboxSink {
         authCookie: Uint8List(0), // ignored on the network path
         ourCertVersion: _ourCertVersion,
         knownRelays: drainSet.values.toList(),
+        // Cooperative preemption: FETCH itself is an IPC/network future and
+        // cannot be force-cancelled safely, but the orchestrator checks this
+        // before/after every round. Starting a call therefore bounds an
+        // already-running 16-round backlog drain to its current round instead
+        // of letting it perturb video for another ~50 seconds.
+        shouldContinue: () =>
+            !backgroundDrainPaused && !_disposed && !_handleDead,
         // Dedup is enforced downstream by the messaging layer (it stores by the
         // same content id), so we re-deliver everything the relay returns and
         // let that gate duplicates — keeps this layer storage-free.

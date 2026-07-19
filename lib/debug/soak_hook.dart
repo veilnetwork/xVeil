@@ -28,6 +28,7 @@ import '../domain/content_manifest.dart' show ContentManifest;
 import '../domain/device_sync.dart';
 import '../domain/group.dart';
 import '../domain/group_policy.dart';
+import '../domain/p2p_policy.dart';
 import '../state/group_crypto.dart';
 import '../state/group_service_providers.dart';
 import '../state/group_call_service.dart';
@@ -53,8 +54,13 @@ import '../state/signature_policy_controller.dart';
 import '../state/mac_media_permissions.dart';
 import '../state/messaging.dart';
 import '../state/p2p_endpoint_service.dart';
+import '../state/p2p_policy_controller.dart';
 import '../state/nickname_peers.dart';
-import '../state/veil_call_media.dart' show remoteVideoFrame;
+import '../state/veil_call_media.dart'
+    show
+        pullRemoteVideoFrameForDiagnostics,
+        setActiveMediaBatchingForDiagnostics,
+        setActiveVideoTargetForDiagnostics;
 import '../state/veil_group_call_media.dart';
 import '../state/providers.dart';
 import '../state/sticker_message.dart';
@@ -593,6 +599,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/p2p_status':
           await _p2pStatus(req);
           return;
+        case '/p2p_policy':
+          await _p2pPolicy(req);
+          return;
         case '/p2p_exchange':
           await _p2pExchange(req);
           return;
@@ -628,6 +637,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/media_engine_version':
           await _mediaEngineVersion(req);
+          return;
+        case '/media_batching':
+          await _mediaBatching(req);
+          return;
+        case '/media_video_target':
+          await _mediaVideoTarget(req);
           return;
         case '/media_engine_selftest':
           await _mediaEngineSelftest(req);
@@ -877,7 +892,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     });
   }
 
-  /// Apply a control op: ?group=&op=addMember&target=<hex>&role=member.
+  /// Apply a control op: `?group=&op=addMember&target=<hex>&role=member`.
   Future<void> _groupOpHook(HttpRequest req) async {
     if (!_requireReady(req)) return;
     final svc = _groupSvc();
@@ -960,7 +975,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     return _json(req, {
       'ok': true,
       'token': full,
-      if (ro != null) 'readonlyToken': ro,
+      'readonlyToken': ?ro,
       'tokens': [
         for (final t in cfg.tokens)
           {'id': t.id, 'name': t.name, 'readOnly': t.readOnly},
@@ -4536,7 +4551,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     }
   }
 
-  /// GET/POST /nickname_recheck?peer=<hex> — force the 6h re-verify of a
+  /// `GET/POST /nickname_recheck?peer=<hex>` — force the 6h re-verify of a
   /// pinned peer↔@name binding NOW (smoke driver for the owner-changed
   /// badge): marks the binding stale, re-reads the provider (which resolves
   /// and compares the current owner to the pinned node id), returns it.
@@ -4845,6 +4860,26 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
 
   // ---- P2P direct-session establishment (real-P2P epic) -------------------
 
+  /// `/p2p_policy?value=<enum-name>` switches the real persisted global P2P
+  /// policy through its controller. This is deliberately debug-only: physical
+  /// transport A/B needs a deterministic relay fallback without editing the
+  /// encrypted store or navigating settings, and the previous value can be
+  /// restored through the same product path after the run.
+  Future<void> _p2pPolicy(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final raw = req.uri.queryParameters['value']?.trim();
+    final policy = P2PGlobalPolicy.values.where((value) => value.name == raw);
+    if (policy.isEmpty) {
+      return _json(req, {
+        'ok': false,
+        'error':
+            'value must be one of ${P2PGlobalPolicy.values.map((v) => v.name).join(',')}',
+      }, status: 400);
+    }
+    await ref.read(p2pPolicyProvider.notifier).set(policy.single);
+    await _json(req, {'ok': true, 'value': policy.single.name});
+  }
+
   /// `/p2p_status?peer=<hex>` → live admission status + what the endpoint
   /// service knows. No addresses are echoed beyond a count (debug builds only,
   /// but endpoint URIs still carry LAN topology — the count answers "did the
@@ -4891,9 +4926,17 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'listenPort': stack?.listenPort,
       'admitted': admitted,
       'hasCert': hasCert,
-      if (statusError != null) 'statusError': statusError,
+      'statusError': ?statusError,
       'knownPeerEndpoints': svc?.knownEndpoints(peer).length ?? 0,
-      if (listenTransports != null) 'listenTransports': listenTransports,
+      if (transport is VeilFlutterTransport)
+        'bindings': {
+          'chatMatchesIdentity': transport.debugChatBindingMatches,
+          'chatEndpoint': transport.debugChatEndpointId,
+          'realtimeMatchesIdentity': transport.debugRealtimeBindingMatches,
+          'realtimeEndpoint': transport.debugRealtimeEndpointId,
+          'realtimeRxCount': transport.debugRealtimeRxCount,
+        },
+      'listenTransports': ?listenTransports,
     });
   }
 
@@ -5162,7 +5205,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   // the decode+render path (I420 -> RGBA -> displayable) over veil without
   // eyeballing the device.
   Future<void> _mediaLastFrame(HttpRequest req) async {
-    final f = remoteVideoFrame.value;
+    final f = pullRemoteVideoFrameForDiagnostics();
     if (f == null) {
       await _json(req, {'ok': false, 'error': 'no frame yet'}, status: 404);
       return;
@@ -5234,6 +5277,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       final cameraStarted = wantCamera && cameraGranted && e.startCamera();
       await Future<void>.delayed(const Duration(seconds: 5));
       final cameraFrame = cameraStarted ? e.getLocalVideoFrame() : null;
+      final mediaStats = e.getStats();
       if (cameraStarted) e.stopCamera();
       if (wantVideo) e.stopVideo();
       e.stopAudio();
@@ -5248,6 +5292,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         'camera_frame': cameraFrame != null,
         'camera_width': cameraFrame?.width,
         'camera_height': cameraFrame?.height,
+        'stats': mediaStats,
         'mics': mics.length,
         'speakers': spk.length,
         'mic_labels': [for (final m in mics) m.label],
@@ -5260,6 +5305,61 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         'stack': '$st',
       }, status: 500);
     }
+  }
+
+  /// Runtime A/B for the active direct/relay channel. This is deliberately a
+  /// debug-hook-only control: production keeps the negotiated peer-version
+  /// policy, while a physical stand can compare batching on/off without a new
+  /// call, route, camera warm-up, or bitrate history.
+  Future<void> _mediaBatching(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final raw = req.uri.queryParameters['on'];
+    if (raw != '0' && raw != '1') {
+      await _json(req, {
+        'ok': false,
+        'error': 'on must be 0 or 1',
+      }, status: 400);
+      return;
+    }
+    final enabled = raw == '1';
+    final rc = setActiveMediaBatchingForDiagnostics(enabled);
+    await _json(req, {
+      'ok': rc == 0,
+      'on': enabled,
+      'result': rc,
+    }, status: rc == 0 ? 200 : 409);
+  }
+
+  /// Pin or clear the active encoder budget without remounting the call. This
+  /// isolates radio airtime from camera cadence, route selection and warm-up.
+  Future<void> _mediaVideoTarget(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final clear = req.uri.queryParameters['clear'] == '1';
+    final bitrate = int.tryParse(req.uri.queryParameters['kbps'] ?? '');
+    final fps = int.tryParse(req.uri.queryParameters['fps'] ?? '');
+    if (!clear &&
+        (bitrate == null ||
+            bitrate < 50 ||
+            bitrate > 5000 ||
+            fps == null ||
+            fps < 5 ||
+            fps > 120)) {
+      await _json(req, {
+        'ok': false,
+        'error': 'use clear=1 or kbps=50..5000 and fps=5..120',
+      }, status: 400);
+      return;
+    }
+    final ok = setActiveVideoTargetForDiagnostics(
+      bitrateKbps: clear ? null : bitrate,
+      fps: clear ? null : fps,
+    );
+    await _json(req, {
+      'ok': ok == true,
+      'pinned': !clear,
+      if (!clear) 'kbps': bitrate,
+      if (!clear) 'fps': fps,
+    }, status: ok == true ? 200 : 409);
   }
 }
 

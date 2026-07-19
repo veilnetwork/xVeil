@@ -127,25 +127,24 @@ class Call {
     bool? cameraOn,
     bool? screenOn,
     int? peerProtocolVersion,
-  }) =>
-      Call(
-        callId: callId,
-        peer: peer,
-        direction: direction,
-        media: media ?? this.media,
-        status: status ?? this.status,
-        localPosture: localPosture,
-        startedAt: startedAt,
-        peerPosture: peerPosture ?? this.peerPosture,
-        transport: transport ?? this.transport,
-        endReason: endReason ?? this.endReason,
-        connectedAt: connectedAt ?? this.connectedAt,
-        endedAt: endedAt ?? this.endedAt,
-        micOn: micOn ?? this.micOn,
-        cameraOn: cameraOn ?? this.cameraOn,
-        screenOn: screenOn ?? this.screenOn,
-        peerProtocolVersion: peerProtocolVersion ?? this.peerProtocolVersion,
-      );
+  }) => Call(
+    callId: callId,
+    peer: peer,
+    direction: direction,
+    media: media ?? this.media,
+    status: status ?? this.status,
+    localPosture: localPosture,
+    startedAt: startedAt,
+    peerPosture: peerPosture ?? this.peerPosture,
+    transport: transport ?? this.transport,
+    endReason: endReason ?? this.endReason,
+    connectedAt: connectedAt ?? this.connectedAt,
+    endedAt: endedAt ?? this.endedAt,
+    micOn: micOn ?? this.micOn,
+    cameraOn: cameraOn ?? this.cameraOn,
+    screenOn: screenOn ?? this.screenOn,
+    peerProtocolVersion: peerProtocolVersion ?? this.peerProtocolVersion,
+  );
 
   @override
   String toString() =>

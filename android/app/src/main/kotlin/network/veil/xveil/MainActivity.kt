@@ -9,6 +9,7 @@ import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.util.Rational
 import androidx.core.app.ActivityCompat
@@ -31,6 +32,9 @@ class MainActivity : FlutterActivity() {
     private val screenCaptureChannelName = "xveil/screen_capture"
     private val cameraCapabilitiesChannelName = "xveil/camera_capabilities"
     private val nativeCallCameraChannelName = "xveil/native_call_camera"
+    private val nativeCallVideoChannelName = "xveil/native_call_video"
+    private val callNetworkChannelName = "xveil/call_network"
+    private val whisperModelChannelName = "xveil/whisper_model"
     private val micRequestCode = 0x4D49 // 'MI'
     private val screenCaptureRequestCode = 0x5343 // 'SC'
     private var pending: MethodChannel.Result? = null
@@ -39,6 +43,8 @@ class MainActivity : FlutterActivity() {
     private var pipEventsChannel: MethodChannel? = null
     private var screenCaptureChannel: MethodChannel? = null
     private var nativeCallCamera: NativeCallCamera? = null
+    private var nativeCallVideoRenderer: NativeCallVideoRenderer? = null
+    private var callWifiLock: WifiManager.WifiLock? = null
     private var pendingCallAction: String? = null
     private var pipAutoWanted = false
     private var pipAspect = Rational(16, 9)
@@ -46,6 +52,42 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         nativeCallCamera = NativeCallCamera(this, flutterEngine.renderer)
+        nativeCallVideoRenderer = NativeCallVideoRenderer(flutterEngine.renderer)
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            whisperModelChannelName,
+        ).setMethodCallHandler { call, result ->
+            if (call.method != "ensureInstalled") {
+                result.notImplemented()
+                return@setMethodCallHandler
+            }
+            // Asset copy + double integrity verification is intentionally off
+            // the UI thread. Only a private path (never model bytes) crosses
+            // the Flutter channel.
+            Thread {
+                try {
+                    val path = WhisperModelInstaller.ensureInstalled(applicationContext)
+                    runOnUiThread { result.success(path) }
+                } catch (error: Exception) {
+                    runOnUiThread {
+                        result.error("whisper_model_install", error.toString(), null)
+                    }
+                }
+            }.start()
+        }
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            callNetworkChannelName,
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "setActive" -> {
+                    val active = call.argument<Boolean>("active") ?: false
+                    result.success(setCallNetworkActive(active))
+                }
+                "isActive" -> result.success(callWifiLock?.isHeld == true)
+                else -> result.notImplemented()
+            }
+        }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
             .setMethodCallHandler { call, result ->
                 val type = call.argument<String>("type") ?: "audio"
@@ -104,6 +146,29 @@ class MainActivity : FlutterActivity() {
                     }
                 }
                 "stats" -> result.success(nativeCallCamera?.stats() ?: emptyMap<String, Any>())
+                else -> result.notImplemented()
+            }
+        }
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            nativeCallVideoChannelName,
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "start" -> {
+                    val engine = call.argument<Number>("engine")?.toLong() ?: 0L
+                    try {
+                        result.success(nativeCallVideoRenderer?.start(engine))
+                    } catch (error: Exception) {
+                        result.error("video_renderer_start", error.toString(), null)
+                    }
+                }
+                "stop" -> {
+                    nativeCallVideoRenderer?.stop()
+                    result.success(true)
+                }
+                "stats" -> result.success(
+                    nativeCallVideoRenderer?.stats() ?: emptyMap<String, Any>(),
+                )
                 else -> result.notImplemented()
             }
         }
@@ -268,6 +333,47 @@ class MainActivity : FlutterActivity() {
         deliverCallAction(intent)
     }
 
+    override fun onDestroy() {
+        setCallNetworkActive(false)
+        super.onDestroy()
+    }
+
+    /**
+     * Prevent Android Wi-Fi power saving from batching call datagrams behind
+     * DTIM wakeups. LOW_LATENCY is the modern mode and keeps packet cadence
+     * smooth; pre-Q devices fall back to the older high-performance mode.
+     * This lock never survives the active call/Activity lifecycle.
+     */
+    private fun setCallNetworkActive(active: Boolean): Boolean {
+        if (!active) {
+            try {
+                callWifiLock?.takeIf { it.isHeld }?.release()
+            } catch (_: RuntimeException) {
+            }
+            callWifiLock = null
+            return false
+        }
+        if (callWifiLock?.isHeld == true) return true
+        return try {
+            val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+            } else {
+                @Suppress("DEPRECATION")
+                WifiManager.WIFI_MODE_FULL_HIGH_PERF
+            }
+            callWifiLock = wifi.createWifiLock(mode, "$packageName:call-low-latency").apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+            callWifiLock?.isHeld == true
+        } catch (error: RuntimeException) {
+            android.util.Log.w("xveil-call-network", "Wi-Fi lock failed: $error")
+            callWifiLock = null
+            false
+        }
+    }
+
     private fun requestScreenCapture(result: MethodChannel.Result) {
         if (pendingScreenCapture != null) {
             result.success(false)
@@ -422,6 +528,8 @@ class MainActivity : FlutterActivity() {
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
         nativeCallCamera?.stop()
         nativeCallCamera = null
+        nativeCallVideoRenderer?.stop()
+        nativeCallVideoRenderer = null
         stopScreenCapture()
         screenCaptureChannel?.let(ScreenCaptureBridge::detach)
         screenCaptureChannel = null

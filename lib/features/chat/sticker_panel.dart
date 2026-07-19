@@ -35,10 +35,12 @@ class StickerPicker extends ConsumerStatefulWidget {
     super.key,
     required this.onSelected,
     this.allowPackShare = true,
+    this.allowCustomEmoji = false,
   });
 
   final ValueChanged<String> onSelected;
   final bool allowPackShare;
+  final bool allowCustomEmoji;
 
   @override
   ConsumerState<StickerPicker> createState() => _StickerPickerState();
@@ -46,6 +48,7 @@ class StickerPicker extends ConsumerStatefulWidget {
 
 class _StickerPickerState extends ConsumerState<StickerPicker> {
   bool _importing = false;
+  bool _emojiMode = false;
 
   Future<void> _import() async {
     setState(() => _importing = true);
@@ -159,7 +162,9 @@ class _StickerPickerState extends ConsumerState<StickerPicker> {
   Future<void> _renamePack(StickerPack pack) async {
     final name = await _promptPackName(initial: pack.name);
     if (name == null || name.isEmpty || name == pack.name) return;
-    await ref.read(stickerControllerProvider.notifier).renamePack(pack.id, name);
+    await ref
+        .read(stickerControllerProvider.notifier)
+        .renamePack(pack.id, name);
   }
 
   Future<void> _deletePack(StickerPack pack) async {
@@ -223,6 +228,30 @@ class _StickerPickerState extends ConsumerState<StickerPicker> {
               ],
             ),
           ),
+          if (widget.allowCustomEmoji)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+              child: SegmentedButton<bool>(
+                key: const ValueKey('sticker-inline-mode'),
+                showSelectedIcon: false,
+                segments: [
+                  ButtonSegment(
+                    value: false,
+                    icon: const Icon(Icons.sticky_note_2_outlined, size: 18),
+                    label: Text(l.stickerTitle),
+                  ),
+                  ButtonSegment(
+                    value: true,
+                    icon: const Icon(Icons.emoji_emotions_outlined, size: 18),
+                    label: Text(l.chatEmojiTooltip),
+                  ),
+                ],
+                selected: {_emojiMode},
+                onSelectionChanged: (value) {
+                  setState(() => _emojiMode = value.first);
+                },
+              ),
+            ),
           Expanded(
             child: packs.when(
               loading: () => const Center(child: CircularProgressIndicator()),
@@ -247,66 +276,58 @@ class _StickerPickerState extends ConsumerState<StickerPicker> {
 
   /// One pack: a header row (name + count + manage menu) and its grid.
   List<Widget> _packSection(BuildContext context, AppL10n l, StickerPack p) => [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(4, 8, 0, 0),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '${_packLabel(l, p)} · ${p.items.length}',
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                ),
+    Padding(
+      padding: const EdgeInsets.fromLTRB(4, 8, 0, 0),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              '${_packLabel(l, p)} · ${p.items.length}',
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
-              PopupMenuButton<String>(
-                key: ValueKey('pack-menu:${p.id}'),
-                icon: const Icon(Icons.more_horiz, size: 20),
-                onSelected: (action) {
-                  switch (action) {
-                    case 'share':
-                      widget.onSelected('pack:${p.id}');
-                    case 'rename':
-                      _renamePack(p);
-                    case 'delete':
-                      _deletePack(p);
-                  }
-                },
-                itemBuilder: (context) => [
-                  if (widget.allowPackShare && p.items.isNotEmpty)
-                    PopupMenuItem(
-                      value: 'share',
-                      child: Text(l.stickerSharePack),
-                    ),
-                  PopupMenuItem(
-                    value: 'rename',
-                    child: Text(l.stickerPackRename),
-                  ),
-                  PopupMenuItem(
-                    value: 'delete',
-                    child: Text(l.stickerPackDelete),
-                  ),
-                ],
-              ),
+            ),
+          ),
+          PopupMenuButton<String>(
+            key: ValueKey('pack-menu:${p.id}'),
+            icon: const Icon(Icons.more_horiz, size: 20),
+            onSelected: (action) {
+              switch (action) {
+                case 'share':
+                  widget.onSelected('pack:${p.id}');
+                case 'rename':
+                  _renamePack(p);
+                case 'delete':
+                  _deletePack(p);
+              }
+            },
+            itemBuilder: (context) => [
+              if (widget.allowPackShare && p.items.isNotEmpty)
+                PopupMenuItem(value: 'share', child: Text(l.stickerSharePack)),
+              PopupMenuItem(value: 'rename', child: Text(l.stickerPackRename)),
+              PopupMenuItem(value: 'delete', child: Text(l.stickerPackDelete)),
             ],
           ),
-        ),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-            maxCrossAxisExtent: 96,
-            mainAxisSpacing: 8,
-            crossAxisSpacing: 8,
-          ),
-          itemCount: p.items.length,
-          itemBuilder: (context, i) => _StickerCell(
-            itemId: p.items[i],
-            onSelected: widget.onSelected,
-          ),
-        ),
-      ];
+        ],
+      ),
+    ),
+    GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 96,
+        mainAxisSpacing: 8,
+        crossAxisSpacing: 8,
+      ),
+      itemCount: p.items.length,
+      itemBuilder: (context, i) => _StickerCell(
+        itemId: p.items[i],
+        onSelected: (itemId) =>
+            widget.onSelected(_emojiMode ? 'emoji:$itemId' : itemId),
+      ),
+    ),
+  ];
 
   Widget _empty(BuildContext context, AppL10n l) => Center(
     child: Column(

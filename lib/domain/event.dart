@@ -7,6 +7,8 @@
 /// the durable (author,seq) storage + fold live in the storage layer.
 library;
 
+import 'inline_custom_emoji.dart';
+
 /// Kind of a log event. Append-only — never reorder/remove a variant (the index
 /// is the on-wire/on-disk `k`). `react`/`pin` are deferred (§16).
 enum EventKind {
@@ -64,6 +66,7 @@ typedef LogEvent = ({
   // Display label of whom the post was forwarded from (Message.forwardedFrom)
   // — rides re-ships so a healed copy keeps its caption. Null on non-posts.
   String? forwardedFrom,
+  List<InlineCustomEmoji> customEmoji,
 });
 
 /// Encode a [LogEvent] to the wire/JSON body. A [EventKind.void_] event drops
@@ -71,16 +74,17 @@ typedef LogEvent = ({
 /// whatever the record holds; the wire layer is responsible for the void
 /// stripping per R-VOID.
 Map<String, dynamic> encodeEventBody(LogEvent e) => {
-      'k': e.kind.index,
-      'a': e.author,
-      'q': e.seq,
-      'id': e.id,
-      if (e.target != null) 'tg': e.target,
-      if (e.body != null) 'b': e.body,
-      if (e.replyTo != null) 'rt': e.replyTo,
-      if (e.forwardedFrom != null) 'fw': e.forwardedFrom,
-      'ts': e.ts,
-    };
+  'k': e.kind.index,
+  'a': e.author,
+  'q': e.seq,
+  'id': e.id,
+  if (e.target != null) 'tg': e.target,
+  if (e.body != null) 'b': e.body,
+  if (e.replyTo != null) 'rt': e.replyTo,
+  if (e.forwardedFrom != null) 'fw': e.forwardedFrom,
+  if (e.customEmoji.isNotEmpty) 'ce': encodeInlineCustomEmoji(e.customEmoji),
+  'ts': e.ts,
+};
 
 /// Local sync state for ONE conversation (event-log §15, RULE HW / RULE NH) —
 /// the basis for gap-fill. For each author seen in the local log:
@@ -131,5 +135,6 @@ LogEvent? decodeEventBody(Map<String, dynamic> j) {
     ts: ts,
     replyTo: rt is String ? rt : null,
     forwardedFrom: fw is String ? fw : null,
+    customEmoji: parseInlineCustomEmoji(b is String ? b : '', j['ce']),
   );
 }
