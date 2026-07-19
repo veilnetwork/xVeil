@@ -15,6 +15,41 @@ import 'transport/veil_flutter_transport.dart';
 import 'transport/veil_transport.dart';
 import 'package:xveil/core/log.dart';
 
+/// Register every application-supplied seed on the already-running node.
+///
+/// Deferred boot applies the real config as a reload. The native runtime keeps
+/// its boot-time builtin connectors, but a reload does not spawn outbound
+/// connector tasks for newly appended `[[bootstrap_peers]]`. Consequently a
+/// seed present only in the bundled/runtime list could remain visible in the
+/// composed config without ever being dialled. Redeeming the same public
+/// descriptor over IPC closes that lifecycle gap; already-known builtin seeds
+/// are harmless refreshes and one bad seed never blocks the rest.
+Future<int> registerRuntimeBootstrapPeers(
+  List<BootstrapPeerCfg> peers,
+  Future<void> Function(String uri) join,
+) async {
+  var registered = 0;
+  for (final peer in peers) {
+    final uri =
+        'veil:bootstrap?pk=${peer.publicKey}'
+        '&t=${peer.transport}'
+        '&a=${peer.algo}'
+        '&nc=${peer.nonce}';
+    try {
+      await join(uri);
+      registered++;
+    } catch (e) {
+      devLog(
+        () =>
+            'xVeil[bootstrap]: runtime seed registration failed '
+            'transport=${peer.transport.split(':').first} '
+            'error=${e.runtimeType}',
+      );
+    }
+  }
+  return registered;
+}
+
 /// Mine a node identity in a worker isolate. Re-opens the veil dylib INSIDE the
 /// isolate (the parent's load is not guaranteed visible across isolates): from
 /// `VEIL_FFI_DYLIB` when set (desktop/tests), else [processLibFor] — which on
@@ -159,6 +194,10 @@ class RealVeilStack {
     bool anonymous = false,
     bool lazyMining = false,
     List<BootstrapPeerCfg> bootstrapPeers = const [],
+    // Optional post-connect set: activates app-bundled alternatives without
+    // injecting them into the deferred reload config. Null reuses the config
+    // set, which is the natural behaviour for headless callers.
+    List<BootstrapPeerCfg>? runtimeBootstrapPeers,
     List<String> udpReflectors = const [],
     String? obfs4Psk,
     ProxyRouting proxy = ProxyRouting.disabled,
@@ -342,6 +381,18 @@ class RealVeilStack {
     } catch (e) {
       await controller.stop();
       rethrow;
+    }
+    final seedsToRegister = runtimeBootstrapPeers ?? bootstrapPeers;
+    final registeredSeeds = await registerRuntimeBootstrapPeers(
+      seedsToRegister,
+      transport.joinP2PEndpoint,
+    );
+    if (seedsToRegister.isNotEmpty) {
+      devLog(
+        () =>
+            'xVeil[bootstrap]: runtime seeds registered '
+            '$registeredSeeds/${seedsToRegister.length}',
+      );
     }
     // IDENTITY-ONLY invite: the deniable node binds its listener on loopback
     // (or the 0.0.0.0 wildcard when [lanListen]), so the invite's advertise
