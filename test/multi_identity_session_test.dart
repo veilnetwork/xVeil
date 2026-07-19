@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/data/node/embedded_node.dart' show BootstrapPeerCfg;
 import 'package:xveil/data/storage/multi_space_store.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
@@ -100,6 +101,14 @@ void main() {
       backing,
       runtimeDirBase: '/run',
       listenPortBase: 9000,
+      bootstrapPeers: const [
+        BootstrapPeerCfg(
+          publicKey: 'seed-key',
+          transport: 'quic://seed.example:443',
+          nonce: '7',
+          algo: 'sha256',
+        ),
+      ],
       obfs4Psk: 'PSKVALUE',
       udpReflectors: const ['127.0.0.1:39999'],
       lazyMining: true,
@@ -113,6 +122,7 @@ void main() {
       isTrue,
     );
     expect(specs.every((s) => s.lazyMining), isTrue);
+    expect(specs.every((s) => s.bootstrapPeers.single.nonce == '7'), isTrue);
   });
 
   test(

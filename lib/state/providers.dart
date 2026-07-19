@@ -59,6 +59,7 @@ typedef SessionBuilder =
       required String storePath,
       required String runtimeDir,
       required int listenPort,
+      required List<BootstrapPeerCfg> bootstrapPeers,
       String? obfs4Psk,
       required List<String> udpReflectors,
       required bool lazyMining,
@@ -70,6 +71,7 @@ MultiIdentitySession _realSessionBuilder({
   required String storePath,
   required String runtimeDir,
   required int listenPort,
+  List<BootstrapPeerCfg> bootstrapPeers = const [],
   String? obfs4Psk,
   List<String> udpReflectors = const [],
   bool lazyMining = false,
@@ -82,6 +84,7 @@ MultiIdentitySession _realSessionBuilder({
   WorkerMultiSpaceBacking(storePath, paddingPreset: paddingPreset),
   runtimeDirBase: runtimeDir,
   listenPortBase: listenPort,
+  bootstrapPeers: bootstrapPeers,
   // Lockstep with the single-identity boot so always-online nodes join the
   // same (obfs4-protected) network and honour the same mining/routing config.
   obfs4Psk: obfs4Psk,

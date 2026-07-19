@@ -30,6 +30,7 @@ class IdentityBootSpec {
     required this.runtimeDir,
     required this.listenPort,
     required this.anonymous,
+    this.bootstrapPeers = const [],
     this.obfs4Psk,
     this.udpReflectors = const [],
     this.lazyMining = false,
@@ -41,6 +42,7 @@ class IdentityBootSpec {
   final String runtimeDir;
   final int listenPort;
   final bool anonymous;
+  final List<BootstrapPeerCfg> bootstrapPeers;
 
   /// Session-wide node config the all-online boot must apply per identity, in
   /// lockstep with the single-identity path — without these an always-online
@@ -77,6 +79,7 @@ Future<List<IdentityBootSpec>> planIdentityBoots(
   AsyncMultiSpaceBacking backing, {
   required String runtimeDirBase,
   required int listenPortBase,
+  List<BootstrapPeerCfg> bootstrapPeers = const [],
   String? obfs4Psk,
   List<String> udpReflectors = const [],
   bool lazyMining = false,
@@ -88,6 +91,7 @@ Future<List<IdentityBootSpec>> planIdentityBoots(
       IdentityBootSpec(
         label: roster[i].label,
         spaceId: await backing.openSpace(roster[i].spaceKeys),
+        bootstrapPeers: bootstrapPeers,
         obfs4Psk: obfs4Psk,
         udpReflectors: udpReflectors,
         lazyMining: lazyMining,
@@ -133,10 +137,10 @@ Future<IdentityNode> _realBoot(IdentityBootSpec spec, Storage storage) async {
     listenPort: spec.listenPort,
     anonymous: spec.anonymous,
     lazyMining: spec.lazyMining,
-    // Same rationale as the single-identity path: don't inject explicit
-    // [[bootstrap_peers]] into the node config (it ENOENT-failed on Android);
-    // the seeds are used as mailbox-relay candidates via messaging.dart instead.
+    // Same split as the single-identity path: keep explicit peers out of the
+    // reload config (Android ENOENT), then activate them through IPC.
     bootstrapPeers: const <BootstrapPeerCfg>[],
+    runtimeBootstrapPeers: spec.bootstrapPeers,
     udpReflectors: spec.udpReflectors,
     obfs4Psk: spec.obfs4Psk,
     proxy: spec.proxy,
@@ -164,6 +168,7 @@ class MultiIdentitySession {
     this._backing, {
     required String runtimeDirBase,
     required int listenPortBase,
+    List<BootstrapPeerCfg> bootstrapPeers = const [],
     String? obfs4Psk,
     List<String> udpReflectors = const [],
     bool lazyMining = false,
@@ -171,6 +176,7 @@ class MultiIdentitySession {
     IdentityNodeBoot boot = _realBoot,
   }) : _runtimeDirBase = runtimeDirBase,
        _listenPortBase = listenPortBase,
+       _bootstrapPeers = bootstrapPeers,
        _obfs4Psk = obfs4Psk,
        _udpReflectors = udpReflectors,
        _lazyMining = lazyMining,
@@ -180,6 +186,7 @@ class MultiIdentitySession {
   final AsyncMultiSpaceBacking _backing;
   final String _runtimeDirBase;
   final int _listenPortBase;
+  final List<BootstrapPeerCfg> _bootstrapPeers;
 
   /// Session-wide node config applied to every always-online node, kept in
   /// lockstep with the single-identity boot (obfs4 PSK to join the network,
@@ -214,6 +221,7 @@ class MultiIdentitySession {
       _backing,
       runtimeDirBase: _runtimeDirBase,
       listenPortBase: _listenPortBase,
+      bootstrapPeers: _bootstrapPeers,
       obfs4Psk: _obfs4Psk,
       udpReflectors: _udpReflectors,
       lazyMining: _lazyMining,

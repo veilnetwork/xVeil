@@ -9,9 +9,11 @@ Future<String?> _noImageThumb(Uint8List bytes) async => null;
 /// Pure-Dart and shared by Flutter and headless hosts.
 List<NodeId> mailboxRelayCandidates(List<BootstrapPeerCfg> peers) {
   final out = <NodeId>[];
+  final seen = <NodeId>{};
   for (final p in peers) {
     try {
-      out.add(NodeId(blake3Hash(base64.decode(p.publicKey))));
+      final node = NodeId(blake3Hash(base64.decode(p.publicKey)));
+      if (seen.add(node)) out.add(node);
     } catch (_) {
       // Malformed public key: skip without creating a config oracle.
     }
