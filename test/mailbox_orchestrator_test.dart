@@ -20,7 +20,10 @@ void main() {
     relay = InMemoryMailboxRelay();
     // The loopback crypto reports `peer` as the verified sender (the real node
     // recovers it from the blob's sidecar; here every stash is from `peer`).
-    orch = MailboxOrchestrator(LoopbackMailboxCrypto(senderForOpen: peer), relay);
+    orch = MailboxOrchestrator(
+      LoopbackMailboxCrypto(senderForOpen: peer),
+      relay,
+    );
   });
 
   Future<bool> never(Uint8List _) async => false;
@@ -53,25 +56,30 @@ void main() {
     expect((await relay.fetch(me: me, authCookie: cookie)), isEmpty);
   });
 
-  test('drain dedups: a blob we already have is skipped but still acked',
-      () async {
-    await orch.stash(
-      me: peer,
-      recipient: me,
-      appId: _appId(1),
-      endpointId: 0,
-      data: Uint8List.fromList([1]),
-      contentId: _cid(0xC2),
-    );
-    final drained = await orch.drain(
-      me: me,
-      authCookie: cookie,
-      ourCertVersion: 1,
-      alreadyHave: (c) async => true, // we already stored this message live
-    );
-    expect(drained, isEmpty); // not re-delivered
-    expect((await relay.fetch(me: me, authCookie: cookie)), isEmpty); // but acked
-  });
+  test(
+    'drain dedups: a blob we already have is skipped but still acked',
+    () async {
+      await orch.stash(
+        me: peer,
+        recipient: me,
+        appId: _appId(1),
+        endpointId: 0,
+        data: Uint8List.fromList([1]),
+        contentId: _cid(0xC2),
+      );
+      final drained = await orch.drain(
+        me: me,
+        authCookie: cookie,
+        ourCertVersion: 1,
+        alreadyHave: (c) async => true, // we already stored this message live
+      );
+      expect(drained, isEmpty); // not re-delivered
+      expect(
+        (await relay.fetch(me: me, authCookie: cookie)),
+        isEmpty,
+      ); // but acked
+    },
+  );
 
   test('drain acks + skips a corrupt blob without wedging the inbox', () async {
     // A malformed blob (too short to open) deposited directly + a good one.
@@ -120,12 +128,56 @@ void main() {
         );
       }
       final drained = await orch.drain(
-          me: me, authCookie: cookie, ourCertVersion: 1, alreadyHave: never);
-      expect(drained, hasLength(5),
-          reason: 'the documented contract is re-fetch after acking — a '
-              'backlog must not trickle out one blob per drain TICK');
+        me: me,
+        authCookie: cookie,
+        ourCertVersion: 1,
+        alreadyHave: never,
+      );
+      expect(
+        drained,
+        hasLength(5),
+        reason:
+            'the documented contract is re-fetch after acking — a '
+            'backlog must not trickle out one blob per drain TICK',
+      );
       expect(drained.map((d) => d.data.single), [0, 1, 2, 3, 4]);
       expect(await budgeted.fetch(me: me, authCookie: cookie), isEmpty);
+    });
+
+    test('a realtime gate preempts a backlog between fetch rounds', () async {
+      final budgeted = _OneBlobPerFetchRelay();
+      final orch = MailboxOrchestrator(
+        LoopbackMailboxCrypto(senderForOpen: peer),
+        budgeted,
+      );
+      for (var i = 0; i < 5; i++) {
+        await orch.stash(
+          me: peer,
+          recipient: me,
+          appId: _appId(1),
+          endpointId: 2,
+          data: Uint8List.fromList([i]),
+          contentId: _cid(0x40 + i),
+        );
+      }
+
+      var checks = 0;
+      final drained = await orch.drain(
+        me: me,
+        authCookie: cookie,
+        ourCertVersion: 1,
+        alreadyHave: never,
+        // true before/after the first FETCH and for its one blob, then false
+        // before round two.
+        shouldContinue: () => checks++ < 3,
+      );
+
+      expect(drained.map((d) => d.data.single), [0]);
+      expect(
+        await budgeted.fetch(me: me, authCookie: cookie),
+        hasLength(1),
+        reason: 'the unprocessed backlog remains durable at the relay',
+      );
     });
 
     test('a junk backlog is fully quarantined+acked in one drain — it must '
@@ -149,12 +201,19 @@ void main() {
       }
       expect(
         await orch.drain(
-            me: me, authCookie: cookie, ourCertVersion: 1, alreadyHave: never),
+          me: me,
+          authCookie: cookie,
+          ourCertVersion: 1,
+          alreadyHave: never,
+        ),
         isEmpty,
       );
       expect(opens, 4, reason: 'each junk blob pays exactly one open');
-      expect(await budgeted.fetch(me: me, authCookie: cookie), isEmpty,
-          reason: 'the whole junk backlog is acked away in one drain');
+      expect(
+        await budgeted.fetch(me: me, authCookie: cookie),
+        isEmpty,
+        reason: 'the whole junk backlog is acked away in one drain',
+      );
     });
 
     test('an ack-ignoring relay cannot spin the loop forever', () async {
@@ -176,7 +235,11 @@ void main() {
       // that small budget and stops, never spinning forever.
       expect(
         await orch.drain(
-            me: me, authCookie: cookie, ourCertVersion: 1, alreadyHave: never),
+          me: me,
+          authCookie: cookie,
+          ourCertVersion: 1,
+          alreadyHave: never,
+        ),
         isEmpty,
       );
       expect(sticky.fetchCalls, lessThanOrEqualTo(9));
@@ -187,14 +250,13 @@ void main() {
     // Storage stub for the registry (real one rides the settings KV).
     late Map<String, String> settings;
     PoisonedBlobRegistry freshRegistry() => PoisonedBlobRegistry(
-          getSetting: (k) async => settings[k],
-          putSetting: (k, v) async => settings[k] = v,
-        );
+      getSetting: (k) async => settings[k],
+      putSetting: (k, v) async => settings[k] = v,
+    );
 
     setUp(() => settings = {});
 
-    test(
-        'an undecryptable blob is opened ONCE, quarantined durably, and '
+    test('an undecryptable blob is opened ONCE, quarantined durably, and '
         'skipped on every later drain (relay that ignores acks)', () async {
       var opens = 0;
       final counting = _CountingOpenCrypto(
@@ -218,7 +280,11 @@ void main() {
 
       expect(
         await orch.drain(
-            me: me, authCookie: cookie, ourCertVersion: 1, alreadyHave: never),
+          me: me,
+          authCookie: cookie,
+          ourCertVersion: 1,
+          alreadyHave: never,
+        ),
         isEmpty,
       );
       expect(opens, 1, reason: 'first sighting pays the open');
@@ -226,15 +292,19 @@ void main() {
       for (var i = 0; i < 3; i++) {
         expect(
           await orch.drain(
-              me: me,
-              authCookie: cookie,
-              ourCertVersion: 1,
-              alreadyHave: never),
+            me: me,
+            authCookie: cookie,
+            ourCertVersion: 1,
+            alreadyHave: never,
+          ),
           isEmpty,
         );
       }
-      expect(opens, 1,
-          reason: 'quarantined cid must never be decrypt-attempted again');
+      expect(
+        opens,
+        1,
+        reason: 'quarantined cid must never be decrypt-attempted again',
+      );
 
       // Durable: a NEW orchestrator over the SAME settings (app relaunch)
       // still skips the decrypt.
@@ -244,12 +314,15 @@ void main() {
         poisoned: freshRegistry(),
       );
       await orch2.drain(
-          me: me, authCookie: cookie, ourCertVersion: 1, alreadyHave: never);
+        me: me,
+        authCookie: cookie,
+        ourCertVersion: 1,
+        alreadyHave: never,
+      );
       expect(opens, 1, reason: 'quarantine survives a relaunch');
     });
 
-    test(
-        'an IPC-timeout open is NOT acked away — the blob survives at the '
+    test('an IPC-timeout open is NOT acked away — the blob survives at the '
         'relay and delivers once the node answers', () async {
       // Models the observed loss: the node's mailbox_open IPC times out while
       // the runtime is busy/starting. The old path quarantined + ACKed on ANY
@@ -265,76 +338,131 @@ void main() {
         shouldFail: () => timeoutsLeft-- > 0,
       );
       final sticky = InMemoryMailboxRelay();
-      final orch2 = MailboxOrchestrator(flaky, sticky, poisoned: freshRegistry());
+      final orch2 = MailboxOrchestrator(
+        flaky,
+        sticky,
+        poisoned: freshRegistry(),
+      );
       final data = Uint8List.fromList([42]);
       final blob = await inner.seal(
-          recipient: me, appId: _appId(0xAB), endpointId: 7, data: data);
+        recipient: me,
+        appId: _appId(0xAB),
+        endpointId: 7,
+        data: data,
+      );
       await sticky.put(
-          receiver: me, contentId: _cid(0xAB), sender: peer, blob: blob);
+        receiver: me,
+        contentId: _cid(0xAB),
+        sender: peer,
+        blob: blob,
+      );
 
       // Two drains hit the timeout: nothing delivered, nothing acked away.
       for (var i = 0; i < 2; i++) {
         expect(
           await orch2.drain(
-              me: me, authCookie: cookie, ourCertVersion: 1, alreadyHave: never),
+            me: me,
+            authCookie: cookie,
+            ourCertVersion: 1,
+            alreadyHave: never,
+          ),
           isEmpty,
         );
-        expect(await sticky.fetch(me: me, authCookie: cookie), hasLength(1),
-            reason: 'a TRANSIENT open failure must not ack the blob away');
+        expect(
+          await sticky.fetch(me: me, authCookie: cookie),
+          hasLength(1),
+          reason: 'a TRANSIENT open failure must not ack the blob away',
+        );
       }
       // Node answers now — the message is recovered intact.
       final got = await orch2.drain(
-          me: me, authCookie: cookie, ourCertVersion: 1, alreadyHave: never);
+        me: me,
+        authCookie: cookie,
+        ourCertVersion: 1,
+        alreadyHave: never,
+      );
       expect(got, hasLength(1));
       expect(got.single.data, data);
-      expect(await sticky.fetch(me: me, authCookie: cookie), isEmpty,
-          reason: 'acked only after the successful open');
+      expect(
+        await sticky.fetch(me: me, authCookie: cookie),
+        isEmpty,
+        reason: 'acked only after the successful open',
+      );
       expect(opens, 3);
     });
 
-    test('opens that time out forever still terminate (bounded → quarantine)',
-        () async {
-      var opens = 0;
-      final inner = LoopbackMailboxCrypto(senderForOpen: peer);
-      final flaky = _FlakyOpenCrypto(
-        inner,
-        onOpen: () => opens++,
-        shouldFail: () => true, // never recovers
-      );
-      final sticky = InMemoryMailboxRelay();
-      final orch2 = MailboxOrchestrator(flaky, sticky, poisoned: freshRegistry());
-      final blob = await inner.seal(
-          recipient: me, appId: _appId(0xAC), endpointId: 7,
-          data: Uint8List.fromList([1]));
-      await sticky.put(
-          receiver: me, contentId: _cid(0xAC), sender: peer, blob: blob);
+    test(
+      'opens that time out forever still terminate (bounded → quarantine)',
+      () async {
+        var opens = 0;
+        final inner = LoopbackMailboxCrypto(senderForOpen: peer);
+        final flaky = _FlakyOpenCrypto(
+          inner,
+          onOpen: () => opens++,
+          shouldFail: () => true, // never recovers
+        );
+        final sticky = InMemoryMailboxRelay();
+        final orch2 = MailboxOrchestrator(
+          flaky,
+          sticky,
+          poisoned: freshRegistry(),
+        );
+        final blob = await inner.seal(
+          recipient: me,
+          appId: _appId(0xAC),
+          endpointId: 7,
+          data: Uint8List.fromList([1]),
+        );
+        await sticky.put(
+          receiver: me,
+          contentId: _cid(0xAC),
+          sender: peer,
+          blob: blob,
+        );
 
-      // Retried across drains up to the cap, then treated as permanent.
-      for (var i = 0; i < 6; i++) {
+        // Retried across drains up to the cap, then treated as permanent.
+        for (var i = 0; i < 6; i++) {
+          await orch2.drain(
+            me: me,
+            authCookie: cookie,
+            ourCertVersion: 1,
+            alreadyHave: never,
+          );
+        }
+        expect(
+          await sticky.fetch(me: me, authCookie: cookie),
+          isEmpty,
+          reason: 'after the transient cap the blob is quarantined + acked',
+        );
+        final opensAtCap = opens;
         await orch2.drain(
-            me: me, authCookie: cookie, ourCertVersion: 1, alreadyHave: never);
-      }
-      expect(await sticky.fetch(me: me, authCookie: cookie), isEmpty,
-          reason: 'after the transient cap the blob is quarantined + acked');
-      final opensAtCap = opens;
-      await orch2.drain(
-          me: me, authCookie: cookie, ourCertVersion: 1, alreadyHave: never);
-      expect(opens, opensAtCap,
-          reason: 'quarantined cid is never decrypt-attempted again');
-    });
+          me: me,
+          authCookie: cookie,
+          ourCertVersion: 1,
+          alreadyHave: never,
+        );
+        expect(
+          opens,
+          opensAtCap,
+          reason: 'quarantined cid is never decrypt-attempted again',
+        );
+      },
+    );
 
-    test('quarantine is FIFO-capped so junk deposits cannot grow the registry',
-        () async {
-      final reg = freshRegistry();
-      for (var i = 0; i < 80; i++) {
-        await reg.add(_cid(i));
-      }
-      // Oldest evicted, newest kept (cap = 64).
-      expect(await reg.contains(_cid(0)), isFalse);
-      expect(await reg.contains(_cid(79)), isTrue);
-      final stored = settings['mailbox.poisoned.v1']!;
-      expect(RegExp('"').allMatches(stored).length ~/ 2, 64);
-    });
+    test(
+      'quarantine is FIFO-capped so junk deposits cannot grow the registry',
+      () async {
+        final reg = freshRegistry();
+        for (var i = 0; i < 80; i++) {
+          await reg.add(_cid(i));
+        }
+        // Oldest evicted, newest kept (cap = 64).
+        expect(await reg.contains(_cid(0)), isFalse);
+        expect(await reg.contains(_cid(79)), isTrue);
+        final stored = settings['mailbox.poisoned.v1']!;
+        expect(RegExp('"').allMatches(stored).length ~/ 2, 64);
+      },
+    );
   });
 }
 
@@ -342,7 +470,11 @@ void main() {
 /// models a busy/starting runtime that doesn't answer `mailbox_open` (the
 /// error TEXT carries the "timeout" discriminant the orchestrator keys on).
 class _FlakyOpenCrypto implements VeilMailboxCrypto {
-  _FlakyOpenCrypto(this._inner, {required this.onOpen, required this.shouldFail});
+  _FlakyOpenCrypto(
+    this._inner, {
+    required this.onOpen,
+    required this.shouldFail,
+  });
   final VeilMailboxCrypto _inner;
   final void Function() onOpen;
   final bool Function() shouldFail;
@@ -353,12 +485,12 @@ class _FlakyOpenCrypto implements VeilMailboxCrypto {
     required Uint8List appId,
     required int endpointId,
     required Uint8List data,
-  }) =>
-      _inner.seal(
-          recipient: recipient,
-          appId: appId,
-          endpointId: endpointId,
-          data: data);
+  }) => _inner.seal(
+    recipient: recipient,
+    appId: appId,
+    endpointId: endpointId,
+    data: data,
+  );
 
   @override
   Future<OpenedMailboxMessage> open({
@@ -368,8 +500,9 @@ class _FlakyOpenCrypto implements VeilMailboxCrypto {
     onOpen();
     if (shouldFail()) {
       throw Exception(
-          'mailbox_open failed: protocol error: timeout waiting for '
-          'mailbox_open reply');
+        'mailbox_open failed: protocol error: timeout waiting for '
+        'mailbox_open reply',
+      );
     }
     return _inner.open(blob: blob, ourCertVersion: ourCertVersion);
   }
@@ -387,12 +520,12 @@ class _CountingOpenCrypto implements VeilMailboxCrypto {
     required Uint8List appId,
     required int endpointId,
     required Uint8List data,
-  }) =>
-      _inner.seal(
-          recipient: recipient,
-          appId: appId,
-          endpointId: endpointId,
-          data: data);
+  }) => _inner.seal(
+    recipient: recipient,
+    appId: appId,
+    endpointId: endpointId,
+    data: data,
+  );
 
   @override
   Future<OpenedMailboxMessage> open({
@@ -429,7 +562,10 @@ class _OneBlobPerFetchRelay extends InMemoryMailboxRelay {
   }) async {
     fetchCalls++;
     final all = await super.fetch(
-        me: me, authCookie: authCookie, knownRelays: knownRelays);
+      me: me,
+      authCookie: authCookie,
+      knownRelays: knownRelays,
+    );
     return all.isEmpty ? const [] : [all.first];
   }
 }

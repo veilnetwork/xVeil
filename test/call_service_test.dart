@@ -9,8 +9,34 @@ import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/state/call_service.dart';
 import 'package:xveil/state/call_slot.dart';
 import 'package:xveil/state/messaging.dart';
+import 'package:xveil/state/veil_call_media.dart';
 
 void main() {
+  test('initial camera capture follows camera posture, not video receive', () {
+    final base = Call(
+      callId: 'initial-camera-posture',
+      peer: NodeId.fromHex('a' * 64),
+      direction: CallDirection.incoming,
+      media: const CallMedia(audio: true, video: true),
+      status: CallStatus.connecting,
+      localPosture: CallPosture.direct,
+      startedAt: DateTime.fromMillisecondsSinceEpoch(1),
+    );
+
+    expect(shouldStartInitialCallCamera(base), isTrue);
+    expect(
+      shouldStartInitialCallCamera(base.copyWith(cameraOn: false)),
+      isFalse,
+      reason: 'receive-only video must not start physical capture',
+    );
+    expect(
+      shouldStartInitialCallCamera(
+        base.copyWith(media: const CallMedia(audio: true)),
+      ),
+      isFalse,
+    );
+  });
+
   test(
     'shared call slot excludes group/direct overlap and releases on end',
     () async {
@@ -428,6 +454,58 @@ void main() {
       type: CallSignalType.offer,
       media: const CallMedia(audio: true),
       posture: CallPosture.direct,
+    );
+
+    test(
+      'answer racing a slow durable offer never arms a timer on the active call',
+      () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging()..sendGate = Completer<void>();
+          final media = _FakeMedia();
+          final svc = CallService(fake, now: () => clock.now(), media: media)
+            ..start();
+
+          final placing = svc.placeCall(
+            peer,
+            const CallMedia(audio: true, video: true),
+          );
+          async.flushMicrotasks();
+          final callId = svc.current!.callId;
+          expect(svc.current?.status, CallStatus.dialing);
+
+          // The realtime offer/answer completes while sendCallSignal is still
+          // awaiting its durable encrypted-store enqueue.
+          fake.onCallSignal!(
+            peer,
+            CallSignal(
+              callId: callId,
+              type: CallSignalType.answer,
+              posture: CallPosture.direct,
+              transport: const CallTransportProposal(CallTransportKind.relay),
+            ),
+          );
+          async.flushMicrotasks();
+          expect(svc.current?.status, CallStatus.active);
+
+          fake.sendGate!.complete();
+          async.flushMicrotasks();
+          expect(placing, completion(isNull));
+
+          // Keep media demonstrably live past the old 75-second failure point.
+          for (var i = 0; i < 16; i++) {
+            media.rxAt = clock.now();
+            async.elapse(const Duration(seconds: 5));
+            async.flushMicrotasks();
+          }
+
+          expect(svc.current?.status, CallStatus.active);
+          expect(
+            fake.sent.where((s) => s.type == CallSignalType.cancel),
+            isEmpty,
+          );
+          svc.dispose();
+        });
+      },
     );
 
     test('a connected call whose peer goes silent ends with timeout', () {
@@ -1423,6 +1501,8 @@ class _GatedStartMedia extends _FakeMedia {
 /// everything else routes to noSuchMethod (never hit by the control-plane FSM).
 class _FakeMessaging implements MessagingService {
   bool anon = false;
+  @override
+  bool backgroundStashPaused = false;
   final List<CallSignal> sent = [];
 
   /// When set, [sendCallSignal] records the signal only after the gate

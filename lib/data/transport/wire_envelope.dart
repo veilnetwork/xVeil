@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import '../../domain/inline_custom_emoji.dart';
+
 /// Application message type carried in the transport payload.
 /// - [request]: a connection request (body = greeting).
 /// - [accept]: approval of a request (body unused).
@@ -16,7 +18,7 @@ import 'dart:typed_data';
 ///   peer's high-water past a deleted/superseded slot so gap-fill never stalls
 ///   (R-VOID, §12.1 — id-less, no oracle).
 /// - [fileQuery]: a gap-fill RE-SHIP PROBE for a file (body = the fileMeta JSON,
-///   no chunks) — "I still hold file <tid>, tell me what you're missing." The
+///   no chunks) — "I still hold file `<tid>`, tell me what you're missing." The
 ///   receiver answers with [fileNack]; the sender then re-sends only those chunks
 ///   (resumable, instead of re-pushing the whole blob each round).
 /// - [fileNack]: the receiver's reply to a probe/transfer (body = JSON
@@ -186,6 +188,7 @@ class WireEnvelope {
     this.replyTo,
     this.forwardedFrom,
     this.frameId,
+    this.customEmoji = const [],
   });
 
   final WireKind kind;
@@ -208,6 +211,7 @@ class WireEnvelope {
   /// retire the frame from its persistent outbox, and dedups re-deliveries by
   /// it. Optional — older decoders ignore it.
   final String? frameId;
+  final List<InlineCustomEmoji> customEmoji;
 
   /// The SENDER's send time (Unix ms). Travels so the receiver orders messages
   /// by when they were SENT, not when they happened to arrive — the live /
@@ -234,6 +238,7 @@ class WireEnvelope {
     int? seq,
     String? replyTo,
     String? forwardedFrom,
+    List<InlineCustomEmoji> customEmoji = const [],
   }) : this(
          WireKind.message,
          text,
@@ -242,10 +247,15 @@ class WireEnvelope {
          seq: seq,
          replyTo: replyTo,
          forwardedFrom: forwardedFrom,
+         customEmoji: customEmoji,
        );
   const WireEnvelope.ack(String id) : this(WireKind.ack, '', id: id);
-  const WireEnvelope.edit(String id, String newText, {int? seq})
-    : this(WireKind.edit, newText, id: id, seq: seq);
+  const WireEnvelope.edit(
+    String id,
+    String newText, {
+    int? seq,
+    List<InlineCustomEmoji> customEmoji = const [],
+  }) : this(WireKind.edit, newText, id: id, seq: seq, customEmoji: customEmoji);
   const WireEnvelope.del(String id, {int? seq})
     : this(WireKind.del, '', id: id, seq: seq);
 
@@ -337,6 +347,7 @@ class WireEnvelope {
     replyTo: replyTo,
     forwardedFrom: forwardedFrom,
     frameId: fid,
+    customEmoji: customEmoji,
   );
 
   Uint8List encode() => Uint8List.fromList(
@@ -350,6 +361,7 @@ class WireEnvelope {
         if (replyTo != null) 'r': replyTo,
         if (forwardedFrom != null) 'fw': forwardedFrom,
         if (frameId != null) 'fid': frameId,
+        if (customEmoji.isNotEmpty) 'ce': encodeInlineCustomEmoji(customEmoji),
         if (_isV2) 'v': 2,
       }),
     ),
@@ -370,9 +382,10 @@ class WireEnvelope {
         if (t >= 0 &&
             t < WireKind.values.length &&
             WireKind.values[t] != WireKind.unknown) {
+          final body = decoded['b'] as String;
           return WireEnvelope(
             WireKind.values[t],
-            decoded['b'] as String,
+            body,
             id: decoded['i'] is String ? decoded['i'] as String : null,
             sentAtMs: decoded['s'] is int ? decoded['s'] as int : null,
             seq: decoded['q'] is int ? decoded['q'] as int : null,
@@ -381,6 +394,7 @@ class WireEnvelope {
                 ? decoded['fw'] as String
                 : null,
             frameId: decoded['fid'] is String ? decoded['fid'] as String : null,
+            customEmoji: parseInlineCustomEmoji(body, decoded['ce']),
           );
         }
         // Out of this build's range. A structured v:2 frame (a kind a newer build
@@ -529,7 +543,7 @@ WireEnvelope pieceRequestEnvelope({
   WireKind.pieceRequest,
   jsonEncode({
     'cid': contentId,
-    if (indices != null) 'idx': indices,
+    'idx': ?indices,
     if (bitmaps != null && bitmaps.isNotEmpty)
       'bm': {
         for (final e in bitmaps.entries)
@@ -622,7 +636,7 @@ WireEnvelope fileNackEnvelope({
   required List<int>? missing,
 }) => WireEnvelope(
   WireKind.fileNack,
-  jsonEncode({'tid': transferId, if (missing != null) 'm': missing}),
+  jsonEncode({'tid': transferId, 'm': ?missing}),
 );
 
 FileNackFrame parseFileNack(String body) {

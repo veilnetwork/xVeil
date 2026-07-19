@@ -65,7 +65,7 @@ void main() {
     try {
       // Relay's X25519 pubkey is the seal target for the anonymous deliver.
       final relayX25519 = await clientRelay.getRelayX25519Pubkey();
-      print('[put-remote] relay X25519: '
+      stdout.writeln('[put-remote] relay X25519: '
           '${relayX25519 == null ? "UNAVAILABLE (not relay_capable)" : "${relayX25519.length} bytes"}');
       expect(relayX25519, isNotNull,
           reason: 'relay not relay_capable — cannot seal the deposit');
@@ -105,7 +105,7 @@ void main() {
           await Future<void>.delayed(const Duration(seconds: 2));
         }
       }
-      print('[put-remote] anonymous deposit: ${sent ? "handed to first hop" : "FAILED ($lastErr)"}');
+      stdout.writeln('[put-remote] anonymous deposit: ${sent ? "handed to first hop" : "FAILED ($lastErr)"}');
       expect(sent, isTrue, reason: 'could not hand the deposit to a circuit: $lastErr');
 
       // Poll the relay log for the "PUT stored" line carrying our cid.
@@ -117,7 +117,7 @@ void main() {
         final log = File(relayLog!).readAsStringSync();
         stored = log.contains(marker) && log.contains(cidShort);
       }
-      print('[put-remote] relay stored the blob: $stored');
+      stdout.writeln('[put-remote] relay stored the blob: $stored');
       expect(stored, isTrue,
           reason: 'relay log never showed "$marker … $cidShort" — '
               'the network PUT did not land in the mailbox store');

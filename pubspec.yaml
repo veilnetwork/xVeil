@@ -127,6 +127,10 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  # Used directly by deterministic call timing tests. Keep them explicit
+  # instead of relying on flutter_test's transitive dependency graph.
+  clock: ^1.1.2
+  fake_async: ^1.3.3
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is

@@ -71,7 +71,7 @@ void main() {
         relayKemAlgo: 0,
         relayKemPk: rKem!,
       );
-      print('[orch] F advertised R as its mailbox relay (KEM ${rKem.length}B)');
+      stdout.writeln('[orch] F advertised R as its mailbox relay (KEM ${rKem.length}B)');
 
       // Wait until F can resolve its OWN ad (= ad signed + published).
       RendezvousReplica? replica;
@@ -84,7 +84,7 @@ void main() {
       }
       expect(replica, isNotNull, reason: 'F could not resolve its own mailbox ad');
       expect(replica!.relayNodeId, rId, reason: 'resolved replica must point at R');
-      print('[orch] F resolved its ad → relay=${_short(replica.relayNodeId)}');
+      stdout.writeln('[orch] F resolved its ad → relay=${_short(replica.relayNodeId)}');
 
       // Bind the PUT source app (anti-SPOOFED_SRC) and the FETCH reply endpoint.
       srcApp = await clientF.bind(
@@ -123,7 +123,7 @@ void main() {
           await Future<void>.delayed(const Duration(seconds: 2));
         }
       }
-      print('[orch] stash deposited at R: $stashed${stashed ? "" : " ($stashErr)"}');
+      stdout.writeln('[orch] stash deposited at R: $stashed${stashed ? "" : " ($stashErr)"}');
       expect(stashed, isTrue, reason: 'could not deposit the stash at R: $stashErr');
 
       // DRAIN — retry until the deposited message comes back over the FETCH path.
@@ -139,7 +139,7 @@ void main() {
           await Future<void>.delayed(const Duration(seconds: 2));
         }
       }
-      print('[orch] drained ${drained.length} message(s)');
+      stdout.writeln('[orch] drained ${drained.length} message(s)');
       expect(drained, isNotEmpty,
           reason: 'no message drained from R over the onion FETCH');
 
@@ -148,7 +148,7 @@ void main() {
       expect(got.contentId, contentId, reason: 'content id must round-trip');
       expect(got.appId, inboxAppId, reason: 'destination app id must round-trip');
       expect(got.endpointId, inboxEndpointId);
-      print('[orch] ✓ round-trip: "${utf8.decode(got.data)}" recovered via the '
+      stdout.writeln('[orch] ✓ round-trip: "${utf8.decode(got.data)}" recovered via the '
           'network mailbox transport');
     } finally {
       srcApp?.close();

@@ -179,10 +179,10 @@ class CallTransportProposal {
 /// the receiver may downgrade behavior for a lower [CallSignal.protocolVersion].
 ///
 /// v2 (2026-07-17): this build decodes MEDIA_BATCH_MAGIC-prefixed cells on
-/// the RELAY media path, so a v2 peer may batch several small audio/RTCP
-/// datagrams into one relay envelope (amortizing the ~24× per-datagram
-/// envelope+padding overhead that saturated slow last-mile links — ROADMAP
-/// section S). The signal wire schema itself is unchanged.
+/// direct and relay media paths. A v2 peer may batch packets already queued at
+/// the same instant without a gather timer: relay amortizes envelope+padding,
+/// while direct avoids one awaited IPC acknowledgement per RTP packet. The
+/// signal wire schema itself is unchanged.
 const int kCallSignalProtocolVersion = 2;
 
 /// The peer decodes relay media batching from this protocol version on.

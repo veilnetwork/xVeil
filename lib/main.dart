@@ -259,6 +259,9 @@ Future<List<Override>> _bootstrapOverrides() async {
     // asset (gitignored; present in production builds, absent in clean clones).
     final obfs4Psk =
         Platform.environment['XVEIL_OBFS4_PSK'] ?? await _loadBundledObfs4Psk();
+    // Reflectors are discovered from authenticated live peers. Packaged apps
+    // deliberately inject no central endpoint into the per-identity config.
+    const udpReflectors = <String>[];
     overrides.add(
       deniableBootProvider.overrideWithValue(
         DeniableBootConfig(
@@ -266,6 +269,7 @@ Future<List<Override>> _bootstrapOverrides() async {
           listenPort: port,
           storePath: storePath,
           bootstrapPeers: bootstrapPeers,
+          udpReflectors: udpReflectors,
           obfs4Psk: (obfs4Psk != null && obfs4Psk.isNotEmpty) ? obfs4Psk : null,
         ),
       ),
@@ -280,7 +284,9 @@ Future<List<Override>> _bootstrapOverrides() async {
     devLog(
       () =>
           'xVeil[real:deniable]: armed (runtimeDir=$runtimeDir port=$port '
-          'bootstrapPeers=${bootstrapPeers.length} obfs4Psk=${obfs4Psk != null && obfs4Psk.isNotEmpty})',
+          'bootstrapPeers=${bootstrapPeers.length} '
+          'obfs4Psk=${obfs4Psk != null && obfs4Psk.isNotEmpty} '
+          'udpReflectors=${udpReflectors.length})',
     );
   } else if (Platform.isAndroid || Platform.isIOS) {
     // A packaged mobile build ALWAYS ships the in-process node, so reaching here

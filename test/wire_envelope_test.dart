@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
+import 'package:xveil/domain/inline_custom_emoji.dart';
 
 void main() {
   test('each kind round-trips through encode/decode', () {
@@ -60,6 +61,60 @@ void main() {
     final del = WireEnvelope.decode(const WireEnvelope.del('m2').encode());
     expect(del.kind, WireKind.del);
     expect(del.id, 'm2');
+  });
+
+  test('inline custom emoji round-trip within the auth-deliver frame budget', () {
+    const body = 'a☺b☺c☺d☺e';
+    final emoji = [
+      for (final offset in [1, 3, 5, 7])
+        InlineCustomEmoji(
+          offset: offset,
+          dataB64: base64Encode(List<int>.filled(768, offset)),
+        ),
+    ];
+    final wire = WireEnvelope.message(
+      body,
+      id: '00000000-0000-4000-8000-000000000000',
+      sentAtMs: 1784490000000,
+      seq: 999999,
+      customEmoji: emoji,
+    ).encode();
+    expect(wire.length, lessThanOrEqualTo(6144));
+
+    final decoded = WireEnvelope.decode(wire);
+    expect(decoded.body, body);
+    expect(decoded.customEmoji.length, 4);
+    expect(decoded.customEmoji.map((e) => e.offset), [1, 3, 5, 7]);
+    expect(base64Decode(decoded.customEmoji.last.dataB64).length, 768);
+  });
+
+  test('custom emoji edit round-trips and malformed sidecar degrades to text', () {
+    final emoji = InlineCustomEmoji(
+      offset: 2,
+      dataB64: base64Encode([1, 2, 3]),
+    );
+    final edit = WireEnvelope.decode(
+      WireEnvelope.edit(
+        'm1',
+        'x ☺ y',
+        seq: 8,
+        customEmoji: [emoji],
+      ).encode(),
+    );
+    expect(edit.customEmoji.single.offset, 2);
+
+    final badJson = jsonEncode({
+      't': WireKind.message.index,
+      'b': 'plain ☺ fallback',
+      'ce': [
+        {'o': 0, 'd': emoji.dataB64},
+      ],
+    });
+    final degraded = WireEnvelope.decode(
+      Uint8List.fromList(utf8.encode(badJson)),
+    );
+    expect(degraded.body, 'plain ☺ fallback');
+    expect(degraded.customEmoji, isEmpty);
   });
 
   test('a valid-JSON frame with an out-of-range/wrong-typed kind falls back to '

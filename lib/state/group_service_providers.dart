@@ -10,6 +10,7 @@ import '../data/transport/veil_mailbox.dart';
 import '../domain/chat.dart' show MessageDirection;
 import '../domain/device_sync.dart';
 import '../domain/group_message.dart';
+import '../domain/inline_custom_emoji.dart';
 import 'app_controller.dart';
 import 'cloud_document_providers.dart';
 import 'group_epoch_service.dart';
@@ -126,6 +127,8 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
               'peer': peer.hex,
               'dir': message.direction.name,
               'body': message.body,
+              if (message.customEmoji.isNotEmpty)
+                'ce': encodeInlineCustomEmoji(message.customEmoji),
             },
           ),
         );
@@ -176,6 +179,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     final fileName = event.payload['fname'];
     final fileSize = event.payload['fsize'];
     final thumb = message.attachment?.dataB64;
+    final customEmoji = parseInlineCustomEmoji(body, event.payload['ce']);
     unawaited(
       messaging.applyMirroredMessage(
         peer: NodeId.fromHex(peerHex),
@@ -189,6 +193,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
         fileName: fileName is String ? fileName : null,
         fileSize: fileSize is int ? fileSize : null,
         thumb: thumb != null && thumb != 'AA==' ? thumb : null,
+        customEmoji: customEmoji,
       ),
     );
   });

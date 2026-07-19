@@ -86,7 +86,7 @@ void main() {
         relayKemAlgo: 0,
         relayKemPk: rKem!,
       );
-      print('[2e] F advertised R as its mailbox relay');
+      stdout.writeln('[2e] F advertised R as its mailbox relay');
 
       // S must resolve F's ad cross-node before it can deposit.
       RendezvousReplica? viaS;
@@ -98,7 +98,7 @@ void main() {
         }
       }
       expect(viaS, isNotNull, reason: 'S could not resolve F\'s mailbox ad cross-node');
-      print('[2e] S resolved F\'s ad cross-node → relay=${_short(viaS!.relayNodeId)}');
+      stdout.writeln('[2e] S resolved F\'s ad cross-node → relay=${_short(viaS!.relayNodeId)}');
 
       sSrc = await clientS.bind(namespace: 'xveil', name: 'mailbox-sender', endpointId: 0);
       sReply = await clientS.bind(
@@ -134,7 +134,7 @@ void main() {
           await Future<void>.delayed(const Duration(seconds: 2));
         }
       }
-      print('[2e] S sealed + deposited at R: $stashed${stashed ? "" : " ($stashErr)"}');
+      stdout.writeln('[2e] S sealed + deposited at R: $stashed${stashed ? "" : " ($stashErr)"}');
       expect(stashed, isTrue, reason: 'S could not real-seal + deposit for F: $stashErr');
 
       fSrc = await clientF.bind(namespace: 'xveil', name: 'mailbox-sender', endpointId: 0);
@@ -162,7 +162,7 @@ void main() {
         );
         if (drained.isEmpty) await Future<void>.delayed(const Duration(seconds: 2));
       }
-      print('[2e] F drained ${drained.length} message(s)');
+      stdout.writeln('[2e] F drained ${drained.length} message(s)');
       expect(drained, isNotEmpty,
           reason: 'F drained nothing — real-crypto deposit never opened at F');
 
@@ -174,7 +174,7 @@ void main() {
       expect(got.sender, sId,
           reason: 'F must attribute the message to the CRYPTO-VERIFIED sender S, '
               'not the all-zero wire hint');
-      print('[2e] ✓ real-crypto offline round-trip: F recovered '
+      stdout.writeln('[2e] ✓ real-crypto offline round-trip: F recovered '
           '"${utf8.decode(got.data)}" and verified sender == S');
     } finally {
       sSrc?.close();

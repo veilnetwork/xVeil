@@ -16,6 +16,7 @@ import '../domain/group_call.dart';
 import '../domain/group_content.dart';
 import '../domain/chat.dart';
 import '../domain/chat_folder.dart';
+import '../domain/inline_custom_emoji.dart';
 import '../domain/content_manifest.dart';
 import '../domain/content_transfer.dart';
 import '../data/serve_source.dart';
@@ -30,352 +31,10 @@ import 'vnote_message.dart';
 import 'voice_message.dart';
 import 'package:xveil/core/log.dart';
 
-const _uuid = Uuid();
-Future<bool> _denyP2PStream(NodeId peer) async => false;
-Future<String?> _noVideoThumb(String path) async => null;
-Future<String?> _noImageThumb(Uint8List bytes) async => null;
-
-/// Candidate mailbox relays derived from configured bootstrap identity keys.
-/// Pure-Dart and shared by Flutter and headless hosts.
-List<NodeId> mailboxRelayCandidates(List<BootstrapPeerCfg> peers) {
-  final out = <NodeId>[];
-  for (final p in peers) {
-    try {
-      out.add(NodeId(blake3Hash(base64.decode(p.publicKey))));
-    } catch (_) {
-      // Malformed public key: skip without creating a config oracle.
-    }
-  }
-  return out;
-}
-
-const _streamRangeParallelismDartDefine = int.fromEnvironment(
-  'XVEIL_STREAM_RANGE_PARALLELISM',
-  defaultValue: 0,
-);
-const _streamRangeTargetBytesDartDefine = int.fromEnvironment(
-  'XVEIL_STREAM_RANGE_TARGET_BYTES',
-  defaultValue: 0,
-);
-const _streamRangeEnabledDartDefine = bool.fromEnvironment(
-  'XVEIL_STREAM_RANGE_ENABLED',
-  defaultValue: true,
-);
-const _streamOpenWriteGraceMsDartDefine = int.fromEnvironment(
-  'XVEIL_STREAM_OPEN_WRITE_GRACE_MS',
-  defaultValue: 0,
-);
-const _streamRangePayloadIdleMsDartDefine = int.fromEnvironment(
-  'XVEIL_STREAM_RANGE_PAYLOAD_IDLE_MS',
-  defaultValue: 0,
-);
-const _streamPayloadIdleMsDartDefine = int.fromEnvironment(
-  'XVEIL_STREAM_PAYLOAD_IDLE_MS',
-  defaultValue: 0,
-);
-const _streamRangeOpenPaceMsDartDefine = int.fromEnvironment(
-  'XVEIL_STREAM_RANGE_OPEN_PACE_MS',
-  defaultValue: 0,
-);
-const _streamRangeStallAbandonMsDartDefine = int.fromEnvironment(
-  'XVEIL_STREAM_RANGE_STALL_ABANDON_MS',
-  defaultValue: 0,
-);
-const _streamRangeHedgeMsDartDefine = int.fromEnvironment(
-  'XVEIL_STREAM_RANGE_HEDGE_MS',
-  defaultValue: 0,
-);
-const _streamRangeRetryOpenMsDartDefine = int.fromEnvironment(
-  'XVEIL_STREAM_RANGE_RETRY_OPEN_MS',
-  defaultValue: 0,
-);
-const _streamRequestTimeoutMsDartDefine = int.fromEnvironment(
-  'XVEIL_STREAM_REQUEST_TIMEOUT_MS',
-  defaultValue: 0,
-);
-const _bulkStreamTraceDartDefine = bool.fromEnvironment(
-  'XVEIL_BULK_STREAM_TRACE',
-  defaultValue: false,
-);
-// Plain-file saves ride the reliable stream/range path by DEFAULT. This was
-// an opt-in while the pinned circuit could reset before the manifest arrived
-// and strand a chosen file at 0 bytes — that failure mode is gone (stream
-// retries + piece-granular resume + stall-abandon + RACK loss detection, all
-// device-proven), while the "safe" chunk fallback is impractically slow for
-// large files (it was the pre-stream datagram-era path). The define remains
-// an emergency off-switch: --dart-define=XVEIL_PLAIN_FILE_STREAM=false.
-const _plainFileStreamDartDefine = bool.fromEnvironment(
-  'XVEIL_PLAIN_FILE_STREAM',
-  defaultValue: true,
-);
-const _contentServeBatchDartDefine = int.fromEnvironment(
-  'XVEIL_CONTENT_SERVE_BATCH',
-  defaultValue: 0,
-);
-const _contentPacingMsDartDefine = int.fromEnvironment(
-  'XVEIL_CONTENT_PACING_MS',
-  defaultValue: 0,
-);
-
-const _defaultContentPacing = Duration(milliseconds: 20);
-const _defaultContentServeBatch = 2;
-
-typedef _ContentManifestRef = ({
-  String contentId,
-  String name,
-  int size,
-  String? msgId,
-  String? author,
-  int? seq,
-  int? ts,
-  String? thumb,
-});
-
-int? xveilConfiguredStreamRangeParallelism() =>
-    _streamRangeParallelismDartDefine > 0
-    ? _streamRangeParallelismDartDefine
-    : null;
-
-int? xveilConfiguredStreamRangeTargetBytes() =>
-    _streamRangeTargetBytesDartDefine > 0
-    ? _streamRangeTargetBytesDartDefine
-    : null;
-
-bool xveilConfiguredStreamRangeEnabled() => _streamRangeEnabledDartDefine;
-
-Duration _configuredStreamOpenWriteGrace() =>
-    _streamOpenWriteGraceMsDartDefine > 0
-    ? Duration(milliseconds: _streamOpenWriteGraceMsDartDefine)
-    : MessagingService._defaultStreamOpenWriteGrace;
-
-Duration _configuredStreamRangeStallAbandon() =>
-    _streamRangeStallAbandonMsDartDefine > 0
-    ? Duration(milliseconds: _streamRangeStallAbandonMsDartDefine)
-    : const Duration(milliseconds: 2500);
-
-Duration _configuredStreamRangeHedgeAfter() => _streamRangeHedgeMsDartDefine > 0
-    ? Duration(milliseconds: _streamRangeHedgeMsDartDefine)
-    : const Duration(milliseconds: 3000);
-
-Duration _configuredStreamRequestTimeout() =>
-    _streamRequestTimeoutMsDartDefine > 0
-    ? Duration(milliseconds: _streamRequestTimeoutMsDartDefine)
-    : MessagingService._defaultStreamRequestTimeout;
-
-Duration _configuredStreamPayloadIdleTimeout() =>
-    _streamPayloadIdleMsDartDefine > 0
-    ? Duration(milliseconds: _streamPayloadIdleMsDartDefine)
-    : MessagingService._defaultStreamPayloadIdleTimeout;
-
-void _bulkStreamLog(String Function() message) {
-  if (_bulkStreamTraceDartDefine) devLog(message);
-}
-
-Duration _configuredContentPacing() => _contentPacingMsDartDefine > 0
-    ? Duration(milliseconds: _contentPacingMsDartDefine)
-    : _defaultContentPacing;
-
-int _configuredContentServeBatch() => _contentServeBatchDartDefine > 0
-    ? _clampContentServeBatch(_contentServeBatchDartDefine)
-    : _defaultContentServeBatch;
-
-int _clampContentServeBatch(int value) {
-  if (value < 1) return 1;
-  if (value > 32) return 32;
-  return value;
-}
-
-/// Raw bytes per wire chunk. The anonymous authenticated send (the live path,
-/// veil's auth_deliver) caps ONE message at MAX_AUTH_DELIVER_MSG_BYTES = 6144
-/// bytes and silently drops anything larger (fire-and-forget, no retry). A chunk
-/// is base64 + JSON-wrapped (~1.35×) plus the AuthDeliver header/signature, so
-/// 6000 inflated to ~8099 B and EVERY file chunk was dropped on the live path
-/// (text survived only via its mailbox stash; files have none). 4000 → ~5.5 KB
-/// encoded, a safe margin under 6144, so file chunks actually traverse the
-/// onion. (Mailbox-deposited frames share the same ceiling.)
-const _wireChunkBytes = 4000;
-
-/// Group snapshot bytes per [WireKind.groupEntryChunk], and the threshold above
-/// which a snapshot is chunked instead of shipped as one [WireKind.groupEntry].
-///
-/// Smaller than [_wireChunkBytes] because a group chunk is DURABLE: it is stored
-/// in the outbox as `{id,p,w:base64(wire)}` in ONE ~4 KB container chunk, and the
-/// chunk data is ALREADY base64 inside the frame — so the raw bytes pass through
-/// TWO base64 layers (~1.78×) before hitting the outbox's PAYLOAD_CAP≈4040. 1800
-/// raw → ~3.2 KB outbox payload, a safe margin (4000 raw threw PayloadTooLarge on
-/// enqueueOutboxFrame). File chunks avoid this — they are NOT durable-outbox'd.
-const _groupChunkBytes = 1800;
-
-/// Bound the in-RAM group-snapshot reassembly so a hostile peer can't grow it
-/// without limit: a single snapshot over this many bytes (matching the stored
-/// file cap) is refused, and no more than this many snapshots reassemble at
-/// once (older partials evicted). A snapshot lost to eviction / restart re-heals
-/// on the sender's next full re-broadcast.
-const _kMaxGroupReasmBytes = kMaxStoredFileBytes;
-const _kMaxGroupReasmConcurrent = 8;
-
-/// Hard ceiling on a file we will buffer in memory and store. Bound by the
-/// at-rest layer: a stored file must be DELETABLE in one atomic commit (≤ 1024
-/// records × 8 KiB), so a larger blob can neither be persisted nor scrubbed on
-/// delete — see [kMaxStoredFileBytes]. It therefore doubles as (a) the inbound
-/// memory-DoS backstop (a hostile accepted peer can't buffer more than this) and
-/// (b) the send-side pre-check bound (the UI shows a friendly "too large" error
-/// here, instead of the storage layer throwing PayloadTooLarge mid-attach).
-const kMaxIncomingFileBytes =
-    kMaxStoredFileBytes; // ~8 MiB (1024×8 KiB ceiling)
-
-/// Largest streamed IMAGE we will read back whole (transiently) to generate
-/// its embedded micro-thumb. Image decode needs the full file, so this bounds
-/// the RAM spike of thumb generation on the sendFileStreaming path; a bigger
-/// image simply ships without a thumb (the preview is optional by design).
-const kThumbSourceReadCapBytes = 24 * 1024 * 1024;
-
-/// Max simultaneous inbound transfers we will buffer. Without this the
-/// per-transfer [kMaxIncomingFileBytes] cap is not enough: a peer could open
-/// many transfers at once and still exhaust memory. Together they bound the
-/// worst-case buffered total to ~this × [kMaxIncomingFileBytes]. Tunable.
-const kMaxConcurrentIncomingFiles = 8;
-
-/// How long an inbound transfer may sit idle (no new chunk) before a fresh
-/// transfer arriving at capacity may evict it to reclaim its slot. Without this,
-/// an accepted peer that opens [kMaxConcurrentIncomingFiles] transfers and never
-/// finishes them blocks all legitimate transfers until an app restart — an
-/// availability problem (memory stays bounded regardless). Timeout-evict, not
-/// LRU: LRU would let a hostile peer evict a victim's ACTIVE transfer. Tunable.
-const kStaleIncomingFileTimeout = Duration(minutes: 5);
-
-/// Max pre-consent intro messages we retain from a single not-yet-accepted
-/// peer. Each [WireKind.request] carries an optional greeting we store so the
-/// consent prompt can show it; a literal re-send dedups by id, but a hostile
-/// peer minting a FRESH id per request could otherwise pile up unbounded
-/// intros on the victim's device before they ever accept. We keep the most
-/// recent [kMaxPreConsentIntros] and evict the oldest — bounding storage while
-/// still surfacing a peer's latest introduction. The consent decision is about
-/// the peer, not the text, so a small cap loses nothing. Tunable.
-const kMaxPreConsentIntros = 5;
-
-/// In-flight inbound file reassembly state.
-class _Incoming {
-  _Incoming({
-    required this.src,
-    required this.name,
-    required this.reasm,
-    required this.lastActivity,
-    this.seq,
-    this.sentAtMs,
-  });
-  final NodeId src;
-  final String? name;
-  final FileReassembler reasm;
-
-  /// The SENDER's event seq for this file (filePost, §15), carried on the meta
-  /// so the completed file message folds under the same (author, seq) — keeping
-  /// the log convergent and letting gap-fill heal a missing file. Null from an
-  /// older sender → the receiver allocates a local seq (legacy, off-convergence).
-  final int? seq;
-
-  /// The SENDER's send-time (ms) for this file, carried on the meta so the
-  /// completed file message folds under the sender's time — keeping the
-  /// (effective_ts, author, seq) display order convergent. Null from an older
-  /// sender → the receiver falls back to its receive time.
-  final int? sentAtMs;
-
-  /// Wall-clock of the most recent meta/chunk for this transfer. Bumped on every
-  /// chunk so an actively-progressing transfer is never seen as stale; only idle
-  /// (stalled/abandoned) transfers are eligible for eviction.
-  DateTime lastActivity;
-}
-
-/// Max edit/delete ops we hold waiting for their target message to arrive (see
-/// [MessagingService._pendingOps]). Bounds memory against an accepted peer that
-/// spams ops for message ids we never receive; the cap evicts oldest-first. A
-/// real conversation has at most a handful of in-flight out-of-order ops, so a
-/// modest cap loses nothing legitimate. Tunable.
-const kMaxPendingOps = 512;
-
-/// A peer's edit/delete of one of THEIR messages that drained before the message
-/// itself. Buffered until the target stores, then replayed. A delete is terminal
-/// (a later edit can't revive a message the peer unsent), so [isDelete] wins over
-/// a buffered edit for the same id.
-class _PendingOp {
-  _PendingOp.edit(String this.body) : isDelete = false;
-  _PendingOp.delete() : isDelete = true, body = null;
-  final bool isDelete;
-
-  /// The replacement text for an edit; null for a delete.
-  final String? body;
-}
-
-/// A genuinely-new incoming message, emitted on [MessagingService.incoming] for
-/// the notification layer (NOT re-deliveries — those are deduped before this
-/// fires). Carries only what a notification needs; the privacy decision (show
-/// the text/sender or not) is made above, not here.
-class IncomingNotice {
-  const IncomingNotice({
-    required this.from,
-    required this.preview,
-    required this.isFile,
-  });
-  final NodeId from;
-  final String preview;
-  final bool isFile;
-}
-
-/// An author-side prompt: [peer] asked us to attest authorship of message
-/// [msgId] whose text is [body]. Surfaced on [MessagingService.signatureAsks]
-/// under [SignaturePolicy.ask]; resolved via
-/// [MessagingService.resolveSignatureAsk].
-class SignatureAsk {
-  const SignatureAsk({
-    required this.peer,
-    required this.msgId,
-    required this.body,
-  });
-  final NodeId peer;
-  final String msgId;
-  final String body;
-}
-
-/// Outcome of a user-initiated download ([MessagingService.downloadContent] /
-/// [MessagingService.downloadContentToFile]).
-enum ContentDownloadResult {
-  /// The fetch began (or the bytes were already held).
-  started,
-
-  /// No live manifest handle — we asked the sender to re-advertise; the download
-  /// continues automatically if the sender is still serving, else nothing comes.
-  requestedReoffer,
-
-  /// No live offer AND no peer to ask — the sender must re-send.
-  noOffer,
-}
-
-/// A live byte source the SENDER serves a large file from directly — the user's
-/// ORIGINAL file on disk — instead of a stored/duplicated copy. [read] returns
-/// exactly [length] bytes at [offset]; [close] releases the underlying handle
-/// (the file picker's RandomAccessFile) when serving ends. Held by
-/// [MessagingService._serving] and closed on eviction/dispose. The dart:io
-/// implementation lives in the UI layer so this stays transport-/io-free.
-typedef ServeSource = ({
-  Future<Uint8List> Function(int offset, int length) read,
-  Future<void> Function() close,
-});
-
-/// Where a RECEIVE writes each verified piece when the user chose to download a
-/// large file UNENCRYPTED, straight to a plaintext file they picked — instead of
-/// the encrypted on-disk tier. [write] places [bytes] at byte [offset];
-/// [close] finalises the file. The dart:io sink lives in the UI layer so the
-/// messaging service stays io-free. Null fetch sink ⇒ store via the Storage port
-/// (encrypted tier / in-volume) as usual.
-typedef _FetchSink = ({
-  Future<void> Function(int offset, Uint8List bytes) write,
-  Future<void> Function() close,
-  // Non-null only on a RESUME reopen of a plain file: reads a piece back so the
-  // swarm can hash-verify it off disk and skip the ones a previous run already
-  // wrote (byte-level restart resume). Null on a fresh download / encrypted
-  // tier (nothing prior to trust).
-  Future<Uint8List?> Function(int offset, int length)? read,
-});
+part 'messaging_support.dart';
+part 'messaging_local_chat.dart';
+part 'messaging_conversation_admin.dart';
+part 'messaging_attestation.dart';
 
 /// Wires the [VeilTransport] inbound stream into [Storage] and exposes a send
 /// path. Persists every message, then signals [changes] so the read providers
@@ -451,6 +110,10 @@ class MessagingService {
   final Future<String?> Function(String path) _videoThumbMaker;
   final Future<String?> Function(Uint8List bytes) _imageThumbMaker;
 
+  late final _MessagingConversationAdmin _conversationAdmin =
+      _MessagingConversationAdmin(this);
+  late final _MessagingAttestation _attestation = _MessagingAttestation(this);
+
   /// Whether this identity routes over the onion rendezvous (sender-location
   /// hidden). Fixed per identity at boot from its roster `anonymous` flag — an
   /// anonymous identity sends EVERYTHING (messages, acks, accepts, file frames)
@@ -522,6 +185,7 @@ class MessagingService {
     String? fileName,
     int? fileSize,
     String? thumb,
+    List<InlineCustomEmoji> customEmoji = const [],
   }) async {
     if (await _hasMessage(peer, msgId)) return false;
     if (await _storage.isMessageDeleted(peer.hex, msgId)) return false;
@@ -539,6 +203,7 @@ class MessagingService {
         fileName: fileName,
         fileSize: fileSize,
         thumb: thumb,
+        customEmoji: customEmoji,
       ),
     );
     _signal();
@@ -661,7 +326,7 @@ class MessagingService {
         // Mailbox copy + outbox re-drive remain authoritative.
       }
     }());
-    unawaited(_maybeStash(dst, frameId, wire));
+    _stashInBackground(dst, frameId, wire);
   }
 
   /// Send one already-signed+epoch-encrypted group-call signal. Lifecycle
@@ -1279,13 +944,14 @@ class MessagingService {
     // stalls the receive path — the live send above still covers the online case
     // at lower latency.
     await _send(m.src, ack);
-    unawaited(_maybeStash(m.src, 'ack:$id', ack));
+    _stashInBackground(m.src, 'ack:$id', ack);
   }
 
   final _changes = StreamController<void>.broadcast();
   // Genuinely-new incoming messages (post-dedup), for the notification layer.
   final _incoming = StreamController<IncomingNotice>.broadcast();
   StreamSubscription<InboundMessage>? _sub;
+  StreamSubscription<InboundMessage>? _realtimeSub;
   Timer? _retryTimer;
 
   /// The one-shot post-unlock settings-GC delay — cancellable so dispose()
@@ -1318,6 +984,30 @@ class MessagingService {
   /// is stashed once, not on every outbox flush. The relay also dedups by
   /// content id, so this is purely a network-traffic optimisation.
   final Set<String> _stashed = {};
+
+  /// Stashes currently doing recipient lookup + ML-KEM sealing + relay fanout.
+  /// A durable-outbox pass can contain dozens of distinct frames. Starting all
+  /// of them at once saturated the mobile CPU and opened hundreds of onion
+  /// circuits while an otherwise-direct video call was active. Background
+  /// callers admit one operation at a time; skipped frames remain in the
+  /// durable outbox and are considered again by the next flush.
+  final Set<String> _stashInFlight = {};
+  static const _maxBackgroundStashes = 1;
+
+  /// Set by the call FSM while a call is ringing/connecting/active. Durable
+  /// frames stay persisted and call control continues, but mailbox FETCH/KEM
+  /// work plus unrelated outbox/sync retries wait until the call ends. Those
+  /// paths share the native scheduler with direct media and were device-measured
+  /// as periodic 75-500 ms frame-arrival gaps.
+  bool _backgroundDeliveryPaused = false;
+
+  bool get backgroundStashPaused => _backgroundDeliveryPaused;
+
+  set backgroundStashPaused(bool value) {
+    if (_backgroundDeliveryPaused == value) return;
+    _backgroundDeliveryPaused = value;
+    _mailbox?.backgroundDrainPaused = value;
+  }
 
   /// When a stash of a given id last FAILED. A failed deposit is never added to
   /// [_stashed] (so a later flush retries it — correct for offline delivery),
@@ -1428,7 +1118,10 @@ class MessagingService {
 
   /// Attach the offline-delivery [MailboxService] after construction (it is
   /// built with [deliverInbound] as its drain sink, so it must exist first).
-  void attachMailbox(MailboxSink mailbox) => _mailbox = mailbox;
+  void attachMailbox(MailboxSink mailbox) {
+    _mailbox = mailbox;
+    mailbox.backgroundDrainPaused = _backgroundDeliveryPaused;
+  }
 
   /// The app just returned to the foreground: the user is looking at the
   /// screen, so anything parked at the mailbox relay should surface NOW, not on
@@ -1468,10 +1161,21 @@ class MessagingService {
     // other live frames (acks / sync beacons) still land — without the nudge the
     // stashed message surfaces only on the next idle drain (~30 s measured);
     // with it, within the debounce window. Debounced + no-op without a mailbox.
-    _sub ??= _transport.messages().listen((m) {
+    void receive(InboundMessage m) {
       _mailbox?.nudgeDrain();
       _onInbound(m);
-    });
+    }
+
+    _sub ??= _transport.messages().listen(receive);
+    final transport = _transport;
+    if (_realtimeSub == null && transport is RealtimeInboundTransport) {
+      _realtimeSub = (transport as RealtimeInboundTransport)
+          .realtimeMessages()
+          .listen((message) {
+            _mailbox?.nudgeDrain();
+            _onRealtimeInbound(message);
+          });
+    }
     _retryTimer ??= Timer.periodic(_retryInterval, (_) => _retryFlush());
     unawaited(_loadFilePolicy()); // this identity's auto-download policy (A1)
     // Serve inbound bulk file streams (S2) when the transport supports them.
@@ -1597,197 +1301,54 @@ class MessagingService {
   Future<String> _selfHex() async =>
       _selfHexCache ??= (await _transport.nodeId()).hex;
 
-  // ── Reactions ──────────────────────────────────────────────────────────────
-  // A side annotation store, kept OUT of the message event-log (no seq/R6
-  // concerns): `rx:<convId>` KV holds JSON `{msgId: {reactorHex: emoji}}`.
-  // The UI overlays it on bubbles; delivery is a durable WireKind.reaction.
+  // Local-only chat features live in a separate collaborator. Keeping the
+  // public methods here preserves MessagingService's API while the collaborator
+  // reuses this class's canonical _store/event-log path.
+  _MessagingLocalChat? _localChatController;
+  _MessagingLocalChat get _localChat =>
+      _localChatController ??= _MessagingLocalChat(this);
 
-  /// Load all reactions for a conversation: msgId → (reactorHex → emoji).
-  Future<Map<String, Map<String, String>>> loadReactions(String convId) async {
-    try {
-      final raw = await _storage.getSetting('rx:$convId');
-      if (raw == null || raw.isEmpty) return {};
-      final j = jsonDecode(raw);
-      if (j is! Map) return {};
-      return {
-        for (final e in j.entries)
-          if (e.value is Map)
-            e.key as String: {
-              for (final r in (e.value as Map).entries)
-                r.key as String: r.value as String,
-            },
-      };
-    } catch (_) {
-      return {};
-    }
-  }
+  Future<Map<String, Map<String, String>>> loadReactions(String convId) =>
+      _localChat.loadReactions(convId);
 
-  /// Apply one reaction to the store (empty [emoji] removes this reactor's).
   Future<void> _applyReaction(
     String convId,
     String msgId,
     String reactorHex,
     String emoji,
-  ) async {
-    final all = await loadReactions(convId);
-    final forMsg = all[msgId] ?? <String, String>{};
-    if (emoji.isEmpty) {
-      forMsg.remove(reactorHex);
-    } else {
-      forMsg[reactorHex] = emoji;
-    }
-    if (forMsg.isEmpty) {
-      all.remove(msgId);
-    } else {
-      all[msgId] = forMsg;
-    }
-    await _storage.putSetting('rx:$convId', jsonEncode(all));
-  }
+  ) => _localChat.applyReaction(convId, msgId, reactorHex, emoji);
 
-  /// React to [msgId] in [peer]'s chat with [emoji] (empty removes ours). The
-  /// reaction is applied locally and delivered durably so it survives offline.
-  Future<void> sendReaction(NodeId peer, String msgId, String emoji) async {
-    final selfHex = await _selfHex();
-    await _applyReaction(peer.hex, msgId, selfHex, emoji);
-    _signal();
-    // Saved Messages (peer == self) is local-only — never put a reaction to
-    // ourselves on the wire.
-    if (peer.hex == selfHex) return;
-    await sendDurable(peer, 'rx:$msgId', WireEnvelope.reaction(msgId, emoji));
-  }
+  Future<void> sendReaction(NodeId peer, String msgId, String emoji) =>
+      _localChat.sendReaction(peer, msgId, emoji);
 
-  /// The conversation id of "Saved Messages" — a chat with yourself. It's the
-  /// local node id, so when multi-device lands this log naturally becomes the
-  /// "my devices" group log (ROADMAP). Local-only: notes never touch the wire.
   Future<String> savedSelfHex() => _selfHex();
 
-  /// Append a note to Saved Messages — a purely LOCAL write (no transport, no
-  /// consent gate, no mailbox). Used for notes-to-self and forward-to-saved.
   Future<void> saveNote(
     String text, {
     String? replyToId,
     String? forwardedFrom,
-  }) async {
-    final trimmed = text.trim();
-    if (trimmed.isEmpty) return;
-    final selfId = NodeId.fromHex(await _selfHex());
-    await _store(
-      selfId,
-      MessageDirection.outgoing,
-      trimmed,
-      // Delivered, not sent: a note to self has no peer to ack — leaving it
-      // `sent` made _maybeReconnect fire a reconnect AT ourselves, which
-      // created a bogus pendingIncoming self-contact ("Saved wants to connect").
-      MessageStatus.delivered,
-      replyToId: replyToId,
-      forwardedFrom: forwardedFrom,
-      timestamp: _now(),
-    );
-    _signal();
-  }
+    List<InlineCustomEmoji> customEmoji = const [],
+  }) => _localChat.saveNote(
+    text,
+    replyToId: replyToId,
+    forwardedFrom: forwardedFrom,
+    customEmoji: customEmoji,
+  );
 
-  /// Append a FILE note to Saved Messages — the local half of [sendFile]
-  /// (store the blob + record the message) with NO wire frames, consent gate
-  /// or mailbox: notes to self never leave the device. Small files take the
-  /// whole-blob [HiddenVolumeStorage.storeFile] tier; larger ones the
-  /// content-layer piece store under their contentId — the SAME on-disk
-  /// layouts a real send produces, so the existing file/image bubbles render
-  /// a saved note unchanged (and identical bytes de-dup against any past or
-  /// future real send).
   Future<void> saveFileNote(
     Uint8List bytes,
     String name, {
     String? sourcePath,
     String? forwardedFrom,
-  }) async {
-    final selfId = NodeId.fromHex(await _selfHex());
-    // Micro-thumb like a real send: images from the in-RAM bytes; videos need
-    // the on-disk source (the platform grabber can't decode from bytes alone).
-    String? thumb;
-    if (isImageFileName(name)) {
-      thumb = await _imageThumbMaker(bytes);
-    } else if (isVideoFileName(name) && sourcePath != null) {
-      try {
-        thumb = await _videoThumbMaker(sourcePath);
-      } catch (e) {
-        devLog(() => 'xVeil[saved]: video thumb skipped for $name: $e');
-      }
-    }
-    if (bytes.length > _contentThreshold) {
-      // Content-tier: hash once, persist the piece blob keyed by contentId.
-      final base = ContentManifest.fromBytes(
-        name,
-        bytes,
-        pieceSize: adaptivePieceSize(bytes.length),
-        chunkBytes: _contentChunkBytes,
-      );
-      await _storeServedBlob(base, bytes);
-      await _store(
-        selfId,
-        MessageDirection.outgoing,
-        '📎 $name',
-        // Delivered, not sent — same reasoning as [saveNote] (no peer to ack;
-        // `sent` would make _maybeReconnect fire a reconnect at ourselves).
-        MessageStatus.delivered,
-        fileId: base.contentId,
-        fileName: name,
-        fileSize: bytes.length,
-        thumb: thumb,
-        forwardedFrom: forwardedFrom,
-        timestamp: _now(),
-      );
-    } else {
-      // Whole-blob tier, bounded by the atomic-delete cap like any stored
-      // file (the UI pre-checks with a friendly error; drop silently here).
-      if (bytes.length > kMaxStoredFileBytes) {
-        devLog(() => 'xVeil[saved]: ${bytes.length}B over cap — dropped');
-        return;
-      }
-      final fileId = _uuid.v4();
-      await _storage.storeFile(fileId, bytes, name: name);
-      await _store(
-        selfId,
-        MessageDirection.outgoing,
-        '📎 $name',
-        MessageStatus.delivered,
-        fileId: fileId,
-        fileName: name,
-        fileSize: bytes.length,
-        thumb: thumb,
-        id: fileId,
-        forwardedFrom: forwardedFrom,
-        timestamp: _now(),
-      );
-    }
-    _signal();
-  }
+  }) => _localChat.saveFileNote(
+    bytes,
+    name,
+    sourcePath: sourcePath,
+    forwardedFrom: forwardedFrom,
+  );
 
-  /// Forward an already-HELD file message into Saved Messages as a copy-
-  /// reference: a NEW message row pointing at the SAME stored blob (blobs are
-  /// keyed globally by fileId/contentId), so nothing is copied, re-sent or
-  /// re-downloaded. Returns false when the blob is NOT held locally (an
-  /// undownloaded offer) — the caller hides the action instead of promising
-  /// a forward it can't perform without pulling bytes off the wire.
-  Future<bool> saveFileNoteRef(Message m, {String? forwardedFrom}) async {
-    final key = m.fileId ?? m.fileContentId;
-    if (key == null || !await _storage.hasFile(key)) return false;
-    final selfId = NodeId.fromHex(await _selfHex());
-    await _store(
-      selfId,
-      MessageDirection.outgoing,
-      m.body,
-      MessageStatus.delivered,
-      fileId: m.fileId,
-      fileName: m.fileName,
-      fileSize: m.fileSize,
-      fileContentId: m.fileContentId,
-      thumb: m.thumb,
-      forwardedFrom: forwardedFrom,
-      timestamp: _now(),
-    );
-    _signal();
-    return true;
-  }
+  Future<bool> saveFileNoteRef(Message m, {String? forwardedFrom}) =>
+      _localChat.saveFileNoteRef(m, forwardedFrom: forwardedFrom);
 
   Future<Message> _store(
     NodeId peer,
@@ -1799,6 +1360,7 @@ class MessagingService {
     int? fileSize,
     String? fileContentId,
     String? thumb,
+    List<InlineCustomEmoji> customEmoji = const [],
     String? id,
     DateTime? timestamp,
     int? seq,
@@ -1820,6 +1382,7 @@ class MessagingService {
         replyToId: replyToId,
         forwardedFrom: forwardedFrom,
         thumb: thumb,
+        customEmoji: customEmoji,
         body: body,
         // Incoming messages carry the SENDER's send time (env.sentAtMs) so the
         // conversation orders by send-order, not the scrambled arrival order.
@@ -1937,6 +1500,11 @@ class MessagingService {
     await _storage.upsertContact(
       (existing ?? Contact(nodeId: peer)).copyWith(status: status),
     );
+    if (status == ContactStatus.accepted) {
+      _acceptedRealtimePeers.add(peer.hex);
+    } else {
+      _acceptedRealtimePeers.remove(peer.hex);
+    }
     onContactStatusChanged?.call(peer, status);
   }
 
@@ -1955,6 +1523,11 @@ class MessagingService {
     await _storage.upsertContact(
       (existing ?? Contact(nodeId: peer)).copyWith(status: status),
     );
+    if (status == ContactStatus.accepted) {
+      _acceptedRealtimePeers.add(peer.hex);
+    } else {
+      _acceptedRealtimePeers.remove(peer.hex);
+    }
     _signal();
     return true;
   }
@@ -2029,11 +1602,128 @@ class MessagingService {
   /// most one frame at a time. [_handleInbound] is fully try/catch-guarded so
   /// the chained future never rejects and the queue can't be poisoned.
   Future<void> _inboundChain = Future<void>.value();
+  Future<void> _realtimeInboundChain = Future<void>.value();
 
   Future<void> _onInbound(InboundMessage m) {
     final next = _inboundChain.then((_) => _handleInbound(m));
     _inboundChain = next;
     return next;
+  }
+
+  /// Dedicated latency-critical control lane. APP_RT_DATA already arrives on
+  /// its own native endpoint; feeding it into [_inboundChain] again defeated
+  /// that isolation when group sync or a large-store operation occupied the
+  /// normal inbox for seconds. This lane accepts only call envelopes and direct
+  /// endpoint exchange. A new offer and every endpoint frame still verify
+  /// ContactStatus from storage unless the peer was already consent-checked in
+  /// this session. Follow-up call control is delivered without a disk read:
+  /// CallService accepts it only for the exact active `(peer, callId)`, so
+  /// storage maintenance cannot strand an answer/end/repair signal while an
+  /// existing call is live.
+  Future<void> _onRealtimeInbound(InboundMessage m) {
+    final next = _realtimeInboundChain.then((_) async {
+      try {
+        await _handleRealtimeInbound(m);
+      } catch (error, stackTrace) {
+        // A transient storage/contact failure must drop only this datagram, not
+        // poison the serialized realtime chain and strand every later call
+        // answer/end/endpoint frame for the rest of the session.
+        devLog(
+          () =>
+              'xVeil[call-sig]: realtime dispatch FAILED '
+              'from=${m.src.short}: $error\n$stackTrace',
+        );
+      }
+    });
+    _realtimeInboundChain = next;
+    return next;
+  }
+
+  Future<void> _handleRealtimeInbound(InboundMessage m) async {
+    late final WireEnvelope env;
+    try {
+      env = WireEnvelope.decode(m.payload);
+    } catch (error) {
+      devLog(
+        () =>
+            'xVeil[call-sig]: realtime decode FAILED '
+            'from=${m.src.short}: $error',
+      );
+      return;
+    }
+    if (env.kind != WireKind.callSignal && env.kind != WireKind.p2pEndpoints) {
+      // This endpoint is deliberately limited to latency-critical call setup.
+      // Fail closed instead of creating another path around the ordinary
+      // message consent gates.
+      return;
+    }
+
+    if (env.kind == WireKind.p2pEndpoints) {
+      // Unlike a follow-up call signal, an endpoint frame can initiate a new
+      // network dial. It therefore ALWAYS stays behind accepted-contact
+      // consent. The session cache only avoids a storage read after the
+      // same relationship was already checked; every relationship mutation
+      // below updates the cache synchronously.
+      if (!_acceptedRealtimePeers.contains(m.src.hex)) {
+        final contact = await _storage.getContact(m.src);
+        if (contact?.status != ContactStatus.accepted) return;
+        _acceptedRealtimePeers.add(m.src.hex);
+      }
+      final fid = env.frameId;
+      if (fid != null) {
+        final fresh = _seenFrames.add(fid);
+        unawaited(_ackFrame(m, fid));
+        if (!fresh) return;
+      }
+
+      _syncUnanswered.remove(m.src.hex);
+      _nudgeRetries(m.src.hex);
+      noteInboundFromPeer(m.src);
+      devLog(
+        () =>
+            'xVeil[p2p]: realtime in endpoints from=${m.src.short} '
+            '(${env.body.length} B)',
+      );
+      onP2PEndpoints?.call(m.src, env.body);
+      return;
+    }
+
+    final signal = CallSignal.tryDecode(env.body);
+    if (signal == null) return;
+    // Only an offer can create a new call. It must pass the durable consent
+    // gate before reaching CallService. Every other signal can only affect an
+    // already-live call, where CallService checks both peer and callId before
+    // changing state. Keeping those follow-ups off storage is essential: a
+    // large group-sync/index operation can occupy the store for seconds, long
+    // enough for a valid answer to miss the dial window entirely.
+    if (signal.type == CallSignalType.offer &&
+        !_acceptedRealtimePeers.contains(m.src.hex)) {
+      final contact = await _storage.getContact(m.src);
+      if (contact?.status != ContactStatus.accepted) return;
+      _acceptedRealtimePeers.add(m.src.hex);
+    }
+    final fid = env.frameId;
+    if (fid != null) {
+      final fresh = _seenFrames.add(fid);
+      // ACK may touch mailbox/storage. Delivery into the call FSM is the
+      // latency-critical operation; run ACK independently after recording the
+      // frame id so a re-drive remains deduplicated.
+      unawaited(_ackFrame(m, fid));
+      if (!fresh) return;
+    }
+
+    _syncUnanswered.remove(m.src.hex);
+    _nudgeRetries(m.src.hex);
+    noteInboundFromPeer(m.src);
+    devLog(() {
+      final at = signal.sentAtMs;
+      final age = at == null
+          ? 'n/a'
+          : '${_now().millisecondsSinceEpoch - at}ms';
+      return 'xVeil[call-sig]: realtime in type=${signal.type.name} '
+          'call=${signal.callId} from=${m.src.short} age=$age';
+    });
+    onCallSignal?.call(m.src, signal);
   }
 
   Future<void> _handleInbound(InboundMessage m) async {
@@ -2101,6 +1791,11 @@ class MessagingService {
   final _seenFrames = <String>{};
   static const _seenFramesCap = 4096;
 
+  /// Accepted peers already checked this session for realtime call setup.
+  /// Relationship mutations below keep this in sync so the realtime lane never
+  /// turns a stale acceptance into a consent bypass.
+  final Set<String> _acceptedRealtimePeers = {};
+
   /// In-RAM reassembly of chunked group snapshots ([WireKind.groupEntryChunk]),
   /// keyed by transferId → (chunk count, index→bytes, running byte total).
   /// Bounded by [_kMaxGroupReasmBytes]/[_kMaxGroupReasmConcurrent]. Completed
@@ -2147,22 +1842,9 @@ class MessagingService {
     WireEnvelope env, {
     Future<void> Function(Uint8List wire)? liveSender,
     bool awaitLive = true,
+    bool startLiveBeforeEnqueue = false,
   }) async {
     final wire = env.withFrameId(frameId).encode();
-    await _storage.enqueueOutboxFrame(frameId, peer.hex, wire);
-    // Call-signal frames start on the FAST re-drive ladder (see
-    // _flushOutboxFrames): the first live attempt fails silently often
-    // enough that a 20 s first retry alone ate half a ring window.
-    final firstRetry =
-        frameId.startsWith('call:') || frameId.startsWith('gcall:')
-        ? _callSignalLiveResend
-        : _outboxLiveResend;
-    _outboxLiveBackoff[frameId] = (
-      count: 1,
-      nextAt: _now().add(firstRetry),
-      peer: peer.hex,
-      lastSentAt: _now(),
-    );
     Future<void> tryLive() async {
       final sw = Stopwatch()..start();
       try {
@@ -2182,7 +1864,41 @@ class MessagingService {
       }
     }
 
-    if (awaitLive) {
+    // Latency-critical control must not sit behind storage maintenance. On a
+    // large desktop store enqueueOutboxFrame has measured >5 s while the
+    // direct session itself delivered in milliseconds. Start the lossy live
+    // leg first; persistence still completes before this method returns and is
+    // still the source of truth for retries/mailbox delivery.
+    final earlyLive = startLiveBeforeEnqueue ? tryLive() : null;
+    if (earlyLive != null) {
+      // `sendRealtime` starts an FFI worker isolate. Yield before entering the
+      // storage backend: some native stores do synchronous CPU work before
+      // their first Future suspension, which otherwise prevents the worker
+      // from even being scheduled until several seconds later. The realtime
+      // IPC write normally wins this race in <20 ms; 100 ms bounds the added
+      // persistence latency if the worker itself is unhealthy.
+      await Future.any<void>([
+        earlyLive,
+        Future<void>.delayed(const Duration(milliseconds: 100)),
+      ]);
+    }
+    await _storage.enqueueOutboxFrame(frameId, peer.hex, wire);
+    // Call-signal frames start on the FAST re-drive ladder (see
+    // _flushOutboxFrames): the first live attempt fails silently often
+    // enough that a 20 s first retry alone ate half a ring window.
+    final firstRetry =
+        frameId.startsWith('call:') || frameId.startsWith('gcall:')
+        ? _callSignalLiveResend
+        : _outboxLiveResend;
+    _outboxLiveBackoff[frameId] = (
+      count: 1,
+      nextAt: _now().add(firstRetry),
+      peer: peer.hex,
+      lastSentAt: _now(),
+    );
+    if (earlyLive != null) {
+      if (awaitLive) await earlyLive;
+    } else if (awaitLive) {
       await tryLive();
     } else {
       // Latency-critical control returns after durable enqueue. Its isolated
@@ -2190,7 +1906,7 @@ class MessagingService {
       // remains the reliable fallback.
       unawaited(tryLive());
     }
-    unawaited(_maybeStash(peer, frameId, wire));
+    _stashInBackground(peer, frameId, wire);
   }
 
   Future<void> _sendRealtime(NodeId peer, Uint8List wire) {
@@ -2205,6 +1921,84 @@ class MessagingService {
     return _send(peer, wire);
   }
 
+  /// Deliver latency-critical call control on the first route that is usable.
+  ///
+  /// APP_RT is intentionally direct-session-only. That makes it the shortest
+  /// path for an admitted peer, but a cold call is exactly the operation that
+  /// often runs before admission: sending the offer only through APP_RT then
+  /// guaranteed a miss and deferred the first routable copy to the 4 s outbox
+  /// ladder (in practice the 3 s flush cadence made that 6+ s). Race the normal
+  /// contact lane as well; both copies carry the same durable frame id and are
+  /// deduplicated at the receiver. Anonymous identities keep the single
+  /// anonymous-authenticated path so this optimization never widens routing.
+  Future<void> _sendCallLive(NodeId peer, Uint8List wire) async {
+    if (_anonymous) {
+      await _sendRealtime(peer, wire);
+      return;
+    }
+    // A client without a dedicated realtime endpoint would make
+    // [_sendRealtime] fall back to [_send]. Racing both in that case sends the
+    // same durable frame twice on the same physical lane (headless hosts and
+    // pure-Dart transports hit this path). Only race genuinely distinct lanes.
+    if (_transport is! RealtimeTransport) {
+      await _send(peer, wire);
+      return;
+    }
+
+    Future<void> attempt(String lane, Future<void> Function() send) async {
+      try {
+        await send();
+      } catch (error) {
+        devLog(
+          () =>
+              'xVeil[call-sig]: $lane live leg failed '
+              'peer=${peer.short}: $error',
+        );
+      }
+    }
+
+    await Future.wait<void>([
+      attempt('contact', () => _send(peer, wire)),
+      attempt('realtime', () => _sendRealtime(peer, wire)),
+    ]);
+  }
+
+  /// Bootstrap direct connectivity over BOTH available live control lanes.
+  ///
+  /// The dedicated realtime endpoint is ideal once a direct session exists,
+  /// but an endpoint exchange is what creates that session in the first place.
+  /// Sending only through realtime therefore made the first post-restart call
+  /// wait for the mailbox copy. The ordinary contact transport can route before
+  /// admission; racing both lanes covers cold and warm sessions. Both copies
+  /// carry the same durable frame id, so receiver dedup makes the race
+  /// idempotent. Each lane preserves [_anonymous]; P2P policy still prevents
+  /// anonymous identities from constructing endpoint frames at all.
+  Future<void> _sendP2PBootstrap(NodeId peer, Uint8List wire) async {
+    // See [_sendCallLive]: without RealtimeTransport the realtime helper is the
+    // contact lane itself, so a two-way race would only duplicate traffic.
+    if (_transport is! RealtimeTransport) {
+      await _send(peer, wire);
+      return;
+    }
+
+    Future<void> attempt(String lane, Future<void> Function() send) async {
+      try {
+        await send();
+      } catch (error) {
+        devLog(
+          () =>
+              'xVeil[p2p]: bootstrap $lane leg failed '
+              'peer=${peer.short}: $error',
+        );
+      }
+    }
+
+    await Future.wait<void>([
+      attempt('contact', () => _send(peer, wire)),
+      attempt('realtime', () => _sendRealtime(peer, wire)),
+    ]);
+  }
+
   /// Send a call control-plane [signal] to [peer]. Ring/accept/reject/cancel/
   /// busy/end/renegotiate go via the durable pipeline — keyed `call:<id>:<type>`
   /// so a dropped frame re-drives and a re-delivery is acked+processed once.
@@ -2215,6 +2009,7 @@ class MessagingService {
   Future<void> sendCallSignal(NodeId peer, CallSignal signal) async {
     final contact = await _storage.getContact(peer);
     if (contact == null || contact.status != ContactStatus.accepted) return;
+    _acceptedRealtimePeers.add(peer.hex);
     final stamped = signal.sentAtMs == null
         ? signal.copyWith(sentAtMs: _now().millisecondsSinceEpoch)
         : signal;
@@ -2243,8 +2038,9 @@ class MessagingService {
       peer,
       fid,
       env,
-      liveSender: (wire) => _sendRealtime(peer, wire),
+      liveSender: (wire) => _sendCallLive(peer, wire),
       awaitLive: false,
+      startLiveBeforeEnqueue: true,
     );
   }
 
@@ -2262,8 +2058,10 @@ class MessagingService {
   }) async {
     final contact = await _storage.getContact(peer);
     if (contact == null || contact.status != ContactStatus.accepted) return;
+    _acceptedRealtimePeers.add(peer.hex);
     devLog(
-      () => 'xVeil[p2p]: out endpoints to=${peer.short} '
+      () =>
+          'xVeil[p2p]: out endpoints to=${peer.short} '
           '(${bodyJson.length} B)',
     );
     final env = WireEnvelope.p2pEndpoints(bodyJson);
@@ -2271,8 +2069,9 @@ class MessagingService {
       peer,
       'p2p:ep:$sentAtMs',
       env,
-      liveSender: (wire) => _sendRealtime(peer, wire),
+      liveSender: (wire) => _sendP2PBootstrap(peer, wire),
       awaitLive: false,
+      startLiveBeforeEnqueue: true,
     );
   }
 
@@ -2288,6 +2087,12 @@ class MessagingService {
     }
     for (final f in pending) {
       if (_retireExpiredTransientOutboxFrame(f)) continue;
+      final isCallSignal =
+          f.frameId.startsWith('call:') || f.frameId.startsWith('gcall:');
+      // Keep offer/answer/heartbeat recovery alive, but park every unrelated
+      // durable frame while media is active. All parked bytes remain in the
+      // encrypted outbox and the normal timer resumes them after hangup.
+      if (_backgroundDeliveryPaused && !isCallSignal) continue;
       final peer = NodeId.fromHex(f.peerHex);
       // A frame to a peer we no longer hold AT ALL (conversation removed) is
       // moot — retire it. A BLOCKED peer only PAUSES it, mirroring the message
@@ -2320,7 +2125,7 @@ class MessagingService {
       if (pb != null && _now().isBefore(pb.nextAt)) continue;
       // The mailbox copy is the durable carrier — always re-attempt it (its own
       // _stashed/backoff guards make this cheap once deposited).
-      unawaited(_maybeStash(peer, f.frameId, f.wire));
+      _stashInBackground(peer, f.frameId, f.wire);
       // A live re-send is a latency optimisation; exponential per-frame backoff
       // (20s → … → 10min cap) so a persistently un-acked frame stops hammering
       // the onion path. The shift exponent is clamped — counts keep growing for
@@ -2337,13 +2142,13 @@ class MessagingService {
       // whose first send was lost then arrived AFTER the caller's dial
       // timeout, killing the call at the moment of accept. 4 s → 8 → 16 → 32
       // gives ~5 tries in the first minute; the short TTL bounds total cost.
-      final isCallSignal =
-          f.frameId.startsWith('call:') || f.frameId.startsWith('gcall:');
       final baseMs = isCallSignal
           ? _callSignalLiveResend.inMilliseconds
           : _outboxLiveResend.inMilliseconds;
-      final delayMs = (baseMs * (1 << (count - 1).clamp(0, 10)))
-          .clamp(0, _outboxLiveResendCap.inMilliseconds);
+      final delayMs = (baseMs * (1 << (count - 1).clamp(0, 10))).clamp(
+        0,
+        _outboxLiveResendCap.inMilliseconds,
+      );
       _outboxLiveBackoff[f.frameId] = (
         count: count,
         nextAt: now.add(Duration(milliseconds: delayMs)),
@@ -2445,229 +2250,32 @@ class MessagingService {
     unawaited(_storage.ackOutboxFrame(frameId));
   }
 
-  // ── Opt-in authorship attestation (the "request signature" feature) ────────
-  //
-  // Deniable-by-default: nothing is signed unless a recipient explicitly asks
-  // AND the author consents (per prompt, or a standing auto/refuse policy). The
-  // signed bytes bind author ‖ recipient ‖ msgId ‖ body, so an attestation
-  // proves "this author wrote THIS to THIS recipient" and cannot be transplanted.
+  // ── Opt-in authorship attestation ─────────────────────────────────────────
 
-  /// Author-side answer to incoming requests. Wired by the app from settings
-  /// (like [sourceOpener]); null → [SignaturePolicy.ask].
+  /// Author-side answer to incoming requests. Null means ask every time.
   SignaturePolicy Function()? signaturePolicyResolver;
 
-  final StreamController<SignatureAsk> _signatureAsks =
-      StreamController<SignatureAsk>.broadcast();
+  /// Prompts emitted under [SignaturePolicy.ask].
+  Stream<SignatureAsk> get signatureAsks => _attestation.asks;
 
-  /// Author-side prompts awaiting a decision (surfaced only under
-  /// [SignaturePolicy.ask]). The UI listens and calls [resolveSignatureAsk].
-  Stream<SignatureAsk> get signatureAsks => _signatureAsks.stream;
+  Future<void> requestSignature(NodeId peer, String msgId, String body) =>
+      _attestation.request(peer, msgId, body);
 
-  /// Canonical bytes both sides sign/verify. Length-prefixed fields so a body
-  /// containing the separator can't be confused for a field boundary.
-  static Uint8List _attestCanonical({
-    required String authorHex,
-    required String recipientHex,
-    required String msgId,
-    required String body,
-  }) {
-    final out = BytesBuilder();
-    out.add(utf8.encode('veil-msg-attest-v1'));
-    void field(List<int> b) {
-      final len = ByteData(4)..setUint32(0, b.length, Endian.big);
-      out.add(len.buffer.asUint8List());
-      out.add(b);
-    }
+  Future<void> _onSignRequest(NodeId src, WireEnvelope envelope) =>
+      _attestation.onRequest(src, envelope);
 
-    field(utf8.encode(authorHex));
-    field(utf8.encode(recipientHex));
-    field(utf8.encode(msgId));
-    field(utf8.encode(body));
-    return out.toBytes();
-  }
+  Future<void> resolveSignatureAsk(SignatureAsk ask, {required bool approve}) =>
+      _attestation.resolve(ask, approve: approve);
 
-  /// Ask [peer] (the author) to attest authorship of message [msgId] whose text
-  /// is [body]. Marks our local copy `requested`, then sends the request through
-  /// the DURABLE pipeline so it reaches the author even across a lost first live
-  /// attempt / offline peer / restart (see [sendDurable]).
-  Future<void> requestSignature(NodeId peer, String msgId, String body) async {
-    await _storage.markMessageSignature(
-      peer.hex,
-      msgId,
-      MessageSignature.requested,
-    );
-    _signal();
-    await sendDurable(
-      peer,
-      'sigreq:$msgId',
-      WireEnvelope.signRequest(msgId, body),
-    );
-  }
-
-  /// Prompt dedup for re-sent requests: (peer|msgId) recently surfaced → skip.
-  final Map<String, DateTime> _recentSignAsks = {};
-
-  Future<void> _onSignRequest(NodeId src, WireEnvelope env) async {
-    final msgId = env.id;
-    if (msgId == null || msgId.isEmpty) return;
-    final policy = signaturePolicyResolver?.call() ?? SignaturePolicy.ask;
-    devLog(
-      () =>
-          'xVeil[sign]: request received from=${src.short} mid=$msgId '
-          'policy=${policy.name}',
-    );
-    switch (policy) {
-      case SignaturePolicy.refuse:
-        // Always respond, even to a duplicate — a re-request usually means our
-        // previous response was lost.
-        await _sendSignRefusal(src, msgId);
-      case SignaturePolicy.auto:
-        await _signAndRespond(src, msgId, env.body);
-      case SignaturePolicy.ask:
-        // Dedup the PROMPT only (the request frame is re-sent by design).
-        final key = '${src.hex}|$msgId';
-        final now = _now();
-        final last = _recentSignAsks[key];
-        if (last != null && now.difference(last) < const Duration(minutes: 2)) {
-          return;
-        }
-        _recentSignAsks[key] = now;
-        if (!_signatureAsks.isClosed) {
-          _signatureAsks.add(
-            SignatureAsk(peer: src, msgId: msgId, body: env.body),
-          );
-        }
-    }
-  }
-
-  /// Resolve an author-side prompt: sign + respond, or decline.
-  Future<void> resolveSignatureAsk(
-    SignatureAsk ask, {
-    required bool approve,
-  }) async {
-    if (approve) {
-      await _signAndRespond(ask.peer, ask.msgId, ask.body);
-    } else {
-      await _sendSignRefusal(ask.peer, ask.msgId);
-    }
-  }
-
-  Future<void> _signAndRespond(
-    NodeId requester,
-    String msgId,
-    String body,
-  ) async {
-    try {
-      final toml = await _storage.loadNodeConfig();
-      if (toml == null) return; // no identity config → cannot sign
-      final selfHex = await _selfHex();
-      final canonical = _attestCanonical(
-        authorHex: selfHex,
-        recipientHex: requester.hex,
-        msgId: msgId,
-        body: body,
-      );
-      final res = EmbeddedNode.signMessage(toml, canonical);
-      final payload = jsonEncode({
-        'mid': msgId,
-        'sig': base64.encode(res.signature),
-        'pk': base64.encode(res.publicKey),
-      });
-      // Durable: the id encodes the OUTCOME so a later opposite answer isn't
-      // dedup-skipped by the outbox/stash.
-      await sendDurable(
-        requester,
-        'sigresp:ok:$msgId',
-        WireEnvelope.signResponse(payload),
-      );
-      devLog(() => 'xVeil[sign]: signed + responded mid=$msgId');
-    } catch (e) {
-      devLog(() => 'xVeil[sign]: sign+respond failed for $msgId: $e');
-    }
-  }
-
-  Future<void> _sendSignRefusal(NodeId requester, String msgId) async {
-    final payload = jsonEncode({'mid': msgId, 'refused': true});
-    await sendDurable(
-      requester,
-      'sigresp:no:$msgId',
-      WireEnvelope.signResponse(payload),
-    );
-    devLog(() => 'xVeil[sign]: refused mid=$msgId');
-  }
-
-  Future<void> _onSignResponse(NodeId src, WireEnvelope env) async {
-    Map<String, dynamic> j;
-    try {
-      j = jsonDecode(env.body) as Map<String, dynamic>;
-    } catch (_) {
-      return;
-    }
-    final msgId = j['mid'] as String?;
-    if (msgId == null || msgId.isEmpty) return;
-    // Resolve OUR stored copy first (the exact bytes we hold) — needed both to
-    // verify and to guard state transitions.
-    final msgs = await _storage.loadMessages(src.hex);
-    Message? target;
-    for (final mm in msgs) {
-      if (mm.id == msgId) {
-        target = mm;
-        break;
-      }
-    }
-    if (target == null) return; // message gone (deleted/cleared) — ignore
-    if (j['refused'] == true) {
-      // `verified` is terminal: attestation frames are re-sent/mailboxed for
-      // durability, so a STALE refusal can arrive after a successful signature
-      // — it must not downgrade the badge.
-      if (target.signature == MessageSignature.verified) return;
-      devLog(() => 'xVeil[sign]: refusal received mid=$msgId');
-      await _storage.markMessageSignature(
-        src.hex,
-        msgId,
-        MessageSignature.refused,
-      );
-      _signal();
-      return;
-    }
-    final sigB64 = j['sig'] as String?;
-    final pkB64 = j['pk'] as String?;
-    if (sigB64 == null || pkB64 == null) return;
-    final selfHex = await _selfHex();
-    final canonical = _attestCanonical(
-      authorHex: src.hex, // the author is the peer who sent us the message
-      recipientHex: selfHex,
-      msgId: msgId,
-      body: target.body,
-    );
-    var ok = false;
-    try {
-      ok = EmbeddedNode.verifyMessage(
-        nodeId: src.bytes,
-        publicKey: base64.decode(pkB64),
-        message: canonical,
-        signature: base64.decode(sigB64),
-      );
-    } catch (e) {
-      devLog(() => 'xVeil[sign]: verify threw for $msgId: $e');
-    }
-    // A re-sent/mailboxed response can arrive again after we already verified —
-    // don't let a later copy that fails (e.g. the message was edited locally in
-    // between) downgrade a good verdict.
-    if (!ok && target.signature == MessageSignature.verified) return;
-    devLog(() => 'xVeil[sign]: response verified=$ok mid=$msgId');
-    await _storage.markMessageSignature(
-      src.hex,
-      msgId,
-      ok ? MessageSignature.verified : MessageSignature.failed,
-    );
-    _signal();
-  }
-
+  Future<void> _onSignResponse(NodeId src, WireEnvelope envelope) =>
+      _attestation.onResponse(src, envelope);
   Future<void> _dispatch(InboundMessage m) async {
     final env = WireEnvelope.decode(m.payload);
     final existing = await _storage.getContact(m.src);
     if (existing?.status == ContactStatus.blocked) return; // drop blocked
+    if (existing?.status == ContactStatus.accepted) {
+      _acceptedRealtimePeers.add(m.src.hex);
+    }
 
     // Durable-frame ack + dedup (generic, any kind): a frame sent via
     // [sendDurable] carries a frameId. Ack it so the sender retires it from its
@@ -2764,6 +2372,7 @@ class MessagingService {
             MessageStatus.delivered,
             id: id,
             timestamp: _wireSentAt(env),
+            customEmoji: env.customEmoji,
           );
           await _storage.deleteMessage(m.src.hex, id!);
           await _storage.scrubDeleted();
@@ -2783,6 +2392,7 @@ class MessagingService {
           timestamp: _wireSentAt(env),
           replyToId: env.replyTo,
           forwardedFrom: env.forwardedFrom,
+          customEmoji: pending == null ? env.customEmoji : pending.customEmoji,
           // Fold under the SENDER's seq (R4) so the (author, seq) is identical on
           // both devices — the basis for gap detection. Null from an older sender
           // → storage allocates locally (no cross-device convergence for them).
@@ -2846,13 +2456,23 @@ class MessagingService {
           // edit event's (author, seq) is then identical on both devices, so
           // conversationSync converges and gap-fill can re-ship a missed edit.
           // Null from an older sender → editMessage allocates locally (legacy).
-          await _storage.editMessage(m.src.hex, editId, env.body, seq: env.seq);
+          await _storage.editMessage(
+            m.src.hex,
+            editId,
+            env.body,
+            seq: env.seq,
+            customEmoji: env.customEmoji,
+          );
           await _storage.scrubDeleted();
         } else if (!await _hasMessage(m.src, editId)) {
           // Target not arrived yet (offline send+edit drains out of order) —
           // buffer and replay when the message stores. NOT buffered when the id
           // IS present but outgoing (our own message): a peer can't edit ours.
-          _bufferPendingOp(m.src, editId, _PendingOp.edit(env.body));
+          _bufferPendingOp(
+            m.src,
+            editId,
+            _PendingOp.edit(env.body, env.customEmoji),
+          );
         }
       case WireKind.del:
         // The peer unsent a message THEY sent us — purge + scrub our copy too.
@@ -3372,334 +2992,80 @@ class MessagingService {
     _signal();
   }
 
-  /// Set (or clear, when [name] is null/blank) a LOCAL display alias for [peer].
-  /// Lives only in the encrypted contact record on this device — never sent on
-  /// the wire, so it leaks nothing and is purely a readability aid over the raw
-  /// node id. No-op if we hold no contact for the peer. Built directly (not via
-  /// copyWith) so a blank name actually CLEARS the alias (copyWith's `?? old`
-  /// can only set, never unset).
-  Future<void> setContactName(NodeId peer, String? name) async {
-    final existing = await _storage.getContact(peer);
-    if (existing == null) return;
-    final trimmed = name?.trim();
-    await _putContactPrefs(
-      Contact(
-        nodeId: existing.nodeId,
-        name: (trimmed == null || trimmed.isEmpty) ? null : trimmed,
-        status: existing.status,
-        mutedUntil: existing.mutedUntil,
-        pinned: existing.pinned,
-        archived: existing.archived,
-        retentionDays: existing.retentionDays,
-        allowPeerDelete: existing.allowPeerDelete,
-        p2pOverride: existing.p2pOverride,
-      ),
-    );
-    _signal();
-  }
+  // Local contact preferences, folders, read markers, and destructive chat
+  // actions live in _MessagingConversationAdmin. These forwarding methods keep
+  // MessagingService's established public API and callback ownership intact.
 
-  /// Mute notifications for [peer]'s conversation until [until] ([kMuteForever]
-  /// = until manually unmuted; null = unmute now). Local-only — the deadline
-  /// lives in the encrypted contact record and is never sent. The notification
-  /// layer reads the computed [Contact.muted] to suppress alerts; messages
-  /// still arrive and store as normal. No-op if we hold no contact for the peer.
-  Future<void> setContactMutedUntil(NodeId peer, DateTime? until) async {
-    final existing = await _storage.getContact(peer);
-    if (existing == null) return;
-    await _putContactPrefs(existing.copyWith(mutedUntil: until));
-    _signal();
-  }
+  Future<void> setContactName(NodeId peer, String? name) =>
+      _conversationAdmin.setContactName(peer, name);
 
-  /// Boolean mute compat shim: true = mute forever, false = unmute now.
+  Future<void> setContactMutedUntil(NodeId peer, DateTime? until) =>
+      _conversationAdmin.setContactMutedUntil(peer, until);
+
   Future<void> setContactMuted(NodeId peer, bool muted) =>
       setContactMutedUntil(peer, muted ? kMuteForever : null);
 
-  /// Archive (or unarchive) [peer]'s conversation — it collapses into the
-  /// archive section of the chat list. Local-only, stored in the encrypted
-  /// contact record. No-op if unknown.
-  Future<void> setContactArchived(NodeId peer, bool archived) async {
-    final existing = await _storage.getContact(peer);
-    if (existing == null) return;
-    await _putContactPrefs(existing.copyWith(archived: archived));
-    _signal();
-  }
+  Future<void> setContactArchived(NodeId peer, bool archived) =>
+      _conversationAdmin.setContactArchived(peer, archived);
 
-  /// Allow (or forbid) [peer] to delete-for-everyone / clear messages in OUR
-  /// copy of the conversation. Receiver-side policy (see
-  /// [Contact.allowPeerDelete]); local-only, the peer is never told. No-op if
-  /// we hold no contact for the peer.
-  Future<void> setContactAllowPeerDelete(NodeId peer, bool allow) async {
-    final existing = await _storage.getContact(peer);
-    if (existing == null) return;
-    await _putContactPrefs(existing.copyWith(allowPeerDelete: allow));
-    _signal();
-  }
+  Future<void> setContactAllowPeerDelete(NodeId peer, bool allow) =>
+      _conversationAdmin.setContactAllowPeerDelete(peer, allow);
 
-  /// Per-contact direct P2P override. Local-only and receiver-side: it only
-  /// decides whether THIS device may reveal/use a direct path with [peer].
-  Future<void> setContactP2POverride(
-    NodeId peer,
-    ContactP2POverride value,
-  ) async {
-    final existing = await _storage.getContact(peer);
-    if (existing == null) return;
-    await _storage.upsertContact(existing.copyWith(p2pOverride: value));
-    _signal();
-  }
+  Future<void> setContactP2POverride(NodeId peer, ContactP2POverride value) =>
+      _conversationAdmin.setContactP2POverride(peer, value);
 
-  /// Pin (or unpin) [peer]'s conversation to the top of the chat list.
-  /// Local-only, stored in the encrypted contact record. No-op if unknown.
-  Future<void> setContactPinned(NodeId peer, bool pinned) async {
-    final existing = await _storage.getContact(peer);
-    if (existing == null) return;
-    await _putContactPrefs(existing.copyWith(pinned: pinned));
-    _signal();
-  }
+  Future<void> setContactPinned(NodeId peer, bool pinned) =>
+      _conversationAdmin.setContactPinned(peer, pinned);
 
-  /// Set [peer]'s message-retention window in DAYS (null/<=0 = unlimited, the
-  /// default). Persisted in the encrypted contact record, then applied
-  /// immediately (prunes anything already past the window). Local-only; built
-  /// directly so null actually CLEARS the policy (copyWith's `?? old` can't).
-  Future<void> setContactRetention(NodeId peer, int? days) async {
-    final existing = await _storage.getContact(peer);
-    if (existing == null) return;
-    final window = (days == null || days <= 0) ? null : days;
-    await _putContactPrefs(
-      Contact(
-        nodeId: existing.nodeId,
-        name: existing.name,
-        status: existing.status,
-        mutedUntil: existing.mutedUntil,
-        pinned: existing.pinned,
-        archived: existing.archived,
-        retentionDays: window,
-        allowPeerDelete: existing.allowPeerDelete,
-        p2pOverride: existing.p2pOverride,
-      ),
-    );
-    _signal();
-    if (window != null) {
-      await _storage.pruneConversation(peer, window);
-      _signal();
-    }
-  }
+  Future<void> setContactRetention(NodeId peer, int? days) =>
+      _conversationAdmin.setContactRetention(peer, days);
 
-  /// Apply [peer]'s retention policy now (called when a chat is opened, so an
-  /// expired message disappears even without a periodic sweep). No-op when the
-  /// conversation has no retention window.
-  Future<void> pruneConversation(NodeId peer) async {
-    try {
-      final c = await _storage.getContact(peer);
-      final days = c?.retentionDays;
-      if (days == null || days <= 0) return;
-      final pruned = await _storage.pruneConversation(peer, days);
-      if (pruned > 0) _signal();
-    } catch (_) {
-      // Best-effort on open (like markRead): storage locked/unavailable → skip.
-    }
-  }
+  Future<void> pruneConversation(NodeId peer) =>
+      _conversationAdmin.pruneConversation(peer);
 
-  /// Delete the whole conversation with [peer] from THIS device: removes the
-  /// contact + every message from the encrypted store and drops the peer's
-  /// in-memory send state so the outbox stops re-sending to it (this is how a
-  /// user clears a dead/old "ghost" identity that can no longer be reached).
-  /// Local by default — the peer is not notified. [notifyPeer] is the explicit
-  /// OPT-IN from the delete dialog (user decision 2026-07-11): send a
-  /// [WireKind.chatDeleted] farewell BEFORE the local wipe, so the peer's chat
-  /// shows an honest "deleted the chat" notice instead of silence.
-  Future<void> deleteConversation(
-    NodeId peer, {
-    bool notifyPeer = false,
-  }) async {
-    if (notifyPeer) await _sendChatDeletedFarewell(peer);
-    await _storage.removeConversation(peer);
-    _peerUnresolvedBackoff.remove(peer.hex);
-    await _removeFromAllFolders(peer.hex);
-    _signal();
-  }
+  Future<void> deleteConversation(NodeId peer, {bool notifyPeer = false}) =>
+      _conversationAdmin.deleteConversation(peer, notifyPeer: notifyPeer);
 
-  /// The opt-in farewell of [deleteConversation]. NOT [sendDurable]: the local
-  /// outbox entry would be wiped moments later with the conversation, so the
-  /// frame rides a live attempt plus an AWAITED mailbox deposit — parked for
-  /// an offline peer before the local state (contact keys included) goes away.
-  /// Guards keep the no-oracle canon intact everywhere else: nothing is sent
-  /// to Saved Messages (self) or a non-accepted peer.
-  Future<void> _sendChatDeletedFarewell(NodeId peer) async {
-    final selfHex = await _selfHex();
-    if (peer.hex == selfHex) return;
-    final contact = await _storage.getContact(peer);
-    if (contact == null || contact.status != ContactStatus.accepted) return;
-    final fid = 'chatdel:${_uuid.v4()}';
-    // Stamp the send time (like sendText) — without it the receiver stores the
-    // marker with no timestamp and it sorts into the MIDDLE of the chat
-    // instead of appending as the closing notice (caught in device-verify).
-    final wire = WireEnvelope(
-      WireKind.chatDeleted,
-      '',
-      sentAtMs: _now().millisecondsSinceEpoch,
-    ).withFrameId(fid).encode();
-    try {
-      await _send(peer, wire);
-    } catch (_) {
-      // Live path down — the mailbox deposit below still delivers.
-    }
-    try {
-      await _maybeStash(peer, fid, wire);
-    } catch (_) {
-      // Best-effort: the delete must not be blocked by an unreachable mailbox.
-    }
-  }
+  Future<List<ChatFolder>> loadFolders() => _conversationAdmin.loadFolders();
 
-  // ── Chat folders (local-only groupings, §Telegram-style) ─────────────────
-  static const _kFoldersKey = 'chat_folders';
-
-  /// The user's chat folders (empty when none created). Read from the encrypted
-  /// settings KV; nothing about folders ever goes on the wire.
-  Future<List<ChatFolder>> loadFolders() async {
-    try {
-      return ChatFolder.decodeList(await _storage.getSetting(_kFoldersKey));
-    } catch (_) {
-      return const [];
-    }
-  }
-
-  Future<void> _saveFolders(List<ChatFolder> folders) async {
-    await _storage.putSetting(_kFoldersKey, ChatFolder.encodeList(folders));
-    _signal();
-  }
-
-  /// Create a folder (optionally seeded with [members]) and return it.
   Future<ChatFolder> createFolder(
     String name, {
     List<String> members = const [],
-  }) async {
-    final folders = List<ChatFolder>.from(await loadFolders());
-    final folder = ChatFolder(
-      id: _uuid.v4(),
-      name: name.trim(),
-      memberHexes: members,
-    );
-    folders.add(folder);
-    await _saveFolders(folders);
-    return folder;
-  }
+  }) => _conversationAdmin.createFolder(name, members: members);
 
-  Future<void> renameFolder(String folderId, String name) async {
-    final folders = await loadFolders();
-    await _saveFolders([
-      for (final f in folders)
-        if (f.id == folderId) f.copyWith(name: name.trim()) else f,
-    ]);
-  }
+  Future<void> renameFolder(String folderId, String name) =>
+      _conversationAdmin.renameFolder(folderId, name);
 
-  Future<void> deleteFolder(String folderId) async {
-    final folders = await loadFolders();
-    await _saveFolders(folders.where((f) => f.id != folderId).toList());
-  }
+  Future<void> deleteFolder(String folderId) =>
+      _conversationAdmin.deleteFolder(folderId);
 
-  /// Add or remove [peerHex] to/from [folderId] (idempotent). Membership is a
-  /// set — a conversation can live in any number of folders.
   Future<void> setFolderMembership(
     String folderId,
     String peerHex,
     bool member,
-  ) async {
-    final folders = await loadFolders();
-    await _saveFolders([
-      for (final f in folders)
-        if (f.id != folderId)
-          f
-        else
-          f.copyWith(
-            memberHexes: member
-                ? (f.contains(peerHex)
-                      ? f.memberHexes
-                      : [...f.memberHexes, peerHex])
-                : f.memberHexes.where((h) => h != peerHex).toList(),
-          ),
-    ]);
-  }
+  ) => _conversationAdmin.setFolderMembership(folderId, peerHex, member);
 
-  /// Drop [peerHex] from EVERY folder (called when a conversation is deleted so
-  /// no folder keeps a dangling member).
-  Future<void> _removeFromAllFolders(String peerHex) async {
-    final folders = await loadFolders();
-    if (!folders.any((f) => f.contains(peerHex))) return;
-    await _saveFolders([
-      for (final f in folders)
-        f.copyWith(
-          memberHexes: f.memberHexes.where((h) => h != peerHex).toList(),
-        ),
-    ]);
-  }
+  Future<void> clearConversation(NodeId peer) =>
+      _conversationAdmin.clearConversation(peer);
 
-  /// Clear the message HISTORY of [peer]'s conversation but keep the contact —
-  /// the chat stays in the list, emptied. Forensic (tombstone + scrub), so a
-  /// re-delivery can't resurrect the cleared messages. Local-only — the peer is
-  /// not told. Also forget any deposited-once markers for those ids so a future
-  /// edit/del with a recycled id can still be deposited.
-  Future<void> clearConversation(NodeId peer) async {
-    // Clear locally AND emit a clear EVENT carrying a per-author seq watermark, so
-    // the peer (and — once multi-device lands — our OWN other devices) converge to
-    // the same emptied state on replay. Only the watermark travels (no oracle).
-    final selfHex = await _selfHex();
-    final ev = await _storage.emitClearConversation(peer, selfHex);
-    // DURABLE (see [sendDurable]): a clear-for-everyone that dies on the lossy
-    // first live attempt leaves the two sides PERMANENTLY diverged — there is
-    // no later traffic whose absence would flag it. The frame id is PEER-scoped:
-    // seqs are per-(conversation, author), so clears of two different
-    // conversations can both sit at seq N and must not collide in the outbox.
-    // applyRemoteClear is slot-idempotent, so re-drives are harmless.
-    await sendDurable(
-      peer,
-      'clear:${peer.hex}:${ev.seq}',
-      WireEnvelope.clear(jsonEncode(ev.watermark), seq: ev.seq),
-    );
-    _signal();
-  }
-
-  /// Attached by the multi-device bridge: fires after a LOCAL [markRead]
-  /// advanced the conversation's watermark (never from
-  /// [applyMirroredReadMark]), so my other devices clear the same badge.
+  /// Fires only after a local read marker advances, for device mirroring.
   void Function(String conversationId, int tsMs)? onConversationRead;
 
-  /// Mark a conversation read (its unread badge resets) and refresh the UI.
-  /// Best-effort — never throw from a screen's open hook (e.g. storage not yet
-  /// open in a test/loopback context).
-  Future<void> markRead(String conversationId) async {
-    try {
-      await _storage.markRead(conversationId);
-      _signal();
-      final ts = await _storage.readMarker(conversationId);
-      if (ts > 0) onConversationRead?.call(conversationId, ts);
-    } catch (_) {
-      // storage locked / unavailable — skip the badge clear.
-    }
-  }
+  Future<void> markRead(String conversationId) =>
+      _conversationAdmin.markRead(conversationId);
 
-  /// Apply a read watermark mirrored from ANOTHER of my devices. Monotonic
-  /// (an older mark never regresses what this device already read) and writes
-  /// straight to storage — it never re-fires [onConversationRead], so a
-  /// mirrored mark cannot echo. Returns whether the watermark advanced.
-  Future<bool> applyMirroredReadMark(String conversationId, int tsMs) async {
-    try {
-      if (await _storage.readMarker(conversationId) >= tsMs) return false;
-      await _storage.setReadMarker(conversationId, tsMs);
-      _signal();
-      return true;
-    } catch (_) {
-      return false; // storage locked / unavailable
-    }
-  }
-
+  Future<bool> applyMirroredReadMark(String conversationId, int tsMs) =>
+      _conversationAdmin.applyMirroredReadMark(conversationId, tsMs);
   Future<void> sendText(
     NodeId dst,
     String text, {
     String? replyToId,
     String? forwardedFrom,
+    List<InlineCustomEmoji> customEmoji = const [],
   }) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
+    if (!isValidInlineCustomEmoji(trimmed, customEmoji)) return;
     // Consent gate — only free-message an accepted contact.
     final contact = await _storage.getContact(dst);
     if (contact == null || contact.status != ContactStatus.accepted) return;
@@ -3715,6 +3081,7 @@ class MessagingService {
       timestamp: sentAt,
       replyToId: replyToId,
       forwardedFrom: forwardedFrom,
+      customEmoji: customEmoji,
     );
     final id = stored.id;
     _signal();
@@ -3729,6 +3096,7 @@ class MessagingService {
       seq: stored.seq,
       replyTo: replyToId,
       forwardedFrom: forwardedFrom,
+      customEmoji: customEmoji,
     ).encode();
     // wantReply: embed a one-time reply path so the peer's delivery-ACK comes
     // back over THIS circuit (fast), flipping us to "delivered" without a full
@@ -3749,7 +3117,7 @@ class MessagingService {
     // seal+put is a slow onion round-trip, and blocking the send on it made every
     // message feel laggy even when the live path delivers instantly. If the peer
     // is offline the deposit (or the outbox retry) still gets there.
-    unawaited(_maybeStash(dst, id, wire));
+    _stashInBackground(dst, id, wire);
   }
 
   /// Re-send every outgoing text message still awaiting a delivery ack (i.e.
@@ -3761,6 +3129,10 @@ class MessagingService {
     // per-conversation message state, so they flow even for a peer with no
     // pending chat messages.
     await _flushOutboxFrames();
+    // Conversation sync, reconnect probes, and message retries use the normal
+    // onion/contact path. They are durable background work and can wait for
+    // hangup; only call-control frames above remain latency-critical here.
+    if (_backgroundDeliveryPaused) return;
     final convs = await _storage.loadConversations();
     for (final conv in convs) {
       if (conv.peer.status != ContactStatus.accepted) continue;
@@ -3819,6 +3191,7 @@ class MessagingService {
             seq: m.seq,
             replyTo: m.replyToId,
             forwardedFrom: m.forwardedFrom,
+            customEmoji: m.customEmoji,
           ).encode();
           // Re-sends do NOT request a reply: the first send already attached one
           // (sendText), and building a fresh one-time reply circuit on EVERY 3s
@@ -3839,7 +3212,7 @@ class MessagingService {
           // receives it (live re-send above only lands if they're online). Keep
           // this in the background: sealing/PUT can take a full anonymous
           // round-trip, and should not block later live retries in this pass.
-          unawaited(_maybeStash(conv.peer.nodeId, m.id, wire));
+          _stashInBackground(conv.peer.nodeId, m.id, wire);
         }
       }
     }
@@ -4086,6 +3459,7 @@ class MessagingService {
                 seq: ev.seq,
                 replyTo: ev.replyTo,
                 forwardedFrom: ev.forwardedFrom,
+                customEmoji: stored?.customEmoji ?? const [],
               ).encode(),
             );
           case EventKind.edit:
@@ -4096,6 +3470,7 @@ class MessagingService {
                 ev.target!,
                 ev.body ?? '',
                 seq: ev.seq,
+                customEmoji: ev.customEmoji,
               ).encode(),
             );
           case EventKind.void_:
@@ -4116,6 +3491,12 @@ class MessagingService {
   /// Best-effort offline deposit of [wire] (the message envelope) for [peer],
   /// keyed by a stable 32-byte content id derived from the message [id]. No-op
   /// when there is no mailbox side-channel or we already stashed this message.
+  void _stashInBackground(NodeId peer, String id, Uint8List wire) {
+    if (backgroundStashPaused) return;
+    if (_stashInFlight.length >= _maxBackgroundStashes) return;
+    unawaited(_maybeStash(peer, id, wire));
+  }
+
   Future<void> _maybeStash(NodeId peer, String id, Uint8List wire) async {
     final mailbox = _mailbox;
     if (mailbox == null) {
@@ -4142,48 +3523,55 @@ class MessagingService {
         DateTime.now().difference(failedAt) < _stashRetryBackoff) {
       return; // still in backoff — skip this flush, retry on a later one
     }
+    // Same-id callers can race (initial send + periodic outbox flush). Do not
+    // perform duplicate KEM/fanout work while the first deposit is unresolved.
+    if (!_stashInFlight.add(id)) return;
     try {
-      await mailbox.stash(
-        recipient: peer,
-        payload: wire,
-        contentId: _contentIdFor(id),
-      );
-      _stashed.add(id);
-      _stashFailedAt.remove(id);
-      _peerUnresolvedBackoff.remove(
-        peer.hex,
-      ); // peer resolves again — un-ghost it
-      devLog(
-        () =>
-            'xVeil[send]: stash OK dst=${peer.short} id=$id '
-            '(deposited at recipient relay)',
-      );
-    } catch (e, st) {
-      // No relay / no route yet — leave it un-stashed so a later flush retries
-      // (after the backoff). LOG the real reason: this is the offline-delivery
-      // path, and a swallowed failure here is invisible "message never arrived".
-      _stashFailedAt[id] = DateTime.now();
-      // A persistent `PeerUnresolved` means the recipient identity can't be
-      // resolved at all (a dead/old identity — the ghost). Escalate a PER-PEER
-      // backoff so the flush stops hammering it every 3s; cleared on any later
-      // success, reset on restart — never a permanent drop.
-      if (e.toString().contains('PeerUnresolved')) {
-        final pb = _peerUnresolvedBackoff[peer.hex];
-        final count = (pb?.count ?? 0) + 1;
-        final secs = (30 * (1 << (count - 1))).clamp(
-          30,
-          _peerUnresolvedCap.inSeconds,
+      try {
+        await mailbox.stash(
+          recipient: peer,
+          payload: wire,
+          contentId: _contentIdFor(id),
         );
-        _peerUnresolvedBackoff[peer.hex] = (
-          count: count,
-          nextAt: DateTime.now().add(Duration(seconds: secs)),
+        _stashed.add(id);
+        _stashFailedAt.remove(id);
+        _peerUnresolvedBackoff.remove(
+          peer.hex,
+        ); // peer resolves again — un-ghost it
+        devLog(
+          () =>
+              'xVeil[send]: stash OK dst=${peer.short} id=$id '
+              '(deposited at recipient relay)',
+        );
+      } catch (e, st) {
+        // No relay / no route yet — leave it un-stashed so a later flush retries
+        // (after the backoff). LOG the real reason: this is the offline-delivery
+        // path, and a swallowed failure here is invisible "message never arrived".
+        _stashFailedAt[id] = DateTime.now();
+        // A persistent `PeerUnresolved` means the recipient identity can't be
+        // resolved at all (a dead/old identity — the ghost). Escalate a PER-PEER
+        // backoff so the flush stops hammering it every 3s; cleared on any later
+        // success, reset on restart — never a permanent drop.
+        if (e.toString().contains('PeerUnresolved')) {
+          final pb = _peerUnresolvedBackoff[peer.hex];
+          final count = (pb?.count ?? 0) + 1;
+          final secs = (30 * (1 << (count - 1))).clamp(
+            30,
+            _peerUnresolvedCap.inSeconds,
+          );
+          _peerUnresolvedBackoff[peer.hex] = (
+            count: count,
+            nextAt: DateTime.now().add(Duration(seconds: secs)),
+          );
+        }
+        devLog(
+          () =>
+              'xVeil[send]: stash FAILED dst=${peer.short} id=$id '
+              '(backoff ${_stashRetryBackoff.inSeconds}s): $e\n$st',
         );
       }
-      devLog(
-        () =>
-            'xVeil[send]: stash FAILED dst=${peer.short} id=$id '
-            '(backoff ${_stashRetryBackoff.inSeconds}s): $e\n$st',
-      );
+    } finally {
+      _stashInFlight.remove(id);
     }
   }
 
@@ -4269,9 +3657,14 @@ class MessagingService {
   /// Edit the body of one of OUR sent messages: replace the stored text in
   /// place (the prior text is scrubbed), mark it edited, and propagate the new
   /// text to the recipient (best-effort). No-op for a received message.
-  Future<void> editOwnMessage(String messageId, String newBody) async {
+  Future<void> editOwnMessage(
+    String messageId,
+    String newBody, {
+    List<InlineCustomEmoji> customEmoji = const [],
+  }) async {
     final trimmed = newBody.trim();
     if (trimmed.isEmpty) return;
+    if (!isValidInlineCustomEmoji(trimmed, customEmoji)) return;
     final msg = await _find(messageId);
     if (msg == null || msg.direction != MessageDirection.outgoing) return;
     // The edit event allocates the next gap-free seq for our author stream; it
@@ -4281,6 +3674,7 @@ class MessagingService {
       msg.conversationId,
       messageId,
       trimmed,
+      customEmoji: customEmoji,
     );
     await _storage.scrubDeleted();
     _signal();
@@ -4295,7 +3689,12 @@ class MessagingService {
     await sendDurable(
       dst,
       'edit:$messageId:${editSeq ?? _uuid.v4()}',
-      WireEnvelope.edit(messageId, trimmed, seq: editSeq),
+      WireEnvelope.edit(
+        messageId,
+        trimmed,
+        seq: editSeq,
+        customEmoji: customEmoji,
+      ),
     );
   }
 
@@ -4920,7 +4319,7 @@ class MessagingService {
     // Best-effort + non-blocking, exactly like the text path.
     if (mid != null) {
       if (liveError == null) {
-        unawaited(_maybeStash(dst, 'mf:$mid', frame));
+        _stashInBackground(dst, 'mf:$mid', frame);
       } else {
         await _maybeStash(dst, 'mf:$mid', frame);
       }
@@ -10285,6 +9684,8 @@ class MessagingService {
     _resumeReceivedSub = null;
     await _sub?.cancel();
     _sub = null;
+    await _realtimeSub?.cancel();
+    _realtimeSub = null;
     await _clearServingState();
     // Cancel reoffer timers + close any parked download sinks.
     for (final t in _pendingTimers.values) {
@@ -10304,7 +9705,7 @@ class MessagingService {
     _activePullStreams.clear();
     await _changes.close();
     await _incoming.close();
-    await _signatureAsks.close();
+    await _attestation.dispose();
     await _contentReceived.close();
     await _contentProgress.close();
     await _contentFailed.close();

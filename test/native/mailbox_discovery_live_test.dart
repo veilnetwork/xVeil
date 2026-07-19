@@ -62,7 +62,7 @@ void main() {
         relayKemAlgo: 0,
         relayKemPk: relayX25519!,
       );
-      print('[discovery] B registered rendezvous publisher (self-relay, KEM advertised)');
+      stdout.writeln('[discovery] B registered rendezvous publisher (self-relay, KEM advertised)');
 
       // Poll until the maintenance tick has published the ad and B resolves it.
       RendezvousReplica? replica;
@@ -71,8 +71,8 @@ void main() {
         final replicas = await clientRelay.mailbox.lookupRendezvousReplicas(relayId);
         if (replicas.isNotEmpty) replica = replicas.first;
       }
-      print('[discovery] resolved replica: '
-          '${replica == null ? "NONE (ad not published / not found)" : replica}');
+      stdout.writeln('[discovery] resolved replica: '
+          '${replica ?? "NONE (ad not published / not found)"}');
       expect(replica, isNotNull,
           reason: 'B could not resolve its own freshly-published ad');
 
@@ -81,7 +81,7 @@ void main() {
       expect(replica.rendezvousKemAlgo, 0);
       expect(Uint8List.fromList(replica.rendezvousKemPk), relayX25519,
           reason: 'resolved replica must carry B\'s relay KEM key end to end');
-      print('[discovery] ✓ resolved replica carries the relay KEM key (${replica.rendezvousKemPk.length}B)');
+      stdout.writeln('[discovery] ✓ resolved replica carries the relay KEM key (${replica.rendezvousKemPk.length}B)');
 
       // Close the loop: S deposits at the DISCOVERED relay + key.
       final contentId = Uint8List.fromList(List.filled(32, 0xD2));
@@ -105,7 +105,7 @@ void main() {
         data: putBytes,
         hopCount: 1,
       );
-      print('[discovery] S deposited at the discovered relay');
+      stdout.writeln('[discovery] S deposited at the discovered relay');
 
       const cidShort = 'cid=d2d2d2d2d2d2d2d2';
       var stored = false;
@@ -114,7 +114,7 @@ void main() {
         final log = File(relayLog!).readAsStringSync();
         stored = log.contains('PUT stored') && log.contains(cidShort);
       }
-      print('[discovery] relay stored the discovery-routed deposit: $stored');
+      stdout.writeln('[discovery] relay stored the discovery-routed deposit: $stored');
       expect(stored, isTrue,
           reason: 'relay log never showed the discovery-routed PUT stored');
     } finally {

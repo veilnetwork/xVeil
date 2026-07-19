@@ -60,6 +60,9 @@ class _BlackholeTransport implements VeilTransport {
 class _RecordingSink implements MailboxSink {
   final stashed = <(NodeId, Uint8List)>[];
   int nudges = 0;
+
+  @override
+  bool backgroundDrainPaused = false;
   @override
   Future<void> stash({
     required NodeId recipient,

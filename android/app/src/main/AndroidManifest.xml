@@ -8,6 +8,10 @@
     <!-- Microphone for calls (veil audio engine, AAudio capture). Runtime grant;
          requested when a call goes active, not at startup. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Keep Wi-Fi out of DTIM/power-save batching only while a live call is
+         active. The lock is acquired by MainActivity through a private
+         MethodChannel and released with the call/Activity lifecycle. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Screen sharing is explicit, user-consented MediaProjection. Android
          14+ requires both the generic and typed foreground-service grants. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />

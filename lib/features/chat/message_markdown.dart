@@ -1,9 +1,12 @@
+import 'dart:convert';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../domain/inline_custom_emoji.dart';
 
 /// Inline formatting a message run can carry. Non-nested in v1: the content of
 /// a styled span is literal (no formatting inside `code`, and styles don't
@@ -213,7 +216,9 @@ List<MdBlock> parseBlocks(String body) {
       }
       if (j < lines.length) {
         flush();
-        blocks.add(MdBlock(MdBlockKind.code, lines.sublist(i + 1, j).join('\n')));
+        blocks.add(
+          MdBlock(MdBlockKind.code, lines.sublist(i + 1, j).join('\n')),
+        );
         kind = MdBlockKind.normal;
         i = j + 1;
         continue;
@@ -298,18 +303,98 @@ class CodeToken {
 /// set (not per-language) keeps the highlighter dependency-free; false matches
 /// inside a code block read as "looks like code", which is the whole point.
 const _codeKeywords = <String>{
-  'if', 'else', 'elif', 'for', 'while', 'do', 'switch', 'case', 'default',
-  'break', 'continue', 'return', 'goto', 'yield', 'await', 'async',
-  'function', 'fn', 'func', 'def', 'lambda', 'class', 'struct', 'enum',
-  'interface', 'trait', 'impl', 'extends', 'implements', 'mixin',
-  'const', 'let', 'var', 'val', 'final', 'static', 'mut', 'public', 'private',
-  'protected', 'abstract', 'override', 'virtual',
-  'void', 'int', 'long', 'short', 'float', 'double', 'bool', 'boolean', 'char',
-  'string', 'str', 'byte', 'true', 'false', 'null', 'nil', 'none', 'undefined',
-  'import', 'export', 'from', 'package', 'module', 'use', 'using', 'pub',
-  'new', 'delete', 'this', 'self', 'super', 'typeof', 'instanceof', 'sizeof',
-  'try', 'catch', 'except', 'finally', 'throw', 'throws', 'raise', 'match',
-  'in', 'is', 'as', 'and', 'or', 'not', 'with',
+  'if',
+  'else',
+  'elif',
+  'for',
+  'while',
+  'do',
+  'switch',
+  'case',
+  'default',
+  'break',
+  'continue',
+  'return',
+  'goto',
+  'yield',
+  'await',
+  'async',
+  'function',
+  'fn',
+  'func',
+  'def',
+  'lambda',
+  'class',
+  'struct',
+  'enum',
+  'interface',
+  'trait',
+  'impl',
+  'extends',
+  'implements',
+  'mixin',
+  'const',
+  'let',
+  'var',
+  'val',
+  'final',
+  'static',
+  'mut',
+  'public',
+  'private',
+  'protected',
+  'abstract',
+  'override',
+  'virtual',
+  'void',
+  'int',
+  'long',
+  'short',
+  'float',
+  'double',
+  'bool',
+  'boolean',
+  'char',
+  'string',
+  'str',
+  'byte',
+  'true',
+  'false',
+  'null',
+  'nil',
+  'none',
+  'undefined',
+  'import',
+  'export',
+  'from',
+  'package',
+  'module',
+  'use',
+  'using',
+  'pub',
+  'new',
+  'delete',
+  'this',
+  'self',
+  'super',
+  'typeof',
+  'instanceof',
+  'sizeof',
+  'try',
+  'catch',
+  'except',
+  'finally',
+  'throw',
+  'throws',
+  'raise',
+  'match',
+  'in',
+  'is',
+  'as',
+  'and',
+  'or',
+  'not',
+  'with',
 };
 
 bool _isIdentStart(String c) {
@@ -422,9 +507,16 @@ List<CodeToken> highlightCode(String code) {
 /// underline / strikethrough / inline `code` / ``` code blocks / ||spoiler|| /
 /// `>` block quotes. Spoilers are tap-to-reveal.
 class FormattedText extends StatefulWidget {
-  const FormattedText(this.body, {super.key, this.style, this.highlight});
+  const FormattedText(
+    this.body, {
+    super.key,
+    this.style,
+    this.highlight,
+    this.customEmoji = const [],
+  });
   final String body;
   final TextStyle? style;
+  final List<InlineCustomEmoji> customEmoji;
 
   /// When set (an active search query), case-insensitive occurrences of it get
   /// a highlight background. Applied to text runs only — not links (keeps the
@@ -441,6 +533,98 @@ class _FormattedTextState extends State<FormattedText> {
   // Tap recognizers for link spans — rebuilt each build, disposed here.
   final _recognizers = <TapGestureRecognizer>[];
 
+  /// Replace each authenticated fallback glyph with an otherwise-unused BMP
+  /// private-use code unit. The replacement is one UTF-16 unit too, so block
+  /// and markdown parsing cannot shift offsets. If the body somehow occupies
+  /// the whole PUA range, the affected item simply stays a readable `☺`.
+  ({String body, Map<int, ({int offset, Uint8List bytes})> images})
+  _prepareCustomEmoji() {
+    if (widget.customEmoji.isEmpty) {
+      return (body: widget.body, images: const {});
+    }
+    final units = widget.body.codeUnits.toList(growable: false);
+    final used = units.toSet();
+    final images = <int, ({int offset, Uint8List bytes})>{};
+    var candidate = 0xe000;
+    for (final item in widget.customEmoji) {
+      while (candidate <= 0xf8ff && used.contains(candidate)) {
+        candidate++;
+      }
+      if (candidate > 0xf8ff) break;
+      try {
+        final bytes = Uint8List.fromList(base64Decode(item.dataB64));
+        units[item.offset] = candidate;
+        images[candidate] = (offset: item.offset, bytes: bytes);
+        used.add(candidate);
+        candidate++;
+      } catch (_) {
+        // Domain decoders already validate this. Keep the fallback glyph if a
+        // locally-constructed value still manages to be malformed.
+      }
+    }
+    return (body: String.fromCharCodes(units), images: images);
+  }
+
+  List<InlineSpan> _inlineSpans(
+    String text,
+    TextStyle style,
+    Map<int, ({int offset, Uint8List bytes})> images,
+    String? highlight,
+    Color hlColor, {
+    GestureRecognizer? recognizer,
+    bool hideImages = false,
+  }) {
+    if (images.isEmpty) {
+      if (recognizer != null) {
+        return [TextSpan(text: text, style: style, recognizer: recognizer)];
+      }
+      return highlightSpans(text, style, highlight, hlColor);
+    }
+    final out = <InlineSpan>[];
+    final plain = StringBuffer();
+    void flush() {
+      if (plain.isEmpty) return;
+      final value = plain.toString();
+      plain.clear();
+      if (recognizer != null) {
+        out.add(TextSpan(text: value, style: style, recognizer: recognizer));
+      } else {
+        out.addAll(highlightSpans(value, style, highlight, hlColor));
+      }
+    }
+
+    for (final code in text.codeUnits) {
+      final image = images[code];
+      if (image == null) {
+        plain.writeCharCode(code);
+        continue;
+      }
+      flush();
+      out.add(
+        WidgetSpan(
+          alignment: PlaceholderAlignment.middle,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 1),
+            child: hideImages
+                ? const SizedBox(width: 24, height: 24)
+                : Image.memory(
+                    image.bytes,
+                    key: ValueKey('inline-custom-emoji:${image.offset}'),
+                    width: 24,
+                    height: 24,
+                    fit: BoxFit.contain,
+                    gaplessPlayback: true,
+                    errorBuilder: (_, _, _) =>
+                        Text(kInlineCustomEmojiFallback, style: style),
+                  ),
+          ),
+        ),
+      );
+    }
+    flush();
+    return out;
+  }
+
   @override
   void dispose() {
     for (final r in _recognizers) {
@@ -453,7 +637,10 @@ class _FormattedTextState extends State<FormattedText> {
     Clipboard.setData(ClipboardData(text: url));
     final l = AppL10n.of(context);
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(l.chatLinkCopied), duration: const Duration(seconds: 1)),
+      SnackBar(
+        content: Text(l.chatLinkCopied),
+        duration: const Duration(seconds: 1),
+      ),
     );
   }
 
@@ -517,7 +704,10 @@ class _FormattedTextState extends State<FormattedText> {
     Clipboard.setData(ClipboardData(text: code));
     final l = AppL10n.of(context);
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(l.chatCodeCopied), duration: const Duration(seconds: 1)),
+      SnackBar(
+        content: Text(l.chatCodeCopied),
+        duration: const Duration(seconds: 1),
+      ),
     );
   }
 
@@ -532,11 +722,12 @@ class _FormattedTextState extends State<FormattedText> {
     ColorScheme scheme,
     String? highlight,
     Color hlColor,
+    Map<int, ({int offset, Uint8List bytes})> images,
   ) {
     final tokens = parseFormatted(text);
     final spans = <InlineSpan>[];
     void addText(String s, TextStyle style) =>
-        spans.addAll(highlightSpans(s, style, highlight, hlColor));
+        spans.addAll(_inlineSpans(s, style, images, highlight, hlColor));
     for (var idx = 0; idx < tokens.length; idx++) {
       final t = tokens[idx];
       final key = indexBase + idx;
@@ -550,7 +741,10 @@ class _FormattedTextState extends State<FormattedText> {
         case FmtKind.underline:
           addText(t.text, base.copyWith(decoration: TextDecoration.underline));
         case FmtKind.strike:
-          addText(t.text, base.copyWith(decoration: TextDecoration.lineThrough));
+          addText(
+            t.text,
+            base.copyWith(decoration: TextDecoration.lineThrough),
+          );
         case FmtKind.code:
         case FmtKind.codeBlock:
           addText(t.text, mono);
@@ -560,13 +754,18 @@ class _FormattedTextState extends State<FormattedText> {
           _recognizers.add(recognizer);
           spans.add(
             TextSpan(
-              text: t.text,
-              style: base.copyWith(
-                color: scheme.primary,
-                decoration: TextDecoration.underline,
-                decorationColor: scheme.primary,
+              children: _inlineSpans(
+                t.text,
+                base.copyWith(
+                  color: scheme.primary,
+                  decoration: TextDecoration.underline,
+                  decorationColor: scheme.primary,
+                ),
+                images,
+                null,
+                hlColor,
+                recognizer: recognizer,
               ),
-              recognizer: recognizer,
             ),
           );
         case FmtKind.spoiler:
@@ -579,10 +778,16 @@ class _FormattedTextState extends State<FormattedText> {
                 onTap: shown ? null : () => setState(() => _revealed.add(key)),
                 child: Container(
                   color: shown ? null : scheme.onSurface,
-                  child: Text(
-                    t.text,
-                    style: base.copyWith(
-                      color: shown ? null : Colors.transparent,
+                  child: Text.rich(
+                    TextSpan(
+                      children: _inlineSpans(
+                        t.text,
+                        base.copyWith(color: shown ? null : Colors.transparent),
+                        images,
+                        shown ? highlight : null,
+                        hlColor,
+                        hideImages: !shown,
+                      ),
                     ),
                   ),
                 ),
@@ -611,11 +816,21 @@ class _FormattedTextState extends State<FormattedText> {
         : null;
     final hlColor = scheme.tertiary.withValues(alpha: 0.55);
 
-    final blocks = parseBlocks(widget.body);
+    final prepared = _prepareCustomEmoji();
+    final blocks = parseBlocks(prepared.body);
     // All-normal: one Text.rich over the whole body — preserves blank lines and
     // matches the pre-block behaviour exactly.
     if (blocks.every((b) => b.kind == MdBlockKind.normal)) {
-      final (spans, _) = _spansFor(widget.body, 0, base, mono, scheme, hlQuery, hlColor);
+      final (spans, _) = _spansFor(
+        prepared.body,
+        0,
+        base,
+        mono,
+        scheme,
+        hlQuery,
+        hlColor,
+        prepared.images,
+      );
       return Text.rich(TextSpan(children: spans));
     }
 
@@ -623,14 +838,24 @@ class _FormattedTextState extends State<FormattedText> {
     final children = <Widget>[];
     for (final b in blocks) {
       if (b.kind == MdBlockKind.code) {
-        children.add(_codeBox(b.text, mono, scheme, hlQuery, hlColor));
+        children.add(
+          _codeBox(b.text, mono, scheme, hlQuery, hlColor, prepared.images),
+        );
         continue;
       }
       final blockBase = b.kind == MdBlockKind.quote
           ? base.copyWith(color: scheme.onSurfaceVariant)
           : base;
-      final (spans, count) =
-          _spansFor(b.text, indexBase, blockBase, mono, scheme, hlQuery, hlColor);
+      final (spans, count) = _spansFor(
+        b.text,
+        indexBase,
+        blockBase,
+        mono,
+        scheme,
+        hlQuery,
+        hlColor,
+        prepared.images,
+      );
       indexBase += count;
       final rich = Text.rich(TextSpan(children: spans));
       children.add(
@@ -664,6 +889,7 @@ class _FormattedTextState extends State<FormattedText> {
     ColorScheme scheme,
     String? hlQuery,
     Color hlColor,
+    Map<int, ({int offset, Uint8List bytes})> images,
   ) {
     return Container(
       width: double.infinity,
@@ -680,7 +906,16 @@ class _FormattedTextState extends State<FormattedText> {
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Text.rich(
-                TextSpan(children: _codeSpans(code, mono, scheme, hlQuery, hlColor)),
+                TextSpan(
+                  children: _codeSpans(
+                    code,
+                    mono,
+                    scheme,
+                    hlQuery,
+                    hlColor,
+                    images,
+                  ),
+                ),
               ),
             ),
           ),
@@ -709,11 +944,18 @@ class _FormattedTextState extends State<FormattedText> {
     ColorScheme scheme,
     String? hlQuery,
     Color hlColor,
+    Map<int, ({int offset, Uint8List bytes})> images,
   ) {
     final spans = <InlineSpan>[];
     for (final tok in highlightCode(code)) {
       spans.addAll(
-        highlightSpans(tok.text, _codeStyle(tok.kind, mono, scheme), hlQuery, hlColor),
+        _inlineSpans(
+          tok.text,
+          _codeStyle(tok.kind, mono, scheme),
+          images,
+          hlQuery,
+          hlColor,
+        ),
       );
     }
     return spans;
@@ -722,8 +964,10 @@ class _FormattedTextState extends State<FormattedText> {
   TextStyle _codeStyle(CodeTokenKind kind, TextStyle mono, ColorScheme scheme) {
     return switch (kind) {
       CodeTokenKind.plain => mono,
-      CodeTokenKind.keyword =>
-        mono.copyWith(color: scheme.primary, fontWeight: FontWeight.w600),
+      CodeTokenKind.keyword => mono.copyWith(
+        color: scheme.primary,
+        fontWeight: FontWeight.w600,
+      ),
       CodeTokenKind.str => mono.copyWith(color: scheme.tertiary),
       CodeTokenKind.number => mono.copyWith(color: scheme.secondary),
       CodeTokenKind.comment => mono.copyWith(

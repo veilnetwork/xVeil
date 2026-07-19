@@ -293,6 +293,7 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
       floatingActionButton: _searching
           ? null
           : FloatingActionButton(
+              heroTag: 'xveil-chats-add-contact',
               onPressed: () => showAddContactSheet(context, ref),
               child: const Icon(Icons.person_add_alt_1),
             ),
@@ -470,8 +471,10 @@ Future<void> showAddContactSheet(BuildContext context, WidgetRef ref) async {
               .savedSelfHex();
           final self = NodeId.fromHex(selfHex).bytes;
           final norm = veil.normalizeNickname(name);
-          final resolved =
-              await veil.resolveNicknameAsync(selfNodeId: self, name: norm);
+          final resolved = await veil.resolveNicknameAsync(
+            selfNodeId: self,
+            name: norm,
+          );
           if (resolved == null) {
             toast(l.nicknameNotFound);
             return;
@@ -655,8 +658,7 @@ class _FolderDrawer extends ConsumerWidget {
               ),
               title: Text(
                 l.settingsLockNow,
-                style:
-                    TextStyle(color: Theme.of(context).colorScheme.error),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
               onTap: () => ref.read(appControllerProvider.notifier).lock(),
             ),
@@ -949,10 +951,10 @@ class _ConversationTile extends ConsumerWidget {
                       isVnoteFileName(last.fileName)
                           ? l.chatVnoteTooltip
                           : (isVoiceFileName(last.fileName)
-                              ? l.chatVoiceTooltip
-                              : (isChatDeletedMarker(last.body)
-                                  ? l.chatDeletedByPeer
-                                  : last.body)),
+                                ? l.chatVoiceTooltip
+                                : (isChatDeletedMarker(last.body)
+                                      ? l.chatDeletedByPeer
+                                      : last.body)),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     )),
@@ -1003,9 +1005,7 @@ class _NewChatDialogState extends ConsumerState<_NewChatDialog> {
     try {
       norm = veil.normalizeNickname(text.replaceFirst(RegExp(r'^@'), ''));
     } catch (_) {
-      setState(
-        () => _error = 'Enter a 64-character node id (hex) or a @name',
-      );
+      setState(() => _error = 'Enter a 64-character node id (hex) or a @name');
       return;
     }
     setState(() {
@@ -1013,11 +1013,12 @@ class _NewChatDialogState extends ConsumerState<_NewChatDialog> {
       _error = null;
     });
     try {
-      final selfHex =
-          await ref.read(messagingServiceProvider).savedSelfHex();
+      final selfHex = await ref.read(messagingServiceProvider).savedSelfHex();
       final self = NodeId.fromHex(selfHex).bytes;
-      final resolved =
-          await veil.resolveNicknameAsync(selfNodeId: self, name: norm);
+      final resolved = await veil.resolveNicknameAsync(
+        selfNodeId: self,
+        name: norm,
+      );
       if (!mounted) return;
       if (resolved == null) {
         setState(() {

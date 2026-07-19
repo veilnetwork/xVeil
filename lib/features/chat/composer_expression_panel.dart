@@ -4,7 +4,7 @@ import '../../l10n/app_localizations.dart';
 import 'emoji_panel.dart';
 import 'sticker_panel.dart';
 
-enum ComposerExpressionKind { emoji, sticker, gif }
+enum ComposerExpressionKind { emoji, customEmoji, sticker, gif }
 
 class ComposerExpressionResult {
   const ComposerExpressionResult(this.kind, [this.value]);
@@ -126,9 +126,18 @@ class _ExpressionHub extends StatelessWidget {
       if (enableStickers)
         StickerPicker(
           allowPackShare: allowStickerPackShare,
-          onSelected: (value) => Navigator.of(context).pop(
-            ComposerExpressionResult(ComposerExpressionKind.sticker, value),
-          ),
+          allowCustomEmoji: true,
+          onSelected: (value) {
+            final inline = value.startsWith('emoji:');
+            Navigator.of(context).pop(
+              ComposerExpressionResult(
+                inline
+                    ? ComposerExpressionKind.customEmoji
+                    : ComposerExpressionKind.sticker,
+                inline ? value.substring('emoji:'.length) : value,
+              ),
+            );
+          },
         ),
       if (enableGif)
         _GifPicker(
