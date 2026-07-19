@@ -508,6 +508,7 @@ class AppController extends Notifier<AppState> {
       storePath: boot.storePath!,
       runtimeDir: boot.runtimeDir,
       listenPort: boot.listenPort,
+      bootstrapPeers: boot.bootstrapPeers,
       // Boot every always-online node with the SAME network/routing config the
       // single-identity path uses — otherwise these nodes start with no obfs4
       // PSK (cannot join the production network), no lazy-mining setting, and no
@@ -1353,11 +1354,11 @@ class AppController extends Notifier<AppState> {
         // the node dials the same nodes from its compiled-in BUILTIN_SEEDS (the
         // proven-connecting path), and injecting explicit peers made
         // veil_node_apply_config fail with ENOENT on Android (a per-peer persist
-        // path that doesn't exist in the ephemeral runtime dir). The seeds are
-        // still used as mailbox-relay candidates — that path reads
-        // boot.bootstrapPeers directly (see messaging.dart), independent of the
-        // node config — so the rendezvous ad still publishes.
+        // path that doesn't exist in the ephemeral runtime dir). Register the
+        // app-supplied set through IPC after the node is connected instead;
+        // this starts connectors for bundle-only seeds without the reload bug.
         bootstrapPeers: const [],
+        runtimeBootstrapPeers: boot.bootstrapPeers,
         udpReflectors: boot.udpReflectors,
         obfs4Psk: boot.obfs4Psk,
         proxy: ref.read(proxyRoutingProvider),
