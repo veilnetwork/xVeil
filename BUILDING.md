@@ -31,8 +31,10 @@ Additional platform requirements:
 - macOS/iOS: current Xcode command-line tools and CocoaPods;
 - Android: Android SDK, Android NDK, JDK 17, `cargo-ndk`, and the four Android
   Rust targets;
-- Linux: the Flutter Linux desktop prerequisites, including CMake, Ninja, and
-  GTK development packages;
+- Linux: the Flutter Linux desktop prerequisites, including CMake, Ninja, GTK
+  development packages, and the system libmpv development package
+  (`libmpv-dev` on Debian/Ubuntu); end-user systems need the matching libmpv
+  runtime (`libmpv2` on Debian/Ubuntu);
 - Windows: Visual Studio with the Desktop development with C++ workload and
   Windows SDK.
 
@@ -194,7 +196,9 @@ physical-device build.
 ### Linux
 
 The Linux CMake integration bundles both native `.so` files into the Flutter
-application automatically:
+application automatically. In-chat video uses the distribution's libmpv rather
+than bundling a second codec stack. On Debian/Ubuntu, prepare the build host with
+`apt install libmpv-dev`; deployed systems need `libmpv2`:
 
 ```sh
 scripts/build-native.sh --release
@@ -303,8 +307,10 @@ xVeil — Flutter-приложение с двумя нативными зави
 - macOS/iOS: актуальные Xcode Command Line Tools и CocoaPods;
 - Android: Android SDK, Android NDK, JDK 17, `cargo-ndk` и четыре Android target
   для Rust;
-- Linux: зависимости Flutter Desktop для Linux, включая CMake, Ninja и
-  заголовочные файлы GTK;
+- Linux: зависимости Flutter Desktop для Linux, включая CMake, Ninja,
+  заголовочные файлы GTK и системный пакет разработки libmpv (`libmpv-dev` в
+  Debian/Ubuntu); на компьютере пользователя нужен runtime-пакет libmpv
+  (`libmpv2` в Debian/Ubuntu);
 - Windows: Visual Studio с workload «Desktop development with C++» и Windows
   SDK.
 
@@ -466,7 +472,9 @@ scripts/build-ios-simulator.sh
 ### Linux
 
 Linux-интеграция CMake автоматически добавляет обе нативные `.so` в Flutter-
-приложение:
+приложение. Для видео в чате используется системный libmpv вместо ещё одного
+встроенного набора кодеков. В Debian/Ubuntu установите на машине сборки
+`apt install libmpv-dev`; на машинах пользователей нужен `libmpv2`:
 
 ```sh
 scripts/build-native.sh --release

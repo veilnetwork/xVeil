@@ -1,9 +1,8 @@
 // In-chat video playback (media epic, v1): full-screen player over the
 // loopback media server — the encrypted blob is decrypted to RAM and served
 // on 127.0.0.1 with Range support, so ExoPlayer/AVPlayer can seek and
-// NOTHING plaintext ever touches disk. Android/iOS/macOS (video_player);
-// Linux has no official player implementation yet — the tile stays a plain
-// file row there.
+// NOTHING plaintext ever touches disk. Android/iOS/macOS use the official
+// backend; Linux registers video_player_media_kit over the distro's libmpv.
 
 import 'dart:async';
 
@@ -90,72 +89,68 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
               ),
             )
           : c == null
-              ? const Center(child: CircularProgressIndicator())
-              : Column(
-                  children: [
-                    Expanded(
-                      child: Center(
-                        child: AspectRatio(
-                          aspectRatio: c.value.aspectRatio == 0
-                              ? 16 / 9
-                              : c.value.aspectRatio,
-                          child: GestureDetector(
-                            onTap: () =>
-                                c.value.isPlaying ? c.pause() : c.play(),
-                            child: VideoPlayer(c),
-                          ),
-                        ),
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
+              children: [
+                Expanded(
+                  child: Center(
+                    child: AspectRatio(
+                      aspectRatio: c.value.aspectRatio == 0
+                          ? 16 / 9
+                          : c.value.aspectRatio,
+                      child: GestureDetector(
+                        onTap: () => c.value.isPlaying ? c.pause() : c.play(),
+                        child: VideoPlayer(c),
                       ),
                     ),
-                    // Controls: scrubber + play/pause + position.
-                    SafeArea(
-                      top: false,
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
+                  ),
+                ),
+                // Controls: scrubber + play/pause + position.
+                SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        VideoProgressIndicator(
+                          c,
+                          allowScrubbing: true,
+                          colors: VideoProgressColors(
+                            playedColor: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                        Row(
                           children: [
-                            VideoProgressIndicator(
-                              c,
-                              allowScrubbing: true,
-                              colors: VideoProgressColors(
-                                playedColor:
-                                    Theme.of(context).colorScheme.primary,
+                            ValueListenableBuilder<VideoPlayerValue>(
+                              valueListenable: c,
+                              builder: (_, v, _) => IconButton(
+                                color: Colors.white,
+                                icon: Icon(
+                                  v.isPlaying ? Icons.pause : Icons.play_arrow,
+                                ),
+                                onPressed: () =>
+                                    v.isPlaying ? c.pause() : c.play(),
                               ),
                             ),
-                            Row(
-                              children: [
-                                ValueListenableBuilder<VideoPlayerValue>(
-                                  valueListenable: c,
-                                  builder: (_, v, _) => IconButton(
-                                    color: Colors.white,
-                                    icon: Icon(
-                                      v.isPlaying
-                                          ? Icons.pause
-                                          : Icons.play_arrow,
-                                    ),
-                                    onPressed: () =>
-                                        v.isPlaying ? c.pause() : c.play(),
-                                  ),
+                            ValueListenableBuilder<VideoPlayerValue>(
+                              valueListenable: c,
+                              builder: (_, v, _) => Text(
+                                '${_fmt(v.position)} / ${_fmt(v.duration)}',
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 12,
                                 ),
-                                ValueListenableBuilder<VideoPlayerValue>(
-                                  valueListenable: c,
-                                  builder: (_, v, _) => Text(
-                                    '${_fmt(v.position)} / ${_fmt(v.duration)}',
-                                    style: const TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ),
-                              ],
+                              ),
                             ),
                           ],
                         ),
-                      ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
+              ],
+            ),
     );
   }
 

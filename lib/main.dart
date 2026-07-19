@@ -27,6 +27,7 @@ import 'data/veil_stack.dart';
 import 'debug/soak_hook.dart';
 import 'state/providers.dart';
 import 'state/storage_preferences.dart';
+import 'state/video_player_backend.dart';
 import 'package:xveil/core/log.dart';
 
 Future<void> main() async {
@@ -41,6 +42,11 @@ Future<void> main() async {
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+
+      // The official video_player plugin has no Linux implementation. Register
+      // the system-libmpv adapter before any controller is created; other
+      // platforms retain AVPlayer/ExoPlayer and are deliberately untouched.
+      initializeVideoPlayerBackend();
 
       // Desktop: arm window_manager so the close button can hide to tray
       // (DesktopTrayHost decides) instead of quitting. No-op on mobile.
