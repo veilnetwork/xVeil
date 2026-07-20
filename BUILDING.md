@@ -220,8 +220,11 @@ automatically. A model in the XDG data dir
 
 ### Windows
 
-The hidden-volume Windows plugin has automatic DLL bundling. The veil DLL still
-requires a manual staging step in the xVeil Windows runner. Run these commands
+The hidden-volume Windows plugin has automatic DLL bundling. The veil client
+DLL still requires a manual staging step. The system-VPN engine is different:
+the Windows CMake build invokes `scripts/stage-windows-vpn.ps1`, builds
+`veil-vpn-helper`, and stages both `veil_vpn_helper.dll` and the official
+signed `wintun.dll` selected from the locked Cargo package. Run these commands
 from a Developer PowerShell:
 
 ```powershell
@@ -241,9 +244,13 @@ Copy-Item third_party\veil\target\release\veilclient_ffi.dll `
 
 Output: `build\windows\x64\runner\Release\`.
 
-Keep the two DLLs beside `xveil.exe` when redistributing the directory. Windows
-application packaging is less automated than macOS, Android, iOS, and Linux;
-verify a fresh extracted bundle on a clean Windows machine before distribution.
+Keep `veilclient_ffi.dll`, `veil_vpn_helper.dll`, `wintun.dll`, and the
+hidden-volume DLL beside `xveil.exe` when redistributing the directory. Keep
+`WINTUN-LICENSE.txt` in the same distribution. The VPN requests UAC only when
+the user starts it; the elevated copy is the same `xveil.exe`, owns ActiveStore
+routes for the tunnel lifetime, and exits after rollback. Verify a fresh
+extracted bundle and the VPN start/stop rollback on a clean Windows machine
+before distribution.
 
 ### Verification
 
@@ -496,9 +503,12 @@ CPU-библиотеки) и положите ggml-модель (`ggml-base-q5_1
 
 ### Windows
 
-Windows-плагин hidden-volume умеет автоматически добавлять DLL. Для veil DLL в
-Windows runner xVeil пока нужен ручной шаг staging. Выполните в Developer
-PowerShell:
+Windows-плагин hidden-volume умеет автоматически добавлять DLL. Для клиентской
+veil DLL пока нужен ручной шаг staging. System VPN собирается иначе: Windows
+CMake вызывает `scripts/stage-windows-vpn.ps1`, собирает `veil-vpn-helper` и
+автоматически кладёт рядом с приложением `veil_vpn_helper.dll` и официальный
+подписанный `wintun.dll` из зафиксированной Cargo-зависимости. Выполните в
+Developer PowerShell:
 
 ```powershell
 cargo build --manifest-path third_party\hidden-volume\Cargo.toml `
@@ -517,9 +527,12 @@ Copy-Item third_party\veil\target\release\veilclient_ffi.dll `
 
 Результат: `build\windows\x64\runner\Release\`.
 
-При распространении оставляйте обе DLL рядом с `xveil.exe`. Упаковка Windows-
-версии автоматизирована слабее, чем macOS, Android, iOS и Linux, поэтому перед
-публикацией проверьте свежераспакованный каталог на чистой Windows-машине.
+При распространении оставляйте рядом с `xveil.exe` `veilclient_ffi.dll`,
+`veil_vpn_helper.dll`, `wintun.dll` и DLL hidden-volume, а также включайте
+`WINTUN-LICENSE.txt`. VPN запрашивает UAC только при включении: elevated-копия —
+это тот же `xveil.exe`, она владеет маршрутами ActiveStore до остановки и
+завершается после rollback. Перед публикацией проверьте свежераспакованный
+каталог и полный start/stop rollback VPN на чистой Windows-машине.
 
 ### Проверка
 

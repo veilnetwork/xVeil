@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/vpn/vpn_backend.dart';
 import '../data/vpn/linux_managed_vpn_backend.dart';
 import '../data/vpn/vpn_routing_policy.dart';
+import '../data/vpn/windows_managed_vpn_backend.dart';
 import 'providers.dart';
 import 'proxy_routing_controller.dart';
 
@@ -40,8 +41,11 @@ class VpnState {
 }
 
 final vpnBackendProvider = Provider<VpnBackend>(
-  (_) =>
-      Platform.isLinux ? LinuxManagedVpnBackend() : MethodChannelVpnBackend(),
+  (_) => switch (Platform.operatingSystem) {
+    'linux' => LinuxManagedVpnBackend(),
+    'windows' => WindowsManagedVpnBackend(),
+    _ => MethodChannelVpnBackend(),
+  },
 );
 
 class VpnController extends Notifier<VpnState> {
