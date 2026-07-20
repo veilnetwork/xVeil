@@ -269,6 +269,54 @@ void main() {
     );
   });
 
+  test(
+    'dispose closes a replaced source waiting in the retirement grace',
+    () async {
+      final source = rnd(300000, 111);
+      var firstClosed = 0;
+      var secondClosed = 0;
+      Future<Uint8List> readFirst(int offset, int length) async =>
+          Uint8List.sublistView(source, offset, offset + length);
+      Future<Uint8List> readSecond(int offset, int length) async =>
+          Uint8List.sublistView(source, offset, offset + length);
+
+      final received = mB.contentReceived.first;
+      await mA.sendFileStreaming(
+        b,
+        'replace.bin',
+        source.length,
+        readFirst,
+        close: () async => firstClosed++,
+      );
+      await received.timeout(const Duration(seconds: 10));
+      await mA.sendFileStreaming(
+        b,
+        'replace.bin',
+        source.length,
+        readSecond,
+        close: () async => secondClosed++,
+      );
+
+      expect(
+        firstClosed,
+        0,
+        reason: 'the replaced handle remains valid during its grace period',
+      );
+      expect(secondClosed, 0, reason: 'the current serving handle stays live');
+      await mA.dispose();
+      expect(
+        firstClosed,
+        1,
+        reason: 'dispose must drain handles owned only by retirement timers',
+      );
+      expect(
+        secondClosed,
+        1,
+        reason: 'dispose must also close the current serving handle',
+      );
+    },
+  );
+
   test('group source registration lifts the 8 MiB ceiling without an all-file '
       'RAM read or sender-side duplicate', () async {
     const size = 9 * 1024 * 1024 + 7;

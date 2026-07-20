@@ -48,6 +48,7 @@ part 'messaging_message_delivery.dart';
 part 'messaging_file_transfer.dart';
 part 'messaging_content_availability.dart';
 part 'messaging_download_resume.dart';
+part 'messaging_content_serving.dart';
 
 /// Wires the [VeilTransport] inbound stream into [Storage] and exposes a send
 /// path. Persists every message, then signals [changes] so the read providers
@@ -150,6 +151,8 @@ class MessagingService {
       _MessagingContentAvailability(this);
   late final _MessagingDownloadResume _downloadResume =
       _MessagingDownloadResume(this);
+  late final _MessagingContentServing _contentServing =
+      _MessagingContentServing(this);
 
   /// Whether this identity routes over the onion rendezvous (sender-location
   /// hidden). Fixed per identity at boot from its roster `anonymous` flag — an
@@ -1625,16 +1628,7 @@ class MessagingService {
   /// ([readFileRange]). Either way only a small manifest sits in RAM.
   /// [servedAt] is refreshed on every advertise/request so an ACTIVE transfer
   /// stays; an idle one is evicted by [_evictServing], which closes its [source].
-  final Map<
-    String,
-    ({ContentManifest manifest, ServeSource? source, DateTime servedAt})
-  >
-  _serving = {};
-
-  /// A served manifest is dropped from [_serving] this long after its last
-  /// advertise/request — the on-disk blob remains, so a later re-request simply
-  /// re-advertises and re-seeds [_serving], reading the bytes back from disk.
-  static const _servingTtl = Duration(minutes: 10);
+  Map<String, _ServedContent> get _serving => _contentServing.entries;
 
   /// A long serve aborts if the receiver hasn't re-requested within this window
   /// (it refreshes [_serving] freshness on every request) — i.e. it abandoned the
@@ -1642,25 +1636,12 @@ class MessagingService {
   /// transfer is never cut, but well under the idle [_servingTtl].
   static const _serveAbandonTimeout = Duration(seconds: 50);
 
-  /// When a same-content re-send replaces a live serve source, the old source may
-  /// still be feeding an already-accepted stream. Closing it immediately makes
-  /// that stream fail with "File closed" mid-piece. Retire replaced handles after
-  /// a grace window; stream serves normally use a per-stream reopened handle, so
-  /// this is mostly a safety net for legacy/datagram reads.
-  static const _serveSourceRetireGrace = Duration(minutes: 15);
-
   /// Active stream serves by content id. A same-content re-send may arrive while
   /// a large file is already being streamed; in that case we must not replace the
   /// live source/path underneath the running stream. This is especially important
   /// for Android file_picker cache paths, where a second pick of the same file can
   /// invalidate the previous temporary handle.
-  final Map<String, int> _activeStreamServes = {};
-  final Map<String, List<ServeSource>> _retiredAfterStream = {};
-
-  /// Cap on the number of concurrently-served manifests; the OLDEST are evicted
-  /// first when over it. Manifests are small (piece hashes), but bound the count
-  /// anyway so a long-lived node doesn't accumulate them without limit.
-  static const _servingMaxEntries = 256;
+  Map<String, int> get _activeStreamServes => _contentServing.activeStreams;
 
   /// Re-opens a serve source for a persisted file path (DURABLE offers): on a
   /// reoffer request after our [_serving] entry is gone (restart / TTL), the
@@ -1668,7 +1649,11 @@ class MessagingService {
   /// dart:io open lives in the data layer (the service stays io-free). Null ⇒
   /// durable re-serve is off (tests / not wired) — a stale offer then needs a
   /// re-send. Returns null if the path can't be opened (file moved / SAF expired).
-  Future<ServeSource?> Function(String path)? sourceOpener;
+  Future<ServeSource?> Function(String path)? get sourceOpener =>
+      _contentServing.sourceOpener;
+  set sourceOpener(Future<ServeSource?> Function(String path)? value) {
+    _contentServing.sourceOpener = value;
+  }
 
   /// Content we are FETCHING: the verified manifest + the reassembler + the peer,
   /// plus an optional [_FetchSink] when the user chose to download UNENCRYPTED to
@@ -1694,7 +1679,7 @@ class MessagingService {
 
   /// Test seam: how many files are currently cached for serving / being fetched
   /// (so a test can assert the RAM caches stay bounded by the eviction logic).
-  int get servingCount => _serving.length;
+  int get servingCount => _contentServing.count;
   int get fetchingCount => _fetching.length;
 
   /// Manifests of OFFERED-but-not-yet-downloaded files (by contentId), retained so
@@ -2122,24 +2107,10 @@ class MessagingService {
   }
 
   bool _sameServeSource(ServeSource a, ServeSource b) =>
-      identical(a, b) ||
-      (identical(a.read, b.read) && identical(a.close, b.close));
+      _contentServing.sameSource(a, b);
 
-  void _retireServeSourceForContent(String cid, ServeSource source) {
-    if ((_activeStreamServes[cid] ?? 0) > 0) {
-      (_retiredAfterStream[cid] ??= []).add(source);
-      return;
-    }
-    _retireServeSourceLater(source);
-  }
-
-  void _retireServeSourceLater(ServeSource source) {
-    Timer(_serveSourceRetireGrace, () async {
-      try {
-        await source.close();
-      } catch (_) {}
-    });
-  }
+  void _retireServeSourceForContent(String cid, ServeSource source) =>
+      _contentServing.retireForContent(cid, source);
 
   /// Persist [bytes] to the blob store (streamed pieces) and advertise. One
   /// source of truth for the in-RAM serve+advertise tail (the bare-content API
@@ -3863,29 +3834,12 @@ class MessagingService {
     );
   }
 
-  /// Drop served manifests idle past [_servingTtl], then — if still over
-  /// [_servingMaxEntries] — evict the OLDEST until under it. A serve-from-source
+  /// Drop served manifests idle past their TTL, then — if still over the
+  /// registry cap — evict the OLDEST until under it. A serve-from-source
   /// entry's [ServeSource.close] is called as it leaves (release the file
   /// handle); a later re-request to an evicted entry simply finds nothing served
   /// and the receiver gives up (a re-send re-opens the source).
-  void _evictServing() {
-    final now = _now();
-    _serving.removeWhere((cid, v) {
-      if ((_activeStreamServes[cid] ?? 0) > 0) return false;
-      if (now.difference(v.servedAt) <= _servingTtl) return false;
-      if (v.source != null) unawaited(v.source!.close());
-      return true;
-    });
-    if (_serving.length <= _servingMaxEntries) return;
-    final byAge = _serving.entries.toList()
-      ..sort((a, b) => a.value.servedAt.compareTo(b.value.servedAt));
-    for (final e in byAge) {
-      if (_serving.length <= _servingMaxEntries) break;
-      if ((_activeStreamServes[e.key] ?? 0) > 0) continue;
-      if (e.value.source != null) unawaited(e.value.source!.close());
-      _serving.remove(e.key);
-    }
-  }
+  void _evictServing() => _contentServing.evict();
 
   /// Decode a missing-chunk bitmap into the chunk indices it marks for piece [p].
   List<int> _chunksFromBitmap(ContentManifest m, int p, Uint8List bm) {
@@ -4148,30 +4102,14 @@ class MessagingService {
         ..setAll(40, _u64be(length));
 
   bool _beginStreamServe(String cid, {int? limit}) {
-    final active = _activeStreamServes[cid] ?? 0;
     final maxActive = (limit ?? _streamRangeParallelism).clamp(
       1,
       _maxStreamRangeParallelism,
     );
-    if (active >= maxActive) return false;
-    _activeStreamServes[cid] = active + 1;
-    return true;
+    return _contentServing.beginStream(cid, maxActive);
   }
 
-  void _endStreamServe(String cid) {
-    final active = (_activeStreamServes[cid] ?? 0) - 1;
-    if (active > 0) {
-      _activeStreamServes[cid] = active;
-      return;
-    }
-    _activeStreamServes.remove(cid);
-    final retired = _retiredAfterStream.remove(cid);
-    if (retired != null) {
-      for (final source in retired) {
-        _retireServeSourceLater(source);
-      }
-    }
-  }
+  void _endStreamServe(String cid) => _contentServing.endStream(cid);
 
   /// Accept inbound bulk streams + serve the requested file. Started by [start]
   /// when the transport supports streams; ends on [dispose].
@@ -6725,20 +6663,7 @@ class MessagingService {
 
   Future<void> dropLiveServingStateForTest() => _clearServingState();
 
-  Future<void> _clearServingState() async {
-    // Release any open serve-from-source file handles.
-    for (final v in _serving.values) {
-      if (v.source != null) unawaited(v.source!.close());
-    }
-    _serving.clear();
-    for (final sources in _retiredAfterStream.values) {
-      for (final source in sources) {
-        unawaited(source.close());
-      }
-    }
-    _retiredAfterStream.clear();
-    _activeStreamServes.clear();
-  }
+  Future<void> _clearServingState() => _contentServing.clear();
 
   Future<void> dispose() async {
     _disposed = true; // stops the stream accept loop
