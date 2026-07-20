@@ -2737,6 +2737,10 @@ class GroupService {
       sovereignBundle: existing?.sovereignBundle ?? incomingSovereignBundle,
     );
     await _save(saved);
+    final adoptedDeviceGroup =
+        man.name == kDeviceGroupName &&
+        await deviceGroupIdHex() == man.groupId.hex;
+    if (adoptedDeviceGroup) _invalidateDeviceMembersCache();
     if (existing == null) {
       final idx = await _index();
       if (!idx.contains(man.groupId.hex)) {
@@ -2761,7 +2765,7 @@ class GroupService {
       // A marker snapshot is inert until the local handshake explicitly
       // adopts this exact gid. Otherwise any contact could plant a valid-
       // looking infrastructure group and drive sync apply side effects.
-      if (await deviceGroupIdHex() == man.groupId.hex) {
+      if (adoptedDeviceGroup) {
         for (final m in fresh) {
           final materialized = await _materializeEncryptedMessage(saved, m);
           if (materialized != null) _deviceIncomingCtl.add(materialized);
@@ -3173,7 +3177,7 @@ class GroupService {
     }
     await _storage.putSetting('devices.gid', gid.hex);
     _deviceGidCache = gid.hex;
-    _deviceMembersCache = null;
+    _invalidateDeviceMembersCache();
     if (broadcastSnapshot) await broadcast(gid);
     return gid;
   }
@@ -3240,7 +3244,7 @@ class GroupService {
       );
     }
     _deviceGidCache = groupId.hex;
-    _deviceMembersCache = null;
+    _invalidateDeviceMembersCache();
     changes.value++;
     // Ingest deliberately kept the snapshot inert before adoption. Replay its
     // validated state now that gid + sovereign genesis + membership are bound.
@@ -3307,7 +3311,7 @@ class GroupService {
       return false;
     }
     await _save(bundle.copyWith(control: candidate));
-    _deviceMembersCache = null;
+    _invalidateDeviceMembersCache();
     if (op == ControlOp.addMember && broadcastSnapshot) {
       await broadcast(bundle.manifest.groupId);
     } else if (op == ControlOp.removeMember) {
@@ -3413,7 +3417,7 @@ class GroupService {
           ) !=
           null;
     }
-    _deviceMembersCache = null;
+    _invalidateDeviceMembersCache();
     return _appendSovereignMembership(
       old,
       sovereign,
@@ -3439,13 +3443,21 @@ class GroupService {
   /// my own devices. The mirror taps consult this per stored message, so the
   /// folded member set is cached briefly; link/adopt/revoke invalidate it.
   Future<bool> isMyDevice(NodeId peer) async {
-    final hex = await deviceGroupIdHex();
-    if (hex == null) return false;
-    final now = _now();
-    var cached = _deviceMembersCache;
-    if (cached == null || now - _deviceMembersCacheAtMs > 30000) {
+    while (true) {
+      // A membership mutation may land while load() is awaiting storage. Its
+      // generation invalidation must win over that stale read; otherwise the
+      // old member set gets re-published for another 30 seconds after revoke.
+      final generation = _deviceMembersCacheGeneration;
+      final hex = await deviceGroupIdHex();
+      if (generation != _deviceMembersCacheGeneration) continue;
+      if (hex == null) return false;
+      final now = _now();
+      final cached = _deviceMembersCache;
+      if (cached != null && now - _deviceMembersCacheAtMs <= 30000) {
+        return cached.contains(peer.hex);
+      }
       final bundle = await load(NodeId.fromHex(hex));
-      final st = bundle == null
+      final state = bundle == null
           ? null
           : foldControlLog(
               owner: bundle.manifest.owner,
@@ -3453,18 +3465,25 @@ class GroupService {
               verify: (e) => _validControlFor(bundle.manifest, e),
               initialName: bundle.manifest.name,
             ).state;
-      cached = {
-        for (final m in st?.members.values ?? const <GroupMember>[])
-          if (m.nodeId != bundle?.manifest.owner) m.nodeId.hex,
+      final loaded = {
+        for (final member in state?.members.values ?? const <GroupMember>[])
+          if (member.nodeId != bundle?.manifest.owner) member.nodeId.hex,
       };
-      _deviceMembersCache = cached;
+      if (generation != _deviceMembersCacheGeneration) continue;
+      _deviceMembersCache = loaded;
       _deviceMembersCacheAtMs = now;
+      return loaded.contains(peer.hex);
     }
-    return cached.contains(peer.hex);
   }
 
   Set<String>? _deviceMembersCache;
   int _deviceMembersCacheAtMs = 0;
+  int _deviceMembersCacheGeneration = 0;
+
+  void _invalidateDeviceMembersCache() {
+    _deviceMembersCache = null;
+    _deviceMembersCacheGeneration++;
+  }
 
   /// Serializes [postDeviceEvent] appends: sync emits are fire-and-forget
   /// (message taps, settings toggles, journal rows), so two can race the
