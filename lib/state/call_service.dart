@@ -104,9 +104,9 @@ abstract class CallMediaController {
   /// fallback. Null until a channel is open.
   CallTransportKind? get activeTransport => null;
 
-  /// Human-readable reason the active route differs from the negotiated one
-  /// (the p2p → relay fallback), or null when the route is as negotiated.
-  /// Surfaced by the transport badge so "relay" answers "why not p2p?".
+  /// Human-readable reason the active route uses relay instead of P2P, or null
+  /// when relay was selected by policy. Surfaced by the transport badge so
+  /// "relay" answers "why not p2p?".
   String? get transportFallbackReason => null;
 
   /// Tear down any running media session. Idempotent.
@@ -215,6 +215,7 @@ class CallService {
   String? _pendingRelayCallId;
   NodeId? _pendingRelayPeer;
   CallTransportKind? _outgoingProposal;
+  bool _directSessionUnavailable = false;
   int _mediaOperationEpoch = 0;
 
   /// sentAtMs of the newest peer renegotiate applied to the current call —
@@ -226,9 +227,15 @@ class CallService {
   Call? get current => _current;
   Map<String, Object?> get mediaDiagnostics => _media?.diagnostics ?? const {};
 
-  /// Why the live route differs from the negotiated one (p2p → relay
-  /// fallback), or null. For the transport badge / diagnostics.
-  String? get transportFallbackReason => _media?.transportFallbackReason;
+  /// Why relay is in use despite locally permitted P2P. The media controller
+  /// owns late route failures; the FSM owns an initially unavailable direct
+  /// session. Policy-denied and anonymous calls deliberately return null.
+  String? get transportFallbackReason =>
+      _media?.transportFallbackReason ??
+      (_current?.transport == CallTransportKind.relay &&
+              _directSessionUnavailable
+          ? 'direct session unavailable'
+          : null);
 
   /// Emits on every FSM transition, and null when the call slot clears.
   Stream<Call?> get changes => _changes.stream;
@@ -279,10 +286,10 @@ class CallService {
     );
     // Advisory proposal from our side; the answer finalizes the path once the
     // callee knows both postures. An anonymous caller is never P2P.
-    final mayOfferP2P =
-        posture == CallPosture.direct &&
-        await _localAllowsP2P(peer) &&
-        await _peerReachableForP2P(peer);
+    final localAllowsP2P =
+        posture == CallPosture.direct && await _localAllowsP2P(peer);
+    final peerReachable = localAllowsP2P && await _peerReachableForP2P(peer);
+    final mayOfferP2P = localAllowsP2P && peerReachable;
     final proposal = CallTransportProposal(
       posture == CallPosture.anonymous
           ? CallTransportKind.onion
@@ -294,6 +301,7 @@ class CallService {
         current.status != CallStatus.dialing) {
       return;
     }
+    _directSessionUnavailable = localAllowsP2P && !peerReachable;
     _outgoingProposal = proposal.kind;
     await _messaging.sendCallSignal(
       peer,
@@ -329,12 +337,28 @@ class CallService {
     }
     _cancelRingTimeout();
     final peerProposedP2P = c.transport == CallTransportKind.p2p;
+    final localAllowsP2P = await _localAllowsP2P(c.peer);
+    final peerReachable =
+        peerProposedP2P && localAllowsP2P && await _peerReachableForP2P(c.peer);
+    final current = _current;
+    if (current == null ||
+        current.callId != c.callId ||
+        current.peer != c.peer ||
+        current.status != CallStatus.ringing) {
+      return;
+    }
+    _directSessionUnavailable =
+        c.localPosture == CallPosture.direct &&
+        c.peerPosture == CallPosture.direct &&
+        peerProposedP2P &&
+        localAllowsP2P &&
+        !peerReachable;
     final transport = negotiateCallTransport(
       local: c.localPosture,
       peer: c.peerPosture ?? CallPosture.anonymous,
-      localConsentsP2P: await _localAllowsP2P(c.peer),
+      localConsentsP2P: localAllowsP2P,
       peerConsentsP2P: peerProposedP2P,
-      peerReachable: peerProposedP2P && await _peerReachableForP2P(c.peer),
+      peerReachable: peerReachable,
     );
     _set(
       c.copyWith(
@@ -798,17 +822,25 @@ class CallService {
     _cancelRingTimeout();
     final peerPosture = sig.posture ?? CallPosture.anonymous;
     final proposed = sig.transport?.kind;
+    final directSessionUnavailableBeforeAnswer = _directSessionUnavailable;
     // The answer is a proposal, not authority to weaken either side's policy.
     // Any anonymous party forces onion. Two direct parties use P2P only when
     // our own offer also allowed it; every other answer is a non-onion relay.
+    final outgoingProposal = _outgoingProposal;
     var transport =
         c.localPosture == CallPosture.anonymous ||
             peerPosture != CallPosture.direct
         ? CallTransportKind.onion
         : proposed == CallTransportKind.p2p &&
-              _outgoingProposal == CallTransportKind.p2p
+              outgoingProposal == CallTransportKind.p2p
         ? CallTransportKind.p2p
         : CallTransportKind.relay;
+    _directSessionUnavailable =
+        c.localPosture == CallPosture.direct &&
+        peerPosture == CallPosture.direct &&
+        (directSessionUnavailableBeforeAnswer ||
+            (outgoingProposal == CallTransportKind.p2p &&
+                proposed != CallTransportKind.p2p));
     _outgoingProposal = null;
     final pendingRelay =
         _pendingRelayCallId == sig.callId && _pendingRelayPeer == peer;
@@ -958,6 +990,7 @@ class CallService {
       _pendingRelayCallId = null;
       _pendingRelayPeer = null;
       _outgoingProposal = null;
+      _directSessionUnavailable = false;
     }
     // Offline mailbox deposits do ML-KEM sealing and multi-relay onion fanout.
     // Keep that durable work parked while realtime call setup/media is live;
@@ -1068,6 +1101,7 @@ class CallService {
     _pendingRelayCallId = null;
     _pendingRelayPeer = null;
     _outgoingProposal = null;
+    _directSessionUnavailable = false;
     _mediaOperationEpoch++;
     _messaging.backgroundStashPaused = false;
     if (_media == null) {
