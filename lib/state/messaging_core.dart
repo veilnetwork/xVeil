@@ -47,6 +47,7 @@ part 'messaging_mailbox_delivery.dart';
 part 'messaging_message_delivery.dart';
 part 'messaging_file_transfer.dart';
 part 'messaging_content_availability.dart';
+part 'messaging_download_resume.dart';
 
 /// Wires the [VeilTransport] inbound stream into [Storage] and exposes a send
 /// path. Persists every message, then signals [changes] so the read providers
@@ -147,6 +148,8 @@ class MessagingService {
   );
   late final _MessagingContentAvailability _contentAvailability =
       _MessagingContentAvailability(this);
+  late final _MessagingDownloadResume _downloadResume =
+      _MessagingDownloadResume(this);
 
   /// Whether this identity routes over the onion rendezvous (sender-location
   /// hidden). Fixed per identity at boot from its roster `anonymous` flag — an
@@ -645,8 +648,7 @@ class MessagingService {
     _fileTransfer.resetSession();
     // A (re)connect is exactly when interrupted downloads become resumable
     // again — reset the failure backoff and probe each pending one.
-    _resumeAttempts.clear();
-    unawaited(_resumeAllPendingDownloads(stagger: const Duration(seconds: 2)));
+    _downloadResume.reconcileOnConnect();
     await flushOutbox();
   }
 
@@ -3413,44 +3415,8 @@ class MessagingService {
   /// Cancel an in-flight or parked user download. Returns the plaintext target
   /// path, when this was a download-to-file, so the UI can delete partial clear
   /// bytes (the transport/storage core deliberately has no dart:io access).
-  Future<String?> cancelContentDownload(String contentId) async {
-    _cancelledDownloads.add(contentId);
-    _clearGroupPullSources(contentId);
-    final savedPath = _fetchSavePath.remove(contentId);
-    _completePendingDownload(contentId);
-    _pendingTimers.remove(contentId)?.cancel();
-    final parkedSink = _pendingDownload.remove(contentId);
-    final fetch = _fetching.remove(contentId);
-    _fetchActivity.remove(contentId);
-
-    final sinks = <_FetchSink>{?parkedSink, ?fetch?.sink};
-    final streams =
-        _activePullStreams[contentId]?.toList(growable: false) ??
-        const <_TrackedPullStream>[];
-    await Future.wait([for (final stream in streams) stream.abort()]);
-    if (!_contentCancelled.isClosed) _contentCancelled.add(contentId);
-
-    // Aborting wakes native reads promptly. Wait briefly for their retry loops
-    // to observe the cancellation latch before allowing an immediate re-tap to
-    // clear it and start a genuinely new transfer.
-    final deadline = DateTime.now().add(const Duration(seconds: 2));
-    while (((_activePullCount[contentId] ?? 0) > 0 ||
-            _resumeInFlight.contains(contentId)) &&
-        DateTime.now().isBefore(deadline)) {
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-    }
-    // No receiver should still be writing when the plaintext sink is closed.
-    for (final sink in sinks) {
-      try {
-        await sink.close();
-      } catch (_) {}
-    }
-    // Make the cancellation durable before returning; otherwise an immediate
-    // process death could leave the old auto-resume intent on disk.
-    await _pendingResumeWriteChain;
-    _signal();
-    return savedPath;
-  }
+  Future<String?> cancelContentDownload(String contentId) =>
+      _downloadResume.cancel(contentId);
 
   // ------------------------------------------------------------------------
   // AUTO-RESUME of interrupted downloads (torrent-like).
@@ -3471,199 +3437,74 @@ class MessagingService {
   // durable piece bookkeeping — and on sandboxed macOS the NSSavePanel grant
   // does not survive the restart anyway, in which case the record is dropped).
 
-  static const String _pendingDownloadsKey = 'pending_downloads';
-  Map<String, _PendingDownload>? _pendingResumeCache;
-  Future<void> _pendingResumeWriteChain = Future.value();
-  final Map<String, Timer> _resumeTimers = {};
-  final Map<String, int> _resumeAttempts = {};
-  final Map<String, DateTime> _resumeProgressAt = {};
-  final Set<String> _resumeInFlight = {};
-  StreamSubscription<String>? _resumeFailedSub;
-  StreamSubscription<({String contentId, int done, int total})>?
-  _resumeProgressSub;
-  StreamSubscription<({String contentId, String name, String? savedToPath})>?
-  _resumeReceivedSub;
-
   /// Tunable delays (tests shrink these; production keeps the defaults).
-  Duration downloadResumeStartDelay = const Duration(seconds: 8);
-  Duration downloadResumeBackoffBase = const Duration(seconds: 10);
-  Duration downloadResumeBackoffCap = const Duration(minutes: 10);
-  Duration downloadResumeLiveGrace = const Duration(seconds: 10);
+  Duration get downloadResumeStartDelay => _downloadResume.startDelay;
+  set downloadResumeStartDelay(Duration value) {
+    _downloadResume.startDelay = value;
+  }
+
+  Duration get downloadResumeBackoffBase => _downloadResume.backoffBase;
+  set downloadResumeBackoffBase(Duration value) {
+    _downloadResume.backoffBase = value;
+  }
+
+  Duration get downloadResumeBackoffCap => _downloadResume.backoffCap;
+  set downloadResumeBackoffCap(Duration value) {
+    _downloadResume.backoffCap = value;
+  }
+
+  Duration get downloadResumeLiveGrace => _downloadResume.liveGrace;
+  set downloadResumeLiveGrace(Duration value) {
+    _downloadResume.liveGrace = value;
+  }
 
   /// Cancel every durable auto-resume: stop the timers, forget the parked
   /// set + attempt counters, and wipe the persisted registry. Used by the
   /// bench purge hook to clear zombie pulls (a dead ephemeral holder never
   /// answers content-GONE, so they otherwise linger the whole 14-day window).
   /// Returns how many pending downloads were dropped.
-  Future<int> clearPendingDownloads() async {
-    final pending = await _pendingDownloads();
-    final n = pending.length;
-    for (final t in _resumeTimers.values) {
-      t.cancel();
-    }
-    _resumeTimers.clear();
-    _resumeAttempts.clear();
-    _resumeProgressAt.clear();
-    _parkedDownloads.clear();
-    _persistedPendingManifests.clear();
-    _mutatePendingDownloads((map) => map.clear());
-    return n;
-  }
+  Future<int> clearPendingDownloads() => _downloadResume.clearPending();
 
   /// Pending-download records that should auto-resume (test/UI introspection).
-  Future<List<String>> pendingAutoResumeContentIds() async =>
-      (await _pendingDownloads()).keys.toList(growable: false);
-
-  Future<Map<String, _PendingDownload>> _pendingDownloads() async {
-    final cached = _pendingResumeCache;
-    if (cached != null) return cached;
-    final map = <String, _PendingDownload>{};
-    try {
-      final raw = await _storage.getSetting(_pendingDownloadsKey);
-      if (raw != null && raw.isNotEmpty) {
-        final decoded = jsonDecode(raw);
-        if (decoded is List) {
-          for (final entry in decoded) {
-            final p = entry is Map<String, dynamic>
-                ? _PendingDownload.fromJson(entry)
-                : null;
-            if (p == null) continue;
-            // Age out ancient intents so a long-forgotten request cannot keep
-            // probing the network forever.
-            if (DateTime.now().difference(p.requestedAt) >
-                const Duration(days: 14)) {
-              continue;
-            }
-            map[p.contentId] = p;
-          }
-        }
-      }
-    } catch (_) {
-      // Unparseable registry → start empty (requests re-record themselves).
-    }
-    return _pendingResumeCache = map;
-  }
-
-  /// All registry writes are chained so concurrent async mutations cannot
-  /// interleave a read-modify-write.
-  void _mutatePendingDownloads(
-    void Function(Map<String, _PendingDownload> map) fn,
-  ) {
-    _pendingResumeWriteChain = _pendingResumeWriteChain.then((_) async {
-      final map = await _pendingDownloads();
-      fn(map);
-      try {
-        await _storage.putSetting(
-          _pendingDownloadsKey,
-          jsonEncode([for (final p in map.values) p.toJson()]),
-        );
-      } catch (_) {
-        // Store hiccup: the in-RAM cache still drives this session; the next
-        // successful mutation persists the merged state.
-      }
-      _emitResuming(map.keys.toSet());
-    });
-  }
+  Future<List<String>> pendingAutoResumeContentIds() =>
+      _downloadResume.pendingContentIds();
 
   /// contentIds with a durable auto-resume record right now (queued / retrying
   /// in the background — the sender may be offline). Distinct from
   /// [contentProgress], which fires only while a pull is ACTIVELY moving bytes;
   /// a parked resume shows no progress, so the UI would otherwise look idle.
   /// The UI shows "resuming…" when a cid is here but has no live progress.
-  final _contentResuming = StreamController<Set<String>>.broadcast();
-  Stream<Set<String>> get contentResuming => _contentResuming.stream;
-  Set<String> _lastResuming = const {};
-
-  void _emitResuming(Set<String> pending) {
-    if (_contentResuming.isClosed) return;
-    // Cheap set-equality gate so a no-change registry rewrite is not an event.
-    if (pending.length == _lastResuming.length &&
-        pending.containsAll(_lastResuming)) {
-      return;
-    }
-    _lastResuming = pending;
-    _contentResuming.add(pending);
-  }
+  Stream<Set<String>> get contentResuming => _downloadResume.resuming;
 
   void _recordPendingDownload(
     String contentId, {
     required String mode,
     String? savedPath,
     required Iterable<NodeId> peers,
-  }) {
-    if (_disposed) return;
-    final hexes = [for (final p in peers) p.hex];
-    _mutatePendingDownloads((map) {
-      final prior = map[contentId];
-      map[contentId] = _PendingDownload(
-        contentId: contentId,
-        mode: mode,
-        savedPath: savedPath ?? prior?.savedPath,
-        peers: {...?prior?.peers, ...hexes}.toList(growable: false),
-        requestedAt: prior?.requestedAt ?? DateTime.now(),
-      );
-    });
-    // Persist the offered manifest alongside the intent: a post-restart resume
-    // re-injects it so the range swarm can run and SKIP already-stored
-    // verified pieces instead of re-pulling the whole file sequentially.
-    final offered = _offered[contentId];
-    if (offered != null) {
-      unawaited(_persistServeManifest(offered.manifest));
-    }
-  }
+  }) => _downloadResume.record(
+    contentId,
+    mode: mode,
+    savedPath: savedPath,
+    peers: peers,
+  );
 
   /// Per-content count of pull executions currently in flight (sequential
   /// [_runPull] / the range swarm). The auto-resume driver consults it so it
   /// never stacks a second concurrent pull onto a live one — a duplicate
   /// wastes bandwidth and makes the shared progress channel oscillate.
-  final Map<String, int> _activePullCount = {};
+  void _pullStarted(String contentId) => _downloadResume.pullStarted(contentId);
 
-  void _pullStarted(String contentId) =>
-      _activePullCount[contentId] = (_activePullCount[contentId] ?? 0) + 1;
-
-  void _pullEnded(String contentId) {
-    final n = (_activePullCount[contentId] ?? 1) - 1;
-    if (n <= 0) {
-      _activePullCount.remove(contentId);
-    } else {
-      _activePullCount[contentId] = n;
-    }
-  }
-
-  /// True while ANYONE owns a transfer for [contentId]: an executing pull, a
-  /// datagram fetch, or a parked download awaiting a re-advertised manifest.
-  bool _pullActive(String contentId) =>
-      (_activePullCount[contentId] ?? 0) > 0 ||
-      _fetching.containsKey(contentId) ||
-      _pendingDownload.containsKey(contentId);
+  void _pullEnded(String contentId) => _downloadResume.pullEnded(contentId);
 
   /// Persist [m] once if a durable pending download exists for it — offers
   /// often arrive as manifest-REFS, so the full manifest only becomes known
   /// mid-pull (stream header / ref resolve); this is what makes a
   /// piece-granular resume possible after a restart.
-  final Set<String> _persistedPendingManifests = {};
-  Future<void> _persistManifestIfPending(ContentManifest m) async {
-    if (!_persistedPendingManifests.add(m.contentId)) return;
-    if (!(await _pendingDownloads()).containsKey(m.contentId)) {
-      _persistedPendingManifests.remove(m.contentId);
-      return;
-    }
-    await _persistServeManifest(m);
-  }
+  Future<void> _persistManifestIfPending(ContentManifest manifest) =>
+      _downloadResume.persistManifestIfPending(manifest);
 
-  Future<ContentManifest?> _loadPersistedManifest(String contentId) async {
-    try {
-      final bytes = await _storage.loadFile('mf:$contentId');
-      if (bytes == null) return null;
-      final m = ContentManifest.fromJson(
-        jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>,
-      );
-      if (m == null || m.contentId != contentId) return null;
-      return m;
-    } catch (_) {
-      return null;
-    }
-  }
+  Future<ContentManifest?> _loadPersistedManifest(String contentId) =>
+      _downloadResume.loadPersistedManifest(contentId);
 
   /// Re-bind a cid-level serve manifest to the latest live filePost for this
   /// particular peer. A single cloud blob may be shared to several contacts;
@@ -3693,73 +3534,15 @@ class MessagingService {
     return manifest;
   }
 
-  void _completePendingDownload(String contentId) {
-    _resumeTimers.remove(contentId)?.cancel();
-    _resumeAttempts.remove(contentId);
-    _resumeProgressAt.remove(contentId);
-    _parkedDownloads.remove(contentId);
-    _persistedPendingManifests.remove(contentId);
-    if (_pendingResumeCache?.containsKey(contentId) ?? true) {
-      _mutatePendingDownloads((map) => map.remove(contentId));
-    }
-  }
+  void _completePendingDownload(String contentId) =>
+      _downloadResume.complete(contentId);
 
-  Future<void> _startDownloadResumer() async {
-    _resumeFailedSub ??= contentDownloadFailed.listen((cid) async {
-      if ((await _pendingDownloads()).containsKey(cid)) {
-        _scheduleDownloadResume(cid, backoff: true);
-      }
-    });
-    _resumeProgressSub ??= contentProgress.listen((e) async {
-      if ((await _pendingDownloads()).containsKey(e.contentId)) {
-        _resumeProgressAt[e.contentId] = DateTime.now();
-        // Bytes are flowing — the holder is provably alive, so the fruitless
-        // streak (and any parking) no longer describes reality.
-        _resumeAttempts.remove(e.contentId);
-        _parkedDownloads.remove(e.contentId);
-      }
-    });
-    _resumeReceivedSub ??= contentReceived.listen(
-      (e) => _completePendingDownload(e.contentId),
-    );
-    await _resumeAllPendingDownloads(
-      initial: downloadResumeStartDelay,
-      stagger: const Duration(seconds: 2),
-    );
-  }
-
-  Future<void> _resumeAllPendingDownloads({
-    Duration initial = const Duration(seconds: 2),
-    Duration stagger = Duration.zero,
-  }) async {
-    final pending = await _pendingDownloads();
-    // Pre-warm the outbound path to every known holder in parallel with the
-    // staggered pull schedule: the cold circuit pool otherwise costs the
-    // first attempt its whole manifest window after a restart.
-    final warmed = <String>{};
-    for (final p in pending.values) {
-      for (final hex in p.peers) {
-        if (warmed.add(hex)) _warmStreamPeer(NodeId.fromHex(hex));
-      }
-    }
-    var i = 0;
-    for (final cid in pending.keys.toList(growable: false)) {
-      _scheduleDownloadResume(cid, after: initial + stagger * i++);
-    }
-  }
+  Future<void> _startDownloadResumer() => _downloadResume.start();
 
   /// Best-effort pre-warm of the outbound stream path toward [peer] (see
   /// [StreamTransport.warmStreamPeer]). Fire-and-forget: never blocks the
   /// caller and never throws.
-  void _warmStreamPeer(NodeId peer) {
-    final t = _transport;
-    if (t is! StreamTransport) return;
-    unawaited(
-      (t as StreamTransport).warmStreamPeer(peer).catchError((Object e) {
-        devLog(() => 'xVeil[stream]: warm ${peer.short} failed: $e');
-      }),
-    );
-  }
+  void _warmStreamPeer(NodeId peer) => _downloadResume.warmPeer(peer);
 
   /// An offer/manifest for a durable-pending content id arrived — the sender
   /// is provably online, resume soon (the short delay lets an already-running
@@ -3767,237 +3550,22 @@ class MessagingService {
   Future<void> _resumeOnOfferSignal(
     String contentId, {
     ContentManifest? manifest,
-  }) async {
-    if (_disposed) return;
-    if (!(await _pendingDownloads()).containsKey(contentId)) return;
-    // Keep the manifest durable for a piece-granular resume after a restart.
-    if (manifest != null) unawaited(_persistServeManifest(manifest));
-    // A live offer proves the holder is back: un-park and forget the fruitless
-    // rounds so the next failure starts the backoff ladder from the bottom.
-    _parkedDownloads.remove(contentId);
-    _resumeAttempts.remove(contentId);
-    if (_resumeTimers.containsKey(contentId)) return; // already queued sooner
-    _scheduleDownloadResume(contentId, after: const Duration(seconds: 3));
-  }
+  }) => _downloadResume.onOffer(contentId, manifest: manifest);
 
   /// Any inbound traffic from [peer] proves it is online: revive every PARKED
   /// pending download that lists it as a holder. Cheap no-op on the hot path
   /// when nothing is parked (the common case).
-  void noteInboundFromPeer(NodeId peer) {
-    if (_disposed || _parkedDownloads.isEmpty) return;
-    final hex = peer.hex;
-    unawaited(() async {
-      final pending = await _pendingDownloads();
-      for (final cid in _parkedDownloads.toList(growable: false)) {
-        final p = pending[cid];
-        if (p == null) {
-          _parkedDownloads.remove(cid);
-          continue;
-        }
-        if (!p.peers.contains(hex)) continue;
-        _parkedDownloads.remove(cid);
-        _resumeAttempts.remove(cid);
-        devLog(
-          () =>
-              'xVeil[content]: holder ${peer.short} is alive — un-parking '
-              '${cid.substring(0, 12)}',
-        );
-        _scheduleDownloadResume(cid, after: const Duration(seconds: 2));
-      }
-    }());
-  }
-
-  void _scheduleDownloadResume(
-    String contentId, {
-    Duration? after,
-    bool backoff = false,
-  }) {
-    if (_disposed) return;
-    Duration delay;
-    if (after != null) {
-      delay = after;
-    } else if (backoff) {
-      final n = (_resumeAttempts[contentId] ?? 0) + 1;
-      _resumeAttempts[contentId] = n;
-      if (n >= _resumeParkAfterAttempts) {
-        // The holder has not produced a manifest, a byte of progress, or a
-        // content-GONE across every backoff round — stop burning circuits on
-        // a timer and wait for a liveness EVENT instead. The durable intent
-        // stays in pending_downloads, so an offer or inbound from the holder
-        // revives the transfer exactly where it left off.
-        _parkedDownloads.add(contentId);
-        _resumeTimers.remove(contentId)?.cancel();
-        devLog(
-          () =>
-              'xVeil[content]: auto-resume PARKED '
-              '${contentId.substring(0, 12)} after $n fruitless attempts — '
-              'will retry on the next offer/inbound from a holder',
-        );
-        return;
-      }
-      final base = downloadResumeBackoffBase * (1 << (n - 1).clamp(0, 6));
-      delay = base > downloadResumeBackoffCap ? downloadResumeBackoffCap : base;
-    } else {
-      delay = Duration.zero;
-    }
-    _resumeTimers[contentId]?.cancel();
-    _resumeTimers[contentId] = Timer(delay, () {
-      _resumeTimers.remove(contentId);
-      if (_resumeInFlight.contains(contentId)) {
-        // An attempt is still running — check back instead of dropping the
-        // wake-up (its failure event may already have consumed this slot).
-        _scheduleDownloadResume(contentId, after: const Duration(seconds: 30));
-      } else {
-        unawaited(_resumeDownload(contentId));
-      }
-    });
-  }
-
-  Future<void> _resumeDownload(String contentId) async {
-    if (_disposed || !_resumeInFlight.add(contentId)) return;
-    final short = contentId.length >= 12
-        ? contentId.substring(0, 12)
-        : contentId;
-    try {
-      final pending = (await _pendingDownloads())[contentId];
-      if (pending == null) return;
-      if (_cancelledDownloads.contains(contentId)) return;
-      if (await _storage.hasFile(contentId)) {
-        _completePendingDownload(contentId);
-        return;
-      }
-      // Every known holder said content-GONE — retrying is pointless until a
-      // fresh offer clears the mark; drop the durable intent.
-      if (await isContentUnavailable(contentId)) {
-        _completePendingDownload(contentId);
-        return;
-      }
-      if (pending.mode == _PendingDownload.modeFile &&
-          await contentSavedPath(contentId) != null) {
-        _completePendingDownload(contentId);
-        return;
-      }
-      // Someone still owns a transfer for this content (an executing pull, a
-      // datagram fetch, or a parked plain-file save) — never stack a second
-      // one; its terminal failure event reschedules us. The progress-recency
-      // check below stays as a belt for paths without pull bookkeeping.
-      if (_pullActive(contentId)) {
-        _scheduleDownloadResume(contentId, after: downloadResumeLiveGrace * 2);
-        return;
-      }
-      final lastProgress = _resumeProgressAt[contentId];
-      if (lastProgress != null &&
-          DateTime.now().difference(lastProgress) < downloadResumeLiveGrace) {
-        _scheduleDownloadResume(contentId, after: downloadResumeLiveGrace * 2);
-        return;
-      }
-      final peers = <NodeId>[];
-      for (final hex in pending.peers) {
-        try {
-          peers.add(NodeId.fromHex(hex));
-        } catch (_) {}
-      }
-      // Re-inject a persisted manifest (lost from RAM across the restart) so
-      // the resume takes the swarm path with piece-granular skip of already
-      // stored data — the torrent behavior — rather than a from-zero pull.
-      if (_offered[contentId] == null && peers.isNotEmpty) {
-        final m = await _loadPersistedManifest(contentId);
-        if (m != null) {
-          _offered[contentId] = (
-            manifest: m,
-            peers: {for (final p in peers) p.hex: p},
-          );
-        }
-      }
-      devLog(
-        () =>
-            'xVeil[content]: auto-resume $short '
-            '(mode=${pending.mode}, attempt=${_resumeAttempts[contentId] ?? 0},'
-            ' peers=${peers.length}, manifest=${_offered[contentId] != null})',
-      );
-      // After a failed round, ask the holders to re-advertise before pulling
-      // again: a live holder revives the offer (and the resume proceeds), a
-      // holder that LOST the bytes answers content-GONE — which is what turns
-      // an endless retry loop into the terminal ask-for-a-re-send state.
-      if ((_resumeAttempts[contentId] ?? 0) >= 1) {
-        for (final p in peers) {
-          unawaited(requestContentReoffer(p, contentId));
-        }
-      }
-      if (pending.mode == _PendingDownload.modeFile &&
-          pending.savedPath != null) {
-        await _resumePlainFileDownload(pending, peers);
-      } else {
-        await downloadContentFromAny(peers, contentId, userInitiated: false);
-      }
-    } catch (e) {
-      devLog(() => 'xVeil[content]: auto-resume $short failed: $e');
-      _scheduleDownloadResume(contentId, backoff: true);
-    } finally {
-      _resumeInFlight.remove(contentId);
-    }
-  }
-
-  /// Attempts after which a durable pending download stops TIMER-driven
-  /// retries and goes event-driven only ("parked"). A holder that is simply
-  /// gone (dead ephemeral identity, wiped store, offline for days) never
-  /// answers content-GONE, so the explicit-GONE give-up never fires — before
-  /// this cap such zombies retried on the 10-minute backoff for the whole
-  /// 14-day registry window, each retry opening stream circuits that crowd
-  /// out live transfers (device-observed: a handful of zombie pulls kept the
-  /// outbound circuit pool churning for hours). A parked download revives on
-  /// the next offer/advertise from any holder ([_resumeOnOfferSignal]) or on
-  /// any inbound message from one ([noteInboundFromPeer]) — both reset the
-  /// attempt counter, so a sender coming back online resumes the transfer
-  /// without user action.
-  static const int _resumeParkAfterAttempts = 8;
-
-  /// contentIds parked after [_resumeParkAfterAttempts] fruitless rounds.
-  final Set<String> _parkedDownloads = {};
+  void noteInboundFromPeer(NodeId peer) => _downloadResume.noteInbound(peer);
 
   /// Sink opener used to re-drive plain-file downloads (injectable for tests;
   /// dart:io stays in the data layer). [resume]=true reopens WITHOUT truncating
   /// and exposes a reader so already-written pieces are hash-verified + skipped.
   Future<VeilPlainFileSink?> Function(String path, {bool resume})
-  plainFileSinkOpener = veilPlainFileSinkOpener;
-
-  /// Re-drives an unencrypted-to-file download with a service-owned sink.
-  /// Reopened NON-truncating (resume): the swarm hash-verifies each piece off
-  /// disk and re-pulls only the missing ones, so a restart mid-download does
-  /// not re-fetch bytes already saved. Writing anywhere except the user-picked
-  /// path is forbidden on sandboxed macOS. If the destination cannot be
-  /// reopened (a sandboxed release after a restart — the NSSavePanel grant is
-  /// gone), the pending record is dropped: the user must re-pick a path.
-  Future<void> _resumePlainFileDownload(
-    _PendingDownload pending,
-    List<NodeId> peers,
-  ) async {
-    final contentId = pending.contentId;
-    final path = pending.savedPath!;
-    final sink = await plainFileSinkOpener(path, resume: true);
-    if (sink == null) {
-      devLog(
-        () =>
-            'xVeil[content]: auto-resume cannot reopen $path — '
-            'dropping the pending plain-file download',
-      );
-      _completePendingDownload(contentId);
-      return;
-    }
-    final result = await downloadContentToFileFromAny(
-      peers,
-      contentId,
-      path,
-      write: sink.write,
-      close: sink.close,
-      read: sink.read, // resume: hash-verify + skip already-written pieces
-      userInitiated: false,
-    );
-    // Every other outcome hands the sink to the pull/park machinery, which
-    // closes it on completion or reoffer-timeout; a flat "no offer" does not.
-    if (result == ContentDownloadResult.noOffer) {
-      await sink.close();
-    }
+  get plainFileSinkOpener => _downloadResume.plainFileSinkOpener;
+  set plainFileSinkOpener(
+    Future<VeilPlainFileSink?> Function(String path, {bool resume}) value,
+  ) {
+    _downloadResume.plainFileSinkOpener = value;
   }
 
   /// Destination paths for in-flight unencrypted-to-file downloads (so the
@@ -7180,17 +6748,7 @@ class MessagingService {
     _settingsGcTimer = null;
     _contentTimer?.cancel();
     _contentTimer = null;
-    // Auto-resume driver: timers, event taps, and the registry write chain.
-    for (final t in _resumeTimers.values) {
-      t.cancel();
-    }
-    _resumeTimers.clear();
-    await _resumeFailedSub?.cancel();
-    _resumeFailedSub = null;
-    await _resumeProgressSub?.cancel();
-    _resumeProgressSub = null;
-    await _resumeReceivedSub?.cancel();
-    _resumeReceivedSub = null;
+    await _downloadResume.dispose();
     await _sub?.cancel();
     _sub = null;
     await _realtimeSub?.cancel();
@@ -7218,7 +6776,6 @@ class MessagingService {
     await _contentProgress.close();
     await _contentFailed.close();
     await _contentCancelled.close();
-    await _contentResuming.close();
   }
 }
 
