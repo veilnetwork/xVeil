@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:veil_media/veil_media.dart';
 
 import '../core/log.dart';
@@ -112,6 +113,13 @@ class VeilCallMediaController implements CallMediaController {
   static const MethodChannel _androidCallNetwork = MethodChannel(
     'xveil/call_network',
   );
+  static const MethodChannel _androidAudioDevices = MethodChannel(
+    'xveil/audio_devices',
+  );
+  static String get _cameraPreferenceKey =>
+      'call.capture.camera.${Platform.operatingSystem}';
+  static String get _microphonePreferenceKey =>
+      'call.capture.microphone.${Platform.operatingSystem}';
   VeilMediaEngine? _engine;
   int? _chan;
   String? _chanPeer; // hex of the peer _chan was opened for
@@ -144,6 +152,10 @@ class VeilCallMediaController implements CallMediaController {
   bool _routeRepairing = false;
   bool _androidCallNetworkActive = false;
   int _mediaEpoch = 0;
+  bool _devicePreferencesLoaded = false;
+  String? _selectedCameraId;
+  String? _selectedMicrophoneId;
+  String? _preferredMicrophoneLabel;
 
   // Frame cadence measured at the Dart/native boundary. Packet counters can
   // look perfect while decoded video still arrives in visible bursts, so keep
@@ -258,6 +270,9 @@ class VeilCallMediaController implements CallMediaController {
         'transport': _chanTransport?.name,
         'running': true,
         'batching': _mediaBatching,
+        'capture_camera_id': _selectedCameraId,
+        'capture_microphone_id': _selectedMicrophoneId,
+        'capture_microphone_label': _preferredMicrophoneLabel,
         if (_diagnosticVideoTarget case final target?)
           'diagnostic_video_target':
               '${target.bitrateKbps}kbps@${target.fps}fps',
@@ -389,6 +404,7 @@ class VeilCallMediaController implements CallMediaController {
     }
     final epoch = ++_mediaEpoch;
     _activeCall = call;
+    await _loadDevicePreferences();
     await _setAndroidCallNetworkActive(true);
     // Present the platform mic/camera prompts before native capture starts,
     // but do not serialize them: two independent five-second waits used to
@@ -479,6 +495,7 @@ class VeilCallMediaController implements CallMediaController {
     }
     _engine = engine;
     _diagnosticMediaController = this;
+    await _restoreMicrophonePreference(engine);
     // Liveness signal for the call FSM: poll rx_pkts so it can tell the peer's
     // media is still arriving even when the durable signaling heartbeat lags.
     _statsTimer?.cancel();
@@ -624,6 +641,7 @@ class VeilCallMediaController implements CallMediaController {
               width: profile.cameraWidth,
               height: profile.cameraHeight,
               fps: profile.maxFps,
+              deviceId: _selectedCameraId,
             );
           } catch (_) {}
         }
@@ -930,6 +948,182 @@ class VeilCallMediaController implements CallMediaController {
     } catch (_) {}
   }
 
+  Future<void> _loadDevicePreferences() async {
+    if (_devicePreferencesLoaded) return;
+    _devicePreferencesLoaded = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _selectedCameraId = prefs.getString(_cameraPreferenceKey);
+      _preferredMicrophoneLabel = prefs.getString(_microphonePreferenceKey);
+    } catch (_) {
+      // A device preference must never prevent media startup.
+    }
+  }
+
+  Future<void> _restoreMicrophonePreference(VeilMediaEngine engine) async {
+    final preferred = _preferredMicrophoneLabel;
+    if (preferred == null || preferred.isEmpty) return;
+    final devices = await listMicrophones();
+    for (final device in devices) {
+      if (device.label != preferred) continue;
+      try {
+        if (engine.selectAudioInput(device.id)) {
+          _selectedMicrophoneId = device.id;
+        }
+      } catch (_) {}
+      return;
+    }
+  }
+
+  @override
+  Future<List<CallMediaDevice>> listCameras() async {
+    final engine = _engine;
+    if (engine == null) return const [];
+    if (Platform.isAndroid) {
+      final bridge = _androidNativeCam ?? AndroidNativeCallCamera();
+      final devices = await bridge.listDevices();
+      final selected =
+          _androidNativeCam?.cameraId ??
+          _selectedCameraId ??
+          devices.where((device) => device.facing == 'front').firstOrNull?.id ??
+          devices.firstOrNull?.id;
+      return devices
+          .map(
+            (device) => CallMediaDevice(
+              id: device.id,
+              label: device.label,
+              kind: CallMediaDeviceKind.camera,
+              facing: device.facing,
+              selected: device.id == selected,
+            ),
+          )
+          .toList(growable: false);
+    }
+    try {
+      return engine
+          .listVideoInputs()
+          .indexed
+          .map(
+            (entry) => CallMediaDevice(
+              id: entry.$2.id,
+              label: entry.$2.label,
+              kind: CallMediaDeviceKind.camera,
+              facing: entry.$2.facing,
+              selected:
+                  entry.$2.id == _selectedCameraId ||
+                  (_selectedCameraId == null && entry.$1 == 0),
+            ),
+          )
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  @override
+  Future<List<CallMediaDevice>> listMicrophones() async {
+    final engine = _engine;
+    if (engine == null) return const [];
+    try {
+      final List<MediaDevice> devices;
+      if (Platform.isAndroid) {
+        final raw = await _androidAudioDevices.invokeListMethod<Object?>(
+          'listInputs',
+        );
+        devices = (raw ?? const <Object?>[])
+            .whereType<Map<Object?, Object?>>()
+            .map(
+              (value) => MediaDevice(
+                id: value['id']?.toString() ?? '',
+                label: value['label']?.toString() ?? '',
+                kind: 'input',
+              ),
+            )
+            .where((device) => device.id.isNotEmpty)
+            .toList(growable: false);
+      } else {
+        devices = engine.listAudioInputs();
+      }
+      return devices.indexed
+          .map(
+            (entry) => CallMediaDevice(
+              id: entry.$2.id,
+              label: entry.$2.label,
+              kind: CallMediaDeviceKind.microphone,
+              selected:
+                  entry.$2.id == _selectedMicrophoneId ||
+                  (_selectedMicrophoneId == null && entry.$1 == 0),
+            ),
+          )
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  @override
+  Future<bool> selectMicrophone(String id) async {
+    final engine = _engine;
+    if (engine == null) return false;
+    final devices = await listMicrophones();
+    CallMediaDevice? chosen;
+    for (final device in devices) {
+      if (device.id == id) chosen = device;
+    }
+    if (chosen == null) return false;
+    try {
+      if (!engine.selectAudioInput(id)) return false;
+      _selectedMicrophoneId = id;
+      _preferredMicrophoneLabel = chosen.label;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_microphonePreferenceKey, chosen.label);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  Future<bool> selectCamera(String id) async {
+    final engine = _engine;
+    final call = _activeCall;
+    if (engine == null || call == null) return false;
+    final devices = await listCameras();
+    if (!devices.any((device) => device.id == id)) return false;
+    _selectedCameraId = id;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_cameraPreferenceKey, id);
+    } catch (_) {}
+    // A screen share owns the video source; remember the choice and apply it
+    // when sharing ends. Likewise an off camera needs no eager hardware open.
+    if (call.screenOn || !call.cameraOn) return true;
+    if (Platform.isAndroid) {
+      final native = _androidNativeCam;
+      _androidNativeCam = null;
+      if (native != null) await native.stop();
+      final fallback = _androidCam;
+      _androidCam = null;
+      if (fallback != null) await fallback.stop();
+      await _startAndroidCam(engine, highQuality: _highQualityRoute);
+      return _androidNativeCam?.cameraId == id;
+    }
+    try {
+      engine.stopCamera();
+      final profile = _highQualityRoute
+          ? _directVideoProfile
+          : _anonymousVideoProfile;
+      return engine.startCamera(
+        width: profile.cameraWidth,
+        height: profile.cameraHeight,
+        fps: profile.maxFps,
+        deviceId: id,
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
   @override
   Future<void> setCameraEnabled(bool enabled) async {
     final engine = _engine;
@@ -964,6 +1158,7 @@ class VeilCallMediaController implements CallMediaController {
             width: profile.cameraWidth,
             height: profile.cameraHeight,
             fps: profile.maxFps,
+            deviceId: _selectedCameraId,
           );
         } else {
           engine.stopCamera();
@@ -1083,12 +1278,14 @@ class VeilCallMediaController implements CallMediaController {
       width: profile.cameraWidth,
       height: profile.cameraHeight,
       fps: profile.maxFps,
+      cameraId: _selectedCameraId,
     );
     if (_engine != engine || _androidNativeCam != nativeCam) {
       if (nativeOk) await nativeCam.stop();
       return;
     }
     if (nativeOk) {
+      _selectedCameraId = nativeCam.cameraId;
       devLog(
         () =>
             'xVeil[call-media]: native Camera2 started '

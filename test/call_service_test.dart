@@ -37,6 +37,38 @@ void main() {
     );
   });
 
+  test('capture device selection is delegated for a live call', () {
+    fakeAsync((async) {
+      final peer = NodeId.fromHex('d' * 64);
+      final messaging = _FakeMessaging();
+      final media = _FakeMedia();
+      final svc = CallService(messaging, media: media)..start();
+      messaging.onCallSignal!(
+        peer,
+        const CallSignal(
+          callId: 'device-selection',
+          type: CallSignalType.offer,
+          media: CallMedia(audio: true, video: true),
+          posture: CallPosture.direct,
+        ),
+      );
+      svc.accept();
+      async.flushMicrotasks();
+
+      var switched = false;
+      svc.switchCameraFacing().then((value) => switched = value);
+      async.flushMicrotasks();
+      expect(switched, isTrue);
+      expect(media.selectedCamera, 'back');
+
+      var micSelected = false;
+      svc.selectMicrophone('usb').then((value) => micSelected = value);
+      async.flushMicrotasks();
+      expect(micSelected, isTrue);
+      expect(media.selectedMicrophone, 'usb');
+    });
+  });
+
   test(
     'shared call slot excludes group/direct overlap and releases on end',
     () async {
@@ -1435,6 +1467,53 @@ class _FakeMedia extends CallMediaController {
   final List<String> log = [];
   final List<CallTransportKind?> startedWith = [];
   final StreamController<void> screenStops = StreamController.broadcast();
+  String? selectedCamera;
+  String? selectedMicrophone;
+
+  @override
+  Future<List<CallMediaDevice>> listCameras() async => [
+    CallMediaDevice(
+      id: 'front',
+      label: 'Front',
+      kind: CallMediaDeviceKind.camera,
+      facing: 'front',
+      selected: selectedCamera == null || selectedCamera == 'front',
+    ),
+    CallMediaDevice(
+      id: 'back',
+      label: 'Back',
+      kind: CallMediaDeviceKind.camera,
+      facing: 'back',
+      selected: selectedCamera == 'back',
+    ),
+  ];
+
+  @override
+  Future<List<CallMediaDevice>> listMicrophones() async => const [
+    CallMediaDevice(
+      id: 'builtin',
+      label: 'Built-in',
+      kind: CallMediaDeviceKind.microphone,
+      selected: true,
+    ),
+    CallMediaDevice(
+      id: 'usb',
+      label: 'USB',
+      kind: CallMediaDeviceKind.microphone,
+    ),
+  ];
+
+  @override
+  Future<bool> selectCamera(String id) async {
+    selectedCamera = id;
+    return true;
+  }
+
+  @override
+  Future<bool> selectMicrophone(String id) async {
+    selectedMicrophone = id;
+    return true;
+  }
 
   @override
   Stream<void> get screenShareStopped => screenStops.stream;

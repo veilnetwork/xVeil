@@ -2238,6 +2238,24 @@ class AppL10nEn extends AppL10n {
   String get callCameraOff => 'Camera off';
 
   @override
+  String get callDevices => 'Devices';
+
+  @override
+  String get callCameras => 'Cameras';
+
+  @override
+  String get callMicrophones => 'Microphones';
+
+  @override
+  String get callNoCaptureDevices => 'No capture devices available';
+
+  @override
+  String get callDeviceSwitchFailed => 'Could not switch device';
+
+  @override
+  String get callSwitchCamera => 'Switch camera';
+
+  @override
   String get callScreenOn => 'Sharing screen';
 
   @override

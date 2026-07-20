@@ -19,6 +19,26 @@ import 'veil_call_media.dart';
 const _uuid = Uuid();
 Future<bool> _neverP2P(NodeId peer) async => false;
 
+enum CallMediaDeviceKind { camera, microphone }
+
+/// A locally available capture device. IDs never leave this endpoint; call
+/// signaling only carries the media set, not hardware details.
+class CallMediaDevice {
+  const CallMediaDevice({
+    required this.id,
+    required this.label,
+    required this.kind,
+    this.facing,
+    this.selected = false,
+  });
+
+  final String id;
+  final String label;
+  final CallMediaDeviceKind kind;
+  final String? facing;
+  final bool selected;
+}
+
 /// How long an unanswered call rings before it auto-ends (the caller's "no
 /// answer" and the callee's "missed call").
 /// 45 s covered the happy path but not this network's real control-plane
@@ -99,6 +119,11 @@ abstract class CallMediaController {
   /// Enable/disable the local camera mid-call (start/stop capturing + sending
   /// video). No-op if no media session is running or the call has no video.
   Future<void> setCameraEnabled(bool enabled) async {}
+
+  Future<List<CallMediaDevice>> listCameras() async => const [];
+  Future<List<CallMediaDevice>> listMicrophones() async => const [];
+  Future<bool> selectCamera(String id) async => false;
+  Future<bool> selectMicrophone(String id) async => false;
 
   /// Mount the video pipeline (send + receive) on the live session of a call
   /// that started audio-only — the mid-call audio→video upgrade. Does NOT
@@ -388,6 +413,42 @@ class CallService {
     if (c == null || !c.isLive || c.micOn == on) return;
     _set(c.copyWith(micOn: on)); // reflect immediately; the UI watches Call
     await _media?.setMicMuted(!on);
+  }
+
+  Future<List<CallMediaDevice>> listCameras() =>
+      _media?.listCameras() ?? Future.value(const []);
+
+  Future<List<CallMediaDevice>> listMicrophones() =>
+      _media?.listMicrophones() ?? Future.value(const []);
+
+  Future<bool> selectCamera(String id) async {
+    final c = _current;
+    if (c == null || !c.isLive) return false;
+    return await _media?.selectCamera(id) ?? false;
+  }
+
+  Future<bool> selectMicrophone(String id) async {
+    final c = _current;
+    if (c == null || !c.isLive) return false;
+    return await _media?.selectMicrophone(id) ?? false;
+  }
+
+  /// Phone-oriented one-tap front/back switch. Multiple lenses of the same
+  /// facing remain available in the full device picker.
+  Future<bool> switchCameraFacing() async {
+    final devices = await listCameras();
+    if (devices.length < 2) return false;
+    final current = devices.where((device) => device.selected).firstOrNull;
+    final opposite = devices.where(
+      (device) =>
+          current == null ||
+          (current.facing == 'front' && device.facing == 'back') ||
+          (current.facing != 'front' && device.facing == 'front'),
+    );
+    final next = opposite.isNotEmpty
+        ? opposite.first
+        : devices.firstWhere((device) => !device.selected);
+    return selectCamera(next.id);
   }
 
   /// Toggle the local camera on/off during a live call (camera button).
