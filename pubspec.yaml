@@ -41,7 +41,7 @@ dependencies:
   # architecture (fakes injected via ProviderScope overrides).
   flutter_riverpod: ^2.6.1
   # Declarative routing with redirect-based gating (lock screen / onboarding).
-  go_router: ^14.6.2
+  go_router: ^17.3.0
   # i18n — primary audience is Russian-speaking users in censored regions.
   intl: any
   # Unicode grapheme boundaries for the shared-note sequence CRDT. Flutter
