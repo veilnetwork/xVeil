@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart' as crypto;
 import '../../core/ids.dart';
 import '../../domain/call_log.dart';
 import '../../domain/chat.dart';
@@ -25,6 +26,12 @@ import 'package:xveil/core/log.dart';
 /// source of truth for messages; conversations are derived by scanning it
 /// (the FFI exposes no KV key enumeration).
 const _logScanLimit = 100000;
+
+/// Legacy outbox journals can contain years of enqueue/ack rows. Migrate them
+/// in bounded transfers so the native FFI never materialises one enormous
+/// RustBuffer on the storage worker.
+const _outboxScanPageSize = 256;
+const _outboxIndexMarkerKey = 'outbox:index:v1';
 
 Uint8List _sk(String key) => Uint8List.fromList(utf8.encode(key));
 
@@ -151,6 +158,7 @@ class HiddenVolumeStorage implements Storage {
     if (store == null) return false;
     _store = store;
     await _invalidateScanCache(); // adopting a different space — drop the old fold
+    await _invalidateOutboxCache();
     return true;
   }
 
@@ -165,6 +173,7 @@ class HiddenVolumeStorage implements Storage {
     if (store == null) return false;
     _store = store;
     await _invalidateScanCache(); // adopting a different space — drop the old fold
+    await _invalidateOutboxCache();
     return true;
   }
 
@@ -1727,6 +1736,7 @@ class HiddenVolumeStorage implements Storage {
       Ns.fileChunks,
       Ns.outbox,
       Ns.callLog,
+      Ns.outboxIndex,
     ]) {
       await _as.eraseNamespace(ns);
     }
@@ -1741,6 +1751,7 @@ class HiddenVolumeStorage implements Storage {
     // The message log is gone — drop the in-memory fold or a later loadMessages
     // would resurrect the erased conversation from cache.
     await _invalidateScanCache();
+    await _invalidateOutboxCache();
   }
 
   @override
@@ -2191,83 +2202,306 @@ class HiddenVolumeStorage implements Storage {
     }
   }
 
-  // ── Durable frame outbox (Ns.outbox append-log) ────────────────────────────
-  // A tiny append-log: an `enqueue` record adds a pending frame, an `ack` record
-  // removes it. The set is small (in-flight control frames), so each read folds
-  // the whole namespace — no incremental cursor. Reuses the shared monotonic
-  // log-id allocator; ids are unique per namespace so there is no collision with
-  // the message log.
+  // ── Durable frame outbox (payload log + pending index) ─────────────────────
+  // Payloads stay in Ns.outbox because a control frame can exceed the KV value
+  // limit. Ns.outboxIndex maps sha256(frameId) -> logId, so reads are O(pending)
+  // and enqueue/ack update payload + index atomically. A one-time paged fold
+  // migrates the legacy enqueue/ack journal without ever returning its former
+  // 100,000-row RustBuffer across FFI in one allocation.
+
+  final Map<String, ({OutboxFrame frame, int logId})> _outboxById = {};
+  bool _outboxLoaded = false;
+  Future<void> _outboxGate = Future<void>.value();
+
+  Future<T> _outboxSerialized<T>(Future<T> Function() body) {
+    final result = _outboxGate.then((_) => body());
+    _outboxGate = result.then((_) {}, onError: (_) {});
+    return result;
+  }
+
+  static Uint8List _outboxIndexKey(String frameId) =>
+      Uint8List.fromList(crypto.sha256.convert(utf8.encode(frameId)).bytes);
+
+  static OutboxFrame? _decodePendingOutboxPayload(Uint8List payload) {
+    try {
+      final decoded = jsonDecode(utf8.decode(payload));
+      if (decoded is! Map || decoded['op'] == 'ack') return null;
+      final id = decoded['id'];
+      final peer = decoded['p'];
+      final wire = decoded['w'];
+      if (id is! String || peer is! String || wire is! String) return null;
+      return OutboxFrame(frameId: id, peerHex: peer, wire: base64.decode(wire));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _loadIndexedOutboxCritical() async {
+    final keys = await _as.kvKeys(Ns.outboxIndex);
+    final badKeys = <Uint8List>[];
+    final loaded = <String, ({OutboxFrame frame, int logId})>{};
+    for (final key in keys) {
+      try {
+        final rawLogId = await _as.get(Ns.outboxIndex, key);
+        final logId = rawLogId == null
+            ? null
+            : int.tryParse(utf8.decode(rawLogId));
+        final payload = logId == null
+            ? null
+            : await _as.readLog(Ns.outbox, logId);
+        final frame = payload == null
+            ? null
+            : _decodePendingOutboxPayload(payload);
+        if (frame == null ||
+            !_bytesEqual(key, _outboxIndexKey(frame.frameId))) {
+          badKeys.add(key);
+          continue;
+        }
+        loaded[frame.frameId] = (frame: frame, logId: logId!);
+      } catch (_) {
+        badKeys.add(key);
+      }
+    }
+    _outboxById
+      ..clear()
+      ..addAll(loaded);
+    _outboxLoaded = true;
+    if (badKeys.isNotEmpty) {
+      try {
+        await _commitBatched([
+          for (final key in badKeys) DeleteOp(Ns.outboxIndex, key),
+        ]);
+      } catch (_) {
+        // A damaged index row is already excluded from the live set. Cleanup
+        // is best-effort and can be retried after the next reopen.
+      }
+    }
+    try {
+      await _cleanupIndexedOutboxCritical();
+    } catch (e) {
+      // The index is already authoritative and usable. Historical payload rows
+      // only waste space; a failed cleanup can safely retry on the next open.
+      devLog(() => 'xVeil[outbox]: legacy payload cleanup deferred: $e');
+    }
+  }
+
+  Future<void> _deleteOutboxLogIdsCritical(List<int> logIds) async {
+    const batchSize = 128;
+    for (var i = 0; i < logIds.length; i += batchSize) {
+      await _as.commit([
+        for (final logId in logIds.skip(i).take(batchSize))
+          DeleteLogOp(Ns.outbox, logId),
+      ]);
+    }
+  }
+
+  Future<void> _cleanupIndexedOutboxCritical() async {
+    final live = {for (final item in _outboxById.values) item.logId};
+    final count = await _as.count(Ns.outbox);
+    if (count <= live.length) return;
+    final obsolete = <int>[];
+    int? start;
+    while (true) {
+      final page = await _as.iterLogRange(
+        namespace: Ns.outbox,
+        start: start,
+        limit: _outboxScanPageSize,
+      );
+      if (page.isEmpty) break;
+      for (final entry in page) {
+        if (!live.contains(entry.logId)) obsolete.add(entry.logId);
+      }
+      if (page.length < _outboxScanPageSize) break;
+      start = page.last.logId + 1;
+    }
+    if (obsolete.isEmpty) return;
+    await _deleteOutboxLogIdsCritical(obsolete);
+    devLog(
+      () =>
+          'xVeil[outbox]: removed ${obsolete.length} obsolete legacy payload rows',
+    );
+  }
+
+  Future<({Map<String, ({OutboxFrame frame, int logId})> pending, int rows})?>
+  _foldLegacyOutboxCritical() async {
+    final pending = <String, ({OutboxFrame frame, int logId})>{};
+    int? start;
+    var rows = 0;
+    try {
+      while (true) {
+        final page = await _as.iterLogRange(
+          namespace: Ns.outbox,
+          start: start,
+          limit: _outboxScanPageSize,
+        );
+        if (page.isEmpty) break;
+        for (final entry in page) {
+          rows++;
+          try {
+            final decoded = jsonDecode(utf8.decode(entry.payload));
+            if (decoded is! Map) continue;
+            final id = decoded['id'];
+            if (id is! String) continue;
+            if (decoded['op'] == 'ack') {
+              pending.remove(id);
+              continue;
+            }
+            final frame = _decodePendingOutboxPayload(entry.payload);
+            if (frame != null) {
+              pending[id] = (frame: frame, logId: entry.logId);
+            }
+          } catch (_) {
+            // One malformed legacy row must not hide later pending frames.
+          }
+        }
+        if (page.length < _outboxScanPageSize) break;
+        final last = page.last.logId;
+        start = last + 1; // iterLogRange start is inclusive.
+      }
+      return (pending: pending, rows: rows);
+    } catch (e) {
+      devLog(() => 'xVeil[outbox]: legacy scan failed: $e');
+      return null;
+    }
+  }
+
+  Future<void> _migrateLegacyOutboxCritical(
+    Map<String, ({OutboxFrame frame, int logId})> pending,
+  ) async {
+    // A previous interrupted migration may have left a partial index. The
+    // legacy journal remains authoritative until the marker is durably written.
+    await _as.eraseNamespace(Ns.outboxIndex);
+    await _commitBatched([
+      for (final item in pending.values)
+        PutOp(
+          Ns.outboxIndex,
+          _outboxIndexKey(item.frame.frameId),
+          _sk('${item.logId}'),
+        ),
+      // Deliberately last: _commitBatched preserves order, so observing this
+      // marker proves every preceding index row is durable.
+      PutOp(Ns.settings, _sk(_outboxIndexMarkerKey), _sk('1')),
+    ]);
+    if (pending.isEmpty) {
+      // With no live frame, the entire legacy journal is obsolete and safe to
+      // drop wholesale. The marker prevents another historical scan if cleanup
+      // itself is interrupted.
+      try {
+        await _as.eraseNamespace(Ns.outbox);
+      } catch (_) {}
+    } else {
+      // Now that the durable index is authoritative, old enqueue/ack rows can
+      // be removed without rewriting the still-pending payloads. This releases
+      // the B+ index slots and lets the normal/manual container compactor reclaim
+      // the corresponding append-only padding later.
+      await _cleanupIndexedOutboxCritical();
+    }
+  }
+
+  Future<bool> _ensureOutboxLoadedCritical() async {
+    if (_outboxLoaded) return true;
+    try {
+      final marker = await _as.get(Ns.settings, _sk(_outboxIndexMarkerKey));
+      if (marker != null && utf8.decode(marker, allowMalformed: true) == '1') {
+        await _loadIndexedOutboxCritical();
+        return true;
+      }
+    } catch (e) {
+      devLog(() => 'xVeil[outbox]: index load failed: $e');
+      return false;
+    }
+
+    final legacy = await _foldLegacyOutboxCritical();
+    if (legacy == null) return false;
+    _outboxById
+      ..clear()
+      ..addAll(legacy.pending);
+    _outboxLoaded = true;
+    try {
+      await _migrateLegacyOutboxCritical(legacy.pending);
+      if (legacy.rows >= _outboxScanPageSize) {
+        devLog(
+          () =>
+              'xVeil[outbox]: migrated ${legacy.rows} legacy rows to '
+              '${legacy.pending.length} indexed pending frames',
+        );
+      }
+    } catch (e) {
+      // Keep the correctly folded in-memory state. Without the marker the next
+      // launch safely retries from the still-authoritative legacy journal.
+      devLog(() => 'xVeil[outbox]: index migration deferred: $e');
+    }
+    return true;
+  }
 
   @override
   Future<void> enqueueOutboxFrame(
     String frameId,
     String peerHex,
     Uint8List wire,
-  ) async {
-    // Idempotent: skip if an un-acked entry for this id already exists.
-    for (final f in await pendingOutboxFrames()) {
-      if (f.frameId == frameId) return;
+  ) => _outboxSerialized(() async {
+    if (!await _ensureOutboxLoadedCritical()) {
+      throw StateError('durable outbox could not be loaded');
     }
+    if (_outboxById.containsKey(frameId)) return;
+    final ownedWire = Uint8List.fromList(wire);
+    final frame = OutboxFrame(
+      frameId: frameId,
+      peerHex: peerHex,
+      wire: ownedWire,
+    );
     final payload = jsonEncode({
       'id': frameId,
       'p': peerHex,
-      'w': base64.encode(wire),
+      'w': base64.encode(ownedWire),
     });
-    await _commitAtNextLogId(
-      (logId) => [AppendLogOp(Ns.outbox, logId, _sk(payload))],
+    final logId = await _commitAtNextLogId(
+      (logId) => [
+        AppendLogOp(Ns.outbox, logId, _sk(payload)),
+        PutOp(Ns.outboxIndex, _outboxIndexKey(frameId), _sk('$logId')),
+      ],
     );
-  }
+    _outboxById[frameId] = (frame: frame, logId: logId);
+  });
 
   @override
-  Future<void> ackOutboxFrame(String frameId) async {
-    // Guard: only append an ack for a frame actually pending. Message acks reuse
-    // the same wire id space (a uuid), so an unguarded append would grow the
-    // outbox log for every chat-message ack. If this was the last pending frame,
-    // compact the whole namespace instead of tombstoning.
-    final pending = await pendingOutboxFrames();
-    if (!pending.any((f) => f.frameId == frameId)) return;
-    if (pending.length == 1) {
+  Future<void> ackOutboxFrame(String frameId) => _outboxSerialized(() async {
+    if (!await _ensureOutboxLoadedCritical()) return;
+    final item = _outboxById[frameId];
+    if (item == null) return;
+    await _as.commit([
+      DeleteLogOp(Ns.outbox, item.logId),
+      DeleteOp(Ns.outboxIndex, _outboxIndexKey(frameId)),
+    ]);
+    _outboxById.remove(frameId);
+    if (_outboxById.isEmpty) {
+      // Also drops pre-index ack/enqueue debris. Logical retirement was already
+      // atomic above, so failed wholesale cleanup cannot resurrect the frame.
       try {
         await _as.eraseNamespace(Ns.outbox);
-        return;
-      } catch (_) {
-        // Fall through to a tombstone append if the wholesale erase fails.
-      }
+        await _as.eraseNamespace(Ns.outboxIndex);
+      } catch (_) {}
     }
-    final payload = jsonEncode({'op': 'ack', 'id': frameId});
-    await _commitAtNextLogId(
-      (logId) => [AppendLogOp(Ns.outbox, logId, _sk(payload))],
-    );
-  }
+  });
 
   @override
-  Future<List<OutboxFrame>> pendingOutboxFrames() async {
-    final byId = <String, OutboxFrame>{};
-    try {
-      final entries = await _as.iterLogRange(
-        namespace: Ns.outbox,
-        start: null,
-        limit: _logScanLimit,
-      );
-      for (final e in entries) {
-        final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
-        final id = m['id'] as String?;
-        if (id == null) continue;
-        if (m['op'] == 'ack') {
-          byId.remove(id);
-          continue;
-        }
-        final p = m['p'] as String?;
-        final w = m['w'] as String?;
-        if (p == null || w == null) continue;
-        byId[id] = OutboxFrame(frameId: id, peerHex: p, wire: base64.decode(w));
-      }
-    } catch (_) {
-      // Unreadable outbox → treat as empty (the mailbox copy still covers most
-      // cases); never throw into the flush loop.
-    }
-    return byId.values.toList(growable: false);
-  }
+  Future<List<OutboxFrame>> pendingOutboxFrames() =>
+      _outboxSerialized(() async {
+        if (!await _ensureOutboxLoadedCritical()) return const [];
+        return [
+          for (final item in _outboxById.values)
+            OutboxFrame(
+              frameId: item.frame.frameId,
+              peerHex: item.frame.peerHex,
+              wire: Uint8List.fromList(item.frame.wire),
+            ),
+        ];
+      });
+
+  Future<void> _invalidateOutboxCache() => _outboxSerialized(() async {
+    _outboxById.clear();
+    _outboxLoaded = false;
+  });
 
   /// Scan the log, building messages and folding status OPs onto them. Base
   /// rows carry the message; `{op:'status'}` rows update an existing id.
@@ -2665,5 +2899,6 @@ class HiddenVolumeStorage implements Storage {
       devLog(() => 'xVeil[storage]: close failed (handle dropped anyway): $e');
     }
     await _invalidateScanCache();
+    await _invalidateOutboxCache();
   }
 }
