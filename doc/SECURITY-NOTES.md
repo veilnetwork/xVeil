@@ -104,9 +104,18 @@ Known gaps to close before any real-user release:
 - Desktop dev runs **unsandboxed** (macOS DEBUG entitlement) to reach local node
   sockets/dylibs; the release build must keep the sandbox, bundle the dylibs, add the
   network (client/server) entitlements, and keep storage inside the container.
-- The 24-word recovery phrase is still a local placeholder; restoring an existing
-  identity from a real veil master-phrase is not wired yet (needs the veil-side FFI).
+- Production onboarding generates a real 24-word English BIP-39 master phrase
+  through veil FFI, validates its checksum and deterministically derives the node
+  identity from it. "Restore from recovery phrase" feeds the same derivation, so
+  the node id is stable across disaster recovery. Native input buffers are wiped
+  on every success/error path. Only loopback/test builds without the native
+  library fall back to non-restorable sample words; legacy identities originally
+  created without a phrase remain non-restorable by design and say so in the UI.
 - iOS background is short scheduled windows (BGProcessingTask), not a 24/7 relay —
   offline delivery must lean on mailbox/rendezvous + push, not a persistent on-device node.
-- Large-file anonymity over the direct send path is unaddressed (file transfer UI + backend
-  are done; the path is the same direct `app.send` as chat).
+- File-based backup import remains intentionally unavailable: there is no matching
+  deniable export format yet, and importing veil identity files beside the hidden
+  volume would violate the one-container persistence model. Large content itself
+  uses verified manifests plus receiver-pull over reliable streams; direct P2P is
+  attempted only when the user's global/per-contact policy allows it, otherwise
+  the anonymous stream path remains available.
