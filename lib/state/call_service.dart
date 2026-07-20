@@ -257,6 +257,7 @@ class CallService {
     if (!(_callSlot?.acquire(CallSlotOwner.direct) ?? true)) return;
     final callId = _uuid.v4();
     final posture = _localPosture;
+    final localMediaKey = generateCallMediaKeyContribution();
     _set(
       Call(
         callId: callId,
@@ -271,6 +272,7 @@ class CallService {
         // start with the camera OFF, or the UI toggle reads "on" and its tap
         // (→ off) is a no-op — making the audio→video upgrade unreachable.
         cameraOn: media.video,
+        localMediaKey: localMediaKey,
       ),
     );
     // Advisory proposal from our side; the answer finalizes the path once the
@@ -299,7 +301,7 @@ class CallService {
         media: media,
         posture: posture,
         transport: proposal,
-        // mediaKey (SRTP keying) is filled in Phase 3 — control plane only now.
+        mediaKey: localMediaKey,
       ),
     );
     // The realtime leg can deliver the offer and its answer while the durable
@@ -348,6 +350,7 @@ class CallService {
         media: c.media,
         posture: c.localPosture,
         transport: CallTransportProposal(transport),
+        mediaKey: c.localMediaKey,
       ),
     );
     unawaited(_startMedia());
@@ -748,6 +751,9 @@ class CallService {
       return;
     }
     final offeredMedia = sig.media ?? const CallMedia(audio: true);
+    final peerMediaKey = decodeCallMediaKeyContribution(sig.mediaKey) == null
+        ? null
+        : sig.mediaKey;
     _set(
       Call(
         callId: sig.callId,
@@ -762,6 +768,8 @@ class CallService {
         peerProtocolVersion: sig.protocolVersion,
         micOn: !_startMuted,
         cameraOn: offeredMedia.video,
+        localMediaKey: generateCallMediaKeyContribution(),
+        peerMediaKey: peerMediaKey,
       ),
     );
     _armRingTimeout(sig.callId);
@@ -801,6 +809,9 @@ class CallService {
         sig.posture == CallPosture.direct) {
       transport = CallTransportKind.relay;
     }
+    final peerMediaKey = decodeCallMediaKeyContribution(sig.mediaKey) == null
+        ? null
+        : sig.mediaKey;
     _set(
       c.copyWith(
         status: CallStatus.connecting,
@@ -808,6 +819,7 @@ class CallService {
         transport: transport,
         connectedAt: _now(),
         peerProtocolVersion: sig.protocolVersion,
+        peerMediaKey: peerMediaKey,
       ),
     );
     _startHeartbeat();

@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:math';
+import 'dart:typed_data';
 
 /// Control-plane message for a call, carried as the JSON body of a
 /// `WireKind.callSignal` envelope over the ordinary (durable) messaging channel.
@@ -183,10 +185,47 @@ class CallTransportProposal {
 /// the same instant without a gather timer: relay amortizes envelope+padding,
 /// while direct avoids one awaited IPC acknowledgement per RTP packet. The
 /// signal wire schema itself is unchanged.
-const int kCallSignalProtocolVersion = 2;
+/// v3 (2026-07-20): offer and answer carry independent random 32-byte media
+/// contributions. Both endpoints derive directional per-call relay keys; RTP
+/// is then symmetrically sealed once and stays below one QUIC DATAGRAM. Missing
+/// or malformed contributions safely retain the v2 ML-KEM envelope path.
+const int kCallSignalProtocolVersion = 3;
 
 /// The peer decodes relay media batching from this protocol version on.
 const int kCallRelayBatchingMinVersion = 2;
+
+/// The peer supports directional compact relay-media sealing from this version.
+const int kCallRelaySealedMediaMinVersion = 3;
+
+/// Generate one endpoint's E2E-authenticated call-media contribution.
+String generateCallMediaKeyContribution() {
+  final random = Random.secure();
+  final bytes = Uint8List.fromList(
+    List<int>.generate(32, (_) => random.nextInt(256), growable: false),
+  );
+  try {
+    return base64UrlEncode(bytes).replaceAll('=', '');
+  } finally {
+    bytes.fillRange(0, bytes.length, 0);
+  }
+}
+
+/// Strictly decode a v3 call-media contribution. Invalid values disable the
+/// compact optimization while the independently E2E-encrypted legacy media
+/// path remains available.
+Uint8List? decodeCallMediaKeyContribution(String? encoded) {
+  if (encoded == null || encoded.length < 42 || encoded.length > 44) {
+    return null;
+  }
+  try {
+    final bytes = Uint8List.fromList(
+      base64Url.decode(base64Url.normalize(encoded)),
+    );
+    return bytes.length == 32 ? bytes : null;
+  } catch (_) {
+    return null;
+  }
+}
 
 class CallSignal {
   const CallSignal({
@@ -217,9 +256,10 @@ class CallSignal {
   /// Proposed/agreed media path. Present on offer/answer/renegotiate/transportInfo.
   final CallTransportProposal? transport;
 
-  /// Base64 E2E media key material (SRTP master key/salt), sealed already by the
-  /// envelope's E2E crypto so relays never see media plaintext. Present on
-  /// offer/answer.
+  /// Base64url random contribution to directional relay-media keys. The call
+  /// signal's E2E envelope authenticates it; the final keys are derived only
+  /// after both offer and answer contributions are known and never leave the
+  /// endpoint. Present on v3 offer/answer.
   final String? mediaKey;
 
   /// Present on reject/end/cancel/busy.

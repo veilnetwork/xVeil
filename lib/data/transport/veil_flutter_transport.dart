@@ -203,8 +203,15 @@ class VeilFlutterTransport
   /// Enable audio/RTCP batching on a relay media channel. Callers gate this on
   /// the peer's call protocol version: a batched cell is silent noise to an
   /// older build.
-  int setRelayMediaBatching(int chan, bool on) =>
-      _mediaApp.setRelayMediaBatching(chan, on);
+  int setRelayMediaBatching(int chan, bool on, {bool compact = false}) =>
+      _mediaApp.setRelayMediaBatching(chan, on, compact: compact);
+
+  /// Configure directional v3 keys before enabling compact relay batching.
+  int configureRelayMediaCipher(
+    int chan, {
+    required Uint8List txKey,
+    required Uint8List rxKey,
+  }) => _mediaApp.configureRelayMediaCipher(chan, txKey: txKey, rxKey: rxKey);
 
   /// Relay drain queue/IPC timing for live call diagnostics.
   Map<String, int>? mediaChannelStats(int chan) =>
