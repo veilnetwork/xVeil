@@ -38,6 +38,7 @@ part 'messaging_attestation.dart';
 part 'messaging_replication.dart';
 part 'messaging_group_content.dart';
 part 'messaging_contacts.dart';
+part 'messaging_peer_sync.dart';
 
 /// Wires the [VeilTransport] inbound stream into [Storage] and exposes a send
 /// path. Persists every message, then signals [changes] so the read providers
@@ -121,6 +122,7 @@ class MessagingService {
     this,
   );
   late final _MessagingContacts _contacts = _MessagingContacts(this);
+  late final _MessagingPeerSync _peerSync = _MessagingPeerSync(this);
 
   /// Whether this identity routes over the onion rendezvous (sender-location
   /// hidden). Fixed per identity at boot from its roster `anonymous` flag — an
@@ -640,36 +642,6 @@ class MessagingService {
   final Map<String, ({int count, DateTime nextAt})> _peerUnresolvedBackoff = {};
   static const _peerUnresolvedCap = Duration(minutes: 30);
 
-  /// Event-log gap-fill (§15, 3c). A [WireKind.sync] beacon advertises our
-  /// per-author high-water + holes to a peer; the peer re-ships every event we
-  /// are missing above it (and vice-versa), so a flaky transport (lost live send,
-  /// usable(KEM)=0 mailbox) self-heals to the full log — on top of the live +
-  /// outbox + ack path, which stays as the fast path.
-  ///
-  /// Throttle per peer: we beacon at most once per [_syncSendInterval] (it costs
-  /// a live send) and ACT on a peer's beacon at most once per [_syncActInterval]
-  /// (a flood of sync{hw:0} must not make us re-ship in a storm — anti-
-  /// amplification). Each re-ship round is bounded to [_syncReshipCap] events.
-  final Map<String, DateTime> _lastSyncSentAt = {};
-  final Map<String, DateTime> _lastSyncActedAt = {};
-  static const _syncSendInterval = Duration(seconds: 20);
-
-  /// Per-peer count of consecutive sync beacons that got NO inbound of any
-  /// kind from that peer in between. Every accepted conversation used to
-  /// beacon at the base cadence FOREVER — a peer that is simply gone (dead
-  /// identity, device offline for days) received an anonymous onion send
-  /// every 20s indefinitely: pure node load, network noise, and misleading
-  /// `live send dst=&lt;ghost&gt;` lines in every diagnostic session. The beacon
-  /// interval now doubles per unanswered beacon (20s → … → [_syncBackoffCap]);
-  /// ANY inbound from the peer resets it, so a peer that comes back gets the
-  /// base cadence again within one message. `force` (reconnect) bypasses the
-  /// interval as before but does not reset the streak — only the peer
-  /// actually ANSWERING does.
-  final Map<String, int> _syncUnanswered = {};
-  static const _syncBackoffCap = Duration(minutes: 10);
-  static const _syncActInterval = Duration(seconds: 5);
-  static const _syncReshipCap = 100;
-
   /// Resumable-file re-ship (§15 3c): answer a peer's [WireKind.fileNack] for a
   /// given (peer, transfer) at most once per [_fileNackInterval] (a flood can't
   /// drive a blob re-read + chunk re-send storm), and cap the chunks one NACK
@@ -852,8 +824,7 @@ class MessagingService {
   /// is exactly when a peer may have missed our events while we were down), then
   /// flush the outbox (which sends the beacons + re-sends un-acked messages).
   Future<void> reconcileOnConnect() async {
-    _lastSyncSentAt.clear();
-    _lastSyncActedAt.clear();
+    _peerSync.resetSession();
     _lastFileNackAt.clear(); // bound the throttle map across reconnects
     // A (re)connect is exactly when interrupted downloads become resumable
     // again — reset the failure backoff and probe each pending one.
@@ -1144,7 +1115,7 @@ class MessagingService {
         if (!fresh) return;
       }
 
-      _syncUnanswered.remove(m.src.hex);
+      _peerSync.noteInbound(m.src);
       _nudgeRetries(m.src.hex);
       noteInboundFromPeer(m.src);
       devLog(
@@ -1180,7 +1151,7 @@ class MessagingService {
       if (!fresh) return;
     }
 
-    _syncUnanswered.remove(m.src.hex);
+    _peerSync.noteInbound(m.src);
     _nudgeRetries(m.src.hex);
     noteInboundFromPeer(m.src);
     devLog(() {
@@ -1200,7 +1171,7 @@ class MessagingService {
           'xVeil[recv]: INBOUND from=${m.src.short} bytes=${m.payload.length}',
     );
     // The peer answered SOMETHING — return its sync beacon to base cadence.
-    _syncUnanswered.remove(m.src.hex);
+    _peerSync.noteInbound(m.src);
     _nudgeRetries(m.src.hex);
     // ...and revive any parked downloads that list it as a holder.
     noteInboundFromPeer(m.src);
@@ -2503,7 +2474,7 @@ class MessagingService {
       if (conv.peer.status != ContactStatus.accepted) continue;
       // Event-log gap-fill beacon (§15, 3c): advertise what we hold so the peer
       // re-ships anything we are missing — and our beacon-back heals the peer.
-      // Throttled per peer ([_syncSendInterval]); live-only, so it is independent
+      // Throttled per peer by the sync subsystem; live-only, so it is independent
       // of the mailbox backoff below. The first tick after a (re)connect fires
       // immediately (no throttle entry yet), so reconnect triggers reconciliation.
       _sendSyncBestEffort(conv.peer.nodeId);
@@ -2643,215 +2614,11 @@ class MessagingService {
     devLog(() => 'xVeil[reconnect]: -> ${peer.short}');
   }
 
-  /// Send an event-log gap-fill beacon ([WireKind.sync]) to [peer] over the LIVE
-  /// path (no mailbox deposit — a beacon is only useful while the peer is online;
-  /// an offline peer beacons us when it returns). The frame carries our per-author
-  /// high-water + holes for this conversation, so the peer re-ships anything we
-  /// are missing. Throttled per peer to [_syncSendInterval] unless [force]d.
-  Future<void> _sendSyncTo(NodeId peer, {bool force = false}) async {
-    final now = DateTime.now();
-    final last = _lastSyncSentAt[peer.hex];
-    // Escalating interval for a peer that never answers (see
-    // [_syncUnanswered]): base × 2^streak, capped.
-    final streak = _syncUnanswered[peer.hex] ?? 0;
-    var interval = _syncSendInterval * (1 << (streak > 5 ? 5 : streak));
-    if (interval > _syncBackoffCap) interval = _syncBackoffCap;
-    if (!force && last != null && now.difference(last) < interval) {
-      return;
-    }
-    _lastSyncSentAt[peer.hex] = now;
-    _syncUnanswered[peer.hex] = streak + 1; // any inbound from peer resets
-    // Declare our own stream's FLOOR: the prefix we can no longer re-ship
-    // (cleared/erased at the source). Persisting it locally first makes our own
-    // hw/holes honest too; the beacon carries it so the peer stops naming that
-    // prefix as holes and re-requesting it forever. Cheap: the underlying
-    // putSetting is a no-op while the floor is unchanged.
-    final selfHex = await _selfHex();
-    final ownFloor = await _storage.ownSyncFloor(peer.hex, selfHex);
-    if (ownFloor > 0) {
-      await _storage.applyAuthorSyncFloor(peer.hex, selfHex, ownFloor);
-    }
-    final sync = await _storage.conversationSync(peer.hex);
-    // Records don't JSON-encode → flatten each hole tuple to a [lo, hi] list.
-    final holes = <String, List<List<int>>>{
-      for (final e in sync.holes.entries)
-        e.key: [
-          for (final h in e.value) [h.$1, h.$2],
-        ],
-    };
-    final body = jsonEncode({
-      'hw': sync.highWater,
-      if (holes.isNotEmpty) 'holes': holes,
-      // Own-stream floor (see above). Old builds ignore the unknown key.
-      if (ownFloor > 0) 'fl': {selfHex: ownFloor},
-      'ep': now.millisecondsSinceEpoch,
-    });
-    devLog(
-      () =>
-          'xVeil[sync]: -> ${peer.short} hw=${sync.highWater} '
-          'holes=${holes.length}',
-    );
-    await _send(peer, WireEnvelope.sync(body).encode());
-  }
+  void _sendSyncBestEffort(NodeId peer, {bool force = false}) =>
+      _peerSync.sendBestEffort(peer, force: force);
 
-  void _sendSyncBestEffort(NodeId peer, {bool force = false}) {
-    unawaited(
-      _sendSyncTo(peer, force: force).catchError((_) {
-        // Sync beacons are advisory gap-fill hints. A transient anonymous-send
-        // failure must not surface as an unhandled async exception or abort an
-        // in-flight file transfer; the retry timer will beacon again.
-      }),
-    );
-  }
-
-  /// Handle a peer's gap-fill beacon: re-ship every event WE authored above the
-  /// peer's high-water for our stream (oldest-first, bounded), then beacon back
-  /// so the peer heals OUR gaps in the same round. Rate-limited per peer
-  /// ([_syncActInterval]) so a flood of sync{hw:0} can't drive a re-ship storm.
-  Future<void> _handlePeerSync(NodeId peer, String body) async {
-    final now = DateTime.now();
-    final lastActed = _lastSyncActedAt[peer.hex];
-    if (lastActed != null && now.difference(lastActed) < _syncActInterval) {
-      // Still beacon back (cheap, throttled) so the peer's gaps heal, but don't
-      // re-run the (heavier) re-ship scan this often.
-      _sendSyncBestEffort(peer);
-      return;
-    }
-    _lastSyncActedAt[peer.hex] = now;
-
-    Map<String, dynamic> j;
-    try {
-      j = jsonDecode(body) as Map<String, dynamic>;
-    } catch (_) {
-      return; // malformed beacon — drop
-    }
-    final hw = j['hw'];
-    if (hw is! Map) return;
-    final selfHex = await _selfHex();
-    // The peer's declared FLOOR for ITS OWN stream: "nothing of mine exists at
-    // or below F any more — stop treating that prefix as holes". Accepted ONLY
-    // for the authenticated sender's own author stream (an author is always
-    // entitled to void its own history; it could equally just never have sent
-    // it), so a peer cannot suppress gap-fill of anyone else's events.
-    final fl = j['fl'];
-    if (fl is Map) {
-      final declared = fl[peer.hex];
-      if (declared is int && declared > 0) {
-        await _storage.applyAuthorSyncFloor(peer.hex, peer.hex, declared);
-      }
-    }
-    // The peer's high-water for OUR author stream = how far it has folded us.
-    final claimed = hw[selfHex];
-    var peerHw = claimed is int && claimed >= 0 ? claimed : 0;
-    // RULE HW: clamp to what we actually emitted — a peer can't ack/own a seq it
-    // was never sent (anti-forgery). Our own stream is gap-free, so high-water ==
-    // our max self seq; re-shipping above it would be a no-op anyway.
-    final ours = await _storage.conversationSync(peer.hex);
-    final ourMax = ours.highWater[selfHex] ?? 0;
-    if (peerHw > ourMax) peerHw = ourMax;
-
-    // Re-ship everything above the clamped high-water, oldest-first, bounded.
-    // seq > hw already covers every named hole (all holes sit above the
-    // contiguous high-water), so v1 needs no separate hole handling.
-    final events = await _storage.loadEventsSince(
-      peer.hex,
-      selfHex,
-      peerHw,
-      limit: _syncReshipCap,
-    );
-    if (events.isNotEmpty) {
-      devLog(
-        () =>
-            'xVeil[sync]: <- ${peer.short} peerHw(me)=$peerHw '
-            'reship=${events.length}',
-      );
-      // Resolve ids → Messages once, so a file post can re-ship its transfer
-      // descriptor (content manifest for the new content layer, legacy file
-      // probe for old small-file chunks) rather than only the caption text.
-      final byId = {
-        for (final mm in await _storage.loadMessages(peer.hex)) mm.id: mm,
-      };
-      for (final ev in events) {
-        switch (ev.kind) {
-          case EventKind.post:
-          case EventKind.filePost:
-            final stored = byId[ev.id];
-            final isFile =
-                ev.kind == EventKind.filePost || (stored?.isFile ?? false);
-            if (isFile) {
-              if (stored == null) continue;
-              final contentId = stored.fileContentId ?? stored.fileId;
-              final served = contentId == null ? null : _serving[contentId];
-              if (served != null) {
-                // Content-layer filePost: the first contentManifest is a lossy
-                // live datagram. If it was the frame that got dropped while an
-                // anonymous circuit was still warming up, gap-fill must re-send
-                // the MANIFEST itself; a legacy fileQuery probe is not enough to
-                // surface an offered file on the receiver.
-                final manifest = served.manifest.withEvent(
-                  msgId: ev.id,
-                  author: selfHex,
-                  seq: ev.seq,
-                  ts: ev.ts,
-                );
-                await _sendContentManifest(peer, manifest);
-                continue;
-              }
-              // Legacy small-file event: send a CHEAP probe (no blob load),
-              // never the caption text. The receiver replies with a fileNack
-              // listing the chunks it lacks and we re-send only those
-              // (resumable) — instead of pushing the whole blob every round.
-              // A filePost whose row/blob is gone is simply not probed (it heals
-              // as a void later).
-              if (stored.fileId == null) continue;
-              await _send(
-                peer,
-                fileQueryEnvelope(
-                  transferId: ev.id,
-                  name: stored.fileName,
-                  seq: ev.seq,
-                  sentAtMs: ev.ts, // keep the file's ORIGINAL send-time
-                ).encode(),
-              );
-              continue;
-            }
-            await _send(
-              peer,
-              WireEnvelope.message(
-                ev.body ?? '',
-                id: ev.id,
-                sentAtMs: ev.ts,
-                seq: ev.seq,
-                replyTo: ev.replyTo,
-                forwardedFrom: ev.forwardedFrom,
-                customEmoji: stored?.customEmoji ?? const [],
-              ).encode(),
-            );
-          case EventKind.edit:
-            if (ev.target == null) continue;
-            await _send(
-              peer,
-              WireEnvelope.edit(
-                ev.target!,
-                ev.body ?? '',
-                seq: ev.seq,
-                customEmoji: ev.customEmoji,
-              ).encode(),
-            );
-          case EventKind.void_:
-            await _send(peer, WireEnvelope.voidSeq(ev.seq).encode());
-          case EventKind.delete:
-          case EventKind.clear:
-            // delete: never a stored event kind on this path. clear: the storage
-            // re-ship maps a clear row to an inert void_ (its effect travels via
-            // its own WireEnvelope.clear), so a clear LogEvent never reaches here.
-            continue;
-        }
-      }
-    }
-    // Beacon back so the peer re-ships what WE are missing (throttled).
-    _sendSyncBestEffort(peer);
-  }
+  Future<void> _handlePeerSync(NodeId peer, String body) =>
+      _peerSync.handle(peer, body);
 
   /// Best-effort offline deposit of [wire] (the message envelope) for [peer],
   /// keyed by a stable 32-byte content id derived from the message [id]. No-op
