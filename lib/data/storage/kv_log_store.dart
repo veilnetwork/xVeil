@@ -26,6 +26,13 @@ class Ns {
   /// accumulated versions made every whole-journal rewrite throw
   /// PayloadTooLarge after ~11 rows (rows were then silently lost).
   static const int callLog = 7;
+
+  /// KV namespace mapping a stable hash of each pending outbox frame id to the
+  /// frame's [outbox] log id. The payload remains in the log (control frames
+  /// can exceed the KV value limit); this small index makes restart and every
+  /// retry proportional to the number of pending frames instead of the entire
+  /// historical enqueue/ack journal.
+  static const int outboxIndex = 8;
 }
 
 /// A single write in an atomic [KvLogStore.commit] batch. Mirrors
