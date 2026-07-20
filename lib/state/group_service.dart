@@ -2740,7 +2740,9 @@ class GroupService {
     final adoptedDeviceGroup =
         man.name == kDeviceGroupName &&
         await deviceGroupIdHex() == man.groupId.hex;
-    if (adoptedDeviceGroup) _invalidateDeviceMembersCache();
+    if (adoptedDeviceGroup) {
+      _publishDeviceMembersCache(man, mergedState);
+    }
     if (existing == null) {
       final idx = await _index();
       if (!idx.contains(man.groupId.hex)) {
@@ -3177,7 +3179,7 @@ class GroupService {
     }
     await _storage.putSetting('devices.gid', gid.hex);
     _deviceGidCache = gid.hex;
-    _invalidateDeviceMembersCache();
+    _publishDeviceMembersCache(manifest, folded.state);
     if (broadcastSnapshot) await broadcast(gid);
     return gid;
   }
@@ -3244,7 +3246,7 @@ class GroupService {
       );
     }
     _deviceGidCache = groupId.hex;
-    _invalidateDeviceMembersCache();
+    _publishDeviceMembersCache(bundle.manifest, state);
     changes.value++;
     // Ingest deliberately kept the snapshot inert before adoption. Replay its
     // validated state now that gid + sovereign genesis + membership are bound.
@@ -3311,7 +3313,7 @@ class GroupService {
       return false;
     }
     await _save(bundle.copyWith(control: candidate));
-    _invalidateDeviceMembersCache();
+    _publishDeviceMembersCache(bundle.manifest, folded.state);
     if (op == ControlOp.addMember && broadcastSnapshot) {
       await broadcast(bundle.manifest.groupId);
     } else if (op == ControlOp.removeMember) {
@@ -3483,6 +3485,15 @@ class GroupService {
   void _invalidateDeviceMembersCache() {
     _deviceMembersCache = null;
     _deviceMembersCacheGeneration++;
+  }
+
+  void _publishDeviceMembersCache(GroupManifest manifest, GroupState state) {
+    _deviceMembersCacheGeneration++;
+    _deviceMembersCache = {
+      for (final member in state.members.values)
+        if (member.nodeId != manifest.owner) member.nodeId.hex,
+    };
+    _deviceMembersCacheAtMs = _now();
   }
 
   /// Serializes [postDeviceEvent] appends: sync emits are fire-and-forget

@@ -172,6 +172,24 @@ void main() {
     expect(s2.roleOf(_bob), GroupRole.member);
   });
 
+  test('same-author seq remains causal when wall clock moves backwards', () {
+    final add = _e(_owner, 0, ControlOp.addMember,
+        target: _bob, role: GroupRole.member);
+    final remove = ControlEntry.fromJson({
+      ..._e(_owner, 1, ControlOp.removeMember, target: _bob).toJson(),
+      'ts': add.createdAtMs - 1,
+    })!;
+
+    final result = foldControlLog(
+      owner: _owner,
+      entries: [remove, add],
+      verify: _ok,
+    );
+    expect(result.rejected, isEmpty);
+    expect(result.state.isMember(_bob), isFalse,
+        reason: 'seq 0 add must precede seq 1 revoke despite clock rollback');
+  });
+
   test('manifest + control entry json round-trip', () {
     final m = GroupManifest(
       groupId: _owner,
