@@ -111,7 +111,7 @@ class _MessagingConversationAdmin {
   }) async {
     if (notifyPeer) await _sendChatDeletedFarewell(peer);
     await _owner._storage.removeConversation(peer);
-    _owner._peerUnresolvedBackoff.remove(peer.hex);
+    _owner._mailboxDelivery.clearPeerBackoff(peer.hex);
     await _removeFromAllFolders(peer.hex);
     _owner._signal();
   }

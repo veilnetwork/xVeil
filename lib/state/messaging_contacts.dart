@@ -97,7 +97,7 @@ class _MessagingContacts {
       // it DURABLY (see [sendDurable]): the accept is a control frame that must
       // land, and this retry proves the first copy didn't. Force a fresh
       // mailbox deposit too — the previous one may have aged out at the relay.
-      _owner._stashed.remove('accept:${m.src.hex}');
+      _owner._mailboxDelivery.removeStashed('accept:${m.src.hex}');
       await _owner.sendDurable(
         m.src,
         'accept:${m.src.hex}',
@@ -160,8 +160,8 @@ class _MessagingContacts {
       id: id,
       sentAtMs: sentAt.millisecondsSinceEpoch,
     ).encode();
-    _owner._mailbox
-        ?.noteActivity(); // expect the accept/decline back as mailbox mail
+    // Expect the accept/decline back as mailbox mail.
+    _owner._mailboxDelivery.noteActivity();
     await _owner._send(dst, wire);
     // Also deposit the request at the recipient's mailbox relay so a NAT'd /
     // offline peer receives it. The live send above only lands if they're
@@ -190,7 +190,7 @@ class _MessagingContacts {
     id ??= _uuid.v4();
     final wire = WireEnvelope.request(body ?? '', id: id).encode();
     await _owner._send(dst, wire);
-    _owner._stashed.remove(id); // allow the deposit to happen again
+    _owner._mailboxDelivery.removeStashed(id); // allow a fresh deposit
     await _owner._maybeStash(dst, id, wire);
     _owner._signal();
   }

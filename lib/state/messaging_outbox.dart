@@ -148,7 +148,7 @@ class _MessagingOutbox {
           frame.frameId.startsWith('call:') ||
           frame.frameId.startsWith('gcall:');
       // Media pauses unrelated maintenance, but never call lifecycle recovery.
-      if (_owner._backgroundDeliveryPaused && !isCallSignal) continue;
+      if (_owner.backgroundStashPaused && !isCallSignal) continue;
       final peer = NodeId.fromHex(frame.peerHex);
       final Contact? contact;
       try {
@@ -173,8 +173,7 @@ class _MessagingOutbox {
       if (contact?.status == ContactStatus.blocked && !groupMemberCarrier) {
         continue;
       }
-      final peerBackoff = _owner._peerUnresolvedBackoff[frame.peerHex];
-      if (peerBackoff != null && _owner._now().isBefore(peerBackoff.nextAt)) {
+      if (_owner._mailboxDelivery.peerBackedOff(frame.peerHex, _owner._now())) {
         continue;
       }
       _owner._stashInBackground(peer, frame.frameId, frame.wire);
@@ -273,7 +272,7 @@ class _MessagingOutbox {
   }
 
   void retire(String frameId) {
-    _owner._stashed.remove(frameId);
+    _owner._mailboxDelivery.removeStashed(frameId);
     _liveBackoff.remove(frameId);
     unawaited(_owner._storage.ackOutboxFrame(frameId));
   }

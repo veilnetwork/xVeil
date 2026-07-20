@@ -43,6 +43,7 @@ part 'messaging_mutations.dart';
 part 'messaging_device_mirror.dart';
 part 'messaging_outbox.dart';
 part 'messaging_realtime_control.dart';
+part 'messaging_mailbox_delivery.dart';
 
 /// Wires the [VeilTransport] inbound stream into [Storage] and exposes a send
 /// path. Persists every message, then signals [changes] so the read providers
@@ -134,6 +135,8 @@ class MessagingService {
   late final _MessagingOutbox _outbox = _MessagingOutbox(this);
   late final _MessagingRealtimeControl _realtimeControl =
       _MessagingRealtimeControl(this);
+  final _MessagingMailboxDelivery _mailboxDelivery =
+      _MessagingMailboxDelivery();
 
   /// Whether this identity routes over the onion rendezvous (sender-location
   /// hidden). Fixed per identity at boot from its roster `anonymous` flag — an
@@ -500,10 +503,9 @@ class MessagingService {
     // message to "delivered"). The MESSAGE itself reaches a NAT'd peer only
     // because it is DEPOSITED at their mailbox and pushed over rendezvous; the
     // ack was missing that leg. Deposit the ack at the sender's mailbox too so it
-    // rides the same push. Deduped per id via the '_stashed' set (at most one
-    // deposit per message), and fire-and-forget so the seal/PUT round-trip never
-    // stalls the receive path — the live send above still covers the online case
-    // at lower latency.
+    // rides the same push. The mailbox-delivery subsystem dedups by id (at most
+    // one deposit per message); fire-and-forget keeps the seal/PUT round-trip
+    // off the receive path while the live send covers the online case.
     await _send(m.src, ack);
     _stashInBackground(m.src, 'ack:$id', ack);
   }
@@ -521,53 +523,11 @@ class MessagingService {
   bool _flushing = false;
   final Map<String, _Incoming> _inFlight = {};
 
-  /// Offline-delivery side-channel (null until wired by the provider, and null
-  /// for the loopback/test transport). When present, un-acked outgoing messages
-  /// are ALSO deposited at the recipient's mailbox relay so an offline peer
-  /// receives them, and our own mailbox is drained into [deliverInbound].
-  MailboxSink? _mailbox;
-
-  /// Message ids already deposited to the mailbox this session — so a message
-  /// is stashed once, not on every outbox flush. The relay also dedups by
-  /// content id, so this is purely a network-traffic optimisation.
-  final Set<String> _stashed = {};
-
-  /// Stashes currently doing recipient lookup + ML-KEM sealing + relay fanout.
-  /// A durable-outbox pass can contain dozens of distinct frames. Starting all
-  /// of them at once saturated the mobile CPU and opened hundreds of onion
-  /// circuits while an otherwise-direct video call was active. Background
-  /// callers admit one operation at a time; skipped frames remain in the
-  /// durable outbox and are considered again by the next flush.
-  final Set<String> _stashInFlight = {};
-  static const _maxBackgroundStashes = 1;
-
-  /// Set by the call FSM while a call is ringing/connecting/active. Durable
-  /// frames stay persisted and call control continues, but mailbox FETCH/KEM
-  /// work plus unrelated outbox/sync retries wait until the call ends. Those
-  /// paths share the native scheduler with direct media and were device-measured
-  /// as periodic 75-500 ms frame-arrival gaps.
-  bool _backgroundDeliveryPaused = false;
-
-  bool get backgroundStashPaused => _backgroundDeliveryPaused;
+  bool get backgroundStashPaused => _mailboxDelivery.paused;
 
   set backgroundStashPaused(bool value) {
-    if (_backgroundDeliveryPaused == value) return;
-    _backgroundDeliveryPaused = value;
-    _mailbox?.backgroundDrainPaused = value;
+    _mailboxDelivery.paused = value;
   }
-
-  /// When a stash of a given id last FAILED. A failed deposit is never added to
-  /// [_stashed] (so a later flush retries it — correct for offline delivery),
-  /// but EACH `mailbox.stash` spawns a worker isolate that does a DHT relay-key
-  /// resolve + ML-KEM seal and blocks ~12s when the relay can't be resolved. The
-  /// 3s outbox flush therefore re-spawned a seal isolate every tick for every
-  /// not-yet-deliverable message — a self-inflicted isolate/CPU storm competing
-  /// with live onion delivery (observed: 140 "stash FAILED" in one session). We
-  /// back off re-attempts of a FAILED id by [_stashRetryBackoff]; the deposit is
-  /// never dropped (it still retries, just not every 3s), so offline delivery is
-  /// unaffected.
-  final Map<String, DateTime> _stashFailedAt = {};
-  static const _stashRetryBackoff = Duration(seconds: 30);
 
   /// Per-message live-resend backoff. The outbox flush fires every
   /// [_retryInterval] (3s), but re-sending EVERY un-acked message on EVERY tick
@@ -595,15 +555,6 @@ class MessagingService {
   /// before the durable status write resolves. Durable `MessageStatus.delivered`
   /// remains the source of truth across restart — this is only an early-cancel.
   final Set<String> _delivered = {};
-
-  /// Per-PEER escalating backoff for a contact whose mailbox seal keeps failing
-  /// `PeerUnresolved` (a dead/old identity — e.g. a peer that re-provisioned).
-  /// Without it the 3s flush re-sends to such a ghost forever. Escalates
-  /// 30s→1m→…→30m (cap); cleared on any successful stash for the peer, and reset
-  /// on restart (a fresh resolve attempt) — it NEVER permanently drops, so if the
-  /// identity resolves again delivery resumes.
-  final Map<String, ({int count, DateTime nextAt})> _peerUnresolvedBackoff = {};
-  static const _peerUnresolvedCap = Duration(minutes: 30);
 
   /// Resumable-file re-ship (§15 3c): answer a peer's [WireKind.fileNack] for a
   /// given (peer, transfer) at most once per [_fileNackInterval] (a flood can't
@@ -635,16 +586,13 @@ class MessagingService {
 
   /// Attach the offline-delivery [MailboxService] after construction (it is
   /// built with [deliverInbound] as its drain sink, so it must exist first).
-  void attachMailbox(MailboxSink mailbox) {
-    _mailbox = mailbox;
-    mailbox.backgroundDrainPaused = _backgroundDeliveryPaused;
-  }
+  void attachMailbox(MailboxSink mailbox) => _mailboxDelivery.attach(mailbox);
 
   /// The app just returned to the foreground: the user is looking at the
   /// screen, so anything parked at the mailbox relay should surface NOW, not on
   /// the idle back-off (which can be minutes deep after a long background
   /// stint). One debounced drain + a short burst window; a no-op when locked.
-  void onAppResumed() => _mailbox?.nudgeDrain();
+  void onAppResumed() => _mailboxDelivery.nudgeDrain();
 
   /// Route a message recovered from our mailbox through the normal inbound
   /// path — it is a `WireEnvelope`, so [_dispatch] decodes it, applies the
@@ -679,7 +627,7 @@ class MessagingService {
     // stashed message surfaces only on the next idle drain (~30 s measured);
     // with it, within the debounce window. Debounced + no-op without a mailbox.
     void receive(InboundMessage m) {
-      _mailbox?.nudgeDrain();
+      _mailboxDelivery.nudgeDrain();
       _onInbound(m);
     }
 
@@ -689,7 +637,7 @@ class MessagingService {
       _realtimeSub = (transport as RealtimeInboundTransport)
           .realtimeMessages()
           .listen((message) {
-            _mailbox?.nudgeDrain();
+            _mailboxDelivery.nudgeDrain();
             _onRealtimeInbound(message);
           });
     }
@@ -1801,7 +1749,7 @@ class MessagingService {
     // A user send opens the mailbox burst window: the reply usually comes back
     // as drained mail (the live introduce toward us may be down), so poll fast
     // for a bounded window instead of the idle back-off.
-    _mailbox?.noteActivity();
+    _mailboxDelivery.noteActivity();
     await _send(dst, wire, wantReply: true);
     // Deposit at the peer's mailbox as a BACKGROUND fallback (don't await): the
     // seal+put is a slow onion round-trip, and blocking the send on it made every
@@ -1822,7 +1770,7 @@ class MessagingService {
     // Conversation sync, reconnect probes, and message retries use the normal
     // onion/contact path. They are durable background work and can wait for
     // hangup; only call-control frames above remain latency-critical here.
-    if (_backgroundDeliveryPaused) return;
+    if (backgroundStashPaused) return;
     final convs = await _storage.loadConversations();
     for (final conv in convs) {
       if (conv.peer.status != ContactStatus.accepted) continue;
@@ -1841,8 +1789,12 @@ class MessagingService {
       // `PeerUnresolved` (a dead/old identity) is backed off per-peer, so we stop
       // re-sending to it every 3s forever. Escalating + non-permanent — the next
       // allowed tick retries, so a peer that resolves again still gets delivered.
-      final pb = _peerUnresolvedBackoff[conv.peer.nodeId.hex];
-      if (pb != null && DateTime.now().isBefore(pb.nextAt)) continue;
+      if (_mailboxDelivery.peerBackedOff(
+        conv.peer.nodeId.hex,
+        DateTime.now(),
+      )) {
+        continue;
+      }
       for (final m in msgs) {
         if (m.direction == MessageDirection.outgoing &&
             m.status == MessageStatus.sent &&
@@ -1963,7 +1915,7 @@ class MessagingService {
     // re-drives it on its own backoff between our 15-min attempts, and each
     // attempt forces a fresh mailbox deposit (the relay copy may have aged out
     // while the peer was away).
-    _stashed.remove(reconnectFid);
+    _mailboxDelivery.removeStashed(reconnectFid);
     await sendDurable(peer, reconnectFid, const WireEnvelope.reconnect(''));
     devLog(() => 'xVeil[reconnect]: -> ${peer.short}');
   }
@@ -1977,95 +1929,11 @@ class MessagingService {
   /// Best-effort offline deposit of [wire] (the message envelope) for [peer],
   /// keyed by a stable 32-byte content id derived from the message [id]. No-op
   /// when there is no mailbox side-channel or we already stashed this message.
-  void _stashInBackground(NodeId peer, String id, Uint8List wire) {
-    if (backgroundStashPaused) return;
-    if (_stashInFlight.length >= _maxBackgroundStashes) return;
-    unawaited(_maybeStash(peer, id, wire));
-  }
+  void _stashInBackground(NodeId peer, String id, Uint8List wire) =>
+      _mailboxDelivery.stashInBackground(peer, id, wire);
 
-  Future<void> _maybeStash(NodeId peer, String id, Uint8List wire) async {
-    final mailbox = _mailbox;
-    if (mailbox == null) {
-      devLog(
-        () =>
-            'xVeil[send]: stash SKIP dst=${peer.short} id=$id '
-            '— NO mailbox (transport not VeilFlutter or no relays)',
-      );
-      return;
-    }
-    if (_stashed.contains(id)) {
-      devLog(
-        () =>
-            'xVeil[send]: stash SKIP dst=${peer.short} id=$id — already stashed',
-      );
-      return;
-    }
-    // Back off re-attempts of a recently-FAILED id: a failed seal isolate blocks
-    // ~12s and the 3s flush would otherwise re-spawn one every tick. The deposit
-    // is NOT dropped — it just waits [_stashRetryBackoff] before the next try, so
-    // a genuinely-offline peer still gets it (eventually), without the storm.
-    final failedAt = _stashFailedAt[id];
-    if (failedAt != null &&
-        DateTime.now().difference(failedAt) < _stashRetryBackoff) {
-      return; // still in backoff — skip this flush, retry on a later one
-    }
-    // Same-id callers can race (initial send + periodic outbox flush). Do not
-    // perform duplicate KEM/fanout work while the first deposit is unresolved.
-    if (!_stashInFlight.add(id)) return;
-    try {
-      try {
-        await mailbox.stash(
-          recipient: peer,
-          payload: wire,
-          contentId: _contentIdFor(id),
-        );
-        _stashed.add(id);
-        _stashFailedAt.remove(id);
-        _peerUnresolvedBackoff.remove(
-          peer.hex,
-        ); // peer resolves again — un-ghost it
-        devLog(
-          () =>
-              'xVeil[send]: stash OK dst=${peer.short} id=$id '
-              '(deposited at recipient relay)',
-        );
-      } catch (e, st) {
-        // No relay / no route yet — leave it un-stashed so a later flush retries
-        // (after the backoff). LOG the real reason: this is the offline-delivery
-        // path, and a swallowed failure here is invisible "message never arrived".
-        _stashFailedAt[id] = DateTime.now();
-        // A persistent `PeerUnresolved` means the recipient identity can't be
-        // resolved at all (a dead/old identity — the ghost). Escalate a PER-PEER
-        // backoff so the flush stops hammering it every 3s; cleared on any later
-        // success, reset on restart — never a permanent drop.
-        if (e.toString().contains('PeerUnresolved')) {
-          final pb = _peerUnresolvedBackoff[peer.hex];
-          final count = (pb?.count ?? 0) + 1;
-          final secs = (30 * (1 << (count - 1))).clamp(
-            30,
-            _peerUnresolvedCap.inSeconds,
-          );
-          _peerUnresolvedBackoff[peer.hex] = (
-            count: count,
-            nextAt: DateTime.now().add(Duration(seconds: secs)),
-          );
-        }
-        devLog(
-          () =>
-              'xVeil[send]: stash FAILED dst=${peer.short} id=$id '
-              '(backoff ${_stashRetryBackoff.inSeconds}s): $e\n$st',
-        );
-      }
-    } finally {
-      _stashInFlight.remove(id);
-    }
-  }
-
-  /// Stable 32-byte mailbox content id for a message [id] (the relay keys dedup
-  /// + eviction on this). Distinct from the on-wire message id the recipient
-  /// dedups on; this only needs to be deterministic per message.
-  static Uint8List _contentIdFor(String id) =>
-      blake3DeriveKey('veil.mailbox.content_id.v1', utf8.encode(id));
+  Future<void> _maybeStash(NodeId peer, String id, Uint8List wire) =>
+      _mailboxDelivery.maybeStash(peer, id, wire);
 
   /// Delete a local copy, scrub its plaintext, and stop unreferenced serving.
   Future<void> deleteMessageLocally(String messageId) =>
@@ -2094,7 +1962,7 @@ class MessagingService {
   }) async {
     final contact = await _storage.getContact(dst);
     if (contact == null || contact.status != ContactStatus.accepted) return;
-    _mailbox?.noteActivity(); // user action → mailbox burst window
+    _mailboxDelivery.noteActivity(); // user action → mailbox burst window
     // The recipient will pull from us shortly — open our serve pool now so
     // its first attempt doesn't die on a cold-pool manifest timeout.
     _warmStreamPeer(dst);
@@ -2881,7 +2749,7 @@ class MessagingService {
     if (!await _storage.hasFile(contentId)) return false;
     final persisted = await _loadPersistedManifest(contentId);
     if (persisted == null) return false;
-    _mailbox?.noteActivity();
+    _mailboxDelivery.noteActivity();
     _warmStreamPeer(dst);
 
     // Strip any old per-send fields: a cid can be shared repeatedly and each
@@ -2928,7 +2796,7 @@ class MessagingService {
     List<double> waveform, {
     String? lang,
   }) async {
-    _mailbox?.noteActivity(); // user action → mailbox burst window
+    _mailboxDelivery.noteActivity(); // user action → mailbox burst window
     _warmStreamPeer(dst);
     // Carry the SENDER's language in the sidecar so the receiver transcribes in
     // the spoken language, not their own locale.
@@ -2948,7 +2816,7 @@ class MessagingService {
     int durationMs, {
     String? thumbB64,
   }) async {
-    _mailbox?.noteActivity(); // user action → mailbox burst window
+    _mailboxDelivery.noteActivity(); // user action → mailbox burst window
     _warmStreamPeer(dst);
     final sidecar = encodeVnoteSidecar(durationMs, thumbB64);
     final name = '${_uuid.v4()}$kVnoteFileExt';
@@ -2960,7 +2828,7 @@ class MessagingService {
   /// micro-thumb in the sidecar so the receiver previews it instantly. The
   /// extension makes both ends render it naked (no bubble chrome).
   Future<void> sendSticker(NodeId dst, Uint8List bytes) async {
-    _mailbox?.noteActivity();
+    _mailboxDelivery.noteActivity();
     _warmStreamPeer(dst);
     final thumb = await _imageThumbMaker(bytes);
     final name = '${_uuid.v4()}$kStickerFileExt';
@@ -2975,7 +2843,7 @@ class MessagingService {
     Uint8List blob, {
     String? firstThumbB64,
   }) async {
-    _mailbox?.noteActivity();
+    _mailboxDelivery.noteActivity();
     _warmStreamPeer(dst);
     final name = '${_uuid.v4()}$kStickerPackFileExt';
     await _sendAsContent(dst, blob, name, thumbOverride: firstThumbB64);
@@ -3085,7 +2953,7 @@ class MessagingService {
       await close(); // not serving this peer → release the handle now
       return null;
     }
-    _mailbox?.noteActivity(); // user action → mailbox burst window
+    _mailboxDelivery.noteActivity(); // user action → mailbox burst window
     // The recipient will pull from us shortly — open our serve pool now, in
     // parallel with the piece hashing below.
     _warmStreamPeer(dst);
