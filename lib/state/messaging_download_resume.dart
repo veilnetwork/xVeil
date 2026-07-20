@@ -50,10 +50,7 @@ class _MessagingDownloadResume {
     final fetch = _owner._contentFetching.take(contentId);
 
     final sinks = <_FetchSink>{?parkedSink, ?fetch?.sink};
-    final streams =
-        _owner._activePullStreams[contentId]?.toList(growable: false) ??
-        const <_TrackedPullStream>[];
-    await Future.wait([for (final stream in streams) stream.abort()]);
+    await _owner._contentStreams.abortPulls(contentId);
     if (!_owner._contentCancelled.isClosed) {
       _owner._contentCancelled.add(contentId);
     }

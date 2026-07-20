@@ -50,6 +50,7 @@ part 'messaging_content_availability.dart';
 part 'messaging_download_resume.dart';
 part 'messaging_content_serving.dart';
 part 'messaging_content_fetching.dart';
+part 'messaging_content_stream_lifecycle.dart';
 
 /// Wires the [VeilTransport] inbound stream into [Storage] and exposes a send
 /// path. Persists every message, then signals [changes] so the read providers
@@ -156,6 +157,8 @@ class MessagingService {
       _MessagingContentServing(this);
   late final _MessagingContentFetching _contentFetching =
       _MessagingContentFetching(this);
+  final _MessagingContentStreamLifecycle _contentStreams =
+      _MessagingContentStreamLifecycle();
 
   /// Whether this identity routes over the onion rendezvous (sender-location
   /// hidden). Fixed per identity at boot from its roster `anonymous` flag — an
@@ -598,8 +601,19 @@ class MessagingService {
       (_) => _retryFlush(),
     );
     unawaited(_loadFilePolicy()); // this identity's auto-download policy (A1)
-    // Serve inbound bulk file streams (S2) when the transport supports them.
-    if (_transport is StreamTransport) unawaited(_acceptStreamLoop());
+    // Serve inbound bulk file streams (S2). The transport-scoped broker keeps
+    // exactly one native accept loop across synchronous identity/service
+    // replacements, so a disposed service cannot steal the replacement's first
+    // stream while its old 2-second accept is still parked.
+    if (transport is StreamTransport) {
+      final streamTransport = transport as StreamTransport;
+      _contentStreams.attach(
+        streamTransport,
+        acceptP2P: _p2pStreamsEnabled && transport is P2PStreamTransport,
+        onAnonymous: _acceptAnonymousContentStream,
+        onP2P: _acceptP2PContentStream,
+      );
+    }
     // Re-drive downloads that were interrupted before the last shutdown.
     unawaited(_startDownloadResumer());
     // Settings-namespace GC, once per unlock and off the hot path: aged stores
@@ -1743,7 +1757,6 @@ class MessagingService {
   /// Every stream/datagram retry path consults this set, so aborting one stream
   /// cannot silently fail over to another holder behind the user's back.
   final Set<String> _cancelledDownloads = {};
-  final Map<String, Set<_TrackedPullStream>> _activePullStreams = {};
 
   /// Re-request cadence for still-missing pieces (injectable for tests).
   final Duration _contentReRequestInterval;
@@ -2772,7 +2785,7 @@ class MessagingService {
     ContentManifest m, {
     _FetchSink? sink,
   }) async {
-    if (_cancelledDownloads.contains(m.contentId)) {
+    if (_disposed || _cancelledDownloads.contains(m.contentId)) {
       try {
         await sink?.close();
       } catch (_) {}
@@ -3966,8 +3979,6 @@ class MessagingService {
   final bool _explicitRangeFanout;
   final Duration _streamOpenWriteGrace;
   final Duration _streamRequestTimeout;
-  bool _acceptingStreams = false;
-
   static int _clampStreamRangeParallelism(int value) {
     if (value < 1) return 1;
     if (value > _maxStreamRangeParallelism) return _maxStreamRangeParallelism;
@@ -3998,47 +4009,25 @@ class MessagingService {
 
   void _endStreamServe(String cid) => _contentServing.endStream(cid);
 
-  /// Accept inbound bulk streams + serve the requested file. Started by [start]
-  /// when the transport supports streams; ends on [dispose].
-  Future<void> _acceptStreamLoop() async {
-    if (_acceptingStreams) return;
-    _acceptingStreams = true;
-    final st = _transport as StreamTransport;
-    while (!_disposed) {
-      try {
-        if (_p2pStreamsEnabled && _transport is P2PStreamTransport) {
-          final p2p = await (_transport as P2PStreamTransport).acceptP2PStream(
-            timeout: const Duration(milliseconds: 250),
-          );
-          if (p2p != null) {
-            if (await _p2pStreamAllowed(p2p.src)) {
-              _bulkStreamLog(
-                () => 'xVeil[content]: stream-accept p2p <- ${p2p.src.short}',
-              );
-              unawaited(_serveStream(p2p.src, p2p.stream));
-            } else {
-              devLog(
-                () =>
-                    'xVeil[content]: stream-accept p2p DENIED '
-                    '<- ${p2p.src.short}',
-              );
-              unawaited(p2p.stream.close());
-            }
-            continue;
-          }
-        }
-        final r = await st.acceptStream(timeout: const Duration(seconds: 2));
-        if (r != null) {
-          _bulkStreamLog(
-            () => 'xVeil[content]: stream-accept anon <- ${r.src.short}',
-          );
-          unawaited(_serveStream(r.src, r.stream));
-        }
-      } catch (e) {
-        devLog(() => 'xVeil[content]: acceptStream error: $e');
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+  void _acceptAnonymousContentStream(NodeId peer, ReliableStream stream) {
+    _bulkStreamLog(() => 'xVeil[content]: stream-accept anon <- ${peer.short}');
+    _contentStreams.runServe(stream, () => _serveStream(peer, stream));
+  }
+
+  void _acceptP2PContentStream(NodeId peer, ReliableStream stream) {
+    _contentStreams.runServe(stream, () async {
+      if (await _p2pStreamAllowed(peer)) {
+        _bulkStreamLog(
+          () => 'xVeil[content]: stream-accept p2p <- ${peer.short}',
+        );
+        await _serveStream(peer, stream);
+        return;
       }
-    }
+      devLog(() => 'xVeil[content]: stream-accept p2p DENIED <- ${peer.short}');
+      try {
+        await stream.close();
+      } catch (_) {}
+    });
   }
 
   /// Serve one inbound bulk stream: read the 32-byte contentId, then write the
@@ -4189,6 +4178,7 @@ class MessagingService {
             'xVeil[content]: stream-serve ${cid.substring(0, 12)} '
             '(${m.size}B) -> ${peer.short}',
       );
+      if (_disposed) throw StateError('messaging service disposed');
       final mf = Uint8List.fromList(utf8.encode(jsonEncode(m.toJson())));
       await stream.write(_u32be(mf.length)).timeout(_streamPayloadWriteTimeout);
       await stream.write(mf).timeout(_streamPayloadWriteTimeout);
@@ -4213,6 +4203,7 @@ class MessagingService {
       var lastServeLogBytes = off;
       var lastServeLogMs = 0;
       while (off < end) {
+        if (_disposed) throw StateError('messaging service disposed');
         final n =
             ((end - off) < _streamReadChunk ? (end - off) : _streamReadChunk)
                 .toInt();
@@ -4238,6 +4229,7 @@ class MessagingService {
         if (data == null || data.isEmpty) {
           throw StateError('source truncated at $off/$size');
         }
+        if (_disposed) throw StateError('messaging service disposed');
         await stream
             .write(data)
             .timeout(
@@ -4318,16 +4310,16 @@ class MessagingService {
       final stream = await _openInitialPullStream(candidate, cid);
       if (stream == null) continue;
       final runPeers = _orderedPullPeers(candidate, peers);
-      unawaited(
-        _runPull(
+      _contentStreams.runPull(() async {
+        await _runPull(
           candidate,
           cid,
           sink,
           stream,
           savedPath,
           retryPeers: runPeers,
-        ).then((_) {}),
-      );
+        );
+      });
       return true;
     }
     return false; // no circuit → caller falls back
@@ -4399,7 +4391,9 @@ class MessagingService {
       // range swarm keeps retrying opens with backoff, so fall through to it
       // instead of degrading to the datagram path.
     }
-    unawaited(_runSwarmPullThenFallback(preferred, cid, manifest, sources));
+    _contentStreams.runPull(
+      () => _runSwarmPullThenFallback(preferred, cid, manifest, sources),
+    );
     return true;
   }
 
@@ -4474,8 +4468,8 @@ class MessagingService {
         return true;
       }
     }
-    unawaited(
-      _runSwarmFileThenFallback(
+    _contentStreams.runPull(
+      () => _runSwarmFileThenFallback(
         preferred,
         cid,
         manifest,
@@ -5691,6 +5685,7 @@ class MessagingService {
             _cancelledDownloads.contains(cid)) {
           break;
         }
+        if (_disposed || _cancelledDownloads.contains(cid)) break;
         await Future<void>.delayed(_streamPullRetryDelay(attempt));
       }
     }
@@ -5712,7 +5707,7 @@ class MessagingService {
     NodeId peer,
     String cid,
   ) async {
-    if (_cancelledDownloads.contains(cid)) return null;
+    if (_disposed || _cancelledDownloads.contains(cid)) return null;
     final t = _transport;
     if (t is! StreamTransport) return null;
     final sw = Stopwatch()..start();
@@ -5737,9 +5732,14 @@ class MessagingService {
     ReliableStream? stream;
     try {
       if (useP2P) {
-        stream = await (t as P2PStreamTransport).openP2PStream(peer);
+        stream = await _contentStreams.awaitOpen(
+          (t as P2PStreamTransport).openP2PStream(peer),
+        );
       }
-      stream ??= await (t as StreamTransport).openStream(peer);
+      if (_disposed || _contentStreams.closing) return null;
+      stream ??= await _contentStreams.awaitOpen(
+        (t as StreamTransport).openStream(peer),
+      );
     } finally {
       slowLog.cancel();
     }
@@ -6084,7 +6084,7 @@ class MessagingService {
     int attempt, {
     Duration? timeout,
   }) async {
-    if (_cancelledDownloads.contains(cid)) return null;
+    if (_disposed || _cancelledDownloads.contains(cid)) return null;
     final t = _transport;
     if (t is! StreamTransport) return null;
     final streamTransport = t as StreamTransport;
@@ -6102,13 +6102,16 @@ class MessagingService {
     try {
       ReliableStream? stream;
       if (useP2P) {
-        stream = await (t as P2PStreamTransport)
-            .openP2PStream(peer)
-            .timeout(timeout ?? _streamRequestTimeout, onTimeout: () => null);
+        stream = await _contentStreams.awaitOpen(
+          (t as P2PStreamTransport).openP2PStream(peer),
+          timeout: timeout ?? _streamRequestTimeout,
+        );
       }
-      stream ??= await streamTransport
-          .openStream(peer)
-          .timeout(timeout ?? _streamRequestTimeout, onTimeout: () => null);
+      if (_disposed || _contentStreams.closing) return null;
+      stream ??= await _contentStreams.awaitOpen(
+        streamTransport.openStream(peer),
+        timeout: timeout ?? _streamRequestTimeout,
+      );
       if (stream == null) return null;
       if (_cancelledDownloads.contains(cid)) {
         await stream.abort();
@@ -6126,14 +6129,7 @@ class MessagingService {
   }
 
   ReliableStream _trackPullStream(String contentId, ReliableStream stream) {
-    late final _TrackedPullStream tracked;
-    tracked = _TrackedPullStream(stream, () {
-      final active = _activePullStreams[contentId];
-      active?.remove(tracked);
-      if (active?.isEmpty ?? false) _activePullStreams.remove(contentId);
-    });
-    _activePullStreams.putIfAbsent(contentId, () => {}).add(tracked);
-    return tracked;
+    return _contentStreams.trackPull(contentId, stream);
   }
 
   static Duration _streamPullRetryDelay(int attempt) {
@@ -6500,7 +6496,11 @@ class MessagingService {
   Future<void> _clearServingState() => _contentServing.clear();
 
   Future<void> dispose() async {
-    _disposed = true; // stops the stream accept loop
+    _disposed = true; // stops transfer retry/serve work
+    // Starts synchronously: the transport-scoped broker lease is detached
+    // before Riverpod can construct a replacement service, while native
+    // serve/pull streams are aborted and joined in the returned future.
+    final contentStreamsDisposed = _contentStreams.dispose();
     _retryTimer?.cancel();
     _retryTimer = null;
     _settingsGcTimer?.cancel();
@@ -6510,13 +6510,9 @@ class MessagingService {
     _sub = null;
     await _realtimeSub?.cancel();
     _realtimeSub = null;
+    await contentStreamsDisposed;
     await _clearServingState();
     _groupContent.clear();
-    final pullStreams = [
-      for (final streams in _activePullStreams.values) ...streams,
-    ];
-    await Future.wait([for (final stream in pullStreams) stream.abort()]);
-    _activePullStreams.clear();
     await _contentFetching.clear();
     await _contentAvailability.clearSession();
     await _changes.close();
@@ -6526,40 +6522,6 @@ class MessagingService {
     await _contentProgress.close();
     await _contentFailed.close();
     await _contentCancelled.close();
-  }
-}
-
-/// Registers a receive-side stream until it closes or aborts. This gives a
-/// user cancellation a concrete native handle to interrupt even while Dart is
-/// blocked in [ReliableStream.read].
-class _TrackedPullStream implements ReliableStream {
-  _TrackedPullStream(this._inner, this._onDone);
-
-  final ReliableStream _inner;
-  final void Function() _onDone;
-  bool _done = false;
-
-  @override
-  Future<void> write(Uint8List data) => _inner.write(data);
-
-  @override
-  Future<Uint8List> read({int maxBytes = 64 * 1024}) =>
-      _inner.read(maxBytes: maxBytes);
-
-  @override
-  Future<void> close() => _finish(_inner.close);
-
-  @override
-  Future<void> abort() => _finish(_inner.abort);
-
-  Future<void> _finish(Future<void> Function() action) async {
-    if (_done) return;
-    _done = true;
-    try {
-      await action();
-    } finally {
-      _onDone();
-    }
   }
 }
 
