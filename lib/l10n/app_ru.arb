@@ -706,6 +706,8 @@
   "recoveryPhraseHint": "Введите фразу восстановления, слова через пробел",
 
   "demoChatTooltip": "Демо-чат",
+  "securityCenterTooltip": "Безопасность",
+  "securityCenterTitle": "Безопасность и сеть",
   "demoNewChat": "Новый чат",
   "demoPeerNodeId": "Node id собеседника (hex)",
   "demoChatWith": "Чат с демо-узлом",
