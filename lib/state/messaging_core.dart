@@ -42,6 +42,7 @@ part 'messaging_peer_sync.dart';
 part 'messaging_mutations.dart';
 part 'messaging_device_mirror.dart';
 part 'messaging_outbox.dart';
+part 'messaging_realtime_control.dart';
 
 /// Wires the [VeilTransport] inbound stream into [Storage] and exposes a send
 /// path. Persists every message, then signals [changes] so the read providers
@@ -131,6 +132,8 @@ class MessagingService {
     this,
   );
   late final _MessagingOutbox _outbox = _MessagingOutbox(this);
+  late final _MessagingRealtimeControl _realtimeControl =
+      _MessagingRealtimeControl(this);
 
   /// Whether this identity routes over the onion rendezvous (sender-location
   /// hidden). Fixed per identity at boot from its roster `anonymous` flag — an
@@ -150,14 +153,24 @@ class MessagingService {
   /// for accepted contacts; a durable signal is already acked+deduped by the
   /// generic durable-frame gate before this runs. Null when no call service is
   /// attached — the signal is then dropped.
-  void Function(NodeId peer, CallSignal signal)? onCallSignal;
+  void Function(NodeId peer, CallSignal signal)? get onCallSignal =>
+      _realtimeControl.onCallSignal;
+
+  set onCallSignal(void Function(NodeId peer, CallSignal signal)? callback) {
+    _realtimeControl.onCallSignal = callback;
+  }
 
   /// Attached by the P2P endpoint service: an inbound
   /// [WireKind.p2pEndpoints] direct-endpoint exchange ([bodyJson]) from an
   /// accepted [peer]. The service applies the LOCAL P2P policy before dialing
   /// anything or replying with its own endpoints — transport admission here
   /// only guarantees the sender is an accepted contact. Dropped when unset.
-  void Function(NodeId peer, String bodyJson)? onP2PEndpoints;
+  void Function(NodeId peer, String bodyJson)? get onP2PEndpoints =>
+      _realtimeControl.onP2PEndpoints;
+
+  set onP2PEndpoints(void Function(NodeId peer, String bodyJson)? callback) {
+    _realtimeControl.onP2PEndpoints = callback;
+  }
 
   /// Attached by the group layer: an inbound group snapshot ([bundleJson]) from
   /// an accepted [peer], to ingest idempotently. Dropped when unset.
@@ -946,7 +959,6 @@ class MessagingService {
   /// most one frame at a time. [_handleInbound] is fully try/catch-guarded so
   /// the chained future never rejects and the queue can't be poisoned.
   Future<void> _inboundChain = Future<void>.value();
-  Future<void> _realtimeInboundChain = Future<void>.value();
 
   Future<void> _onInbound(InboundMessage m) {
     final next = _inboundChain.then((_) => _handleInbound(m));
@@ -954,121 +966,8 @@ class MessagingService {
     return next;
   }
 
-  /// Dedicated latency-critical control lane. APP_RT_DATA already arrives on
-  /// its own native endpoint; feeding it into [_inboundChain] again defeated
-  /// that isolation when group sync or a large-store operation occupied the
-  /// normal inbox for seconds. This lane accepts only call envelopes and direct
-  /// endpoint exchange. A new offer and every endpoint frame still verify
-  /// ContactStatus from storage unless the peer was already consent-checked in
-  /// this session. Follow-up call control is delivered without a disk read:
-  /// CallService accepts it only for the exact active `(peer, callId)`, so
-  /// storage maintenance cannot strand an answer/end/repair signal while an
-  /// existing call is live.
-  Future<void> _onRealtimeInbound(InboundMessage m) {
-    final next = _realtimeInboundChain.then((_) async {
-      try {
-        await _handleRealtimeInbound(m);
-      } catch (error, stackTrace) {
-        // A transient storage/contact failure must drop only this datagram, not
-        // poison the serialized realtime chain and strand every later call
-        // answer/end/endpoint frame for the rest of the session.
-        devLog(
-          () =>
-              'xVeil[call-sig]: realtime dispatch FAILED '
-              'from=${m.src.short}: $error\n$stackTrace',
-        );
-      }
-    });
-    _realtimeInboundChain = next;
-    return next;
-  }
-
-  Future<void> _handleRealtimeInbound(InboundMessage m) async {
-    late final WireEnvelope env;
-    try {
-      env = WireEnvelope.decode(m.payload);
-    } catch (error) {
-      devLog(
-        () =>
-            'xVeil[call-sig]: realtime decode FAILED '
-            'from=${m.src.short}: $error',
-      );
-      return;
-    }
-    if (env.kind != WireKind.callSignal && env.kind != WireKind.p2pEndpoints) {
-      // This endpoint is deliberately limited to latency-critical call setup.
-      // Fail closed instead of creating another path around the ordinary
-      // message consent gates.
-      return;
-    }
-
-    if (env.kind == WireKind.p2pEndpoints) {
-      // Unlike a follow-up call signal, an endpoint frame can initiate a new
-      // network dial. It therefore ALWAYS stays behind accepted-contact
-      // consent. The session cache only avoids a storage read after the
-      // same relationship was already checked; every relationship mutation
-      // below updates the cache synchronously.
-      if (!_acceptedRealtimePeers.contains(m.src.hex)) {
-        final contact = await _storage.getContact(m.src);
-        if (contact?.status != ContactStatus.accepted) return;
-        _acceptedRealtimePeers.add(m.src.hex);
-      }
-      final fid = env.frameId;
-      if (fid != null) {
-        final fresh = _outbox.remember(fid);
-        unawaited(_ackFrame(m, fid));
-        if (!fresh) return;
-      }
-
-      _peerSync.noteInbound(m.src);
-      _nudgeRetries(m.src.hex);
-      noteInboundFromPeer(m.src);
-      devLog(
-        () =>
-            'xVeil[p2p]: realtime in endpoints from=${m.src.short} '
-            '(${env.body.length} B)',
-      );
-      onP2PEndpoints?.call(m.src, env.body);
-      return;
-    }
-
-    final signal = CallSignal.tryDecode(env.body);
-    if (signal == null) return;
-    // Only an offer can create a new call. It must pass the durable consent
-    // gate before reaching CallService. Every other signal can only affect an
-    // already-live call, where CallService checks both peer and callId before
-    // changing state. Keeping those follow-ups off storage is essential: a
-    // large group-sync/index operation can occupy the store for seconds, long
-    // enough for a valid answer to miss the dial window entirely.
-    if (signal.type == CallSignalType.offer &&
-        !_acceptedRealtimePeers.contains(m.src.hex)) {
-      final contact = await _storage.getContact(m.src);
-      if (contact?.status != ContactStatus.accepted) return;
-      _acceptedRealtimePeers.add(m.src.hex);
-    }
-    final fid = env.frameId;
-    if (fid != null) {
-      final fresh = _outbox.remember(fid);
-      // ACK may touch mailbox/storage. Delivery into the call FSM is the
-      // latency-critical operation; run ACK independently after recording the
-      // frame id so a re-drive remains deduplicated.
-      unawaited(_ackFrame(m, fid));
-      if (!fresh) return;
-    }
-
-    _peerSync.noteInbound(m.src);
-    _nudgeRetries(m.src.hex);
-    noteInboundFromPeer(m.src);
-    devLog(() {
-      final at = signal.sentAtMs;
-      final age = at == null
-          ? 'n/a'
-          : '${_now().millisecondsSinceEpoch - at}ms';
-      return 'xVeil[call-sig]: realtime in type=${signal.type.name} '
-          'call=${signal.callId} from=${m.src.short} age=$age';
-    });
-    onCallSignal?.call(m.src, signal);
-  }
+  Future<void> _onRealtimeInbound(InboundMessage message) =>
+      _realtimeControl.deliverInbound(message);
 
   Future<void> _handleInbound(InboundMessage m) async {
     devLog(
@@ -1091,11 +990,6 @@ class MessagingService {
     }
   }
 
-  /// Accepted peers already checked this session for realtime call setup.
-  /// Relationship mutations below keep this in sync so the realtime lane never
-  /// turns a stale acceptance into a consent bypass.
-  final Set<String> _acceptedRealtimePeers = {};
-
   Future<void> _ackFrame(InboundMessage message, String frameId) =>
       _outbox.ackFrame(message, frameId);
 
@@ -1117,95 +1011,8 @@ class MessagingService {
     startLiveBeforeEnqueue: startLiveBeforeEnqueue,
   );
 
-  Future<void> _sendRealtime(NodeId peer, Uint8List wire) {
-    final transport = _transport;
-    if (transport is RealtimeTransport) {
-      return (transport as RealtimeTransport).sendRealtime(
-        peer,
-        wire,
-        anonymous: _anonymous,
-      );
-    }
-    return _send(peer, wire);
-  }
-
-  /// Deliver latency-critical call control on the first route that is usable.
-  ///
-  /// APP_RT is intentionally direct-session-only. That makes it the shortest
-  /// path for an admitted peer, but a cold call is exactly the operation that
-  /// often runs before admission: sending the offer only through APP_RT then
-  /// guaranteed a miss and deferred the first routable copy to the 4 s outbox
-  /// ladder (in practice the 3 s flush cadence made that 6+ s). Race the normal
-  /// contact lane as well; both copies carry the same durable frame id and are
-  /// deduplicated at the receiver. Anonymous identities keep the single
-  /// anonymous-authenticated path so this optimization never widens routing.
-  Future<void> _sendCallLive(NodeId peer, Uint8List wire) async {
-    if (_anonymous) {
-      await _sendRealtime(peer, wire);
-      return;
-    }
-    // A client without a dedicated realtime endpoint would make
-    // [_sendRealtime] fall back to [_send]. Racing both in that case sends the
-    // same durable frame twice on the same physical lane (headless hosts and
-    // pure-Dart transports hit this path). Only race genuinely distinct lanes.
-    if (_transport is! RealtimeTransport) {
-      await _send(peer, wire);
-      return;
-    }
-
-    Future<void> attempt(String lane, Future<void> Function() send) async {
-      try {
-        await send();
-      } catch (error) {
-        devLog(
-          () =>
-              'xVeil[call-sig]: $lane live leg failed '
-              'peer=${peer.short}: $error',
-        );
-      }
-    }
-
-    await Future.wait<void>([
-      attempt('contact', () => _send(peer, wire)),
-      attempt('realtime', () => _sendRealtime(peer, wire)),
-    ]);
-  }
-
-  /// Bootstrap direct connectivity over BOTH available live control lanes.
-  ///
-  /// The dedicated realtime endpoint is ideal once a direct session exists,
-  /// but an endpoint exchange is what creates that session in the first place.
-  /// Sending only through realtime therefore made the first post-restart call
-  /// wait for the mailbox copy. The ordinary contact transport can route before
-  /// admission; racing both lanes covers cold and warm sessions. Both copies
-  /// carry the same durable frame id, so receiver dedup makes the race
-  /// idempotent. Each lane preserves [_anonymous]; P2P policy still prevents
-  /// anonymous identities from constructing endpoint frames at all.
-  Future<void> _sendP2PBootstrap(NodeId peer, Uint8List wire) async {
-    // See [_sendCallLive]: without RealtimeTransport the realtime helper is the
-    // contact lane itself, so a two-way race would only duplicate traffic.
-    if (_transport is! RealtimeTransport) {
-      await _send(peer, wire);
-      return;
-    }
-
-    Future<void> attempt(String lane, Future<void> Function() send) async {
-      try {
-        await send();
-      } catch (error) {
-        devLog(
-          () =>
-              'xVeil[p2p]: bootstrap $lane leg failed '
-              'peer=${peer.short}: $error',
-        );
-      }
-    }
-
-    await Future.wait<void>([
-      attempt('contact', () => _send(peer, wire)),
-      attempt('realtime', () => _sendRealtime(peer, wire)),
-    ]);
-  }
+  Future<void> _sendRealtime(NodeId peer, Uint8List wire) =>
+      _realtimeControl.sendRealtime(peer, wire);
 
   /// Send a call control-plane [signal] to [peer]. Ring/accept/reject/cancel/
   /// busy/end/renegotiate go via the durable pipeline — keyed `call:<id>:<type>`
@@ -1214,43 +1021,8 @@ class MessagingService {
   /// supersedes it. A P2P→relay [CallSignalType.transportInfo] transition is
   /// durable because losing it can leave the peers on different media routes;
   /// stale re-delivery after call end is harmlessly ignored by the call-id FSM.
-  Future<void> sendCallSignal(NodeId peer, CallSignal signal) async {
-    final contact = await _storage.getContact(peer);
-    if (contact == null || contact.status != ContactStatus.accepted) return;
-    _acceptedRealtimePeers.add(peer.hex);
-    final stamped = signal.sentAtMs == null
-        ? signal.copyWith(sentAtMs: _now().millisecondsSinceEpoch)
-        : signal;
-    devLog(
-      () =>
-          'xVeil[call-sig]: out type=${stamped.type.name} '
-          'call=${stamped.callId} to=${peer.short}',
-    );
-    final env = WireEnvelope.callSignal(stamped.encode());
-    if (stamped.type == CallSignalType.health) {
-      try {
-        await _sendRealtime(peer, env.encode());
-      } catch (_) {
-        // Live path down — the next heartbeat/candidate supersedes this one.
-      }
-      return;
-    }
-    // Renegotiate repeats per call (screen share on/off/on…): a type-only id
-    // would collide with the PREVIOUS toggle still in the outbox and the
-    // receiver would dedup the new state away — key it by sentAt too. The
-    // receiver folds strictly-newer-by-sentAt, so re-drives stay idempotent.
-    final fid = stamped.type == CallSignalType.renegotiate
-        ? 'call:${signal.callId}:${signal.type.name}:${stamped.sentAtMs}'
-        : 'call:${signal.callId}:${signal.type.name}';
-    await sendDurable(
-      peer,
-      fid,
-      env,
-      liveSender: (wire) => _sendCallLive(peer, wire),
-      awaitLive: false,
-      startLiveBeforeEnqueue: true,
-    );
-  }
+  Future<void> sendCallSignal(NodeId peer, CallSignal signal) =>
+      _realtimeControl.sendCallSignal(peer, signal);
 
   /// Share this device's direct dial endpoints with an accepted contact (P2P
   /// epic). [bodyJson] is the [WireKind.p2pEndpoints] payload built by the
@@ -1263,25 +1035,7 @@ class MessagingService {
     NodeId peer,
     String bodyJson, {
     required int sentAtMs,
-  }) async {
-    final contact = await _storage.getContact(peer);
-    if (contact == null || contact.status != ContactStatus.accepted) return;
-    _acceptedRealtimePeers.add(peer.hex);
-    devLog(
-      () =>
-          'xVeil[p2p]: out endpoints to=${peer.short} '
-          '(${bodyJson.length} B)',
-    );
-    final env = WireEnvelope.p2pEndpoints(bodyJson);
-    await sendDurable(
-      peer,
-      'p2p:ep:$sentAtMs',
-      env,
-      liveSender: (wire) => _sendP2PBootstrap(peer, wire),
-      awaitLive: false,
-      startLiveBeforeEnqueue: true,
-    );
-  }
+  }) => _realtimeControl.sendP2PEndpoints(peer, bodyJson, sentAtMs: sentAtMs);
 
   /// Re-drive un-acked durable frames: re-deposit at the mailbox (idempotent via
   /// the stash dedup) and, backed off per frame, re-send live. Called from
@@ -1325,7 +1079,7 @@ class MessagingService {
     final existing = await _storage.getContact(m.src);
     if (existing?.status == ContactStatus.blocked) return; // drop blocked
     if (existing?.status == ContactStatus.accepted) {
-      _acceptedRealtimePeers.add(m.src.hex);
+      _realtimeControl.markAccepted(m.src);
     }
 
     // Durable-frame ack + dedup (generic, any kind): a frame sent via
