@@ -1,5 +1,15 @@
 part of 'messaging_core.dart';
 
+typedef _ContentManifestOffer = ({
+  ContentManifest manifest,
+  Map<String, NodeId> peers,
+});
+
+typedef _ContentManifestRefOffer = ({
+  _ContentManifestRef ref,
+  Map<String, NodeId> peers,
+});
+
 /// Reoffer and terminal-availability lifecycle for large content.
 ///
 /// The content transfer engine remains responsible for moving and persisting
@@ -13,6 +23,176 @@ class _MessagingContentAvailability {
 
   /// Per-content peers that explicitly answered GONE in this process session.
   final Map<String, Set<String>> _goneSources = {};
+
+  /// Live manifest handles are deliberately RAM-only; the durable chat event
+  /// remains the source of truth across restart. Full manifests and compact
+  /// refs share ONE cap so alternating frame kinds cannot double the budget.
+  static const _maxOffers = 256;
+  final Map<String, _ContentManifestOffer> offered = {};
+  final Map<String, _ContentManifestRefOffer> offeredRefs = {};
+  final Set<String> _offerOrder = {};
+
+  /// Downloads parked until a manifest/ref reappears, or until an already
+  /// active encrypted fetch completes and can be exported to this sink.
+  final Map<String, _FetchSink?> _pending = {};
+  final Map<String, Timer> _pendingTimers = {};
+  final Set<Future<void>> _pendingCloses = {};
+
+  static final Duration _reofferTimeout = Duration(
+    milliseconds: const int.fromEnvironment(
+      'XVEIL_CONTENT_REOFFER_TIMEOUT_MS',
+      defaultValue: 20000,
+    ),
+  );
+
+  int get offerCount => _offerOrder.length;
+
+  bool hasPending(String contentId) => _pending.containsKey(contentId);
+
+  _FetchSink? takePending(String contentId) {
+    _pendingTimers.remove(contentId)?.cancel();
+    return _pending.remove(contentId);
+  }
+
+  void holdPending(String contentId, _FetchSink? sink) {
+    _pendingTimers.remove(contentId)?.cancel();
+    final previous = _pending[contentId];
+    if (previous != null && previous != sink) _closeLater(previous);
+    _pending[contentId] = sink;
+  }
+
+  Future<void> discardPending(String contentId) async {
+    if (!hasPending(contentId)) return;
+    final sink = takePending(contentId);
+    if (sink != null) await _close(sink);
+  }
+
+  ContentDownloadResult requestReofferFromAny(
+    Iterable<NodeId> peers,
+    String contentId,
+    _FetchSink? sink,
+  ) {
+    if (_owner._cancelledDownloads.contains(contentId)) {
+      if (sink != null) _closeLater(sink);
+      _owner._fetchSavePath.remove(contentId);
+      return ContentDownloadResult.noOffer;
+    }
+    final sources = _owner._uniquePeers(peers);
+    if (sources.isEmpty) {
+      if (sink != null) _closeLater(sink);
+      _owner._fetchSavePath.remove(contentId);
+      return ContentDownloadResult.noOffer;
+    }
+    devLog(
+      () =>
+          'xVeil[content]: no live manifest for '
+          '${contentId.substring(0, 12)} — requesting re-advertise from '
+          '${sources.length} source(s)',
+    );
+    holdPending(contentId, sink);
+    _pendingTimers[contentId] = Timer(_reofferTimeout, () {
+      if (_owner._cancelledDownloads.contains(contentId)) return;
+      _pendingTimers.remove(contentId);
+      final parked = _pending.remove(contentId);
+      if (parked != null) _closeLater(parked);
+      _owner._fetchSavePath.remove(contentId);
+      devLog(
+        () =>
+            'xVeil[content]: re-advertise TIMED OUT for '
+            '${contentId.substring(0, 12)} — sender not serving; re-send needed',
+      );
+      if (!_owner._contentFailed.isClosed) {
+        _owner._contentFailed.add(contentId);
+      }
+    });
+    for (final peer in sources) {
+      unawaited(
+        _owner._send(peer, contentReofferEnvelope(contentId).encode()),
+      );
+    }
+    return ContentDownloadResult.requestedReoffer;
+  }
+
+  void rememberManifest(NodeId peer, ContentManifest manifest) {
+    final contentId = manifest.contentId;
+    final existing = offered[contentId];
+    offered[contentId] = (
+      manifest: manifest,
+      peers: {if (existing != null) ...existing.peers, peer.hex: peer},
+    );
+    // A full verified manifest dominates a compact ref for the same bytes.
+    final replacedRef = offeredRefs.remove(contentId) != null;
+    if (existing == null || replacedRef) {
+      _offerOrder
+        ..remove(contentId)
+        ..add(contentId);
+    }
+    _evictOffers();
+  }
+
+  void rememberRef(NodeId peer, _ContentManifestRef ref) {
+    final contentId = ref.contentId;
+    final existing = offeredRefs[contentId];
+    offeredRefs[contentId] = (
+      ref: ref,
+      peers: {if (existing != null) ...existing.peers, peer.hex: peer},
+    );
+    _offerOrder.add(contentId);
+    _evictOffers();
+  }
+
+  void removeOfferPeer(String contentId, NodeId peer) {
+    offered[contentId]?.peers.remove(peer.hex);
+    offeredRefs[contentId]?.peers.remove(peer.hex);
+  }
+
+  void forgetOffer(String contentId) {
+    offered.remove(contentId);
+    offeredRefs.remove(contentId);
+    _offerOrder.remove(contentId);
+  }
+
+  Future<void> clearSession() async {
+    for (final timer in _pendingTimers.values) {
+      timer.cancel();
+    }
+    _pendingTimers.clear();
+    final sinks = Set<_FetchSink>.identity();
+    for (final sink in _pending.values) {
+      if (sink != null) sinks.add(sink);
+    }
+    _pending.clear();
+    _goneSources.clear();
+    offered.clear();
+    offeredRefs.clear();
+    _offerOrder.clear();
+    await Future.wait([
+      ..._pendingCloses,
+      for (final sink in sinks) _close(sink),
+    ]);
+  }
+
+  void _closeLater(_FetchSink sink) => unawaited(_close(sink));
+
+  Future<void> _close(_FetchSink sink) {
+    final pending = _closeQuietly(sink);
+    _pendingCloses.add(pending);
+    unawaited(pending.whenComplete(() => _pendingCloses.remove(pending)));
+    return pending;
+  }
+
+  Future<void> _closeQuietly(_FetchSink sink) async {
+    try {
+      await sink.close();
+    } catch (_) {}
+  }
+
+  void _evictOffers() {
+    while (_offerOrder.length > _maxOffers) {
+      final oldest = _offerOrder.first;
+      forgetOffer(oldest);
+    }
+  }
 
   Future<bool> requestContentReoffer(NodeId peer, String contentId) async {
     final contact = await _owner._storage.getContact(peer);
@@ -36,8 +216,8 @@ class _MessagingContentAvailability {
     if (contact == null || contact.status != ContactStatus.accepted) {
       return false;
     }
-    if (_owner._offered.containsKey(contentId) ||
-        _owner._offeredRefs.containsKey(contentId) ||
+    if (offered.containsKey(contentId) ||
+        offeredRefs.containsKey(contentId) ||
         await _owner._storage.hasFile(contentId)) {
       return true;
     }
@@ -165,8 +345,7 @@ class _MessagingContentAvailability {
           '${contentId.substring(0, 12)} <- ${peer.short}',
     );
     (_goneSources[contentId] ??= {}).add(peer.hex);
-    _owner._offered[contentId]?.peers.remove(peer.hex);
-    _owner._offeredRefs[contentId]?.peers.remove(peer.hex);
+    removeOfferPeer(contentId, peer);
     final remaining = filterGoneSources(
       contentId,
       await _owner._contentSourcePeers(preferred: peer, contentId: contentId),
@@ -179,14 +358,13 @@ class _MessagingContentAvailability {
       );
       return;
     }
+    forgetOffer(contentId);
     await _owner._storage.putSetting(
       'gone:$contentId',
       _owner._now().toIso8601String(),
     );
     _owner._completePendingDownload(contentId);
-    final parked = _owner._pendingDownload.remove(contentId);
-    _owner._pendingTimers.remove(contentId)?.cancel();
-    if (parked != null) unawaited(parked.close());
+    await discardPending(contentId);
     await _owner._contentFetching.discard(contentId);
     _owner._fetchSavePath.remove(contentId);
     if (!_owner._contentFailed.isClosed) {

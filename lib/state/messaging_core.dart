@@ -1663,18 +1663,15 @@ class MessagingService {
   int get servingCount => _contentServing.count;
   int get fetchingCount => _contentFetching.count;
 
-  /// Manifests of OFFERED-but-not-yet-downloaded files (by contentId), retained so
-  /// [downloadContent] can fetch on the user's opt-in. A single contentId may be
-  /// advertised by several accepted peers (group chat / multi-device swarm);
-  /// keep all known sources so stream retries can fail over instead of pinning
-  /// the transfer to the peer whose bubble the user happened to tap. Bounded by
-  /// [_maxOffered] (the manifest is small — piece hashes — but cap it anyway);
-  /// the OFFER chat message is what persists, this is just the fetch handle.
-  final Map<String, ({ContentManifest manifest, Map<String, NodeId> peers})>
-  _offered = {};
-  final Map<String, ({_ContentManifestRef ref, Map<String, NodeId> peers})>
-  _offeredRefs = {};
-  static const _maxOffered = 256;
+  /// RAM-only handles for offered-but-not-yet-downloaded files. Full manifests
+  /// and compact refs share one bounded registry in [_contentAvailability].
+  Map<String, _ContentManifestOffer> get _offered =>
+      _contentAvailability.offered;
+  Map<String, _ContentManifestRefOffer> get _offeredRefs =>
+      _contentAvailability.offeredRefs;
+
+  /// Test seam for the combined full-manifest + compact-ref memory bound.
+  int get offeredContentCount => _contentAvailability.offerCount;
 
   /// Per-identity auto-download policy (size cap + blocked types): which incoming
   /// files download silently vs. surface as an OFFER the user must accept — so a
@@ -2567,18 +2564,7 @@ class MessagingService {
       return;
     }
     // Retain the manifest so the user (or auto-download) can fetch on demand.
-    if (_offered.length >= _maxOffered && !_offered.containsKey(m.contentId)) {
-      _offered.remove(_offered.keys.first);
-    }
-    final existingOffer = _offered[m.contentId];
-    _offered[m.contentId] = (
-      manifest: m,
-      peers: {
-        if (existingOffer != null) ...existingOffer.peers,
-        peer.hex: peer,
-      },
-    );
-    _offeredRefs.remove(m.contentId);
+    _contentAvailability.rememberManifest(peer, m);
 
     // A fresh manifest proves the content is obtainable again — clear any
     // terminal "gone" mark before the resume driver looks at it.
@@ -2590,9 +2576,8 @@ class MessagingService {
     // A user download was PARKED waiting for this manifest (re-advertise after a
     // restart) → start it now with its destination (sink for unencrypted-to-file,
     // null for the encrypted tier), regardless of the auto-download policy.
-    if (_pendingDownload.containsKey(m.contentId)) {
-      final sink = _pendingDownload.remove(m.contentId);
-      _pendingTimers.remove(m.contentId)?.cancel();
+    if (_contentAvailability.hasPending(m.contentId)) {
+      final sink = _contentAvailability.takePending(m.contentId);
       devLog(
         () =>
             'xVeil[content]: re-advertised manifest arrived for '
@@ -2683,15 +2668,7 @@ class MessagingService {
     if (ref != null) {
       final cid = ref.contentId;
       if (!_groupPullSourceAllowed(peer, cid)) return;
-      if (_offeredRefs.length >= _maxOffered &&
-          !_offeredRefs.containsKey(cid)) {
-        _offeredRefs.remove(_offeredRefs.keys.first);
-      }
-      final existing = _offeredRefs[cid];
-      _offeredRefs[cid] = (
-        ref: ref,
-        peers: {if (existing != null) ...existing.peers, peer.hex: peer},
-      );
+      _contentAvailability.rememberRef(peer, ref);
       devLog(
         () =>
             'xVeil[content]: group holder ref '
@@ -2757,19 +2734,12 @@ class MessagingService {
       _signal();
       return;
     }
-    if (_offeredRefs.length >= _maxOffered && !_offeredRefs.containsKey(cid)) {
-      _offeredRefs.remove(_offeredRefs.keys.first);
-    }
-    final existing = _offeredRefs[cid];
-    _offeredRefs[cid] = (
-      ref: ref,
-      peers: {if (existing != null) ...existing.peers, peer.hex: peer},
-    );
+    _contentAvailability.rememberRef(peer, ref);
     // A fresh ref proves the content is obtainable again.
     unawaited(_clearContentGone(cid));
     // A durable pending download exists and its holder just showed up online.
     unawaited(_resumeOnOfferSignal(cid));
-    if (_pendingDownload.containsKey(cid)) {
+    if (_contentAvailability.hasPending(cid)) {
       unawaited(_resumePendingFromManifestRef(peer, cid, ref));
       return;
     }
@@ -2816,8 +2786,7 @@ class MessagingService {
     if (existing != null) {
       if (sink != null) {
         if (existing.sink == null) {
-          _pendingDownload[m.contentId] = sink;
-          _pendingTimers.remove(m.contentId)?.cancel();
+          _contentAvailability.holdPending(m.contentId, sink);
           devLog(
             () =>
                 'xVeil[content]: plain-file save parked for '
@@ -3616,9 +3585,8 @@ class MessagingService {
   }
 
   Future<bool> _consumeParkedPlainFileSave(String contentId) async {
-    if (!_pendingDownload.containsKey(contentId)) return false;
-    final sink = _pendingDownload.remove(contentId);
-    _pendingTimers.remove(contentId)?.cancel();
+    if (!_contentAvailability.hasPending(contentId)) return false;
+    final sink = _contentAvailability.takePending(contentId);
     if (sink == null) return false;
     final savedPath = _fetchSavePath[contentId];
     if (savedPath == null) {
@@ -3631,17 +3599,6 @@ class MessagingService {
     return true;
   }
 
-  /// Downloads waiting for a re-advertised manifest (contentId → its sink, null
-  /// for an encrypted/in-volume download). [_onContentManifest] consumes these.
-  final Map<String, _FetchSink?> _pendingDownload = {};
-  final Map<String, Timer> _pendingTimers = {};
-  static final Duration _reofferTimeout = Duration(
-    milliseconds: const int.fromEnvironment(
-      'XVEIL_CONTENT_REOFFER_TIMEOUT_MS',
-      defaultValue: 20000,
-    ),
-  );
-
   /// Ask all known candidate holders to re-advertise [contentId] (we have an
   /// offer message but not the live manifest) and park the download until one
   /// manifest arrives. A timeout frees a parked file sink (so a RandomAccessFile
@@ -3650,44 +3607,7 @@ class MessagingService {
     Iterable<NodeId> peers,
     String contentId,
     _FetchSink? sink,
-  ) {
-    if (_cancelledDownloads.contains(contentId)) {
-      if (sink != null) unawaited(sink.close());
-      _fetchSavePath.remove(contentId);
-      return ContentDownloadResult.noOffer;
-    }
-    final sources = _uniquePeers(peers);
-    if (sources.isEmpty) {
-      if (sink != null) unawaited(sink.close());
-      _fetchSavePath.remove(contentId);
-      return ContentDownloadResult.noOffer;
-    }
-    devLog(
-      () =>
-          'xVeil[content]: no live manifest for '
-          '${contentId.substring(0, 12)} — requesting re-advertise from '
-          '${sources.length} source(s)',
-    );
-    _pendingDownload[contentId] = sink;
-    _pendingTimers[contentId]?.cancel();
-    _pendingTimers[contentId] = Timer(_reofferTimeout, () {
-      if (_cancelledDownloads.contains(contentId)) return;
-      _pendingTimers.remove(contentId);
-      final parked = _pendingDownload.remove(contentId);
-      if (parked != null) unawaited(parked.close()); // release the file handle
-      _fetchSavePath.remove(contentId);
-      devLog(
-        () =>
-            'xVeil[content]: re-advertise TIMED OUT for '
-            '${contentId.substring(0, 12)} — sender not serving; re-send needed',
-      );
-      if (!_contentFailed.isClosed) _contentFailed.add(contentId);
-    });
-    for (final peer in sources) {
-      unawaited(_send(peer, contentReofferEnvelope(contentId).encode()));
-    }
-    return ContentDownloadResult.requestedReoffer;
-  }
+  ) => _contentAvailability.requestReofferFromAny(peers, contentId, sink);
 
   /// Ask [peer] to re-advertise [contentId] without parking or starting a
   /// download. Used by headless/test waiters that know the content id from the
@@ -4756,16 +4676,7 @@ class MessagingService {
   }
 
   void _rememberOfferedManifest(NodeId peer, ContentManifest manifest) {
-    final cid = manifest.contentId;
-    if (_offered.length >= _maxOffered && !_offered.containsKey(cid)) {
-      _offered.remove(_offered.keys.first);
-    }
-    final existing = _offered[cid];
-    _offered[cid] = (
-      manifest: manifest,
-      peers: {if (existing != null) ...existing.peers, peer.hex: peer},
-    );
-    _offeredRefs.remove(cid);
+    _contentAvailability.rememberManifest(peer, manifest);
   }
 
   Future<bool> _beginDownloadWithManifest(
@@ -4889,11 +4800,10 @@ class MessagingService {
     String cid,
     _ContentManifestRef ref,
   ) async {
-    if (!_pendingDownload.containsKey(cid)) return;
+    if (!_contentAvailability.hasPending(cid)) return;
     final m = await _fetchManifestFromRef(peer, cid, ref, [peer]);
-    if (m == null || !_pendingDownload.containsKey(cid)) return;
-    final sink = _pendingDownload.remove(cid);
-    _pendingTimers.remove(cid)?.cancel();
+    if (m == null || !_contentAvailability.hasPending(cid)) return;
+    final sink = _contentAvailability.takePending(cid);
     devLog(
       () =>
           'xVeil[content]: manifest ref resolved for '
@@ -6505,8 +6415,7 @@ class MessagingService {
   /// the OFFER message exists (idempotent) so it flips offer → downloaded, then
   /// signal. Returns true (safe to ack = delivered = actually received).
   Future<bool> _persistReceivedContent(NodeId peer, ContentManifest m) async {
-    _offered.remove(m.contentId);
-    _offeredRefs.remove(m.contentId);
+    _contentAvailability.forgetOffer(m.contentId);
     await _surfaceFileOffer(peer, m);
     await _persistServeManifest(m);
     _serving[m.contentId] = (manifest: m, source: null, servedAt: _now());
@@ -6602,15 +6511,6 @@ class MessagingService {
     await _realtimeSub?.cancel();
     _realtimeSub = null;
     await _clearServingState();
-    // Cancel reoffer timers + close any parked download sinks.
-    for (final t in _pendingTimers.values) {
-      t.cancel();
-    }
-    _pendingTimers.clear();
-    for (final s in _pendingDownload.values) {
-      if (s != null) unawaited(s.close());
-    }
-    _pendingDownload.clear();
     _groupContent.clear();
     final pullStreams = [
       for (final streams in _activePullStreams.values) ...streams,
@@ -6618,6 +6518,7 @@ class MessagingService {
     await Future.wait([for (final stream in pullStreams) stream.abort()]);
     _activePullStreams.clear();
     await _contentFetching.clear();
+    await _contentAvailability.clearSession();
     await _changes.close();
     await _incoming.close();
     await _attestation.dispose();

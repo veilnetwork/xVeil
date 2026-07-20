@@ -172,4 +172,92 @@ void main() {
       reason: 'dispose must close every active plaintext fetch sink',
     );
   });
+
+  test('full manifests and compact refs share one 256-offer RAM budget',
+      () async {
+    final s = HiddenVolumeStorage(_mem());
+    await s.open(password: 'd', createIfMissing: true);
+    await s.upsertContact(Contact(nodeId: peer, status: ContactStatus.accepted));
+    final t = _Feed(me);
+    final m = MessagingService(t, s, contentPacing: Duration.zero)..start();
+    addTearDown(m.dispose);
+    await m.setFileDownloadPolicy(
+      m.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+    );
+
+    for (var i = 0; i < 130; i++) {
+      final manifest = ContentManifest.fromBytes(
+        'full-$i.bin',
+        Uint8List.fromList([i]),
+      );
+      t.feed(
+        peer,
+        contentManifestEnvelope(jsonEncode(manifest.toJson())).encode(),
+      );
+      final refId = (1000 + i).toRadixString(16).padLeft(64, '0');
+      t.feed(
+        peer,
+        contentManifestEnvelope(
+          jsonEncode({'ref': 1, 'id': refId, 'name': 'ref-$i.bin', 'size': 1}),
+        ).encode(),
+      );
+    }
+
+    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    while (m.offeredContentCount < 256 &&
+        DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(
+      m.offeredContentCount,
+      256,
+      reason: 'alternating manifests and refs must not get separate 256 caps',
+    );
+    await m.dispose();
+    expect(m.offeredContentCount, 0,
+        reason: 'dispose must release manifest hash lists immediately');
+  });
+
+  test('replacing a parked plaintext save closes the old sink and dispose '
+      'awaits the replacement', () async {
+    final s = HiddenVolumeStorage(_mem());
+    await s.open(password: 'e', createIfMissing: true);
+    await s.upsertContact(Contact(nodeId: peer, status: ContactStatus.accepted));
+    final m = MessagingService(_Feed(me), s, contentPacing: Duration.zero)
+      ..start();
+    addTearDown(m.dispose);
+    final cid = List.filled(32, 'ab').join();
+    var firstClosed = 0;
+    var secondClosed = 0;
+
+    expect(
+      await m.downloadContentToFile(
+        peer,
+        cid,
+        '/tmp/first-parked.bin',
+        write: (_, _) async {},
+        close: () async => firstClosed++,
+      ),
+      ContentDownloadResult.requestedReoffer,
+    );
+    expect(
+      await m.downloadContentToFile(
+        peer,
+        cid,
+        '/tmp/second-parked.bin',
+        write: (_, _) async {},
+        close: () async => secondClosed++,
+      ),
+      ContentDownloadResult.requestedReoffer,
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(firstClosed, 1,
+        reason: 'replacing a parked destination must not leak its file handle');
+    expect(secondClosed, 0);
+
+    await m.dispose();
+    expect(secondClosed, 1,
+        reason: 'dispose must await the currently parked destination close');
+  });
 }
