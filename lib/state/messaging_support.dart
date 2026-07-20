@@ -259,7 +259,7 @@ class _Incoming {
 }
 
 /// Max edit/delete ops we hold waiting for their target message to arrive (see
-/// [MessagingService._pendingOps]). Bounds memory against an accepted peer that
+/// [_MessagingMutations._pending]). Bounds memory against an accepted peer that
 /// spams ops for message ids we never receive; the cap evicts oldest-first. A
 /// real conversation has at most a handful of in-flight out-of-order ops, so a
 /// modest cap loses nothing legitimate. Tunable.

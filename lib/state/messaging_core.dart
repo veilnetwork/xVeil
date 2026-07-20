@@ -39,6 +39,7 @@ part 'messaging_replication.dart';
 part 'messaging_group_content.dart';
 part 'messaging_contacts.dart';
 part 'messaging_peer_sync.dart';
+part 'messaging_mutations.dart';
 
 /// Wires the [VeilTransport] inbound stream into [Storage] and exposes a send
 /// path. Persists every message, then signals [changes] so the read providers
@@ -123,6 +124,7 @@ class MessagingService {
   );
   late final _MessagingContacts _contacts = _MessagingContacts(this);
   late final _MessagingPeerSync _peerSync = _MessagingPeerSync(this);
+  late final _MessagingMutations _mutations = _MessagingMutations(this);
 
   /// Whether this identity routes over the onion rendezvous (sender-location
   /// hidden). Fixed per identity at boot from its roster `anonymous` flag — an
@@ -543,20 +545,6 @@ class MessagingService {
   Timer? _settingsGcTimer;
   bool _flushing = false;
   final Map<String, _Incoming> _inFlight = {};
-
-  /// Edit/delete ops that arrived BEFORE the message they target. Mailbox blobs
-  /// have no delivery order, so when a peer sends a message and then edits (or
-  /// unsends) it while we are offline, both deposits drain on reconnect in
-  /// arbitrary order — the edit/del can come first. Without this the op would be
-  /// dropped (its target isn't stored yet), so the offline edit/delete never
-  /// lands. Keyed by `<peerHex>|<messageId>`; replayed when the message stores.
-  ///
-  /// In-memory + bounded ([kMaxPendingOps]): nothing about a pending op touches
-  /// disk (no metadata at rest), and a hostile accepted peer can't grow it
-  /// without bound. Lost on restart — durable cross-session op ordering is the
-  /// event-log's job (doc/EVENT-LOG-SYNC-DESIGN.md §15), this is the tactical
-  /// fix for the common same-session drain.
-  final Map<String, _PendingOp> _pendingOps = {};
 
   /// Offline-delivery side-channel (null until wired by the provider, and null
   /// for the loopback/test transport). When present, un-acked outgoing messages
@@ -985,36 +973,8 @@ class MessagingService {
   DateTime? _wireSentAtMs(int? ms) =>
       ms == null ? null : DateTime.fromMillisecondsSinceEpoch(ms);
 
-  Future<bool> _hasMessage(NodeId peer, String id) async {
-    final msgs = await _storage.loadMessages(peer.hex);
-    return msgs.any((m) => m.id == id);
-  }
-
-  /// True only if [id] is a message we hold from [peer] that THEY sent us
-  /// (incoming). The authorization gate for peer-driven edit/delete: a peer may
-  /// only modify their own messages, never our outgoing ones.
-  Future<bool> _isIncomingFrom(NodeId peer, String id) async {
-    for (final m in await _storage.loadMessages(peer.hex)) {
-      if (m.id == id) return m.direction == MessageDirection.incoming;
-    }
-    return false;
-  }
-
-  String _opKey(NodeId peer, String id) => '${peer.hex}|$id';
-
-  /// Hold [op] until [peer]'s message [id] arrives (it drained out of order).
-  /// Delete is terminal: once a delete is buffered, a later edit for the same id
-  /// is ignored. Insertion-ordered + bounded — evict the oldest when full so a
-  /// peer flooding ops for ids we never receive can't grow this without bound.
-  void _bufferPendingOp(NodeId peer, String id, _PendingOp op) {
-    final key = _opKey(peer, id);
-    final existing = _pendingOps[key];
-    if (existing != null && existing.isDelete) return; // delete already wins
-    if (!_pendingOps.containsKey(key) && _pendingOps.length >= kMaxPendingOps) {
-      _pendingOps.remove(_pendingOps.keys.first); // evict oldest insertion
-    }
-    _pendingOps[key] = op;
-  }
+  Future<bool> _hasMessage(NodeId peer, String id) =>
+      _mutations.hasMessage(peer, id);
 
   /// Fires after a local relationship transition, never after a mirrored one.
   void Function(NodeId peer, ContactStatus status)? onContactStatusChanged;
@@ -1778,9 +1738,7 @@ class MessagingService {
         // The peer's edit/delete of this message may have DRAINED FIRST (mailbox
         // blobs are unordered): when they sent then edited/unsent it while we
         // were offline, both deposits arrive on reconnect in arbitrary order.
-        final pending = id == null
-            ? null
-            : _pendingOps.remove(_opKey(m.src, id));
+        final pending = id == null ? null : _mutations.takePending(m.src, id);
         if (pending != null && pending.isDelete) {
           // Honor the unsend: store then tombstone so the message never shows AND
           // a later re-delivery is refused (isMessageDeleted above) — deniable
@@ -1869,31 +1827,7 @@ class MessagingService {
         // our own outgoing messages (the id travels on the wire, so they know
         // it; the direction check is the real authorization gate).
         if (existing?.status != ContactStatus.accepted) return;
-        final editId = env.id;
-        if (editId == null) break;
-        if (await _isIncomingFrom(m.src, editId)) {
-          // Fold under the EDITOR's seq (env.seq), like an incoming post — the
-          // edit event's (author, seq) is then identical on both devices, so
-          // conversationSync converges and gap-fill can re-ship a missed edit.
-          // Null from an older sender → editMessage allocates locally (legacy).
-          await _storage.editMessage(
-            m.src.hex,
-            editId,
-            env.body,
-            seq: env.seq,
-            customEmoji: env.customEmoji,
-          );
-          await _storage.scrubDeleted();
-        } else if (!await _hasMessage(m.src, editId)) {
-          // Target not arrived yet (offline send+edit drains out of order) —
-          // buffer and replay when the message stores. NOT buffered when the id
-          // IS present but outgoing (our own message): a peer can't edit ours.
-          _bufferPendingOp(
-            m.src,
-            editId,
-            _PendingOp.edit(env.body, env.customEmoji),
-          );
-        }
+        await _mutations.applyIncomingEdit(m.src, env);
       case WireKind.del:
         // The peer unsent a message THEY sent us — purge + scrub our copy too.
         // Same authorization gate: only their incoming messages, never ours.
@@ -1905,14 +1839,7 @@ class MessagingService {
         if (existing?.allowPeerDelete == false) return;
         final delId = env.id;
         if (delId == null) break;
-        if (await _isIncomingFrom(m.src, delId)) {
-          await _storage.deleteMessage(m.src.hex, delId);
-          await _storage.scrubDeleted();
-        } else if (!await _hasMessage(m.src, delId)) {
-          // Same out-of-order case as edit: hold the unsend until the message
-          // arrives, then the message arm tombstones it instead of resurrecting.
-          _bufferPendingOp(m.src, delId, _PendingOp.delete());
-        }
+        await _mutations.applyIncomingDelete(m.src, delId);
       case WireKind.sync:
         // Event-log gap-fill beacon (§15, 3c): the peer tells us what it holds
         // per author; we re-ship every event it is missing above its high-water.
@@ -2713,133 +2640,20 @@ class MessagingService {
   static Uint8List _contentIdFor(String id) =>
       blake3DeriveKey('veil.mailbox.content_id.v1', utf8.encode(id));
 
-  /// Delete a message from THIS device only and scrub it from the container so
-  /// the plaintext is no longer recoverable — works for a received message too
-  /// (the highest-value deniability operation: purge what was sent to you). The
-  /// peer's copy is untouched; use [deleteForEveryone] to also unsend it.
-  Future<void> deleteMessageLocally(String messageId) async {
-    // Resolve the owning conversation: deleteMessage is conversation-scoped (a
-    // bare id never resolves across chats), and a local delete can target a
-    // received message too, so look it up rather than assume our own peer.
-    final msg = await _find(messageId);
-    if (msg == null) return;
-    await _storage.deleteMessage(msg.conversationId, messageId);
-    // Scrub immediately: the whole point is the text is gone NOW, before any
-    // coercion — not merely hidden behind a tombstone.
-    await _storage.scrubDeleted();
-    // Deleting our file message must also stop SERVING those bytes, or the
-    // durable served:/mf: records keep answering reoffers as if nothing
-    // happened and the delete is a lie. Peers then get an honest content-GONE
-    // on their next reoffer instead of an eternal spinner.
-    await _releaseServeStateFor(msg);
-    _signal();
-  }
+  /// Delete a local copy, scrub its plaintext, and stop unreferenced serving.
+  Future<void> deleteMessageLocally(String messageId) =>
+      _mutations.deleteLocally(messageId);
 
-  /// Drop live + durable serve state for [msg]'s content, unless the same
-  /// content is still referenced by another (undeleted) message — the store is
-  /// content-addressed, so one blob can back several chat messages.
-  Future<void> _releaseServeStateFor(Message msg) async {
-    final cid = msg.fileContentId ?? msg.fileId;
-    if (cid == null) return;
-    try {
-      if (await _contentReferencedByAnyMessage(cid)) return;
-      final live = _serving.remove(cid);
-      if (live?.source != null) unawaited(live!.source!.close());
-      // No Storage.removeSetting exists — an empty value is the tombstone; the
-      // reoffer/stream-serve readers treat it as absent. The leftover mf: blob
-      // is inert without a source or stored bytes.
-      await _storage.putSetting('served:$cid', '');
-      devLog(
-        () =>
-            'xVeil[content]: released serve state for '
-            '${cid.substring(0, 12)} (message deleted)',
-      );
-    } catch (e) {
-      devLog(() => 'xVeil[content]: release serve state failed: $e');
-    }
-  }
+  /// Durably unsend one of our outgoing messages from both peers.
+  Future<void> deleteForEveryone(String messageId) =>
+      _mutations.deleteForEveryone(messageId);
 
-  Future<bool> _contentReferencedByAnyMessage(String contentId) async {
-    for (final conv in await _storage.loadConversations()) {
-      for (final m in await _storage.loadMessages(conv.id)) {
-        if (m.fileContentId == contentId || m.fileId == contentId) return true;
-      }
-    }
-    return false;
-  }
-
-  /// Delete one of OUR sent messages here AND ask the recipient to delete their
-  /// copy (best-effort: if they are offline the request is simply lost, and we
-  /// can never guarantee they hadn't already copied the text). No-op for a
-  /// received message — you can only unsend your own.
-  Future<void> deleteForEveryone(String messageId) async {
-    final msg = await _find(messageId);
-    if (msg == null || msg.direction != MessageDirection.outgoing) return;
-    final dst = NodeId.fromHex(msg.conversationId);
-    await deleteMessageLocally(messageId);
-    // DURABLE (see [sendDurable]): an unsend is a deniability action — it must
-    // reach the peer across a lost live attempt, their offline window, AND our
-    // restart, or their copy silently survives. Distinct 'del:' id so the
-    // relay does not dedup the deposit against the original message's; the
-    // receive side is idempotent (a deleted id stays deleted, and a re-drive
-    // for an already-purged message is a no-op).
-    await sendDurable(dst, 'del:$messageId', WireEnvelope.del(messageId));
-  }
-
-  /// Edit the body of one of OUR sent messages: replace the stored text in
-  /// place (the prior text is scrubbed), mark it edited, and propagate the new
-  /// text to the recipient (best-effort). No-op for a received message.
+  /// Edit one of our outgoing messages and durably propagate the new version.
   Future<void> editOwnMessage(
     String messageId,
     String newBody, {
     List<InlineCustomEmoji> customEmoji = const [],
-  }) async {
-    final trimmed = newBody.trim();
-    if (trimmed.isEmpty) return;
-    if (!isValidInlineCustomEmoji(trimmed, customEmoji)) return;
-    final msg = await _find(messageId);
-    if (msg == null || msg.direction != MessageDirection.outgoing) return;
-    // The edit event allocates the next gap-free seq for our author stream; it
-    // travels so the peer folds under the SAME (author, seq) we used (R4/R5) and
-    // gap-fill can re-ship a missed edit. Null only if the id vanished mid-edit.
-    final editSeq = await _storage.editMessage(
-      msg.conversationId,
-      messageId,
-      trimmed,
-      customEmoji: customEmoji,
-    );
-    await _storage.scrubDeleted();
-    _signal();
-    final dst = NodeId.fromHex(msg.conversationId);
-    // DURABLE (see [sendDurable]). The frame id carries the edit's SEQ so each
-    // re-edit is a DISTINCT durable frame: the receiver dedups re-drives by
-    // frame id, so one id per message would eat every edit after the first —
-    // and distinct ids also give each edit its own mailbox deposit instead of
-    // overwriting the previous one at the relay. Out-of-order delivery is safe:
-    // the receiver folds edits strictly-newer-by-seq (R5), so a stale re-drive
-    // can never regress the text, and a duplicate is slot-idempotent.
-    await sendDurable(
-      dst,
-      'edit:$messageId:${editSeq ?? _uuid.v4()}',
-      WireEnvelope.edit(
-        messageId,
-        trimmed,
-        seq: editSeq,
-        customEmoji: customEmoji,
-      ),
-    );
-  }
-
-  /// Locate a stored message by id across conversations (used before an
-  /// edit/delete needs its conversation / direction). Null if not found.
-  Future<Message?> _find(String messageId) async {
-    for (final c in await _storage.loadConversations()) {
-      for (final m in await _storage.loadMessages(c.id)) {
-        if (m.id == messageId) return m;
-      }
-    }
-    return null;
-  }
+  }) => _mutations.editOwnMessage(messageId, newBody, customEmoji: customEmoji);
 
   /// Send a file to [dst] (gated to accepted contacts). Stores a local copy,
   /// records an outgoing file message (filePost, on the seq stream), then streams
