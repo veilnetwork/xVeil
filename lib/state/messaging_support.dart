@@ -226,38 +226,6 @@ const kStaleIncomingFileTimeout = Duration(minutes: 5);
 /// the peer, not the text, so a small cap loses nothing. Tunable.
 const kMaxPreConsentIntros = 5;
 
-/// In-flight inbound file reassembly state.
-class _Incoming {
-  _Incoming({
-    required this.src,
-    required this.name,
-    required this.reasm,
-    required this.lastActivity,
-    this.seq,
-    this.sentAtMs,
-  });
-  final NodeId src;
-  final String? name;
-  final FileReassembler reasm;
-
-  /// The SENDER's event seq for this file (filePost, §15), carried on the meta
-  /// so the completed file message folds under the same (author, seq) — keeping
-  /// the log convergent and letting gap-fill heal a missing file. Null from an
-  /// older sender → the receiver allocates a local seq (legacy, off-convergence).
-  final int? seq;
-
-  /// The SENDER's send-time (ms) for this file, carried on the meta so the
-  /// completed file message folds under the sender's time — keeping the
-  /// (effective_ts, author, seq) display order convergent. Null from an older
-  /// sender → the receiver falls back to its receive time.
-  final int? sentAtMs;
-
-  /// Wall-clock of the most recent meta/chunk for this transfer. Bumped on every
-  /// chunk so an actively-progressing transfer is never seen as stale; only idle
-  /// (stalled/abandoned) transfers are eligible for eviction.
-  DateTime lastActivity;
-}
-
 /// Max edit/delete ops we hold waiting for their target message to arrive (see
 /// [_MessagingMutations._pending]). Bounds memory against an accepted peer that
 /// spams ops for message ids we never receive; the cap evicts oldest-first. A

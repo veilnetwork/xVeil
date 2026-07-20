@@ -45,6 +45,7 @@ part 'messaging_outbox.dart';
 part 'messaging_realtime_control.dart';
 part 'messaging_mailbox_delivery.dart';
 part 'messaging_message_delivery.dart';
+part 'messaging_file_transfer.dart';
 
 /// Wires the [VeilTransport] inbound stream into [Storage] and exposes a send
 /// path. Persists every message, then signals [changes] so the read providers
@@ -140,6 +141,9 @@ class MessagingService {
       _MessagingMailboxDelivery();
   late final _MessagingMessageDelivery _messageDelivery =
       _MessagingMessageDelivery(this);
+  late final _MessagingFileTransfer _fileTransfer = _MessagingFileTransfer(
+    this,
+  );
 
   /// Whether this identity routes over the onion rendezvous (sender-location
   /// hidden). Fixed per identity at boot from its roster `anonymous` flag — an
@@ -524,25 +528,12 @@ class MessagingService {
   /// (provider teardown, widget tests) retracts it; see [start].
   Timer? _settingsGcTimer;
   bool _flushing = false;
-  final Map<String, _Incoming> _inFlight = {};
 
   bool get backgroundStashPaused => _mailboxDelivery.paused;
 
   set backgroundStashPaused(bool value) {
     _mailboxDelivery.paused = value;
   }
-
-  /// Resumable-file re-ship (§15 3c): answer a peer's [WireKind.fileNack] for a
-  /// given (peer, transfer) at most once per [_fileNackInterval] (a flood can't
-  /// drive a blob re-read + chunk re-send storm), and cap the chunks one NACK
-  /// answers — the rest heal on the next round. The map is bounded: entries are
-  /// written only AFTER the NACK resolves to a real outgoing file in THIS peer's
-  /// conversation (a fresh-tid flood inserts nothing), inert entries (older than
-  /// the interval) are evicted on each call, and it is cleared on reconnect — so
-  /// it stays O(active transfers), never O(every tid ever seen).
-  final Map<String, DateTime> _lastFileNackAt = {};
-  static const _fileNackInterval = Duration(seconds: 3);
-  static const _fileNackChunkCap = 256;
 
   /// Attach the offline-delivery [MailboxService] after construction (it is
   /// built with [deliverInbound] as its drain sink, so it must exist first).
@@ -648,7 +639,7 @@ class MessagingService {
   /// flush the outbox (which sends the beacons + re-sends un-acked messages).
   Future<void> reconcileOnConnect() async {
     _peerSync.resetSession();
-    _lastFileNackAt.clear(); // bound the throttle map across reconnects
+    _fileTransfer.resetSession();
     // A (re)connect is exactly when interrupted downloads become resumable
     // again — reset the failure backoff and probe each pending one.
     _resumeAttempts.clear();
@@ -1190,7 +1181,7 @@ class MessagingService {
         // the gaps (or "all" if we hold no chunk yet). The peer then re-sends only
         // those chunks, instead of re-pushing the whole blob each round.
         if (existing?.status != ContactStatus.accepted) return;
-        await _handleFileQuery(m, parseFileMeta(env.body));
+        await _fileTransfer.handleQuery(m, parseFileMeta(env.body));
         return;
       case WireKind.fileNack:
         // The receiver lists the chunks it still needs of a file WE sent
@@ -1198,7 +1189,7 @@ class MessagingService {
         // a NACK flood can't drive a re-send storm.
         if (existing?.status != ContactStatus.accepted) return;
         final nack = parseFileNack(env.body);
-        await _handleFileNack(m.src, nack.transferId, nack.missing);
+        await _fileTransfer.handleNack(m.src, nack.transferId, nack.missing);
         return;
       case WireKind.reconnect:
         // "We were connected — re-establish." Treated exactly like a request: a
@@ -1409,45 +1400,8 @@ class MessagingService {
           );
           return;
         }
-        final meta = parseFileMeta(env.body);
-        // Refuse over-budget transfers up front (the declared size is a hint;
-        // the per-chunk guard below enforces it even if the peer lies here).
-        if (meta.size != null && meta.size! > kMaxIncomingFileBytes) return;
-        // Ignore a duplicate meta for a transfer we are ALREADY tracking —
-        // overwriting it would reset the reassembler and discard chunks already
-        // received (sendFile mints a fresh id per transfer, so the same id never
-        // legitimately restarts).
-        if (_inFlight.containsKey(meta.transferId)) return;
-        // At capacity: first reclaim slots held by transfers that have gone idle
-        // past the stale timeout, so a stalled/abandoned transfer can't block
-        // legitimate ones until restart. Actively-progressing transfers (a recent
-        // chunk bumped lastActivity) are untouched.
-        if (_inFlight.length >= kMaxConcurrentIncomingFiles) {
-          final cutoff = _now();
-          _inFlight.removeWhere(
-            (_, inc) =>
-                cutoff.difference(inc.lastActivity) > kStaleIncomingFileTimeout,
-          );
-        }
-        // Bound concurrent transfers so the per-transfer cap actually bounds
-        // total memory: a new transfer is dropped when we are STILL at capacity
-        // (i.e. every slot holds a live, non-stale transfer).
-        if (_inFlight.length >= kMaxConcurrentIncomingFiles) return;
-        _inFlight[meta.transferId] = _Incoming(
-          src: m.src,
-          name: meta.name,
-          reasm: FileReassembler(),
-          lastActivity: _now(),
-          seq:
-              meta.seq, // the sender's filePost seq (null from an older sender)
-          sentAtMs: meta.sentAtMs, // the sender's send-time (convergent order)
-        );
-        devLog(
-          () =>
-              'xVeil[recv]: fileMeta ${meta.transferId} "${meta.name}" '
-              'count=${meta.count} size=${meta.size} <- ${m.src.short} — tracking',
-        );
-        return; // nothing to show until the file completes
+        await _fileTransfer.handleMeta(m, parseFileMeta(env.body));
+        return;
       case WireKind.fileChunk:
         if (existing?.status != ContactStatus.accepted) {
           devLog(
@@ -1457,87 +1411,8 @@ class MessagingService {
           );
           return;
         }
-        final frame = parseFileChunk(env.body);
-        final inc = _inFlight[frame.transferId];
-        // Unknown transfer (chunk before meta), or a different peer trying to
-        // contribute to someone else's in-flight transfer — drop it.
-        if (inc == null || inc.src != m.src) {
-          devLog(
-            () =>
-                'xVeil[recv]: fileChunk DROPPED — no meta for transfer '
-                '${frame.transferId} (idx ${frame.index}/${frame.total}) <- ${m.src.short}'
-                '${inc != null ? " (src mismatch)" : " (META LOST or not yet arrived)"}',
-          );
-          return;
-        }
-        inc.lastActivity = _now(); // progress — keep this transfer non-stale
-        inc.reasm.add(
-          FileChunk(
-            transferId: frame.transferId,
-            index: frame.index,
-            total: frame.total,
-            data: frame.data,
-          ),
-        );
-        // Enforce the memory budget even if the peer lied about size — abort
-        // and discard the partial transfer rather than buffer unboundedly.
-        if (inc.reasm.bufferedBytes > kMaxIncomingFileBytes) {
-          _inFlight.remove(frame.transferId);
-          return;
-        }
-        if (!inc.reasm.isComplete) return; // wait for the rest
-        final tid = frame.transferId;
-        devLog(
-          () =>
-              'xVeil[recv]: file $tid "${inc.name}" COMPLETE — assembling + storing',
-        );
-        _inFlight.remove(tid);
-        // Use the transfer id AS the message id (symmetry with the sender), so
-        // a re-delivered transfer dedups and — crucially — a file we DELETED
-        // never resurrects (deniability: deleted stays deleted, same guard the
-        // text path has). Re-ack either way so the sender stops re-sending.
-        if (await _hasMessage(m.src, tid) ||
-            await _storage.isMessageDeleted(m.src.hex, tid)) {
-          await _ackTo(m, tid, direct: true, repeat: true);
-          return;
-        }
-        // Store the blob under a LOCALLY-minted id, NOT the sender-chosen
-        // transferId: storeFile keys the blob globally (file:<id>) and overwrites,
-        // so reusing the wire tid would let a colliding id from another
-        // conversation clobber that chat's blob. The message id stays `tid` (its
-        // dedup + deleted-resurrect guards are already conversation-scoped); only
-        // the blob's storage key is decoupled.
-        final localFileId = _uuid.v4();
-        final assembled = inc.reasm.assemble();
-        try {
-          await _storage.storeFile(localFileId, assembled, name: inc.name);
-        } catch (e) {
-          // Over the storage cap (the buffer cap should have aborted it first) or
-          // a transient store error — drop the transfer rather than crash the
-          // inbound chain. The sender's gap-fill can retry; no half-stored blob.
-          devLog(() => 'xVeil[recv]: storeFile failed for $tid — dropped: $e');
-          return;
-        }
-        await _store(
-          m.src,
-          MessageDirection.incoming,
-          '📎 ${inc.name ?? 'file'}',
-          MessageStatus.delivered,
-          fileId: localFileId,
-          fileName: inc.name,
-          fileSize: assembled.length,
-          id: tid,
-          // Fold the file under the SENDER's filePost seq + send-time (R4) so the
-          // (author, seq) AND the convergent display time are identical on both
-          // devices, and gap-fill can heal a missing file. Null from an older
-          // sender → storage allocates a seq / falls back to receive time.
-          seq: inc.seq,
-          timestamp: _wireSentAtMs(inc.sentAtMs),
-        );
-        _emitIncoming(m.src, '📎 ${inc.name ?? 'file'}', isFile: true);
-        // Ack the completed transfer so the sender's file message flips
-        // sent -> delivered — the same delivery feedback text messages get.
-        await _ackTo(m, tid);
+        await _fileTransfer.handleChunk(m, parseFileChunk(env.body));
+        return;
     }
     _signal();
   }
@@ -1729,207 +1604,7 @@ class MessagingService {
     Uint8List bytes,
     String name, {
     String? sourcePath,
-  }) async {
-    final contact = await _storage.getContact(dst);
-    if (contact == null || contact.status != ContactStatus.accepted) return;
-    _mailboxDelivery.noteActivity(); // user action → mailbox burst window
-    // The recipient will pull from us shortly — open our serve pool now so
-    // its first attempt doesn't die on a cold-pool manifest timeout.
-    _warmStreamPeer(dst);
-    // Large files take the content layer (hash-verified pieces over datagrams —
-    // the path that actually crosses NAT) instead of the per-chunk fileMeta push.
-    if (bytes.length > _contentThreshold) {
-      await _sendAsContent(dst, bytes, name, sourcePath: sourcePath);
-      return;
-    }
-    // Backstop the storage ceiling: the UI pre-checks the same bound and shows a
-    // friendly error, but a direct caller must not drive storeFile past its
-    // atomic-delete cap (which throws). Drop silently here — the UI owns the UX.
-    if (bytes.length > kMaxStoredFileBytes) {
-      devLog(() => 'xVeil[sendFile]: ${bytes.length}B over cap — dropped');
-      return;
-    }
-
-    final fileId = _uuid.v4();
-    await _storage.storeFile(fileId, bytes, name: name);
-    // Use the transfer id AS the message id so the receiver's completion ack
-    // (keyed by transfer id) flips this message sent -> delivered. The file
-    // wire frames carry only the transfer id, not the message id.
-    final stored = await _store(
-      dst,
-      MessageDirection.outgoing,
-      '📎 $name',
-      MessageStatus.sent,
-      fileId: fileId,
-      fileName: name,
-      fileSize: bytes.length,
-      id: fileId,
-      // Stamp from the service clock (like sendText) so the per-message reconnect
-      // give-up age sees a consistent timeline for file messages too.
-      timestamp: _now(),
-    );
-    _signal();
-    await _sendFileFrames(
-      dst,
-      fileId,
-      name,
-      bytes,
-      stored.seq,
-      stored.timestamp.millisecondsSinceEpoch,
-    );
-  }
-
-  /// Stream a file's wire frames (one fileMeta carrying [seq] + [sentAtMs] + the
-  /// fileChunks) to [peer]. Shared by [sendFile] and the gap-fill re-ship so the
-  /// frame format (and the seq/send-time on the meta) has one source of truth. A
-  /// re-shipped file keeps its ORIGINAL send-time, not a fresh one.
-  Future<void> _sendFileFrames(
-    NodeId peer,
-    String transferId,
-    String? name,
-    Uint8List bytes,
-    int? seq,
-    int? sentAtMs,
-  ) async {
-    final chunks = chunkBytes(
-      bytes,
-      transferId: transferId,
-      maxChunk: _wireChunkBytes,
-    );
-    await _send(
-      peer,
-      fileMetaEnvelope(
-        transferId: transferId,
-        name: name,
-        size: bytes.length,
-        count: chunks.length,
-        seq: seq,
-        sentAtMs: sentAtMs,
-      ).encode(),
-    );
-    for (final c in chunks) {
-      await _send(
-        peer,
-        fileChunkEnvelope(
-          transferId: c.transferId,
-          index: c.index,
-          total: c.total,
-          data: c.data,
-        ).encode(),
-      );
-      // Native send completes when the fragmented onion cells are queued, not
-      // when the session drains them. Without pacing, a sub-MiB attachment can
-      // enqueue >4K cells in one burst and silently trip LIMIT tx_queue.
-      await Future<void>.delayed(_contentPacing);
-    }
-  }
-
-  /// Respond to a gap-fill file PROBE (§15 3c, resumable): tell the sender which
-  /// chunks of [meta].transferId we still need (or `null` = all, when we hold no
-  /// chunk yet). We register an in-flight slot carrying the sender's seq/send-time
-  /// so the completed file folds convergently when the re-sent chunks arrive.
-  Future<void> _handleFileQuery(InboundMessage m, FileMetaFrame meta) async {
-    final tid = meta.transferId;
-    // Already complete (or deliberately deleted) → ACK it again. The sender may
-    // be probing precisely because our original completion ACK was lost; staying
-    // silent here leaves its UI stuck or lets an unrelated sync receipt be
-    // mistaken for file completion.
-    if (await _hasMessage(m.src, tid) ||
-        await _storage.isMessageDeleted(m.src.hex, tid)) {
-      await _ackTo(m, tid, direct: true, repeat: true);
-      return;
-    }
-    var inc = _inFlight[tid];
-    if (inc == null) {
-      // Same capacity discipline as the fileMeta arm: reclaim stale slots first,
-      // then refuse a NEW transfer only when still at capacity.
-      if (_inFlight.length >= kMaxConcurrentIncomingFiles) {
-        final cutoff = _now();
-        _inFlight.removeWhere(
-          (_, x) =>
-              cutoff.difference(x.lastActivity) > kStaleIncomingFileTimeout,
-        );
-      }
-      if (_inFlight.length >= kMaxConcurrentIncomingFiles) return;
-      inc = _Incoming(
-        src: m.src,
-        name: meta.name,
-        reasm: FileReassembler(),
-        lastActivity: _now(),
-        seq: meta.seq,
-        sentAtMs: meta.sentAtMs,
-      );
-      _inFlight[tid] = inc;
-    } else if (inc.src != m.src) {
-      return; // someone else can't probe another peer's in-flight transfer
-    }
-    // What we're missing. Until a chunk has set the total we hold NONE, so ask
-    // for everything (null) — the sender knows its own chunk count.
-    final total = inc.reasm.total;
-    final missing = total == null ? null : inc.reasm.missingIndices(total);
-    await _send(
-      m.src,
-      fileNackEnvelope(transferId: tid, missing: missing).encode(),
-    );
-  }
-
-  /// Re-send the chunks a peer's [WireKind.fileNack] asked for ([missing] == null
-  /// → all) of a file WE sent THEM. Rate-limited per (peer, transfer) + chunk-
-  /// capped so a NACK flood can't drive a blob-reread / chunk re-send storm.
-  Future<void> _handleFileNack(
-    NodeId peer,
-    String transferId,
-    List<int>? missing,
-  ) async {
-    // Resolve the file message WITHIN this peer's conversation — the transfer id
-    // is attacker-chosen on the wire, so a GLOBAL lookup would let an accepted
-    // peer pull ANOTHER conversation's file blob by naming its id (a cross-
-    // conversation leak). Same conversation-scoped boundary as _hasMessage.
-    Message? msg;
-    for (final m in await _storage.loadMessages(peer.hex)) {
-      if (m.id == transferId &&
-          m.direction == MessageDirection.outgoing &&
-          m.fileId != null) {
-        msg = m;
-        break;
-      }
-    }
-    if (msg == null) return; // not a file WE sent THIS peer → ignore (no leak)
-    // Rate-limit AFTER the ownership check, so a fresh-tid flood neither re-sends
-    // a blob nor grows the throttle map. Evict inert entries (older than the
-    // interval) so the map stays O(active transfers), not O(every tid ever).
-    final now = DateTime.now();
-    _lastFileNackAt.removeWhere(
-      (_, v) => now.difference(v) > _fileNackInterval,
-    );
-    final key = '${peer.hex}:$transferId';
-    final last = _lastFileNackAt[key];
-    if (last != null && now.difference(last) < _fileNackInterval) return;
-    _lastFileNackAt[key] = now;
-    final bytes = await _storage.loadFile(msg.fileId!);
-    if (bytes == null) return;
-    final want = missing?.toSet();
-    final chunks = chunkBytes(
-      bytes,
-      transferId: transferId,
-      maxChunk: _wireChunkBytes,
-    );
-    var sent = 0;
-    for (final c in chunks) {
-      if (want != null && !want.contains(c.index)) continue;
-      await _send(
-        peer,
-        fileChunkEnvelope(
-          transferId: c.transferId,
-          index: c.index,
-          total: c.total,
-          data: c.data,
-        ).encode(),
-      );
-      await Future<void>.delayed(_contentPacing);
-      if (++sent >= _fileNackChunkCap) break; // rest heal on the next round
-    }
-  }
+  }) => _fileTransfer.send(dst, bytes, name, sourcePath: sourcePath);
 
   // ── Content layer: decentralized, hash-verified piece transfer (Stage 2) ────
   // Sender: advertise a manifest, then serve requested pieces as paced chunks.
