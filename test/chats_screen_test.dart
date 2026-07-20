@@ -151,5 +151,10 @@ void main() {
 
     expect(find.text(l.securityCenterTitle), findsOneWidget);
     expect(find.text(l.networkPeers(4)), findsOneWidget);
+    final vpnY = tester.getTopLeft(find.text(l.vpnTitle)).dy;
+    final socksY = tester.getTopLeft(find.text(l.routeSocks5Title)).dy;
+    final onionY = tester.getTopLeft(find.text(l.settingsAnonymousRouting)).dy;
+    expect(vpnY, lessThan(socksY));
+    expect(socksY, lessThan(onionY));
   });
 }

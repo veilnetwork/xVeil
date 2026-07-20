@@ -12,6 +12,7 @@ typedef _StartNative =
       Uint16 mtu,
       Bool ipv6Enabled,
       Bool packetInformation,
+      Bool routeDns,
     );
 typedef _StartDart =
     int Function(
@@ -21,6 +22,7 @@ typedef _StartDart =
       int mtu,
       bool ipv6Enabled,
       bool packetInformation,
+      bool routeDns,
     );
 typedef _StatusNative = Int32 Function();
 typedef _StatusDart = int Function();
@@ -77,11 +79,20 @@ class PacketTunnelFfi {
     required String dnsIp,
     required int mtu,
     required bool packetInformation,
+    required bool routeDns,
   }) {
     final proxyUrl = 'socks5://$socks5Listen'.toNativeUtf8();
     final dns = dnsIp.toNativeUtf8();
     try {
-      return _start(tunFd, proxyUrl, dns, mtu, true, packetInformation);
+      return _start(
+        tunFd,
+        proxyUrl,
+        dns,
+        mtu,
+        true,
+        packetInformation,
+        routeDns,
+      );
     } finally {
       calloc.free(proxyUrl);
       calloc.free(dns);

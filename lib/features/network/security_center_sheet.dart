@@ -3,12 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../data/node/node_controller.dart';
+import '../../data/vpn/vpn_backend.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/providers.dart';
 import '../../state/proxy_routing_controller.dart';
 import '../../state/vpn_controller.dart';
-import '../../data/vpn/vpn_backend.dart';
 
 /// Opens the compact, always-available security and network control surface.
 ///
@@ -171,33 +171,7 @@ class _SecurityCenterSheetState extends ConsumerState<_SecurityCenterSheet> {
               trailing: const Icon(Icons.chevron_right),
               onTap: () => _open('/settings/account'),
             ),
-          SwitchListTile(
-            secondary: Icon(
-              anonymous ? Icons.shield_moon : Icons.shield_moon_outlined,
-            ),
-            title: Text(l.settingsAnonymousRouting),
-            subtitle: Text(
-              anonymous
-                  ? l.settingsAnonymousEnabledHint
-                  : l.settingsAnonymousDisabledHint,
-            ),
-            value: anonymous,
-            onChanged: _busy ? null : _setAnonymous,
-          ),
           const Divider(),
-          SwitchListTile(
-            secondary: const Icon(Icons.vpn_lock_outlined),
-            title: Text(l.routeSocks5Title),
-            subtitle: Text(
-              routing.exitNodeId == null
-                  ? l.routeNeedExit
-                  : (routing.socks5Active
-                        ? l.networkRouteSubActive
-                        : l.networkRouteSubIdle),
-            ),
-            value: routing.socks5Enabled,
-            onChanged: _busy ? null : _setProxy,
-          ),
           SwitchListTile(
             secondary: Icon(
               vpn.isRunning ? Icons.vpn_lock : Icons.vpn_lock_outlined,
@@ -219,6 +193,32 @@ class _SecurityCenterSheetState extends ConsumerState<_SecurityCenterSheet> {
                     vpn.backend.phase == VpnBackendPhase.unsupported
                 ? null
                 : _setVpn,
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.vpn_lock_outlined),
+            title: Text(l.routeSocks5Title),
+            subtitle: Text(
+              routing.exitNodeId == null
+                  ? l.routeNeedExit
+                  : (routing.socks5Active
+                        ? l.networkRouteSubActive
+                        : l.networkRouteSubIdle),
+            ),
+            value: routing.socks5Enabled,
+            onChanged: _busy ? null : _setProxy,
+          ),
+          SwitchListTile(
+            secondary: Icon(
+              anonymous ? Icons.shield_moon : Icons.shield_moon_outlined,
+            ),
+            title: Text(l.settingsAnonymousRouting),
+            subtitle: Text(
+              anonymous
+                  ? l.settingsAnonymousEnabledHint
+                  : l.settingsAnonymousDisabledHint,
+            ),
+            value: anonymous,
+            onChanged: _busy ? null : _setAnonymous,
           ),
           ListTile(
             leading: const Icon(Icons.tune),
