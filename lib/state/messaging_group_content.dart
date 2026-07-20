@@ -26,6 +26,41 @@ class _MessagingGroupContent {
     _groupPullSources.clear();
   }
 
+  /// Persist and send a signed group content-fetch request without opening a
+  /// general stranger-send capability. The group binding in [frameId] lets the
+  /// durable outbox re-drive this exact request to a co-member.
+  Future<void> sendGroupContentRequest(NodeId dst, String requestJson) async {
+    GroupContentRequest? request;
+    try {
+      request = GroupContentRequest.fromJson(jsonDecode(requestJson));
+    } catch (_) {
+      // Malformed local request: do not enqueue it.
+    }
+    if (request == null) return;
+
+    // Authorize the reply path before the request leaves this process. A
+    // verified holder answers with a live manifest/ref advertisement; without
+    // this receiver-side scope the normal contact gate would drop it before
+    // the delayed group pull starts. The holder still verifies membership,
+    // the group reference and freshness independently.
+    allowGroupPullSources(request.contentId, [dst]);
+    final frameId =
+        'gcr:${request.groupId.hex}:${request.contentId}:${request.nonce}';
+    final wire = WireEnvelope.groupContentRequest(
+      requestJson,
+    ).withFrameId(frameId).encode();
+    await _owner._storage.enqueueOutboxFrame(frameId, dst.hex, wire);
+    _owner._outbox.recordQueued(frameId, dst.hex);
+    unawaited(() async {
+      try {
+        await _owner._send(dst, wire);
+      } catch (_) {
+        // Mailbox copy + outbox re-drive remain authoritative.
+      }
+    }());
+    _owner._stashInBackground(dst, frameId, wire);
+  }
+
   /// Allow [peer] to pull [cid] for [ttl] (defaults to the request window).
   void grantGroupContentServe(
     NodeId peer,

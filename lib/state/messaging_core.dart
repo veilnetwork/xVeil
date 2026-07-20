@@ -314,37 +314,8 @@ class MessagingService {
   /// request fanout ahead of reachable seeders. Non-contact holders never ACK
   /// this frame (no membership/read oracle); it retires at the signed request's
   /// own ten-minute freshness deadline.
-  Future<void> sendGroupContentRequest(NodeId dst, String requestJson) async {
-    GroupContentRequest? request;
-    try {
-      request = GroupContentRequest.fromJson(jsonDecode(requestJson));
-    } catch (_) {
-      /* malformed local request → do not enqueue */
-    }
-    if (request == null) return;
-    // Authorize the reply path BEFORE the request leaves this process. A
-    // verified holder answers an accepted group request with a live
-    // manifest/ref advertisement; without this early receiver-side scope the
-    // normal contact gate would drop that advertisement before the delayed
-    // group pull starts. The holder still independently verifies membership,
-    // the group reference and freshness before it sends anything.
-    _allowGroupPullSources(request.contentId, [dst]);
-    final frameId =
-        'gcr:${request.groupId.hex}:${request.contentId}:${request.nonce}';
-    final wire = WireEnvelope.groupContentRequest(
-      requestJson,
-    ).withFrameId(frameId).encode();
-    await _storage.enqueueOutboxFrame(frameId, dst.hex, wire);
-    _outbox.recordQueued(frameId, dst.hex);
-    unawaited(() async {
-      try {
-        await _send(dst, wire);
-      } catch (_) {
-        // Mailbox copy + outbox re-drive remain authoritative.
-      }
-    }());
-    _stashInBackground(dst, frameId, wire);
-  }
+  Future<void> sendGroupContentRequest(NodeId dst, String requestJson) =>
+      _groupContent.sendGroupContentRequest(dst, requestJson);
 
   /// Send one already-signed+epoch-encrypted group-call signal. Lifecycle
   /// transitions are durable for short outage tolerance; heartbeats are live
@@ -353,34 +324,7 @@ class MessagingService {
     NodeId dst,
     GroupCallSignal signal,
     String frameJson,
-  ) async {
-    final envelope = WireEnvelope.groupCallSignal(
-      frameJson,
-      sentAtMs: signal.sentAtMs,
-    );
-    // Group-call control rides the REALTIME IPC connection, mirroring
-    // sendCallSignal below. It previously went through _send (the MAIN
-    // client), where ring/join/heartbeat queued behind mailbox drains,
-    // anonymous sends and file streams on the node's sequential
-    // per-connection loop — the same head-of-line class that stalled call
-    // media for seconds until media got its own connection (2026-07-17).
-    if (signal.type == GroupCallSignalType.heartbeat) {
-      try {
-        await _sendRealtime(dst, envelope.encode());
-      } catch (_) {
-        // A subsequent heartbeat supersedes this best-effort frame.
-      }
-      return;
-    }
-    await sendDurable(
-      dst,
-      'gcall:${signal.groupId.hex}:${signal.callId}:'
-      '${signal.type.name}:${signal.nonce}',
-      envelope,
-      liveSender: (wire) => _sendRealtime(dst, wire),
-      awaitLive: false,
-    );
-  }
+  ) => _realtimeControl.sendGroupCallSignal(dst, signal, frameJson);
 
   /// Allow [peer] to pull membership-authorized group content [cid].
   void grantGroupContentServe(
@@ -908,9 +852,6 @@ class MessagingService {
     awaitLive: awaitLive,
     startLiveBeforeEnqueue: startLiveBeforeEnqueue,
   );
-
-  Future<void> _sendRealtime(NodeId peer, Uint8List wire) =>
-      _realtimeControl.sendRealtime(peer, wire);
 
   /// Send a call control-plane [signal] to [peer]. Ring/accept/reject/cancel/
   /// busy/end/renegotiate go via the durable pipeline — keyed `call:<id>:<type>`
