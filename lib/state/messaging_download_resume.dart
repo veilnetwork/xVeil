@@ -46,8 +46,7 @@ class _MessagingDownloadResume {
     _owner._clearGroupPullSources(contentId);
     final savedPath = _owner._fetchSavePath.remove(contentId);
     complete(contentId);
-    _owner._pendingTimers.remove(contentId)?.cancel();
-    final parkedSink = _owner._pendingDownload.remove(contentId);
+    final parkedSink = _owner._contentAvailability.takePending(contentId);
     final fetch = _owner._contentFetching.take(contentId);
 
     final sinks = <_FetchSink>{?parkedSink, ?fetch?.sink};
@@ -189,7 +188,7 @@ class _MessagingDownloadResume {
   bool pullActive(String contentId) =>
       (_activePullCount[contentId] ?? 0) > 0 ||
       _owner._contentFetching.contains(contentId) ||
-      _owner._pendingDownload.containsKey(contentId);
+      _owner._contentAvailability.hasPending(contentId);
 
   Future<void> persistManifestIfPending(ContentManifest manifest) async {
     if (!_persistedManifests.add(manifest.contentId)) return;
@@ -385,10 +384,9 @@ class _MessagingDownloadResume {
       if (_owner._offered[contentId] == null && peers.isNotEmpty) {
         final manifest = await loadPersistedManifest(contentId);
         if (manifest != null) {
-          _owner._offered[contentId] = (
-            manifest: manifest,
-            peers: {for (final peer in peers) peer.hex: peer},
-          );
+          for (final peer in peers) {
+            _owner._contentAvailability.rememberManifest(peer, manifest);
+          }
         }
       }
       devLog(
