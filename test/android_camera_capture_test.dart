@@ -31,10 +31,14 @@ void main() {
       'previewRotation': 0,
       'mirror': true,
       'fps': 60,
+      'cameraId': '1',
+      'facing': 'front',
     });
     expect(preview?.textureId, 7);
     expect(preview?.rotation, 0);
     expect(preview?.mirror, isTrue);
+    expect(preview?.cameraId, '1');
+    expect(preview?.facing, 'front');
 
     expect(
       AndroidNativeCameraPreview.fromMap(const {
@@ -44,6 +48,8 @@ void main() {
         'previewRotation': 45,
         'mirror': true,
         'fps': 60,
+        'cameraId': '1',
+        'facing': 'front',
       }),
       isNull,
     );
@@ -58,6 +64,8 @@ void main() {
         'rotation': 270,
         'mirror': false,
         'fps': 30,
+        'cameraId': '0',
+        'facing': 'back',
       })?.rotation,
       270,
     );

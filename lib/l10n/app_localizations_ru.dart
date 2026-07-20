@@ -2254,6 +2254,24 @@ class AppL10nRu extends AppL10n {
   String get callCameraOff => 'Камера выкл';
 
   @override
+  String get callDevices => 'Устройства';
+
+  @override
+  String get callCameras => 'Камеры';
+
+  @override
+  String get callMicrophones => 'Микрофоны';
+
+  @override
+  String get callNoCaptureDevices => 'Устройства захвата недоступны';
+
+  @override
+  String get callDeviceSwitchFailed => 'Не удалось переключить устройство';
+
+  @override
+  String get callSwitchCamera => 'Переключить камеру';
+
+  @override
   String get callScreenOn => 'Показ экрана';
 
   @override

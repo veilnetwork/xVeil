@@ -95,6 +95,7 @@ class NativeCallCamera(
         requestedWidth: Int,
         requestedHeight: Int,
         requestedFps: Int,
+        requestedCameraId: String?,
         reply: (Map<String, Any?>?, String?) -> Unit,
     ) {
         stop()
@@ -113,7 +114,7 @@ class NativeCallCamera(
         pendingStartReply = finish
 
         try {
-            val cameraId = chooseFrontCamera()
+            val cameraId = chooseCamera(requestedCameraId)
             val characteristics = cameraManager.getCameraCharacteristics(cameraId)
             val size = chooseCommonSize(
                 characteristics,
@@ -278,6 +279,11 @@ class NativeCallCamera(
                                             "mirror" to mirror,
                                             "fps" to fpsRange.upper,
                                             "cameraId" to cameraId,
+                                            "facing" to lensFacingName(
+                                                characteristics.get(
+                                                    CameraCharacteristics.LENS_FACING,
+                                                ),
+                                            ),
                                         ),
                                         null,
                                     )
@@ -523,13 +529,44 @@ class NativeCallCamera(
         }
     }
 
-    private fun chooseFrontCamera(): String {
+    fun devices(): List<Map<String, Any?>> {
+        return cameraManager.cameraIdList.mapIndexed { index, id ->
+            val facing = lensFacingName(
+                cameraManager.getCameraCharacteristics(id)
+                    .get(CameraCharacteristics.LENS_FACING),
+            )
+            mapOf(
+                "id" to id,
+                "label" to when (facing) {
+                    "front" -> "Front camera ${index + 1}"
+                    "back" -> "Back camera ${index + 1}"
+                    else -> "Camera ${index + 1}"
+                },
+                "kind" to "camera",
+                "facing" to facing,
+            )
+        }
+    }
+
+    private fun chooseCamera(requestedCameraId: String?): String {
+        if (!requestedCameraId.isNullOrEmpty() &&
+            cameraManager.cameraIdList.contains(requestedCameraId)
+        ) {
+            return requestedCameraId
+        }
         return cameraManager.cameraIdList.firstOrNull { id ->
             cameraManager.getCameraCharacteristics(id)
                 .get(CameraCharacteristics.LENS_FACING) ==
                 CameraCharacteristics.LENS_FACING_FRONT
         } ?: cameraManager.cameraIdList.firstOrNull()
         ?: throw IllegalStateException("No camera is available")
+    }
+
+    private fun lensFacingName(value: Int?): String = when (value) {
+        CameraCharacteristics.LENS_FACING_FRONT -> "front"
+        CameraCharacteristics.LENS_FACING_BACK -> "back"
+        CameraCharacteristics.LENS_FACING_EXTERNAL -> "external"
+        else -> "unknown"
     }
 
     private fun chooseCommonSize(

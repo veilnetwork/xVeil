@@ -30,6 +30,121 @@ enum _OverlayMode { full, mini, hidden }
 
 bool _peerScreenSharing(Call call) => call.media.screen && !call.screenOn;
 
+class _DeviceSectionLabel extends StatelessWidget {
+  const _DeviceSectionLabel(this.label);
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+    child: Text(label, style: Theme.of(context).textTheme.labelLarge),
+  );
+}
+
+class _CaptureDeviceTile extends StatelessWidget {
+  const _CaptureDeviceTile({required this.device, required this.onTap});
+  final CallMediaDevice device;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => ListTile(
+    leading: Icon(
+      device.kind == CallMediaDeviceKind.camera ? Icons.videocam : Icons.mic,
+    ),
+    title: Text(device.label),
+    trailing: device.selected ? const Icon(Icons.check) : null,
+    onTap: onTap,
+  );
+}
+
+class _CaptureDevicePanel extends StatelessWidget {
+  const _CaptureDevicePanel({
+    required this.devices,
+    required this.onDismiss,
+    required this.onSelect,
+  });
+
+  final List<CallMediaDevice> devices;
+  final VoidCallback onDismiss;
+  final ValueChanged<CallMediaDevice> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    final cameras = devices
+        .where((device) => device.kind == CallMediaDeviceKind.camera)
+        .toList(growable: false);
+    final microphones = devices
+        .where((device) => device.kind == CallMediaDeviceKind.microphone)
+        .toList(growable: false);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Semantics(
+          label: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+          button: true,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onDismiss,
+            child: const ColoredBox(color: Color(0x99000000)),
+          ),
+        ),
+        Align(
+          alignment: Alignment.bottomCenter,
+          child: Material(
+            color: Theme.of(context).colorScheme.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            clipBehavior: Clip.antiAlias,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height * 0.72,
+              ),
+              child: ListView(
+                shrinkWrap: true,
+                padding: const EdgeInsets.only(bottom: 12),
+                children: [
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(vertical: 10),
+                      child: SizedBox(
+                        width: 32,
+                        child: Divider(thickness: 4, height: 4),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                    child: Text(
+                      l.callDevices,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                  ),
+                  if (cameras.isNotEmpty) ...[
+                    _DeviceSectionLabel(l.callCameras),
+                    for (final device in cameras)
+                      _CaptureDeviceTile(
+                        device: device,
+                        onTap: () => onSelect(device),
+                      ),
+                  ],
+                  if (microphones.isNotEmpty) ...[
+                    _DeviceSectionLabel(l.callMicrophones),
+                    for (final device in microphones)
+                      _CaptureDeviceTile(
+                        device: device,
+                        onTap: () => onSelect(device),
+                      ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class CallOverlay extends ConsumerStatefulWidget {
   const CallOverlay({super.key});
 
@@ -47,6 +162,49 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
   bool _autoMiniAfterConnect = false;
   bool _selfPreviewHidden = false;
   bool _pipActive = false;
+  bool _captureDevicesLoading = false;
+  List<CallMediaDevice>? _captureDevices;
+
+  Future<void> _openCaptureDevicePicker(
+    CallService svc, {
+    required bool includeCameras,
+  }) async {
+    if (_captureDevicesLoading) return;
+    setState(() => _captureDevicesLoading = true);
+    final results = await Future.wait([
+      if (includeCameras)
+        svc.listCameras()
+      else
+        Future.value(const <CallMediaDevice>[]),
+      svc.listMicrophones(),
+    ]);
+    if (!mounted) return;
+    final devices = [...results[0], ...results[1]];
+    setState(() {
+      _captureDevicesLoading = false;
+      _captureDevices = devices.isEmpty ? null : devices;
+    });
+    if (devices.isEmpty) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text(AppL10n.of(context).callNoCaptureDevices)),
+      );
+    }
+  }
+
+  Future<void> _selectCaptureDevice(
+    CallService svc,
+    CallMediaDevice device,
+  ) async {
+    setState(() => _captureDevices = null);
+    final ok = device.kind == CallMediaDeviceKind.camera
+        ? await svc.selectCamera(device.id)
+        : await svc.selectMicrophone(device.id);
+    if (!ok && mounted) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text(AppL10n.of(context).callDeviceSwitchFailed)),
+      );
+    }
+  }
 
   @override
   void initState() {
@@ -111,6 +269,8 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
       _selfPreviewSize = _SelfPreview.defaultSizeFor(size);
       _selfPreviewOffset = Offset(size.width - _selfPreviewSize.width - 12, 64);
       _selfPreviewHidden = false;
+      _captureDevices = null;
+      _captureDevicesLoading = false;
       _mode = _OverlayMode.full;
     }
     final videoStage = _isVideoStage(call);
@@ -136,54 +296,78 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
         child: Material(
           color: const Color(0xF20E1116),
           child: SafeArea(
-            child: _CallBody(
-              call,
-              onMinimize: videoStage
-                  ? () => setState(() => _mode = _OverlayMode.mini)
-                  : null,
-              selfPreviewOffset: _selfPreviewOffset,
-              selfPreviewSize: _selfPreviewSize,
-              selfPreviewHidden: _selfPreviewHidden,
-              onSelfPreviewDrag: (delta) {
-                final size = MediaQuery.sizeOf(context);
-                setState(() {
-                  _selfPreviewOffset = Offset(
-                    (_selfPreviewOffset.dx + delta.dx).clamp(
-                      8.0,
-                      size.width - _selfPreviewSize.width - 8.0,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                _CallBody(
+                  call,
+                  onShowDevices: (svc) => _openCaptureDevicePicker(
+                    svc,
+                    includeCameras: call.media.video,
+                  ),
+                  onMinimize: videoStage
+                      ? () => setState(() => _mode = _OverlayMode.mini)
+                      : null,
+                  selfPreviewOffset: _selfPreviewOffset,
+                  selfPreviewSize: _selfPreviewSize,
+                  selfPreviewHidden: _selfPreviewHidden,
+                  onSelfPreviewDrag: (delta) {
+                    final size = MediaQuery.sizeOf(context);
+                    setState(() {
+                      _selfPreviewOffset = Offset(
+                        (_selfPreviewOffset.dx + delta.dx).clamp(
+                          8.0,
+                          size.width - _selfPreviewSize.width - 8.0,
+                        ),
+                        (_selfPreviewOffset.dy + delta.dy).clamp(
+                          8.0,
+                          size.height - _selfPreviewSize.height - 8.0,
+                        ),
+                      );
+                    });
+                  },
+                  onSelfPreviewResize: (delta) {
+                    final viewSize = MediaQuery.sizeOf(context);
+                    setState(() {
+                      final next = _SelfPreview.clampSize(
+                        _selfPreviewSize.width + delta.dx,
+                      );
+                      _selfPreviewSize = next;
+                      _selfPreviewOffset = Offset(
+                        _selfPreviewOffset.dx.clamp(
+                          8.0,
+                          viewSize.width - next.width - 8.0,
+                        ),
+                        _selfPreviewOffset.dy.clamp(
+                          8.0,
+                          viewSize.height - next.height - 8.0,
+                        ),
+                      );
+                    });
+                  },
+                  onSelfPreviewHide: () {
+                    setState(() => _selfPreviewHidden = true);
+                  },
+                  onSelfPreviewShow: () {
+                    setState(() => _selfPreviewHidden = false);
+                  },
+                ),
+                if (_captureDevicesLoading)
+                  const Positioned(
+                    right: 30,
+                    bottom: 40,
+                    child: CircularProgressIndicator(),
+                  ),
+                if (_captureDevices case final devices?)
+                  _CaptureDevicePanel(
+                    devices: devices,
+                    onDismiss: () => setState(() => _captureDevices = null),
+                    onSelect: (device) => _selectCaptureDevice(
+                      ref.read(callServiceProvider),
+                      device,
                     ),
-                    (_selfPreviewOffset.dy + delta.dy).clamp(
-                      8.0,
-                      size.height - _selfPreviewSize.height - 8.0,
-                    ),
-                  );
-                });
-              },
-              onSelfPreviewResize: (delta) {
-                final viewSize = MediaQuery.sizeOf(context);
-                setState(() {
-                  final next = _SelfPreview.clampSize(
-                    _selfPreviewSize.width + delta.dx,
-                  );
-                  _selfPreviewSize = next;
-                  _selfPreviewOffset = Offset(
-                    _selfPreviewOffset.dx.clamp(
-                      8.0,
-                      viewSize.width - next.width - 8.0,
-                    ),
-                    _selfPreviewOffset.dy.clamp(
-                      8.0,
-                      viewSize.height - next.height - 8.0,
-                    ),
-                  );
-                });
-              },
-              onSelfPreviewHide: () {
-                setState(() => _selfPreviewHidden = true);
-              },
-              onSelfPreviewShow: () {
-                setState(() => _selfPreviewHidden = false);
-              },
+                  ),
+              ],
             ),
           ),
         ),
@@ -237,6 +421,7 @@ class _CallBody extends ConsumerWidget {
     required this.onSelfPreviewResize,
     required this.onSelfPreviewHide,
     required this.onSelfPreviewShow,
+    required this.onShowDevices,
   });
   final Call call;
   final VoidCallback? onMinimize;
@@ -247,6 +432,7 @@ class _CallBody extends ConsumerWidget {
   final ValueChanged<Offset> onSelfPreviewResize;
   final VoidCallback onSelfPreviewHide;
   final VoidCallback onSelfPreviewShow;
+  final ValueChanged<CallService> onShowDevices;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -302,7 +488,12 @@ class _CallBody extends ConsumerWidget {
           ),
         ],
         const Spacer(),
-        _Controls(call: call, svc: svc, l: l),
+        _Controls(
+          call: call,
+          svc: svc,
+          l: l,
+          onShowDevices: () => onShowDevices(svc),
+        ),
         const SizedBox(height: 36),
       ],
     );
@@ -428,7 +619,11 @@ class _CallBody extends ConsumerWidget {
           left: 12,
           right: 12,
           bottom: 18,
-          child: _VideoControlsBar(call: call, svc: svc),
+          child: _VideoControlsBar(
+            call: call,
+            svc: svc,
+            onShowDevices: () => onShowDevices(svc),
+          ),
         ),
       ],
     );
@@ -1143,10 +1338,15 @@ class _ShowSelfPreviewButton extends StatelessWidget {
 }
 
 class _VideoControlsBar extends StatelessWidget {
-  const _VideoControlsBar({required this.call, required this.svc});
+  const _VideoControlsBar({
+    required this.call,
+    required this.svc,
+    required this.onShowDevices,
+  });
 
   final Call call;
   final CallService svc;
+  final VoidCallback onShowDevices;
 
   @override
   Widget build(BuildContext context) {
@@ -1169,6 +1369,29 @@ class _VideoControlsBar extends StatelessWidget {
                 active: call.cameraOn,
                 onTap: () => svc.setCameraEnabled(!call.cameraOn),
               ),
+              if (Platform.isAndroid && call.cameraOn && !call.screenOn) ...[
+                const SizedBox(width: 8),
+                Semantics(
+                  label: AppL10n.of(context).callSwitchCamera,
+                  button: true,
+                  child: _CallBarButton(
+                    icon: Icons.cameraswitch,
+                    active: true,
+                    onTap: () async {
+                      final ok = await svc.switchCameraFacing();
+                      if (!ok && context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              AppL10n.of(context).callDeviceSwitchFailed,
+                            ),
+                          ),
+                        );
+                      }
+                    },
+                  ),
+                ),
+              ],
               // Screen share replaces the camera as the video source. Android
               // presents its native MediaProjection consent sheet on tap.
               if (defaultTargetPlatform == TargetPlatform.macOS ||
@@ -1183,6 +1406,16 @@ class _VideoControlsBar extends StatelessWidget {
                 ),
               ],
             ],
+            const SizedBox(width: 8),
+            Semantics(
+              label: AppL10n.of(context).callDevices,
+              button: true,
+              child: _CallBarButton(
+                icon: Icons.tune,
+                active: true,
+                onTap: onShowDevices,
+              ),
+            ),
             const Spacer(),
             Material(
               color: Colors.red,
@@ -1232,10 +1465,16 @@ class _CallBarButton extends StatelessWidget {
 }
 
 class _Controls extends StatelessWidget {
-  const _Controls({required this.call, required this.svc, required this.l});
+  const _Controls({
+    required this.call,
+    required this.svc,
+    required this.l,
+    required this.onShowDevices,
+  });
   final Call call;
   final CallService svc;
   final AppL10n l;
+  final VoidCallback onShowDevices;
 
   @override
   Widget build(BuildContext context) {
@@ -1297,6 +1536,12 @@ class _Controls extends StatelessWidget {
                     enabled: true,
                     onTap: () => svc.setScreenShareEnabled(!call.screenOn),
                   ),
+                _MiniToggle(
+                  Icons.tune,
+                  l.callDevices,
+                  enabled: true,
+                  onTap: onShowDevices,
+                ),
               ],
             ),
             const SizedBox(height: 20),

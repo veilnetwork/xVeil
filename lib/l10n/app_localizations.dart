@@ -4195,6 +4195,42 @@ abstract class AppL10n {
   /// **'Camera off'**
   String get callCameraOff;
 
+  /// No description provided for @callDevices.
+  ///
+  /// In en, this message translates to:
+  /// **'Devices'**
+  String get callDevices;
+
+  /// No description provided for @callCameras.
+  ///
+  /// In en, this message translates to:
+  /// **'Cameras'**
+  String get callCameras;
+
+  /// No description provided for @callMicrophones.
+  ///
+  /// In en, this message translates to:
+  /// **'Microphones'**
+  String get callMicrophones;
+
+  /// No description provided for @callNoCaptureDevices.
+  ///
+  /// In en, this message translates to:
+  /// **'No capture devices available'**
+  String get callNoCaptureDevices;
+
+  /// No description provided for @callDeviceSwitchFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not switch device'**
+  String get callDeviceSwitchFailed;
+
+  /// No description provided for @callSwitchCamera.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch camera'**
+  String get callSwitchCamera;
+
   /// No description provided for @callScreenOn.
   ///
   /// In en, this message translates to:
