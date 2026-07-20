@@ -18,6 +18,7 @@ import '../../state/call_service.dart';
 import '../../state/veil_call_media.dart'
     show localVideoFrame, remoteVideoFrame;
 import 'call_lifecycle_bridge.dart' show callPipMode;
+import 'call_device_picker.dart';
 import 'video_frame_view.dart';
 
 /// Full-screen call UI that floats above every route. Mounted once from
@@ -29,121 +30,6 @@ import 'video_frame_view.dart';
 enum _OverlayMode { full, mini, hidden }
 
 bool _peerScreenSharing(Call call) => call.media.screen && !call.screenOn;
-
-class _DeviceSectionLabel extends StatelessWidget {
-  const _DeviceSectionLabel(this.label);
-  final String label;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
-    child: Text(label, style: Theme.of(context).textTheme.labelLarge),
-  );
-}
-
-class _CaptureDeviceTile extends StatelessWidget {
-  const _CaptureDeviceTile({required this.device, required this.onTap});
-  final CallMediaDevice device;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => ListTile(
-    leading: Icon(
-      device.kind == CallMediaDeviceKind.camera ? Icons.videocam : Icons.mic,
-    ),
-    title: Text(device.label),
-    trailing: device.selected ? const Icon(Icons.check) : null,
-    onTap: onTap,
-  );
-}
-
-class _CaptureDevicePanel extends StatelessWidget {
-  const _CaptureDevicePanel({
-    required this.devices,
-    required this.onDismiss,
-    required this.onSelect,
-  });
-
-  final List<CallMediaDevice> devices;
-  final VoidCallback onDismiss;
-  final ValueChanged<CallMediaDevice> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    final l = AppL10n.of(context);
-    final cameras = devices
-        .where((device) => device.kind == CallMediaDeviceKind.camera)
-        .toList(growable: false);
-    final microphones = devices
-        .where((device) => device.kind == CallMediaDeviceKind.microphone)
-        .toList(growable: false);
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Semantics(
-          label: MaterialLocalizations.of(context).modalBarrierDismissLabel,
-          button: true,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: onDismiss,
-            child: const ColoredBox(color: Color(0x99000000)),
-          ),
-        ),
-        Align(
-          alignment: Alignment.bottomCenter,
-          child: Material(
-            color: Theme.of(context).colorScheme.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-            clipBehavior: Clip.antiAlias,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxHeight: MediaQuery.sizeOf(context).height * 0.72,
-              ),
-              child: ListView(
-                shrinkWrap: true,
-                padding: const EdgeInsets.only(bottom: 12),
-                children: [
-                  const Center(
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(vertical: 10),
-                      child: SizedBox(
-                        width: 32,
-                        child: Divider(thickness: 4, height: 4),
-                      ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-                    child: Text(
-                      l.callDevices,
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                  ),
-                  if (cameras.isNotEmpty) ...[
-                    _DeviceSectionLabel(l.callCameras),
-                    for (final device in cameras)
-                      _CaptureDeviceTile(
-                        device: device,
-                        onTap: () => onSelect(device),
-                      ),
-                  ],
-                  if (microphones.isNotEmpty) ...[
-                    _DeviceSectionLabel(l.callMicrophones),
-                    for (final device in microphones)
-                      _CaptureDeviceTile(
-                        device: device,
-                        onTap: () => onSelect(device),
-                      ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
 
 class CallOverlay extends ConsumerStatefulWidget {
   const CallOverlay({super.key});
@@ -168,6 +54,7 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
   Future<void> _openCaptureDevicePicker(
     CallService svc, {
     required bool includeCameras,
+    required bool includeScreens,
   }) async {
     if (_captureDevicesLoading) return;
     setState(() => _captureDevicesLoading = true);
@@ -177,9 +64,13 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
       else
         Future.value(const <CallMediaDevice>[]),
       svc.listMicrophones(),
+      if (includeScreens)
+        svc.listScreens()
+      else
+        Future.value(const <CallMediaDevice>[]),
     ]);
     if (!mounted) return;
-    final devices = [...results[0], ...results[1]];
+    final devices = [...results[0], ...results[1], ...results[2]];
     setState(() {
       _captureDevicesLoading = false;
       _captureDevices = devices.isEmpty ? null : devices;
@@ -196,9 +87,11 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
     CallMediaDevice device,
   ) async {
     setState(() => _captureDevices = null);
-    final ok = device.kind == CallMediaDeviceKind.camera
-        ? await svc.selectCamera(device.id)
-        : await svc.selectMicrophone(device.id);
+    final ok = switch (device.kind) {
+      CallMediaDeviceKind.camera => await svc.selectCamera(device.id),
+      CallMediaDeviceKind.microphone => await svc.selectMicrophone(device.id),
+      CallMediaDeviceKind.screen => await svc.selectScreen(device.id),
+    };
     if (!ok && mounted) {
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(content: Text(AppL10n.of(context).callDeviceSwitchFailed)),
@@ -304,6 +197,7 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
                   onShowDevices: (svc) => _openCaptureDevicePicker(
                     svc,
                     includeCameras: call.media.video,
+                    includeScreens: call.media.video && Platform.isMacOS,
                   ),
                   onMinimize: videoStage
                       ? () => setState(() => _mode = _OverlayMode.mini)
@@ -359,7 +253,7 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
                     child: CircularProgressIndicator(),
                   ),
                 if (_captureDevices case final devices?)
-                  _CaptureDevicePanel(
+                  CallDevicePickerPanel(
                     devices: devices,
                     onDismiss: () => setState(() => _captureDevices = null),
                     onSelect: (device) => _selectCaptureDevice(

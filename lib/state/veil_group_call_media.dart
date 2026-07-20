@@ -10,6 +10,7 @@ import '../data/transport/veil_flutter_transport.dart';
 import '../domain/group_call.dart';
 import 'android_camera_capture.dart';
 import 'android_screen_capture.dart';
+import 'call_service.dart' show CallMediaDevice, CallMediaDeviceKind;
 import 'group_call_service.dart';
 import 'mac_media_permissions.dart';
 
@@ -45,8 +46,9 @@ abstract interface class GroupAudioEngine {
   bool stopVideo() => true;
   bool startCamera() => false;
   bool stopCamera() => true;
-  bool startScreen() => false;
+  bool startScreen({String? sourceId}) => false;
   bool stopScreen() => true;
+  List<MediaDevice> listScreens() => const [];
   bool pushVideoFrame(
     Uint8List y,
     Uint8List u,
@@ -107,10 +109,14 @@ class NativeGroupAudioEngine implements GroupAudioEngine {
   bool stopCamera() => _engine.stopCamera();
 
   @override
-  bool startScreen() => _engine.startScreen();
+  bool startScreen({String? sourceId}) =>
+      _engine.startScreen(sourceId: sourceId);
 
   @override
   bool stopScreen() => _engine.stopScreen();
+
+  @override
+  List<MediaDevice> listScreens() => _engine.listScreenInputs();
 
   @override
   bool pushVideoFrame(
@@ -176,6 +182,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   bool _androidScreenPushLogged = false;
   final StreamController<void> _screenShareStops = StreamController.broadcast();
   bool _videoRunning = false;
+  bool _screenSharing = false;
+  String? _selectedScreenId;
   Future<void> _tail = Future<void>.value();
 
   static Future<bool> _defaultMicPermission() async {
@@ -244,10 +252,10 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         );
         if (call.screenOn || call.media.screen) {
           if (Platform.isAndroid) {
-            await _startAndroidScreen(engine);
+            _screenSharing = await _startAndroidScreen(engine);
           } else {
             try {
-              engine.startScreen();
+              _screenSharing = engine.startScreen(sourceId: _selectedScreenId);
             } catch (_) {}
           }
         } else if (call.cameraOn && call.media.video) {
@@ -408,6 +416,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         final screen = _androidScreen;
         _androidScreen = null;
         if (screen != null) await screen.stop();
+        _screenSharing = false;
         return true;
       }
       if (_androidScreen != null) return true;
@@ -416,14 +425,66 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       _androidCamera = null;
       if (camera != null) await camera.stop();
       final started = await _startAndroidScreen(engine);
+      _screenSharing = started;
       if (!started && cameraWasRunning) await _startAndroidCamera(engine);
       return started;
     }
     if (!Platform.isMacOS) return false;
     try {
-      if (enabled) return engine.startScreen();
-      return engine.stopScreen();
+      if (enabled) {
+        final started = engine.startScreen(sourceId: _selectedScreenId);
+        _screenSharing = started;
+        return started;
+      }
+      final stopped = engine.stopScreen();
+      if (stopped) _screenSharing = false;
+      return stopped;
     } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  Future<List<CallMediaDevice>> listScreens() async {
+    final engine = _engine;
+    if (engine == null || !Platform.isMacOS) return const [];
+    try {
+      return engine
+          .listScreens()
+          .indexed
+          .map(
+            (entry) => CallMediaDevice(
+              id: entry.$2.id,
+              label: entry.$2.label,
+              kind: CallMediaDeviceKind.screen,
+              selected:
+                  entry.$2.id == _selectedScreenId ||
+                  (_selectedScreenId == null && entry.$1 == 0),
+            ),
+          )
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  @override
+  Future<bool> selectScreen(String id) async {
+    final engine = _engine;
+    if (engine == null || !Platform.isMacOS) return false;
+    final devices = await listScreens();
+    if (!devices.any((device) => device.id == id)) return false;
+    final previous = _selectedScreenId;
+    _selectedScreenId = id;
+    if (!_screenSharing) return true;
+    try {
+      engine.stopScreen();
+      if (engine.startScreen(sourceId: id)) return true;
+      _selectedScreenId = previous;
+      engine.startScreen(sourceId: previous);
+      return false;
+    } catch (_) {
+      _selectedScreenId = previous;
       return false;
     }
   }
@@ -436,6 +497,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     _statsTimer = null;
     _frameTimer?.cancel();
     _frameTimer = null;
+    _screenSharing = false;
     final androidCamera = _androidCamera;
     _androidCamera = null;
     if (androidCamera != null) {
@@ -510,6 +572,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     screen = _screenCaptureFactory(() {
       if (_androidScreen != screen) return;
       _androidScreen = null;
+      _screenSharing = false;
       localVideoFrame.value = null;
       _screenShareStops.add(null);
     });
