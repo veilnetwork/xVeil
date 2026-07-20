@@ -40,6 +40,8 @@ part 'messaging_group_content.dart';
 part 'messaging_contacts.dart';
 part 'messaging_peer_sync.dart';
 part 'messaging_mutations.dart';
+part 'messaging_device_mirror.dart';
+part 'messaging_outbox.dart';
 
 /// Wires the [VeilTransport] inbound stream into [Storage] and exposes a send
 /// path. Persists every message, then signals [changes] so the read providers
@@ -125,6 +127,10 @@ class MessagingService {
   late final _MessagingContacts _contacts = _MessagingContacts(this);
   late final _MessagingPeerSync _peerSync = _MessagingPeerSync(this);
   late final _MessagingMutations _mutations = _MessagingMutations(this);
+  late final _MessagingDeviceMirror _deviceMirror = _MessagingDeviceMirror(
+    this,
+  );
+  late final _MessagingOutbox _outbox = _MessagingOutbox(this);
 
   /// Whether this identity routes over the onion rendezvous (sender-location
   /// hidden). Fixed per identity at boot from its roster `anonymous` flag — an
@@ -170,23 +176,16 @@ class MessagingService {
   /// unauthorized or unset).
   void Function(NodeId peer, String requestJson)? onGroupContentRequest;
 
-  /// Attached by the multi-device bridge: fires after a 1:1 message is stored
-  /// (BOTH directions), so the device-sync layer can mirror it to my other
-  /// devices. Fires for the row we just wrote; NEVER fires from
-  /// [applyMirroredMessage] (which writes straight to storage), so a mirrored
-  /// message can't re-mirror. Null = no mirroring.
-  void Function(NodeId peer, Message stored)? onMessageStored;
+  /// Receives ordinary local 1:1 writes for projection to this identity's
+  /// other devices. Mirrored writes never re-fire it.
+  void Function(NodeId peer, Message stored)? get onMessageStored =>
+      _deviceMirror.onMessageStored;
 
-  /// Apply a message mirrored from ANOTHER of my devices into the [peer]
-  /// conversation. Idempotent + deniability-safe: skips an id we already hold
-  /// (native delivery or an earlier mirror) AND one we deleted on THIS device
-  /// (a mirror must never resurrect it). Writes straight to storage, so it
-  /// does not re-fire [onMessageStored]. Returns whether it wrote a new row.
-  ///
-  /// A FILE mirror (brick 4b) carries [fileContentId]/[fileName]/[fileSize]/
-  /// [thumb] and lands OFFER-shaped — no bytes, `fileId` stays null — so the
-  /// chat renders the normal download affordance; the download routes to my
-  /// other devices through [deviceContentPull].
+  set onMessageStored(void Function(NodeId peer, Message stored)? callback) {
+    _deviceMirror.onMessageStored = callback;
+  }
+
+  /// Idempotently project a message received from another local device.
   Future<bool> applyMirroredMessage({
     required NodeId peer,
     required String msgId,
@@ -198,59 +197,39 @@ class MessagingService {
     int? fileSize,
     String? thumb,
     List<InlineCustomEmoji> customEmoji = const [],
-  }) async {
-    if (await _hasMessage(peer, msgId)) return false;
-    if (await _storage.isMessageDeleted(peer.hex, msgId)) return false;
-    await _storage.appendMessage(
-      Message(
-        id: msgId,
-        conversationId: peer.hex,
-        direction: direction,
-        body: body,
-        timestamp: DateTime.fromMillisecondsSinceEpoch(tsMs),
-        status: direction == MessageDirection.outgoing
-            ? MessageStatus.sent
-            : MessageStatus.delivered,
-        fileContentId: fileContentId,
-        fileName: fileName,
-        fileSize: fileSize,
-        thumb: thumb,
-        customEmoji: customEmoji,
-      ),
-    );
-    _signal();
-    return true;
+  }) => _deviceMirror.applyMessage(
+    peer: peer,
+    msgId: msgId,
+    direction: direction,
+    body: body,
+    tsMs: tsMs,
+    fileContentId: fileContentId,
+    fileName: fileName,
+    fileSize: fileSize,
+    thumb: thumb,
+    customEmoji: customEmoji,
+  );
+
+  /// Optional authenticated content source supplied by another local device.
+  Future<void> Function(String contentId)? get deviceContentPull =>
+      _deviceMirror.deviceContentPull;
+
+  set deviceContentPull(Future<void> Function(String contentId)? callback) {
+    _deviceMirror.deviceContentPull = callback;
   }
 
-  /// Attached by the multi-device bridge (brick 4b): fire-and-forget "also try
-  /// pulling [contentId] from MY OTHER DEVICES over the membership-authorized
-  /// group content path". Invoked on every user download; the bridge no-ops
-  /// unless the cid is actually referenced in my device group, so ordinary
-  /// 1:1 downloads cost nothing. Null = single-device install.
-  Future<void> Function(String contentId)? deviceContentPull;
+  /// Receives local sync-worthy contact preference changes.
+  void Function(Contact updated)? get onContactPrefsChanged =>
+      _deviceMirror.onContactPrefsChanged;
 
-  /// Attached by the multi-device bridge: fires after a LOCAL user edit of a
-  /// contact's sync-worthy preferences (alias, mute, pin, archive, retention,
-  /// peer-delete policy) — the setters below funnel through
-  /// [_putContactPrefs]. NEVER fires from [applyMirroredContact], so a synced
-  /// record can't re-mirror. Null = no mirroring.
-  void Function(Contact updated)? onContactPrefsChanged;
-
-  /// The single write path for the SYNCED contact-preference setters: persist,
-  /// then let the device bridge mirror the fresh record. Relationship changes
-  /// ([_setStatus]) and the per-device [setContactP2POverride] stay off this
-  /// path by design.
-  Future<void> _putContactPrefs(Contact c) async {
-    await _storage.upsertContact(c);
-    onContactPrefsChanged?.call(c);
+  set onContactPrefsChanged(void Function(Contact updated)? callback) {
+    _deviceMirror.onContactPrefsChanged = callback;
   }
 
-  /// Apply a contact record mirrored from ANOTHER of my devices. Only merges
-  /// into a contact THIS device already holds (v1 — the relationship itself is
-  /// not synced yet, so an unknown peer is skipped silently rather than
-  /// materialized half-formed); local-only fields (status, p2pOverride) are
-  /// preserved. Writes straight to storage, so it never re-fires
-  /// [onContactPrefsChanged]. Returns whether anything was written.
+  Future<void> _putContactPrefs(Contact contact) =>
+      _deviceMirror.putContactPrefs(contact);
+
+  /// Merge mirrored preferences while retaining local relationship/P2P state.
   Future<bool> applyMirroredContact({
     required NodeId peer,
     String? name,
@@ -259,27 +238,15 @@ class MessagingService {
     required bool archived,
     int? retentionDays,
     required bool allowPeerDelete,
-  }) async {
-    final existing = await _storage.getContact(peer);
-    if (existing == null) return false;
-    await _storage.upsertContact(
-      Contact(
-        nodeId: existing.nodeId,
-        name: name,
-        status: existing.status,
-        mutedUntil: mutedUntilMs == null
-            ? null
-            : DateTime.fromMillisecondsSinceEpoch(mutedUntilMs),
-        pinned: pinned,
-        archived: archived,
-        retentionDays: retentionDays,
-        allowPeerDelete: allowPeerDelete,
-        p2pOverride: existing.p2pOverride,
-      ),
-    );
-    _signal();
-    return true;
-  }
+  }) => _deviceMirror.applyContact(
+    peer: peer,
+    name: name,
+    mutedUntilMs: mutedUntilMs,
+    pinned: pinned,
+    archived: archived,
+    retentionDays: retentionDays,
+    allowPeerDelete: allowPeerDelete,
+  );
 
   /// Attached by the group layer: a group snapshot from a NON-contact sender
   /// (scale-free log sync — members need no pairwise contact handshake). The
@@ -325,12 +292,7 @@ class MessagingService {
       requestJson,
     ).withFrameId(frameId).encode();
     await _storage.enqueueOutboxFrame(frameId, dst.hex, wire);
-    _outboxLiveBackoff[frameId] = (
-      count: 1,
-      nextAt: _now().add(_outboxLiveResend),
-      peer: dst.hex,
-      lastSentAt: _now(),
-    );
+    _outbox.recordQueued(frameId, dst.hex);
     unawaited(() async {
       try {
         await _send(dst, wire);
@@ -785,25 +747,8 @@ class MessagingService {
         nudged = true;
       }
     }
-    // Durable control frames get the same alive-now rewind as messages: an
-    // edit/accept/reconnect parked deep in its re-drive backoff would otherwise
-    // stretch a healed path into minutes of latency. Count kept, like above.
-    final fnow = _now();
-    for (final id in _outboxLiveBackoff.keys.toList()) {
-      final bo = _outboxLiveBackoff[id]!;
-      // Just-sent frames are skipped (ack in flight, see _outboxNudgeGrace) —
-      // rewinding them only produced duplicate re-drives, not latency wins.
-      if (fnow.difference(bo.lastSentAt) < _outboxNudgeGrace) continue;
-      if (bo.peer == peerHex && bo.nextAt.isAfter(fnow)) {
-        _outboxLiveBackoff[id] = (
-          count: bo.count,
-          nextAt: fnow,
-          peer: bo.peer,
-          lastSentAt: bo.lastSentAt,
-        );
-        nudged = true;
-      }
-    }
+    // Durable control frames use the same alive-now rewind as messages.
+    if (_outbox.nudge(peerHex)) nudged = true;
     if (nudged) unawaited(_retryFlush());
   }
 
@@ -1070,7 +1015,7 @@ class MessagingService {
       }
       final fid = env.frameId;
       if (fid != null) {
-        final fresh = _seenFrames.add(fid);
+        final fresh = _outbox.remember(fid);
         unawaited(_ackFrame(m, fid));
         if (!fresh) return;
       }
@@ -1103,7 +1048,7 @@ class MessagingService {
     }
     final fid = env.frameId;
     if (fid != null) {
-      final fresh = _seenFrames.add(fid);
+      final fresh = _outbox.remember(fid);
       // ACK may touch mailbox/storage. Delivery into the call FSM is the
       // latency-critical operation; run ACK independently after recording the
       // frame id so a re-drive remains deduplicated.
@@ -1146,148 +1091,31 @@ class MessagingService {
     }
   }
 
-  // ── Durable send pipeline ──────────────────────────────────────────────────
-  //
-  // One reliable egress for any CONTROL frame that must reach a peer. Chat
-  // messages have their own durable path (the persisted message log + outbox
-  // flush); this gives everything else the same "never silently lost" guarantee
-  // by construction, so a new feature can't reintroduce the class of bug where a
-  // one-shot live send vanishes on the lossy first attempt.
-  //
-  // Guarantee: persist to the durable outbox → live-send (fast path) →
-  // mailbox-deposit (survives an offline/NAT'd/stalled peer). The receiver acks
-  // by the frame's id; the flush re-drives every un-acked frame (across restarts)
-  // until that ack retires it. Both sides dedup, so re-drives are harmless.
-
-  /// Per-frame live re-drive backoff (the frame twin of [_retryBackoff]): the
-  /// first re-drive fires [_outboxLiveResend] after the send, then doubles per
-  /// attempt up to [_outboxLiveResendCap]. Durable frames have NO give-up (the
-  /// outbox holds them until acked), so without the doubling every un-acked
-  /// frame — a reconnect to a peer that is GONE, an edit to a wiped identity —
-  /// would hit the onion path every 20s forever: the exact ghost-load class the
-  /// message path already backs off. Any inbound from the peer rewinds its
-  /// frames to due-now ([_nudgeRetries]); an ack retires the entry.
-  /// `lastSentAt` records the most recent LIVE send of the frame: the nudge
-  /// skips frames inside [_outboxNudgeGrace] of it — during a call the peer's
-  /// steady health/transportInfo inbound would otherwise rewind a call frame
-  /// whose ack is merely in flight, re-driving it every nudge throttle window
-  /// (the duplicate `re-drive fid=call:…` lines in the P2P smoke).
-  final Map<
-    String,
-    ({int count, DateTime nextAt, String peer, DateTime lastSentAt})
-  >
-  _outboxLiveBackoff = {};
-
-  /// A frame live-sent this recently is presumed in flight (ack pending) —
-  /// the peer-alive nudge must not rewind it into a duplicate send. Half the
-  /// base [_outboxLiveResend]: long enough for any live ack round-trip, short
-  /// enough that a genuinely stalled frame still heals fast on inbound.
-  static const _outboxNudgeGrace = Duration(seconds: 10);
-
-  /// Frame ids already processed this session (dedup for durable re-drives).
-  /// Bounded — oldest evicted past [_seenFramesCap] (a re-process of a very old
-  /// frame is harmless: durable handlers are idempotent).
-  final _seenFrames = <String>{};
-  static const _seenFramesCap = 4096;
-
   /// Accepted peers already checked this session for realtime call setup.
   /// Relationship mutations below keep this in sync so the realtime lane never
   /// turns a stale acceptance into a consent bypass.
   final Set<String> _acceptedRealtimePeers = {};
 
-  /// Best-effort ack of a durable frame so the sender retires it from its
-  /// outbox. Rides [_ackTo]: a live send PLUS a mailbox deposit (`ack:<fid>`)
-  /// — the sender of a durable frame is often exactly the NAT'd peer whose
-  /// live path toward us is down, and a live-only ack would leave it
-  /// re-driving forever. Lossy-tolerant regardless: a lost ack just triggers
-  /// one more re-drive, which we dedup + re-ack.
-  Future<void> _ackFrame(InboundMessage m, String frameId) async {
-    if (_seenFrames.length > _seenFramesCap) {
-      _seenFrames.remove(_seenFrames.first); // evict oldest (insertion order)
-    }
-    try {
-      // A frame we already processed is an expected re-delivery — labeled
-      // `re-ack` in the timeline so duplicates read as protocol, not noise.
-      await _ackTo(m, frameId, repeat: _seenFrames.contains(frameId));
-    } catch (_) {
-      // Best-effort — a re-drive will prompt another ack.
-    }
-  }
+  Future<void> _ackFrame(InboundMessage message, String frameId) =>
+      _outbox.ackFrame(message, frameId);
 
   /// Send [env] to [peer] durably under [frameId] (see the section comment). The
   /// receiver echoes [frameId] in its ack to retire the frame.
   Future<void> sendDurable(
     NodeId peer,
     String frameId,
-    WireEnvelope env, {
+    WireEnvelope envelope, {
     Future<void> Function(Uint8List wire)? liveSender,
     bool awaitLive = true,
     bool startLiveBeforeEnqueue = false,
-  }) async {
-    final wire = env.withFrameId(frameId).encode();
-    Future<void> tryLive() async {
-      final sw = Stopwatch()..start();
-      try {
-        await (liveSender?.call(wire) ?? _send(peer, wire));
-        devLog(
-          () =>
-              'xVeil[durable]: live leg ok fid=$frameId '
-              'peer=${peer.short} in ${sw.elapsedMilliseconds}ms',
-        );
-      } catch (e) {
-        // Live path down — the mailbox copy + flush re-drive still deliver.
-        devLog(
-          () =>
-              'xVeil[durable]: live leg FAILED fid=$frameId '
-              'peer=${peer.short} after ${sw.elapsedMilliseconds}ms: $e',
-        );
-      }
-    }
-
-    // Latency-critical control must not sit behind storage maintenance. On a
-    // large desktop store enqueueOutboxFrame has measured >5 s while the
-    // direct session itself delivered in milliseconds. Start the lossy live
-    // leg first; persistence still completes before this method returns and is
-    // still the source of truth for retries/mailbox delivery.
-    final earlyLive = startLiveBeforeEnqueue ? tryLive() : null;
-    if (earlyLive != null) {
-      // `sendRealtime` starts an FFI worker isolate. Yield before entering the
-      // storage backend: some native stores do synchronous CPU work before
-      // their first Future suspension, which otherwise prevents the worker
-      // from even being scheduled until several seconds later. The realtime
-      // IPC write normally wins this race in <20 ms; 100 ms bounds the added
-      // persistence latency if the worker itself is unhealthy.
-      await Future.any<void>([
-        earlyLive,
-        Future<void>.delayed(const Duration(milliseconds: 100)),
-      ]);
-    }
-    await _storage.enqueueOutboxFrame(frameId, peer.hex, wire);
-    // Call-signal frames start on the FAST re-drive ladder (see
-    // _flushOutboxFrames): the first live attempt fails silently often
-    // enough that a 20 s first retry alone ate half a ring window.
-    final firstRetry =
-        frameId.startsWith('call:') || frameId.startsWith('gcall:')
-        ? _callSignalLiveResend
-        : _outboxLiveResend;
-    _outboxLiveBackoff[frameId] = (
-      count: 1,
-      nextAt: _now().add(firstRetry),
-      peer: peer.hex,
-      lastSentAt: _now(),
-    );
-    if (earlyLive != null) {
-      if (awaitLive) await earlyLive;
-    } else if (awaitLive) {
-      await tryLive();
-    } else {
-      // Latency-critical control returns after durable enqueue. Its isolated
-      // live attempt continues in parallel, while the ordinary outbox re-drive
-      // remains the reliable fallback.
-      unawaited(tryLive());
-    }
-    _stashInBackground(peer, frameId, wire);
-  }
+  }) => _outbox.send(
+    peer,
+    frameId,
+    envelope,
+    liveSender: liveSender,
+    awaitLive: awaitLive,
+    startLiveBeforeEnqueue: startLiveBeforeEnqueue,
+  );
 
   Future<void> _sendRealtime(NodeId peer, Uint8List wire) {
     final transport = _transport;
@@ -1458,182 +1286,20 @@ class MessagingService {
   /// Re-drive un-acked durable frames: re-deposit at the mailbox (idempotent via
   /// the stash dedup) and, backed off per frame, re-send live. Called from
   /// [flushOutbox].
-  Future<void> _flushOutboxFrames() async {
-    // The retry timer outlives a lock/unlock cycle. Do not wake the storage
-    // worker every three seconds while its encrypted space is deliberately
-    // closed; the first normal flush after unlock will pick the durable index
-    // up immediately.
-    if (!_storage.isOpen) return;
-    final List<OutboxFrame> pending;
-    try {
-      pending = await _storage.pendingOutboxFrames();
-    } catch (_) {
-      return;
-    }
-    for (final f in pending) {
-      if (_retireExpiredTransientOutboxFrame(f)) continue;
-      final isCallSignal =
-          f.frameId.startsWith('call:') || f.frameId.startsWith('gcall:');
-      // Keep offer/answer/heartbeat recovery alive, but park every unrelated
-      // durable frame while media is active. All parked bytes remain in the
-      // encrypted outbox and the normal timer resumes them after hangup.
-      if (_backgroundDeliveryPaused && !isCallSignal) continue;
-      final peer = NodeId.fromHex(f.peerHex);
-      // A frame to a peer we no longer hold AT ALL (conversation removed) is
-      // moot — retire it. A BLOCKED peer only PAUSES it, mirroring the message
-      // flush: unblocking resumes delivery instead of having silently lost it.
-      final Contact? contact;
-      try {
-        contact = await _storage.getContact(peer);
-      } catch (_) {
-        continue;
-      }
-      var groupMemberCarrier = false;
-      if (contact == null || contact.status != ContactStatus.accepted) {
-        final parts = f.frameId.split(':');
-        if (parts.length >= 3 &&
-            (parts.first == 'gcall' || parts.first == 'gcr')) {
-          groupMemberCarrier =
-              await allowStrangerGroupSync?.call(peer, parts[1]) ?? false;
-        }
-      }
-      if (contact == null && !groupMemberCarrier) {
-        _retireOutboxFrame(f.frameId);
-        continue;
-      }
-      if (contact?.status == ContactStatus.blocked && !groupMemberCarrier) {
-        continue;
-      }
-      // A peer whose identity can't be resolved at all is backed off wholesale
-      // (same gate the message flush applies) — don't hammer resolve/seal.
-      final pb = _peerUnresolvedBackoff[f.peerHex];
-      if (pb != null && _now().isBefore(pb.nextAt)) continue;
-      // The mailbox copy is the durable carrier — always re-attempt it (its own
-      // _stashed/backoff guards make this cheap once deposited).
-      _stashInBackground(peer, f.frameId, f.wire);
-      // A live re-send is a latency optimisation; exponential per-frame backoff
-      // (20s → … → 10min cap) so a persistently un-acked frame stops hammering
-      // the onion path. The shift exponent is clamped — counts keep growing for
-      // a frame with no give-up, and an unclamped 1<<63 wraps the delay to 0.
-      final now = _now();
-      final bo = _outboxLiveBackoff[f.frameId];
-      if (bo != null && now.isBefore(bo.nextAt)) continue;
-      final count = (bo?.count ?? 0) + 1;
-      // Call-signal frames (direct + group) get a FAST re-drive ladder: they
-      // are tiny control frames whose usefulness ends with the ring window
-      // (their outbox TTL is 2 min), and the first live attempt is a
-      // fire-and-forget onion send that fails silently often enough that the
-      // stock 20 s base left only ~2 tries inside a ring window — an answer
-      // whose first send was lost then arrived AFTER the caller's dial
-      // timeout, killing the call at the moment of accept. 4 s → 8 → 16 → 32
-      // gives ~5 tries in the first minute; the short TTL bounds total cost.
-      final baseMs = isCallSignal
-          ? _callSignalLiveResend.inMilliseconds
-          : _outboxLiveResend.inMilliseconds;
-      final delayMs = (baseMs * (1 << (count - 1).clamp(0, 10))).clamp(
-        0,
-        _outboxLiveResendCap.inMilliseconds,
-      );
-      _outboxLiveBackoff[f.frameId] = (
-        count: count,
-        nextAt: now.add(Duration(milliseconds: delayMs)),
-        peer: f.peerHex,
-        lastSentAt: now,
-      );
-      devLog(
-        () =>
-            'xVeil[durable]: re-drive fid=${f.frameId} dst=${peer.short} '
-            'attempt=$count t=${DateTime.now().millisecondsSinceEpoch}',
-      );
-      try {
-        await _send(peer, f.wire);
-      } catch (_) {
-        // Best-effort.
-      }
-    }
-  }
-
-  static const _outboxLiveResend = Duration(seconds: 20);
-
-  /// Fast live re-drive base for call-signal frames (`call:`/`gcall:`) — see
-  /// the ladder rationale at the use site. Bounded overall by
-  /// [_callSignalOutboxTtl].
-  static const _callSignalLiveResend = Duration(seconds: 4);
-  static const _outboxLiveResendCap = Duration(minutes: 10);
-  static const _callSignalOutboxTtl = Duration(minutes: 2);
-
-  bool _retireExpiredTransientOutboxFrame(OutboxFrame frame) {
-    final direct = frame.frameId.startsWith('call:');
-    final group = frame.frameId.startsWith('gcall:');
-    final groupContent = frame.frameId.startsWith('gcr:');
-    if (!direct && !group && !groupContent) return false;
-    try {
-      final env = WireEnvelope.decode(frame.wire);
-      if (groupContent) {
-        if (env.kind != WireKind.groupContentRequest) return false;
-        final request = GroupContentRequest.fromJson(jsonDecode(env.body));
-        if (request == null) return false;
-        final age = _now().difference(
-          DateTime.fromMillisecondsSinceEpoch(request.tsMs),
-        );
-        if (age <= kGroupContentRequestWindow) return false;
-        devLog(
-          () =>
-              'xVeil[durable]: retire stale group content request '
-              'fid=${frame.frameId} age=${age.inSeconds}s',
-        );
-        _retireOutboxFrame(frame.frameId);
-        return true;
-      }
-      if (direct && env.kind != WireKind.callSignal) return false;
-      if (group && env.kind != WireKind.groupCallSignal) return false;
-      final sentAtMs = direct
-          ? (CallSignal.tryDecode(env.body)?.sentAtMs ?? env.sentAtMs)
-          : env.sentAtMs;
-      if (sentAtMs == null) return false;
-      final sentAt = DateTime.fromMillisecondsSinceEpoch(sentAtMs);
-      final age = _now().difference(sentAt);
-      if (age <= _callSignalOutboxTtl) return false;
-      devLog(
-        () =>
-            'xVeil[durable]: retire stale call frame '
-            'fid=${frame.frameId} age=${age.inSeconds}s',
-      );
-      _retireOutboxFrame(frame.frameId);
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
+  Future<void> _flushOutboxFrames() => _outbox.flush();
 
   /// A non-contact may ACK only the exact pending group-call frame addressed to
   /// it while it is still a current member of that gid. This is narrower than
   /// the ordinary accepted-contact ACK gate and cannot forge delivery of chat
   /// messages or frames belonging to another peer/group.
-  Future<bool> _authorizedGroupCallAck(NodeId peer, String frameId) async {
-    final parts = frameId.split(':');
-    if (parts.length < 5 || parts.first != 'gcall') return false;
-    if (!(await allowStrangerGroupSync?.call(peer, parts[1]) ?? false)) {
-      return false;
-    }
-    try {
-      return (await _storage.pendingOutboxFrames()).any(
-        (frame) => frame.frameId == frameId && frame.peerHex == peer.hex,
-      );
-    } catch (_) {
-      return false;
-    }
-  }
+  Future<bool> _authorizedGroupCallAck(NodeId peer, String frameId) =>
+      _outbox.authorizedGroupCallAck(peer, frameId);
 
   /// Locally retire a durable frame (acked, or moot): stop re-driving and
   /// re-stashing it, and drop it from the persistent outbox. [ackOutboxFrame]
   /// is a no-op for an id that is not in the outbox, so this is safe to call
   /// with an ordinary message id too.
-  void _retireOutboxFrame(String frameId) {
-    _stashed.remove(frameId);
-    _outboxLiveBackoff.remove(frameId);
-    unawaited(_storage.ackOutboxFrame(frameId));
-  }
+  void _retireOutboxFrame(String frameId) => _outbox.retire(frameId);
 
   // ── Opt-in authorship attestation ─────────────────────────────────────────
 
@@ -1672,7 +1338,7 @@ class MessagingService {
         env.kind == WireKind.cloudDocument ||
         env.kind == WireKind.cloudDocumentChunk;
     final deferredGroupCallAck = env.kind == WireKind.groupCallSignal;
-    if (fid != null && deferredGroupCallAck && _seenFrames.contains(fid)) {
+    if (fid != null && deferredGroupCallAck && _outbox.hasSeen(fid)) {
       // This exact frame passed membership+AEAD+signature once already. A
       // re-drive means our prior ACK was lost; re-ACK without reprocessing.
       await _ackFrame(m, fid);
@@ -1683,13 +1349,15 @@ class MessagingService {
         // Authorization is the group frame itself, not ContactStatus. The
         // groupCallSignal switch arm ACKs only after the group layer accepts.
       } else if (deferredDocumentAck) {
-        if (_seenFrames.contains(fid)) {
+        if (_outbox.hasSeen(fid)) {
           await _ackFrame(m, fid);
           return;
         }
       } else {
         await _ackFrame(m, fid);
-        if (!_seenFrames.add(fid)) return; // already processed — re-acked above
+        if (!_outbox.remember(fid)) {
+          return; // already processed — re-acked above
+        }
       }
     }
 
@@ -1706,7 +1374,7 @@ class MessagingService {
           // its outbox. (A later duplicate finds us accepted and takes the
           // generic gate: re-acked + deduped there.)
           if (fid != null) {
-            _seenFrames.add(fid);
+            _outbox.remember(fid);
             await _ackFrame(m, fid);
           }
         } else {
@@ -2065,7 +1733,7 @@ class MessagingService {
             await onGroupCallSignal?.call(m.src, env.body) ?? false;
         if (accepted && fid != null) {
           await _ackFrame(m, fid);
-          _seenFrames.add(fid);
+          _outbox.remember(fid);
         }
         return;
       case WireKind.chatDeleted:
@@ -2527,7 +2195,7 @@ class MessagingService {
       // check keeps this free of a storage round-trip on the common idle tick
       // (post-restart, _flushOutboxFrames re-seeds the map before this runs).
       if (_lastReconnectAt.remove(peer.hex) != null ||
-          _outboxLiveBackoff.containsKey(reconnectFid)) {
+          _outbox.hasLiveEntry(reconnectFid)) {
         _retireOutboxFrame(reconnectFid);
       }
       return;
