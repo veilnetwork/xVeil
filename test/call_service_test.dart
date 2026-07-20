@@ -448,7 +448,38 @@ void main() {
 
       expect(media.startedWith, [CallTransportKind.relay]);
       expect(svc.current?.transport, CallTransportKind.relay);
+      expect(svc.transportFallbackReason, isNull);
     });
+
+    test(
+      'relay badge explains an unavailable permitted direct session',
+      () async {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia()..openedTransport = CallTransportKind.relay;
+        final svc = CallService(
+          fake,
+          media: media,
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => false,
+        )..start();
+
+        await svc.placeCall(peer, const CallMedia(audio: true));
+        expect(fake.sent.single.transport?.kind, CallTransportKind.relay);
+        fake.onCallSignal!(
+          peer,
+          CallSignal(
+            callId: svc.current!.callId,
+            type: CallSignalType.answer,
+            posture: CallPosture.direct,
+            transport: const CallTransportProposal(CallTransportKind.relay),
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(svc.current?.transport, CallTransportKind.relay);
+        expect(svc.transportFallbackReason, isNotNull);
+      },
+    );
 
     test('two direct identities never accept onion from an answer', () async {
       final fake = _FakeMessaging();
