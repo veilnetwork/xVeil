@@ -16,6 +16,9 @@
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
+		A1000010A1000010A1000010 /* PacketTunnelProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001A1000001A1000001 /* PacketTunnelProvider.swift */; };
+		A1000011A1000011A1000011 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1000006A1000006A1000006 /* NetworkExtension.framework */; };
+		A1000012A1000012A1000012 /* PacketTunnel.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A1000005A1000005A1000005 /* PacketTunnel.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		A69F768CCCE0D2127D1395A6 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F6922C566EC58BC3DF89C333 /* Pods_RunnerTests.framework */; };
 		DF2EAAE0472329035EA16299 /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B97C551E575636F66A32F154 /* Pods_Runner.framework */; };
 /* End PBXBuildFile section */
@@ -28,6 +31,13 @@
 			remoteGlobalIDString = 97C146ED1CF9000F007C117D;
 			remoteInfo = Runner;
 		};
+		A1000042A1000042A1000042 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 97C146E61CF9000F007C117D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A1000040A1000040A1000040;
+			remoteInfo = PacketTunnel;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -39,6 +49,17 @@
 			files = (
 			);
 			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1000033A1000033A1000033 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				A1000012A1000012A1000012 /* PacketTunnel.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -65,6 +86,12 @@
 		97C146FD1CF9000F007C117D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		97C147001CF9000F007C117D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A1000001A1000001A1000001 /* PacketTunnelProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PacketTunnelProvider.swift; path = ../third_party/veil/flutter/veil_flutter/apple/PacketTunnelProvider.swift; sourceTree = SOURCE_ROOT; };
+		A1000002A1000002A1000002 /* VeilPacketTunnelFFI.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = VeilPacketTunnelFFI.h; path = ../third_party/veil/flutter/veil_flutter/apple/VeilPacketTunnelFFI.h; sourceTree = SOURCE_ROOT; };
+		A1000003A1000003A1000003 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Info.plist; path = PacketTunnel/Info.plist; sourceTree = SOURCE_ROOT; };
+		A1000004A1000004A1000004 /* PacketTunnel.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = PacketTunnel.entitlements; path = PacketTunnel/PacketTunnel.entitlements; sourceTree = SOURCE_ROOT; };
+		A1000005A1000005A1000005 /* PacketTunnel.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PacketTunnel.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1000006A1000006A1000006 /* NetworkExtension.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = NetworkExtension.framework; path = System/Library/Frameworks/NetworkExtension.framework; sourceTree = SDKROOT; };
 		B97C551E575636F66A32F154 /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		BA01E39A6A2D7246596D2866 /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
 		E0FD4489C7151B3CC056A114 /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
@@ -78,6 +105,14 @@
 			files = (
 				78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */,
 				DF2EAAE0472329035EA16299 /* Pods_Runner.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1000031A1000031A1000031 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000011A1000011A1000011 /* NetworkExtension.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -131,6 +166,7 @@
 			children = (
 				9740EEB11CF90186004384FC /* Flutter */,
 				97C146F01CF9000F007C117D /* Runner */,
+				A1000020A1000020A1000020 /* PacketTunnel */,
 				97C146EF1CF9000F007C117D /* Products */,
 				331C8082294A63A400263BE5 /* RunnerTests */,
 				8E09E1FCE302F2D9E984225C /* Pods */,
@@ -142,6 +178,7 @@
 			isa = PBXGroup;
 			children = (
 				97C146EE1CF9000F007C117D /* Runner.app */,
+				A1000005A1000005A1000005 /* PacketTunnel.appex */,
 				331C8081294A63A400263BE5 /* RunnerTests.xctest */,
 			);
 			name = Products;
@@ -163,9 +200,21 @@
 			path = Runner;
 			sourceTree = "<group>";
 		};
+		A1000020A1000020A1000020 /* PacketTunnel */ = {
+			isa = PBXGroup;
+			children = (
+				A1000001A1000001A1000001 /* PacketTunnelProvider.swift */,
+				A1000002A1000002A1000002 /* VeilPacketTunnelFFI.h */,
+				A1000003A1000003A1000003 /* Info.plist */,
+				A1000004A1000004A1000004 /* PacketTunnel.entitlements */,
+			);
+			name = PacketTunnel;
+			sourceTree = "<group>";
+		};
 		DF4F96BE7BC5BEF23E7983A0 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				A1000006A1000006A1000006 /* NetworkExtension.framework */,
 				B97C551E575636F66A32F154 /* Pods_Runner.framework */,
 				F6922C566EC58BC3DF89C333 /* Pods_RunnerTests.framework */,
 			);
@@ -204,6 +253,7 @@
 				97C146EB1CF9000F007C117D /* Frameworks */,
 				97C146EC1CF9000F007C117D /* Resources */,
 				9705A1C41CF9048500538489 /* Embed Frameworks */,
+				A1000033A1000033A1000033 /* Embed App Extensions */,
 				3B06AD1E1E4923F5004D2608 /* Thin Binary */,
 				F0238796C584DD452096453C /* [CP] Embed Pods Frameworks */,
 				5A667F38C59ACE82D7FFA9BE /* [CP] Copy Pods Resources */,
@@ -211,6 +261,7 @@
 			buildRules = (
 			);
 			dependencies = (
+				A1000041A1000041A1000041 /* PBXTargetDependency */,
 			);
 			name = Runner;
 			packageProductDependencies = (
@@ -219,6 +270,23 @@
 			productName = Runner;
 			productReference = 97C146EE1CF9000F007C117D /* Runner.app */;
 			productType = "com.apple.product-type.application";
+		};
+		A1000040A1000040A1000040 /* PacketTunnel */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1000053A1000053A1000053 /* Build configuration list for PBXNativeTarget "PacketTunnel" */;
+			buildPhases = (
+				A1000030A1000030A1000030 /* Sources */,
+				A1000031A1000031A1000031 /* Frameworks */,
+				A1000032A1000032A1000032 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PacketTunnel;
+			productName = PacketTunnel;
+			productReference = A1000005A1000005A1000005 /* PacketTunnel.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -237,6 +305,9 @@
 					97C146ED1CF9000F007C117D = {
 						CreatedOnToolsVersion = 7.3.1;
 						LastSwiftMigration = 1100;
+					};
+					A1000040A1000040A1000040 = {
+						CreatedOnToolsVersion = 16.0;
 					};
 				};
 			};
@@ -257,6 +328,7 @@
 			projectRoot = "";
 			targets = (
 				97C146ED1CF9000F007C117D /* Runner */,
+				A1000040A1000040A1000040 /* PacketTunnel */,
 				331C8080294A63A400263BE5 /* RunnerTests */,
 			);
 		};
@@ -278,6 +350,13 @@
 				3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */,
 				97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */,
 				97C146FC1CF9000F007C117D /* Main.storyboard in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1000032A1000032A1000032 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -414,6 +493,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1000030A1000030A1000030 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000010A1000010A1000010 /* PacketTunnelProvider.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -421,6 +508,11 @@
 			isa = PBXTargetDependency;
 			target = 97C146ED1CF9000F007C117D /* Runner */;
 			targetProxy = 331C8085294A63A400263BE5 /* PBXContainerItemProxy */;
+		};
+		A1000041A1000041A1000041 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A1000040A1000040A1000040 /* PacketTunnel */;
+			targetProxy = A1000042A1000042A1000042 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -502,6 +594,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
@@ -684,6 +777,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
@@ -706,6 +800,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
@@ -720,6 +815,126 @@
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Release;
+		};
+		A1000050A1000050A1000050 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = PacketTunnel/PacketTunnel.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				INFOPLIST_FILE = PacketTunnel/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lc++",
+					"-force_load",
+					"$(SRCROOT)/../third_party/veil/flutter/veil_flutter/ios/Frameworks/libveilclient_ffi.a",
+					"-framework",
+					SystemConfiguration,
+					"-framework",
+					Security,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = network.veil.xveil.PacketTunnel;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/../third_party/veil/flutter/veil_flutter/apple/VeilPacketTunnelFFI.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A1000051A1000051A1000051 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = PacketTunnel/PacketTunnel.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				INFOPLIST_FILE = PacketTunnel/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lc++",
+					"-force_load",
+					"$(SRCROOT)/../third_party/veil/flutter/veil_flutter/ios/Frameworks/libveilclient_ffi.a",
+					"-framework",
+					SystemConfiguration,
+					"-framework",
+					Security,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = network.veil.xveil.PacketTunnel;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/../third_party/veil/flutter/veil_flutter/apple/VeilPacketTunnelFFI.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		A1000052A1000052A1000052 /* Profile */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = PacketTunnel/PacketTunnel.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				INFOPLIST_FILE = PacketTunnel/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lc++",
+					"-force_load",
+					"$(SRCROOT)/../third_party/veil/flutter/veil_flutter/ios/Frameworks/libveilclient_ffi.a",
+					"-framework",
+					SystemConfiguration,
+					"-framework",
+					Security,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = network.veil.xveil.PacketTunnel;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/../third_party/veil/flutter/veil_flutter/apple/VeilPacketTunnelFFI.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Profile;
 		};
 /* End XCBuildConfiguration section */
 
@@ -750,6 +965,16 @@
 				97C147061CF9000F007C117D /* Debug */,
 				97C147071CF9000F007C117D /* Release */,
 				249021D4217E4FDB00AE95B9 /* Profile */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1000053A1000053A1000053 /* Build configuration list for PBXNativeTarget "PacketTunnel" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1000050A1000050A1000050 /* Debug */,
+				A1000051A1000051A1000051 /* Release */,
+				A1000052A1000052A1000052 /* Profile */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
