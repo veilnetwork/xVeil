@@ -217,18 +217,6 @@ abstract class AppL10n {
   /// **'Use your 24-word phrase to recover an existing identity'**
   String get onboardRestoreIdentitySub;
 
-  /// No description provided for @onboardImportBackup.
-  ///
-  /// In en, this message translates to:
-  /// **'Import a backup'**
-  String get onboardImportBackup;
-
-  /// No description provided for @onboardImportBackupSub.
-  ///
-  /// In en, this message translates to:
-  /// **'Restore from an encrypted backup file'**
-  String get onboardImportBackupSub;
-
   /// No description provided for @onboardRestoreBody.
   ///
   /// In en, this message translates to:
@@ -1074,12 +1062,6 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Menu'**
   String get navMenuTiles;
-
-  /// No description provided for @comingSoon.
-  ///
-  /// In en, this message translates to:
-  /// **'Coming soon'**
-  String get comingSoon;
 
   /// No description provided for @cloudTitle.
   ///
@@ -4056,12 +4038,6 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Passwords do not match'**
   String get onboardPasswordMismatch;
-
-  /// No description provided for @onboardComingSoon.
-  ///
-  /// In en, this message translates to:
-  /// **'{label} — coming in the next milestone'**
-  String onboardComingSoon(String label);
 
   /// No description provided for @recoveryPhraseHint.
   ///

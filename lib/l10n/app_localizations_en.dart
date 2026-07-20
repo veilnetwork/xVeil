@@ -75,12 +75,6 @@ class AppL10nEn extends AppL10n {
       'Use your 24-word phrase to recover an existing identity';
 
   @override
-  String get onboardImportBackup => 'Import a backup';
-
-  @override
-  String get onboardImportBackupSub => 'Restore from an encrypted backup file';
-
-  @override
   String get onboardRestoreBody =>
       'Enter the 24-word recovery phrase you wrote down when the identity was created. The same identity will be recreated on this device.';
 
@@ -545,9 +539,6 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get navMenuTiles => 'Menu';
-
-  @override
-  String get comingSoon => 'Coming soon';
 
   @override
   String get cloudTitle => 'Personal cloud';
@@ -2164,11 +2155,6 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get onboardPasswordMismatch => 'Passwords do not match';
-
-  @override
-  String onboardComingSoon(String label) {
-    return '$label — coming in the next milestone';
-  }
 
   @override
   String get recoveryPhraseHint =>

@@ -15,9 +15,9 @@ import 'recovery_phrase_input.dart';
 ///   restore:             1 → 5 phrase entry → 3 storage mode → 4 password
 ///
 /// Create and restore both drive the deterministic first-boot identity
-/// derivation from the phrase (P2/P3). Import-a-backup stays a placeholder:
-/// there is no backup EXPORT yet, and the file-based restore writes identity
-/// documents to disk, which the deniable canon forbids.
+/// derivation from the phrase (P2/P3). A file-based backup action is
+/// intentionally absent: there is no matching secure export format, and
+/// writing identity documents to disk would violate the deniable canon.
 class OnboardingScreen extends ConsumerStatefulWidget {
   const OnboardingScreen({super.key, this.validatePhrase = veilPhraseValid});
 
@@ -74,7 +74,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     if (_busy) return;
     setState(() => _busy = true);
     final identity = AppController.generateIdentity();
-    await ref.read(appControllerProvider.notifier).completeOnboarding(
+    await ref
+        .read(appControllerProvider.notifier)
+        .completeOnboarding(
           identity: identity,
           password: _passwordCtrl.text,
           mode: _mode,
@@ -87,15 +89,17 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final l = AppL10n.of(context);
     return Scaffold(
       appBar: AppBar(
         leading: _step == 0
             ? null
             : IconButton(
                 icon: const Icon(Icons.arrow_back),
-                onPressed: () =>
-                    _go(switch (_step) { 4 => 3, 2 || 5 => 1, _ => 0 }),
+                onPressed: () => _go(switch (_step) {
+                  4 => 3,
+                  2 || 5 => 1,
+                  _ => 0,
+                }),
               ),
       ),
       body: SafeArea(
@@ -103,42 +107,31 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
           child: switch (_step) {
             0 => _Welcome(onNext: () => _go(1)),
-            1 => _ChoosePath(
-                onCreate: _startCreate,
-                onRestore: () => _go(5),
-                onImport: () => _showSoon(context, l.onboardImportBackup),
-              ),
+            1 => _ChoosePath(onCreate: _startCreate, onRestore: () => _go(5)),
             5 => _RestoreStep(
-                validate: widget.validatePhrase,
-                onSubmit: _restoreWith,
-              ),
+              validate: widget.validatePhrase,
+              onSubmit: _restoreWith,
+            ),
             2 => _Recovery(
-                phrase: _phrase,
-                confirmed: _phraseConfirmed,
-                onConfirmedChanged: (v) =>
-                    setState(() => _phraseConfirmed = v),
-                onNext: () => _go(3),
-              ),
+              phrase: _phrase,
+              confirmed: _phraseConfirmed,
+              onConfirmedChanged: (v) => setState(() => _phraseConfirmed = v),
+              onNext: () => _go(3),
+            ),
             3 => _StorageChoice(
-                mode: _mode,
-                onChanged: (m) => setState(() => _mode = m),
-                onNext: () => _go(4),
-              ),
+              mode: _mode,
+              onChanged: (m) => setState(() => _mode = m),
+              onNext: () => _go(4),
+            ),
             _ => _PasswordStep(
-                passwordCtrl: _passwordCtrl,
-                confirmCtrl: _confirmCtrl,
-                busy: _busy,
-                onFinish: _finish,
-              ),
+              passwordCtrl: _passwordCtrl,
+              confirmCtrl: _confirmCtrl,
+              busy: _busy,
+              onFinish: _finish,
+            ),
           },
         ),
       ),
-    );
-  }
-
-  void _showSoon(BuildContext context, String label) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(AppL10n.of(context).onboardComingSoon(label))),
     );
   }
 
@@ -146,15 +139,42 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   // library): production builds show the REAL native phrase from
   // veilGeneratePhrase() and derive the identity from it (_realPhrase).
   static const _sampleWords = [
-    'anchor', 'borrow', 'cliff', 'dawn', 'ember', 'forest', 'glide', 'harbor',
-    'island', 'jungle', 'kernel', 'lantern', 'meadow', 'noble', 'orbit',
-    'pebble', 'quartz', 'ripple', 'shadow', 'timber', 'umbra', 'velvet',
-    'willow', 'zenith', 'cedar', 'mirror', 'signal', 'cobalt',
+    'anchor',
+    'borrow',
+    'cliff',
+    'dawn',
+    'ember',
+    'forest',
+    'glide',
+    'harbor',
+    'island',
+    'jungle',
+    'kernel',
+    'lantern',
+    'meadow',
+    'noble',
+    'orbit',
+    'pebble',
+    'quartz',
+    'ripple',
+    'shadow',
+    'timber',
+    'umbra',
+    'velvet',
+    'willow',
+    'zenith',
+    'cedar',
+    'mirror',
+    'signal',
+    'cobalt',
   ];
 
   static List<String> _generatePhrase() {
     final rnd = Random.secure();
-    return List.generate(24, (_) => _sampleWords[rnd.nextInt(_sampleWords.length)]);
+    return List.generate(
+      24,
+      (_) => _sampleWords[rnd.nextInt(_sampleWords.length)],
+    );
   }
 }
 
@@ -172,11 +192,15 @@ class _Welcome extends StatelessWidget {
         const Spacer(),
         Icon(Icons.shield_moon_outlined, size: 64, color: scheme.primary),
         const SizedBox(height: 24),
-        Text(l.onboardWelcomeTitle,
-            style: Theme.of(context).textTheme.headlineMedium),
+        Text(
+          l.onboardWelcomeTitle,
+          style: Theme.of(context).textTheme.headlineMedium,
+        ),
         const SizedBox(height: 16),
-        Text(l.onboardWelcomeBody,
-            style: Theme.of(context).textTheme.bodyLarge),
+        Text(
+          l.onboardWelcomeBody,
+          style: Theme.of(context).textTheme.bodyLarge,
+        ),
         const Spacer(),
         FilledButton(onPressed: onNext, child: Text(l.actionContinue)),
       ],
@@ -185,14 +209,9 @@ class _Welcome extends StatelessWidget {
 }
 
 class _ChoosePath extends StatelessWidget {
-  const _ChoosePath({
-    required this.onCreate,
-    required this.onRestore,
-    required this.onImport,
-  });
+  const _ChoosePath({required this.onCreate, required this.onRestore});
   final VoidCallback onCreate;
   final VoidCallback onRestore;
-  final VoidCallback onImport;
 
   @override
   Widget build(BuildContext context) {
@@ -200,8 +219,10 @@ class _ChoosePath extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(l.onboardChooseTitle,
-            style: Theme.of(context).textTheme.headlineSmall),
+        Text(
+          l.onboardChooseTitle,
+          style: Theme.of(context).textTheme.headlineSmall,
+        ),
         const SizedBox(height: 24),
         _OptionCard(
           icon: Icons.add_circle_outline,
@@ -214,12 +235,6 @@ class _ChoosePath extends StatelessWidget {
           title: l.onboardRestoreIdentity,
           subtitle: l.onboardRestoreIdentitySub,
           onTap: onRestore,
-        ),
-        _OptionCard(
-          icon: Icons.file_open_outlined,
-          title: l.onboardImportBackup,
-          subtitle: l.onboardImportBackupSub,
-          onTap: onImport,
         ),
       ],
     );
@@ -239,11 +254,15 @@ class _RestoreStep extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(l.onboardRestoreIdentity,
-              style: Theme.of(context).textTheme.headlineSmall),
+          Text(
+            l.onboardRestoreIdentity,
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
           const SizedBox(height: 12),
-          Text(l.onboardRestoreBody,
-              style: Theme.of(context).textTheme.bodyMedium),
+          Text(
+            l.onboardRestoreBody,
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
           const SizedBox(height: 16),
           RecoveryPhraseInput(
             validate: validate,
@@ -300,8 +319,7 @@ class _Recovery extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(l.recoveryTitle,
-            style: Theme.of(context).textTheme.headlineSmall),
+        Text(l.recoveryTitle, style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: 12),
         Text(l.recoveryBody, style: Theme.of(context).textTheme.bodyMedium),
         const SizedBox(height: 16),
@@ -312,9 +330,7 @@ class _Recovery extends StatelessWidget {
               runSpacing: 8,
               children: [
                 for (var i = 0; i < phrase.length; i++)
-                  Chip(
-                    label: Text('${i + 1}. ${phrase[i]}'),
-                  ),
+                  Chip(label: Text('${i + 1}. ${phrase[i]}')),
               ],
             ),
           ),
@@ -428,8 +444,7 @@ class _StorageOption extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title,
-                      style: Theme.of(context).textTheme.titleMedium),
+                  Text(title, style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 4),
                   Text(body, style: Theme.of(context).textTheme.bodyMedium),
                 ],
@@ -482,7 +497,10 @@ class _PasswordStepState extends State<_PasswordStep> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(l.onboardPasswordTitle, style: Theme.of(context).textTheme.headlineSmall),
+        Text(
+          l.onboardPasswordTitle,
+          style: Theme.of(context).textTheme.headlineSmall,
+        ),
         const SizedBox(height: 8),
         Text(
           l.onboardPasswordSubtitle,
@@ -505,8 +523,10 @@ class _PasswordStepState extends State<_PasswordStep> {
         ),
         if (_error != null) ...[
           const SizedBox(height: 12),
-          Text(_error!,
-              style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          Text(
+            _error!,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
         ],
         const Spacer(),
         FilledButton(
@@ -515,7 +535,8 @@ class _PasswordStepState extends State<_PasswordStep> {
               ? const SizedBox(
                   height: 20,
                   width: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2))
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
               : Text(l.actionDone),
         ),
       ],

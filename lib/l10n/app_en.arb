@@ -23,8 +23,6 @@
   "onboardCreateIdentitySub": "Generate a fresh sovereign key on this device",
   "onboardRestoreIdentity": "Restore from recovery phrase",
   "onboardRestoreIdentitySub": "Use your 24-word phrase to recover an existing identity",
-  "onboardImportBackup": "Import a backup",
-  "onboardImportBackupSub": "Restore from an encrypted backup file",
   "onboardRestoreBody": "Enter the 24-word recovery phrase you wrote down when the identity was created. The same identity will be recreated on this device.",
   "onboardRestoreSubmit": "Restore",
 
@@ -178,7 +176,6 @@
   "navChannels": "Channels",
   "navStorage": "Storage",
   "navMenuTiles": "Menu",
-  "comingSoon": "Coming soon",
   "cloudTitle": "Personal cloud",
   "cloudUnavailable": "Cloud sync is unavailable until the node is ready",
   "cloudEmpty": "Your cloud is empty",
@@ -707,10 +704,6 @@
   "onboardPasswordSubtitle": "This password unlocks your space on this device. There is no reset.",
   "onboardPasswordTooShort": "Use at least 6 characters",
   "onboardPasswordMismatch": "Passwords do not match",
-  "onboardComingSoon": "{label} — coming in the next milestone",
-  "@onboardComingSoon": {
-    "placeholders": { "label": { "type": "String" } }
-  },
   "recoveryPhraseHint": "Enter your recovery phrase, words separated by spaces",
 
   "demoChatTooltip": "Demo chat",
