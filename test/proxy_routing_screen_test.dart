@@ -10,16 +10,17 @@ const _exit =
     'aa11bb22cc33dd44ee55ff66007788990011223344556677889900aabbccddee';
 
 Widget _host() => const ProviderScope(
-      child: MaterialApp(
-        localizationsDelegates: AppL10n.localizationsDelegates,
-        supportedLocales: AppL10n.supportedLocales,
-        home: ProxyRoutingScreen(),
-      ),
-    );
+  child: MaterialApp(
+    localizationsDelegates: AppL10n.localizationsDelegates,
+    supportedLocales: AppL10n.supportedLocales,
+    home: ProxyRoutingScreen(),
+  ),
+);
 
 void main() {
-  testWidgets('toggling SOCKS5 reveals the exit field and updates the provider',
-      (tester) async {
+  testWidgets('toggling SOCKS5 reveals the exit field and updates the provider', (
+    tester,
+  ) async {
     await tester.pumpWidget(_host());
     await tester.pump();
 
@@ -36,7 +37,8 @@ void main() {
     expect(find.text(l.routeNeedExit), findsOneWidget);
 
     final container = ProviderScope.containerOf(
-        tester.element(find.byType(ProxyRoutingScreen)));
+      tester.element(find.byType(ProxyRoutingScreen)),
+    );
     expect(container.read(proxyRoutingProvider).socks5Enabled, isTrue);
     expect(container.read(proxyRoutingProvider).socks5Active, isFalse);
   });
@@ -48,12 +50,15 @@ void main() {
 
     await tester.tap(find.byType(Switch).first); // enable SOCKS5
     await tester.pumpAndSettle();
-    await tester.enterText(find.widgetWithText(TextField, l.routeExitNodeLabel),
-        _exit);
+    await tester.enterText(
+      find.widgetWithText(TextField, l.routeExitNodeLabel),
+      _exit,
+    );
     await tester.pumpAndSettle();
 
     final container = ProviderScope.containerOf(
-        tester.element(find.byType(ProxyRoutingScreen)));
+      tester.element(find.byType(ProxyRoutingScreen)),
+    );
     final cfg = container.read(proxyRoutingProvider);
     expect(cfg.socks5Active, isTrue);
     expect(cfg.exitNodeId, _exit);
@@ -70,9 +75,29 @@ void main() {
     await tester.pumpAndSettle();
 
     final container = ProviderScope.containerOf(
-        tester.element(find.byType(ProxyRoutingScreen)));
+      tester.element(find.byType(ProxyRoutingScreen)),
+    );
     expect(container.read(proxyRoutingProvider).exitEnabled, isTrue);
     // The allow-private advanced toggle now appears.
     expect(container.read(proxyRoutingProvider), isA<ProxyRouting>());
+  });
+
+  testWidgets('system VPN is explicit and fail-closed without native backend', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_host());
+    await tester.pumpAndSettle();
+    final l = AppL10n.of(tester.element(find.byType(ProxyRoutingScreen)));
+
+    expect(find.text(l.vpnTitle), findsOneWidget);
+    await tester.tap(find.text(l.vpnTitle));
+    await tester.pumpAndSettle();
+
+    expect(find.text(l.vpnStatusUnsupported), findsOneWidget);
+    expect(find.text(l.vpnUnsupportedDetail), findsOneWidget);
+    final button = tester.widget<FilledButton>(
+      find.byKey(const ValueKey('vpn-toggle')),
+    );
+    expect(button.onPressed, isNull);
   });
 }

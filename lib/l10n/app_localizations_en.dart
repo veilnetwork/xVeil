@@ -1817,6 +1817,102 @@ class AppL10nEn extends AppL10n {
   String get routeRestartNode => 'Restart node to apply now';
 
   @override
+  String get vpnTitle => 'System VPN';
+
+  @override
+  String get vpnHint =>
+      'Route device traffic through the local veil SOCKS5 exit. The VPN is shown as active only after the native packet tunnel confirms forwarding.';
+
+  @override
+  String get vpnStatusRunning => 'Packet tunnel active';
+
+  @override
+  String get vpnStatusStarting => 'Starting packet tunnel…';
+
+  @override
+  String get vpnStatusStopping => 'Stopping packet tunnel…';
+
+  @override
+  String get vpnStatusStopped => 'Packet tunnel stopped';
+
+  @override
+  String get vpnStatusError => 'Packet tunnel error';
+
+  @override
+  String get vpnStatusUnsupported => 'Packet tunnel unavailable in this build';
+
+  @override
+  String get vpnUnsupportedDetail =>
+      'This platform build has no native packet-tunnel engine yet. SOCKS5 remains available; xVeil will not claim that a VPN is active.';
+
+  @override
+  String get vpnRouteMode => 'Traffic selection';
+
+  @override
+  String get vpnRouteAll => 'All traffic';
+
+  @override
+  String get vpnRouteInclude => 'Only selected subnets';
+
+  @override
+  String get vpnRouteExclude => 'All except selected subnets';
+
+  @override
+  String get vpnIncludedCidrs => 'Included subnets';
+
+  @override
+  String get vpnExcludedCidrs => 'Excluded subnets';
+
+  @override
+  String get vpnCidrsHint =>
+      'One IPv4 or IPv6 CIDR per line, e.g. 10.20.0.0/16';
+
+  @override
+  String get vpnCidrsInvalid => 'Every route must be a valid IPv4 or IPv6 CIDR';
+
+  @override
+  String get vpnRouteDns => 'Route DNS through VPN';
+
+  @override
+  String get vpnRouteDnsHint =>
+      'Install the selected DNS servers on the tunnel interface to prevent resolver leaks.';
+
+  @override
+  String get vpnDnsServers => 'DNS servers';
+
+  @override
+  String get vpnDnsHint => 'One IPv4 or IPv6 address per line';
+
+  @override
+  String get vpnDnsInvalid => 'Every DNS server must be an IP address';
+
+  @override
+  String get vpnAllowLan => 'Allow local network';
+
+  @override
+  String get vpnAllowLanHint =>
+      'Keep private and link-local subnets reachable outside the tunnel.';
+
+  @override
+  String get vpnMtu => 'Tunnel MTU';
+
+  @override
+  String get vpnMtuHint => '1280–9000; 1280 is safe across IPv4 and IPv6 paths';
+
+  @override
+  String get vpnMtuInvalid => 'MTU must be between 1280 and 9000';
+
+  @override
+  String get vpnNeedsProxy =>
+      'Enable SOCKS5 and select a valid exit node first.';
+
+  @override
+  String get vpnStart => 'Start VPN';
+
+  @override
+  String get vpnStop => 'Stop VPN';
+
+  @override
   String get networkNodesTitle => 'My nodes';
 
   @override
