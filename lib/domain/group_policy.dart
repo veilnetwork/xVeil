@@ -14,6 +14,8 @@
 //  - member: no control ops.
 // setPolicy is owner-only. An op an author lacks the rank for is rejected.
 
+import 'dart:collection';
+
 import '../core/ids.dart';
 import 'group.dart';
 import 'group_epoch.dart';
@@ -138,20 +140,43 @@ GroupFoldResult foldControlLog({
     byAuthor.putIfAbsent(e.author.hex, () => []).add(e);
   }
 
-  // Deterministic global order: sort all valid-signature entries by
-  // (createdAtMs, author hex, seq) so every device folds identically.
+  // Deterministic causal merge: each author's seq order is inviolable even if
+  // wall clock moves backwards between two signed operations. Across authors,
+  // select the earliest current head by (createdAtMs, author hex, seq). A plain
+  // global timestamp sort would reorder seq 1 before seq 0 after a clock step,
+  // rejecting the earlier operation and diverging membership across devices.
   final ordered = <ControlEntry>[];
   for (final list in byAuthor.values) {
     list.sort((a, b) => a.seq.compareTo(b.seq));
-    ordered.addAll(list);
   }
-  ordered.sort((a, b) {
+  int compareHeads(ControlEntry a, ControlEntry b) {
     final t = a.createdAtMs.compareTo(b.createdAtMs);
     if (t != 0) return t;
     final h = a.author.hex.compareTo(b.author.hex);
     if (h != 0) return h;
     return a.seq.compareTo(b.seq);
-  });
+  }
+
+  final heads = SplayTreeSet<({String author, int index, ControlEntry entry})>(
+    (a, b) => compareHeads(a.entry, b.entry),
+  );
+  for (final author in byAuthor.keys) {
+    heads.add((author: author, index: 0, entry: byAuthor[author]!.first));
+  }
+  while (heads.isNotEmpty) {
+    final head = heads.first;
+    heads.remove(head);
+    ordered.add(head.entry);
+    final nextIndex = head.index + 1;
+    final authored = byAuthor[head.author]!;
+    if (nextIndex < authored.length) {
+      heads.add((
+        author: head.author,
+        index: nextIndex,
+        entry: authored[nextIndex],
+      ));
+    }
+  }
 
   final lastSeq = <String, int>{};
   for (final e in ordered) {
