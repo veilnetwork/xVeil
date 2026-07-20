@@ -491,7 +491,6 @@ class VeilCallMediaController implements CallMediaController {
     var statsTick = 0;
     _statsTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_engine != engine) return;
-      unawaited(_androidNativeCam?.refreshStats() ?? Future<void>.value());
       try {
         final stats = engine.getStats();
         // Per-second quality trace into the devLog ring (2 s cadence to leave
