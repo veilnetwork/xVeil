@@ -13,6 +13,8 @@ class AndroidNativeCameraPreview {
     required this.rotation,
     required this.mirror,
     required this.fps,
+    required this.cameraId,
+    required this.facing,
   });
 
   final int textureId;
@@ -21,6 +23,8 @@ class AndroidNativeCameraPreview {
   final int rotation;
   final bool mirror;
   final int fps;
+  final String cameraId;
+  final String facing;
 
   static AndroidNativeCameraPreview? fromMap(Map<Object?, Object?>? value) {
     if (value == null) return null;
@@ -38,6 +42,8 @@ class AndroidNativeCameraPreview {
         (value['rotation'] as num?)?.toInt();
     final fps = (value['fps'] as num?)?.toInt();
     final mirror = value['mirror'];
+    final cameraId = value['cameraId'];
+    final facing = value['facing'];
     if (textureId == null ||
         textureId < 0 ||
         width == null ||
@@ -48,7 +54,10 @@ class AndroidNativeCameraPreview {
         !const <int>{0, 90, 180, 270}.contains(rotation) ||
         fps == null ||
         fps <= 0 ||
-        mirror is! bool) {
+        mirror is! bool ||
+        cameraId is! String ||
+        cameraId.isEmpty ||
+        facing is! String) {
       return null;
     }
     return AndroidNativeCameraPreview(
@@ -58,7 +67,32 @@ class AndroidNativeCameraPreview {
       rotation: rotation,
       mirror: mirror,
       fps: fps,
+      cameraId: cameraId,
+      facing: facing,
     );
+  }
+}
+
+@immutable
+class AndroidNativeCameraDevice {
+  const AndroidNativeCameraDevice({
+    required this.id,
+    required this.label,
+    required this.facing,
+  });
+
+  final String id;
+  final String label;
+  final String facing;
+
+  static AndroidNativeCameraDevice? fromMap(Map<Object?, Object?> value) {
+    final id = value['id'];
+    final label = value['label'];
+    final facing = value['facing'];
+    if (id is! String || id.isEmpty || label is! String || facing is! String) {
+      return null;
+    }
+    return AndroidNativeCameraDevice(id: id, label: label, facing: facing);
   }
 }
 
@@ -78,6 +112,7 @@ class AndroidNativeCallCamera {
   Map<String, Object?> _diagnostics = const {};
 
   bool get isRunning => _preview != null;
+  String? get cameraId => _preview?.cameraId;
   Map<String, Object?> get diagnostics => _diagnostics;
 
   Future<bool> start({
@@ -85,6 +120,7 @@ class AndroidNativeCallCamera {
     required int width,
     required int height,
     required int fps,
+    String? cameraId,
   }) async {
     await stop();
     try {
@@ -93,6 +129,7 @@ class AndroidNativeCallCamera {
         'width': width,
         'height': height,
         'fps': fps,
+        if (cameraId != null && cameraId.isNotEmpty) 'cameraId': cameraId,
       });
       final preview = AndroidNativeCameraPreview.fromMap(result);
       if (preview == null) {
@@ -103,6 +140,8 @@ class AndroidNativeCallCamera {
       androidNativeCallCameraPreview.value = preview;
       _diagnostics = {
         'camera_native': true,
+        'camera_id': preview.cameraId,
+        'camera_facing': preview.facing,
         'camera_requested_fps': preview.fps,
         'camera_running': true,
       };
@@ -121,14 +160,32 @@ class AndroidNativeCallCamera {
     }
   }
 
+  Future<List<AndroidNativeCameraDevice>> listDevices() async {
+    try {
+      final values = await _channel.invokeListMethod<Object?>('list');
+      return (values ?? const <Object?>[])
+          .whereType<Map<Object?, Object?>>()
+          .map(AndroidNativeCameraDevice.fromMap)
+          .whereType<AndroidNativeCameraDevice>()
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
   Future<void> refreshStats() async {
-    if (_preview == null) return;
+    final preview = _preview;
+    if (preview == null) return;
     try {
       final value = await _channel.invokeMapMethod<Object?, Object?>('stats');
       if (value == null) return;
-      _diagnostics = value.map(
-        (key, item) => MapEntry(key?.toString() ?? '', item),
-      )..remove('');
+      _diagnostics = {
+        'camera_native': true,
+        'camera_id': preview.cameraId,
+        'camera_facing': preview.facing,
+        ...value.map((key, item) => MapEntry(key?.toString() ?? '', item))
+          ..remove(''),
+      };
       if (_diagnostics['camera_running'] == false) {
         _preview = null;
         androidNativeCallCameraPreview.value = null;

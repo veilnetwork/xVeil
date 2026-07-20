@@ -7,6 +7,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.net.wifi.WifiManager
@@ -33,6 +35,7 @@ class MainActivity : FlutterActivity() {
     private val cameraCapabilitiesChannelName = "xveil/camera_capabilities"
     private val nativeCallCameraChannelName = "xveil/native_call_camera"
     private val nativeCallVideoChannelName = "xveil/native_call_video"
+    private val audioDevicesChannelName = "xveil/audio_devices"
     private val callNetworkChannelName = "xveil/call_network"
     private val whisperModelChannelName = "xveil/whisper_model"
     private val micRequestCode = 0x4D49 // 'MI'
@@ -88,6 +91,15 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            audioDevicesChannelName,
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "listInputs" -> result.success(audioInputDevices())
+                else -> result.notImplemented()
+            }
+        }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
             .setMethodCallHandler { call, result ->
                 val type = call.argument<String>("type") ?: "audio"
@@ -127,7 +139,8 @@ class MainActivity : FlutterActivity() {
                     val width = call.argument<Int>("width") ?: 640
                     val height = call.argument<Int>("height") ?: 480
                     val fps = call.argument<Int>("fps") ?: 30
-                    nativeCallCamera?.start(engine, width, height, fps) { value, error ->
+                    val cameraId = call.argument<String>("cameraId")
+                    nativeCallCamera?.start(engine, width, height, fps, cameraId) { value, error ->
                         runOnUiThread {
                             if (error == null) {
                                 result.success(value)
@@ -137,6 +150,13 @@ class MainActivity : FlutterActivity() {
                         }
                     } ?: result.error("camera_start", "Camera bridge is unavailable", null)
                 }
+                "list" -> result.success(
+                    try {
+                        nativeCallCamera?.devices() ?: emptyList<Map<String, Any?>>()
+                    } catch (error: Exception) {
+                        emptyList<Map<String, Any?>>()
+                    },
+                )
                 "stop" -> {
                     val camera = nativeCallCamera
                     if (camera == null) {
@@ -419,6 +439,35 @@ class MainActivity : FlutterActivity() {
             )
             emptyList()
         }
+    }
+
+    private fun audioInputDevices(): List<Map<String, Any?>> {
+        val manager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        return manager.getDevices(AudioManager.GET_DEVICES_INPUTS)
+            .filter(AudioDeviceInfo::isSource)
+            .map { device ->
+                val product = device.productName.toString().ifEmpty { "Microphone" }
+                val route = when (device.type) {
+                    AudioDeviceInfo.TYPE_BUILTIN_MIC -> "built-in"
+                    AudioDeviceInfo.TYPE_WIRED_HEADSET -> "wired headset"
+                    AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> "Bluetooth"
+                    AudioDeviceInfo.TYPE_USB_DEVICE,
+                    AudioDeviceInfo.TYPE_USB_ACCESSORY,
+                    AudioDeviceInfo.TYPE_USB_HEADSET -> "USB"
+                    AudioDeviceInfo.TYPE_TELEPHONY -> "telephony"
+                    AudioDeviceInfo.TYPE_IP -> "IP"
+                    AudioDeviceInfo.TYPE_BUS -> "bus"
+                    else -> "input"
+                }
+                mapOf(
+                    "id" to device.id.toString(),
+                    // Some phones expose several built-in capture routes with
+                    // the same product name. Route + opaque id keeps every
+                    // choice distinguishable without guessing its purpose.
+                    "label" to "$product · $route (${device.id})",
+                    "kind" to "input",
+                )
+            }
     }
 
     @Deprecated("MediaProjection consent still uses the platform activity-result contract")
