@@ -301,7 +301,7 @@ class _MessagingReplication {
     String? frameId,
   ) async {
     if (frameId == null) return;
-    _owner._seenFrames.add(frameId);
+    _owner._outbox.remember(frameId);
     await _owner._ackFrame(message, frameId);
   }
 }
