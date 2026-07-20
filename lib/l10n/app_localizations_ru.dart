@@ -1827,6 +1827,105 @@ class AppL10nRu extends AppL10n {
   String get routeRestartNode => 'Перезапустить узел сейчас';
 
   @override
+  String get vpnTitle => 'Системный VPN';
+
+  @override
+  String get vpnHint =>
+      'Маршрутизирует трафик устройства через локальный SOCKS5-выход veil. VPN считается включённым только после подтверждения от нативного пакетного туннеля.';
+
+  @override
+  String get vpnStatusRunning => 'Пакетный туннель активен';
+
+  @override
+  String get vpnStatusStarting => 'Пакетный туннель запускается…';
+
+  @override
+  String get vpnStatusStopping => 'Пакетный туннель останавливается…';
+
+  @override
+  String get vpnStatusStopped => 'Пакетный туннель остановлен';
+
+  @override
+  String get vpnStatusError => 'Ошибка пакетного туннеля';
+
+  @override
+  String get vpnStatusUnsupported =>
+      'Пакетный туннель недоступен в этой сборке';
+
+  @override
+  String get vpnUnsupportedDetail =>
+      'В этой сборке платформы ещё нет нативного packet-tunnel engine. SOCKS5 доступен, но xVeil не будет ложно показывать VPN активным.';
+
+  @override
+  String get vpnRouteMode => 'Выбор трафика';
+
+  @override
+  String get vpnRouteAll => 'Весь трафик';
+
+  @override
+  String get vpnRouteInclude => 'Только выбранные подсети';
+
+  @override
+  String get vpnRouteExclude => 'Всё, кроме выбранных подсетей';
+
+  @override
+  String get vpnIncludedCidrs => 'Включённые подсети';
+
+  @override
+  String get vpnExcludedCidrs => 'Исключённые подсети';
+
+  @override
+  String get vpnCidrsHint =>
+      'Один IPv4- или IPv6-CIDR в строке, например 10.20.0.0/16';
+
+  @override
+  String get vpnCidrsInvalid =>
+      'Каждый маршрут должен быть корректным IPv4- или IPv6-CIDR';
+
+  @override
+  String get vpnRouteDns => 'Маршрутизировать DNS через VPN';
+
+  @override
+  String get vpnRouteDnsHint =>
+      'Назначить выбранные DNS-серверы интерфейсу туннеля, чтобы не допустить утечек резолвера.';
+
+  @override
+  String get vpnDnsServers => 'DNS-серверы';
+
+  @override
+  String get vpnDnsHint => 'Один IPv4- или IPv6-адрес в строке';
+
+  @override
+  String get vpnDnsInvalid => 'Каждый DNS-сервер должен быть IP-адресом';
+
+  @override
+  String get vpnAllowLan => 'Разрешить локальную сеть';
+
+  @override
+  String get vpnAllowLanHint =>
+      'Оставить приватные и link-local подсети доступными в обход туннеля.';
+
+  @override
+  String get vpnMtu => 'MTU туннеля';
+
+  @override
+  String get vpnMtuHint =>
+      '1280–9000; 1280 безопасно для маршрутов IPv4 и IPv6';
+
+  @override
+  String get vpnMtuInvalid => 'MTU должен быть от 1280 до 9000';
+
+  @override
+  String get vpnNeedsProxy =>
+      'Сначала включите SOCKS5 и выберите корректный выходной узел.';
+
+  @override
+  String get vpnStart => 'Запустить VPN';
+
+  @override
+  String get vpnStop => 'Остановить VPN';
+
+  @override
   String get networkNodesTitle => 'Мои узлы';
 
   @override

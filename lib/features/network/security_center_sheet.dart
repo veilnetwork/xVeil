@@ -7,6 +7,8 @@ import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/providers.dart';
 import '../../state/proxy_routing_controller.dart';
+import '../../state/vpn_controller.dart';
+import '../../data/vpn/vpn_backend.dart';
 
 /// Opens the compact, always-available security and network control surface.
 ///
@@ -70,6 +72,24 @@ class _SecurityCenterSheetState extends ConsumerState<_SecurityCenterSheet> {
     await ref.read(appControllerProvider.notifier).applyProxyRouting(next);
   }
 
+  Future<void> _setVpn(bool enabled) async {
+    if (_busy) return;
+    final routing = ref.read(proxyRoutingProvider);
+    if (enabled && !routing.socks5Active) {
+      Navigator.of(context).pop();
+      if (context.mounted) context.push('/route');
+      return;
+    }
+    setState(() => _busy = true);
+    Navigator.of(context).pop();
+    final controller = ref.read(vpnControllerProvider.notifier);
+    if (enabled) {
+      await controller.start();
+    } else {
+      await controller.stop();
+    }
+  }
+
   void _open(String route) {
     Navigator.of(context).pop();
     if (context.mounted) context.push(route);
@@ -84,6 +104,7 @@ class _SecurityCenterSheetState extends ConsumerState<_SecurityCenterSheet> {
     final node = ref.watch(nodeStatusProvider).asData?.value;
     final peers = ref.watch(sessionCountProvider).asData?.value ?? 0;
     final routing = ref.watch(proxyRoutingProvider);
+    final vpn = ref.watch(vpnControllerProvider);
     final anonymous = app.isMaster
         ? (app.activeIdentity != null &&
               appCtrl.isIdentityAnonymous(app.activeIdentity!))
@@ -176,6 +197,28 @@ class _SecurityCenterSheetState extends ConsumerState<_SecurityCenterSheet> {
             ),
             value: routing.socks5Enabled,
             onChanged: _busy ? null : _setProxy,
+          ),
+          SwitchListTile(
+            secondary: Icon(
+              vpn.isRunning ? Icons.vpn_lock : Icons.vpn_lock_outlined,
+            ),
+            title: Text(l.vpnTitle),
+            subtitle: Text(switch (vpn.backend.phase) {
+              VpnBackendPhase.running => l.vpnStatusRunning,
+              VpnBackendPhase.starting => l.vpnStatusStarting,
+              VpnBackendPhase.stopping => l.vpnStatusStopping,
+              VpnBackendPhase.error => vpn.backend.detail ?? l.vpnStatusError,
+              VpnBackendPhase.unsupported => l.vpnStatusUnsupported,
+              VpnBackendPhase.stopped =>
+                routing.socks5Active ? l.vpnStatusStopped : l.vpnNeedsProxy,
+            }),
+            value: vpn.isRunning,
+            onChanged:
+                _busy ||
+                    vpn.busy ||
+                    vpn.backend.phase == VpnBackendPhase.unsupported
+                ? null
+                : _setVpn,
           ),
           ListTile(
             leading: const Icon(Icons.tune),

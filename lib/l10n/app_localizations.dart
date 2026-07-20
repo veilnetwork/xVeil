@@ -3421,6 +3421,186 @@ abstract class AppL10n {
   /// **'Restart node to apply now'**
   String get routeRestartNode;
 
+  /// No description provided for @vpnTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'System VPN'**
+  String get vpnTitle;
+
+  /// No description provided for @vpnHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Route device traffic through the local veil SOCKS5 exit. The VPN is shown as active only after the native packet tunnel confirms forwarding.'**
+  String get vpnHint;
+
+  /// No description provided for @vpnStatusRunning.
+  ///
+  /// In en, this message translates to:
+  /// **'Packet tunnel active'**
+  String get vpnStatusRunning;
+
+  /// No description provided for @vpnStatusStarting.
+  ///
+  /// In en, this message translates to:
+  /// **'Starting packet tunnel…'**
+  String get vpnStatusStarting;
+
+  /// No description provided for @vpnStatusStopping.
+  ///
+  /// In en, this message translates to:
+  /// **'Stopping packet tunnel…'**
+  String get vpnStatusStopping;
+
+  /// No description provided for @vpnStatusStopped.
+  ///
+  /// In en, this message translates to:
+  /// **'Packet tunnel stopped'**
+  String get vpnStatusStopped;
+
+  /// No description provided for @vpnStatusError.
+  ///
+  /// In en, this message translates to:
+  /// **'Packet tunnel error'**
+  String get vpnStatusError;
+
+  /// No description provided for @vpnStatusUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'Packet tunnel unavailable in this build'**
+  String get vpnStatusUnsupported;
+
+  /// No description provided for @vpnUnsupportedDetail.
+  ///
+  /// In en, this message translates to:
+  /// **'This platform build has no native packet-tunnel engine yet. SOCKS5 remains available; xVeil will not claim that a VPN is active.'**
+  String get vpnUnsupportedDetail;
+
+  /// No description provided for @vpnRouteMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Traffic selection'**
+  String get vpnRouteMode;
+
+  /// No description provided for @vpnRouteAll.
+  ///
+  /// In en, this message translates to:
+  /// **'All traffic'**
+  String get vpnRouteAll;
+
+  /// No description provided for @vpnRouteInclude.
+  ///
+  /// In en, this message translates to:
+  /// **'Only selected subnets'**
+  String get vpnRouteInclude;
+
+  /// No description provided for @vpnRouteExclude.
+  ///
+  /// In en, this message translates to:
+  /// **'All except selected subnets'**
+  String get vpnRouteExclude;
+
+  /// No description provided for @vpnIncludedCidrs.
+  ///
+  /// In en, this message translates to:
+  /// **'Included subnets'**
+  String get vpnIncludedCidrs;
+
+  /// No description provided for @vpnExcludedCidrs.
+  ///
+  /// In en, this message translates to:
+  /// **'Excluded subnets'**
+  String get vpnExcludedCidrs;
+
+  /// No description provided for @vpnCidrsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'One IPv4 or IPv6 CIDR per line, e.g. 10.20.0.0/16'**
+  String get vpnCidrsHint;
+
+  /// No description provided for @vpnCidrsInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Every route must be a valid IPv4 or IPv6 CIDR'**
+  String get vpnCidrsInvalid;
+
+  /// No description provided for @vpnRouteDns.
+  ///
+  /// In en, this message translates to:
+  /// **'Route DNS through VPN'**
+  String get vpnRouteDns;
+
+  /// No description provided for @vpnRouteDnsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Install the selected DNS servers on the tunnel interface to prevent resolver leaks.'**
+  String get vpnRouteDnsHint;
+
+  /// No description provided for @vpnDnsServers.
+  ///
+  /// In en, this message translates to:
+  /// **'DNS servers'**
+  String get vpnDnsServers;
+
+  /// No description provided for @vpnDnsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'One IPv4 or IPv6 address per line'**
+  String get vpnDnsHint;
+
+  /// No description provided for @vpnDnsInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Every DNS server must be an IP address'**
+  String get vpnDnsInvalid;
+
+  /// No description provided for @vpnAllowLan.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow local network'**
+  String get vpnAllowLan;
+
+  /// No description provided for @vpnAllowLanHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep private and link-local subnets reachable outside the tunnel.'**
+  String get vpnAllowLanHint;
+
+  /// No description provided for @vpnMtu.
+  ///
+  /// In en, this message translates to:
+  /// **'Tunnel MTU'**
+  String get vpnMtu;
+
+  /// No description provided for @vpnMtuHint.
+  ///
+  /// In en, this message translates to:
+  /// **'1280–9000; 1280 is safe across IPv4 and IPv6 paths'**
+  String get vpnMtuHint;
+
+  /// No description provided for @vpnMtuInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'MTU must be between 1280 and 9000'**
+  String get vpnMtuInvalid;
+
+  /// No description provided for @vpnNeedsProxy.
+  ///
+  /// In en, this message translates to:
+  /// **'Enable SOCKS5 and select a valid exit node first.'**
+  String get vpnNeedsProxy;
+
+  /// No description provided for @vpnStart.
+  ///
+  /// In en, this message translates to:
+  /// **'Start VPN'**
+  String get vpnStart;
+
+  /// No description provided for @vpnStop.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop VPN'**
+  String get vpnStop;
+
   /// No description provided for @networkNodesTitle.
   ///
   /// In en, this message translates to:
