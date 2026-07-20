@@ -75,13 +75,6 @@ class AppL10nRu extends AppL10n {
       'Используйте 24 слова, чтобы восстановить существующую личность';
 
   @override
-  String get onboardImportBackup => 'Импорт резервной копии';
-
-  @override
-  String get onboardImportBackupSub =>
-      'Восстановить из зашифрованного файла резервной копии';
-
-  @override
   String get onboardRestoreBody =>
       'Введите 24 слова фразы восстановления, записанной при создании личности. На этом устройстве будет воссоздана та же личность.';
 
@@ -548,9 +541,6 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get navMenuTiles => 'Меню';
-
-  @override
-  String get comingSoon => 'Скоро';
 
   @override
   String get cloudTitle => 'Личное облако';
@@ -2180,11 +2170,6 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get onboardPasswordMismatch => 'Пароли не совпадают';
-
-  @override
-  String onboardComingSoon(String label) {
-    return '$label — появится в следующей версии';
-  }
 
   @override
   String get recoveryPhraseHint =>

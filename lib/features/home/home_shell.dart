@@ -6,13 +6,14 @@ import '../chat/chats_screen.dart';
 import '../chat/notification_binder.dart';
 import '../chat/signature_ask_host.dart';
 import '../storage/cloud_storage_screen.dart';
+import 'menu_tiles_screen.dart';
 
 /// The main authenticated surface. Chats and Channels are REAL tabs (NAV1:
 /// switching keeps the bottom bar and highlights the active destination —
 /// pushing a route on top used to leave "Chats" lit while a different screen
 /// showed). Group chats live inside the Chats list; the Channels tab waits
-/// for the channels epic. Personal cloud is a real third tab; only the
-/// menu-tiles panel remains a stub.
+/// for the channels epic. Personal cloud and the app-actions menu are real
+/// third and fourth tabs.
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
 
@@ -39,18 +40,13 @@ class _HomeShellState extends State<HomeShell> {
               ChatsScreen(),
               ChannelsScreen(),
               CloudStorageScreen(),
+              MenuTilesScreen(),
             ],
           ),
           bottomNavigationBar: NavigationBar(
             selectedIndex: _tab,
             onDestinationSelected: (i) {
-              if (i <= 2) {
-                setState(() => _tab = i);
-                return;
-              }
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(SnackBar(content: Text(l.comingSoon)));
+              setState(() => _tab = i);
             },
             destinations: [
               NavigationDestination(
