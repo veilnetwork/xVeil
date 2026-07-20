@@ -453,6 +453,43 @@ class EmbeddedNode {
     return '$toml\n[anonymity]\nreceive_anonymous = true\n$onion';
   }
 
+  /// Force app-embedded nodes to advertise the client-only `leaf` role.
+  ///
+  /// Veil's general-purpose config default is `core`, which is appropriate
+  /// for an operator daemon but not for a phone or desktop client. Leaving the
+  /// role implicit made every xVeil process start Core-only services, including
+  /// a public UDP reflector on port 39999. The app consumes reflector
+  /// announcements from authenticated Core peers; it must not become an
+  /// operator merely because an older stored identity omitted `role`.
+  ///
+  /// Apply this only to the ephemeral composed config. The stored identity
+  /// remains free of runtime posture, and a stale explicit `core` value is
+  /// replaced rather than duplicated. If the input is not an identity config,
+  /// leave it untouched so malformed data still fails in the native parser.
+  static String withClientNodeRole(String toml) {
+    final lines = toml.split('\n');
+    final out = <String>[];
+    var inIdentity = false;
+    var sawIdentity = false;
+    for (final line in lines) {
+      final trimmed = line.trim();
+      final table = RegExp(r'^\[([^\]]+)\]$').firstMatch(trimmed);
+      if (table != null) {
+        inIdentity = table.group(1)!.toLowerCase() == 'identity';
+        if (inIdentity) {
+          sawIdentity = true;
+          out
+            ..add(line)
+            ..add('role = "leaf"');
+          continue;
+        }
+      }
+      if (inIdentity && RegExp(r'^role\s*=').hasMatch(trimmed)) continue;
+      out.add(line);
+    }
+    return sawIdentity ? out.join('\n') : toml;
+  }
+
   /// Force the `[Identity]` lazy-mining preference, OVERRIDING whatever the
   /// stored identity baked in. Lazy mining is a CPU-heavy BACKGROUND grind
   /// (raising the identity's anti-sybil difficulty via repeated PoW) that the
@@ -603,7 +640,9 @@ class EmbeddedNode {
             withUdpReflectors(
               withProxy(
                 withBootstrapPeers(
-                  withLazyMining(withAnonymity(toml, anonymous), lazyMining),
+                  withClientNodeRole(
+                    withLazyMining(withAnonymity(toml, anonymous), lazyMining),
+                  ),
                   bootstrapPeers,
                 ),
                 proxy,
