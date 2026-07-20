@@ -206,7 +206,7 @@ class _StickerPackCardState extends ConsumerState<_StickerPackCard> {
 /// messages). Until the blob lands, the blurred sidecar micro-thumb (or a
 /// progress ring) stands in — stickers are small and auto-download, so this
 /// is a blink. Animated WebP animates for free via Image.memory.
-class _StickerContent extends ConsumerWidget {
+class _StickerContent extends ConsumerStatefulWidget {
   const _StickerContent({
     required this.fileKey,
     required this.thumbB64,
@@ -224,26 +224,89 @@ class _StickerContent extends ConsumerWidget {
   static const double _side = 160;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final thumb = _decodeThumbB64(thumbB64);
+  ConsumerState<_StickerContent> createState() => _StickerContentState();
+}
+
+class _StickerContentState extends ConsumerState<_StickerContent> {
+  Uint8List? _bytes;
+  bool _loadInFlight = false;
+  DateTime? _lastAttemptAt;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  Future<void> _load() async {
+    if (_loadInFlight || widget.fileKey.isEmpty) return;
+    final fileKey = widget.fileKey;
+    _loadInFlight = true;
+    _lastAttemptAt = DateTime.now();
+    Uint8List? bytes;
+    try {
+      bytes = await ref.read(storageProvider).loadFile(fileKey);
+    } catch (_) {
+      // A transient storage failure keeps the micro-thumb/download affordance;
+      // the next provider rebuild can retry after the throttle below.
+    } finally {
+      _loadInFlight = false;
+    }
+    if (!mounted) return;
+    // A content offer can switch from contentId to a local fileId while an
+    // earlier read is still in flight. Never paint the old key's bytes into
+    // the updated message; immediately start the read didUpdateWidget could
+    // not start while single-flight was occupied.
+    if (widget.fileKey != fileKey) {
+      unawaited(_load());
+      return;
+    }
+    if (bytes == null) return;
+    setState(() => _bytes = bytes);
+  }
+
+  @override
+  void didUpdateWidget(covariant _StickerContent oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.fileKey != widget.fileKey) {
+      _bytes = null;
+      _lastAttemptAt = null;
+      unawaited(_load());
+      return;
+    }
+    if (_bytes != null || widget.fileKey.isEmpty) return;
+    final downloadEnded = oldWidget.progress != null && widget.progress == null;
+    final last = _lastAttemptAt;
+    final throttleElapsed =
+        last == null ||
+        DateTime.now().difference(last) > const Duration(seconds: 2);
+    if (downloadEnded || throttleElapsed) unawaited(_load());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final thumb = _decodeThumbB64(widget.thumbB64);
     return SizedBox(
-      width: _side,
-      height: _side,
-      child: fileKey.isEmpty
+      width: _StickerContent._side,
+      height: _StickerContent._side,
+      child: widget.fileKey.isEmpty
           ? _placeholder(context, thumb)
-          : FutureBuilder<Uint8List?>(
-              future: ref.read(storageProvider).loadFile(fileKey),
-              builder: (context, snap) {
-                final bytes = snap.data;
-                if (bytes == null) return _placeholder(context, thumb);
-                return Image.memory(
-                  bytes,
-                  fit: BoxFit.contain,
-                  gaplessPlayback: true,
-                  filterQuality: FilterQuality.medium,
-                  errorBuilder: (_, _, _) => _placeholder(context, thumb),
-                );
-              },
+          : _bytes == null
+          ? _placeholder(context, thumb)
+          : Image.memory(
+              _bytes!,
+              fit: BoxFit.contain,
+              gaplessPlayback: true,
+              filterQuality: FilterQuality.medium,
+              cacheWidth: mediaPreviewCacheDimension(
+                _StickerContent._side,
+                MediaQuery.devicePixelRatioOf(context),
+              ),
+              cacheHeight: mediaPreviewCacheDimension(
+                _StickerContent._side,
+                MediaQuery.devicePixelRatioOf(context),
+              ),
+              errorBuilder: (_, _, _) => _placeholder(context, thumb),
             ),
     );
   }
@@ -262,19 +325,19 @@ class _StickerContent extends ConsumerWidget {
           ColoredBox(
             color: Theme.of(context).colorScheme.surfaceContainerHighest,
           ),
-        if (progress != null && onCancel != null)
+        if (widget.progress != null && widget.onCancel != null)
           Center(
             child: CancelableDownloadProgress(
-              progress: progress,
-              onCancel: onCancel!,
+              progress: widget.progress,
+              onCancel: widget.onCancel!,
               size: 32,
               strokeWidth: 3,
             ),
           )
-        else if (onDownload != null)
+        else if (widget.onDownload != null)
           Center(
             child: IconButton.filledTonal(
-              onPressed: onDownload,
+              onPressed: widget.onDownload,
               icon: const Icon(Icons.download),
             ),
           ),
@@ -1006,6 +1069,18 @@ class _ImagePreviewState extends ConsumerState<_ImagePreview> {
                 bytes,
                 fit: BoxFit.cover,
                 gaplessPlayback: true,
+                // Decode only to the physical display footprint. Keeping a
+                // 12-MP source as a full RGBA surface for a 280×240 bubble can
+                // cost tens of MiB per visible message; the original bytes are
+                // still used by the full-screen gallery for lossless zoom.
+                cacheWidth: mediaPreviewCacheDimension(
+                  280,
+                  MediaQuery.devicePixelRatioOf(context),
+                ),
+                cacheHeight: mediaPreviewCacheDimension(
+                  240,
+                  MediaQuery.devicePixelRatioOf(context),
+                ),
               ),
             ),
           ),
@@ -1022,6 +1097,43 @@ class _ImagePreviewState extends ConsumerState<_ImagePreview> {
 /// embedded micro-thumb, the fallback rendering for pages whose blob isn't
 /// downloaded yet.
 typedef GalleryItem = ({String id, String fileKey, String name, String? thumb});
+
+/// The gallery retains raw decrypted bytes only for the visible page and its
+/// immediate neighbours. A conversation may contain hundreds of large images;
+/// memoizing every visited `Future<Uint8List>` until the route closes otherwise
+/// grows linearly and can exhaust a mobile process even though PageView has
+/// already disposed the distant page widgets.
+const kMediaGalleryRetainedRadius = 1;
+const kMediaPreviewMaxDecodeDimension = 2048;
+
+/// Convert a logical preview dimension into the exact physical-pixel decode
+/// target, with a defensive ceiling for pathological device metrics.
+int mediaPreviewCacheDimension(double logicalPixels, double devicePixelRatio) {
+  if (!logicalPixels.isFinite ||
+      !devicePixelRatio.isFinite ||
+      logicalPixels <= 0 ||
+      devicePixelRatio <= 0) {
+    return 1;
+  }
+  return (logicalPixels * devicePixelRatio).ceil().clamp(
+    1,
+    kMediaPreviewMaxDecodeDimension,
+  );
+}
+
+Set<String> mediaGalleryRetainedKeys(
+  List<GalleryItem> items,
+  int current, {
+  int radius = kMediaGalleryRetainedRadius,
+}) {
+  if (items.isEmpty || radius < 0) return const {};
+  final center = current.clamp(0, items.length - 1);
+  final first = center - radius < 0 ? 0 : center - radius;
+  final last = center + radius >= items.length
+      ? items.length - 1
+      : center + radius;
+  return {for (var i = first; i <= last; i++) items[i].fileKey};
+}
 
 /// The swipeable-gallery item set for a loaded conversation: every image
 /// message with a loadable key, in display order. Pure — unit-tested. Pages
@@ -1058,13 +1170,25 @@ class _MediaGalleryState extends ConsumerState<_MediaGallery> {
   );
   late int _current = widget.initialIndex;
 
-  /// Per-key memoized loads — a page rebuild (every swipe setState) must not
-  /// restart the read and flash a spinner (same jitter class as the bubble
-  /// preview).
+  /// Per-key memoized loads for the current page and immediate neighbours.
+  /// Keeping every visited image would retain every raw decrypted blob until
+  /// the gallery route closes, even after PageView disposed the page.
   final Map<String, Future<Uint8List?>> _loads = {};
 
-  Future<Uint8List?> _load(String fileKey) =>
-      _loads[fileKey] ??= ref.read(storageProvider).loadFile(fileKey);
+  Future<Uint8List?> _load(int index) {
+    final fileKey = widget.items[index].fileKey;
+    final keep = mediaGalleryRetainedKeys(widget.items, _current);
+    if (!keep.contains(fileKey)) {
+      return ref.read(storageProvider).loadFile(fileKey);
+    }
+    return _loads[fileKey] ??= ref.read(storageProvider).loadFile(fileKey);
+  }
+
+  void _onPageChanged(int index) {
+    final keep = mediaGalleryRetainedKeys(widget.items, index);
+    _loads.removeWhere((fileKey, _) => !keep.contains(fileKey));
+    setState(() => _current = index);
+  }
 
   @override
   void dispose() {
@@ -1098,11 +1222,11 @@ class _MediaGalleryState extends ConsumerState<_MediaGallery> {
       body: PageView.builder(
         controller: _page,
         itemCount: widget.items.length,
-        onPageChanged: (i) => setState(() => _current = i),
+        onPageChanged: _onPageChanged,
         itemBuilder: (context, i) {
           final it = widget.items[i];
           return FutureBuilder<Uint8List?>(
-            future: _load(it.fileKey),
+            future: _load(i),
             builder: (context, snap) {
               if (snap.connectionState != ConnectionState.done) {
                 return const Center(child: CircularProgressIndicator());
