@@ -2164,6 +2164,12 @@ class AppL10nEn extends AppL10n {
   String get demoChatTooltip => 'Demo chat';
 
   @override
+  String get securityCenterTooltip => 'Security';
+
+  @override
+  String get securityCenterTitle => 'Security & network';
+
+  @override
   String get demoNewChat => 'New chat';
 
   @override

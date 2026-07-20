@@ -2179,6 +2179,12 @@ class AppL10nRu extends AppL10n {
   String get demoChatTooltip => 'Демо-чат';
 
   @override
+  String get securityCenterTooltip => 'Безопасность';
+
+  @override
+  String get securityCenterTitle => 'Безопасность и сеть';
+
+  @override
   String get demoNewChat => 'Новый чат';
 
   @override

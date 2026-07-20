@@ -4051,6 +4051,18 @@ abstract class AppL10n {
   /// **'Demo chat'**
   String get demoChatTooltip;
 
+  /// No description provided for @securityCenterTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Security'**
+  String get securityCenterTooltip;
+
+  /// No description provided for @securityCenterTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Security & network'**
+  String get securityCenterTitle;
+
   /// No description provided for @demoNewChat.
   ///
   /// In en, this message translates to:
