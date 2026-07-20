@@ -34,19 +34,26 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VEIL="$ROOT/third_party/veil"
 HV="$ROOT/third_party/hidden-volume"
 
+# C/C++ build scripts otherwise inherit the current macOS SDK as their
+# minimum deployment version. The archive still links, but every BoringSSL/PQ
+# object then requires the build machine's OS instead of xVeil's contract.
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-10.15}"
+fi
+
 echo "==> Building hidden-volume-ffi ($PROFILE)"
 ( cd "$HV" && cargo build -p hidden-volume-ffi ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} )
 
-echo "==> Building veilclient-ffi ($PROFILE, node-embedded)"
+echo "==> Building veilclient-ffi ($PROFILE, node-embedded,packet-tunnel)"
 # node-embedded bundles the in-process node runtime (veil_config_init /
 # veil_node_start_deferred / veil_node_apply_config), required for the deniable
 # in-process boot. It is additive — the client-only symbols are still present.
 # Release builds require an explicit seed posture (veil-bootstrap
 # compile_error); mirror the Android gradle build and bake the production
 # seeds in.
-VEIL_FEATURES="node-embedded"
+VEIL_FEATURES="node-embedded,packet-tunnel"
 if [[ "$PROFILE" == "release" ]]; then
-  VEIL_FEATURES="node-embedded,production-seeds"
+  VEIL_FEATURES="node-embedded,production-seeds,packet-tunnel"
 fi
 ( cd "$VEIL" && cargo build -p veilclient-ffi --features "$VEIL_FEATURES" ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} )
 
