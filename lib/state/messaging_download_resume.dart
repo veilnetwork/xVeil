@@ -48,8 +48,7 @@ class _MessagingDownloadResume {
     complete(contentId);
     _owner._pendingTimers.remove(contentId)?.cancel();
     final parkedSink = _owner._pendingDownload.remove(contentId);
-    final fetch = _owner._fetching.remove(contentId);
-    _owner._fetchActivity.remove(contentId);
+    final fetch = _owner._contentFetching.take(contentId);
 
     final sinks = <_FetchSink>{?parkedSink, ?fetch?.sink};
     final streams =
@@ -189,7 +188,7 @@ class _MessagingDownloadResume {
 
   bool pullActive(String contentId) =>
       (_activePullCount[contentId] ?? 0) > 0 ||
-      _owner._fetching.containsKey(contentId) ||
+      _owner._contentFetching.contains(contentId) ||
       _owner._pendingDownload.containsKey(contentId);
 
   Future<void> persistManifestIfPending(ContentManifest manifest) async {
