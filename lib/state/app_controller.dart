@@ -11,6 +11,7 @@ import '../data/native_libs.dart';
 
 import '../core/ids.dart';
 import '../data/node/node_controller.dart';
+import '../data/node/proxy_routing.dart';
 import '../data/veil_stack.dart';
 import '../domain/identity.dart';
 import '../domain/p2p_policy.dart';
@@ -706,6 +707,44 @@ class AppController extends Notifier<AppState> {
     final identity = await storage.loadIdentity() ?? _placeholderIdentity();
     await _enterSession(identity);
     return true;
+  }
+
+  /// Persist traffic-routing changes and reboot the currently hosted node(s),
+  /// so a quick proxy toggle takes effect now rather than at the next app run.
+  /// All-online mode rebuilds the whole hosted session because every identity
+  /// shares this device-level routing policy; one-active mode only restarts the
+  /// active node and keeps the already-open deniable space intact.
+  Future<bool> applyProxyRouting(ProxyRouting routing) async {
+    await ref.read(proxyRoutingProvider.notifier).set(routing);
+    if (state.phase != AppPhase.ready ||
+        ref.read(deniableBootProvider) == null) {
+      return true;
+    }
+
+    final roster = _pendingRoster;
+    final active = _activeLabel;
+    final hadSession = ref.read(sessionProvider) != null;
+    try {
+      if (hadSession && roster != null) {
+        state = state.copyWith(
+          phase: AppPhase.preparingNode,
+          preparingReason: PreparingReason.node,
+        );
+        await _teardownSession();
+        await _reEnterAfterRosterEdit(roster, active, true);
+        return state.phase == AppPhase.ready;
+      }
+
+      await _teardownRealStack();
+      final storage = ref.read(storageProvider);
+      if (!storage.isOpen) return false;
+      final identity = await storage.loadIdentity() ?? _placeholderIdentity();
+      await _enterSession(identity);
+      return true;
+    } catch (e, st) {
+      devLog(() => 'xVeil[proxy]: apply/reboot failed: $e\n$st');
+      return false;
+    }
   }
 
   /// Whether the ACTIVE single identity is opted into lazy mining (UI reads this

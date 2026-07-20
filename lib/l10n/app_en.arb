@@ -707,6 +707,8 @@
   "recoveryPhraseHint": "Enter your recovery phrase, words separated by spaces",
 
   "demoChatTooltip": "Demo chat",
+  "securityCenterTooltip": "Security",
+  "securityCenterTitle": "Security & network",
   "demoNewChat": "New chat",
   "demoPeerNodeId": "Peer node id (hex)",
   "demoChatWith": "Chat with a demo peer",

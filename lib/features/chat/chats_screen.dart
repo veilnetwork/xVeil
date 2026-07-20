@@ -1,7 +1,5 @@
 import 'dart:async';
-import 'dart:math';
 
-import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -24,6 +22,7 @@ import '../../state/vnote_message.dart';
 import '../../state/voice_message.dart';
 import '../../state/providers.dart';
 import '../contacts/invite_exchange_sheet.dart';
+import '../network/security_center_sheet.dart';
 
 /// The chat-list folder filter: null = "All", else a [ChatFolder.id]. A plain
 /// StateProvider so switching folders survives list rebuilds. Reset to All if
@@ -269,13 +268,21 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
               tooltip: l.searchHint,
               onPressed: _enterSearch,
             ),
-          // Dev-only affordance (debug builds): start a chat by raw node id or
-          // a demo peer. Hidden in release so it can't ship to users.
-          if (!_searching && kDebugMode)
+          if (!_searching)
             IconButton(
-              icon: const Icon(Icons.science_outlined),
-              tooltip: l.demoChatTooltip,
-              onPressed: () => _newChat(context),
+              icon: Consumer(
+                builder: (context, ref, _) {
+                  final peers =
+                      ref.watch(sessionCountProvider).asData?.value ?? 0;
+                  return Badge(
+                    isLabelVisible: peers > 0,
+                    label: Text('$peers'),
+                    child: const Icon(Icons.shield_outlined),
+                  );
+                },
+              ),
+              tooltip: l.securityCenterTooltip,
+              onPressed: () => showSecurityCenterSheet(context, ref),
             ),
           // With the right-side placement the AppBar only auto-adds an
           // endDrawer toggle when it has NO other actions — so in debug builds
@@ -385,15 +392,6 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
               },
             ),
     );
-  }
-
-  Future<void> _newChat(BuildContext context) async {
-    final hex = await showDialog<String>(
-      context: context,
-      builder: (_) => const _NewChatDialog(),
-    );
-    if (hex == null || !context.mounted) return;
-    context.push('/chat/$hex');
   }
 }
 
@@ -966,138 +964,6 @@ class _ConversationTile extends ConsumerWidget {
         onTap: () => context.push('/chat/${conversation.peer.nodeId.hex}'),
         onLongPress: () => _showActions(context, ref),
       ),
-    );
-  }
-}
-
-class _NewChatDialog extends ConsumerStatefulWidget {
-  const _NewChatDialog();
-
-  @override
-  ConsumerState<_NewChatDialog> createState() => _NewChatDialogState();
-}
-
-class _NewChatDialogState extends ConsumerState<_NewChatDialog> {
-  final _ctrl = TextEditingController();
-  String? _error;
-  bool _resolving = false;
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _submit() async {
-    final text = _ctrl.text.trim();
-    // Plain 64-char hex → open directly (the original flow).
-    try {
-      final id = NodeId.fromHex(text);
-      Navigator.of(context).pop(id.hex);
-      return;
-    } catch (_) {}
-    // Otherwise treat as a nickname (`@name` or bare name): verified DHT
-    // resolve → the owner's node id becomes the peer. The name→id binding
-    // is pinned alongside the contact (see nickname_peers.dart) so a later
-    // owner change WARNS instead of silently re-pointing the chat.
-    final l = AppL10n.of(context);
-    final String norm;
-    try {
-      norm = veil.normalizeNickname(text.replaceFirst(RegExp(r'^@'), ''));
-    } catch (_) {
-      setState(() => _error = 'Enter a 64-character node id (hex) or a @name');
-      return;
-    }
-    setState(() {
-      _resolving = true;
-      _error = null;
-    });
-    try {
-      final selfHex = await ref.read(messagingServiceProvider).savedSelfHex();
-      final self = NodeId.fromHex(selfHex).bytes;
-      final resolved = await veil.resolveNicknameAsync(
-        selfNodeId: self,
-        name: norm,
-      );
-      if (!mounted) return;
-      if (resolved == null) {
-        setState(() {
-          _resolving = false;
-          _error = l.nicknameNotFound;
-        });
-        return;
-      }
-      final ownerHex = NodeId(resolved.ownerNodeId).hex;
-      if (ownerHex == selfHex) {
-        setState(() {
-          _resolving = false;
-          _error = l.nicknameIsSelf;
-        });
-        return;
-      }
-      await savePeerNickname(ref.read(storageProvider), ownerHex, norm);
-      ref.invalidate(peerNicknameProvider(ownerHex));
-      if (!mounted) return;
-      Navigator.of(context).pop(ownerHex);
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _resolving = false;
-        _error = '$e';
-      });
-    }
-  }
-
-  void _useDemoPeer() {
-    // A random valid peer id — the loopback transport echoes replies from it.
-    final rnd = Random.secure();
-    final bytes = List.generate(32, (_) => rnd.nextInt(256));
-    final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
-    Navigator.of(context).pop(hex);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l = AppL10n.of(context);
-    return AlertDialog(
-      title: Text(l.demoNewChat),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: _ctrl,
-            enabled: !_resolving,
-            decoration: InputDecoration(
-              labelText: l.newChatPeerOrNickname,
-              errorText: _error,
-            ),
-            onSubmitted: _resolving ? null : (_) => _submit(),
-          ),
-          if (_resolving) ...[
-            const SizedBox(height: 12),
-            const LinearProgressIndicator(),
-          ],
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              onPressed: _resolving ? null : _useDemoPeer,
-              icon: const Icon(Icons.smart_toy_outlined),
-              label: Text(l.demoChatWith),
-            ),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(l.actionCancel),
-        ),
-        FilledButton(
-          onPressed: _resolving ? null : _submit,
-          child: Text(l.actionOpen),
-        ),
-      ],
     );
   }
 }
