@@ -207,6 +207,64 @@ void main() {
   });
 
   group('CallSignal encode/decode', () {
+    test('v3 media contributions are strict 32-byte base64url values', () {
+      final first = generateCallMediaKeyContribution();
+      final second = generateCallMediaKeyContribution();
+      expect(first, isNot(second));
+      expect(decodeCallMediaKeyContribution(first), hasLength(32));
+      expect(decodeCallMediaKeyContribution(second), hasLength(32));
+      expect(decodeCallMediaKeyContribution('a2V5'), isNull);
+      expect(decodeCallMediaKeyContribution('${first}x'), isNull);
+    });
+
+    test('caller TX and callee RX derive the same directional key', () {
+      final callerNode = NodeId.fromHex('1' * 64);
+      final calleeNode = NodeId.fromHex('2' * 64);
+      final callerContribution = generateCallMediaKeyContribution();
+      final calleeContribution = generateCallMediaKeyContribution();
+      final started = DateTime.fromMillisecondsSinceEpoch(1);
+      final caller = Call(
+        callId: 'directional-keys',
+        peer: calleeNode,
+        direction: CallDirection.outgoing,
+        media: const CallMedia(audio: true, video: true),
+        status: CallStatus.connecting,
+        localPosture: CallPosture.direct,
+        startedAt: started,
+        peerProtocolVersion: kCallRelaySealedMediaMinVersion,
+        localMediaKey: callerContribution,
+        peerMediaKey: calleeContribution,
+      );
+      final callee = Call(
+        callId: 'directional-keys',
+        peer: callerNode,
+        direction: CallDirection.incoming,
+        media: const CallMedia(audio: true, video: true),
+        status: CallStatus.connecting,
+        localPosture: CallPosture.direct,
+        startedAt: started,
+        peerProtocolVersion: kCallRelaySealedMediaMinVersion,
+        localMediaKey: calleeContribution,
+        peerMediaKey: callerContribution,
+      );
+
+      final callerKeys = deriveRelayMediaKeys(
+        call: caller,
+        localNodeId: callerNode.bytes,
+      )!;
+      final calleeKeys = deriveRelayMediaKeys(
+        call: callee,
+        localNodeId: calleeNode.bytes,
+      )!;
+      expect(callerKeys.txKey, calleeKeys.rxKey);
+      expect(callerKeys.rxKey, calleeKeys.txKey);
+      expect(callerKeys.txKey, isNot(callerKeys.rxKey));
+      callerKeys.txKey.fillRange(0, 32, 0);
+      callerKeys.rxKey.fillRange(0, 32, 0);
+      calleeKeys.txKey.fillRange(0, 32, 0);
+      calleeKeys.rxKey.fillRange(0, 32, 0);
+    });
+
     test('offer round-trips through the wire body', () {
       final sig = CallSignal(
         callId: 'abc-123',
@@ -288,6 +346,12 @@ void main() {
 
       expect(fake.sent.single.type, CallSignalType.offer);
       expect(fake.sent.single.transport?.kind, CallTransportKind.p2p);
+      expect(fake.sent.single.protocolVersion, kCallSignalProtocolVersion);
+      expect(
+        decodeCallMediaKeyContribution(fake.sent.single.mediaKey),
+        hasLength(32),
+      );
+      expect(svc.current?.localMediaKey, fake.sent.single.mediaKey);
       expect(media.startedWith, isEmpty);
 
       final callId = svc.current!.callId;
@@ -298,10 +362,15 @@ void main() {
           type: CallSignalType.answer,
           posture: CallPosture.direct,
           transport: const CallTransportProposal(CallTransportKind.p2p),
+          mediaKey: generateCallMediaKeyContribution(),
         ),
       );
       await Future<void>.delayed(Duration.zero);
       expect(media.startedWith, [CallTransportKind.p2p]);
+      expect(
+        decodeCallMediaKeyContribution(svc.current?.peerMediaKey),
+        hasLength(32),
+      );
     });
 
     test(

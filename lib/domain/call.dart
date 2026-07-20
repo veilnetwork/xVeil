@@ -45,6 +45,8 @@ class Call {
     this.cameraOn = true,
     this.screenOn = false,
     this.peerProtocolVersion,
+    this.localMediaKey,
+    this.peerMediaKey,
   });
 
   /// Stable id shared with the peer for the whole call (see [CallSignal.callId]).
@@ -103,6 +105,13 @@ class Call {
   /// before the first peer signal.
   final int? peerProtocolVersion;
 
+  /// E2E-authenticated v3 key contributions for this live call. These are
+  /// transient control-plane state: never persisted, included in diagnostics,
+  /// or rendered by [toString]. The native media layer receives only derived
+  /// directional keys.
+  final String? localMediaKey;
+  final String? peerMediaKey;
+
   bool get isIncoming => direction == CallDirection.incoming;
   bool get isOutgoing => direction == CallDirection.outgoing;
 
@@ -127,6 +136,8 @@ class Call {
     bool? cameraOn,
     bool? screenOn,
     int? peerProtocolVersion,
+    String? localMediaKey,
+    String? peerMediaKey,
   }) => Call(
     callId: callId,
     peer: peer,
@@ -144,6 +155,8 @@ class Call {
     cameraOn: cameraOn ?? this.cameraOn,
     screenOn: screenOn ?? this.screenOn,
     peerProtocolVersion: peerProtocolVersion ?? this.peerProtocolVersion,
+    localMediaKey: localMediaKey ?? this.localMediaKey,
+    peerMediaKey: peerMediaKey ?? this.peerMediaKey,
   );
 
   @override

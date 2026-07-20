@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -89,6 +92,75 @@ const _anonymousVideoProfile = _CallVideoProfile(
   cameraWidth: 352,
   cameraHeight: 198,
 );
+
+const int _compactRelayRtpPacketSize = 1000;
+
+Uint8List _callMediaHash(Iterable<List<int>> parts) {
+  final builder = BytesBuilder(copy: false);
+  for (final part in parts) {
+    builder.add(part);
+  }
+  final material = builder.takeBytes();
+  try {
+    return Uint8List.fromList(sha256.convert(material).bytes);
+  } finally {
+    material.fillRange(0, material.length, 0);
+  }
+}
+
+/// Derive the two directional relay-media keys from E2E-authenticated offer
+/// and answer contributions. The ordering is call-role based, while TX/RX is
+/// node-direction based, so both endpoints independently obtain opposite keys.
+@visibleForTesting
+({Uint8List txKey, Uint8List rxKey})? deriveRelayMediaKeys({
+  required Call call,
+  required Uint8List localNodeId,
+}) {
+  if ((call.peerProtocolVersion ?? 1) < kCallRelaySealedMediaMinVersion ||
+      localNodeId.length != 32) {
+    return null;
+  }
+  final localContribution = decodeCallMediaKeyContribution(call.localMediaKey);
+  final peerContribution = decodeCallMediaKeyContribution(call.peerMediaKey);
+  if (localContribution == null || peerContribution == null) return null;
+  final localIsCaller = call.direction == CallDirection.outgoing;
+  final callerContribution = localIsCaller
+      ? localContribution
+      : peerContribution;
+  final calleeContribution = localIsCaller
+      ? peerContribution
+      : localContribution;
+  final callerNode = localIsCaller ? localNodeId : call.peer.bytes;
+  final calleeNode = localIsCaller ? call.peer.bytes : localNodeId;
+  Uint8List? master;
+  try {
+    master = _callMediaHash([
+      utf8.encode('xveil/call-media/master/v1'),
+      const [0],
+      utf8.encode(call.callId),
+      const [0],
+      callerNode,
+      calleeNode,
+      callerContribution,
+      calleeContribution,
+    ]);
+    Uint8List directionKey(Uint8List from, Uint8List to) => _callMediaHash([
+      utf8.encode('xveil/call-media/direction/v1'),
+      const [0],
+      master!,
+      from,
+      to,
+    ]);
+    return (
+      txKey: directionKey(localNodeId, call.peer.bytes),
+      rxKey: directionKey(call.peer.bytes, localNodeId),
+    );
+  } finally {
+    localContribution.fillRange(0, localContribution.length, 0);
+    peerContribution.fillRange(0, peerContribution.length, 0);
+    master?.fillRange(0, master.length, 0);
+  }
+}
 
 /// Whether an initial media mount may physically start the camera.
 ///
@@ -185,12 +257,17 @@ class VeilCallMediaController implements CallMediaController {
   /// Surfaced in [diagnostics] so a live stand run can see the gate outcome
   /// even when devLog is unavailable.
   bool _mediaBatching = false;
+  bool _compactRelayMedia = false;
   ({int bitrateKbps, int fps})? _diagnosticVideoTarget;
 
   int _setMediaBatchingForDiagnostics(bool enabled) {
     final chan = _chan;
     if (chan == null || _chanTransport == CallTransportKind.onion) return -1;
-    final rc = _transport.setRelayMediaBatching(chan, enabled);
+    final rc = _transport.setRelayMediaBatching(
+      chan,
+      enabled,
+      compact: enabled && _compactRelayMedia,
+    );
     if (rc == 0) _mediaBatching = enabled;
     devLog(
       () =>
@@ -270,6 +347,7 @@ class VeilCallMediaController implements CallMediaController {
         'transport': _chanTransport?.name,
         'running': true,
         'batching': _mediaBatching,
+        'compact_relay_media': _compactRelayMedia,
         'capture_camera_id': _selectedCameraId,
         'capture_microphone_id': _selectedMicrophoneId,
         'capture_microphone_label': _preferredMicrophoneLabel,
@@ -463,19 +541,6 @@ class VeilCallMediaController implements CallMediaController {
     _chan = chan;
     _chanPeer = call.peer.hex;
     _chanTransport = transport;
-    // Relay media pays a full E2E envelope + padding per datagram, so batching
-    // is a large bandwidth win there. Do not enable it for direct P2P: physical
-    // device A/B showed the direct burst scheduler inflating the receiver's
-    // audio jitter buffer into seconds even on a loss-free 7-25 ms path. Onion
-    // already has its own framing. Version-gated because a batched cell is
-    // silent noise to an older build.
-    _mediaBatching = false;
-    if (transport == CallTransportKind.relay &&
-        (call.peerProtocolVersion ?? 1) >= kCallRelayBatchingMinVersion) {
-      final rc = _transport.setRelayMediaBatching(chan, true);
-      _mediaBatching = rc == 0;
-      devLog(() => 'xVeil[call-media]: relay batching enable rc=$rc');
-    }
     // A negotiated P2P open may have taken the explicitly permitted non-onion
     // relay fallback. Keep subsequent repair/switch operations anchored to the
     // route that is actually carrying this call, not the stale proposal.
@@ -492,6 +557,69 @@ class VeilCallMediaController implements CallMediaController {
       _chan = null;
       _chanPeer = null;
       return false;
+    }
+    // v3 removes the per-packet ML-KEM expansion: both E2E-authenticated call
+    // contributions derive directional keys, the native channel seals each
+    // cell once, and 1000-byte RTP packets fit one QUIC DATAGRAM. Configure the
+    // packet ceiling before enabling sealing; a setup mismatch falls back to
+    // the independently secure v2 envelope path rather than fragmenting video.
+    _mediaBatching = false;
+    _compactRelayMedia = false;
+    if (transport == CallTransportKind.relay) {
+      final keys = deriveRelayMediaKeys(call: call, localNodeId: localId);
+      if (keys != null) {
+        final packetSizeOk = engine.setMaxRtpPacketSize(
+          _compactRelayRtpPacketSize,
+        );
+        int cipherRc = -1;
+        if (packetSizeOk) {
+          try {
+            cipherRc = _transport.configureRelayMediaCipher(
+              chan,
+              txKey: keys.txKey,
+              rxKey: keys.rxKey,
+            );
+          } finally {
+            keys.txKey.fillRange(0, keys.txKey.length, 0);
+            keys.rxKey.fillRange(0, keys.rxKey.length, 0);
+          }
+        } else {
+          keys.txKey.fillRange(0, keys.txKey.length, 0);
+          keys.rxKey.fillRange(0, keys.rxKey.length, 0);
+        }
+        if (cipherRc == 0) {
+          final batchingRc = _transport.setRelayMediaBatching(
+            chan,
+            true,
+            compact: true,
+          );
+          if (batchingRc != 0) {
+            devLog(
+              () =>
+                  'xVeil[call-media]: compact relay mode rejected rc=$batchingRc',
+            );
+            engine.dispose();
+            _transport.closeMediaChannel(chan);
+            _chan = null;
+            _chanPeer = null;
+            _chanTransport = null;
+            return false;
+          }
+          _mediaBatching = true;
+          _compactRelayMedia = true;
+        }
+        devLog(
+          () =>
+              'xVeil[call-media]: compact relay packet_size=$packetSizeOk '
+              'cipher_rc=$cipherRc enabled=$_compactRelayMedia',
+        );
+      }
+      if (!_compactRelayMedia &&
+          (call.peerProtocolVersion ?? 1) >= kCallRelayBatchingMinVersion) {
+        final rc = _transport.setRelayMediaBatching(chan, true);
+        _mediaBatching = rc == 0;
+        devLog(() => 'xVeil[call-media]: legacy relay batching rc=$rc');
+      }
     }
     _engine = engine;
     _diagnosticMediaController = this;
@@ -842,6 +970,7 @@ class VeilCallMediaController implements CallMediaController {
     _chanPeer = null;
     _chanTransport = null;
     _mediaBatching = false;
+    _compactRelayMedia = false;
     if (ch != null) {
       try {
         _transport.closeMediaChannel(ch);
