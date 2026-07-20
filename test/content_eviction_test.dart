@@ -95,11 +95,81 @@ void main() {
     expect(m.fetchingCount, 1, reason: 'started fetching a.bin');
 
     // Past the stale timeout a NEW transfer starts → the abandoned one is evicted.
-    clock = clock.add(const Duration(minutes: 6)); // past _fetchStaleTimeout (5 min)
+    clock = clock.add(const Duration(minutes: 6)); // past stale timeout (5 min)
     final man2 = ContentManifest.fromBytes('b.bin', _rnd(3000, 8));
     t.feed(peer, contentManifestEnvelope(jsonEncode(man2.toJson())).encode());
     await Future<void>.delayed(const Duration(milliseconds: 40));
     expect(m.fetchingCount, 1,
         reason: 'the abandoned a.bin reassembler is evicted; only b.bin remains');
+  });
+
+  test('same-content retry closes a stale plaintext sink and dispose closes '
+      'the replacement', () async {
+    var clock = DateTime(2026, 6, 28, 12, 0, 0);
+    final s = HiddenVolumeStorage(_mem());
+    await s.open(password: 'c', createIfMissing: true);
+    await s.upsertContact(
+      Contact(nodeId: peer, status: ContactStatus.accepted),
+    );
+    final t = _Feed(me);
+    final m = MessagingService(
+      t,
+      s,
+      now: () => clock,
+      contentPacing: Duration.zero,
+    )..start();
+    addTearDown(m.dispose);
+    await m.setFileDownloadPolicy(
+      m.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+    );
+
+    final manifest = ContentManifest.fromBytes('plain.bin', _rnd(3000, 9));
+    t.feed(
+      peer,
+      contentManifestEnvelope(jsonEncode(manifest.toJson())).encode(),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 40));
+
+    var staleClosed = 0;
+    var replacementClosed = 0;
+    await m.downloadContentToFile(
+      peer,
+      manifest.contentId,
+      '/tmp/stale.bin',
+      write: (_, _) async {},
+      close: () async => staleClosed++,
+    );
+    expect(m.fetchingCount, 1);
+
+    clock = clock.add(const Duration(minutes: 6));
+    await m.downloadContentToFile(
+      peer,
+      manifest.contentId,
+      '/tmp/replacement.bin',
+      write: (_, _) async {},
+      close: () async => replacementClosed++,
+    );
+    expect(
+      staleClosed,
+      1,
+      reason: 'same-content retry must evict and close the abandoned sink',
+    );
+    expect(
+      replacementClosed,
+      0,
+      reason: 'the replacement fetch remains active',
+    );
+    expect(
+      m.fetchingCount,
+      1,
+      reason: 'the same content id restarted instead of staying parked',
+    );
+
+    await m.dispose();
+    expect(
+      replacementClosed,
+      1,
+      reason: 'dispose must close every active plaintext fetch sink',
+    );
   });
 }

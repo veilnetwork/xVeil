@@ -49,6 +49,7 @@ part 'messaging_file_transfer.dart';
 part 'messaging_content_availability.dart';
 part 'messaging_download_resume.dart';
 part 'messaging_content_serving.dart';
+part 'messaging_content_fetching.dart';
 
 /// Wires the [VeilTransport] inbound stream into [Storage] and exposes a send
 /// path. Persists every message, then signals [changes] so the read providers
@@ -153,6 +154,8 @@ class MessagingService {
       _MessagingDownloadResume(this);
   late final _MessagingContentServing _contentServing =
       _MessagingContentServing(this);
+  late final _MessagingContentFetching _contentFetching =
+      _MessagingContentFetching(this);
 
   /// Whether this identity routes over the onion rendezvous (sender-location
   /// hidden). Fixed per identity at boot from its roster `anonymous` flag — an
@@ -1655,32 +1658,10 @@ class MessagingService {
     _contentServing.sourceOpener = value;
   }
 
-  /// Content we are FETCHING: the verified manifest + the reassembler + the peer,
-  /// plus an optional [_FetchSink] when the user chose to download UNENCRYPTED to
-  /// a plaintext file (null ⇒ store via the Storage port — encrypted tier or
-  /// in-volume).
-  final Map<
-    String,
-    ({
-      ContentManifest manifest,
-      ContentTransfer xfer,
-      NodeId peer,
-      String name,
-      _FetchSink? sink,
-    })
-  >
-  _fetching = {};
-
-  /// Last-progress wall-clock per fetched contentId, so a transfer ABANDONED
-  /// mid-flight (the sender vanished) has its reassembler buffers evicted instead
-  /// of leaking. An actively-progressing fetch (a recent chunk) is untouched.
-  final Map<String, DateTime> _fetchActivity = {};
-  static const _fetchStaleTimeout = Duration(minutes: 5);
-
   /// Test seam: how many files are currently cached for serving / being fetched
   /// (so a test can assert the RAM caches stay bounded by the eviction logic).
   int get servingCount => _contentServing.count;
-  int get fetchingCount => _fetching.length;
+  int get fetchingCount => _contentFetching.count;
 
   /// Manifests of OFFERED-but-not-yet-downloaded files (by contentId), retained so
   /// [downloadContent] can fetch on the user's opt-in. A single contentId may be
@@ -1766,8 +1747,6 @@ class MessagingService {
   /// cannot silently fail over to another holder behind the user's back.
   final Set<String> _cancelledDownloads = {};
   final Map<String, Set<_TrackedPullStream>> _activePullStreams = {};
-
-  Timer? _contentTimer;
 
   /// Re-request cadence for still-missing pieces (injectable for tests).
   final Duration _contentReRequestInterval;
@@ -2584,15 +2563,7 @@ class MessagingService {
       return;
     }
     // Already pulling it (a re-advertise mid-download) → keep the latest identity.
-    if (_fetching.containsKey(m.contentId)) {
-      final cur = _fetching[m.contentId]!;
-      _fetching[m.contentId] = (
-        manifest: m,
-        xfer: cur.xfer,
-        peer: peer,
-        name: m.name,
-        sink: cur.sink,
-      );
+    if (_contentFetching.refreshManifest(peer, m)) {
       return;
     }
     // Retain the manifest so the user (or auto-download) can fetch on demand.
@@ -2837,7 +2808,11 @@ class MessagingService {
       } catch (_) {}
       return;
     }
-    final existing = _fetching[m.contentId];
+    // Expire before checking this same content id. Previously a stale fetch
+    // matched here forever, so a retry was parked behind an abandoned
+    // reassembler and its plaintext sink handle was leaked.
+    await _contentFetching.evictStale();
+    final existing = _contentFetching.active(m.contentId);
     if (existing != null) {
       if (sink != null) {
         if (existing.sink == null) {
@@ -2854,22 +2829,14 @@ class MessagingService {
       }
       return;
     }
-    final cutoff = _now();
-    _fetching.removeWhere((cid, _) {
-      final last = _fetchActivity[cid];
-      final stale =
-          last != null && cutoff.difference(last) > _fetchStaleTimeout;
-      if (stale) _fetchActivity.remove(cid);
-      return stale;
-    });
-    _fetching[m.contentId] = (
+    _contentFetching.add(
+      m.contentId,
       manifest: m,
       xfer: ContentTransfer(m),
       peer: peer,
       name: m.name,
       sink: sink,
     );
-    _fetchActivity[m.contentId] = _now();
     _ensureContentTimer();
     await _send(
       peer,
@@ -6393,7 +6360,7 @@ class MessagingService {
   }
 
   Future<void> _onPieceChunk(PieceChunkFrame f) async {
-    final fetch = _fetching[f.contentId];
+    final fetch = _contentFetching.active(f.contentId);
     if (fetch == null) {
       // The manifest never arrived (or this content was already completed/
       // deleted): we hold no reassembler, so the chunk is dropped. A burst of
@@ -6406,8 +6373,7 @@ class MessagingService {
       );
       return; // not fetching this content
     }
-    _fetchActivity[f.contentId] =
-        _now(); // progress — keep this fetch non-stale
+    _contentFetching.touch(f.contentId); // progress — keep this fetch non-stale
     final piece = fetch.xfer.addChunk(
       f.pieceIndex,
       f.chunkIndex,
@@ -6461,8 +6427,7 @@ class MessagingService {
     }
     if (!fetch.xfer.isComplete) return;
     // Every piece verified AND written → done.
-    _fetching.remove(f.contentId);
-    _fetchActivity.remove(f.contentId);
+    _contentFetching.take(f.contentId);
     final ackId = fetch.manifest.msgId ?? f.contentId;
     final sink = fetch.sink;
     if (sink != null) {
@@ -6619,47 +6584,7 @@ class MessagingService {
     );
   }
 
-  void _ensureContentTimer() {
-    _contentTimer ??= Timer.periodic(
-      _contentReRequestInterval,
-      (_) => _contentReRequest(),
-    );
-  }
-
-  void _contentReRequest() {
-    if (_fetching.isEmpty) {
-      _contentTimer?.cancel();
-      _contentTimer = null;
-      return;
-    }
-    for (final fetch in _fetching.values) {
-      // Window the re-request to a few unverified pieces and ask for only their
-      // MISSING chunks (bitmaps) — so each round re-sends just the gaps, and the
-      // request itself stays small enough to survive the lossy path.
-      final pieces = fetch.xfer.nextUnverifiedPieces(_reRequestPieceWindow);
-      if (pieces.isEmpty) continue;
-      final bitmaps = {
-        for (final p in pieces) p: fetch.xfer.missingChunkBitmap(p),
-      };
-      final remaining = fetch.xfer.missingPieces().length;
-      devLog(
-        () =>
-            'xVeil[content]: re-request '
-            '${fetch.manifest.contentId.substring(0, 12)} — chunk-granular over '
-            'pieces $pieces ($remaining/${fetch.manifest.pieceCount} unverified) '
-            '-> ${fetch.peer.short}',
-      );
-      unawaited(
-        _send(
-          fetch.peer,
-          pieceRequestEnvelope(
-            contentId: fetch.manifest.contentId,
-            bitmaps: bitmaps,
-          ).encode(),
-        ),
-      );
-    }
-  }
+  void _ensureContentTimer() => _contentFetching.ensureTimer();
 
   Future<void> dropLiveServingStateForTest() => _clearServingState();
 
@@ -6671,8 +6596,6 @@ class MessagingService {
     _retryTimer = null;
     _settingsGcTimer?.cancel();
     _settingsGcTimer = null;
-    _contentTimer?.cancel();
-    _contentTimer = null;
     await _downloadResume.dispose();
     await _sub?.cancel();
     _sub = null;
@@ -6694,6 +6617,7 @@ class MessagingService {
     ];
     await Future.wait([for (final stream in pullStreams) stream.abort()]);
     _activePullStreams.clear();
+    await _contentFetching.clear();
     await _changes.close();
     await _incoming.close();
     await _attestation.dispose();

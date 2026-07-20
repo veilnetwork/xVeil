@@ -187,7 +187,7 @@ class _MessagingContentAvailability {
     final parked = _owner._pendingDownload.remove(contentId);
     _owner._pendingTimers.remove(contentId)?.cancel();
     if (parked != null) unawaited(parked.close());
-    _owner._fetching.remove(contentId);
+    await _owner._contentFetching.discard(contentId);
     _owner._fetchSavePath.remove(contentId);
     if (!_owner._contentFailed.isClosed) {
       _owner._contentFailed.add(contentId);
