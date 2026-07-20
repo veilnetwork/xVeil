@@ -132,6 +132,39 @@ class _MessagingRealtimeControl {
     return _owner._send(peer, wire);
   }
 
+  /// Send one already-signed and epoch-encrypted group-call signal. Lifecycle
+  /// transitions are durable; heartbeats stay best-effort because the next one
+  /// supersedes stale liveness work.
+  Future<void> sendGroupCallSignal(
+    NodeId peer,
+    GroupCallSignal signal,
+    String frameJson,
+  ) async {
+    final envelope = WireEnvelope.groupCallSignal(
+      frameJson,
+      sentAtMs: signal.sentAtMs,
+    );
+    // Keep group-call control on the dedicated realtime IPC connection. The
+    // main client can be occupied by mailbox drains, anonymous sends or file
+    // streams on the node's sequential per-connection loop.
+    if (signal.type == GroupCallSignalType.heartbeat) {
+      try {
+        await sendRealtime(peer, envelope.encode());
+      } catch (_) {
+        // A subsequent heartbeat supersedes this best-effort frame.
+      }
+      return;
+    }
+    await _owner.sendDurable(
+      peer,
+      'gcall:${signal.groupId.hex}:${signal.callId}:'
+      '${signal.type.name}:${signal.nonce}',
+      envelope,
+      liveSender: (wire) => sendRealtime(peer, wire),
+      awaitLive: false,
+    );
+  }
+
   /// Race admitted realtime and ordinary contact lanes for call control. Both
   /// copies share one durable frame id, so receiver dedup makes this safe.
   Future<void> _sendCallLive(NodeId peer, Uint8List wire) async {
