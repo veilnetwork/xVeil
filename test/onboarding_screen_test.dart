@@ -49,6 +49,9 @@ void main() {
     // 0 welcome -> Continue
     await tester.tap(find.text(l().actionContinue));
     await tester.pumpAndSettle();
+    // No dead "import backup" affordance: recovery phrase is the only restore
+    // path until a deniable export/import format actually exists.
+    expect(find.byIcon(Icons.file_open_outlined), findsNothing);
     // 1 choose -> Create a new identity
     await tester.tap(find.text(l().onboardCreateIdentity));
     await tester.pumpAndSettle();

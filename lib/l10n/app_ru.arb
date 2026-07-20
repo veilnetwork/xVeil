@@ -23,8 +23,6 @@
   "onboardCreateIdentitySub": "Сгенерировать новый суверенный ключ на этом устройстве",
   "onboardRestoreIdentity": "Восстановить из фразы",
   "onboardRestoreIdentitySub": "Используйте 24 слова, чтобы восстановить существующую личность",
-  "onboardImportBackup": "Импорт резервной копии",
-  "onboardImportBackupSub": "Восстановить из зашифрованного файла резервной копии",
   "onboardRestoreBody": "Введите 24 слова фразы восстановления, записанной при создании личности. На этом устройстве будет воссоздана та же личность.",
   "onboardRestoreSubmit": "Восстановить",
 
@@ -178,7 +176,6 @@
   "navChannels": "Каналы",
   "navStorage": "Хранилище",
   "navMenuTiles": "Меню",
-  "comingSoon": "Скоро",
   "cloudTitle": "Личное облако",
   "cloudUnavailable": "Облачная синхронизация станет доступна после запуска узла",
   "cloudEmpty": "Ваше облако пусто",
@@ -706,7 +703,6 @@
   "onboardPasswordSubtitle": "Этот пароль открывает ваше пространство на этом устройстве. Сброса нет.",
   "onboardPasswordTooShort": "Минимум 6 символов",
   "onboardPasswordMismatch": "Пароли не совпадают",
-  "onboardComingSoon": "{label} — появится в следующей версии",
   "recoveryPhraseHint": "Введите фразу восстановления, слова через пробел",
 
   "demoChatTooltip": "Демо-чат",
