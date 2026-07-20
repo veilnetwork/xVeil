@@ -1,5 +1,7 @@
 import 'package:flutter/services.dart';
 
+import 'geoip_country_routes.dart';
+import 'packet_tunnel_ffi.dart';
 import 'vpn_routing_policy.dart';
 
 enum VpnBackendPhase {
@@ -55,46 +57,139 @@ abstract interface class VpnBackend {
 /// Missing platform code is reported as unsupported. In particular, a missing
 /// plugin never becomes an optimistic `running` state.
 class MethodChannelVpnBackend implements VpnBackend {
-  const MethodChannelVpnBackend();
+  MethodChannelVpnBackend({PacketTunnelFfi? packetTunnel})
+    : _packetTunnel = packetTunnel ?? PacketTunnelFfi.tryOpen();
 
   static const _channel = MethodChannel('network.veil.xveil/vpn');
+  final PacketTunnelFfi? _packetTunnel;
 
   @override
-  Future<VpnBackendState> probe() => _invoke('probe');
+  Future<VpnBackendState> probe() {
+    if (_packetTunnel == null) {
+      return Future.value(
+        const VpnBackendState(
+          VpnBackendPhase.unsupported,
+          detail: 'native packet engine is not installed',
+        ),
+      );
+    }
+    return _invokeState('probe');
+  }
 
   @override
-  Future<VpnBackendState> status() => _invoke('status');
+  Future<VpnBackendState> status() async {
+    final packetTunnel = _packetTunnel;
+    if (packetTunnel == null) return probe();
+    final enginePhase = packetTunnel.status();
+    if (enginePhase == PacketTunnelFfi.running ||
+        enginePhase == PacketTunnelFfi.starting) {
+      return VpnBackendState(
+        enginePhase == PacketTunnelFfi.running
+            ? VpnBackendPhase.running
+            : VpnBackendPhase.starting,
+      );
+    }
+    if (enginePhase == PacketTunnelFfi.error) {
+      return VpnBackendState(
+        VpnBackendPhase.error,
+        detail: packetTunnel.lastError() ?? 'packet tunnel failed',
+      );
+    }
+    return _invokeState('status');
+  }
 
   @override
   Future<VpnBackendState> start({
     required VpnRoutingPolicy policy,
     required String socks5Listen,
-  }) => _invoke('start', {
-    'policy': policy.toJson(),
-    'socks5Listen': socks5Listen,
-  });
+  }) async {
+    final packetTunnel = _packetTunnel;
+    if (packetTunnel == null) return probe();
+
+    late final Map<String, dynamic> expandedPolicy;
+    try {
+      expandedPolicy = await GeoIpCountryRoutes.expandPolicy(policy);
+    } on Object catch (error) {
+      return VpnBackendState(
+        VpnBackendPhase.error,
+        detail: 'GeoIP routes could not be loaded: $error',
+      );
+    }
+    final response = await _invokeRaw('start', {
+      'policy': expandedPolicy,
+      'socks5Listen': socks5Listen,
+    });
+    final tunFd = response['tunFd'];
+    if (tunFd is! int) return VpnBackendState.fromMap(response);
+
+    final result = packetTunnel.start(
+      tunFd: tunFd,
+      socks5Listen: socks5Listen,
+      dnsIp: policy.dnsServers.firstOrNull ?? '1.1.1.1',
+      mtu: policy.mtu,
+      // Android's VpnService descriptors contain raw IP packets. Apple
+      // packet-flow adapters add their own family metadata when needed.
+      packetInformation: false,
+    );
+    if (result != 0) {
+      await _invokeRaw('abort');
+      return VpnBackendState(
+        VpnBackendPhase.error,
+        detail: packetTunnel.lastError() ?? 'could not start packet tunnel',
+      );
+    }
+
+    // Catch startup failures before allowing Android to advertise a live VPN.
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    if (packetTunnel.status() != PacketTunnelFfi.running) {
+      final detail =
+          packetTunnel.lastError() ?? 'packet tunnel stopped during startup';
+      packetTunnel.stop();
+      await _invokeRaw('abort');
+      return VpnBackendState(VpnBackendPhase.error, detail: detail);
+    }
+    return VpnBackendState.fromMap(await _invokeRaw('confirmRunning'));
+  }
 
   @override
-  Future<VpnBackendState> stop() => _invoke('stop');
+  Future<VpnBackendState> stop() async {
+    final packetTunnel = _packetTunnel;
+    if (packetTunnel != null && packetTunnel.stop() != 0) {
+      return VpnBackendState(
+        VpnBackendPhase.error,
+        detail: packetTunnel.lastError() ?? 'packet tunnel did not stop',
+      );
+    }
+    return VpnBackendState.fromMap(await _invokeRaw('stop'));
+  }
 
-  Future<VpnBackendState> _invoke(
+  Future<VpnBackendState> _invokeState(
+    String method, [
+    Map<String, Object?>? arguments,
+  ]) async => VpnBackendState.fromMap(await _invokeRaw(method, arguments));
+
+  Future<Map<Object?, Object?>> _invokeRaw(
     String method, [
     Map<String, Object?>? arguments,
   ]) async {
     try {
-      return VpnBackendState.fromMap(
-        await _channel.invokeMethod<Object?>(method, arguments),
-      );
+      final response = await _channel.invokeMethod<Object?>(method, arguments);
+      return response is Map
+          ? Map<Object?, Object?>.from(response)
+          : <Object?, Object?>{
+              'phase': 'error',
+              'detail': 'invalid native VPN response',
+            };
     } on MissingPluginException {
-      return const VpnBackendState(
-        VpnBackendPhase.unsupported,
-        detail: 'native packet tunnel is not installed',
-      );
+      return <Object?, Object?>{
+        'phase': 'unsupported',
+        'detail': 'native packet tunnel is not installed',
+      };
     } on PlatformException catch (error) {
-      return VpnBackendState(
-        VpnBackendPhase.error,
-        detail: error.message ?? error.code,
-      );
+      return <Object?, Object?>{
+        'phase': 'error',
+        'detail': error.message ?? error.code,
+      };
     }
   }
 }

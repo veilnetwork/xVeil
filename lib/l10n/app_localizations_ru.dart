@@ -1883,6 +1883,20 @@ class AppL10nRu extends AppL10n {
       'Каждый маршрут должен быть корректным IPv4- или IPv6-CIDR';
 
   @override
+  String get vpnIncludedCountries => 'Страны через VPN (GeoIP)';
+
+  @override
+  String get vpnExcludedCountries => 'Страны в обход VPN (GeoIP)';
+
+  @override
+  String get vpnCountriesHint =>
+      'Двухбуквенные коды через пробел или запятую, например KZ, RU. Используется встроенный снимок IPdeny; GeoIP приблизителен.';
+
+  @override
+  String get vpnCountriesInvalid =>
+      'Используйте двухбуквенные коды стран, например KZ';
+
+  @override
   String get vpnRouteDns => 'Маршрутизировать DNS через VPN';
 
   @override

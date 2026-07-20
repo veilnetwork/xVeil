@@ -1,0 +1,6 @@
+xVeil's bundled country-to-CIDR routing table is generated from IPdeny country
+IP blocks: https://www.ipdeny.com/ipblocks/
+
+IPdeny permits redistribution and use of its generated country zone files.
+The data is approximate, may become stale, and must not be treated as proof of
+a person's physical location. Run `tool/update_geoip_routes.py` to refresh it.

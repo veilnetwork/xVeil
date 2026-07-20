@@ -38,7 +38,7 @@ class VpnState {
 }
 
 final vpnBackendProvider = Provider<VpnBackend>(
-  (_) => const MethodChannelVpnBackend(),
+  (_) => MethodChannelVpnBackend(),
 );
 
 class VpnController extends Notifier<VpnState> {
