@@ -46,6 +46,7 @@ part 'messaging_realtime_control.dart';
 part 'messaging_mailbox_delivery.dart';
 part 'messaging_message_delivery.dart';
 part 'messaging_file_transfer.dart';
+part 'messaging_content_availability.dart';
 
 /// Wires the [VeilTransport] inbound stream into [Storage] and exposes a send
 /// path. Persists every message, then signals [changes] so the read providers
@@ -144,6 +145,8 @@ class MessagingService {
   late final _MessagingFileTransfer _fileTransfer = _MessagingFileTransfer(
     this,
   );
+  late final _MessagingContentAvailability _contentAvailability =
+      _MessagingContentAvailability(this);
 
   /// Whether this identity routes over the onion rendezvous (sender-location
   /// hidden). Fixed per identity at boot from its roster `anonymous` flag — an
@@ -4184,49 +4187,16 @@ class MessagingService {
   /// download. Used by headless/test waiters that know the content id from the
   /// sender's /send_file result and only need the one-shot manifest to
   /// materialise as an OFFER in storage before they trigger an explicit save.
-  Future<bool> requestContentReoffer(NodeId peer, String contentId) async {
-    final contact = await _storage.getContact(peer);
-    if (contact == null || contact.status != ContactStatus.accepted) {
-      return false;
-    }
-    devLog(
-      () =>
-          'xVeil[content]: requesting manifest re-advertise '
-          '${contentId.substring(0, 12)} from ${peer.short}',
-    );
-    await _send(peer, contentReofferEnvelope(contentId).encode());
-    return true;
-  }
+  Future<bool> requestContentReoffer(NodeId peer, String contentId) =>
+      _contentAvailability.requestContentReoffer(peer, contentId);
 
   /// Debug/soak helper: materialise a lost one-shot content offer by fetching
   /// only the manifest over a reliable stream. The normal app path still relies
   /// on the advertised manifest/ref and reoffer semantics; headless tests know
   /// the content id from `/send_file`, so they can safely ask the sender for the
   /// manifest directly and surface the same offer the datagram would have stored.
-  Future<bool> resolveContentOfferViaStream(
-    NodeId peer,
-    String contentId,
-  ) async {
-    final contact = await _storage.getContact(peer);
-    if (contact == null || contact.status != ContactStatus.accepted) {
-      return false;
-    }
-    if (_offered.containsKey(contentId) ||
-        _offeredRefs.containsKey(contentId) ||
-        await _storage.hasFile(contentId)) {
-      return true;
-    }
-    final manifest = await _fetchManifestFromStream(peer, contentId, [peer]);
-    if (manifest == null) return false;
-    await _surfaceFileOffer(peer, manifest);
-    devLog(
-      () =>
-          'xVeil[content]: offer stream-materialized '
-          '${contentId.substring(0, 12)} <- ${peer.short}',
-    );
-    _signal();
-    return true;
-  }
+  Future<bool> resolveContentOfferViaStream(NodeId peer, String contentId) =>
+      _contentAvailability.resolveContentOfferViaStream(peer, contentId);
 
   /// A peer asked us to re-advertise [contentId] (their manifest handle is gone).
   /// Re-send the manifest if we are still serving it (refreshing its TTL), or —
@@ -4234,171 +4204,24 @@ class MessagingService {
   /// persisted manifest (so an offer survives our restart / the serve TTL). Fails
   /// quietly (→ receiver times out → re-send) if there is no durable record, no
   /// opener, or the file is gone.
-  Future<void> _onContentReoffer(NodeId peer, String contentId) async {
-    final served = _serving[contentId];
-    if (served != null) {
-      _serving[contentId] = (
-        manifest: served.manifest,
-        source: served.source,
-        servedAt: _now(),
-      );
-      devLog(
-        () =>
-            'xVeil[content]: re-advertising ${contentId.substring(0, 12)} '
-            '-> ${peer.short} (live serving)',
-      );
-      final offer = await _manifestForPeerOffer(peer, served.manifest);
-      unawaited(_sendContentManifest(peer, offer));
-      return;
-    }
-    if (sourceOpener == null) {
-      devLog(
-        () =>
-            'xVeil[content]: reoffer for UNSERVED '
-            '${contentId.substring(0, 12)} <- ${peer.short} (no opener — re-send)',
-      );
-      unawaited(_replyContentGone(peer, contentId));
-      return;
-    }
-    try {
-      final rec = _parseServedRecord(
-        await _storage.getSetting('served:$contentId'),
-      );
-      final mfBytes = await _storage.loadFile('mf:$contentId');
-      if (rec == null) {
-        devLog(
-          () =>
-              'xVeil[content]: reoffer ${contentId.substring(0, 12)} — no '
-              'durable record <- ${peer.short} (re-send)',
-        );
-        unawaited(_replyContentGone(peer, contentId));
-        return;
-      }
-      ContentManifest? m;
-      if (mfBytes != null) {
-        m = ContentManifest.fromJson(
-          jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>,
-        );
-      }
-      // The mf: blob is the first casualty of a bloated store (IndexFull) —
-      // rebuild it from the source file rather than answering a false GONE
-      // (the bytes are right there on disk).
-      m ??= await _rebuildManifestFromServedRecord(contentId, rec);
-      if (m == null) {
-        unawaited(_replyContentGone(peer, contentId));
-        return;
-      }
-      final src = await sourceOpener!(rec.path);
-      if (src == null) {
-        devLog(
-          () =>
-              'xVeil[content]: reoffer ${contentId.substring(0, 12)} — '
-              'source GONE (${rec.path}) <- ${peer.short} (re-send)',
-        );
-        unawaited(_replyContentGone(peer, contentId));
-        return;
-      }
-      _serving[contentId] = (manifest: m, source: src, servedAt: _now());
-      _evictServing();
-      _ensureContentTimer();
-      devLog(
-        () =>
-            'xVeil[content]: re-advertising ${contentId.substring(0, 12)} '
-            '-> ${peer.short} (DURABLE — re-opened ${rec.path})',
-      );
-      final offer = await _manifestForPeerOffer(peer, m);
-      unawaited(_sendContentManifest(peer, offer));
-    } catch (e) {
-      devLog(
-        () =>
-            'xVeil[content]: durable reoffer failed for '
-            '${contentId.substring(0, 12)}: $e',
-      );
-    }
-  }
-
-  /// Per-content set of peer hexes that explicitly answered content-GONE this
-  /// session — excluded from source unions so retries stop knocking on them.
-  final Map<String, Set<String>> _goneSources = {};
+  Future<void> _onContentReoffer(NodeId peer, String contentId) =>
+      _contentAvailability.onContentReoffer(peer, contentId);
 
   /// True when every known holder of [contentId] said GONE — persisted, so the
   /// chat bubble can render "ask the sender to re-send" across restarts.
-  Future<bool> isContentUnavailable(String contentId) async =>
-      ((await _storage.getSetting('gone:$contentId')) ?? '').isNotEmpty;
+  Future<bool> isContentUnavailable(String contentId) =>
+      _contentAvailability.isContentUnavailable(contentId);
 
-  List<NodeId> _filterGoneSources(String contentId, Iterable<NodeId> peers) {
-    final gone = _goneSources[contentId];
-    if (gone == null || gone.isEmpty) return peers.toList(growable: false);
-    return [
-      for (final p in peers)
-        if (!gone.contains(p.hex)) p,
-    ];
-  }
+  List<NodeId> _filterGoneSources(String contentId, Iterable<NodeId> peers) =>
+      _contentAvailability.filterGoneSources(contentId, peers);
 
-  Future<void> _onContentGone(NodeId peer, String contentId) async {
-    if (contentId.isEmpty) return;
-    if (await _storage.hasFile(contentId)) return; // already complete locally
-    devLog(
-      () =>
-          'xVeil[content]: content-GONE '
-          '${contentId.substring(0, 12)} <- ${peer.short}',
-    );
-    (_goneSources[contentId] ??= {}).add(peer.hex);
-    _offered[contentId]?.peers.remove(peer.hex);
-    _offeredRefs[contentId]?.peers.remove(peer.hex);
-    final remaining = _filterGoneSources(
-      contentId,
-      await _contentSourcePeers(preferred: peer, contentId: contentId),
-    );
-    if (remaining.isNotEmpty) {
-      devLog(
-        () =>
-            'xVeil[content]: ${contentId.substring(0, 12)} still has '
-            '${remaining.length} candidate holder(s) — keep trying',
-      );
-      return;
-    }
-    // Terminal: nobody we know still has the bytes. Persist the mark, stop the
-    // auto-resume driver, release any parked sink, and clear the spinner.
-    await _storage.putSetting('gone:$contentId', _now().toIso8601String());
-    _completePendingDownload(contentId);
-    final parked = _pendingDownload.remove(contentId);
-    _pendingTimers.remove(contentId)?.cancel();
-    if (parked != null) unawaited(parked.close());
-    _fetching.remove(contentId);
-    _fetchSavePath.remove(contentId);
-    if (!_contentFailed.isClosed) _contentFailed.add(contentId);
-    _signal();
-  }
+  Future<void> _onContentGone(NodeId peer, String contentId) =>
+      _contentAvailability.onContentGone(peer, contentId);
 
   /// A fresh offer/manifest proves the content is obtainable again (the sender
   /// re-sent it) — clear the terminal mark and this session's gone set.
-  Future<void> _clearContentGone(String contentId) async {
-    _goneSources.remove(contentId);
-    if (((await _storage.getSetting('gone:$contentId')) ?? '').isNotEmpty) {
-      await _storage.putSetting('gone:$contentId', '');
-      _signal();
-    }
-  }
-
-  /// Honest negative reoffer reply: we provably can no longer produce the
-  /// bytes for [contentId] (deleted message / vanished source, and no stored
-  /// blob either) — say so, instead of leaving the requester to spin forever
-  /// against its 20 s reoffer timeouts. The stored-blob guard keeps this
-  /// truthful for a receiver-held copy that could still stream-serve.
-  Future<void> _replyContentGone(NodeId peer, String contentId) async {
-    try {
-      if (await _storage.hasFile(contentId)) return;
-      devLog(
-        () =>
-            'xVeil[content]: reply content-GONE '
-            '${contentId.substring(0, 12)} -> ${peer.short}',
-      );
-      await _send(peer, contentGoneEnvelope(contentId).encode());
-    } catch (_) {
-      // Best-effort: silence just means the requester keeps its old behavior.
-    }
-  }
+  Future<void> _clearContentGone(String contentId) =>
+      _contentAvailability.clearContentGone(contentId);
 
   /// Content ids with a [_serveChunks] loop currently running — only ONE serve
   /// per content at a time. A serve-from-source [RandomAccessFile] is a single
