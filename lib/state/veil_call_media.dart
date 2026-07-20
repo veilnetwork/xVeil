@@ -227,7 +227,9 @@ class VeilCallMediaController implements CallMediaController {
   bool _devicePreferencesLoaded = false;
   String? _selectedCameraId;
   String? _selectedMicrophoneId;
+  String? _selectedScreenId;
   String? _preferredMicrophoneLabel;
+  bool _screenSharing = false;
 
   // Frame cadence measured at the Dart/native boundary. Packet counters can
   // look perfect while decoded video still arrives in visible bursts, so keep
@@ -351,6 +353,7 @@ class VeilCallMediaController implements CallMediaController {
         'capture_camera_id': _selectedCameraId,
         'capture_microphone_id': _selectedMicrophoneId,
         'capture_microphone_label': _preferredMicrophoneLabel,
+        'capture_screen_id': _selectedScreenId,
         if (_diagnosticVideoTarget case final target?)
           'diagnostic_video_target':
               '${target.bitrateKbps}kbps@${target.fps}fps',
@@ -917,6 +920,7 @@ class VeilCallMediaController implements CallMediaController {
     _lastNativeRxCount = 0;
     _engineRxStalledSince = null;
     _bitrateAdapter = null;
+    _screenSharing = false;
     remoteVideoFrame.value = null;
     localVideoFrame.value = null;
     final videoRenderer = _androidVideoRenderer;
@@ -1191,6 +1195,30 @@ class VeilCallMediaController implements CallMediaController {
   }
 
   @override
+  Future<List<CallMediaDevice>> listScreens() async {
+    final engine = _engine;
+    if (engine == null || !Platform.isMacOS) return const [];
+    try {
+      return engine
+          .listScreenInputs()
+          .indexed
+          .map(
+            (entry) => CallMediaDevice(
+              id: entry.$2.id,
+              label: entry.$2.label,
+              kind: CallMediaDeviceKind.screen,
+              selected:
+                  entry.$2.id == _selectedScreenId ||
+                  (_selectedScreenId == null && entry.$1 == 0),
+            ),
+          )
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  @override
   Future<bool> selectMicrophone(String id) async {
     final engine = _engine;
     if (engine == null) return false;
@@ -1208,6 +1236,36 @@ class VeilCallMediaController implements CallMediaController {
       await prefs.setString(_microphonePreferenceKey, chosen.label);
       return true;
     } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  Future<bool> selectScreen(String id) async {
+    final engine = _engine;
+    if (engine == null || !Platform.isMacOS) return false;
+    final devices = await listScreens();
+    if (!devices.any((device) => device.id == id)) return false;
+    final previous = _selectedScreenId;
+    _selectedScreenId = id;
+    if (!_screenSharing) return true;
+    try {
+      engine.stopScreen();
+      final started = engine.startScreen(
+        width: _highQualityRoute ? 960 : 640,
+        fps: _highQualityRoute ? 15 : 10,
+        sourceId: id,
+      );
+      if (started) return true;
+      _selectedScreenId = previous;
+      engine.startScreen(
+        width: _highQualityRoute ? 960 : 640,
+        fps: _highQualityRoute ? 15 : 10,
+        sourceId: previous,
+      );
+      return false;
+    } catch (_) {
+      _selectedScreenId = previous;
       return false;
     }
   }
@@ -1305,6 +1363,7 @@ class VeilCallMediaController implements CallMediaController {
         final screen = _androidScreen;
         _androidScreen = null;
         if (screen != null) await screen.stop();
+        _screenSharing = false;
         _startFramePump(engine);
         return true;
       }
@@ -1317,6 +1376,7 @@ class VeilCallMediaController implements CallMediaController {
       _androidCam = null;
       if (cam != null) await cam.stop();
       final started = await _startAndroidScreen(engine);
+      _screenSharing = started;
       if (started) _startFramePump(engine);
       if (!started && cameraWasRunning) {
         await _startAndroidCam(engine, highQuality: _highQualityRoute);
@@ -1326,12 +1386,17 @@ class VeilCallMediaController implements CallMediaController {
     if (!Platform.isMacOS) return false;
     try {
       if (enabled) {
-        return engine.startScreen(
+        final started = engine.startScreen(
           width: _highQualityRoute ? 960 : 640,
           fps: _highQualityRoute ? 15 : 10,
+          sourceId: _selectedScreenId,
         );
+        _screenSharing = started;
+        return started;
       }
-      return engine.stopScreen();
+      final stopped = engine.stopScreen();
+      if (stopped) _screenSharing = false;
+      return stopped;
     } catch (_) {
       return false;
     }
@@ -1343,6 +1408,7 @@ class VeilCallMediaController implements CallMediaController {
     screen = _screenCaptureFactory(() {
       if (_androidScreen != screen) return;
       _androidScreen = null;
+      _screenSharing = false;
       localVideoFrame.value = null;
       _screenShareStops.add(null);
     });

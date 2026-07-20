@@ -730,6 +730,7 @@
   "callDevices": "Устройства",
   "callCameras": "Камеры",
   "callMicrophones": "Микрофоны",
+  "callScreens": "Экраны",
   "callNoCaptureDevices": "Устройства захвата недоступны",
   "callDeviceSwitchFailed": "Не удалось переключить устройство",
   "callSwitchCamera": "Переключить камеру",
