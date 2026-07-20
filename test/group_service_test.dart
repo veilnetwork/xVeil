@@ -1840,6 +1840,38 @@ void main() {
     expect(taps, isEmpty, reason: 'apply must not echo into the tap');
   });
 
+  test('isMyDevice cache invalidates when a sibling revoke is ingested',
+      () async {
+    final primaryStorage = FakeHvContainer().storage();
+    await primaryStorage.open(password: 'pw', createIfMissing: true);
+    final primary = GroupService(primaryStorage, _FakeSigner(owner));
+    expect(
+        await primary.linkDevice(bob,
+            sovereign: sovereign, broadcastSnapshot: false),
+        isTrue);
+    expect(
+        await primary.linkDevice(carol,
+            sovereign: sovereign, broadcastSnapshot: false),
+        isTrue);
+    final gid = NodeId.fromHex((await primary.deviceGroupIdHex())!);
+
+    final siblingStorage = FakeHvContainer().storage();
+    await siblingStorage.open(password: 'pw', createIfMissing: true);
+    final sibling = GroupService(siblingStorage, _FakeSigner(carol));
+    final initial = primary.snapshotJson((await primary.load(gid))!,
+        recipient: carol);
+    expect(await sibling.ingestSnapshot(initial), isTrue);
+    expect(await sibling.adoptDeviceGroup(gid), isTrue);
+    expect(await sibling.isMyDevice(bob), isTrue);
+
+    expect(await primary.revokeDevice(bob, sovereign: sovereign), isTrue);
+    final revoked = primary.snapshotJson((await primary.load(gid))!,
+        recipient: carol);
+    expect(await sibling.ingestSnapshot(revoked), isTrue);
+    expect(await sibling.isMyDevice(bob), isFalse,
+        reason: 'an ingested device-control update must invalidate the cache');
+  });
+
   test('postDeviceEvent with an attachment ref authorizes the membership pull '
       '(brick 4b: the cid lands in referencedContentIds of the device group)',
       () async {
