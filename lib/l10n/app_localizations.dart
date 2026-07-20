@@ -3559,6 +3559,138 @@ abstract class AppL10n {
   /// **'Provision veil node over SSH'**
   String get nodeProvision;
 
+  /// No description provided for @nodeManage.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage node'**
+  String get nodeManage;
+
+  /// No description provided for @nodeInventory.
+  ///
+  /// In en, this message translates to:
+  /// **'Inspect installation and status'**
+  String get nodeInventory;
+
+  /// No description provided for @nodeInstallUpdate.
+  ///
+  /// In en, this message translates to:
+  /// **'Install or update software'**
+  String get nodeInstallUpdate;
+
+  /// No description provided for @nodeServices.
+  ///
+  /// In en, this message translates to:
+  /// **'Services'**
+  String get nodeServices;
+
+  /// No description provided for @nodeAdvancedConfig.
+  ///
+  /// In en, this message translates to:
+  /// **'Advanced configuration'**
+  String get nodeAdvancedConfig;
+
+  /// No description provided for @nodeServiceStatus.
+  ///
+  /// In en, this message translates to:
+  /// **'Status'**
+  String get nodeServiceStatus;
+
+  /// No description provided for @nodeServiceStart.
+  ///
+  /// In en, this message translates to:
+  /// **'Start'**
+  String get nodeServiceStart;
+
+  /// No description provided for @nodeServiceStop.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop'**
+  String get nodeServiceStop;
+
+  /// No description provided for @nodeServiceRestart.
+  ///
+  /// In en, this message translates to:
+  /// **'Restart'**
+  String get nodeServiceRestart;
+
+  /// No description provided for @nodeServiceEnable.
+  ///
+  /// In en, this message translates to:
+  /// **'Enable and start'**
+  String get nodeServiceEnable;
+
+  /// No description provided for @nodeServiceDisable.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop and disable'**
+  String get nodeServiceDisable;
+
+  /// No description provided for @nodeConfigLoad.
+  ///
+  /// In en, this message translates to:
+  /// **'Load from server'**
+  String get nodeConfigLoad;
+
+  /// No description provided for @nodeConfigApply.
+  ///
+  /// In en, this message translates to:
+  /// **'Validate, apply and restart'**
+  String get nodeConfigApply;
+
+  /// No description provided for @nodeConfigNotLoaded.
+  ///
+  /// In en, this message translates to:
+  /// **'Load the current server config before editing it.'**
+  String get nodeConfigNotLoaded;
+
+  /// No description provided for @nodeUninstallSoftware.
+  ///
+  /// In en, this message translates to:
+  /// **'Uninstall software (keep data)'**
+  String get nodeUninstallSoftware;
+
+  /// No description provided for @nodeDebootstrap.
+  ///
+  /// In en, this message translates to:
+  /// **'Debootstrap node (erase everything)'**
+  String get nodeDebootstrap;
+
+  /// No description provided for @nodeDebootstrapConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'This permanently deletes the remote node identity, state, configs and all veil/ogate/oproxy software. Type DELETE to continue.'**
+  String get nodeDebootstrapConfirm;
+
+  /// No description provided for @nodeDebootstrapType.
+  ///
+  /// In en, this message translates to:
+  /// **'Type DELETE'**
+  String get nodeDebootstrapType;
+
+  /// No description provided for @nodeOperationOutput.
+  ///
+  /// In en, this message translates to:
+  /// **'Server output'**
+  String get nodeOperationOutput;
+
+  /// No description provided for @nodeOperationRun.
+  ///
+  /// In en, this message translates to:
+  /// **'Run command'**
+  String get nodeOperationRun;
+
+  /// No description provided for @nodeOperationSuccess.
+  ///
+  /// In en, this message translates to:
+  /// **'Remote operation completed'**
+  String get nodeOperationSuccess;
+
+  /// No description provided for @nodeSelectServices.
+  ///
+  /// In en, this message translates to:
+  /// **'Select services'**
+  String get nodeSelectServices;
+
   /// No description provided for @provisionTitle.
   ///
   /// In en, this message translates to:
@@ -3594,6 +3726,54 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Run as an exit (route my traffic through it)'**
   String get provisionRunExit;
+
+  /// No description provided for @provisionComponents.
+  ///
+  /// In en, this message translates to:
+  /// **'Components'**
+  String get provisionComponents;
+
+  /// No description provided for @provisionTransports.
+  ///
+  /// In en, this message translates to:
+  /// **'Incoming transports'**
+  String get provisionTransports;
+
+  /// No description provided for @provisionAdvertiseHost.
+  ///
+  /// In en, this message translates to:
+  /// **'Public host / IP (optional)'**
+  String get provisionAdvertiseHost;
+
+  /// No description provided for @provisionTlsCert.
+  ///
+  /// In en, this message translates to:
+  /// **'Remote TLS certificate path'**
+  String get provisionTlsCert;
+
+  /// No description provided for @provisionTlsKey.
+  ///
+  /// In en, this message translates to:
+  /// **'Remote TLS private-key path'**
+  String get provisionTlsKey;
+
+  /// No description provided for @provisionTlsCa.
+  ///
+  /// In en, this message translates to:
+  /// **'Remote TLS CA path (optional)'**
+  String get provisionTlsCa;
+
+  /// No description provided for @provisionComponentUrl.
+  ///
+  /// In en, this message translates to:
+  /// **'{component} release URL'**
+  String provisionComponentUrl(String component);
+
+  /// No description provided for @provisionComponentSha.
+  ///
+  /// In en, this message translates to:
+  /// **'{component} SHA-256'**
+  String provisionComponentSha(String component);
 
   /// No description provided for @provisionScriptLabel.
   ///

@@ -29,6 +29,15 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
   final _password = TextEditingController();
   final _key = TextEditingController();
   final _passphrase = TextEditingController();
+  final _advertiseHost = TextEditingController();
+  final _tlsCert = TextEditingController();
+  final _tlsKey = TextEditingController();
+  final _tlsCa = TextEditingController();
+  late final Map<NodeComponent, TextEditingController> _componentUrls;
+  late final Map<NodeComponent, TextEditingController> _componentShas;
+  late final Map<NodeListenTransport, TextEditingController> _transportPorts;
+  final Set<NodeComponent> _extraComponents = {};
+  final Set<NodeListenTransport> _transports = {NodeListenTransport.obfs4Tcp};
   bool _useKey = false;
   bool _runExit = true;
   String? _psk;
@@ -40,6 +49,20 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
   @override
   void initState() {
     super.initState();
+    _componentUrls = {
+      for (final component in NodeComponent.values)
+        if (component != NodeComponent.veilCli)
+          component: TextEditingController(),
+    };
+    _componentShas = {
+      for (final component in NodeComponent.values)
+        if (component != NodeComponent.veilCli)
+          component: TextEditingController(),
+    };
+    _transportPorts = {
+      for (final transport in NodeListenTransport.values)
+        transport: TextEditingController(text: '${transport.defaultPort}'),
+    };
     _loadPsk();
   }
 
@@ -60,7 +83,20 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
 
   @override
   void dispose() {
-    for (final c in [_releaseUrl, _sha256, _password, _key, _passphrase]) {
+    for (final c in [
+      _releaseUrl,
+      _sha256,
+      _password,
+      _key,
+      _passphrase,
+      _advertiseHost,
+      _tlsCert,
+      _tlsKey,
+      _tlsCa,
+      ..._componentUrls.values,
+      ..._componentShas.values,
+      ..._transportPorts.values,
+    ]) {
       c.dispose();
     }
     super.dispose();
@@ -74,6 +110,25 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
       expectedSha256: _sha256.text.trim(),
       obfs4PskB64: psk,
       runExit: _runExit,
+      extraArtifacts: [
+        for (final component in _extraComponents)
+          NodeReleaseArtifact(
+            component: component,
+            releaseUrl: _componentUrls[component]!.text.trim(),
+            expectedSha256: _componentShas[component]!.text.trim(),
+          ),
+      ],
+      transports: Set.unmodifiable(_transports),
+      transportPorts: {
+        for (final transport in _transports)
+          transport: int.tryParse(_transportPorts[transport]!.text.trim()) ?? 0,
+      },
+      advertiseHost: _advertiseHost.text.trim().isEmpty
+          ? null
+          : _advertiseHost.text.trim(),
+      tlsCertPath: _tlsCert.text.trim().isEmpty ? null : _tlsCert.text.trim(),
+      tlsKeyPath: _tlsKey.text.trim().isEmpty ? null : _tlsKey.text.trim(),
+      tlsCaCertPath: _tlsCa.text.trim().isEmpty ? null : _tlsCa.text.trim(),
     );
   }
 
@@ -90,8 +145,10 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
       _error = null;
     });
     final auth = _useKey
-        ? SshAuth.key(_key.text,
-            passphrase: _passphrase.text.isEmpty ? null : _passphrase.text)
+        ? SshAuth.key(
+            _key.text,
+            passphrase: _passphrase.text.isEmpty ? null : _passphrase.text,
+          )
         : SshAuth.password(_password.text);
     try {
       final r = await sshRun(
@@ -170,14 +227,18 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
     // Only render (and later run) the script once the config is fully valid —
     // a partial/invalid URL or checksum must never be interpolated into a
     // root-sudo script, not even in the copyable preview.
-    final script = (cfg != null && cfg.isValid) ? buildProvisionScript(cfg) : null;
+    final script = (cfg != null && cfg.isValid)
+        ? buildProvisionScript(cfg)
+        : null;
     return Scaffold(
       appBar: AppBar(title: Text(l.provisionTitle)),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Text('${widget.node.sshUser}@${widget.node.sshHost}:${widget.node.sshPort}',
-              style: const TextStyle(fontFamily: 'monospace')),
+          Text(
+            '${widget.node.sshUser}@${widget.node.sshHost}:${widget.node.sshPort}',
+            style: const TextStyle(fontFamily: 'monospace'),
+          ),
           const SizedBox(height: 12),
           TextField(
             controller: _releaseUrl,
@@ -202,6 +263,145 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
               isDense: true,
             ),
           ),
+          const SizedBox(height: 16),
+          Text(
+            l.provisionComponents,
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              const Chip(
+                avatar: Icon(Icons.check, size: 18),
+                label: Text('veil-cli'),
+              ),
+              for (final component in NodeComponent.values)
+                if (component != NodeComponent.veilCli)
+                  FilterChip(
+                    label: Text(component.binaryName),
+                    selected: _extraComponents.contains(component),
+                    onSelected: (selected) => setState(() {
+                      if (selected) {
+                        _extraComponents.add(component);
+                      } else {
+                        _extraComponents.remove(component);
+                      }
+                    }),
+                  ),
+            ],
+          ),
+          for (final component in NodeComponent.values)
+            if (_extraComponents.contains(component)) ...[
+              const SizedBox(height: 8),
+              TextField(
+                controller: _componentUrls[component],
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  labelText: l.provisionComponentUrl(component.binaryName),
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _componentShas[component],
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  labelText: l.provisionComponentSha(component.binaryName),
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+            ],
+          const SizedBox(height: 16),
+          Text(
+            l.provisionTransports,
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              for (final transport in NodeListenTransport.values)
+                FilterChip(
+                  label: Text(transport.scheme),
+                  selected: _transports.contains(transport),
+                  onSelected: (selected) => setState(() {
+                    if (selected) {
+                      _transports.add(transport);
+                    } else if (_transports.length > 1) {
+                      _transports.remove(transport);
+                    }
+                  }),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final transport in _transports)
+                SizedBox(
+                  width: 150,
+                  child: TextField(
+                    controller: _transportPorts[transport],
+                    keyboardType: TextInputType.number,
+                    onChanged: (_) => setState(() {}),
+                    decoration: InputDecoration(
+                      labelText: '${transport.scheme} port',
+                      border: const OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _advertiseHost,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              labelText: l.provisionAdvertiseHost,
+              border: const OutlineInputBorder(),
+              isDense: true,
+            ),
+          ),
+          if (_transports.any((transport) => transport.needsTls)) ...[
+            const SizedBox(height: 8),
+            TextField(
+              controller: _tlsCert,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: l.provisionTlsCert,
+                border: const OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _tlsKey,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: l.provisionTlsKey,
+                border: const OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _tlsCa,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: l.provisionTlsCa,
+                border: const OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+          ],
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: Text(l.provisionRunExit),
@@ -251,15 +451,18 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
               ),
             ),
           ],
-          Text(l.sshCredsNotSaved,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(color: scheme.outline)),
+          Text(
+            l.sshCredsNotSaved,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: scheme.outline),
+          ),
           if (script != null) ...[
             const SizedBox(height: 16),
-            Text(l.provisionScriptLabel,
-                style: Theme.of(context).textTheme.labelLarge),
+            Text(
+              l.provisionScriptLabel,
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
             const SizedBox(height: 6),
             Container(
               padding: const EdgeInsets.all(10),
@@ -267,9 +470,10 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
                 color: scheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: SelectableText(script,
-                  style:
-                      const TextStyle(fontFamily: 'monospace', fontSize: 10.5)),
+              child: SelectableText(
+                script,
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 10.5),
+              ),
             ),
           ],
           const SizedBox(height: 16),
@@ -279,7 +483,8 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
                 ? const SizedBox(
                     width: 16,
                     height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2))
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
                 : const Icon(Icons.rocket_launch),
             label: Text(_busy ? l.provisionRunning : l.provisionRun),
           ),
@@ -296,9 +501,10 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
                 color: scheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: SelectableText(_output!,
-                  style:
-                      const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+              child: SelectableText(
+                _output!,
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+              ),
             ),
           ],
         ],

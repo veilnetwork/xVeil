@@ -6,6 +6,7 @@ import '../../data/node/managed_node.dart';
 import '../../data/node/node_probe.dart';
 import '../../l10n/app_localizations.dart';
 import 'node_provision_screen.dart';
+import 'node_management_screen.dart';
 import 'ssh_check_dialog.dart';
 import '../../state/managed_nodes_controller.dart';
 import '../../state/proxy_routing_controller.dart';
@@ -25,7 +26,7 @@ class ManagedNodesScreen extends ConsumerWidget {
       appBar: AppBar(title: Text(l.nodesTitle)),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: 'xveil-managed-nodes-add',
-        onPressed: () => _editSheet(context, ref, null),
+        onPressed: () => showManagedNodeEditor(context, ref, null),
         icon: const Icon(Icons.add),
         label: Text(l.nodesAdd),
       ),
@@ -59,8 +60,16 @@ class _NodeTile extends ConsumerWidget {
       leading: const Icon(Icons.dns_outlined),
       title: Text(node.label),
       subtitle: sub.isEmpty ? null : Text(sub),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: () => _editSheet(context, ref, node),
+      trailing: IconButton(
+        tooltip: AppL10n.of(context).nodeEdit,
+        icon: const Icon(Icons.edit_outlined),
+        onPressed: () => showManagedNodeEditor(context, ref, node),
+      ),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => NodeManagementScreen(nodeId: node.id),
+        ),
+      ),
     );
   }
 }
@@ -96,7 +105,11 @@ class _Empty extends StatelessWidget {
   }
 }
 
-void _editSheet(BuildContext context, WidgetRef ref, ManagedNode? existing) {
+void showManagedNodeEditor(
+  BuildContext context,
+  WidgetRef ref,
+  ManagedNode? existing,
+) {
   showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,

@@ -1902,6 +1902,74 @@ class AppL10nRu extends AppL10n {
   String get nodeProvision => 'Развернуть узел veil по SSH';
 
   @override
+  String get nodeManage => 'Управление узлом';
+
+  @override
+  String get nodeInventory => 'Проверить установку и состояние';
+
+  @override
+  String get nodeInstallUpdate => 'Установить или обновить ПО';
+
+  @override
+  String get nodeServices => 'Сервисы';
+
+  @override
+  String get nodeAdvancedConfig => 'Расширенная конфигурация';
+
+  @override
+  String get nodeServiceStatus => 'Состояние';
+
+  @override
+  String get nodeServiceStart => 'Запустить';
+
+  @override
+  String get nodeServiceStop => 'Остановить';
+
+  @override
+  String get nodeServiceRestart => 'Перезапустить';
+
+  @override
+  String get nodeServiceEnable => 'Включить и запустить';
+
+  @override
+  String get nodeServiceDisable => 'Остановить и отключить';
+
+  @override
+  String get nodeConfigLoad => 'Загрузить с сервера';
+
+  @override
+  String get nodeConfigApply => 'Проверить, применить и перезапустить';
+
+  @override
+  String get nodeConfigNotLoaded =>
+      'Перед редактированием загрузите текущий конфиг с сервера.';
+
+  @override
+  String get nodeUninstallSoftware => 'Удалить ПО (сохранить данные)';
+
+  @override
+  String get nodeDebootstrap => 'Дебутстрап ноды (стереть всё)';
+
+  @override
+  String get nodeDebootstrapConfirm =>
+      'Это навсегда удалит удалённую личность ноды, состояние, конфиги и всё ПО veil/ogate/oproxy. Введите DELETE для продолжения.';
+
+  @override
+  String get nodeDebootstrapType => 'Введите DELETE';
+
+  @override
+  String get nodeOperationOutput => 'Вывод сервера';
+
+  @override
+  String get nodeOperationRun => 'Выполнить команду';
+
+  @override
+  String get nodeOperationSuccess => 'Операция на сервере завершена';
+
+  @override
+  String get nodeSelectServices => 'Выберите сервисы';
+
+  @override
   String get provisionTitle => 'Развёртывание по SSH';
 
   @override
@@ -1921,6 +1989,34 @@ class AppL10nRu extends AppL10n {
   @override
   String get provisionRunExit =>
       'Запустить как выходной узел (маршрутизировать через него)';
+
+  @override
+  String get provisionComponents => 'Компоненты';
+
+  @override
+  String get provisionTransports => 'Входящие транспорты';
+
+  @override
+  String get provisionAdvertiseHost => 'Публичный хост / IP (необязательно)';
+
+  @override
+  String get provisionTlsCert => 'Путь TLS-сертификата на сервере';
+
+  @override
+  String get provisionTlsKey => 'Путь приватного TLS-ключа на сервере';
+
+  @override
+  String get provisionTlsCa => 'Путь TLS CA на сервере (необязательно)';
+
+  @override
+  String provisionComponentUrl(String component) {
+    return 'URL релиза $component';
+  }
+
+  @override
+  String provisionComponentSha(String component) {
+    return 'SHA-256 для $component';
+  }
 
   @override
   String get provisionScriptLabel =>

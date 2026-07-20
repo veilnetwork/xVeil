@@ -1891,6 +1891,74 @@ class AppL10nEn extends AppL10n {
   String get nodeProvision => 'Provision veil node over SSH';
 
   @override
+  String get nodeManage => 'Manage node';
+
+  @override
+  String get nodeInventory => 'Inspect installation and status';
+
+  @override
+  String get nodeInstallUpdate => 'Install or update software';
+
+  @override
+  String get nodeServices => 'Services';
+
+  @override
+  String get nodeAdvancedConfig => 'Advanced configuration';
+
+  @override
+  String get nodeServiceStatus => 'Status';
+
+  @override
+  String get nodeServiceStart => 'Start';
+
+  @override
+  String get nodeServiceStop => 'Stop';
+
+  @override
+  String get nodeServiceRestart => 'Restart';
+
+  @override
+  String get nodeServiceEnable => 'Enable and start';
+
+  @override
+  String get nodeServiceDisable => 'Stop and disable';
+
+  @override
+  String get nodeConfigLoad => 'Load from server';
+
+  @override
+  String get nodeConfigApply => 'Validate, apply and restart';
+
+  @override
+  String get nodeConfigNotLoaded =>
+      'Load the current server config before editing it.';
+
+  @override
+  String get nodeUninstallSoftware => 'Uninstall software (keep data)';
+
+  @override
+  String get nodeDebootstrap => 'Debootstrap node (erase everything)';
+
+  @override
+  String get nodeDebootstrapConfirm =>
+      'This permanently deletes the remote node identity, state, configs and all veil/ogate/oproxy software. Type DELETE to continue.';
+
+  @override
+  String get nodeDebootstrapType => 'Type DELETE';
+
+  @override
+  String get nodeOperationOutput => 'Server output';
+
+  @override
+  String get nodeOperationRun => 'Run command';
+
+  @override
+  String get nodeOperationSuccess => 'Remote operation completed';
+
+  @override
+  String get nodeSelectServices => 'Select services';
+
+  @override
   String get provisionTitle => 'Provision over SSH';
 
   @override
@@ -1909,6 +1977,34 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get provisionRunExit => 'Run as an exit (route my traffic through it)';
+
+  @override
+  String get provisionComponents => 'Components';
+
+  @override
+  String get provisionTransports => 'Incoming transports';
+
+  @override
+  String get provisionAdvertiseHost => 'Public host / IP (optional)';
+
+  @override
+  String get provisionTlsCert => 'Remote TLS certificate path';
+
+  @override
+  String get provisionTlsKey => 'Remote TLS private-key path';
+
+  @override
+  String get provisionTlsCa => 'Remote TLS CA path (optional)';
+
+  @override
+  String provisionComponentUrl(String component) {
+    return '$component release URL';
+  }
+
+  @override
+  String provisionComponentSha(String component) {
+    return '$component SHA-256';
+  }
 
   @override
   String get provisionScriptLabel =>
