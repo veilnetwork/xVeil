@@ -11,19 +11,24 @@ const _exit =
     'aa11bb22cc33dd44ee55ff66007788990011223344556677889900aabbccddee';
 
 Widget _host() => const ProviderScope(
-      child: MaterialApp(
-        localizationsDelegates: AppL10n.localizationsDelegates,
-        supportedLocales: AppL10n.supportedLocales,
-        home: ManagedNodesScreen(),
-      ),
-    );
+  child: MaterialApp(
+    localizationsDelegates: AppL10n.localizationsDelegates,
+    supportedLocales: AppL10n.supportedLocales,
+    home: ManagedNodesScreen(),
+  ),
+);
 
 void main() {
   group('ManagedNode', () {
     test('round-trips a list through json', () {
       final nodes = [
         const ManagedNode(
-            id: '1', label: 'vps', nodeId: _exit, sshHost: 'a.b', sshUser: 'u'),
+          id: '1',
+          label: 'vps',
+          nodeId: _exit,
+          sshHost: 'a.b',
+          sshUser: 'u',
+        ),
         const ManagedNode(id: '2', label: 'home'),
       ];
       final back = ManagedNode.decodeList(ManagedNode.encodeList(nodes));
@@ -39,11 +44,12 @@ void main() {
       const fp = 'SHA256:abc123def456+/Pinned0HostKeyFingerprintValue';
       final nodes = [
         const ManagedNode(
-            id: '1',
-            label: 'vps',
-            sshHost: 'a.b',
-            sshUser: 'u',
-            sshHostFingerprint: fp),
+          id: '1',
+          label: 'vps',
+          sshHost: 'a.b',
+          sshUser: 'u',
+          sshHostFingerprint: fp,
+        ),
       ];
       final back = ManagedNode.decodeList(ManagedNode.encodeList(nodes));
       expect(back.single.sshHostFingerprint, fp);
@@ -58,35 +64,41 @@ void main() {
     });
   });
 
-  testWidgets('empty registry shows the hint; adding a node lists it',
-      (tester) async {
+  testWidgets('empty registry shows the hint; adding a node lists it', (
+    tester,
+  ) async {
     await tester.pumpWidget(_host());
     await tester.pumpAndSettle();
     final l = AppL10n.of(tester.element(find.byType(ManagedNodesScreen)));
     expect(find.text(l.nodesEmpty), findsOneWidget);
 
     final container = ProviderScope.containerOf(
-        tester.element(find.byType(ManagedNodesScreen)));
-    await container.read(managedNodesProvider.notifier).upsert(
-        const ManagedNode(id: 'x', label: 'My exit', nodeId: _exit));
+      tester.element(find.byType(ManagedNodesScreen)),
+    );
+    await container
+        .read(managedNodesProvider.notifier)
+        .upsert(const ManagedNode(id: 'x', label: 'My exit', nodeId: _exit));
     await tester.pumpAndSettle();
 
     expect(find.text('My exit'), findsOneWidget);
     expect(find.text(l.nodesEmpty), findsNothing);
   });
 
-  testWidgets('use-as-exit wires the node id into proxy routing',
-      (tester) async {
+  testWidgets('use-as-exit wires the node id into proxy routing', (
+    tester,
+  ) async {
     await tester.pumpWidget(_host());
     await tester.pumpAndSettle();
     final container = ProviderScope.containerOf(
-        tester.element(find.byType(ManagedNodesScreen)));
-    await container.read(managedNodesProvider.notifier).upsert(
-        const ManagedNode(id: 'x', label: 'My exit', nodeId: _exit));
+      tester.element(find.byType(ManagedNodesScreen)),
+    );
+    await container
+        .read(managedNodesProvider.notifier)
+        .upsert(const ManagedNode(id: 'x', label: 'My exit', nodeId: _exit));
     await tester.pumpAndSettle();
 
     // Open the edit sheet, tap "use as exit".
-    await tester.tap(find.text('My exit'));
+    await tester.tap(find.byIcon(Icons.edit_outlined).last);
     await tester.pumpAndSettle();
     final l = AppL10n.of(tester.element(find.byType(ManagedNodesScreen)));
     await tester.tap(find.text(l.nodeUseAsExit));
@@ -98,27 +110,65 @@ void main() {
     expect(routing.socks5Active, isTrue);
   });
 
-  testWidgets('editing a node keeps its pinned SSH host key (SSH-MITM)',
-      (tester) async {
+  testWidgets('tapping a node opens its full lifecycle management screen', (
+    tester,
+  ) async {
     await tester.pumpWidget(_host());
     await tester.pumpAndSettle();
     final container = ProviderScope.containerOf(
-        tester.element(find.byType(ManagedNodesScreen)));
-    await container.read(managedNodesProvider.notifier).upsert(
-        const ManagedNode(
+      tester.element(find.byType(ManagedNodesScreen)),
+    );
+    await container
+        .read(managedNodesProvider.notifier)
+        .upsert(
+          const ManagedNode(
+            id: 'managed',
+            label: 'Managed VPS',
+            sshHost: 'vps.example',
+            sshUser: 'root',
+          ),
+        );
+    await tester.pumpAndSettle();
+    final l = AppL10n.of(tester.element(find.byType(ManagedNodesScreen)));
+
+    await tester.tap(find.text('Managed VPS'));
+    await tester.pumpAndSettle();
+
+    expect(find.text(l.nodeInventory), findsOneWidget);
+    expect(find.text(l.nodeInstallUpdate), findsOneWidget);
+    expect(find.text(l.nodeServices), findsOneWidget);
+    expect(find.text('oproxy-server'), findsWidgets);
+  });
+
+  testWidgets('editing a node keeps its pinned SSH host key (SSH-MITM)', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_host());
+    await tester.pumpAndSettle();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(ManagedNodesScreen)),
+    );
+    await container
+        .read(managedNodesProvider.notifier)
+        .upsert(
+          const ManagedNode(
             id: 'p',
             label: 'Pinned',
             sshHost: 'srv.example',
             sshUser: 'u',
-            sshHostFingerprint: 'SHA256:PINNEDKEY'));
+            sshHostFingerprint: 'SHA256:PINNEDKEY',
+          ),
+        );
     await tester.pumpAndSettle();
     final l = AppL10n.of(tester.element(find.byType(ManagedNodesScreen)));
 
     // Open the edit sheet and change ONLY the label (a benign edit).
-    await tester.tap(find.text('Pinned'));
+    await tester.tap(find.byIcon(Icons.edit_outlined).last);
     await tester.pumpAndSettle();
     await tester.enterText(
-        find.widgetWithText(TextField, l.nodeLabelLabel), 'Pinned renamed');
+      find.widgetWithText(TextField, l.nodeLabelLabel),
+      'Pinned renamed',
+    );
     await tester.tap(find.text(l.actionSave));
     await tester.pumpAndSettle();
 
@@ -127,31 +177,42 @@ void main() {
         .requireValue
         .firstWhere((n) => n.id == 'p');
     expect(saved.label, 'Pinned renamed');
-    expect(saved.sshHostFingerprint, 'SHA256:PINNEDKEY',
-        reason: 'a benign edit must NOT silently drop the pin');
+    expect(
+      saved.sshHostFingerprint,
+      'SHA256:PINNEDKEY',
+      reason: 'a benign edit must NOT silently drop the pin',
+    );
   });
 
-  testWidgets('changing the SSH endpoint drops the stale pin (SSH-MITM)',
-      (tester) async {
+  testWidgets('changing the SSH endpoint drops the stale pin (SSH-MITM)', (
+    tester,
+  ) async {
     await tester.pumpWidget(_host());
     await tester.pumpAndSettle();
     final container = ProviderScope.containerOf(
-        tester.element(find.byType(ManagedNodesScreen)));
-    await container.read(managedNodesProvider.notifier).upsert(
-        const ManagedNode(
+      tester.element(find.byType(ManagedNodesScreen)),
+    );
+    await container
+        .read(managedNodesProvider.notifier)
+        .upsert(
+          const ManagedNode(
             id: 'p',
             label: 'Pinned',
             sshHost: 'srv.example',
             sshUser: 'u',
-            sshHostFingerprint: 'SHA256:PINNEDKEY'));
+            sshHostFingerprint: 'SHA256:PINNEDKEY',
+          ),
+        );
     await tester.pumpAndSettle();
     final l = AppL10n.of(tester.element(find.byType(ManagedNodesScreen)));
 
-    await tester.tap(find.text('Pinned'));
+    await tester.tap(find.byIcon(Icons.edit_outlined).last);
     await tester.pumpAndSettle();
     // Repoint at a DIFFERENT host — the old pin must not authorize it.
     await tester.enterText(
-        find.widgetWithText(TextField, l.nodeSshHostLabel), 'other.example');
+      find.widgetWithText(TextField, l.nodeSshHostLabel),
+      'other.example',
+    );
     await tester.tap(find.text(l.actionSave));
     await tester.pumpAndSettle();
 
@@ -160,7 +221,10 @@ void main() {
         .requireValue
         .firstWhere((n) => n.id == 'p');
     expect(saved.sshHost, 'other.example');
-    expect(saved.sshHostFingerprint, isNull,
-        reason: 'a changed endpoint must drop the pin for the old host');
+    expect(
+      saved.sshHostFingerprint,
+      isNull,
+      reason: 'a changed endpoint must drop the pin for the old host',
+    );
   });
 }
