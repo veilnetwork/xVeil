@@ -3523,6 +3523,30 @@ abstract class AppL10n {
   /// **'Every route must be a valid IPv4 or IPv6 CIDR'**
   String get vpnCidrsInvalid;
 
+  /// No description provided for @vpnIncludedCountries.
+  ///
+  /// In en, this message translates to:
+  /// **'Countries routed through VPN (GeoIP)'**
+  String get vpnIncludedCountries;
+
+  /// No description provided for @vpnExcludedCountries.
+  ///
+  /// In en, this message translates to:
+  /// **'Countries bypassing VPN (GeoIP)'**
+  String get vpnExcludedCountries;
+
+  /// No description provided for @vpnCountriesHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Two-letter country codes separated by spaces or commas, e.g. KZ, RU. Uses the bundled IPdeny snapshot; GeoIP is approximate.'**
+  String get vpnCountriesHint;
+
+  /// No description provided for @vpnCountriesInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Use two-letter country codes such as KZ'**
+  String get vpnCountriesInvalid;
+
   /// No description provided for @vpnRouteDns.
   ///
   /// In en, this message translates to:

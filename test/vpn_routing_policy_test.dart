@@ -1,8 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/vpn/vpn_backend.dart';
+import 'package:xveil/data/vpn/geoip_country_routes.dart';
 import 'package:xveil/data/vpn/vpn_routing_policy.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('VpnRoutingPolicy', () {
     test('accepts IPv4 and IPv6 CIDRs and rejects ambiguous inputs', () {
       expect(VpnRoutingPolicy.isValidCidr('0.0.0.0/0'), isTrue);
@@ -35,6 +38,12 @@ void main() {
         includedCidrs: ['10.0.0.0/8'],
       );
       expect(configured.isValid, isTrue);
+
+      const geoConfigured = VpnRoutingPolicy(
+        routeMode: VpnRouteMode.includeOnly,
+        includedCountryCodes: ['KZ'],
+      );
+      expect(geoConfigured.isValid, isTrue);
     });
 
     test('validates MTU, routes and routed DNS as a unit', () {
@@ -55,6 +64,8 @@ void main() {
         routeMode: VpnRouteMode.excludeOnly,
         includedCidrs: ['10.0.0.0/8'],
         excludedCidrs: ['192.168.0.0/16', 'fd00::/8'],
+        includedCountryCodes: ['DE'],
+        excludedCountryCodes: ['KZ', 'RU'],
         routeDns: false,
         dnsServers: ['9.9.9.9'],
         allowLan: false,
@@ -65,6 +76,8 @@ void main() {
       expect(back.routeMode, VpnRouteMode.excludeOnly);
       expect(back.includedCidrs, ['10.0.0.0/8']);
       expect(back.excludedCidrs, ['192.168.0.0/16', 'fd00::/8']);
+      expect(back.includedCountryCodes, ['DE']);
+      expect(back.excludedCountryCodes, ['KZ', 'RU']);
       expect(back.routeDns, isFalse);
       expect(back.dnsServers, ['9.9.9.9']);
       expect(back.allowLan, isFalse);
@@ -75,6 +88,42 @@ void main() {
       expect(
         VpnRoutingPolicy.fromJson(unknown).routeMode,
         VpnRouteMode.allTraffic,
+      );
+    });
+
+    test('validates country codes without pretending GeoIP is exact', () {
+      expect(VpnRoutingPolicy.isValidCountryCode('KZ'), isTrue);
+      expect(VpnRoutingPolicy.isValidCountryCode('kz'), isTrue);
+      expect(VpnRoutingPolicy.isValidCountryCode('KAZ'), isFalse);
+      expect(VpnRoutingPolicy.isValidCountryCode('1Z'), isFalse);
+      expect(
+        const VpnRoutingPolicy(excludedCountryCodes: ['KAZ']).isValid,
+        isFalse,
+      );
+    });
+  });
+
+  group('GeoIpCountryRoutes', () {
+    test('expands Kazakhstan into bundled IPv4 and IPv6 routes', () async {
+      const policy = VpnRoutingPolicy(
+        excludedCidrs: ['192.0.2.0/24'],
+        excludedCountryCodes: ['kz'],
+      );
+      final expanded = await GeoIpCountryRoutes.expandPolicy(policy);
+      final routes = (expanded['excludedCidrs'] as List).cast<String>();
+
+      expect(routes, contains('192.0.2.0/24'));
+      expect(routes.length, greaterThan(100));
+      expect(routes.any((route) => route.contains(':')), isTrue);
+      expect(expanded['geoIpGeneratedAt'], isNotEmpty);
+    });
+
+    test('fails closed for a country absent from the snapshot', () async {
+      await expectLater(
+        GeoIpCountryRoutes.expandPolicy(
+          const VpnRoutingPolicy(excludedCountryCodes: ['XX']),
+        ),
+        throwsA(isA<FormatException>()),
       );
     });
   });
