@@ -54,6 +54,8 @@ class _ProxyRoutingScreenState extends ConsumerState<ProxyRoutingScreen> {
       appBar: AppBar(title: Text(l.routeTitle)),
       body: ListView(
         children: [
+          const _VpnSection(),
+          const Divider(),
           // ── SOCKS5 client role ─────────────────────────────────────────
           SwitchListTile(
             secondary: const Icon(Icons.alt_route),
@@ -156,8 +158,6 @@ class _ProxyRoutingScreenState extends ConsumerState<ProxyRoutingScreen> {
               onChanged: (v) => _save(cfg.copyWith(exitAllowPrivate: v)),
             ),
           const Divider(),
-          const _VpnSection(),
-          const Divider(),
           Padding(
             padding: const EdgeInsets.all(16),
             child: Row(
@@ -194,6 +194,8 @@ class _VpnSection extends ConsumerStatefulWidget {
 class _VpnSectionState extends ConsumerState<_VpnSection> {
   late final TextEditingController _included;
   late final TextEditingController _excluded;
+  late final TextEditingController _includedCountries;
+  late final TextEditingController _excludedCountries;
   late final TextEditingController _dns;
   late final TextEditingController _mtu;
   bool _editing = false;
@@ -204,6 +206,12 @@ class _VpnSectionState extends ConsumerState<_VpnSection> {
     final policy = ref.read(vpnControllerProvider).policy;
     _included = TextEditingController(text: policy.includedCidrs.join('\n'));
     _excluded = TextEditingController(text: policy.excludedCidrs.join('\n'));
+    _includedCountries = TextEditingController(
+      text: policy.includedCountryCodes.join(', '),
+    );
+    _excludedCountries = TextEditingController(
+      text: policy.excludedCountryCodes.join(', '),
+    );
     _dns = TextEditingController(text: policy.dnsServers.join('\n'));
     _mtu = TextEditingController(text: policy.mtu.toString());
   }
@@ -212,6 +220,8 @@ class _VpnSectionState extends ConsumerState<_VpnSection> {
   void dispose() {
     _included.dispose();
     _excluded.dispose();
+    _includedCountries.dispose();
+    _excludedCountries.dispose();
     _dns.dispose();
     _mtu.dispose();
     super.dispose();
@@ -223,6 +233,13 @@ class _VpnSectionState extends ConsumerState<_VpnSection> {
       .where((value) => value.isNotEmpty)
       .toList(growable: false);
 
+  List<String> _countryCodes(String raw) => raw
+      .split(RegExp(r'[\s,;]+'))
+      .map((value) => value.trim().toUpperCase())
+      .where((value) => value.isNotEmpty)
+      .toSet()
+      .toList(growable: false);
+
   void _configure(VpnRoutingPolicy policy) {
     _editing = true;
     ref.read(vpnControllerProvider.notifier).configure(policy);
@@ -232,6 +249,8 @@ class _VpnSectionState extends ConsumerState<_VpnSection> {
     if (_editing) return;
     _included.text = policy.includedCidrs.join('\n');
     _excluded.text = policy.excludedCidrs.join('\n');
+    _includedCountries.text = policy.includedCountryCodes.join(', ');
+    _excludedCountries.text = policy.excludedCountryCodes.join(', ');
     _dns.text = policy.dnsServers.join('\n');
     _mtu.text = policy.mtu.toString();
   }
@@ -253,6 +272,12 @@ class _VpnSectionState extends ConsumerState<_VpnSection> {
     final excludedInvalid = _lines(
       _excluded.text,
     ).any((value) => !VpnRoutingPolicy.isValidCidr(value));
+    final includedCountriesInvalid = _countryCodes(
+      _includedCountries.text,
+    ).any((value) => !VpnRoutingPolicy.isValidCountryCode(value));
+    final excludedCountriesInvalid = _countryCodes(
+      _excludedCountries.text,
+    ).any((value) => !VpnRoutingPolicy.isValidCountryCode(value));
     final dnsInvalid = _lines(
       _dns.text,
     ).any((value) => !VpnRoutingPolicy.isValidIp(value));
@@ -326,6 +351,26 @@ class _VpnSectionState extends ConsumerState<_VpnSection> {
               _configure(policy.copyWith(includedCidrs: _lines(raw)));
             },
           ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _includedCountries,
+            enabled: !vpn.isRunning && !vpn.busy,
+            textCapitalization: TextCapitalization.characters,
+            decoration: InputDecoration(
+              labelText: l.vpnIncludedCountries,
+              helperText: l.vpnCountriesHint,
+              errorText: includedCountriesInvalid
+                  ? l.vpnCountriesInvalid
+                  : null,
+              border: const OutlineInputBorder(),
+            ),
+            onChanged: (raw) {
+              setState(() {});
+              _configure(
+                policy.copyWith(includedCountryCodes: _countryCodes(raw)),
+              );
+            },
+          ),
         ],
         if (policy.routeMode != VpnRouteMode.includeOnly) ...[
           const SizedBox(height: 12),
@@ -343,6 +388,26 @@ class _VpnSectionState extends ConsumerState<_VpnSection> {
             onChanged: (raw) {
               setState(() {});
               _configure(policy.copyWith(excludedCidrs: _lines(raw)));
+            },
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _excludedCountries,
+            enabled: !vpn.isRunning && !vpn.busy,
+            textCapitalization: TextCapitalization.characters,
+            decoration: InputDecoration(
+              labelText: l.vpnExcludedCountries,
+              helperText: l.vpnCountriesHint,
+              errorText: excludedCountriesInvalid
+                  ? l.vpnCountriesInvalid
+                  : null,
+              border: const OutlineInputBorder(),
+            ),
+            onChanged: (raw) {
+              setState(() {});
+              _configure(
+                policy.copyWith(excludedCountryCodes: _countryCodes(raw)),
+              );
             },
           ),
         ],

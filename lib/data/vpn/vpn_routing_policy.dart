@@ -23,6 +23,8 @@ class VpnRoutingPolicy {
     this.routeMode = VpnRouteMode.allTraffic,
     this.includedCidrs = const [],
     this.excludedCidrs = const [],
+    this.includedCountryCodes = const [],
+    this.excludedCountryCodes = const [],
     this.routeDns = true,
     this.dnsServers = defaultDnsServers,
     this.allowLan = true,
@@ -38,6 +40,8 @@ class VpnRoutingPolicy {
   final VpnRouteMode routeMode;
   final List<String> includedCidrs;
   final List<String> excludedCidrs;
+  final List<String> includedCountryCodes;
+  final List<String> excludedCountryCodes;
   final bool routeDns;
   final List<String> dnsServers;
   final bool allowLan;
@@ -46,7 +50,9 @@ class VpnRoutingPolicy {
   List<String> validate() {
     final errors = <String>[];
     if (mtu < 1280 || mtu > 9000) errors.add('mtu');
-    if (routeMode == VpnRouteMode.includeOnly && includedCidrs.isEmpty) {
+    if (routeMode == VpnRouteMode.includeOnly &&
+        includedCidrs.isEmpty &&
+        includedCountryCodes.isEmpty) {
       errors.add('includedCidrs.empty');
     }
     if (includedCidrs.any((value) => !isValidCidr(value))) {
@@ -54,6 +60,12 @@ class VpnRoutingPolicy {
     }
     if (excludedCidrs.any((value) => !isValidCidr(value))) {
       errors.add('excludedCidrs.invalid');
+    }
+    if (includedCountryCodes.any((value) => !isValidCountryCode(value))) {
+      errors.add('includedCountryCodes.invalid');
+    }
+    if (excludedCountryCodes.any((value) => !isValidCountryCode(value))) {
+      errors.add('excludedCountryCodes.invalid');
     }
     if (routeDns && dnsServers.isEmpty) errors.add('dnsServers.empty');
     if (dnsServers.any((value) => !isValidIp(value))) {
@@ -84,11 +96,16 @@ class VpnRoutingPolicy {
     return prefix >= 0 && prefix <= max;
   }
 
+  static bool isValidCountryCode(String value) =>
+      RegExp(r'^[A-Za-z]{2}$').hasMatch(value.trim());
+
   VpnRoutingPolicy copyWith({
     bool? enabled,
     VpnRouteMode? routeMode,
     List<String>? includedCidrs,
     List<String>? excludedCidrs,
+    List<String>? includedCountryCodes,
+    List<String>? excludedCountryCodes,
     bool? routeDns,
     List<String>? dnsServers,
     bool? allowLan,
@@ -98,6 +115,8 @@ class VpnRoutingPolicy {
     routeMode: routeMode ?? this.routeMode,
     includedCidrs: includedCidrs ?? this.includedCidrs,
     excludedCidrs: excludedCidrs ?? this.excludedCidrs,
+    includedCountryCodes: includedCountryCodes ?? this.includedCountryCodes,
+    excludedCountryCodes: excludedCountryCodes ?? this.excludedCountryCodes,
     routeDns: routeDns ?? this.routeDns,
     dnsServers: dnsServers ?? this.dnsServers,
     allowLan: allowLan ?? this.allowLan,
@@ -109,6 +128,8 @@ class VpnRoutingPolicy {
     'routeMode': routeMode.name,
     'includedCidrs': includedCidrs,
     'excludedCidrs': excludedCidrs,
+    'includedCountryCodes': includedCountryCodes,
+    'excludedCountryCodes': excludedCountryCodes,
     'routeDns': routeDns,
     'dnsServers': dnsServers,
     'allowLan': allowLan,
@@ -125,6 +146,8 @@ class VpnRoutingPolicy {
       routeMode: mode ?? VpnRouteMode.allTraffic,
       includedCidrs: _strings(json['includedCidrs']),
       excludedCidrs: _strings(json['excludedCidrs']),
+      includedCountryCodes: _countryCodes(json['includedCountryCodes']),
+      excludedCountryCodes: _countryCodes(json['excludedCountryCodes']),
       routeDns: json['routeDns'] as bool? ?? true,
       dnsServers: json.containsKey('dnsServers')
           ? _strings(json['dnsServers'])
@@ -136,6 +159,15 @@ class VpnRoutingPolicy {
 
   static List<String> _strings(Object? value) => value is List
       ? value.whereType<String>().map((v) => v.trim()).toList(growable: false)
+      : const [];
+
+  static List<String> _countryCodes(Object? value) => value is List
+      ? value
+            .whereType<String>()
+            .map((v) => v.trim().toUpperCase())
+            .where((v) => v.isNotEmpty)
+            .toSet()
+            .toList(growable: false)
       : const [];
 
   static const defaults = VpnRoutingPolicy();

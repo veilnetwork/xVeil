@@ -1871,6 +1871,19 @@ class AppL10nEn extends AppL10n {
   String get vpnCidrsInvalid => 'Every route must be a valid IPv4 or IPv6 CIDR';
 
   @override
+  String get vpnIncludedCountries => 'Countries routed through VPN (GeoIP)';
+
+  @override
+  String get vpnExcludedCountries => 'Countries bypassing VPN (GeoIP)';
+
+  @override
+  String get vpnCountriesHint =>
+      'Two-letter country codes separated by spaces or commas, e.g. KZ, RU. Uses the bundled IPdeny snapshot; GeoIP is approximate.';
+
+  @override
+  String get vpnCountriesInvalid => 'Use two-letter country codes such as KZ';
+
+  @override
   String get vpnRouteDns => 'Route DNS through VPN';
 
   @override
