@@ -130,6 +130,7 @@ class MethodChannelVpnBackend implements VpnBackend {
       // Android's VpnService descriptors contain raw IP packets. Apple
       // packet-flow adapters add their own family metadata when needed.
       packetInformation: false,
+      routeDns: policy.routeDns,
     );
     if (result != 0) {
       await _invokeRaw('abort');
