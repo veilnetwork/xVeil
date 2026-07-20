@@ -12,17 +12,16 @@ Message _msg(
   String? fileId,
   String? fileContentId,
   String? name,
-}) =>
-    Message(
-      id: id,
-      conversationId: 'c',
-      direction: MessageDirection.incoming,
-      body: name == null ? 'text' : '📎 $name',
-      timestamp: DateTime(2026, 1, 1),
-      fileId: fileId,
-      fileContentId: fileContentId,
-      fileName: name,
-    );
+}) => Message(
+  id: id,
+  conversationId: 'c',
+  direction: MessageDirection.incoming,
+  body: name == null ? 'text' : '📎 $name',
+  timestamp: DateTime(2026, 1, 1),
+  fileId: fileId,
+  fileContentId: fileContentId,
+  fileName: name,
+);
 
 void main() {
   test('collects image messages in display order, keyed like the bubble', () {
@@ -46,9 +45,33 @@ void main() {
   test('empty and no-media conversations yield an empty set', () {
     expect(conversationGalleryItems(const []), isEmpty);
     expect(
-      conversationGalleryItems([_msg('t1'), _msg('d', fileId: 'x', name: 'x.zip')]),
+      conversationGalleryItems([
+        _msg('t1'),
+        _msg('d', fileId: 'x', name: 'x.zip'),
+      ]),
       isEmpty,
     );
+  });
+
+  test('raw gallery byte cache is bounded to current and adjacent pages', () {
+    final items = <GalleryItem>[
+      for (var i = 0; i < 100; i++)
+        (id: 'm$i', fileKey: 'f$i', name: '$i.png', thumb: null),
+    ];
+
+    expect(mediaGalleryRetainedKeys(items, 50), {'f49', 'f50', 'f51'});
+    expect(mediaGalleryRetainedKeys(items, 0), {'f0', 'f1'});
+    expect(mediaGalleryRetainedKeys(items, 99), {'f98', 'f99'});
+    expect(mediaGalleryRetainedKeys(items, 500), {'f98', 'f99'});
+    expect(mediaGalleryRetainedKeys(const [], 0), isEmpty);
+  });
+
+  test('inline media decode tracks physical pixels and stays bounded', () {
+    expect(mediaPreviewCacheDimension(280, 1), 280);
+    expect(mediaPreviewCacheDimension(280, 3), 840);
+    expect(mediaPreviewCacheDimension(280, 100), 2048);
+    expect(mediaPreviewCacheDimension(0, 3), 1);
+    expect(mediaPreviewCacheDimension(double.nan, 3), 1);
   });
 }
 

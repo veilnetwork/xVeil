@@ -45,7 +45,11 @@ import '../chat/vnote_preview.dart';
 import '../chat/cancelable_download_progress.dart';
 import '../chat/camera_capture_screen.dart';
 import '../chat/chat_screen.dart'
-    show ComposerAttachmentAction, MessageComposer, documentIcon;
+    show
+        ComposerAttachmentAction,
+        MessageComposer,
+        documentIcon,
+        mediaPreviewCacheDimension;
 import '../chat/custom_emoji_controller.dart';
 import '../chat/message_markdown.dart';
 import '../chat/reactors_sheet.dart';
@@ -1431,6 +1435,14 @@ class _GroupBubble extends StatelessWidget {
                     base64Decode(att.dataB64),
                     fit: BoxFit.contain,
                     gaplessPlayback: true,
+                    cacheWidth: mediaPreviewCacheDimension(
+                      140,
+                      MediaQuery.devicePixelRatioOf(context),
+                    ),
+                    cacheHeight: mediaPreviewCacheDimension(
+                      140,
+                      MediaQuery.devicePixelRatioOf(context),
+                    ),
                     errorBuilder: (_, _, _) =>
                         const Icon(Icons.broken_image_outlined),
                   ),
@@ -1519,6 +1531,14 @@ class _GroupBubble extends StatelessWidget {
                                     base64Decode(message.attachment!.dataB64),
                                     fit: BoxFit.cover,
                                     gaplessPlayback: true,
+                                    cacheWidth: mediaPreviewCacheDimension(
+                                      240,
+                                      MediaQuery.devicePixelRatioOf(context),
+                                    ),
+                                    cacheHeight: mediaPreviewCacheDimension(
+                                      320,
+                                      MediaQuery.devicePixelRatioOf(context),
+                                    ),
                                     errorBuilder: (_, _, _) =>
                                         const Icon(Icons.broken_image_outlined),
                                   ),
@@ -1726,64 +1746,121 @@ class _GroupFileAttachment extends ConsumerWidget {
 /// store once fetched, else the in-message thumb with a download affordance /
 /// live progress ring on top. Completion flips [contentProgressProvider]
 /// (entry removed) → rebuild → the store now holds the blob → full render.
-class _GroupRefImage extends ConsumerWidget {
+class _GroupRefImage extends ConsumerStatefulWidget {
   const _GroupRefImage({required this.attachment, this.onFetch});
   final GroupAttachment attachment;
   final VoidCallback? onFetch;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final cid = attachment.cid!;
+  ConsumerState<_GroupRefImage> createState() => _GroupRefImageState();
+}
+
+class _GroupRefImageState extends ConsumerState<_GroupRefImage> {
+  Uint8List? _full;
+  bool _loadInFlight = false;
+  bool _wasDownloading = false;
+  DateTime? _lastAttemptAt;
+
+  String get _cid => widget.attachment.cid!;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  Future<void> _load() async {
+    if (_loadInFlight) return;
+    final cid = _cid;
+    _loadInFlight = true;
+    _lastAttemptAt = DateTime.now();
+    Uint8List? bytes;
+    try {
+      bytes = await ref.read(storageProvider).loadFile(cid);
+    } catch (_) {
+      // Keep the thumb/download affordance and retry after a provider signal.
+    } finally {
+      _loadInFlight = false;
+    }
+    if (!mounted) return;
+    if (_cid != cid) {
+      unawaited(_load());
+      return;
+    }
+    if (bytes != null) setState(() => _full = bytes);
+  }
+
+  @override
+  void didUpdateWidget(covariant _GroupRefImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.attachment.cid != widget.attachment.cid) {
+      _full = null;
+      _lastAttemptAt = null;
+      unawaited(_load());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cid = _cid;
     final progress = ref.watch(contentProgressProvider.select((m) => m[cid]));
     final resuming = ref.watch(
       contentResumingProvider.select((ids) => ids.contains(cid)),
     );
     final downloading = progress != null || resuming;
+    final downloadEnded = _wasDownloading && !downloading;
+    _wasDownloading = downloading;
+    final last = _lastAttemptAt;
+    final throttleElapsed =
+        last == null ||
+        DateTime.now().difference(last) > const Duration(seconds: 2);
+    if (_full == null && !_loadInFlight && (downloadEnded || throttleElapsed)) {
+      unawaited(_load());
+    }
     void cancel() => _cancelGroupContentDownload(ref, cid);
-    return FutureBuilder<Uint8List?>(
-      future: ref.read(storageProvider).loadFile(cid).catchError((_) => null),
-      builder: (context, snap) {
-        final full = snap.connectionState == ConnectionState.done
-            ? snap.data
-            : null;
-        Uint8List? thumbBytes;
-        try {
-          thumbBytes = base64Decode(attachment.dataB64);
-        } catch (_) {
-          /* corrupt thumb — icon fallback below */
-        }
-        final img = full ?? thumbBytes;
-        return Stack(
-          alignment: Alignment.center,
-          fit: StackFit.expand,
-          children: [
-            if (img != null)
-              Image.memory(
-                img,
-                fit: BoxFit.cover,
-                gaplessPlayback: true,
-                errorBuilder: (_, _, _) =>
-                    const Icon(Icons.broken_image_outlined),
-              )
-            else
-              const Icon(Icons.broken_image_outlined),
-            if (full == null && downloading)
-              Center(
-                child: CancelableDownloadProgress(
-                  progress: progress,
-                  onCancel: cancel,
-                  size: 40,
-                  strokeWidth: 3,
-                ),
-              ),
-            if (full == null && !downloading && onFetch != null)
-              IconButton.filledTonal(
-                onPressed: onFetch,
-                icon: const Icon(Icons.download),
-              ),
-          ],
-        );
-      },
+    Uint8List? thumbBytes;
+    try {
+      thumbBytes = base64Decode(widget.attachment.dataB64);
+    } catch (_) {
+      // Corrupt thumb — icon fallback below.
+    }
+    final image = _full ?? thumbBytes;
+    return Stack(
+      alignment: Alignment.center,
+      fit: StackFit.expand,
+      children: [
+        if (image != null)
+          Image.memory(
+            image,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            cacheWidth: mediaPreviewCacheDimension(
+              240,
+              MediaQuery.devicePixelRatioOf(context),
+            ),
+            cacheHeight: mediaPreviewCacheDimension(
+              320,
+              MediaQuery.devicePixelRatioOf(context),
+            ),
+            errorBuilder: (_, _, _) => const Icon(Icons.broken_image_outlined),
+          )
+        else
+          const Icon(Icons.broken_image_outlined),
+        if (_full == null && downloading)
+          Center(
+            child: CancelableDownloadProgress(
+              progress: progress,
+              onCancel: cancel,
+              size: 40,
+              strokeWidth: 3,
+            ),
+          ),
+        if (_full == null && !downloading && widget.onFetch != null)
+          IconButton.filledTonal(
+            onPressed: widget.onFetch,
+            icon: const Icon(Icons.download),
+          ),
+      ],
     );
   }
 }
