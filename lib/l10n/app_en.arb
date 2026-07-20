@@ -731,6 +731,7 @@
   "callDevices": "Devices",
   "callCameras": "Cameras",
   "callMicrophones": "Microphones",
+  "callScreens": "Screens",
   "callNoCaptureDevices": "No capture devices available",
   "callDeviceSwitchFailed": "Could not switch device",
   "callSwitchCamera": "Switch camera",

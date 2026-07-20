@@ -225,7 +225,10 @@ class _FakeEngine implements GroupAudioEngine {
   bool stopCamera() => true;
 
   @override
-  bool startScreen() => true;
+  bool startScreen({String? sourceId}) => true;
+
+  @override
+  List<MediaDevice> listScreens() => const [];
 
   @override
   bool stopScreen() => true;

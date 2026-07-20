@@ -4189,6 +4189,12 @@ abstract class AppL10n {
   /// **'Microphones'**
   String get callMicrophones;
 
+  /// No description provided for @callScreens.
+  ///
+  /// In en, this message translates to:
+  /// **'Screens'**
+  String get callScreens;
+
   /// No description provided for @callNoCaptureDevices.
   ///
   /// In en, this message translates to:

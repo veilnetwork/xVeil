@@ -2233,6 +2233,9 @@ class AppL10nEn extends AppL10n {
   String get callMicrophones => 'Microphones';
 
   @override
+  String get callScreens => 'Screens';
+
+  @override
   String get callNoCaptureDevices => 'No capture devices available';
 
   @override

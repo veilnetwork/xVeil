@@ -16,6 +16,7 @@ import 'package:xveil/domain/group_reaction.dart';
 import 'package:xveil/state/group_epoch_service.dart';
 import 'package:xveil/state/group_call_service.dart';
 import 'package:xveil/state/group_service.dart';
+import 'package:xveil/state/call_service.dart';
 
 import 'support/fake_hv_container.dart';
 
@@ -89,7 +90,21 @@ class _Media extends GroupCallMediaController {
   int updates = 0;
   int stops = 0;
   GroupCall? latest;
+  String? selectedScreenId;
   final StreamController<void> screenStops = StreamController.broadcast();
+  final List<CallMediaDevice> screens = const [
+    CallMediaDevice(
+      id: 'display-1',
+      label: 'Studio display',
+      kind: CallMediaDeviceKind.screen,
+      selected: true,
+    ),
+    CallMediaDevice(
+      id: 'display-2',
+      label: 'Projector',
+      kind: CallMediaDeviceKind.screen,
+    ),
+  ];
 
   @override
   Stream<void> get screenShareStopped => screenStops.stream;
@@ -110,6 +125,16 @@ class _Media extends GroupCallMediaController {
   @override
   Future<void> stop() async {
     stops++;
+  }
+
+  @override
+  Future<List<CallMediaDevice>> listScreens() async => screens;
+
+  @override
+  Future<bool> selectScreen(String id) async {
+    if (!screens.any((screen) => screen.id == id)) return false;
+    selectedScreenId = id;
+    return true;
   }
 }
 
@@ -549,6 +574,10 @@ void main() {
       expect(ownerCalls.current?.micOn, isTrue);
       expect(ownerCalls.current?.cameraOn, isFalse);
       expect(ownerCalls.current?.screenOn, isTrue);
+      expect(await ownerCalls.listScreens(), ownerMedia.screens);
+      expect(await ownerCalls.selectScreen('display-2'), isTrue);
+      expect(ownerMedia.selectedScreenId, 'display-2');
+      expect(await ownerCalls.selectScreen('missing'), isFalse);
 
       ownerMedia.screenStops.add(null);
       await pumpEventQueue();

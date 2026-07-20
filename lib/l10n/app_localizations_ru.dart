@@ -2248,6 +2248,9 @@ class AppL10nRu extends AppL10n {
   String get callMicrophones => 'Микрофоны';
 
   @override
+  String get callScreens => 'Экраны';
+
+  @override
   String get callNoCaptureDevices => 'Устройства захвата недоступны';
 
   @override

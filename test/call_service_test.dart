@@ -66,6 +66,12 @@ void main() {
       async.flushMicrotasks();
       expect(micSelected, isTrue);
       expect(media.selectedMicrophone, 'usb');
+
+      var screenSelected = false;
+      svc.selectScreen('display-2').then((value) => screenSelected = value);
+      async.flushMicrotasks();
+      expect(screenSelected, isTrue);
+      expect(media.selectedScreen, 'display-2');
     });
   });
 
@@ -1538,6 +1544,7 @@ class _FakeMedia extends CallMediaController {
   final StreamController<void> screenStops = StreamController.broadcast();
   String? selectedCamera;
   String? selectedMicrophone;
+  String? selectedScreen;
 
   @override
   Future<List<CallMediaDevice>> listCameras() async => [
@@ -1573,6 +1580,21 @@ class _FakeMedia extends CallMediaController {
   ];
 
   @override
+  Future<List<CallMediaDevice>> listScreens() async => const [
+    CallMediaDevice(
+      id: 'display-1',
+      label: 'Main display',
+      kind: CallMediaDeviceKind.screen,
+      selected: true,
+    ),
+    CallMediaDevice(
+      id: 'display-2',
+      label: 'External display',
+      kind: CallMediaDeviceKind.screen,
+    ),
+  ];
+
+  @override
   Future<bool> selectCamera(String id) async {
     selectedCamera = id;
     return true;
@@ -1581,6 +1603,12 @@ class _FakeMedia extends CallMediaController {
   @override
   Future<bool> selectMicrophone(String id) async {
     selectedMicrophone = id;
+    return true;
+  }
+
+  @override
+  Future<bool> selectScreen(String id) async {
+    selectedScreen = id;
     return true;
   }
 

@@ -19,7 +19,7 @@ import 'veil_call_media.dart';
 const _uuid = Uuid();
 Future<bool> _neverP2P(NodeId peer) async => false;
 
-enum CallMediaDeviceKind { camera, microphone }
+enum CallMediaDeviceKind { camera, microphone, screen }
 
 /// A locally available capture device. IDs never leave this endpoint; call
 /// signaling only carries the media set, not hardware details.
@@ -122,8 +122,10 @@ abstract class CallMediaController {
 
   Future<List<CallMediaDevice>> listCameras() async => const [];
   Future<List<CallMediaDevice>> listMicrophones() async => const [];
+  Future<List<CallMediaDevice>> listScreens() async => const [];
   Future<bool> selectCamera(String id) async => false;
   Future<bool> selectMicrophone(String id) async => false;
+  Future<bool> selectScreen(String id) async => false;
 
   /// Mount the video pipeline (send + receive) on the live session of a call
   /// that started audio-only — the mid-call audio→video upgrade. Does NOT
@@ -424,6 +426,9 @@ class CallService {
   Future<List<CallMediaDevice>> listMicrophones() =>
       _media?.listMicrophones() ?? Future.value(const []);
 
+  Future<List<CallMediaDevice>> listScreens() =>
+      _media?.listScreens() ?? Future.value(const []);
+
   Future<bool> selectCamera(String id) async {
     final c = _current;
     if (c == null || !c.isLive) return false;
@@ -434,6 +439,12 @@ class CallService {
     final c = _current;
     if (c == null || !c.isLive) return false;
     return await _media?.selectMicrophone(id) ?? false;
+  }
+
+  Future<bool> selectScreen(String id) async {
+    final c = _current;
+    if (c == null || !c.isLive) return false;
+    return await _media?.selectScreen(id) ?? false;
   }
 
   /// Phone-oriented one-tap front/back switch. Multiple lenses of the same

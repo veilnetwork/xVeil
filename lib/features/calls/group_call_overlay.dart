@@ -13,10 +13,12 @@ import '../../domain/group_call.dart';
 import '../../domain/group_policy.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
+import '../../state/call_service.dart' show CallMediaDevice;
 import '../../state/group_call_service.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/veil_group_call_media.dart';
 import 'call_lifecycle_bridge.dart' show callPipMode;
+import 'call_device_picker.dart';
 import 'video_frame_view.dart';
 
 /// Global room surface for the signed group-call control plane.
@@ -36,6 +38,8 @@ class _GroupCallOverlayState extends ConsumerState<GroupCallOverlay> {
   String? _callId;
   bool _minimized = false;
   bool _pipActive = false;
+  bool _screenDevicesLoading = false;
+  List<CallMediaDevice>? _screenDevices;
 
   @override
   void initState() {
@@ -55,6 +59,38 @@ class _GroupCallOverlayState extends ConsumerState<GroupCallOverlay> {
     setState(() => _pipActive = callPipMode.value);
   }
 
+  Future<void> _toggleScreen(GroupCallService calls, GroupCall call) async {
+    if (call.screenOn) {
+      await calls.setScreenShareEnabled(false);
+      return;
+    }
+    if (!Platform.isMacOS) {
+      await calls.setScreenShareEnabled(true);
+      return;
+    }
+    if (_screenDevicesLoading) return;
+    setState(() => _screenDevicesLoading = true);
+    final devices = await calls.listScreens();
+    if (!mounted) return;
+    setState(() => _screenDevicesLoading = false);
+    if (devices.length <= 1) {
+      if (devices case [final only]) await calls.selectScreen(only.id);
+      await calls.setScreenShareEnabled(true);
+      return;
+    }
+    setState(() => _screenDevices = devices);
+  }
+
+  Future<void> _selectScreen(
+    GroupCallService calls,
+    CallMediaDevice device,
+  ) async {
+    setState(() => _screenDevices = null);
+    if (await calls.selectScreen(device.id)) {
+      await calls.setScreenShareEnabled(true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final ready = ref.watch(
@@ -72,6 +108,7 @@ class _GroupCallOverlayState extends ConsumerState<GroupCallOverlay> {
     if (_callId != call.callId) {
       _callId = call.callId;
       _minimized = false;
+      _screenDevices = null;
     }
 
     // Bound the room before the asynchronous group metadata resolves. This
@@ -118,7 +155,7 @@ class _GroupCallOverlayState extends ConsumerState<GroupCallOverlay> {
               onLeave: () => unawaited(calls.leave()),
             );
           }
-          return Material(
+          final room = Material(
             color: const Color(0xF20E1116),
             child: SafeArea(
               child: GroupCallRoomView(
@@ -136,12 +173,24 @@ class _GroupCallOverlayState extends ConsumerState<GroupCallOverlay> {
                 onMic: () => unawaited(calls.setMicEnabled(!call.micOn)),
                 onCamera: () =>
                     unawaited(calls.setCameraEnabled(!call.cameraOn)),
-                onScreen: () =>
-                    unawaited(calls.setScreenShareEnabled(!call.screenOn)),
+                onScreen: () => unawaited(_toggleScreen(calls, call)),
                 localVideoFrame: nativeMedia?.localVideoFrame,
                 videoFrameFor: nativeMedia?.videoFrameFor,
               ),
             ),
+          );
+          final devices = _screenDevices;
+          if (devices == null) return room;
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              room,
+              CallDevicePickerPanel(
+                devices: devices,
+                onDismiss: () => setState(() => _screenDevices = null),
+                onSelect: (device) => unawaited(_selectScreen(calls, device)),
+              ),
+            ],
           );
         },
       ),
