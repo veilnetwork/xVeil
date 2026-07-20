@@ -17,9 +17,11 @@ class CallBitrateAdapter {
   final int baseBitrateKbps;
   final int baseFps;
 
-  /// Fractions of the base budget, best-first. The last rung also reduces fps:
-  /// at that point the link is bad enough that fewer, better frames beat rate.
+  /// Fractions of the base budget, best-first. Frame cadence walks down with
+  /// the same congestion rung: on the ordered relay path fewer fresh frames
+  /// beat a full-rate source accumulating seconds of stale work.
   static const List<double> ladder = [1.0, 0.75, 0.5, 0.3];
+  static const List<double> fpsLadder = [1.0, 0.75, 0.5, 0.3];
 
   /// Consecutive bad samples (~seconds) before stepping down.
   static const int degradeAfter = 2;
@@ -79,11 +81,9 @@ class CallBitrateAdapter {
 
   /// Target for the current rung.
   ({int maxBitrateKbps, int maxFps}) get target => (
-        maxBitrateKbps: (baseBitrateKbps * ladder[_level]).round(),
-        maxFps: _level == ladder.length - 1
-            ? (baseFps * 2 / 3).round().clamp(5, baseFps)
-            : baseFps,
-      );
+    maxBitrateKbps: (baseBitrateKbps * ladder[_level]).round(),
+    maxFps: (baseFps * fpsLadder[_level]).round().clamp(5, baseFps),
+  );
 
   /// Feed one stats sample; returns the new target when the rung changed and
   /// null otherwise. `rttMs` of 0 means "unknown yet" and is not judged.
@@ -103,10 +103,12 @@ class CallBitrateAdapter {
     // itself already high.
     final rttBad =
         rttMs > 0 &&
-        (rttMs >= 400 || (baseline != null && rttMs >= baseline + bloatDegradeMs));
+        (rttMs >= 400 ||
+            (baseline != null && rttMs >= baseline + bloatDegradeMs));
     final rttGood =
         rttMs == 0 ||
-        (rttMs < 250 && (baseline == null || rttMs <= baseline + bloatRecoverMs));
+        (rttMs < 250 &&
+            (baseline == null || rttMs <= baseline + bloatRecoverMs));
 
     final bad = txLossPct >= 5 || txJitterMs >= 80 || rttBad || newDrops;
     final good = txLossPct <= 1 && txJitterMs < 40 && rttGood && !newDrops;
