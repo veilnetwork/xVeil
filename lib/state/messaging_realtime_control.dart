@@ -1,0 +1,249 @@
+part of 'messaging_core.dart';
+
+/// Latency-critical 1:1 call and direct-endpoint control plane.
+///
+/// Owns the dedicated serialized inbound lane, its session-scoped consent
+/// cache, and outbound live-lane selection. Durable persistence and re-drive
+/// remain owned by [_MessagingOutbox].
+class _MessagingRealtimeControl {
+  _MessagingRealtimeControl(this._owner);
+
+  final MessagingService _owner;
+
+  /// Follow-up call control is accepted only by CallService's active
+  /// `(peer, callId)` FSM. New offers are consent-checked here first.
+  void Function(NodeId peer, CallSignal signal)? onCallSignal;
+
+  /// Endpoint exchange can initiate a dial and is therefore always gated by an
+  /// accepted relationship before this callback fires.
+  void Function(NodeId peer, String bodyJson)? onP2PEndpoints;
+
+  final Set<String> _acceptedPeers = {};
+  Future<void> _inboundChain = Future<void>.value();
+
+  bool isAccepted(NodeId peer) => _acceptedPeers.contains(peer.hex);
+
+  void markAccepted(NodeId peer) => _acceptedPeers.add(peer.hex);
+
+  void revoke(NodeId peer) => _acceptedPeers.remove(peer.hex);
+
+  /// Serialize APP_RT frames independently from the durable inbox. A transient
+  /// failure drops only one datagram and cannot poison later answer/end frames.
+  Future<void> deliverInbound(InboundMessage message) {
+    final next = _inboundChain.then((_) async {
+      try {
+        await _handleInbound(message);
+      } catch (error, stackTrace) {
+        devLog(
+          () =>
+              'xVeil[call-sig]: realtime dispatch FAILED '
+              'from=${message.src.short}: $error\n$stackTrace',
+        );
+      }
+    });
+    _inboundChain = next;
+    return next;
+  }
+
+  Future<void> _handleInbound(InboundMessage message) async {
+    late final WireEnvelope envelope;
+    try {
+      envelope = WireEnvelope.decode(message.payload);
+    } catch (error) {
+      devLog(
+        () =>
+            'xVeil[call-sig]: realtime decode FAILED '
+            'from=${message.src.short}: $error',
+      );
+      return;
+    }
+    if (envelope.kind != WireKind.callSignal &&
+        envelope.kind != WireKind.p2pEndpoints) {
+      // Fail closed: APP_RT must not become a route around message consent.
+      return;
+    }
+
+    if (envelope.kind == WireKind.p2pEndpoints) {
+      if (!isAccepted(message.src)) {
+        final contact = await _owner._storage.getContact(message.src);
+        if (contact?.status != ContactStatus.accepted) return;
+        markAccepted(message.src);
+      }
+      final frameId = envelope.frameId;
+      if (frameId != null) {
+        final fresh = _owner._outbox.remember(frameId);
+        unawaited(_owner._ackFrame(message, frameId));
+        if (!fresh) return;
+      }
+      _noteInbound(message.src);
+      devLog(
+        () =>
+            'xVeil[p2p]: realtime in endpoints from=${message.src.short} '
+            '(${envelope.body.length} B)',
+      );
+      onP2PEndpoints?.call(message.src, envelope.body);
+      return;
+    }
+
+    final signal = CallSignal.tryDecode(envelope.body);
+    if (signal == null) return;
+    // Only an offer can create a call. Follow-ups avoid a storage read because
+    // CallService independently checks the exact active `(peer, callId)`.
+    if (signal.type == CallSignalType.offer && !isAccepted(message.src)) {
+      final contact = await _owner._storage.getContact(message.src);
+      if (contact?.status != ContactStatus.accepted) return;
+      markAccepted(message.src);
+    }
+    final frameId = envelope.frameId;
+    if (frameId != null) {
+      final fresh = _owner._outbox.remember(frameId);
+      // Delivery into the call FSM is latency-critical; ACK storage/mailbox
+      // work runs independently after dedup state is recorded.
+      unawaited(_owner._ackFrame(message, frameId));
+      if (!fresh) return;
+    }
+    _noteInbound(message.src);
+    devLog(() {
+      final sentAt = signal.sentAtMs;
+      final age = sentAt == null
+          ? 'n/a'
+          : '${_owner._now().millisecondsSinceEpoch - sentAt}ms';
+      return 'xVeil[call-sig]: realtime in type=${signal.type.name} '
+          'call=${signal.callId} from=${message.src.short} age=$age';
+    });
+    onCallSignal?.call(message.src, signal);
+  }
+
+  void _noteInbound(NodeId peer) {
+    _owner._peerSync.noteInbound(peer);
+    _owner._nudgeRetries(peer.hex);
+    _owner.noteInboundFromPeer(peer);
+  }
+
+  Future<void> sendRealtime(NodeId peer, Uint8List wire) {
+    final transport = _owner._transport;
+    if (transport is RealtimeTransport) {
+      return (transport as RealtimeTransport).sendRealtime(
+        peer,
+        wire,
+        anonymous: _owner._anonymous,
+      );
+    }
+    return _owner._send(peer, wire);
+  }
+
+  /// Race admitted realtime and ordinary contact lanes for call control. Both
+  /// copies share one durable frame id, so receiver dedup makes this safe.
+  Future<void> _sendCallLive(NodeId peer, Uint8List wire) async {
+    if (_owner._anonymous) {
+      await sendRealtime(peer, wire);
+      return;
+    }
+    if (_owner._transport is! RealtimeTransport) {
+      await _owner._send(peer, wire);
+      return;
+    }
+    await Future.wait<void>([
+      _attempt('call-sig', 'contact', peer, () => _owner._send(peer, wire)),
+      _attempt('call-sig', 'realtime', peer, () => sendRealtime(peer, wire)),
+    ]);
+  }
+
+  /// Endpoint exchange creates the direct session, so race the pre-admission
+  /// contact lane with realtime instead of waiting for a mailbox re-drive.
+  Future<void> _sendP2PBootstrap(NodeId peer, Uint8List wire) async {
+    if (_owner._transport is! RealtimeTransport) {
+      await _owner._send(peer, wire);
+      return;
+    }
+    await Future.wait<void>([
+      _attempt(
+        'p2p',
+        'bootstrap contact',
+        peer,
+        () => _owner._send(peer, wire),
+      ),
+      _attempt(
+        'p2p',
+        'bootstrap realtime',
+        peer,
+        () => sendRealtime(peer, wire),
+      ),
+    ]);
+  }
+
+  Future<void> _attempt(
+    String scope,
+    String lane,
+    NodeId peer,
+    Future<void> Function() send,
+  ) async {
+    try {
+      await send();
+    } catch (error) {
+      devLog(
+        () =>
+            'xVeil[$scope]: $lane live leg failed '
+            'peer=${peer.short}: $error',
+      );
+    }
+  }
+
+  Future<void> sendCallSignal(NodeId peer, CallSignal signal) async {
+    final contact = await _owner._storage.getContact(peer);
+    if (contact == null || contact.status != ContactStatus.accepted) return;
+    markAccepted(peer);
+    final stamped = signal.sentAtMs == null
+        ? signal.copyWith(sentAtMs: _owner._now().millisecondsSinceEpoch)
+        : signal;
+    devLog(
+      () =>
+          'xVeil[call-sig]: out type=${stamped.type.name} '
+          'call=${stamped.callId} to=${peer.short}',
+    );
+    final envelope = WireEnvelope.callSignal(stamped.encode());
+    if (stamped.type == CallSignalType.health) {
+      try {
+        await sendRealtime(peer, envelope.encode());
+      } catch (_) {
+        // A subsequent heartbeat supersedes this best-effort frame.
+      }
+      return;
+    }
+    final frameId = stamped.type == CallSignalType.renegotiate
+        ? 'call:${signal.callId}:${signal.type.name}:${stamped.sentAtMs}'
+        : 'call:${signal.callId}:${signal.type.name}';
+    await _owner.sendDurable(
+      peer,
+      frameId,
+      envelope,
+      liveSender: (wire) => _sendCallLive(peer, wire),
+      awaitLive: false,
+      startLiveBeforeEnqueue: true,
+    );
+  }
+
+  Future<void> sendP2PEndpoints(
+    NodeId peer,
+    String bodyJson, {
+    required int sentAtMs,
+  }) async {
+    final contact = await _owner._storage.getContact(peer);
+    if (contact == null || contact.status != ContactStatus.accepted) return;
+    markAccepted(peer);
+    devLog(
+      () =>
+          'xVeil[p2p]: out endpoints to=${peer.short} '
+          '(${bodyJson.length} B)',
+    );
+    final envelope = WireEnvelope.p2pEndpoints(bodyJson);
+    await _owner.sendDurable(
+      peer,
+      'p2p:ep:$sentAtMs',
+      envelope,
+      liveSender: (wire) => _sendP2PBootstrap(peer, wire),
+      awaitLive: false,
+      startLiveBeforeEnqueue: true,
+    );
+  }
+}
