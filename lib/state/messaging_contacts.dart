@@ -41,9 +41,9 @@ class _MessagingContacts {
       (existing ?? Contact(nodeId: peer)).copyWith(status: status),
     );
     if (status == ContactStatus.accepted) {
-      _owner._acceptedRealtimePeers.add(peer.hex);
+      _owner._realtimeControl.markAccepted(peer);
     } else {
-      _owner._acceptedRealtimePeers.remove(peer.hex);
+      _owner._realtimeControl.revoke(peer);
     }
     _owner.onContactStatusChanged?.call(peer, status);
   }
@@ -64,9 +64,9 @@ class _MessagingContacts {
       (existing ?? Contact(nodeId: peer)).copyWith(status: status),
     );
     if (status == ContactStatus.accepted) {
-      _owner._acceptedRealtimePeers.add(peer.hex);
+      _owner._realtimeControl.markAccepted(peer);
     } else {
-      _owner._acceptedRealtimePeers.remove(peer.hex);
+      _owner._realtimeControl.revoke(peer);
     }
     _owner._signal();
     return true;
