@@ -1,14 +1,37 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
+import 'package:xveil/data/storage/kv_log_store.dart';
+
+class _CountingFakeKvLogStore extends FakeKvLogStore {
+  int iterLogRangeCalls = 0;
+
+  @override
+  List<KvLogEntry> iterLogRange({
+    required int namespace,
+    int? start,
+    int? end,
+    required int limit,
+  }) {
+    iterLogRangeCalls++;
+    return super.iterLogRange(
+      namespace: namespace,
+      start: start,
+      end: end,
+      limit: limit,
+    );
+  }
+}
 
 void main() {
   late HiddenVolumeStorage storage;
+  late _CountingFakeKvLogStore fake;
 
   setUp(() async {
-    final fake = FakeKvLogStore();
+    fake = _CountingFakeKvLogStore();
     storage = HiddenVolumeStorage(
       ({required password, required bool create}) => fake,
     );
@@ -49,12 +72,16 @@ void main() {
     await storage.enqueueOutboxFrame('a', 'p1', wire('1'));
     await storage.enqueueOutboxFrame('b', 'p2', wire('2'));
     await storage.enqueueOutboxFrame('c', 'p1', wire('3'));
-    expect((await storage.pendingOutboxFrames()).map((f) => f.frameId).toSet(),
-        {'a', 'b', 'c'});
+    expect(
+      (await storage.pendingOutboxFrames()).map((f) => f.frameId).toSet(),
+      {'a', 'b', 'c'},
+    );
 
     await storage.ackOutboxFrame('b');
-    expect((await storage.pendingOutboxFrames()).map((f) => f.frameId).toSet(),
-        {'a', 'c'});
+    expect(
+      (await storage.pendingOutboxFrames()).map((f) => f.frameId).toSet(),
+      {'a', 'c'},
+    );
   });
 
   test('re-enqueue after ack works (self-heal path)', () async {
@@ -67,4 +94,106 @@ void main() {
     expect(pending.length, 1);
     expect(pending.single.wire, wire('v2'));
   });
+
+  test(
+    'concurrent duplicate enqueue persists one payload and index row',
+    () async {
+      await Future.wait([
+        for (var i = 0; i < 16; i++)
+          storage.enqueueOutboxFrame('same', 'peer', wire('payload')),
+      ]);
+
+      expect(await storage.pendingOutboxFrames(), hasLength(1));
+      expect(fake.count(Ns.outbox), 1);
+      expect(fake.count(Ns.outboxIndex), 1);
+    },
+  );
+
+  test(
+    'legacy journal migrates in pages and reopens from pending index',
+    () async {
+      await storage.close();
+      final ops = <KvLogOp>[];
+      var logId = 1;
+      for (var i = 0; i < 300; i++) {
+        final id = 'retired-$i';
+        ops
+          ..add(
+            AppendLogOp(
+              Ns.outbox,
+              logId++,
+              Uint8List.fromList(
+                utf8.encode(
+                  jsonEncode({
+                    'id': id,
+                    'p': 'peer',
+                    'w': base64.encode(wire('old')),
+                  }),
+                ),
+              ),
+            ),
+          )
+          ..add(
+            AppendLogOp(
+              Ns.outbox,
+              logId++,
+              Uint8List.fromList(
+                utf8.encode(jsonEncode({'op': 'ack', 'id': id})),
+              ),
+            ),
+          );
+      }
+      ops.add(
+        AppendLogOp(
+          Ns.outbox,
+          logId,
+          Uint8List.fromList(
+            utf8.encode(
+              jsonEncode({
+                'id': 'still-pending',
+                'p': 'peer',
+                'w': base64.encode(wire('live')),
+              }),
+            ),
+          ),
+        ),
+      );
+      fake.commit(ops);
+
+      storage = HiddenVolumeStorage(
+        ({required password, required bool create}) => fake,
+      );
+      await storage.open(password: 'pw');
+      var pending = await storage.pendingOutboxFrames();
+      expect(pending.map((frame) => frame.frameId), ['still-pending']);
+      expect(fake.iterLogRangeCalls, greaterThanOrEqualTo(3));
+      expect(
+        fake.count(Ns.outbox),
+        1,
+        reason: 'migration must retain only the indexed live payload row',
+      );
+
+      final migrationScans = fake.iterLogRangeCalls;
+      await storage.pendingOutboxFrames();
+      expect(fake.iterLogRangeCalls, migrationScans);
+
+      await storage.close();
+      storage = HiddenVolumeStorage(
+        ({required password, required bool create}) => fake,
+      );
+      await storage.open(password: 'pw');
+      pending = await storage.pendingOutboxFrames();
+      expect(pending.map((frame) => frame.frameId), ['still-pending']);
+      expect(
+        fake.iterLogRangeCalls,
+        migrationScans,
+        reason: 'the durable pending index must replace historical rescans',
+      );
+
+      await storage.ackOutboxFrame('still-pending');
+      expect(await storage.pendingOutboxFrames(), isEmpty);
+      expect(fake.count(Ns.outbox), 0);
+      expect(fake.count(Ns.outboxIndex), 0);
+    },
+  );
 }

@@ -1459,6 +1459,11 @@ class MessagingService {
   /// the stash dedup) and, backed off per frame, re-send live. Called from
   /// [flushOutbox].
   Future<void> _flushOutboxFrames() async {
+    // The retry timer outlives a lock/unlock cycle. Do not wake the storage
+    // worker every three seconds while its encrypted space is deliberately
+    // closed; the first normal flush after unlock will pick the durable index
+    // up immediately.
+    if (!_storage.isOpen) return;
     final List<OutboxFrame> pending;
     try {
       pending = await _storage.pendingOutboxFrames();
