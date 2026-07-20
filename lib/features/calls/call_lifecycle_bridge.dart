@@ -238,10 +238,21 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
   void _syncForegroundService(Call? call, GroupCall? groupCall) {
     final directLive = call != null && call.status != CallStatus.ended;
     final groupLive = groupCall != null && groupCall.isLive;
+    final directCapture =
+        directLive &&
+        (call.status == CallStatus.connecting ||
+            call.status == CallStatus.active);
+    final groupCapture =
+        groupLive &&
+        (groupCall.status == GroupCallStatus.connecting ||
+            groupCall.status == GroupCallStatus.active);
     final key = directLive
-        ? 'direct:${call.callId}:${call.status.name}:${call.peer.short}'
+        ? 'direct:${call.callId}:${call.status.name}:${call.peer.short}:'
+              '${directCapture && call.micOn}:${directCapture && call.cameraOn}'
         : groupLive
-        ? 'group:${groupCall.callId}:${groupCall.status.name}'
+        ? 'group:${groupCall.callId}:${groupCall.status.name}:'
+              '${groupCapture && groupCall.micOn}:'
+              '${groupCapture && groupCall.cameraOn}'
         : 'none';
     if (key == _lastServiceKey) return;
     _lastServiceKey = key;
@@ -274,6 +285,16 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
         text: call.peer.short,
         hangupAction: true,
         ringing: call.isIncoming && call.status == CallStatus.ringing,
+        microphone:
+            (call.status == CallStatus.connecting ||
+                call.status == CallStatus.active) &&
+            call.micOn,
+        camera:
+            (call.status == CallStatus.connecting ||
+                call.status == CallStatus.active) &&
+            call.cameraOn &&
+            call.media.video &&
+            !call.media.screen,
       );
       return;
     }
@@ -286,6 +307,16 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
       text: groupCall.groupId.short,
       hangupAction: true,
       ringing: ringing,
+      microphone:
+          (groupCall.status == GroupCallStatus.connecting ||
+              groupCall.status == GroupCallStatus.active) &&
+          groupCall.micOn,
+      camera:
+          (groupCall.status == GroupCallStatus.connecting ||
+              groupCall.status == GroupCallStatus.active) &&
+          groupCall.cameraOn &&
+          groupCall.media.video &&
+          !groupCall.media.screen,
     );
   }
 

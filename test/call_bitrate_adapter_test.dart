@@ -34,12 +34,13 @@ void main() {
     expect(first, isNotNull);
     expect(a.level, 1);
     expect(first!.maxBitrateKbps, 675);
-    expect(first.maxFps, 60);
+    expect(first.maxFps, 45);
 
     expect(lossy(a), isNull);
     final second = lossy(a);
     expect(a.level, 2);
     expect(second!.maxBitrateKbps, 450);
+    expect(second.maxFps, 30);
   });
 
   test('bottom rung also reduces fps and never goes lower', () {
@@ -50,7 +51,7 @@ void main() {
     }
     expect(a.level, CallBitrateAdapter.ladder.length - 1);
     expect(last!.maxBitrateKbps, 270);
-    expect(last.maxFps, 40); // 60 * 2/3 rounded
+    expect(last.maxFps, 18);
     // Further bad samples keep the floor.
     for (var i = 0; i < 10; i++) {
       expect(lossy(a), isNull);
