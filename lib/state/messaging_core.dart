@@ -44,6 +44,7 @@ part 'messaging_device_mirror.dart';
 part 'messaging_outbox.dart';
 part 'messaging_realtime_control.dart';
 part 'messaging_mailbox_delivery.dart';
+part 'messaging_message_delivery.dart';
 
 /// Wires the [VeilTransport] inbound stream into [Storage] and exposes a send
 /// path. Persists every message, then signals [changes] so the read providers
@@ -137,6 +138,8 @@ class MessagingService {
       _MessagingRealtimeControl(this);
   final _MessagingMailboxDelivery _mailboxDelivery =
       _MessagingMailboxDelivery();
+  late final _MessagingMessageDelivery _messageDelivery =
+      _MessagingMessageDelivery(this);
 
   /// Whether this identity routes over the onion rendezvous (sender-location
   /// hidden). Fixed per identity at boot from its roster `anonymous` flag — an
@@ -529,33 +532,6 @@ class MessagingService {
     _mailboxDelivery.paused = value;
   }
 
-  /// Per-message live-resend backoff. The outbox flush fires every
-  /// [_retryInterval] (3s), but re-sending EVERY un-acked message on EVERY tick
-  /// is a storm when delivery is lossy (observed 789 re-sends in one session,
-  /// each a full onion send + an FFI hop that, in bulk, starved the UI isolate
-  /// into a freeze). Instead each message backs off exponentially after its
-  /// first re-send: 3s, 6s, 12s, 24s, capped at [_maxRetryBackoff]. The first
-  /// send (sendText) and the first re-send are unchanged, so a transient loss
-  /// still recovers in seconds; only a persistently-undeliverable message stops
-  /// hammering. Cleared when the message is acked (delivered).
-  final Map<String, ({int count, DateTime nextAt, String peer})> _retryBackoff =
-      {};
-  static const _maxRetryBackoff = Duration(seconds: 24);
-
-  /// Peer-alive nudge throttle: [_nudgeRetries] rewinds a peer's pending
-  /// re-sends on EVERY inbound from them, so an active peer must not turn
-  /// that into a re-send per received message — at most one nudge per peer
-  /// per [_retryInterval].
-  final Map<String, DateTime> _lastNudgeAt = {};
-
-  /// Message ids we've seen a DELIVERED ack for this session. A peer's mailbox
-  /// drain re-acks every cycle until its relay blob ages out, so duplicate acks
-  /// arrive in a storm; this makes the ack handler idempotent (mark + log once)
-  /// and lets the outbox flush cancel a re-send synchronously on the first ack,
-  /// before the durable status write resolves. Durable `MessageStatus.delivered`
-  /// remains the source of truth across restart — this is only an early-cancel.
-  final Set<String> _delivered = {};
-
   /// Resumable-file re-ship (§15 3c): answer a peer's [WireKind.fileNack] for a
   /// given (peer, transfer) at most once per [_fileNackInterval] (a flood can't
   /// drive a blob re-read + chunk re-send storm), and cap the chunks one NACK
@@ -567,22 +543,6 @@ class MessagingService {
   final Map<String, DateTime> _lastFileNackAt = {};
   static const _fileNackInterval = Duration(seconds: 3);
   static const _fileNackChunkCap = 256;
-
-  /// Bounded reconnect (recovery handshake, §15.7). When a message stays un-acked
-  /// past [_reconnectThreshold] the peer may have wiped its chat data + forgotten
-  /// us (so our sends hit its consent gate and drop). We send a
-  /// [WireKind.reconnect] re-intro at most every [_reconnectInterval] (throttled
-  /// per peer via [_lastReconnectAt]). Give-up is PER MESSAGE, anchored to the
-  /// message's OWN age: once a message stays un-acked past [_reconnectGiveUpAge]
-  /// it flips to [MessageStatus.failed] ("not delivered"). This is deliberately
-  /// NOT a shared per-peer counter — a chatty conversation to a dead peer would
-  /// keep resetting such a counter and an old undelivered message would never
-  /// terminate. The send throttle resets only when the peer acks (reachable);
-  /// a later gap-fill beacon can still heal a failed message if the peer returns.
-  final Map<String, DateTime> _lastReconnectAt = {};
-  static const _reconnectThreshold = Duration(minutes: 2);
-  static const _reconnectInterval = Duration(minutes: 15);
-  static const _reconnectGiveUpAge = Duration(minutes: 90);
 
   /// Attach the offline-delivery [MailboxService] after construction (it is
   /// built with [deliverInbound] as its drain sink, so it must exist first).
@@ -598,17 +558,6 @@ class MessagingService {
   /// path — it is a `WireEnvelope`, so [_dispatch] decodes it, applies the
   /// consent gate, stores it, acks, and dedups by id against any live delivery.
   Future<void> deliverInbound(InboundMessage m) => _onInbound(m);
-
-  /// How often to re-send still-un-acked messages. Covers the case where the
-  /// RECIPIENT was offline (e.g. the peer switched to another identity, taking
-  /// that identity's node down) — our node-connect flush only fires on OUR
-  /// reconnect, so without this a message to a temporarily-offline peer would
-  /// never be retried. Bounded: a message stops being re-sent once acked.
-  // Re-send un-acked messages this often. Kept short so a live send that was
-  // dropped (circuit not ready) is retried in a few seconds rather than feeling
-  // stuck. Re-sends are cheap (dedup by id receiver-side; the deposit is skipped
-  // once stashed), so a tight interval mainly buys lower delivery latency.
-  static const _retryInterval = Duration(seconds: 3);
 
   /// Emits whenever stored conversations/messages change.
   Stream<void> get changes => _changes.stream;
@@ -641,7 +590,10 @@ class MessagingService {
             _onRealtimeInbound(message);
           });
     }
-    _retryTimer ??= Timer.periodic(_retryInterval, (_) => _retryFlush());
+    _retryTimer ??= Timer.periodic(
+      _messageDelivery.retryInterval,
+      (_) => _retryFlush(),
+    );
     unawaited(_loadFilePolicy()); // this identity's auto-download policy (A1)
     // Serve inbound bulk file streams (S2) when the transport supports them.
     if (_transport is StreamTransport) unawaited(_acceptStreamLoop());
@@ -688,30 +640,7 @@ class MessagingService {
     }
   }
 
-  /// Peer-alive nudge. ANY inbound from a peer proves the live path is healthy
-  /// RIGHT NOW, so sitting out an exponential backoff window (up to 24s) on
-  /// messages we still owe them stretches a healed transport stall into
-  /// user-visible latency (device-measured: a ~10s stall became a 30-60s
-  /// delivery because the next re-send was 24s away). Rewind their pending
-  /// re-sends to due-now and kick a flush; the backoff COUNT is kept, so if
-  /// the path is one-way-broken the doubling resumes on the next miss.
-  void _nudgeRetries(String peerHex) {
-    final now = DateTime.now();
-    final last = _lastNudgeAt[peerHex];
-    if (last != null && now.difference(last) < _retryInterval) return;
-    _lastNudgeAt[peerHex] = now;
-    var nudged = false;
-    for (final id in _retryBackoff.keys.toList()) {
-      final bo = _retryBackoff[id]!;
-      if (bo.peer == peerHex && bo.nextAt.isAfter(now)) {
-        _retryBackoff[id] = (count: bo.count, nextAt: now, peer: bo.peer);
-        nudged = true;
-      }
-    }
-    // Durable control frames use the same alive-now rewind as messages.
-    if (_outbox.nudge(peerHex)) nudged = true;
-    if (nudged) unawaited(_retryFlush());
-  }
+  void _nudgeRetries(String peerHex) => _messageDelivery.nudge(peerHex);
 
   /// Our node (re)connected — reconcile now. Clear the per-peer gap-fill throttle
   /// so the [WireKind.sync] beacon fires IMMEDIATELY for every peer (a reconnect
@@ -1172,14 +1101,11 @@ class MessagingService {
           // del, clear, accept, reconnect): stop re-driving + re-stashing it.
           // A no-op when ackId is an ordinary message id (not in the outbox).
           _retireOutboxFrame(ackId);
-          _retryBackoff.remove(ackId); // stop backing off a delivered message
-          // The peer is reachable + still holds us — reset the reconnect throttle.
-          _lastReconnectAt.remove(m.src.hex);
           // Idempotent: the peer's drain re-acks every cycle until its relay
           // blob ages out, so duplicate acks arrive in a storm. Mark delivered +
           // log + write storage only ONCE per id — re-doing it on every dup was
           // hammering the store (the user-visible "storage opens slowly").
-          if (_delivered.add(ackId)) {
+          if (_messageDelivery.noteAck(m.src.hex, ackId)) {
             // [timeline] sender-side "delivered" moment — pair with the send t0
             // to get the full perceived round-trip. id + time only.
             devLog(
@@ -1762,163 +1688,7 @@ class MessagingService {
   /// `sent`, not yet `delivered`) to accepted contacts. Driven on node-connect /
   /// app-start so messages composed while offline are delivered on reconnect;
   /// the receiver dedups by id, so re-sending an already-delivered one is safe.
-  Future<void> flushOutbox() async {
-    // Durable control frames (sign, …) re-driven first — independent of any
-    // per-conversation message state, so they flow even for a peer with no
-    // pending chat messages.
-    await _flushOutboxFrames();
-    // Conversation sync, reconnect probes, and message retries use the normal
-    // onion/contact path. They are durable background work and can wait for
-    // hangup; only call-control frames above remain latency-critical here.
-    if (backgroundStashPaused) return;
-    final convs = await _storage.loadConversations();
-    for (final conv in convs) {
-      if (conv.peer.status != ContactStatus.accepted) continue;
-      // Event-log gap-fill beacon (§15, 3c): advertise what we hold so the peer
-      // re-ships anything we are missing — and our beacon-back heals the peer.
-      // Throttled per peer by the sync subsystem; live-only, so it is independent
-      // of the mailbox backoff below. The first tick after a (re)connect fires
-      // immediately (no throttle entry yet), so reconnect triggers reconciliation.
-      _sendSyncBestEffort(conv.peer.nodeId);
-      final msgs = await _storage.loadMessages(conv.id);
-      // Bounded reconnect + terminal "not delivered" (§15.7). Runs BEFORE the
-      // resolve-backoff `continue` below so even a never-resolving peer's messages
-      // eventually terminate at failed instead of retrying forever.
-      await _maybeReconnect(conv.peer.nodeId, msgs);
-      // Ghost give-up: a contact whose mailbox seal keeps failing
-      // `PeerUnresolved` (a dead/old identity) is backed off per-peer, so we stop
-      // re-sending to it every 3s forever. Escalating + non-permanent — the next
-      // allowed tick retries, so a peer that resolves again still gets delivered.
-      if (_mailboxDelivery.peerBackedOff(
-        conv.peer.nodeId.hex,
-        DateTime.now(),
-      )) {
-        continue;
-      }
-      for (final m in msgs) {
-        if (m.direction == MessageDirection.outgoing &&
-            m.status == MessageStatus.sent &&
-            // Synchronous early-cancel: the durable status flips to `delivered`
-            // a moment later (async write), so without this the next flush could
-            // re-send a just-acked message in that window.
-            !_delivered.contains(m.id) &&
-            !m.isFile) {
-          // Exponential per-message backoff: skip this flush if the message is
-          // still within its backoff window (delivery is lossy, so re-sending
-          // every un-acked message every 3s is a storm). First re-send fires
-          // immediately (no entry yet); each subsequent one doubles 3->6->12->24
-          // capped, so a persistent loss stops hammering the UI/onion path.
-          final now = DateTime.now();
-          final bo = _retryBackoff[m.id];
-          if (bo != null && now.isBefore(bo.nextAt)) continue;
-          final count = (bo?.count ?? 0) + 1;
-          // Shift exponent clamped: count keeps growing while un-acked, and an
-          // unclamped 1<<63 wraps the delay to 0 — silently un-backing-off.
-          final delayMs =
-              (_retryInterval.inMilliseconds * (1 << (count - 1).clamp(0, 10)))
-                  .clamp(0, _maxRetryBackoff.inMilliseconds);
-          _retryBackoff[m.id] = (
-            count: count,
-            nextAt: now.add(Duration(milliseconds: delayMs)),
-            peer: conv.peer.nodeId.hex,
-          );
-          // Re-send with the ORIGINAL send time AND seq so a message recovered
-          // via the outbox retry (not gap-fill) folds under OUR (author, seq) on
-          // the peer — without the seq it would land under a divergent locally-
-          // allocated seq, breaking convergence for the common retry path.
-          final wire = WireEnvelope.message(
-            m.body,
-            id: m.id,
-            sentAtMs: m.timestamp.millisecondsSinceEpoch,
-            seq: m.seq,
-            replyTo: m.replyToId,
-            forwardedFrom: m.forwardedFrom,
-            customEmoji: m.customEmoji,
-          ).encode();
-          // Re-sends do NOT request a reply: the first send already attached one
-          // (sendText), and building a fresh one-time reply circuit on EVERY 3s
-          // retry was the dominant circuit-build load (the reply path can't be
-          // reused anyway). A plain re-send arrives with replyId==0, so the peer
-          // ACKs over the durable resolve+circuit path — reliable, and it stops
-          // the retry once it lands. This keeps the fast-ACK chance (first send)
-          // without the per-retry circuit storm.
-          // [timeline] one line per re-send so a session's retry count per id is
-          // countable (a high count = the ACK round-trip is lagging). id only.
-          devLog(
-            () =>
-                'xVeil[timeline]: retry id=${m.id} '
-                't=${DateTime.now().millisecondsSinceEpoch}',
-          );
-          await _send(conv.peer.nodeId, wire);
-          // Also deposit at the recipient's mailbox relay so an OFFLINE peer
-          // receives it (live re-send above only lands if they're online). Keep
-          // this in the background: sealing/PUT can take a full anonymous
-          // round-trip, and should not block later live retries in this pass.
-          _stashInBackground(conv.peer.nodeId, m.id, wire);
-        }
-      }
-    }
-  }
-
-  /// Bounded reconnect handshake (§15.7) for one peer. [msgs] is that peer's
-  /// conversation. If a message has stayed un-acked past [_reconnectThreshold],
-  /// the peer may have wiped its chat data and forgotten us — send a re-intro
-  /// ([WireKind.reconnect]) so it can re-accept; throttled per peer to one every
-  /// [_reconnectInterval]. Give-up is PER MESSAGE: a message un-acked past
-  /// [_reconnectGiveUpAge] flips to [MessageStatus.failed] ("not delivered") so
-  /// it stops retrying — anchored to the message's OWN age, NOT a shared counter
-  /// (a steady drip of new sends to a dead peer must not keep an old undelivered
-  /// message alive forever). A later gap-fill beacon can still heal it if the
-  /// peer returns. (Offline-vs-wiped is indistinguishable — no presence oracle;
-  /// an online accepted peer just re-acks the reconnect, harmless.)
-  Future<void> _maybeReconnect(NodeId peer, List<Message> msgs) async {
-    final now = _now();
-    var failedAny = false;
-    var anyTrying = false; // a stuck message still within the give-up window
-    for (final m in msgs) {
-      if (m.direction != MessageDirection.outgoing ||
-          m.status != MessageStatus.sent ||
-          _delivered.contains(m.id) ||
-          now.difference(m.timestamp) <= _reconnectThreshold) {
-        continue;
-      }
-      if (now.difference(m.timestamp) > _reconnectGiveUpAge) {
-        // Terminal "not delivered" for THIS message. Stops the outbox retry
-        // (status no longer `sent`); a later gap-fill beacon can still recover it.
-        await _storage.markMessageStatus(peer.hex, m.id, MessageStatus.failed);
-        failedAny = true;
-      } else {
-        anyTrying = true;
-      }
-    }
-    if (failedAny) _signal();
-    final reconnectFid = 'reconnect:${peer.hex}';
-    if (!anyTrying) {
-      // Nothing left to re-intro for — reset the throttle AND retire a
-      // still-pending durable reconnect: the messages it was trying to revive
-      // are done (delivered or terminally failed), so re-driving it forever at
-      // a peer that plainly isn't coming back is pure ghost load. The map
-      // check keeps this free of a storage round-trip on the common idle tick
-      // (post-restart, _flushOutboxFrames re-seeds the map before this runs).
-      if (_lastReconnectAt.remove(peer.hex) != null ||
-          _outbox.hasLiveEntry(reconnectFid)) {
-        _retireOutboxFrame(reconnectFid);
-      }
-      return;
-    }
-    final last = _lastReconnectAt[peer.hex];
-    if (last != null && now.difference(last) < _reconnectInterval) return;
-    _lastReconnectAt[peer.hex] = now;
-    // Re-intro with an empty greeting — the contact only needs to surface as a
-    // pending intro on a peer that forgot us; the user accepting heals delivery.
-    // DURABLE (see [sendDurable]) as ONE logical frame per peer: the pipeline
-    // re-drives it on its own backoff between our 15-min attempts, and each
-    // attempt forces a fresh mailbox deposit (the relay copy may have aged out
-    // while the peer was away).
-    _mailboxDelivery.removeStashed(reconnectFid);
-    await sendDurable(peer, reconnectFid, const WireEnvelope.reconnect(''));
-    devLog(() => 'xVeil[reconnect]: -> ${peer.short}');
-  }
+  Future<void> flushOutbox() => _messageDelivery.flush();
 
   void _sendSyncBestEffort(NodeId peer, {bool force = false}) =>
       _peerSync.sendBestEffort(peer, force: force);
