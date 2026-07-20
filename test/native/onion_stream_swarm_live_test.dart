@@ -501,11 +501,6 @@ void main() {
               '$finalPuller pull',
             );
             await mB.dispose();
-            // The old accept loop can be parked in acceptStream(timeout: 2s).
-            // In a real process restart it disappears immediately; inside this
-            // single test process, let that pending accept drain before the new
-            // MessagingService starts competing for inbound streams.
-            await Future<void>.delayed(const Duration(milliseconds: 2500));
             mB = makeService(tB, sB);
             mB.start();
             await Future<void>.delayed(const Duration(milliseconds: 250));

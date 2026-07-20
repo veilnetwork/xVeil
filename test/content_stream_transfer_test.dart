@@ -197,6 +197,7 @@ class _GateWriteStream implements ReliableStream {
   final void Function(_GateWriteStream stream) onBlocked;
   final Completer<void> _release = Completer<void>();
   bool _blocked = false;
+  bool aborted = false;
 
   void release() {
     if (!_release.isCompleted) _release.complete();
@@ -224,7 +225,11 @@ class _GateWriteStream implements ReliableStream {
   @override
   Future<void> close() => _inner.close();
   @override
-  Future<void> abort() => _inner.abort();
+  Future<void> abort() async {
+    aborted = true;
+    release();
+    await _inner.abort();
+  }
 }
 
 /// Datagram + reliable-stream loopback link between two peers.
@@ -247,6 +252,9 @@ class _StreamLink
   int openedStreamCount = 0;
   int p2pOpenStreamAttemptCount = 0;
   int p2pOpenedStreamCount = 0;
+  int localStreamCloses = 0;
+  int activeAnonymousAccepts = 0;
+  int maxConcurrentAnonymousAccepts = 0;
   Completer<void>? _acceptWaiter;
   Completer<void>? _p2pAcceptWaiter;
 
@@ -304,7 +312,10 @@ class _StreamLink
     final w = p._acceptWaiter;
     p._acceptWaiter = null;
     w?.complete();
-    return _PipeEnd(aToB, bToA);
+    return _OnCloseStream(
+      _PipeEnd(aToB, bToA),
+      onClose: () => localStreamCloses++,
+    );
   }
 
   @override
@@ -329,14 +340,22 @@ class _StreamLink
   Future<({ReliableStream stream, NodeId src})?> acceptStream({
     Duration timeout = const Duration(seconds: 2),
   }) async {
-    if (_accepts.isEmpty) {
-      try {
-        await (_acceptWaiter = Completer<void>()).future.timeout(timeout);
-      } catch (_) {
-        return null; // timed out
-      }
+    activeAnonymousAccepts++;
+    if (activeAnonymousAccepts > maxConcurrentAnonymousAccepts) {
+      maxConcurrentAnonymousAccepts = activeAnonymousAccepts;
     }
-    return _accepts.isEmpty ? null : _accepts.removeAt(0);
+    try {
+      if (_accepts.isEmpty) {
+        try {
+          await (_acceptWaiter = Completer<void>()).future.timeout(timeout);
+        } catch (_) {
+          return null; // timed out
+        }
+      }
+      return _accepts.isEmpty ? null : _accepts.removeAt(0);
+    } finally {
+      activeAnonymousAccepts--;
+    }
   }
 
   @override
@@ -446,6 +465,120 @@ void main() {
       );
     },
   );
+
+  test(
+    'messaging restart hands the parked accept loop to the replacement without '
+    'a second concurrent accept or restart delay',
+    () async {
+      expect(tB.activeAnonymousAccepts, 1);
+      expect(tB.maxConcurrentAnonymousAccepts, 1);
+
+      final sw = Stopwatch()..start();
+      await mB.dispose();
+      mB = MessagingService(
+        tB,
+        sB,
+        contentPacing: Duration.zero,
+        plainFileStream: true,
+      )..start();
+      sw.stop();
+
+      expect(sw.elapsed, lessThan(const Duration(milliseconds: 500)));
+      expect(
+        tB.maxConcurrentAnonymousAccepts,
+        1,
+        reason: 'the replacement must reuse the transport accept broker',
+      );
+
+      final data = _rnd(350000, 702);
+      await mA.setFileDownloadPolicy(
+        mA.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+      final cid = await mB.sendFileStreaming(
+        a,
+        'after-restart.bin',
+        data.length,
+        (offset, length) async =>
+            Uint8List.sublistView(data, offset, offset + length),
+        close: () async {},
+      );
+      expect(cid, isNotNull);
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      final got = mA.contentReceived.firstWhere(
+        (event) => event.contentId == cid,
+      );
+      expect(await mA.downloadContent(b, cid!), ContentDownloadResult.started);
+      await got.timeout(const Duration(seconds: 10));
+      expect(await sA.loadFile(cid), data);
+      expect(tB.maxConcurrentAnonymousAccepts, 1);
+    },
+  );
+
+  test('dispose aborts and joins an active stream serve', () async {
+    final data = _rnd(600000, 703);
+    final cid = await advertiseFromA(data, name: 'dispose-serve.bin');
+    final blocked = Completer<_GateWriteStream>();
+    tA.acceptStreamWrappers.add(
+      (stream) => _GateWriteStream(
+        stream,
+        chunkBytes: 4096,
+        onBlocked: (gate) {
+          if (!blocked.isCompleted) blocked.complete(gate);
+        },
+      ),
+    );
+
+    expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+    final gate = await blocked.future.timeout(const Duration(seconds: 5));
+    await mA.dispose().timeout(const Duration(seconds: 2));
+    expect(gate.aborted, isTrue);
+
+    // Keep the shared tearDown idempotent by replacing the explicitly disposed
+    // service; no stream work is started on this final instance.
+    mA = MessagingService(
+      tA,
+      sA,
+      contentPacing: Duration.zero,
+      plainFileStream: true,
+    )..start();
+  });
+
+  test('dispose does not wait for a parked native open and aborts its late '
+      'stream result', () async {
+    final data = _rnd(350000, 704);
+    final cid = await advertiseFromA(data, name: 'pending-open.bin');
+    final closesBefore = tB.localStreamCloses;
+    tB.openStreamDelays[a.hex] = const Duration(milliseconds: 300);
+
+    final pending = mB.downloadContent(a, cid);
+    while (tB.openStreamAttemptCount == 0) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+
+    final sw = Stopwatch()..start();
+    await mB.dispose().timeout(const Duration(milliseconds: 500));
+    sw.stop();
+    expect(sw.elapsed, lessThan(const Duration(milliseconds: 500)));
+    expect(
+      await pending.timeout(const Duration(seconds: 1)),
+      ContentDownloadResult.started,
+    );
+
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    expect(
+      tB.localStreamCloses,
+      greaterThan(closesBefore),
+      reason: 'a stream returned after disposal must be aborted, not leaked',
+    );
+
+    mB = MessagingService(
+      tB,
+      sB,
+      contentPacing: Duration.zero,
+      plainFileStream: true,
+    )..start();
+  });
 
   test(
     'user cancel aborts the live stream, clears durable resume, and permits a '
