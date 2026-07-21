@@ -114,7 +114,12 @@ class VpnController extends Notifier<VpnState> {
     );
     final result = await ref
         .read(vpnBackendProvider)
-        .start(policy: state.policy, socks5Listen: proxy.socks5Listen);
+        .start(
+          policy: state.policy,
+          socks5Listen: proxy.socks5Listen,
+          exitNodeId: proxy.exitNodeId!,
+          obfs4Psk: ref.read(deniableBootProvider)?.obfs4Psk,
+        );
     if (_disposed) return;
     final applied = state.policy.copyWith(enabled: result.isRunning);
     state = VpnState(policy: applied, backend: result);
