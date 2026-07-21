@@ -3,10 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/node/proxy_routing.dart';
 import '../../data/vpn/vpn_backend.dart';
+import '../../data/vpn/vpn_application_catalog.dart';
 import '../../data/vpn/vpn_routing_policy.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/proxy_routing_controller.dart';
 import '../../state/vpn_controller.dart';
+import '../../state/vpn_application_catalog.dart';
 
 /// "Маршрутизация трафика" — configure veil as a traffic proxy. Two independent
 /// roles: route MY traffic out through an exit (SOCKS5 client), and/or serve as
@@ -255,6 +257,81 @@ class _VpnSectionState extends ConsumerState<_VpnSection> {
     _mtu.text = policy.mtu.toString();
   }
 
+  Future<void> _selectApplications(VpnRoutingPolicy policy) async {
+    final l = AppL10n.of(context);
+    List<VpnApplication> applications;
+    try {
+      applications = await ref.read(vpnApplicationsProvider.future);
+    } on Object catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l.vpnApplicationLoadError(error.toString()))),
+      );
+      return;
+    }
+    if (!mounted) return;
+
+    final byId = {
+      for (final application in applications) application.id: application,
+    };
+    for (final id in policy.applicationIds) {
+      byId.putIfAbsent(id, () => VpnApplication(id: id, label: id));
+    }
+    final choices = byId.values.toList(growable: false)
+      ..sort((a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()));
+    final selected = policy.applicationIds.toSet();
+    final result = await showDialog<Set<String>>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(l.vpnApplicationPickerTitle),
+          content: SizedBox(
+            width: 420,
+            child: choices.isEmpty
+                ? Text(l.vpnApplicationPickerEmpty)
+                : ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: choices.length,
+                    itemBuilder: (context, index) {
+                      final application = choices[index];
+                      return CheckboxListTile(
+                        value: selected.contains(application.id),
+                        title: Text(application.label),
+                        subtitle: Text(
+                          application.id,
+                          style: const TextStyle(fontFamily: 'monospace'),
+                        ),
+                        onChanged: (value) => setDialogState(() {
+                          if (value ?? false) {
+                            selected.add(application.id);
+                          } else {
+                            selected.remove(application.id);
+                          }
+                        }),
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(MaterialLocalizations.of(context).cancelButtonLabel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, selected),
+              child: Text(MaterialLocalizations.of(context).okButtonLabel),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (result != null) {
+      _configure(
+        policy.copyWith(applicationIds: result.toList(growable: false)),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.listen(
@@ -285,6 +362,9 @@ class _VpnSectionState extends ConsumerState<_VpnSection> {
     final mtuInvalid =
         parsedMtu == null || parsedMtu < 1280 || parsedMtu > 9000;
     final supported = vpn.backend.phase != VpnBackendPhase.unsupported;
+    final applicationRoutingSupported = ref
+        .watch(vpnApplicationCatalogProvider)
+        .isSupported;
     final canStart = supported && policy.isValid && proxy.vpnTransportReady;
 
     return ExpansionTile(
@@ -333,6 +413,71 @@ class _VpnSectionState extends ConsumerState<_VpnSection> {
                   }
                 },
         ),
+        const SizedBox(height: 12),
+        if (applicationRoutingSupported)
+          DropdownButtonFormField<VpnApplicationMode>(
+            initialValue: policy.applicationMode,
+            decoration: InputDecoration(
+              labelText: l.vpnApplicationRouting,
+              border: const OutlineInputBorder(),
+            ),
+            items: [
+              DropdownMenuItem(
+                value: VpnApplicationMode.allApplications,
+                child: Text(l.vpnApplicationAll),
+              ),
+              DropdownMenuItem(
+                value: VpnApplicationMode.onlySelected,
+                child: Text(l.vpnApplicationOnlySelected),
+              ),
+            ],
+            onChanged: vpn.isRunning || vpn.busy
+                ? null
+                : (value) {
+                    if (value != null) {
+                      _configure(policy.copyWith(applicationMode: value));
+                    }
+                  },
+          )
+        else
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.info_outline),
+            title: Text(l.vpnApplicationRouting),
+            subtitle: Text(l.vpnApplicationUnsupported),
+          ),
+        if (applicationRoutingSupported &&
+            policy.applicationMode == VpnApplicationMode.onlySelected) ...[
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(l.vpnApplicationOnlySelectedHint),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  policy.applicationIds.isEmpty
+                      ? l.vpnApplicationNoneSelected
+                      : l.vpnApplicationSelectedCount(
+                          policy.applicationIds.length,
+                        ),
+                  style: policy.applicationIds.isEmpty
+                      ? TextStyle(color: scheme.error)
+                      : null,
+                ),
+              ),
+              OutlinedButton.icon(
+                onPressed: vpn.isRunning || vpn.busy
+                    ? null
+                    : () => _selectApplications(policy),
+                icon: const Icon(Icons.apps),
+                label: Text(l.vpnApplicationSelect),
+              ),
+            ],
+          ),
+        ],
         if (policy.routeMode == VpnRouteMode.includeOnly) ...[
           const SizedBox(height: 12),
           TextField(

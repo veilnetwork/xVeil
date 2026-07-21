@@ -2,15 +2,41 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/node/proxy_routing.dart';
+import 'package:xveil/data/vpn/vpn_application_catalog.dart';
+import 'package:xveil/data/vpn/vpn_routing_policy.dart';
 import 'package:xveil/features/network/proxy_routing_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/proxy_routing_controller.dart';
+import 'package:xveil/state/vpn_application_catalog.dart';
+import 'package:xveil/state/vpn_controller.dart';
 
 const _exit =
     'aa11bb22cc33dd44ee55ff66007788990011223344556677889900aabbccddee';
 
 Widget _host() => const ProviderScope(
   child: MaterialApp(
+    localizationsDelegates: AppL10n.localizationsDelegates,
+    supportedLocales: AppL10n.supportedLocales,
+    home: ProxyRoutingScreen(),
+  ),
+);
+
+class _FakeApplicationCatalog implements VpnApplicationCatalog {
+  @override
+  bool get isSupported => true;
+
+  @override
+  Future<List<VpnApplication>> listApplications() async => const [
+    VpnApplication(id: 'org.mozilla.firefox', label: 'Firefox'),
+    VpnApplication(id: 'com.android.chrome', label: 'Chrome'),
+  ];
+}
+
+Widget _androidHost() => ProviderScope(
+  overrides: [
+    vpnApplicationCatalogProvider.overrideWithValue(_FakeApplicationCatalog()),
+  ],
+  child: const MaterialApp(
     localizationsDelegates: AppL10n.localizationsDelegates,
     supportedLocales: AppL10n.supportedLocales,
     home: ProxyRoutingScreen(),
@@ -98,5 +124,44 @@ void main() {
       find.byKey(const ValueKey('vpn-toggle')),
     );
     expect(button.onPressed, isNull);
+  });
+
+  testWidgets('Android VPN can be limited to selected applications', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_androidHost());
+    await tester.pumpAndSettle();
+    final l = AppL10n.of(tester.element(find.byType(ProxyRoutingScreen)));
+
+    await tester.tap(find.text(l.vpnTitle));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l.vpnApplicationAll));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l.vpnApplicationOnlySelected).last);
+    await tester.pumpAndSettle();
+
+    expect(find.text(l.vpnApplicationNoneSelected), findsOneWidget);
+    final select = find.widgetWithText(OutlinedButton, l.vpnApplicationSelect);
+    await tester.ensureVisible(select);
+    await tester.tap(select);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(CheckboxListTile, 'Firefox'));
+    await tester.tap(
+      find.widgetWithText(
+        FilledButton,
+        MaterialLocalizations.of(
+          tester.element(find.byType(AlertDialog)),
+        ).okButtonLabel,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(ProxyRoutingScreen)),
+    );
+    final policy = container.read(vpnControllerProvider).policy;
+    expect(policy.applicationMode, VpnApplicationMode.onlySelected);
+    expect(policy.applicationIds, ['org.mozilla.firefox']);
+    expect(policy.isValid, isTrue);
   });
 }
