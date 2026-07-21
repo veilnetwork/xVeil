@@ -24,6 +24,7 @@ esac
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP="$ROOT/build/macos/Build/Products/$APP_SUBDIR/xveil.app"
 ENT="$ROOT/macos/Runner/$ENTITLEMENTS"
+PACKET_TUNNEL_ENT="$ROOT/macos/PacketTunnel/PacketTunnel.entitlements"
 [ -d "$APP" ] || { echo "no .app at $APP — build first" >&2; exit 1; }
 
 HV="$ROOT/third_party/hidden-volume/target/$PROFILE/libhidden_volume_ffi.dylib"
@@ -132,8 +133,49 @@ if [[ "$SIGN_IDENTITY" == "-" ]]; then
 else
   SIGN_LABEL="$SIGN_IDENTITY"
 fi
-echo "re-signing $APP ($SIGN_LABEL, deep, entitlements=$ENTITLEMENTS) after the dylib swap…"
-codesign --force --deep --sign "$SIGN_IDENTITY" --entitlements "$ENT" "$APP"
+echo "re-signing $APP ($SIGN_LABEL, entitlements=$ENTITLEMENTS) after the dylib swap…"
+# Do not use `--deep --entitlements "$ENT"`: codesign then applies the host
+# app's debug relaxations (allow-jit, disable-library-validation, …) to the
+# nested PacketTunnel system extension as well. AMFI rejects that combination
+# at process launch with "Hardened Runtime relaxation entitlements disallowed
+# on System Extensions" even though `codesign --verify --deep` says the bundle
+# is structurally valid. Sign each modified leaf, restore the extension's own
+# restricted entitlement set, then seal the containing app last.
+for dylib in \
+  "$APP/Contents/Frameworks/libhidden_volume_ffi.dylib" \
+  "$APP/Contents/Frameworks/libveilclient_ffi.dylib" \
+  "$APP/Contents/Frameworks/libveil_media.dylib" \
+  "$APP/Contents/Frameworks/libveil_whisper.dylib"
+do
+  [[ -f "$dylib" ]] && codesign --force --sign "$SIGN_IDENTITY" "$dylib"
+done
+PACKET_TUNNEL_APP="$APP/Contents/PlugIns/PacketTunnel.appex"
+if [[ -d "$PACKET_TUNNEL_APP" ]]; then
+  codesign --force --sign "$SIGN_IDENTITY" \
+    --entitlements "$PACKET_TUNNEL_ENT" "$PACKET_TUNNEL_APP"
+fi
+HOST_ENT="$ENT"
+TEMP_HOST_ENT=""
+if [[ "$PROFILE" == "debug" \
+      && -d "$PACKET_TUNNEL_APP" \
+      && ! -f "$APP/Contents/embedded.provisionprofile" ]]; then
+  # The Network Extension entitlement is restricted. A local Flutter debug
+  # build normally has no provisioning profile; retaining that entitlement
+  # beside allow-jit/disable-library-validation makes AMFI classify and reject
+  # the host executable as an improperly relaxed system extension. Keep the
+  # correctly entitled nested provider, but omit the restricted host
+  # entitlement for an unprovisioned local-debug app. Provisioned builds keep
+  # the complete entitlement set and therefore retain system VPN management.
+  TEMP_HOST_ENT="$(mktemp)"
+  cp "$ENT" "$TEMP_HOST_ENT"
+  /usr/libexec/PlistBuddy -c \
+    'Delete :com.apple.developer.networking.networkextension' \
+    "$TEMP_HOST_ENT"
+  HOST_ENT="$TEMP_HOST_ENT"
+  echo "note: signing unprovisioned debug host without restricted Network Extension entitlement"
+fi
+codesign --force --sign "$SIGN_IDENTITY" --entitlements "$HOST_ENT" "$APP"
+[[ -z "$TEMP_HOST_ENT" ]] || rm -f "$TEMP_HOST_ENT"
 codesign --verify --deep "$APP" \
   && echo "codesign OK — bundle seal matches the new dylibs" \
   || { echo "ERROR: codesign verify failed after re-sign" >&2; exit 1; }

@@ -369,26 +369,50 @@ void main() {
       incoming.dispose();
     });
 
-    test('a stalled P2P probe cannot hold the outgoing offer', () async {
-      final fake = _FakeMessaging();
-      final probe = Completer<bool>();
-      final svc = CallService(
-        fake,
-        localAllowsP2P: (_) async => true,
-        peerReachableForP2P: (_) => probe.future,
-      )..start();
-      addTearDown(() {
-        if (!probe.isCompleted) probe.complete(false);
+    test('outgoing offer gives P2P setup the full five-second window', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final probe = Completer<bool>();
+        final svc = CallService(
+          fake,
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) => probe.future,
+        )..start();
+
+        svc.placeCall(peer, const CallMedia(audio: true));
+        async.flushMicrotasks();
+        async.elapse(kCallP2PSetupTimeout - const Duration(milliseconds: 1));
+        expect(fake.sent, isEmpty);
+
+        probe.complete(true);
+        async.flushMicrotasks();
+        expect(fake.sent.single.type, CallSignalType.offer);
+        expect(fake.sent.single.transport?.kind, CallTransportKind.p2p);
         svc.dispose();
       });
+    });
 
-      await svc
-          .placeCall(peer, const CallMedia(audio: true))
-          .timeout(const Duration(milliseconds: 500));
+    test('outgoing offer falls back to relay after five seconds', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final probe = Completer<bool>();
+        final svc = CallService(
+          fake,
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) => probe.future,
+        )..start();
 
-      expect(fake.sent.single.type, CallSignalType.offer);
-      expect(fake.sent.single.transport?.kind, CallTransportKind.relay);
-      expect(probe.isCompleted, isFalse);
+        svc.placeCall(peer, const CallMedia(audio: true));
+        async.flushMicrotasks();
+        async.elapse(kCallP2PSetupTimeout);
+        async.flushMicrotasks();
+
+        expect(fake.sent.single.type, CallSignalType.offer);
+        expect(fake.sent.single.transport?.kind, CallTransportKind.relay);
+        expect(probe.isCompleted, isFalse);
+        probe.complete(false);
+        svc.dispose();
+      });
     });
 
     test('outgoing direct call proposes p2p only when local policy and '
