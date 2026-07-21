@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/vpn/linux_managed_vpn_backend.dart';
+import 'package:xveil/data/vpn/vpn_backend.dart';
+import 'package:xveil/data/vpn/vpn_routing_policy.dart';
 
 void main() {
   test('Linux helper request exposes only the closed privileged schema', () {
@@ -38,4 +40,20 @@ void main() {
     expect(policy, isNot(contains('enabled')));
     expect(policy, isNot(contains('geoIpGeneratedAt')));
   });
+
+  test(
+    'Linux rejects application filtering instead of routing every app',
+    () async {
+      final result = await LinuxManagedVpnBackend().start(
+        policy: const VpnRoutingPolicy(
+          applicationMode: VpnApplicationMode.onlySelected,
+          applicationIds: ['org.mozilla.firefox'],
+        ),
+        socks5Listen: '127.0.0.1:1080',
+        exitNodeId: '00' * 32,
+      );
+      expect(result.phase, VpnBackendPhase.error);
+      expect(result.detail, contains('not supported'));
+    },
+  );
 }

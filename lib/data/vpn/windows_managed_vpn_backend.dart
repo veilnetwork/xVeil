@@ -127,6 +127,12 @@ class WindowsManagedVpnBackend implements VpnBackend {
     required String exitNodeId,
     String? obfs4Psk,
   }) async {
+    if (policy.applicationMode != VpnApplicationMode.allApplications) {
+      return const VpnBackendState(
+        VpnBackendPhase.error,
+        detail: 'Per-application VPN is not supported by the Windows backend',
+      );
+    }
     final existing = await status();
     if (_sessionDirectory != null ||
         existing.phase == VpnBackendPhase.running) {

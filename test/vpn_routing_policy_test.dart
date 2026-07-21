@@ -66,6 +66,8 @@ void main() {
         excludedCidrs: ['192.168.0.0/16', 'fd00::/8'],
         includedCountryCodes: ['DE'],
         excludedCountryCodes: ['KZ', 'RU'],
+        applicationMode: VpnApplicationMode.onlySelected,
+        applicationIds: ['org.mozilla.firefox', 'com.android.chrome'],
         routeDns: false,
         dnsServers: ['9.9.9.9'],
         allowLan: false,
@@ -78,6 +80,11 @@ void main() {
       expect(back.excludedCidrs, ['192.168.0.0/16', 'fd00::/8']);
       expect(back.includedCountryCodes, ['DE']);
       expect(back.excludedCountryCodes, ['KZ', 'RU']);
+      expect(back.applicationMode, VpnApplicationMode.onlySelected);
+      expect(back.applicationIds, [
+        'org.mozilla.firefox',
+        'com.android.chrome',
+      ]);
       expect(back.routeDns, isFalse);
       expect(back.dnsServers, ['9.9.9.9']);
       expect(back.allowLan, isFalse);
@@ -89,7 +96,43 @@ void main() {
         VpnRoutingPolicy.fromJson(unknown).routeMode,
         VpnRouteMode.allTraffic,
       );
+      unknown['applicationMode'] = 'futureMode';
+      expect(
+        VpnRoutingPolicy.fromJson(unknown).applicationMode,
+        VpnApplicationMode.allApplications,
+      );
     });
+
+    test(
+      'selected-application mode is fail-closed and validates package IDs',
+      () {
+        const empty = VpnRoutingPolicy(
+          applicationMode: VpnApplicationMode.onlySelected,
+        );
+        expect(empty.validate(), contains('applicationIds.empty'));
+
+        expect(
+          VpnRoutingPolicy.isValidApplicationId('org.mozilla.firefox'),
+          isTrue,
+        );
+        expect(
+          VpnRoutingPolicy.isValidApplicationId('com.example.app_2'),
+          isTrue,
+        );
+        expect(VpnRoutingPolicy.isValidApplicationId('firefox'), isFalse);
+        expect(
+          VpnRoutingPolicy.isValidApplicationId('com.example.bad-id'),
+          isFalse,
+        );
+        expect(
+          const VpnRoutingPolicy(
+            applicationMode: VpnApplicationMode.onlySelected,
+            applicationIds: ['org.mozilla.firefox'],
+          ).isValid,
+          isTrue,
+        );
+      },
+    );
 
     test('validates country codes without pretending GeoIP is exact', () {
       expect(VpnRoutingPolicy.isValidCountryCode('KZ'), isTrue);
@@ -116,6 +159,17 @@ void main() {
       expect(routes.length, greaterThan(100));
       expect(routes.any((route) => route.contains(':')), isTrue);
       expect(expanded['geoIpGeneratedAt'], isNotEmpty);
+    });
+
+    test('preserves application selection while expanding GeoIP', () async {
+      final expanded = await GeoIpCountryRoutes.expandPolicy(
+        const VpnRoutingPolicy(
+          applicationMode: VpnApplicationMode.onlySelected,
+          applicationIds: ['org.mozilla.firefox'],
+        ),
+      );
+      expect(expanded['applicationMode'], 'onlySelected');
+      expect(expanded['applicationIds'], ['org.mozilla.firefox']);
     });
 
     test('fails closed for a country absent from the snapshot', () async {
