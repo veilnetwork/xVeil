@@ -1,17 +1,48 @@
+import 'dart:convert';
+
+import 'package:dartssh2/dartssh2.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/node/managed_node.dart';
+import 'package:xveil/data/node/ssh_credentials.dart';
 import 'package:xveil/features/network/managed_nodes_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/managed_nodes_controller.dart';
 import 'package:xveil/state/proxy_routing_controller.dart';
+import 'package:xveil/state/ssh_credentials.dart';
 
 const _exit =
     'aa11bb22cc33dd44ee55ff66007788990011223344556677889900aabbccddee';
 
-Widget _host() => const ProviderScope(
-  child: MaterialApp(
+class _MemorySshCredentialsStore implements SshCredentialsStore {
+  final values = <String, SavedSshCredentials>{};
+
+  @override
+  Future<SavedSshCredentials> load(String nodeId) async =>
+      values[nodeId] ?? const SavedSshCredentials();
+
+  @override
+  Future<void> save(String nodeId, SavedSshCredentials credentials) async {
+    if (credentials.isEmpty) {
+      values.remove(nodeId);
+    } else {
+      values[nodeId] = credentials;
+    }
+  }
+
+  @override
+  Future<void> clear(String nodeId) async => values.remove(nodeId);
+}
+
+Widget _host({_MemorySshCredentialsStore? credentials}) => ProviderScope(
+  overrides: [
+    sshCredentialsRepositoryProvider.overrideWithValue(
+      credentials ?? _MemorySshCredentialsStore(),
+    ),
+  ],
+  child: const MaterialApp(
     localizationsDelegates: AppL10n.localizationsDelegates,
     supportedLocales: AppL10n.supportedLocales,
     home: ManagedNodesScreen(),
@@ -19,6 +50,33 @@ Widget _host() => const ProviderScope(
 );
 
 void main() {
+  group('SavedSshCredentials', () {
+    test('round-trips password and key material', () {
+      const credentials = SavedSshCredentials(
+        password: 'secret',
+        privateKeyPem: 'PRIVATE',
+        publicKeyOpenSsh: 'ssh-ed25519 PUBLIC xveil',
+      );
+      final decoded = SavedSshCredentials.decode(credentials.encode());
+      expect(decoded.password, 'secret');
+      expect(decoded.privateKeyPem, 'PRIVATE');
+      expect(decoded.publicKeyOpenSsh, 'ssh-ed25519 PUBLIC xveil');
+      expect(decoded.hasPassword, isTrue);
+      expect(decoded.hasKey, isTrue);
+    });
+
+    test('generates an OpenSSH-compatible Ed25519 pair', () async {
+      final generated = await generateSshEd25519KeyPair(comment: 'xveil-test');
+      final parsed = SSHKeyPair.fromPem(generated.privateKeyPem);
+      expect(parsed, hasLength(1));
+      expect(parsed.single, isA<OpenSSHEd25519KeyPair>());
+      final fields = generated.publicKeyOpenSsh.split(' ');
+      expect(fields.first, 'ssh-ed25519');
+      expect(base64Decode(fields[1]), parsed.single.toPublicKey().encode());
+      expect(fields.last, 'xveil-test');
+    });
+  });
+
   group('ManagedNode', () {
     test('round-trips a list through json', () {
       final nodes = [
@@ -186,6 +244,65 @@ void main() {
     expect(saved.sshUser, 'root');
   });
 
+  testWidgets('password and generated Ed25519 key are saved per node', (
+    tester,
+  ) async {
+    String? copied;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+          if (call.method == 'Clipboard.setData') {
+            copied = (call.arguments as Map)['text'] as String?;
+          }
+          return null;
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+    final credentials = _MemorySshCredentialsStore();
+    await tester.pumpWidget(_host(credentials: credentials));
+    await tester.pumpAndSettle();
+    final l = AppL10n.of(tester.element(find.byType(ManagedNodesScreen)));
+
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l.nodesAddExisting));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, l.nodeLabelLabel),
+      'Saved SSH',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, l.nodeIdRequiredLabel),
+      _exit,
+    );
+    await tester.ensureVisible(
+      find.widgetWithText(TextField, l.sshSavedPasswordLabel),
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, l.sshSavedPasswordLabel),
+      'ssh-secret',
+    );
+    await tester.ensureVisible(find.text(l.sshGenerateEd25519));
+    await tester.tap(find.text(l.sshGenerateEd25519));
+    await tester.pumpAndSettle();
+
+    expect(find.text(l.sshSavedEd25519Title), findsOneWidget);
+    expect(find.byTooltip(l.sshCopyPublicKey), findsOneWidget);
+    await tester.tap(find.byTooltip(l.sshCopyPublicKey));
+    await tester.pump();
+    expect(copied, startsWith('ssh-ed25519 '));
+    await tester.ensureVisible(find.text(l.actionSave));
+    await tester.tap(find.text(l.actionSave));
+    await tester.pumpAndSettle();
+
+    final saved = credentials.values.values.single;
+    expect(saved.password, 'ssh-secret');
+    expect(saved.hasKey, isTrue);
+    expect(SSHKeyPair.fromPem(saved.privateKeyPem!), hasLength(1));
+    expect(saved.publicKeyOpenSsh, startsWith('ssh-ed25519 '));
+  });
+
   testWidgets('use-as-exit wires the node id into proxy routing', (
     tester,
   ) async {
@@ -203,6 +320,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.edit_outlined).last);
     await tester.pumpAndSettle();
     final l = AppL10n.of(tester.element(find.byType(ManagedNodesScreen)));
+    await tester.ensureVisible(find.text(l.nodeUseAsExit));
     await tester.tap(find.text(l.nodeUseAsExit));
     await tester.pumpAndSettle();
 
@@ -290,7 +408,11 @@ void main() {
   testWidgets('changing the SSH endpoint drops the stale pin (SSH-MITM)', (
     tester,
   ) async {
-    await tester.pumpWidget(_host());
+    final credentials = _MemorySshCredentialsStore()
+      ..values['p'] = const SavedSshCredentials(
+        password: 'old-server-password',
+      );
+    await tester.pumpWidget(_host(credentials: credentials));
     await tester.pumpAndSettle();
     final container = ProviderScope.containerOf(
       tester.element(find.byType(ManagedNodesScreen)),
@@ -316,6 +438,12 @@ void main() {
       find.widgetWithText(TextField, l.nodeSshHostLabel),
       'other.example',
     );
+    await tester.pump();
+    expect(find.text(l.sshCredentialsEndpointCleared), findsOneWidget);
+    final passwordField = tester.widget<TextField>(
+      find.widgetWithText(TextField, l.sshSavedPasswordLabel),
+    );
+    expect(passwordField.controller!.text, isEmpty);
     await tester.ensureVisible(find.text(l.actionSave));
     await tester.tap(find.text(l.actionSave));
     await tester.pumpAndSettle();
@@ -330,5 +458,6 @@ void main() {
       isNull,
       reason: 'a changed endpoint must drop the pin for the old host',
     );
+    expect(credentials.values.containsKey('p'), isFalse);
   });
 }

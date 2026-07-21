@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
@@ -5,12 +7,15 @@ import 'package:uuid/uuid.dart';
 import '../../data/node/managed_node.dart';
 import '../../data/node/node_probe.dart';
 import '../../data/node/proxy_routing.dart';
+import '../../data/node/ssh_credentials.dart';
 import '../../l10n/app_localizations.dart';
-import 'node_provision_screen.dart';
-import 'node_management_screen.dart';
-import 'ssh_check_dialog.dart';
 import '../../state/managed_nodes_controller.dart';
 import '../../state/proxy_routing_controller.dart';
+import '../../state/ssh_credentials.dart';
+import 'node_management_screen.dart';
+import 'node_provision_screen.dart';
+import 'ssh_check_dialog.dart';
+import 'ssh_public_key_card.dart';
 
 /// "Мои узлы" — the registry of nodes the user runs (a VPS exit, a home relay).
 /// Each carries the node's veil id (so it can be used as a routing exit) and
@@ -184,11 +189,18 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
   late final TextEditingController _host;
   late final TextEditingController _port;
   late final TextEditingController _user;
+  late final TextEditingController _password;
+  String? _privateKeyPem;
+  String? _publicKeyOpenSsh;
   String? _labelError;
   String? _nodeIdError;
   String? _hostError;
   String? _userError;
   bool _probing = false;
+  bool _credentialsLoaded = false;
+  bool _generatingKey = false;
+  bool _saving = false;
+  bool _endpointClearNotified = false;
   ProbeResult? _probeResult;
 
   @override
@@ -200,11 +212,27 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
     _host = TextEditingController(text: e?.sshHost ?? '');
     _port = TextEditingController(text: '${e?.sshPort ?? 22}');
     _user = TextEditingController(text: e?.sshUser ?? '');
+    _password = TextEditingController();
+    _credentialsLoaded = e == null;
+    if (e != null) unawaited(_loadCredentials(e.id));
+  }
+
+  Future<void> _loadCredentials(String nodeId) async {
+    final credentials = await ref
+        .read(sshCredentialsRepositoryProvider)
+        .load(nodeId);
+    if (!mounted) return;
+    _password.text = credentials.password ?? '';
+    setState(() {
+      _privateKeyPem = credentials.privateKeyPem;
+      _publicKeyOpenSsh = credentials.publicKeyOpenSsh;
+      _credentialsLoaded = true;
+    });
   }
 
   @override
   void dispose() {
-    for (final c in [_label, _nodeId, _host, _port, _user]) {
+    for (final c in [_label, _nodeId, _host, _port, _user, _password]) {
       c.dispose();
     }
     super.dispose();
@@ -219,7 +247,63 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
   bool get _isExistingNew =>
       widget.existing == null && widget.createMode == _NodeCreateMode.existing;
 
+  SavedSshCredentials get _credentials => SavedSshCredentials(
+    password: _password.text.isEmpty ? null : _password.text,
+    privateKeyPem: _privateKeyPem,
+    publicKeyOpenSsh: _publicKeyOpenSsh,
+  );
+
+  void _onEndpointChanged() {
+    final existing = widget.existing;
+    if (existing == null || !_credentialsLoaded) return;
+    final changed =
+        existing.sshHost !=
+            (_host.text.trim().isEmpty ? null : _host.text.trim()) ||
+        existing.sshPort != (int.tryParse(_port.text.trim()) ?? 22) ||
+        existing.sshUser !=
+            (_user.text.trim().isEmpty ? null : _user.text.trim());
+    if (!changed || _credentials.isEmpty) return;
+    setState(() {
+      _password.clear();
+      _privateKeyPem = null;
+      _publicKeyOpenSsh = null;
+    });
+    if (_endpointClearNotified) return;
+    _endpointClearNotified = true;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(AppL10n.of(context).sshCredentialsEndpointCleared),
+      ),
+    );
+  }
+
+  Future<void> _generateKey() async {
+    setState(() => _generatingKey = true);
+    try {
+      final pair = await generateSshEd25519KeyPair(
+        comment: _label.text.trim().isEmpty
+            ? 'xveil'
+            : 'xveil-${_label.text.trim()}',
+      );
+      if (!mounted) return;
+      setState(() {
+        _privateKeyPem = pair.privateKeyPem;
+        _publicKeyOpenSsh = pair.publicKeyOpenSsh;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(AppL10n.of(context).sshKeyGenerationFailed('$e')),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _generatingKey = false);
+    }
+  }
+
   Future<void> _save() async {
+    if (!_credentialsLoaded || _saving) return;
     final l = AppL10n.of(context);
     final label = _label.text.trim();
     final nodeId = _nodeId.text.trim();
@@ -283,8 +367,20 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
       sshUser: sshUser,
       sshHostFingerprint: pin,
     );
-    await ref.read(managedNodesProvider.notifier).upsert(node);
-    if (mounted) Navigator.of(context).pop(node);
+    setState(() => _saving = true);
+    try {
+      await ref.read(managedNodesProvider.notifier).upsert(node);
+      await ref
+          .read(sshCredentialsRepositoryProvider)
+          .save(node.id, _credentials);
+      if (mounted) Navigator.of(context).pop(node);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.sshCredentialsSaveFailed('$e'))));
+    }
   }
 
   /// TOFU-pin the host key the connect-and-check dialog observed onto the SAVED
@@ -308,6 +404,7 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
   }
 
   Future<void> _remove() async {
+    await ref.read(sshCredentialsRepositoryProvider).clear(widget.existing!.id);
     await ref.read(managedNodesProvider.notifier).remove(widget.existing!.id);
     if (mounted) Navigator.of(context).pop();
   }
@@ -326,6 +423,34 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
         _probing = false;
         _probeResult = result;
       });
+    }
+  }
+
+  Future<void> _openProvision() async {
+    final existing = widget.existing!;
+    try {
+      await ref
+          .read(sshCredentialsRepositoryProvider)
+          .save(existing.id, _credentials);
+      if (!mounted) return;
+      final node = existing.copyWith(
+        sshHost: _host.text.trim(),
+        sshPort: int.tryParse(_port.text.trim()) ?? 22,
+        sshUser: _user.text.trim(),
+      );
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) =>
+              NodeProvisionScreen(node: node, initialCredentials: _credentials),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(AppL10n.of(context).sshCredentialsSaveFailed('$e')),
+        ),
+      );
     }
   }
 
@@ -449,10 +574,13 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
             ],
             TextField(
               controller: _host,
-              onChanged: (_) => setState(() {
-                _probeResult = null;
-                _hostError = null;
-              }),
+              onChanged: (_) {
+                setState(() {
+                  _probeResult = null;
+                  _hostError = null;
+                });
+                _onEndpointChanged();
+              },
               decoration: InputDecoration(
                 labelText: _isBootstrapNew
                     ? l.nodeSshHostRequiredLabel
@@ -470,6 +598,7 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
                   child: TextField(
                     controller: _port,
                     keyboardType: TextInputType.number,
+                    onChanged: (_) => _onEndpointChanged(),
                     decoration: InputDecoration(
                       labelText: l.nodeSshPortLabel,
                       border: const OutlineInputBorder(),
@@ -482,7 +611,10 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
                   flex: 3,
                   child: TextField(
                     controller: _user,
-                    onChanged: (_) => setState(() => _userError = null),
+                    onChanged: (_) {
+                      setState(() => _userError = null);
+                      _onEndpointChanged();
+                    },
                     decoration: InputDecoration(
                       labelText: _isBootstrapNew
                           ? l.nodeSshUserRequiredLabel
@@ -495,6 +627,57 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
                 ),
               ],
             ),
+            const SizedBox(height: 16),
+            Text(
+              l.sshCredentialsTitle,
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 8),
+            if (!_credentialsLoaded)
+              const LinearProgressIndicator()
+            else ...[
+              TextField(
+                controller: _password,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: l.sshSavedPasswordLabel,
+                  helperText: l.sshSavedPasswordHint,
+                  helperMaxLines: 2,
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                l.sshCredentialsEncryptedHint,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 8),
+              if (_publicKeyOpenSsh != null && _privateKeyPem != null)
+                SshPublicKeyCard(
+                  publicKey: _publicKeyOpenSsh!,
+                  onRemove: () => setState(() {
+                    _privateKeyPem = null;
+                    _publicKeyOpenSsh = null;
+                  }),
+                ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: _generatingKey ? null : _generateKey,
+                icon: _generatingKey
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.key),
+                label: Text(
+                  _privateKeyPem == null
+                      ? l.sshGenerateEd25519
+                      : l.sshRegenerateEd25519,
+                ),
+              ),
+            ],
             const SizedBox(height: 8),
             // Reachability probe — a dependency-free TCP connect to host:port.
             if (_host.text.trim().isNotEmpty)
@@ -536,23 +719,26 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
                     ),
                 ],
               ),
-            // SSH connect & check — needs a user. Opens a one-shot auth dialog;
-            // credentials are never stored.
+            // SSH connect & check — needs a user. Saved credentials are passed
+            // from the encrypted per-node record; overrides remain one-shot.
             if (_host.text.trim().isNotEmpty && _user.text.trim().isNotEmpty)
               Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton.icon(
-                  onPressed: () => showDialog<void>(
-                    context: context,
-                    builder: (_) => SshCheckDialog(
-                      host: _host.text.trim(),
-                      port: int.tryParse(_port.text.trim()) ?? 22,
-                      user: _user.text.trim(),
-                      expectedHostFingerprint:
-                          widget.existing?.sshHostFingerprint,
-                      onHostKeyObserved: _maybePinCheckedHost,
-                    ),
-                  ),
+                  onPressed: !_credentialsLoaded
+                      ? null
+                      : () => showDialog<void>(
+                          context: context,
+                          builder: (_) => SshCheckDialog(
+                            host: _host.text.trim(),
+                            port: int.tryParse(_port.text.trim()) ?? 22,
+                            user: _user.text.trim(),
+                            initialCredentials: _credentials,
+                            expectedHostFingerprint:
+                                widget.existing?.sshHostFingerprint,
+                            onHostKeyObserved: _maybePinCheckedHost,
+                          ),
+                        ),
                   icon: const Icon(Icons.terminal, size: 18),
                   label: Text(l.nodeSshConnect),
                 ),
@@ -566,18 +752,7 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton.icon(
-                  onPressed: () {
-                    final node = widget.existing!.copyWith(
-                      sshHost: _host.text.trim(),
-                      sshPort: int.tryParse(_port.text.trim()) ?? 22,
-                      sshUser: _user.text.trim(),
-                    );
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => NodeProvisionScreen(node: node),
-                      ),
-                    );
-                  },
+                  onPressed: _credentialsLoaded ? _openProvision : null,
                   icon: const Icon(Icons.rocket_launch, size: 18),
                   label: Text(l.nodeProvision),
                 ),
@@ -591,9 +766,13 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
               ),
             const SizedBox(height: 8),
             FilledButton(
-              onPressed: _save,
+              onPressed: !_credentialsLoaded || _saving ? null : _save,
               child: Text(
-                _isBootstrapNew ? l.nodesBootstrapContinue : l.actionSave,
+                _saving
+                    ? l.sshCredentialsSaving
+                    : _isBootstrapNew
+                    ? l.nodesBootstrapContinue
+                    : l.actionSave,
               ),
             ),
             if (isEdit) ...[

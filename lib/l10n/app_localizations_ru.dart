@@ -2081,7 +2081,7 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get nodesAddExistingFieldsHint =>
-      'Обязательно: название и Node ID. SSH-поля необязательны и нужны только для управления сервером. Пароль или приватный ключ будут запрошены при подключении и не сохранятся.';
+      'Обязательно: название и Node ID. SSH-поля необязательны и нужны только для управления сервером. Пароль или ключ можно сохранить ниже в зашифрованном хранилище xVeil.';
 
   @override
   String get nodesBootstrapNew => 'Забутстрапить новый узел';
@@ -2092,7 +2092,7 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get nodesBootstrapFieldsHint =>
-      'Обязательно: название, SSH-хост и SSH-пользователь. Порт по умолчанию — 22. Пароль или приватный ключ вводятся на следующем экране и не сохраняются; Node ID сохранится после развёртывания.';
+      'Обязательно: название, SSH-хост и SSH-пользователь. Порт по умолчанию — 22. Пароль или ключ можно сохранить ниже; Node ID сохранится после развёртывания.';
 
   @override
   String get nodesBootstrapContinue => 'Перейти к развёртыванию';
@@ -2329,7 +2329,70 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get sshCredsNotSaved =>
-      'Используется один раз для этого подключения — не сохраняется.';
+      'Введённые здесь данные используются один раз. Сохранённые реквизиты меняются в карточке узла.';
+
+  @override
+  String get sshCredentialsTitle => 'SSH-аутентификация';
+
+  @override
+  String get sshSavedPasswordLabel => 'Сохранённый SSH-пароль (необязательно)';
+
+  @override
+  String get sshSavedPasswordHint =>
+      'Оставьте поле пустым, чтобы удалить сохранённый пароль.';
+
+  @override
+  String get sshCredentialsEncryptedHint =>
+      'Пароль и приватный ключ хранятся только внутри зашифрованного контейнера xVeil.';
+
+  @override
+  String get sshCredentialsEndpointCleared =>
+      'SSH-адрес изменён — сохранённые пароль и ключ очищены для безопасности.';
+
+  @override
+  String get sshGenerateEd25519 => 'Сгенерировать ключ Ed25519';
+
+  @override
+  String get sshRegenerateEd25519 => 'Сгенерировать новый ключ Ed25519';
+
+  @override
+  String get sshSavedEd25519Title => 'Сохранённый ключ Ed25519';
+
+  @override
+  String get sshPublicKeyLabel =>
+      'Добавьте эту строку в ~/.ssh/authorized_keys на сервере:';
+
+  @override
+  String get sshCopyPublicKey => 'Копировать публичный ключ';
+
+  @override
+  String get sshPublicKeyCopied => 'Публичный ключ скопирован';
+
+  @override
+  String get sshRemoveSavedKey => 'Удалить сохранённый ключ';
+
+  @override
+  String get sshUseSavedKeyHint =>
+      'Оставьте поле пустым, чтобы использовать сохранённый ключ Ed25519.';
+
+  @override
+  String get sshOtherKeyLabel => 'Другой приватный ключ (PEM, только сейчас)';
+
+  @override
+  String get sshCredentialRequired => 'Введите пароль или приватный ключ';
+
+  @override
+  String get sshCredentialsSaving => 'Сохранение…';
+
+  @override
+  String sshCredentialsSaveFailed(String error) {
+    return 'Не удалось сохранить SSH-реквизиты: $error';
+  }
+
+  @override
+  String sshKeyGenerationFailed(String error) {
+    return 'Не удалось сгенерировать ключ: $error';
+  }
 
   @override
   String get sshConnectRun => 'Подключиться и проверить';
