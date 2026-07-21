@@ -369,6 +369,28 @@ void main() {
       incoming.dispose();
     });
 
+    test('a stalled P2P probe cannot hold the outgoing offer', () async {
+      final fake = _FakeMessaging();
+      final probe = Completer<bool>();
+      final svc = CallService(
+        fake,
+        localAllowsP2P: (_) async => true,
+        peerReachableForP2P: (_) => probe.future,
+      )..start();
+      addTearDown(() {
+        if (!probe.isCompleted) probe.complete(false);
+        svc.dispose();
+      });
+
+      await svc
+          .placeCall(peer, const CallMedia(audio: true))
+          .timeout(const Duration(milliseconds: 500));
+
+      expect(fake.sent.single.type, CallSignalType.offer);
+      expect(fake.sent.single.transport?.kind, CallTransportKind.relay);
+      expect(probe.isCompleted, isFalse);
+    });
+
     test('outgoing direct call proposes p2p only when local policy and '
         'reachability allow it', () async {
       final fake = _FakeMessaging();

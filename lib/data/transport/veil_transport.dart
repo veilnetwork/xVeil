@@ -142,6 +142,13 @@ abstract interface class RealtimeTransport {
   });
 }
 
+/// Optional non-anonymous low-latency egress through an already-connected
+/// overlay relay. Unlike [RealtimeTransport], this does not require a direct
+/// session to the destination and is suitable for cold call setup.
+abstract interface class RelayRealtimeTransport {
+  Future<void> sendRelayRealtime(NodeId dst, Uint8List payload);
+}
+
 /// Optional latency-critical inbound control surface.
 ///
 /// Production binds call control to a dedicated app endpoint. Keep that stream

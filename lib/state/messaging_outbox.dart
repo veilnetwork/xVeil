@@ -18,11 +18,13 @@ class _MessagingOutbox {
   _liveBackoff = {};
 
   final Set<String> _seenFrames = {};
+  final Map<String, Timer> _fastCallRetryTimers = {};
 
   static const _seenFramesCap = 4096;
   static const _nudgeGrace = Duration(seconds: 10);
   static const _liveResend = Duration(seconds: 20);
-  static const _callSignalLiveResend = Duration(seconds: 4);
+  static const _callSignalLiveResend = Duration(milliseconds: 250);
+  static const _fastCallRetryAttempts = 4;
   static const _liveResendCap = Duration(minutes: 10);
   static const _callSignalTtl = Duration(minutes: 2);
 
@@ -130,6 +132,64 @@ class _MessagingOutbox {
       unawaited(tryLive());
     }
     _owner._stashInBackground(peer, frameId, wire);
+    if ((frameId.startsWith('call:') || frameId.startsWith('gcall:')) &&
+        liveSender != null) {
+      _scheduleFastCallRedrive(peer, frameId, wire, liveSender);
+    }
+  }
+
+  /// Call setup cannot inherit the ordinary three-second outbox cadence: a
+  /// couple of silently dropped best-effort relay sends previously turned into
+  /// the measured 13.5-second ring delay. Re-drive the same deduplicated frame
+  /// at 250/500/1000/2000 ms, then hand it back to the normal bounded outbox
+  /// ladder. ACK retirement cancels the next timer immediately.
+  void _scheduleFastCallRedrive(
+    NodeId peer,
+    String frameId,
+    Uint8List wire,
+    Future<void> Function(Uint8List wire) liveSender,
+  ) {
+    _fastCallRetryTimers.remove(frameId)?.cancel();
+
+    void schedule(Duration delay, int attemptsLeft) {
+      _fastCallRetryTimers[frameId] = Timer(delay, () async {
+        _fastCallRetryTimers.remove(frameId);
+        final previous = _liveBackoff[frameId];
+        if (_owner._disposed || previous == null) return;
+
+        final now = _owner._now();
+        final count = previous.count + 1;
+        final nextDelay = Duration(
+          milliseconds:
+              (_callSignalLiveResend.inMilliseconds *
+                      (1 << (count - 1).clamp(0, 10)))
+                  .clamp(0, _liveResendCap.inMilliseconds),
+        );
+        _liveBackoff[frameId] = (
+          count: count,
+          nextAt: now.add(nextDelay),
+          peer: previous.peer,
+          lastSentAt: now,
+        );
+        devLog(
+          () =>
+              'xVeil[durable]: fast call re-drive fid=$frameId '
+              'dst=${peer.short} attempt=$count',
+        );
+        try {
+          await liveSender(wire);
+        } catch (_) {
+          // Every constituent path is best-effort; the next timer or durable
+          // mailbox copy remains authoritative.
+        }
+        _owner._stashInBackground(peer, frameId, wire);
+        if (attemptsLeft > 1 && _liveBackoff.containsKey(frameId)) {
+          schedule(nextDelay, attemptsLeft - 1);
+        }
+      });
+    }
+
+    schedule(_callSignalLiveResend, _fastCallRetryAttempts);
   }
 
   Future<void> flush() async {
@@ -182,7 +242,7 @@ class _MessagingOutbox {
       if (backoff != null && now.isBefore(backoff.nextAt)) continue;
       final count = (backoff?.count ?? 0) + 1;
       // Call control is useful only inside the ring window and therefore uses
-      // the fast 4s ladder; ordinary durable control starts at 20s. Both grow
+      // a sub-second initial ladder; ordinary durable control starts at 20s. Both grow
       // exponentially and cap at ten minutes to avoid permanent ghost load.
       final baseMs = isCallSignal
           ? _callSignalLiveResend.inMilliseconds
@@ -272,8 +332,16 @@ class _MessagingOutbox {
   }
 
   void retire(String frameId) {
+    _fastCallRetryTimers.remove(frameId)?.cancel();
     _owner._mailboxDelivery.removeStashed(frameId);
     _liveBackoff.remove(frameId);
     unawaited(_owner._storage.ackOutboxFrame(frameId));
+  }
+
+  void dispose() {
+    for (final timer in _fastCallRetryTimers.values) {
+      timer.cancel();
+    }
+    _fastCallRetryTimers.clear();
   }
 }
