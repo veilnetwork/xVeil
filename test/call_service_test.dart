@@ -337,6 +337,38 @@ void main() {
   group('CallService P2P policy negotiation', () {
     final peer = NodeId.fromHex('b' * 64);
 
+    test('older native media ABI advertises v2 on offer and answer', () async {
+      final outgoingMessaging = _FakeMessaging();
+      final outgoingMedia = _FakeMedia()..signalVersion = 2;
+      final outgoing = CallService(outgoingMessaging, media: outgoingMedia)
+        ..start();
+
+      await outgoing.placeCall(peer, const CallMedia(audio: true, video: true));
+      expect(outgoingMessaging.sent.single.protocolVersion, 2);
+      expect(outgoingMessaging.sent.single.mediaKey, isNull);
+      outgoing.dispose();
+
+      final incomingMessaging = _FakeMessaging();
+      final incomingMedia = _FakeMedia()..signalVersion = 2;
+      final incoming = CallService(incomingMessaging, media: incomingMedia)
+        ..start();
+      incomingMessaging.onCallSignal!(
+        peer,
+        const CallSignal(
+          callId: 'old-media-answer',
+          type: CallSignalType.offer,
+          media: CallMedia(audio: true, video: true),
+          posture: CallPosture.direct,
+          protocolVersion: 3,
+        ),
+      );
+
+      await incoming.accept();
+      expect(incomingMessaging.sent.single.protocolVersion, 2);
+      expect(incomingMessaging.sent.single.mediaKey, isNull);
+      incoming.dispose();
+    });
+
     test('outgoing direct call proposes p2p only when local policy and '
         'reachability allow it', () async {
       final fake = _FakeMessaging();
@@ -1562,6 +1594,7 @@ void main() {
 /// Records camera/screen toggles; [screenOk] fakes the platform backend
 /// accepting or refusing to start the capture.
 class _FakeMedia extends CallMediaController {
+  int signalVersion = kCallSignalProtocolVersion;
   bool screenOk = true;
   bool videoOk = true;
   CallTransportKind? openedTransport;
@@ -1576,6 +1609,9 @@ class _FakeMedia extends CallMediaController {
   String? selectedCamera;
   String? selectedMicrophone;
   String? selectedScreen;
+
+  @override
+  int get signalProtocolVersion => signalVersion;
 
   @override
   Future<List<CallMediaDevice>> listCameras() async => [

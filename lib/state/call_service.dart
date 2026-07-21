@@ -95,6 +95,11 @@ CallTransportKind negotiateCallTransport({
 /// without any media/native dependency — the real impl (VeilCallMediaController)
 /// opens the veil media channel + drives the libwebrtc engine.
 abstract class CallMediaController {
+  /// Highest signaling/media protocol supported by the loaded native engine.
+  /// A mobile package can carry an older media ABI than the Dart layer; in
+  /// that case advertising v2 keeps both peers on the compatible relay path.
+  int get signalProtocolVersion => kCallSignalProtocolVersion;
+
   /// Bring up the media session for [call] (open the veil media datagram
   /// channel + start the audio engine). Returns true if media is up.
   Future<bool> start(Call call);
@@ -187,6 +192,8 @@ class CallService {
        _callSlot = callSlot,
        // ignore: prefer_initializing_formals — public `startMuted:` → private field.
        _startMuted = startMuted,
+       _signalProtocolVersion =
+           media?.signalProtocolVersion ?? kCallSignalProtocolVersion,
        _localAllowsP2P = localAllowsP2P ?? _neverP2P,
        _peerReachableForP2P = peerReachableForP2P ?? _neverP2P;
 
@@ -195,6 +202,7 @@ class CallService {
   final CallMediaController? _media;
   final CallSlot? _callSlot;
   final bool _startMuted;
+  final int _signalProtocolVersion;
   final Future<bool> Function(NodeId peer) _localAllowsP2P;
   final Future<bool> Function(NodeId peer) _peerReachableForP2P;
 
@@ -266,7 +274,10 @@ class CallService {
     if (!(_callSlot?.acquire(CallSlotOwner.direct) ?? true)) return;
     final callId = _uuid.v4();
     final posture = _localPosture;
-    final localMediaKey = generateCallMediaKeyContribution();
+    final localMediaKey =
+        _signalProtocolVersion >= kCallRelaySealedMediaMinVersion
+        ? generateCallMediaKeyContribution()
+        : null;
     _set(
       Call(
         callId: callId,
@@ -312,6 +323,7 @@ class CallService {
         posture: posture,
         transport: proposal,
         mediaKey: localMediaKey,
+        protocolVersion: _signalProtocolVersion,
       ),
     );
     // The realtime leg can deliver the offer and its answer while the durable
@@ -377,6 +389,7 @@ class CallService {
         posture: c.localPosture,
         transport: CallTransportProposal(transport),
         mediaKey: c.localMediaKey,
+        protocolVersion: _signalProtocolVersion,
       ),
     );
     unawaited(_startMedia());
@@ -550,6 +563,7 @@ class CallService {
         callId: cur.callId,
         type: CallSignalType.renegotiate,
         media: cur.media,
+        protocolVersion: _signalProtocolVersion,
       ),
     );
   }
@@ -751,6 +765,7 @@ class CallService {
       callId: call.callId,
       type: CallSignalType.transportInfo,
       transport: const CallTransportProposal(CallTransportKind.relay),
+      protocolVersion: _signalProtocolVersion,
     ),
   );
 
@@ -803,7 +818,9 @@ class CallService {
         peerProtocolVersion: sig.protocolVersion,
         micOn: !_startMuted,
         cameraOn: offeredMedia.video,
-        localMediaKey: generateCallMediaKeyContribution(),
+        localMediaKey: _signalProtocolVersion >= kCallRelaySealedMediaMinVersion
+            ? generateCallMediaKeyContribution()
+            : null,
         peerMediaKey: peerMediaKey,
       ),
     );
@@ -885,7 +902,12 @@ class CallService {
   ) {
     return _messaging.sendCallSignal(
       peer,
-      CallSignal(callId: callId, type: type, reason: reason),
+      CallSignal(
+        callId: callId,
+        type: type,
+        reason: reason,
+        protocolVersion: _signalProtocolVersion,
+      ),
     );
   }
 
@@ -972,6 +994,7 @@ class CallService {
                     ) >=
                     kCallMediaRepairAfter,
             sentAtMs: _now().millisecondsSinceEpoch,
+            protocolVersion: _signalProtocolVersion,
           ),
         ),
       );

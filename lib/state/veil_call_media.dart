@@ -182,6 +182,11 @@ bool shouldStartInitialCallCamera(Call call) =>
 class VeilCallMediaController implements CallMediaController {
   VeilCallMediaController(this._transport);
 
+  @override
+  int get signalProtocolVersion => VeilMediaEngine.supportsMaxRtpPacketSize
+      ? kCallSignalProtocolVersion
+      : kCallRelayBatchingMinVersion;
+
   final VeilFlutterTransport _transport;
   static const MethodChannel _androidCallNetwork = MethodChannel(
     'xveil/call_network',
