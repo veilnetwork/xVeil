@@ -23,11 +23,12 @@ import '../../state/providers.dart';
 /// * FOREGROUND — never pop a notification (the message shows in-app; over the
 ///   open chat a popup would be pure noise). What arrived for OTHER chats
 ///   surfaces when you minimize.
-/// * BACKGROUND — alert in real time, per message (this only fires at all when
-///   the node is kept alive in the background — see BackgroundNodeController;
-///   otherwise the process is suspended and no message is received here).
-/// * ON MINIMIZE — alert for every conversation that still has unread (except
-///   the one you were just reading), so nothing is missed.
+/// * BACKGROUND — update one latest-message alert in real time (this only fires
+///   at all when the node is kept alive in the background — see
+///   BackgroundNodeController; otherwise the process is suspended and no
+///   message is received here).
+/// * ON MINIMIZE — select the newest unread conversation (except the one you
+///   were just reading) and post one alert, avoiding a startup/replay storm.
 /// * ON RESUME — clear the posted notifications (the unread is visible in-app).
 ///
 /// All provider interaction is deferred to a post-frame callback + done via
@@ -50,6 +51,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   ProviderSubscription<MessagingService>? _serviceListener;
   StreamSubscription<({NodeId groupId, GroupMessage message})>? _groupSub;
   ProviderSubscription<GroupService?>? _groupServiceListener;
+  int _notificationGeneration = 0;
 
   bool get _foreground =>
       WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed ||
@@ -96,12 +98,13 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   /// foreground app shows it in-app and surfaces the rest on minimize.
   Future<void> _onIncoming(IncomingNotice notice) async {
     if (!mounted) return;
+    final generation = ++_notificationGeneration;
     final settings = ref.read(notificationSettingsProvider);
     Contact? contact;
     try {
       contact = await ref.read(storageProvider).getContact(notice.from);
     } catch (_) {}
-    if (!mounted) return;
+    if (!mounted || generation != _notificationGeneration) return;
     if (!shouldAlertIncoming(
       enabled: settings.enabled,
       muted: contact?.muted ?? false,
@@ -121,16 +124,18 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   /// A group message just arrived (post-dedup, verified, not ours). Same
   /// lifecycle policy as 1:1: foreground shows in-app, background alerts.
   Future<void> _onGroupIncoming(
-      ({NodeId groupId, GroupMessage message}) n) async {
+    ({NodeId groupId, GroupMessage message}) n,
+  ) async {
     if (!mounted) return;
+    final generation = ++_notificationGeneration;
     final settings = ref.read(notificationSettingsProvider);
     var muted = false;
     try {
       muted =
           await ref.read(groupServiceProvider)?.isGroupMuted(n.groupId) ??
-              false;
+          false;
     } catch (_) {}
-    if (!mounted) return;
+    if (!mounted || generation != _notificationGeneration) return;
     if (!shouldAlertIncoming(
       enabled: settings.enabled,
       muted: muted,
@@ -142,7 +147,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     try {
       name = (await ref.read(groupServiceProvider)?.stateOf(n.groupId))?.name;
     } catch (_) {}
-    if (!mounted) return;
+    if (!mounted || generation != _notificationGeneration) return;
     await _show(
       convHex: 'group:${n.groupId.hex}',
       name: (name != null && name.trim().isNotEmpty) ? name : null,
@@ -165,6 +170,9 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      // Invalidate contact/group lookups that began while backgrounded so they
+      // cannot re-post an alert after cancelAll completes.
+      _notificationGeneration++;
       // Back in the app — the unread is visible in-app; clear posted alerts.
       unawaited(ref.read(notificationServiceProvider).cancelAll());
       // And drain the mailbox promptly: after a background stint the idle
@@ -183,6 +191,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
 
   Future<void> _flushUnread() async {
     if (!mounted) return;
+    final generation = ++_notificationGeneration;
     final settings = ref.read(notificationSettingsProvider);
     devLog(() => 'xVeil[notify]: flush-unread (enabled=${settings.enabled})');
     if (!settings.enabled) return;
@@ -193,7 +202,17 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     } catch (_) {
       return;
     }
-    if (!mounted) return;
+    if (!mounted || generation != _notificationGeneration) return;
+    final candidates =
+        <
+          ({
+            String convHex,
+            String? name,
+            String shortId,
+            String preview,
+            int timestampMs,
+          })
+        >[];
     for (final c in convs) {
       if (!shouldAlertOnMinimize(
         enabled: settings.enabled,
@@ -203,55 +222,59 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       )) {
         continue;
       }
-      await _show(
+      candidates.add((
         convHex: c.id,
         name: c.peer.name,
         shortId: c.peer.nodeId.short,
         preview: c.lastMessage?.body ?? '',
-        settings: settings,
-      );
+        timestampMs: c.lastMessage?.timestamp.millisecondsSinceEpoch ?? 0,
+      ));
     }
-    // Groups with unread surface on minimize too (except the one on screen).
+    // Groups compete with 1:1 chats for the same single latest alert.
     final gsvc = ref.read(groupServiceProvider);
     if (gsvc == null) {
       devLog(() => 'xVeil[notify]: flush — no group service');
-      return;
-    }
-    List<
-        ({
-          NodeId groupId,
-          String name,
-          int unread,
-          bool muted,
-          String preview,
-          int lastTs,
-        })> groups;
-    try {
-      groups = await gsvc.listGroups();
-    } catch (e) {
-      devLog(() => 'xVeil[notify]: flush — listGroups failed: $e');
-      return;
-    }
-    devLog(() =>
-        'xVeil[notify]: flush — ${groups.length} groups, unread: '
-        '${[for (final g in groups) g.unread]}');
-    if (!mounted) return;
-    for (final g in groups) {
-      if (g.unread <= 0 || g.muted || 'group:${g.groupId.hex}' == active) {
-        continue;
+    } else {
+      try {
+        final groups = await gsvc.listGroups();
+        devLog(
+          () =>
+              'xVeil[notify]: flush — ${groups.length} groups, unread: '
+              '${[for (final g in groups) g.unread]}',
+        );
+        if (!mounted || generation != _notificationGeneration) return;
+        for (final g in groups) {
+          if (g.unread <= 0 || g.muted || 'group:${g.groupId.hex}' == active) {
+            continue;
+          }
+          candidates.add((
+            convHex: 'group:${g.groupId.hex}',
+            name: g.name.trim().isNotEmpty ? g.name : null,
+            shortId: g.groupId.short,
+            preview: '', // list has no last-message preview; hidden-safe
+            timestampMs: g.lastTs,
+          ));
+        }
+      } catch (e) {
+        // A group-index failure must not suppress a valid 1:1 candidate.
+        devLog(() => 'xVeil[notify]: flush — listGroups failed: $e');
       }
-      await _show(
-        convHex: 'group:${g.groupId.hex}',
-        name: g.name.trim().isNotEmpty ? g.name : null,
-        shortId: g.groupId.short,
-        preview: '', // the list has no last-message preview; hidden-safe
-        settings: settings,
-      );
     }
+    if (!mounted || generation != _notificationGeneration) return;
+    final latest = newestByTimestamp(candidates, (c) => c.timestampMs);
+    if (latest == null) return;
+    await _show(
+      convHex: latest.convHex,
+      name: latest.name,
+      shortId: latest.shortId,
+      preview: latest.preview,
+      settings: settings,
+    );
   }
 
-  /// Post one notification for a conversation. Same OS id per conversation, so a
-  /// chat's alerts collapse instead of stacking. Honours the hidden/full preview.
+  /// Post the single latest-message notification. Every conversation reuses the
+  /// same OS id, so mailbox replay and background bursts replace rather than
+  /// stack alerts. Honours the hidden/full preview.
   Future<void> _show({
     required String convHex,
     required String? name,
@@ -275,8 +298,10 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       title = 'xVeil';
       body = l.notificationNewMessage;
     }
-    await ref.read(notificationServiceProvider).show(
-          id: convHex.hashCode & 0x7fffffff,
+    await ref
+        .read(notificationServiceProvider)
+        .show(
+          id: notificationIdForIncomingMessage(convHex),
           title: title,
           body: body,
           payload: convHex, // tap → open this chat

@@ -25,8 +25,7 @@ bool shouldAlertIncoming({
   required bool enabled,
   required bool muted,
   required bool foreground,
-}) =>
-    enabled && !muted && !foreground;
+}) => enabled && !muted && !foreground;
 
 /// Whether, as the app goes to the background, to alert for a conversation —
 /// it has unread, isn't muted, and isn't the chat currently open (the one on
@@ -37,8 +36,32 @@ bool shouldAlertOnMinimize({
   required int unread,
   required bool muted,
   required bool isActive,
-}) =>
-    enabled && unread > 0 && !muted && !isActive;
+}) => enabled && unread > 0 && !muted && !isActive;
+
+/// All message alerts intentionally reuse one OS notification id. A mailbox
+/// replay can restore many unread conversations at startup; assigning an id per
+/// conversation would turn that replay into a notification storm. Reusing one
+/// id makes each newer alert replace the previous one while preserving the
+/// latest conversation payload for tap/reply actions.
+int notificationIdForIncomingMessage(String _) => 0x78564d53; // "xVMS"
+
+/// Select the newest candidate without relying on storage/list sort order.
+/// Pinned chats, groups, and restored logs can all have different ordering.
+T? newestByTimestamp<T>(
+  Iterable<T> candidates,
+  int Function(T candidate) timestampOf,
+) {
+  T? newest;
+  var newestTimestamp = -1;
+  for (final candidate in candidates) {
+    final timestamp = timestampOf(candidate);
+    if (newest == null || timestamp > newestTimestamp) {
+      newest = candidate;
+      newestTimestamp = timestamp;
+    }
+  }
+  return newest;
+}
 
 const _kEnabledKey = 'notifications_enabled';
 const _kPreviewKey = 'notifications_preview';
@@ -48,14 +71,18 @@ class NotificationSettings {
   final bool enabled;
   final NotificationPreview preview;
 
-  NotificationSettings copyWith({bool? enabled, NotificationPreview? preview}) =>
-      NotificationSettings(
-        enabled: enabled ?? this.enabled,
-        preview: preview ?? this.preview,
-      );
+  NotificationSettings copyWith({
+    bool? enabled,
+    NotificationPreview? preview,
+  }) => NotificationSettings(
+    enabled: enabled ?? this.enabled,
+    preview: preview ?? this.preview,
+  );
 
-  static const defaults =
-      NotificationSettings(enabled: true, preview: NotificationPreview.hidden);
+  static const defaults = NotificationSettings(
+    enabled: true,
+    preview: NotificationPreview.hidden,
+  );
 }
 
 /// Notification preferences, persisted to `shared_preferences` (NOT sensitive —
@@ -101,7 +128,8 @@ class NotificationSettingsController extends Notifier<NotificationSettings> {
 
 final notificationSettingsProvider =
     NotifierProvider<NotificationSettingsController, NotificationSettings>(
-        NotificationSettingsController.new);
+      NotificationSettingsController.new,
+    );
 
 /// The conversation the user is currently VIEWING (peer hex), or null. Set by
 /// [ChatScreen] on open/close so the notification layer can suppress an alert
