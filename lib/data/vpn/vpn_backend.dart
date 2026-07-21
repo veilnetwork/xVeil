@@ -47,6 +47,8 @@ abstract interface class VpnBackend {
   Future<VpnBackendState> start({
     required VpnRoutingPolicy policy,
     required String socks5Listen,
+    required String exitNodeId,
+    String? obfs4Psk,
   });
 
   Future<VpnBackendState> stop();
@@ -102,6 +104,8 @@ class MethodChannelVpnBackend implements VpnBackend {
   Future<VpnBackendState> start({
     required VpnRoutingPolicy policy,
     required String socks5Listen,
+    required String exitNodeId,
+    String? obfs4Psk,
   }) async {
     final packetTunnel = _packetTunnel;
     if (packetTunnel == null) return probe();
@@ -118,6 +122,11 @@ class MethodChannelVpnBackend implements VpnBackend {
     final response = await _invokeRaw('start', {
       'policy': expandedPolicy,
       'socks5Listen': socks5Listen,
+      // Apple Packet Tunnel owns a separate ephemeral Veil/SOCKS node so it
+      // survives host suspension. Only the public exit identifier crosses the
+      // provider boundary; the messaging identity never does.
+      'exitNodeId': exitNodeId,
+      if (obfs4Psk != null && obfs4Psk.isNotEmpty) 'obfs4Psk': obfs4Psk,
     });
     final tunFd = response['tunFd'];
     if (tunFd is! int) return VpnBackendState.fromMap(response);
