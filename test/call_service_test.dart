@@ -690,8 +690,8 @@ void main() {
         async.flushMicrotasks();
         expect(svc.current?.status, CallStatus.connecting);
 
-        // Peer never sends anything again → past the deadline it tears down.
-        async.elapse(const Duration(seconds: 30));
+        // No post-connect proof has arrived yet, so the startup grace applies.
+        async.elapse(kCallStartupLivenessTimeout + const Duration(seconds: 5));
         async.flushMicrotasks();
 
         expect(svc.current, isNull); // slot cleared
@@ -700,6 +700,36 @@ void main() {
           orElse: () => null,
         );
         expect(terminal?.endReason, CallEndReason.timeout);
+      });
+    });
+
+    test('callee survives a delayed first post-connect peer signal', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final svc = CallService(fake, now: () => clock.now())..start();
+
+        fake.onCallSignal!(peer, offer('slow-answer-path'));
+        svc.accept();
+        async.flushMicrotasks();
+
+        async.elapse(kCallLivenessTimeout + const Duration(seconds: 5));
+        async.flushMicrotasks();
+        expect(svc.current?.isLive, isTrue);
+
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'slow-answer-path',
+            type: CallSignalType.health,
+          ),
+        );
+        async.flushMicrotasks();
+        expect(svc.current?.isLive, isTrue);
+
+        // After the first proof of life, the ordinary strict timeout resumes.
+        async.elapse(kCallLivenessTimeout + kCallHeartbeatInterval);
+        async.flushMicrotasks();
+        expect(svc.current, isNull);
       });
     });
 

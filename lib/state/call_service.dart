@@ -62,6 +62,12 @@ const Duration kCallHeartbeatInterval = Duration(seconds: 5);
 /// jitter over the durable channel never drops a still-live call.
 const Duration kCallLivenessTimeout = Duration(seconds: 20);
 
+/// The callee can accept before the caller receives its durable answer. Until
+/// the first post-connect signal or media packet comes back, allow the same
+/// control-plane tail as ringing. Once the peer is confirmed, the normal
+/// 20-second watchdog applies again.
+const Duration kCallStartupLivenessTimeout = kCallRingTimeout;
+
 /// A connected media engine should exchange RTP or RTCP even when speech is
 /// quiet. If none arrives for this long while signaling is demonstrably alive,
 /// ask the peer to refresh its outbound route. Repair must preserve onion for
@@ -213,6 +219,7 @@ class CallService {
   Timer? _heartbeatTimer;
   StreamSubscription<void>? _screenShareStoppedSub;
   DateTime? _lastPeerSignalAt;
+  bool _peerConfirmedAfterConnect = false;
   bool _started = false;
 
   /// A callee may discover that P2P is unusable immediately after accepting
@@ -579,6 +586,7 @@ class CallService {
         live.callId == sig.callId &&
         live.peer == peer) {
       _lastPeerSignalAt = _now();
+      if (_heartbeatTimer != null) _peerConfirmedAfterConnect = true;
     }
     switch (sig.type) {
       case CallSignalType.offer:
@@ -882,7 +890,7 @@ class CallService {
         peerMediaKey: peerMediaKey,
       ),
     );
-    _startHeartbeat();
+    _startHeartbeat(peerAlreadyConfirmed: true);
     unawaited(_startMedia());
   }
 
@@ -950,9 +958,10 @@ class CallService {
   /// has been silent past [kCallLivenessTimeout], tears the call down — this is
   /// what stops a call hanging on "in call" when the peer crashed / was killed /
   /// dropped off the network without sending a graceful `end`.
-  void _startHeartbeat() {
+  void _startHeartbeat({bool peerAlreadyConfirmed = false}) {
     _cancelHeartbeat();
     _lastPeerSignalAt = _now();
+    _peerConfirmedAfterConnect = peerAlreadyConfirmed;
     _heartbeatTimer = Timer.periodic(kCallHeartbeatInterval, (_) {
       final c = _current;
       if (c == null || !c.isLive) {
@@ -966,10 +975,22 @@ class CallService {
       // media is plainly flowing (the durable channel is exactly what's flaky).
       DateTime? alive = _lastPeerSignalAt;
       final rx = _media?.lastMediaRxAt;
-      if (rx != null && (alive == null || rx.isAfter(alive))) alive = rx;
-      if (alive != null && _now().difference(alive) > kCallLivenessTimeout) {
+      if (rx != null) {
+        _peerConfirmedAfterConnect = true;
+        if (alive == null || rx.isAfter(alive)) alive = rx;
+      }
+      final timeout = _peerConfirmedAfterConnect
+          ? kCallLivenessTimeout
+          : kCallStartupLivenessTimeout;
+      if (alive != null && _now().difference(alive) > timeout) {
         // Peer went silent on BOTH media and signaling → tell them (harmless if
         // already gone), then end locally so the UI leaves instead of hanging.
+        devLog(
+          () =>
+              'xVeil[call]: liveness timeout call=${c.callId} '
+              'confirmed=$_peerConfirmedAfterConnect silence='
+              '${_now().difference(alive!).inSeconds}s',
+        );
         unawaited(
           _sendControl(
             c.peer,
@@ -1005,6 +1026,7 @@ class CallService {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
     _lastPeerSignalAt = null;
+    _peerConfirmedAfterConnect = false;
   }
 
   void _set(Call call) {
