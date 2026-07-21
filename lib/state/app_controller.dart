@@ -517,7 +517,7 @@ class AppController extends Notifier<AppState> {
       obfs4Psk: boot.obfs4Psk,
       udpReflectors: boot.udpReflectors,
       lazyMining: _singleLazyMining,
-      proxy: ref.read(proxyRoutingProvider),
+      proxy: ref.read(effectiveProxyRoutingProvider),
       paddingPreset: leanPadding
           ? hv.PaddingPreset.none
           : hv.PaddingPreset.bucket256KiB,
@@ -716,6 +716,14 @@ class AppController extends Notifier<AppState> {
   /// active node and keeps the already-open deniable space intact.
   Future<bool> applyProxyRouting(ProxyRouting routing) async {
     await ref.read(proxyRoutingProvider.notifier).set(routing);
+    return reapplyProxyRouting();
+  }
+
+  /// Reboot the hosted node(s) with the current effective routing config
+  /// without changing the user's persisted manual-SOCKS preference. The VPN
+  /// controller uses this when it acquires/releases its internal SOCKS
+  /// transport.
+  Future<bool> reapplyProxyRouting() async {
     if (state.phase != AppPhase.ready ||
         ref.read(deniableBootProvider) == null) {
       return true;
@@ -1400,7 +1408,7 @@ class AppController extends Notifier<AppState> {
         runtimeBootstrapPeers: boot.bootstrapPeers,
         udpReflectors: boot.udpReflectors,
         obfs4Psk: boot.obfs4Psk,
-        proxy: ref.read(proxyRoutingProvider),
+        proxy: ref.read(effectiveProxyRoutingProvider),
         identityPhrase: _pendingIdentityPhrase,
       );
       // One shot: the phrase only matters for the first-run identity

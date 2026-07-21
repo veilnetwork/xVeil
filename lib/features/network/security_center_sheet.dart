@@ -75,7 +75,7 @@ class _SecurityCenterSheetState extends ConsumerState<_SecurityCenterSheet> {
   Future<void> _setVpn(bool enabled) async {
     if (_busy) return;
     final routing = ref.read(proxyRoutingProvider);
-    if (enabled && !routing.socks5Active) {
+    if (enabled && !routing.vpnTransportReady) {
       Navigator.of(context).pop();
       if (context.mounted) context.push('/route');
       return;
@@ -184,7 +184,9 @@ class _SecurityCenterSheetState extends ConsumerState<_SecurityCenterSheet> {
               VpnBackendPhase.error => vpn.backend.detail ?? l.vpnStatusError,
               VpnBackendPhase.unsupported => l.vpnStatusUnsupported,
               VpnBackendPhase.stopped =>
-                routing.socks5Active ? l.vpnStatusStopped : l.vpnNeedsProxy,
+                routing.vpnTransportReady
+                    ? l.vpnStatusStopped
+                    : l.vpnNeedsProxy,
             }),
             value: vpn.isRunning,
             onChanged:
