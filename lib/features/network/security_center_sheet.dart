@@ -3,7 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../data/node/node_controller.dart';
+import '../../data/node/proxy_routing.dart';
 import '../../data/vpn/vpn_backend.dart';
+import '../../data/vpn/vpn_proxy_plan.dart';
+import '../../data/vpn/vpn_routing_policy.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/providers.dart';
@@ -75,7 +78,8 @@ class _SecurityCenterSheetState extends ConsumerState<_SecurityCenterSheet> {
   Future<void> _setVpn(bool enabled) async {
     if (_busy) return;
     final routing = ref.read(proxyRoutingProvider);
-    if (enabled && !routing.vpnTransportReady) {
+    final policy = ref.read(vpnControllerProvider).policy;
+    if (enabled && !vpnTransportReadyForPolicy(routing, policy)) {
       Navigator.of(context).pop();
       if (context.mounted) context.push('/route');
       return;
@@ -105,6 +109,7 @@ class _SecurityCenterSheetState extends ConsumerState<_SecurityCenterSheet> {
     final peers = ref.watch(sessionCountProvider).asData?.value ?? 0;
     final routing = ref.watch(proxyRoutingProvider);
     final vpn = ref.watch(vpnControllerProvider);
+    final vpnTransportReady = vpnTransportReadyForPolicy(routing, vpn.policy);
     final anonymous = app.isMaster
         ? (app.activeIdentity != null &&
               appCtrl.isIdentityAnonymous(app.activeIdentity!))
@@ -184,9 +189,7 @@ class _SecurityCenterSheetState extends ConsumerState<_SecurityCenterSheet> {
               VpnBackendPhase.error => vpn.backend.detail ?? l.vpnStatusError,
               VpnBackendPhase.unsupported => l.vpnStatusUnsupported,
               VpnBackendPhase.stopped =>
-                routing.vpnTransportReady
-                    ? l.vpnStatusStopped
-                    : l.vpnNeedsProxy,
+                vpnTransportReady ? l.vpnStatusStopped : l.vpnNeedsProxy,
             }),
             value: vpn.isRunning,
             onChanged:
@@ -231,5 +234,17 @@ class _SecurityCenterSheetState extends ConsumerState<_SecurityCenterSheet> {
         ],
       ),
     );
+  }
+}
+
+/// The VPN may have an explicit main oproxy chain even when the manual SOCKS
+/// default is intentionally unset, so readiness must be evaluated against the
+/// complete routing policy rather than [ProxyRouting.vpnTransportReady].
+bool vpnTransportReadyForPolicy(ProxyRouting routing, VpnRoutingPolicy policy) {
+  try {
+    VpnProxyPlan.build(routing: routing, policy: policy);
+    return true;
+  } on VpnProxyPlanException {
+    return false;
   }
 }

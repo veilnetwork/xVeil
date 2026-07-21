@@ -49,6 +49,7 @@ abstract interface class VpnBackend {
     required VpnRoutingPolicy policy,
     required String socks5Listen,
     required String exitNodeId,
+    List<String> exitNodeIds = const [],
     Map<String, String> applicationProxyListens = const {},
     String? obfs4Psk,
   });
@@ -107,6 +108,7 @@ class MethodChannelVpnBackend implements VpnBackend {
     required VpnRoutingPolicy policy,
     required String socks5Listen,
     required String exitNodeId,
+    List<String> exitNodeIds = const [],
     Map<String, String> applicationProxyListens = const {},
     String? obfs4Psk,
   }) async {
@@ -134,9 +136,10 @@ class MethodChannelVpnBackend implements VpnBackend {
       'policy': expandedPolicy,
       'socks5Listen': socks5Listen,
       // Apple Packet Tunnel owns a separate ephemeral Veil/SOCKS node so it
-      // survives host suspension. Only the public exit identifier crosses the
+      // survives host suspension. Only public exit identifiers cross the
       // provider boundary; the messaging identity never does.
       'exitNodeId': exitNodeId,
+      'exitNodeIds': exitNodeIds.isEmpty ? [exitNodeId] : exitNodeIds,
       'applicationProxyListens': applicationProxyListens,
       if (obfs4Psk != null && obfs4Psk.isNotEmpty) 'obfs4Psk': obfs4Psk,
     });

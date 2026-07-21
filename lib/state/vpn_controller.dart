@@ -193,6 +193,7 @@ class VpnController extends Notifier<VpnState> {
             policy: state.policy,
             socks5Listen: proxyPlan.defaultListen,
             exitNodeId: proxyPlan.profiles.first.exitNodeIds.first,
+            exitNodeIds: proxyPlan.profiles.first.exitNodeIds,
             applicationProxyListens: proxyPlan.applicationListens,
             obfs4Psk: ref.read(deniableBootProvider)?.obfs4Psk,
           );
