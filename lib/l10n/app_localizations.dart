@@ -3868,7 +3868,7 @@ abstract class AppL10n {
   /// No description provided for @nodesAddExistingFieldsHint.
   ///
   /// In en, this message translates to:
-  /// **'Required: label and node ID. SSH fields are optional and only needed to manage the server. A password or private key is requested when connecting and is not saved.'**
+  /// **'Required: label and node ID. SSH fields are optional and only needed to manage the server. A password or key can be saved below in xVeil\'s encrypted storage.'**
   String get nodesAddExistingFieldsHint;
 
   /// No description provided for @nodesBootstrapNew.
@@ -3886,7 +3886,7 @@ abstract class AppL10n {
   /// No description provided for @nodesBootstrapFieldsHint.
   ///
   /// In en, this message translates to:
-  /// **'Required: label, SSH host, and SSH user. The port defaults to 22. A password or private key is entered on the next screen and is not saved; the node ID is saved after provisioning.'**
+  /// **'Required: label, SSH host, and SSH user. The port defaults to 22. A password or key can be saved below; the node ID is saved after provisioning.'**
   String get nodesBootstrapFieldsHint;
 
   /// No description provided for @nodesBootstrapContinue.
@@ -4324,8 +4324,116 @@ abstract class AppL10n {
   /// No description provided for @sshCredsNotSaved.
   ///
   /// In en, this message translates to:
-  /// **'Used once for this connection — never saved.'**
+  /// **'Credentials entered here are used once. Manage saved credentials in the node card.'**
   String get sshCredsNotSaved;
+
+  /// No description provided for @sshCredentialsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'SSH authentication'**
+  String get sshCredentialsTitle;
+
+  /// No description provided for @sshSavedPasswordLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved SSH password (optional)'**
+  String get sshSavedPasswordLabel;
+
+  /// No description provided for @sshSavedPasswordHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Leave empty to remove the saved password.'**
+  String get sshSavedPasswordHint;
+
+  /// No description provided for @sshCredentialsEncryptedHint.
+  ///
+  /// In en, this message translates to:
+  /// **'The password and private key are stored only inside xVeil\'s encrypted container.'**
+  String get sshCredentialsEncryptedHint;
+
+  /// No description provided for @sshCredentialsEndpointCleared.
+  ///
+  /// In en, this message translates to:
+  /// **'The SSH endpoint changed, so the saved password and key were cleared for safety.'**
+  String get sshCredentialsEndpointCleared;
+
+  /// No description provided for @sshGenerateEd25519.
+  ///
+  /// In en, this message translates to:
+  /// **'Generate an Ed25519 key'**
+  String get sshGenerateEd25519;
+
+  /// No description provided for @sshRegenerateEd25519.
+  ///
+  /// In en, this message translates to:
+  /// **'Generate a new Ed25519 key'**
+  String get sshRegenerateEd25519;
+
+  /// No description provided for @sshSavedEd25519Title.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved Ed25519 key'**
+  String get sshSavedEd25519Title;
+
+  /// No description provided for @sshPublicKeyLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Add this line to ~/.ssh/authorized_keys on the server:'**
+  String get sshPublicKeyLabel;
+
+  /// No description provided for @sshCopyPublicKey.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy public key'**
+  String get sshCopyPublicKey;
+
+  /// No description provided for @sshPublicKeyCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'Public key copied'**
+  String get sshPublicKeyCopied;
+
+  /// No description provided for @sshRemoveSavedKey.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove saved key'**
+  String get sshRemoveSavedKey;
+
+  /// No description provided for @sshUseSavedKeyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Leave empty to use the saved Ed25519 key.'**
+  String get sshUseSavedKeyHint;
+
+  /// No description provided for @sshOtherKeyLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Another private key (PEM, this time only)'**
+  String get sshOtherKeyLabel;
+
+  /// No description provided for @sshCredentialRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a password or private key'**
+  String get sshCredentialRequired;
+
+  /// No description provided for @sshCredentialsSaving.
+  ///
+  /// In en, this message translates to:
+  /// **'Saving…'**
+  String get sshCredentialsSaving;
+
+  /// No description provided for @sshCredentialsSaveFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save SSH credentials: {error}'**
+  String sshCredentialsSaveFailed(String error);
+
+  /// No description provided for @sshKeyGenerationFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not generate the key: {error}'**
+  String sshKeyGenerationFailed(String error);
 
   /// No description provided for @sshConnectRun.
   ///

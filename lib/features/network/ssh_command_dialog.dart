@@ -1,13 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/node/managed_node.dart';
 import '../../data/node/ssh_client.dart';
+import '../../data/node/ssh_credentials.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/managed_nodes_controller.dart';
+import '../../state/ssh_credentials.dart';
+import 'ssh_public_key_card.dart';
 
-/// Generic one-shot SSH operation runner. Authentication material lives only in
-/// this dialog's controllers and is disposed immediately when it closes.
+/// Generic SSH operation runner. It can use the node's encrypted saved
+/// credential; any manually entered override lives only in this dialog.
 class SshCommandDialog extends ConsumerStatefulWidget {
   const SshCommandDialog({
     super.key,
@@ -36,8 +41,29 @@ class _SshCommandDialogState extends ConsumerState<SshCommandDialog> {
   final _passphrase = TextEditingController();
   bool _useKey = false;
   bool _busy = false;
+  bool _credentialsLoaded = false;
+  SavedSshCredentials _credentials = const SavedSshCredentials();
   String? _output;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadCredentials());
+  }
+
+  Future<void> _loadCredentials() async {
+    final credentials = await ref
+        .read(sshCredentialsRepositoryProvider)
+        .load(widget.node.id);
+    if (!mounted) return;
+    _password.text = credentials.password ?? '';
+    setState(() {
+      _credentials = credentials;
+      _useKey = !credentials.hasPassword && credentials.hasKey;
+      _credentialsLoaded = true;
+    });
+  }
 
   @override
   void dispose() {
@@ -49,7 +75,16 @@ class _SshCommandDialogState extends ConsumerState<SshCommandDialog> {
 
   Future<void> _run() async {
     final node = widget.node;
-    if (!node.hasSsh || node.sshUser == null) return;
+    if (!node.hasSsh || node.sshUser == null || !_credentialsLoaded) return;
+    final l = AppL10n.of(context);
+    final key = _key.text.trim().isNotEmpty
+        ? _key.text
+        : _credentials.privateKeyPem;
+    if ((!_useKey && _password.text.isEmpty) ||
+        (_useKey && (key == null || key.isEmpty))) {
+      setState(() => _error = l.sshCredentialRequired);
+      return;
+    }
     setState(() {
       _busy = true;
       _output = null;
@@ -57,7 +92,7 @@ class _SshCommandDialogState extends ConsumerState<SshCommandDialog> {
     });
     final auth = _useKey
         ? SshAuth.key(
-            _key.text,
+            key!,
             passphrase: _passphrase.text.isEmpty ? null : _passphrase.text,
           )
         : SshAuth.password(_password.text);
@@ -112,13 +147,17 @@ class _SshCommandDialogState extends ConsumerState<SshCommandDialog> {
                 style: const TextStyle(fontFamily: 'monospace'),
               ),
               const SizedBox(height: 12),
+              if (!_credentialsLoaded) ...[
+                const LinearProgressIndicator(),
+                const SizedBox(height: 12),
+              ],
               SegmentedButton<bool>(
                 segments: [
                   ButtonSegment(value: false, label: Text(l.sshUsePassword)),
                   ButtonSegment(value: true, label: Text(l.sshUseKey)),
                 ],
                 selected: {_useKey},
-                onSelectionChanged: _busy
+                onSelectionChanged: _busy || !_credentialsLoaded
                     ? null
                     : (selection) => setState(() => _useKey = selection.first),
               ),
@@ -134,13 +173,23 @@ class _SshCommandDialogState extends ConsumerState<SshCommandDialog> {
                   ),
                 )
               else ...[
+                if (_credentials.hasKey) ...[
+                  SshPublicKeyCard(publicKey: _credentials.publicKeyOpenSsh!),
+                  const SizedBox(height: 8),
+                ],
                 TextField(
                   controller: _key,
                   minLines: 2,
                   maxLines: 5,
                   style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
                   decoration: InputDecoration(
-                    labelText: l.sshKeyLabel,
+                    labelText: _credentials.hasKey
+                        ? l.sshOtherKeyLabel
+                        : l.sshKeyLabel,
+                    helperText: _credentials.hasKey
+                        ? l.sshUseSavedKeyHint
+                        : null,
+                    helperMaxLines: 2,
                     border: const OutlineInputBorder(),
                     isDense: true,
                   ),
@@ -205,7 +254,7 @@ class _SshCommandDialogState extends ConsumerState<SshCommandDialog> {
           child: Text(l.actionDone),
         ),
         FilledButton.icon(
-          onPressed: _busy ? null : _run,
+          onPressed: _busy || !_credentialsLoaded ? null : _run,
           icon: _busy
               ? const SizedBox(
                   width: 16,
