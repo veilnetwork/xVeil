@@ -2055,6 +2055,26 @@ class AppL10nEn extends AppL10n {
   String get nodesAdd => 'Add node';
 
   @override
+  String get nodesAddChoiceTitle => 'What kind of node are you adding?';
+
+  @override
+  String get nodesAddExisting => 'Add an existing node';
+
+  @override
+  String get nodesAddExistingHint =>
+      'Register a node that is already installed and has a node id.';
+
+  @override
+  String get nodesBootstrapNew => 'Bootstrap a new node over SSH';
+
+  @override
+  String get nodesBootstrapNewHint =>
+      'Install veil on a Linux server; its node id will be saved automatically.';
+
+  @override
+  String get nodesBootstrapContinue => 'Continue to provisioning';
+
+  @override
   String get nodeEdit => 'Edit node';
 
   @override
@@ -2074,13 +2094,29 @@ class AppL10nEn extends AppL10n {
   String get nodeIdInvalid => 'Must be a 64-character hex node id';
 
   @override
+  String get nodeIdRequired =>
+      'Enter the existing node\'s 64-character node id';
+
+  @override
   String get nodeSshHostLabel => 'SSH host (optional)';
+
+  @override
+  String get nodeSshHostRequiredLabel => 'SSH host';
+
+  @override
+  String get nodeSshHostRequired => 'Enter the SSH host for the new server';
 
   @override
   String get nodeSshPortLabel => 'SSH port';
 
   @override
   String get nodeSshUserLabel => 'SSH user (optional)';
+
+  @override
+  String get nodeSshUserRequiredLabel => 'SSH user';
+
+  @override
+  String get nodeSshUserRequired => 'Enter the SSH user for the new server';
 
   @override
   String get actionSave => 'Save';
