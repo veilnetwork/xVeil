@@ -110,7 +110,80 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Network protocol: UDP'), findsOneWidget);
-    expect(find.text('Shared TLS files'), findsOneWidget);
+    expect(find.text('TLS certificate'), findsOneWidget);
+  });
+
+  testWidgets(
+    'automatic TLS chooses Let\'s Encrypt for DNS and self-signed for IP',
+    (tester) async {
+      tester.view.physicalSize = const Size(1080, 5000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(_host());
+      await tester.pumpAndSettle();
+
+      final quic = find.byKey(const ValueKey('transport-quic'));
+      await tester.tap(
+        find.descendant(of: quic, matching: find.byType(Checkbox)).first,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('tls-automatic-name')), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const ValueKey('advertise-host')),
+        '203.0.113.10',
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('self-signed certificate with this IP'),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('tls-self-signed-days')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('tls-email')), findsNothing);
+
+      await tester.enterText(
+        find.byKey(const ValueKey('tls-automatic-name')),
+        'node.example.com',
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining("Let's Encrypt will be requested"),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('tls-email')), findsOneWidget);
+      expect(find.byKey(const ValueKey('tls-agree-terms')), findsOneWidget);
+      expect(find.byKey(const ValueKey('tls-self-signed-days')), findsNothing);
+    },
+  );
+
+  testWidgets('TLS certificate source can use existing files', (tester) async {
+    tester.view.physicalSize = const Size(1080, 5000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(_host());
+    await tester.pumpAndSettle();
+
+    final tls = find.byKey(const ValueKey('transport-tls'));
+    await tester.tap(
+      find.descendant(of: tls, matching: find.byType(Checkbox)).first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('tls-certificate-mode')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Existing files').last);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('tls-existing-cert')), findsOneWidget);
+    expect(find.byKey(const ValueKey('tls-existing-key')), findsOneWidget);
+    expect(find.byKey(const ValueKey('tls-existing-ca')), findsOneWidget);
+    expect(find.byKey(const ValueKey('tls-automatic-name')), findsNothing);
   });
 
   testWidgets('optional component offers GitHub or a custom link', (
