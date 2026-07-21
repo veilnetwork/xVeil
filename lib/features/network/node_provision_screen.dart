@@ -8,6 +8,7 @@ import '../../data/node/managed_node.dart';
 import '../../data/node/node_provisioner.dart';
 import '../../data/node/ssh_client.dart';
 import '../../data/node/ssh_credentials.dart';
+import '../../data/node/veil_github_release.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/managed_nodes_controller.dart';
 import '../../state/ssh_credentials.dart';
@@ -24,9 +25,11 @@ class NodeProvisionScreen extends ConsumerStatefulWidget {
     super.key,
     required this.node,
     this.initialCredentials,
+    this.releaseResolver,
   });
   final ManagedNode node;
   final SavedSshCredentials? initialCredentials;
+  final VeilGithubReleaseResolver? releaseResolver;
 
   @override
   ConsumerState<NodeProvisionScreen> createState() =>
@@ -57,6 +60,11 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
   bool _busy = false;
   String? _output;
   String? _error;
+  VeilLinuxReleaseTarget _releaseTarget = VeilLinuxReleaseTarget.x86_64Musl;
+  bool _releaseLoading = false;
+  String? _releaseTag;
+  String? _releaseLoadError;
+  int _releaseRequest = 0;
 
   @override
   void initState() {
@@ -77,6 +85,39 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
     };
     unawaited(_loadPsk());
     unawaited(_loadCredentials());
+    unawaited(_loadLatestRelease());
+  }
+
+  Future<void> _loadLatestRelease({bool replaceManualValues = false}) async {
+    final request = ++_releaseRequest;
+    setState(() {
+      _releaseLoading = true;
+      _releaseLoadError = null;
+    });
+    try {
+      final release =
+          await (widget.releaseResolver ?? VeilGithubReleaseResolver()).resolve(
+            _releaseTarget,
+          );
+      if (!mounted || request != _releaseRequest) return;
+      final mayReplace =
+          replaceManualValues ||
+          (_releaseUrl.text.trim().isEmpty && _sha256.text.trim().isEmpty);
+      setState(() {
+        if (mayReplace) {
+          _releaseUrl.text = release.downloadUrl;
+          _sha256.text = release.sha256;
+        }
+        _releaseTag = release.tag;
+        _releaseLoading = false;
+      });
+    } on Object catch (error) {
+      if (!mounted || request != _releaseRequest) return;
+      setState(() {
+        _releaseLoading = false;
+        _releaseLoadError = error.toString();
+      });
+    }
   }
 
   Future<void> _loadCredentials() async {
@@ -244,6 +285,281 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
     }
   }
 
+  String _releaseTargetLabel(AppL10n l, VeilLinuxReleaseTarget target) =>
+      switch (target) {
+        VeilLinuxReleaseTarget.x86_64Musl => l.provisionReleaseTargetX64,
+        VeilLinuxReleaseTarget.aarch64Musl => l.provisionReleaseTargetArm64,
+      };
+
+  String _transportHint(AppL10n l, NodeListenTransport transport) =>
+      switch (transport) {
+        NodeListenTransport.obfs4Tcp => l.provisionTransportObfs4TcpHint,
+        NodeListenTransport.tcp => l.provisionTransportTcpHint,
+        NodeListenTransport.tls => l.provisionTransportTlsHint,
+        NodeListenTransport.quic => l.provisionTransportQuicHint,
+        NodeListenTransport.wss => l.provisionTransportWssHint,
+      };
+
+  String _transportNetwork(NodeListenTransport transport) =>
+      transport == NodeListenTransport.quic ? 'UDP' : 'TCP';
+
+  Widget _releaseSection(AppL10n l) => _SettingsCard(
+    title: l.provisionReleaseSection,
+    children: [
+      DropdownButtonFormField<VeilLinuxReleaseTarget>(
+        key: const ValueKey('veil-release-target'),
+        initialValue: _releaseTarget,
+        decoration: InputDecoration(
+          labelText: l.provisionReleaseTarget,
+          border: const OutlineInputBorder(),
+          isDense: true,
+        ),
+        items: [
+          for (final target in VeilLinuxReleaseTarget.values)
+            DropdownMenuItem(
+              value: target,
+              child: Text(_releaseTargetLabel(l, target)),
+            ),
+        ],
+        onChanged: _releaseLoading
+            ? null
+            : (target) {
+                if (target == null || target == _releaseTarget) return;
+                setState(() => _releaseTarget = target);
+                unawaited(_loadLatestRelease(replaceManualValues: true));
+              },
+      ),
+      const SizedBox(height: 12),
+      TextField(
+        key: const ValueKey('veil-release-url'),
+        controller: _releaseUrl,
+        onChanged: (_) => setState(() {}),
+        decoration: InputDecoration(
+          labelText: l.provisionReleaseUrl,
+          helperText: l.provisionReleaseHint,
+          helperMaxLines: 3,
+          border: const OutlineInputBorder(),
+          isDense: true,
+        ),
+      ),
+      const SizedBox(height: 12),
+      TextField(
+        key: const ValueKey('veil-release-sha'),
+        controller: _sha256,
+        onChanged: (_) => setState(() {}),
+        decoration: InputDecoration(
+          labelText: l.provisionSha256,
+          helperText: l.provisionSha256Hint,
+          helperMaxLines: 4,
+          border: const OutlineInputBorder(),
+          isDense: true,
+        ),
+      ),
+      const SizedBox(height: 8),
+      if (_releaseLoading)
+        Row(
+          children: [
+            const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: 8),
+            Expanded(child: Text(l.provisionReleaseLoading)),
+          ],
+        )
+      else ...[
+        if (_releaseLoadError != null)
+          Text(
+            l.provisionReleaseError(_releaseLoadError!),
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          )
+        else if (_releaseTag != null)
+          Text(
+            l.provisionReleaseLoaded(_releaseTag!),
+            style: TextStyle(color: Theme.of(context).colorScheme.primary),
+          ),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            key: const ValueKey('veil-release-refresh'),
+            onPressed: () =>
+                unawaited(_loadLatestRelease(replaceManualValues: true)),
+            icon: const Icon(Icons.refresh),
+            label: Text(l.provisionReleaseRefresh),
+          ),
+        ),
+      ],
+    ],
+  );
+
+  Widget _componentsSection(AppL10n l) => _SettingsCard(
+    title: l.provisionComponents,
+    children: [
+      Wrap(
+        spacing: 8,
+        runSpacing: 6,
+        children: [
+          const Chip(
+            avatar: Icon(Icons.check, size: 18),
+            label: Text('veil-cli'),
+          ),
+          for (final component in NodeComponent.values)
+            if (component != NodeComponent.veilCli)
+              FilterChip(
+                label: Text(component.binaryName),
+                selected: _extraComponents.contains(component),
+                onSelected: (selected) => setState(() {
+                  if (selected) {
+                    _extraComponents.add(component);
+                  } else {
+                    _extraComponents.remove(component);
+                  }
+                }),
+              ),
+        ],
+      ),
+      for (final component in NodeComponent.values)
+        if (_extraComponents.contains(component)) ...[
+          const SizedBox(height: 12),
+          _SettingsCard(
+            title: component.binaryName,
+            nested: true,
+            children: [
+              TextField(
+                controller: _componentUrls[component],
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  labelText: l.provisionComponentUrl(component.binaryName),
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _componentShas[component],
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  labelText: l.provisionComponentSha(component.binaryName),
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+            ],
+          ),
+        ],
+    ],
+  );
+
+  Widget _transportsSection(AppL10n l) => _SettingsCard(
+    title: l.provisionTransports,
+    children: [
+      for (final transport in NodeListenTransport.values) ...[
+        _SettingsCard(
+          key: ValueKey('transport-${transport.scheme}'),
+          nested: true,
+          children: [
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              title: Text(transport.scheme),
+              subtitle: Text(_transportHint(l, transport)),
+              value: _transports.contains(transport),
+              onChanged: (selected) => setState(() {
+                if (selected ?? false) {
+                  _transports.add(transport);
+                } else if (_transports.length > 1) {
+                  _transports.remove(transport);
+                }
+              }),
+            ),
+            if (_transports.contains(transport)) ...[
+              const SizedBox(height: 4),
+              TextField(
+                key: ValueKey('transport-port-${transport.scheme}'),
+                controller: _transportPorts[transport],
+                keyboardType: TextInputType.number,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  labelText: l.provisionTransportPort(transport.scheme),
+                  helperText: l.provisionTransportNetwork(
+                    _transportNetwork(transport),
+                  ),
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+            ],
+          ],
+        ),
+        if (transport != NodeListenTransport.values.last)
+          const SizedBox(height: 8),
+      ],
+    ],
+  );
+
+  Widget _sharedTransportSection(AppL10n l) {
+    final tlsTransports = _transports.where((transport) => transport.needsTls);
+    return _SettingsCard(
+      title: l.provisionTransportCommon,
+      subtitle: l.provisionTransportCommonHint,
+      children: [
+        TextField(
+          controller: _advertiseHost,
+          onChanged: (_) => setState(() {}),
+          decoration: InputDecoration(
+            labelText: l.provisionAdvertiseHost,
+            helperText: l.provisionAdvertiseHostHint,
+            helperMaxLines: 3,
+            border: const OutlineInputBorder(),
+            isDense: true,
+          ),
+        ),
+        if (tlsTransports.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          _SettingsCard(
+            title: l.provisionTlsShared,
+            subtitle: l.provisionTlsSharedHint(
+              tlsTransports.map((transport) => transport.scheme).join(', '),
+            ),
+            nested: true,
+            children: [
+              TextField(
+                controller: _tlsCert,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  labelText: l.provisionTlsCert,
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _tlsKey,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  labelText: l.provisionTlsKey,
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _tlsCa,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  labelText: l.provisionTlsCa,
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
@@ -274,168 +590,14 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
             style: const TextStyle(fontFamily: 'monospace'),
           ),
           const SizedBox(height: 12),
-          TextField(
-            controller: _releaseUrl,
-            onChanged: (_) => setState(() {}),
-            decoration: InputDecoration(
-              labelText: l.provisionReleaseUrl,
-              helperText: l.provisionReleaseHint,
-              helperMaxLines: 3,
-              border: const OutlineInputBorder(),
-              isDense: true,
-            ),
-          ),
+          _releaseSection(l),
+          const SizedBox(height: 12),
+          _componentsSection(l),
+          const SizedBox(height: 12),
+          _transportsSection(l),
+          const SizedBox(height: 12),
+          _sharedTransportSection(l),
           const SizedBox(height: 8),
-          TextField(
-            controller: _sha256,
-            onChanged: (_) => setState(() {}),
-            decoration: InputDecoration(
-              labelText: l.provisionSha256,
-              helperText: l.provisionSha256Hint,
-              helperMaxLines: 4,
-              border: const OutlineInputBorder(),
-              isDense: true,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            l.provisionComponents,
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            children: [
-              const Chip(
-                avatar: Icon(Icons.check, size: 18),
-                label: Text('veil-cli'),
-              ),
-              for (final component in NodeComponent.values)
-                if (component != NodeComponent.veilCli)
-                  FilterChip(
-                    label: Text(component.binaryName),
-                    selected: _extraComponents.contains(component),
-                    onSelected: (selected) => setState(() {
-                      if (selected) {
-                        _extraComponents.add(component);
-                      } else {
-                        _extraComponents.remove(component);
-                      }
-                    }),
-                  ),
-            ],
-          ),
-          for (final component in NodeComponent.values)
-            if (_extraComponents.contains(component)) ...[
-              const SizedBox(height: 8),
-              TextField(
-                controller: _componentUrls[component],
-                onChanged: (_) => setState(() {}),
-                decoration: InputDecoration(
-                  labelText: l.provisionComponentUrl(component.binaryName),
-                  border: const OutlineInputBorder(),
-                  isDense: true,
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _componentShas[component],
-                onChanged: (_) => setState(() {}),
-                decoration: InputDecoration(
-                  labelText: l.provisionComponentSha(component.binaryName),
-                  border: const OutlineInputBorder(),
-                  isDense: true,
-                ),
-              ),
-            ],
-          const SizedBox(height: 16),
-          Text(
-            l.provisionTransports,
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            children: [
-              for (final transport in NodeListenTransport.values)
-                FilterChip(
-                  label: Text(transport.scheme),
-                  selected: _transports.contains(transport),
-                  onSelected: (selected) => setState(() {
-                    if (selected) {
-                      _transports.add(transport);
-                    } else if (_transports.length > 1) {
-                      _transports.remove(transport);
-                    }
-                  }),
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final transport in _transports)
-                SizedBox(
-                  width: 150,
-                  child: TextField(
-                    controller: _transportPorts[transport],
-                    keyboardType: TextInputType.number,
-                    onChanged: (_) => setState(() {}),
-                    decoration: InputDecoration(
-                      labelText: '${transport.scheme} port',
-                      border: const OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _advertiseHost,
-            onChanged: (_) => setState(() {}),
-            decoration: InputDecoration(
-              labelText: l.provisionAdvertiseHost,
-              border: const OutlineInputBorder(),
-              isDense: true,
-            ),
-          ),
-          if (_transports.any((transport) => transport.needsTls)) ...[
-            const SizedBox(height: 8),
-            TextField(
-              controller: _tlsCert,
-              onChanged: (_) => setState(() {}),
-              decoration: InputDecoration(
-                labelText: l.provisionTlsCert,
-                border: const OutlineInputBorder(),
-                isDense: true,
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _tlsKey,
-              onChanged: (_) => setState(() {}),
-              decoration: InputDecoration(
-                labelText: l.provisionTlsKey,
-                border: const OutlineInputBorder(),
-                isDense: true,
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _tlsCa,
-              onChanged: (_) => setState(() {}),
-              decoration: InputDecoration(
-                labelText: l.provisionTlsCa,
-                border: const OutlineInputBorder(),
-                isDense: true,
-              ),
-            ),
-          ],
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: Text(l.provisionRunExit),
@@ -557,6 +719,57 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class _SettingsCard extends StatelessWidget {
+  const _SettingsCard({
+    super.key,
+    this.title,
+    this.subtitle,
+    this.nested = false,
+    required this.children,
+  });
+
+  final String? title;
+  final String? subtitle;
+  final bool nested;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      elevation: nested ? 0 : null,
+      color: nested ? theme.colorScheme.surfaceContainerLow : null,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (title != null) ...[
+              Text(title!, style: theme.textTheme.titleMedium),
+              if (subtitle != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  subtitle!,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+            ],
+            ...children,
+          ],
+        ),
       ),
     );
   }

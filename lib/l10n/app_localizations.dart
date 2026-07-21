@@ -4165,6 +4165,54 @@ abstract class AppL10n {
   /// **'Provision over SSH'**
   String get provisionTitle;
 
+  /// No description provided for @provisionReleaseSection.
+  ///
+  /// In en, this message translates to:
+  /// **'veil-cli release'**
+  String get provisionReleaseSection;
+
+  /// No description provided for @provisionReleaseTarget.
+  ///
+  /// In en, this message translates to:
+  /// **'Server architecture'**
+  String get provisionReleaseTarget;
+
+  /// No description provided for @provisionReleaseTargetX64.
+  ///
+  /// In en, this message translates to:
+  /// **'x86_64 Linux (portable musl)'**
+  String get provisionReleaseTargetX64;
+
+  /// No description provided for @provisionReleaseTargetArm64.
+  ///
+  /// In en, this message translates to:
+  /// **'ARM64 Linux (portable musl)'**
+  String get provisionReleaseTargetArm64;
+
+  /// No description provided for @provisionReleaseRefresh.
+  ///
+  /// In en, this message translates to:
+  /// **'Load latest release'**
+  String get provisionReleaseRefresh;
+
+  /// No description provided for @provisionReleaseLoading.
+  ///
+  /// In en, this message translates to:
+  /// **'Loading the latest release from GitHub…'**
+  String get provisionReleaseLoading;
+
+  /// No description provided for @provisionReleaseLoaded.
+  ///
+  /// In en, this message translates to:
+  /// **'Loaded GitHub release {tag}'**
+  String provisionReleaseLoaded(String tag);
+
+  /// No description provided for @provisionReleaseError.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not auto-fill from GitHub: {error}. You can enter both values manually.'**
+  String provisionReleaseError(String error);
+
   /// No description provided for @provisionReleaseUrl.
   ///
   /// In en, this message translates to:
@@ -4174,7 +4222,7 @@ abstract class AppL10n {
   /// No description provided for @provisionReleaseHint.
   ///
   /// In en, this message translates to:
-  /// **'Direct link to a veil-cli binary for the server\'s arch (a GitHub release asset).'**
+  /// **'Filled automatically from the official veilnetwork/veil GitHub release. You can override it manually.'**
   String get provisionReleaseHint;
 
   /// No description provided for @provisionSha256.
@@ -4207,11 +4255,83 @@ abstract class AppL10n {
   /// **'Incoming transports'**
   String get provisionTransports;
 
+  /// No description provided for @provisionTransportObfs4TcpHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Obfuscated TCP listener for censorship-resistant peer connections.'**
+  String get provisionTransportObfs4TcpHint;
+
+  /// No description provided for @provisionTransportTcpHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Plain TCP listener without transport encryption.'**
+  String get provisionTransportTcpHint;
+
+  /// No description provided for @provisionTransportTlsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'TCP listener protected by the shared TLS certificate below.'**
+  String get provisionTransportTlsHint;
+
+  /// No description provided for @provisionTransportQuicHint.
+  ///
+  /// In en, this message translates to:
+  /// **'QUIC listener over UDP, protected by the shared TLS certificate below.'**
+  String get provisionTransportQuicHint;
+
+  /// No description provided for @provisionTransportWssHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Secure WebSocket listener, protected by the shared TLS certificate below.'**
+  String get provisionTransportWssHint;
+
+  /// No description provided for @provisionTransportPort.
+  ///
+  /// In en, this message translates to:
+  /// **'{transport} port'**
+  String provisionTransportPort(String transport);
+
+  /// No description provided for @provisionTransportNetwork.
+  ///
+  /// In en, this message translates to:
+  /// **'Network protocol: {protocol}'**
+  String provisionTransportNetwork(String protocol);
+
+  /// No description provided for @provisionTransportCommon.
+  ///
+  /// In en, this message translates to:
+  /// **'Shared transport settings'**
+  String get provisionTransportCommon;
+
+  /// No description provided for @provisionTransportCommonHint.
+  ///
+  /// In en, this message translates to:
+  /// **'These values apply to every selected incoming transport.'**
+  String get provisionTransportCommonHint;
+
   /// No description provided for @provisionAdvertiseHost.
   ///
   /// In en, this message translates to:
   /// **'Public host / IP (optional)'**
   String get provisionAdvertiseHost;
+
+  /// No description provided for @provisionAdvertiseHostHint.
+  ///
+  /// In en, this message translates to:
+  /// **'The same public address is advertised for every selected transport; each one keeps its own port.'**
+  String get provisionAdvertiseHostHint;
+
+  /// No description provided for @provisionTlsShared.
+  ///
+  /// In en, this message translates to:
+  /// **'Shared TLS files'**
+  String get provisionTlsShared;
+
+  /// No description provided for @provisionTlsSharedHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Used by: {transports}. The paths refer to existing files on the remote server.'**
+  String provisionTlsSharedHint(String transports);
 
   /// No description provided for @provisionTlsCert.
   ///

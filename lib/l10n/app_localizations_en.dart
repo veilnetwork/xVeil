@@ -2223,11 +2223,40 @@ class AppL10nEn extends AppL10n {
   String get provisionTitle => 'Provision over SSH';
 
   @override
+  String get provisionReleaseSection => 'veil-cli release';
+
+  @override
+  String get provisionReleaseTarget => 'Server architecture';
+
+  @override
+  String get provisionReleaseTargetX64 => 'x86_64 Linux (portable musl)';
+
+  @override
+  String get provisionReleaseTargetArm64 => 'ARM64 Linux (portable musl)';
+
+  @override
+  String get provisionReleaseRefresh => 'Load latest release';
+
+  @override
+  String get provisionReleaseLoading =>
+      'Loading the latest release from GitHub…';
+
+  @override
+  String provisionReleaseLoaded(String tag) {
+    return 'Loaded GitHub release $tag';
+  }
+
+  @override
+  String provisionReleaseError(String error) {
+    return 'Could not auto-fill from GitHub: $error. You can enter both values manually.';
+  }
+
+  @override
   String get provisionReleaseUrl => 'veil-cli release URL';
 
   @override
   String get provisionReleaseHint =>
-      'Direct link to a veil-cli binary for the server\'s arch (a GitHub release asset).';
+      'Filled automatically from the official veilnetwork/veil GitHub release. You can override it manually.';
 
   @override
   String get provisionSha256 => 'veil-cli SHA-256';
@@ -2246,7 +2275,56 @@ class AppL10nEn extends AppL10n {
   String get provisionTransports => 'Incoming transports';
 
   @override
+  String get provisionTransportObfs4TcpHint =>
+      'Obfuscated TCP listener for censorship-resistant peer connections.';
+
+  @override
+  String get provisionTransportTcpHint =>
+      'Plain TCP listener without transport encryption.';
+
+  @override
+  String get provisionTransportTlsHint =>
+      'TCP listener protected by the shared TLS certificate below.';
+
+  @override
+  String get provisionTransportQuicHint =>
+      'QUIC listener over UDP, protected by the shared TLS certificate below.';
+
+  @override
+  String get provisionTransportWssHint =>
+      'Secure WebSocket listener, protected by the shared TLS certificate below.';
+
+  @override
+  String provisionTransportPort(String transport) {
+    return '$transport port';
+  }
+
+  @override
+  String provisionTransportNetwork(String protocol) {
+    return 'Network protocol: $protocol';
+  }
+
+  @override
+  String get provisionTransportCommon => 'Shared transport settings';
+
+  @override
+  String get provisionTransportCommonHint =>
+      'These values apply to every selected incoming transport.';
+
+  @override
   String get provisionAdvertiseHost => 'Public host / IP (optional)';
+
+  @override
+  String get provisionAdvertiseHostHint =>
+      'The same public address is advertised for every selected transport; each one keeps its own port.';
+
+  @override
+  String get provisionTlsShared => 'Shared TLS files';
+
+  @override
+  String provisionTlsSharedHint(String transports) {
+    return 'Used by: $transports. The paths refer to existing files on the remote server.';
+  }
 
   @override
   String get provisionTlsCert => 'Remote TLS certificate path';

@@ -2238,11 +2238,39 @@ class AppL10nRu extends AppL10n {
   String get provisionTitle => 'Развёртывание по SSH';
 
   @override
+  String get provisionReleaseSection => 'Релиз veil-cli';
+
+  @override
+  String get provisionReleaseTarget => 'Архитектура сервера';
+
+  @override
+  String get provisionReleaseTargetX64 => 'x86_64 Linux (переносимый musl)';
+
+  @override
+  String get provisionReleaseTargetArm64 => 'ARM64 Linux (переносимый musl)';
+
+  @override
+  String get provisionReleaseRefresh => 'Загрузить последний релиз';
+
+  @override
+  String get provisionReleaseLoading => 'Загружаю последний релиз с GitHub…';
+
+  @override
+  String provisionReleaseLoaded(String tag) {
+    return 'Загружен GitHub-релиз $tag';
+  }
+
+  @override
+  String provisionReleaseError(String error) {
+    return 'Не удалось заполнить с GitHub: $error. Оба значения можно указать вручную.';
+  }
+
+  @override
   String get provisionReleaseUrl => 'URL релиза veil-cli';
 
   @override
   String get provisionReleaseHint =>
-      'Прямая ссылка на бинарь veil-cli для архитектуры сервера (ассет GitHub-релиза).';
+      'Заполняется автоматически из официального GitHub-релиза veilnetwork/veil. Значение можно заменить вручную.';
 
   @override
   String get provisionSha256 => 'SHA-256 для veil-cli';
@@ -2262,7 +2290,56 @@ class AppL10nRu extends AppL10n {
   String get provisionTransports => 'Входящие транспорты';
 
   @override
+  String get provisionTransportObfs4TcpHint =>
+      'Обфусцированный TCP-листенер для устойчивых к блокировкам соединений с пирами.';
+
+  @override
+  String get provisionTransportTcpHint =>
+      'Обычный TCP-листенер без шифрования на уровне транспорта.';
+
+  @override
+  String get provisionTransportTlsHint =>
+      'TCP-листенер, защищённый общим TLS-сертификатом ниже.';
+
+  @override
+  String get provisionTransportQuicHint =>
+      'QUIC-листенер поверх UDP, защищённый общим TLS-сертификатом ниже.';
+
+  @override
+  String get provisionTransportWssHint =>
+      'Защищённый WebSocket-листенер с общим TLS-сертификатом ниже.';
+
+  @override
+  String provisionTransportPort(String transport) {
+    return 'Порт $transport';
+  }
+
+  @override
+  String provisionTransportNetwork(String protocol) {
+    return 'Сетевой протокол: $protocol';
+  }
+
+  @override
+  String get provisionTransportCommon => 'Общие настройки транспортов';
+
+  @override
+  String get provisionTransportCommonHint =>
+      'Эти значения относятся ко всем выбранным входящим транспортам.';
+
+  @override
   String get provisionAdvertiseHost => 'Публичный хост / IP (необязательно)';
+
+  @override
+  String get provisionAdvertiseHostHint =>
+      'Один публичный адрес объявляется для всех выбранных транспортов; порт у каждого свой.';
+
+  @override
+  String get provisionTlsShared => 'Общие TLS-файлы';
+
+  @override
+  String provisionTlsSharedHint(String transports) {
+    return 'Используются для: $transports. Укажите пути к существующим файлам на удалённом сервере.';
+  }
 
   @override
   String get provisionTlsCert => 'Путь TLS-сертификата на сервере';
