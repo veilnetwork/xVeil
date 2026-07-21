@@ -30,6 +30,9 @@ class VpnRoutingPolicy {
     this.excludedCountryCodes = const [],
     this.applicationMode = VpnApplicationMode.allApplications,
     this.applicationIds = const [],
+    this.vpnOproxyNodeIds = const [],
+    this.applicationOproxyNodeIds = const {},
+    this.oproxyAutoFailover = true,
     this.routeDns = true,
     this.dnsServers = defaultDnsServers,
     this.allowLan = true,
@@ -49,6 +52,14 @@ class VpnRoutingPolicy {
   final List<String> excludedCountryCodes;
   final VpnApplicationMode applicationMode;
   final List<String> applicationIds;
+
+  /// Ordered primary/fallback exit chain for traffic without an app override.
+  /// Empty means "use ProxyRouting's default oproxy chain".
+  final List<String> vpnOproxyNodeIds;
+
+  /// Android package ID -> ordered primary/fallback exit chain.
+  final Map<String, List<String>> applicationOproxyNodeIds;
+  final bool oproxyAutoFailover;
   final bool routeDns;
   final List<String> dnsServers;
   final bool allowLan;
@@ -81,6 +92,24 @@ class VpnRoutingPolicy {
     if (applicationIds.length > 256 ||
         applicationIds.any((value) => !isValidApplicationId(value))) {
       errors.add('applicationIds.invalid');
+    }
+    if (!_isValidOproxyChain(vpnOproxyNodeIds)) {
+      errors.add('vpnOproxyNodeIds.invalid');
+    }
+    if (applicationOproxyNodeIds.length > 256 ||
+        applicationOproxyNodeIds.entries.any(
+          (entry) =>
+              !isValidApplicationId(entry.key) ||
+              entry.value.isEmpty ||
+              !_isValidOproxyChain(entry.value),
+        )) {
+      errors.add('applicationOproxyNodeIds.invalid');
+    }
+    if (applicationMode == VpnApplicationMode.onlySelected &&
+        applicationOproxyNodeIds.keys.any(
+          (applicationId) => !applicationIds.contains(applicationId),
+        )) {
+      errors.add('applicationOproxyNodeIds.notSelected');
     }
     if (routeDns && dnsServers.isEmpty) errors.add('dnsServers.empty');
     if (dnsServers.any((value) => !isValidIp(value))) {
@@ -122,6 +151,12 @@ class VpnRoutingPolicy {
         ).hasMatch(input);
   }
 
+  static bool isValidOproxyNodeId(String value) =>
+      RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(value);
+
+  static bool _isValidOproxyChain(List<String> values) =>
+      values.length <= 16 && values.every(isValidOproxyNodeId);
+
   VpnRoutingPolicy copyWith({
     bool? enabled,
     VpnRouteMode? routeMode,
@@ -131,6 +166,9 @@ class VpnRoutingPolicy {
     List<String>? excludedCountryCodes,
     VpnApplicationMode? applicationMode,
     List<String>? applicationIds,
+    List<String>? vpnOproxyNodeIds,
+    Map<String, List<String>>? applicationOproxyNodeIds,
+    bool? oproxyAutoFailover,
     bool? routeDns,
     List<String>? dnsServers,
     bool? allowLan,
@@ -144,6 +182,10 @@ class VpnRoutingPolicy {
     excludedCountryCodes: excludedCountryCodes ?? this.excludedCountryCodes,
     applicationMode: applicationMode ?? this.applicationMode,
     applicationIds: applicationIds ?? this.applicationIds,
+    vpnOproxyNodeIds: vpnOproxyNodeIds ?? this.vpnOproxyNodeIds,
+    applicationOproxyNodeIds:
+        applicationOproxyNodeIds ?? this.applicationOproxyNodeIds,
+    oproxyAutoFailover: oproxyAutoFailover ?? this.oproxyAutoFailover,
     routeDns: routeDns ?? this.routeDns,
     dnsServers: dnsServers ?? this.dnsServers,
     allowLan: allowLan ?? this.allowLan,
@@ -159,6 +201,9 @@ class VpnRoutingPolicy {
     'excludedCountryCodes': excludedCountryCodes,
     'applicationMode': applicationMode.name,
     'applicationIds': applicationIds,
+    'vpnOproxyNodeIds': vpnOproxyNodeIds,
+    'applicationOproxyNodeIds': applicationOproxyNodeIds,
+    'oproxyAutoFailover': oproxyAutoFailover,
     'routeDns': routeDns,
     'dnsServers': dnsServers,
     'allowLan': allowLan,
@@ -183,6 +228,11 @@ class VpnRoutingPolicy {
       excludedCountryCodes: _countryCodes(json['excludedCountryCodes']),
       applicationMode: applicationMode ?? VpnApplicationMode.allApplications,
       applicationIds: _applicationIds(json['applicationIds']),
+      vpnOproxyNodeIds: _oproxyNodeIds(json['vpnOproxyNodeIds']),
+      applicationOproxyNodeIds: _applicationOproxyNodeIds(
+        json['applicationOproxyNodeIds'],
+      ),
+      oproxyAutoFailover: json['oproxyAutoFailover'] as bool? ?? true,
       routeDns: json['routeDns'] as bool? ?? true,
       dnsServers: json.containsKey('dnsServers')
           ? _strings(json['dnsServers'])
@@ -213,6 +263,24 @@ class VpnRoutingPolicy {
             .toSet()
             .toList(growable: false)
       : const [];
+
+  static List<String> _oproxyNodeIds(Object? value) => value is List
+      ? value
+            .whereType<String>()
+            .map((value) => value.trim())
+            .where((value) => value.isNotEmpty)
+            .toSet()
+            .toList(growable: false)
+      : const [];
+
+  static Map<String, List<String>> _applicationOproxyNodeIds(Object? value) {
+    if (value is! Map) return const {};
+    return {
+      for (final entry in value.entries)
+        if (entry.key is String)
+          entry.key as String: _oproxyNodeIds(entry.value),
+    };
+  }
 
   static const defaults = VpnRoutingPolicy();
 }

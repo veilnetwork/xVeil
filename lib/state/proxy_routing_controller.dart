@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,9 +19,11 @@ const _kProxyRoutingKey = 'proxy_routing';
 /// the config it boots/applies).
 class ProxyRoutingController extends Notifier<ProxyRouting> {
   bool _userSet = false;
+  late final Completer<ProxyRouting> _loaded;
 
   @override
   ProxyRouting build() {
+    _loaded = Completer<ProxyRouting>();
     _load();
     return ProxyRouting.disabled;
   }
@@ -34,8 +37,15 @@ class ProxyRoutingController extends Notifier<ProxyRouting> {
       }
     } catch (_) {
       // No prefs (widget tests) — stay on the safe default (all off).
+    } finally {
+      if (!_loaded.isCompleted) _loaded.complete(state);
     }
   }
+
+  /// Waits for the persisted routing catalog before materializing a VPN plan.
+  /// Without this barrier an app-process restart could briefly see the disabled
+  /// default and tear down an otherwise valid native VPN tunnel.
+  Future<ProxyRouting> waitUntilLoaded() => _loaded.future;
 
   Future<void> set(ProxyRouting value) async {
     _userSet = true;
@@ -61,6 +71,9 @@ final proxyRoutingProvider =
 /// [ProxyRouting.socks5Enabled] remains the user's independent manual-proxy
 /// preference.
 final vpnProxyDemandProvider = StateProvider<bool>((ref) => false);
+final vpnProxyProfilesProvider = StateProvider<List<ProxySocksProfile>>(
+  (ref) => const [],
+);
 
 /// Node configuration after combining the manual SOCKS preference with the
 /// system VPN's runtime requirement. UI and preferences continue to use
@@ -68,5 +81,7 @@ final vpnProxyDemandProvider = StateProvider<bool>((ref) => false);
 final effectiveProxyRoutingProvider = Provider<ProxyRouting>((ref) {
   final configured = ref.watch(proxyRoutingProvider);
   if (!ref.watch(vpnProxyDemandProvider)) return configured;
-  return configured.copyWith(socks5Enabled: true);
+  return configured.copyWith(
+    runtimeSocksProfiles: ref.watch(vpnProxyProfilesProvider),
+  );
 });

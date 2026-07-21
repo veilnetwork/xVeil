@@ -12,11 +12,38 @@
 ///  * **Exit (serve others)** — accept proxy-connect streams from peers and
 ///    egress them to the clearnet. Turns THIS node into an exit others can route
 ///    through; more exits = a healthier censorship-resistant network.
+class OproxyEndpoint {
+  const OproxyEndpoint({required this.nodeId, required this.label});
+
+  final String nodeId;
+  final String label;
+
+  Map<String, dynamic> toJson() => {'nodeId': nodeId, 'label': label};
+
+  factory OproxyEndpoint.fromJson(Map<String, dynamic> json) => OproxyEndpoint(
+    nodeId: json['nodeId'] as String? ?? '',
+    label: json['label'] as String? ?? '',
+  );
+}
+
+/// One local SOCKS listener backed by an ordered primary/fallback exit chain.
+/// Runtime profiles are derived from VPN app rules and are never persisted in
+/// [ProxyRouting]; the user-facing durable data is the endpoint catalog.
+class ProxySocksProfile {
+  const ProxySocksProfile({required this.listen, required this.exitNodeIds});
+
+  final String listen;
+  final List<String> exitNodeIds;
+}
+
 class ProxyRouting {
   const ProxyRouting({
     this.socks5Enabled = false,
     this.socks5Listen = defaultListen,
     this.exitNodeId,
+    this.oProxies = const [],
+    this.defaultOproxyNodeIds = const [],
+    this.runtimeSocksProfiles = const [],
     this.exitEnabled = false,
     this.exitAllowPrivate = false,
   });
@@ -33,6 +60,18 @@ class ProxyRouting {
   /// [socks5Enabled] to take effect (the node skips an exit-less SOCKS5).
   final String? exitNodeId;
 
+  /// Saved exit catalog. Node IDs are stable routing identifiers; labels are
+  /// local-only descriptions such as a country/provider name.
+  final List<OproxyEndpoint> oProxies;
+
+  /// Ordered default primary/fallback chain used by manual SOCKS and as the
+  /// initial VPN chain. Old configs transparently fall back to [exitNodeId].
+  final List<String> defaultOproxyNodeIds;
+
+  /// Ephemeral listeners required by the currently running VPN app rules.
+  /// Deliberately excluded from JSON.
+  final List<ProxySocksProfile> runtimeSocksProfiles;
+
   /// Run an exit proxy on this node (egress peers' streams to the clearnet).
   final bool exitEnabled;
 
@@ -47,19 +86,47 @@ class ProxyRouting {
   /// (fail-closed). A SOCKS5 toggle missing any of these is inert in veil.
   bool get socks5Active => socks5Enabled && vpnTransportReady;
 
+  List<String> get effectiveDefaultOproxyNodeIds {
+    final configured = defaultOproxyNodeIds
+        .where(_isHex64)
+        .toSet()
+        .toList(growable: false);
+    if (configured.isNotEmpty) return configured;
+    final legacy = exitNodeId;
+    return legacy != null && _isHex64(legacy) ? [legacy] : const [];
+  }
+
+  List<OproxyEndpoint> get effectiveOproxies {
+    final byNode = <String, OproxyEndpoint>{};
+    for (final endpoint in oProxies) {
+      if (_isHex64(endpoint.nodeId)) byNode[endpoint.nodeId] = endpoint;
+    }
+    for (final nodeId in effectiveDefaultOproxyNodeIds) {
+      byNode.putIfAbsent(
+        nodeId,
+        () => OproxyEndpoint(
+          nodeId: nodeId,
+          label: 'oproxy ${nodeId.substring(0, 8)}',
+        ),
+      );
+    }
+    return byNode.values.toList(growable: false);
+  }
+
   /// Whether the shared exit/listen settings are sufficient for the system
   /// VPN to provision its own local SOCKS transport. Unlike [socks5Active],
   /// this deliberately does not depend on the manual SOCKS5 toggle: that
   /// toggle controls whether the listener remains available for applications
   /// when the system VPN is off.
   bool get vpnTransportReady =>
-      exitNodeId != null &&
-      _isHex64(exitNodeId!) &&
-      isValidListen(socks5Listen);
+      effectiveDefaultOproxyNodeIds.isNotEmpty && isValidListen(socks5Listen);
 
   /// Whether anything routing-related is on (drives the config injection + the
   /// network-screen "active" badge).
-  bool get isActive => socks5Active || exitEnabled;
+  bool get isActive =>
+      socks5Active || runtimeSocksProfiles.isNotEmpty || exitEnabled;
+
+  static bool isValidNodeId(String s) => _isHex64(s);
 
   static bool _isHex64(String s) =>
       s.length == 64 && RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(s);
@@ -86,12 +153,18 @@ class ProxyRouting {
     String? socks5Listen,
     String? exitNodeId,
     bool clearExitNodeId = false,
+    List<OproxyEndpoint>? oProxies,
+    List<String>? defaultOproxyNodeIds,
+    List<ProxySocksProfile>? runtimeSocksProfiles,
     bool? exitEnabled,
     bool? exitAllowPrivate,
   }) => ProxyRouting(
     socks5Enabled: socks5Enabled ?? this.socks5Enabled,
     socks5Listen: socks5Listen ?? this.socks5Listen,
     exitNodeId: clearExitNodeId ? null : (exitNodeId ?? this.exitNodeId),
+    oProxies: oProxies ?? this.oProxies,
+    defaultOproxyNodeIds: defaultOproxyNodeIds ?? this.defaultOproxyNodeIds,
+    runtimeSocksProfiles: runtimeSocksProfiles ?? this.runtimeSocksProfiles,
     exitEnabled: exitEnabled ?? this.exitEnabled,
     exitAllowPrivate: exitAllowPrivate ?? this.exitAllowPrivate,
   );
@@ -100,6 +173,8 @@ class ProxyRouting {
     'socks5Enabled': socks5Enabled,
     'socks5Listen': socks5Listen,
     if (exitNodeId != null) 'exitNodeId': exitNodeId,
+    'oproxies': oProxies.map((value) => value.toJson()).toList(),
+    'defaultOproxyNodeIds': defaultOproxyNodeIds,
     'exitEnabled': exitEnabled,
     'exitAllowPrivate': exitAllowPrivate,
   };
@@ -108,9 +183,28 @@ class ProxyRouting {
     socks5Enabled: json['socks5Enabled'] as bool? ?? false,
     socks5Listen: json['socks5Listen'] as String? ?? defaultListen,
     exitNodeId: json['exitNodeId'] as String?,
+    oProxies: _oproxies(json['oproxies']),
+    defaultOproxyNodeIds: _strings(json['defaultOproxyNodeIds']),
     exitEnabled: json['exitEnabled'] as bool? ?? false,
     exitAllowPrivate: json['exitAllowPrivate'] as bool? ?? false,
   );
+
+  static List<String> _strings(Object? value) => value is List
+      ? value.whereType<String>().toSet().toList(growable: false)
+      : const [];
+
+  static List<OproxyEndpoint> _oproxies(Object? value) => value is List
+      ? value
+            .whereType<Map>()
+            .map(
+              (item) =>
+                  OproxyEndpoint.fromJson(Map<String, dynamic>.from(item)),
+            )
+            .where(
+              (item) => _isHex64(item.nodeId) && item.label.trim().isNotEmpty,
+            )
+            .toList(growable: false)
+      : const [];
 
   static const disabled = ProxyRouting();
 }

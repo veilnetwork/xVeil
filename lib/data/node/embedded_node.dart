@@ -564,12 +564,33 @@ class EmbeddedNode {
   static String withProxy(String toml, ProxyRouting proxy) {
     if (!proxy.isActive || toml.contains('[proxy.')) return toml;
     final buf = StringBuffer(toml);
+    final emittedListens = <String>{};
     if (proxy.socks5Active) {
+      final exits = proxy.effectiveDefaultOproxyNodeIds;
       buf
         ..write('\n[proxy.socks5]\n')
         ..write('enabled = true\n')
         ..write('listen = "${proxy.socks5Listen}"\n')
-        ..write('exit_node_id = "${proxy.exitNodeId}"\n');
+        ..write('exit_node_id = "${exits.first}"\n')
+        ..write('exit_node_ids = [${exits.map((id) => '"$id"').join(', ')}]\n');
+      emittedListens.add(proxy.socks5Listen);
+    }
+    for (final profile in proxy.runtimeSocksProfiles) {
+      final exits = profile.exitNodeIds
+          .where(ProxyRouting.isValidNodeId)
+          .toSet()
+          .toList(growable: false);
+      if (exits.isEmpty ||
+          !ProxyRouting.isValidListen(profile.listen) ||
+          !emittedListens.add(profile.listen)) {
+        continue;
+      }
+      buf
+        ..write('\n[[proxy.socks5_profiles]]\n')
+        ..write('enabled = true\n')
+        ..write('listen = "${profile.listen}"\n')
+        ..write('exit_node_id = "${exits.first}"\n')
+        ..write('exit_node_ids = [${exits.map((id) => '"$id"').join(', ')}]\n');
     }
     if (proxy.exitEnabled) {
       buf

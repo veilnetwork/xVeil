@@ -43,6 +43,30 @@ Widget _androidHost() => ProviderScope(
   ),
 );
 
+Future<void> _addOproxy(
+  WidgetTester tester,
+  AppL10n l, {
+  String label = 'Amsterdam',
+}) async {
+  await tester.tap(find.byTooltip(l.oproxyAddTitle));
+  await tester.pumpAndSettle();
+  await tester.enterText(find.widgetWithText(TextField, l.oproxyName), label);
+  await tester.enterText(
+    find.widgetWithText(TextField, l.routeExitNodeLabel),
+    _exit,
+  );
+  await tester.pump();
+  await tester.tap(
+    find.widgetWithText(
+      FilledButton,
+      MaterialLocalizations.of(
+        tester.element(find.byType(AlertDialog)),
+      ).saveButtonLabel,
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('exit can be configured while manual SOCKS remains off', (
     tester,
@@ -53,11 +77,7 @@ void main() {
     final l = AppL10n.of(tester.element(find.byType(ProxyRoutingScreen)));
 
     expect(find.text(l.routeListenLabel), findsOneWidget);
-    await tester.enterText(
-      find.widgetWithText(TextField, l.routeExitNodeLabel),
-      _exit,
-    );
-    await tester.pumpAndSettle();
+    await _addOproxy(tester, l);
 
     final container = ProviderScope.containerOf(
       tester.element(find.byType(ProxyRoutingScreen)),
@@ -75,11 +95,7 @@ void main() {
 
     await tester.tap(find.widgetWithText(SwitchListTile, l.routeSocks5Title));
     await tester.pumpAndSettle();
-    await tester.enterText(
-      find.widgetWithText(TextField, l.routeExitNodeLabel),
-      _exit,
-    );
-    await tester.pumpAndSettle();
+    await _addOproxy(tester, l);
 
     final container = ProviderScope.containerOf(
       tester.element(find.byType(ProxyRoutingScreen)),
@@ -143,6 +159,7 @@ void main() {
     expect(find.text(l.vpnApplicationNoneSelected), findsOneWidget);
     final select = find.widgetWithText(OutlinedButton, l.vpnApplicationSelect);
     await tester.ensureVisible(select);
+    await tester.pumpAndSettle();
     await tester.tap(select);
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(CheckboxListTile, 'Firefox'));
