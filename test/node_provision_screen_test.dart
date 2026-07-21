@@ -1,0 +1,113 @@
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/data/node/managed_node.dart';
+import 'package:xveil/data/node/ssh_credentials.dart';
+import 'package:xveil/data/node/veil_github_release.dart';
+import 'package:xveil/features/network/node_provision_screen.dart';
+import 'package:xveil/l10n/app_localizations.dart';
+
+const _shaX64 =
+    'de5f630023cdd7753bce89aae8b56b7ea2c410e2b0f7c40233b9d0ff939af069';
+const _shaArm =
+    '5406a992a4d81777c8bcdd5534a72f40fd9bc6d7863f5eed5751701c6c3249df';
+
+VeilGithubReleaseResolver _resolver() => VeilGithubReleaseResolver(
+  fetcher: (uri) async => jsonEncode({
+    'tag_name': 'v0.3.1',
+    'assets': [
+      for (final target in VeilLinuxReleaseTarget.values)
+        {
+          'name': 'veil-cli-${target.triple}',
+          'browser_download_url':
+              'https://github.com/veilnetwork/veil/releases/download/v0.3.1/'
+              'veil-cli-${target.triple}',
+          'digest': target == VeilLinuxReleaseTarget.x86_64Musl
+              ? 'sha256:$_shaX64'
+              : 'sha256:$_shaArm',
+        },
+    ],
+  }),
+);
+
+Widget _host() => ProviderScope(
+  child: MaterialApp(
+    localizationsDelegates: AppL10n.localizationsDelegates,
+    supportedLocales: AppL10n.supportedLocales,
+    home: NodeProvisionScreen(
+      node: const ManagedNode(
+        id: 'test-node',
+        label: 'Test server',
+        sshHost: 'server.example',
+        sshUser: 'root',
+      ),
+      initialCredentials: const SavedSshCredentials(),
+      releaseResolver: _resolver(),
+    ),
+  ),
+);
+
+void main() {
+  testWidgets('auto-fills URL and SHA and refreshes them for architecture', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_host());
+    await tester.pumpAndSettle();
+
+    TextField field(Key key) => tester.widget<TextField>(find.byKey(key));
+    expect(
+      field(const ValueKey('veil-release-url')).controller!.text,
+      endsWith('veil-cli-x86_64-unknown-linux-musl'),
+    );
+    expect(field(const ValueKey('veil-release-sha')).controller!.text, _shaX64);
+
+    await tester.tap(find.byKey(const ValueKey('veil-release-target')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('ARM64 Linux (portable musl)').last);
+    await tester.pumpAndSettle();
+
+    expect(
+      field(const ValueKey('veil-release-url')).controller!.text,
+      endsWith('veil-cli-aarch64-unknown-linux-musl'),
+    );
+    expect(field(const ValueKey('veil-release-sha')).controller!.text, _shaArm);
+  });
+
+  testWidgets('keeps each port inside its transport card', (tester) async {
+    tester.view.physicalSize = const Size(1080, 5000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(_host());
+    await tester.pumpAndSettle();
+
+    final obfs4 = find.byKey(const ValueKey('transport-obfs4-tcp'));
+    expect(obfs4, findsOneWidget);
+    expect(
+      find.descendant(
+        of: obfs4,
+        matching: find.byKey(const ValueKey('transport-port-obfs4-tcp')),
+      ),
+      findsOneWidget,
+    );
+
+    final quic = find.byKey(const ValueKey('transport-quic'));
+    await tester.ensureVisible(quic);
+    await tester.tap(
+      find.descendant(of: quic, matching: find.byType(Checkbox)).first,
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.descendant(
+        of: quic,
+        matching: find.byKey(const ValueKey('transport-port-quic')),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Network protocol: UDP'), findsOneWidget);
+    expect(find.text('Shared TLS files'), findsOneWidget);
+  });
+}
