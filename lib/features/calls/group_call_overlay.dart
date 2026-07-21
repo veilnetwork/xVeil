@@ -13,12 +13,14 @@ import '../../domain/group_call.dart';
 import '../../domain/group_policy.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
+import '../../state/call_audio_route.dart';
 import '../../state/call_service.dart' show CallMediaDevice;
 import '../../state/group_call_service.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/veil_group_call_media.dart';
 import 'call_lifecycle_bridge.dart' show callPipMode;
 import 'call_device_picker.dart';
+import 'call_surface.dart';
 import 'video_frame_view.dart';
 
 /// Global room surface for the signed group-call control plane.
@@ -89,6 +91,18 @@ class _GroupCallOverlayState extends ConsumerState<GroupCallOverlay> {
     if (await calls.selectScreen(device.id)) {
       await calls.setScreenShareEnabled(true);
     }
+  }
+
+  Future<void> _openSettings(GroupCallService calls) async {
+    if (_screenDevicesLoading) return;
+    setState(() => _screenDevicesLoading = true);
+    final devices = await calls.listScreens();
+    if (!mounted) return;
+    setState(() {
+      _screenDevicesLoading = false;
+      // An empty list still opens audio output routing in the shared sheet.
+      _screenDevices = devices;
+    });
   }
 
   @override
@@ -174,6 +188,7 @@ class _GroupCallOverlayState extends ConsumerState<GroupCallOverlay> {
                 onCamera: () =>
                     unawaited(calls.setCameraEnabled(!call.cameraOn)),
                 onScreen: () => unawaited(_toggleScreen(calls, call)),
+                onSettings: () => unawaited(_openSettings(calls)),
                 localVideoFrame: nativeMedia?.localVideoFrame,
                 videoFrameFor: nativeMedia?.videoFrameFor,
               ),
@@ -214,6 +229,7 @@ class GroupCallRoomView extends StatelessWidget {
     required this.onMic,
     required this.onCamera,
     required this.onScreen,
+    this.onSettings,
     this.onMinimize,
     this.localVideoFrame,
     this.videoFrameFor,
@@ -231,6 +247,7 @@ class GroupCallRoomView extends StatelessWidget {
   final VoidCallback onMic;
   final VoidCallback onCamera;
   final VoidCallback onScreen;
+  final VoidCallback? onSettings;
   final ValueListenable<VeilVideoFrame?>? localVideoFrame;
   final ValueListenable<VeilVideoFrame?>? Function(NodeId)? videoFrameFor;
 
@@ -245,58 +262,17 @@ class GroupCallRoomView extends StatelessWidget {
       });
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 8, 8),
-          child: Row(
-            children: [
-              const Icon(Icons.groups_rounded, color: Colors.white70),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      key: const ValueKey('group-call-title'),
-                      style: Theme.of(
-                        context,
-                      ).textTheme.titleLarge?.copyWith(color: Colors.white),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    Text(
-                      call.status == GroupCallStatus.ringing
-                          ? l.groupCallIncoming
-                          : _statusLabel(l, call.status),
-                      style: const TextStyle(color: Colors.white70),
-                    ),
-                  ],
-                ),
-              ),
-              if (onMinimize != null)
-                Semantics(
-                  container: true,
-                  label: l.groupCallMinimize,
-                  button: true,
-                  child: IconButton(
-                    key: const ValueKey('group-call-minimize'),
-                    color: Colors.white,
-                    onPressed: onMinimize,
-                    icon: const Icon(Icons.keyboard_arrow_down),
-                  ),
-                ),
-            ],
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              l.groupMembers(participants.length),
-              style: Theme.of(
-                context,
-              ).textTheme.labelLarge?.copyWith(color: Colors.white60),
-            ),
+        KeyedSubtree(
+          key: const ValueKey('group-call-title'),
+          child: CallSurfaceHeader(
+            title: title,
+            subtitle:
+                '${call.status == GroupCallStatus.ringing ? l.groupCallIncoming : _statusLabel(l, call.status)} · ${l.groupMembers(participants.length)}',
+            group: true,
+            onMinimize: onMinimize,
+            onSettings: onSettings,
+            minimizeKey: const ValueKey('group-call-minimize'),
+            minimizeLabel: l.groupCallMinimize,
           ),
         ),
         const SizedBox(height: 8),
@@ -589,22 +565,20 @@ class _RingingControls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+    return CallControlDock(
       children: [
-        _CallButton(
+        CallControlAction(
           key: const ValueKey('group-call-decline'),
           icon: Icons.call_end,
           label: l.callDecline,
-          color: Colors.redAccent,
+          destructive: true,
           onPressed: onDecline,
         ),
-        const SizedBox(width: 32),
-        _CallButton(
+        CallControlAction(
           key: const ValueKey('group-call-accept'),
           icon: Icons.call,
           label: l.callAccept,
-          color: Colors.green,
+          positive: true,
           onPressed: onAccept,
         ),
       ],
@@ -634,109 +608,46 @@ class _ActiveControls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _CallButton(
-            key: const ValueKey('group-call-mic'),
-            icon: call.micOn ? Icons.mic : Icons.mic_off,
-            label: call.micOn ? l.callMicOn : l.callMicOff,
-            onPressed: onMic,
+    return CallControlDock(
+      children: [
+        CallControlAction(
+          key: const ValueKey('group-call-mic'),
+          icon: call.micOn ? Icons.mic : Icons.mic_off,
+          label: call.micOn ? l.callMicOn : l.callMicOff,
+          onPressed: onMic,
+        ),
+        CallControlAction(
+          key: const ValueKey('group-call-camera'),
+          icon: call.cameraOn ? Icons.videocam : Icons.videocam_off,
+          label: call.cameraOn ? l.callCameraOn : l.callCameraOff,
+          onPressed: onCamera,
+        ),
+        if (call.media.video && (Platform.isMacOS || Platform.isAndroid))
+          CallControlAction(
+            key: const ValueKey('group-call-screen'),
+            icon: call.screenOn ? Icons.stop_screen_share : Icons.screen_share,
+            label: call.screenOn ? l.callScreenOn : l.callScreenOff,
+            onPressed: onScreen,
           ),
-          if (call.media.video) ...[
-            const SizedBox(width: 12),
-            _CallButton(
-              key: const ValueKey('group-call-camera'),
-              icon: call.cameraOn ? Icons.videocam : Icons.videocam_off,
-              label: call.cameraOn ? l.callCameraOn : l.callCameraOff,
-              onPressed: onCamera,
-            ),
-            if (Platform.isMacOS || Platform.isAndroid) ...[
-              const SizedBox(width: 12),
-              _CallButton(
-                key: const ValueKey('group-call-screen'),
-                icon: call.screenOn
-                    ? Icons.stop_screen_share
-                    : Icons.screen_share,
-                label: call.screenOn ? l.callScreenOn : l.callScreenOff,
-                onPressed: onScreen,
-              ),
-            ],
-          ],
-          const SizedBox(width: 12),
-          _CallButton(
-            key: const ValueKey('group-call-leave'),
-            icon: Icons.call_end,
-            label: l.groupCallLeave,
-            color: Colors.redAccent,
-            onPressed: onLeave,
+        if (callAudioRouter.supportsPhoneRouting) const CallAudioRouteAction(),
+        CallControlAction(
+          key: const ValueKey('group-call-leave'),
+          icon: Icons.call_end,
+          label: l.groupCallLeave,
+          destructive: true,
+          onPressed: onLeave,
+        ),
+        if (isAdmin)
+          CallControlAction(
+            key: const ValueKey('group-call-end-everyone'),
+            icon: Icons.group_off_outlined,
+            label: l.groupCallEndEveryone,
+            destructive: true,
+            onPressed: onEndEveryone,
           ),
-          if (isAdmin) ...[
-            const SizedBox(width: 12),
-            _CallButton(
-              key: const ValueKey('group-call-end-everyone'),
-              icon: Icons.group_off_outlined,
-              label: l.groupCallEndEveryone,
-              color: Colors.deepOrange,
-              onPressed: onEndEveryone,
-            ),
-          ],
-        ],
-      ),
+      ],
     );
   }
-}
-
-class _CallButton extends StatelessWidget {
-  const _CallButton({
-    super.key,
-    required this.icon,
-    required this.label,
-    required this.onPressed,
-    this.color = const Color(0xFF38404B),
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onPressed;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) => Semantics(
-    button: true,
-    label: label,
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Material(
-          color: color,
-          shape: const CircleBorder(),
-          child: InkWell(
-            customBorder: const CircleBorder(),
-            onTap: onPressed,
-            child: SizedBox.square(
-              dimension: 52,
-              child: Icon(icon, color: Colors.white),
-            ),
-          ),
-        ),
-        const SizedBox(height: 6),
-        SizedBox(
-          width: 82,
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Colors.white70, fontSize: 11),
-          ),
-        ),
-      ],
-    ),
-  );
 }
 
 class GroupCallMiniView extends StatelessWidget {

@@ -58,6 +58,7 @@ abstract class GroupCallMediaController {
   Future<void> stop();
   Future<void> setMicMuted(bool muted) async {}
   Future<void> setCameraEnabled(bool enabled) async {}
+  Future<bool> setVideoEnabled(bool enabled) async => false;
   Future<bool> setScreenShareEnabled(bool enabled) async => false;
   Future<List<CallMediaDevice>> listScreens() async => const [];
   Future<bool> selectScreen(String id) async => false;
@@ -363,12 +364,24 @@ class GroupCallService {
 
   Future<void> setCameraEnabled(bool enabled) async {
     final call = _current;
-    if (call == null ||
-        !call.isLive ||
-        !call.media.video ||
-        call.cameraOn == enabled) {
+    if (call == null || !call.isLive) return;
+    if (!call.media.video) {
+      if (!enabled || !(await _media?.setVideoEnabled(true) ?? false)) return;
+      final current = _current;
+      if (current == null || !current.isLive || current.callId != call.callId) {
+        return;
+      }
+      _set(
+        current.copyWith(
+          media: current.media.copyWith(video: true),
+          cameraOn: true,
+        ),
+      );
+      await _media?.setCameraEnabled(true);
+      await _announceMedia();
       return;
     }
+    if (call.cameraOn == enabled) return;
     _set(call.copyWith(cameraOn: enabled));
     if (!call.screenOn) await _media?.setCameraEnabled(enabled);
     await _announceMedia();

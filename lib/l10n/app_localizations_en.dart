@@ -2785,6 +2785,21 @@ class AppL10nEn extends AppL10n {
   String get callDevices => 'Devices';
 
   @override
+  String get callSettingsAudio => 'Audio';
+
+  @override
+  String get callSettingsVideo => 'Video';
+
+  @override
+  String get callAudioOutput => 'Audio output';
+
+  @override
+  String get callSpeaker => 'Speaker';
+
+  @override
+  String get callEarpiece => 'Phone earpiece';
+
+  @override
   String get callCameras => 'Cameras';
 
   @override

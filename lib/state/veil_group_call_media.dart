@@ -11,6 +11,7 @@ import '../domain/group_call.dart';
 import 'android_camera_capture.dart';
 import 'android_screen_capture.dart';
 import 'call_service.dart' show CallMediaDevice, CallMediaDeviceKind;
+import 'call_audio_route.dart';
 import 'group_call_service.dart';
 import 'mac_media_permissions.dart';
 
@@ -238,36 +239,15 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     _engine = engine;
     await _syncPeersLocked(call);
     final audioReady = !call.media.audio || engine.startAudio();
+    if (audioReady && call.media.audio) {
+      await callAudioRouter.useDefaultFor(call.media);
+    }
     var videoReady = !(call.media.video || call.media.screen);
     if (!videoReady) {
-      videoReady = engine.startVideo();
-      _videoRunning = videoReady;
-      if (videoReady) {
-        // Poll above the nominal display cadence so equal-rate timer phase
-        // drift cannot turn a steady native stream into alternating 50/100 ms
-        // UI holds. _pollFrames only publishes a newly sequenced frame.
-        _frameTimer = Timer.periodic(
-          const Duration(milliseconds: 33),
-          (_) => _pollFrames(engine),
-        );
-        if (call.screenOn || call.media.screen) {
-          if (Platform.isAndroid) {
-            _screenSharing = await _startAndroidScreen(engine);
-          } else {
-            try {
-              _screenSharing = engine.startScreen(sourceId: _selectedScreenId);
-            } catch (_) {}
-          }
-        } else if (call.cameraOn && call.media.video) {
-          if (Platform.isAndroid) {
-            unawaited(_startAndroidCamera(engine));
-          } else {
-            try {
-              engine.startCamera();
-            } catch (_) {}
-          }
-        }
-      }
+      videoReady = await _startVideoLocked(
+        startCamera: call.cameraOn && call.media.video,
+        startScreen: call.screenOn || call.media.screen,
+      );
     }
     if (!audioReady || !videoReady) {
       await _stopLocked();
@@ -286,7 +266,69 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   Future<void> update(GroupCall call) => _locked(() async {
     if (_engine == null) return;
     await _syncPeersLocked(call);
+    final roomHasVideo =
+        call.media.video ||
+        call.media.screen ||
+        call.participants.values.any(
+          (participant) => participant.media.video || participant.media.screen,
+        );
+    if (roomHasVideo && !_videoRunning) {
+      await _startVideoLocked(
+        startCamera: call.cameraOn && call.media.video,
+        startScreen: call.screenOn,
+      );
+    }
   });
+
+  @override
+  Future<bool> setVideoEnabled(bool enabled) async {
+    if (!enabled) return false;
+    if (Platform.isMacOS || Platform.isIOS) {
+      final granted = await _requestCamera();
+      if (!granted) return false;
+    }
+    return _locked(() async {
+      final engine = _engine;
+      if (engine == null) return false;
+      if (_videoRunning) return true;
+      return _startVideoLocked();
+    });
+  }
+
+  Future<bool> _startVideoLocked({
+    bool startCamera = false,
+    bool startScreen = false,
+  }) async {
+    final engine = _engine;
+    if (engine == null) return false;
+    if (_videoRunning) return true;
+    final ready = engine.startVideo();
+    if (!ready) return false;
+    _videoRunning = true;
+    await callAudioRouter.setRoute(CallAudioRoute.speaker);
+    _frameTimer ??= Timer.periodic(
+      const Duration(milliseconds: 33),
+      (_) => _pollFrames(engine),
+    );
+    if (startScreen) {
+      if (Platform.isAndroid) {
+        _screenSharing = await _startAndroidScreen(engine);
+      } else {
+        try {
+          _screenSharing = engine.startScreen(sourceId: _selectedScreenId);
+        } catch (_) {}
+      }
+    } else if (startCamera) {
+      if (Platform.isAndroid) {
+        unawaited(_startAndroidCamera(engine));
+      } else {
+        try {
+          engine.startCamera();
+        } catch (_) {}
+      }
+    }
+    return true;
+  }
 
   Future<void> _syncPeersLocked(GroupCall call) async {
     final engine = _engine;
@@ -551,6 +593,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     _lastRxPackets.clear();
     _lastRxAt.clear();
     _localIdHex = null;
+    await callAudioRouter.release();
   }
 
   Future<void> _startAndroidCamera(GroupAudioEngine engine) async {

@@ -5,6 +5,7 @@ import AVFoundation
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var mediaPermissionsChannel: FlutterMethodChannel?
+  private var callAudioRouteChannel: FlutterMethodChannel?
 
   override func application(
     _ application: UIApplication,
@@ -53,6 +54,49 @@ import AVFoundation
       }
     }
     mediaPermissionsChannel = channel
+
+    let routeChannel = FlutterMethodChannel(
+      name: "xveil/call_audio_route",
+      binaryMessenger: registrar.messenger())
+    routeChannel.setMethodCallHandler { call, result in
+      switch call.method {
+      case "setRoute":
+        let speaker =
+          (call.arguments as? [String: Any])?["speaker"] as? Bool ?? false
+        result(Self.setCallAudioRoute(speaker: speaker))
+      case "release":
+        Self.releaseCallAudioRoute()
+        result(nil)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+    callAudioRouteChannel = routeChannel
+  }
+
+  private static func setCallAudioRoute(speaker: Bool) -> Bool {
+    let session = AVAudioSession.sharedInstance()
+    do {
+      var options: AVAudioSession.CategoryOptions = [.allowBluetoothHFP]
+      if speaker { options.insert(.defaultToSpeaker) }
+      try session.setCategory(.playAndRecord, mode: .voiceChat, options: options)
+      try session.setActive(true)
+      try session.overrideOutputAudioPort(speaker ? .speaker : .none)
+      return true
+    } catch {
+      NSLog("xVeil: call audio route failed: \(error)")
+      return false
+    }
+  }
+
+  private static func releaseCallAudioRoute() {
+    let session = AVAudioSession.sharedInstance()
+    do {
+      try session.overrideOutputAudioPort(.none)
+      try session.setActive(false, options: .notifyOthersOnDeactivation)
+    } catch {
+      NSLog("xVeil: call audio route cleanup failed: \(error)")
+    }
   }
 
   private static func statusString(_ status: AVAuthorizationStatus) -> String {
