@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/node/managed_node.dart';
+import 'package:xveil/data/node/node_provisioner.dart';
 import 'package:xveil/data/node/ssh_credentials.dart';
 import 'package:xveil/data/node/veil_github_release.dart';
 import 'package:xveil/features/network/node_provision_screen.dart';
@@ -19,15 +20,16 @@ VeilGithubReleaseResolver _resolver() => VeilGithubReleaseResolver(
     'tag_name': 'v0.3.1',
     'assets': [
       for (final target in VeilLinuxReleaseTarget.values)
-        {
-          'name': 'veil-cli-${target.triple}',
-          'browser_download_url':
-              'https://github.com/veilnetwork/veil/releases/download/v0.3.1/'
-              'veil-cli-${target.triple}',
-          'digest': target == VeilLinuxReleaseTarget.x86_64Musl
-              ? 'sha256:$_shaX64'
-              : 'sha256:$_shaArm',
-        },
+        for (final component in NodeComponent.values)
+          {
+            'name': '${component.binaryName}-${target.triple}',
+            'browser_download_url':
+                'https://github.com/veilnetwork/veil/releases/download/v0.3.1/'
+                '${component.binaryName}-${target.triple}',
+            'digest': target == VeilLinuxReleaseTarget.x86_64Musl
+                ? 'sha256:$_shaX64'
+                : 'sha256:$_shaArm',
+          },
     ],
   }),
 );
@@ -109,5 +111,41 @@ void main() {
     );
     expect(find.text('Network protocol: UDP'), findsOneWidget);
     expect(find.text('Shared TLS files'), findsOneWidget);
+  });
+
+  testWidgets('optional component offers GitHub or a custom link', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1080, 5000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(_host());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('ogate'));
+    await tester.pumpAndSettle();
+
+    final urlFinder = find.byKey(const ValueKey('artifact-url-ogate'));
+    final shaFinder = find.byKey(const ValueKey('artifact-sha-ogate'));
+    expect(
+      tester.widget<TextField>(urlFinder).controller!.text,
+      endsWith('ogate-x86_64-unknown-linux-musl'),
+    );
+    expect(tester.widget<TextField>(shaFinder).controller!.text, _shaX64);
+    expect(tester.widget<TextField>(urlFinder).readOnly, isTrue);
+
+    final source = find.byKey(const ValueKey('artifact-source-ogate'));
+    await tester.tap(
+      find.descendant(of: source, matching: find.text('Custom link')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<TextField>(urlFinder).readOnly, isFalse);
+    await tester.enterText(urlFinder, 'https://example.com/custom-ogate');
+    expect(
+      tester.widget<TextField>(urlFinder).controller!.text,
+      'https://example.com/custom-ogate',
+    );
   });
 }

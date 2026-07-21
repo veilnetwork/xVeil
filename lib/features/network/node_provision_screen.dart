@@ -14,6 +14,8 @@ import '../../state/managed_nodes_controller.dart';
 import '../../state/ssh_credentials.dart';
 import 'ssh_public_key_card.dart';
 
+enum _ArtifactSource { github, custom }
+
 /// Provision a veil node on a managed server over SSH: review the generated
 /// install script (it runs as root), then run it. The script pulls veil-cli
 /// from a release URL, pushes the bundled deployment PSK, mines an identity on
@@ -49,8 +51,14 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
   late final Map<NodeComponent, TextEditingController> _componentUrls;
   late final Map<NodeComponent, TextEditingController> _componentShas;
   late final Map<NodeListenTransport, TextEditingController> _transportPorts;
+  late final VeilGithubReleaseResolver _releaseResolver;
   final Set<NodeComponent> _extraComponents = {};
+  final Map<NodeComponent, _ArtifactSource> _componentSources = {
+    for (final component in NodeComponent.values)
+      if (component != NodeComponent.veilCli) component: _ArtifactSource.github,
+  };
   final Set<NodeListenTransport> _transports = {NodeListenTransport.obfs4Tcp};
+  _ArtifactSource _veilCliSource = _ArtifactSource.github;
   bool _useKey = false;
   bool _runExit = true;
   String? _psk;
@@ -69,6 +77,7 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
   @override
   void initState() {
     super.initState();
+    _releaseResolver = widget.releaseResolver ?? VeilGithubReleaseResolver();
     _componentUrls = {
       for (final component in NodeComponent.values)
         if (component != NodeComponent.veilCli)
@@ -85,30 +94,62 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
     };
     unawaited(_loadPsk());
     unawaited(_loadCredentials());
-    unawaited(_loadLatestRelease());
+    unawaited(_loadGithubArtifacts());
   }
 
-  Future<void> _loadLatestRelease({bool replaceManualValues = false}) async {
+  TextEditingController _urlController(NodeComponent component) =>
+      component == NodeComponent.veilCli
+      ? _releaseUrl
+      : _componentUrls[component]!;
+
+  TextEditingController _shaController(NodeComponent component) =>
+      component == NodeComponent.veilCli ? _sha256 : _componentShas[component]!;
+
+  _ArtifactSource _sourceFor(NodeComponent component) =>
+      component == NodeComponent.veilCli
+      ? _veilCliSource
+      : _componentSources[component]!;
+
+  Future<void> _loadGithubArtifacts({bool refresh = false}) async {
     final request = ++_releaseRequest;
+    final components = <NodeComponent>[
+      if (_veilCliSource == _ArtifactSource.github) NodeComponent.veilCli,
+      for (final component in _extraComponents)
+        if (_componentSources[component] == _ArtifactSource.github) component,
+    ];
+    if (components.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _releaseLoading = false;
+          _releaseLoadError = null;
+        });
+      }
+      return;
+    }
+    if (refresh) _releaseResolver.clearCache();
     setState(() {
       _releaseLoading = true;
       _releaseLoadError = null;
     });
     try {
-      final release =
-          await (widget.releaseResolver ?? VeilGithubReleaseResolver()).resolve(
-            _releaseTarget,
-          );
+      final releases = await Future.wait([
+        for (final component in components)
+          _releaseResolver.resolveArtifact(
+            target: _releaseTarget,
+            binaryName: component.binaryName,
+          ),
+      ]);
       if (!mounted || request != _releaseRequest) return;
-      final mayReplace =
-          replaceManualValues ||
-          (_releaseUrl.text.trim().isEmpty && _sha256.text.trim().isEmpty);
       setState(() {
-        if (mayReplace) {
-          _releaseUrl.text = release.downloadUrl;
-          _sha256.text = release.sha256;
+        for (var i = 0; i < components.length; i++) {
+          final component = components[i];
+          final release = releases[i];
+          // A source may have changed while the request was in flight.
+          if (_sourceFor(component) != _ArtifactSource.github) continue;
+          _urlController(component).text = release.downloadUrl;
+          _shaController(component).text = release.sha256;
         }
-        _releaseTag = release.tag;
+        _releaseTag = releases.first.tag;
         _releaseLoading = false;
       });
     } on Object catch (error) {
@@ -303,6 +344,44 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
   String _transportNetwork(NodeListenTransport transport) =>
       transport == NodeListenTransport.quic ? 'UDP' : 'TCP';
 
+  bool get _hasGithubArtifacts =>
+      _veilCliSource == _ArtifactSource.github ||
+      _extraComponents.any(
+        (component) => _componentSources[component] == _ArtifactSource.github,
+      );
+
+  Widget _artifactSourceSelector(AppL10n l, NodeComponent component) {
+    final source = _sourceFor(component);
+    return SegmentedButton<_ArtifactSource>(
+      key: ValueKey('artifact-source-${component.binaryName}'),
+      segments: [
+        ButtonSegment(
+          value: _ArtifactSource.github,
+          icon: const Icon(Icons.cloud_download_outlined),
+          label: Text(l.provisionSourceGithub),
+        ),
+        ButtonSegment(
+          value: _ArtifactSource.custom,
+          icon: const Icon(Icons.link),
+          label: Text(l.provisionSourceCustom),
+        ),
+      ],
+      selected: {source},
+      onSelectionChanged: (selection) {
+        final next = selection.first;
+        if (next == source) return;
+        setState(() {
+          if (component == NodeComponent.veilCli) {
+            _veilCliSource = next;
+          } else {
+            _componentSources[component] = next;
+          }
+        });
+        unawaited(_loadGithubArtifacts());
+      },
+    );
+  }
+
   Widget _releaseSection(AppL10n l) => _SettingsCard(
     title: l.provisionReleaseSection,
     children: [
@@ -326,17 +405,22 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
             : (target) {
                 if (target == null || target == _releaseTarget) return;
                 setState(() => _releaseTarget = target);
-                unawaited(_loadLatestRelease(replaceManualValues: true));
+                unawaited(_loadGithubArtifacts());
               },
       ),
+      const SizedBox(height: 12),
+      _artifactSourceSelector(l, NodeComponent.veilCli),
       const SizedBox(height: 12),
       TextField(
         key: const ValueKey('veil-release-url'),
         controller: _releaseUrl,
+        readOnly: _veilCliSource == _ArtifactSource.github,
         onChanged: (_) => setState(() {}),
         decoration: InputDecoration(
           labelText: l.provisionReleaseUrl,
-          helperText: l.provisionReleaseHint,
+          helperText: _veilCliSource == _ArtifactSource.github
+              ? l.provisionReleaseHint
+              : l.provisionCustomReleaseHint,
           helperMaxLines: 3,
           border: const OutlineInputBorder(),
           isDense: true,
@@ -346,6 +430,7 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
       TextField(
         key: const ValueKey('veil-release-sha'),
         controller: _sha256,
+        readOnly: _veilCliSource == _ArtifactSource.github,
         onChanged: (_) => setState(() {}),
         decoration: InputDecoration(
           labelText: l.provisionSha256,
@@ -383,8 +468,9 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
           alignment: Alignment.centerLeft,
           child: TextButton.icon(
             key: const ValueKey('veil-release-refresh'),
-            onPressed: () =>
-                unawaited(_loadLatestRelease(replaceManualValues: true)),
+            onPressed: _hasGithubArtifacts
+                ? () => unawaited(_loadGithubArtifacts(refresh: true))
+                : null,
             icon: const Icon(Icons.refresh),
             label: Text(l.provisionReleaseRefresh),
           ),
@@ -409,13 +495,19 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
               FilterChip(
                 label: Text(component.binaryName),
                 selected: _extraComponents.contains(component),
-                onSelected: (selected) => setState(() {
-                  if (selected) {
-                    _extraComponents.add(component);
-                  } else {
-                    _extraComponents.remove(component);
+                onSelected: (selected) {
+                  setState(() {
+                    if (selected) {
+                      _extraComponents.add(component);
+                    } else {
+                      _extraComponents.remove(component);
+                    }
+                  });
+                  if (selected &&
+                      _componentSources[component] == _ArtifactSource.github) {
+                    unawaited(_loadGithubArtifacts());
                   }
-                }),
+                },
               ),
         ],
       ),
@@ -426,8 +518,13 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
             title: component.binaryName,
             nested: true,
             children: [
+              _artifactSourceSelector(l, component),
+              const SizedBox(height: 12),
               TextField(
+                key: ValueKey('artifact-url-${component.binaryName}'),
                 controller: _componentUrls[component],
+                readOnly:
+                    _componentSources[component] == _ArtifactSource.github,
                 onChanged: (_) => setState(() {}),
                 decoration: InputDecoration(
                   labelText: l.provisionComponentUrl(component.binaryName),
@@ -437,7 +534,10 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
               ),
               const SizedBox(height: 12),
               TextField(
+                key: ValueKey('artifact-sha-${component.binaryName}'),
                 controller: _componentShas[component],
+                readOnly:
+                    _componentSources[component] == _ArtifactSource.github,
                 onChanged: (_) => setState(() {}),
                 decoration: InputDecoration(
                   labelText: l.provisionComponentSha(component.binaryName),

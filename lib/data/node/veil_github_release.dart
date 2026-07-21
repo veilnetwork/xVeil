@@ -28,6 +28,22 @@ class VeilCliRelease {
   final String sha256;
 }
 
+class VeilGithubArtifact {
+  const VeilGithubArtifact({
+    required this.tag,
+    required this.target,
+    required this.binaryName,
+    required this.downloadUrl,
+    required this.sha256,
+  });
+
+  final String tag;
+  final VeilLinuxReleaseTarget target;
+  final String binaryName;
+  final String downloadUrl;
+  final String sha256;
+}
+
 class VeilReleaseException implements Exception {
   const VeilReleaseException(this.message);
 
@@ -37,7 +53,7 @@ class VeilReleaseException implements Exception {
   String toString() => message;
 }
 
-/// Resolves veil-cli from the canonical veilnetwork/veil GitHub release.
+/// Resolves veil binaries from the canonical veilnetwork/veil GitHub release.
 ///
 /// The GitHub-provided asset digest is preferred. Older releases without that
 /// API field fall back to the independently published target manifest.
@@ -51,8 +67,68 @@ class VeilGithubReleaseResolver {
   );
 
   final ReleaseTextFetcher _fetcher;
+  Future<Map<String, dynamic>>? _latestReleaseData;
+
+  /// Forces the next lookup to query GitHub again. Normal lookups share one
+  /// response so selecting several components does not multiply API requests.
+  void clearCache() => _latestReleaseData = null;
 
   Future<VeilCliRelease> resolve(VeilLinuxReleaseTarget target) async {
+    final artifact = await resolveArtifact(
+      target: target,
+      binaryName: 'veil-cli',
+    );
+    return VeilCliRelease(
+      tag: artifact.tag,
+      target: artifact.target,
+      downloadUrl: artifact.downloadUrl,
+      sha256: artifact.sha256,
+    );
+  }
+
+  Future<VeilGithubArtifact> resolveArtifact({
+    required VeilLinuxReleaseTarget target,
+    required String binaryName,
+  }) async {
+    if (!RegExp(r'^[a-z0-9-]+$').hasMatch(binaryName)) {
+      throw const VeilReleaseException('Invalid release binary name');
+    }
+    final decoded = await (_latestReleaseData ??= _loadLatestRelease());
+    final tag = decoded['tag_name']! as String;
+    final assets = decoded['assets']! as List<Object?>;
+
+    final assetName = '$binaryName-${target.triple}';
+    final binary = _assetNamed(assets, assetName);
+    final downloadUrl = binary['browser_download_url'];
+    if (downloadUrl is! String || !_isCanonicalDownload(downloadUrl, tag)) {
+      throw const VeilReleaseException(
+        'GitHub release contains an unexpected download URL',
+      );
+    }
+
+    final digest = binary['digest'];
+    final apiSha = digest is String && digest.startsWith('sha256:')
+        ? digest.substring('sha256:'.length)
+        : null;
+    final sha256 = apiSha != null && _isSha256(apiSha)
+        ? apiSha.toLowerCase()
+        : await _shaFromManifest(
+            assets,
+            target: target,
+            tag: tag,
+            binaryName: binaryName,
+          );
+
+    return VeilGithubArtifact(
+      tag: tag,
+      target: target,
+      binaryName: binaryName,
+      downloadUrl: downloadUrl,
+      sha256: sha256,
+    );
+  }
+
+  Future<Map<String, dynamic>> _loadLatestRelease() async {
     final body = await _fetcher(latestReleaseUri);
     final Object? decoded;
     try {
@@ -68,36 +144,14 @@ class VeilGithubReleaseResolver {
     if (tag is! String || tag.isEmpty || assets is! List) {
       throw const VeilReleaseException('Latest GitHub release is incomplete');
     }
-
-    final binaryName = 'veil-cli-${target.triple}';
-    final binary = _assetNamed(assets, binaryName);
-    final downloadUrl = binary['browser_download_url'];
-    if (downloadUrl is! String || !_isCanonicalDownload(downloadUrl, tag)) {
-      throw const VeilReleaseException(
-        'GitHub release contains an unexpected download URL',
-      );
-    }
-
-    final digest = binary['digest'];
-    final apiSha = digest is String && digest.startsWith('sha256:')
-        ? digest.substring('sha256:'.length)
-        : null;
-    final sha256 = apiSha != null && _isSha256(apiSha)
-        ? apiSha.toLowerCase()
-        : await _shaFromManifest(assets, target: target, tag: tag);
-
-    return VeilCliRelease(
-      tag: tag,
-      target: target,
-      downloadUrl: downloadUrl,
-      sha256: sha256,
-    );
+    return decoded;
   }
 
   Future<String> _shaFromManifest(
     List<Object?> assets, {
     required VeilLinuxReleaseTarget target,
     required String tag,
+    required String binaryName,
   }) async {
     final manifest = _assetNamed(assets, 'sha256-${target.triple}.txt');
     final manifestUrl = manifest['browser_download_url'];
@@ -109,12 +163,12 @@ class VeilGithubReleaseResolver {
     final text = await _fetcher(Uri.parse(manifestUrl));
     for (final line in const LineSplitter().convert(text)) {
       final match = RegExp(
-        r'^([0-9a-fA-F]{64})\s+\*?veil-cli$',
+        '^([0-9a-fA-F]{64})\\s+\\*?${RegExp.escape(binaryName)}\$',
       ).firstMatch(line.trim());
       if (match != null) return match.group(1)!.toLowerCase();
     }
-    throw const VeilReleaseException(
-      'Published checksum manifest does not contain veil-cli',
+    throw VeilReleaseException(
+      'Published checksum manifest does not contain $binaryName',
     );
   }
 

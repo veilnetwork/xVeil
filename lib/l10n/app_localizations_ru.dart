@@ -2250,7 +2250,13 @@ class AppL10nRu extends AppL10n {
   String get provisionReleaseTargetArm64 => 'ARM64 Linux (переносимый musl)';
 
   @override
-  String get provisionReleaseRefresh => 'Загрузить последний релиз';
+  String get provisionReleaseRefresh => 'Обновить поля с GitHub';
+
+  @override
+  String get provisionSourceGithub => 'GitHub-релиз';
+
+  @override
+  String get provisionSourceCustom => 'Своя ссылка';
 
   @override
   String get provisionReleaseLoading => 'Загружаю последний релиз с GitHub…';
@@ -2270,7 +2276,11 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get provisionReleaseHint =>
-      'Заполняется автоматически из официального GitHub-релиза veilnetwork/veil. Значение можно заменить вручную.';
+      'Заполняется автоматически из официального GitHub-релиза veilnetwork/veil. Для замены выберите «Своя ссылка».';
+
+  @override
+  String get provisionCustomReleaseHint =>
+      'Укажите прямую HTTPS-ссылку на свой бинарник и его SHA-256 в поле ниже.';
 
   @override
   String get provisionSha256 => 'SHA-256 для veil-cli';

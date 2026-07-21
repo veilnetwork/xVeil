@@ -4192,8 +4192,20 @@ abstract class AppL10n {
   /// No description provided for @provisionReleaseRefresh.
   ///
   /// In en, this message translates to:
-  /// **'Load latest release'**
+  /// **'Refresh GitHub fields'**
   String get provisionReleaseRefresh;
+
+  /// No description provided for @provisionSourceGithub.
+  ///
+  /// In en, this message translates to:
+  /// **'GitHub release'**
+  String get provisionSourceGithub;
+
+  /// No description provided for @provisionSourceCustom.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom link'**
+  String get provisionSourceCustom;
 
   /// No description provided for @provisionReleaseLoading.
   ///
@@ -4222,8 +4234,14 @@ abstract class AppL10n {
   /// No description provided for @provisionReleaseHint.
   ///
   /// In en, this message translates to:
-  /// **'Filled automatically from the official veilnetwork/veil GitHub release. You can override it manually.'**
+  /// **'Filled automatically from the official veilnetwork/veil GitHub release. Choose Custom link to override it.'**
   String get provisionReleaseHint;
+
+  /// No description provided for @provisionCustomReleaseHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a direct HTTPS link to your binary. You must also supply its SHA-256 below.'**
+  String get provisionCustomReleaseHint;
 
   /// No description provided for @provisionSha256.
   ///
