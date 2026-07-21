@@ -3865,6 +3865,12 @@ abstract class AppL10n {
   /// **'Register a node that is already installed and has a node id.'**
   String get nodesAddExistingHint;
 
+  /// No description provided for @nodesAddExistingFieldsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Required: label and node ID. SSH fields are optional and only needed to manage the server. A password or private key is requested when connecting and is not saved.'**
+  String get nodesAddExistingFieldsHint;
+
   /// No description provided for @nodesBootstrapNew.
   ///
   /// In en, this message translates to:
@@ -3876,6 +3882,12 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Install veil on a Linux server; its node id will be saved automatically.'**
   String get nodesBootstrapNewHint;
+
+  /// No description provided for @nodesBootstrapFieldsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Required: label, SSH host, and SSH user. The port defaults to 22. A password or private key is entered on the next screen and is not saved; the node ID is saved after provisioning.'**
+  String get nodesBootstrapFieldsHint;
 
   /// No description provided for @nodesBootstrapContinue.
   ///
@@ -3892,7 +3904,7 @@ abstract class AppL10n {
   /// No description provided for @nodeLabelLabel.
   ///
   /// In en, this message translates to:
-  /// **'Label'**
+  /// **'Label *'**
   String get nodeLabelLabel;
 
   /// No description provided for @nodeLabelRequired.
@@ -3904,8 +3916,14 @@ abstract class AppL10n {
   /// No description provided for @nodeIdLabel.
   ///
   /// In en, this message translates to:
-  /// **'Node id (64-hex)'**
+  /// **'Node ID (64 hex, optional)'**
   String get nodeIdLabel;
+
+  /// No description provided for @nodeIdRequiredLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Node ID (64 hex) *'**
+  String get nodeIdRequiredLabel;
 
   /// No description provided for @nodeIdHintText.
   ///
@@ -3934,7 +3952,7 @@ abstract class AppL10n {
   /// No description provided for @nodeSshHostRequiredLabel.
   ///
   /// In en, this message translates to:
-  /// **'SSH host'**
+  /// **'SSH host *'**
   String get nodeSshHostRequiredLabel;
 
   /// No description provided for @nodeSshHostRequired.
@@ -3946,7 +3964,7 @@ abstract class AppL10n {
   /// No description provided for @nodeSshPortLabel.
   ///
   /// In en, this message translates to:
-  /// **'SSH port'**
+  /// **'SSH port (defaults to 22)'**
   String get nodeSshPortLabel;
 
   /// No description provided for @nodeSshUserLabel.
@@ -3958,7 +3976,7 @@ abstract class AppL10n {
   /// No description provided for @nodeSshUserRequiredLabel.
   ///
   /// In en, this message translates to:
-  /// **'SSH user'**
+  /// **'SSH user *'**
   String get nodeSshUserRequiredLabel;
 
   /// No description provided for @nodeSshUserRequired.

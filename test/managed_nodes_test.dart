@@ -112,7 +112,11 @@ void main() {
     await tester.tap(find.text(l.nodesAddExisting));
     await tester.pumpAndSettle();
 
-    expect(find.widgetWithText(TextField, l.nodeIdLabel), findsOneWidget);
+    expect(find.text(l.nodesAddExistingFieldsHint), findsOneWidget);
+    expect(
+      find.widgetWithText(TextField, l.nodeIdRequiredLabel),
+      findsOneWidget,
+    );
     await tester.enterText(
       find.widgetWithText(TextField, l.nodeLabelLabel),
       'Existing relay',
@@ -123,7 +127,7 @@ void main() {
     expect(find.text(l.nodeIdRequired), findsOneWidget);
 
     await tester.enterText(
-      find.widgetWithText(TextField, l.nodeIdLabel),
+      find.widgetWithText(TextField, l.nodeIdRequiredLabel),
       _exit,
     );
     await tester.ensureVisible(find.text(l.actionSave));
@@ -151,6 +155,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.widgetWithText(TextField, l.nodeIdLabel), findsNothing);
+    expect(find.text(l.nodesBootstrapFieldsHint), findsOneWidget);
     await tester.enterText(
       find.widgetWithText(TextField, l.nodeLabelLabel),
       'Fresh VPS',
@@ -266,6 +271,7 @@ void main() {
       find.widgetWithText(TextField, l.nodeLabelLabel),
       'Pinned renamed',
     );
+    await tester.ensureVisible(find.text(l.actionSave));
     await tester.tap(find.text(l.actionSave));
     await tester.pumpAndSettle();
 
@@ -310,6 +316,7 @@ void main() {
       find.widgetWithText(TextField, l.nodeSshHostLabel),
       'other.example',
     );
+    await tester.ensureVisible(find.text(l.actionSave));
     await tester.tap(find.text(l.actionSave));
     await tester.pumpAndSettle();
 

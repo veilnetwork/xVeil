@@ -2080,11 +2080,19 @@ class AppL10nRu extends AppL10n {
       'Сохранить уже установленный узел с известным node id.';
 
   @override
+  String get nodesAddExistingFieldsHint =>
+      'Обязательно: название и Node ID. SSH-поля необязательны и нужны только для управления сервером. Пароль или приватный ключ будут запрошены при подключении и не сохранятся.';
+
+  @override
   String get nodesBootstrapNew => 'Забутстрапить новый узел';
 
   @override
   String get nodesBootstrapNewHint =>
       'Установить veil на Linux-сервер; node id сохранится автоматически.';
+
+  @override
+  String get nodesBootstrapFieldsHint =>
+      'Обязательно: название, SSH-хост и SSH-пользователь. Порт по умолчанию — 22. Пароль или приватный ключ вводятся на следующем экране и не сохраняются; Node ID сохранится после развёртывания.';
 
   @override
   String get nodesBootstrapContinue => 'Перейти к развёртыванию';
@@ -2093,13 +2101,16 @@ class AppL10nRu extends AppL10n {
   String get nodeEdit => 'Изменить узел';
 
   @override
-  String get nodeLabelLabel => 'Название';
+  String get nodeLabelLabel => 'Название *';
 
   @override
   String get nodeLabelRequired => 'Введите название';
 
   @override
-  String get nodeIdLabel => 'Node id (64-hex)';
+  String get nodeIdLabel => 'Node ID (64 hex, необязательно)';
+
+  @override
+  String get nodeIdRequiredLabel => 'Node ID (64 hex) *';
 
   @override
   String get nodeIdHintText =>
@@ -2115,19 +2126,19 @@ class AppL10nRu extends AppL10n {
   String get nodeSshHostLabel => 'SSH-хост (необязательно)';
 
   @override
-  String get nodeSshHostRequiredLabel => 'SSH-хост';
+  String get nodeSshHostRequiredLabel => 'SSH-хост *';
 
   @override
   String get nodeSshHostRequired => 'Укажите SSH-хост нового сервера';
 
   @override
-  String get nodeSshPortLabel => 'SSH-порт';
+  String get nodeSshPortLabel => 'SSH-порт (по умолчанию 22)';
 
   @override
   String get nodeSshUserLabel => 'SSH-пользователь (необязательно)';
 
   @override
-  String get nodeSshUserRequiredLabel => 'SSH-пользователь';
+  String get nodeSshUserRequiredLabel => 'SSH-пользователь *';
 
   @override
   String get nodeSshUserRequired => 'Укажите SSH-пользователя нового сервера';
