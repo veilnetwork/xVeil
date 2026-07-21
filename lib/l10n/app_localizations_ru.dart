@@ -1904,6 +1904,10 @@ class AppL10nRu extends AppL10n {
       'Android не показывает доступных запускаемых приложений.';
 
   @override
+  String get vpnApplicationSearchEmpty =>
+      'По этому запросу приложения не найдены.';
+
+  @override
   String vpnApplicationLoadError(Object error) {
     return 'Не удалось получить список приложений: $error';
   }

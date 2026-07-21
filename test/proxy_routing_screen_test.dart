@@ -149,6 +149,7 @@ void main() {
     await tester.pumpAndSettle();
     final l = AppL10n.of(tester.element(find.byType(ProxyRoutingScreen)));
 
+    await _addOproxy(tester, l);
     await tester.tap(find.text(l.vpnTitle));
     await tester.pumpAndSettle();
     await tester.tap(find.text(l.vpnApplicationAll));
@@ -162,6 +163,13 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(select);
     await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('vpn-application-search')),
+      'FIRE',
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Firefox'), findsOneWidget);
+    expect(find.text('Chrome'), findsNothing);
     await tester.tap(find.widgetWithText(CheckboxListTile, 'Firefox'));
     await tester.tap(
       find.widgetWithText(
@@ -180,5 +188,17 @@ void main() {
     expect(policy.applicationMode, VpnApplicationMode.onlySelected);
     expect(policy.applicationIds, ['org.mozilla.firefox']);
     expect(policy.isValid, isTrue);
+
+    final routes = find.text(l.oproxyApplicationRoutesTitle);
+    await tester.ensureVisible(routes);
+    await tester.tap(routes);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('oproxy-application-search')),
+      'MOZILLA.FIREFOX',
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Firefox'), findsOneWidget);
+    expect(find.text('Chrome'), findsNothing);
   });
 }
