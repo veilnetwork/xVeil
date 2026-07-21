@@ -1898,6 +1898,68 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
+  String get oproxyCatalogTitle => 'oproxy exits';
+
+  @override
+  String get oproxyAddTitle => 'Add oproxy';
+
+  @override
+  String get oproxyEditTitle => 'Edit oproxy';
+
+  @override
+  String get oproxyName => 'Name';
+
+  @override
+  String get oproxyEmpty => 'Add at least one oproxy exit first.';
+
+  @override
+  String get oproxyNoDefault => 'No default oproxy is configured';
+
+  @override
+  String oproxyDefaultSummary(Object count) {
+    return 'Default chain: $count exits';
+  }
+
+  @override
+  String get oproxyDefaultOrderTitle => 'Default oproxy and fallbacks';
+
+  @override
+  String get oproxyDefaultOrderAction => 'Configure default and fallbacks';
+
+  @override
+  String get oproxyPrimary => 'Primary oproxy';
+
+  @override
+  String get oproxyUseDefault => 'Use default chain';
+
+  @override
+  String get oproxyVpnRouteTitle => 'Main VPN oproxy chain';
+
+  @override
+  String oproxyRouteSummary(Object fallbacks, Object primary) {
+    return '$primary + $fallbacks fallbacks';
+  }
+
+  @override
+  String get oproxyAutoFailover => 'Automatic oproxy failover';
+
+  @override
+  String get oproxyAutoFailoverHint =>
+      'New connections try the next exit when the primary cannot open a route. Existing connections stay on their current exit.';
+
+  @override
+  String get oproxyApplicationRoutesTitle => 'Application oproxy routes';
+
+  @override
+  String get oproxyApplicationRoutesEmpty =>
+      'No applications are selected for this VPN.';
+
+  @override
+  String oproxyApplicationRoutesCount(Object count) {
+    return '$count application overrides';
+  }
+
+  @override
   String get vpnIncludedCidrs => 'Included subnets';
 
   @override

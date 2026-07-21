@@ -125,8 +125,15 @@ class WindowsManagedVpnBackend implements VpnBackend {
     required VpnRoutingPolicy policy,
     required String socks5Listen,
     required String exitNodeId,
+    Map<String, String> applicationProxyListens = const {},
     String? obfs4Psk,
   }) async {
+    if (applicationProxyListens.isNotEmpty) {
+      return const VpnBackendState(
+        VpnBackendPhase.error,
+        detail: 'Per-application oproxy routing is not supported by Windows',
+      );
+    }
     if (policy.applicationMode != VpnApplicationMode.allApplications) {
       return const VpnBackendState(
         VpnBackendPhase.error,

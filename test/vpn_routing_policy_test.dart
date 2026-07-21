@@ -3,6 +3,11 @@ import 'package:xveil/data/vpn/vpn_backend.dart';
 import 'package:xveil/data/vpn/geoip_country_routes.dart';
 import 'package:xveil/data/vpn/vpn_routing_policy.dart';
 
+const _oproxyPrimary =
+    '1111111111111111111111111111111111111111111111111111111111111111';
+const _oproxyFallback =
+    '2222222222222222222222222222222222222222222222222222222222222222';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -68,6 +73,11 @@ void main() {
         excludedCountryCodes: ['KZ', 'RU'],
         applicationMode: VpnApplicationMode.onlySelected,
         applicationIds: ['org.mozilla.firefox', 'com.android.chrome'],
+        vpnOproxyNodeIds: [_oproxyPrimary, _oproxyFallback],
+        applicationOproxyNodeIds: {
+          'org.mozilla.firefox': [_oproxyFallback],
+        },
+        oproxyAutoFailover: false,
         routeDns: false,
         dnsServers: ['9.9.9.9'],
         allowLan: false,
@@ -85,6 +95,11 @@ void main() {
         'org.mozilla.firefox',
         'com.android.chrome',
       ]);
+      expect(back.vpnOproxyNodeIds, [_oproxyPrimary, _oproxyFallback]);
+      expect(back.applicationOproxyNodeIds, {
+        'org.mozilla.firefox': [_oproxyFallback],
+      });
+      expect(back.oproxyAutoFailover, isFalse);
       expect(back.routeDns, isFalse);
       expect(back.dnsServers, ['9.9.9.9']);
       expect(back.allowLan, isFalse);
@@ -133,6 +148,30 @@ void main() {
         );
       },
     );
+
+    test('validates per-app oproxy chains and selected-app membership', () {
+      const valid = VpnRoutingPolicy(
+        applicationMode: VpnApplicationMode.onlySelected,
+        applicationIds: ['org.mozilla.firefox'],
+        vpnOproxyNodeIds: [_oproxyPrimary, _oproxyFallback],
+        applicationOproxyNodeIds: {
+          'org.mozilla.firefox': [_oproxyFallback],
+        },
+      );
+      expect(valid.isValid, isTrue);
+
+      const notSelected = VpnRoutingPolicy(
+        applicationMode: VpnApplicationMode.onlySelected,
+        applicationIds: ['org.mozilla.firefox'],
+        applicationOproxyNodeIds: {
+          'com.android.chrome': [_oproxyFallback],
+        },
+      );
+      expect(
+        notSelected.validate(),
+        contains('applicationOproxyNodeIds.notSelected'),
+      );
+    });
 
     test('validates country codes without pretending GeoIP is exact', () {
       expect(VpnRoutingPolicy.isValidCountryCode('KZ'), isTrue);

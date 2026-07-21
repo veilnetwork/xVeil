@@ -24,6 +24,30 @@ typedef _StartDart =
       bool packetInformation,
       bool routeDns,
     );
+typedef _StartRoutedNative =
+    Int32 Function(
+      Int32 tunFd,
+      Pointer<Utf8> proxyUrl,
+      Pointer<Utf8> dnsIp,
+      Uint16 mtu,
+      Bool ipv6Enabled,
+      Bool packetInformation,
+      Bool routeDns,
+      Pointer<Utf8> selectorListen,
+      Pointer<Utf8> selectorToken,
+    );
+typedef _StartRoutedDart =
+    int Function(
+      int tunFd,
+      Pointer<Utf8> proxyUrl,
+      Pointer<Utf8> dnsIp,
+      int mtu,
+      bool ipv6Enabled,
+      bool packetInformation,
+      bool routeDns,
+      Pointer<Utf8> selectorListen,
+      Pointer<Utf8> selectorToken,
+    );
 typedef _StatusNative = Int32 Function();
 typedef _StatusDart = int Function();
 typedef _LastErrorNative = Pointer<Utf8> Function();
@@ -51,7 +75,8 @@ class PacketTunnelFfi {
       ),
       _freeString = library.lookupFunction<_FreeStringNative, _FreeStringDart>(
         'veil_free_string',
-      );
+      ),
+      _startRouted = _lookupRouted(library);
 
   static const stopped = 0;
   static const starting = 1;
@@ -59,6 +84,7 @@ class PacketTunnelFfi {
   static const error = 3;
 
   final _StartDart _start;
+  final _StartRoutedDart? _startRouted;
   final _StatusDart _status;
   final _StatusDart _stop;
   final _LastErrorDart _lastError;
@@ -80,10 +106,30 @@ class PacketTunnelFfi {
     required int mtu,
     required bool packetInformation,
     required bool routeDns,
+    String? selectorListen,
+    String? selectorToken,
   }) {
     final proxyUrl = 'socks5://$socks5Listen'.toNativeUtf8();
     final dns = dnsIp.toNativeUtf8();
+    final selectorAddress = selectorListen?.toNativeUtf8();
+    final token = selectorToken?.toNativeUtf8();
     try {
+      if ((selectorAddress == null) != (token == null)) return -1;
+      if (selectorAddress != null && token != null) {
+        final routed = _startRouted;
+        if (routed == null) return -1;
+        return routed(
+          tunFd,
+          proxyUrl,
+          dns,
+          mtu,
+          true,
+          packetInformation,
+          routeDns,
+          selectorAddress,
+          token,
+        );
+      }
       return _start(
         tunFd,
         proxyUrl,
@@ -96,6 +142,18 @@ class PacketTunnelFfi {
     } finally {
       calloc.free(proxyUrl);
       calloc.free(dns);
+      if (selectorAddress != null) calloc.free(selectorAddress);
+      if (token != null) calloc.free(token);
+    }
+  }
+
+  static _StartRoutedDart? _lookupRouted(DynamicLibrary library) {
+    try {
+      return library.lookupFunction<_StartRoutedNative, _StartRoutedDart>(
+        'veil_packet_tunnel_start_fd_routed',
+      );
+    } on ArgumentError {
+      return null;
     }
   }
 

@@ -61,7 +61,7 @@ class _SecurityCenterSheetState extends ConsumerState<_SecurityCenterSheet> {
   Future<void> _setProxy(bool enabled) async {
     if (_busy) return;
     final routing = ref.read(proxyRoutingProvider);
-    if (enabled && routing.exitNodeId == null) {
+    if (enabled && routing.effectiveDefaultOproxyNodeIds.isEmpty) {
       Navigator.of(context).pop();
       if (context.mounted) context.push('/route');
       return;
@@ -200,7 +200,7 @@ class _SecurityCenterSheetState extends ConsumerState<_SecurityCenterSheet> {
             secondary: const Icon(Icons.vpn_lock_outlined),
             title: Text(l.routeSocks5Title),
             subtitle: Text(
-              routing.exitNodeId == null
+              routing.effectiveDefaultOproxyNodeIds.isEmpty
                   ? l.routeNeedExit
                   : (routing.socks5Active
                         ? l.networkRouteSubActive

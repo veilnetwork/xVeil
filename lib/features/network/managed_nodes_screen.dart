@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../data/node/managed_node.dart';
 import '../../data/node/node_probe.dart';
+import '../../data/node/proxy_routing.dart';
 import '../../l10n/app_localizations.dart';
 import 'node_provision_screen.dart';
 import 'node_management_screen.dart';
@@ -262,9 +263,29 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
       return;
     }
     final cur = ref.read(proxyRoutingProvider);
+    final endpoints = [...cur.effectiveOproxies]
+      ..removeWhere((endpoint) => endpoint.nodeId == id)
+      ..add(
+        OproxyEndpoint(
+          nodeId: id.toLowerCase(),
+          label: _label.text.trim().isEmpty
+              ? 'oproxy ${id.substring(0, 8)}'
+              : _label.text.trim(),
+        ),
+      );
+    final defaults = cur.effectiveDefaultOproxyNodeIds.isEmpty
+        ? [id.toLowerCase()]
+        : cur.effectiveDefaultOproxyNodeIds;
     ref
         .read(proxyRoutingProvider.notifier)
-        .set(cur.copyWith(socks5Enabled: true, exitNodeId: id));
+        .set(
+          cur.copyWith(
+            socks5Enabled: true,
+            exitNodeId: defaults.first,
+            oProxies: endpoints,
+            defaultOproxyNodeIds: defaults,
+          ),
+        );
     Navigator.of(context).pop();
     ScaffoldMessenger.of(
       context,

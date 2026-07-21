@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -10,6 +12,8 @@ import 'package:xveil/state/vpn_controller.dart';
 
 const _exit =
     'aa11bb22cc33dd44ee55ff66007788990011223344556677889900aabbccddee';
+const _fallback =
+    'bb11bb22cc33dd44ee55ff66007788990011223344556677889900aabbccddff';
 const _psk = 'QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=';
 
 class _FakeBackend implements VpnBackend {
@@ -22,6 +26,7 @@ class _FakeBackend implements VpnBackend {
   String? receivedListen;
   String? receivedExitNodeId;
   String? receivedObfs4Psk;
+  Map<String, String> receivedApplicationProxyListens = const {};
 
   @override
   Future<VpnBackendState> probe() async => probeResult;
@@ -34,6 +39,7 @@ class _FakeBackend implements VpnBackend {
     required VpnRoutingPolicy policy,
     required String socks5Listen,
     required String exitNodeId,
+    Map<String, String> applicationProxyListens = const {},
     String? obfs4Psk,
   }) async {
     starts++;
@@ -41,6 +47,7 @@ class _FakeBackend implements VpnBackend {
     receivedListen = socks5Listen;
     receivedExitNodeId = exitNodeId;
     receivedObfs4Psk = obfs4Psk;
+    receivedApplicationProxyListens = applicationProxyListens;
     return startResult;
   }
 
@@ -92,14 +99,86 @@ void main() {
       expect(state.policy.enabled, isTrue);
       expect(container.read(proxyRoutingProvider).socks5Enabled, isFalse);
       expect(container.read(vpnProxyDemandProvider), isTrue);
-      expect(
-        container.read(effectiveProxyRoutingProvider).socks5Active,
-        isTrue,
-      );
+      expect(container.read(effectiveProxyRoutingProvider).isActive, isTrue);
+      expect(container.read(vpnProxyProfilesProvider), hasLength(1));
       expect(backend.starts, 1);
       expect(backend.receivedListen, ProxyRouting.defaultListen);
       expect(backend.receivedExitNodeId, _exit);
       expect(backend.receivedObfs4Psk, _psk);
+    },
+  );
+
+  test(
+    'restores a running native tunnel only after oproxy prefs load',
+    () async {
+      final backend = _FakeBackend()
+        ..probeResult = const VpnBackendState(VpnBackendPhase.running);
+      SharedPreferences.setMockInitialValues({
+        'proxy_routing': jsonEncode(
+          const ProxyRouting(exitNodeId: _exit).toJson(),
+        ),
+        'vpn_routing_policy': jsonEncode(
+          const VpnRoutingPolicy(enabled: true).toJson(),
+        ),
+      });
+      final container = ProviderContainer(
+        overrides: [
+          vpnBackendProvider.overrideWithValue(backend),
+          deniableBootProvider.overrideWithValue(
+            const DeniableBootConfig(
+              runtimeDir: '/tmp/xveil-test',
+              obfs4Psk: _psk,
+            ),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      container.read(vpnControllerProvider);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(container.read(vpnControllerProvider).isRunning, isTrue);
+      expect(container.read(vpnProxyDemandProvider), isTrue);
+      expect(container.read(vpnProxyProfilesProvider), hasLength(1));
+      expect(backend.stops, 0);
+    },
+  );
+
+  test(
+    'passes per-application oproxy listeners to the native backend',
+    () async {
+      final backend = _FakeBackend();
+      final container = await _container(backend);
+      await container
+          .read(proxyRoutingProvider.notifier)
+          .set(
+            const ProxyRouting(
+              oProxies: [
+                OproxyEndpoint(nodeId: _exit, label: 'Primary'),
+                OproxyEndpoint(nodeId: _fallback, label: 'Fallback'),
+              ],
+              defaultOproxyNodeIds: [_exit, _fallback],
+            ),
+          );
+      await container
+          .read(vpnControllerProvider.notifier)
+          .configure(
+            const VpnRoutingPolicy(
+              vpnOproxyNodeIds: [_exit, _fallback],
+              applicationOproxyNodeIds: {
+                'org.mozilla.firefox': [_fallback, _exit],
+              },
+            ),
+          );
+
+      await container.read(vpnControllerProvider.notifier).start();
+
+      expect(backend.starts, 1);
+      expect(container.read(vpnProxyProfilesProvider), hasLength(2));
+      expect(
+        backend.receivedApplicationProxyListens['org.mozilla.firefox'],
+        '127.0.0.1:1081',
+      );
     },
   );
 
