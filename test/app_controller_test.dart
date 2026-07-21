@@ -3,9 +3,11 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/identity.dart';
 import 'package:xveil/domain/roster.dart';
 import 'package:xveil/state/app_controller.dart';
+import 'package:xveil/state/messaging.dart';
 import 'package:xveil/state/providers.dart';
 
 import 'support/fake_hv_container.dart';
@@ -81,6 +83,55 @@ void main() {
 
       await ctrl.unlock('pw');
       expect(c.read(appControllerProvider).phase, AppPhase.ready);
+    },
+  );
+
+  test(
+    'eager conversations listener stays idle while locked and reloads on unlock',
+    () async {
+      final c = ProviderContainer();
+      addTearDown(c.dispose);
+      final ctrl = c.read(appControllerProvider.notifier);
+      await _settle(c);
+
+      await ctrl.completeOnboarding(
+        identity: AppController.generateIdentity(),
+        password: 'pw',
+        mode: StorageMode.hiddenSpace,
+      );
+      await ctrl.lock();
+      expect(c.read(appControllerProvider).phase, AppPhase.locked);
+
+      final values = <AsyncValue<List<Conversation>>>[];
+      final sub = c.listen(
+        conversationsProvider,
+        (_, next) => values.add(next),
+        fireImmediately: true,
+      );
+      addTearDown(sub.close);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(values.whereType<AsyncError<List<Conversation>>>(), isEmpty);
+      expect(
+        values.whereType<AsyncData<List<Conversation>>>().last.value,
+        isEmpty,
+      );
+
+      await ctrl.unlock('pw');
+      for (
+        var i = 0;
+        i < 20 && values.whereType<AsyncData<List<Conversation>>>().length < 2;
+        i++
+      ) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+
+      expect(c.read(appControllerProvider).phase, AppPhase.ready);
+      expect(values.whereType<AsyncError<List<Conversation>>>(), isEmpty);
+      expect(
+        values.whereType<AsyncData<List<Conversation>>>().length,
+        greaterThanOrEqualTo(2),
+      );
     },
   );
 
