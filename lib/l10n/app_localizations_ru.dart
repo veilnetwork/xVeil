@@ -2070,6 +2070,26 @@ class AppL10nRu extends AppL10n {
   String get nodesAdd => 'Добавить узел';
 
   @override
+  String get nodesAddChoiceTitle => 'Какой узел добавить?';
+
+  @override
+  String get nodesAddExisting => 'Добавить готовый узел';
+
+  @override
+  String get nodesAddExistingHint =>
+      'Сохранить уже установленный узел с известным node id.';
+
+  @override
+  String get nodesBootstrapNew => 'Забутстрапить новый узел';
+
+  @override
+  String get nodesBootstrapNewHint =>
+      'Установить veil на Linux-сервер; node id сохранится автоматически.';
+
+  @override
+  String get nodesBootstrapContinue => 'Перейти к развёртыванию';
+
+  @override
   String get nodeEdit => 'Изменить узел';
 
   @override
@@ -2089,13 +2109,28 @@ class AppL10nRu extends AppL10n {
   String get nodeIdInvalid => 'Нужен node id из 64 hex-символов';
 
   @override
+  String get nodeIdRequired => 'Укажите 64-символьный node id готового узла';
+
+  @override
   String get nodeSshHostLabel => 'SSH-хост (необязательно)';
+
+  @override
+  String get nodeSshHostRequiredLabel => 'SSH-хост';
+
+  @override
+  String get nodeSshHostRequired => 'Укажите SSH-хост нового сервера';
 
   @override
   String get nodeSshPortLabel => 'SSH-порт';
 
   @override
   String get nodeSshUserLabel => 'SSH-пользователь (необязательно)';
+
+  @override
+  String get nodeSshUserRequiredLabel => 'SSH-пользователь';
+
+  @override
+  String get nodeSshUserRequired => 'Укажите SSH-пользователя нового сервера';
 
   @override
   String get actionSave => 'Сохранить';

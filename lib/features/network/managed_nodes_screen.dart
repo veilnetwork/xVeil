@@ -27,7 +27,7 @@ class ManagedNodesScreen extends ConsumerWidget {
       appBar: AppBar(title: Text(l.nodesTitle)),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: 'xveil-managed-nodes-add',
-        onPressed: () => showManagedNodeEditor(context, ref, null),
+        onPressed: () => _showManagedNodeCreateChooser(context),
         icon: const Icon(Icons.add),
         label: Text(l.nodesAdd),
       ),
@@ -64,7 +64,7 @@ class _NodeTile extends ConsumerWidget {
       trailing: IconButton(
         tooltip: AppL10n.of(context).nodeEdit,
         icon: const Icon(Icons.edit_outlined),
-        onPressed: () => showManagedNodeEditor(context, ref, node),
+        onPressed: () => _showManagedNodeEditor(context, node),
       ),
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute<void>(
@@ -106,22 +106,74 @@ class _Empty extends StatelessWidget {
   }
 }
 
-void showManagedNodeEditor(
+enum _NodeCreateMode { existing, bootstrap }
+
+Future<void> _showManagedNodeCreateChooser(BuildContext context) async {
+  final l = AppL10n.of(context);
+  final mode = await showModalBottomSheet<_NodeCreateMode>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheetContext) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
+            child: Text(
+              l.nodesAddChoiceTitle,
+              style: Theme.of(sheetContext).textTheme.titleLarge,
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.dns_outlined),
+            title: Text(l.nodesAddExisting),
+            subtitle: Text(l.nodesAddExistingHint),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.pop(sheetContext, _NodeCreateMode.existing),
+          ),
+          ListTile(
+            leading: const Icon(Icons.rocket_launch_outlined),
+            title: Text(l.nodesBootstrapNew),
+            subtitle: Text(l.nodesBootstrapNewHint),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.pop(sheetContext, _NodeCreateMode.bootstrap),
+          ),
+          const SizedBox(height: 12),
+        ],
+      ),
+    ),
+  );
+  if (mode == null || !context.mounted) return;
+  await _showManagedNodeEditor(context, null, createMode: mode);
+}
+
+Future<void> _showManagedNodeEditor(
   BuildContext context,
-  WidgetRef ref,
-  ManagedNode? existing,
-) {
-  showModalBottomSheet<void>(
+  ManagedNode? existing, {
+  _NodeCreateMode createMode = _NodeCreateMode.existing,
+}) async {
+  final saved = await showModalBottomSheet<ManagedNode>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
-    builder: (_) => _NodeEditSheet(existing: existing),
+    builder: (_) => _NodeEditSheet(existing: existing, createMode: createMode),
+  );
+  if (saved == null ||
+      existing != null ||
+      createMode != _NodeCreateMode.bootstrap ||
+      !context.mounted) {
+    return;
+  }
+  await Navigator.of(context).push(
+    MaterialPageRoute<void>(builder: (_) => NodeProvisionScreen(node: saved)),
   );
 }
 
 class _NodeEditSheet extends ConsumerStatefulWidget {
-  const _NodeEditSheet({this.existing});
+  const _NodeEditSheet({this.existing, required this.createMode});
   final ManagedNode? existing;
+  final _NodeCreateMode createMode;
   @override
   ConsumerState<_NodeEditSheet> createState() => _NodeEditSheetState();
 }
@@ -134,6 +186,8 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
   late final TextEditingController _user;
   String? _labelError;
   String? _nodeIdError;
+  String? _hostError;
+  String? _userError;
   bool _probing = false;
   ProbeResult? _probeResult;
 
@@ -159,21 +213,41 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
   bool _isHex64(String s) =>
       s.length == 64 && RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(s);
 
-  void _save() {
+  bool get _isBootstrapNew =>
+      widget.existing == null && widget.createMode == _NodeCreateMode.bootstrap;
+
+  bool get _isExistingNew =>
+      widget.existing == null && widget.createMode == _NodeCreateMode.existing;
+
+  Future<void> _save() async {
     final l = AppL10n.of(context);
     final label = _label.text.trim();
     final nodeId = _nodeId.text.trim();
+    final host = _host.text.trim();
+    final user = _user.text.trim();
     setState(() {
       _labelError = label.isEmpty ? l.nodeLabelRequired : null;
-      _nodeIdError = (nodeId.isNotEmpty && !_isHex64(nodeId))
+      _nodeIdError = _isExistingNew && nodeId.isEmpty
+          ? l.nodeIdRequired
+          : (nodeId.isNotEmpty && !_isHex64(nodeId))
           ? l.nodeIdInvalid
           : null;
+      _hostError = _isBootstrapNew && host.isEmpty
+          ? l.nodeSshHostRequired
+          : null;
+      _userError = _isBootstrapNew && user.isEmpty
+          ? l.nodeSshUserRequired
+          : null;
     });
-    if (_labelError != null || _nodeIdError != null) return;
+    if (_labelError != null ||
+        _nodeIdError != null ||
+        _hostError != null ||
+        _userError != null) {
+      return;
+    }
 
-    final host = _host.text.trim();
     final port = int.tryParse(_port.text.trim()) ?? 22;
-    final user = _user.text.trim().isEmpty ? null : _user.text.trim();
+    final sshUser = user.isEmpty ? null : user;
     final sshHost = host.isEmpty ? null : host;
 
     // Carry the pinned SSH host key across an edit — but ONLY when the SSH
@@ -190,7 +264,9 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
           ref.read(managedNodesProvider).valueOrNull ?? const <ManagedNode>[];
       for (final n in nodes) {
         if (n.id == existingId) {
-          if (n.sshHost == sshHost && n.sshPort == port && n.sshUser == user) {
+          if (n.sshHost == sshHost &&
+              n.sshPort == port &&
+              n.sshUser == sshUser) {
             pin = n.sshHostFingerprint;
           }
           break;
@@ -204,11 +280,11 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
       nodeId: nodeId.isEmpty ? null : nodeId,
       sshHost: sshHost,
       sshPort: port,
-      sshUser: user,
+      sshUser: sshUser,
       sshHostFingerprint: pin,
     );
-    ref.read(managedNodesProvider.notifier).upsert(node);
-    Navigator.of(context).pop();
+    await ref.read(managedNodesProvider.notifier).upsert(node);
+    if (mounted) Navigator.of(context).pop(node);
   }
 
   /// TOFU-pin the host key the connect-and-check dialog observed onto the SAVED
@@ -311,7 +387,11 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              isEdit ? l.nodeEdit : l.nodesAdd,
+              isEdit
+                  ? l.nodeEdit
+                  : _isBootstrapNew
+                  ? l.nodesBootstrapNew
+                  : l.nodesAddExisting,
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 16),
@@ -325,27 +405,35 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
               ),
             ),
             const SizedBox(height: 12),
-            TextField(
-              controller: _nodeId,
-              minLines: 1,
-              maxLines: 2,
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-              onChanged: (_) => setState(() {}),
-              decoration: InputDecoration(
-                labelText: l.nodeIdLabel,
-                helperText: l.nodeIdHintText,
-                helperMaxLines: 2,
-                errorText: _nodeIdError,
-                border: const OutlineInputBorder(),
-                isDense: true,
+            if (!_isBootstrapNew) ...[
+              TextField(
+                controller: _nodeId,
+                minLines: 1,
+                maxLines: 2,
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                onChanged: (_) => setState(() => _nodeIdError = null),
+                decoration: InputDecoration(
+                  labelText: l.nodeIdLabel,
+                  helperText: l.nodeIdHintText,
+                  helperMaxLines: 2,
+                  errorText: _nodeIdError,
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
+              const SizedBox(height: 12),
+            ],
             TextField(
               controller: _host,
-              onChanged: (_) => setState(() => _probeResult = null),
+              onChanged: (_) => setState(() {
+                _probeResult = null;
+                _hostError = null;
+              }),
               decoration: InputDecoration(
-                labelText: l.nodeSshHostLabel,
+                labelText: _isBootstrapNew
+                    ? l.nodeSshHostRequiredLabel
+                    : l.nodeSshHostLabel,
+                errorText: _hostError,
                 border: const OutlineInputBorder(),
                 isDense: true,
               ),
@@ -370,9 +458,12 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
                   flex: 3,
                   child: TextField(
                     controller: _user,
-                    onChanged: (_) => setState(() {}),
+                    onChanged: (_) => setState(() => _userError = null),
                     decoration: InputDecoration(
-                      labelText: l.nodeSshUserLabel,
+                      labelText: _isBootstrapNew
+                          ? l.nodeSshUserRequiredLabel
+                          : l.nodeSshUserLabel,
+                      errorText: _userError,
                       border: const OutlineInputBorder(),
                       isDense: true,
                     ),
@@ -475,7 +566,12 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
                 label: Text(l.nodeUseAsExit),
               ),
             const SizedBox(height: 8),
-            FilledButton(onPressed: _save, child: Text(l.actionSave)),
+            FilledButton(
+              onPressed: _save,
+              child: Text(
+                _isBootstrapNew ? l.nodesBootstrapContinue : l.actionSave,
+              ),
+            ),
             if (isEdit) ...[
               const SizedBox(height: 4),
               TextButton.icon(

@@ -84,6 +84,103 @@ void main() {
     expect(find.text(l.nodesEmpty), findsNothing);
   });
 
+  testWidgets('add menu separates an existing node from SSH provisioning', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_host());
+    await tester.pumpAndSettle();
+    final l = AppL10n.of(tester.element(find.byType(ManagedNodesScreen)));
+
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+
+    expect(find.text(l.nodesAddChoiceTitle), findsOneWidget);
+    expect(find.text(l.nodesAddExisting), findsOneWidget);
+    expect(find.text(l.nodesBootstrapNew), findsOneWidget);
+  });
+
+  testWidgets('an existing node requires its node id', (tester) async {
+    await tester.pumpWidget(_host());
+    await tester.pumpAndSettle();
+    final l = AppL10n.of(tester.element(find.byType(ManagedNodesScreen)));
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(ManagedNodesScreen)),
+    );
+
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l.nodesAddExisting));
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(TextField, l.nodeIdLabel), findsOneWidget);
+    await tester.enterText(
+      find.widgetWithText(TextField, l.nodeLabelLabel),
+      'Existing relay',
+    );
+    await tester.ensureVisible(find.text(l.actionSave));
+    await tester.tap(find.text(l.actionSave));
+    await tester.pumpAndSettle();
+    expect(find.text(l.nodeIdRequired), findsOneWidget);
+
+    await tester.enterText(
+      find.widgetWithText(TextField, l.nodeIdLabel),
+      _exit,
+    );
+    await tester.ensureVisible(find.text(l.actionSave));
+    await tester.tap(find.text(l.actionSave));
+    await tester.pumpAndSettle();
+
+    final saved = container.read(managedNodesProvider).requireValue.single;
+    expect(saved.label, 'Existing relay');
+    expect(saved.nodeId, _exit);
+  });
+
+  testWidgets('a new SSH node skips node id and continues to provisioning', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_host());
+    await tester.pumpAndSettle();
+    final l = AppL10n.of(tester.element(find.byType(ManagedNodesScreen)));
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(ManagedNodesScreen)),
+    );
+
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l.nodesBootstrapNew));
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(TextField, l.nodeIdLabel), findsNothing);
+    await tester.enterText(
+      find.widgetWithText(TextField, l.nodeLabelLabel),
+      'Fresh VPS',
+    );
+    await tester.ensureVisible(find.text(l.nodesBootstrapContinue));
+    await tester.tap(find.text(l.nodesBootstrapContinue));
+    await tester.pumpAndSettle();
+    expect(find.text(l.nodeSshHostRequired), findsOneWidget);
+    expect(find.text(l.nodeSshUserRequired), findsOneWidget);
+
+    await tester.enterText(
+      find.widgetWithText(TextField, l.nodeSshHostRequiredLabel),
+      'vps.example',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, l.nodeSshUserRequiredLabel),
+      'root',
+    );
+    await tester.ensureVisible(find.text(l.nodesBootstrapContinue));
+    await tester.tap(find.text(l.nodesBootstrapContinue));
+    await tester.pumpAndSettle();
+
+    expect(find.text(l.provisionTitle), findsOneWidget);
+    final saved = container.read(managedNodesProvider).requireValue.single;
+    expect(saved.label, 'Fresh VPS');
+    expect(saved.nodeId, isNull);
+    expect(saved.sshHost, 'vps.example');
+    expect(saved.sshUser, 'root');
+  });
+
   testWidgets('use-as-exit wires the node id into proxy routing', (
     tester,
   ) async {
