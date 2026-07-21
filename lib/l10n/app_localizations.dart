@@ -3559,6 +3559,12 @@ abstract class AppL10n {
   /// **'No launchable applications are visible to Android.'**
   String get vpnApplicationPickerEmpty;
 
+  /// No description provided for @vpnApplicationSearchEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No applications match this search.'**
+  String get vpnApplicationSearchEmpty;
+
   /// No description provided for @vpnApplicationLoadError.
   ///
   /// In en, this message translates to:

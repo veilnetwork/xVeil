@@ -1893,6 +1893,9 @@ class AppL10nEn extends AppL10n {
       'No launchable applications are visible to Android.';
 
   @override
+  String get vpnApplicationSearchEmpty => 'No applications match this search.';
+
+  @override
   String vpnApplicationLoadError(Object error) {
     return 'Could not list applications: $error';
   }
