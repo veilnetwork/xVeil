@@ -527,30 +527,29 @@ class _VpnSectionState extends ConsumerState<_VpnSection> {
           title: Text(l.vpnApplicationPickerTitle),
           content: SizedBox(
             width: 420,
-            child: choices.isEmpty
-                ? Text(l.vpnApplicationPickerEmpty)
-                : ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: choices.length,
-                    itemBuilder: (context, index) {
-                      final application = choices[index];
-                      return CheckboxListTile(
-                        value: selected.contains(application.id),
-                        title: Text(application.label),
-                        subtitle: Text(
-                          application.id,
-                          style: const TextStyle(fontFamily: 'monospace'),
-                        ),
-                        onChanged: (value) => setDialogState(() {
-                          if (value ?? false) {
-                            selected.add(application.id);
-                          } else {
-                            selected.remove(application.id);
-                          }
-                        }),
-                      );
-                    },
-                  ),
+            height: 520,
+            child: _ApplicationSearchList(
+              searchFieldKey: const ValueKey('vpn-application-search'),
+              applications: choices,
+              emptyMessage: l.vpnApplicationPickerEmpty,
+              noResultsMessage: l.vpnApplicationSearchEmpty,
+              searchHint: l.searchHint,
+              itemBuilder: (context, application) => CheckboxListTile(
+                value: selected.contains(application.id),
+                title: Text(application.label),
+                subtitle: Text(
+                  application.id,
+                  style: const TextStyle(fontFamily: 'monospace'),
+                ),
+                onChanged: (value) => setDialogState(() {
+                  if (value ?? false) {
+                    selected.add(application.id);
+                  } else {
+                    selected.remove(application.id);
+                  }
+                }),
+              ),
+            ),
           ),
           actions: [
             TextButton(
@@ -692,50 +691,46 @@ class _VpnSectionState extends ConsumerState<_VpnSection> {
           content: SizedBox(
             width: 620,
             height: 520,
-            child: visible.isEmpty
-                ? Center(child: Text(l.oproxyApplicationRoutesEmpty))
-                : ListView.builder(
-                    itemCount: visible.length,
-                    itemBuilder: (context, index) {
-                      final application = visible[index];
-                      final chain = routes[application.id] ?? const <String>[];
-                      final endpoint = chain.isEmpty
-                          ? null
-                          : routing.effectiveOproxies
-                                .where((item) => item.nodeId == chain.first)
-                                .firstOrNull;
-                      return ListTile(
-                        leading: const Icon(Icons.apps),
-                        title: Text(application.label),
-                        subtitle: Text(
-                          chain.isEmpty
-                              ? l.oproxyUseDefault
-                              : l.oproxyRouteSummary(
-                                  endpoint?.label ??
-                                      chain.first.substring(0, 8),
-                                  chain.length - 1,
-                                ),
-                        ),
-                        onTap: () async {
-                          final selected = await _chooseOproxyChain(
-                            routing: routing,
-                            current: chain,
-                            title: application.label,
-                            allowDefault: true,
-                          );
-                          if (selected == null) return;
-                          setDialogState(() {
-                            if (selected.isEmpty) {
-                              routes.remove(application.id);
-                            } else {
-                              routes[application.id] = selected;
-                            }
-                          });
-                        },
-                        trailing: const Icon(Icons.chevron_right),
-                      );
-                    },
+            child: _ApplicationSearchList(
+              searchFieldKey: const ValueKey('oproxy-application-search'),
+              applications: visible,
+              emptyMessage: l.oproxyApplicationRoutesEmpty,
+              noResultsMessage: l.vpnApplicationSearchEmpty,
+              searchHint: l.searchHint,
+              itemBuilder: (context, application) {
+                final chain = routes[application.id] ?? const <String>[];
+                final endpoint = chain.isEmpty
+                    ? null
+                    : routing.effectiveOproxies
+                          .where((item) => item.nodeId == chain.first)
+                          .firstOrNull;
+                return ListTile(
+                  leading: const Icon(Icons.apps),
+                  title: Text(application.label),
+                  subtitle: Text(
+                    '${application.id}\n'
+                    '${chain.isEmpty ? l.oproxyUseDefault : l.oproxyRouteSummary(endpoint?.label ?? chain.first.substring(0, 8), chain.length - 1)}',
                   ),
+                  onTap: () async {
+                    final selected = await _chooseOproxyChain(
+                      routing: routing,
+                      current: chain,
+                      title: application.label,
+                      allowDefault: true,
+                    );
+                    if (selected == null) return;
+                    setDialogState(() {
+                      if (selected.isEmpty) {
+                        routes.remove(application.id);
+                      } else {
+                        routes[application.id] = selected;
+                      }
+                    });
+                  },
+                  trailing: const Icon(Icons.chevron_right),
+                );
+              },
+            ),
           ),
           actions: [
             TextButton(
@@ -1128,6 +1123,100 @@ class _VpnSectionState extends ConsumerState<_VpnSection> {
             icon: Icon(vpn.isRunning ? Icons.stop : Icons.play_arrow),
             label: Text(vpn.isRunning ? l.vpnStop : l.vpnStart),
           ),
+        ),
+      ],
+    );
+  }
+}
+
+typedef _ApplicationItemBuilder =
+    Widget Function(BuildContext context, VpnApplication application);
+
+class _ApplicationSearchList extends StatefulWidget {
+  const _ApplicationSearchList({
+    required this.searchFieldKey,
+    required this.applications,
+    required this.emptyMessage,
+    required this.noResultsMessage,
+    required this.searchHint,
+    required this.itemBuilder,
+  });
+
+  final Key searchFieldKey;
+  final List<VpnApplication> applications;
+  final String emptyMessage;
+  final String noResultsMessage;
+  final String searchHint;
+  final _ApplicationItemBuilder itemBuilder;
+
+  @override
+  State<_ApplicationSearchList> createState() => _ApplicationSearchListState();
+}
+
+class _ApplicationSearchListState extends State<_ApplicationSearchList> {
+  late final TextEditingController _search;
+  var _query = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _search = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final normalized = _query.trim().toLowerCase();
+    final filtered = normalized.isEmpty
+        ? widget.applications
+        : widget.applications
+              .where(
+                (application) =>
+                    application.label.toLowerCase().contains(normalized) ||
+                    application.id.toLowerCase().contains(normalized),
+              )
+              .toList(growable: false);
+    return Column(
+      children: [
+        TextField(
+          key: widget.searchFieldKey,
+          controller: _search,
+          autofocus: widget.applications.isNotEmpty,
+          decoration: InputDecoration(
+            hintText: widget.searchHint,
+            prefixIcon: const Icon(Icons.search),
+            suffixIcon: _query.isEmpty
+                ? null
+                : IconButton(
+                    tooltip: MaterialLocalizations.of(
+                      context,
+                    ).deleteButtonTooltip,
+                    onPressed: () {
+                      _search.clear();
+                      setState(() => _query = '');
+                    },
+                    icon: const Icon(Icons.clear),
+                  ),
+            border: const OutlineInputBorder(),
+          ),
+          onChanged: (value) => setState(() => _query = value),
+        ),
+        const SizedBox(height: 8),
+        Expanded(
+          child: widget.applications.isEmpty
+              ? Center(child: Text(widget.emptyMessage))
+              : filtered.isEmpty
+              ? Center(child: Text(widget.noResultsMessage))
+              : ListView.builder(
+                  itemCount: filtered.length,
+                  itemBuilder: (context, index) =>
+                      widget.itemBuilder(context, filtered[index]),
+                ),
         ),
       ],
     );

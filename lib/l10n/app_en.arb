@@ -612,6 +612,7 @@
   "vpnApplicationSelectedCount": "{count} applications selected",
   "vpnApplicationPickerTitle": "Applications using VPN",
   "vpnApplicationPickerEmpty": "No launchable applications are visible to Android.",
+  "vpnApplicationSearchEmpty": "No applications match this search.",
   "vpnApplicationLoadError": "Could not list applications: {error}",
   "oproxyCatalogTitle": "oproxy exits",
   "oproxyAddTitle": "Add oproxy",

@@ -611,6 +611,7 @@
   "vpnApplicationSelectedCount": "Выбрано приложений: {count}",
   "vpnApplicationPickerTitle": "Приложения через VPN",
   "vpnApplicationPickerEmpty": "Android не показывает доступных запускаемых приложений.",
+  "vpnApplicationSearchEmpty": "По этому запросу приложения не найдены.",
   "vpnApplicationLoadError": "Не удалось получить список приложений: {error}",
   "oproxyCatalogTitle": "Выходы oproxy",
   "oproxyAddTitle": "Добавить oproxy",
