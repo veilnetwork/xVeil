@@ -320,6 +320,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = B1000053B1000053B1000053 /* Build configuration list for PBXNativeTarget "PacketTunnel" */;
 			buildPhases = (
+				B1000044B1000044B1000044 /* Build PacketTunnel Rust FFI */,
 				B1000041B1000041B1000041 /* Sources */,
 				B1000042B1000042B1000042 /* Frameworks */,
 				B1000043B1000043B1000043 /* Resources */,
@@ -419,6 +420,27 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		B1000044B1000044B1000044 /* Build PacketTunnel Rust FFI */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build PacketTunnel Rust FFI";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(SRCROOT)/../build/apple-packet-tunnel/$(CONFIGURATION)/libveilclient_ffi.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "\"${SRCROOT}/../scripts/build-packet-tunnel-macos.sh\" \"${CONFIGURATION}\" \"${ARCHS}\"\n";
+			showEnvVarsInLog = 0;
+		};
 		31051B47588DAD6875EBB0AC /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -889,7 +911,7 @@
 				MARKETING_VERSION = 1.0.0;
 				OTHER_LDFLAGS = (
 					-force_load,
-					"$(SRCROOT)/../third_party/veil/target/debug/libveilclient_ffi.a",
+					"$(SRCROOT)/../build/apple-packet-tunnel/$(CONFIGURATION)/libveilclient_ffi.a",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = network.veil.xveil.PacketTunnel;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -922,7 +944,7 @@
 				MARKETING_VERSION = 1.0.0;
 				OTHER_LDFLAGS = (
 					-force_load,
-					"$(SRCROOT)/../third_party/veil/target/release/libveilclient_ffi.a",
+					"$(SRCROOT)/../build/apple-packet-tunnel/$(CONFIGURATION)/libveilclient_ffi.a",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = network.veil.xveil.PacketTunnel;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -954,7 +976,7 @@
 				MARKETING_VERSION = 1.0.0;
 				OTHER_LDFLAGS = (
 					-force_load,
-					"$(SRCROOT)/../third_party/veil/target/release/libveilclient_ffi.a",
+					"$(SRCROOT)/../build/apple-packet-tunnel/$(CONFIGURATION)/libveilclient_ffi.a",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = network.veil.xveil.PacketTunnel;
 				PRODUCT_NAME = "$(TARGET_NAME)";
