@@ -108,9 +108,21 @@ void main() {
     expect(s, contains('/usr/local/bin/veil-cli'));
     expect(s, contains('/etc/systemd/system/veil.service'));
     expect(s, contains("obfs4-tcp://0.0.0.0:5556"));
-    expect(s, contains('config set proxy.exit.enabled true'));
+    expect(s, contains("set_toml_scalar proxy.exit enabled 'true'"));
+    expect(
+      s,
+      contains(
+        "set_toml_scalar transport obfs4_psk_file "
+        "'\"/var/lib/veil/obfs4_psk.b64\"'",
+      ),
+    );
+    expect(s, isNot(contains('config set transport.obfs4_psk_file')));
+    expect(s, isNot(contains('config set proxy.exit.enabled')));
     expect(s, contains('systemctl restart veil'));
+    expect(s, contains('for _ in {1..30}'));
+    expect(s, contains(r'if [ "$veil_status" != active ]'));
     expect(s, contains('NODE_ID:'));
+    expect(s, contains('config get identity.node_id'));
     // Idempotent identity: only mines when node.toml lacks [Identity].
     expect(s, contains(r"grep -qE '^\[Identity\]'"));
   });
@@ -124,7 +136,8 @@ void main() {
         runExit: false,
       ),
     );
-    expect(s, isNot(contains('config set proxy.exit.enabled true')));
+    expect(s, isNot(contains("set_toml_scalar proxy.exit enabled 'true'")));
+    expect(s, contains("set_toml_scalar proxy.exit enabled 'false'"));
     expect(s, contains('# exit proxy disabled'));
   });
 

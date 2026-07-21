@@ -25,6 +25,12 @@ void main() {
     expect(script, contains('ACTIVE:'));
   });
 
+  test('inventory reads node ID through the release-compatible config API', () {
+    final script = buildNodeInventoryScript();
+    expect(script, contains('config get identity.node_id'));
+    expect(script, contains('node id'));
+  });
+
   test('software update authenticates all assets before first install', () {
     final script = buildNodeSoftwareUpdateScript(const [
       NodeReleaseArtifact(

@@ -259,6 +259,53 @@ ProtectHome=true
 [Install]
 WantedBy=multi-user.target''';
 
+// veil v0.3.1 intentionally exposes only a bounded subset of fields through
+// `config set`. Deployment-only fields still need an idempotent TOML edit, but
+// doing that with a section-aware helper avoids brittle line-number/sed edits
+// and remains compatible with newer CLI releases.
+const _tomlScalarHelper = r'''
+set_toml_scalar() {
+  local section="$1" key="$2" value="$3" file="$4"
+  local temp="${file}.xveil.$$" owner group mode
+  owner="$(sudo stat -c %u "$file")"
+  group="$(sudo stat -c %g "$file")"
+  mode="$(sudo stat -c %a "$file")"
+  rm -f "$temp"
+  sudo awk -v section="$section" -v key="$key" -v value="$value" '
+    BEGIN { in_section = 0; section_seen = 0; key_written = 0 }
+    $0 == "[" section "]" {
+      in_section = 1
+      section_seen = 1
+      print
+      next
+    }
+    /^\[/ {
+      if (in_section && !key_written) {
+        print key " = " value
+        key_written = 1
+      }
+      in_section = 0
+    }
+    in_section && $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
+      if (!key_written) print key " = " value
+      key_written = 1
+      next
+    }
+    { print }
+    END {
+      if (in_section && !key_written) print key " = " value
+      if (!section_seen) {
+        print ""
+        print "[" section "]"
+        print key " = " value
+      }
+    }
+  ' "$file" > "$temp"
+  sudo install -o "$owner" -g "$group" -m "$mode" "$temp" "$file"
+  rm -f "$temp"
+}
+''';
+
 String _downloadAndVerify(NodeReleaseArtifact a) {
   final temp = _artifactTempPath(a.component);
   return '''curl -fsSL '${a.releaseUrl.trim()}' -o '$temp'
@@ -357,6 +404,8 @@ String buildProvisionScript(NodeProvisionConfig c) {
   return '''#!/usr/bin/env bash
 set -euo pipefail
 
+$_tomlScalarHelper
+
 # 0. dedicated account + state directories
 id veil >/dev/null 2>&1 || sudo useradd -r -s /usr/sbin/nologin -d /var/lib/veil veil
 sudo mkdir -p /var/lib/veil /var/log/veil
@@ -390,11 +439,11 @@ while read -r listen_id; do
   sudo -u veil /usr/local/bin/veil-cli -c /tmp/xveil-node.toml listen del "\$listen_id"
 done < <(sudo -u veil /usr/local/bin/veil-cli -c /tmp/xveil-node.toml listen list | awk 'NR > 1 && \$1 ~ /^[0-9]+\$/ {print \$1}')
 $listeners
-sudo -u veil /usr/local/bin/veil-cli -c /tmp/xveil-node.toml config set transport.obfs4_psk_file /var/lib/veil/obfs4_psk.b64
+set_toml_scalar transport obfs4_psk_file '"/var/lib/veil/obfs4_psk.b64"' /tmp/xveil-node.toml
 sudo -u veil /usr/local/bin/veil-cli -c /tmp/xveil-node.toml config set ipc.enabled true
 sudo -u veil /usr/local/bin/veil-cli -c /tmp/xveil-node.toml config set ipc.socket_uri unix:///run/veil/app.sock
 $exitComment
-sudo -u veil /usr/local/bin/veil-cli -c /tmp/xveil-node.toml config set proxy.exit.enabled $exitValue
+set_toml_scalar proxy.exit enabled '$exitValue' /tmp/xveil-node.toml
 sudo -u veil /usr/local/bin/veil-cli -c /tmp/xveil-node.toml config validate
 sudo install -o veil -g veil -m 0600 /tmp/xveil-node.toml /var/lib/veil/node.toml
 
@@ -408,10 +457,22 @@ sudo systemctl enable veil >/dev/null 2>&1 || true
 sudo systemctl restart veil
 
 # 8. report machine-readable facts back to xVeil
-sleep 2
-echo "STATUS: \$(sudo systemctl is-active veil)"
+veil_status='activating'
+for _ in {1..30}; do
+  veil_status="\$(sudo systemctl is-active veil 2>/dev/null || true)"
+  if [ "\$veil_status" = active ]; then break; fi
+  if [ "\$veil_status" = failed ] || [ "\$veil_status" = inactive ]; then break; fi
+  sleep 1
+done
+echo "STATUS: \$veil_status"
+if [ "\$veil_status" != active ]; then
+  sudo systemctl --no-pager --full status veil >&2 || true
+  exit 1
+fi
 echo -n "NODE_ID: "
-sudo -u veil /usr/local/bin/veil-cli --config /var/lib/veil/node.toml node id 2>/dev/null || echo "(unavailable)"
+sudo -u veil /usr/local/bin/veil-cli --config /var/lib/veil/node.toml config get identity.node_id 2>/dev/null || \\
+  sudo -u veil /usr/local/bin/veil-cli --config /var/lib/veil/node.toml node id 2>/dev/null || \\
+  echo "(unavailable)"
 echo "COMPONENTS: ${components.map((c) => c.binaryName).join(',')}"
 
 rm -f $cleanup /tmp/xveil-obfs4-psk.b64 /tmp/xveil-veil.service \\
