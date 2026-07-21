@@ -379,7 +379,9 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
         20,
         0,
         20,
-        20 + MediaQuery.of(context).viewInsets.bottom,
+        20 +
+            MediaQuery.of(context).viewInsets.bottom +
+            MediaQuery.of(context).viewPadding.bottom,
       ),
       child: SingleChildScrollView(
         child: Column(
@@ -393,6 +395,26 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
                   ? l.nodesBootstrapNew
                   : l.nodesAddExisting,
               style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 8),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.info_outline,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _isBootstrapNew
+                        ? l.nodesBootstrapFieldsHint
+                        : l.nodesAddExistingFieldsHint,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 16),
             TextField(
@@ -413,7 +435,9 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
                 style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
                 onChanged: (_) => setState(() => _nodeIdError = null),
                 decoration: InputDecoration(
-                  labelText: l.nodeIdLabel,
+                  labelText: _isExistingNew
+                      ? l.nodeIdRequiredLabel
+                      : l.nodeIdLabel,
                   helperText: l.nodeIdHintText,
                   helperMaxLines: 2,
                   errorText: _nodeIdError,

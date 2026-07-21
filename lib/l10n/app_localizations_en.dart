@@ -2065,11 +2065,19 @@ class AppL10nEn extends AppL10n {
       'Register a node that is already installed and has a node id.';
 
   @override
+  String get nodesAddExistingFieldsHint =>
+      'Required: label and node ID. SSH fields are optional and only needed to manage the server. A password or private key is requested when connecting and is not saved.';
+
+  @override
   String get nodesBootstrapNew => 'Bootstrap a new node over SSH';
 
   @override
   String get nodesBootstrapNewHint =>
       'Install veil on a Linux server; its node id will be saved automatically.';
+
+  @override
+  String get nodesBootstrapFieldsHint =>
+      'Required: label, SSH host, and SSH user. The port defaults to 22. A password or private key is entered on the next screen and is not saved; the node ID is saved after provisioning.';
 
   @override
   String get nodesBootstrapContinue => 'Continue to provisioning';
@@ -2078,13 +2086,16 @@ class AppL10nEn extends AppL10n {
   String get nodeEdit => 'Edit node';
 
   @override
-  String get nodeLabelLabel => 'Label';
+  String get nodeLabelLabel => 'Label *';
 
   @override
   String get nodeLabelRequired => 'Enter a label';
 
   @override
-  String get nodeIdLabel => 'Node id (64-hex)';
+  String get nodeIdLabel => 'Node ID (64 hex, optional)';
+
+  @override
+  String get nodeIdRequiredLabel => 'Node ID (64 hex) *';
 
   @override
   String get nodeIdHintText =>
@@ -2101,19 +2112,19 @@ class AppL10nEn extends AppL10n {
   String get nodeSshHostLabel => 'SSH host (optional)';
 
   @override
-  String get nodeSshHostRequiredLabel => 'SSH host';
+  String get nodeSshHostRequiredLabel => 'SSH host *';
 
   @override
   String get nodeSshHostRequired => 'Enter the SSH host for the new server';
 
   @override
-  String get nodeSshPortLabel => 'SSH port';
+  String get nodeSshPortLabel => 'SSH port (defaults to 22)';
 
   @override
   String get nodeSshUserLabel => 'SSH user (optional)';
 
   @override
-  String get nodeSshUserRequiredLabel => 'SSH user';
+  String get nodeSshUserRequiredLabel => 'SSH user *';
 
   @override
   String get nodeSshUserRequired => 'Enter the SSH user for the new server';
