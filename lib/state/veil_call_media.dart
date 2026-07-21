@@ -18,6 +18,7 @@ import 'android_native_call_camera.dart';
 import 'android_native_call_video.dart';
 import 'android_screen_capture.dart';
 import 'call_bitrate_adapter.dart';
+import 'call_audio_route.dart';
 import 'call_service.dart';
 import 'mac_media_permissions.dart';
 
@@ -734,6 +735,7 @@ class VeilCallMediaController implements CallMediaController {
     }
     final audioOk = engine.startAudio(send: true, recv: true);
     devLog(() => 'xVeil[call-media]: startAudio=$audioOk');
+    if (audioOk) await callAudioRouter.useDefaultFor(call.media);
     var videoOk = false;
     // VP8 video over the same veil channel when the call requests video/screen.
     // Capture/render wiring lands with the platform capturer; the pipeline is
@@ -887,6 +889,7 @@ class VeilCallMediaController implements CallMediaController {
     }
     devLog(() => 'xVeil[call-media]: mid-call video mount=$ok');
     if (!ok) return false;
+    await callAudioRouter.setRoute(CallAudioRoute.speaker);
     if (Platform.isAndroid) await _startAndroidVideoRenderer(engine);
     // Keep the session's own call view carrying video, so a route repair or
     // switch rebuilds the upgraded media set rather than the audio-only offer.
@@ -983,7 +986,10 @@ class VeilCallMediaController implements CallMediaController {
     // A route repair tears down and recreates only the media session. Keep the
     // radio in low-latency mode across that internal gap; release it only when
     // the call itself ends.
-    if (clearActiveCall) await _setAndroidCallNetworkActive(false);
+    if (clearActiveCall) {
+      await callAudioRouter.release();
+      await _setAndroidCallNetworkActive(false);
+    }
   }
 
   Future<void> _setAndroidCallNetworkActive(bool active) async {

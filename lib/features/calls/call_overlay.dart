@@ -10,6 +10,7 @@ import '../../domain/call.dart';
 import '../../domain/call_signal.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
+import '../../state/call_audio_route.dart';
 import '../../state/android_camera_capture.dart'
     show androidCallCameraPreviewController;
 import '../../state/android_native_call_camera.dart';
@@ -19,6 +20,7 @@ import '../../state/veil_call_media.dart'
     show localVideoFrame, remoteVideoFrame;
 import 'call_lifecycle_bridge.dart' show callPipMode;
 import 'call_device_picker.dart';
+import 'call_surface.dart';
 import 'video_frame_view.dart';
 
 /// Full-screen call UI that floats above every route. Mounted once from
@@ -45,7 +47,6 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
   Offset _selfPreviewOffset = Offset.zero;
   Size _selfPreviewSize = _SelfPreview.defaultSize;
   String? _callId;
-  bool _autoMiniAfterConnect = false;
   bool _selfPreviewHidden = false;
   bool _pipActive = false;
   bool _captureDevicesLoading = false;
@@ -73,13 +74,10 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
     final devices = [...results[0], ...results[1], ...results[2]];
     setState(() {
       _captureDevicesLoading = false;
-      _captureDevices = devices.isEmpty ? null : devices;
+      // The settings sheet remains useful even without enumerable capture
+      // devices: it also owns speaker/earpiece routing.
+      _captureDevices = devices;
     });
-    if (devices.isEmpty) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text(AppL10n.of(context).callNoCaptureDevices)),
-      );
-    }
   }
 
   Future<void> _selectCaptureDevice(
@@ -146,7 +144,6 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
     final call = ref.watch(currentCallProvider);
     if (call == null || call.status == CallStatus.ended) {
       _callId = null;
-      _autoMiniAfterConnect = false;
       // The Android PiP window can outlive the call for a moment (the bridge
       // dismisses it asynchronously). Never let that window show the shrunk
       // app UI — the chat list floating over the launcher is both broken
@@ -157,16 +154,21 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
     final isNewCall = _callId != call.callId;
     if (isNewCall) {
       _callId = call.callId;
-      _autoMiniAfterConnect = false;
       final size = MediaQuery.sizeOf(context);
       _selfPreviewSize = _SelfPreview.defaultSizeFor(size);
-      _selfPreviewOffset = Offset(size.width - _selfPreviewSize.width - 12, 64);
+      _selfPreviewOffset = Offset(
+        size.width - _selfPreviewSize.width - 12,
+        (size.height - _selfPreviewSize.height - 112).clamp(8.0, size.height),
+      );
       _selfPreviewHidden = false;
       _captureDevices = null;
       _captureDevicesLoading = false;
       _mode = _OverlayMode.full;
     }
     final videoStage = _isVideoStage(call);
+    final canMinimize =
+        call.status == CallStatus.connecting ||
+        call.status == CallStatus.active;
     if (_pipActive) {
       // In PiP the window is tiny: only the dedicated video surface (or a
       // plain cover for a non-video stage) may render — the regular layouts
@@ -180,11 +182,7 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
       }
       return const Positioned.fill(child: _PipEndedCover());
     }
-    if (videoStage && !_autoMiniAfterConnect) {
-      _autoMiniAfterConnect = true;
-      _mode = _OverlayMode.mini;
-    }
-    if (!videoStage || _mode == _OverlayMode.full) {
+    if (!canMinimize || _mode == _OverlayMode.full) {
       return Positioned.fill(
         child: Material(
           color: const Color(0xF20E1116),
@@ -199,7 +197,7 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
                     includeCameras: call.media.video,
                     includeScreens: call.media.video && Platform.isMacOS,
                   ),
-                  onMinimize: videoStage
+                  onMinimize: canMinimize
                       ? () => setState(() => _mode = _OverlayMode.mini)
                       : null,
                   selfPreviewOffset: _selfPreviewOffset,
@@ -347,12 +345,19 @@ class _CallBody extends ConsumerWidget {
   Widget _audioLayout(BuildContext context, AppL10n l, CallService svc) {
     return Column(
       children: [
+        CallSurfaceHeader(
+          title: call.peer.short,
+          subtitle: _statusLabel(l, call.status),
+          onMinimize: onMinimize,
+          onSettings: () => onShowDevices(svc),
+        ),
         const Spacer(),
         CircleAvatar(
-          radius: 44,
+          radius: 72,
+          backgroundColor: const Color(0xFF171B22),
           child: Text(
             call.peer.short.characters.first.toUpperCase(),
-            style: const TextStyle(fontSize: 34),
+            style: const TextStyle(fontSize: 48, color: Colors.white38),
           ),
         ),
         const SizedBox(height: 16),
@@ -382,13 +387,8 @@ class _CallBody extends ConsumerWidget {
           ),
         ],
         const Spacer(),
-        _Controls(
-          call: call,
-          svc: svc,
-          l: l,
-          onShowDevices: () => onShowDevices(svc),
-        ),
-        const SizedBox(height: 36),
+        _Controls(call: call, svc: svc, l: l),
+        const SizedBox(height: 24),
       ],
     );
   }
@@ -413,80 +413,28 @@ class _CallBody extends ConsumerWidget {
         const _Scrim(top: true),
         const _Scrim(top: false),
         Positioned(
-          top: 16,
-          left: 16,
-          right: onMinimize == null ? 16 : 64,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                call.peer.short,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(color: Colors.white),
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 2),
-              Row(
-                children: [
-                  Text(
-                    _statusLabel(l, call.status),
-                    style: const TextStyle(color: Colors.white70, fontSize: 13),
-                  ),
-                  if (call.transport != null) ...[
-                    const SizedBox(width: 12),
-                    Flexible(
-                      child: _TransportBadge(
-                        call.transport!,
-                        fallbackReason:
-                            call.transport == CallTransportKind.relay &&
-                                svc.transportFallbackReason != null
-                            ? l.callPathNoDirectSession
-                            : null,
-                      ),
-                    ),
-                  ],
-                  // The PEER is sharing their screen (media.screen arrives via
-                  // renegotiate; when WE share, screenOn is true instead).
-                  if (call.media.screen && !call.screenOn) ...[
-                    const SizedBox(width: 12),
-                    const Icon(
-                      Icons.screen_share,
-                      color: Colors.white70,
-                      size: 14,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      l.callScreenOn,
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ],
+          top: 0,
+          left: 0,
+          right: 0,
+          child: CallSurfaceHeader(
+            title: call.peer.short,
+            subtitle: _statusLabel(l, call.status),
+            onMinimize: onMinimize,
+            onSettings: () => onShowDevices(svc),
           ),
         ),
-        if (onMinimize != null)
+        if (call.transport != null)
           Positioned(
-            top: 8,
-            right: 8,
-            child: Material(
-              color: Colors.black.withValues(alpha: 0.28),
-              shape: const CircleBorder(),
-              child: InkWell(
-                customBorder: const CircleBorder(),
-                onTap: onMinimize,
-                child: const SizedBox.square(
-                  dimension: 44,
-                  child: Icon(
-                    Icons.picture_in_picture_alt,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
+            top: 66,
+            left: 16,
+            right: 16,
+            child: _TransportBadge(
+              call.transport!,
+              fallbackReason:
+                  call.transport == CallTransportKind.relay &&
+                      svc.transportFallbackReason != null
+                  ? l.callPathNoDirectSession
+                  : null,
             ),
           ),
         if (call.media.video && !selfPreviewHidden)
@@ -513,11 +461,7 @@ class _CallBody extends ConsumerWidget {
           left: 12,
           right: 12,
           bottom: 18,
-          child: _VideoControlsBar(
-            call: call,
-            svc: svc,
-            onShowDevices: () => onShowDevices(svc),
-          ),
+          child: _VideoControlsBar(call: call, svc: svc),
         ),
       ],
     );
@@ -863,16 +807,31 @@ class _FloatingCallTile extends ConsumerWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              _RemoteCallVideoView(
-                freshnessToken: (call.callId, peerScreen),
-                waitingLabel: peerScreen
-                    ? l.callScreenWaiting
-                    : l.callVideoWaiting,
-                staleLabel: l.callVideoPaused,
-                placeholderIcon: peerScreen
-                    ? Icons.screen_share_outlined
-                    : Icons.videocam_outlined,
-              ),
+              if (call.media.video || call.media.screen)
+                _RemoteCallVideoView(
+                  freshnessToken: (call.callId, peerScreen),
+                  waitingLabel: peerScreen
+                      ? l.callScreenWaiting
+                      : l.callVideoWaiting,
+                  staleLabel: l.callVideoPaused,
+                  placeholderIcon: peerScreen
+                      ? Icons.screen_share_outlined
+                      : Icons.videocam_outlined,
+                )
+              else
+                Center(
+                  child: CircleAvatar(
+                    radius: 34,
+                    backgroundColor: const Color(0xFF171B22),
+                    child: Text(
+                      call.peer.short.characters.first.toUpperCase(),
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 26,
+                      ),
+                    ),
+                  ),
+                ),
               Positioned.fill(
                 child: DecoratedBox(
                   decoration: BoxDecoration(
@@ -1232,258 +1191,142 @@ class _ShowSelfPreviewButton extends StatelessWidget {
 }
 
 class _VideoControlsBar extends StatelessWidget {
-  const _VideoControlsBar({
-    required this.call,
-    required this.svc,
-    required this.onShowDevices,
-  });
+  const _VideoControlsBar({required this.call, required this.svc});
 
   final Call call;
   final CallService svc;
-  final VoidCallback onShowDevices;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.black.withValues(alpha: 0.54),
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Row(
-          children: [
-            _CallBarButton(
-              icon: call.micOn ? Icons.mic : Icons.mic_off,
-              active: call.micOn,
-              onTap: () => svc.setMicEnabled(!call.micOn),
-            ),
-            if (call.media.video) ...[
-              const SizedBox(width: 8),
-              _CallBarButton(
-                icon: call.cameraOn ? Icons.videocam : Icons.videocam_off,
-                active: call.cameraOn,
-                onTap: () => svc.setCameraEnabled(!call.cameraOn),
-              ),
-              if (Platform.isAndroid && call.cameraOn && !call.screenOn) ...[
-                const SizedBox(width: 8),
-                Semantics(
-                  label: AppL10n.of(context).callSwitchCamera,
-                  button: true,
-                  child: _CallBarButton(
-                    icon: Icons.cameraswitch,
-                    active: true,
-                    onTap: () async {
-                      final ok = await svc.switchCameraFacing();
-                      if (!ok && context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              AppL10n.of(context).callDeviceSwitchFailed,
-                            ),
-                          ),
-                        );
-                      }
-                    },
-                  ),
-                ),
-              ],
-              // Screen share replaces the camera as the video source. Android
-              // presents its native MediaProjection consent sheet on tap.
-              if (defaultTargetPlatform == TargetPlatform.macOS ||
-                  defaultTargetPlatform == TargetPlatform.android) ...[
-                const SizedBox(width: 8),
-                _CallBarButton(
-                  icon: call.screenOn
-                      ? Icons.stop_screen_share
-                      : Icons.screen_share,
-                  active: call.screenOn,
-                  onTap: () => svc.setScreenShareEnabled(!call.screenOn),
-                ),
-              ],
-            ],
-            const SizedBox(width: 8),
-            Semantics(
-              label: AppL10n.of(context).callDevices,
-              button: true,
-              child: _CallBarButton(
-                icon: Icons.tune,
-                active: true,
-                onTap: onShowDevices,
-              ),
-            ),
-            const Spacer(),
-            Material(
-              color: Colors.red,
-              shape: const CircleBorder(),
-              child: InkWell(
-                customBorder: const CircleBorder(),
-                onTap: () => svc.hangup(),
-                child: const SizedBox.square(
-                  dimension: 48,
-                  child: Icon(Icons.call_end, color: Colors.white, size: 24),
-                ),
-              ),
-            ),
-          ],
+    final l = AppL10n.of(context);
+    return CallControlDock(
+      children: [
+        CallControlAction(
+          key: const ValueKey('call-mic'),
+          icon: call.micOn ? Icons.mic : Icons.mic_off,
+          label: call.micOn ? l.callMicOn : l.callMicOff,
+          onPressed: () => svc.setMicEnabled(!call.micOn),
         ),
-      ),
-    );
-  }
-}
-
-class _CallBarButton extends StatelessWidget {
-  const _CallBarButton({
-    required this.icon,
-    required this.active,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final bool active;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: active ? Colors.white12 : Colors.white24,
-      shape: const CircleBorder(),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onTap,
-        child: SizedBox.square(
-          dimension: 44,
-          child: Icon(icon, color: Colors.white, size: 22),
+        CallControlAction(
+          key: const ValueKey('call-camera'),
+          icon: call.cameraOn ? Icons.videocam : Icons.videocam_off,
+          label: call.cameraOn ? l.callCameraOn : l.callCameraOff,
+          onPressed: () => svc.setCameraEnabled(!call.cameraOn),
         ),
-      ),
+        if (Platform.isAndroid && call.cameraOn && !call.screenOn)
+          CallControlAction(
+            key: const ValueKey('call-switch-camera'),
+            icon: Icons.cameraswitch,
+            label: l.callSwitchCamera,
+            onPressed: () async {
+              final ok = await svc.switchCameraFacing();
+              if (!ok && context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(l.callDeviceSwitchFailed)),
+                );
+              }
+            },
+          ),
+        if (call.media.video &&
+            (defaultTargetPlatform == TargetPlatform.macOS ||
+                defaultTargetPlatform == TargetPlatform.android))
+          CallControlAction(
+            key: const ValueKey('call-screen'),
+            icon: call.screenOn ? Icons.stop_screen_share : Icons.screen_share,
+            label: call.screenOn ? l.callScreenOn : l.callScreenOff,
+            onPressed: () => svc.setScreenShareEnabled(!call.screenOn),
+          ),
+        if (callAudioRouter.supportsPhoneRouting) const CallAudioRouteAction(),
+        CallControlAction(
+          key: const ValueKey('call-end'),
+          icon: Icons.call_end,
+          label: l.callEnd,
+          destructive: true,
+          onPressed: () => svc.hangup(),
+        ),
+      ],
     );
   }
 }
 
 class _Controls extends StatelessWidget {
-  const _Controls({
-    required this.call,
-    required this.svc,
-    required this.l,
-    required this.onShowDevices,
-  });
+  const _Controls({required this.call, required this.svc, required this.l});
   final Call call;
   final CallService svc;
   final AppL10n l;
-  final VoidCallback onShowDevices;
 
   @override
   Widget build(BuildContext context) {
     switch (call.status) {
       case CallStatus.ringing when call.isIncoming:
-        return Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        return CallControlDock(
           children: [
-            _RoundButton(
+            CallControlAction(
+              key: const ValueKey('call-decline'),
               icon: Icons.call_end,
-              color: Colors.red,
               label: l.callDecline,
-              onTap: svc.reject,
+              destructive: true,
+              onPressed: () => svc.reject(),
             ),
-            _RoundButton(
+            CallControlAction(
+              key: const ValueKey('call-accept'),
               icon: Icons.call,
-              color: Colors.green,
               label: l.callAccept,
-              onTap: svc.accept,
+              positive: true,
+              onPressed: () => svc.accept(),
             ),
           ],
         );
       case CallStatus.dialing:
-        return _RoundButton(
-          icon: Icons.call_end,
-          color: Colors.red,
-          label: l.callCancel,
-          onTap: svc.cancel,
+        return CallControlDock(
+          children: [
+            CallControlAction(
+              key: const ValueKey('call-cancel'),
+              icon: Icons.call_end,
+              label: l.callCancel,
+              destructive: true,
+              onPressed: () => svc.cancel(),
+            ),
+          ],
         );
       default:
-        // connecting / active — live media toggles wired to the engine.
-        return Column(
+        return CallControlDock(
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _MiniToggle(
-                  call.micOn ? Icons.mic : Icons.mic_off,
-                  call.micOn ? l.callMicOn : l.callMicOff,
-                  enabled: true,
-                  onTap: () => svc.setMicEnabled(!call.micOn),
-                ),
-                // Shown for audio-only calls too: turning the camera on
-                // upgrades the live call to video (route unchanged).
-                _MiniToggle(
-                  call.cameraOn ? Icons.videocam : Icons.videocam_off,
-                  call.cameraOn ? l.callCameraOn : l.callCameraOff,
-                  enabled: true,
-                  onTap: () => svc.setCameraEnabled(!call.cameraOn),
-                ),
-                if (call.media.video &&
-                    (defaultTargetPlatform == TargetPlatform.macOS ||
-                        defaultTargetPlatform == TargetPlatform.android))
-                  _MiniToggle(
-                    call.screenOn
-                        ? Icons.stop_screen_share
-                        : Icons.screen_share,
-                    call.screenOn ? l.callScreenOn : l.callScreenOff,
-                    enabled: true,
-                    onTap: () => svc.setScreenShareEnabled(!call.screenOn),
-                  ),
-                _MiniToggle(
-                  Icons.tune,
-                  l.callDevices,
-                  enabled: true,
-                  onTap: onShowDevices,
-                ),
-              ],
+            CallControlAction(
+              key: const ValueKey('call-mic'),
+              icon: call.micOn ? Icons.mic : Icons.mic_off,
+              label: call.micOn ? l.callMicOn : l.callMicOff,
+              onPressed: () => svc.setMicEnabled(!call.micOn),
             ),
-            const SizedBox(height: 20),
-            _RoundButton(
+            CallControlAction(
+              key: const ValueKey('call-camera'),
+              icon: call.cameraOn ? Icons.videocam : Icons.videocam_off,
+              label: call.cameraOn ? l.callCameraOn : l.callCameraOff,
+              onPressed: () => svc.setCameraEnabled(!call.cameraOn),
+            ),
+            if (call.media.video &&
+                (defaultTargetPlatform == TargetPlatform.macOS ||
+                    defaultTargetPlatform == TargetPlatform.android))
+              CallControlAction(
+                key: const ValueKey('call-screen'),
+                icon: call.screenOn
+                    ? Icons.stop_screen_share
+                    : Icons.screen_share,
+                label: call.screenOn ? l.callScreenOn : l.callScreenOff,
+                onPressed: () => svc.setScreenShareEnabled(!call.screenOn),
+              ),
+            if (callAudioRouter.supportsPhoneRouting)
+              const CallAudioRouteAction(),
+            CallControlAction(
+              key: const ValueKey('call-end'),
               icon: Icons.call_end,
-              color: Colors.red,
               label: l.callEnd,
-              onTap: svc.hangup,
+              destructive: true,
+              onPressed: () => svc.hangup(),
             ),
           ],
         );
     }
-  }
-}
-
-class _RoundButton extends StatelessWidget {
-  const _RoundButton({
-    required this.icon,
-    required this.color,
-    required this.label,
-    required this.onTap,
-  });
-  final IconData icon;
-  final Color color;
-  final String label;
-  final Future<void> Function() onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Material(
-          color: color,
-          shape: const CircleBorder(),
-          child: InkWell(
-            customBorder: const CircleBorder(),
-            onTap: () => onTap(),
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Icon(icon, color: Colors.white, size: 30),
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(label, style: const TextStyle(color: Colors.white70)),
-      ],
-    );
   }
 }
 
@@ -1504,38 +1347,6 @@ class _Scrim extends StatelessWidget {
             end: top ? Alignment.bottomCenter : Alignment.topCenter,
             colors: [Colors.black.withValues(alpha: 0.55), Colors.transparent],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _MiniToggle extends StatelessWidget {
-  const _MiniToggle(this.icon, this.label, {required this.enabled, this.onTap});
-  final IconData icon;
-  final String label;
-  final bool enabled;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = enabled ? Colors.white : Colors.white38;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: GestureDetector(
-        onTap: enabled ? onTap : null,
-        behavior: HitTestBehavior.opaque,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircleAvatar(
-              radius: 24,
-              backgroundColor: Colors.white12,
-              child: Icon(icon, color: color),
-            ),
-            const SizedBox(height: 6),
-            Text(label, style: TextStyle(color: color, fontSize: 11)),
-          ],
         ),
       ),
     );

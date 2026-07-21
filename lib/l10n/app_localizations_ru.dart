@@ -2804,6 +2804,21 @@ class AppL10nRu extends AppL10n {
   String get callDevices => 'Устройства';
 
   @override
+  String get callSettingsAudio => 'Аудио';
+
+  @override
+  String get callSettingsVideo => 'Видео';
+
+  @override
+  String get callAudioOutput => 'Вывод звука';
+
+  @override
+  String get callSpeaker => 'Громкоговоритель';
+
+  @override
+  String get callEarpiece => 'Динамик телефона';
+
+  @override
   String get callCameras => 'Камеры';
 
   @override

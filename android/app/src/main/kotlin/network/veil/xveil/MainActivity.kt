@@ -36,6 +36,7 @@ class MainActivity : FlutterActivity() {
     private val nativeCallCameraChannelName = "xveil/native_call_camera"
     private val nativeCallVideoChannelName = "xveil/native_call_video"
     private val audioDevicesChannelName = "xveil/audio_devices"
+    private val callAudioRouteChannelName = "xveil/call_audio_route"
     private val callNetworkChannelName = "xveil/call_network"
     private val whisperModelChannelName = "xveil/whisper_model"
     private val micRequestCode = 0x4D49 // 'MI'
@@ -97,6 +98,22 @@ class MainActivity : FlutterActivity() {
         ).setMethodCallHandler { call, result ->
             when (call.method) {
                 "listInputs" -> result.success(audioInputDevices())
+                else -> result.notImplemented()
+            }
+        }
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            callAudioRouteChannelName,
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "setRoute" -> {
+                    val speaker = call.argument<Boolean>("speaker") ?: false
+                    result.success(setCallAudioRoute(speaker))
+                }
+                "release" -> {
+                    releaseCallAudioRoute()
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         }
@@ -355,7 +372,62 @@ class MainActivity : FlutterActivity() {
 
     override fun onDestroy() {
         setCallNetworkActive(false)
+        releaseCallAudioRoute()
         super.onDestroy()
+    }
+
+    /**
+     * Route call playout explicitly instead of accepting the device-dependent
+     * AudioTrack default. Video calls use the built-in loudspeaker; audio-only
+     * calls behave like a handset call and use the receiver.
+     */
+    private fun setCallAudioRoute(speaker: Boolean): Boolean {
+        val manager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        manager.mode = AudioManager.MODE_IN_COMMUNICATION
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val wantedType = if (speaker) {
+                    AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+                } else {
+                    AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
+                }
+                val device = manager.availableCommunicationDevices.firstOrNull {
+                    it.type == wantedType
+                }
+                if (device != null) {
+                    manager.setCommunicationDevice(device)
+                } else if (!speaker) {
+                    // Tablets may expose no receiver. Clearing the explicit
+                    // route lets Android choose its normal communication path.
+                    manager.clearCommunicationDevice()
+                    true
+                } else {
+                    false
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                manager.isSpeakerphoneOn = speaker
+                true
+            }
+        } catch (error: RuntimeException) {
+            android.util.Log.w("xveil-call-audio", "Audio route failed: $error")
+            false
+        }
+    }
+
+    private fun releaseCallAudioRoute() {
+        val manager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                manager.clearCommunicationDevice()
+            } else {
+                @Suppress("DEPRECATION")
+                manager.isSpeakerphoneOn = false
+            }
+            manager.mode = AudioManager.MODE_NORMAL
+        } catch (error: RuntimeException) {
+            android.util.Log.w("xveil-call-audio", "Audio route cleanup failed: $error")
+        }
     }
 
     /**
