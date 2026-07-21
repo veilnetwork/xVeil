@@ -64,7 +64,8 @@ for unit in veil.service ogate.service oproxy-client.service oproxy-server.servi
 done
 if sudo test -x /usr/local/bin/veil-cli && sudo test -f /var/lib/veil/node.toml; then
   echo -n "NODE_ID: "
-  sudo -u veil /usr/local/bin/veil-cli -c /var/lib/veil/node.toml node id 2>/dev/null || true
+  sudo -u veil /usr/local/bin/veil-cli -c /var/lib/veil/node.toml config get identity.node_id 2>/dev/null || \\
+    sudo -u veil /usr/local/bin/veil-cli -c /var/lib/veil/node.toml node id 2>/dev/null || true
   sudo -u veil /usr/local/bin/veil-cli -c /var/lib/veil/node.toml node show 2>/dev/null || true
 fi
 ''';
