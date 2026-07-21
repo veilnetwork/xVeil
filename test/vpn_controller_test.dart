@@ -56,6 +56,7 @@ Future<ProviderContainer> _container(_FakeBackend backend) async {
   final container = ProviderContainer(
     overrides: [
       vpnBackendProvider.overrideWithValue(backend),
+      vpnTransportPreflightProvider.overrideWithValue((_) async {}),
       deniableBootProvider.overrideWithValue(
         const DeniableBootConfig(runtimeDir: '/tmp/xveil-test', obfs4Psk: _psk),
       ),
@@ -114,6 +115,40 @@ void main() {
       VpnBackendPhase.error,
     );
     expect(container.read(vpnControllerProvider).policy.enabled, isFalse);
+  });
+
+  test('unreachable exit never installs the native system tunnel', () async {
+    final backend = _FakeBackend();
+    SharedPreferences.setMockInitialValues({});
+    final container = ProviderContainer(
+      overrides: [
+        vpnBackendProvider.overrideWithValue(backend),
+        vpnTransportPreflightProvider.overrideWithValue(
+          (_) async => throw StateError('exit is offline'),
+        ),
+        deniableBootProvider.overrideWithValue(
+          const DeniableBootConfig(
+            runtimeDir: '/tmp/xveil-test',
+            obfs4Psk: _psk,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(vpnControllerProvider);
+    await Future<void>.delayed(Duration.zero);
+    await _configureExit(container);
+
+    await container.read(vpnControllerProvider.notifier).start();
+
+    expect(backend.starts, 0);
+    expect(container.read(vpnControllerProvider).isRunning, isFalse);
+    expect(container.read(vpnControllerProvider).policy.enabled, isFalse);
+    expect(container.read(vpnProxyDemandProvider), isFalse);
+    expect(
+      container.read(vpnControllerProvider).backend.detail,
+      contains('system tunnel was not enabled'),
+    );
   });
 
   test(
