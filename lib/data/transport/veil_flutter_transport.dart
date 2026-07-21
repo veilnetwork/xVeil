@@ -20,6 +20,7 @@ class VeilFlutterTransport
     implements
         VeilTransport,
         RealtimeTransport,
+        RelayRealtimeTransport,
         RealtimeInboundTransport,
         StreamTransport,
         P2PStreamTransport {
@@ -470,6 +471,16 @@ class VeilFlutterTransport
     // A no-session error is intentional; call control is also persisted through
     // the durable outbox/mailbox and will retry there.
     return _realtimeApp.sendRealtime(
+      dstNodeId: dst.bytes,
+      dstAppId: realtimeAppIdFor(dst),
+      dstEndpointId: veilRealtimeEndpointId,
+      data: payload,
+    );
+  }
+
+  @override
+  Future<void> sendRelayRealtime(NodeId dst, Uint8List payload) {
+    return _realtimeApp.sendRelayRealtime(
       dstNodeId: dst.bytes,
       dstAppId: realtimeAppIdFor(dst),
       dstEndpointId: veilRealtimeEndpointId,

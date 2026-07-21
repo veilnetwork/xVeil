@@ -212,6 +212,28 @@ class CallService {
   final Future<bool> Function(NodeId peer) _localAllowsP2P;
   final Future<bool> Function(NodeId peer) _peerReachableForP2P;
 
+  static const _signalReachabilityBudget = Duration(milliseconds: 100);
+
+  /// Preserve an already-admitted P2P fast path without making call control
+  /// wait for endpoint exchange, dialing, or a stalled native status query.
+  /// The reachability probe keeps running after the timeout and can warm a
+  /// direct session for the next call.
+  Future<bool> _peerReachableWithoutBlockingSignal(NodeId peer) async {
+    try {
+      return await Future.any<bool>([
+        _peerReachableForP2P(peer),
+        Future<bool>.delayed(_signalReachabilityBudget, () => false),
+      ]);
+    } catch (error) {
+      devLog(
+        () =>
+            'xVeil[call-sig]: P2P reachability probe failed '
+            'peer=${peer.short}: $error',
+      );
+      return false;
+    }
+  }
+
   final _changes = StreamController<Call?>.broadcast();
   void Function(NodeId, CallSignal)? _handler;
   Call? _current;
@@ -306,7 +328,8 @@ class CallService {
     // callee knows both postures. An anonymous caller is never P2P.
     final localAllowsP2P =
         posture == CallPosture.direct && await _localAllowsP2P(peer);
-    final peerReachable = localAllowsP2P && await _peerReachableForP2P(peer);
+    final peerReachable =
+        localAllowsP2P && await _peerReachableWithoutBlockingSignal(peer);
     final mayOfferP2P = localAllowsP2P && peerReachable;
     final proposal = CallTransportProposal(
       posture == CallPosture.anonymous
@@ -358,7 +381,9 @@ class CallService {
     final peerProposedP2P = c.transport == CallTransportKind.p2p;
     final localAllowsP2P = await _localAllowsP2P(c.peer);
     final peerReachable =
-        peerProposedP2P && localAllowsP2P && await _peerReachableForP2P(c.peer);
+        peerProposedP2P &&
+        localAllowsP2P &&
+        await _peerReachableWithoutBlockingSignal(c.peer);
     final current = _current;
     if (current == null ||
         current.callId != c.callId ||
@@ -1208,13 +1233,11 @@ final callServiceProvider = Provider<CallService>((ref) {
     startMuted: Platform.isAndroid,
     localAllowsP2P: (peer) =>
         ref.read(p2pPolicyProvider.notifier).allowsPeer(peer),
-    // Real-P2P epic: "reachable" now means "a live direct session exists, or
-    // came up within the endpoint service's small dial budget" — the service
-    // exchanges LAN endpoints with the consenting contact and dials them, so
-    // the proposal only says p2p when direct media can actually flow. The
-    // native direct media open stays the authoritative admission gate. When
-    // the service is unavailable (loopback/dev stack) keep the old optimistic
-    // answer and let that native gate decide.
+    // Reachability starts endpoint sharing + dialing. CallService applies its
+    // own short signaling budget, so this work can continue in the background
+    // without holding the offer/answer. When the service is unavailable
+    // (loopback/dev stack), keep the old optimistic answer and let the native
+    // admission gate decide.
     peerReachableForP2P: (peer) async {
       final p2p = ref.read(p2pEndpointServiceProvider);
       if (p2p == null) return true;

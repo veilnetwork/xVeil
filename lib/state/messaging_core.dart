@@ -2353,6 +2353,7 @@ class MessagingService {
 
   Future<void> dispose() async {
     _disposed = true; // stops transfer retry/serve work
+    _outbox.dispose();
     // Starts synchronously: the transport-scoped broker lease is detached
     // before Riverpod can construct a replacement service, while native
     // serve/pull streams are aborted and joined in the returned future.

@@ -132,6 +132,39 @@ class _MessagingRealtimeControl {
     return _owner._send(peer, wire);
   }
 
+  Future<void> _sendRelayRealtime(NodeId peer, Uint8List wire) {
+    final transport = _owner._transport;
+    if (transport is RelayRealtimeTransport) {
+      return (transport as RelayRealtimeTransport).sendRelayRealtime(
+        peer,
+        wire,
+      );
+    }
+    return Future<void>.error(
+      UnsupportedError('relay realtime transport unavailable'),
+    );
+  }
+
+  Future<void> _sendRealtimePaths(
+    String scope,
+    NodeId peer,
+    Uint8List wire,
+  ) async {
+    if (_owner._anonymous) {
+      await sendRealtime(peer, wire);
+      return;
+    }
+    await Future.wait<void>([
+      _attempt(scope, 'realtime direct', peer, () => sendRealtime(peer, wire)),
+      _attempt(
+        scope,
+        'realtime relay',
+        peer,
+        () => _sendRelayRealtime(peer, wire),
+      ),
+    ]);
+  }
+
   /// Send one already-signed and epoch-encrypted group-call signal. Lifecycle
   /// transitions are durable; heartbeats stay best-effort because the next one
   /// supersedes stale liveness work.
@@ -148,11 +181,7 @@ class _MessagingRealtimeControl {
     // main client can be occupied by mailbox drains, anonymous sends or file
     // streams on the node's sequential per-connection loop.
     if (signal.type == GroupCallSignalType.heartbeat) {
-      try {
-        await sendRealtime(peer, envelope.encode());
-      } catch (_) {
-        // A subsequent heartbeat supersedes this best-effort frame.
-      }
+      await _sendRealtimePaths('gcall-sig', peer, envelope.encode());
       return;
     }
     await _owner.sendDurable(
@@ -160,7 +189,7 @@ class _MessagingRealtimeControl {
       'gcall:${signal.groupId.hex}:${signal.callId}:'
       '${signal.type.name}:${signal.nonce}',
       envelope,
-      liveSender: (wire) => sendRealtime(peer, wire),
+      liveSender: (wire) => _sendRealtimePaths('gcall-sig', peer, wire),
       awaitLive: false,
     );
   }
@@ -178,7 +207,7 @@ class _MessagingRealtimeControl {
     }
     await Future.wait<void>([
       _attempt('call-sig', 'contact', peer, () => _owner._send(peer, wire)),
-      _attempt('call-sig', 'realtime', peer, () => sendRealtime(peer, wire)),
+      _sendRealtimePaths('call-sig', peer, wire),
     ]);
   }
 
@@ -196,12 +225,7 @@ class _MessagingRealtimeControl {
         peer,
         () => _owner._send(peer, wire),
       ),
-      _attempt(
-        'p2p',
-        'bootstrap realtime',
-        peer,
-        () => sendRealtime(peer, wire),
-      ),
+      _sendRealtimePaths('p2p bootstrap', peer, wire),
     ]);
   }
 
@@ -236,11 +260,7 @@ class _MessagingRealtimeControl {
     );
     final envelope = WireEnvelope.callSignal(stamped.encode());
     if (stamped.type == CallSignalType.health) {
-      try {
-        await sendRealtime(peer, envelope.encode());
-      } catch (_) {
-        // A subsequent heartbeat supersedes this best-effort frame.
-      }
+      await _sendRealtimePaths('call-sig', peer, envelope.encode());
       return;
     }
     final frameId = stamped.type == CallSignalType.renegotiate

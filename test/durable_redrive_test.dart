@@ -637,10 +637,13 @@ void main() {
       expect(offers, 1,
           reason: 'inbound during the grace must not duplicate the send');
 
-      // The ack really was lost → the regular backoff re-drive still fires.
+      // The ack really was lost → the fast call ladder and/or the regular
+      // backoff re-drive still fire. Both copies carry the same frame id and
+      // are deduplicated at the receiver.
       clock = clock.add(const Duration(seconds: 21));
       await flushA();
-      expect(offers, 2, reason: 'the durable guarantee is untouched');
+      expect(offers, greaterThanOrEqualTo(2),
+          reason: 'the durable guarantee is untouched');
     });
 
     test('RECONNECT to a wiped peer is durable: re-intro survives the lost '
