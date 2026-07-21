@@ -1,3 +1,5 @@
+import 'dart:io';
+
 /// Components that can be installed on a managed server. `veilCli` is always
 /// required; the others are optional applications that attach to its local IPC
 /// socket.
@@ -15,6 +17,8 @@ extension NodeComponentInfo on NodeComponent {
 /// Listener presets exposed by the basic UI. Operators can still edit the full
 /// node TOML in Advanced settings; these cover the common public-server cases.
 enum NodeListenTransport { obfs4Tcp, tcp, tls, quic, wss }
+
+enum NodeTlsCertificateMode { existingFiles, automatic, selfSigned }
 
 extension NodeListenTransportInfo on NodeListenTransport {
   String get scheme => switch (this) {
@@ -77,6 +81,12 @@ class NodeProvisionConfig {
     this.tlsCertPath,
     this.tlsKeyPath,
     this.tlsCaCertPath,
+    this.tlsCertificateMode = NodeTlsCertificateMode.existingFiles,
+    this.tlsDomain,
+    this.tlsEmail,
+    this.tlsAgreeToTerms = false,
+    this.selfSignedName,
+    this.selfSignedDays = 365,
   });
 
   /// Backward-compatible veil-cli asset fields.
@@ -104,11 +114,26 @@ class NodeProvisionConfig {
   final String? tlsKeyPath;
   final String? tlsCaCertPath;
 
+  /// How TLS material is supplied. Generated private keys never leave the
+  /// managed server; listeners use root-owned, group-readable copies.
+  final NodeTlsCertificateMode tlsCertificateMode;
+  final String? tlsDomain;
+  final String? tlsEmail;
+  final bool tlsAgreeToTerms;
+  final String? selfSignedName;
+  final int selfSignedDays;
+
   static final _sha256Re = RegExp(r'^[0-9a-fA-F]{64}$');
   static final _safeUrlRe = RegExp(r'^https://[A-Za-z0-9._~:/?#@%=+,-]+$');
   static final _b64Re = RegExp(r'^[A-Za-z0-9+/]+={0,2}$');
   static final _safeHostRe = RegExp(r'^[A-Za-z0-9.:[\]-]+$');
   static final _safePathRe = RegExp(r'^/[A-Za-z0-9._/-]+$');
+  static final _safeEmailRe = RegExp(
+    r'^[A-Za-z0-9._+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$',
+  );
+  static final _dnsNameRe = RegExp(
+    r'^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$',
+  );
 
   static bool isSafeHttpsUrl(String s) {
     final u = Uri.tryParse(s);
@@ -140,6 +165,46 @@ class NodeProvisionConfig {
 
   bool get usesTls => transports.any((t) => t.needsTls);
 
+  String? get effectiveTlsCertPath => switch (tlsCertificateMode) {
+    NodeTlsCertificateMode.existingFiles => tlsCertPath?.trim(),
+    NodeTlsCertificateMode.automatic =>
+      automaticUsesLetsEncrypt
+          ? '/etc/veil/tls/letsencrypt-fullchain.pem'
+          : '/etc/veil/tls/selfsigned-cert.pem',
+    NodeTlsCertificateMode.selfSigned => '/etc/veil/tls/selfsigned-cert.pem',
+  };
+
+  String? get effectiveTlsKeyPath => switch (tlsCertificateMode) {
+    NodeTlsCertificateMode.existingFiles => tlsKeyPath?.trim(),
+    NodeTlsCertificateMode.automatic =>
+      automaticUsesLetsEncrypt
+          ? '/etc/veil/tls/letsencrypt-privkey.pem'
+          : '/etc/veil/tls/selfsigned-key.pem',
+    NodeTlsCertificateMode.selfSigned => '/etc/veil/tls/selfsigned-key.pem',
+  };
+
+  String? get effectiveTlsCaCertPath =>
+      tlsCertificateMode == NodeTlsCertificateMode.existingFiles
+      ? tlsCaCertPath?.trim()
+      : null;
+
+  static bool isIpAddress(String value) =>
+      InternetAddress.tryParse(value) != null;
+
+  // A dotted IPv4 address also matches the syntactic DNS-label regexp. Check
+  // IP first so automatic mode never attempts ACME for a numeric address.
+  static bool isDnsName(String value) =>
+      !isIpAddress(value) && _dnsNameRe.hasMatch(value);
+
+  bool get automaticUsesLetsEncrypt =>
+      tlsCertificateMode == NodeTlsCertificateMode.automatic &&
+      isDnsName(tlsDomain?.trim() ?? '');
+
+  String? get generatedCertificateName =>
+      tlsCertificateMode == NodeTlsCertificateMode.automatic
+      ? tlsDomain?.trim()
+      : selfSignedName?.trim();
+
   bool get isValid {
     if (transports.isEmpty || !_isBase64(obfs4PskB64.trim())) return false;
     if (!artifacts.every((a) => a.isValid)) return false;
@@ -157,13 +222,38 @@ class NodeProvisionConfig {
       return false;
     }
     if (usesTls) {
-      final cert = tlsCertPath?.trim() ?? '';
-      final key = tlsKeyPath?.trim() ?? '';
-      if (!_safePathRe.hasMatch(cert) || !_safePathRe.hasMatch(key)) {
-        return false;
+      switch (tlsCertificateMode) {
+        case NodeTlsCertificateMode.existingFiles:
+          final cert = tlsCertPath?.trim() ?? '';
+          final key = tlsKeyPath?.trim() ?? '';
+          if (!_safePathRe.hasMatch(cert) || !_safePathRe.hasMatch(key)) {
+            return false;
+          }
+          final ca = tlsCaCertPath?.trim() ?? '';
+          if (ca.isNotEmpty && !_safePathRe.hasMatch(ca)) return false;
+          break;
+        case NodeTlsCertificateMode.automatic:
+          final name = tlsDomain?.trim() ?? '';
+          if (!isDnsName(name) && !isIpAddress(name)) return false;
+          if (isDnsName(name) &&
+              (!_safeEmailRe.hasMatch(tlsEmail?.trim() ?? '') ||
+                  !tlsAgreeToTerms)) {
+            return false;
+          }
+          if (isIpAddress(name) &&
+              (selfSignedDays < 1 || selfSignedDays > 3650)) {
+            return false;
+          }
+          break;
+        case NodeTlsCertificateMode.selfSigned:
+          final name = selfSignedName?.trim() ?? '';
+          if ((!isDnsName(name) && !isIpAddress(name)) ||
+              selfSignedDays < 1 ||
+              selfSignedDays > 3650) {
+            return false;
+          }
+          break;
       }
-      final ca = tlsCaCertPath?.trim() ?? '';
-      if (ca.isNotEmpty && !_safePathRe.hasMatch(ca)) return false;
     }
     return true;
   }
@@ -332,12 +422,131 @@ String _listenerCommand(NodeProvisionConfig c, NodeListenTransport t) {
       ? ''
       : " --advertise '${t.scheme}://$host:$port$path'";
   final tls = t.needsTls
-      ? " --tls-cert '${c.tlsCertPath!.trim()}' --tls-key '${c.tlsKeyPath!.trim()}'"
+      ? " --tls-cert '${c.effectiveTlsCertPath}' --tls-key '${c.effectiveTlsKeyPath}'"
       : '';
-  final ca = t.needsTls && (c.tlsCaCertPath?.trim().isNotEmpty ?? false)
-      ? " --tls-ca-cert '${c.tlsCaCertPath!.trim()}'"
+  final ca =
+      t.needsTls && (c.effectiveTlsCaCertPath?.trim().isNotEmpty ?? false)
+      ? " --tls-ca-cert '${c.effectiveTlsCaCertPath}'"
       : '';
   return "sudo -u veil /usr/local/bin/veil-cli -c /tmp/xveil-node.toml listen add '$uri'$advertise$tls$ca";
+}
+
+String _ensureServerCommand(String command, String package) =>
+    '''
+if ! command -v $command >/dev/null 2>&1; then
+  if command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get update
+    sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y $package
+  elif command -v dnf >/dev/null 2>&1; then
+    sudo dnf install -y $package
+  elif command -v yum >/dev/null 2>&1; then
+    sudo yum install -y $package
+  elif command -v apk >/dev/null 2>&1; then
+    sudo apk add $package
+  else
+    echo 'Cannot install $package: unsupported package manager' >&2
+    exit 1
+  fi
+fi''';
+
+String _letsEncryptSetup(NodeProvisionConfig c, String domain) {
+  final email = c.tlsEmail!.trim();
+  return '''${_ensureServerCommand('certbot', 'certbot')}
+sudo install -d -o root -g veil -m 0750 /etc/veil/tls
+
+# The standalone ACME challenge needs inbound TCP/80. Restore an existing veil
+# service if issuance fails instead of leaving a working node stopped.
+veil_was_active=false
+if sudo systemctl is-active --quiet veil.service; then
+  veil_was_active=true
+  sudo systemctl stop veil.service
+fi
+if ! sudo certbot certonly --standalone --non-interactive --agree-tos \\
+    --no-eff-email --keep-until-expiring --email '$email' -d '$domain'; then
+  if [ "\$veil_was_active" = true ]; then sudo systemctl start veil.service || true; fi
+  echo "Let's Encrypt issuance failed. Check DNS and inbound TCP port 80." >&2
+  exit 1
+fi
+
+# Certbot's source key stays root-only. The deploy hook updates a stable copy
+# readable by the veil group after every automatic renewal.
+cat > /tmp/xveil-certbot-deploy-hook <<'HOOK_EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+install -d -o root -g veil -m 0750 /etc/veil/tls
+install -o root -g veil -m 0644 '/etc/letsencrypt/live/$domain/fullchain.pem' '/etc/veil/tls/letsencrypt-fullchain.pem'
+install -o root -g veil -m 0640 '/etc/letsencrypt/live/$domain/privkey.pem' '/etc/veil/tls/letsencrypt-privkey.pem'
+systemctl try-restart veil.service || true
+HOOK_EOF
+sudo install -o root -g root -m 0755 /tmp/xveil-certbot-deploy-hook \\
+  /etc/letsencrypt/renewal-hooks/deploy/xveil-veil
+sudo /etc/letsencrypt/renewal-hooks/deploy/xveil-veil
+sudo systemctl enable --now certbot.timer >/dev/null 2>&1 || true
+sudo -u veil test -r '${c.effectiveTlsCertPath}'
+sudo -u veil test -r '${c.effectiveTlsKeyPath}'
+''';
+}
+
+String _selfSignedSetup(NodeProvisionConfig c, String name) {
+  final sanKind = NodeProvisionConfig.isIpAddress(name) ? 'IP.1' : 'DNS.1';
+  final certificateSpec = '$name|${c.selfSignedDays}';
+  return '''${_ensureServerCommand('openssl', 'openssl')}
+sudo install -d -o root -g veil -m 0750 /etc/veil/tls
+selfsigned_regenerate=false
+if ! sudo test -s '${c.effectiveTlsCertPath}' || ! sudo test -s '${c.effectiveTlsKeyPath}'; then
+  selfsigned_regenerate=true
+elif [ "\$(sudo cat /etc/veil/tls/selfsigned-spec 2>/dev/null || true)" != '$certificateSpec' ]; then
+  selfsigned_regenerate=true
+elif ! sudo openssl x509 -checkend 86400 -noout -in '${c.effectiveTlsCertPath}' >/dev/null 2>&1; then
+  selfsigned_regenerate=true
+fi
+if [ "\$selfsigned_regenerate" = true ]; then
+  umask 077
+  cat > /tmp/xveil-openssl.cnf <<'OPENSSL_EOF'
+[req]
+distinguished_name = dn
+x509_extensions = v3
+prompt = no
+[dn]
+CN = $name
+[v3]
+subjectAltName = @alt_names
+[alt_names]
+$sanKind = $name
+OPENSSL_EOF
+  openssl req -x509 -nodes -newkey rsa:3072 -sha256 \\
+    -days ${c.selfSignedDays} -config /tmp/xveil-openssl.cnf \\
+    -keyout /tmp/xveil-selfsigned-key.pem \\
+    -out /tmp/xveil-selfsigned-cert.pem
+  printf '%s' '$certificateSpec' > /tmp/xveil-selfsigned-spec
+  sudo install -o root -g veil -m 0644 /tmp/xveil-selfsigned-cert.pem '${c.effectiveTlsCertPath}'
+  sudo install -o root -g veil -m 0640 /tmp/xveil-selfsigned-key.pem '${c.effectiveTlsKeyPath}'
+  sudo install -o root -g veil -m 0644 /tmp/xveil-selfsigned-spec /etc/veil/tls/selfsigned-spec
+fi
+sudo -u veil test -r '${c.effectiveTlsCertPath}'
+sudo -u veil test -r '${c.effectiveTlsKeyPath}'
+''';
+}
+
+String _tlsCertificateSetup(NodeProvisionConfig c) {
+  if (!c.usesTls) return '# TLS is not selected';
+  switch (c.tlsCertificateMode) {
+    case NodeTlsCertificateMode.existingFiles:
+      final ca = c.effectiveTlsCaCertPath;
+      final caCheck = ca?.isNotEmpty ?? false
+          ? "\nsudo -u veil test -r '$ca'"
+          : '';
+      return '''# Verify the unprivileged veil service can read supplied files.
+sudo -u veil test -r '${c.effectiveTlsCertPath}'
+sudo -u veil test -r '${c.effectiveTlsKeyPath}'$caCheck''';
+    case NodeTlsCertificateMode.automatic:
+      final name = c.generatedCertificateName!;
+      return c.automaticUsesLetsEncrypt
+          ? _letsEncryptSetup(c, name)
+          : _selfSignedSetup(c, name);
+    case NodeTlsCertificateMode.selfSigned:
+      return _selfSignedSetup(c, c.generatedCertificateName!);
+  }
 }
 
 String _optionalComponentSetup(Set<NodeComponent> components) {
@@ -400,6 +609,7 @@ String buildProvisionScript(NodeProvisionConfig c) {
   final cleanup = artifacts
       .map((a) => _artifactTempPath(a.component))
       .join(' ');
+  final tlsSetup = _tlsCertificateSetup(c);
 
   return '''#!/usr/bin/env bash
 set -euo pipefail
@@ -429,7 +639,10 @@ $_veilService
 UNIT_EOF
 sudo install -m 0644 /tmp/xveil-veil.service /etc/systemd/system/veil.service
 
-# 5. preserve identity, but reconcile listeners and service configuration
+# 5. prepare TLS material before changing any listener configuration
+$tlsSetup
+
+# 6. preserve identity, but reconcile listeners and service configuration
 if ! sudo test -f /var/lib/veil/node.toml || ! sudo grep -qE '^\\[Identity\\]' /var/lib/veil/node.toml; then
   sudo -u veil /usr/local/bin/veil-cli config init -d 24 -f /tmp/xveil-node.toml
 else
@@ -447,16 +660,16 @@ set_toml_scalar proxy.exit enabled '$exitValue' /tmp/xveil-node.toml
 sudo -u veil /usr/local/bin/veil-cli -c /tmp/xveil-node.toml config validate
 sudo install -o veil -g veil -m 0600 /tmp/xveil-node.toml /var/lib/veil/node.toml
 
-# 6. optional applications: install complete templates + units, but do not
+# 7. optional applications: install complete templates + units, but do not
 # enable them until the operator replaces their fail-closed placeholders.
 ${_optionalComponentSetup(components)}
 
-# 7. start the node. Optional services stay disabled until configured.
+# 8. start the node. Optional services stay disabled until configured.
 sudo systemctl daemon-reload
 sudo systemctl enable veil >/dev/null 2>&1 || true
 sudo systemctl restart veil
 
-# 8. report machine-readable facts back to xVeil
+# 9. report machine-readable facts back to xVeil
 veil_status='activating'
 for _ in {1..30}; do
   veil_status="\$(sudo systemctl is-active veil 2>/dev/null || true)"
@@ -479,6 +692,8 @@ rm -f $cleanup /tmp/xveil-obfs4-psk.b64 /tmp/xveil-veil.service \\
   /tmp/xveil-ogate.service /tmp/xveil-oproxy-client.service \\
   /tmp/xveil-oproxy-server.service /tmp/xveil-ogate.toml \\
   /tmp/xveil-oproxy-client.toml /tmp/xveil-oproxy-server.toml \\
-  /tmp/xveil-node.toml
+  /tmp/xveil-node.toml /tmp/xveil-certbot-deploy-hook \\
+  /tmp/xveil-openssl.cnf /tmp/xveil-selfsigned-cert.pem \\
+  /tmp/xveil-selfsigned-key.pem /tmp/xveil-selfsigned-spec
 ''';
 }

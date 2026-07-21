@@ -205,6 +205,150 @@ void main() {
     );
   });
 
+  test('automatic TLS uses Let\'s Encrypt for a DNS name', () async {
+    final automatic = NodeProvisionConfig(
+      releaseUrl: cfg.releaseUrl,
+      expectedSha256: sha,
+      obfs4PskB64: cfg.obfs4PskB64,
+      transports: const {NodeListenTransport.wss},
+      tlsCertificateMode: NodeTlsCertificateMode.automatic,
+      tlsDomain: 'node.example.com',
+      tlsEmail: 'operator@example.com',
+      tlsAgreeToTerms: true,
+    );
+    expect(automatic.isValid, isTrue);
+
+    final script = buildProvisionScript(automatic);
+    expect(script, contains('certbot certonly --standalone'));
+    expect(script, contains("--email 'operator@example.com'"));
+    expect(script, contains("-d 'node.example.com'"));
+    expect(
+      script,
+      contains('/etc/letsencrypt/renewal-hooks/deploy/xveil-veil'),
+    );
+    expect(
+      script,
+      contains("-m 0640 '/etc/letsencrypt/live/node.example.com/privkey.pem'"),
+    );
+    expect(
+      script,
+      contains("--tls-cert '/etc/veil/tls/letsencrypt-fullchain.pem'"),
+    );
+    expect(
+      script.indexOf('certbot certonly'),
+      lessThan(script.indexOf('listen add')),
+    );
+    final result = await Process.run('bash', ['-n', '-c', script]);
+    expect(result.exitCode, 0, reason: '${result.stderr}\n$script');
+  });
+
+  test('automatic TLS falls back to a self-signed IP certificate', () async {
+    final automatic = NodeProvisionConfig(
+      releaseUrl: cfg.releaseUrl,
+      expectedSha256: sha,
+      obfs4PskB64: cfg.obfs4PskB64,
+      transports: const {NodeListenTransport.quic},
+      tlsCertificateMode: NodeTlsCertificateMode.automatic,
+      tlsDomain: '203.0.113.10',
+      selfSignedDays: 730,
+    );
+    expect(automatic.isValid, isTrue);
+    expect(automatic.automaticUsesLetsEncrypt, isFalse);
+
+    final script = buildProvisionScript(automatic);
+    expect(script, isNot(contains('certbot certonly')));
+    expect(script, contains('openssl req -x509'));
+    expect(script, contains('IP.1 = 203.0.113.10'));
+    expect(script, contains('-days 730'));
+    expect(script, contains("203.0.113.10|730"));
+    expect(script, contains("-m 0640 /tmp/xveil-selfsigned-key.pem"));
+    expect(script, contains("--tls-cert '/etc/veil/tls/selfsigned-cert.pem'"));
+    expect(
+      script.indexOf('openssl req'),
+      lessThan(script.indexOf('listen add')),
+    );
+    final result = await Process.run('bash', ['-n', '-c', script]);
+    expect(result.exitCode, 0, reason: '${result.stderr}\n$script');
+  });
+
+  test('explicit self-signed TLS writes a DNS SAN', () {
+    final selfSigned = NodeProvisionConfig(
+      releaseUrl: cfg.releaseUrl,
+      expectedSha256: sha,
+      obfs4PskB64: cfg.obfs4PskB64,
+      transports: const {NodeListenTransport.tls},
+      tlsCertificateMode: NodeTlsCertificateMode.selfSigned,
+      selfSignedName: 'internal.example.com',
+    );
+    expect(selfSigned.isValid, isTrue);
+    expect(
+      buildProvisionScript(selfSigned),
+      contains('DNS.1 = internal.example.com'),
+    );
+  });
+
+  test('generated TLS settings reject incomplete or unsafe values', () {
+    NodeProvisionConfig generated({
+      required NodeTlsCertificateMode mode,
+      String? name,
+      String? email,
+      bool terms = false,
+      int days = 365,
+    }) => NodeProvisionConfig(
+      releaseUrl: cfg.releaseUrl,
+      expectedSha256: sha,
+      obfs4PskB64: cfg.obfs4PskB64,
+      transports: const {NodeListenTransport.wss},
+      tlsCertificateMode: mode,
+      tlsDomain: name,
+      tlsEmail: email,
+      tlsAgreeToTerms: terms,
+      selfSignedName: name,
+      selfSignedDays: days,
+    );
+
+    expect(
+      generated(
+        mode: NodeTlsCertificateMode.automatic,
+        name: 'not a host',
+      ).isValid,
+      isFalse,
+    );
+    expect(
+      generated(
+        mode: NodeTlsCertificateMode.automatic,
+        name: 'node.example.com',
+      ).isValid,
+      isFalse,
+    );
+    expect(
+      generated(
+        mode: NodeTlsCertificateMode.automatic,
+        name: 'node.example.com',
+        email: 'operator@example.com',
+        terms: true,
+      ).isValid,
+      isTrue,
+    );
+    expect(
+      generated(
+        mode: NodeTlsCertificateMode.automatic,
+        name: "node.example.com'; id #",
+        email: 'operator@example.com',
+        terms: true,
+      ).isValid,
+      isFalse,
+    );
+    expect(
+      generated(
+        mode: NodeTlsCertificateMode.selfSigned,
+        name: '203.0.113.10',
+        days: 0,
+      ).isValid,
+      isFalse,
+    );
+  });
+
   test('generated expanded provision script is valid bash', () async {
     final script = buildProvisionScript(cfg);
     final result = await Process.run('bash', ['-n', '-c', script]);

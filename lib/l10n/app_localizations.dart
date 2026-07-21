@@ -4342,14 +4342,104 @@ abstract class AppL10n {
   /// No description provided for @provisionTlsShared.
   ///
   /// In en, this message translates to:
-  /// **'Shared TLS files'**
+  /// **'TLS certificate'**
   String get provisionTlsShared;
 
   /// No description provided for @provisionTlsSharedHint.
   ///
   /// In en, this message translates to:
-  /// **'Used by: {transports}. The paths refer to existing files on the remote server.'**
+  /// **'Used by: {transports}. Choose how the certificate is supplied to every selected TLS transport.'**
   String provisionTlsSharedHint(String transports);
+
+  /// No description provided for @provisionTlsMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Certificate source'**
+  String get provisionTlsMode;
+
+  /// No description provided for @provisionTlsModeExisting.
+  ///
+  /// In en, this message translates to:
+  /// **'Existing files'**
+  String get provisionTlsModeExisting;
+
+  /// No description provided for @provisionTlsModeAutomatic.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic'**
+  String get provisionTlsModeAutomatic;
+
+  /// No description provided for @provisionTlsModeSelfSigned.
+  ///
+  /// In en, this message translates to:
+  /// **'Self-signed'**
+  String get provisionTlsModeSelfSigned;
+
+  /// No description provided for @provisionTlsAutomaticName.
+  ///
+  /// In en, this message translates to:
+  /// **'Domain or IP (optional override)'**
+  String get provisionTlsAutomaticName;
+
+  /// No description provided for @provisionTlsAutomaticNameHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Leave empty to use the public host / IP above. A DNS name gets Let\'s Encrypt; an IP gets a self-signed certificate with an IP SAN.'**
+  String get provisionTlsAutomaticNameHint;
+
+  /// No description provided for @provisionTlsLetsEncryptHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Let\'s Encrypt will be requested on the server. The domain must point to this server and inbound TCP port 80 must be open. Renewal is configured automatically.'**
+  String get provisionTlsLetsEncryptHint;
+
+  /// No description provided for @provisionTlsIpHint.
+  ///
+  /// In en, this message translates to:
+  /// **'An IP address cannot use the standard Let\'s Encrypt flow here. A self-signed certificate with this IP in its SAN will be generated on the server.'**
+  String get provisionTlsIpHint;
+
+  /// No description provided for @provisionTlsUnknownHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a domain or IP here, or set the public host / IP above.'**
+  String get provisionTlsUnknownHint;
+
+  /// No description provided for @provisionTlsEmail.
+  ///
+  /// In en, this message translates to:
+  /// **'Let\'s Encrypt account email'**
+  String get provisionTlsEmail;
+
+  /// No description provided for @provisionTlsAgreeTerms.
+  ///
+  /// In en, this message translates to:
+  /// **'I agree to the Let\'s Encrypt terms of service'**
+  String get provisionTlsAgreeTerms;
+
+  /// No description provided for @provisionTlsSelfSignedName.
+  ///
+  /// In en, this message translates to:
+  /// **'Domain or IP in the certificate'**
+  String get provisionTlsSelfSignedName;
+
+  /// No description provided for @provisionTlsSelfSignedNameHint.
+  ///
+  /// In en, this message translates to:
+  /// **'The value is written into the certificate\'s DNS or IP subject alternative name.'**
+  String get provisionTlsSelfSignedNameHint;
+
+  /// No description provided for @provisionTlsSelfSignedDays.
+  ///
+  /// In en, this message translates to:
+  /// **'Validity in days (1–3650)'**
+  String get provisionTlsSelfSignedDays;
+
+  /// No description provided for @provisionTlsSelfSignedHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Clients must trust this self-signed certificate explicitly. Its private key is generated and kept on the server.'**
+  String get provisionTlsSelfSignedHint;
 
   /// No description provided for @provisionTlsCert.
   ///
@@ -4410,6 +4500,12 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Enter an https release URL'**
   String get provisionNeedUrl;
+
+  /// No description provided for @provisionInvalidConfig.
+  ///
+  /// In en, this message translates to:
+  /// **'Check the required release, transport, port, and TLS fields'**
+  String get provisionInvalidConfig;
 
   /// No description provided for @provisionSavedNodeId.
   ///

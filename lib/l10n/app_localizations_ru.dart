@@ -2344,12 +2344,65 @@ class AppL10nRu extends AppL10n {
       'Один публичный адрес объявляется для всех выбранных транспортов; порт у каждого свой.';
 
   @override
-  String get provisionTlsShared => 'Общие TLS-файлы';
+  String get provisionTlsShared => 'TLS-сертификат';
 
   @override
   String provisionTlsSharedHint(String transports) {
-    return 'Используются для: $transports. Укажите пути к существующим файлам на удалённом сервере.';
+    return 'Используется для: $transports. Выберите, как предоставить сертификат всем выбранным TLS-транспортам.';
   }
+
+  @override
+  String get provisionTlsMode => 'Источник сертификата';
+
+  @override
+  String get provisionTlsModeExisting => 'Существующие файлы';
+
+  @override
+  String get provisionTlsModeAutomatic => 'Автоматически';
+
+  @override
+  String get provisionTlsModeSelfSigned => 'Самоподписанный';
+
+  @override
+  String get provisionTlsAutomaticName =>
+      'Домен или IP (необязательная замена)';
+
+  @override
+  String get provisionTlsAutomaticNameHint =>
+      'Оставьте пустым, чтобы использовать публичный хост / IP выше. Для домена выпускается Let\'s Encrypt, для IP — самоподписанный сертификат с IP SAN.';
+
+  @override
+  String get provisionTlsLetsEncryptHint =>
+      'Сертификат Let\'s Encrypt будет запрошен на сервере. Домен должен указывать на этот сервер, а входящий TCP-порт 80 — быть открыт. Продление настраивается автоматически.';
+
+  @override
+  String get provisionTlsIpHint =>
+      'Для IP здесь недоступен стандартный сценарий Let\'s Encrypt. На сервере будет создан самоподписанный сертификат с этим IP в SAN.';
+
+  @override
+  String get provisionTlsUnknownHint =>
+      'Укажите домен или IP здесь либо заполните публичный хост / IP выше.';
+
+  @override
+  String get provisionTlsEmail => 'Email аккаунта Let\'s Encrypt';
+
+  @override
+  String get provisionTlsAgreeTerms =>
+      'Я принимаю условия использования Let\'s Encrypt';
+
+  @override
+  String get provisionTlsSelfSignedName => 'Домен или IP в сертификате';
+
+  @override
+  String get provisionTlsSelfSignedNameHint =>
+      'Значение записывается в DNS- или IP-поле Subject Alternative Name сертификата.';
+
+  @override
+  String get provisionTlsSelfSignedDays => 'Срок действия в днях (1–3650)';
+
+  @override
+  String get provisionTlsSelfSignedHint =>
+      'Клиенты должны явно доверять этому самоподписанному сертификату. Приватный ключ создаётся и остаётся на сервере.';
 
   @override
   String get provisionTlsCert => 'Путь TLS-сертификата на сервере';
@@ -2387,6 +2440,10 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get provisionNeedUrl => 'Укажите https-ссылку на релиз';
+
+  @override
+  String get provisionInvalidConfig =>
+      'Проверьте обязательные поля релиза, транспортов, портов и TLS';
 
   @override
   String get provisionSavedNodeId => 'node id, сообщённый сервером, сохранён';
