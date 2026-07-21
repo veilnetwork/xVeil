@@ -45,8 +45,14 @@ class ProxyRouting {
   /// [EmbeddedNode.withProxy] uses before interpolating [socks5Listen] into the
   /// node's TOML — so an invalid/injection-bearing listen is never emitted
   /// (fail-closed). A SOCKS5 toggle missing any of these is inert in veil.
-  bool get socks5Active =>
-      socks5Enabled &&
+  bool get socks5Active => socks5Enabled && vpnTransportReady;
+
+  /// Whether the shared exit/listen settings are sufficient for the system
+  /// VPN to provision its own local SOCKS transport. Unlike [socks5Active],
+  /// this deliberately does not depend on the manual SOCKS5 toggle: that
+  /// toggle controls whether the listener remains available for applications
+  /// when the system VPN is off.
+  bool get vpnTransportReady =>
       exitNodeId != null &&
       _isHex64(exitNodeId!) &&
       isValidListen(socks5Listen);
@@ -82,30 +88,29 @@ class ProxyRouting {
     bool clearExitNodeId = false,
     bool? exitEnabled,
     bool? exitAllowPrivate,
-  }) =>
-      ProxyRouting(
-        socks5Enabled: socks5Enabled ?? this.socks5Enabled,
-        socks5Listen: socks5Listen ?? this.socks5Listen,
-        exitNodeId: clearExitNodeId ? null : (exitNodeId ?? this.exitNodeId),
-        exitEnabled: exitEnabled ?? this.exitEnabled,
-        exitAllowPrivate: exitAllowPrivate ?? this.exitAllowPrivate,
-      );
+  }) => ProxyRouting(
+    socks5Enabled: socks5Enabled ?? this.socks5Enabled,
+    socks5Listen: socks5Listen ?? this.socks5Listen,
+    exitNodeId: clearExitNodeId ? null : (exitNodeId ?? this.exitNodeId),
+    exitEnabled: exitEnabled ?? this.exitEnabled,
+    exitAllowPrivate: exitAllowPrivate ?? this.exitAllowPrivate,
+  );
 
   Map<String, dynamic> toJson() => {
-        'socks5Enabled': socks5Enabled,
-        'socks5Listen': socks5Listen,
-        if (exitNodeId != null) 'exitNodeId': exitNodeId,
-        'exitEnabled': exitEnabled,
-        'exitAllowPrivate': exitAllowPrivate,
-      };
+    'socks5Enabled': socks5Enabled,
+    'socks5Listen': socks5Listen,
+    if (exitNodeId != null) 'exitNodeId': exitNodeId,
+    'exitEnabled': exitEnabled,
+    'exitAllowPrivate': exitAllowPrivate,
+  };
 
   factory ProxyRouting.fromJson(Map<String, dynamic> json) => ProxyRouting(
-        socks5Enabled: json['socks5Enabled'] as bool? ?? false,
-        socks5Listen: json['socks5Listen'] as String? ?? defaultListen,
-        exitNodeId: json['exitNodeId'] as String?,
-        exitEnabled: json['exitEnabled'] as bool? ?? false,
-        exitAllowPrivate: json['exitAllowPrivate'] as bool? ?? false,
-      );
+    socks5Enabled: json['socks5Enabled'] as bool? ?? false,
+    socks5Listen: json['socks5Listen'] as String? ?? defaultListen,
+    exitNodeId: json['exitNodeId'] as String?,
+    exitEnabled: json['exitEnabled'] as bool? ?? false,
+    exitAllowPrivate: json['exitAllowPrivate'] as bool? ?? false,
+  );
 
   static const disabled = ProxyRouting();
 }
