@@ -3565,6 +3565,114 @@ abstract class AppL10n {
   /// **'Could not list applications: {error}'**
   String vpnApplicationLoadError(Object error);
 
+  /// No description provided for @oproxyCatalogTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'oproxy exits'**
+  String get oproxyCatalogTitle;
+
+  /// No description provided for @oproxyAddTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Add oproxy'**
+  String get oproxyAddTitle;
+
+  /// No description provided for @oproxyEditTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit oproxy'**
+  String get oproxyEditTitle;
+
+  /// No description provided for @oproxyName.
+  ///
+  /// In en, this message translates to:
+  /// **'Name'**
+  String get oproxyName;
+
+  /// No description provided for @oproxyEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'Add at least one oproxy exit first.'**
+  String get oproxyEmpty;
+
+  /// No description provided for @oproxyNoDefault.
+  ///
+  /// In en, this message translates to:
+  /// **'No default oproxy is configured'**
+  String get oproxyNoDefault;
+
+  /// No description provided for @oproxyDefaultSummary.
+  ///
+  /// In en, this message translates to:
+  /// **'Default chain: {count} exits'**
+  String oproxyDefaultSummary(Object count);
+
+  /// No description provided for @oproxyDefaultOrderTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Default oproxy and fallbacks'**
+  String get oproxyDefaultOrderTitle;
+
+  /// No description provided for @oproxyDefaultOrderAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Configure default and fallbacks'**
+  String get oproxyDefaultOrderAction;
+
+  /// No description provided for @oproxyPrimary.
+  ///
+  /// In en, this message translates to:
+  /// **'Primary oproxy'**
+  String get oproxyPrimary;
+
+  /// No description provided for @oproxyUseDefault.
+  ///
+  /// In en, this message translates to:
+  /// **'Use default chain'**
+  String get oproxyUseDefault;
+
+  /// No description provided for @oproxyVpnRouteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Main VPN oproxy chain'**
+  String get oproxyVpnRouteTitle;
+
+  /// No description provided for @oproxyRouteSummary.
+  ///
+  /// In en, this message translates to:
+  /// **'{primary} + {fallbacks} fallbacks'**
+  String oproxyRouteSummary(Object fallbacks, Object primary);
+
+  /// No description provided for @oproxyAutoFailover.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic oproxy failover'**
+  String get oproxyAutoFailover;
+
+  /// No description provided for @oproxyAutoFailoverHint.
+  ///
+  /// In en, this message translates to:
+  /// **'New connections try the next exit when the primary cannot open a route. Existing connections stay on their current exit.'**
+  String get oproxyAutoFailoverHint;
+
+  /// No description provided for @oproxyApplicationRoutesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Application oproxy routes'**
+  String get oproxyApplicationRoutesTitle;
+
+  /// No description provided for @oproxyApplicationRoutesEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No applications are selected for this VPN.'**
+  String get oproxyApplicationRoutesEmpty;
+
+  /// No description provided for @oproxyApplicationRoutesCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} application overrides'**
+  String oproxyApplicationRoutesCount(Object count);
+
   /// No description provided for @vpnIncludedCidrs.
   ///
   /// In en, this message translates to:

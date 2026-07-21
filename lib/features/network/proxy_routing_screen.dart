@@ -23,33 +23,227 @@ class ProxyRoutingScreen extends ConsumerStatefulWidget {
 
 class _ProxyRoutingScreenState extends ConsumerState<ProxyRoutingScreen> {
   late final TextEditingController _listen;
-  late final TextEditingController _exitId;
 
   @override
   void initState() {
     super.initState();
     final cfg = ref.read(proxyRoutingProvider);
     _listen = TextEditingController(text: cfg.socks5Listen);
-    _exitId = TextEditingController(text: cfg.exitNodeId ?? '');
   }
 
   @override
   void dispose() {
     _listen.dispose();
-    _exitId.dispose();
     super.dispose();
   }
 
   void _save(ProxyRouting next) =>
       ref.read(proxyRoutingProvider.notifier).set(next);
 
+  Future<void> _editOproxy(ProxyRouting cfg, [OproxyEndpoint? existing]) async {
+    final l = AppL10n.of(context);
+    var label = existing?.label ?? '';
+    var nodeId = existing?.nodeId ?? '';
+    final result = await showDialog<OproxyEndpoint>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final id = nodeId.trim();
+          final valid =
+              label.trim().isNotEmpty && ProxyRouting.isValidNodeId(id);
+          return AlertDialog(
+            title: Text(
+              existing == null ? l.oproxyAddTitle : l.oproxyEditTitle,
+            ),
+            content: SizedBox(
+              width: 520,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    initialValue: label,
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      labelText: l.oproxyName,
+                      border: const OutlineInputBorder(),
+                    ),
+                    onChanged: (value) => setDialogState(() => label = value),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    initialValue: nodeId,
+                    minLines: 1,
+                    maxLines: 2,
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 12,
+                    ),
+                    decoration: InputDecoration(
+                      labelText: l.routeExitNodeLabel,
+                      errorText:
+                          id.isNotEmpty && !ProxyRouting.isValidNodeId(id)
+                          ? l.routeExitNodeInvalid
+                          : null,
+                      border: const OutlineInputBorder(),
+                    ),
+                    onChanged: (value) => setDialogState(() => nodeId = value),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text(
+                  MaterialLocalizations.of(context).cancelButtonLabel,
+                ),
+              ),
+              FilledButton(
+                onPressed: valid
+                    ? () => Navigator.pop(
+                        context,
+                        OproxyEndpoint(
+                          nodeId: id.toLowerCase(),
+                          label: label.trim(),
+                        ),
+                      )
+                    : null,
+                child: Text(MaterialLocalizations.of(context).saveButtonLabel),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    if (result == null || !mounted) return;
+
+    final endpoints = [...cfg.effectiveOproxies];
+    final oldIndex = existing == null
+        ? -1
+        : endpoints.indexWhere((item) => item.nodeId == existing.nodeId);
+    if (oldIndex >= 0) {
+      endpoints[oldIndex] = result;
+    } else {
+      endpoints.removeWhere((item) => item.nodeId == result.nodeId);
+      endpoints.add(result);
+    }
+    var defaults = [...cfg.effectiveDefaultOproxyNodeIds];
+    if (existing != null && existing.nodeId != result.nodeId) {
+      defaults = defaults
+          .map((id) => id == existing.nodeId ? result.nodeId : id)
+          .toList();
+    }
+    if (defaults.isEmpty) defaults = [result.nodeId];
+    _save(
+      cfg.copyWith(
+        oProxies: endpoints,
+        defaultOproxyNodeIds: defaults,
+        exitNodeId: defaults.first,
+      ),
+    );
+  }
+
+  Future<void> _configureDefaultOproxies(ProxyRouting cfg) async {
+    final l = AppL10n.of(context);
+    final byId = {
+      for (final endpoint in cfg.effectiveOproxies) endpoint.nodeId: endpoint,
+    };
+    final selected = cfg.effectiveDefaultOproxyNodeIds.toSet();
+    final ordered = [
+      ...cfg.effectiveDefaultOproxyNodeIds
+          .map((id) => byId[id])
+          .whereType<OproxyEndpoint>(),
+      ...byId.values.where((endpoint) => !selected.contains(endpoint.nodeId)),
+    ];
+    final result = await showDialog<List<String>>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(l.oproxyDefaultOrderTitle),
+          content: SizedBox(
+            width: 520,
+            height: 420,
+            child: ordered.isEmpty
+                ? Center(child: Text(l.oproxyEmpty))
+                : ReorderableListView.builder(
+                    itemCount: ordered.length,
+                    onReorderItem: (oldIndex, newIndex) => setDialogState(() {
+                      ordered.insert(newIndex, ordered.removeAt(oldIndex));
+                    }),
+                    itemBuilder: (context, index) {
+                      final endpoint = ordered[index];
+                      return CheckboxListTile(
+                        key: ValueKey(endpoint.nodeId),
+                        value: selected.contains(endpoint.nodeId),
+                        title: Text(endpoint.label),
+                        subtitle: Text(
+                          endpoint.nodeId,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontFamily: 'monospace'),
+                        ),
+                        secondary: ReorderableDragStartListener(
+                          index: index,
+                          child: const Icon(Icons.drag_handle),
+                        ),
+                        onChanged: (value) => setDialogState(() {
+                          if (value ?? false) {
+                            selected.add(endpoint.nodeId);
+                          } else {
+                            selected.remove(endpoint.nodeId);
+                          }
+                        }),
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(MaterialLocalizations.of(context).cancelButtonLabel),
+            ),
+            FilledButton(
+              onPressed: selected.isEmpty
+                  ? null
+                  : () => Navigator.pop(
+                      context,
+                      ordered
+                          .where((item) => selected.contains(item.nodeId))
+                          .map((item) => item.nodeId)
+                          .toList(growable: false),
+                    ),
+              child: Text(MaterialLocalizations.of(context).saveButtonLabel),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (result == null || !mounted) return;
+    _save(cfg.copyWith(defaultOproxyNodeIds: result, exitNodeId: result.first));
+  }
+
+  void _removeOproxy(ProxyRouting cfg, OproxyEndpoint endpoint) {
+    final endpoints = cfg.effectiveOproxies
+        .where((item) => item.nodeId != endpoint.nodeId)
+        .toList(growable: false);
+    final defaults = cfg.effectiveDefaultOproxyNodeIds
+        .where((id) => id != endpoint.nodeId)
+        .toList(growable: false);
+    _save(
+      cfg.copyWith(
+        oProxies: endpoints,
+        defaultOproxyNodeIds: defaults,
+        exitNodeId: defaults.firstOrNull,
+        clearExitNodeId: defaults.isEmpty,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final cfg = ref.watch(proxyRoutingProvider);
     final scheme = Theme.of(context).colorScheme;
-    final exitText = _exitId.text.trim();
-    final exitInvalid = exitText.isNotEmpty && !_isHex64(exitText);
     final listenInvalid = !ProxyRouting.isValidListen(_listen.text.trim());
 
     return Scaffold(
@@ -59,29 +253,74 @@ class _ProxyRoutingScreenState extends ConsumerState<ProxyRoutingScreen> {
           const _VpnSection(),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-            child: TextField(
-              controller: _exitId,
-              maxLines: 2,
-              minLines: 1,
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-              decoration: InputDecoration(
-                labelText: l.routeExitNodeLabel,
-                helperText: l.routeExitNodeHint,
-                helperMaxLines: 3,
-                errorText: exitInvalid ? l.routeExitNodeInvalid : null,
-                border: const OutlineInputBorder(),
-                isDense: true,
-              ),
-              onChanged: (v) {
-                final t = v.trim();
-                setState(() {});
-                _save(
-                  cfg.copyWith(
-                    exitNodeId: t.isEmpty ? null : t,
-                    clearExitNodeId: t.isEmpty,
+            child: Card(
+              margin: EdgeInsets.zero,
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.hub_outlined),
+                    title: Text(l.oproxyCatalogTitle),
+                    subtitle: Text(
+                      cfg.effectiveDefaultOproxyNodeIds.isEmpty
+                          ? l.oproxyNoDefault
+                          : l.oproxyDefaultSummary(
+                              cfg.effectiveDefaultOproxyNodeIds.length,
+                            ),
+                    ),
+                    trailing: IconButton(
+                      tooltip: l.oproxyAddTitle,
+                      onPressed: () => _editOproxy(cfg),
+                      icon: const Icon(Icons.add),
+                    ),
                   ),
-                );
-              },
+                  for (final endpoint in cfg.effectiveOproxies)
+                    ListTile(
+                      title: Text(endpoint.label),
+                      subtitle: Text(
+                        endpoint.nodeId,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 12,
+                        ),
+                      ),
+                      leading:
+                          cfg.effectiveDefaultOproxyNodeIds.firstOrNull ==
+                              endpoint.nodeId
+                          ? const Icon(Icons.star, color: Colors.amber)
+                          : const Icon(Icons.dns_outlined),
+                      trailing: Wrap(
+                        children: [
+                          IconButton(
+                            tooltip: l.oproxyEditTitle,
+                            onPressed: () => _editOproxy(cfg, endpoint),
+                            icon: const Icon(Icons.edit_outlined),
+                          ),
+                          IconButton(
+                            tooltip: MaterialLocalizations.of(
+                              context,
+                            ).deleteButtonTooltip,
+                            onPressed: () => _removeOproxy(cfg, endpoint),
+                            icon: const Icon(Icons.delete_outline),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (cfg.effectiveOproxies.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: OutlinedButton.icon(
+                          onPressed: () => _configureDefaultOproxies(cfg),
+                          icon: const Icon(Icons.swap_vert),
+                          label: Text(l.oproxyDefaultOrderAction),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
           Padding(
@@ -181,9 +420,10 @@ class _ProxyRoutingScreenState extends ConsumerState<ProxyRoutingScreen> {
       ),
     );
   }
+}
 
-  static bool _isHex64(String s) =>
-      s.length == 64 && RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(s);
+extension<T> on List<T> {
+  T? get firstOrNull => isEmpty ? null : first;
 }
 
 class _VpnSection extends ConsumerStatefulWidget {
@@ -332,6 +572,189 @@ class _VpnSectionState extends ConsumerState<_VpnSection> {
     }
   }
 
+  Future<List<String>?> _chooseOproxyChain({
+    required ProxyRouting routing,
+    required List<String> current,
+    required String title,
+    required bool allowDefault,
+  }) async {
+    final l = AppL10n.of(context);
+    final byId = {
+      for (final endpoint in routing.effectiveOproxies)
+        endpoint.nodeId: endpoint,
+    };
+    final selected = current.toSet();
+    final ordered = [
+      ...current.map((id) => byId[id]).whereType<OproxyEndpoint>(),
+      ...byId.values.where((endpoint) => !selected.contains(endpoint.nodeId)),
+    ];
+    return showDialog<List<String>>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(title),
+          content: SizedBox(
+            width: 520,
+            height: 420,
+            child: ordered.isEmpty
+                ? Center(child: Text(l.oproxyEmpty))
+                : ReorderableListView.builder(
+                    itemCount: ordered.length,
+                    onReorderItem: (oldIndex, newIndex) => setDialogState(() {
+                      ordered.insert(newIndex, ordered.removeAt(oldIndex));
+                    }),
+                    itemBuilder: (context, index) {
+                      final endpoint = ordered[index];
+                      return CheckboxListTile(
+                        key: ValueKey(endpoint.nodeId),
+                        value: selected.contains(endpoint.nodeId),
+                        title: Text(endpoint.label),
+                        subtitle: Text(
+                          index == 0 && selected.contains(endpoint.nodeId)
+                              ? l.oproxyPrimary
+                              : endpoint.nodeId,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        secondary: ReorderableDragStartListener(
+                          index: index,
+                          child: const Icon(Icons.drag_handle),
+                        ),
+                        onChanged: (value) => setDialogState(() {
+                          if (value ?? false) {
+                            selected.add(endpoint.nodeId);
+                          } else {
+                            selected.remove(endpoint.nodeId);
+                          }
+                        }),
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            if (allowDefault)
+              TextButton(
+                onPressed: () => Navigator.pop(context, const <String>[]),
+                child: Text(l.oproxyUseDefault),
+              ),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(MaterialLocalizations.of(context).cancelButtonLabel),
+            ),
+            FilledButton(
+              onPressed: selected.isEmpty
+                  ? null
+                  : () => Navigator.pop(
+                      context,
+                      ordered
+                          .where((item) => selected.contains(item.nodeId))
+                          .map((item) => item.nodeId)
+                          .toList(growable: false),
+                    ),
+              child: Text(MaterialLocalizations.of(context).saveButtonLabel),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _configureApplicationOproxies(
+    VpnRoutingPolicy policy,
+    ProxyRouting routing,
+  ) async {
+    final l = AppL10n.of(context);
+    List<VpnApplication> applications;
+    try {
+      applications = await ref.read(vpnApplicationsProvider.future);
+    } on Object catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l.vpnApplicationLoadError(error.toString()))),
+      );
+      return;
+    }
+    if (!mounted) return;
+    final visible = policy.applicationMode == VpnApplicationMode.onlySelected
+        ? applications
+              .where((app) => policy.applicationIds.contains(app.id))
+              .toList(growable: false)
+        : applications;
+    final routes = {
+      for (final entry in policy.applicationOproxyNodeIds.entries)
+        entry.key: [...entry.value],
+    };
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: Text(l.oproxyApplicationRoutesTitle),
+          content: SizedBox(
+            width: 620,
+            height: 520,
+            child: visible.isEmpty
+                ? Center(child: Text(l.oproxyApplicationRoutesEmpty))
+                : ListView.builder(
+                    itemCount: visible.length,
+                    itemBuilder: (context, index) {
+                      final application = visible[index];
+                      final chain = routes[application.id] ?? const <String>[];
+                      final endpoint = chain.isEmpty
+                          ? null
+                          : routing.effectiveOproxies
+                                .where((item) => item.nodeId == chain.first)
+                                .firstOrNull;
+                      return ListTile(
+                        leading: const Icon(Icons.apps),
+                        title: Text(application.label),
+                        subtitle: Text(
+                          chain.isEmpty
+                              ? l.oproxyUseDefault
+                              : l.oproxyRouteSummary(
+                                  endpoint?.label ??
+                                      chain.first.substring(0, 8),
+                                  chain.length - 1,
+                                ),
+                        ),
+                        onTap: () async {
+                          final selected = await _chooseOproxyChain(
+                            routing: routing,
+                            current: chain,
+                            title: application.label,
+                            allowDefault: true,
+                          );
+                          if (selected == null) return;
+                          setDialogState(() {
+                            if (selected.isEmpty) {
+                              routes.remove(application.id);
+                            } else {
+                              routes[application.id] = selected;
+                            }
+                          });
+                        },
+                        trailing: const Icon(Icons.chevron_right),
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: Text(MaterialLocalizations.of(context).cancelButtonLabel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: Text(MaterialLocalizations.of(context).saveButtonLabel),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (saved ?? false) {
+      _configure(policy.copyWith(applicationOproxyNodeIds: routes));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.listen(
@@ -365,6 +788,14 @@ class _VpnSectionState extends ConsumerState<_VpnSection> {
     final applicationRoutingSupported = ref
         .watch(vpnApplicationCatalogProvider)
         .isSupported;
+    final vpnOproxyChain = policy.vpnOproxyNodeIds.isEmpty
+        ? proxy.effectiveDefaultOproxyNodeIds
+        : policy.vpnOproxyNodeIds;
+    final primaryOproxy = vpnOproxyChain.isEmpty
+        ? null
+        : proxy.effectiveOproxies
+              .where((item) => item.nodeId == vpnOproxyChain.first)
+              .firstOrNull;
     final canStart = supported && policy.isValid && proxy.vpnTransportReady;
 
     return ExpansionTile(
@@ -412,6 +843,48 @@ class _VpnSectionState extends ConsumerState<_VpnSection> {
                     _configure(policy.copyWith(routeMode: value));
                   }
                 },
+        ),
+        const SizedBox(height: 12),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.route),
+          title: Text(l.oproxyVpnRouteTitle),
+          subtitle: Text(
+            vpnOproxyChain.isEmpty
+                ? l.oproxyNoDefault
+                : l.oproxyRouteSummary(
+                    primaryOproxy?.label ??
+                        vpnOproxyChain.first.substring(0, 8),
+                    vpnOproxyChain.length - 1,
+                  ),
+          ),
+          trailing: const Icon(Icons.chevron_right),
+          enabled:
+              !vpn.isRunning && !vpn.busy && proxy.effectiveOproxies.isNotEmpty,
+          onTap: vpn.isRunning || vpn.busy || proxy.effectiveOproxies.isEmpty
+              ? null
+              : () async {
+                  final selected = await _chooseOproxyChain(
+                    routing: proxy,
+                    current: policy.vpnOproxyNodeIds,
+                    title: l.oproxyVpnRouteTitle,
+                    allowDefault: true,
+                  );
+                  if (selected != null) {
+                    _configure(policy.copyWith(vpnOproxyNodeIds: selected));
+                  }
+                },
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          secondary: const Icon(Icons.swap_horiz),
+          title: Text(l.oproxyAutoFailover),
+          subtitle: Text(l.oproxyAutoFailoverHint),
+          value: policy.oproxyAutoFailover,
+          onChanged: vpn.isRunning || vpn.busy
+              ? null
+              : (value) =>
+                    _configure(policy.copyWith(oproxyAutoFailover: value)),
         ),
         const SizedBox(height: 12),
         if (applicationRoutingSupported)
@@ -476,6 +949,27 @@ class _VpnSectionState extends ConsumerState<_VpnSection> {
                 label: Text(l.vpnApplicationSelect),
               ),
             ],
+          ),
+        ],
+        if (applicationRoutingSupported) ...[
+          const SizedBox(height: 8),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.account_tree_outlined),
+            title: Text(l.oproxyApplicationRoutesTitle),
+            subtitle: Text(
+              l.oproxyApplicationRoutesCount(
+                policy.applicationOproxyNodeIds.length,
+              ),
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            enabled:
+                !vpn.isRunning &&
+                !vpn.busy &&
+                proxy.effectiveOproxies.isNotEmpty,
+            onTap: vpn.isRunning || vpn.busy || proxy.effectiveOproxies.isEmpty
+                ? null
+                : () => _configureApplicationOproxies(policy, proxy),
           ),
         ],
         if (policy.routeMode == VpnRouteMode.includeOnly) ...[

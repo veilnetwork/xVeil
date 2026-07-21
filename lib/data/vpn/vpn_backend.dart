@@ -49,6 +49,7 @@ abstract interface class VpnBackend {
     required VpnRoutingPolicy policy,
     required String socks5Listen,
     required String exitNodeId,
+    Map<String, String> applicationProxyListens = const {},
     String? obfs4Psk,
   });
 
@@ -106,11 +107,13 @@ class MethodChannelVpnBackend implements VpnBackend {
     required VpnRoutingPolicy policy,
     required String socks5Listen,
     required String exitNodeId,
+    Map<String, String> applicationProxyListens = const {},
     String? obfs4Psk,
   }) async {
     final packetTunnel = _packetTunnel;
     if (packetTunnel == null) return probe();
-    if (policy.applicationMode != VpnApplicationMode.allApplications &&
+    if ((policy.applicationMode != VpnApplicationMode.allApplications ||
+            applicationProxyListens.isNotEmpty) &&
         defaultTargetPlatform != TargetPlatform.android) {
       return const VpnBackendState(
         VpnBackendPhase.error,
@@ -134,10 +137,21 @@ class MethodChannelVpnBackend implements VpnBackend {
       // survives host suspension. Only the public exit identifier crosses the
       // provider boundary; the messaging identity never does.
       'exitNodeId': exitNodeId,
+      'applicationProxyListens': applicationProxyListens,
       if (obfs4Psk != null && obfs4Psk.isNotEmpty) 'obfs4Psk': obfs4Psk,
     });
     final tunFd = response['tunFd'];
     if (tunFd is! int) return VpnBackendState.fromMap(response);
+    final selectorListen = response['selectorListen'] as String?;
+    final selectorToken = response['selectorToken'] as String?;
+    if (applicationProxyListens.isNotEmpty &&
+        (selectorListen == null || selectorToken == null)) {
+      await _invokeRaw('abort');
+      return const VpnBackendState(
+        VpnBackendPhase.error,
+        detail: 'Android did not create the per-application flow selector',
+      );
+    }
 
     final result = packetTunnel.start(
       tunFd: tunFd,
@@ -148,6 +162,8 @@ class MethodChannelVpnBackend implements VpnBackend {
       // packet-flow adapters add their own family metadata when needed.
       packetInformation: false,
       routeDns: policy.routeDns,
+      selectorListen: selectorListen,
+      selectorToken: selectorToken,
     );
     if (result != 0) {
       await _invokeRaw('abort');

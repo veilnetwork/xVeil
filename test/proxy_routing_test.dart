@@ -4,6 +4,8 @@ import 'package:xveil/data/node/proxy_routing.dart';
 
 const _exit =
     'aa11bb22cc33dd44ee55ff66007788990011223344556677889900aabbccddee';
+const _backup =
+    'bb11bb22cc33dd44ee55ff66007788990011223344556677889900aabbccddee';
 
 void main() {
   group('ProxyRouting', () {
@@ -36,6 +38,11 @@ void main() {
         socks5Enabled: true,
         socks5Listen: '127.0.0.1:9050',
         exitNodeId: _exit,
+        oProxies: [
+          OproxyEndpoint(nodeId: _exit, label: 'Primary'),
+          OproxyEndpoint(nodeId: _backup, label: 'Backup'),
+        ],
+        defaultOproxyNodeIds: [_exit, _backup],
         exitEnabled: true,
         exitAllowPrivate: true,
       );
@@ -43,6 +50,8 @@ void main() {
       expect(back.socks5Enabled, isTrue);
       expect(back.socks5Listen, '127.0.0.1:9050');
       expect(back.exitNodeId, _exit);
+      expect(back.effectiveOproxies, hasLength(2));
+      expect(back.effectiveDefaultOproxyNodeIds, [_exit, _backup]);
       expect(back.exitEnabled, isTrue);
       expect(back.exitAllowPrivate, isTrue);
     });
@@ -66,8 +75,25 @@ void main() {
       expect(out, contains('enabled = true'));
       expect(out, contains('listen = "127.0.0.1:1080"'));
       expect(out, contains('exit_node_id = "$_exit"'));
+      expect(out, contains('exit_node_ids = ["$_exit"]'));
       // No exit role requested.
       expect(out, isNot(contains('[proxy.exit]')));
+    });
+
+    test('runtime profiles keep independent ordered fallback chains', () {
+      const cfg = ProxyRouting(
+        runtimeSocksProfiles: [
+          ProxySocksProfile(
+            listen: '127.0.0.1:1081',
+            exitNodeIds: [_exit, _backup],
+          ),
+          ProxySocksProfile(listen: '127.0.0.1:1082', exitNodeIds: [_backup]),
+        ],
+      );
+      final out = EmbeddedNode.withProxy(base, cfg);
+      expect('[proxy.socks5_profiles]'.allMatches(out), hasLength(2));
+      expect(out, contains('listen = "127.0.0.1:1081"'));
+      expect(out, contains('exit_node_ids = ["$_exit", "$_backup"]'));
     });
 
     test('socks5 without a valid exit injects nothing', () {

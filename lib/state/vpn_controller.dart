@@ -4,9 +4,11 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../data/node/proxy_routing.dart';
 import '../data/vpn/vpn_backend.dart';
 import '../data/vpn/linux_managed_vpn_backend.dart';
 import '../data/vpn/socks5_transport_preflight.dart';
+import '../data/vpn/vpn_proxy_plan.dart';
 import '../data/vpn/vpn_routing_policy.dart';
 import '../data/vpn/windows_managed_vpn_backend.dart';
 import 'app_controller.dart';
@@ -82,14 +84,38 @@ class VpnController extends Notifier<VpnState> {
     } catch (_) {
       // Widget tests and a damaged preference stay on safe defaults.
     }
-    final backend = await ref.read(vpnBackendProvider).probe();
+    final proxy = await ref
+        .read(proxyRoutingProvider.notifier)
+        .waitUntilLoaded();
+    final nativeBackend = ref.read(vpnBackendProvider);
+    var backend = await nativeBackend.probe();
+    final activePolicy = _userChanged ? state.policy : policy;
     if (backend.isRunning) {
-      ref.read(vpnProxyDemandProvider.notifier).state = true;
-      await ref.read(appControllerProvider.notifier).reapplyProxyRouting();
+      try {
+        final plan = VpnProxyPlan.build(routing: proxy, policy: activePolicy);
+        if (!await _activateProxyPlan(plan)) {
+          await nativeBackend.stop();
+          backend = const VpnBackendState(
+            VpnBackendPhase.error,
+            detail:
+                'the restored VPN transport could not be applied; the system '
+                'tunnel was stopped to avoid blocking traffic',
+          );
+        }
+      } on Object catch (error) {
+        await nativeBackend.stop();
+        _clearProxyPlan();
+        backend = VpnBackendState(
+          VpnBackendPhase.error,
+          detail:
+              'the saved VPN oproxy configuration is invalid: $error; the '
+              'system tunnel was stopped to avoid blocking traffic',
+        );
+      }
     } else {
-      ref.read(vpnProxyDemandProvider.notifier).state = false;
+      _clearProxyPlan();
     }
-    if (!_disposed) state = VpnState(policy: policy, backend: backend);
+    if (!_disposed) state = VpnState(policy: activePolicy, backend: backend);
   }
 
   Future<void> configure(VpnRoutingPolicy policy) async {
@@ -113,11 +139,14 @@ class VpnController extends Notifier<VpnState> {
       );
       return;
     }
-    if (!proxy.vpnTransportReady) {
+    late final VpnProxyPlan proxyPlan;
+    try {
+      proxyPlan = VpnProxyPlan.build(routing: proxy, policy: state.policy);
+    } on Object catch (error) {
       state = state.copyWith(
-        backend: const VpnBackendState(
+        backend: VpnBackendState(
           VpnBackendPhase.error,
-          detail: 'VPN exit is not configured',
+          detail: 'VPN oproxy configuration is invalid: $error',
         ),
       );
       return;
@@ -126,7 +155,7 @@ class VpnController extends Notifier<VpnState> {
       busy: true,
       backend: const VpnBackendState(VpnBackendPhase.starting),
     );
-    if (!await _setProxyDemand(true)) {
+    if (!await _activateProxyPlan(proxyPlan)) {
       if (!_disposed) {
         state = state.copyWith(
           busy: false,
@@ -139,9 +168,10 @@ class VpnController extends Notifier<VpnState> {
       return;
     }
     try {
-      await ref.read(vpnTransportPreflightProvider)(proxy.socks5Listen);
+      await ref.read(vpnTransportPreflightProvider)(proxyPlan.defaultListen);
     } catch (error) {
       await _setProxyDemand(false);
+      _clearProxyPlan();
       if (!_disposed) {
         state = state.copyWith(
           busy: false,
@@ -161,8 +191,9 @@ class VpnController extends Notifier<VpnState> {
           .read(vpnBackendProvider)
           .start(
             policy: state.policy,
-            socks5Listen: proxy.socks5Listen,
-            exitNodeId: proxy.exitNodeId!,
+            socks5Listen: proxyPlan.defaultListen,
+            exitNodeId: proxyPlan.profiles.first.exitNodeIds.first,
+            applicationProxyListens: proxyPlan.applicationListens,
             obfs4Psk: ref.read(deniableBootProvider)?.obfs4Psk,
           );
     } catch (error) {
@@ -170,6 +201,7 @@ class VpnController extends Notifier<VpnState> {
     }
     if (!result.isRunning && !_disposed) {
       await _setProxyDemand(false);
+      _clearProxyPlan();
     }
     if (_disposed) return;
     final applied = state.policy.copyWith(enabled: result.isRunning);
@@ -187,6 +219,7 @@ class VpnController extends Notifier<VpnState> {
     if (_disposed) return;
     final stopped = result.phase == VpnBackendPhase.stopped;
     if (stopped) await _setProxyDemand(false);
+    if (stopped) _clearProxyPlan();
     if (_disposed) return;
     final applied = state.policy.copyWith(enabled: !stopped);
     state = VpnState(policy: applied, backend: result);
@@ -197,11 +230,77 @@ class VpnController extends Notifier<VpnState> {
     if (state.busy) return;
     final result = await ref.read(vpnBackendProvider).status();
     if (_disposed) return;
-    final demanded = ref.read(vpnProxyDemandProvider);
-    if (demanded != result.isRunning) {
-      await _setProxyDemand(result.isRunning);
+    if (result.isRunning && !ref.read(vpnProxyDemandProvider)) {
+      try {
+        final plan = VpnProxyPlan.build(
+          routing: ref.read(proxyRoutingProvider),
+          policy: state.policy,
+        );
+        if (!await _activateProxyPlan(plan)) return;
+      } on Object catch (error) {
+        if (!_disposed) {
+          state = state.copyWith(
+            backend: VpnBackendState(
+              VpnBackendPhase.error,
+              detail: 'VPN oproxy configuration is invalid: $error',
+            ),
+          );
+        }
+        return;
+      }
+    } else if (!result.isRunning && ref.read(vpnProxyDemandProvider)) {
+      await _setProxyDemand(false);
+      _clearProxyPlan();
     }
     if (!_disposed) state = state.copyWith(backend: result);
+  }
+
+  Future<bool> _activateProxyPlan(VpnProxyPlan plan) async {
+    final previous = ref.read(vpnProxyProfilesProvider);
+    final profilesChanged = !_sameProfiles(previous, plan.profiles);
+    ref.read(vpnProxyProfilesProvider.notifier).state = plan.profiles;
+
+    if (!ref.read(vpnProxyDemandProvider)) {
+      if (await _setProxyDemand(true)) return true;
+    } else if (!profilesChanged) {
+      return true;
+    } else {
+      try {
+        if (await ref
+            .read(appControllerProvider.notifier)
+            .reapplyProxyRouting()) {
+          return true;
+        }
+      } catch (_) {
+        // Restore the previous runtime plan below.
+      }
+    }
+    ref.read(vpnProxyProfilesProvider.notifier).state = previous;
+    return false;
+  }
+
+  void _clearProxyPlan() {
+    ref.read(vpnProxyDemandProvider.notifier).state = false;
+    ref.read(vpnProxyProfilesProvider.notifier).state = const [];
+  }
+
+  static bool _sameProfiles(
+    List<ProxySocksProfile> left,
+    List<ProxySocksProfile> right,
+  ) {
+    if (left.length != right.length) return false;
+    for (var index = 0; index < left.length; index++) {
+      final a = left[index];
+      final b = right[index];
+      if (a.listen != b.listen ||
+          a.exitNodeIds.length != b.exitNodeIds.length) {
+        return false;
+      }
+      for (var exit = 0; exit < a.exitNodeIds.length; exit++) {
+        if (a.exitNodeIds[exit] != b.exitNodeIds[exit]) return false;
+      }
+    }
+    return true;
   }
 
   Future<bool> _setProxyDemand(bool enabled) async {

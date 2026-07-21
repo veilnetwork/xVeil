@@ -1909,6 +1909,68 @@ class AppL10nRu extends AppL10n {
   }
 
   @override
+  String get oproxyCatalogTitle => 'Выходы oproxy';
+
+  @override
+  String get oproxyAddTitle => 'Добавить oproxy';
+
+  @override
+  String get oproxyEditTitle => 'Изменить oproxy';
+
+  @override
+  String get oproxyName => 'Название';
+
+  @override
+  String get oproxyEmpty => 'Сначала добавьте хотя бы один выход oproxy.';
+
+  @override
+  String get oproxyNoDefault => 'Дефолтный oproxy не настроен';
+
+  @override
+  String oproxyDefaultSummary(Object count) {
+    return 'Дефолтная цепочка: выходов — $count';
+  }
+
+  @override
+  String get oproxyDefaultOrderTitle => 'Дефолтный oproxy и запасные';
+
+  @override
+  String get oproxyDefaultOrderAction => 'Настроить основной и запасные';
+
+  @override
+  String get oproxyPrimary => 'Основной oproxy';
+
+  @override
+  String get oproxyUseDefault => 'Использовать дефолтную цепочку';
+
+  @override
+  String get oproxyVpnRouteTitle => 'Цепочка oproxy основного VPN';
+
+  @override
+  String oproxyRouteSummary(Object fallbacks, Object primary) {
+    return '$primary + запасных: $fallbacks';
+  }
+
+  @override
+  String get oproxyAutoFailover => 'Автосмена oproxy';
+
+  @override
+  String get oproxyAutoFailoverHint =>
+      'Новые соединения пробуют следующий выход, если основной не может открыть маршрут. Работающие соединения остаются на текущем выходе.';
+
+  @override
+  String get oproxyApplicationRoutesTitle => 'Маршруты приложений через oproxy';
+
+  @override
+  String get oproxyApplicationRoutesEmpty =>
+      'Для этого VPN не выбраны приложения.';
+
+  @override
+  String oproxyApplicationRoutesCount(Object count) {
+    return 'Переопределений для приложений: $count';
+  }
+
+  @override
   String get vpnIncludedCidrs => 'Включённые подсети';
 
   @override
