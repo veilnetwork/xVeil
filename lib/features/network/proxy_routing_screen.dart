@@ -55,6 +55,50 @@ class _ProxyRoutingScreenState extends ConsumerState<ProxyRoutingScreen> {
       body: ListView(
         children: [
           const _VpnSection(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+            child: TextField(
+              controller: _exitId,
+              maxLines: 2,
+              minLines: 1,
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+              decoration: InputDecoration(
+                labelText: l.routeExitNodeLabel,
+                helperText: l.routeExitNodeHint,
+                helperMaxLines: 3,
+                errorText: exitInvalid ? l.routeExitNodeInvalid : null,
+                border: const OutlineInputBorder(),
+                isDense: true,
+              ),
+              onChanged: (v) {
+                final t = v.trim();
+                setState(() {});
+                _save(
+                  cfg.copyWith(
+                    exitNodeId: t.isEmpty ? null : t,
+                    clearExitNodeId: t.isEmpty,
+                  ),
+                );
+              },
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: TextField(
+              controller: _listen,
+              decoration: InputDecoration(
+                labelText: l.routeListenLabel,
+                helperText: l.routeListenHint,
+                errorText: listenInvalid ? l.routeListenInvalid : null,
+                border: const OutlineInputBorder(),
+                isDense: true,
+              ),
+              onChanged: (v) {
+                setState(() {});
+                _save(cfg.copyWith(socks5Listen: v.trim()));
+              },
+            ),
+          ),
           const Divider(),
           // ── SOCKS5 client role ─────────────────────────────────────────
           SwitchListTile(
@@ -66,50 +110,6 @@ class _ProxyRoutingScreenState extends ConsumerState<ProxyRoutingScreen> {
             onChanged: (v) => _save(cfg.copyWith(socks5Enabled: v)),
           ),
           if (cfg.socks5Enabled) ...[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: TextField(
-                controller: _listen,
-                decoration: InputDecoration(
-                  labelText: l.routeListenLabel,
-                  helperText: l.routeListenHint,
-                  errorText: listenInvalid ? l.routeListenInvalid : null,
-                  border: const OutlineInputBorder(),
-                  isDense: true,
-                ),
-                onChanged: (v) {
-                  setState(() {}); // refresh validation + status line
-                  _save(cfg.copyWith(socks5Listen: v.trim()));
-                },
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-              child: TextField(
-                controller: _exitId,
-                maxLines: 2,
-                minLines: 1,
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-                decoration: InputDecoration(
-                  labelText: l.routeExitNodeLabel,
-                  helperText: l.routeExitNodeHint,
-                  helperMaxLines: 3,
-                  errorText: exitInvalid ? l.routeExitNodeInvalid : null,
-                  border: const OutlineInputBorder(),
-                  isDense: true,
-                ),
-                onChanged: (v) {
-                  final t = v.trim();
-                  setState(() {}); // refresh validation + status line
-                  _save(
-                    cfg.copyWith(
-                      exitNodeId: t.isEmpty ? null : t,
-                      clearExitNodeId: t.isEmpty,
-                    ),
-                  );
-                },
-              ),
-            ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
               child: cfg.socks5Active
@@ -285,7 +285,7 @@ class _VpnSectionState extends ConsumerState<_VpnSection> {
     final mtuInvalid =
         parsedMtu == null || parsedMtu < 1280 || parsedMtu > 9000;
     final supported = vpn.backend.phase != VpnBackendPhase.unsupported;
-    final canStart = supported && policy.isValid && proxy.socks5Active;
+    final canStart = supported && policy.isValid && proxy.vpnTransportReady;
 
     return ExpansionTile(
       leading: Icon(
@@ -463,7 +463,7 @@ class _VpnSectionState extends ConsumerState<_VpnSection> {
           },
         ),
         const SizedBox(height: 12),
-        if (!proxy.socks5Active)
+        if (!proxy.vpnTransportReady)
           Align(
             alignment: Alignment.centerLeft,
             child: Text(l.vpnNeedsProxy, style: TextStyle(color: scheme.error)),

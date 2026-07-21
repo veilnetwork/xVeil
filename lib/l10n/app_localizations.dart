@@ -3430,7 +3430,7 @@ abstract class AppL10n {
   /// No description provided for @vpnHint.
   ///
   /// In en, this message translates to:
-  /// **'Route device traffic through the local veil SOCKS5 exit. The VPN is shown as active only after the native packet tunnel confirms forwarding.'**
+  /// **'Route device traffic through a veil exit. VPN starts its local SOCKS5 transport automatically; the separate SOCKS5 switch is only for direct proxy use.'**
   String get vpnHint;
 
   /// No description provided for @vpnStatusRunning.
@@ -3610,7 +3610,7 @@ abstract class AppL10n {
   /// No description provided for @vpnNeedsProxy.
   ///
   /// In en, this message translates to:
-  /// **'Enable SOCKS5 and select a valid exit node first.'**
+  /// **'Select a valid exit node first. VPN starts its SOCKS5 transport automatically.'**
   String get vpnNeedsProxy;
 
   /// No description provided for @vpnStart.

@@ -1821,7 +1821,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get vpnHint =>
-      'Route device traffic through the local veil SOCKS5 exit. The VPN is shown as active only after the native packet tunnel confirms forwarding.';
+      'Route device traffic through a veil exit. VPN starts its local SOCKS5 transport automatically; the separate SOCKS5 switch is only for direct proxy use.';
 
   @override
   String get vpnStatusRunning => 'Packet tunnel active';
@@ -1917,7 +1917,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get vpnNeedsProxy =>
-      'Enable SOCKS5 and select a valid exit node first.';
+      'Select a valid exit node first. VPN starts its SOCKS5 transport automatically.';
 
   @override
   String get vpnStart => 'Start VPN';

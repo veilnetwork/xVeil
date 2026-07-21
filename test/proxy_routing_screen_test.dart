@@ -18,7 +18,7 @@ Widget _host() => const ProviderScope(
 );
 
 void main() {
-  testWidgets('toggling SOCKS5 reveals the exit field and updates the provider', (
+  testWidgets('exit can be configured while manual SOCKS remains off', (
     tester,
   ) async {
     await tester.pumpWidget(_host());
@@ -26,21 +26,20 @@ void main() {
 
     final l = AppL10n.of(tester.element(find.byType(ProxyRoutingScreen)));
 
-    // SOCKS5 off initially → no exit field.
-    expect(find.text(l.routeListenLabel), findsNothing);
-
-    await tester.tap(find.byType(Switch).first);
-    await tester.pumpAndSettle();
-
-    // Now the listen + exit fields are shown, and the "need exit" hint appears.
     expect(find.text(l.routeListenLabel), findsOneWidget);
-    expect(find.text(l.routeNeedExit), findsOneWidget);
+    await tester.enterText(
+      find.widgetWithText(TextField, l.routeExitNodeLabel),
+      _exit,
+    );
+    await tester.pumpAndSettle();
 
     final container = ProviderScope.containerOf(
       tester.element(find.byType(ProxyRoutingScreen)),
     );
-    expect(container.read(proxyRoutingProvider).socks5Enabled, isTrue);
-    expect(container.read(proxyRoutingProvider).socks5Active, isFalse);
+    final cfg = container.read(proxyRoutingProvider);
+    expect(cfg.socks5Enabled, isFalse);
+    expect(cfg.socks5Active, isFalse);
+    expect(cfg.vpnTransportReady, isTrue);
   });
 
   testWidgets('a valid exit node id makes SOCKS5 active', (tester) async {
@@ -48,7 +47,7 @@ void main() {
     await tester.pump();
     final l = AppL10n.of(tester.element(find.byType(ProxyRoutingScreen)));
 
-    await tester.tap(find.byType(Switch).first); // enable SOCKS5
+    await tester.tap(find.widgetWithText(SwitchListTile, l.routeSocks5Title));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.widgetWithText(TextField, l.routeExitNodeLabel),
@@ -69,9 +68,9 @@ void main() {
   testWidgets('enabling the exit role flips exitEnabled', (tester) async {
     await tester.pumpWidget(_host());
     await tester.pump();
+    final l = AppL10n.of(tester.element(find.byType(ProxyRoutingScreen)));
 
-    // The second switch is the exit role.
-    await tester.tap(find.byType(Switch).at(1));
+    await tester.tap(find.widgetWithText(SwitchListTile, l.routeServeTitle));
     await tester.pumpAndSettle();
 
     final container = ProviderScope.containerOf(

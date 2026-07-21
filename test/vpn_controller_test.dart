@@ -67,28 +67,40 @@ Future<ProviderContainer> _container(_FakeBackend backend) async {
   return container;
 }
 
-Future<void> _enableProxy(ProviderContainer container) async {
+Future<void> _configureExit(
+  ProviderContainer container, {
+  bool manualSocks = false,
+}) async {
   await container
       .read(proxyRoutingProvider.notifier)
-      .set(const ProxyRouting(socks5Enabled: true, exitNodeId: _exit));
+      .set(ProxyRouting(socks5Enabled: manualSocks, exitNodeId: _exit));
 }
 
 void main() {
-  test('starts only after backend confirms forwarding', () async {
-    final backend = _FakeBackend();
-    final container = await _container(backend);
-    await _enableProxy(container);
+  test(
+    'starts its own SOCKS transport without enabling manual SOCKS',
+    () async {
+      final backend = _FakeBackend();
+      final container = await _container(backend);
+      await _configureExit(container);
 
-    await container.read(vpnControllerProvider.notifier).start();
+      await container.read(vpnControllerProvider.notifier).start();
 
-    final state = container.read(vpnControllerProvider);
-    expect(state.isRunning, isTrue);
-    expect(state.policy.enabled, isTrue);
-    expect(backend.starts, 1);
-    expect(backend.receivedListen, ProxyRouting.defaultListen);
-    expect(backend.receivedExitNodeId, _exit);
-    expect(backend.receivedObfs4Psk, _psk);
-  });
+      final state = container.read(vpnControllerProvider);
+      expect(state.isRunning, isTrue);
+      expect(state.policy.enabled, isTrue);
+      expect(container.read(proxyRoutingProvider).socks5Enabled, isFalse);
+      expect(container.read(vpnProxyDemandProvider), isTrue);
+      expect(
+        container.read(effectiveProxyRoutingProvider).socks5Active,
+        isTrue,
+      );
+      expect(backend.starts, 1);
+      expect(backend.receivedListen, ProxyRouting.defaultListen);
+      expect(backend.receivedExitNodeId, _exit);
+      expect(backend.receivedObfs4Psk, _psk);
+    },
+  );
 
   test('does not call native backend without a working SOCKS5 exit', () async {
     final backend = _FakeBackend();
@@ -113,12 +125,14 @@ void main() {
           detail: 'permission denied',
         );
       final container = await _container(backend);
-      await _enableProxy(container);
+      await _configureExit(container);
 
       await container.read(vpnControllerProvider.notifier).start();
 
       expect(container.read(vpnControllerProvider).isRunning, isFalse);
       expect(container.read(vpnControllerProvider).policy.enabled, isFalse);
+      expect(container.read(vpnProxyDemandProvider), isFalse);
+      expect(container.read(proxyRoutingProvider).socks5Enabled, isFalse);
     },
   );
 
@@ -131,7 +145,7 @@ void main() {
           detail: 'still running',
         );
       final container = await _container(backend);
-      await _enableProxy(container);
+      await _configureExit(container);
       await container.read(vpnControllerProvider.notifier).start();
 
       await container.read(vpnControllerProvider.notifier).stop();
@@ -142,14 +156,41 @@ void main() {
         container.read(vpnControllerProvider).backend.phase,
         VpnBackendPhase.error,
       );
+      expect(container.read(vpnProxyDemandProvider), isTrue);
     },
   );
+
+  test('successful stop releases only the VPN-owned SOCKS transport', () async {
+    final backend = _FakeBackend();
+    final container = await _container(backend);
+    await _configureExit(container);
+    await container.read(vpnControllerProvider.notifier).start();
+
+    await container.read(vpnControllerProvider.notifier).stop();
+
+    expect(container.read(vpnProxyDemandProvider), isFalse);
+    expect(container.read(proxyRoutingProvider).socks5Enabled, isFalse);
+    expect(container.read(effectiveProxyRoutingProvider).socks5Active, isFalse);
+  });
+
+  test('successful stop preserves a manually enabled SOCKS listener', () async {
+    final backend = _FakeBackend();
+    final container = await _container(backend);
+    await _configureExit(container, manualSocks: true);
+    await container.read(vpnControllerProvider.notifier).start();
+
+    await container.read(vpnControllerProvider.notifier).stop();
+
+    expect(container.read(vpnProxyDemandProvider), isFalse);
+    expect(container.read(proxyRoutingProvider).socks5Enabled, isTrue);
+    expect(container.read(effectiveProxyRoutingProvider).socks5Active, isTrue);
+  });
 
   test('unsupported backend is fail-closed and is never invoked', () async {
     final backend = _FakeBackend()
       ..probeResult = const VpnBackendState(VpnBackendPhase.unsupported);
     final container = await _container(backend);
-    await _enableProxy(container);
+    await _configureExit(container);
 
     await container.read(vpnControllerProvider.notifier).start();
 

@@ -51,4 +51,22 @@ class ProxyRoutingController extends Notifier<ProxyRouting> {
 
 final proxyRoutingProvider =
     NotifierProvider<ProxyRoutingController, ProxyRouting>(
-        ProxyRoutingController.new);
+      ProxyRoutingController.new,
+    );
+
+/// Runtime ownership of the local SOCKS transport by the system VPN.
+///
+/// This is intentionally not persisted as part of [ProxyRouting]: the native
+/// VPN backend is the durable authority for whether a tunnel is running, while
+/// [ProxyRouting.socks5Enabled] remains the user's independent manual-proxy
+/// preference.
+final vpnProxyDemandProvider = StateProvider<bool>((ref) => false);
+
+/// Node configuration after combining the manual SOCKS preference with the
+/// system VPN's runtime requirement. UI and preferences continue to use
+/// [proxyRoutingProvider]; only node boot/reload paths consume this provider.
+final effectiveProxyRoutingProvider = Provider<ProxyRouting>((ref) {
+  final configured = ref.watch(proxyRoutingProvider);
+  if (!ref.watch(vpnProxyDemandProvider)) return configured;
+  return configured.copyWith(socks5Enabled: true);
+});

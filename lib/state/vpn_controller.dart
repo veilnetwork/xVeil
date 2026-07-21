@@ -8,6 +8,7 @@ import '../data/vpn/vpn_backend.dart';
 import '../data/vpn/linux_managed_vpn_backend.dart';
 import '../data/vpn/vpn_routing_policy.dart';
 import '../data/vpn/windows_managed_vpn_backend.dart';
+import 'app_controller.dart';
 import 'providers.dart';
 import 'proxy_routing_controller.dart';
 
@@ -75,6 +76,12 @@ class VpnController extends Notifier<VpnState> {
       // Widget tests and a damaged preference stay on safe defaults.
     }
     final backend = await ref.read(vpnBackendProvider).probe();
+    if (backend.isRunning) {
+      ref.read(vpnProxyDemandProvider.notifier).state = true;
+      await ref.read(appControllerProvider.notifier).reapplyProxyRouting();
+    } else {
+      ref.read(vpnProxyDemandProvider.notifier).state = false;
+    }
     if (!_disposed) state = VpnState(policy: policy, backend: backend);
   }
 
@@ -99,11 +106,11 @@ class VpnController extends Notifier<VpnState> {
       );
       return;
     }
-    if (!proxy.socks5Active) {
+    if (!proxy.vpnTransportReady) {
       state = state.copyWith(
         backend: const VpnBackendState(
           VpnBackendPhase.error,
-          detail: 'SOCKS5 exit is not active',
+          detail: 'VPN exit is not configured',
         ),
       );
       return;
@@ -112,14 +119,34 @@ class VpnController extends Notifier<VpnState> {
       busy: true,
       backend: const VpnBackendState(VpnBackendPhase.starting),
     );
-    final result = await ref
-        .read(vpnBackendProvider)
-        .start(
-          policy: state.policy,
-          socks5Listen: proxy.socks5Listen,
-          exitNodeId: proxy.exitNodeId!,
-          obfs4Psk: ref.read(deniableBootProvider)?.obfs4Psk,
+    if (!await _setProxyDemand(true)) {
+      if (!_disposed) {
+        state = state.copyWith(
+          busy: false,
+          backend: const VpnBackendState(
+            VpnBackendPhase.error,
+            detail: 'could not start the VPN transport',
+          ),
         );
+      }
+      return;
+    }
+    VpnBackendState result;
+    try {
+      result = await ref
+          .read(vpnBackendProvider)
+          .start(
+            policy: state.policy,
+            socks5Listen: proxy.socks5Listen,
+            exitNodeId: proxy.exitNodeId!,
+            obfs4Psk: ref.read(deniableBootProvider)?.obfs4Psk,
+          );
+    } catch (error) {
+      result = VpnBackendState(VpnBackendPhase.error, detail: '$error');
+    }
+    if (!result.isRunning && !_disposed) {
+      await _setProxyDemand(false);
+    }
     if (_disposed) return;
     final applied = state.policy.copyWith(enabled: result.isRunning);
     state = VpnState(policy: applied, backend: result);
@@ -135,6 +162,8 @@ class VpnController extends Notifier<VpnState> {
     final result = await ref.read(vpnBackendProvider).stop();
     if (_disposed) return;
     final stopped = result.phase == VpnBackendPhase.stopped;
+    if (stopped) await _setProxyDemand(false);
+    if (_disposed) return;
     final applied = state.policy.copyWith(enabled: !stopped);
     state = VpnState(policy: applied, backend: result);
     await _persist(applied);
@@ -143,7 +172,29 @@ class VpnController extends Notifier<VpnState> {
   Future<void> refresh() async {
     if (state.busy) return;
     final result = await ref.read(vpnBackendProvider).status();
+    if (_disposed) return;
+    final demanded = ref.read(vpnProxyDemandProvider);
+    if (demanded != result.isRunning) {
+      await _setProxyDemand(result.isRunning);
+    }
     if (!_disposed) state = state.copyWith(backend: result);
+  }
+
+  Future<bool> _setProxyDemand(bool enabled) async {
+    final demand = ref.read(vpnProxyDemandProvider);
+    if (demand == enabled) return true;
+    ref.read(vpnProxyDemandProvider.notifier).state = enabled;
+    try {
+      final applied = await ref
+          .read(appControllerProvider.notifier)
+          .reapplyProxyRouting();
+      if (applied) return true;
+    } catch (_) {
+      // Fall through to rollback below. A native tunnel must never start until
+      // its local transport has actually been applied to the veil node.
+    }
+    ref.read(vpnProxyDemandProvider.notifier).state = demand;
+    return false;
   }
 
   Future<void> _persist(VpnRoutingPolicy policy) async {
