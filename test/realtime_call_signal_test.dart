@@ -15,7 +15,11 @@ import 'package:xveil/state/messaging.dart';
 NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
 
 class _RealtimeProbe
-    implements VeilTransport, RealtimeTransport, RealtimeInboundTransport {
+    implements
+        VeilTransport,
+        RealtimeTransport,
+        RelayRealtimeTransport,
+        RealtimeInboundTransport {
   _RealtimeProbe(this.me);
 
   final NodeId me;
@@ -25,6 +29,7 @@ class _RealtimeProbe
   bool blockRealtime = false;
   int normalSends = 0;
   int realtimeSends = 0;
+  int relayRealtimeSends = 0;
   bool? lastRealtimeAnonymous;
 
   @override
@@ -48,6 +53,11 @@ class _RealtimeProbe
     realtimeSends++;
     lastRealtimeAnonymous = anonymous;
     if (blockRealtime) await realtimeGate.future;
+  }
+
+  @override
+  Future<void> sendRelayRealtime(NodeId dst, Uint8List payload) async {
+    relayRealtimeSends++;
   }
 
   @override
@@ -167,6 +177,7 @@ void main() {
           .timeout(const Duration(milliseconds: 500));
 
       expect(transport.realtimeSends, 1);
+      expect(transport.relayRealtimeSends, 1);
       expect(
         transport.normalSends,
         1,
@@ -200,6 +211,7 @@ void main() {
     );
 
     expect(transport.realtimeSends, 1);
+    expect(transport.relayRealtimeSends, 1);
     expect(
       transport.normalSends,
       1,
@@ -208,6 +220,28 @@ void main() {
     blockedStorage.releaseEnqueue.complete();
     await send;
   });
+
+  test(
+    'lost call control is re-driven before the periodic outbox tick',
+    () async {
+      final messaging = MessagingService(transport, storage);
+      addTearDown(messaging.dispose);
+
+      await messaging.sendCallSignal(
+        peer,
+        const CallSignal(callId: 'fast-redrive', type: CallSignalType.offer),
+      );
+      expect(transport.normalSends, 1);
+      expect(transport.realtimeSends, 1);
+      expect(transport.relayRealtimeSends, 1);
+
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+
+      expect(transport.normalSends, 2);
+      expect(transport.realtimeSends, 2);
+      expect(transport.relayRealtimeSends, 2);
+    },
+  );
 
   test(
     'realtime P2P endpoint leg starts before a blocked durable enqueue',
@@ -236,6 +270,7 @@ void main() {
       );
 
       expect(transport.realtimeSends, 1);
+      expect(transport.relayRealtimeSends, 1);
       expect(
         transport.normalSends,
         1,
@@ -262,6 +297,11 @@ void main() {
       );
 
       expect(transport.realtimeSends, 1);
+      expect(
+        transport.relayRealtimeSends,
+        0,
+        reason: 'anonymous signaling must never use the non-onion relay path',
+      );
       expect(transport.lastRealtimeAnonymous, isTrue);
       expect(transport.normalSends, 0);
       expect(await storage.pendingOutboxFrames(), isEmpty);
@@ -283,6 +323,7 @@ void main() {
     await Future<void>.delayed(Duration.zero);
 
     expect(transport.realtimeSends, 1);
+    expect(transport.relayRealtimeSends, 1);
     expect(transport.normalSends, 1);
     expect(
       (await storage.pendingOutboxFrames()).map((f) => f.frameId),
