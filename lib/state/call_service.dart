@@ -74,6 +74,10 @@ const Duration kCallStartupLivenessTimeout = kCallRingTimeout;
 /// either anonymous party; two direct parties may only fall back P2P → relay.
 const Duration kCallMediaRepairAfter = Duration(seconds: 10);
 
+/// Maximum time call setup waits for endpoint exchange, dialing, and native
+/// admission before falling back from a permitted direct route to relay.
+const Duration kCallP2PSetupTimeout = Duration(seconds: 5);
+
 /// Pure transport negotiation: given both parties' postures (+ P2P consent and
 /// reachability for the direct case), pick the media path per the design matrix.
 /// **Anonymity is never sacrificed** — if EITHER side is anonymous the media
@@ -212,17 +216,14 @@ class CallService {
   final Future<bool> Function(NodeId peer) _localAllowsP2P;
   final Future<bool> Function(NodeId peer) _peerReachableForP2P;
 
-  static const _signalReachabilityBudget = Duration(milliseconds: 100);
-
-  /// Preserve an already-admitted P2P fast path without making call control
-  /// wait for endpoint exchange, dialing, or a stalled native status query.
-  /// The reachability probe keeps running after the timeout and can warm a
+  /// Give endpoint exchange and direct dialing a bounded setup window. The
+  /// reachability probe keeps running after the timeout and can still warm a
   /// direct session for the next call.
   Future<bool> _peerReachableWithoutBlockingSignal(NodeId peer) async {
     try {
       return await Future.any<bool>([
         _peerReachableForP2P(peer),
-        Future<bool>.delayed(_signalReachabilityBudget, () => false),
+        Future<bool>.delayed(kCallP2PSetupTimeout, () => false),
       ]);
     } catch (error) {
       devLog(
