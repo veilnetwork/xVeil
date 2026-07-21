@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/vpn/vpn_backend.dart';
 import '../data/vpn/linux_managed_vpn_backend.dart';
+import '../data/vpn/socks5_transport_preflight.dart';
 import '../data/vpn/vpn_routing_policy.dart';
 import '../data/vpn/windows_managed_vpn_backend.dart';
 import 'app_controller.dart';
@@ -47,6 +48,12 @@ final vpnBackendProvider = Provider<VpnBackend>(
     'windows' => WindowsManagedVpnBackend(),
     _ => MethodChannelVpnBackend(),
   },
+);
+
+typedef VpnTransportPreflight = Future<void> Function(String listen);
+
+final vpnTransportPreflightProvider = Provider<VpnTransportPreflight>(
+  (_) => Socks5TransportPreflight.verify,
 );
 
 class VpnController extends Notifier<VpnState> {
@@ -126,6 +133,23 @@ class VpnController extends Notifier<VpnState> {
           backend: const VpnBackendState(
             VpnBackendPhase.error,
             detail: 'could not start the VPN transport',
+          ),
+        );
+      }
+      return;
+    }
+    try {
+      await ref.read(vpnTransportPreflightProvider)(proxy.socks5Listen);
+    } catch (error) {
+      await _setProxyDemand(false);
+      if (!_disposed) {
+        state = state.copyWith(
+          busy: false,
+          backend: VpnBackendState(
+            VpnBackendPhase.error,
+            detail:
+                'VPN exit is unreachable: $error. '
+                'The system tunnel was not enabled.',
           ),
         );
       }

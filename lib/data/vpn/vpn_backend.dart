@@ -164,13 +164,21 @@ class MethodChannelVpnBackend implements VpnBackend {
   @override
   Future<VpnBackendState> stop() async {
     final packetTunnel = _packetTunnel;
+    String? engineError;
     if (packetTunnel != null && packetTunnel.stop() != 0) {
-      return VpnBackendState(
-        VpnBackendPhase.error,
-        detail: packetTunnel.lastError() ?? 'packet tunnel did not stop',
-      );
+      engineError = packetTunnel.lastError() ?? 'packet tunnel did not stop';
     }
-    return VpnBackendState.fromMap(await _invokeRaw('stop'));
+
+    // Closing the platform TUN is authoritative and must never be skipped just
+    // because the Rust forwarding loop has already failed. Otherwise Android
+    // keeps the system default route pointed at a dead descriptor.
+    final native = VpnBackendState.fromMap(await _invokeRaw('stop'));
+    if (native.phase == VpnBackendPhase.stopped) return native;
+    final details = [engineError, native.detail].whereType<String>().toList();
+    return VpnBackendState(
+      VpnBackendPhase.error,
+      detail: details.isEmpty ? 'native VPN did not stop' : details.join('; '),
+    );
   }
 
   Future<VpnBackendState> _invokeState(
