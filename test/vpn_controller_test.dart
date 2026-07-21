@@ -5,10 +5,12 @@ import 'package:xveil/data/node/proxy_routing.dart';
 import 'package:xveil/data/vpn/vpn_backend.dart';
 import 'package:xveil/data/vpn/vpn_routing_policy.dart';
 import 'package:xveil/state/proxy_routing_controller.dart';
+import 'package:xveil/state/providers.dart';
 import 'package:xveil/state/vpn_controller.dart';
 
 const _exit =
     'aa11bb22cc33dd44ee55ff66007788990011223344556677889900aabbccddee';
+const _psk = 'QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=';
 
 class _FakeBackend implements VpnBackend {
   VpnBackendState probeResult = const VpnBackendState(VpnBackendPhase.stopped);
@@ -18,6 +20,8 @@ class _FakeBackend implements VpnBackend {
   int stops = 0;
   VpnRoutingPolicy? receivedPolicy;
   String? receivedListen;
+  String? receivedExitNodeId;
+  String? receivedObfs4Psk;
 
   @override
   Future<VpnBackendState> probe() async => probeResult;
@@ -29,10 +33,14 @@ class _FakeBackend implements VpnBackend {
   Future<VpnBackendState> start({
     required VpnRoutingPolicy policy,
     required String socks5Listen,
+    required String exitNodeId,
+    String? obfs4Psk,
   }) async {
     starts++;
     receivedPolicy = policy;
     receivedListen = socks5Listen;
+    receivedExitNodeId = exitNodeId;
+    receivedObfs4Psk = obfs4Psk;
     return startResult;
   }
 
@@ -46,7 +54,12 @@ class _FakeBackend implements VpnBackend {
 Future<ProviderContainer> _container(_FakeBackend backend) async {
   SharedPreferences.setMockInitialValues({});
   final container = ProviderContainer(
-    overrides: [vpnBackendProvider.overrideWithValue(backend)],
+    overrides: [
+      vpnBackendProvider.overrideWithValue(backend),
+      deniableBootProvider.overrideWithValue(
+        const DeniableBootConfig(runtimeDir: '/tmp/xveil-test', obfs4Psk: _psk),
+      ),
+    ],
   );
   addTearDown(container.dispose);
   container.read(vpnControllerProvider);
@@ -73,6 +86,8 @@ void main() {
     expect(state.policy.enabled, isTrue);
     expect(backend.starts, 1);
     expect(backend.receivedListen, ProxyRouting.defaultListen);
+    expect(backend.receivedExitNodeId, _exit);
+    expect(backend.receivedObfs4Psk, _psk);
   });
 
   test('does not call native backend without a working SOCKS5 exit', () async {

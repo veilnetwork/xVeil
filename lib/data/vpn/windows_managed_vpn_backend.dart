@@ -124,6 +124,8 @@ class WindowsManagedVpnBackend implements VpnBackend {
   Future<VpnBackendState> start({
     required VpnRoutingPolicy policy,
     required String socks5Listen,
+    required String exitNodeId,
+    String? obfs4Psk,
   }) async {
     final existing = await status();
     if (_sessionDirectory != null ||
