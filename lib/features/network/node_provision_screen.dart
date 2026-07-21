@@ -48,6 +48,10 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
   final _tlsCert = TextEditingController();
   final _tlsKey = TextEditingController();
   final _tlsCa = TextEditingController();
+  final _tlsAutomaticName = TextEditingController();
+  final _tlsEmail = TextEditingController();
+  final _selfSignedName = TextEditingController();
+  final _selfSignedDays = TextEditingController(text: '365');
   late final Map<NodeComponent, TextEditingController> _componentUrls;
   late final Map<NodeComponent, TextEditingController> _componentShas;
   late final Map<NodeListenTransport, TextEditingController> _transportPorts;
@@ -61,6 +65,8 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
   _ArtifactSource _veilCliSource = _ArtifactSource.github;
   bool _useKey = false;
   bool _runExit = true;
+  NodeTlsCertificateMode _tlsCertificateMode = NodeTlsCertificateMode.automatic;
+  bool _tlsAgreeToTerms = false;
   String? _psk;
   bool _pskLoaded = false;
   bool _credentialsLoaded = false;
@@ -201,6 +207,10 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
       _tlsCert,
       _tlsKey,
       _tlsCa,
+      _tlsAutomaticName,
+      _tlsEmail,
+      _selfSignedName,
+      _selfSignedDays,
       ..._componentUrls.values,
       ..._componentShas.values,
       ..._transportPorts.values,
@@ -213,6 +223,9 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
   NodeProvisionConfig? get _config {
     final psk = _psk;
     if (psk == null) return null;
+    final automaticName = _tlsAutomaticName.text.trim().isNotEmpty
+        ? _tlsAutomaticName.text.trim()
+        : _advertiseHost.text.trim();
     return NodeProvisionConfig(
       releaseUrl: _releaseUrl.text.trim(),
       expectedSha256: _sha256.text.trim(),
@@ -237,6 +250,14 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
       tlsCertPath: _tlsCert.text.trim().isEmpty ? null : _tlsCert.text.trim(),
       tlsKeyPath: _tlsKey.text.trim().isEmpty ? null : _tlsKey.text.trim(),
       tlsCaCertPath: _tlsCa.text.trim().isEmpty ? null : _tlsCa.text.trim(),
+      tlsCertificateMode: _tlsCertificateMode,
+      tlsDomain: automaticName.isEmpty ? null : automaticName,
+      tlsEmail: _tlsEmail.text.trim().isEmpty ? null : _tlsEmail.text.trim(),
+      tlsAgreeToTerms: _tlsAgreeToTerms,
+      selfSignedName: _selfSignedName.text.trim().isEmpty
+          ? null
+          : _selfSignedName.text.trim(),
+      selfSignedDays: int.tryParse(_selfSignedDays.text.trim()) ?? 0,
     );
   }
 
@@ -244,7 +265,7 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
     final cfg = _config;
     final l = AppL10n.of(context);
     if (cfg == null || !cfg.isValid) {
-      setState(() => _error = l.provisionNeedUrl);
+      setState(() => _error = l.provisionInvalidConfig);
       return;
     }
     final key = _key.text.trim().isNotEmpty
@@ -343,6 +364,13 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
 
   String _transportNetwork(NodeListenTransport transport) =>
       transport == NodeListenTransport.quic ? 'UDP' : 'TCP';
+
+  String _tlsModeLabel(AppL10n l, NodeTlsCertificateMode mode) =>
+      switch (mode) {
+        NodeTlsCertificateMode.existingFiles => l.provisionTlsModeExisting,
+        NodeTlsCertificateMode.automatic => l.provisionTlsModeAutomatic,
+        NodeTlsCertificateMode.selfSigned => l.provisionTlsModeSelfSigned,
+      };
 
   bool get _hasGithubArtifacts =>
       _veilCliSource == _ArtifactSource.github ||
@@ -600,11 +628,17 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
 
   Widget _sharedTransportSection(AppL10n l) {
     final tlsTransports = _transports.where((transport) => transport.needsTls);
+    final automaticName = _tlsAutomaticName.text.trim().isNotEmpty
+        ? _tlsAutomaticName.text.trim()
+        : _advertiseHost.text.trim();
+    final automaticIsDomain = NodeProvisionConfig.isDnsName(automaticName);
+    final automaticIsIp = NodeProvisionConfig.isIpAddress(automaticName);
     return _SettingsCard(
       title: l.provisionTransportCommon,
       subtitle: l.provisionTransportCommonHint,
       children: [
         TextField(
+          key: const ValueKey('advertise-host'),
           controller: _advertiseHost,
           onChanged: (_) => setState(() {}),
           decoration: InputDecoration(
@@ -624,41 +658,155 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
             ),
             nested: true,
             children: [
-              TextField(
-                controller: _tlsCert,
-                onChanged: (_) => setState(() {}),
+              DropdownButtonFormField<NodeTlsCertificateMode>(
+                key: const ValueKey('tls-certificate-mode'),
+                initialValue: _tlsCertificateMode,
                 decoration: InputDecoration(
-                  labelText: l.provisionTlsCert,
+                  labelText: l.provisionTlsMode,
                   border: const OutlineInputBorder(),
                   isDense: true,
                 ),
+                items: [
+                  for (final mode in NodeTlsCertificateMode.values)
+                    DropdownMenuItem(
+                      value: mode,
+                      child: Text(_tlsModeLabel(l, mode)),
+                    ),
+                ],
+                onChanged: (mode) {
+                  if (mode != null) {
+                    setState(() => _tlsCertificateMode = mode);
+                  }
+                },
               ),
               const SizedBox(height: 12),
-              TextField(
-                controller: _tlsKey,
-                onChanged: (_) => setState(() {}),
-                decoration: InputDecoration(
-                  labelText: l.provisionTlsKey,
-                  border: const OutlineInputBorder(),
-                  isDense: true,
+              if (_tlsCertificateMode ==
+                  NodeTlsCertificateMode.existingFiles) ...[
+                TextField(
+                  key: const ValueKey('tls-existing-cert'),
+                  controller: _tlsCert,
+                  onChanged: (_) => setState(() {}),
+                  decoration: InputDecoration(
+                    labelText: l.provisionTlsCert,
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _tlsCa,
-                onChanged: (_) => setState(() {}),
-                decoration: InputDecoration(
-                  labelText: l.provisionTlsCa,
-                  border: const OutlineInputBorder(),
-                  isDense: true,
+                const SizedBox(height: 12),
+                TextField(
+                  key: const ValueKey('tls-existing-key'),
+                  controller: _tlsKey,
+                  onChanged: (_) => setState(() {}),
+                  decoration: InputDecoration(
+                    labelText: l.provisionTlsKey,
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                  ),
                 ),
-              ),
+                const SizedBox(height: 12),
+                TextField(
+                  key: const ValueKey('tls-existing-ca'),
+                  controller: _tlsCa,
+                  onChanged: (_) => setState(() {}),
+                  decoration: InputDecoration(
+                    labelText: l.provisionTlsCa,
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+              ] else if (_tlsCertificateMode ==
+                  NodeTlsCertificateMode.automatic) ...[
+                TextField(
+                  key: const ValueKey('tls-automatic-name'),
+                  controller: _tlsAutomaticName,
+                  onChanged: (_) => setState(() {}),
+                  decoration: InputDecoration(
+                    labelText: l.provisionTlsAutomaticName,
+                    helperText: l.provisionTlsAutomaticNameHint,
+                    helperMaxLines: 3,
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  automaticIsDomain
+                      ? l.provisionTlsLetsEncryptHint
+                      : automaticIsIp
+                      ? l.provisionTlsIpHint
+                      : l.provisionTlsUnknownHint,
+                  key: const ValueKey('tls-automatic-result'),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                if (automaticIsDomain) ...[
+                  const SizedBox(height: 12),
+                  TextField(
+                    key: const ValueKey('tls-email'),
+                    controller: _tlsEmail,
+                    keyboardType: TextInputType.emailAddress,
+                    onChanged: (_) => setState(() {}),
+                    decoration: InputDecoration(
+                      labelText: l.provisionTlsEmail,
+                      border: const OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                  CheckboxListTile(
+                    key: const ValueKey('tls-agree-terms'),
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    title: Text(l.provisionTlsAgreeTerms),
+                    value: _tlsAgreeToTerms,
+                    onChanged: (value) =>
+                        setState(() => _tlsAgreeToTerms = value ?? false),
+                  ),
+                ] else if (automaticIsIp) ...[
+                  const SizedBox(height: 12),
+                  _selfSignedDaysField(l),
+                ],
+              ] else ...[
+                TextField(
+                  key: const ValueKey('tls-self-signed-name'),
+                  controller: _selfSignedName,
+                  onChanged: (_) => setState(() {}),
+                  decoration: InputDecoration(
+                    labelText: l.provisionTlsSelfSignedName,
+                    helperText: l.provisionTlsSelfSignedNameHint,
+                    helperMaxLines: 2,
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _selfSignedDaysField(l),
+                const SizedBox(height: 8),
+                Text(
+                  l.provisionTlsSelfSignedHint,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
             ],
           ),
         ],
       ],
     );
   }
+
+  Widget _selfSignedDaysField(AppL10n l) => TextField(
+    key: const ValueKey('tls-self-signed-days'),
+    controller: _selfSignedDays,
+    keyboardType: TextInputType.number,
+    onChanged: (_) => setState(() {}),
+    decoration: InputDecoration(
+      labelText: l.provisionTlsSelfSignedDays,
+      border: const OutlineInputBorder(),
+      isDense: true,
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
