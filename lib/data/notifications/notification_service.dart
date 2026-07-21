@@ -13,7 +13,7 @@ import '../../core/log.dart';
 /// has exactly one home.
 class NotificationService {
   NotificationService({FlutterLocalNotificationsPlugin? plugin})
-      : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
+    : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
 
   final FlutterLocalNotificationsPlugin _plugin;
   bool _ready = false;
@@ -21,7 +21,10 @@ class NotificationService {
   /// Whether the running platform has a notification backend the plugin
   /// supports. Windows is unsupported by the plugin — never touch it there.
   static bool get _supported =>
-      Platform.isAndroid || Platform.isIOS || Platform.isMacOS || Platform.isLinux;
+      Platform.isAndroid ||
+      Platform.isIOS ||
+      Platform.isMacOS ||
+      Platform.isLinux;
 
   static const _channelId = 'xveil_messages';
   static const _channelName = 'Messages';
@@ -54,7 +57,11 @@ class NotificationService {
       const linux = LinuxInitializationSettings(defaultActionName: 'Open');
       await _plugin.initialize(
         const InitializationSettings(
-            android: android, iOS: darwin, macOS: darwin, linux: linux),
+          android: android,
+          iOS: darwin,
+          macOS: darwin,
+          linux: linux,
+        ),
         onDidReceiveNotificationResponse: (resp) {
           // An inline reply (RemoteInput) carries the typed text in `input` under
           // our reply action id; anything else is a plain tap → open the chat.
@@ -85,21 +92,24 @@ class NotificationService {
       if (Platform.isIOS) {
         return await _plugin
                 .resolvePlatformSpecificImplementation<
-                    IOSFlutterLocalNotificationsPlugin>()
+                  IOSFlutterLocalNotificationsPlugin
+                >()
                 ?.requestPermissions(alert: true, badge: true, sound: true) ??
             false;
       }
       if (Platform.isMacOS) {
         return await _plugin
                 .resolvePlatformSpecificImplementation<
-                    MacOSFlutterLocalNotificationsPlugin>()
+                  MacOSFlutterLocalNotificationsPlugin
+                >()
                 ?.requestPermissions(alert: true, badge: true, sound: true) ??
             false;
       }
       if (Platform.isAndroid) {
         return await _plugin
                 .resolvePlatformSpecificImplementation<
-                    AndroidFlutterLocalNotificationsPlugin>()
+                  AndroidFlutterLocalNotificationsPlugin
+                >()
                 ?.requestNotificationsPermission() ??
             true;
       }
@@ -109,8 +119,9 @@ class NotificationService {
     return true;
   }
 
-  /// Post a notification. [id] is the OS notification id — reuse the same id per
-  /// conversation so a chat's notifications collapse instead of stacking. When
+  /// Post a notification. [id] is the OS notification id — message callers
+  /// reuse one id globally so startup/mailbox bursts replace instead of stack.
+  /// When
   /// [replyLabel] is non-null an inline reply action (Android RemoteInput) is
   /// attached — the typed text comes back through `onReply` (see [init]). Only
   /// offer it when the sender is visible (full preview), so the user knows whom
