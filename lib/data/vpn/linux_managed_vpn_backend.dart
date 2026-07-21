@@ -99,6 +99,12 @@ class LinuxManagedVpnBackend implements VpnBackend {
     required String exitNodeId,
     String? obfs4Psk,
   }) async {
+    if (policy.applicationMode != VpnApplicationMode.allApplications) {
+      return const VpnBackendState(
+        VpnBackendPhase.error,
+        detail: 'Per-application VPN is not supported by the Linux backend',
+      );
+    }
     final existing = await status();
     if (_helper != null || existing.phase == VpnBackendPhase.running) {
       return existing;

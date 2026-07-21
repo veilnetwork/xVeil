@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/data/vpn/vpn_backend.dart';
+import 'package:xveil/data/vpn/vpn_routing_policy.dart';
 import 'package:xveil/data/vpn/windows_managed_vpn_backend.dart';
 
 void main() {
@@ -50,4 +52,20 @@ void main() {
       contains(r'''$arguments = '--xveil-vpn-helper "' + $request + '"';'''),
     );
   });
+
+  test(
+    'Windows rejects application filtering instead of routing every app',
+    () async {
+      final result = await WindowsManagedVpnBackend().start(
+        policy: const VpnRoutingPolicy(
+          applicationMode: VpnApplicationMode.onlySelected,
+          applicationIds: ['org.mozilla.firefox'],
+        ),
+        socks5Listen: '127.0.0.1:1080',
+        exitNodeId: '00' * 32,
+      );
+      expect(result.phase, VpnBackendPhase.error);
+      expect(result.detail, contains('not supported'));
+    },
+  );
 }

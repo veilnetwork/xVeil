@@ -12,6 +12,9 @@ enum VpnRouteMode {
   excludeOnly,
 }
 
+/// Which applications are eligible to use the packet tunnel.
+enum VpnApplicationMode { allApplications, onlySelected }
+
 /// Persisted, platform-neutral configuration for an OS-level packet tunnel.
 ///
 /// This is deliberately separate from the SOCKS5 config. SOCKS5 is the packet
@@ -25,6 +28,8 @@ class VpnRoutingPolicy {
     this.excludedCidrs = const [],
     this.includedCountryCodes = const [],
     this.excludedCountryCodes = const [],
+    this.applicationMode = VpnApplicationMode.allApplications,
+    this.applicationIds = const [],
     this.routeDns = true,
     this.dnsServers = defaultDnsServers,
     this.allowLan = true,
@@ -42,6 +47,8 @@ class VpnRoutingPolicy {
   final List<String> excludedCidrs;
   final List<String> includedCountryCodes;
   final List<String> excludedCountryCodes;
+  final VpnApplicationMode applicationMode;
+  final List<String> applicationIds;
   final bool routeDns;
   final List<String> dnsServers;
   final bool allowLan;
@@ -66,6 +73,14 @@ class VpnRoutingPolicy {
     }
     if (excludedCountryCodes.any((value) => !isValidCountryCode(value))) {
       errors.add('excludedCountryCodes.invalid');
+    }
+    if (applicationMode == VpnApplicationMode.onlySelected &&
+        applicationIds.isEmpty) {
+      errors.add('applicationIds.empty');
+    }
+    if (applicationIds.length > 256 ||
+        applicationIds.any((value) => !isValidApplicationId(value))) {
+      errors.add('applicationIds.invalid');
     }
     if (routeDns && dnsServers.isEmpty) errors.add('dnsServers.empty');
     if (dnsServers.any((value) => !isValidIp(value))) {
@@ -99,6 +114,14 @@ class VpnRoutingPolicy {
   static bool isValidCountryCode(String value) =>
       RegExp(r'^[A-Za-z]{2}$').hasMatch(value.trim());
 
+  static bool isValidApplicationId(String value) {
+    final input = value.trim();
+    return input.length <= 255 &&
+        RegExp(
+          r'^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$',
+        ).hasMatch(input);
+  }
+
   VpnRoutingPolicy copyWith({
     bool? enabled,
     VpnRouteMode? routeMode,
@@ -106,6 +129,8 @@ class VpnRoutingPolicy {
     List<String>? excludedCidrs,
     List<String>? includedCountryCodes,
     List<String>? excludedCountryCodes,
+    VpnApplicationMode? applicationMode,
+    List<String>? applicationIds,
     bool? routeDns,
     List<String>? dnsServers,
     bool? allowLan,
@@ -117,6 +142,8 @@ class VpnRoutingPolicy {
     excludedCidrs: excludedCidrs ?? this.excludedCidrs,
     includedCountryCodes: includedCountryCodes ?? this.includedCountryCodes,
     excludedCountryCodes: excludedCountryCodes ?? this.excludedCountryCodes,
+    applicationMode: applicationMode ?? this.applicationMode,
+    applicationIds: applicationIds ?? this.applicationIds,
     routeDns: routeDns ?? this.routeDns,
     dnsServers: dnsServers ?? this.dnsServers,
     allowLan: allowLan ?? this.allowLan,
@@ -130,6 +157,8 @@ class VpnRoutingPolicy {
     'excludedCidrs': excludedCidrs,
     'includedCountryCodes': includedCountryCodes,
     'excludedCountryCodes': excludedCountryCodes,
+    'applicationMode': applicationMode.name,
+    'applicationIds': applicationIds,
     'routeDns': routeDns,
     'dnsServers': dnsServers,
     'allowLan': allowLan,
@@ -141,6 +170,10 @@ class VpnRoutingPolicy {
     final mode = VpnRouteMode.values
         .where((v) => v.name == modeName)
         .firstOrNull;
+    final applicationModeName = json['applicationMode'] as String?;
+    final applicationMode = VpnApplicationMode.values
+        .where((v) => v.name == applicationModeName)
+        .firstOrNull;
     return VpnRoutingPolicy(
       enabled: json['enabled'] as bool? ?? false,
       routeMode: mode ?? VpnRouteMode.allTraffic,
@@ -148,6 +181,8 @@ class VpnRoutingPolicy {
       excludedCidrs: _strings(json['excludedCidrs']),
       includedCountryCodes: _countryCodes(json['includedCountryCodes']),
       excludedCountryCodes: _countryCodes(json['excludedCountryCodes']),
+      applicationMode: applicationMode ?? VpnApplicationMode.allApplications,
+      applicationIds: _applicationIds(json['applicationIds']),
       routeDns: json['routeDns'] as bool? ?? true,
       dnsServers: json.containsKey('dnsServers')
           ? _strings(json['dnsServers'])
@@ -165,6 +200,15 @@ class VpnRoutingPolicy {
       ? value
             .whereType<String>()
             .map((v) => v.trim().toUpperCase())
+            .where((v) => v.isNotEmpty)
+            .toSet()
+            .toList(growable: false)
+      : const [];
+
+  static List<String> _applicationIds(Object? value) => value is List
+      ? value
+            .whereType<String>()
+            .map((v) => v.trim())
             .where((v) => v.isNotEmpty)
             .toSet()
             .toList(growable: false)

@@ -1869,6 +1869,46 @@ class AppL10nRu extends AppL10n {
   String get vpnRouteExclude => 'Всё, кроме выбранных подсетей';
 
   @override
+  String get vpnApplicationRouting => 'Приложения через VPN';
+
+  @override
+  String get vpnApplicationAll => 'Все приложения';
+
+  @override
+  String get vpnApplicationOnlySelected => 'Только выбранные приложения';
+
+  @override
+  String get vpnApplicationOnlySelectedHint =>
+      'Только выбранные Android-приложения входят в туннель; остальные используют обычную сеть.';
+
+  @override
+  String get vpnApplicationUnsupported =>
+      'Маршрутизация по приложениям доступна на Android. Обычный VPN на iOS/macOS не сообщает исходное приложение; для Linux и Windows потребуется отдельный процессный backend.';
+
+  @override
+  String get vpnApplicationSelect => 'Выбрать приложения';
+
+  @override
+  String get vpnApplicationNoneSelected => 'Выберите хотя бы одно приложение';
+
+  @override
+  String vpnApplicationSelectedCount(Object count) {
+    return 'Выбрано приложений: $count';
+  }
+
+  @override
+  String get vpnApplicationPickerTitle => 'Приложения через VPN';
+
+  @override
+  String get vpnApplicationPickerEmpty =>
+      'Android не показывает доступных запускаемых приложений.';
+
+  @override
+  String vpnApplicationLoadError(Object error) {
+    return 'Не удалось получить список приложений: $error';
+  }
+
+  @override
   String get vpnIncludedCidrs => 'Включённые подсети';
 
   @override
@@ -2385,22 +2425,10 @@ class AppL10nRu extends AppL10n {
       'Введите фразу восстановления, слова через пробел';
 
   @override
-  String get demoChatTooltip => 'Демо-чат';
-
-  @override
   String get securityCenterTooltip => 'Безопасность';
 
   @override
   String get securityCenterTitle => 'Безопасность и сеть';
-
-  @override
-  String get demoNewChat => 'Новый чат';
-
-  @override
-  String get demoPeerNodeId => 'Node id собеседника (hex)';
-
-  @override
-  String get demoChatWith => 'Чат с демо-узлом';
 
   @override
   String get callStartTooltip => 'Позвонить';

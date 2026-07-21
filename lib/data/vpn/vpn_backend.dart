@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'geoip_country_routes.dart';
@@ -109,6 +110,13 @@ class MethodChannelVpnBackend implements VpnBackend {
   }) async {
     final packetTunnel = _packetTunnel;
     if (packetTunnel == null) return probe();
+    if (policy.applicationMode != VpnApplicationMode.allApplications &&
+        defaultTargetPlatform != TargetPlatform.android) {
+      return const VpnBackendState(
+        VpnBackendPhase.error,
+        detail: 'Per-application VPN is supported only on Android',
+      );
+    }
 
     late final Map<String, dynamic> expandedPolicy;
     try {

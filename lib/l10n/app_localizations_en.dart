@@ -1858,6 +1858,46 @@ class AppL10nEn extends AppL10n {
   String get vpnRouteExclude => 'All except selected subnets';
 
   @override
+  String get vpnApplicationRouting => 'Applications using VPN';
+
+  @override
+  String get vpnApplicationAll => 'All applications';
+
+  @override
+  String get vpnApplicationOnlySelected => 'Only selected applications';
+
+  @override
+  String get vpnApplicationOnlySelectedHint =>
+      'Only the selected Android applications enter the tunnel; all other applications use the normal network.';
+
+  @override
+  String get vpnApplicationUnsupported =>
+      'Per-application routing is available on Android. Consumer iOS/macOS VPNs do not expose the source application; Linux and Windows need a future process-routing backend.';
+
+  @override
+  String get vpnApplicationSelect => 'Select apps';
+
+  @override
+  String get vpnApplicationNoneSelected => 'Select at least one application';
+
+  @override
+  String vpnApplicationSelectedCount(Object count) {
+    return '$count applications selected';
+  }
+
+  @override
+  String get vpnApplicationPickerTitle => 'Applications using VPN';
+
+  @override
+  String get vpnApplicationPickerEmpty =>
+      'No launchable applications are visible to Android.';
+
+  @override
+  String vpnApplicationLoadError(Object error) {
+    return 'Could not list applications: $error';
+  }
+
+  @override
   String get vpnIncludedCidrs => 'Included subnets';
 
   @override
@@ -2366,22 +2406,10 @@ class AppL10nEn extends AppL10n {
       'Enter your recovery phrase, words separated by spaces';
 
   @override
-  String get demoChatTooltip => 'Demo chat';
-
-  @override
   String get securityCenterTooltip => 'Security';
 
   @override
   String get securityCenterTitle => 'Security & network';
-
-  @override
-  String get demoNewChat => 'New chat';
-
-  @override
-  String get demoPeerNodeId => 'Peer node id (hex)';
-
-  @override
-  String get demoChatWith => 'Chat with a demo peer';
 
   @override
   String get callStartTooltip => 'Call';

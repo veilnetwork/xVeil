@@ -3499,6 +3499,72 @@ abstract class AppL10n {
   /// **'All except selected subnets'**
   String get vpnRouteExclude;
 
+  /// No description provided for @vpnApplicationRouting.
+  ///
+  /// In en, this message translates to:
+  /// **'Applications using VPN'**
+  String get vpnApplicationRouting;
+
+  /// No description provided for @vpnApplicationAll.
+  ///
+  /// In en, this message translates to:
+  /// **'All applications'**
+  String get vpnApplicationAll;
+
+  /// No description provided for @vpnApplicationOnlySelected.
+  ///
+  /// In en, this message translates to:
+  /// **'Only selected applications'**
+  String get vpnApplicationOnlySelected;
+
+  /// No description provided for @vpnApplicationOnlySelectedHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Only the selected Android applications enter the tunnel; all other applications use the normal network.'**
+  String get vpnApplicationOnlySelectedHint;
+
+  /// No description provided for @vpnApplicationUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'Per-application routing is available on Android. Consumer iOS/macOS VPNs do not expose the source application; Linux and Windows need a future process-routing backend.'**
+  String get vpnApplicationUnsupported;
+
+  /// No description provided for @vpnApplicationSelect.
+  ///
+  /// In en, this message translates to:
+  /// **'Select apps'**
+  String get vpnApplicationSelect;
+
+  /// No description provided for @vpnApplicationNoneSelected.
+  ///
+  /// In en, this message translates to:
+  /// **'Select at least one application'**
+  String get vpnApplicationNoneSelected;
+
+  /// No description provided for @vpnApplicationSelectedCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} applications selected'**
+  String vpnApplicationSelectedCount(Object count);
+
+  /// No description provided for @vpnApplicationPickerTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Applications using VPN'**
+  String get vpnApplicationPickerTitle;
+
+  /// No description provided for @vpnApplicationPickerEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No launchable applications are visible to Android.'**
+  String get vpnApplicationPickerEmpty;
+
+  /// No description provided for @vpnApplicationLoadError.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not list applications: {error}'**
+  String vpnApplicationLoadError(Object error);
+
   /// No description provided for @vpnIncludedCidrs.
   ///
   /// In en, this message translates to:
@@ -4429,12 +4495,6 @@ abstract class AppL10n {
   /// **'Enter your recovery phrase, words separated by spaces'**
   String get recoveryPhraseHint;
 
-  /// No description provided for @demoChatTooltip.
-  ///
-  /// In en, this message translates to:
-  /// **'Demo chat'**
-  String get demoChatTooltip;
-
   /// No description provided for @securityCenterTooltip.
   ///
   /// In en, this message translates to:
@@ -4446,24 +4506,6 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Security & network'**
   String get securityCenterTitle;
-
-  /// No description provided for @demoNewChat.
-  ///
-  /// In en, this message translates to:
-  /// **'New chat'**
-  String get demoNewChat;
-
-  /// No description provided for @demoPeerNodeId.
-  ///
-  /// In en, this message translates to:
-  /// **'Peer node id (hex)'**
-  String get demoPeerNodeId;
-
-  /// No description provided for @demoChatWith.
-  ///
-  /// In en, this message translates to:
-  /// **'Chat with a demo peer'**
-  String get demoChatWith;
 
   /// No description provided for @callStartTooltip.
   ///
