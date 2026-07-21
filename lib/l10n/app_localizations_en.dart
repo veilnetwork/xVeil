@@ -2066,7 +2066,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get nodesAddExistingFieldsHint =>
-      'Required: label and node ID. SSH fields are optional and only needed to manage the server. A password or private key is requested when connecting and is not saved.';
+      'Required: label and node ID. SSH fields are optional and only needed to manage the server. A password or key can be saved below in xVeil\'s encrypted storage.';
 
   @override
   String get nodesBootstrapNew => 'Bootstrap a new node over SSH';
@@ -2077,7 +2077,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get nodesBootstrapFieldsHint =>
-      'Required: label, SSH host, and SSH user. The port defaults to 22. A password or private key is entered on the next screen and is not saved; the node ID is saved after provisioning.';
+      'Required: label, SSH host, and SSH user. The port defaults to 22. A password or key can be saved below; the node ID is saved after provisioning.';
 
   @override
   String get nodesBootstrapContinue => 'Continue to provisioning';
@@ -2312,7 +2312,70 @@ class AppL10nEn extends AppL10n {
   String get sshKeyPassphraseLabel => 'Key passphrase (optional)';
 
   @override
-  String get sshCredsNotSaved => 'Used once for this connection — never saved.';
+  String get sshCredsNotSaved =>
+      'Credentials entered here are used once. Manage saved credentials in the node card.';
+
+  @override
+  String get sshCredentialsTitle => 'SSH authentication';
+
+  @override
+  String get sshSavedPasswordLabel => 'Saved SSH password (optional)';
+
+  @override
+  String get sshSavedPasswordHint =>
+      'Leave empty to remove the saved password.';
+
+  @override
+  String get sshCredentialsEncryptedHint =>
+      'The password and private key are stored only inside xVeil\'s encrypted container.';
+
+  @override
+  String get sshCredentialsEndpointCleared =>
+      'The SSH endpoint changed, so the saved password and key were cleared for safety.';
+
+  @override
+  String get sshGenerateEd25519 => 'Generate an Ed25519 key';
+
+  @override
+  String get sshRegenerateEd25519 => 'Generate a new Ed25519 key';
+
+  @override
+  String get sshSavedEd25519Title => 'Saved Ed25519 key';
+
+  @override
+  String get sshPublicKeyLabel =>
+      'Add this line to ~/.ssh/authorized_keys on the server:';
+
+  @override
+  String get sshCopyPublicKey => 'Copy public key';
+
+  @override
+  String get sshPublicKeyCopied => 'Public key copied';
+
+  @override
+  String get sshRemoveSavedKey => 'Remove saved key';
+
+  @override
+  String get sshUseSavedKeyHint => 'Leave empty to use the saved Ed25519 key.';
+
+  @override
+  String get sshOtherKeyLabel => 'Another private key (PEM, this time only)';
+
+  @override
+  String get sshCredentialRequired => 'Enter a password or private key';
+
+  @override
+  String get sshCredentialsSaving => 'Saving…';
+
+  @override
+  String sshCredentialsSaveFailed(String error) {
+    return 'Could not save SSH credentials: $error';
+  }
+
+  @override
+  String sshKeyGenerationFailed(String error) {
+    return 'Could not generate the key: $error';
+  }
 
   @override
   String get sshConnectRun => 'Connect & check';

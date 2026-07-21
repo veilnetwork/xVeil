@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -5,8 +7,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/node/managed_node.dart';
 import '../../data/node/node_provisioner.dart';
 import '../../data/node/ssh_client.dart';
+import '../../data/node/ssh_credentials.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/managed_nodes_controller.dart';
+import '../../state/ssh_credentials.dart';
+import 'ssh_public_key_card.dart';
 
 /// Provision a veil node on a managed server over SSH: review the generated
 /// install script (it runs as root), then run it. The script pulls veil-cli
@@ -15,8 +20,13 @@ import '../../state/managed_nodes_controller.dart';
 /// which we offer to save back onto the node (so it can be used as a routing
 /// exit).
 class NodeProvisionScreen extends ConsumerStatefulWidget {
-  const NodeProvisionScreen({super.key, required this.node});
+  const NodeProvisionScreen({
+    super.key,
+    required this.node,
+    this.initialCredentials,
+  });
   final ManagedNode node;
+  final SavedSshCredentials? initialCredentials;
 
   @override
   ConsumerState<NodeProvisionScreen> createState() =>
@@ -42,6 +52,8 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
   bool _runExit = true;
   String? _psk;
   bool _pskLoaded = false;
+  bool _credentialsLoaded = false;
+  SavedSshCredentials _credentials = const SavedSshCredentials();
   bool _busy = false;
   String? _output;
   String? _error;
@@ -63,7 +75,21 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
       for (final transport in NodeListenTransport.values)
         transport: TextEditingController(text: '${transport.defaultPort}'),
     };
-    _loadPsk();
+    unawaited(_loadPsk());
+    unawaited(_loadCredentials());
+  }
+
+  Future<void> _loadCredentials() async {
+    final credentials =
+        widget.initialCredentials ??
+        await ref.read(sshCredentialsRepositoryProvider).load(widget.node.id);
+    if (!mounted) return;
+    _password.text = credentials.password ?? '';
+    setState(() {
+      _credentials = credentials;
+      _useKey = !credentials.hasPassword && credentials.hasKey;
+      _credentialsLoaded = true;
+    });
   }
 
   Future<void> _loadPsk() async {
@@ -139,6 +165,14 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
       setState(() => _error = l.provisionNeedUrl);
       return;
     }
+    final key = _key.text.trim().isNotEmpty
+        ? _key.text
+        : _credentials.privateKeyPem;
+    if ((!_useKey && _password.text.isEmpty) ||
+        (_useKey && (key == null || key.isEmpty))) {
+      setState(() => _error = l.sshCredentialRequired);
+      return;
+    }
     setState(() {
       _busy = true;
       _output = null;
@@ -146,7 +180,7 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
     });
     final auth = _useKey
         ? SshAuth.key(
-            _key.text,
+            key!,
             passphrase: _passphrase.text.isEmpty ? null : _passphrase.text,
           )
         : SshAuth.password(_password.text);
@@ -408,14 +442,21 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
             value: _runExit,
             onChanged: (v) => setState(() => _runExit = v),
           ),
-          // Auth — never stored.
+          // Auth: prefer the encrypted per-node credential, while still
+          // allowing a one-shot password/key override for this run.
+          if (!_credentialsLoaded) ...[
+            const LinearProgressIndicator(),
+            const SizedBox(height: 8),
+          ],
           SegmentedButton<bool>(
             segments: [
               ButtonSegment(value: false, label: Text(l.sshUsePassword)),
               ButtonSegment(value: true, label: Text(l.sshUseKey)),
             ],
             selected: {_useKey},
-            onSelectionChanged: (s) => setState(() => _useKey = s.first),
+            onSelectionChanged: !_credentialsLoaded || _busy
+                ? null
+                : (s) => setState(() => _useKey = s.first),
           ),
           const SizedBox(height: 8),
           if (!_useKey)
@@ -429,13 +470,21 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
               ),
             )
           else ...[
+            if (_credentials.hasKey) ...[
+              SshPublicKeyCard(publicKey: _credentials.publicKeyOpenSsh!),
+              const SizedBox(height: 8),
+            ],
             TextField(
               controller: _key,
               minLines: 2,
               maxLines: 4,
               style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
               decoration: InputDecoration(
-                labelText: l.sshKeyLabel,
+                labelText: _credentials.hasKey
+                    ? l.sshOtherKeyLabel
+                    : l.sshKeyLabel,
+                helperText: _credentials.hasKey ? l.sshUseSavedKeyHint : null,
+                helperMaxLines: 2,
                 border: const OutlineInputBorder(),
                 isDense: true,
               ),
@@ -478,7 +527,7 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
           ],
           const SizedBox(height: 16),
           FilledButton.icon(
-            onPressed: _busy ? null : _run,
+            onPressed: _busy || !_credentialsLoaded ? null : _run,
             icon: _busy
                 ? const SizedBox(
                     width: 16,

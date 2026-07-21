@@ -1,18 +1,21 @@
 import 'package:flutter/material.dart';
 
 import '../../data/node/ssh_client.dart';
+import '../../data/node/ssh_credentials.dart';
 import '../../l10n/app_localizations.dart';
+import 'ssh_public_key_card.dart';
 
 /// A one-shot SSH connect-and-check dialog for a managed node. Prompts for auth
 /// (password or PEM key), connects to host:port as user, runs a read-only status
-/// command, and shows the output. Credentials are held only for the call and
-/// never persisted.
+/// command, and shows the output. Saved credentials may be supplied from the
+/// encrypted per-node store; manual overrides live only for this call.
 class SshCheckDialog extends StatefulWidget {
   const SshCheckDialog({
     super.key,
     required this.host,
     required this.port,
     required this.user,
+    this.initialCredentials = const SavedSshCredentials(),
     this.expectedHostFingerprint,
     this.onHostKeyObserved,
   });
@@ -20,6 +23,7 @@ class SshCheckDialog extends StatefulWidget {
   final String host;
   final int port;
   final String user;
+  final SavedSshCredentials initialCredentials;
 
   /// Pinned `SHA256:…` host key, if this node already has one. When set the
   /// check refuses a server presenting a different key (possible MITM — which
@@ -54,6 +58,15 @@ class _SshCheckDialogState extends State<SshCheckDialog> {
   String? _error;
 
   @override
+  void initState() {
+    super.initState();
+    _password.text = widget.initialCredentials.password ?? '';
+    _useKey =
+        !widget.initialCredentials.hasPassword &&
+        widget.initialCredentials.hasKey;
+  }
+
+  @override
   void dispose() {
     _password.dispose();
     _key.dispose();
@@ -62,15 +75,25 @@ class _SshCheckDialogState extends State<SshCheckDialog> {
   }
 
   Future<void> _run() async {
+    final l = AppL10n.of(context);
+    final key = _key.text.trim().isNotEmpty
+        ? _key.text
+        : widget.initialCredentials.privateKeyPem;
+    if ((!_useKey && _password.text.isEmpty) ||
+        (_useKey && (key == null || key.isEmpty))) {
+      setState(() => _error = l.sshCredentialRequired);
+      return;
+    }
     setState(() {
       _busy = true;
       _output = null;
       _error = null;
     });
     final auth = _useKey
-        ? SshAuth.key(_key.text,
-            passphrase:
-                _passphrase.text.isEmpty ? null : _passphrase.text)
+        ? SshAuth.key(
+            key!,
+            passphrase: _passphrase.text.isEmpty ? null : _passphrase.text,
+          )
         : SshAuth.password(_password.text);
     try {
       final r = await sshRun(
@@ -88,7 +111,8 @@ class _SshCheckDialogState extends State<SshCheckDialog> {
       }
       if (mounted) {
         setState(() {
-          _output = '${r.stdout}${r.stderr.isNotEmpty ? '\n${r.stderr}' : ''}'
+          _output =
+              '${r.stdout}${r.stderr.isNotEmpty ? '\n${r.stderr}' : ''}'
               '\n(exit ${r.exitCode})'
               '${r.hostFingerprint.isNotEmpty ? '\nhost key: ${r.hostFingerprint}' : ''}';
         });
@@ -131,13 +155,25 @@ class _SshCheckDialogState extends State<SshCheckDialog> {
                 ),
               )
             else ...[
+              if (widget.initialCredentials.hasKey) ...[
+                SshPublicKeyCard(
+                  publicKey: widget.initialCredentials.publicKeyOpenSsh!,
+                ),
+                const SizedBox(height: 8),
+              ],
               TextField(
                 controller: _key,
                 minLines: 2,
                 maxLines: 4,
                 style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
                 decoration: InputDecoration(
-                  labelText: l.sshKeyLabel,
+                  labelText: widget.initialCredentials.hasKey
+                      ? l.sshOtherKeyLabel
+                      : l.sshKeyLabel,
+                  helperText: widget.initialCredentials.hasKey
+                      ? l.sshUseSavedKeyHint
+                      : null,
+                  helperMaxLines: 2,
                   border: const OutlineInputBorder(),
                   isDense: true,
                 ),
@@ -154,11 +190,12 @@ class _SshCheckDialogState extends State<SshCheckDialog> {
               ),
             ],
             const SizedBox(height: 6),
-            Text(l.sshCredsNotSaved,
-                style: Theme.of(context)
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(color: scheme.outline)),
+            Text(
+              l.sshCredsNotSaved,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: scheme.outline),
+            ),
             if (_output != null) ...[
               const SizedBox(height: 12),
               Container(
@@ -168,15 +205,15 @@ class _SshCheckDialogState extends State<SshCheckDialog> {
                   color: scheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: SelectableText(_output!,
-                    style: const TextStyle(
-                        fontFamily: 'monospace', fontSize: 12)),
+                child: SelectableText(
+                  _output!,
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                ),
               ),
             ],
             if (_error != null) ...[
               const SizedBox(height: 12),
-              Text(l.sshError(_error!),
-                  style: TextStyle(color: scheme.error)),
+              Text(l.sshError(_error!), style: TextStyle(color: scheme.error)),
             ],
           ],
         ),
@@ -192,7 +229,8 @@ class _SshCheckDialogState extends State<SshCheckDialog> {
               ? const SizedBox(
                   width: 16,
                   height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2))
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
               : const Icon(Icons.terminal),
           label: Text(_busy ? l.sshConnecting : l.sshConnectRun),
         ),

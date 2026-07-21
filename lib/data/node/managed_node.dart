@@ -7,9 +7,9 @@ import 'dart:convert';
 /// SOCKS5 traffic through.
 ///
 /// Stored INSIDE the encrypted container (SSH host/user are sensitive), as a
-/// JSON list under a single setting key. SSH credentials (keys/passwords) are
-/// NOT held here — they are entered per-connection until the secure-key layer
-/// lands, so a leaked registry never leaks an SSH secret.
+/// JSON list under a single setting key. SSH passwords and private keys are
+/// deliberately kept out of this catalog: they live in separate per-node
+/// encrypted settings managed by `SshCredentialsRepository`.
 class ManagedNode {
   const ManagedNode({
     required this.id,
