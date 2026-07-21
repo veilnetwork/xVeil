@@ -248,6 +248,20 @@ final contentResumingProvider =
 /// Conversations, re-loaded on first build and whenever the service signals a
 /// change. StreamProvider yields the same AsyncValue the UI already consumes.
 final conversationsProvider = StreamProvider<List<Conversation>>((ref) async* {
+  // DesktopTrayHost watches this provider for its unread badge even while the
+  // app is locked. Do not let that eager listener construct the messaging
+  // pipeline or touch HiddenVolumeStorage before AppController has completed
+  // open(). Watching the phase makes the provider restart automatically when
+  // unlock reaches ready; without this guard the first locked read terminated
+  // the stream with "storage is locked" and the chat list stayed on that error
+  // after a successful unlock.
+  final ready = ref.watch(
+    appControllerProvider.select((state) => state.phase == AppPhase.ready),
+  );
+  if (!ready) {
+    yield const <Conversation>[];
+    return;
+  }
   final service = ref.watch(messagingServiceProvider);
   final storage = ref.watch(storageProvider);
   yield await storage.loadConversations();
