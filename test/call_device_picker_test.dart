@@ -8,10 +8,41 @@ Widget _host(Widget child) => MaterialApp(
   locale: const Locale('en'),
   localizationsDelegates: AppL10n.localizationsDelegates,
   supportedLocales: AppL10n.supportedLocales,
+  theme: ThemeData.dark(),
   home: Scaffold(body: child),
 );
 
 void main() {
+  testWidgets('shared settings sheet has matching audio and video tabs', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('en'),
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        theme: ThemeData.dark(),
+        home: Scaffold(
+          body: CallDevicePickerPanel(
+            devices: const [],
+            onDismiss: () {},
+            onSelect: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('call-settings-panel')), findsOneWidget);
+    expect(find.text('Audio'), findsOneWidget);
+    expect(find.text('Video'), findsOneWidget);
+
+    await tester.tap(find.text('Video'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('call-settings-video')), findsOneWidget);
+    expect(find.text('No capture devices available'), findsOneWidget);
+  });
+
   testWidgets('screen devices have a dedicated selectable section', (
     tester,
   ) async {
@@ -33,6 +64,8 @@ void main() {
         ),
       ),
     );
+    await tester.tap(find.text('Video'));
+    await tester.pumpAndSettle();
 
     expect(find.text('Screens'), findsOneWidget);
     expect(find.text(screen.label), findsOneWidget);

@@ -5155,6 +5155,36 @@ abstract class AppL10n {
   /// **'Devices'**
   String get callDevices;
 
+  /// No description provided for @callSettingsAudio.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio'**
+  String get callSettingsAudio;
+
+  /// No description provided for @callSettingsVideo.
+  ///
+  /// In en, this message translates to:
+  /// **'Video'**
+  String get callSettingsVideo;
+
+  /// No description provided for @callAudioOutput.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio output'**
+  String get callAudioOutput;
+
+  /// No description provided for @callSpeaker.
+  ///
+  /// In en, this message translates to:
+  /// **'Speaker'**
+  String get callSpeaker;
+
+  /// No description provided for @callEarpiece.
+  ///
+  /// In en, this message translates to:
+  /// **'Phone earpiece'**
+  String get callEarpiece;
+
   /// No description provided for @callCameras.
   ///
   /// In en, this message translates to:
