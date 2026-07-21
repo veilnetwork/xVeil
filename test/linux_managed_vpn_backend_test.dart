@@ -51,6 +51,7 @@ void main() {
         ),
         socks5Listen: '127.0.0.1:1080',
         exitNodeId: '00' * 32,
+        exitNodeIds: ['00' * 32],
       );
       expect(result.phase, VpnBackendPhase.error);
       expect(result.detail, contains('not supported'));

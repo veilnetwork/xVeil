@@ -25,6 +25,7 @@ class _FakeBackend implements VpnBackend {
   VpnRoutingPolicy? receivedPolicy;
   String? receivedListen;
   String? receivedExitNodeId;
+  List<String> receivedExitNodeIds = const [];
   String? receivedObfs4Psk;
   Map<String, String> receivedApplicationProxyListens = const {};
 
@@ -39,6 +40,7 @@ class _FakeBackend implements VpnBackend {
     required VpnRoutingPolicy policy,
     required String socks5Listen,
     required String exitNodeId,
+    List<String> exitNodeIds = const [],
     Map<String, String> applicationProxyListens = const {},
     String? obfs4Psk,
   }) async {
@@ -46,6 +48,7 @@ class _FakeBackend implements VpnBackend {
     receivedPolicy = policy;
     receivedListen = socks5Listen;
     receivedExitNodeId = exitNodeId;
+    receivedExitNodeIds = exitNodeIds;
     receivedObfs4Psk = obfs4Psk;
     receivedApplicationProxyListens = applicationProxyListens;
     return startResult;
@@ -104,6 +107,7 @@ void main() {
       expect(backend.starts, 1);
       expect(backend.receivedListen, ProxyRouting.defaultListen);
       expect(backend.receivedExitNodeId, _exit);
+      expect(backend.receivedExitNodeIds, [_exit]);
       expect(backend.receivedObfs4Psk, _psk);
     },
   );
@@ -174,6 +178,7 @@ void main() {
       await container.read(vpnControllerProvider.notifier).start();
 
       expect(backend.starts, 1);
+      expect(backend.receivedExitNodeIds, [_exit, _fallback]);
       expect(container.read(vpnProxyProfilesProvider), hasLength(2));
       expect(
         backend.receivedApplicationProxyListens['org.mozilla.firefox'],

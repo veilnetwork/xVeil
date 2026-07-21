@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/node/proxy_routing.dart';
 import 'package:xveil/data/vpn/vpn_proxy_plan.dart';
+import 'package:xveil/features/network/security_center_sheet.dart';
 import 'package:xveil/data/vpn/vpn_routing_policy.dart';
 
 const _first =
@@ -22,6 +23,16 @@ const _routing = ProxyRouting(
 );
 
 void main() {
+  test('security center accepts an explicit VPN chain without a default', () {
+    const routing = ProxyRouting(
+      oProxies: [OproxyEndpoint(nodeId: _first, label: 'Primary')],
+    );
+    const policy = VpnRoutingPolicy(vpnOproxyNodeIds: [_first]);
+
+    expect(routing.vpnTransportReady, isFalse);
+    expect(vpnTransportReadyForPolicy(routing, policy), isTrue);
+  });
+
   test('allocates one listener per unique ordered exit chain', () {
     final plan = VpnProxyPlan.build(
       routing: _routing,

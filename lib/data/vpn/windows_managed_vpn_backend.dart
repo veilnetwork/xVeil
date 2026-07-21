@@ -125,6 +125,7 @@ class WindowsManagedVpnBackend implements VpnBackend {
     required VpnRoutingPolicy policy,
     required String socks5Listen,
     required String exitNodeId,
+    List<String> exitNodeIds = const [],
     Map<String, String> applicationProxyListens = const {},
     String? obfs4Psk,
   }) async {
