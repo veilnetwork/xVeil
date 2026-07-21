@@ -25,6 +25,13 @@ void main() {
             'https://github.com/veilnetwork/veil/releases/download/v0.3.1/'
             'sha256-x86_64-unknown-linux-musl.txt',
       },
+      {
+        'name': 'ogate-x86_64-unknown-linux-musl',
+        'browser_download_url':
+            'https://github.com/veilnetwork/veil/releases/download/v0.3.1/'
+            'ogate-x86_64-unknown-linux-musl',
+        'digest': 'sha256:$armSha',
+      },
     ],
   };
 
@@ -53,6 +60,27 @@ void main() {
     final result = await resolver.resolve(VeilLinuxReleaseTarget.x86_64Musl);
 
     expect(result.sha256, x64Sha);
+  });
+
+  test('resolves optional tools and reuses one GitHub API response', () async {
+    var apiRequests = 0;
+    final resolver = VeilGithubReleaseResolver(
+      fetcher: (uri) async {
+        apiRequests++;
+        return jsonEncode(releaseJson());
+      },
+    );
+
+    final cli = await resolver.resolve(VeilLinuxReleaseTarget.x86_64Musl);
+    final ogate = await resolver.resolveArtifact(
+      target: VeilLinuxReleaseTarget.x86_64Musl,
+      binaryName: 'ogate',
+    );
+
+    expect(cli.sha256, x64Sha);
+    expect(ogate.downloadUrl, endsWith('ogate-x86_64-unknown-linux-musl'));
+    expect(ogate.sha256, armSha);
+    expect(apiRequests, 1);
   });
 
   test('rejects a release asset outside the canonical GitHub repo', () async {

@@ -2235,7 +2235,13 @@ class AppL10nEn extends AppL10n {
   String get provisionReleaseTargetArm64 => 'ARM64 Linux (portable musl)';
 
   @override
-  String get provisionReleaseRefresh => 'Load latest release';
+  String get provisionReleaseRefresh => 'Refresh GitHub fields';
+
+  @override
+  String get provisionSourceGithub => 'GitHub release';
+
+  @override
+  String get provisionSourceCustom => 'Custom link';
 
   @override
   String get provisionReleaseLoading =>
@@ -2256,7 +2262,11 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get provisionReleaseHint =>
-      'Filled automatically from the official veilnetwork/veil GitHub release. You can override it manually.';
+      'Filled automatically from the official veilnetwork/veil GitHub release. Choose Custom link to override it.';
+
+  @override
+  String get provisionCustomReleaseHint =>
+      'Enter a direct HTTPS link to your binary. You must also supply its SHA-256 below.';
 
   @override
   String get provisionSha256 => 'veil-cli SHA-256';
