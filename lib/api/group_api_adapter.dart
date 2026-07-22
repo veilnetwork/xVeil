@@ -445,6 +445,19 @@ final class GroupApiAdapter {
       },
   };
 
+  static Map<String, dynamic> commentJson(SpacePostCommentView comment) => {
+    'id': comment.ref,
+    'postId': comment.spacePostId,
+    'author': comment.author.hex,
+    'body': comment.body,
+    'sentAt': comment.createdAtMs,
+    'edited': comment.edited,
+    if (comment.editedAtMs != null) 'updatedAt': comment.editedAtMs,
+    if (comment.replyTo != null) 'replyTo': comment.replyTo,
+    if (comment.attachment != null)
+      'media': comment.attachment!.toReferenceJson(),
+  };
+
   static Map<String, dynamic> postJson(
     SpacePostView post, {
     String? spaceName,
@@ -515,7 +528,7 @@ final class GroupApiAdapter {
         for (final comment in all.skip(
           all.length > limit ? all.length - limit : 0,
         ))
-          messageJson(comment),
+          commentJson(comment),
       ],
     };
   }
@@ -538,6 +551,24 @@ final class GroupApiAdapter {
         )
         ? null
         : 'comment publication rejected';
+  }
+
+  Future<String?> editPostComment(
+    String spaceHex,
+    String postId,
+    String commentId,
+    String body,
+  ) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return 'space not found';
+    return await _groups.editSpacePostComment(
+          visible.$1,
+          postId,
+          commentId,
+          body,
+        )
+        ? null
+        : 'comment edit rejected';
   }
 
   /// The identity-local encrypted composer draft. It is intentionally exposed

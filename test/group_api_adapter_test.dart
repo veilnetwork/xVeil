@@ -597,6 +597,25 @@ void main() {
                 as Map;
         expect(firstComment['body'], 'First API comment');
         expect(firstComment['postId'], postId);
+        expect(firstComment['edited'], isFalse);
+        expect(
+          await api.editPostComment(
+            spaceId.hex,
+            postId,
+            firstComment['id'] as String,
+            'Corrected API comment',
+          ),
+          isNull,
+        );
+        final editedComment =
+            ((await api.postComments(spaceId.hex, postId, 10))!['comments']
+                        as List)
+                    .single
+                as Map;
+        expect(editedComment['id'], firstComment['id']);
+        expect(editedComment['body'], 'Corrected API comment');
+        expect(editedComment['edited'], isTrue);
+        expect(editedComment['updatedAt'], isA<int>());
         expect(
           await api.postComment(
             spaceId.hex,
