@@ -1964,10 +1964,7 @@ class GroupService {
     ];
     final messages = b.manifest.name == kDeviceGroupName
         ? _compactDeviceMessages(groupId, b.messages)
-        : [
-            for (final m in b.messages)
-              if (_validMessageFor(groupId, m)) m,
-          ];
+        : _retainedMessageRows(b.manifest, b.messages);
     final reactions = await _compactReactions(b);
     final posts = _retainedPostRows(groupId, b.posts);
     final result = GroupLogCompaction(
@@ -3782,18 +3779,53 @@ class GroupService {
     } else if (resolvedChannelId != null) {
       return false;
     }
-    final mySeq = _nextSeq(
-      b.messages
-          .where(
-            (m) =>
-                m.author == _signer.selfId &&
-                _validMessageFor(b.manifest.groupId, m),
-          )
-          .map((m) => m.seq),
-    );
     final descriptor = state.epochDescriptor;
     final encryptionEstablished = _encryptionEstablished(b.manifest, b.control);
     final key = descriptor == null ? null : b.localEpochKeys[state.epoch];
+    final scopeBase = b.manifest.isSpace ? resolvedChannelId!.hex : 'group';
+    final targetScope = protectedChannel != null
+        ? '$scopeBase|channelEpoch:'
+              '${state.protectedChannels[resolvedChannelId!.hex]?.channelEpoch}'
+        : descriptor != null && key != null
+        ? '$scopeBase|membershipEpoch:${state.epoch}'
+        : '$scopeBase|clear';
+    final retainedSelf = _retainedMessageRows(
+      b.manifest,
+      b.messages,
+    ).where((message) => message.author == _signer.selfId).toList();
+    if (_messageForks(
+      b.manifest,
+      retainedSelf,
+    ).containsKey('$targetScope|${_signer.selfId.hex}')) {
+      return false;
+    }
+    final canonicalSelf = _canonicalMessageRows(
+      b.manifest,
+      retainedSelf,
+    ).where((message) => message.author == _signer.selfId).toList();
+    final scopedSelf = canonicalSelf
+        .where(
+          (message) => _messageChainScope(b.manifest, message) == targetScope,
+        )
+        .toList();
+    final acceptedScope = _acceptedMessageChain(
+      b.manifest,
+      canonicalSelf,
+      _signer.selfId,
+      targetScope,
+    );
+    if (acceptedScope.length != scopedSelf.length) {
+      // Never author on top of a forked or broken local suffix. Gap-fill must
+      // first recover the exact predecessor selected by the signed chain.
+      return false;
+    }
+    final mySeq = _nextSeq(retainedSelf.map((message) => message.seq));
+    // Sovereign device groups are compacted LWW state logs, not user history:
+    // removing superseded rows is intentional there, so they retain the
+    // legacy unchained shape until that CRDT gets its own checkpoint protocol.
+    final prevHash = b.manifest.isSovereignDevice || acceptedScope.isEmpty
+        ? ''
+        : groupMessageHash(acceptedScope.last);
     if (protectedChannel == null &&
         encryptionEstablished &&
         (descriptor == null ||
@@ -3834,7 +3866,7 @@ class GroupService {
           channelEpoch: opaque.channelEpoch,
           author: _signer.selfId,
           seq: mySeq,
-          prevHash: '',
+          prevHash: prevHash,
           policyVersion: state.policyVersion,
           createdAtMs: createdAt,
           clearText: clear,
@@ -3845,7 +3877,7 @@ class GroupService {
           channelId: opaque.channelId,
           author: _signer.selfId,
           seq: mySeq,
-          prevHash: '',
+          prevHash: prevHash,
           body: '',
           version: 3,
           channelEpoch: opaque.channelEpoch,
@@ -3870,7 +3902,7 @@ class GroupService {
           membershipEpoch: state.epoch,
           author: _signer.selfId,
           seq: mySeq,
-          prevHash: '',
+          prevHash: prevHash,
           policyVersion: state.policyVersion,
           createdAtMs: createdAt,
           clearText: clear,
@@ -3881,7 +3913,7 @@ class GroupService {
           channelId: resolvedChannelId,
           author: _signer.selfId,
           seq: mySeq,
-          prevHash: '',
+          prevHash: prevHash,
           body: '',
           version: 2,
           membershipEpoch: state.epoch,
@@ -3899,7 +3931,7 @@ class GroupService {
         channelId: resolvedChannelId,
         author: _signer.selfId,
         seq: mySeq,
-        prevHash: '',
+        prevHash: prevHash,
         body: body,
         policyVersion: state.policyVersion,
         createdAtMs: createdAt,
@@ -4400,6 +4432,183 @@ class GroupService {
     ...post.canonicalBytes(),
     ...post.signature,
   ]).toString();
+
+  /// A message chain never crosses a visibility boundary. The channel (for a
+  /// Space) and encryption epoch are both part of the scope: a new member who
+  /// receives only the post-join epoch must not need an undisclosed historical
+  /// predecessor, and a revoked restricted-channel member must not learn the
+  /// next epoch's head through a shared sync vector.
+  String _messageChainScope(GroupManifest manifest, GroupMessage message) {
+    final channel = manifest.isSpace
+        ? (message.channelId ?? defaultSpaceChannelId(manifest.groupId)).hex
+        : 'group';
+    if (message.isChannelEncrypted) {
+      return '$channel|channelEpoch:${message.channelEpoch}';
+    }
+    if (message.isEncrypted) {
+      return '$channel|membershipEpoch:${message.membershipEpoch}';
+    }
+    return '$channel|clear';
+  }
+
+  /// Preserve every distinct valid signed row. Same-scope `(author, seq)`
+  /// conflicts are evidence and must survive compaction/snapshot propagation;
+  /// forgetting one branch would make the winner depend on arrival order.
+  List<GroupMessage> _retainedMessageRows(
+    GroupManifest manifest,
+    Iterable<GroupMessage> input,
+  ) {
+    final rows = <String, GroupMessage>{};
+    for (final message in input) {
+      if (!_validMessageFor(manifest.groupId, message)) continue;
+      rows[groupMessageHash(message)] = message;
+    }
+    return rows.values.toList();
+  }
+
+  Map<String, ({int seq, Set<String> hashes})> _messageForks(
+    GroupManifest manifest,
+    Iterable<GroupMessage> input,
+  ) {
+    final candidates = <String, Set<String>>{};
+    final samples = <String, GroupMessage>{};
+    for (final message in input) {
+      if (!_validMessageFor(manifest.groupId, message)) continue;
+      final scope = _messageChainScope(manifest, message);
+      final identity = '$scope|${message.author.hex}:${message.seq}';
+      candidates
+          .putIfAbsent(identity, () => <String>{})
+          .add(groupMessageHash(message));
+      samples[identity] = message;
+    }
+    final forks = <String, ({int seq, Set<String> hashes})>{};
+    for (final entry in candidates.entries) {
+      if (entry.value.length <= 1) continue;
+      final sample = samples[entry.key]!;
+      final key =
+          '${_messageChainScope(manifest, sample)}|${sample.author.hex}';
+      final current = forks[key];
+      if (current == null || sample.seq < current.seq) {
+        forks[key] = (seq: sample.seq, hashes: Set.unmodifiable(entry.value));
+      }
+    }
+    return forks;
+  }
+
+  /// Return valid rows outside an equivocated suffix in the same visibility
+  /// scope. A fork in a restricted channel cannot suppress unrelated public
+  /// channel history for members who are not allowed to learn that the hidden
+  /// channel exists.
+  List<GroupMessage> _canonicalMessageRows(
+    GroupManifest manifest,
+    Iterable<GroupMessage> input,
+  ) {
+    final candidates = <String, Map<String, GroupMessage>>{};
+    for (final message in input) {
+      if (!_validMessageFor(manifest.groupId, message)) continue;
+      final scope = _messageChainScope(manifest, message);
+      final identity = '$scope|${message.author.hex}:${message.seq}';
+      candidates.putIfAbsent(
+        identity,
+        () => <String, GroupMessage>{},
+      )[groupMessageHash(message)] = message;
+    }
+    final forkedAt = <String, int>{};
+    for (final distinct in candidates.values) {
+      if (distinct.length <= 1) continue;
+      final sample = distinct.values.first;
+      final key =
+          '${_messageChainScope(manifest, sample)}|${sample.author.hex}';
+      final current = forkedAt[key];
+      if (current == null || sample.seq < current) forkedAt[key] = sample.seq;
+    }
+    return [
+      for (final distinct in candidates.values)
+        if (distinct.length == 1)
+          if (distinct.values.single.seq <
+              (forkedAt['${_messageChainScope(manifest, distinct.values.single)}|'
+                      '${distinct.values.single.author.hex}'] ??
+                  (1 << 62)))
+            distinct.values.single,
+    ];
+  }
+
+  /// Fold one author's chain inside one visibility scope. Legacy rows used an
+  /// empty `prevHash`; the first modern row commits to the exact terminal
+  /// legacy row and starts strict mode. From that point a missing predecessor,
+  /// downgrade to an empty link, or wrong hash hides the whole scoped suffix
+  /// until anti-entropy supplies the exact missing row.
+  List<GroupMessage> _acceptedMessageChain(
+    GroupManifest manifest,
+    Iterable<GroupMessage> input,
+    NodeId author,
+    String scope,
+  ) {
+    final authored =
+        _canonicalMessageRows(manifest, input)
+            .where(
+              (message) =>
+                  message.author == author &&
+                  _messageChainScope(manifest, message) == scope,
+            )
+            .toList()
+          ..sort((left, right) => left.seq.compareTo(right.seq));
+    final accepted = <GroupMessage>[];
+    GroupMessage? predecessor;
+    var strict = false;
+    for (final message in authored) {
+      if (predecessor != null && message.seq <= predecessor.seq) break;
+      if (message.prevHash.isEmpty) {
+        if (strict) break;
+      } else {
+        if (predecessor == null ||
+            message.prevHash != groupMessageHash(predecessor)) {
+          break;
+        }
+        strict = true;
+      }
+      accepted.add(message);
+      predecessor = message;
+    }
+    return accepted;
+  }
+
+  List<GroupMessage> _acceptedMessageRows(
+    GroupManifest manifest,
+    Iterable<GroupMessage> input,
+  ) {
+    final canonical = _canonicalMessageRows(manifest, input);
+    final chains = <String, ({NodeId author, String scope})>{};
+    for (final message in canonical) {
+      final scope = _messageChainScope(manifest, message);
+      chains['$scope|${message.author.hex}'] = (
+        author: message.author,
+        scope: scope,
+      );
+    }
+    final accepted = <GroupMessage>[
+      for (final chain in chains.values)
+        ..._acceptedMessageChain(
+          manifest,
+          canonical,
+          chain.author,
+          chain.scope,
+        ),
+    ];
+    accepted.sort((left, right) {
+      final time = left.createdAtMs.compareTo(right.createdAtMs);
+      if (time != 0) return time;
+      final author = left.author.hex.compareTo(right.author.hex);
+      if (author != 0) return author;
+      final seq = left.seq.compareTo(right.seq);
+      if (seq != 0) return seq;
+      return _messageChainScope(
+        manifest,
+        left,
+      ).compareTo(_messageChainScope(manifest, right));
+    });
+    return accepted;
+  }
 
   /// Return valid rows outside an equivocated suffix. Two distinct valid rows
   /// at the same `(author, seq)` quarantine that fork point and every later
@@ -5085,6 +5294,8 @@ class GroupService {
   Future<Map<String, dynamic>?> buildGroupSyncRequest(NodeId groupId) async {
     final b = await load(groupId);
     if (b == null) return null;
+    final retainedMessages = _retainedMessageRows(b.manifest, b.messages);
+    final acceptedMessages = _acceptedMessageRows(b.manifest, b.messages);
     Map<String, int> vector(Iterable<(NodeId, int)> entries) {
       final v = <String, int>{};
       for (final (a, s) in entries) {
@@ -5096,6 +5307,30 @@ class GroupService {
         if (s > (v[a.hex] ?? -1)) v[a.hex] = s;
       }
       return v;
+    }
+
+    Map<String, Object> messageVector(Iterable<GroupMessage> messages) {
+      final rows = messages.toList(growable: false);
+      final result = <String, Object>{};
+      final forks = _messageForks(b.manifest, rows);
+      final authors = <String, NodeId>{
+        for (final message in rows) message.author.hex: message.author,
+      };
+      for (final author in authors.values) {
+        final authored = rows.where((message) => message.author == author);
+        if (authored.isEmpty) continue;
+        final scope = _messageChainScope(b.manifest, authored.first);
+        final chain = _acceptedMessageChain(b.manifest, rows, author, scope);
+        final fork = forks['$scope|${author.hex}'];
+        final value = <String, Object>{
+          's': chain.isEmpty ? -1 : chain.last.seq,
+          if (chain.isNotEmpty) 'h': groupMessageHash(chain.last),
+          if (fork != null)
+            'f': {'s': fork.seq, 'h': fork.hashes.toList()..sort()},
+        };
+        result[author.hex] = value;
+      }
+      return result;
     }
 
     Map<String, Object> postVector() {
@@ -5138,16 +5373,46 @@ class GroupService {
 
     Map<String, Object> channelMessageVector() {
       final result = <String, Object>{};
-      final byChannel = <String, List<(NodeId, int)>>{};
-      for (final message in b.messages) {
-        if (_validMessageFor(groupId, message) && message.isChannelEncrypted) {
+      final byChannel = <String, List<GroupMessage>>{};
+      for (final message in retainedMessages) {
+        if (message.isChannelEncrypted) {
           byChannel
-              .putIfAbsent(message.channelId!.hex, () => <(NodeId, int)>[])
-              .add((message.author, message.seq));
+              .putIfAbsent(
+                _messageChainScope(b.manifest, message),
+                () => <GroupMessage>[],
+              )
+              .add(message);
         }
       }
       for (final entry in byChannel.entries) {
-        result[entry.key] = vector(entry.value);
+        result[entry.key] = messageVector(entry.value);
+      }
+      return result;
+    }
+
+    Map<String, Object> openChannelMessageVector() {
+      final result = <String, Object>{};
+      final byChannel = <String, List<GroupMessage>>{};
+      for (final message in retainedMessages) {
+        if (message.isChannelEncrypted) continue;
+        final scope = _messageChainScope(b.manifest, message);
+        byChannel.putIfAbsent(scope, () => <GroupMessage>[]).add(message);
+      }
+      for (final entry in byChannel.entries) {
+        result[entry.key] = messageVector(entry.value);
+      }
+      return result;
+    }
+
+    Map<String, Object> groupMessageScopeVector() {
+      final result = <String, Object>{};
+      final byScope = <String, List<GroupMessage>>{};
+      for (final message in retainedMessages) {
+        final scope = _messageChainScope(b.manifest, message);
+        byScope.putIfAbsent(scope, () => <GroupMessage>[]).add(message);
+      }
+      for (final entry in byScope.entries) {
+        result[entry.key] = messageVector(entry.value);
       }
       return result;
     }
@@ -5155,11 +5420,17 @@ class GroupService {
     return {
       'sreq': 1,
       'gid': groupId.hex,
+      // Legacy Space peers still consume the flat high-water vector. New
+      // peers use `mg`, scoped by visible channel, so alternating between
+      // channels cannot skip a lower-seq missing row.
       'g': vector(
-        b.messages
-            .where((m) => _validMessageFor(groupId, m) && !m.isChannelEncrypted)
-            .map((m) => (m.author, m.seq)),
+        acceptedMessages
+            .where((message) => !message.isChannelEncrypted)
+            .map((message) => (message.author, message.seq)),
       ),
+      if (!b.manifest.isSpace && !b.manifest.isSovereignDevice)
+        'ms': groupMessageScopeVector(),
+      if (b.manifest.isSpace) 'mg': openChannelMessageVector(),
       if (b.manifest.isSpace) 'cg': channelMessageVector(),
       // V2 adds the accepted head hash. A legacy peer treats the object value
       // as unseen and safely over-ships; a new peer detects same-seq forks
@@ -5197,6 +5468,8 @@ class GroupService {
     }
     final b = await load(gid);
     if (b == null) return false;
+    final retainedMessages = _retainedMessageRows(b.manifest, b.messages);
+    final localMessageForks = _messageForks(b.manifest, retainedMessages);
     final state = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
@@ -5216,19 +5489,31 @@ class GroupService {
       return -1;
     }
 
-    String? seenControlHash(Object? vec, NodeId author) {
+    String? seenRowHash(Object? vec, NodeId author) {
       if (vec is! Map) return null;
       final value = vec[author.hex];
       return value is Map && value['h'] is String ? value['h'] as String : null;
     }
 
-    bool hasControlHash(Object? vec, NodeId author) =>
+    bool hasRowHash(Object? vec, NodeId author) =>
         vec is Map &&
         vec[author.hex] is Map &&
         (vec[author.hex] as Map)['h'] is String;
+    Set<String> knownForkHashes(Object? vec, NodeId author, int seq) {
+      if (vec is! Map || vec[author.hex] is! Map) return const {};
+      final fork = (vec[author.hex] as Map)['f'];
+      if (fork is! Map || fork['s'] != seq || fork['h'] is! List) {
+        return const {};
+      }
+      return (fork['h'] as List).whereType<String>().toSet();
+    }
+
+    String? seenControlHash(Object? vec, NodeId author) =>
+        seenRowHash(vec, author);
+    bool hasControlHash(Object? vec, NodeId author) => hasRowHash(vec, author);
     String? seenPostHash(Object? vec, NodeId author) =>
-        seenControlHash(vec, author);
-    bool hasPostHash(Object? vec, NodeId author) => hasControlHash(vec, author);
+        seenRowHash(vec, author);
+    bool hasPostHash(Object? vec, NodeId author) => hasRowHash(vec, author);
     final heldEpochs = req['ke'] is List
         ? (req['ke'] as List).whereType<int>().toSet()
         : const <int>{};
@@ -5246,30 +5531,68 @@ class GroupService {
         ))
           envelope,
     ];
-    int seenChannelMessage(Object? vec, GroupMessage message) {
-      if (vec is! Map || message.channelId == null) return -1;
-      return seen(vec[message.channelId!.hex], message.author);
+    Object? messageVectorFor(GroupMessage message) {
+      if (message.isChannelEncrypted) {
+        final channels = req['cg'];
+        if (channels is! Map) return null;
+        return channels[_messageChainScope(b.manifest, message)] ??
+            channels[message.channelId!.hex];
+      }
+      if (b.manifest.isSpace) {
+        return req['mg'] is Map
+            ? (req['mg'] as Map)[_messageChainScope(b.manifest, message)]
+            : null;
+      }
+      if (!b.manifest.isSovereignDevice) {
+        return req['ms'] is Map
+            ? (req['ms'] as Map)[_messageChainScope(b.manifest, message)]
+            : null;
+      }
+      return req['g'];
     }
 
     bool peerNeedsMessage(GroupMessage message) {
       if (!_validMessageFor(gid, message)) return false;
-      if (message.isChannelEncrypted) {
-        return message.seq > seenChannelMessage(req['cg'], message) &&
-            _peerCanDecryptChannelEpoch(
-              b,
-              peer,
-              message.channelId!,
-              message.channelEpoch!,
-            );
+      final messageVector = messageVectorFor(message);
+      final peerSeq = seen(messageVector, message.author);
+      final scope = _messageChainScope(b.manifest, message);
+      final fork = localMessageForks['$scope|${message.author.hex}'];
+      final knownFork = fork == null
+          ? const <String>{}
+          : knownForkHashes(messageVector, message.author, fork.seq);
+      bool missing;
+      if (fork != null && message.seq >= fork.seq) {
+        if (knownFork.containsAll(fork.hashes)) return false;
+        // The conflicting rows themselves are sufficient evidence to
+        // quarantine the suffix. Do not waste bandwidth shipping a suffix
+        // that neither side may materialize until the fork is resolved by a
+        // future explicit protocol.
+        if (message.seq > fork.seq) return false;
+        missing = !knownFork.contains(groupMessageHash(message));
+      } else {
+        missing =
+            message.seq > peerSeq ||
+            (message.seq == peerSeq &&
+                hasRowHash(messageVector, message.author) &&
+                seenRowHash(messageVector, message.author) !=
+                    groupMessageHash(message));
       }
-      if (message.seq <= seen(req['g'], message.author)) return false;
+      if (!missing) return false;
+      if (message.isChannelEncrypted) {
+        return _peerCanDecryptChannelEpoch(
+          b,
+          peer,
+          message.channelId!,
+          message.channelEpoch!,
+        );
+      }
       return !_encryptionEstablished(b.manifest, b.control) ||
           (message.isEncrypted &&
               _peerCanDecryptEpoch(b, peer, message.membershipEpoch!));
     }
 
     final missingMsgs = [
-      for (final message in b.messages)
+      for (final message in retainedMessages)
         if (peerNeedsMessage(message)) message,
     ];
     final missingCtl = [
@@ -5661,8 +5984,7 @@ class GroupService {
         ? await _protectedChannelsOf(b, state)
         : const <String, SpaceChannelControlCleartext>{};
     final out = <GroupMessage>[];
-    for (final m in b.messages) {
-      if (!_validMessageFor(groupId, m)) continue;
+    for (final m in _acceptedMessageRows(b.manifest, b.messages)) {
       final effectiveChannelId = b.manifest.isSpace
           ? m.channelId ?? defaultSpaceChannelId(groupId)
           : null;
@@ -6381,7 +6703,7 @@ class GroupService {
           )
           .map((e) => e.toJson())
           .toList(),
-      'g': b.messages
+      'g': _retainedMessageRows(b.manifest, b.messages)
           .where(
             (message) =>
                 _validMessageFor(b.manifest.groupId, message) &&
@@ -6445,7 +6767,8 @@ class GroupService {
   }
 
   /// Ingest a received snapshot: materialize the group if new (manifest +
-  /// index), then merge control + message entries (dedup by author+seq).
+  /// index), then merge control + message entries. Exact signed rows dedup by
+  /// hash; distinct same-scope `(author, seq)` rows remain as fork evidence.
   /// Idempotent — re-delivery of the same snapshot is a no-op.
   Future<bool> ingestSnapshot(String bundleJson) async {
     try {
@@ -6518,6 +6841,10 @@ class GroupService {
     if (man == null) return false;
     final control = [...(existing?.control ?? const <ControlEntry>[])];
     final messages = [...(existing?.messages ?? const <GroupMessage>[])];
+    final acceptedMessageHashesBefore = {
+      for (final message in _acceptedMessageRows(man, messages))
+        groupMessageHash(message),
+    };
     final posts = [...(existing?.posts ?? const <SpacePost>[])];
     final reactions = [...(existing?.reactions ?? const <GroupReaction>[])];
     for (final e in inControl) {
@@ -6638,21 +6965,26 @@ class GroupService {
         // never newly imported into an encrypted group.
         continue;
       }
+      final incomingHash = groupMessageHash(m);
       if (!messages.any(
-        (x) =>
-            _validMessageFor(manifest.groupId, x) &&
-            x.author == m.author &&
-            x.seq == m.seq,
+        (stored) =>
+            _validMessageFor(manifest.groupId, stored) &&
+            groupMessageHash(stored) == incomingHash,
       )) {
         messages.add(m);
-        // Feed the notification/unread layer: genuinely new, not ours, and
-        // signature-verified (a forged entry must not buzz the phone even
-        // though the fold would drop it on read anyway).
-        if (m.author != _signer.selfId) {
-          fresh.add(m);
-        }
       }
     }
+    // Notify only rows that became part of an accepted scoped chain. A suffix
+    // received before its predecessor stays silent; when gap-fill later closes
+    // the chain, the predecessor and newly-unblocked suffix become visible in
+    // one deterministic batch. Fork evidence never produces a notification.
+    fresh.addAll(
+      _acceptedMessageRows(man, messages).where(
+        (message) =>
+            message.author != _signer.selfId &&
+            !acceptedMessageHashesBefore.contains(groupMessageHash(message)),
+      ),
+    );
     for (final post in inPosts) {
       if (!man.isSpace || !_validPostFor(man.groupId, post)) continue;
       final historicallyAuthorized =
@@ -6719,6 +7051,10 @@ class GroupService {
     final visiblePostIds = man.isSpace
         ? {for (final post in await _postsOfBundle(targetBundle)) post.postId}
         : const <String>{};
+    final acceptedMessageRefs = {
+      for (final message in _acceptedMessageRows(man, messages))
+        if (!message.isChannelEncrypted) message.ref,
+    };
     for (final r in inReactions) {
       if (!_validReactionFor(manifest.groupId, r) ||
           !SpaceAcl(mergedState).allows(
@@ -6743,10 +7079,8 @@ class GroupService {
       }
       if (visibleReaction == null) continue;
       final targetExists = switch (visibleReaction.targetKind) {
-        ReactionTargetKind.message => messages.any(
-          (message) =>
-              message.ref == visibleReaction!.target &&
-              !message.isChannelEncrypted,
+        ReactionTargetKind.message => acceptedMessageRefs.contains(
+          visibleReaction.target,
         ),
         ReactionTargetKind.spacePost =>
           man.isSpace && visiblePostIds.contains(visibleReaction.target),
