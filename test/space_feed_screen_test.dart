@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/transport/veil_mailbox.dart';
 import 'package:xveil/data/storage/storage.dart';
@@ -96,6 +97,19 @@ Widget _host(GroupService service, Widget child, {Storage? storage}) =>
         localizationsDelegates: AppL10n.localizationsDelegates,
         supportedLocales: AppL10n.supportedLocales,
         home: child,
+      ),
+    );
+
+Widget _routerHost(GroupService service, GoRouter router, {Storage? storage}) =>
+    ProviderScope(
+      overrides: [
+        groupServiceProvider.overrideWithValue(service),
+        if (storage != null) storageProvider.overrideWithValue(storage),
+      ],
+      child: MaterialApp.router(
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        routerConfig: router,
       ),
     );
 
@@ -367,6 +381,10 @@ void main() {
         tester.element(find.byType(SpacePostCommentsScreen)),
       );
       expect(find.text('Design review'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('space-post-comments-back')),
+        findsOneWidget,
+      );
       expect(find.text(l.spacePostCommentsEmpty), findsOneWidget);
       expect(
         tester
@@ -450,6 +468,105 @@ void main() {
       expect((await service.listGroups()), isEmpty);
     },
   );
+
+  testWidgets('Space comments back button returns to the previous screen', (
+    tester,
+  ) async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(storage, _Signer(_id(18)));
+    final spaceId = await service.createSpace(
+      'Back navigation',
+      visibility: SpaceVisibility.public,
+    );
+    final post = (await service.publishSpacePost(
+      spaceId,
+      title: 'Back navigation post',
+      body: '',
+      broadcast: false,
+    ))!;
+    final commentsPath =
+        '/space/${spaceId.hex}/comments?post='
+        '${Uri.encodeQueryComponent(post.postId)}';
+    final router = GoRouter(
+      initialLocation: '/feed',
+      routes: [
+        GoRoute(
+          path: '/feed',
+          builder: (context, _) => Scaffold(
+            body: TextButton(
+              key: const ValueKey('open-comments'),
+              onPressed: () => context.push(commentsPath),
+              child: const Text('Feed'),
+            ),
+          ),
+        ),
+        GoRoute(
+          path: '/space/:id/comments',
+          builder: (_, state) => SpacePostCommentsScreen(
+            spaceIdHex: state.pathParameters['id']!,
+            postId: state.uri.queryParameters['post']!,
+          ),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(_routerHost(service, router, storage: storage));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('open-comments')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('space-post-comments-back')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('open-comments')), findsOneWidget);
+    expect(find.byType(SpacePostCommentsScreen), findsNothing);
+  });
+
+  testWidgets('Space comments back button has a direct-route fallback', (
+    tester,
+  ) async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(storage, _Signer(_id(19)));
+    final spaceId = await service.createSpace(
+      'Back fallback',
+      visibility: SpaceVisibility.public,
+    );
+    final post = (await service.publishSpacePost(
+      spaceId,
+      title: 'Fallback post',
+      body: '',
+      broadcast: false,
+    ))!;
+    final router = GoRouter(
+      initialLocation:
+          '/space/${spaceId.hex}/comments?post='
+          '${Uri.encodeQueryComponent(post.postId)}',
+      routes: [
+        GoRoute(
+          path: '/space/:id/posts',
+          builder: (_, _) => const Scaffold(body: Text('Posts fallback')),
+        ),
+        GoRoute(
+          path: '/space/:id/comments',
+          builder: (_, state) => SpacePostCommentsScreen(
+            spaceIdHex: state.pathParameters['id']!,
+            postId: state.uri.queryParameters['post']!,
+          ),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(_routerHost(service, router, storage: storage));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('space-post-comments-back')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Posts fallback'), findsOneWidget);
+    expect(find.byType(SpacePostCommentsScreen), findsNothing);
+  });
 
   testWidgets(
     'Space publication composer persists, publishes and edits shared media refs',
