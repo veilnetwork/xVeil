@@ -25,6 +25,11 @@ Future<void> showConversationActions(
   final l = AppL10n.of(context);
   final svc = ref.read(messagingServiceProvider);
   final peer = contact.nodeId;
+  final notificationMode = contact.notificationModeAt(DateTime.now());
+  final notificationPolicy = NotificationMutePolicy(
+    mode: contact.notificationMuteMode,
+    until: contact.mutedUntil,
+  );
   await showModalBottomSheet<void>(
     context: context,
     // Scrollable: rename/pin/mute/mark-read/archive/retention/peer-delete/
@@ -64,12 +69,23 @@ Future<void> showConversationActions(
               ),
             if (contact.muted)
               ListTile(
-                leading: const Icon(Icons.notifications_active_outlined),
-                title: Text(l.chatMenuUnmute),
+                leading: Icon(notificationMuteModeIcon(notificationMode)),
+                title: Text(l.notificationsTitle),
+                subtitle: Text(
+                  notificationMutePolicyLabel(context, notificationPolicy),
+                ),
                 onTap: () {
                   Navigator.of(sheet).pop();
-                  svc.setContactMutedUntil(peer, null);
+                  pickMuteDuration(context, ref, peer);
                 },
+                trailing: IconButton(
+                  tooltip: l.chatMenuUnmute,
+                  icon: const Icon(Icons.notifications_active_outlined),
+                  onPressed: () {
+                    Navigator.of(sheet).pop();
+                    svc.setContactMutedUntil(peer, null);
+                  },
+                ),
               )
             else
               ListTile(
@@ -307,6 +323,24 @@ typedef NotificationMuteSelection = ({
   NotificationMuteMode mode,
   DateTime until,
 });
+
+IconData notificationMuteModeIcon(NotificationMuteMode mode) => switch (mode) {
+  NotificationMuteMode.all => Icons.notifications_active_outlined,
+  NotificationMuteMode.mentionsOnly => Icons.alternate_email,
+  NotificationMuteMode.none => Icons.notifications_off_outlined,
+};
+
+String notificationMuteModeLabel(
+  BuildContext context,
+  NotificationMuteMode mode,
+) {
+  final l = AppL10n.of(context);
+  return switch (mode) {
+    NotificationMuteMode.all => l.notificationsEnabled,
+    NotificationMuteMode.mentionsOnly => l.notificationMuteMentionsOnly,
+    NotificationMuteMode.none => l.notificationMuteNone,
+  };
+}
 
 String notificationMutePolicyLabel(
   BuildContext context,

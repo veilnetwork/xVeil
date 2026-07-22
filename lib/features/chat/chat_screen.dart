@@ -2134,16 +2134,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         value: _ChatMenuAction.pin,
                         child: Text(l.chatMenuPin),
                       ),
-                    // Mute/unmute local notifications for this conversation.
+                    // Keep the policy directly editable even while a timed
+                    // mode is active; unmute remains a separate one-tap exit.
+                    PopupMenuItem(
+                      value: _ChatMenuAction.mute,
+                      child: Text(
+                        contact?.muted ?? false
+                            ? notificationMutePolicyLabel(
+                                context,
+                                NotificationMutePolicy(
+                                  mode: contact!.notificationMuteMode,
+                                  until: contact.mutedUntil,
+                                ),
+                              )
+                            : l.chatMenuMute,
+                      ),
+                    ),
                     if (contact?.muted ?? false)
                       PopupMenuItem(
                         value: _ChatMenuAction.unmute,
                         child: Text(l.chatMenuUnmute),
-                      )
-                    else
-                      PopupMenuItem(
-                        value: _ChatMenuAction.mute,
-                        child: Text(l.chatMenuMute),
                       ),
                     PopupMenuItem(
                       value: _ChatMenuAction.retention,

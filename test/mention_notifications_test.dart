@@ -11,6 +11,17 @@ import 'package:xveil/l10n/app_localizations.dart';
 NodeId _id(int byte) => NodeId(Uint8List.fromList(List.filled(32, byte)));
 
 void main() {
+  test('notification modes have truthful, distinct icons', () {
+    expect(
+      notificationMuteModeIcon(NotificationMuteMode.mentionsOnly),
+      Icons.alternate_email,
+    );
+    expect(
+      notificationMuteModeIcon(NotificationMuteMode.none),
+      Icons.notifications_off_outlined,
+    );
+  });
+
   testWidgets('mute level keeps the established duration presets', (
     tester,
   ) async {

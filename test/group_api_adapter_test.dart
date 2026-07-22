@@ -122,6 +122,7 @@ void main() {
       expect(listed['description'], 'Initial summary');
       expect(listed['visibility'], 'secret');
       expect(listed['discoverable'], isFalse);
+      expect(listed['notificationMode'], NotificationMuteMode.all.name);
 
       final profile = (await api.profile(space!))!;
       expect(profile['description'], 'Initial summary');
