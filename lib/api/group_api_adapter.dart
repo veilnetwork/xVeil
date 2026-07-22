@@ -432,7 +432,9 @@ final class GroupApiAdapter {
     'body': message.body,
     'sentAt': message.createdAtMs,
     if (message.replyTo != null) 'replyTo': message.replyTo,
-    if (message.attachment != null)
+    if (message.spacePostId != null && message.attachment != null)
+      'media': message.attachment!.toReferenceJson(),
+    if (message.spacePostId == null && message.attachment != null)
       'attachment': {
         'kind': message.attachment!.kind,
         'width': message.attachment!.w,
@@ -523,6 +525,7 @@ final class GroupApiAdapter {
     String postId,
     String body,
     String? replyTo,
+    MediaObject? media,
   ) async {
     final visible = await _visible(spaceHex);
     if (visible == null) return 'space not found';
@@ -531,6 +534,7 @@ final class GroupApiAdapter {
           postId,
           body,
           replyTo: replyTo,
+          media: media,
         )
         ? null
         : 'comment publication rejected';

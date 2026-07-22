@@ -280,6 +280,7 @@ Map<String, dynamic> openApiSpec() {
             'body': {'type': 'string'},
             'sentAt': {'type': 'integer', 'format': 'int64'},
             'replyTo': {'type': 'string'},
+            'media': {r'$ref': '#/components/schemas/MediaObject'},
             'attachment': {'type': obj},
           },
         },
@@ -998,7 +999,7 @@ Map<String, dynamic> openApiSpec() {
               'application/json': {
                 'schema': {
                   'type': obj,
-                  'required': ['space', 'postId', 'body'],
+                  'required': ['space', 'postId'],
                   'properties': {
                     'space': {'type': 'string'},
                     'postId': {'type': 'string'},
@@ -1007,7 +1008,10 @@ Map<String, dynamic> openApiSpec() {
                       'maxLength': kSpacePostCommentMaxBytes,
                     },
                     'replyTo': {'type': 'string'},
+                    'media': {r'$ref': '#/components/schemas/MediaObject'},
                   },
+                  'description':
+                      'At least one of body or media must be present.',
                 },
               },
             },
@@ -2495,6 +2499,7 @@ class ApiHandler {
     String postId,
     String body,
     String? replyTo,
+    MediaObject? media,
   )?
   publishSpacePostComment;
   final Future<({String? error, Map<String, dynamic>? post})> Function(
@@ -3181,20 +3186,25 @@ class ApiHandler {
       }
       final space = body?['space'];
       final postId = body?['postId'];
-      final text = body?['body'];
+      final text = body?['body'] ?? '';
       final replyTo = body?['replyTo'];
+      final hasMedia = body?.containsKey('media') ?? false;
+      final media = hasMedia
+          ? MediaObject.fromReferenceJson(body?['media'])
+          : null;
       if (space is! String ||
           space.isEmpty ||
           postId is! String ||
           !_validPostId(postId) ||
           text is! String ||
-          text.trim().isEmpty ||
+          (text.trim().isEmpty && media == null) ||
+          (hasMedia && media == null) ||
           utf8.encode(text).length > kSpacePostCommentMaxBytes ||
           (replyTo != null && (replyTo is! String || !_validPostId(replyTo)))) {
         return const ApiResponse(400, {'error': 'invalid Space post comment'});
       }
       return _spaceMutationResponse(
-        await handler(space, postId, text.trim(), replyTo as String?),
+        await handler(space, postId, text.trim(), replyTo as String?, media),
       );
     }
     if (method == 'POST' && path == '/v1/spaces/posts') {

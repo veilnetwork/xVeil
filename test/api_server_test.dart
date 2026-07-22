@@ -25,7 +25,7 @@ void main() {
   final spacePostEditMedia = <List<Map<String, dynamic>>?>[];
   final spacePostDraftMedia = <List<Map<String, dynamic>>>[];
   final spacePostDraftClears = <String>[];
-  final spacePostCommentWrites = <(String, String, String, String?)>[];
+  final spacePostCommentWrites = <(String, String, String, String?, String?)>[];
   final spaceRecommendationShares = <(String, String, String)>[];
   final subscriptions = <(String, bool)>[];
   final subscriptionUpdates = <(String, bool?, bool?, bool?)>[];
@@ -272,9 +272,15 @@ void main() {
                 },
               ].take(limit).toList(),
             },
-      publishSpacePostComment: (space, postId, body, replyTo) async {
+      publishSpacePostComment: (space, postId, body, replyTo, media) async {
         if (space == 'denied') return 'comment publication rejected';
-        spacePostCommentWrites.add((space, postId, body, replyTo));
+        spacePostCommentWrites.add((
+          space,
+          postId,
+          body,
+          replyTo,
+          media?.contentId,
+        ));
         return null;
       },
       publishSpacePost: (space, title, body, type, media) async {
@@ -1731,7 +1737,38 @@ void main() {
         postId,
         'API discussion',
         replyTo,
+        null,
       ));
+      final commentMedia = {
+        'cid': 'd' * 64,
+        'kind': 'image',
+        'name': 'comment.png',
+        'mime': 'image/png',
+        'size': 42,
+      };
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/posts/comments'),
+          auth,
+          body: {'space': 'aa', 'postId': postId, 'media': commentMedia},
+        )).status,
+        200,
+      );
+      expect(spacePostCommentWrites.last, ('aa', postId, '', null, 'd' * 64));
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/posts/comments'),
+          auth,
+          body: {
+            'space': 'aa',
+            'postId': postId,
+            'media': {'cid': 'legacy-id', 'kind': 'file'},
+          },
+        )).status,
+        400,
+      );
       expect(
         (await h.handle(
           'GET',
@@ -2818,6 +2855,18 @@ void main() {
         'get',
         'post',
       });
+      final commentRequest =
+          (((((pathMap['/spaces/posts/comments'] as Map)['post']
+                              as Map)['requestBody']
+                          as Map)['content']
+                      as Map)['application/json']
+                  as Map)['schema']
+              as Map;
+      expect(commentRequest['required'], ['space', 'postId']);
+      expect(
+        ((commentRequest['properties'] as Map)['media'] as Map)[r'$ref'],
+        '#/components/schemas/MediaObject',
+      );
       expect((pathMap['/spaces/channels'] as Map).keys.toSet(), {
         'get',
         'post',
@@ -2836,6 +2885,11 @@ void main() {
       expect(postMedia['maxItems'], kSpacePostMediaMax);
       expect(
         (postMedia['items'] as Map)[r'$ref'],
+        '#/components/schemas/MediaObject',
+      );
+      expect(
+        (((schemas['GroupMessage'] as Map)['properties'] as Map)['media']
+            as Map)[r'$ref'],
         '#/components/schemas/MediaObject',
       );
       expect((schemas['MediaObjectRef'] as Map)['deprecated'], isTrue);
