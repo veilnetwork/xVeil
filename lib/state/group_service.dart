@@ -5065,6 +5065,7 @@ class GroupService {
     List<InlineCustomEmoji> customEmoji = const [],
     bool broadcast = true,
   }) async {
+    var effectiveAttachment = attachment;
     if (!isValidInlineCustomEmoji(body, customEmoji)) return false;
     if (editOf != null &&
         (spacePostId == null ||
@@ -5147,9 +5148,12 @@ class GroupService {
                   protectedChannel?.channel;
         if (channel == null ||
             channel.kind != SpaceChannelKind.text ||
-            channel.archived ||
-            (protectedChannel != null && attachment != null)) {
+            channel.archived) {
           return false;
+        }
+        if (protectedChannel != null && attachment != null) {
+          effectiveAttachment = _protectedMediaReference(attachment);
+          if (effectiveAttachment == null) return false;
         }
       }
     } else if (resolvedChannelId != null || spacePostId != null) {
@@ -5250,6 +5254,7 @@ class GroupService {
       }
       final clear = GroupMessageCleartext(
         body: body,
+        attachment: effectiveAttachment,
         replyTo: replyTo,
         customEmoji: customEmoji,
       ).encode();
@@ -5287,7 +5292,7 @@ class GroupService {
     } else if (descriptor != null && key != null) {
       final clear = GroupMessageCleartext(
         body: body,
-        attachment: attachment,
+        attachment: effectiveAttachment,
         replyTo: replyTo,
         editOf: editOf,
         customEmoji: customEmoji,
@@ -5335,7 +5340,7 @@ class GroupService {
         policyVersion: state.policyVersion,
         createdAtMs: createdAt,
         signature: Uint8List(0),
-        attachment: attachment,
+        attachment: effectiveAttachment,
         replyTo: replyTo,
         editOf: editOf,
         customEmoji: customEmoji,
@@ -5349,6 +5354,36 @@ class GroupService {
     // that already holds an image must not re-chunk that image over the wire.
     if (broadcast) unawaited(broadcastDelta(groupId, messages: [signed]));
     return true;
+  }
+
+  /// Protected-channel messages never carry a legacy inline payload. Convert
+  /// an existing content-path attachment into the strict reference codec and
+  /// let the channel AEAD encrypt its metadata; a missing/non-hash CID remains
+  /// fail-closed. This also drops legacy thumbnails so every protected media
+  /// byte is obtained through the separately authorized scoped content path.
+  MediaObject? _protectedMediaReference(MediaObject attachment) {
+    if (attachment.inlinePreviewB64 == null &&
+        attachment.isReferenceStructurallyValid) {
+      return attachment;
+    }
+    final contentId = attachment.contentId;
+    if (contentId == null) return null;
+    final duration =
+        attachment.durationMs ??
+        (attachment.kind == 'voice' || attachment.kind == 'vnote'
+            ? attachment.width
+            : null);
+    final reference = MediaObject(
+      kind: attachment.kind,
+      contentId: contentId,
+      name: attachment.name,
+      mimeType: attachment.mimeType,
+      size: attachment.size,
+      width: attachment.width,
+      height: attachment.height,
+      durationMs: duration,
+    );
+    return reference.isReferenceStructurallyValid ? reference : null;
   }
 
   String _spacePostDraftKey(NodeId spaceId) =>
@@ -9235,8 +9270,14 @@ class GroupService {
   Future<bool> requestGroupContent(
     NodeId groupId,
     String cid,
-    NodeId holder,
-  ) async {
+    NodeId holder, {
+    NodeId? channelId,
+    int? channelEpoch,
+  }) async {
+    if ((channelId == null) != (channelEpoch == null) ||
+        (channelEpoch != null && channelEpoch <= 0)) {
+      return false;
+    }
     final send = sendContentRequest;
     if (send == null) return false;
     final rnd = Random.secure();
@@ -9251,6 +9292,8 @@ class GroupService {
         requester: _signer.selfId,
         nonce: nonce,
         tsMs: _now(),
+        channelId: channelId,
+        channelEpoch: channelEpoch,
         signature: Uint8List(0),
       ),
     );
@@ -9271,18 +9314,25 @@ class GroupService {
     }
     if (r == null) return false;
     final req = r;
-    final st = await stateOf(req.groupId);
-    if (st == null) {
+    final bundle = await load(req.groupId);
+    if (bundle == null) {
       devLog(() => 'xVeil[groups]: content request for unknown group — drop');
       return false;
     }
+    final st = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+    ).state;
+    final scope = await _contentGrantScope(bundle, st, req);
     final denial = authorizeGroupContentRequest(
       req,
       state: st,
-      referenced: await referencedContentIds(req.groupId),
+      referenced: scope.referenced,
       nowMs: _now(),
       seenNonces: _seenContentNonces,
       verify: _signer.verifyContentRequest,
+      scopeAuthorized: scope.authorized,
     );
     if (denial != null) {
       devLog(
@@ -9296,6 +9346,67 @@ class GroupService {
     _seenContentNonces.add(req.nonce);
     grantContentServe?.call(req.requester, req.contentId);
     return true;
+  }
+
+  /// Resolve the exact reference namespace an inbound content request may
+  /// use. Unscoped requests deliberately exclude channel-encrypted rows, even
+  /// when this holder can decrypt them: otherwise any Space member who guessed
+  /// a protected CID could reuse the legacy membership-wide grant.
+  Future<({bool authorized, Set<String> referenced})> _contentGrantScope(
+    GroupBundle bundle,
+    GroupState state,
+    GroupContentRequest request,
+  ) async {
+    final channelId = request.channelId;
+    if (channelId == null) {
+      final posts = bundle.manifest.isSpace
+          ? await _postsOfBundle(bundle)
+          : const <SpacePostView>[];
+      final visiblePostIds = {for (final post in posts) post.postId};
+      final messages = await messagesOf(
+        request.groupId,
+        includeSpacePostComments: true,
+        applyLocalRetention: false,
+      );
+      return (
+        authorized: true,
+        referenced: {
+          for (final message in messages)
+            if (!message.isChannelEncrypted &&
+                message.attachment?.cid != null &&
+                (message.spacePostId == null ||
+                    visiblePostIds.contains(message.spacePostId)))
+              message.attachment!.cid!,
+          for (final post in posts)
+            for (final media in post.media) media.contentId!,
+        },
+      );
+    }
+
+    if (!bundle.manifest.isSpace) {
+      return (authorized: false, referenced: <String>{});
+    }
+    final opaque = state.protectedChannels[channelId.hex];
+    if (opaque == null || opaque.channelEpoch != request.channelEpoch) {
+      return (authorized: false, referenced: <String>{});
+    }
+    final clear = (await _protectedChannelsOf(bundle, state))[channelId.hex];
+    if (clear == null || !clear.recipients.contains(request.requester)) {
+      return (authorized: false, referenced: <String>{});
+    }
+    final messages = await messagesOf(
+      request.groupId,
+      channelId: channelId,
+      applyLocalRetention: false,
+    );
+    return (
+      authorized: true,
+      referenced: {
+        for (final message in messages)
+          if (message.isChannelEncrypted && message.attachment?.cid != null)
+            message.attachment!.cid!,
+      },
+    );
   }
 
   /// Whether NON-contact [peer] may sync group [gidHex]: we already hold that
@@ -9390,12 +9501,16 @@ class GroupService {
         ).allows(_signer.selfId, SpacePermission.distributeContent)) {
       return false;
     }
-    if (!(await referencedContentIds(groupId)).contains(cid)) return false;
-
-    final members = [
-      for (final member in state.members.values)
-        if (member.nodeId != _signer.selfId) member.nodeId,
-    ]..sort((a, b) => a.hex.compareTo(b.hex));
+    final bundle = await load(groupId);
+    if (bundle == null) return false;
+    final fetchScope = await _contentFetchScope(
+      bundle,
+      state,
+      cid,
+      preferredHolder: holder,
+    );
+    if (fetchScope == null) return false;
+    final members = fetchScope.candidates;
     if (members.isEmpty) return false;
     final candidates = <NodeId>[
       if (members.contains(holder)) holder,
@@ -9414,7 +9529,13 @@ class GroupService {
       // prefers the author, but its dead route cannot queue every grant behind
       // it inside a serialized transport.
       for (final candidate in requestTargets)
-        requestGroupContent(groupId, cid, candidate).catchError((Object e) {
+        requestGroupContent(
+          groupId,
+          cid,
+          candidate,
+          channelId: fetchScope.channelId,
+          channelEpoch: fetchScope.channelEpoch,
+        ).catchError((Object e) {
           devLog(
             () =>
                 'xVeil[groups]: content request to '
@@ -9445,6 +9566,92 @@ class GroupService {
     }
     return true;
   }
+
+  /// Find whether [cid] is referenced in the ordinary Space/group namespace
+  /// or only inside a protected channel visible to this device. Protected
+  /// pulls fan out solely to that channel's current recipients; the channel id
+  /// is never disclosed to unrelated Space members as a side effect of fetch.
+  Future<({NodeId? channelId, int? channelEpoch, List<NodeId> candidates})?>
+  _contentFetchScope(
+    GroupBundle bundle,
+    GroupState state,
+    String cid, {
+    required NodeId preferredHolder,
+  }) async {
+    final posts = bundle.manifest.isSpace
+        ? await _postsOfBundle(bundle)
+        : const <SpacePostView>[];
+    final visiblePostIds = {for (final post in posts) post.postId};
+    final messages = await messagesOf(
+      bundle.manifest.groupId,
+      includeSpacePostComments: true,
+      applyLocalRetention: false,
+    );
+    final ordinaryReference =
+        posts.any(
+          (post) => post.media.any((media) => media.contentId == cid),
+        ) ||
+        messages.any(
+          (message) =>
+              !message.isChannelEncrypted &&
+              message.attachment?.cid == cid &&
+              (message.spacePostId == null ||
+                  visiblePostIds.contains(message.spacePostId)),
+        );
+    if (ordinaryReference) {
+      final candidates = [
+        for (final member in state.members.values)
+          if (member.nodeId != _signer.selfId) member.nodeId,
+      ]..sort((left, right) => left.hex.compareTo(right.hex));
+      return (
+        channelId: null,
+        channelEpoch: null,
+        candidates: _preferContentHolder(candidates, preferredHolder),
+      );
+    }
+
+    final protectedReferences =
+        messages
+            .where(
+              (message) =>
+                  message.isChannelEncrypted && message.attachment?.cid == cid,
+            )
+            .toList()
+          ..sort((left, right) {
+            final leftPreferred = left.author == preferredHolder ? 0 : 1;
+            final rightPreferred = right.author == preferredHolder ? 0 : 1;
+            final preferred = leftPreferred.compareTo(rightPreferred);
+            if (preferred != 0) return preferred;
+            return left.channelId!.hex.compareTo(right.channelId!.hex);
+          });
+    if (protectedReferences.isEmpty) return null;
+    final channelId = protectedReferences.first.channelId!;
+    final opaque = state.protectedChannels[channelId.hex];
+    final clear = (await _protectedChannelsOf(bundle, state))[channelId.hex];
+    if (opaque == null ||
+        clear == null ||
+        !clear.recipients.contains(_signer.selfId)) {
+      return null;
+    }
+    final candidates = [
+      for (final recipient in clear.recipients)
+        if (recipient != _signer.selfId && state.isMember(recipient)) recipient,
+    ]..sort((left, right) => left.hex.compareTo(right.hex));
+    return (
+      channelId: channelId,
+      channelEpoch: opaque.channelEpoch,
+      candidates: _preferContentHolder(candidates, preferredHolder),
+    );
+  }
+
+  List<NodeId> _preferContentHolder(
+    List<NodeId> candidates,
+    NodeId preferredHolder,
+  ) => [
+    if (candidates.contains(preferredHolder)) preferredHolder,
+    for (final candidate in candidates)
+      if (candidate != preferredHolder) candidate,
+  ];
 
   /// Ingest an externally-received control entry (from a peer-sync brick, or a
   /// hook). Appends if it isn't already present; the fold decides validity on
@@ -9944,9 +10151,13 @@ class GroupService {
             continue;
           }
           final visible = await _materializeEncryptedMessage(materialBundle, m);
-          if (visible == null || visible.attachment != null) {
-            // Protected-channel media still uses the Space-wide content grant
-            // protocol. Reject it at ingest until requests carry channel ACL.
+          if (visible == null ||
+              (visible.attachment != null &&
+                  (visible.attachment!.inlinePreviewB64 != null ||
+                      !visible.attachment!.isReferenceStructurallyValid))) {
+            // Protected media must remain a strict CID reference encrypted by
+            // the channel envelope. Inline/legacy payloads cannot bypass the
+            // separately signed channel-scoped content grant.
             continue;
           }
         } else {

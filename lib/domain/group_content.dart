@@ -27,25 +27,44 @@ class GroupContentRequest {
     required this.nonce,
     required this.tsMs,
     required this.signature,
+    this.channelId,
+    this.channelEpoch,
     Uint8List? authorPubKey,
-  }) : authorPubKey = authorPubKey ?? Uint8List(0);
+  }) : assert(
+         (channelId == null) == (channelEpoch == null),
+         'channel scope must be complete',
+       ),
+       authorPubKey = authorPubKey ?? Uint8List(0);
 
   final NodeId groupId;
   final String contentId; // hex id of the referenced content (as in 1:1)
   final NodeId requester;
   final String nonce; // random hex — replay dedup key at the holder
   final int tsMs; // request mint time (freshness window)
+  /// Optional protected-channel scope. Both fields are signed together.
+  ///
+  /// An unscoped request can only unlock open-channel/post content. Restricted
+  /// content requires the current channel epoch so a captured request stops
+  /// authorizing immediately after an ACL rotation.
+  final NodeId? channelId;
+  final int? channelEpoch;
   final Uint8List signature;
   final Uint8List authorPubKey; // bound via node_id == BLAKE3(pk), not signed
 
   /// The bytes the requester signs — fixed field order, no signature/pubKey.
-  Uint8List canonicalBytes() => Uint8List.fromList(utf8.encode(jsonEncode({
+  Uint8List canonicalBytes() => Uint8List.fromList(
+    utf8.encode(
+      jsonEncode({
         'gid': groupId.hex,
         'cid': contentId,
         'req': requester.hex,
         'n': nonce,
         'ts': tsMs,
-      })));
+        if (channelId != null) 'chid': channelId!.hex,
+        if (channelEpoch != null) 'cep': channelEpoch,
+      }),
+    ),
+  );
 
   GroupContentRequest withSignature(Uint8List sig, Uint8List pubKey) =>
       GroupContentRequest(
@@ -54,24 +73,30 @@ class GroupContentRequest {
         requester: requester,
         nonce: nonce,
         tsMs: tsMs,
+        channelId: channelId,
+        channelEpoch: channelEpoch,
         signature: sig,
         authorPubKey: pubKey,
       );
 
   Map<String, dynamic> toJson() => {
-        'gid': groupId.hex,
-        'cid': contentId,
-        'req': requester.hex,
-        'n': nonce,
-        'ts': tsMs,
-        'sig': base64Encode(signature),
-        if (authorPubKey.isNotEmpty) 'apk': base64Encode(authorPubKey),
-      };
+    'gid': groupId.hex,
+    'cid': contentId,
+    'req': requester.hex,
+    'n': nonce,
+    'ts': tsMs,
+    if (channelId != null) 'chid': channelId!.hex,
+    if (channelEpoch != null) 'cep': channelEpoch,
+    'sig': base64Encode(signature),
+    if (authorPubKey.isNotEmpty) 'apk': base64Encode(authorPubKey),
+  };
 
   static GroupContentRequest? fromJson(Object? j) {
     if (j is! Map) return null;
     final gid = j['gid'], cid = j['cid'], req = j['req'];
     final n = j['n'], ts = j['ts'], sig = j['sig'];
+    final channelId = j['chid'];
+    final channelEpoch = j['cep'];
     if (gid is! String ||
         cid is! String ||
         req is! String ||
@@ -79,7 +104,10 @@ class GroupContentRequest {
         ts is! int ||
         sig is! String ||
         cid.isEmpty ||
-        n.isEmpty) {
+        n.isEmpty ||
+        ((channelId == null) != (channelEpoch == null)) ||
+        (channelId != null && channelId is! String) ||
+        (channelEpoch != null && (channelEpoch is! int || channelEpoch <= 0))) {
       return null;
     }
     try {
@@ -89,6 +117,8 @@ class GroupContentRequest {
         requester: NodeId.fromHex(req),
         nonce: n,
         tsMs: ts,
+        channelId: channelId is String ? NodeId.fromHex(channelId) : null,
+        channelEpoch: channelEpoch as int?,
         signature: Uint8List.fromList(base64Decode(sig)),
         authorPubKey: j['apk'] is String
             ? Uint8List.fromList(base64Decode(j['apk'] as String))
@@ -106,6 +136,7 @@ class GroupContentRequest {
 enum GroupContentDenial {
   badSignature,
   notAMember,
+  notAuthorizedForScope,
   unknownContent,
   stale,
   replayed,
@@ -124,9 +155,11 @@ GroupContentDenial? authorizeGroupContentRequest(
   required int nowMs,
   required Set<String> seenNonces,
   required bool Function(GroupContentRequest) verify,
+  required bool scopeAuthorized,
 }) {
   if (!verify(r)) return GroupContentDenial.badSignature;
   if (!state.isMember(r.requester)) return GroupContentDenial.notAMember;
+  if (!scopeAuthorized) return GroupContentDenial.notAuthorizedForScope;
   if (!referenced.contains(r.contentId)) {
     return GroupContentDenial.unknownContent;
   }

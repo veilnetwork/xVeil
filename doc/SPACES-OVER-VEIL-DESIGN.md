@@ -261,9 +261,17 @@ chain пока раскрывает факт обновления, автора,
 `restricted` скрытым. Для secret нужен отдельный indistinguishable encrypted
 subtree/transport, не участвующий в общем per-author control chain.
 
-Restricted V1 поддерживает только text. Media, reactions и voice используют
-space-wide serve/call primitives и потому блокируются до появления их
-channel-scoped wire/grant; входящие попытки также отклоняются на узле.
+Restricted V1 поддерживает text/reply и media attachments. Media metadata
+находится внутри channel-epoch AEAD как строгий CID-ref; inline payload
+отклоняется. Сам blob хранится в encrypted file-store и передаётся
+по зашифрованному Veil transport только после подписанного
+channel-scoped content request. Request связан с `channelId` и текущим
+`channelEpoch`; holder выдаёт краткоживущий serve grant только текущему
+получателю расшифрованного ACL, а requester рассылает request только
+таким recipients. Legacy unscoped request не может открыть CID, который
+ссылается только из channel-encrypted row, а ротация ACL сразу гасит
+старый epoch. Reactions и live voice всё ещё используют space-wide
+primitives и потому fail-closed до появления channel-scoped wire.
 
 Скрытость и конфиденциальность различаются, но серверный режим из исходного
 промпта к veil неприменим.

@@ -4,15 +4,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/data/transport/veil_mailbox.dart';
 import 'package:xveil/domain/group.dart';
 import 'package:xveil/domain/group_call.dart';
 import 'package:xveil/domain/group_content.dart';
 import 'package:xveil/domain/group_message.dart';
 import 'package:xveil/domain/group_reaction.dart';
 import 'package:xveil/domain/space_post.dart';
+import 'package:xveil/domain/space_channel.dart';
 import 'package:xveil/features/groups/group_chat_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/group_service_providers.dart';
+import 'package:xveil/state/group_epoch_service.dart';
 import 'package:xveil/state/providers.dart';
 
 import 'support/fake_hv_container.dart';
@@ -93,6 +96,7 @@ void main() {
     await storage.open(password: 'pw', createIfMissing: true);
     final self = NodeId(Uint8List.fromList(List<int>.filled(32, 7)));
     final service = GroupService(storage, _Signer(self));
+    addTearDown(service.dispose);
     final groupId = await service.createGroup('Composer test');
 
     await tester.binding.setSurfaceSize(const Size(390, 844));
@@ -174,5 +178,62 @@ void main() {
     expect(find.text('Upload file'), findsOneWidget);
     expect(find.text('Poll'), findsOneWidget);
     expect(find.text('Location'), findsOneWidget);
+  });
+
+  testWidgets('restricted channel keeps protected media composer actions', (
+    tester,
+  ) async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final self = NodeId(Uint8List.fromList(List<int>.filled(32, 8)));
+    final service = GroupService(
+      storage,
+      _Signer(self),
+      epochService: GroupEpochService(
+        LoopbackMailboxCrypto(senderForOpen: self),
+      ),
+    );
+    addTearDown(service.dispose);
+    final spaceId = await service.createSpace('Protected composer');
+    final channelId = await service.createChannel(
+      spaceId,
+      name: 'Private media',
+      kind: SpaceChannelKind.text,
+      access: SpaceChannelAccess.restricted,
+      members: const [],
+    );
+    expect(channelId, isNotNull);
+
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          storageProvider.overrideWithValue(storage),
+          groupServiceProvider.overrideWithValue(service),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: GroupChatScreen(
+            groupIdHex: spaceId.hex,
+            channelIdHex: channelId!.hex,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('composer-attachment-button')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('composer-video-note')), findsOneWidget);
+    expect(find.byKey(const ValueKey('composer-voice-note')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('composer-attachment-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('Upload photo'), findsOneWidget);
+    expect(find.text('Upload video'), findsOneWidget);
+    expect(find.text('Upload file'), findsOneWidget);
   });
 }
