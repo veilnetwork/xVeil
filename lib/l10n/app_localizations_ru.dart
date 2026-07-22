@@ -500,6 +500,23 @@ class AppL10nRu extends AppL10n {
       'Уведомлять на этом устройстве о новых публикациях сообщества.';
 
   @override
+  String get spaceCommentNotificationsSetting => 'Уведомления об обсуждениях';
+
+  @override
+  String get spaceCommentNotificationsSettingHint =>
+      'Выберите, о каких новых комментариях уведомлять на этом устройстве.';
+
+  @override
+  String get spaceCommentNotificationsAll => 'Все комментарии';
+
+  @override
+  String get spaceCommentNotificationsReplies =>
+      'Ответы мне и комментарии к моим публикациям';
+
+  @override
+  String get spaceCommentNotificationsNone => 'Выключены';
+
+  @override
   String get spaceHideRecommendationsSetting =>
       'Не рекомендовать мне это сообщество';
 

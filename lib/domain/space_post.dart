@@ -984,11 +984,25 @@ class SpaceFeedCursor {
 /// grants control/channel/epoch data. A future public-only subscription uses
 /// the same record with [publicOnly] set, while membership remains in the
 /// signed Space control log.
+enum SpaceCommentNotificationMode {
+  all,
+  replies,
+  none;
+
+  static SpaceCommentNotificationMode? fromName(Object? value) =>
+      value is String
+      ? SpaceCommentNotificationMode.values
+            .where((mode) => mode.name == value)
+            .firstOrNull
+      : null;
+}
+
 class SpaceSubscription {
   const SpaceSubscription({
     required this.spaceId,
     required this.feedEnabled,
     required this.notificationsEnabled,
+    required this.commentNotifications,
     required this.hiddenFromRecommendations,
     required this.publicOnly,
     required this.updatedAtMs,
@@ -998,6 +1012,7 @@ class SpaceSubscription {
     spaceId: spaceId,
     feedEnabled: true,
     notificationsEnabled: true,
+    commentNotifications: SpaceCommentNotificationMode.replies,
     hiddenFromRecommendations: false,
     publicOnly: false,
     updatedAtMs: 0,
@@ -1006,6 +1021,7 @@ class SpaceSubscription {
   final NodeId spaceId;
   final bool feedEnabled;
   final bool notificationsEnabled;
+  final SpaceCommentNotificationMode commentNotifications;
   final bool hiddenFromRecommendations;
   final bool publicOnly;
   final int updatedAtMs;
@@ -1013,6 +1029,7 @@ class SpaceSubscription {
   SpaceSubscription copyWith({
     bool? feedEnabled,
     bool? notificationsEnabled,
+    SpaceCommentNotificationMode? commentNotifications,
     bool? hiddenFromRecommendations,
     bool? publicOnly,
     int? updatedAtMs,
@@ -1020,6 +1037,7 @@ class SpaceSubscription {
     spaceId: spaceId,
     feedEnabled: feedEnabled ?? this.feedEnabled,
     notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
+    commentNotifications: commentNotifications ?? this.commentNotifications,
     hiddenFromRecommendations:
         hiddenFromRecommendations ?? this.hiddenFromRecommendations,
     publicOnly: publicOnly ?? this.publicOnly,
@@ -1031,6 +1049,7 @@ class SpaceSubscription {
     'sid': spaceId.hex,
     'feed': feedEnabled,
     'notifications': notificationsEnabled,
+    'commentNotifications': commentNotifications.name,
     'hideRecommendations': hiddenFromRecommendations,
     'publicOnly': publicOnly,
     'updated': updatedAtMs,
@@ -1048,10 +1067,17 @@ class SpaceSubscription {
         value['updated'] as int < 0) {
       return null;
     }
+    final commentNotifications = value.containsKey('commentNotifications')
+        ? SpaceCommentNotificationMode.fromName(value['commentNotifications'])
+        : (value['notifications'] as bool
+              ? SpaceCommentNotificationMode.replies
+              : SpaceCommentNotificationMode.none);
+    if (commentNotifications == null) return null;
     return SpaceSubscription(
       spaceId: expectedSpaceId,
       feedEnabled: value['feed'] as bool,
       notificationsEnabled: value['notifications'] as bool,
+      commentNotifications: commentNotifications,
       hiddenFromRecommendations: value['hideRecommendations'] as bool,
       publicOnly: value['publicOnly'] as bool,
       updatedAtMs: value['updated'] as int,

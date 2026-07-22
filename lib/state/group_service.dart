@@ -7129,6 +7129,7 @@ class GroupService {
     NodeId spaceId, {
     bool? feedEnabled,
     bool? notificationsEnabled,
+    SpaceCommentNotificationMode? commentNotifications,
     bool? hiddenFromRecommendations,
   }) => _serializeSpaceFeedPreferences(() async {
     final bundle = await load(spaceId);
@@ -7149,12 +7150,14 @@ class GroupService {
     final next = current.copyWith(
       feedEnabled: feedEnabled,
       notificationsEnabled: notificationsEnabled,
+      commentNotifications: commentNotifications,
       hiddenFromRecommendations: hiddenFromRecommendations,
       updatedAtMs: _now(),
     );
     final changed =
         current.feedEnabled != next.feedEnabled ||
         current.notificationsEnabled != next.notificationsEnabled ||
+        current.commentNotifications != next.commentNotifications ||
         current.hiddenFromRecommendations != next.hiddenFromRecommendations;
     // Retire the one-field legacy preference even when this write is a no-op,
     // otherwise a later recovery from a damaged v1 record could resurrect it.
@@ -7174,6 +7177,13 @@ class GroupService {
     bool enabled,
   ) async {
     await updateSpaceSubscription(spaceId, notificationsEnabled: enabled);
+  }
+
+  Future<void> setSpaceCommentNotifications(
+    NodeId spaceId,
+    SpaceCommentNotificationMode mode,
+  ) async {
+    await updateSpaceSubscription(spaceId, commentNotifications: mode);
   }
 
   Future<void> setSpaceHiddenFromRecommendations(

@@ -4042,6 +4042,10 @@ void main() {
       await Future.wait([
         svc.setSpaceFeedEnabled(spaceId, false),
         svc.setSpaceNotificationsEnabled(spaceId, false),
+        svc.setSpaceCommentNotifications(
+          spaceId,
+          SpaceCommentNotificationMode.all,
+        ),
         svc.setSpaceHiddenFromRecommendations(spaceId, true),
       ]);
       expect(await svc.spaceFeed(), isEmpty);
@@ -4049,6 +4053,10 @@ void main() {
       final preferences = await svc.spaceSubscription(spaceId);
       expect(preferences.feedEnabled, isFalse);
       expect(preferences.notificationsEnabled, isFalse);
+      expect(
+        preferences.commentNotifications,
+        SpaceCommentNotificationMode.all,
+      );
       expect(preferences.hiddenFromRecommendations, isTrue);
       await svc.setSpaceFeedEnabled(spaceId, true);
       expect(await svc.spaceFeed(), hasLength(2));

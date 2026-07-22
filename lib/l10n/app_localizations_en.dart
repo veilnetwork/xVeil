@@ -495,6 +495,23 @@ class AppL10nEn extends AppL10n {
       'Alert on this device when a new community publication arrives.';
 
   @override
+  String get spaceCommentNotificationsSetting => 'Discussion notifications';
+
+  @override
+  String get spaceCommentNotificationsSettingHint =>
+      'Choose which new comments alert this device.';
+
+  @override
+  String get spaceCommentNotificationsAll => 'All comments';
+
+  @override
+  String get spaceCommentNotificationsReplies =>
+      'Replies to me and comments on my posts';
+
+  @override
+  String get spaceCommentNotificationsNone => 'Off';
+
+  @override
   String get spaceHideRecommendationsSetting =>
       'Do not recommend this community to me';
 
