@@ -250,6 +250,12 @@ class AppL10nRu extends AppL10n {
   String get spaceChannelNameHint => 'Название канала';
 
   @override
+  String get spaceChannelDescriptionHint => 'Описание (необязательно)';
+
+  @override
+  String get spaceChannelKind => 'Тип канала';
+
+  @override
   String get spaceChannelText => 'Текстовый канал';
 
   @override
@@ -257,6 +263,12 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get spaceChannelCategory => 'Категория';
+
+  @override
+  String get spaceChannelCategoryLabel => 'Разместить в категории';
+
+  @override
+  String get spaceChannelNoCategory => 'Корень сообщества';
 
   @override
   String get spaceChannelAccess => 'Доступ';
@@ -271,6 +283,43 @@ class AppL10nRu extends AppL10n {
   @override
   String get spaceChannelAccessSecret =>
       'Секретный · сначала только администраторы';
+
+  @override
+  String get spaceChannelHistory => 'История для новых участников';
+
+  @override
+  String get spaceChannelHistoryFromJoin => 'Только с момента вступления';
+
+  @override
+  String get spaceChannelHistoryFull => 'Вся история канала';
+
+  @override
+  String get spaceChannelHistorySinceNow => 'Сообщения с текущего момента';
+
+  @override
+  String get spaceChannelManage => 'Управление каналом';
+
+  @override
+  String get spaceChannelEdit => 'Изменить канал';
+
+  @override
+  String get spaceChannelSave => 'Сохранить канал';
+
+  @override
+  String get spaceChannelArchive => 'Архивировать канал';
+
+  @override
+  String get spaceChannelRestore => 'Восстановить канал';
+
+  @override
+  String get spaceChannelMakeDefault => 'Сделать каналом по умолчанию';
+
+  @override
+  String get spaceChannelArchived => 'В архиве';
+
+  @override
+  String get spaceChannelArchiveCategoryBlocked =>
+      'Сначала перенесите или архивируйте активные каналы этой категории.';
 
   @override
   String get spaceVoiceStartFailed =>

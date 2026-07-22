@@ -930,6 +930,111 @@ final class GroupApiAdapter {
         : (error: null, channelId: id.hex);
   }
 
+  /// Patch mutable channel properties while preserving its signed identity,
+  /// kind and access mode. Null `categoryId` explicitly moves a channel back
+  /// to the Space root; omitted fields remain unchanged.
+  Future<String?> updateChannel(
+    String spaceHex,
+    String channelHex,
+    Map<String, Object?> patch,
+  ) async {
+    const allowed = {
+      'name',
+      'description',
+      'categoryId',
+      'position',
+      'history',
+      'historySince',
+    };
+    if (patch.isEmpty || patch.keys.any((key) => !allowed.contains(key))) {
+      return 'invalid channel properties';
+    }
+    final visible = await _visible(spaceHex);
+    final channelId = _parseId(channelHex);
+    if (visible == null || channelId == null) return 'channel not found';
+    final current = (await _groups.channelsOf(
+      visible.$1,
+      includeArchived: true,
+    )).where((channel) => channel.channelId == channelId).firstOrNull;
+    if (current == null) return 'channel not found';
+
+    var name = current.name;
+    if (patch.containsKey('name')) {
+      final value = patch['name'];
+      if (value is! String || value.trim().isEmpty || value.length > 100) {
+        return 'invalid channel properties';
+      }
+      name = value.trim();
+    }
+    var description = current.description;
+    if (patch.containsKey('description')) {
+      final value = patch['description'];
+      if (value is! String || value.length > 1024) {
+        return 'invalid channel properties';
+      }
+      description = value;
+    }
+    var categoryId = current.categoryId;
+    if (patch.containsKey('categoryId')) {
+      final value = patch['categoryId'];
+      if (value == null) {
+        categoryId = null;
+      } else if (value is String) {
+        categoryId = _parseId(value);
+      } else {
+        return 'invalid channel properties';
+      }
+      if (value != null && categoryId == null) {
+        return 'invalid channel properties';
+      }
+    }
+    var position = current.position;
+    if (patch.containsKey('position')) {
+      final value = patch['position'];
+      if (value is! int) return 'invalid channel properties';
+      position = value;
+    }
+    var history = current.history;
+    if (patch.containsKey('history')) {
+      final value = patch['history'];
+      final parsed = value is String
+          ? SpaceChannelHistory.fromName(value)
+          : null;
+      if (parsed == null) return 'invalid channel properties';
+      history = parsed;
+    }
+    var historySinceMs = current.historySinceMs;
+    if (patch.containsKey('historySince')) {
+      final value = patch['historySince'];
+      if (value != null && value is! int) {
+        return 'invalid channel properties';
+      }
+      historySinceMs = value as int?;
+    }
+    if (history == SpaceChannelHistory.since) {
+      if (historySinceMs == null || historySinceMs < 0) {
+        return 'invalid channel properties';
+      }
+    } else if (historySinceMs != null) {
+      return 'invalid channel properties';
+    }
+    final next = current.copyWith(
+      name: name,
+      description: description,
+      categoryId: categoryId,
+      clearCategory: patch.containsKey('categoryId') && categoryId == null,
+      position: position,
+      history: history,
+      historySinceMs: historySinceMs,
+      clearHistorySince:
+          history != SpaceChannelHistory.since &&
+          current.historySinceMs != null,
+    );
+    return await _groups.updateChannel(visible.$1, next)
+        ? null
+        : 'channel mutation rejected';
+  }
+
   Future<String?> channelAction(
     String spaceHex,
     String channelHex,

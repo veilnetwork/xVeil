@@ -15,9 +15,11 @@ import 'package:xveil/domain/group_reaction.dart';
 import 'package:xveil/domain/space_moderation.dart';
 import 'package:xveil/domain/space_join_request.dart';
 import 'package:xveil/domain/space_post.dart';
+import 'package:xveil/domain/space_channel.dart';
 import 'package:xveil/features/spaces/space_list_screen.dart';
 import 'package:xveil/features/spaces/space_moderation_screen.dart';
 import 'package:xveil/features/spaces/space_rules_screen.dart';
+import 'package:xveil/features/spaces/space_screen.dart';
 import 'package:xveil/features/spaces/space_settings_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/group_service_providers.dart';
@@ -194,6 +196,102 @@ void main() {
     expect(sent, hasLength(1));
     expect(find.text(l.spaceJoinRequestSent), findsOneWidget);
     expect(await service.outgoingSpaceJoinRequests(), hasLength(1));
+  });
+
+  testWidgets('Space channels support categories, history and restore', (
+    tester,
+  ) async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(storage, _Signer(_id(71)));
+    addTearDown(service.dispose);
+    final spaceId = await service.createSpace('Channel lab');
+    final categoryId = await service.createChannel(
+      spaceId,
+      name: 'Projects',
+      kind: SpaceChannelKind.category,
+      position: 100,
+    );
+    expect(categoryId, isNotNull);
+
+    await tester.binding.setSurfaceSize(const Size(430, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [groupServiceProvider.overrideWithValue(service)],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: SpaceScreen(spaceIdHex: spaceId.hex),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final l = AppL10n.of(tester.element(find.byType(SpaceScreen)));
+
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('space-channel-name')),
+      'Design',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('space-channel-description')),
+      'Shared decisions',
+    );
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('space-channel-category')),
+    );
+    await tester.tap(find.byKey(const ValueKey('space-channel-category')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Projects').last);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('space-channel-history')),
+    );
+    await tester.tap(find.byKey(const ValueKey('space-channel-history')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l.spaceChannelHistoryFull).last);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('space-channel-save')),
+    );
+    await tester.tap(find.byKey(const ValueKey('space-channel-save')));
+    await tester.pumpAndSettle();
+
+    final created = (await service.channelsOf(
+      spaceId,
+    )).singleWhere((channel) => channel.name == 'Design');
+    expect(created.description, 'Shared decisions');
+    expect(created.categoryId, categoryId);
+    expect(created.history, SpaceChannelHistory.full);
+    expect(find.text('Design'), findsOneWidget);
+
+    final manage = find.byKey(
+      ValueKey('space-channel-manage-${created.channelId.hex}'),
+    );
+    await tester.tap(manage);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l.spaceChannelArchive).last);
+    await tester.pumpAndSettle();
+    expect(
+      (await service.channelsOf(spaceId, includeArchived: true))
+          .singleWhere((channel) => channel.channelId == created.channelId)
+          .archived,
+      isTrue,
+    );
+    expect(find.textContaining(l.spaceChannelArchived), findsOneWidget);
+
+    await tester.tap(manage);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l.spaceChannelRestore).last);
+    await tester.pumpAndSettle();
+    expect(
+      (await service.channelsOf(spaceId, includeArchived: true))
+          .singleWhere((channel) => channel.channelId == created.channelId)
+          .archived,
+      isFalse,
+    );
   });
 
   testWidgets('Space settings manage signed roster, name and P2P redundancy', (

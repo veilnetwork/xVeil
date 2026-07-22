@@ -12,6 +12,7 @@ void main() {
   final groupActions = <(String, String, String, String?)>[];
   final channelPosts = <(String, String, String, String?)>[];
   final channelCreates = <(String, String, List<String>)>[];
+  final channelUpdates = <(String, String, Map<String, Object?>)>[];
   final channelAcls = <(String, String, List<String>)>[];
   final spacePublications = <(String, String, String, String)>[];
   final spacePostEdits = <(String, String, String, String, String?)>[];
@@ -48,6 +49,7 @@ void main() {
     groupActions.clear();
     channelPosts.clear();
     channelCreates.clear();
+    channelUpdates.clear();
     channelAcls.clear();
     spacePublications.clear();
     spacePostEdits.clear();
@@ -461,6 +463,10 @@ void main() {
                 ? (error: 'channel mutation rejected', channelId: null)
                 : (error: null, channelId: '02' * 32);
           },
+      updateSpaceChannel: (space, channel, patch) async {
+        channelUpdates.add((space, channel, Map.of(patch)));
+        return space == 'denied' ? 'channel mutation rejected' : null;
+      },
       spaceChannelAction: (space, channel, action) async =>
           space == 'denied' ? 'channel mutation rejected' : null,
       setSpaceChannelMembers: (space, channel, members) async {
@@ -704,6 +710,15 @@ void main() {
           u('/v1/spaces/posts'),
           'Bearer secret-token',
           body: {'space': 's', 'postId': postId},
+        )).status,
+        403,
+      );
+      expect(
+        (await h.handle(
+          'PATCH',
+          u('/v1/spaces/channels'),
+          'Bearer secret-token',
+          body: {'space': 's', 'channel': 'c', 'name': 'renamed'},
         )).status,
         403,
       );
@@ -1244,6 +1259,37 @@ void main() {
       expect(channelCreates.single.$1, 'aa');
       expect(channelCreates.single.$2, 'restricted');
       expect(channelCreates.single.$3, orderedEquals(['03' * 32]));
+      final channelUpdate = await h.handle(
+        'PATCH',
+        u('/v1/spaces/channels'),
+        auth,
+        body: {
+          'space': 'aa',
+          'channel': 'cc',
+          'name': 'renamed',
+          'categoryId': null,
+          'history': 'since',
+          'historySince': 1234,
+        },
+      );
+      expect(channelUpdate.status, 200);
+      expect(channelUpdates.single.$1, 'aa');
+      expect(channelUpdates.single.$2, 'cc');
+      expect(channelUpdates.single.$3, {
+        'name': 'renamed',
+        'categoryId': null,
+        'history': 'since',
+        'historySince': 1234,
+      });
+      expect(
+        (await h.handle(
+          'PATCH',
+          u('/v1/spaces/channels'),
+          auth,
+          body: {'space': 'aa', 'channel': 'cc'},
+        )).status,
+        400,
+      );
       expect(
         (await h.handle(
           'POST',
@@ -2468,6 +2514,11 @@ void main() {
         'post',
         'patch',
         'delete',
+      });
+      expect((pathMap['/spaces/channels'] as Map).keys.toSet(), {
+        'get',
+        'post',
+        'patch',
       });
       // The security scheme is declared so generated clients wire the token.
       expect(

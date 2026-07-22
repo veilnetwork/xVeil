@@ -281,6 +281,7 @@ class HeadlessRuntime {
         moderateSpace: groupApi.moderate,
         revokeSpaceModeration: groupApi.revokeModeration,
         createSpaceChannel: groupApi.createChannel,
+        updateSpaceChannel: groupApi.updateChannel,
         spaceChannelAction: groupApi.channelAction,
         setSpaceChannelMembers: groupApi.setChannelMembers,
         spaceChannelMessages: groupApi.channelMessages,
