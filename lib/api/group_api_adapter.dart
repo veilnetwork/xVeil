@@ -550,7 +550,7 @@ final class GroupApiAdapter {
     String title,
     String body,
     String typeName,
-    List<MediaObjectRef> media,
+    List<MediaObject> media,
   ) async {
     final visible = await _visible(spaceHex);
     if (visible == null) return 'space not found';
@@ -580,7 +580,7 @@ final class GroupApiAdapter {
     String title,
     String body,
     String typeName,
-    List<MediaObjectRef> media,
+    List<MediaObject> media,
   ) async {
     final visible = await _visible(spaceHex);
     if (visible == null) return (error: 'space not found', post: null);
@@ -607,7 +607,7 @@ final class GroupApiAdapter {
     String title,
     String body,
     String? typeName,
-    List<MediaObjectRef>? media,
+    List<MediaObject>? media,
   ) async {
     final visible = await _visible(spaceHex);
     if (visible == null) return (error: 'space not found', post: null);
@@ -1278,7 +1278,7 @@ final class GroupApiAdapter {
         visible.$1,
         caption,
         replyTo: replyTo,
-        attachment: GroupAttachment(
+        attachment: MediaObject(
           // A video has a dedicated player even without a poster. Other
           // sources use the generic file row; image-specific rendering needs
           // a real signed micro-thumbnail, which headless cannot fabricate.

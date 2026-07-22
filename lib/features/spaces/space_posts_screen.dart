@@ -502,7 +502,7 @@ class _PostComposerValue {
   final String title;
   final String body;
   final SpacePostType type;
-  final List<MediaObjectRef> media;
+  final List<MediaObject> media;
 
   bool get hasContent =>
       title.trim().isNotEmpty || body.trim().isNotEmpty || media.isNotEmpty;
@@ -522,14 +522,14 @@ class _PostComposerDialog extends StatefulWidget {
   final String initialTitle;
   final String initialBody;
   final SpacePostType initialType;
-  final List<MediaObjectRef> initialMedia;
+  final List<MediaObject> initialMedia;
   final bool editing;
   final Future<SpacePostMediaPickResult> Function(int remaining)? onPickMedia;
   final Future<bool> Function(
     String title,
     String body,
     SpacePostType type,
-    List<MediaObjectRef> media,
+    List<MediaObject> media,
   )?
   onSaveDraft;
 
@@ -541,7 +541,7 @@ class _PostComposerDialogState extends State<_PostComposerDialog> {
   late final TextEditingController _title;
   late final TextEditingController _body;
   late SpacePostType _type;
-  late List<MediaObjectRef> _media;
+  late List<MediaObject> _media;
   Timer? _draftTimer;
   bool _draftSettled = false;
   bool _saving = false;
@@ -553,7 +553,7 @@ class _PostComposerDialogState extends State<_PostComposerDialog> {
     _title = TextEditingController(text: widget.initialTitle);
     _body = TextEditingController(text: widget.initialBody);
     _type = widget.initialType;
-    _media = List<MediaObjectRef>.of(widget.initialMedia);
+    _media = List<MediaObject>.of(widget.initialMedia);
   }
 
   @override
@@ -665,7 +665,7 @@ class _PostComposerDialogState extends State<_PostComposerDialog> {
     }
   }
 
-  void _removeMedia(MediaObjectRef media) {
+  void _removeMedia(MediaObject media) {
     setState(() {
       _media.removeWhere((item) => item.contentId == media.contentId);
     });

@@ -48,6 +48,49 @@ void main() {
     );
   });
 
+  test('legacy attachment keeps its signed wire shape byte-identical', () {
+    final message = GroupMessage(
+      groupId: _id(10),
+      author: _id(1),
+      seq: 3,
+      prevHash: 'prev',
+      body: '',
+      policyVersion: 4,
+      createdAtMs: 5000,
+      signature: Uint8List(64),
+      attachment: const MediaObject(
+        kind: 'image',
+        dataB64: 'QQ==',
+        w: 2,
+        h: 3,
+        cid: 'legacy-content-id',
+        name: 'photo.png',
+      ),
+    );
+    final expected = jsonEncode({
+      'gid': _id(10).hex,
+      'author': _id(1).hex,
+      'seq': 3,
+      'prev': 'prev',
+      'body': '',
+      'pv': 4,
+      'ts': 5000,
+      'att': {
+        'k': 'image',
+        'd': 'QQ==',
+        'w': 2,
+        'h': 3,
+        'cid': 'legacy-content-id',
+        'n': 'photo.png',
+      },
+    });
+
+    expect(utf8.decode(message.canonicalBytes()), expected);
+    final parsed = GroupMessage.fromJson(message.toJson());
+    expect(parsed?.canonicalBytes(), message.canonicalBytes());
+    expect(parsed?.attachment, isA<MediaObject>());
+  });
+
   test('Space post comment target is signed and cannot also be a channel', () {
     final postId = '${_id(4).hex}:7';
     final message = GroupMessage(

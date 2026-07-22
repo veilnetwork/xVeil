@@ -65,7 +65,7 @@ class GroupCloudSyncPort implements CloudSyncPort {
     item.toEvent(),
     attachment: item.deleted || item.contentId == null
         ? null
-        : GroupAttachment(
+        : MediaObject(
             kind: 'cloud',
             dataB64: 'AA==',
             w: 1,
