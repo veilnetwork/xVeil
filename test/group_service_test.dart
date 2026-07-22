@@ -419,6 +419,11 @@ void main() {
       await ownerSvc.postMessage(gid, 'after carol', broadcast: false);
       final bundle = (await ownerSvc.load(gid))!;
       expect((await ownerSvc.stateOf(gid))!.epoch, 3);
+      expect(
+        bundle.messages.last.prevHash,
+        isEmpty,
+        reason: 'a membership epoch is a new visibility/chain scope',
+      );
       final carolWire = ownerSvc.snapshotJson(bundle, recipient: carol);
       expect(carolWire, isNot(contains('before carol')));
 
@@ -2113,6 +2118,240 @@ void main() {
       reason: 'no membership oracle — a stranger gets nothing',
     );
   });
+
+  test(
+    'new message rows chain to the exact predecessor inside each visible scope',
+    () async {
+      final (service, _) = await setup();
+      final groupId = await service.createGroup('chained chat');
+      expect(await service.postMessage(groupId, 'one'), isTrue);
+      expect(await service.postMessage(groupId, 'two'), isTrue);
+      final chatRows = (await service.load(groupId))!.messages;
+      expect(chatRows, hasLength(2));
+      expect(chatRows.first.prevHash, isEmpty);
+      expect(chatRows.last.prevHash, groupMessageHash(chatRows.first));
+
+      final spaceId = await service.createSpace('scoped chains');
+      final defaultChannel = (await service.channelsOf(
+        spaceId,
+      )).single.channelId;
+      final secondChannel = await service.createChannel(
+        spaceId,
+        name: 'second',
+        kind: SpaceChannelKind.text,
+      );
+      expect(secondChannel, isNotNull);
+      expect(
+        await service.postMessage(
+          spaceId,
+          'default-0',
+          channelId: defaultChannel,
+        ),
+        isTrue,
+      );
+      expect(
+        await service.postMessage(
+          spaceId,
+          'second-0',
+          channelId: secondChannel,
+        ),
+        isTrue,
+      );
+      expect(
+        await service.postMessage(
+          spaceId,
+          'default-1',
+          channelId: defaultChannel,
+        ),
+        isTrue,
+      );
+      final spaceRows = (await service.load(spaceId))!.messages;
+      expect(spaceRows.map((message) => message.seq), [0, 1, 2]);
+      expect(spaceRows[0].prevHash, isEmpty);
+      expect(
+        spaceRows[1].prevHash,
+        isEmpty,
+        reason: 'another channel is an independent visibility scope',
+      );
+      expect(spaceRows[2].prevHash, groupMessageHash(spaceRows[0]));
+
+      final vector = (await service.buildGroupSyncRequest(spaceId))!;
+      expect((vector['mg'] as Map), contains('${defaultChannel.hex}|clear'));
+      expect((vector['mg'] as Map), contains('${secondChannel!.hex}|clear'));
+    },
+  );
+
+  test(
+    'out-of-order chained suffix stays hidden until gap-fill supplies predecessor',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      final ownerService = GroupService(ownerStorage, _FakeSigner(owner));
+      final groupId = await ownerService.createGroup('ordered chain');
+      expect(
+        await ownerService.addControlOp(
+          groupId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      final base = (await ownerService.load(groupId))!;
+      expect(
+        await ownerService.postMessage(groupId, 'zero', broadcast: false),
+        isTrue,
+      );
+      expect(
+        await ownerService.postMessage(groupId, 'one', broadcast: false),
+        isTrue,
+      );
+      final rows = (await ownerService.load(groupId))!.messages;
+      expect(rows[1].prevHash, groupMessageHash(rows[0]));
+
+      final bobStorage = FakeHvContainer().storage();
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      final bobService = GroupService(bobStorage, _FakeSigner(bob));
+      expect(
+        await bobService.ingestSnapshot(
+          ownerService.snapshotJson(base, recipient: bob),
+        ),
+        isTrue,
+      );
+      expect(
+        await bobService.ingestSnapshot(
+          ownerService.snapshotJson(
+            base.copyWith(messages: [rows[1]]),
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+      expect(await bobService.messagesOf(groupId), isEmpty);
+      expect((await bobService.load(groupId))!.messages, hasLength(1));
+
+      expect(
+        await bobService.ingestSnapshot(
+          ownerService.snapshotJson(
+            base.copyWith(messages: [rows[0]]),
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        (await bobService.messagesOf(groupId)).map((message) => message.body),
+        ['zero', 'one'],
+      );
+    },
+  );
+
+  test(
+    'same-seq message fork quarantines the scoped suffix and converges by sync',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      final ownerService = GroupService(ownerStorage, _FakeSigner(owner));
+      final groupId = await ownerService.createGroup('fork evidence');
+      expect(
+        await ownerService.addControlOp(
+          groupId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      for (final body in ['zero', 'one', 'two']) {
+        expect(
+          await ownerService.postMessage(groupId, body, broadcast: false),
+          isTrue,
+        );
+      }
+      final cleanBundle = (await ownerService.load(groupId))!;
+      final original = cleanBundle.messages[1];
+      final alternate = _FakeSigner(owner).signMessage(
+        GroupMessage(
+          groupId: groupId,
+          author: owner,
+          seq: original.seq,
+          prevHash: original.prevHash,
+          body: 'fork',
+          policyVersion: original.policyVersion,
+          createdAtMs: original.createdAtMs + 1,
+          signature: Uint8List(0),
+        ),
+      );
+
+      final bobStorage = FakeHvContainer().storage();
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      final bobService = GroupService(bobStorage, _FakeSigner(bob));
+      expect(
+        await bobService.ingestSnapshot(
+          ownerService.snapshotJson(cleanBundle, recipient: bob),
+        ),
+        isTrue,
+      );
+      expect((await bobService.messagesOf(groupId)), hasLength(3));
+
+      expect(
+        await ownerService.ingestSnapshot(
+          ownerService.snapshotJson(
+            cleanBundle.copyWith(
+              messages: [...cleanBundle.messages, alternate],
+            ),
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        (await ownerService.messagesOf(groupId)).map((message) => message.body),
+        ['zero'],
+      );
+      expect(
+        await ownerService.postMessage(groupId, 'must not extend the fork'),
+        isFalse,
+      );
+
+      final replies = <String>[];
+      final responder = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        send: (peer, gid, wire) async => replies.add(wire),
+      );
+      final cleanRequest = (await bobService.buildGroupSyncRequest(groupId))!;
+      expect(
+        await responder.ingestGroupEntry(bob, jsonEncode(cleanRequest)),
+        isTrue,
+      );
+      final evidence = jsonDecode(replies.single) as Map;
+      expect(evidence['g'] as List, hasLength(2));
+      await bobService.ingestSnapshot(replies.single);
+      expect(
+        (await bobService.messagesOf(groupId)).map((message) => message.body),
+        ['zero'],
+      );
+
+      final forkedRequest = (await bobService.buildGroupSyncRequest(groupId))!;
+      final fork =
+          (((forkedRequest['ms'] as Map)['group|clear'] as Map)[owner.hex]
+                  as Map)['f']
+              as Map;
+      expect(fork['s'], 1);
+      expect((fork['h'] as List).toSet(), {
+        groupMessageHash(original),
+        groupMessageHash(alternate),
+      });
+      replies.clear();
+      expect(
+        await responder.ingestGroupEntry(bob, jsonEncode(forkedRequest)),
+        isFalse,
+        reason: 'known fork evidence must not be re-sent forever',
+      );
+      expect(replies, isEmpty);
+    },
+  );
 
   test(
     'gap-fill G1 remainder: a LOST reaction converges from the sync-vector '
@@ -4494,7 +4733,12 @@ void main() {
       );
       final syncVector = (await bobSvc.buildGroupSyncRequest(spaceId))!;
       expect((syncVector['g'] as Map)[bob.hex], isNull);
-      expect(((syncVector['cg'] as Map)[channelId!.hex] as Map)[bob.hex], 0);
+      final protectedHead =
+          ((syncVector['cg'] as Map)['${channelId!.hex}|channelEpoch:1']
+                  as Map)[bob.hex]
+              as Map;
+      expect(protectedHead['s'], 0);
+      expect(protectedHead['h'], groupMessageHash(storedMessage));
       expect(
         await ownerSvc.ingestSnapshot(
           bobSvc.snapshotJson(bobBundle, recipient: owner),
