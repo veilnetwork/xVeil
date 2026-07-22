@@ -56,6 +56,7 @@ class _FakeGroups implements GroupService {
   @override
   Future<GroupCallSignal?> broadcastGroupCallSignal(
     NodeId groupId, {
+    NodeId? channelId,
     required String callId,
     required GroupCallSignalType type,
     CallMedia? media,

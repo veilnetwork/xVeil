@@ -146,6 +146,204 @@ Future<Uint8List> decryptGroupPayload({
   }
 }
 
+/// Encrypt one restricted/secret channel metadata + ACL revision. The
+/// descriptor commitment is authenticated independently from the signed outer
+/// control entry so a ciphertext cannot be paired with another recipient set.
+Future<GroupEncryptedPayload> encryptSpaceChannelControlPayload({
+  required NodeId spaceId,
+  required NodeId channelId,
+  required int channelEpoch,
+  required String keyCommitment,
+  required NodeId author,
+  required int policyVersion,
+  required int createdAtMs,
+  required Uint8List clearText,
+  required Uint8List channelKey,
+  Random? random,
+}) async {
+  if (channelEpoch <= 0 ||
+      channelEpoch > 0xffffffff ||
+      !RegExp(r'^[0-9a-f]{64}$').hasMatch(keyCommitment) ||
+      policyVersion < 0 ||
+      createdAtMs < 0 ||
+      clearText.length > maxGroupEncryptedPayloadBytes ||
+      channelKey.length != 32) {
+    throw ArgumentError('invalid Space channel control payload input');
+  }
+  final nonce = Uint8List(12);
+  final rng = random ?? Random.secure();
+  for (var index = 0; index < nonce.length; index++) {
+    nonce[index] = rng.nextInt(256);
+  }
+  final box = await _groupAead.encrypt(
+    clearText,
+    secretKey: SecretKey(channelKey),
+    nonce: nonce,
+    aad: spaceChannelControlPayloadAad(
+      spaceId: spaceId,
+      channelId: channelId,
+      channelEpoch: channelEpoch,
+      keyCommitment: keyCommitment,
+      author: author,
+      policyVersion: policyVersion,
+      createdAtMs: createdAtMs,
+    ),
+  );
+  return GroupEncryptedPayload(
+    nonce: nonce,
+    cipherText: Uint8List.fromList(box.cipherText),
+    mac: Uint8List.fromList(box.mac.bytes),
+  );
+}
+
+Future<Uint8List> decryptSpaceChannelControlPayload({
+  required NodeId spaceId,
+  required NodeId channelId,
+  required int channelEpoch,
+  required String keyCommitment,
+  required NodeId author,
+  required int policyVersion,
+  required int createdAtMs,
+  required GroupEncryptedPayload payload,
+  required Uint8List channelKey,
+}) async {
+  if (channelEpoch <= 0 ||
+      channelEpoch > 0xffffffff ||
+      !RegExp(r'^[0-9a-f]{64}$').hasMatch(keyCommitment) ||
+      policyVersion < 0 ||
+      createdAtMs < 0 ||
+      !payload.isStructurallyValid ||
+      channelKey.length != 32) {
+    throw const FormatException('Space channel control payload rejected');
+  }
+  try {
+    final clear = await _groupAead.decrypt(
+      SecretBox(
+        payload.cipherText,
+        nonce: payload.nonce,
+        mac: Mac(payload.mac),
+      ),
+      secretKey: SecretKey(channelKey),
+      aad: spaceChannelControlPayloadAad(
+        spaceId: spaceId,
+        channelId: channelId,
+        channelEpoch: channelEpoch,
+        keyCommitment: keyCommitment,
+        author: author,
+        policyVersion: policyVersion,
+        createdAtMs: createdAtMs,
+      ),
+    );
+    if (clear.length > maxGroupEncryptedPayloadBytes) {
+      throw const FormatException('Space channel control payload rejected');
+    }
+    return Uint8List.fromList(clear);
+  } on SecretBoxAuthenticationError {
+    throw const FormatException('Space channel control payload rejected');
+  }
+}
+
+/// Encrypt one message under a channel epoch instead of the Space membership
+/// epoch. The channel id is part of AEAD AAD, so even a validly signed outer
+/// row cannot transplant ciphertext between channels.
+Future<GroupEncryptedPayload> encryptSpaceChannelMessagePayload({
+  required NodeId spaceId,
+  required NodeId channelId,
+  required int channelEpoch,
+  required NodeId author,
+  required int seq,
+  required String prevHash,
+  required int policyVersion,
+  required int createdAtMs,
+  required Uint8List clearText,
+  required Uint8List channelKey,
+  Random? random,
+}) async {
+  if (channelEpoch <= 0 ||
+      channelEpoch > 0xffffffff ||
+      seq < 0 ||
+      policyVersion < 0 ||
+      createdAtMs < 0 ||
+      clearText.length > maxGroupEncryptedPayloadBytes ||
+      channelKey.length != 32) {
+    throw ArgumentError('invalid Space channel message payload input');
+  }
+  final nonce = Uint8List(12);
+  final rng = random ?? Random.secure();
+  for (var index = 0; index < nonce.length; index++) {
+    nonce[index] = rng.nextInt(256);
+  }
+  final box = await _groupAead.encrypt(
+    clearText,
+    secretKey: SecretKey(channelKey),
+    nonce: nonce,
+    aad: spaceChannelMessagePayloadAad(
+      spaceId: spaceId,
+      channelId: channelId,
+      channelEpoch: channelEpoch,
+      author: author,
+      seq: seq,
+      prevHash: prevHash,
+      policyVersion: policyVersion,
+      createdAtMs: createdAtMs,
+    ),
+  );
+  return GroupEncryptedPayload(
+    nonce: nonce,
+    cipherText: Uint8List.fromList(box.cipherText),
+    mac: Uint8List.fromList(box.mac.bytes),
+  );
+}
+
+Future<Uint8List> decryptSpaceChannelMessagePayload({
+  required NodeId spaceId,
+  required NodeId channelId,
+  required int channelEpoch,
+  required NodeId author,
+  required int seq,
+  required String prevHash,
+  required int policyVersion,
+  required int createdAtMs,
+  required GroupEncryptedPayload payload,
+  required Uint8List channelKey,
+}) async {
+  if (channelEpoch <= 0 ||
+      channelEpoch > 0xffffffff ||
+      seq < 0 ||
+      policyVersion < 0 ||
+      createdAtMs < 0 ||
+      !payload.isStructurallyValid ||
+      channelKey.length != 32) {
+    throw const FormatException('Space channel message payload rejected');
+  }
+  try {
+    final clear = await _groupAead.decrypt(
+      SecretBox(
+        payload.cipherText,
+        nonce: payload.nonce,
+        mac: Mac(payload.mac),
+      ),
+      secretKey: SecretKey(channelKey),
+      aad: spaceChannelMessagePayloadAad(
+        spaceId: spaceId,
+        channelId: channelId,
+        channelEpoch: channelEpoch,
+        author: author,
+        seq: seq,
+        prevHash: prevHash,
+        policyVersion: policyVersion,
+        createdAtMs: createdAtMs,
+      ),
+    );
+    if (clear.length > maxGroupEncryptedPayloadBytes) {
+      throw const FormatException('Space channel message payload rejected');
+    }
+    return Uint8List.fromList(clear);
+  } on SecretBoxAuthenticationError {
+    throw const FormatException('Space channel message payload rejected');
+  }
+}
+
 Future<GroupEncryptedPayload> encryptGroupReactionPayload({
   required NodeId groupId,
   required int membershipEpoch,
@@ -154,6 +352,7 @@ Future<GroupEncryptedPayload> encryptGroupReactionPayload({
   required int createdAtMs,
   required Uint8List clearText,
   required Uint8List epochKey,
+  int reactionVersion = 2,
   Random? random,
 }) async {
   if (membershipEpoch < 0 ||
@@ -178,6 +377,7 @@ Future<GroupEncryptedPayload> encryptGroupReactionPayload({
       author: author,
       seq: seq,
       createdAtMs: createdAtMs,
+      reactionVersion: reactionVersion,
     ),
   );
   return GroupEncryptedPayload(
@@ -195,6 +395,7 @@ Future<Uint8List> decryptGroupReactionPayload({
   required int createdAtMs,
   required GroupEncryptedPayload payload,
   required Uint8List epochKey,
+  int reactionVersion = 2,
 }) async {
   if (membershipEpoch < 0 ||
       seq < 0 ||
@@ -217,6 +418,7 @@ Future<Uint8List> decryptGroupReactionPayload({
         author: author,
         seq: seq,
         createdAtMs: createdAtMs,
+        reactionVersion: reactionVersion,
       ),
     );
     if (clear.length > maxGroupEncryptedPayloadBytes) {
@@ -225,6 +427,150 @@ Future<Uint8List> decryptGroupReactionPayload({
     return Uint8List.fromList(clear);
   } on SecretBoxAuthenticationError {
     throw const FormatException('group reaction payload rejected');
+  }
+}
+
+Future<GroupEncryptedPayload> encryptSpacePostPayload({
+  required NodeId spaceId,
+  required int membershipEpoch,
+  required NodeId author,
+  required int seq,
+  required String prevHash,
+  required String postType,
+  required String visibility,
+  required int policyVersion,
+  required int createdAtMs,
+  required int publishedAtMs,
+  List<Map<String, dynamic>> controlFrontier = const [],
+  String controlCheckpointHash = '',
+  String postOperation = '',
+  int? targetSeq,
+  required Uint8List clearText,
+  required Uint8List epochKey,
+  Random? random,
+}) async {
+  if (membershipEpoch <= 0 ||
+      seq < 0 ||
+      policyVersion < 0 ||
+      createdAtMs < 0 ||
+      publishedAtMs < createdAtMs ||
+      clearText.length > maxGroupEncryptedPayloadBytes ||
+      epochKey.length != 32 ||
+      (controlFrontier.isNotEmpty && controlCheckpointHash.isNotEmpty) ||
+      (controlCheckpointHash.isNotEmpty &&
+          !RegExp(r'^[0-9a-f]{64}$').hasMatch(controlCheckpointHash)) ||
+      (postOperation.isEmpty
+          ? targetSeq != null
+          : !const {'publish', 'edit', 'delete'}.contains(postOperation) ||
+                (postOperation == 'publish'
+                    ? targetSeq != null
+                    : targetSeq == null ||
+                          targetSeq < 0 ||
+                          targetSeq >= seq))) {
+    throw ArgumentError('invalid Space post payload input');
+  }
+  final nonce = Uint8List(12);
+  final rng = random ?? Random.secure();
+  for (var index = 0; index < nonce.length; index++) {
+    nonce[index] = rng.nextInt(256);
+  }
+  final box = await _groupAead.encrypt(
+    clearText,
+    secretKey: SecretKey(epochKey),
+    nonce: nonce,
+    aad: spacePostPayloadAad(
+      spaceId: spaceId,
+      membershipEpoch: membershipEpoch,
+      author: author,
+      seq: seq,
+      prevHash: prevHash,
+      postType: postType,
+      visibility: visibility,
+      policyVersion: policyVersion,
+      createdAtMs: createdAtMs,
+      publishedAtMs: publishedAtMs,
+      controlFrontier: controlFrontier,
+      controlCheckpointHash: controlCheckpointHash,
+      postOperation: postOperation,
+      targetSeq: targetSeq,
+    ),
+  );
+  return GroupEncryptedPayload(
+    nonce: nonce,
+    cipherText: Uint8List.fromList(box.cipherText),
+    mac: Uint8List.fromList(box.mac.bytes),
+  );
+}
+
+Future<Uint8List> decryptSpacePostPayload({
+  required NodeId spaceId,
+  required int membershipEpoch,
+  required NodeId author,
+  required int seq,
+  required String prevHash,
+  required String postType,
+  required String visibility,
+  required int policyVersion,
+  required int createdAtMs,
+  required int publishedAtMs,
+  List<Map<String, dynamic>> controlFrontier = const [],
+  String controlCheckpointHash = '',
+  String postOperation = '',
+  int? targetSeq,
+  required GroupEncryptedPayload payload,
+  required Uint8List epochKey,
+}) async {
+  if (membershipEpoch <= 0 ||
+      seq < 0 ||
+      policyVersion < 0 ||
+      createdAtMs < 0 ||
+      publishedAtMs < createdAtMs ||
+      !payload.isStructurallyValid ||
+      epochKey.length != 32 ||
+      (controlFrontier.isNotEmpty && controlCheckpointHash.isNotEmpty) ||
+      (controlCheckpointHash.isNotEmpty &&
+          !RegExp(r'^[0-9a-f]{64}$').hasMatch(controlCheckpointHash)) ||
+      (postOperation.isEmpty
+          ? targetSeq != null
+          : !const {'publish', 'edit', 'delete'}.contains(postOperation) ||
+                (postOperation == 'publish'
+                    ? targetSeq != null
+                    : targetSeq == null ||
+                          targetSeq < 0 ||
+                          targetSeq >= seq))) {
+    throw const FormatException('Space post payload rejected');
+  }
+  try {
+    final clear = await _groupAead.decrypt(
+      SecretBox(
+        payload.cipherText,
+        nonce: payload.nonce,
+        mac: Mac(payload.mac),
+      ),
+      secretKey: SecretKey(epochKey),
+      aad: spacePostPayloadAad(
+        spaceId: spaceId,
+        membershipEpoch: membershipEpoch,
+        author: author,
+        seq: seq,
+        prevHash: prevHash,
+        postType: postType,
+        visibility: visibility,
+        policyVersion: policyVersion,
+        createdAtMs: createdAtMs,
+        publishedAtMs: publishedAtMs,
+        controlFrontier: controlFrontier,
+        controlCheckpointHash: controlCheckpointHash,
+        postOperation: postOperation,
+        targetSeq: targetSeq,
+      ),
+    );
+    if (clear.length > maxGroupEncryptedPayloadBytes) {
+      throw const FormatException('Space post payload rejected');
+    }
+    return Uint8List.fromList(clear);
+  } on SecretBoxAuthenticationError {
+    throw const FormatException('Space post payload rejected');
   }
 }
 
@@ -321,21 +667,120 @@ Uint8List groupPayloadAad({
   ),
 ]);
 
+Uint8List spaceChannelControlPayloadAad({
+  required NodeId spaceId,
+  required NodeId channelId,
+  required int channelEpoch,
+  required String keyCommitment,
+  required NodeId author,
+  required int policyVersion,
+  required int createdAtMs,
+}) => Uint8List.fromList([
+  ...utf8.encode('xveil.space-channel.control-aad.v1\u0000'),
+  ...utf8.encode(
+    jsonEncode({
+      'sid': spaceId.hex,
+      'cid': channelId.hex,
+      'epoch': channelEpoch,
+      'ekc': keyCommitment,
+      'author': author.hex,
+      'pv': policyVersion,
+      'ts': createdAtMs,
+    }),
+  ),
+]);
+
+Uint8List spaceChannelMessagePayloadAad({
+  required NodeId spaceId,
+  required NodeId channelId,
+  required int channelEpoch,
+  required NodeId author,
+  required int seq,
+  required String prevHash,
+  required int policyVersion,
+  required int createdAtMs,
+}) => Uint8List.fromList([
+  ...utf8.encode('xveil.space-channel.message-aad.v1\u0000'),
+  ...utf8.encode(
+    jsonEncode({
+      'sid': spaceId.hex,
+      'cid': channelId.hex,
+      'epoch': channelEpoch,
+      'author': author.hex,
+      'seq': seq,
+      'prev': prevHash,
+      'pv': policyVersion,
+      'ts': createdAtMs,
+    }),
+  ),
+]);
+
 Uint8List groupReactionPayloadAad({
   required NodeId groupId,
   required int membershipEpoch,
   required NodeId author,
   required int seq,
   required int createdAtMs,
+  int reactionVersion = 2,
 }) => Uint8List.fromList([
-  ...utf8.encode('xveil.group-reaction.payload-aad.v1\u0000'),
+  ...utf8.encode(
+    reactionVersion == 2
+        ? 'xveil.group-reaction.payload-aad.v1\u0000'
+        : 'xveil.group-reaction.payload-aad.v2\u0000',
+  ),
   ...utf8.encode(
     jsonEncode({
+      if (reactionVersion != 2) 'rv': reactionVersion,
       'gid': groupId.hex,
       'epoch': membershipEpoch,
       'author': author.hex,
       'seq': seq,
       'ts': createdAtMs,
+    }),
+  ),
+]);
+
+Uint8List spacePostPayloadAad({
+  required NodeId spaceId,
+  required int membershipEpoch,
+  required NodeId author,
+  required int seq,
+  required String prevHash,
+  required String postType,
+  required String visibility,
+  required int policyVersion,
+  required int createdAtMs,
+  required int publishedAtMs,
+  List<Map<String, dynamic>> controlFrontier = const [],
+  String controlCheckpointHash = '',
+  String postOperation = '',
+  int? targetSeq,
+}) => Uint8List.fromList([
+  ...utf8.encode(
+    postOperation.isNotEmpty
+        ? 'xveil.space-post.payload-aad.v4\u0000'
+        : controlCheckpointHash.isNotEmpty
+        ? 'xveil.space-post.payload-aad.v3\u0000'
+        : controlFrontier.isEmpty
+        ? 'xveil.space-post.payload-aad.v1\u0000'
+        : 'xveil.space-post.payload-aad.v2\u0000',
+  ),
+  ...utf8.encode(
+    jsonEncode({
+      'sid': spaceId.hex,
+      'epoch': membershipEpoch,
+      'author': author.hex,
+      'seq': seq,
+      'prev': prevHash,
+      'type': postType,
+      'visibility': visibility,
+      'pv': policyVersion,
+      'created': createdAtMs,
+      'published': publishedAtMs,
+      if (controlFrontier.isNotEmpty) 'frontier': controlFrontier,
+      if (controlCheckpointHash.isNotEmpty) 'checkpoint': controlCheckpointHash,
+      if (postOperation.isNotEmpty) 'op': postOperation,
+      'target': ?targetSeq,
     }),
   ),
 ]);

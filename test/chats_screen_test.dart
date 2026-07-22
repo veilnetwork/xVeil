@@ -6,8 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/node/node_controller.dart';
 import 'package:xveil/domain/chat.dart';
-import 'package:xveil/features/channels/channels_screen.dart';
 import 'package:xveil/features/chat/chats_screen.dart';
+import 'package:xveil/features/spaces/space_list_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/group_service_providers.dart';
 import 'package:xveil/state/messaging.dart';
@@ -36,10 +36,12 @@ Conversation _conv(
 Widget _host(
   List<Conversation> convos, {
   List<GroupListEntry> groups = const [],
+  List<GroupListEntry> spaces = const [],
 }) => ProviderScope(
   overrides: [
     conversationsProvider.overrideWith((ref) => Stream.value(convos)),
     groupListProvider.overrideWith((ref) => Stream.value(groups)),
+    spaceListProvider.overrideWith((ref) => Stream.value(spaces)),
     nodeStatusProvider.overrideWith(
       (ref) => Stream.value(
         const NodeStatus(phase: NodePhase.starting, peerCount: 4),
@@ -81,8 +83,9 @@ void main() {
     expect(find.text(l.chatsEmpty), findsOneWidget);
   });
 
-  testWidgets('NAV1: group chats inline in the chats list, newest first, '
-      'with the group marker', (tester) async {
+  testWidgets('group chats remain in Chats beside personal chats', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       _host(
         [_conv(1, 'Alice', ContactStatus.accepted, last: 'hey')],
@@ -90,11 +93,29 @@ void main() {
           (
             groupId: _id(7),
             name: 'Дача',
+            description: '',
+            visibility: null,
+            discoverable: false,
             unread: 2,
+            postUnread: 1,
             muted: false,
             preview: 'шашлыки в субботу',
             // Newer than Alice's 2026-01-01 message → the group sorts on top.
             lastTs: DateTime(2026, 6, 1).millisecondsSinceEpoch,
+          ),
+        ],
+        spaces: [
+          (
+            groupId: _id(8),
+            name: 'Veil Community',
+            description: 'Should stay in Communities',
+            visibility: null,
+            discoverable: false,
+            unread: 3,
+            postUnread: 2,
+            muted: false,
+            preview: 'community channel message',
+            lastTs: DateTime(2026, 7, 1).millisecondsSinceEpoch,
           ),
         ],
       ),
@@ -106,25 +127,49 @@ void main() {
     expect(find.text('Дача'), findsOneWidget);
     expect(find.text('шашлыки в субботу'), findsOneWidget);
     expect(find.byIcon(Icons.group_outlined), findsOneWidget);
-    expect(find.text('2'), findsOneWidget, reason: 'group unread badge');
-    // Recency order: the group's tile sits ABOVE Alice's.
-    final groupY = tester.getTopLeft(find.text('Дача')).dy;
-    final aliceY = tester.getTopLeft(find.text('Alice')).dy;
-    expect(groupY, lessThan(aliceY));
+    expect(find.text('Alice'), findsOneWidget);
+    expect(find.text('Veil Community'), findsNothing);
+    expect(find.text('community channel message'), findsNothing);
   });
 
-  testWidgets('NAV1: channels tab is an honest empty state', (tester) async {
+  testWidgets('communities replace the old empty channels surface', (
+    tester,
+  ) async {
     await tester.pumpWidget(
-      MaterialApp(
-        localizationsDelegates: AppL10n.localizationsDelegates,
-        supportedLocales: AppL10n.supportedLocales,
-        home: const ChannelsScreen(),
+      ProviderScope(
+        overrides: [
+          groupServiceProvider.overrideWithValue(null),
+          spaceListProvider.overrideWith(
+            (ref) => Stream.value([
+              (
+                groupId: _id(7),
+                name: 'Дача',
+                description: '',
+                visibility: null,
+                discoverable: false,
+                unread: 2,
+                postUnread: 1,
+                muted: false,
+                preview: 'шашлыки в субботу',
+                lastTs: DateTime(2026, 6, 1).millisecondsSinceEpoch,
+              ),
+            ]),
+          ),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: const SpaceListScreen(),
+        ),
       ),
     );
     await tester.pump();
-    final l = AppL10n.of(tester.element(find.byType(ChannelsScreen)));
-    expect(find.text(l.channelsEmpty), findsOneWidget);
-    expect(find.byIcon(Icons.campaign_outlined), findsOneWidget);
+    await tester.pump();
+    final l = AppL10n.of(tester.element(find.byType(SpaceListScreen)));
+    expect(find.text(l.navCommunities), findsOneWidget);
+    expect(find.text('Дача'), findsOneWidget);
+    expect(find.text('шашлыки в субботу'), findsOneWidget);
+    expect(find.text('2'), findsOneWidget);
   });
 
   testWidgets('FAB opens the add-contact (invite) sheet', (tester) async {

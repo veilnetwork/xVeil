@@ -9,6 +9,7 @@ import 'package:xveil/domain/group_call.dart';
 import 'package:xveil/domain/group_content.dart';
 import 'package:xveil/domain/group_message.dart';
 import 'package:xveil/domain/group_reaction.dart';
+import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/features/groups/group_chat_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/group_service_providers.dart';
@@ -26,6 +27,10 @@ class _Signer implements GroupSigner {
   Uint8List get selfPubKey => selfId.bytes;
 
   @override
+  SpaceManifest signSpaceManifest(SpaceManifest value) =>
+      value.withSignature(Uint8List(64));
+
+  @override
   ControlEntry signControl(ControlEntry value) =>
       value.withSignature(Uint8List(64), value.author.bytes);
 
@@ -35,6 +40,10 @@ class _Signer implements GroupSigner {
 
   @override
   GroupReaction signReaction(GroupReaction value) =>
+      value.withSignature(Uint8List(64), value.author.bytes);
+
+  @override
+  SpacePost signPost(SpacePost value) =>
       value.withSignature(Uint8List(64), value.author.bytes);
 
   @override
@@ -55,10 +64,16 @@ class _Signer implements GroupSigner {
   bool verifyReaction(GroupReaction value) => true;
 
   @override
+  bool verifyPost(SpacePost value) => true;
+
+  @override
   bool verifyContentRequest(GroupContentRequest value) => true;
 
   @override
   bool verifyCallSignal(GroupCallSignal value) => true;
+
+  @override
+  bool verifySpaceManifest(SpaceManifest value) => value.signature.length == 64;
 
   @override
   bool verifySovereign({

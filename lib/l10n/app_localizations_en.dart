@@ -152,6 +152,12 @@ class AppL10nEn extends AppL10n {
   String get navChats => 'Chats';
 
   @override
+  String get navCommunities => 'Communities';
+
+  @override
+  String get navFeed => 'Feed';
+
+  @override
   String get navNetwork => 'Network';
 
   @override
@@ -183,11 +189,271 @@ class AppL10nEn extends AppL10n {
   String get callOutcomeFailed => 'Failed';
 
   @override
-  String get channelsEmpty => 'No channels yet';
+  String get spaceCreateTitle => 'New community';
 
   @override
-  String get channelsEmptyHint =>
-      'Channels — owner-signed broadcast feeds — are coming in a future update. Your group chats now live in the Chats tab.';
+  String get spaceCreateAction => 'Create';
+
+  @override
+  String get spaceNameHint => 'Community name';
+
+  @override
+  String get spaceDescriptionLabel => 'Description';
+
+  @override
+  String get spaceDescriptionHint => 'What this community is for';
+
+  @override
+  String get spaceDescriptionEditTitle => 'Edit description';
+
+  @override
+  String get spaceDescriptionSave => 'Save description';
+
+  @override
+  String get spaceVisibilityLabel => 'Visibility';
+
+  @override
+  String get spaceVisibilityPublic => 'Public';
+
+  @override
+  String get spaceVisibilityPrivate => 'Private';
+
+  @override
+  String get spaceVisibilitySecret => 'Secret';
+
+  @override
+  String get spaceVisibilityPublicHint =>
+      'Posts may be shared publicly. Automatic discovery is not enabled until the holder protocol is ready.';
+
+  @override
+  String get spaceVisibilityPrivateHint =>
+      'Membership is by invitation and community content is encrypted for current members.';
+
+  @override
+  String get spaceVisibilitySecretHint =>
+      'Invitations hide the community name; content is encrypted and the community is never searchable.';
+
+  @override
+  String get spaceEmpty => 'No communities yet';
+
+  @override
+  String get spaceOperationFailed =>
+      'Could not update the community. Check the network and try again.';
+
+  @override
+  String get spaceChannelsEmpty => 'No channels in this community';
+
+  @override
+  String get spaceChannelCreateTitle => 'New channel';
+
+  @override
+  String get spaceChannelNameHint => 'Channel name';
+
+  @override
+  String get spaceChannelText => 'Text channel';
+
+  @override
+  String get spaceChannelVoice => 'Voice channel';
+
+  @override
+  String get spaceChannelCategory => 'Category';
+
+  @override
+  String get spaceChannelAccess => 'Access';
+
+  @override
+  String get spaceChannelAccessSpace => 'All community members';
+
+  @override
+  String get spaceChannelAccessRestricted =>
+      'Restricted · admins only initially';
+
+  @override
+  String get spaceChannelAccessSecret => 'Secret · admins only initially';
+
+  @override
+  String get spaceVoiceStartFailed =>
+      'Could not start or join this voice session.';
+
+  @override
+  String get spacePostsTitle => 'Publications';
+
+  @override
+  String get spacePostsEmpty => 'No publications yet';
+
+  @override
+  String get spacePostCreateTitle => 'New publication';
+
+  @override
+  String get spacePostTitleHint => 'Title (optional)';
+
+  @override
+  String get spacePostBodyHint => 'Share an update with the community…';
+
+  @override
+  String get spacePostPublish => 'Publish';
+
+  @override
+  String get spacePostEdit => 'Edit publication';
+
+  @override
+  String get spacePostEdited => 'Edited';
+
+  @override
+  String get spacePostDelete => 'Delete publication';
+
+  @override
+  String get spacePostDeleteTitle => 'Delete this publication?';
+
+  @override
+  String get spacePostDeleteBody =>
+      'A signed tombstone will remove it from the community feed on every synchronized member device. This cannot be undone.';
+
+  @override
+  String get spacePostTypePost => 'Post';
+
+  @override
+  String get spacePostTypeArticle => 'Article';
+
+  @override
+  String get spaceFeedEnable => 'Show this community in Feed';
+
+  @override
+  String get spaceFeedDisable => 'Hide this community from Feed';
+
+  @override
+  String get spaceSettingsTitle => 'Members and settings';
+
+  @override
+  String get spaceMembersTooltip => 'Members and settings';
+
+  @override
+  String spaceMembers(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count members',
+      one: '1 member',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get spaceMemberAdd => 'Invite member';
+
+  @override
+  String get spaceNoContactsToAdd =>
+      'All accepted contacts are already members';
+
+  @override
+  String get spaceInviteSent =>
+      'Invitation sent. Membership and keys stay private until they accept.';
+
+  @override
+  String get spaceInvitesTitle => 'Invitations';
+
+  @override
+  String get spaceSecretInviteTitle => 'Secret community';
+
+  @override
+  String spaceInviteFrom(String peer) {
+    return 'From $peer';
+  }
+
+  @override
+  String get spaceInviteAccept => 'Accept';
+
+  @override
+  String get spaceInviteDecline => 'Decline';
+
+  @override
+  String get spaceInviteJoining => 'Accepted · waiting for verified membership';
+
+  @override
+  String get spaceRoleLabel => 'Community role';
+
+  @override
+  String get spaceRoleOwner => 'Owner';
+
+  @override
+  String get spaceRoleAdmin => 'Administrator';
+
+  @override
+  String get spaceRoleMember => 'Member';
+
+  @override
+  String get spaceMemberMuted => 'Cannot publish until unmuted';
+
+  @override
+  String get spaceMemberMute => 'Restrict publishing';
+
+  @override
+  String get spaceMemberUnmute => 'Allow publishing';
+
+  @override
+  String get spaceMemberPromote => 'Make administrator';
+
+  @override
+  String get spaceMemberDemote => 'Make member';
+
+  @override
+  String get spaceMemberRemove => 'Remove from community';
+
+  @override
+  String spaceMemberRemoveConfirm(String member) {
+    return 'Remove $member and rotate access keys?';
+  }
+
+  @override
+  String get spaceMemberTransferOwnership => 'Transfer ownership';
+
+  @override
+  String spaceMemberTransferOwnershipConfirm(String member) {
+    return 'Transfer ownership to $member? You will become an administrator, and only the new owner can transfer it back.';
+  }
+
+  @override
+  String get spaceRenameTitle => 'Rename community';
+
+  @override
+  String get spaceRenameAction => 'Rename';
+
+  @override
+  String get spaceRenameDenied =>
+      'You do not have permission to rename this community';
+
+  @override
+  String get spaceLeave => 'Leave community';
+
+  @override
+  String get spaceLeaveConfirm =>
+      'You will lose access to its channels and publications. Protected keys will be rotated for the remaining members.';
+
+  @override
+  String get spaceOwnerLeaveHint =>
+      'Transfer ownership to another member before leaving the community.';
+
+  @override
+  String get spaceReplicationTitle => 'P2P availability';
+
+  @override
+  String spaceReplicationNeighbors(int count) {
+    return 'Distribute through $count nearby members';
+  }
+
+  @override
+  String get spaceReplicationHint =>
+      'More distributors improve offline availability and recovery, but use more traffic on this device.';
+
+  @override
+  String get spaceYou => 'You';
+
+  @override
+  String get feedEmpty => 'Your feed is empty';
+
+  @override
+  String get feedEmptyHint =>
+      'Publications from enabled communities will appear here in chronological order.';
 
   @override
   String get chatsEmpty => 'No conversations yet';
@@ -276,7 +542,7 @@ class AppL10nEn extends AppL10n {
   String get stickerImport => 'Import from photos';
 
   @override
-  String get groupCreateTitle => 'New group';
+  String get groupCreateTitle => 'New group chat';
 
   @override
   String get groupCreateAction => 'Create';
@@ -292,10 +558,10 @@ class AppL10nEn extends AppL10n {
   String get groupEncryptionPending => 'Encryption upgrade pending';
 
   @override
-  String get groupNameHint => 'Group name';
+  String get groupNameHint => 'Group chat name';
 
   @override
-  String get groupEmpty => 'No groups yet';
+  String get groupEmpty => 'No group chats yet';
 
   @override
   String get groupNoMessages => 'No messages yet';
@@ -530,9 +796,6 @@ class AppL10nEn extends AppL10n {
   @override
   String get settingsCloseToTrayHint =>
       'Closing the window hides it to the system tray and keeps running, so messages and notifications keep arriving. Off = closing quits.';
-
-  @override
-  String get navChannels => 'Channels';
 
   @override
   String get navStorage => 'Storage';
@@ -3418,4 +3681,135 @@ class AppL10nEn extends AppL10n {
   @override
   String get cloudCollectionInvalid =>
       'An authenticated but invalid change was kept inert.';
+
+  @override
+  String get spaceRulesTitle => 'Community rules';
+
+  @override
+  String get spaceRulesEmpty => 'This community has not published rules yet.';
+
+  @override
+  String get spaceRulesPublish => 'Publish rules';
+
+  @override
+  String spaceRulesPublishVersion(int version) {
+    return 'Publish rules version $version';
+  }
+
+  @override
+  String get spaceRulesFullText => 'Full rules';
+
+  @override
+  String get spaceRulesSummary => 'Short summary';
+
+  @override
+  String get spaceRulesEffectiveDate => 'Effective date';
+
+  @override
+  String spaceRulesEffective(String date) {
+    return 'Effective $date';
+  }
+
+  @override
+  String spaceRulesVersion(int version) {
+    return 'Version $version';
+  }
+
+  @override
+  String get spaceRulesAccept => 'Accept rules';
+
+  @override
+  String get spaceRulesAccepted => 'Rules accepted';
+
+  @override
+  String get spaceRulesAcceptanceRequired =>
+      'Please review and accept the current rules';
+
+  @override
+  String get spaceRulesHistory => 'Previous versions';
+
+  @override
+  String get spaceModerationTitle => 'Moderation';
+
+  @override
+  String get spaceModerationEmpty =>
+      'No moderation actions have been recorded.';
+
+  @override
+  String get spaceModerationAdd => 'New moderation action';
+
+  @override
+  String get spaceModerationTarget => 'Member';
+
+  @override
+  String get spaceModerationAction => 'Action';
+
+  @override
+  String get spaceModerationReason => 'Reason';
+
+  @override
+  String get spaceModerationDuration => 'Duration';
+
+  @override
+  String get spaceModerationNoExpiry => 'Until revoked';
+
+  @override
+  String get spaceModerationOneHour => '1 hour';
+
+  @override
+  String get spaceModerationOneDay => '24 hours';
+
+  @override
+  String get spaceModerationOneWeek => '7 days';
+
+  @override
+  String get spaceModerationActive => 'Active';
+
+  @override
+  String get spaceModerationExpired => 'Expired';
+
+  @override
+  String get spaceModerationRevoked => 'Revoked';
+
+  @override
+  String get spaceModerationRevoke => 'Revoke action';
+
+  @override
+  String get spaceModerationRevokeReason => 'Reason for revocation';
+
+  @override
+  String get spaceModerationWarning => 'Warning';
+
+  @override
+  String get spaceModerationDeleteMessage => 'Remove message';
+
+  @override
+  String get spaceModerationDeletePost => 'Remove publication';
+
+  @override
+  String get spaceModerationRestrictPublishing =>
+      'Temporarily restrict publications';
+
+  @override
+  String get spaceModerationRestrictMessages => 'Prevent sending messages';
+
+  @override
+  String get spaceModerationRestrictVoice => 'Prevent joining voice channels';
+
+  @override
+  String get spaceModerationMute => 'Mute messages and voice';
+
+  @override
+  String get spaceModerationTimeout => 'Timeout';
+
+  @override
+  String get spaceModerationTemporaryBan => 'Temporary ban';
+
+  @override
+  String get spaceModerationPermanentBan => 'Permanent ban';
+
+  @override
+  String spaceModerationUntil(String date) {
+    return 'Until $date';
+  }
 }

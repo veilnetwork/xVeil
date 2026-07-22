@@ -135,6 +135,16 @@ enum WireKind {
   /// like [callSignal]. Added before [unknown] (RULE WC) so older builds drop
   /// it silently.
   p2pEndpoints,
+
+  /// Consent-first Space invitation. The body contains only the minimal
+  /// proposal metadata; it never contains a roster, control log, messages or
+  /// epoch keys. Accepted-contact gated on receive.
+  spaceInvite,
+
+  /// The invitee's explicit accept/decline decision. Acceptance is not a
+  /// membership grant: the inviter must still append an authorized signed
+  /// `addMember` entry and send the normal Space snapshot.
+  spaceInviteDecision,
   unknown,
 }
 
@@ -327,6 +337,12 @@ class WireEnvelope {
   /// P2P direct-endpoint exchange frame — see [WireKind.p2pEndpoints].
   const WireEnvelope.p2pEndpoints(String bodyJson)
     : this(WireKind.p2pEndpoints, bodyJson);
+
+  const WireEnvelope.spaceInvite(String bodyJson)
+    : this(WireKind.spaceInvite, bodyJson);
+
+  const WireEnvelope.spaceInviteDecision(String bodyJson)
+    : this(WireKind.spaceInviteDecision, bodyJson);
 
   /// The decode-only sentinel for a structured (v:2) frame whose kind this build
   /// does not know — the dispatcher drops it (RULE WC).

@@ -5,7 +5,7 @@
 //
 // Persistence (settings JSON in the deniable store):
 //   'groups.index'      -> ["<groupId hex>", ...]
-//   'group:<id>'        -> {"m": manifest, "c": [controlEntry...], "g": [msg...]}
+//   'group:<id>'        -> manifest + control/messages/posts/reactions/epochs
 //
 // The identity crypto (native ed25519) sits behind an injectable [GroupSigner]
 // so the whole service is unit-tested with a fake — the real signer wraps
@@ -21,6 +21,7 @@ import 'package:veil_flutter/veil_ffi.dart' as veil;
 
 import '../core/ids.dart';
 import '../core/log.dart';
+import '../domain/chat.dart' show ContactStatus;
 import '../domain/call_signal.dart';
 import '../domain/device_sync.dart';
 import '../domain/device_link.dart';
@@ -33,6 +34,11 @@ import '../domain/group_payload.dart';
 import '../domain/group_policy.dart';
 import '../domain/group_reaction.dart';
 import '../domain/inline_custom_emoji.dart';
+import '../domain/space_channel.dart';
+import '../domain/space_invite.dart';
+import '../domain/space_moderation.dart';
+import '../domain/space_post.dart';
+import '../domain/space_rules.dart';
 import '../data/transport/bootstrap_invite.dart';
 import '../data/storage/storage.dart';
 import 'group_crypto.dart';
@@ -47,6 +53,17 @@ bool _listEquals<T>(List<T>? left, List<T>? right) {
     if (left[index] != right[index]) return false;
   }
   return true;
+}
+
+final RegExp _channelKeyIdPattern = RegExp(r'^[0-9a-f]{64}:[1-9][0-9]*$');
+
+String _channelKeyId(NodeId channelId, int epoch) => '${channelId.hex}:$epoch';
+
+bool _validChannelKeyId(String value) {
+  if (!_channelKeyIdPattern.hasMatch(value)) return false;
+  final separator = value.lastIndexOf(':');
+  final epoch = int.tryParse(value.substring(separator + 1));
+  return epoch != null && epoch > 0 && epoch <= 0xffffffff;
 }
 
 /// SHA-256 here hashes only public manifests and encrypted credential blobs.
@@ -127,16 +144,20 @@ abstract class GroupSigner {
   NodeId get selfId;
   Uint8List get selfPubKey;
 
+  SpaceManifest signSpaceManifest(SpaceManifest unsigned);
   ControlEntry signControl(ControlEntry unsigned);
   GroupMessage signMessage(GroupMessage unsigned);
   GroupReaction signReaction(GroupReaction unsigned);
+  SpacePost signPost(SpacePost unsigned);
   GroupContentRequest signContentRequest(GroupContentRequest unsigned);
   GroupCallSignal signCallSignal(GroupCallSignal unsigned);
   bool verifyControl(ControlEntry e);
   bool verifyMessage(GroupMessage m);
   bool verifyReaction(GroupReaction r);
+  bool verifyPost(SpacePost post);
   bool verifyContentRequest(GroupContentRequest r);
   bool verifyCallSignal(GroupCallSignal signal);
+  bool verifySpaceManifest(SpaceManifest manifest);
   bool verifySovereign({
     required String algorithm,
     required NodeId nodeId,
@@ -209,6 +230,14 @@ class NativeGroupSigner implements GroupSigner {
   Uint8List get selfPubKey => _selfPubKey;
 
   @override
+  SpaceManifest signSpaceManifest(SpaceManifest unsigned) =>
+      signSpaceGenesisManifest(
+        identityToml: identityToml,
+        unsigned: unsigned,
+        lib: lib,
+      );
+
+  @override
   ControlEntry signControl(ControlEntry unsigned) => signControlEntry(
     identityToml: identityToml,
     unsigned: unsigned,
@@ -226,6 +255,9 @@ class NativeGroupSigner implements GroupSigner {
     unsigned: unsigned,
     lib: lib,
   );
+  @override
+  SpacePost signPost(SpacePost unsigned) =>
+      signSpacePost(identityToml: identityToml, unsigned: unsigned, lib: lib);
   @override
   GroupContentRequest signContentRequest(GroupContentRequest unsigned) =>
       signGroupContentRequest(
@@ -247,11 +279,16 @@ class NativeGroupSigner implements GroupSigner {
   @override
   bool verifyReaction(GroupReaction r) => verifyGroupReaction(r, lib: lib);
   @override
+  bool verifyPost(SpacePost post) => verifySpacePost(post, lib: lib);
+  @override
   bool verifyContentRequest(GroupContentRequest r) =>
       verifyGroupContentRequest(r, lib: lib);
   @override
   bool verifyCallSignal(GroupCallSignal signal) =>
       verifyGroupCallSignal(signal, lib: lib);
+  @override
+  bool verifySpaceManifest(SpaceManifest manifest) =>
+      verifySpaceGenesisManifest(manifest, lib: lib);
   @override
   bool verifySovereign({
     required String algorithm,
@@ -276,14 +313,18 @@ class GroupBundle {
     required this.manifest,
     required this.control,
     required this.messages,
+    this.posts = const [],
     this.reactions = const [],
     this.epochEnvelopes = const [],
     this.localEpochKeys = const {},
+    this.channelEpochEnvelopes = const [],
+    this.localChannelEpochKeys = const {},
     this.sovereignBundle,
   });
   final GroupManifest manifest;
   final List<ControlEntry> control;
   final List<GroupMessage> messages;
+  final List<SpacePost> posts;
   final List<GroupReaction> reactions;
 
   /// Recipient-specific ML-KEM records. A creator keeps every record it
@@ -294,23 +335,36 @@ class GroupBundle {
   /// Decrypted epoch keys live only in the deniable hidden-volume bundle.
   /// They are deliberately omitted from every wire snapshot/delta.
   final Map<int, Uint8List> localEpochKeys;
+
+  /// Same recipient-specific ML-KEM primitive, scoped by channel id rather
+  /// than Space id. Unauthorized members never receive one of these records.
+  final List<GroupEpochRecipientEnvelope> channelEpochEnvelopes;
+
+  /// `<channelId hex>:<epoch>` -> decrypted 32-byte key, hidden-volume only.
+  final Map<String, Uint8List> localChannelEpochKeys;
   final Uint8List? sovereignBundle;
 
   GroupBundle copyWith({
     GroupManifest? manifest,
     List<ControlEntry>? control,
     List<GroupMessage>? messages,
+    List<SpacePost>? posts,
     List<GroupReaction>? reactions,
     List<GroupEpochRecipientEnvelope>? epochEnvelopes,
     Map<int, Uint8List>? localEpochKeys,
+    List<GroupEpochRecipientEnvelope>? channelEpochEnvelopes,
+    Map<String, Uint8List>? localChannelEpochKeys,
     Uint8List? sovereignBundle,
   }) => GroupBundle(
     manifest: manifest ?? this.manifest,
     control: control ?? this.control,
     messages: messages ?? this.messages,
+    posts: posts ?? this.posts,
     reactions: reactions ?? this.reactions,
     epochEnvelopes: epochEnvelopes ?? this.epochEnvelopes,
     localEpochKeys: localEpochKeys ?? this.localEpochKeys,
+    channelEpochEnvelopes: channelEpochEnvelopes ?? this.channelEpochEnvelopes,
+    localChannelEpochKeys: localChannelEpochKeys ?? this.localChannelEpochKeys,
     sovereignBundle: sovereignBundle ?? this.sovereignBundle,
   );
 }
@@ -319,6 +373,8 @@ class GroupLogCompaction {
   const GroupLogCompaction({
     required this.messagesBefore,
     required this.messagesAfter,
+    required this.postsBefore,
+    required this.postsAfter,
     required this.controlBefore,
     required this.controlAfter,
     required this.reactionsBefore,
@@ -327,6 +383,8 @@ class GroupLogCompaction {
 
   final int messagesBefore;
   final int messagesAfter;
+  final int postsBefore;
+  final int postsAfter;
   final int controlBefore;
   final int controlAfter;
   final int reactionsBefore;
@@ -334,13 +392,36 @@ class GroupLogCompaction {
 
   bool get changed =>
       messagesBefore != messagesAfter ||
+      postsBefore != postsAfter ||
       controlBefore != controlAfter ||
       reactionsBefore != reactionsAfter;
+}
+
+/// Result of an idempotent local legacy-group -> signed-Space migration.
+class SpaceManifestMigration {
+  const SpaceManifestMigration({
+    required this.scanned,
+    required this.upgraded,
+    required this.alreadyCurrent,
+    required this.notOwner,
+    required this.failed,
+  });
+
+  final int scanned;
+  final int upgraded;
+  final int alreadyCurrent;
+  final int notOwner;
+  final int failed;
 }
 
 /// Ships a group snapshot [bundleJson] durably to [peer] (direct fanout, v1).
 typedef GroupSnapshotSender =
     Future<void> Function(NodeId peer, NodeId groupId, String bundleJson);
+
+typedef SpaceInviteSender =
+    Future<void> Function(NodeId peer, String inviteId, String inviteJson);
+typedef SpaceInviteDecisionSender =
+    Future<void> Function(NodeId peer, String inviteId, String decisionJson);
 
 typedef GroupCallFrameSender =
     Future<void> Function(
@@ -354,6 +435,8 @@ class GroupService {
     this._storage,
     this._signer, {
     this._send,
+    this.sendSpaceInvite,
+    this.sendSpaceInviteDecision,
     this._epochService,
     this.ourCertVersion = 1,
     this.sendContentRequest,
@@ -367,6 +450,8 @@ class GroupService {
   final Storage _storage;
   final GroupSigner _signer;
   final GroupSnapshotSender? _send;
+  final SpaceInviteSender? sendSpaceInvite;
+  final SpaceInviteDecisionSender? sendSpaceInviteDecision;
   final GroupEpochService? _epochService;
   final int ourCertVersion;
 
@@ -404,6 +489,304 @@ class GroupService {
 
   /// Our own node id — the composer uses it to align outgoing bubbles.
   NodeId get selfId => _signer.selfId;
+
+  static const String _spaceInvitesSetting = 'spaces.invites.v1';
+  static const int _maxSpaceInvites = 256;
+  Future<void> _spaceInviteMutationTail = Future<void>.value();
+
+  Future<T> _serializeSpaceInvites<T>(Future<T> Function() action) async {
+    final previous = _spaceInviteMutationTail;
+    final gate = Completer<void>();
+    _spaceInviteMutationTail = gate.future;
+    try {
+      try {
+        await previous;
+      } catch (_) {}
+      return await action();
+    } finally {
+      gate.complete();
+    }
+  }
+
+  Future<({List<PendingSpaceInvite> incoming, List<SpaceInvite> outgoing})>
+  _loadSpaceInvites() async {
+    final raw = await _storage.getSetting(_spaceInvitesSetting);
+    if (raw == null || raw.isEmpty) {
+      return (incoming: <PendingSpaceInvite>[], outgoing: <SpaceInvite>[]);
+    }
+    try {
+      final value = jsonDecode(raw);
+      if (value is! Map || value['v'] != 1) {
+        return (incoming: <PendingSpaceInvite>[], outgoing: <SpaceInvite>[]);
+      }
+      final incoming = (value['incoming'] as List? ?? const [])
+          .map(PendingSpaceInvite.fromJson)
+          .whereType<PendingSpaceInvite>()
+          .take(_maxSpaceInvites)
+          .toList();
+      final outgoing = (value['outgoing'] as List? ?? const [])
+          .map(SpaceInvite.fromJson)
+          .whereType<SpaceInvite>()
+          .take(_maxSpaceInvites)
+          .toList();
+      return (incoming: incoming, outgoing: outgoing);
+    } catch (_) {
+      return (incoming: <PendingSpaceInvite>[], outgoing: <SpaceInvite>[]);
+    }
+  }
+
+  Future<void> _saveSpaceInvites({
+    required List<PendingSpaceInvite> incoming,
+    required List<SpaceInvite> outgoing,
+  }) => _storage.putSetting(
+    _spaceInvitesSetting,
+    jsonEncode({
+      'v': 1,
+      'incoming': [
+        for (final invite in incoming.take(_maxSpaceInvites)) invite.toJson(),
+      ],
+      'outgoing': [
+        for (final invite in outgoing.take(_maxSpaceInvites)) invite.toJson(),
+      ],
+    }),
+  );
+
+  String _newSpaceInviteId() {
+    final random = Random.secure();
+    return List<int>.generate(
+      32,
+      (_) => random.nextInt(256),
+    ).map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+  }
+
+  /// Propose Space membership to one accepted contact. No membership state,
+  /// history or epoch envelope is sent before the recipient explicitly accepts.
+  Future<bool> inviteToSpace(
+    NodeId spaceId,
+    NodeId invitee, {
+    GroupRole role = GroupRole.member,
+  }) async {
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace || role == GroupRole.owner) {
+      return false;
+    }
+    if (invitee == selfId) return false;
+    if ((await _storage.getContact(invitee))?.status !=
+        ContactStatus.accepted) {
+      return false;
+    }
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+    ).state;
+    final authorRole = state.roleOf(selfId);
+    if (authorRole == null ||
+        state.isMember(invitee) ||
+        !canApply(
+          authorRole: authorRole,
+          op: ControlOp.addMember,
+          newRole: role,
+        )) {
+      return false;
+    }
+    final sender = sendSpaceInvite;
+    if (sender == null) return false;
+    final now = _now();
+    final invite = SpaceInvite(
+      inviteId: _newSpaceInviteId(),
+      spaceId: spaceId,
+      inviter: selfId,
+      invitee: invitee,
+      spaceName: bundle.manifest.visibility == SpaceVisibility.secret
+          ? ''
+          : state.name,
+      visibility: bundle.manifest.visibility!,
+      role: role,
+      createdAtMs: now,
+      expiresAtMs: now + const Duration(days: 7).inMilliseconds,
+    );
+    await _serializeSpaceInvites(() async {
+      final store = await _loadSpaceInvites();
+      final outgoing = [
+        invite,
+        for (final old in store.outgoing)
+          if (!(old.spaceId == spaceId && old.invitee == invitee)) old,
+      ];
+      await _saveSpaceInvites(incoming: store.incoming, outgoing: outgoing);
+    });
+    changes.value++;
+    try {
+      await sender(invitee, invite.inviteId, jsonEncode(invite.toJson()));
+      return true;
+    } catch (_) {
+      // The proposal remains durable locally so a later explicit retry can use
+      // the same consent id instead of silently adding the member.
+      return false;
+    }
+  }
+
+  /// Store a minimal proposal from the authenticated accepted contact.
+  Future<bool> receiveSpaceInvite(NodeId peer, String inviteJson) async {
+    final SpaceInvite? invite;
+    try {
+      invite = SpaceInvite.fromJson(jsonDecode(inviteJson));
+    } catch (_) {
+      return false;
+    }
+    final now = _now();
+    if (invite == null ||
+        (await _storage.getContact(peer))?.status != ContactStatus.accepted ||
+        invite.inviter != peer ||
+        invite.invitee != selfId ||
+        invite.createdAtMs > now + const Duration(minutes: 5).inMilliseconds ||
+        invite.isExpiredAt(now) ||
+        await load(invite.spaceId) != null) {
+      return false;
+    }
+    final receivedInvite = invite;
+    await _serializeSpaceInvites(() async {
+      final store = await _loadSpaceInvites();
+      PendingSpaceInvite? same;
+      for (final old in store.incoming) {
+        if (old.invite.inviteId == receivedInvite.inviteId) same = old;
+      }
+      final incoming = [
+        same ?? PendingSpaceInvite(invite: receivedInvite),
+        for (final old in store.incoming)
+          if (old.invite.inviteId != receivedInvite.inviteId &&
+              old.invite.spaceId != receivedInvite.spaceId)
+            old,
+      ];
+      await _saveSpaceInvites(incoming: incoming, outgoing: store.outgoing);
+    });
+    changes.value++;
+    return true;
+  }
+
+  Future<List<PendingSpaceInvite>> pendingSpaceInvites() async {
+    final now = _now();
+    final store = await _loadSpaceInvites();
+    final result =
+        store.incoming.where((entry) => !entry.invite.isExpiredAt(now)).toList()
+          ..sort(
+            (left, right) =>
+                right.invite.createdAtMs.compareTo(left.invite.createdAtMs),
+          );
+    return result;
+  }
+
+  Future<bool> decideSpaceInvite(
+    String inviteId, {
+    required bool accept,
+  }) async {
+    final sender = sendSpaceInviteDecision;
+    if (sender == null) return false;
+    final prepared =
+        await _serializeSpaceInvites<
+          ({SpaceInvite invite, SpaceInviteDecision decision})?
+        >(() async {
+          final store = await _loadSpaceInvites();
+          PendingSpaceInvite? pending;
+          for (final candidate in store.incoming) {
+            if (candidate.invite.inviteId == inviteId) pending = candidate;
+          }
+          if (pending == null || pending.invite.isExpiredAt(_now())) {
+            return null;
+          }
+          final decidedAt = _now();
+          final decision = SpaceInviteDecision(
+            inviteId: inviteId,
+            spaceId: pending.invite.spaceId,
+            accepted: accept,
+            decidedAtMs: decidedAt,
+          );
+          final incoming = <PendingSpaceInvite>[
+            for (final entry in store.incoming)
+              if (entry.invite.inviteId != inviteId)
+                entry
+              else if (accept)
+                PendingSpaceInvite(
+                  invite: entry.invite,
+                  acceptedAtMs: decidedAt,
+                ),
+          ];
+          await _saveSpaceInvites(incoming: incoming, outgoing: store.outgoing);
+          changes.value++;
+          return (invite: pending.invite, decision: decision);
+        });
+    if (prepared == null) return false;
+    try {
+      await sender(
+        prepared.invite.inviter,
+        inviteId,
+        jsonEncode(prepared.decision.toJson()),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Match an authenticated invitee decision to our durable proposal. Only a
+  /// valid current control-log authority can turn acceptance into membership.
+  Future<bool> receiveSpaceInviteDecision(
+    NodeId peer,
+    String decisionJson,
+  ) async {
+    final SpaceInviteDecision? decision;
+    try {
+      decision = SpaceInviteDecision.fromJson(jsonDecode(decisionJson));
+    } catch (_) {
+      return false;
+    }
+    if (decision == null) return false;
+    final matchedDecision = decision;
+    if ((await _storage.getContact(peer))?.status != ContactStatus.accepted) {
+      return false;
+    }
+    final store = await _loadSpaceInvites();
+    SpaceInvite? invite;
+    for (final candidate in store.outgoing) {
+      if (candidate.inviteId == matchedDecision.inviteId &&
+          candidate.spaceId == matchedDecision.spaceId &&
+          candidate.invitee == peer) {
+        invite = candidate;
+      }
+    }
+    final now = _now();
+    if (invite == null ||
+        invite.isExpiredAt(now) ||
+        matchedDecision.decidedAtMs < invite.createdAtMs ||
+        matchedDecision.decidedAtMs > invite.expiresAtMs ||
+        matchedDecision.decidedAtMs >
+            now + const Duration(minutes: 5).inMilliseconds) {
+      return false;
+    }
+    final matchedInvite = invite;
+    if (matchedDecision.accepted) {
+      final added = await addControlOp(
+        matchedInvite.spaceId,
+        ControlOp.addMember,
+        target: peer,
+        role: matchedInvite.role,
+      );
+      if (!added) return false;
+    }
+    await _serializeSpaceInvites(() async {
+      final latest = await _loadSpaceInvites();
+      await _saveSpaceInvites(
+        incoming: latest.incoming,
+        outgoing: [
+          for (final entry in latest.outgoing)
+            if (entry.inviteId != matchedDecision.inviteId) entry,
+        ],
+      );
+    });
+    changes.value++;
+    return true;
+  }
 
   final Map<String, Future<void>> _mutationTails = <String, Future<void>>{};
 
@@ -446,10 +829,23 @@ class GroupService {
     }
   }
 
-  int _now() => DateTime.now().millisecondsSinceEpoch;
+  int _lastTimestampMs = -1;
+
+  /// Signed entries created by one service instance must retain local causal
+  /// order even when several mutations land in one wall-clock millisecond (or
+  /// the OS clock steps backwards). Distributed fold still uses author/seq;
+  /// this monotonic timestamp additionally makes `fromJoin` boundaries exact.
+  int _now() {
+    final wall = DateTime.now().millisecondsSinceEpoch;
+    _lastTimestampMs = wall > _lastTimestampMs ? wall : _lastTimestampMs + 1;
+    return _lastTimestampMs;
+  }
 
   bool _validManifest(GroupManifest manifest) {
-    if (manifest.version == 1) return manifest.genesisPubKey.length == 32;
+    if (manifest.isLegacyGroup) return manifest.genesisPubKey.length == 32;
+    if (manifest.version == SpaceManifest.spaceVersion) {
+      return manifest.isSpace && _signer.verifySpaceManifest(manifest);
+    }
     if (!manifest.isSovereignDevice ||
         manifest.name != kDeviceGroupName ||
         manifest.signatureAlgorithm == null) {
@@ -480,7 +876,39 @@ class GroupService {
     return _listEquals(_sha256(encryptedBundle), expected);
   }
 
+  /// Select the one authoritative manifest during snapshot merge. The only
+  /// permitted change is an owner-signed v1 -> Space v3 upgrade over exactly
+  /// the same immutable root. Signed Spaces never downgrade or fork.
+  GroupManifest? _mergeManifest(
+    GroupManifest existing,
+    GroupManifest incoming,
+  ) {
+    if (existing.isSovereignDevice || incoming.isSovereignDevice) {
+      return existing.isSovereignDevice &&
+              incoming.isSovereignDevice &&
+              existing.sameGenesis(incoming)
+          ? existing
+          : null;
+    }
+    if (!existing.sameImmutableRoot(incoming)) return null;
+    if (existing.isSpace) {
+      if (incoming.isSpace && !existing.sameGenesis(incoming)) return null;
+      return existing;
+    }
+    if (!existing.isLegacyGroup) return null;
+    if (incoming.isSpace) return incoming;
+    return incoming.isLegacyGroup ? existing : null;
+  }
+
   bool _validControlFor(GroupManifest manifest, ControlEntry e) {
+    if (!e.isStructurallyValid) return false;
+    if ((e.op == ControlOp.transferOwnership ||
+            e.op == ControlOp.setDescription ||
+            e.op == ControlOp.publishRules ||
+            e.op == ControlOp.acceptRules) &&
+        !manifest.isSpace) {
+      return false;
+    }
     if (manifest.isSovereignDevice) {
       final membershipOp =
           e.op == ControlOp.addMember || e.op == ControlOp.removeMember;
@@ -510,7 +938,14 @@ class GroupService {
       m.groupId == groupId && _signer.verifyMessage(m);
 
   bool _validReactionFor(NodeId groupId, GroupReaction r) =>
-      r.groupId == groupId && _signer.verifyReaction(r);
+      r.groupId == groupId &&
+      r.isStructurallyValid &&
+      _signer.verifyReaction(r);
+
+  bool _validPostFor(NodeId spaceId, SpacePost post) =>
+      post.spaceId == spaceId &&
+      post.isStructurallyValid &&
+      _signer.verifyPost(post);
 
   bool _validGroupCallShape(GroupCallSignal signal) {
     switch (signal.type) {
@@ -558,6 +993,7 @@ class GroupService {
   /// other CURRENT member. No call plaintext or key is persisted.
   Future<GroupCallSignal?> broadcastGroupCallSignal(
     NodeId groupId, {
+    NodeId? channelId,
     required String callId,
     required GroupCallSignalType type,
     CallMedia? media,
@@ -574,7 +1010,24 @@ class GroupService {
       verify: (entry) => _validControlFor(bundle.manifest, entry),
       initialName: bundle.manifest.name,
     ).state;
-    if (!state.isMember(_signer.selfId) ||
+    if (bundle.manifest.isSpace) {
+      if (channelId != null) {
+        final channel = state.channels[channelId.hex];
+        if (channel == null ||
+            channel.kind != SpaceChannelKind.voice ||
+            channel.archived) {
+          return null;
+        }
+      }
+    } else if (channelId != null) {
+      return null;
+    }
+    if (!SpaceAcl(state).allows(_signer.selfId, SpacePermission.view) ||
+        !SpaceAcl(state).allows(
+          _signer.selfId,
+          SpacePermission.enterVoice,
+          channelId: channelId,
+        ) ||
         !_encryptionEstablished(bundle.manifest, bundle.control)) {
       return null;
     }
@@ -593,6 +1046,7 @@ class GroupService {
     }
     final unsigned = GroupCallSignal(
       groupId: groupId,
+      channelId: channelId,
       callId: callId,
       author: _signer.selfId,
       membershipEpoch: state.epoch,
@@ -603,6 +1057,9 @@ class GroupService {
       nonce: _freshGroupCallNonce(),
       signature: Uint8List(0),
       authorPubKey: Uint8List(0),
+      protocolVersion: channelId == null
+          ? kLegacyGroupCallProtocolVersion
+          : kSpaceVoiceSessionProtocolVersion,
     );
     if (!_validGroupCallShape(unsigned)) return null;
     final signed = _signer.signCallSignal(unsigned);
@@ -649,7 +1106,7 @@ class GroupService {
         verify: (entry) => _validControlFor(bundle.manifest, entry),
         initialName: bundle.manifest.name,
       ).state;
-      if (!state.isMember(peer) ||
+      if (!SpaceAcl(state).allows(peer, SpacePermission.view) ||
           frame.membershipEpoch != state.epoch ||
           state.epochDescriptor?.epoch != state.epoch) {
         return false;
@@ -680,7 +1137,31 @@ class GroupService {
             signal.membershipEpoch != frame.membershipEpoch ||
             signal.author != peer ||
             !_validGroupCallShape(signal) ||
-            !_signer.verifyCallSignal(signal)) {
+            !_signer.verifyCallSignal(signal) ||
+            !SpaceAcl(state).allows(
+              peer,
+              SpacePermission.enterVoice,
+              atMs: signal.sentAtMs,
+              channelId: signal.channelId,
+            )) {
+          return false;
+        }
+        if (bundle.manifest.isSpace) {
+          if (signal.channelId == null) {
+            if (signal.protocolVersion != kLegacyGroupCallProtocolVersion) {
+              return false;
+            }
+          } else {
+            final channel = state.channels[signal.channelId!.hex];
+            if (signal.protocolVersion != kSpaceVoiceSessionProtocolVersion ||
+                channel == null ||
+                channel.kind != SpaceChannelKind.voice ||
+                channel.archived) {
+              return false;
+            }
+          }
+        } else if (signal.channelId != null ||
+            signal.protocolVersion != kLegacyGroupCallProtocolVersion) {
           return false;
         }
         final nowMs = _now();
@@ -726,10 +1207,143 @@ class GroupService {
       verify: (entry) => _validControlFor(manifest, entry),
       initialName: manifest.name,
     );
+    return folded.accepted;
+  }
+
+  List<SpaceControlHead> _controlHeads(Iterable<ControlEntry> accepted) {
+    final heads = <String, ControlEntry>{};
+    for (final entry in accepted) {
+      final current = heads[entry.author.hex];
+      if (current == null || entry.seq > current.seq) {
+        heads[entry.author.hex] = entry;
+      }
+    }
+    final ordered = heads.values.toList()
+      ..sort((left, right) => left.author.hex.compareTo(right.author.hex));
     return [
-      for (final entry in control)
-        if (!folded.rejected.contains(entry)) entry,
+      for (final entry in ordered)
+        SpaceControlHead(
+          author: entry.author,
+          seq: entry.seq,
+          hash: controlEntryHash(entry),
+        ),
     ];
+  }
+
+  SpaceControlCheckpoint? _controlCheckpoint(Iterable<ControlEntry> accepted) {
+    final heads = _controlHeads(accepted);
+    if (heads.length > kSpaceControlCheckpointHeadsMax) return null;
+    return SpaceControlCheckpoint(heads);
+  }
+
+  GroupFoldResult? _foldAtControlHeads(
+    GroupManifest manifest,
+    List<ControlEntry> control,
+    List<SpaceControlHead> controlHeads,
+  ) {
+    final heads = {for (final head in controlHeads) head.author.hex: head};
+    if (heads.length != controlHeads.length) return null;
+    final selected = <ControlEntry>[];
+    for (final entry in control) {
+      final head = heads[entry.author.hex];
+      if (head != null &&
+          entry.seq <= head.seq &&
+          _validControlFor(manifest, entry)) {
+        selected.add(entry);
+      }
+    }
+    final folded = foldControlLog(
+      owner: manifest.owner,
+      entries: selected,
+      verify: (entry) => _validControlFor(manifest, entry),
+      initialName: manifest.name,
+    );
+    final acceptedHashes = {
+      for (final entry in folded.accepted) controlEntryHash(entry),
+    };
+    for (final head in controlHeads) {
+      if (!acceptedHashes.contains(head.hash) ||
+          !folded.accepted.any(
+            (entry) =>
+                entry.author == head.author &&
+                entry.seq == head.seq &&
+                controlEntryHash(entry) == head.hash,
+          )) {
+        return null;
+      }
+    }
+    return folded;
+  }
+
+  GroupFoldResult? _foldAtPostFrontier(
+    GroupManifest manifest,
+    List<ControlEntry> control,
+    SpaceControlFrontier frontier,
+  ) {
+    if (!frontier.isStructurallyValid) return null;
+    return _foldAtControlHeads(manifest, control, frontier.heads);
+  }
+
+  GroupFoldResult? _foldAtControlCheckpoint(
+    GroupManifest manifest,
+    List<ControlEntry> control,
+    ControlEntry entry,
+  ) {
+    final checkpoint = entry.controlCheckpoint;
+    if (entry.op != ControlOp.checkpoint ||
+        checkpoint == null ||
+        !checkpoint.isStructurallyValid) {
+      return null;
+    }
+    final historical = _foldAtControlHeads(manifest, control, checkpoint.heads);
+    if (historical == null ||
+        historical.state.policyVersion != entry.policyVersion ||
+        !historical.state.isMember(entry.author)) {
+      return null;
+    }
+    SpaceControlHead? predecessor;
+    for (final head in checkpoint.heads) {
+      if (head.author == entry.author) {
+        predecessor = head;
+        break;
+      }
+    }
+    if (predecessor == null) {
+      if (entry.seq != 0 || entry.prevHash.isNotEmpty) return null;
+    } else if (entry.seq != predecessor.seq + 1 ||
+        entry.prevHash != predecessor.hash) {
+      return null;
+    }
+    return historical;
+  }
+
+  ({int seq, String prevHash, bool blocked}) _nextControlLink(
+    GroupManifest manifest,
+    List<ControlEntry> control,
+    NodeId author,
+  ) {
+    final authored =
+        _acceptedControl(
+            manifest,
+            control,
+          ).where((entry) => entry.author == author).toList()
+          ..sort((left, right) => left.seq.compareTo(right.seq));
+    final acceptedHeadSeq = authored.isEmpty ? -1 : authored.last.seq;
+    final hasRejectedSuffix = control.any(
+      (entry) =>
+          entry.author == author &&
+          _validControlFor(manifest, entry) &&
+          entry.seq > acceptedHeadSeq,
+    );
+    if (authored.isEmpty) {
+      return (seq: 0, prevHash: '', blocked: hasRejectedSuffix);
+    }
+    final head = authored.last;
+    return (
+      seq: head.seq + 1,
+      prevHash: controlEntryHash(head),
+      blocked: hasRejectedSuffix,
+    );
   }
 
   ControlEntry? _descriptorEntry(
@@ -779,6 +1393,42 @@ class GroupService {
     GroupMessage message,
   ) async {
     if (!message.isEncrypted) return message;
+    if (message.isChannelEncrypted) {
+      final channelId = message.channelId!;
+      final epoch = message.channelEpoch!;
+      final key = bundle.localChannelEpochKeys[_channelKeyId(channelId, epoch)];
+      if (key == null ||
+          !_validLocalChannelEpochKey(
+            bundle.manifest,
+            bundle.control,
+            channelId,
+            epoch,
+            key,
+          )) {
+        return null;
+      }
+      Uint8List? clear;
+      try {
+        clear = await decryptSpaceChannelMessagePayload(
+          spaceId: bundle.manifest.groupId,
+          channelId: channelId,
+          channelEpoch: epoch,
+          author: message.author,
+          seq: message.seq,
+          prevHash: message.prevHash,
+          policyVersion: message.policyVersion,
+          createdAtMs: message.createdAtMs,
+          payload: message.encryptedPayload!,
+          channelKey: key,
+        );
+        final decoded = GroupMessageCleartext.decode(clear);
+        return decoded == null ? null : message.withDecryptedContent(decoded);
+      } catch (_) {
+        return null;
+      } finally {
+        clear?.fillRange(0, clear.length, 0);
+      }
+    }
     final epoch = message.membershipEpoch!;
     final key = bundle.localEpochKeys[epoch];
     if (key == null ||
@@ -807,6 +1457,93 @@ class GroupService {
     }
   }
 
+  Future<SpaceChannelControlCleartext?> _materializeProtectedChannel(
+    GroupBundle bundle,
+    GroupState state,
+    SpaceChannelControlEnvelope envelope, {
+    bool requireCurrentAcl = true,
+  }) async {
+    final id = _channelKeyId(envelope.channelId, envelope.channelEpoch);
+    final key = bundle.localChannelEpochKeys[id];
+    if (key == null ||
+        !_validLocalChannelEpochKey(
+          bundle.manifest,
+          bundle.control,
+          envelope.channelId,
+          envelope.channelEpoch,
+          key,
+        )) {
+      return null;
+    }
+    final entry = _channelDescriptorEntry(
+      bundle.manifest,
+      bundle.control,
+      envelope.keyDescriptor,
+    );
+    if (entry == null ||
+        jsonEncode(entry.channelControl?.toJson()) !=
+            jsonEncode(envelope.toJson())) {
+      return null;
+    }
+    Uint8List? clear;
+    try {
+      clear = await decryptSpaceChannelControlPayload(
+        spaceId: envelope.spaceId,
+        channelId: envelope.channelId,
+        channelEpoch: envelope.channelEpoch,
+        keyCommitment: envelope.keyDescriptor.keyCommitment,
+        author: entry.author,
+        policyVersion: entry.policyVersion,
+        createdAtMs: entry.createdAtMs,
+        payload: envelope.encryptedControl,
+        channelKey: key,
+      );
+      final decoded = SpaceChannelControlCleartext.decode(clear);
+      if (decoded == null ||
+          decoded.channel.spaceId != bundle.manifest.groupId ||
+          decoded.channel.channelId != envelope.channelId ||
+          decoded.channel.kind != SpaceChannelKind.text ||
+          decoded.channel.categoryId != null ||
+          decoded.channel.isDefault ||
+          !decoded.recipients.contains(_signer.selfId) ||
+          decoded.recipients.length != envelope.keyDescriptor.recipientCount ||
+          (requireCurrentAcl &&
+              decoded.recipients.any(
+                (recipient) => !state.isMember(recipient),
+              ))) {
+        return null;
+      }
+      // V1 keeps every current owner/admin able to revoke access and rotate
+      // the channel after a membership mutation. Omitting one would strand an
+      // undecryptable ACL subtree and make revocation depend on the creator.
+      if (requireCurrentAcl) {
+        for (final member in state.members.values) {
+          if (member.role.rank >= GroupRole.admin.rank &&
+              !decoded.recipients.contains(member.nodeId)) {
+            return null;
+          }
+        }
+      }
+      return decoded;
+    } catch (_) {
+      return null;
+    } finally {
+      clear?.fillRange(0, clear.length, 0);
+    }
+  }
+
+  Future<Map<String, SpaceChannelControlCleartext>> _protectedChannelsOf(
+    GroupBundle bundle,
+    GroupState state,
+  ) async {
+    final result = <String, SpaceChannelControlCleartext>{};
+    for (final envelope in state.protectedChannels.values) {
+      final clear = await _materializeProtectedChannel(bundle, state, envelope);
+      if (clear != null) result[envelope.channelId.hex] = clear;
+    }
+    return result;
+  }
+
   Future<GroupReaction?> _materializeEncryptedReaction(
     GroupBundle bundle,
     GroupReaction reaction,
@@ -826,11 +1563,60 @@ class GroupService {
         author: reaction.author,
         seq: reaction.seq,
         createdAtMs: reaction.createdAtMs,
+        reactionVersion: reaction.version,
         payload: reaction.encryptedPayload!,
         epochKey: key,
       );
       final decoded = GroupReactionCleartext.decode(clear);
-      return decoded == null ? null : reaction.withDecryptedContent(decoded);
+      final expectedSchema = reaction.version == 2 ? 1 : 2;
+      return decoded == null || decoded.schemaVersion != expectedSchema
+          ? null
+          : reaction.withDecryptedContent(decoded);
+    } catch (_) {
+      return null;
+    } finally {
+      clear?.fillRange(0, clear.length, 0);
+    }
+  }
+
+  Future<SpacePost?> _materializeEncryptedPost(
+    GroupBundle bundle,
+    SpacePost post,
+  ) async {
+    if (!post.isEncrypted) return post;
+    final epoch = post.membershipEpoch!;
+    final key = bundle.localEpochKeys[epoch];
+    if (key == null ||
+        !_validLocalEpochKey(bundle.manifest, bundle.control, epoch, key)) {
+      return null;
+    }
+    Uint8List? clear;
+    try {
+      clear = await decryptSpacePostPayload(
+        spaceId: post.spaceId,
+        membershipEpoch: epoch,
+        author: post.author,
+        seq: post.seq,
+        prevHash: post.prevHash,
+        postType: post.type.name,
+        visibility: post.visibility.name,
+        policyVersion: post.policyVersion,
+        createdAtMs: post.createdAtMs,
+        publishedAtMs: post.publishedAtMs,
+        controlFrontier: post.controlFrontier?.toJson() ?? const [],
+        controlCheckpointHash: post.controlCheckpointHash ?? '',
+        postOperation: post.version >= 7 ? post.operation.name : '',
+        targetSeq: post.version >= 7 ? post.targetSeq : null,
+        payload: post.encryptedPayload!,
+        epochKey: key,
+      );
+      final decoded = SpacePostCleartext.decode(clear);
+      if (decoded == null ||
+          decoded.isTombstone !=
+              (post.operation == SpacePostOperation.delete)) {
+        return null;
+      }
+      return post.withDecryptedContent(decoded);
     } catch (_) {
       return null;
     } finally {
@@ -856,7 +1642,6 @@ class GroupService {
     };
     final envelopes = <GroupEpochRecipientEnvelope>[];
     final seen = <String>{};
-
     void acceptEnvelope(
       GroupEpochRecipientEnvelope envelope, {
       required bool fromWire,
@@ -939,6 +1724,153 @@ class GroupService {
     return (envelopes: envelopes, keys: keys);
   }
 
+  ControlEntry? _channelDescriptorEntry(
+    GroupManifest manifest,
+    List<ControlEntry> control,
+    GroupEpochDescriptor descriptor,
+  ) {
+    for (final entry in _acceptedControl(manifest, control)) {
+      final candidate = entry.channelControl?.keyDescriptor;
+      if (candidate != null && _sameEpochDescriptor(candidate, descriptor)) {
+        return entry;
+      }
+    }
+    return null;
+  }
+
+  bool _validLocalChannelEpochKey(
+    GroupManifest manifest,
+    List<ControlEntry> control,
+    NodeId channelId,
+    int epoch,
+    Uint8List key,
+  ) {
+    if (key.length != 32) return false;
+    for (final entry in _acceptedControl(manifest, control)) {
+      final descriptor = entry.channelControl?.keyDescriptor;
+      if (descriptor == null ||
+          descriptor.groupId != channelId ||
+          descriptor.epoch != epoch) {
+        continue;
+      }
+      return descriptor.keyCommitment ==
+          groupEpochKeyCommitment(groupId: channelId, epoch: epoch, key: key);
+    }
+    return false;
+  }
+
+  Future<
+    ({List<GroupEpochRecipientEnvelope> envelopes, Map<String, Uint8List> keys})
+  >
+  _mergeChannelEpochMaterial({
+    required GroupManifest manifest,
+    required List<ControlEntry> control,
+    required List<GroupEpochRecipientEnvelope> existingEnvelopes,
+    required Map<String, Uint8List> existingKeys,
+    required List<GroupEpochRecipientEnvelope> incomingEnvelopes,
+  }) async {
+    final accepted = _acceptedControl(manifest, control);
+    final descriptors =
+        <String, ({GroupEpochDescriptor value, NodeId issuer})>{};
+    for (final entry in accepted) {
+      final descriptor = entry.channelControl?.keyDescriptor;
+      if (descriptor != null) {
+        descriptors[_channelKeyId(descriptor.groupId, descriptor.epoch)] = (
+          value: descriptor,
+          issuer: entry.author,
+        );
+      }
+    }
+    final keys = <String, Uint8List>{
+      for (final entry in existingKeys.entries)
+        if (_validChannelKeyId(entry.key)) entry.key: entry.value,
+    };
+    keys.removeWhere((id, key) {
+      final separator = id.lastIndexOf(':');
+      try {
+        return !_validLocalChannelEpochKey(
+          manifest,
+          control,
+          NodeId.fromHex(id.substring(0, separator)),
+          int.parse(id.substring(separator + 1)),
+          key,
+        );
+      } catch (_) {
+        return true;
+      }
+    });
+    final envelopes = <GroupEpochRecipientEnvelope>[];
+    final seen = <String>{};
+    final authorizedIncomingScopes = <String>{};
+    for (final envelope in incomingEnvelopes) {
+      final id = _channelKeyId(envelope.groupId, envelope.epoch);
+      final descriptor = descriptors[id]?.value;
+      if (envelope.recipient == _signer.selfId &&
+          descriptor != null &&
+          verifyGroupEpochEnvelope(
+            descriptor: descriptor,
+            envelope: envelope,
+          )) {
+        authorizedIncomingScopes.add(id);
+      }
+    }
+
+    void acceptEnvelope(
+      GroupEpochRecipientEnvelope envelope, {
+      required bool fromWire,
+    }) {
+      final descriptor =
+          descriptors[_channelKeyId(envelope.groupId, envelope.epoch)]?.value;
+      if (descriptor == null ||
+          (fromWire &&
+              !authorizedIncomingScopes.contains(
+                _channelKeyId(envelope.groupId, envelope.epoch),
+              )) ||
+          !verifyGroupEpochEnvelope(
+            descriptor: descriptor,
+            envelope: envelope,
+          )) {
+        return;
+      }
+      final identity =
+          '${envelope.groupId.hex}:${envelope.epoch}:'
+          '${envelope.recipient.hex}:${envelope.keyCommitment}';
+      if (seen.add(identity)) envelopes.add(envelope);
+    }
+
+    for (final envelope in existingEnvelopes) {
+      acceptEnvelope(envelope, fromWire: false);
+    }
+    for (final envelope in incomingEnvelopes) {
+      acceptEnvelope(envelope, fromWire: true);
+    }
+
+    final opener = _epochService;
+    if (opener != null) {
+      for (final envelope in envelopes) {
+        final id = _channelKeyId(envelope.groupId, envelope.epoch);
+        if (envelope.recipient != _signer.selfId || keys.containsKey(id)) {
+          continue;
+        }
+        final source = descriptors[id];
+        if (source == null) continue;
+        try {
+          final opened = await opener.openEpoch(
+            descriptor: source.value,
+            envelope: envelope,
+            recipient: _signer.selfId,
+            expectedIssuer: source.issuer,
+            ourCertVersion: ourCertVersion,
+          );
+          keys[id] = opened.key;
+        } catch (_) {
+          // Wrong recipient, copied scope or invalid proof: silent drop.
+        }
+      }
+    }
+    return (envelopes: envelopes, keys: keys);
+  }
+
   Future<List<GroupReaction>> _compactReactions(GroupBundle bundle) async {
     final latest = <String, GroupReaction>{};
     final heads = <String, GroupReaction>{};
@@ -946,7 +1878,7 @@ class GroupService {
       if (!_validReactionFor(bundle.manifest.groupId, stored)) continue;
       final r = await _materializeEncryptedReaction(bundle, stored);
       if (r == null) continue;
-      final key = '${r.author.hex}|${r.target}';
+      final key = '${r.author.hex}|${r.targetKind.name}|${r.target}';
       final current = latest[key];
       if (current == null || isNewerGroupReaction(r, current)) {
         latest[key] = r;
@@ -1035,9 +1967,12 @@ class GroupService {
               if (_validMessageFor(groupId, m)) m,
           ];
     final reactions = await _compactReactions(b);
+    final posts = _retainedPostRows(groupId, b.posts);
     final result = GroupLogCompaction(
       messagesBefore: b.messages.length,
       messagesAfter: messages.length,
+      postsBefore: b.posts.length,
+      postsAfter: posts.length,
       controlBefore: b.control.length,
       controlAfter: control.length,
       reactionsBefore: b.reactions.length,
@@ -1045,7 +1980,12 @@ class GroupService {
     );
     if (result.changed) {
       await _save(
-        b.copyWith(control: control, messages: messages, reactions: reactions),
+        b.copyWith(
+          control: control,
+          messages: messages,
+          posts: posts,
+          reactions: reactions,
+        ),
       );
     }
     return result;
@@ -1092,11 +2032,19 @@ class GroupService {
           .map(GroupMessage.fromJson)
           .whereType<GroupMessage>()
           .toList();
+      final posts = (d['p'] as List? ?? const [])
+          .map(SpacePost.fromJson)
+          .whereType<SpacePost>()
+          .toList();
       final reactions = (d['r'] as List? ?? const [])
           .map(GroupReaction.fromJson)
           .whereType<GroupReaction>()
           .toList();
       final epochEnvelopes = (d['ke'] as List? ?? const [])
+          .map(GroupEpochRecipientEnvelope.fromJson)
+          .whereType<GroupEpochRecipientEnvelope>()
+          .toList();
+      final channelEpochEnvelopes = (d['cke'] as List? ?? const [])
           .map(GroupEpochRecipientEnvelope.fromJson)
           .whereType<GroupEpochRecipientEnvelope>()
           .toList();
@@ -1120,6 +2068,21 @@ class GroupService {
           }
         }
       }
+      final localChannelEpochKeys = <String, Uint8List>{};
+      final rawChannelKeys = d['ckk'];
+      if (rawChannelKeys is Map) {
+        for (final entry in rawChannelKeys.entries) {
+          final id = '${entry.key}';
+          if (!_validChannelKeyId(id) || entry.value is! String) continue;
+          try {
+            final key = Uint8List.fromList(base64Decode(entry.value as String));
+            if (key.length == 32) localChannelEpochKeys[id] = key;
+          } catch (_) {
+            // Corrupt local rows are ignored; a retained sealed envelope may
+            // recover the key on a later load or sync.
+          }
+        }
+      }
       final sovereignBundle = d['s'] is String
           ? Uint8List.fromList(base64Decode(d['s'] as String))
           : null;
@@ -1131,13 +2094,23 @@ class GroupService {
         existingKeys: localEpochKeys,
         incomingEnvelopes: const [],
       );
+      final channelMaterial = await _mergeChannelEpochMaterial(
+        manifest: manifest,
+        control: control,
+        existingEnvelopes: channelEpochEnvelopes,
+        existingKeys: localChannelEpochKeys,
+        incomingEnvelopes: const [],
+      );
       return GroupBundle(
         manifest: manifest,
         control: control,
         messages: messages,
+        posts: posts,
         reactions: reactions,
         epochEnvelopes: material.envelopes,
         localEpochKeys: material.keys,
+        channelEpochEnvelopes: channelMaterial.envelopes,
+        localChannelEpochKeys: channelMaterial.keys,
         sovereignBundle: sovereignBundle,
       );
     } catch (_) {
@@ -1153,6 +2126,8 @@ class GroupService {
       'm': b.manifest.toJson(),
       'c': b.control.map((e) => e.toJson()).toList(),
       'g': b.messages.map((m) => m.toJson()).toList(),
+      if (b.posts.isNotEmpty)
+        'p': b.posts.map((post) => post.toJson()).toList(),
       'r': b.reactions.map((x) => x.toJson()).toList(),
       if (b.epochEnvelopes.isNotEmpty)
         'ke': b.epochEnvelopes.map((entry) => entry.toJson()).toList(),
@@ -1160,6 +2135,13 @@ class GroupService {
         'kk': {
           for (final entry in b.localEpochKeys.entries)
             '${entry.key}': base64Encode(entry.value),
+        },
+      if (b.channelEpochEnvelopes.isNotEmpty)
+        'cke': b.channelEpochEnvelopes.map((entry) => entry.toJson()).toList(),
+      if (b.localChannelEpochKeys.isNotEmpty)
+        'ckk': {
+          for (final entry in b.localChannelEpochKeys.entries)
+            entry.key: base64Encode(entry.value),
         },
       if (b.sovereignBundle != null) 's': base64Encode(b.sovereignBundle!),
     });
@@ -1171,30 +2153,28 @@ class GroupService {
     changes.value++;
   }
 
-  /// The groups we are STILL A MEMBER of, newest-created last. A group we left
+  /// The group chats we are STILL A MEMBER of, newest-created last. Spaces are
+  /// deliberately excluded: they have their own list and navigation surface.
   /// (or were never/no-longer a member of, per the folded control-log) is hidden
   /// without deleting its blob — the stored data lingers deniably and a fresh
   /// re-add simply folds us back in. (An admin-removal we never received doesn't
   /// hide the group on our side: we don't learn we were removed — no oracle.)
-  Future<
-    List<
-      ({
-        NodeId groupId,
-        String name,
-        int unread,
-        bool muted,
-        String preview,
-        int lastTs,
-      })
-    >
-  >
-  listGroups() async {
+  Future<List<GroupListEntry>> listGroups() => _listUserGroups(spaces: false);
+
+  /// The Spaces this identity currently belongs to. Group chats are excluded.
+  Future<List<GroupListEntry>> listSpaces() => _listUserGroups(spaces: true);
+
+  Future<List<GroupListEntry>> _listUserGroups({required bool spaces}) async {
     final out =
         <
           ({
             NodeId groupId,
             String name,
+            String description,
+            SpaceVisibility? visibility,
+            bool discoverable,
             int unread,
+            int postUnread,
             bool muted,
             String preview,
             int lastTs,
@@ -1204,11 +2184,13 @@ class GroupService {
       try {
         final b = await load(NodeId.fromHex(hex));
         if (b == null) continue;
+        if (b.manifest.isSpace != spaces) continue;
         final state = foldControlLog(
           owner: b.manifest.owner,
           entries: b.control,
           verify: (e) => _validControlFor(b.manifest, e),
           initialName: b.manifest.name,
+          initialDescription: b.manifest.description ?? '',
         ).state;
         if (!state.isMember(_signer.selfId)) continue;
         // Device groups are infrastructure, not chats — never listed.
@@ -1223,9 +2205,13 @@ class GroupService {
         out.add((
           groupId: gid,
           name: state.name,
+          description: state.description,
+          visibility: b.manifest.visibility,
+          discoverable: b.manifest.discoverable ?? false,
           unread: msgs
               .where((m) => m.createdAtMs > wm && m.author != _signer.selfId)
               .length,
+          postUnread: await unreadSpacePosts(gid),
           muted: await isGroupMuted(gid),
           preview: last == null ? '' : previewOf(last),
           lastTs: last?.createdAtMs ?? 0,
@@ -1235,14 +2221,160 @@ class GroupService {
     return out;
   }
 
-  /// Create a group named [name] with us as the sole owner. Returns its id.
-  Future<NodeId> createGroup(String name) async {
+  /// Create a signed Space named [name] with us as the sole owner.
+  Future<NodeId> createSpace(
+    String name, {
+    String description = '',
+    String? avatarContentId,
+    String? coverContentId,
+    SpaceVisibility visibility = SpaceVisibility.private,
+    bool discoverable = false,
+  }) async {
+    final normalizedName = name.trim();
+    if (normalizedName.isEmpty || normalizedName.length > 160) {
+      throw ArgumentError.value(name, 'name', 'must contain 1..160 characters');
+    }
+    if (description.length > 4096) {
+      throw ArgumentError.value(
+        description,
+        'description',
+        'must not exceed 4096 characters',
+      );
+    }
+    if ((avatarContentId?.length ?? 0) > 512 ||
+        (coverContentId?.length ?? 0) > 512) {
+      throw ArgumentError('Space content id must not exceed 512 characters');
+    }
     final gid = _randomGroupId();
-    final manifest = GroupManifest(
+    final createdAtMs = _now();
+    final unsignedManifest = SpaceManifest.space(
+      spaceId: gid,
+      owner: _signer.selfId,
+      genesisPubKey: _signer.selfPubKey,
+      name: normalizedName,
+      description: description,
+      avatarContentId: avatarContentId,
+      coverContentId: coverContentId,
+      visibility: visibility,
+      discoverable: discoverable,
+      createdAtMs: createdAtMs,
+    );
+    final manifest = _signer.signSpaceManifest(unsignedManifest);
+    if (!_validManifest(manifest)) {
+      throw StateError('space genesis signature rejected');
+    }
+    final defaultChannel = SpaceChannel(
+      spaceId: gid,
+      channelId: defaultSpaceChannelId(gid),
+      kind: SpaceChannelKind.text,
+      name: 'general',
+      description: '',
+      position: 0,
+      isDefault: true,
+      archived: false,
+      history: SpaceChannelHistory.fromJoin,
+      createdBy: _signer.selfId,
+      createdAtMs: createdAtMs,
+    );
+    final channelControl = _signer.signControl(
+      ControlEntry(
+        version: 2,
+        groupId: gid,
+        author: _signer.selfId,
+        seq: 0,
+        prevHash: '',
+        op: ControlOp.createChannel,
+        target: null,
+        role: null,
+        policyVersion: 0,
+        createdAtMs: createdAtMs,
+        signature: Uint8List(0),
+        channel: defaultChannel,
+      ),
+    );
+    final initialFold = foldControlLog(
+      owner: manifest.owner,
+      entries: [channelControl],
+      verify: (entry) => _validControlFor(manifest, entry),
+      initialName: manifest.name,
+    );
+    if (initialFold.rejected.isNotEmpty ||
+        initialFold.state.channels.length != 1) {
+      throw StateError('default Space channel rejected');
+    }
+    var bundle = GroupBundle(
+      manifest: manifest,
+      control: [channelControl],
+      messages: [],
+    );
+    final epochService = _epochService;
+    if (epochService != null) {
+      final key = _randomEpochKey();
+      try {
+        final sealed = await epochService.sealEpoch(
+          groupId: gid,
+          epoch: 1,
+          epochKey: key,
+          recipients: [_signer.selfId],
+        );
+        final signed = _signer.signControl(
+          ControlEntry(
+            version: 2,
+            groupId: gid,
+            author: _signer.selfId,
+            seq: 1,
+            prevHash: controlEntryHash(channelControl),
+            op: ControlOp.rotateEpoch,
+            target: null,
+            role: null,
+            policyVersion: 0,
+            createdAtMs: _now(),
+            signature: Uint8List(0),
+            epochDescriptor: sealed.descriptor,
+          ),
+        );
+        final folded = foldControlLog(
+          owner: manifest.owner,
+          entries: [channelControl, signed],
+          verify: (entry) => _validControlFor(manifest, entry),
+          initialName: manifest.name,
+        );
+        if (folded.rejected.isNotEmpty ||
+            folded.state.epochDescriptor == null) {
+          throw StateError('initial group epoch rejected');
+        }
+        bundle = GroupBundle(
+          manifest: manifest,
+          control: [channelControl, signed],
+          messages: const [],
+          epochEnvelopes: sealed.envelopes,
+          localEpochKeys: {1: Uint8List.fromList(key)},
+        );
+      } finally {
+        key.fillRange(0, key.length, 0);
+      }
+    }
+    await _save(bundle);
+    final idx = await _index();
+    idx.add(gid.hex);
+    await _setIndex(idx);
+    return gid;
+  }
+
+  /// Create a group chat named [name] with us as the sole owner. Group chats
+  /// keep the established group-wide message log and do not acquire Space
+  /// channels, publications, visibility or subscriptions.
+  Future<NodeId> createGroup(String name) async {
+    final normalizedName = name.trim();
+    if (normalizedName.isEmpty || normalizedName.length > 64) {
+      throw ArgumentError.value(name, 'name', 'must contain 1..64 characters');
+    }
+    final gid = _randomGroupId();
+    final manifest = SpaceManifest(
       groupId: gid,
       owner: _signer.selfId,
       genesisPubKey: _signer.selfPubKey,
-      name: name,
+      name: normalizedName,
       createdAtMs: _now(),
     );
     var bundle = GroupBundle(manifest: manifest, control: [], messages: []);
@@ -1299,6 +2431,123 @@ class GroupService {
     return gid;
   }
 
+  /// Explicitly convert every eligible legacy group owned by this identity to
+  /// a signed Space without changing ids, logs, messages, media references or
+  /// epoch keys. This is intentionally NOT called at boot: group chats are
+  /// first-class and conversion requires a separate user-confirmed workflow.
+  /// A non-owner cannot manufacture genesis authority, so their copy remains
+  /// readable until an owner-signed manifest arrives through normal sync.
+  Future<SpaceManifestMigration> migrateOwnedLegacyGroupsToSpaces() async {
+    var upgraded = 0;
+    var alreadyCurrent = 0;
+    var notOwner = 0;
+    var failed = 0;
+    final ids = await _index();
+    for (final hex in ids.toSet()) {
+      NodeId groupId;
+      try {
+        groupId = NodeId.fromHex(hex);
+      } catch (_) {
+        failed++;
+        continue;
+      }
+      final outcome = await _serialized(groupId, () async {
+        final bundle = await load(groupId);
+        if (bundle == null) return 'failed';
+        final legacy = bundle.manifest;
+        if (legacy.isSpace ||
+            legacy.isSovereignDevice ||
+            legacy.name == kDeviceGroupName) {
+          return 'current';
+        }
+        if (!legacy.isLegacyGroup) return 'failed';
+        if (legacy.owner != _signer.selfId) return 'not-owner';
+        final unsigned = SpaceManifest.space(
+          spaceId: legacy.groupId,
+          owner: legacy.owner,
+          genesisPubKey: legacy.genesisPubKey,
+          name: legacy.name,
+          createdAtMs: legacy.createdAtMs,
+        );
+        final signed = _signer.signSpaceManifest(unsigned);
+        if (!legacy.sameImmutableRoot(signed) || !_validManifest(signed)) {
+          return 'failed';
+        }
+        final state = foldControlLog(
+          owner: legacy.owner,
+          entries: bundle.control,
+          verify: (entry) => _validControlFor(legacy, entry),
+          initialName: legacy.name,
+        ).state;
+        final channelCreatedAt = _now();
+        final defaultChannel = SpaceChannel(
+          spaceId: legacy.groupId,
+          channelId: defaultSpaceChannelId(legacy.groupId),
+          kind: SpaceChannelKind.text,
+          name: 'general',
+          description: '',
+          position: 0,
+          isDefault: true,
+          archived: false,
+          history: SpaceChannelHistory.fromJoin,
+          createdBy: _signer.selfId,
+          createdAtMs: channelCreatedAt,
+        );
+        final link = _nextControlLink(legacy, bundle.control, _signer.selfId);
+        if (link.blocked) return 'failed';
+        final createChannel = _signer.signControl(
+          ControlEntry(
+            version: 2,
+            groupId: legacy.groupId,
+            author: _signer.selfId,
+            seq: link.seq,
+            prevHash: link.prevHash,
+            op: ControlOp.createChannel,
+            target: null,
+            role: null,
+            policyVersion: state.policyVersion,
+            createdAtMs: channelCreatedAt,
+            signature: Uint8List(0),
+            channel: defaultChannel,
+          ),
+        );
+        final candidate = [...bundle.control, createChannel];
+        final folded = foldControlLog(
+          owner: signed.owner,
+          entries: candidate,
+          verify: (entry) => _validControlFor(signed, entry),
+          initialName: signed.name,
+        );
+        if (folded.rejected.any(
+          (entry) =>
+              entry.author == createChannel.author &&
+              entry.seq == createChannel.seq,
+        )) {
+          return 'failed';
+        }
+        await _save(bundle.copyWith(manifest: signed, control: candidate));
+        return 'upgraded';
+      });
+      switch (outcome) {
+        case 'upgraded':
+          upgraded++;
+        case 'current':
+          alreadyCurrent++;
+        case 'not-owner':
+          notOwner++;
+        default:
+          failed++;
+      }
+    }
+    return SpaceManifestMigration(
+      scanned: ids.toSet().length,
+      upgraded: upgraded,
+      alreadyCurrent: alreadyCurrent,
+      notOwner: notOwner,
+      failed: failed,
+    );
+  }
+
   NodeId _randomGroupId() {
     final rnd = Random.secure();
     return NodeId(
@@ -1322,7 +2571,428 @@ class GroupService {
       entries: b.control,
       verify: (e) => _validControlFor(b.manifest, e),
       initialName: b.manifest.name,
+      initialDescription: b.manifest.description ?? '',
     ).state;
+  }
+
+  /// Current signed channels of one Space, ordered for presentation.
+  Future<List<SpaceChannel>> channelsOf(
+    NodeId spaceId, {
+    bool includeArchived = false,
+  }) async {
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) return const [];
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+    ).state;
+    final protected = await _protectedChannelsOf(bundle, state);
+    final channels = [
+      for (final channel in state.channels.values)
+        if (includeArchived || !channel.archived) channel,
+      for (final clear in protected.values)
+        if (includeArchived || !clear.channel.archived) clear.channel,
+    ];
+    channels.sort((left, right) {
+      final position = left.position.compareTo(right.position);
+      if (position != 0) return position;
+      return left.channelId.hex.compareTo(right.channelId.hex);
+    });
+    return channels;
+  }
+
+  Future<NodeId?> createChannel(
+    NodeId spaceId, {
+    required String name,
+    required SpaceChannelKind kind,
+    String description = '',
+    NodeId? categoryId,
+    int position = 0,
+    bool isDefault = false,
+    SpaceChannelHistory history = SpaceChannelHistory.fromJoin,
+    int? historySinceMs,
+    SpaceChannelAccess access = SpaceChannelAccess.space,
+    Iterable<NodeId> members = const [],
+  }) => _serialized(spaceId, () async {
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) return null;
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+    ).state;
+    if (!SpaceAcl(
+      state,
+    ).allows(_signer.selfId, SpacePermission.manageChannels)) {
+      return null;
+    }
+    final firstText =
+        access == SpaceChannelAccess.space &&
+        kind == SpaceChannelKind.text &&
+        !state.channels.values.any(
+          (channel) =>
+              channel.kind == SpaceChannelKind.text && !channel.archived,
+        );
+    final createdAtMs = _now();
+    final channel = SpaceChannel(
+      spaceId: spaceId,
+      channelId: _randomGroupId(),
+      kind: kind,
+      name: name.trim(),
+      description: description,
+      categoryId: categoryId,
+      position: position,
+      isDefault: kind == SpaceChannelKind.text && (isDefault || firstText),
+      archived: false,
+      history: history,
+      historySinceMs: historySinceMs,
+      createdBy: _signer.selfId,
+      createdAtMs: createdAtMs,
+      access: access,
+    );
+    if (!channel.isValid) return null;
+    if (access != SpaceChannelAccess.space) {
+      if (kind != SpaceChannelKind.text ||
+          categoryId != null ||
+          isDefault ||
+          _epochService == null) {
+        return null;
+      }
+      final applied = await _writeProtectedChannel(
+        bundle,
+        state,
+        channel,
+        requestedRecipients: members,
+        create: true,
+      );
+      return applied ? channel.channelId : null;
+    }
+    final applied = await _addControlOp(
+      spaceId,
+      ControlOp.createChannel,
+      channel: channel,
+    );
+    return applied ? channel.channelId : null;
+  });
+
+  /// Replace mutable channel fields while its signed identity remains fixed.
+  Future<bool> updateChannel(NodeId spaceId, SpaceChannel channel) =>
+      _serialized(spaceId, () async {
+        final bundle = await load(spaceId);
+        if (bundle == null || !bundle.manifest.isSpace) return false;
+        final state = foldControlLog(
+          owner: bundle.manifest.owner,
+          entries: bundle.control,
+          verify: (entry) => _validControlFor(bundle.manifest, entry),
+          initialName: bundle.manifest.name,
+        ).state;
+        if (!SpaceAcl(
+              state,
+            ).allows(_signer.selfId, SpacePermission.manageChannels) ||
+            channel.spaceId != spaceId ||
+            !channel.isValid) {
+          return false;
+        }
+        if (channel.access != SpaceChannelAccess.space) {
+          final protected = await _protectedChannelsOf(bundle, state);
+          final current = protected[channel.channelId.hex];
+          if (current == null ||
+              !current.channel.sameIdentity(channel) ||
+              _epochService == null) {
+            return false;
+          }
+          return _writeProtectedChannel(
+            bundle,
+            state,
+            channel,
+            requestedRecipients: current.recipients,
+            create: false,
+          );
+        }
+        return _addControlOp(
+          spaceId,
+          ControlOp.updateChannel,
+          channel: channel,
+        );
+      });
+
+  /// Replace the explicit member portion of a protected channel ACL. Current
+  /// Space owners/admins are always included so a future revocation never
+  /// depends on one creator retaining the key. Every ACL mutation rotates the
+  /// key and emits a new opaque signed control revision.
+  Future<bool> setChannelMembers(
+    NodeId spaceId,
+    NodeId channelId,
+    Iterable<NodeId> members,
+  ) => _serialized(spaceId, () async {
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace || _epochService == null) {
+      return false;
+    }
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+    ).state;
+    if (!SpaceAcl(
+      state,
+    ).allows(_signer.selfId, SpacePermission.manageChannels)) {
+      return false;
+    }
+    final protected = await _protectedChannelsOf(bundle, state);
+    final current = protected[channelId.hex];
+    if (current == null) return false;
+    return _writeProtectedChannel(
+      bundle,
+      state,
+      current.channel,
+      requestedRecipients: members,
+      create: false,
+    );
+  });
+
+  Future<List<NodeId>?> channelMembersOf(
+    NodeId spaceId,
+    NodeId channelId,
+  ) async {
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) return null;
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+    ).state;
+    final protected = await _protectedChannelsOf(bundle, state);
+    final clear = protected[channelId.hex];
+    if (clear != null) return List.unmodifiable(clear.recipients);
+    if (state.channels.containsKey(channelId.hex)) {
+      return List.unmodifiable(
+        state.members.values.map((member) => member.nodeId),
+      );
+    }
+    return null;
+  }
+
+  List<NodeId>? _protectedChannelRecipients(
+    GroupState state,
+    Iterable<NodeId> requested,
+  ) {
+    final recipients = <String, NodeId>{};
+    for (final member in requested) {
+      if (!state.isMember(member)) return null;
+      recipients[member.hex] = member;
+    }
+    for (final member in state.members.values) {
+      if (member.role.rank >= GroupRole.admin.rank) {
+        recipients[member.nodeId.hex] = member.nodeId;
+      }
+    }
+    recipients[_signer.selfId.hex] = _signer.selfId;
+    final ordered = recipients.values.toList()
+      ..sort((left, right) => left.hex.compareTo(right.hex));
+    if (ordered.isEmpty || ordered.length > maxSpaceChannelRecipientCount) {
+      return null;
+    }
+    return ordered;
+  }
+
+  Future<bool> _writeProtectedChannel(
+    GroupBundle bundle,
+    GroupState state,
+    SpaceChannel channel, {
+    required Iterable<NodeId> requestedRecipients,
+    required bool create,
+  }) async {
+    final epochService = _epochService;
+    if (epochService == null ||
+        channel.access != SpaceChannelAccess.restricted ||
+        channel.kind != SpaceChannelKind.text ||
+        channel.categoryId != null ||
+        channel.isDefault) {
+      return false;
+    }
+    final recipients = _protectedChannelRecipients(state, requestedRecipients);
+    if (recipients == null) return false;
+    final previous = state.protectedChannels[channel.channelId.hex];
+    if ((create && previous != null) || (!create && previous == null)) {
+      return false;
+    }
+    final link = _nextControlLink(
+      bundle.manifest,
+      bundle.control,
+      _signer.selfId,
+    );
+    if (link.blocked) return false;
+    final channelEpoch = create ? 1 : previous!.channelEpoch + 1;
+    final key = _randomEpochKey();
+    Uint8List? clear;
+    try {
+      final sealed = await epochService.sealEpoch(
+        groupId: channel.channelId,
+        epoch: channelEpoch,
+        epochKey: key,
+        recipients: recipients,
+      );
+      final controlClear = SpaceChannelControlCleartext(
+        channel: channel,
+        recipients: recipients,
+      );
+      if (!controlClear.isStructurallyValid) return false;
+      clear = controlClear.encode();
+      final createdAtMs = _now();
+      final encrypted = await encryptSpaceChannelControlPayload(
+        spaceId: bundle.manifest.groupId,
+        channelId: channel.channelId,
+        channelEpoch: channelEpoch,
+        keyCommitment: sealed.descriptor.keyCommitment,
+        author: _signer.selfId,
+        policyVersion: state.policyVersion,
+        createdAtMs: createdAtMs,
+        clearText: clear,
+        channelKey: key,
+      );
+      final opaque = SpaceChannelControlEnvelope(
+        spaceId: bundle.manifest.groupId,
+        channelId: channel.channelId,
+        channelEpoch: channelEpoch,
+        keyDescriptor: sealed.descriptor,
+        encryptedControl: encrypted,
+      );
+      final signed = _signer.signControl(
+        ControlEntry(
+          version: 5,
+          groupId: bundle.manifest.groupId,
+          author: _signer.selfId,
+          seq: link.seq,
+          prevHash: link.prevHash,
+          op: create ? ControlOp.createChannel : ControlOp.updateChannel,
+          target: null,
+          role: null,
+          policyVersion: state.policyVersion,
+          createdAtMs: createdAtMs,
+          signature: Uint8List(0),
+          channelControl: opaque,
+        ),
+      );
+      final candidate = [...bundle.control, signed];
+      final folded = foldControlLog(
+        owner: bundle.manifest.owner,
+        entries: candidate,
+        verify: (entry) => _validControlFor(bundle.manifest, entry),
+        initialName: bundle.manifest.name,
+      );
+      if (folded.rejected.any(
+        (entry) => entry.author == signed.author && entry.seq == signed.seq,
+      )) {
+        return false;
+      }
+      final keyId = _channelKeyId(channel.channelId, channelEpoch);
+      await _save(
+        bundle.copyWith(
+          control: candidate,
+          channelEpochEnvelopes: [
+            ...bundle.channelEpochEnvelopes,
+            ...sealed.envelopes,
+          ],
+          localChannelEpochKeys: {
+            ...bundle.localChannelEpochKeys,
+            keyId: Uint8List.fromList(key),
+          },
+        ),
+      );
+      unawaited(broadcastDelta(bundle.manifest.groupId, control: [signed]));
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      clear?.fillRange(0, clear.length, 0);
+      key.fillRange(0, key.length, 0);
+    }
+  }
+
+  Future<void> _repairProtectedChannelEpochs(NodeId spaceId) =>
+      _serialized(spaceId, () async {
+        var bundle = await load(spaceId);
+        if (bundle == null || !bundle.manifest.isSpace) {
+          return;
+        }
+        var currentBundle = bundle;
+        var state = foldControlLog(
+          owner: currentBundle.manifest.owner,
+          entries: currentBundle.control,
+          verify: (entry) => _validControlFor(currentBundle.manifest, entry),
+          initialName: currentBundle.manifest.name,
+        ).state;
+        if (state.roleOf(_signer.selfId) != GroupRole.owner) return;
+        final ids = state.protectedChannels.keys.toList();
+        for (final id in ids) {
+          final envelope = state.protectedChannels[id];
+          if (envelope == null) continue;
+          final current = await _materializeProtectedChannel(
+            currentBundle,
+            state,
+            envelope,
+          );
+          if (current != null) continue;
+          final stale = await _materializeProtectedChannel(
+            currentBundle,
+            state,
+            envelope,
+            requireCurrentAcl: false,
+          );
+          if (stale == null) continue;
+          final recipients = stale.recipients
+              .where(state.isMember)
+              .toList(growable: false);
+          await _writeProtectedChannel(
+            currentBundle,
+            state,
+            stale.channel,
+            requestedRecipients: recipients,
+            create: false,
+          );
+          final reloaded = await load(spaceId);
+          if (reloaded == null) return;
+          currentBundle = reloaded;
+          state = foldControlLog(
+            owner: currentBundle.manifest.owner,
+            entries: currentBundle.control,
+            verify: (entry) => _validControlFor(currentBundle.manifest, entry),
+            initialName: currentBundle.manifest.name,
+          ).state;
+        }
+      });
+
+  Future<bool> setChannelArchived(
+    NodeId spaceId,
+    NodeId channelId,
+    bool archived,
+  ) async {
+    final current = (await channelsOf(
+      spaceId,
+      includeArchived: true,
+    )).where((channel) => channel.channelId == channelId).firstOrNull;
+    if (current == null || current.archived == archived) return current != null;
+    return updateChannel(spaceId, current.copyWith(archived: archived));
+  }
+
+  Future<bool> setDefaultChannel(NodeId spaceId, NodeId channelId) async {
+    final current = (await channelsOf(
+      spaceId,
+      includeArchived: true,
+    )).where((channel) => channel.channelId == channelId).firstOrNull;
+    if (current == null ||
+        current.kind != SpaceChannelKind.text ||
+        current.archived) {
+      return false;
+    }
+    if (current.isDefault) return true;
+    return updateChannel(spaceId, current.copyWith(isDefault: true));
   }
 
   /// The next per-author seq for [author] in a list of entries carrying seq.
@@ -1342,9 +3012,17 @@ class GroupService {
     NodeId? target,
     GroupRole? role,
     String? text,
+    SpaceChannel? channel,
   }) => _serialized(
     groupId,
-    () => _addControlOp(groupId, op, target: target, role: role, text: text),
+    () => _addControlOp(
+      groupId,
+      op,
+      target: target,
+      role: role,
+      text: text,
+      channel: channel,
+    ),
   );
 
   Future<bool> _addControlOp(
@@ -1353,23 +3031,54 @@ class GroupService {
     NodeId? target,
     GroupRole? role,
     String? text,
+    SpaceChannel? channel,
+    SpaceRulesVersion? rules,
+    SpaceRulesAcceptance? rulesAcceptance,
+    SpaceModerationAction? moderationAction,
+    SpaceModerationRevocation? moderationRevocation,
+    int? createdAtMs,
   }) async {
     final b = await load(groupId);
     if (b == null) return false;
     if (b.manifest.name == kDeviceGroupName) return false;
-    var mySeq = _nextSeq(
-      b.control
-          .where(
-            (e) =>
-                e.author == _signer.selfId && _validControlFor(b.manifest, e),
-          )
-          .map((e) => e.seq),
-    );
+    if ((op == ControlOp.transferOwnership ||
+            op == ControlOp.publishRules ||
+            op == ControlOp.acceptRules ||
+            op == ControlOp.moderate ||
+            op == ControlOp.revokeModeration) &&
+        !b.manifest.isSpace) {
+      return false;
+    }
+    final initialLink = _nextControlLink(b.manifest, b.control, _signer.selfId);
+    if (initialLink.blocked) return false;
+    var mySeq = initialLink.seq;
     final state = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
       verify: (e) => _validControlFor(b.manifest, e),
     ).state;
+    final protectedBefore = <SpaceChannelControlCleartext>[];
+    final moderationRemovesMember =
+        op == ControlOp.moderate &&
+        moderationAction?.kind.removesMembership == true;
+    final protectedAclMayChange =
+        op == ControlOp.removeMember ||
+        op == ControlOp.ban ||
+        moderationRemovesMember ||
+        op == ControlOp.setRole ||
+        op == ControlOp.transferOwnership ||
+        (op == ControlOp.addMember && role == GroupRole.admin);
+    if (protectedAclMayChange) {
+      for (final envelope in state.protectedChannels.values) {
+        final clear = await _materializeProtectedChannel(
+          b,
+          state,
+          envelope,
+          requireCurrentAcl: false,
+        );
+        if (clear != null) protectedBefore.add(clear);
+      }
+    }
     final pv = state.policyVersion;
     final epochService = _epochService;
     final generatedKeys = <Uint8List>[];
@@ -1384,10 +3093,13 @@ class GroupService {
       if (epochService != null &&
           (op == ControlOp.removeMember ||
               op == ControlOp.ban ||
+              moderationRemovesMember ||
               op == ControlOp.rotateEpoch)) {
         final recipients = [
           for (final member in state.members.values)
-            if ((op != ControlOp.removeMember && op != ControlOp.ban) ||
+            if ((op != ControlOp.removeMember &&
+                    op != ControlOp.ban &&
+                    !moderationRemovesMember) ||
                 member.nodeId != target)
               member.nodeId,
         ];
@@ -1402,21 +3114,50 @@ class GroupService {
         );
       }
 
-      final createdAt = _now();
+      final createdAt =
+          createdAtMs ??
+          (op == ControlOp.createChannel && channel != null
+              ? channel.createdAtMs
+              : _now());
+      final revokesPublishing =
+          op == ControlOp.mute ||
+          op == ControlOp.removeMember ||
+          op == ControlOp.ban ||
+          (op == ControlOp.moderate &&
+              moderationAction?.kind.blocksPosts == true);
+      final postBoundary =
+          b.manifest.isSpace && revokesPublishing && target != null
+          ? _postBoundaryFor(b, target)
+          : null;
       final signed = _signer.signControl(
         ControlEntry(
+          version: moderationAction != null || moderationRevocation != null
+              ? 8
+              : rules != null || rulesAcceptance != null
+              ? 7
+              : op == ControlOp.transferOwnership
+              ? 6
+              : postBoundary == null
+              ? 2
+              : 3,
           groupId: groupId,
           author: _signer.selfId,
           seq: mySeq,
-          prevHash: '',
+          prevHash: initialLink.prevHash,
           op: op,
           target: target,
           role: role,
           text: text,
+          channel: channel,
+          rules: rules,
+          rulesAcceptance: rulesAcceptance,
+          moderationAction: moderationAction,
+          moderationRevocation: moderationRevocation,
           policyVersion: pv,
           createdAtMs: createdAt,
           signature: Uint8List(0),
           epochDescriptor: prepared?.descriptor,
+          postBoundary: postBoundary,
         ),
       );
       controls.add(signed);
@@ -1456,10 +3197,11 @@ class GroupService {
         mySeq++;
         final rotate = _signer.signControl(
           ControlEntry(
+            version: 2,
             groupId: groupId,
             author: _signer.selfId,
             seq: mySeq,
-            prevHash: '',
+            prevHash: controlEntryHash(signed),
             op: ControlOp.rotateEpoch,
             target: null,
             role: null,
@@ -1488,15 +3230,49 @@ class GroupService {
         localKeys[sealed.descriptor.epoch] = Uint8List.fromList(key);
       }
 
-      await _save(
-        b.copyWith(
-          control: candidate,
-          epochEnvelopes: envelopes,
-          localEpochKeys: localKeys,
-        ),
+      final savedBundle = b.copyWith(
+        control: candidate,
+        epochEnvelopes: envelopes,
+        localEpochKeys: localKeys,
       );
+      await _save(savedBundle);
       // A join needs the whole log; every other mutation is a bounded delta.
-      if (op == ControlOp.addMember) {
+      if (protectedAclMayChange) {
+        if (op == ControlOp.addMember) {
+          await broadcast(groupId);
+        } else {
+          await broadcastDelta(groupId, control: controls);
+        }
+        for (final old in protectedBefore) {
+          final latest = await load(groupId);
+          if (latest == null) return false;
+          final latestState = foldControlLog(
+            owner: latest.manifest.owner,
+            entries: latest.control,
+            verify: (entry) => _validControlFor(latest.manifest, entry),
+            initialName: latest.manifest.name,
+          ).state;
+          final recipients = old.recipients
+              .where(latestState.isMember)
+              .toList(growable: false);
+          if (!await _writeProtectedChannel(
+            latest,
+            latestState,
+            old.channel,
+            requestedRecipients: recipients,
+            create: false,
+          )) {
+            // Membership already folded, so the old ACL is unusable by
+            // [requireCurrentAcl]. Keep the channel fail-closed until an admin
+            // with the prior key retries; never resume with a stale epoch.
+            devLog(
+              () =>
+                  'xVeil[spaces]: protected channel rekey failed after ACL '
+                  'mutation (${old.channel.channelId.short})',
+            );
+          }
+        }
+      } else if (op == ControlOp.addMember) {
         unawaited(broadcast(groupId));
       } else {
         unawaited(broadcastDelta(groupId, control: controls));
@@ -1513,8 +3289,260 @@ class GroupService {
 
   /// Rename [groupId] (admins+). The name folds into every member's view via a
   /// signed `setName` op (delta-broadcast). Returns false if we lack permission.
-  Future<bool> renameGroup(NodeId groupId, String name) =>
-      addControlOp(groupId, ControlOp.setName, text: name.trim());
+  Future<bool> renameGroup(NodeId groupId, String name) {
+    final normalized = name.trim();
+    if (normalized.isEmpty || normalized.length > 160) {
+      return Future.value(false);
+    }
+    return addControlOp(groupId, ControlOp.setName, text: normalized);
+  }
+
+  /// Update the public-facing Space summary through the same signed control
+  /// log as the name. Empty text deliberately clears it; no mutable side-store
+  /// can diverge between members.
+  Future<bool> setSpaceDescription(NodeId spaceId, String description) async {
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) return false;
+    final normalized = description.trim();
+    if (normalized.length > 4096) return false;
+    return addControlOp(spaceId, ControlOp.setDescription, text: normalized);
+  }
+
+  /// Publish a new immutable rules revision through the signed Space control
+  /// log. Revisions are contiguous and keep the full previous history; a
+  /// concurrent stale revision is rejected deterministically by the fold.
+  Future<bool> publishSpaceRules(
+    NodeId spaceId, {
+    required String fullText,
+    required String summary,
+    int? effectiveAtMs,
+  }) => _serialized(spaceId, () async {
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) return false;
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+      initialDescription: bundle.manifest.description ?? '',
+    ).state;
+    if (!SpaceAcl(
+      state,
+    ).allows(_signer.selfId, SpacePermission.manageSettings)) {
+      return false;
+    }
+    final normalizedText = fullText.trim();
+    final normalizedSummary = summary.trim();
+    final publishedAt = _now();
+    // UI/API clocks the "effective now" choice before this signed mutation
+    // receives its monotonic timestamp. Clamp a past/equal choice to the exact
+    // signed publish time; preserve genuinely future activation dates.
+    final requestedEffectiveAt = effectiveAtMs ?? publishedAt;
+    final effectiveAt = requestedEffectiveAt > publishedAt
+        ? requestedEffectiveAt
+        : publishedAt;
+    final nextVersion = (state.currentRules?.version ?? 0) + 1;
+    final rules = SpaceRulesVersion(
+      version: nextVersion,
+      fullText: normalizedText,
+      summary: normalizedSummary,
+      author: _signer.selfId,
+      publishedAtMs: publishedAt,
+      effectiveAtMs: effectiveAt,
+      previousVersion: nextVersion == 1 ? null : nextVersion - 1,
+    );
+    if (!rules.isStructurallyValid) return false;
+    return _addControlOp(
+      spaceId,
+      ControlOp.publishRules,
+      rules: rules,
+      createdAtMs: publishedAt,
+    );
+  });
+
+  /// Acknowledge the current rules as the active member. Publishing a later
+  /// revision leaves this signed acknowledgement in history and makes
+  /// [GroupState.requiresRulesAcceptance] true until the member accepts again.
+  Future<bool> acceptSpaceRules(NodeId spaceId) =>
+      _serialized(spaceId, () async {
+        final bundle = await load(spaceId);
+        if (bundle == null || !bundle.manifest.isSpace) return false;
+        final state = foldControlLog(
+          owner: bundle.manifest.owner,
+          entries: bundle.control,
+          verify: (entry) => _validControlFor(bundle.manifest, entry),
+          initialName: bundle.manifest.name,
+          initialDescription: bundle.manifest.description ?? '',
+        ).state;
+        final rules = state.currentRules;
+        if (rules == null || !state.isMember(_signer.selfId)) return false;
+        if (!state.requiresRulesAcceptance(_signer.selfId)) return true;
+        final acceptedAt = _now();
+        return _addControlOp(
+          spaceId,
+          ControlOp.acceptRules,
+          rulesAcceptance: SpaceRulesAcceptance(
+            rulesVersion: rules.version,
+            acceptedAtMs: acceptedAt,
+          ),
+          createdAtMs: acceptedAt,
+        );
+      });
+
+  /// Append one signed moderation action and return its immutable audit id.
+  /// The method is Space-only: group chats retain their existing lightweight
+  /// membership controls and never acquire a community moderation ledger.
+  Future<String?> moderateSpace(
+    NodeId spaceId, {
+    required SpaceModerationKind kind,
+    required NodeId target,
+    required SpaceModerationScope scope,
+    required String reason,
+    NodeId? channelId,
+    int? expiresAtMs,
+    SpaceModerationReference? reference,
+  }) => _serialized(spaceId, () async {
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) return null;
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+      initialDescription: bundle.manifest.description ?? '',
+    ).state;
+    final removesContent = {
+      SpaceModerationKind.deleteMessage,
+      SpaceModerationKind.deletePost,
+    }.contains(kind);
+    if (!SpaceAcl(state).allows(_signer.selfId, SpacePermission.moderate) ||
+        (!state.isMember(target) &&
+            !(removesContent &&
+                state.roleOf(_signer.selfId) == GroupRole.owner))) {
+      return null;
+    }
+    final createdAt = _now();
+    final action = SpaceModerationAction(
+      kind: kind,
+      target: target,
+      scope: scope,
+      reason: reason.trim(),
+      createdAtMs: createdAt,
+      channelId: channelId,
+      expiresAtMs: expiresAtMs,
+      reference: reference,
+    );
+    if (!action.isStructurallyValid) return null;
+
+    if (reference != null) {
+      final exists = switch (reference.kind) {
+        SpaceModerationReferenceKind.message => (await messagesOf(
+          spaceId,
+          channelId: reference.channelId,
+        )).any((message) => message.ref == reference.contentId),
+        SpaceModerationReferenceKind.spacePost => (await postsOf(
+          spaceId,
+        )).any((post) => post.postId == reference.contentId),
+      };
+      if (!exists) return null;
+    }
+    final link = _nextControlLink(
+      bundle.manifest,
+      bundle.control,
+      _signer.selfId,
+    );
+    if (link.blocked) return null;
+    final actionId = '${_signer.selfId.hex}:${link.seq}';
+    final applied = await _addControlOp(
+      spaceId,
+      ControlOp.moderate,
+      target: target,
+      moderationAction: action,
+      createdAtMs: createdAt,
+    );
+    return applied ? actionId : null;
+  });
+
+  /// Revoke a reversible moderation action. Content removals are deliberately
+  /// irreversible; a moderator must publish new content instead of making an
+  /// old signed deletion disappear. Revoking a ban only permits a later
+  /// consent/invite flow — it never silently restores membership or old keys.
+  Future<bool> revokeSpaceModeration(
+    NodeId spaceId,
+    String actionId, {
+    required String reason,
+  }) => _serialized(spaceId, () async {
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) return false;
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+      initialDescription: bundle.manifest.description ?? '',
+    ).state;
+    final record = state.moderationRecords[actionId];
+    if (record == null || record.revokedAtMs != null) return false;
+    if ({
+      SpaceModerationKind.deleteMessage,
+      SpaceModerationKind.deletePost,
+    }.contains(record.action.kind)) {
+      return false;
+    }
+    final normalized = reason.trim();
+    final revokedAt = _now();
+    final revocation = SpaceModerationRevocation(
+      actionAuthor: record.actor,
+      actionSeq: record.actionSeq,
+      reason: normalized,
+      revokedAtMs: revokedAt,
+    );
+    if (!revocation.isStructurallyValid) return false;
+    return _addControlOp(
+      spaceId,
+      ControlOp.revokeModeration,
+      target: record.action.target,
+      moderationRevocation: revocation,
+      createdAtMs: revokedAt,
+    );
+  });
+
+  Future<List<SpaceModerationRecord>> spaceModerationAudit(
+    NodeId spaceId,
+  ) async {
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) return const [];
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+      initialDescription: bundle.manifest.description ?? '',
+    ).state;
+    if (!state.isMember(_signer.selfId)) return const [];
+    final records = state.moderationRecords.values.toList()
+      ..sort((left, right) {
+        final time = right.action.createdAtMs.compareTo(
+          left.action.createdAtMs,
+        );
+        return time != 0 ? time : right.actionId.compareTo(left.actionId);
+      });
+    return records;
+  }
+
+  /// Atomically move the single effective owner role to an existing member.
+  /// The immutable manifest owner remains the genesis signature root; it is
+  /// deliberately not rewritten or re-signed during lifecycle operations.
+  Future<bool> transferSpaceOwnership(NodeId spaceId, NodeId nextOwner) =>
+      _serialized(spaceId, () async {
+        final bundle = await load(spaceId);
+        if (bundle == null || !bundle.manifest.isSpace) return false;
+        return _addControlOp(
+          spaceId,
+          ControlOp.transferOwnership,
+          target: nextOwner,
+        );
+      });
 
   /// Leave [groupId]: append a signed `leave` op (removes only us), tell the
   /// remaining members, and let [listGroups] hide it (the fold drops us). Idempotent
@@ -1534,25 +3562,23 @@ class GroupService {
     final me = state.memberOf(_signer.selfId);
     if (me == null) return true; // already gone
     if (me.role == GroupRole.owner) return false; // owner can't leave (v1)
-    final mySeq = _nextSeq(
-      b.control
-          .where(
-            (e) =>
-                e.author == _signer.selfId && _validControlFor(b.manifest, e),
-          )
-          .map((e) => e.seq),
-    );
+    final link = _nextControlLink(b.manifest, b.control, _signer.selfId);
+    if (link.blocked) return false;
     final unsigned = ControlEntry(
+      version: b.manifest.isSpace ? 3 : 2,
       groupId: groupId,
       author: _signer.selfId,
-      seq: mySeq,
-      prevHash: '',
+      seq: link.seq,
+      prevHash: link.prevHash,
       op: ControlOp.leave,
       target: null,
       role: null,
       policyVersion: state.policyVersion,
       createdAtMs: _now(),
       signature: Uint8List(0),
+      postBoundary: b.manifest.isSpace
+          ? _postBoundaryFor(b, _signer.selfId)
+          : null,
     );
     final signed = _signer.signControl(unsigned);
     final candidate = [...b.control, signed];
@@ -1579,6 +3605,7 @@ class GroupService {
   Future<bool> postMessage(
     NodeId groupId,
     String body, {
+    NodeId? channelId,
     GroupAttachment? attachment,
     String? replyTo,
     List<InlineCustomEmoji> customEmoji = const [],
@@ -1591,6 +3618,7 @@ class GroupService {
     () => _postMessage(
       groupId,
       body,
+      channelId: channelId,
       attachment: attachment,
       replyTo: replyTo,
       customEmoji: customEmoji,
@@ -1601,6 +3629,7 @@ class GroupService {
   Future<bool> _postMessage(
     NodeId groupId,
     String body, {
+    NodeId? channelId,
     GroupAttachment? attachment,
     String? replyTo,
     List<InlineCustomEmoji> customEmoji = const [],
@@ -1614,8 +3643,39 @@ class GroupService {
       entries: b.control,
       verify: (e) => _validControlFor(b.manifest, e),
     ).state;
-    final me = state.memberOf(_signer.selfId);
-    if (me == null || me.muted) return false;
+    if (!SpaceAcl(
+      state,
+    ).allows(_signer.selfId, SpacePermission.publishMessages)) {
+      return false;
+    }
+    NodeId? resolvedChannelId = channelId;
+    SpaceChannelControlCleartext? protectedChannel;
+    if (b.manifest.isSpace) {
+      resolvedChannelId ??= state.channels.values
+          .where(
+            (channel) =>
+                channel.kind == SpaceChannelKind.text &&
+                channel.isDefault &&
+                !channel.archived,
+          )
+          .firstOrNull
+          ?.channelId;
+      final protected = await _protectedChannelsOf(b, state);
+      protectedChannel = resolvedChannelId == null
+          ? null
+          : protected[resolvedChannelId.hex];
+      final channel = resolvedChannelId == null
+          ? null
+          : state.channels[resolvedChannelId.hex] ?? protectedChannel?.channel;
+      if (channel == null ||
+          channel.kind != SpaceChannelKind.text ||
+          channel.archived ||
+          (protectedChannel != null && attachment != null)) {
+        return false;
+      }
+    } else if (resolvedChannelId != null) {
+      return false;
+    }
     final mySeq = _nextSeq(
       b.messages
           .where(
@@ -1628,7 +3688,8 @@ class GroupService {
     final descriptor = state.epochDescriptor;
     final encryptionEstablished = _encryptionEstablished(b.manifest, b.control);
     final key = descriptor == null ? null : b.localEpochKeys[state.epoch];
-    if (encryptionEstablished &&
+    if (protectedChannel == null &&
+        encryptionEstablished &&
         (descriptor == null ||
             key == null ||
             !_validLocalEpochKey(b.manifest, b.control, state.epoch, key))) {
@@ -1636,7 +3697,61 @@ class GroupService {
     }
     final createdAt = _now();
     late final GroupMessage unsigned;
-    if (descriptor != null && key != null) {
+    if (protectedChannel != null) {
+      final opaque = state.protectedChannels[resolvedChannelId!.hex];
+      final channelKey = opaque == null
+          ? null
+          : b.localChannelEpochKeys[_channelKeyId(
+              opaque.channelId,
+              opaque.channelEpoch,
+            )];
+      if (opaque == null ||
+          channelKey == null ||
+          !_validLocalChannelEpochKey(
+            b.manifest,
+            b.control,
+            opaque.channelId,
+            opaque.channelEpoch,
+            channelKey,
+          )) {
+        return false;
+      }
+      final clear = GroupMessageCleartext(
+        body: body,
+        replyTo: replyTo,
+        customEmoji: customEmoji,
+      ).encode();
+      try {
+        final encrypted = await encryptSpaceChannelMessagePayload(
+          spaceId: groupId,
+          channelId: opaque.channelId,
+          channelEpoch: opaque.channelEpoch,
+          author: _signer.selfId,
+          seq: mySeq,
+          prevHash: '',
+          policyVersion: state.policyVersion,
+          createdAtMs: createdAt,
+          clearText: clear,
+          channelKey: channelKey,
+        );
+        unsigned = GroupMessage(
+          groupId: groupId,
+          channelId: opaque.channelId,
+          author: _signer.selfId,
+          seq: mySeq,
+          prevHash: '',
+          body: '',
+          version: 3,
+          channelEpoch: opaque.channelEpoch,
+          encryptedPayload: encrypted,
+          policyVersion: state.policyVersion,
+          createdAtMs: createdAt,
+          signature: Uint8List(0),
+        );
+      } finally {
+        clear.fillRange(0, clear.length, 0);
+      }
+    } else if (descriptor != null && key != null) {
       final clear = GroupMessageCleartext(
         body: body,
         attachment: attachment,
@@ -1657,6 +3772,7 @@ class GroupService {
         );
         unsigned = GroupMessage(
           groupId: groupId,
+          channelId: resolvedChannelId,
           author: _signer.selfId,
           seq: mySeq,
           prevHash: '',
@@ -1674,6 +3790,7 @@ class GroupService {
     } else {
       unsigned = GroupMessage(
         groupId: groupId,
+        channelId: resolvedChannelId,
         author: _signer.selfId,
         seq: mySeq,
         prevHash: '',
@@ -1692,6 +3809,1103 @@ class GroupService {
     // that already holds an image must not re-chunk that image over the wire.
     if (broadcast) unawaited(broadcastDelta(groupId, messages: [signed]));
     return true;
+  }
+
+  /// Publish one immutable Space feed row. Public Spaces produce signed
+  /// cleartext rows suitable for a future non-member public-feed transport;
+  /// private/secret Spaces encrypt the complete content with the current
+  /// membership epoch. A draft is local UI state and never enters this log.
+  Future<SpacePost?> publishSpacePost(
+    NodeId spaceId, {
+    required String body,
+    String title = '',
+    SpacePostType type = SpacePostType.post,
+    List<MediaObjectRef> media = const [],
+    bool broadcast = true,
+  }) => _serialized(
+    spaceId,
+    () => _publishSpacePost(
+      spaceId,
+      body: body,
+      title: title,
+      type: type,
+      media: media,
+      broadcast: broadcast,
+    ),
+  );
+
+  Future<SpacePost?> _publishSpacePost(
+    NodeId spaceId, {
+    required String body,
+    required String title,
+    required SpacePostType type,
+    required List<MediaObjectRef> media,
+    required bool broadcast,
+  }) async {
+    final cleartext = SpacePostCleartext(
+      title: title.trim(),
+      body: body.trim(),
+      media: List<MediaObjectRef>.unmodifiable(media),
+    );
+    if (!cleartext.isStructurallyValid) return null;
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) return null;
+    final currentFold = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+    );
+    final state = currentFold.state;
+    if (!SpaceAcl(state).allows(_signer.selfId, SpacePermission.publishPosts)) {
+      return null;
+    }
+    final authored = _acceptedPostChain(spaceId, bundle.posts, _signer.selfId);
+    if (!_postMutationChainValid(authored)) return null;
+    final acceptedHeadSeq = authored.isEmpty ? -1 : authored.last.seq;
+    if (bundle.posts.any(
+      (post) =>
+          post.author == _signer.selfId &&
+          _validPostFor(spaceId, post) &&
+          post.seq > acceptedHeadSeq,
+    )) {
+      return null;
+    }
+    final checkpointResult = _ensurePostCheckpoint(
+      bundle,
+      currentFold,
+      preferredCheckpointHash: authored.isEmpty
+          ? null
+          : authored.last.controlCheckpointHash,
+    );
+    if (checkpointResult == null) return null;
+    final workingBundle = checkpointResult.bundle;
+    final checkpointHash = controlEntryHash(checkpointResult.entry);
+    final seq = _nextSeq(authored.map((post) => post.seq));
+    final prevHash = authored.isEmpty ? '' : _spacePostHash(authored.last);
+    final now = _now();
+    final isPublic = bundle.manifest.visibility == SpaceVisibility.public;
+    late final SpacePost unsigned;
+    if (isPublic) {
+      unsigned = SpacePost(
+        spaceId: spaceId,
+        author: _signer.selfId,
+        seq: seq,
+        prevHash: prevHash,
+        type: type,
+        visibility: SpacePostVisibility.public,
+        title: cleartext.title,
+        body: cleartext.body,
+        media: cleartext.media,
+        policyVersion: state.policyVersion,
+        createdAtMs: now,
+        publishedAtMs: now,
+        version: 5,
+        controlCheckpointHash: checkpointHash,
+        signature: Uint8List(0),
+      );
+    } else {
+      final descriptor = state.epochDescriptor;
+      final key = descriptor == null
+          ? null
+          : bundle.localEpochKeys[state.epoch];
+      if (descriptor == null ||
+          key == null ||
+          !_validLocalEpochKey(
+            bundle.manifest,
+            bundle.control,
+            state.epoch,
+            key,
+          )) {
+        return null;
+      }
+      final encoded = cleartext.encode();
+      try {
+        final encrypted = await encryptSpacePostPayload(
+          spaceId: spaceId,
+          membershipEpoch: state.epoch,
+          author: _signer.selfId,
+          seq: seq,
+          prevHash: prevHash,
+          postType: type.name,
+          visibility: SpacePostVisibility.members.name,
+          policyVersion: state.policyVersion,
+          createdAtMs: now,
+          publishedAtMs: now,
+          controlCheckpointHash: checkpointHash,
+          clearText: encoded,
+          epochKey: key,
+        );
+        unsigned = SpacePost(
+          spaceId: spaceId,
+          author: _signer.selfId,
+          seq: seq,
+          prevHash: prevHash,
+          type: type,
+          visibility: SpacePostVisibility.members,
+          title: '',
+          body: '',
+          policyVersion: state.policyVersion,
+          createdAtMs: now,
+          publishedAtMs: now,
+          version: 6,
+          membershipEpoch: state.epoch,
+          encryptedPayload: encrypted,
+          controlCheckpointHash: checkpointHash,
+          signature: Uint8List(0),
+        );
+      } finally {
+        encoded.fillRange(0, encoded.length, 0);
+      }
+    }
+    final signed = _signer.signPost(unsigned);
+    if (!_validPostFor(spaceId, signed)) return null;
+    await _save(
+      workingBundle.copyWith(posts: [...workingBundle.posts, signed]),
+    );
+    if (broadcast) {
+      unawaited(
+        broadcastDelta(
+          spaceId,
+          control: checkpointResult.created == null
+              ? const []
+              : [checkpointResult.created!],
+          posts: [signed],
+        ),
+      );
+    }
+    return signed.withDecryptedContent(cleartext);
+  }
+
+  /// Append an author-signed revision while preserving the original post id
+  /// and chronological cursor. Only the author can address a root in their
+  /// own linear chain; moderator removals use a future distinct operation.
+  Future<SpacePostView?> editSpacePost(
+    NodeId spaceId,
+    String postId, {
+    required String title,
+    required String body,
+    SpacePostType? type,
+    bool broadcast = true,
+  }) => _serialized(spaceId, () async {
+    final row = await _mutateSpacePost(
+      spaceId,
+      postId,
+      operation: SpacePostOperation.edit,
+      title: title,
+      body: body,
+      type: type,
+      broadcast: broadcast,
+    );
+    if (row == null) return null;
+    for (final post in await postsOf(spaceId)) {
+      if (post.postId == postId && post.revisionId == row.postId) return post;
+    }
+    return null;
+  });
+
+  /// Append an irreversible author tombstone. The old signed rows remain as
+  /// audit/fork evidence but disappear from feed and content grants.
+  Future<bool> deleteSpacePost(
+    NodeId spaceId,
+    String postId, {
+    bool broadcast = true,
+  }) => _serialized(
+    spaceId,
+    () async =>
+        await _mutateSpacePost(
+          spaceId,
+          postId,
+          operation: SpacePostOperation.delete,
+          title: '',
+          body: '',
+          broadcast: broadcast,
+        ) !=
+        null,
+  );
+
+  Future<SpacePost?> _mutateSpacePost(
+    NodeId spaceId,
+    String postId, {
+    required SpacePostOperation operation,
+    required String title,
+    required String body,
+    SpacePostType? type,
+    required bool broadcast,
+  }) async {
+    if (operation == SpacePostOperation.publish) return null;
+    final separator = postId.lastIndexOf(':');
+    if (separator <= 0 || separator == postId.length - 1) return null;
+    final targetAuthor = postId.substring(0, separator);
+    final targetSeq = int.tryParse(postId.substring(separator + 1));
+    if (targetAuthor != _signer.selfId.hex ||
+        targetSeq == null ||
+        targetSeq < 0) {
+      return null;
+    }
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) return null;
+    SpacePostView? target;
+    for (final post in await _postsOfBundle(bundle)) {
+      if (post.postId == postId) {
+        target = post;
+        break;
+      }
+    }
+    if (target == null || target.author != _signer.selfId) return null;
+    final cleartext = SpacePostCleartext(
+      title: operation == SpacePostOperation.delete ? '' : title.trim(),
+      body: operation == SpacePostOperation.delete ? '' : body.trim(),
+      media: operation == SpacePostOperation.delete ? const [] : target.media,
+      isTombstone: operation == SpacePostOperation.delete,
+    );
+    if (!cleartext.isStructurallyValid) return null;
+    final currentFold = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+    );
+    final state = currentFold.state;
+    if (!SpaceAcl(state).allows(_signer.selfId, SpacePermission.publishPosts)) {
+      return null;
+    }
+    final authored = _acceptedPostChain(spaceId, bundle.posts, _signer.selfId);
+    if (!_postMutationChainValid(authored)) return null;
+    final acceptedHeadSeq = authored.isEmpty ? -1 : authored.last.seq;
+    if (bundle.posts.any(
+      (post) =>
+          post.author == _signer.selfId &&
+          _validPostFor(spaceId, post) &&
+          post.seq > acceptedHeadSeq,
+    )) {
+      return null;
+    }
+    final checkpointResult = _ensurePostCheckpoint(
+      bundle,
+      currentFold,
+      preferredCheckpointHash: authored.isEmpty
+          ? null
+          : authored.last.controlCheckpointHash,
+    );
+    if (checkpointResult == null) return null;
+    final checkpointHash = controlEntryHash(checkpointResult.entry);
+    final seq = _nextSeq(authored.map((post) => post.seq));
+    if (targetSeq >= seq) return null;
+    final prevHash = authored.isEmpty ? '' : _spacePostHash(authored.last);
+    final now = _now();
+    final postType = type ?? target.type;
+    late final SpacePost unsigned;
+    if (bundle.manifest.visibility == SpaceVisibility.public) {
+      unsigned = SpacePost(
+        spaceId: spaceId,
+        author: _signer.selfId,
+        seq: seq,
+        prevHash: prevHash,
+        type: postType,
+        visibility: SpacePostVisibility.public,
+        title: cleartext.title,
+        body: cleartext.body,
+        media: cleartext.media,
+        policyVersion: state.policyVersion,
+        createdAtMs: now,
+        publishedAtMs: now,
+        version: 7,
+        controlCheckpointHash: checkpointHash,
+        operation: operation,
+        targetSeq: targetSeq,
+        signature: Uint8List(0),
+      );
+    } else {
+      final descriptor = state.epochDescriptor;
+      final key = descriptor == null
+          ? null
+          : bundle.localEpochKeys[state.epoch];
+      if (descriptor == null ||
+          key == null ||
+          !_validLocalEpochKey(
+            bundle.manifest,
+            bundle.control,
+            state.epoch,
+            key,
+          )) {
+        return null;
+      }
+      final encoded = cleartext.encode();
+      try {
+        final encrypted = await encryptSpacePostPayload(
+          spaceId: spaceId,
+          membershipEpoch: state.epoch,
+          author: _signer.selfId,
+          seq: seq,
+          prevHash: prevHash,
+          postType: postType.name,
+          visibility: SpacePostVisibility.members.name,
+          policyVersion: state.policyVersion,
+          createdAtMs: now,
+          publishedAtMs: now,
+          controlCheckpointHash: checkpointHash,
+          postOperation: operation.name,
+          targetSeq: targetSeq,
+          clearText: encoded,
+          epochKey: key,
+        );
+        unsigned = SpacePost(
+          spaceId: spaceId,
+          author: _signer.selfId,
+          seq: seq,
+          prevHash: prevHash,
+          type: postType,
+          visibility: SpacePostVisibility.members,
+          title: '',
+          body: '',
+          policyVersion: state.policyVersion,
+          createdAtMs: now,
+          publishedAtMs: now,
+          version: 8,
+          membershipEpoch: state.epoch,
+          encryptedPayload: encrypted,
+          controlCheckpointHash: checkpointHash,
+          operation: operation,
+          targetSeq: targetSeq,
+          signature: Uint8List(0),
+        );
+      } finally {
+        encoded.fillRange(0, encoded.length, 0);
+      }
+    }
+    final signed = _signer.signPost(unsigned);
+    if (!_validPostFor(spaceId, signed)) return null;
+    await _save(
+      checkpointResult.bundle.copyWith(
+        posts: [...checkpointResult.bundle.posts, signed],
+      ),
+    );
+    if (broadcast) {
+      unawaited(
+        broadcastDelta(
+          spaceId,
+          control: checkpointResult.created == null
+              ? const []
+              : [checkpointResult.created!],
+          posts: [signed],
+        ),
+      );
+    }
+    return signed.withDecryptedContent(cleartext);
+  }
+
+  ({GroupBundle bundle, ControlEntry entry, ControlEntry? created})?
+  _ensurePostCheckpoint(
+    GroupBundle bundle,
+    GroupFoldResult currentFold, {
+    String? preferredCheckpointHash,
+  }) {
+    final currentGeneration = _postGrantAt(
+      bundle.manifest,
+      currentFold.accepted,
+      _signer.selfId,
+    );
+    if (currentGeneration == null) return null;
+    const reuseScanMax = 8;
+    final candidates = <ControlEntry>[];
+    if (preferredCheckpointHash != null) {
+      for (final entry in currentFold.accepted) {
+        if (entry.op == ControlOp.checkpoint &&
+            controlEntryHash(entry) == preferredCheckpointHash) {
+          candidates.add(entry);
+          break;
+        }
+      }
+    }
+    for (final entry in currentFold.accepted.reversed) {
+      if (candidates.length >= reuseScanMax) break;
+      if (entry.op != ControlOp.checkpoint ||
+          entry.policyVersion != currentFold.state.policyVersion ||
+          candidates.any(
+            (candidate) =>
+                controlEntryHash(candidate) == controlEntryHash(entry),
+          )) {
+        continue;
+      }
+      candidates.add(entry);
+    }
+    for (final entry in candidates) {
+      final historical = _foldAtControlCheckpoint(
+        bundle.manifest,
+        bundle.control,
+        entry,
+      );
+      if (historical != null &&
+          historical.state.policyVersion == currentFold.state.policyVersion &&
+          SpaceAcl(
+            historical.state,
+          ).allows(_signer.selfId, SpacePermission.publishPosts) &&
+          _postGrantAt(bundle.manifest, historical.accepted, _signer.selfId) ==
+              currentGeneration) {
+        return (bundle: bundle, entry: entry, created: null);
+      }
+    }
+
+    final payload = _controlCheckpoint(currentFold.accepted);
+    if (payload == null) return null;
+    final link = _nextControlLink(
+      bundle.manifest,
+      bundle.control,
+      _signer.selfId,
+    );
+    if (link.blocked) return null;
+    final unsigned = ControlEntry(
+      version: 4,
+      groupId: bundle.manifest.groupId,
+      author: _signer.selfId,
+      seq: link.seq,
+      prevHash: link.prevHash,
+      op: ControlOp.checkpoint,
+      target: null,
+      role: null,
+      controlCheckpoint: payload,
+      policyVersion: currentFold.state.policyVersion,
+      createdAtMs: _now(),
+      signature: Uint8List(0),
+    );
+    final signed = _signer.signControl(unsigned);
+    if (!_validControlFor(bundle.manifest, signed)) return null;
+    final control = [...bundle.control, signed];
+    final folded = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+    );
+    final hash = controlEntryHash(signed);
+    if (!folded.accepted.any((entry) => controlEntryHash(entry) == hash) ||
+        _foldAtControlCheckpoint(bundle.manifest, control, signed) == null) {
+      return null;
+    }
+    return (
+      bundle: bundle.copyWith(control: control),
+      entry: signed,
+      created: signed,
+    );
+  }
+
+  String _spacePostHash(SpacePost post) => crypto.sha256.convert([
+    ...post.canonicalBytes(),
+    ...post.signature,
+  ]).toString();
+
+  /// Return valid rows outside an equivocated suffix. Two distinct valid rows
+  /// at the same `(author, seq)` quarantine that fork point and every later
+  /// row by the author. Publication authority must never be chosen by a hash
+  /// lottery because revocation boundaries bind an exact terminal chain.
+  List<SpacePost> _canonicalPostRows(
+    NodeId spaceId,
+    Iterable<SpacePost> input,
+  ) {
+    final candidates = <String, Map<String, SpacePost>>{};
+    for (final post in input) {
+      if (!_validPostFor(spaceId, post)) continue;
+      final identity = '${post.author.hex}:${post.seq}';
+      candidates.putIfAbsent(
+        identity,
+        () => <String, SpacePost>{},
+      )[_spacePostHash(post)] = post;
+    }
+    final forkedAt = <String, int>{};
+    for (final distinct in candidates.values) {
+      if (distinct.length <= 1) continue;
+      final sample = distinct.values.first;
+      final current = forkedAt[sample.author.hex];
+      if (current == null || sample.seq < current) {
+        forkedAt[sample.author.hex] = sample.seq;
+      }
+    }
+    return [
+      for (final distinct in candidates.values)
+        if (distinct.length == 1 &&
+            distinct.values.single.seq <
+                (forkedAt[distinct.values.single.author.hex] ?? (1 << 62)))
+          distinct.values.single,
+    ];
+  }
+
+  /// Compaction may remove invalid/identical deliveries, but never distinct
+  /// fork evidence: forgetting one branch would resurrect quarantined posts.
+  List<SpacePost> _retainedPostRows(NodeId spaceId, Iterable<SpacePost> input) {
+    final rows = <String, SpacePost>{};
+    for (final post in input) {
+      if (_validPostFor(spaceId, post)) rows[_spacePostHash(post)] = post;
+    }
+    return rows.values.toList();
+  }
+
+  List<SpacePost> _acceptedPostChain(
+    NodeId spaceId,
+    Iterable<SpacePost> input,
+    NodeId author,
+  ) {
+    final authored =
+        _canonicalPostRows(
+            spaceId,
+            input,
+          ).where((post) => post.author == author).toList()
+          ..sort((left, right) => left.seq.compareTo(right.seq));
+    final accepted = <SpacePost>[];
+    var expectedSeq = 0;
+    var expectedPrev = '';
+    for (final post in authored) {
+      if (post.seq != expectedSeq || post.prevHash != expectedPrev) break;
+      accepted.add(post);
+      expectedSeq++;
+      expectedPrev = _spacePostHash(post);
+    }
+    return accepted;
+  }
+
+  /// Validate only the immutable mutation topology. Content/ACL/AEAD checks
+  /// happen elsewhere; this gate prevents a writer from extending a signed but
+  /// nonsensical suffix (edit-of-edit, missing root, or resurrection).
+  bool _postMutationChainValid(Iterable<SpacePost> chain) {
+    final roots = <int>{};
+    final deleted = <int>{};
+    for (final post in chain) {
+      switch (post.operation) {
+        case SpacePostOperation.publish:
+          roots.add(post.seq);
+        case SpacePostOperation.edit:
+          final target = post.targetSeq;
+          if (target == null ||
+              !roots.contains(target) ||
+              deleted.contains(target)) {
+            return false;
+          }
+        case SpacePostOperation.delete:
+          final target = post.targetSeq;
+          if (target == null ||
+              !roots.contains(target) ||
+              !deleted.add(target)) {
+            return false;
+          }
+      }
+    }
+    return true;
+  }
+
+  SpacePostBoundary _postBoundaryFor(GroupBundle bundle, NodeId author) {
+    final chain = _acceptedPostChain(
+      bundle.manifest.groupId,
+      bundle.posts,
+      author,
+    );
+    if (chain.isEmpty) return const SpacePostBoundary(seq: -1, hash: '');
+    final terminal = chain.last;
+    return SpacePostBoundary(seq: terminal.seq, hash: _spacePostHash(terminal));
+  }
+
+  String? _postGrantAt(
+    GroupManifest manifest,
+    Iterable<ControlEntry> accepted,
+    NodeId author,
+  ) {
+    String? grant = author == manifest.owner ? 'genesis' : null;
+    for (final entry in accepted) {
+      final affected = entry.op == ControlOp.leave
+          ? entry.author
+          : entry.target;
+      if (affected != author) continue;
+      switch (entry.op) {
+        case ControlOp.addMember:
+        case ControlOp.unmute:
+          grant = controlEntryHash(entry);
+        case ControlOp.mute:
+        case ControlOp.removeMember:
+        case ControlOp.ban:
+        case ControlOp.leave:
+          grant = null;
+        case ControlOp.setRole:
+        case ControlOp.transferOwnership:
+        case ControlOp.rotateEpoch:
+        case ControlOp.setPolicy:
+        case ControlOp.setName:
+        case ControlOp.setDescription:
+        case ControlOp.publishRules:
+        case ControlOp.acceptRules:
+        case ControlOp.moderate:
+        case ControlOp.revokeModeration:
+        case ControlOp.createChannel:
+        case ControlOp.updateChannel:
+        case ControlOp.checkpoint:
+          break;
+      }
+    }
+    return grant;
+  }
+
+  ({bool revoked, SpacePostBoundary? boundary}) _postRevocationForGrant(
+    GroupManifest manifest,
+    Iterable<ControlEntry> accepted,
+    NodeId author,
+    String generation,
+    int atMs,
+  ) {
+    final revokedModeration = <String>{
+      for (final entry in accepted)
+        if (entry.op == ControlOp.revokeModeration &&
+            entry.moderationRevocation != null &&
+            entry.moderationRevocation!.revokedAtMs <= atMs)
+          entry.moderationRevocation!.actionId,
+    };
+    String? grant = author == manifest.owner ? 'genesis' : null;
+    for (final entry in accepted) {
+      final affected = entry.op == ControlOp.leave
+          ? entry.author
+          : entry.target;
+      if (affected != author) continue;
+      switch (entry.op) {
+        case ControlOp.addMember:
+        case ControlOp.unmute:
+          grant = controlEntryHash(entry);
+        case ControlOp.mute:
+        case ControlOp.removeMember:
+        case ControlOp.ban:
+        case ControlOp.leave:
+          if (grant == generation) {
+            return (revoked: true, boundary: entry.postBoundary);
+          }
+          grant = null;
+        case ControlOp.moderate:
+          final action = entry.moderationAction;
+          if (action != null &&
+              action.kind.blocksPosts &&
+              action.createdAtMs <= atMs &&
+              (action.expiresAtMs == null || atMs < action.expiresAtMs!) &&
+              !revokedModeration.contains('${entry.author.hex}:${entry.seq}')) {
+            if (grant == generation) {
+              return (revoked: true, boundary: entry.postBoundary);
+            }
+          }
+        case ControlOp.revokeModeration:
+          break;
+        case ControlOp.setRole:
+        case ControlOp.transferOwnership:
+        case ControlOp.rotateEpoch:
+        case ControlOp.setPolicy:
+        case ControlOp.setName:
+        case ControlOp.setDescription:
+        case ControlOp.publishRules:
+        case ControlOp.acceptRules:
+        case ControlOp.createChannel:
+        case ControlOp.updateChannel:
+        case ControlOp.checkpoint:
+          break;
+      }
+    }
+    return (revoked: false, boundary: null);
+  }
+
+  GroupFoldResult? _historicalFoldForPost(
+    GroupManifest manifest,
+    List<ControlEntry> control,
+    SpacePost post,
+    Iterable<ControlEntry> acceptedControl,
+  ) {
+    if (!post.isCausal) return null;
+    if (post.isCheckpointed) {
+      final checkpointHash = post.controlCheckpointHash;
+      if (checkpointHash == null) return null;
+      ControlEntry? checkpointEntry;
+      for (final entry in acceptedControl) {
+        if (entry.op == ControlOp.checkpoint &&
+            controlEntryHash(entry) == checkpointHash) {
+          checkpointEntry = entry;
+          break;
+        }
+      }
+      return checkpointEntry == null
+          ? null
+          : _foldAtControlCheckpoint(manifest, control, checkpointEntry);
+    }
+    final frontier = post.controlFrontier;
+    return frontier == null
+        ? null
+        : _foldAtPostFrontier(manifest, control, frontier);
+  }
+
+  bool _causalPostAuthorized(
+    GroupBundle bundle,
+    SpacePost post,
+    List<SpacePost> acceptedAuthorChain,
+    List<ControlEntry> currentAcceptedControl,
+    Map<String, GroupFoldResult> historicalCache,
+    Set<String> invalidHistoricalFrontiers,
+  ) {
+    if (!post.isCausal) return false;
+    final historicalKey = post.isCheckpointed
+        ? 'checkpoint:${post.controlCheckpointHash}'
+        : 'frontier:${jsonEncode(post.controlFrontier?.toJson())}';
+    if (invalidHistoricalFrontiers.contains(historicalKey)) return false;
+    var historical = historicalCache[historicalKey];
+    if (historical == null) {
+      historical = _historicalFoldForPost(
+        bundle.manifest,
+        bundle.control,
+        post,
+        currentAcceptedControl,
+      );
+      if (historical == null) {
+        invalidHistoricalFrontiers.add(historicalKey);
+        return false;
+      }
+      historicalCache[historicalKey] = historical;
+    }
+    if (historical.state.policyVersion != post.policyVersion ||
+        !SpaceAcl(historical.state).allows(
+          post.author,
+          SpacePermission.publishPosts,
+          atMs: post.createdAtMs,
+        )) {
+      return false;
+    }
+    final generation = _postGrantAt(
+      bundle.manifest,
+      historical.accepted,
+      post.author,
+    );
+    if (generation == null) return false;
+    final revocation = _postRevocationForGrant(
+      bundle.manifest,
+      currentAcceptedControl,
+      post.author,
+      generation,
+      post.createdAtMs,
+    );
+    if (!revocation.revoked) return true;
+    final boundary = revocation.boundary;
+    if (boundary == null || boundary.seq < 0 || post.seq > boundary.seq) {
+      return false;
+    }
+    return acceptedAuthorChain.any(
+      (candidate) =>
+          candidate.seq == boundary.seq &&
+          _spacePostHash(candidate) == boundary.hash,
+    );
+  }
+
+  bool _causalPostHistoricallyAuthorized(
+    GroupManifest manifest,
+    List<ControlEntry> control,
+    SpacePost post,
+  ) {
+    if (!post.isCausal) return false;
+    final accepted = _acceptedControl(manifest, control);
+    final historical = _historicalFoldForPost(
+      manifest,
+      control,
+      post,
+      accepted,
+    );
+    return historical != null &&
+        historical.state.policyVersion == post.policyVersion &&
+        SpaceAcl(historical.state).allows(
+          post.author,
+          SpacePermission.publishPosts,
+          atMs: post.createdAtMs,
+        ) &&
+        _postGrantAt(manifest, historical.accepted, post.author) != null;
+  }
+
+  /// Validated, decrypted publication log for one Space. Per-author chains are
+  /// contiguous from seq 0; an out-of-order suffix remains stored but hidden
+  /// until anti-entropy supplies its missing prefix.
+  Future<List<SpacePostView>> postsOf(NodeId spaceId) async {
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) return const [];
+    return _postsOfBundle(bundle);
+  }
+
+  /// Variant for callers that already loaded the bundle. Keeping validation in
+  /// one place avoids a second hidden-volume read for every Space in the merged
+  /// feed while preserving the exact same fail-closed path as [postsOf].
+  Future<List<SpacePostView>> _postsOfBundle(GroupBundle bundle) async {
+    final spaceId = bundle.manifest.groupId;
+    final readAt = DateTime.now().millisecondsSinceEpoch;
+    final currentFold = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+    );
+    final state = currentFold.state;
+    if (!SpaceAcl(state).allows(_signer.selfId, SpacePermission.view)) {
+      return const [];
+    }
+    final byAuthor = <String, List<SpacePost>>{};
+    for (final post in _canonicalPostRows(spaceId, bundle.posts)) {
+      byAuthor.putIfAbsent(post.author.hex, () => []).add(post);
+    }
+    final visiblePosts = <SpacePostView>[];
+    final historicalCache = <String, GroupFoldResult>{};
+    final invalidHistoricalFrontiers = <String>{};
+    for (final authored in byAuthor.values) {
+      authored.sort((left, right) => left.seq.compareTo(right.seq));
+      final acceptedAuthorChain = _acceptedPostChain(
+        spaceId,
+        bundle.posts,
+        authored.first.author,
+      );
+      var expectedSeq = 0;
+      var expectedPrev = '';
+      final roots = <int, SpacePostView>{};
+      final deletedRoots = <int>{};
+      for (final post in authored) {
+        if (post.seq != expectedSeq || post.prevHash != expectedPrev) break;
+        final authorized = post.isCausal
+            ? _causalPostAuthorized(
+                bundle,
+                post,
+                acceptedAuthorChain,
+                currentFold.accepted,
+                historicalCache,
+                invalidHistoricalFrontiers,
+              )
+            : SpaceAcl(state).allows(
+                post.author,
+                SpacePermission.publishPosts,
+                atMs: post.createdAtMs,
+              );
+        if (!authorized) {
+          break;
+        }
+        if (post.visibility == SpacePostVisibility.public &&
+            bundle.manifest.visibility != SpaceVisibility.public) {
+          break;
+        }
+        final visible = post.isEncrypted
+            ? await _materializeEncryptedPost(bundle, post)
+            : post;
+        if (visible == null) break;
+        var semanticValid = true;
+        switch (visible.operation) {
+          case SpacePostOperation.publish:
+            roots[visible.seq] = SpacePostView(
+              root: visible,
+              effective: visible,
+            );
+          case SpacePostOperation.edit:
+            final target = roots[visible.targetSeq];
+            if (target == null || deletedRoots.contains(visible.targetSeq)) {
+              semanticValid = false;
+              break;
+            }
+            roots[visible.targetSeq!] = SpacePostView(
+              root: target.root,
+              effective: visible,
+            );
+          case SpacePostOperation.delete:
+            if (!roots.containsKey(visible.targetSeq) ||
+                !deletedRoots.add(visible.targetSeq!)) {
+              semanticValid = false;
+            }
+        }
+        if (!semanticValid) break;
+        expectedSeq++;
+        expectedPrev = _spacePostHash(post);
+      }
+      visiblePosts.addAll(
+        roots.entries
+            .where(
+              (entry) =>
+                  !deletedRoots.contains(entry.key) &&
+                  !state.isModeratedContentRemoved(
+                    kind: SpaceModerationReferenceKind.spacePost,
+                    author: entry.value.root.author,
+                    seq: entry.value.root.seq,
+                    atMs: readAt,
+                  ),
+            )
+            .map((entry) => entry.value),
+      );
+    }
+    visiblePosts.sort((left, right) {
+      final time = left.publishedAtMs.compareTo(right.publishedAtMs);
+      if (time != 0) return time;
+      final author = left.author.hex.compareTo(right.author.hex);
+      if (author != 0) return author;
+      return left.seq.compareTo(right.seq);
+    });
+    return visiblePosts;
+  }
+
+  String _spaceFeedEnabledKey(NodeId spaceId) =>
+      'space.feed.enabled:${spaceId.hex}';
+  String _spaceSubscriptionKey(NodeId spaceId) =>
+      'space.subscription.v1:${spaceId.hex}';
+  String _spaceFeedSeenKey(NodeId spaceId) => 'space.feed.seen:${spaceId.hex}';
+
+  /// Membership and feed subscription are intentionally separate. An active
+  /// member follows publications by default but can disable them locally
+  /// without leaving the Space or mutating its signed control log.
+  Future<SpaceSubscription> spaceSubscription(NodeId spaceId) async {
+    final stored = await _storage.getSetting(_spaceSubscriptionKey(spaceId));
+    if (stored != null && stored.isNotEmpty) {
+      try {
+        final parsed = SpaceSubscription.fromJson(jsonDecode(stored), spaceId);
+        if (parsed != null) return parsed;
+      } catch (_) {
+        // Corrupt local preferences fail to the privacy-neutral member default.
+      }
+    }
+    // One-version migration from the boolean key introduced by the first feed
+    // slice. It is local-only and can be rewritten atomically on next change.
+    final legacy = await _storage.getSetting(_spaceFeedEnabledKey(spaceId));
+    return SpaceSubscription.memberDefault(
+      spaceId,
+    ).copyWith(feedEnabled: legacy != '0');
+  }
+
+  Future<bool> isSpaceFeedEnabled(NodeId spaceId) async =>
+      (await spaceSubscription(spaceId)).feedEnabled;
+
+  Future<void> _saveSpaceSubscription(SpaceSubscription subscription) =>
+      _storage.putSetting(
+        _spaceSubscriptionKey(subscription.spaceId),
+        jsonEncode(subscription.toJson()),
+      );
+
+  Future<void> setSpaceFeedEnabled(NodeId spaceId, bool enabled) async {
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) {
+      throw ArgumentError.value(spaceId.hex, 'spaceId', 'unknown Space');
+    }
+    final current = await spaceSubscription(spaceId);
+    await _saveSpaceSubscription(
+      current.copyWith(feedEnabled: enabled, updatedAtMs: _now()),
+    );
+    await _storage.putSetting(_spaceFeedEnabledKey(spaceId), '');
+    changes.value++;
+  }
+
+  Future<void> setSpaceNotificationsEnabled(
+    NodeId spaceId,
+    bool enabled,
+  ) async {
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) {
+      throw ArgumentError.value(spaceId.hex, 'spaceId', 'unknown Space');
+    }
+    final current = await spaceSubscription(spaceId);
+    await _saveSpaceSubscription(
+      current.copyWith(notificationsEnabled: enabled, updatedAtMs: _now()),
+    );
+    changes.value++;
+  }
+
+  Future<void> setSpaceHiddenFromRecommendations(
+    NodeId spaceId,
+    bool hidden,
+  ) async {
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) {
+      throw ArgumentError.value(spaceId.hex, 'spaceId', 'unknown Space');
+    }
+    final current = await spaceSubscription(spaceId);
+    await _saveSpaceSubscription(
+      current.copyWith(hiddenFromRecommendations: hidden, updatedAtMs: _now()),
+    );
+    changes.value++;
+  }
+
+  /// Merge subscribed Space logs in descending chronological order. The
+  /// signed `(publishedAt, spaceId, author, seq)` tuple is a stable cursor and
+  /// the identity set prevents duplicates regardless of roles or sync paths.
+  Future<List<SpaceFeedItem>> spaceFeed({
+    SpaceFeedCursor? before,
+    int limit = 50,
+    Set<SpacePostType>? types,
+  }) async {
+    final boundedLimit = limit.clamp(1, 200);
+    final items = <SpaceFeedItem>[];
+    final seen = <String>{};
+    for (final id in await _index()) {
+      final NodeId spaceId;
+      try {
+        spaceId = NodeId.fromHex(id);
+      } catch (_) {
+        continue;
+      }
+      final bundle = await load(spaceId);
+      if (bundle == null ||
+          !bundle.manifest.isSpace ||
+          !await isSpaceFeedEnabled(spaceId)) {
+        continue;
+      }
+      final state = foldControlLog(
+        owner: bundle.manifest.owner,
+        entries: bundle.control,
+        verify: (entry) => _validControlFor(bundle.manifest, entry),
+        initialName: bundle.manifest.name,
+      ).state;
+      if (!state.isMember(_signer.selfId)) continue;
+      final visiblePosts = await _postsOfBundle(bundle);
+      final reactions = await _spacePostReactionsOfBundle(
+        bundle,
+        visiblePostIds: {for (final post in visiblePosts) post.postId},
+      );
+      for (final post in visiblePosts) {
+        if (types != null && !types.contains(post.type)) continue;
+        final cursor = SpaceFeedCursor.fromView(post);
+        if (before != null && cursor.compareTo(before) >= 0) continue;
+        if (!seen.add('${spaceId.hex}:${post.postId}')) continue;
+        items.add(
+          SpaceFeedItem(
+            spaceId: spaceId,
+            spaceName: state.name,
+            post: post,
+            reactions: reactions[post.postId] ?? const {},
+          ),
+        );
+      }
+    }
+    items.sort((left, right) {
+      final order = SpaceFeedCursor.fromView(
+        right.post,
+      ).compareTo(SpaceFeedCursor.fromView(left.post));
+      return order;
+    });
+    return items.length <= boundedLimit
+        ? items
+        : items.sublist(0, boundedLimit);
+  }
+
+  Future<int> unreadSpacePosts(NodeId spaceId) async {
+    if (!await isSpaceFeedEnabled(spaceId)) return 0;
+    final seen = SpaceFeedCursor.decode(
+      await _storage.getSetting(_spaceFeedSeenKey(spaceId)),
+    );
+    final posts = await postsOf(spaceId);
+    return posts
+        .where(
+          (post) =>
+              post.author != _signer.selfId &&
+              (seen == null ||
+                  SpaceFeedCursor.fromView(post).compareTo(seen) > 0),
+        )
+        .length;
+  }
+
+  Future<void> markSpaceFeedSeen(NodeId spaceId) async {
+    final posts = await postsOf(spaceId);
+    if (posts.isEmpty) return;
+    final latest = posts
+        .map(SpaceFeedCursor.fromView)
+        .reduce((left, right) => left.compareTo(right) >= 0 ? left : right);
+    final prior = SpaceFeedCursor.decode(
+      await _storage.getSetting(_spaceFeedSeenKey(spaceId)),
+    );
+    if (prior != null && prior.compareTo(latest) >= 0) return;
+    await _storage.putSetting(_spaceFeedSeenKey(spaceId), latest.encode());
+    changes.value++;
   }
 
   // ── Group log gap-fill (reliability brick G1) ─────────────────────────────
@@ -1762,19 +4976,73 @@ class GroupService {
       return v;
     }
 
+    Map<String, Object> postVector() {
+      final byAuthor = <String, List<SpacePost>>{};
+      for (final post in _canonicalPostRows(groupId, b.posts)) {
+        byAuthor.putIfAbsent(post.author.hex, () => []).add(post);
+      }
+      final result = <String, Object>{};
+      for (final entry in byAuthor.entries) {
+        final authored = entry.value
+          ..sort((left, right) => left.seq.compareTo(right.seq));
+        var expectedSeq = 0;
+        var expectedPrev = '';
+        for (final post in authored) {
+          if (post.seq != expectedSeq || post.prevHash != expectedPrev) break;
+          result[entry.key] = {'s': post.seq, 'h': _spacePostHash(post)};
+          expectedSeq++;
+          expectedPrev = _spacePostHash(post);
+        }
+      }
+      return result;
+    }
+
+    Map<String, Object> controlVector() {
+      final result = <String, Object>{};
+      for (final entry in _acceptedControl(b.manifest, b.control)) {
+        final current = result[entry.author.hex];
+        final currentSeq = current is Map && current['s'] is int
+            ? current['s'] as int
+            : -1;
+        if (entry.seq > currentSeq) {
+          result[entry.author.hex] = {
+            's': entry.seq,
+            'h': controlEntryHash(entry),
+          };
+        }
+      }
+      return result;
+    }
+
+    Map<String, Object> channelMessageVector() {
+      final result = <String, Object>{};
+      final byChannel = <String, List<(NodeId, int)>>{};
+      for (final message in b.messages) {
+        if (_validMessageFor(groupId, message) && message.isChannelEncrypted) {
+          byChannel
+              .putIfAbsent(message.channelId!.hex, () => <(NodeId, int)>[])
+              .add((message.author, message.seq));
+        }
+      }
+      for (final entry in byChannel.entries) {
+        result[entry.key] = vector(entry.value);
+      }
+      return result;
+    }
+
     return {
       'sreq': 1,
       'gid': groupId.hex,
       'g': vector(
         b.messages
-            .where((m) => _validMessageFor(groupId, m))
+            .where((m) => _validMessageFor(groupId, m) && !m.isChannelEncrypted)
             .map((m) => (m.author, m.seq)),
       ),
-      'c': vector(
-        b.control
-            .where((e) => _validControlFor(b.manifest, e))
-            .map((e) => (e.author, e.seq)),
-      ),
+      if (b.manifest.isSpace) 'cg': channelMessageVector(),
+      // V2 adds the accepted head hash. A legacy peer treats the object value
+      // as unseen and safely over-ships; a new peer detects same-seq forks
+      // instead of declaring two different heads "in sync".
+      'c': controlVector(),
       // Reactions ride the same per-author high-water scheme (each author's
       // reaction seq is monotonic). An older responder just ignores the key.
       'r': vector(
@@ -1782,8 +5050,11 @@ class GroupService {
             .where((r) => _validReactionFor(groupId, r))
             .map((r) => (r.author, r.seq)),
       ),
+      if (b.manifest.isSpace) 'p': postVector(),
       if (b.localEpochKeys.isNotEmpty)
         'ke': (b.localEpochKeys.keys.toList()..sort()),
+      if (b.localChannelEpochKeys.isNotEmpty)
+        'cke': (b.localChannelEpochKeys.keys.toList()..sort()),
     };
   }
 
@@ -1809,33 +5080,84 @@ class GroupService {
       entries: b.control,
       verify: (e) => _validControlFor(b.manifest, e),
     ).state;
-    if (!state.isMember(peer)) {
+    if (!SpaceAcl(state).allows(peer, SpacePermission.distributeContent)) {
       devLog(() => 'xVeil[groups]: sync request from non-member — drop');
       return false;
     }
     // -1, not 0: seqs start at 0, so "never seen this author" must sit BELOW
     // the first seq or seq-0 entries can never gap-fill (see [vector]).
-    int seen(Object? vec, NodeId author) =>
-        (vec is Map && vec[author.hex] is int) ? vec[author.hex] as int : -1;
+    int seen(Object? vec, NodeId author) {
+      if (vec is! Map) return -1;
+      final value = vec[author.hex];
+      if (value is int) return value;
+      if (value is Map && value['s'] is int) return value['s'] as int;
+      return -1;
+    }
+
+    String? seenControlHash(Object? vec, NodeId author) {
+      if (vec is! Map) return null;
+      final value = vec[author.hex];
+      return value is Map && value['h'] is String ? value['h'] as String : null;
+    }
+
+    bool hasControlHash(Object? vec, NodeId author) =>
+        vec is Map &&
+        vec[author.hex] is Map &&
+        (vec[author.hex] as Map)['h'] is String;
+    String? seenPostHash(Object? vec, NodeId author) =>
+        seenControlHash(vec, author);
+    bool hasPostHash(Object? vec, NodeId author) => hasControlHash(vec, author);
     final heldEpochs = req['ke'] is List
         ? (req['ke'] as List).whereType<int>().toSet()
         : const <int>{};
+    final heldChannelEpochs = req['cke'] is List
+        ? (req['cke'] as List).whereType<String>().toSet()
+        : const <String>{};
     final missingEpochEnvelopes = [
       for (final envelope in _epochEnvelopesFor(b, peer))
         if (!heldEpochs.contains(envelope.epoch)) envelope,
     ];
+    final missingChannelEpochEnvelopes = [
+      for (final envelope in _channelEpochEnvelopesFor(b, peer))
+        if (!heldChannelEpochs.contains(
+          _channelKeyId(envelope.groupId, envelope.epoch),
+        ))
+          envelope,
+    ];
+    int seenChannelMessage(Object? vec, GroupMessage message) {
+      if (vec is! Map || message.channelId == null) return -1;
+      return seen(vec[message.channelId!.hex], message.author);
+    }
+
+    bool peerNeedsMessage(GroupMessage message) {
+      if (!_validMessageFor(gid, message)) return false;
+      if (message.isChannelEncrypted) {
+        return message.seq > seenChannelMessage(req['cg'], message) &&
+            _peerCanDecryptChannelEpoch(
+              b,
+              peer,
+              message.channelId!,
+              message.channelEpoch!,
+            );
+      }
+      if (message.seq <= seen(req['g'], message.author)) return false;
+      return !_encryptionEstablished(b.manifest, b.control) ||
+          (message.isEncrypted &&
+              _peerCanDecryptEpoch(b, peer, message.membershipEpoch!));
+    }
+
     final missingMsgs = [
-      for (final m in b.messages)
-        if (_validMessageFor(gid, m) &&
-            m.seq > seen(req['g'], m.author) &&
-            (!_encryptionEstablished(b.manifest, b.control) ||
-                (m.isEncrypted &&
-                    _peerCanDecryptEpoch(b, peer, m.membershipEpoch!))))
-          m,
+      for (final message in b.messages)
+        if (peerNeedsMessage(message)) message,
     ];
     final missingCtl = [
       for (final e in b.control)
-        if (_validControlFor(b.manifest, e) && e.seq > seen(req['c'], e.author))
+        if (_validControlFor(b.manifest, e) &&
+            (e.seq > seen(req['c'], e.author) ||
+                (e.seq == seen(req['c'], e.author) &&
+                    hasControlHash(req['c'], e.author) &&
+                    seenControlHash(req['c'], e.author) !=
+                        controlEntryHash(e))))
           e,
     ];
     // A requester from before the 'r' vector sends none — `seen` reads 0 and
@@ -1850,17 +5172,33 @@ class GroupService {
                     _peerCanDecryptEpoch(b, peer, r.membershipEpoch!))))
           r,
     ];
+    final missingPosts = [
+      for (final post in _retainedPostRows(gid, b.posts))
+        if (_validPostFor(gid, post) &&
+            (post.seq > seen(req['p'], post.author) ||
+                (post.seq == seen(req['p'], post.author) &&
+                    hasPostHash(req['p'], post.author) &&
+                    seenPostHash(req['p'], post.author) !=
+                        _spacePostHash(post))) &&
+            (!post.isEncrypted ||
+                _peerCanDecryptEpoch(b, peer, post.membershipEpoch!)))
+          post,
+    ];
     if (missingMsgs.isEmpty &&
         missingCtl.isEmpty &&
         missingRx.isEmpty &&
-        missingEpochEnvelopes.isEmpty) {
+        missingPosts.isEmpty &&
+        missingEpochEnvelopes.isEmpty &&
+        missingChannelEpochEnvelopes.isEmpty) {
       return false;
     }
     final overlayId =
         b.manifest.name != kDeviceGroupName &&
             missingCtl.isEmpty &&
-            (missingMsgs.isNotEmpty || missingRx.isNotEmpty)
-        ? _overlayDeltaId(gid, missingMsgs, missingRx)
+            (missingMsgs.isNotEmpty ||
+                missingRx.isNotEmpty ||
+                missingPosts.isNotEmpty)
+        ? _overlayDeltaId(gid, missingMsgs, missingRx, missingPosts)
         : null;
     if (overlayId != null) _rememberOverlayDelta(overlayId);
     await send(
@@ -1871,9 +5209,16 @@ class GroupService {
         'c': [for (final e in missingCtl) e.toJson()],
         'g': [for (final m in missingMsgs) m.toJson()],
         'r': [for (final r in missingRx) r.toJson()],
+        if (missingPosts.isNotEmpty)
+          'p': [for (final post in missingPosts) post.toJson()],
         if (missingEpochEnvelopes.isNotEmpty)
           'ke': [
             for (final envelope in missingEpochEnvelopes) envelope.toJson(),
+          ],
+        if (missingChannelEpochEnvelopes.isNotEmpty)
+          'cke': [
+            for (final envelope in missingChannelEpochEnvelopes)
+              envelope.toJson(),
           ],
         'ov': ?overlayId,
       }),
@@ -1896,12 +5241,84 @@ class GroupService {
     }
     final pending = await _tryPendingDeviceSnapshot(peer, json);
     if (pending != null) return pending;
+    PendingSpaceInvite? acceptedInvite;
+    final manifest = GroupManifest.fromJson(decoded?['m']);
+    if (manifest != null &&
+        manifest.isSpace &&
+        await load(manifest.groupId) == null) {
+      acceptedInvite = await _acceptedSpaceInviteFor(peer, manifest, decoded!);
+      if (acceptedInvite == null) {
+        devLog(
+          () =>
+              'xVeil[spaces]: unsolicited materialization DENIED — consent '
+              'required',
+        );
+        return false;
+      }
+    }
     final accepted = await ingestSnapshot(json);
+    if (accepted && acceptedInvite != null) {
+      await _consumeAcceptedSpaceInvite(acceptedInvite.invite.inviteId);
+    }
     if (accepted && decoded != null) {
       await _relayOverlayDelta(peer, decoded);
     }
     return accepted;
   }
+
+  Future<PendingSpaceInvite?> _acceptedSpaceInviteFor(
+    NodeId peer,
+    SpaceManifest manifest,
+    Map wire,
+  ) async {
+    PendingSpaceInvite? pending;
+    for (final candidate in await pendingSpaceInvites()) {
+      if (candidate.accepted &&
+          candidate.invite.spaceId == manifest.spaceId &&
+          candidate.invite.inviter == peer &&
+          candidate.invite.invitee == selfId) {
+        pending = candidate;
+      }
+    }
+    if (pending == null) return null;
+    final control = (wire['c'] as List? ?? const [])
+        .map(ControlEntry.fromJson)
+        .whereType<ControlEntry>()
+        .where((entry) => _validControlFor(manifest, entry))
+        .toList();
+    final folded = foldControlLog(
+      owner: manifest.owner,
+      entries: control,
+      verify: (entry) => _validControlFor(manifest, entry),
+      initialName: manifest.name,
+    );
+    final grantAccepted = folded.accepted.any(
+      (entry) =>
+          entry.op == ControlOp.addMember &&
+          entry.author == peer &&
+          entry.target == selfId &&
+          (entry.role ?? GroupRole.member) == pending!.invite.role,
+    );
+    if (!grantAccepted ||
+        !folded.state.isMember(selfId) ||
+        !folded.state.isMember(peer)) {
+      return null;
+    }
+    return pending;
+  }
+
+  Future<void> _consumeAcceptedSpaceInvite(String inviteId) =>
+      _serializeSpaceInvites(() async {
+        final store = await _loadSpaceInvites();
+        await _saveSpaceInvites(
+          incoming: [
+            for (final entry in store.incoming)
+              if (entry.invite.inviteId != inviteId) entry,
+          ],
+          outgoing: store.outgoing,
+        );
+        changes.value++;
+      });
 
   /// The NON-contact variant of [ingestGroupEntry]: a member's sync vector is
   /// answered (the handler's own membership gate is the same admission), a
@@ -1939,8 +5356,13 @@ class GroupService {
         .map(GroupReaction.fromJson)
         .whereType<GroupReaction>()
         .toList();
-    if (messages.isEmpty && reactions.isEmpty) return;
-    if (_overlayDeltaId(manifest.groupId, messages, reactions) != overlayId) {
+    final posts = (wire['p'] as List? ?? const [])
+        .map(SpacePost.fromJson)
+        .whereType<SpacePost>()
+        .toList();
+    if (messages.isEmpty && reactions.isEmpty && posts.isEmpty) return;
+    if (_overlayDeltaId(manifest.groupId, messages, reactions, posts) !=
+        overlayId) {
       return;
     }
     // Relay the validated rows we actually persisted, never attacker-supplied
@@ -1969,6 +5391,17 @@ class GroupService {
       return null;
     }
 
+    SpacePost? storedPost(SpacePost incoming) {
+      for (final candidate in stored.posts) {
+        if (candidate.author == incoming.author &&
+            candidate.seq == incoming.seq &&
+            jsonEncode(candidate.toJson()) == jsonEncode(incoming.toJson())) {
+          return candidate;
+        }
+      }
+      return null;
+    }
+
     final validMessages = messages
         .map(storedMessage)
         .whereType<GroupMessage>()
@@ -1977,8 +5410,10 @@ class GroupService {
         .map(storedReaction)
         .whereType<GroupReaction>()
         .toList();
+    final validPosts = posts.map(storedPost).whereType<SpacePost>().toList();
     if (validMessages.length != messages.length ||
         validReactions.length != reactions.length ||
+        validPosts.length != posts.length ||
         !_rememberOverlayDelta(overlayId)) {
       return;
     }
@@ -1986,6 +5421,7 @@ class GroupService {
       manifest.groupId,
       messages: validMessages,
       reactions: validReactions,
+      posts: validPosts,
       exclude: {source},
       overlayId: overlayId,
     );
@@ -2047,13 +5483,31 @@ class GroupService {
                 member.nodeId != bundle.manifest.owner))
           member.nodeId,
     ];
-    final peers = bundle.manifest.name == kDeviceGroupName
+    final basePeers = bundle.manifest.name == kDeviceGroupName
         ? others
         : nearestGroupNodesByXor(
             _signer.selfId,
             others,
             k: await groupSyncNeighborCount(groupId),
           );
+    final peersById = <String, NodeId>{
+      for (final peer in basePeers) peer.hex: peer,
+    };
+    if (bundle.manifest.isSpace) {
+      final protected = await _protectedChannelsOf(bundle, state);
+      final k = await groupSyncNeighborCount(groupId);
+      for (final clear in protected.values) {
+        for (final peer in nearestGroupNodesByXor(
+          _signer.selfId,
+          clear.recipients,
+          k: k,
+        )) {
+          peersById[peer.hex] = peer;
+        }
+      }
+    }
+    final peers = peersById.values.toList()
+      ..sort((left, right) => left.hex.compareTo(right.hex));
     for (final peer in peers) {
       await send(peer, groupId, jsonEncode(req));
     }
@@ -2063,7 +5517,10 @@ class GroupService {
   /// The VALIDATED, time-ordered messages of [groupId]: signature ok AND the
   /// author is a non-muted member of the current state. (A finer per-message
   /// membership-at-its-policy-version check is a later refinement.)
-  Future<List<GroupMessage>> messagesOf(NodeId groupId) async {
+  Future<List<GroupMessage>> messagesOf(
+    NodeId groupId, {
+    NodeId? channelId,
+  }) async {
     final b = await load(groupId);
     if (b == null) return const [];
     final state = foldControlLog(
@@ -2071,12 +5528,59 @@ class GroupService {
       entries: b.control,
       verify: (e) => _validControlFor(b.manifest, e),
     ).state;
+    final readAt = DateTime.now().millisecondsSinceEpoch;
+    final reader = state.memberOf(_signer.selfId);
+    if (b.manifest.isSpace && reader == null) return const [];
+    final protected = b.manifest.isSpace
+        ? await _protectedChannelsOf(b, state)
+        : const <String, SpaceChannelControlCleartext>{};
     final out = <GroupMessage>[];
     for (final m in b.messages) {
       if (!_validMessageFor(groupId, m)) continue;
+      final effectiveChannelId = b.manifest.isSpace
+          ? m.channelId ?? defaultSpaceChannelId(groupId)
+          : null;
+      if (b.manifest.isSpace) {
+        final effectiveChannel = effectiveChannelId!;
+        final protectedChannel = protected[effectiveChannel.hex];
+        final channel =
+            state.channels[effectiveChannel.hex] ?? protectedChannel?.channel;
+        if (channel == null ||
+            (channelId != null && effectiveChannel != channelId)) {
+          continue;
+        }
+        if ((protectedChannel != null && !m.isChannelEncrypted) ||
+            (protectedChannel == null && m.isChannelEncrypted)) {
+          continue;
+        }
+        final historyAllows = switch (channel.history) {
+          // Equal wall-clock milliseconds are causally ambiguous across
+          // authors. Exclude them: history access is fail-closed.
+          SpaceChannelHistory.fromJoin => m.createdAtMs > reader!.joinedAtMs,
+          SpaceChannelHistory.since => m.createdAtMs >= channel.historySinceMs!,
+          SpaceChannelHistory.full => true,
+        };
+        if (!historyAllows) continue;
+      } else if (channelId != null) {
+        continue;
+      }
+      if (!SpaceAcl(state).allows(
+            m.author,
+            SpacePermission.publishMessages,
+            atMs: m.createdAtMs,
+            channelId: effectiveChannelId,
+          ) ||
+          (b.manifest.isSpace &&
+              state.isModeratedContentRemoved(
+                kind: SpaceModerationReferenceKind.message,
+                author: m.author,
+                seq: m.seq,
+                atMs: readAt,
+                channelId: effectiveChannelId,
+              ))) {
+        continue;
+      }
       if (!m.isEncrypted) {
-        final mem = state.memberOf(m.author);
-        if (mem == null || mem.muted) continue;
         out.add(m);
         continue;
       }
@@ -2106,13 +5610,38 @@ class GroupService {
     bool broadcast = true,
   }) => _serialized(
     groupId,
-    () => _react(groupId, msgRef, emoji, broadcast: broadcast),
+    () => _react(
+      groupId,
+      msgRef,
+      emoji,
+      targetKind: ReactionTargetKind.message,
+      broadcast: broadcast,
+    ),
+  );
+
+  /// Toggle a reaction on an effective Space publication root. Revisions keep
+  /// the same [postId], while a tombstone makes the target unavailable.
+  Future<bool> reactToSpacePost(
+    NodeId spaceId,
+    String postId,
+    String emoji, {
+    bool broadcast = true,
+  }) => _serialized(
+    spaceId,
+    () => _react(
+      spaceId,
+      postId,
+      emoji,
+      targetKind: ReactionTargetKind.spacePost,
+      broadcast: broadcast,
+    ),
   );
 
   Future<bool> _react(
     NodeId groupId,
-    String msgRef,
+    String target,
     String emoji, {
+    required ReactionTargetKind targetKind,
     bool broadcast = true,
   }) async {
     final b = await load(groupId);
@@ -2122,23 +5651,49 @@ class GroupService {
       entries: b.control,
       verify: (e) => _validControlFor(b.manifest, e),
     ).state;
-    final me = state.memberOf(_signer.selfId);
-    if (me == null || me.muted) return false;
+    if (!SpaceAcl(
+      state,
+    ).allows(_signer.selfId, SpacePermission.publishMessages)) {
+      return false;
+    }
+    if (utf8.encode(emoji).length > 64) return false;
+    if (targetKind == ReactionTargetKind.message &&
+        !(await messagesOf(groupId)).any(
+          (message) => message.ref == target && !message.isChannelEncrypted,
+        )) {
+      // Reactions still use the Space epoch and would reveal the hidden
+      // message reference to every Space member. Unknown and protected-channel
+      // targets are therefore rejected.
+      return false;
+    }
+    if (targetKind == ReactionTargetKind.spacePost &&
+        (!b.manifest.isSpace ||
+            !(await postsOf(groupId)).any((post) => post.postId == target))) {
+      return false;
+    }
     // My current reaction on this message (if any) → tapping it again clears it.
     final visibleReactions = <GroupReaction>[];
     for (final reaction in b.reactions) {
       if (!_validReactionFor(groupId, reaction) ||
-          !state.isMember(reaction.author)) {
+          !SpaceAcl(state).allows(
+            reaction.author,
+            SpacePermission.publishMessages,
+            atMs: reaction.createdAtMs,
+          )) {
         continue;
       }
       final materialized = await _materializeEncryptedReaction(b, reaction);
       if (materialized != null) visibleReactions.add(materialized);
     }
-    final onMsg =
-        foldGroupReactions(visibleReactions, _signer.verifyReaction)[msgRef] ??
+    final onTarget =
+        foldReactionsByKind(
+          visibleReactions,
+          _signer.verifyReaction,
+          targetKind,
+        )[target] ??
         const <String, List<NodeId>>{};
     String? mine;
-    for (final e in onMsg.entries) {
+    for (final e in onTarget.entries) {
       if (e.value.any((n) => n == _signer.selfId)) {
         mine = e.key;
         break;
@@ -2167,8 +5722,10 @@ class GroupService {
     late final GroupReaction unsigned;
     if (descriptor != null && key != null) {
       final clear = GroupReactionCleartext(
-        target: msgRef,
+        target: target,
         emoji: next,
+        targetKind: targetKind,
+        schemaVersion: 2,
       ).encode();
       try {
         final encrypted = await encryptGroupReactionPayload(
@@ -2179,6 +5736,7 @@ class GroupService {
           createdAtMs: createdAt,
           clearText: clear,
           epochKey: key,
+          reactionVersion: 4,
         );
         unsigned = GroupReaction(
           groupId: groupId,
@@ -2186,7 +5744,7 @@ class GroupService {
           seq: mySeq,
           target: '',
           emoji: '',
-          version: 2,
+          version: 4,
           membershipEpoch: state.epoch,
           encryptedPayload: encrypted,
           createdAtMs: createdAt,
@@ -2200,8 +5758,10 @@ class GroupService {
         groupId: groupId,
         author: _signer.selfId,
         seq: mySeq,
-        target: msgRef,
+        target: target,
         emoji: next,
+        version: 3,
+        targetKind: targetKind,
         createdAtMs: createdAt,
         signature: Uint8List(0),
       );
@@ -2224,7 +5784,11 @@ class GroupService {
     final materialized = <GroupReaction>[];
     for (final reaction in b.reactions) {
       if (!_validReactionFor(groupId, reaction) ||
-          !state.isMember(reaction.author)) {
+          !SpaceAcl(state).allows(
+            reaction.author,
+            SpacePermission.publishMessages,
+            atMs: reaction.createdAtMs,
+          )) {
         continue;
       }
       final visible = await _materializeEncryptedReaction(b, reaction);
@@ -2233,20 +5797,72 @@ class GroupService {
     return foldGroupReactions(materialized, _signer.verifyReaction);
   }
 
+  /// The folded reactions of visible, non-deleted Space publication roots.
+  Future<Map<String, MessageReactions>> spacePostReactionsOf(
+    NodeId spaceId,
+  ) async {
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) return const {};
+    return _spacePostReactionsOfBundle(bundle);
+  }
+
+  Future<Map<String, MessageReactions>> _spacePostReactionsOfBundle(
+    GroupBundle bundle, {
+    Set<String>? visiblePostIds,
+  }) async {
+    final spaceId = bundle.manifest.groupId;
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+    ).state;
+    if (!SpaceAcl(state).allows(_signer.selfId, SpacePermission.view)) {
+      return const {};
+    }
+    final allowedPostIds =
+        visiblePostIds ??
+        {for (final post in await _postsOfBundle(bundle)) post.postId};
+    final materialized = <GroupReaction>[];
+    for (final reaction in bundle.reactions) {
+      if (!_validReactionFor(spaceId, reaction) ||
+          !SpaceAcl(state).allows(
+            reaction.author,
+            SpacePermission.publishMessages,
+            atMs: reaction.createdAtMs,
+          )) {
+        continue;
+      }
+      final visible = await _materializeEncryptedReaction(bundle, reaction);
+      if (visible != null &&
+          visible.targetKind == ReactionTargetKind.spacePost &&
+          allowedPostIds.contains(visible.target)) {
+        materialized.add(visible);
+      }
+    }
+    return foldReactionsByKind(
+      materialized,
+      _signer.verifyReaction,
+      ReactionTargetKind.spacePost,
+    );
+  }
+
   // ── Content path (doc/GROUPS-CONTENT-PATH.md) ─────────────────────────────
 
   /// Replay cache for inbound fetch requests (holder side), bounded FIFO.
   final Set<String> _seenContentNonces = <String>{};
   static const int _kMaxSeenNonces = 512;
 
-  /// The contentIds referenced by [groupId]'s VALIDATED messages — the only
-  /// content a membership grant may unlock (membership must not become a
-  /// license to fetch arbitrary content this device holds).
+  /// The contentIds referenced by validated channel messages or Space posts —
+  /// the only content a membership grant may unlock (membership must not
+  /// become a license to fetch arbitrary content this device holds).
   Future<Set<String>> referencedContentIds(NodeId groupId) async {
     final msgs = await messagesOf(groupId);
+    final posts = await postsOf(groupId);
     return {
       for (final m in msgs)
         if (m.attachment?.cid != null) m.attachment!.cid!,
+      for (final post in posts)
+        for (final media in post.media) media.contentId,
     };
   }
 
@@ -2404,7 +6020,12 @@ class GroupService {
     final pullOne = startContentPull;
     if (pullAny == null && pullOne == null) return false;
     final state = await stateOf(groupId);
-    if (state == null || !state.isMember(_signer.selfId)) return false;
+    if (state == null ||
+        !SpaceAcl(
+          state,
+        ).allows(_signer.selfId, SpacePermission.distributeContent)) {
+      return false;
+    }
     if (!(await referencedContentIds(groupId)).contains(cid)) return false;
 
     final members = [
@@ -2471,14 +6092,17 @@ class GroupService {
     final b = await load(groupId);
     if (b == null) return;
     if (!_validControlFor(b.manifest, e)) return;
+    final incomingHash = controlEntryHash(e);
     if (b.control.any(
       (x) =>
           _validControlFor(b.manifest, x) &&
-          x.author == e.author &&
-          x.seq == e.seq,
+          controlEntryHash(x) == incomingHash,
     )) {
       return;
     }
+    // Keep a distinct same-seq row as equivocation evidence. The pure fold
+    // rejects both branches and their suffix; discarding the second arrival
+    // would make authority depend on which peer happened to answer first.
     await _save(b.copyWith(control: [...b.control, e]));
   }
 
@@ -2503,6 +6127,85 @@ class GroupService {
             ))
           envelope,
     ];
+  }
+
+  List<GroupEpochRecipientEnvelope> _channelEpochEnvelopesFor(
+    GroupBundle bundle,
+    NodeId recipient, {
+    Iterable<ControlEntry>? controls,
+  }) {
+    final accepted = _acceptedControl(bundle.manifest, bundle.control);
+    final current = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+    ).state.protectedChannels;
+    final selectedDescriptors = (controls ?? accepted)
+        .map((entry) => entry.channelControl?.keyDescriptor)
+        .whereType<GroupEpochDescriptor>()
+        .where(
+          (descriptor) => bundle.channelEpochEnvelopes.any(
+            (envelope) =>
+                envelope.recipient == recipient &&
+                verifyGroupEpochEnvelope(
+                  descriptor: descriptor,
+                  envelope: envelope,
+                ),
+          ),
+        )
+        .toList();
+    final allowedChannelIds = <String>{};
+    for (final scope in current.values) {
+      final canOpenCurrent = bundle.channelEpochEnvelopes.any(
+        (envelope) =>
+            envelope.recipient == recipient &&
+            envelope.groupId == scope.channelId &&
+            envelope.epoch == scope.channelEpoch &&
+            verifyGroupEpochEnvelope(
+              descriptor: scope.keyDescriptor,
+              envelope: envelope,
+            ),
+      );
+      if (canOpenCurrent) allowedChannelIds.add(scope.channelId.hex);
+    }
+    return [
+      for (final envelope in bundle.channelEpochEnvelopes)
+        if (allowedChannelIds.contains(envelope.groupId.hex) &&
+            selectedDescriptors.any(
+              (descriptor) => verifyGroupEpochEnvelope(
+                descriptor: descriptor,
+                envelope: envelope,
+              ),
+            ))
+          envelope,
+    ];
+  }
+
+  bool _peerCanDecryptChannelEpoch(
+    GroupBundle bundle,
+    NodeId peer,
+    NodeId channelId,
+    int epoch,
+  ) {
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+    ).state;
+    final current = state.protectedChannels[channelId.hex];
+    if (current == null) return false;
+    final envelopes = _channelEpochEnvelopesFor(bundle, peer);
+    return envelopes.any(
+          (envelope) =>
+              envelope.groupId == channelId &&
+              envelope.epoch == current.channelEpoch,
+        ) &&
+        envelopes.any(
+          (envelope) =>
+              envelope.groupId == channelId && envelope.epoch == epoch,
+        );
   }
 
   bool _peerCanDecryptEpoch(GroupBundle bundle, NodeId peer, int epoch) {
@@ -2530,17 +6233,30 @@ class GroupService {
     final epochEnvelopes = recipient == null
         ? const <GroupEpochRecipientEnvelope>[]
         : _epochEnvelopesFor(b, recipient);
+    final channelEpochEnvelopes = recipient == null
+        ? const <GroupEpochRecipientEnvelope>[]
+        : _channelEpochEnvelopesFor(b, recipient);
     return jsonEncode({
       'm': b.manifest.toJson(),
       'c': b.control
-          .where((e) => _validControlFor(b.manifest, e))
+          .where(
+            (e) => e.isStructurallyValid && _validControlFor(b.manifest, e),
+          )
           .map((e) => e.toJson())
           .toList(),
       'g': b.messages
           .where(
             (message) =>
                 _validMessageFor(b.manifest.groupId, message) &&
-                (!encryptionEstablished
+                (message.isChannelEncrypted
+                    ? recipient != null &&
+                          _peerCanDecryptChannelEpoch(
+                            b,
+                            recipient,
+                            message.channelId!,
+                            message.channelEpoch!,
+                          )
+                    : !encryptionEstablished
                     ? true
                     : message.isEncrypted &&
                           recipient != null &&
@@ -2552,6 +6268,21 @@ class GroupService {
           )
           .map((message) => message.toJson())
           .toList(),
+      if (b.posts.isNotEmpty)
+        'p': b.posts
+            .where(
+              (post) =>
+                  _validPostFor(b.manifest.groupId, post) &&
+                  (!post.isEncrypted ||
+                      (recipient != null &&
+                          _peerCanDecryptEpoch(
+                            b,
+                            recipient,
+                            post.membershipEpoch!,
+                          ))),
+            )
+            .map((post) => post.toJson())
+            .toList(),
       'r': b.reactions
           .where(
             (reaction) =>
@@ -2570,6 +6301,8 @@ class GroupService {
           .toList(),
       if (epochEnvelopes.isNotEmpty)
         'ke': epochEnvelopes.map((entry) => entry.toJson()).toList(),
+      if (channelEpochEnvelopes.isNotEmpty)
+        'cke': channelEpochEnvelopes.map((entry) => entry.toJson()).toList(),
       if (b.sovereignBundle != null) 's': base64Encode(b.sovereignBundle!),
     });
   }
@@ -2617,11 +6350,19 @@ class GroupService {
         .map(GroupMessage.fromJson)
         .whereType<GroupMessage>()
         .toList();
+    final inPosts = (d['p'] as List? ?? const [])
+        .map(SpacePost.fromJson)
+        .whereType<SpacePost>()
+        .toList();
     final inReactions = (d['r'] as List? ?? const [])
         .map(GroupReaction.fromJson)
         .whereType<GroupReaction>()
         .toList();
     final inEpochEnvelopes = (d['ke'] as List? ?? const [])
+        .map(GroupEpochRecipientEnvelope.fromJson)
+        .whereType<GroupEpochRecipientEnvelope>()
+        .toList();
+    final inChannelEpochEnvelopes = (d['cke'] as List? ?? const [])
         .map(GroupEpochRecipientEnvelope.fromJson)
         .whereType<GroupEpochRecipientEnvelope>()
         .toList();
@@ -2634,23 +6375,27 @@ class GroupService {
             !_validSovereignBundle(manifest, incomingSovereignBundle))) {
       return false;
     }
-    if (existing != null &&
-        existing.manifest.isSovereignDevice &&
-        !existing.manifest.sameGenesis(manifest)) {
-      return false;
-    }
-    // Keep the manifest we already had (the authoritative genesis); only adopt
-    // the incoming one when the group is new to us.
-    final man = existing?.manifest ?? manifest;
+    final man = existing == null
+        ? manifest
+        : _mergeManifest(existing.manifest, manifest);
+    if (man == null) return false;
     final control = [...(existing?.control ?? const <ControlEntry>[])];
     final messages = [...(existing?.messages ?? const <GroupMessage>[])];
+    final posts = [...(existing?.posts ?? const <SpacePost>[])];
     final reactions = [...(existing?.reactions ?? const <GroupReaction>[])];
     for (final e in inControl) {
       if (!_validControlFor(man, e)) continue;
+      final incomingHash = controlEntryHash(e);
       if (!control.any(
         (x) =>
             _validControlFor(man, x) && x.author == e.author && x.seq == e.seq,
       )) {
+        control.add(e);
+      } else if (!control.any(
+        (x) => _validControlFor(man, x) && controlEntryHash(x) == incomingHash,
+      )) {
+        // Preserve distinct same-seq evidence; foldControlLog quarantines the
+        // author deterministically from the fork point onward.
         control.add(e);
       }
     }
@@ -2668,19 +6413,87 @@ class GroupService {
       existingKeys: existing?.localEpochKeys ?? const <int, Uint8List>{},
       incomingEnvelopes: inEpochEnvelopes,
     );
+    final channelMaterial = await _mergeChannelEpochMaterial(
+      manifest: man,
+      control: control,
+      existingEnvelopes:
+          existing?.channelEpochEnvelopes ??
+          const <GroupEpochRecipientEnvelope>[],
+      existingKeys:
+          existing?.localChannelEpochKeys ?? const <String, Uint8List>{},
+      incomingEnvelopes: inChannelEpochEnvelopes,
+    );
+    final materialBundle = GroupBundle(
+      manifest: man,
+      control: control,
+      messages: messages,
+      posts: posts,
+      reactions: reactions,
+      epochEnvelopes: material.envelopes,
+      localEpochKeys: material.keys,
+      channelEpochEnvelopes: channelMaterial.envelopes,
+      localChannelEpochKeys: channelMaterial.keys,
+      sovereignBundle: existing?.sovereignBundle ?? incomingSovereignBundle,
+    );
+    final protectedChannels = man.isSpace
+        ? await _protectedChannelsOf(materialBundle, mergedState)
+        : const <String, SpaceChannelControlCleartext>{};
     final encryptionEstablished = _encryptionEstablished(man, control);
     final fresh = <GroupMessage>[];
     for (final m in inMsgs) {
       if (!_validMessageFor(manifest.groupId, m)) {
         continue;
       }
-      if (m.isEncrypted) {
-        final epoch = m.membershipEpoch!;
-        final key = material.keys[epoch];
-        if (key == null ||
-            !_validLocalEpochKey(man, control, epoch, key) ||
-            !mergedState.isMember(m.author)) {
+      if (man.isSpace) {
+        final effectiveChannel =
+            m.channelId ?? defaultSpaceChannelId(man.groupId);
+        final protected = protectedChannels[effectiveChannel.hex];
+        if (!mergedState.channels.containsKey(effectiveChannel.hex) &&
+            protected == null) {
           continue;
+        }
+        if (protected != null) {
+          final opaque = mergedState.protectedChannels[effectiveChannel.hex];
+          if (!m.isChannelEncrypted ||
+              opaque == null ||
+              m.channelEpoch != opaque.channelEpoch ||
+              !protected.recipients.contains(m.author)) {
+            continue;
+          }
+        } else if (m.isChannelEncrypted) {
+          continue;
+        }
+      }
+      if (m.isEncrypted) {
+        if (m.isChannelEncrypted) {
+          final channelId = m.channelId!;
+          final epoch = m.channelEpoch!;
+          final key = channelMaterial.keys[_channelKeyId(channelId, epoch)];
+          if (key == null ||
+              !_validLocalChannelEpochKey(
+                man,
+                control,
+                channelId,
+                epoch,
+                key,
+              ) ||
+              !mergedState.isMember(m.author)) {
+            continue;
+          }
+          final visible = await _materializeEncryptedMessage(materialBundle, m);
+          if (visible == null || visible.attachment != null) {
+            // Protected-channel media still uses the Space-wide content grant
+            // protocol. Reject it at ingest until requests carry channel ACL.
+            continue;
+          }
+        } else {
+          final epoch = m.membershipEpoch!;
+          final key = material.keys[epoch];
+          if (key == null ||
+              !_validLocalEpochKey(man, control, epoch, key) ||
+              !mergedState.isMember(m.author)) {
+            continue;
+          }
         }
       } else if (encryptionEstablished || !mergedState.isMember(m.author)) {
         // Once a signed epoch descriptor exists, a clear v1 row is a
@@ -2703,26 +6516,115 @@ class GroupService {
         }
       }
     }
+    for (final post in inPosts) {
+      if (!man.isSpace || !_validPostFor(man.groupId, post)) continue;
+      final historicallyAuthorized =
+          post.isCausal &&
+          _causalPostHistoricallyAuthorized(man, control, post);
+      final legacyAuthorized =
+          !post.isCausal &&
+          SpaceAcl(mergedState).allows(
+            post.author,
+            SpacePermission.publishPosts,
+            atMs: post.createdAtMs,
+          );
+      if (!historicallyAuthorized && !legacyAuthorized) continue;
+      if (post.visibility == SpacePostVisibility.public) {
+        if (man.visibility != SpaceVisibility.public) {
+          continue;
+        }
+      } else {
+        final epoch = post.membershipEpoch!;
+        final key = material.keys[epoch];
+        if (!post.isEncrypted ||
+            key == null ||
+            !_validLocalEpochKey(man, control, epoch, key)) {
+          continue;
+        }
+        if (await _materializeEncryptedPost(
+              GroupBundle(
+                manifest: man,
+                control: control,
+                messages: messages,
+                posts: posts,
+                reactions: reactions,
+                epochEnvelopes: material.envelopes,
+                localEpochKeys: material.keys,
+                channelEpochEnvelopes: channelMaterial.envelopes,
+                localChannelEpochKeys: channelMaterial.keys,
+              ),
+              post,
+            ) ==
+            null) {
+          continue;
+        }
+      }
+      final existingIndex = posts.indexWhere(
+        (stored) =>
+            _validPostFor(man.groupId, stored) &&
+            _spacePostHash(stored) == _spacePostHash(post),
+      );
+      if (existingIndex < 0) {
+        posts.add(post);
+      }
+    }
+    final targetBundle = GroupBundle(
+      manifest: man,
+      control: control,
+      messages: messages,
+      posts: posts,
+      reactions: reactions,
+      epochEnvelopes: material.envelopes,
+      localEpochKeys: material.keys,
+      channelEpochEnvelopes: channelMaterial.envelopes,
+      localChannelEpochKeys: channelMaterial.keys,
+    );
+    final visiblePostIds = man.isSpace
+        ? {for (final post in await _postsOfBundle(targetBundle)) post.postId}
+        : const <String>{};
     for (final r in inReactions) {
-      if (!_validReactionFor(manifest.groupId, r)) {
+      if (!_validReactionFor(manifest.groupId, r) ||
+          !SpaceAcl(mergedState).allows(
+            r.author,
+            SpacePermission.publishMessages,
+            atMs: r.createdAtMs,
+          )) {
         continue;
       }
+      GroupReaction? visibleReaction;
       if (r.isEncrypted) {
         final epoch = r.membershipEpoch!;
         final key = material.keys[epoch];
-        if (key == null ||
-            !_validLocalEpochKey(man, control, epoch, key) ||
-            !mergedState.isMember(r.author)) {
+        if (key == null || !_validLocalEpochKey(man, control, epoch, key)) {
           continue;
         }
-      } else if (encryptionEstablished || !mergedState.isMember(r.author)) {
+        visibleReaction = await _materializeEncryptedReaction(targetBundle, r);
+      } else if (encryptionEstablished) {
+        continue;
+      } else {
+        visibleReaction = r;
+      }
+      if (visibleReaction == null) continue;
+      final targetExists = switch (visibleReaction.targetKind) {
+        ReactionTargetKind.message => messages.any(
+          (message) =>
+              message.ref == visibleReaction!.target &&
+              !message.isChannelEncrypted,
+        ),
+        ReactionTargetKind.spacePost =>
+          man.isSpace && visiblePostIds.contains(visibleReaction.target),
+      };
+      if (!targetExists) {
+        // A Space-epoch reaction must not become an oracle for protected or
+        // deleted content. Unknown/out-of-order targets stay retryable through
+        // the per-author reaction sync vector.
         continue;
       }
       if (!reactions.any(
-        (x) =>
-            _validReactionFor(manifest.groupId, x) &&
-            x.author == r.author &&
-            x.seq == r.seq,
+        (stored) =>
+            _validReactionFor(manifest.groupId, stored) &&
+            stored.author == r.author &&
+            stored.seq == r.seq,
       )) {
         reactions.add(r);
       }
@@ -2731,9 +6633,12 @@ class GroupService {
       manifest: man,
       control: control,
       messages: messages,
+      posts: posts,
       reactions: reactions,
       epochEnvelopes: material.envelopes,
       localEpochKeys: material.keys,
+      channelEpochEnvelopes: channelMaterial.envelopes,
+      localChannelEpochKeys: channelMaterial.keys,
       sovereignBundle: existing?.sovereignBundle ?? incomingSovereignBundle,
     );
     await _save(saved);
@@ -2756,9 +6661,17 @@ class GroupService {
         mergedState.epochDescriptor == null &&
         mergedState.memberOf(_signer.selfId)?.role == GroupRole.owner) {
       // A leave or a concurrent stale departure descriptor advances
-      // membership without a usable key. Only the genesis owner repairs it,
+      // membership without a usable key. Only the effective owner repairs it,
       // avoiding an admin race; writes remain fail-closed until this succeeds.
       unawaited(addControlOp(man.groupId, ControlOp.rotateEpoch));
+    }
+    if (man.isSpace &&
+        mergedState.roleOf(_signer.selfId) == GroupRole.owner &&
+        mergedState.protectedChannels.isNotEmpty) {
+      // A remote membership/role mutation may invalidate the encrypted ACL.
+      // Only the effective owner repairs it to avoid concurrent admins creating
+      // competing epoch+1 revisions; until then materialization is fail-closed.
+      unawaited(_repairProtectedChannelEpochs(man.groupId));
     }
     // Device-group traffic is sync machinery, not chat: it must never buzz
     // the notification layer or count as chat-unread. It routes to a SEPARATE
@@ -3102,10 +7015,11 @@ class GroupService {
     final baseTs = _now();
     for (var seq = 0; seq < ordered.length; seq++) {
       final unsigned = ControlEntry(
+        version: 2,
         groupId: gid,
         author: sovereign.nodeId,
         seq: seq,
-        prevHash: '',
+        prevHash: control.isEmpty ? '' : controlEntryHash(control.last),
         op: ControlOp.addMember,
         target: ordered[seq],
         role: GroupRole.member,
@@ -3275,20 +7189,18 @@ class GroupService {
     if (op == ControlOp.addMember && state.isMember(device)) return true;
     if (op == ControlOp.removeMember && !state.isMember(device)) return true;
     if (device == bundle.manifest.owner) return false;
-    final seq = _nextSeq(
-      bundle.control
-          .where(
-            (e) =>
-                e.author == sovereign.nodeId &&
-                _validControlFor(bundle.manifest, e),
-          )
-          .map((e) => e.seq),
+    final link = _nextControlLink(
+      bundle.manifest,
+      bundle.control,
+      sovereign.nodeId,
     );
+    if (link.blocked) return false;
     final unsigned = ControlEntry(
+      version: 2,
       groupId: bundle.manifest.groupId,
       author: sovereign.nodeId,
-      seq: seq,
-      prevHash: '',
+      seq: link.seq,
+      prevHash: link.prevHash,
       op: op,
       target: device,
       role: op == ControlOp.addMember ? GroupRole.member : null,
@@ -3623,6 +7535,7 @@ class GroupService {
     List<ControlEntry> control = const [],
     List<GroupMessage> messages = const [],
     List<GroupReaction> reactions = const [],
+    List<SpacePost> posts = const [],
     Set<NodeId> exclude = const {},
     String? overlayId,
   }) async {
@@ -3634,11 +7547,23 @@ class GroupService {
       entries: b.control,
       verify: (e) => _validControlFor(b.manifest, e),
     ).state;
+    final channelMessages = messages
+        .where((message) => message.isChannelEncrypted)
+        .toList();
     final candidates = <NodeId>[
       for (final member in state.members.values)
         if (member.nodeId != _signer.selfId &&
             (!b.manifest.isSovereignDevice ||
-                member.nodeId != b.manifest.owner))
+                member.nodeId != b.manifest.owner) &&
+            (channelMessages.isEmpty ||
+                channelMessages.any(
+                  (message) => _peerCanDecryptChannelEpoch(
+                    b,
+                    member.nodeId,
+                    message.channelId!,
+                    message.channelEpoch!,
+                  ),
+                )))
           member.nodeId,
     ];
     final sparse = control.isEmpty && b.manifest.name != kDeviceGroupName;
@@ -3649,22 +7574,38 @@ class GroupService {
         ? nearestGroupNodesByXor(_signer.selfId, candidates, k: neighborCount)
         : candidates;
     final deltaId = sparse
-        ? (overlayId ?? _overlayDeltaId(groupId, messages, reactions))
+        ? (overlayId ?? _overlayDeltaId(groupId, messages, reactions, posts))
         : null;
     if (deltaId != null) _rememberOverlayDelta(deltaId);
     var n = 0;
     for (final peer in peers) {
       if (exclude.contains(peer)) continue;
       final epochEnvelopes = _epochEnvelopesFor(b, peer, controls: control);
+      final channelEpochEnvelopes = _channelEpochEnvelopesFor(
+        b,
+        peer,
+        controls: control,
+      );
       final encryptionEstablished = _encryptionEstablished(
         b.manifest,
         b.control,
       );
       final peerMessages = [
         for (final message in messages)
-          if (!encryptionEstablished ||
-              (message.isEncrypted &&
-                  _peerCanDecryptEpoch(b, peer, message.membershipEpoch!)))
+          if (message.isChannelEncrypted
+              ? _peerCanDecryptChannelEpoch(
+                  b,
+                  peer,
+                  message.channelId!,
+                  message.channelEpoch!,
+                )
+              : !encryptionEstablished ||
+                    (message.isEncrypted &&
+                        _peerCanDecryptEpoch(
+                          b,
+                          peer,
+                          message.membershipEpoch!,
+                        )))
             message,
       ];
       final peerReactions = [
@@ -3674,6 +7615,12 @@ class GroupService {
                   _peerCanDecryptEpoch(b, peer, reaction.membershipEpoch!)))
             reaction,
       ];
+      final peerPosts = [
+        for (final post in posts)
+          if (!post.isEncrypted ||
+              _peerCanDecryptEpoch(b, peer, post.membershipEpoch!))
+            post,
+      ];
       await send(
         peer,
         groupId,
@@ -3682,8 +7629,14 @@ class GroupService {
           'c': control.map((entry) => entry.toJson()).toList(),
           'g': peerMessages.map((message) => message.toJson()).toList(),
           'r': peerReactions.map((reaction) => reaction.toJson()).toList(),
+          if (peerPosts.isNotEmpty)
+            'p': peerPosts.map((post) => post.toJson()).toList(),
           if (epochEnvelopes.isNotEmpty)
             'ke': epochEnvelopes.map((entry) => entry.toJson()).toList(),
+          if (channelEpochEnvelopes.isNotEmpty)
+            'cke': channelEpochEnvelopes
+                .map((entry) => entry.toJson())
+                .toList(),
           'ov': ?deltaId,
         }),
       );
@@ -3695,12 +7648,14 @@ class GroupService {
   String _overlayDeltaId(
     NodeId groupId,
     Iterable<GroupMessage> messages,
-    Iterable<GroupReaction> reactions,
-  ) {
+    Iterable<GroupReaction> reactions, [
+    Iterable<SpacePost> posts = const [],
+  ]) {
     final identities = <String>[
       for (final message in messages) 'm:${message.author.hex}:${message.seq}',
       for (final reaction in reactions)
         'r:${reaction.author.hex}:${reaction.seq}',
+      for (final post in posts) 'p:${post.author.hex}:${post.seq}',
     ]..sort();
     return crypto.sha256
         .convert(utf8.encode('${groupId.hex}|${identities.join('|')}'))
@@ -3726,12 +7681,30 @@ class GroupService {
   }
 }
 
+class SpaceFeedItem {
+  const SpaceFeedItem({
+    required this.spaceId,
+    required this.spaceName,
+    required this.post,
+    required this.reactions,
+  });
+
+  final NodeId spaceId;
+  final String spaceName;
+  final SpacePostView post;
+  final MessageReactions reactions;
+}
+
 /// One row of the user-facing group list (the shape [GroupService.listGroups]
 /// returns) — named so the chats screen and providers can share it.
 typedef GroupListEntry = ({
   NodeId groupId,
   String name,
+  String description,
+  SpaceVisibility? visibility,
+  bool discoverable,
   int unread,
+  int postUnread,
   bool muted,
   String preview,
   int lastTs,

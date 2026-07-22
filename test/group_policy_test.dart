@@ -1,9 +1,12 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/group.dart';
 import 'package:xveil/domain/group_policy.dart';
+import 'package:xveil/domain/space_moderation.dart';
+import 'package:xveil/domain/space_post.dart';
 
 NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
 
@@ -20,25 +23,28 @@ ControlEntry _e(
   ControlOp op, {
   NodeId? target,
   GroupRole? role,
-}) =>
-    ControlEntry(
-      author: author,
-      seq: seq,
-      prevHash: '',
-      op: op,
-      target: target,
-      role: role,
-      policyVersion: 0,
-      createdAtMs: _t++,
-      signature: Uint8List(0),
-    );
+  String? text,
+  int policyVersion = 0,
+}) => ControlEntry(
+  author: author,
+  seq: seq,
+  prevHash: '',
+  op: op,
+  target: target,
+  role: role,
+  text: text,
+  policyVersion: policyVersion,
+  createdAtMs: _t++,
+  signature: Uint8List(0),
+);
 
 /// Verifier that accepts everything (signatures tested via canonicalBytes).
 bool _ok(ControlEntry e) => true;
 
-GroupState _fold(List<ControlEntry> log,
-        {bool Function(ControlEntry) verify = _ok}) =>
-    foldControlLog(owner: _owner, entries: log, verify: verify).state;
+GroupState _fold(
+  List<ControlEntry> log, {
+  bool Function(ControlEntry) verify = _ok,
+}) => foldControlLog(owner: _owner, entries: log, verify: verify).state;
 
 void main() {
   setUp(() => _t = 1000);
@@ -63,10 +69,14 @@ void main() {
     final r = foldControlLog(
       owner: _owner,
       entries: [
-        _e(_owner, 0, ControlOp.addMember,
-            target: _admin, role: GroupRole.admin),
-        _e(_admin, 0, ControlOp.addMember,
-            target: _eve, role: GroupRole.admin),
+        _e(
+          _owner,
+          0,
+          ControlOp.addMember,
+          target: _admin,
+          role: GroupRole.admin,
+        ),
+        _e(_admin, 0, ControlOp.addMember, target: _eve, role: GroupRole.admin),
       ],
       verify: _ok,
     );
@@ -77,8 +87,13 @@ void main() {
   test('a member cannot perform control ops', () {
     final s = _fold([
       _e(_owner, 0, ControlOp.addMember, target: _bob, role: GroupRole.member),
-      _e(_owner, 1, ControlOp.addMember,
-          target: _carol, role: GroupRole.member),
+      _e(
+        _owner,
+        1,
+        ControlOp.addMember,
+        target: _carol,
+        role: GroupRole.member,
+      ),
       _e(_bob, 0, ControlOp.removeMember, target: _carol), // bob is a member
     ]);
     expect(s.isMember(_carol), isTrue, reason: 'the member op was rejected');
@@ -86,10 +101,8 @@ void main() {
 
   test('an admin cannot remove the owner or a peer admin', () {
     final s = _fold([
-      _e(_owner, 0, ControlOp.addMember,
-          target: _admin, role: GroupRole.admin),
-      _e(_owner, 1, ControlOp.addMember,
-          target: _bob, role: GroupRole.admin),
+      _e(_owner, 0, ControlOp.addMember, target: _admin, role: GroupRole.admin),
+      _e(_owner, 1, ControlOp.addMember, target: _bob, role: GroupRole.admin),
       _e(_admin, 0, ControlOp.removeMember, target: _owner), // owner: rejected
       _e(_admin, 1, ControlOp.removeMember, target: _bob), // peer: rejected
     ]);
@@ -100,8 +113,13 @@ void main() {
   test('remove + ban rotate the epoch', () {
     final s = _fold([
       _e(_owner, 0, ControlOp.addMember, target: _bob, role: GroupRole.member),
-      _e(_owner, 1, ControlOp.addMember,
-          target: _carol, role: GroupRole.member),
+      _e(
+        _owner,
+        1,
+        ControlOp.addMember,
+        target: _carol,
+        role: GroupRole.member,
+      ),
       _e(_owner, 2, ControlOp.ban, target: _bob),
       _e(_owner, 3, ControlOp.removeMember, target: _carol),
     ]);
@@ -126,46 +144,518 @@ void main() {
 
   test('setPolicy is owner-only; bumps the policy version', () {
     final s = _fold([
-      _e(_owner, 0, ControlOp.addMember,
-          target: _admin, role: GroupRole.admin),
+      _e(_owner, 0, ControlOp.addMember, target: _admin, role: GroupRole.admin),
       _e(_admin, 0, ControlOp.setPolicy), // rejected
       _e(_owner, 1, ControlOp.setPolicy),
     ]);
     expect(s.policyVersion, 1);
   });
 
-  test('a duplicate/replayed seq is dropped', () {
-    final r = foldControlLog(
+  test(
+    'Space description is a signed folded setting and members cannot edit it',
+    () {
+      final result = foldControlLog(
+        owner: _owner,
+        entries: [
+          _e(
+            _owner,
+            0,
+            ControlOp.addMember,
+            target: _bob,
+            role: GroupRole.member,
+          ),
+          _e(_bob, 0, ControlOp.setDescription, text: 'forged summary'),
+          _e(
+            _owner,
+            1,
+            ControlOp.setDescription,
+            text: 'Protocol research and field notes',
+          ),
+          _e(
+            _owner,
+            2,
+            ControlOp.setDescription,
+            target: _bob,
+            text: 'ambiguous payload',
+          ),
+        ],
+        verify: _ok,
+        initialDescription: 'Genesis summary',
+      );
+
+      expect(result.state.description, 'Protocol research and field notes');
+      expect(result.rejected, hasLength(2));
+      expect(result.rejected.first.author, _bob);
+      final accepted = result.accepted.last;
+      expect(ControlEntry.fromJson(accepted.toJson())?.text, accepted.text);
+      expect(
+        utf8.decode(accepted.canonicalBytes()),
+        contains('setDescription'),
+      );
+    },
+  );
+
+  test(
+    'ownership transfer is atomic and leaves exactly one effective owner',
+    () {
+      final add = ControlEntry(
+        version: 2,
+        groupId: _owner,
+        author: _owner,
+        seq: 0,
+        prevHash: '',
+        op: ControlOp.addMember,
+        target: _bob,
+        role: GroupRole.member,
+        policyVersion: 0,
+        createdAtMs: _t++,
+        signature: Uint8List(0),
+      );
+      final transfer = ControlEntry(
+        version: 6,
+        groupId: _owner,
+        author: _owner,
+        seq: 1,
+        prevHash: controlEntryHash(add),
+        op: ControlOp.transferOwnership,
+        target: _bob,
+        role: null,
+        policyVersion: 0,
+        createdAtMs: _t++,
+        signature: Uint8List(0),
+      );
+      final newOwnerPolicy = ControlEntry(
+        version: 2,
+        groupId: _owner,
+        author: _bob,
+        seq: 0,
+        prevHash: '',
+        op: ControlOp.setPolicy,
+        target: null,
+        role: null,
+        policyVersion: 0,
+        createdAtMs: _t++,
+        signature: Uint8List(0),
+      );
+      final result = foldControlLog(
+        owner: _owner,
+        entries: [add, transfer, newOwnerPolicy],
+        verify: _ok,
+      );
+
+      expect(result.rejected, isEmpty);
+      expect(result.state.roleOf(_owner), GroupRole.admin);
+      expect(result.state.roleOf(_bob), GroupRole.owner);
+      expect(
+        result.state.members.values.where(
+          (member) => member.role == GroupRole.owner,
+        ),
+        hasLength(1),
+      );
+      expect(
+        result.state.policyVersion,
+        1,
+        reason: 'authority moves immediately',
+      );
+      expect(
+        canApply(
+          authorRole: GroupRole.admin,
+          op: ControlOp.transferOwnership,
+          targetRole: GroupRole.member,
+        ),
+        isFalse,
+      );
+    },
+  );
+
+  test('ownership transfer is a strict v6 wire operation', () {
+    final valid = ControlEntry(
+      version: 6,
+      groupId: _owner,
+      author: _owner,
+      seq: 0,
+      prevHash: '',
+      op: ControlOp.transferOwnership,
+      target: _bob,
+      role: null,
+      policyVersion: 0,
+      createdAtMs: 1,
+      signature: Uint8List(64),
+    );
+    expect(valid.isStructurallyValid, isTrue);
+    expect(
+      ControlEntry.fromJson(valid.toJson())?.op,
+      ControlOp.transferOwnership,
+    );
+    expect(
+      ControlEntry(
+        version: 2,
+        groupId: _owner,
+        author: _owner,
+        seq: 0,
+        prevHash: '',
+        op: ControlOp.transferOwnership,
+        target: _bob,
+        role: null,
+        policyVersion: 0,
+        createdAtMs: 1,
+        signature: Uint8List(64),
+      ).isStructurallyValid,
+      isFalse,
+    );
+  });
+
+  test('stale or future policy context is rejected deterministically', () {
+    final result = foldControlLog(
       owner: _owner,
       entries: [
-        _e(_owner, 0, ControlOp.addMember,
-            target: _bob, role: GroupRole.member),
-        _e(_owner, 0, ControlOp.addMember,
-            target: _carol, role: GroupRole.member), // dup seq 0
+        _e(_owner, 0, ControlOp.setPolicy),
+        _e(
+          _owner,
+          1,
+          ControlOp.addMember,
+          target: _bob,
+          role: GroupRole.member,
+        ),
+        _e(
+          _owner,
+          2,
+          ControlOp.addMember,
+          target: _carol,
+          role: GroupRole.member,
+          policyVersion: 1,
+        ),
       ],
       verify: _ok,
     );
-    // Only the first seq-0 applied; the replay is rejected.
-    expect(r.rejected.length, 1);
-    expect(r.state.members.length, 2);
+
+    expect(result.state.isMember(_bob), isFalse);
+    expect(result.state.isMember(_carol), isTrue);
+    expect(result.rejected, hasLength(1));
+  });
+
+  test('SpaceAcl is the shared publish, distribute and management gate', () {
+    final state = _fold([
+      _e(_owner, 0, ControlOp.addMember, target: _admin, role: GroupRole.admin),
+      _e(_owner, 1, ControlOp.addMember, target: _bob, role: GroupRole.member),
+      _e(_owner, 2, ControlOp.mute, target: _bob),
+    ]);
+    final acl = SpaceAcl(state);
+
+    expect(acl.allows(_bob, SpacePermission.view), isTrue);
+    expect(acl.allows(_bob, SpacePermission.distributeContent), isTrue);
+    expect(acl.allows(_bob, SpacePermission.publishMessages), isFalse);
+    expect(acl.allows(_admin, SpacePermission.manageMembers), isTrue);
+    expect(acl.allows(_admin, SpacePermission.manageSettings), isFalse);
+    expect(acl.allows(_owner, SpacePermission.manageSettings), isTrue);
+    expect(acl.allows(_eve, SpacePermission.view), isFalse);
+  });
+
+  test(
+    'v8 moderation restrictions are time-aware and revocation is audited',
+    () {
+      final add = ControlEntry(
+        version: 2,
+        groupId: _owner,
+        author: _owner,
+        seq: 0,
+        prevHash: '',
+        op: ControlOp.addMember,
+        target: _bob,
+        role: GroupRole.member,
+        policyVersion: 0,
+        createdAtMs: 1000,
+        signature: Uint8List(0),
+      );
+      final action = SpaceModerationAction(
+        kind: SpaceModerationKind.restrictMessages,
+        target: _bob,
+        scope: SpaceModerationScope.space,
+        reason: 'Repeated flooding',
+        createdAtMs: 1100,
+        expiresAtMs: 2000,
+      );
+      final moderate = ControlEntry(
+        version: 8,
+        groupId: _owner,
+        author: _owner,
+        seq: 1,
+        prevHash: controlEntryHash(add),
+        op: ControlOp.moderate,
+        target: _bob,
+        role: null,
+        moderationAction: action,
+        policyVersion: 0,
+        createdAtMs: 1100,
+        signature: Uint8List(0),
+      );
+      final revoke = ControlEntry(
+        version: 8,
+        groupId: _owner,
+        author: _owner,
+        seq: 2,
+        prevHash: controlEntryHash(moderate),
+        op: ControlOp.revokeModeration,
+        target: _bob,
+        role: null,
+        moderationRevocation: SpaceModerationRevocation(
+          actionAuthor: _owner,
+          actionSeq: 1,
+          reason: 'Restriction reviewed',
+          revokedAtMs: 1200,
+        ),
+        policyVersion: 0,
+        createdAtMs: 1200,
+        signature: Uint8List(0),
+      );
+      final result = foldControlLog(
+        owner: _owner,
+        entries: [add, moderate, revoke],
+        verify: _ok,
+      );
+
+      expect(result.rejected, isEmpty);
+      final record = result.state.moderationRecords['${_owner.hex}:1']!;
+      expect(record.revokedBy, _owner);
+      expect(record.revocationReason, 'Restriction reviewed');
+      expect(record.isActiveAt(1150), isTrue);
+      expect(record.isActiveAt(1250), isFalse);
+      expect(
+        SpaceAcl(
+          result.state,
+        ).allows(_bob, SpacePermission.publishMessages, atMs: 1150),
+        isFalse,
+      );
+      expect(
+        SpaceAcl(
+          result.state,
+        ).allows(_bob, SpacePermission.publishMessages, atMs: 1250),
+        isTrue,
+      );
+      expect(
+        ControlEntry.fromJson(moderate.toJson())?.moderationAction?.reason,
+        action.reason,
+      );
+    },
+  );
+
+  test('permanent ban blocks re-add until its signed revocation', () {
+    final add = ControlEntry(
+      version: 2,
+      groupId: _owner,
+      author: _owner,
+      seq: 0,
+      prevHash: '',
+      op: ControlOp.addMember,
+      target: _bob,
+      role: GroupRole.member,
+      policyVersion: 0,
+      createdAtMs: 1000,
+      signature: Uint8List(0),
+    );
+    final ban = ControlEntry(
+      version: 8,
+      groupId: _owner,
+      author: _owner,
+      seq: 1,
+      prevHash: controlEntryHash(add),
+      op: ControlOp.moderate,
+      target: _bob,
+      role: null,
+      moderationAction: SpaceModerationAction(
+        kind: SpaceModerationKind.permanentBan,
+        target: _bob,
+        scope: SpaceModerationScope.space,
+        reason: 'Account compromise',
+        createdAtMs: 1100,
+      ),
+      postBoundary: const SpacePostBoundary(seq: -1, hash: ''),
+      policyVersion: 0,
+      createdAtMs: 1100,
+      signature: Uint8List(0),
+    );
+    final blockedAdd = ControlEntry(
+      version: 2,
+      groupId: _owner,
+      author: _owner,
+      seq: 2,
+      prevHash: controlEntryHash(ban),
+      op: ControlOp.addMember,
+      target: _bob,
+      role: GroupRole.member,
+      policyVersion: 0,
+      createdAtMs: 1200,
+      signature: Uint8List(0),
+    );
+    final blocked = foldControlLog(
+      owner: _owner,
+      entries: [add, ban, blockedAdd],
+      verify: _ok,
+    );
+    expect(blocked.state.isMember(_bob), isFalse);
+    expect(blocked.rejected, contains(blockedAdd));
+
+    final revoke = ControlEntry(
+      version: 8,
+      groupId: _owner,
+      author: _owner,
+      seq: 2,
+      prevHash: controlEntryHash(ban),
+      op: ControlOp.revokeModeration,
+      target: _bob,
+      role: null,
+      moderationRevocation: SpaceModerationRevocation(
+        actionAuthor: _owner,
+        actionSeq: 1,
+        reason: 'Identity recovered',
+        revokedAtMs: 1300,
+      ),
+      policyVersion: 0,
+      createdAtMs: 1300,
+      signature: Uint8List(0),
+    );
+    final reAdd = ControlEntry(
+      version: 2,
+      groupId: _owner,
+      author: _owner,
+      seq: 3,
+      prevHash: controlEntryHash(revoke),
+      op: ControlOp.addMember,
+      target: _bob,
+      role: GroupRole.member,
+      policyVersion: 0,
+      createdAtMs: 1400,
+      signature: Uint8List(0),
+    );
+    final restored = foldControlLog(
+      owner: _owner,
+      entries: [add, ban, revoke, reAdd],
+      verify: _ok,
+    );
+    expect(restored.rejected, isEmpty);
+    expect(restored.state.isMember(_bob), isTrue);
+    expect(restored.state.epoch, 1);
+  });
+
+  test('distinct same-seq control rows quarantine both fork branches', () {
+    final r = foldControlLog(
+      owner: _owner,
+      entries: [
+        _e(
+          _owner,
+          0,
+          ControlOp.addMember,
+          target: _bob,
+          role: GroupRole.member,
+        ),
+        _e(
+          _owner,
+          0,
+          ControlOp.addMember,
+          target: _carol,
+          role: GroupRole.member,
+        ), // dup seq 0
+      ],
+      verify: _ok,
+    );
+    expect(r.rejected.length, 2);
+    expect(r.state.members.length, 1);
+  });
+
+  test('byte-identical redelivery deduplicates without becoming a fork', () {
+    final entry = _e(
+      _owner,
+      0,
+      ControlOp.addMember,
+      target: _bob,
+      role: GroupRole.member,
+    );
+    final result = foldControlLog(
+      owner: _owner,
+      entries: [entry, entry],
+      verify: _ok,
+    );
+    expect(result.rejected, isEmpty);
+    expect(result.state.isMember(_bob), isTrue);
+  });
+
+  test('control v2 enforces exact predecessor and refuses downgrade', () {
+    final add = ControlEntry(
+      version: 2,
+      author: _owner,
+      seq: 0,
+      prevHash: '',
+      op: ControlOp.addMember,
+      target: _bob,
+      role: GroupRole.member,
+      policyVersion: 0,
+      createdAtMs: 1000,
+      signature: Uint8List(0),
+    );
+    final remove = ControlEntry(
+      version: 2,
+      author: _owner,
+      seq: 1,
+      prevHash: controlEntryHash(add),
+      op: ControlOp.removeMember,
+      target: _bob,
+      role: null,
+      policyVersion: 0,
+      createdAtMs: 1001,
+      signature: Uint8List(0),
+    );
+    final valid = foldControlLog(
+      owner: _owner,
+      entries: [remove, add],
+      verify: _ok,
+    );
+    expect(valid.rejected, isEmpty);
+    expect(valid.state.isMember(_bob), isFalse);
+
+    final badLink = ControlEntry.fromJson({
+      ...remove.toJson(),
+      'prev': List.filled(64, '0').join(),
+    })!;
+    final broken = foldControlLog(
+      owner: _owner,
+      entries: [add, badLink],
+      verify: _ok,
+    );
+    expect(broken.rejected, contains(badLink));
+    expect(broken.state.isMember(_bob), isTrue);
+
+    final legacyDowngrade = _e(_owner, 1, ControlOp.removeMember, target: _bob);
+    final downgraded = foldControlLog(
+      owner: _owner,
+      entries: [add, legacyDowngrade],
+      verify: _ok,
+    );
+    expect(downgraded.rejected, contains(legacyDowngrade));
+    expect(downgraded.state.isMember(_bob), isTrue);
   });
 
   test('a bad signature drops the entry', () {
-    final s = _fold(
-      [
-        _e(_owner, 0, ControlOp.addMember,
-            target: _bob, role: GroupRole.member),
-      ],
-      verify: (e) => false,
-    );
+    final s = _fold([
+      _e(_owner, 0, ControlOp.addMember, target: _bob, role: GroupRole.member),
+    ], verify: (e) => false);
     expect(s.isMember(_bob), isFalse);
   });
 
   test('fold is order-independent by (ts,author,seq) — same state', () {
-    final a = _e(_owner, 0, ControlOp.addMember,
-        target: _admin, role: GroupRole.admin);
-    final b = _e(_admin, 0, ControlOp.addMember,
-        target: _bob, role: GroupRole.member);
+    final a = _e(
+      _owner,
+      0,
+      ControlOp.addMember,
+      target: _admin,
+      role: GroupRole.admin,
+    );
+    final b = _e(
+      _admin,
+      0,
+      ControlOp.addMember,
+      target: _bob,
+      role: GroupRole.member,
+    );
     final s1 = _fold([a, b]);
     final s2 = _fold([b, a]); // reversed input; ts ordering restores it
     expect(s1.members.keys.toSet(), s2.members.keys.toSet());
@@ -173,8 +663,13 @@ void main() {
   });
 
   test('same-author seq remains causal when wall clock moves backwards', () {
-    final add = _e(_owner, 0, ControlOp.addMember,
-        target: _bob, role: GroupRole.member);
+    final add = _e(
+      _owner,
+      0,
+      ControlOp.addMember,
+      target: _bob,
+      role: GroupRole.member,
+    );
     final remove = ControlEntry.fromJson({
       ..._e(_owner, 1, ControlOp.removeMember, target: _bob).toJson(),
       'ts': add.createdAtMs - 1,
@@ -186,8 +681,11 @@ void main() {
       verify: _ok,
     );
     expect(result.rejected, isEmpty);
-    expect(result.state.isMember(_bob), isFalse,
-        reason: 'seq 0 add must precede seq 1 revoke despite clock rollback');
+    expect(
+      result.state.isMember(_bob),
+      isFalse,
+      reason: 'seq 0 add must precede seq 1 revoke despite clock rollback',
+    );
   });
 
   test('manifest + control entry json round-trip', () {
@@ -227,14 +725,119 @@ void main() {
     expect(ControlEntry.fromJson({'seq': 'x'}), isNull);
   });
 
+  test('revocation boundary is signed and restricted to revoke operations', () {
+    final boundary = SpacePostBoundary(seq: 4, hash: 'a' * 64);
+    final revoke = ControlEntry(
+      version: 3,
+      groupId: _owner,
+      author: _owner,
+      seq: 0,
+      prevHash: '',
+      op: ControlOp.mute,
+      target: _bob,
+      role: null,
+      policyVersion: 0,
+      createdAtMs: 1,
+      signature: Uint8List(64),
+      authorPubKey: Uint8List(32),
+      postBoundary: boundary,
+    );
+    expect(revoke.isStructurallyValid, isTrue);
+    expect(ControlEntry.fromJson(revoke.toJson())?.postBoundary?.seq, 4);
+    expect(utf8.decode(revoke.canonicalBytes()), contains('postBoundary'));
+
+    final grant = ControlEntry(
+      version: 2,
+      groupId: _owner,
+      author: _owner,
+      seq: 0,
+      prevHash: '',
+      op: ControlOp.addMember,
+      target: _bob,
+      role: GroupRole.member,
+      policyVersion: 0,
+      createdAtMs: 1,
+      signature: Uint8List(64),
+      authorPubKey: Uint8List(32),
+      postBoundary: boundary,
+    );
+    expect(grant.isStructurallyValid, isFalse);
+  });
+
+  test(
+    'control checkpoint V4 is signed, round-trips and does not mutate ACL',
+    () {
+      final checkpoint = SpaceControlCheckpoint(const []);
+      final entry = ControlEntry(
+        version: 4,
+        groupId: _owner,
+        author: _owner,
+        seq: 0,
+        prevHash: '',
+        op: ControlOp.checkpoint,
+        target: null,
+        role: null,
+        controlCheckpoint: checkpoint,
+        policyVersion: 0,
+        createdAtMs: 1,
+        signature: Uint8List(64),
+        authorPubKey: Uint8List(32),
+      );
+      expect(entry.isStructurallyValid, isTrue);
+      final decoded = ControlEntry.fromJson(entry.toJson());
+      expect(decoded?.controlCheckpoint?.merkleRoot, checkpoint.merkleRoot);
+      expect(
+        utf8.decode(entry.canonicalBytes()),
+        contains('controlCheckpoint'),
+      );
+
+      final folded = foldControlLog(
+        owner: _owner,
+        entries: [entry],
+        verify: _ok,
+      );
+      expect(folded.rejected, isEmpty);
+      expect(folded.accepted, hasLength(1));
+      expect(folded.state.members.keys, {_owner.hex});
+      expect(folded.state.policyVersion, 0);
+
+      final wrongVersion = ControlEntry(
+        version: 3,
+        groupId: _owner,
+        author: _owner,
+        seq: 0,
+        prevHash: '',
+        op: ControlOp.checkpoint,
+        target: null,
+        role: null,
+        controlCheckpoint: checkpoint,
+        policyVersion: 0,
+        createdAtMs: 1,
+        signature: Uint8List(64),
+        authorPubKey: Uint8List(32),
+      );
+      expect(wrongVersion.isStructurallyValid, isFalse);
+    },
+  );
+
   test('withSignature fills sig + pubKey, leaving canonicalBytes stable', () {
-    final unsigned =
-        _e(_owner, 0, ControlOp.addMember, target: _bob, role: GroupRole.member);
+    final unsigned = _e(
+      _owner,
+      0,
+      ControlOp.addMember,
+      target: _bob,
+      role: GroupRole.member,
+    );
     final before = unsigned.canonicalBytes();
     final signed = unsigned.withSignature(
-        Uint8List(64), Uint8List.fromList(List.filled(32, 9)));
-    expect(signed.canonicalBytes(), before,
-        reason: 'the pubKey is NOT in the signed payload');
+      Uint8List(64),
+      Uint8List.fromList(List.filled(32, 9)),
+    );
+    expect(
+      signed.canonicalBytes(),
+      before,
+      reason: 'the pubKey is NOT in the signed payload',
+    );
     expect(signed.authorPubKey.length, 32);
   });
 }

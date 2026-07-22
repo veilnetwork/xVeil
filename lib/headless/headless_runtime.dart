@@ -149,6 +149,8 @@ class HeadlessRuntime {
         ourCertVersion: 1,
         send: (peer, groupId, json) =>
             messaging!.sendGroupSnapshot(peer, groupId.hex, json),
+        sendSpaceInvite: messaging.sendSpaceInvite,
+        sendSpaceInviteDecision: messaging.sendSpaceInviteDecision,
         sendContentRequest: (holder, json) =>
             messaging!.sendGroupContentRequest(holder, json),
         sendGroupCallFrame: (peer, signal, json) =>
@@ -235,7 +237,9 @@ class HeadlessRuntime {
         callAction: (_) async {},
         callsAvailable: false,
         groups: groupApi.list,
+        spaces: groupApi.listSpaces,
         createGroup: groupApi.create,
+        createSpace: groupApi.createSpace,
         groupMessages: groupApi.messages,
         sendGroupMessage: groupApi.sendMessage,
         sendGroupFile: groupApi.sendFile,
@@ -245,6 +249,29 @@ class HeadlessRuntime {
         groupMemberAction: groupApi.memberAction,
         renameGroup: groupApi.rename,
         leaveGroup: groupApi.leave,
+        spaceChannels: groupApi.channels,
+        spacePosts: groupApi.posts,
+        publishSpacePost: groupApi.publishPost,
+        editSpacePost: groupApi.editPost,
+        deleteSpacePost: groupApi.deletePost,
+        reactToSpacePost: groupApi.reactToPost,
+        spaceFeed: groupApi.feed,
+        setSpaceFeedEnabled: groupApi.setFeedEnabled,
+        spaceInvites: groupApi.invites,
+        decideSpaceInvite: groupApi.decideInvite,
+        spaceProfile: groupApi.profile,
+        updateSpaceDescription: groupApi.updateDescription,
+        spaceRules: groupApi.rules,
+        publishSpaceRules: groupApi.publishRules,
+        acceptSpaceRules: groupApi.acceptRules,
+        spaceModerationAudit: groupApi.moderationAudit,
+        moderateSpace: groupApi.moderate,
+        revokeSpaceModeration: groupApi.revokeModeration,
+        createSpaceChannel: groupApi.createChannel,
+        spaceChannelAction: groupApi.channelAction,
+        setSpaceChannelMembers: groupApi.setChannelMembers,
+        spaceChannelMessages: groupApi.channelMessages,
+        sendSpaceChannelMessage: groupApi.sendChannelMessage,
         startGroupCall: (_, _) async => 'group calls unavailable',
         groupCallState: () => null,
         groupCallAction: (_) async => 'group calls unavailable',
@@ -292,6 +319,12 @@ class HeadlessRuntime {
   ) {
     messaging.onGroupEntry = (peer, bundleJson) {
       unawaited(groups.ingestGroupEntry(peer, bundleJson));
+    };
+    messaging.onSpaceInvite = (peer, inviteJson) async {
+      await groups.receiveSpaceInvite(peer, inviteJson);
+    };
+    messaging.onSpaceInviteDecision = (peer, decisionJson) async {
+      await groups.receiveSpaceInviteDecision(peer, decisionJson);
     };
     messaging.onGroupContentRequest = (peer, requestJson) {
       unawaited(groups.handleContentRequest(requestJson));

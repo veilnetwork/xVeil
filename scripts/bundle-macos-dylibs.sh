@@ -141,14 +141,18 @@ echo "re-signing $APP ($SIGN_LABEL, entitlements=$ENTITLEMENTS) after the dylib 
 # on System Extensions" even though `codesign --verify --deep` says the bundle
 # is structurally valid. Sign each modified leaf, restore the extension's own
 # restricted entitlement set, then seal the containing app last.
-for dylib in \
-  "$APP/Contents/Frameworks/libhidden_volume_ffi.dylib" \
-  "$APP/Contents/Frameworks/libveilclient_ffi.dylib" \
-  "$APP/Contents/Frameworks/libveil_media.dylib" \
-  "$APP/Contents/Frameworks/libveil_whisper.dylib"
-do
-  [[ -f "$dylib" ]] && codesign --force --sign "$SIGN_IDENTITY" "$dylib"
-done
+FRAMEWORKS_DIR="$APP/Contents/Frameworks"
+# A normal `flutter build macos` signs plugin frameworks before this script
+# runs. The local PacketTunnel fallback builds with CODE_SIGNING_ALLOWED=NO,
+# however, so every copied code object is unsigned. Sign all dylib leaves and
+# framework bundles (deepest first) instead of assuming only our four runtime
+# libraries need attention.
+while IFS= read -r -d '' dylib; do
+  codesign --force --sign "$SIGN_IDENTITY" "$dylib"
+done < <(find "$FRAMEWORKS_DIR" -type f -name '*.dylib' -print0)
+while IFS= read -r -d '' framework; do
+  codesign --force --sign "$SIGN_IDENTITY" "$framework"
+done < <(find "$FRAMEWORKS_DIR" -depth -type d -name '*.framework' -print0)
 PACKET_TUNNEL_APP="$APP/Contents/PlugIns/PacketTunnel.appex"
 if [[ -d "$PACKET_TUNNEL_APP" ]]; then
   codesign --force --sign "$SIGN_IDENTITY" \

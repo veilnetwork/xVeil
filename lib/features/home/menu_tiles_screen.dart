@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../chat/chats_screen.dart';
-import '../groups/group_tile.dart';
 
 /// A compact home for app-level actions that do not belong to a conversation.
 ///
@@ -33,14 +32,19 @@ class MenuTilesScreen extends ConsumerWidget {
             onTap: () => showAddContactSheet(context, ref),
           ),
           _MenuTile(
-            icon: Icons.group_add_outlined,
-            label: l.groupCreateTitle,
-            onTap: () => showCreateGroupDialog(context, ref),
+            icon: Icons.diversity_3_outlined,
+            label: l.navCommunities,
+            onTap: () => context.push('/spaces'),
           ),
           _MenuTile(
             icon: Icons.call_outlined,
             label: l.navCalls,
             onTap: () => context.push('/calls'),
+          ),
+          _MenuTile(
+            icon: Icons.cloud_outlined,
+            label: l.navStorage,
+            onTap: () => context.push('/storage'),
           ),
           _MenuTile(
             icon: Icons.hub_outlined,

@@ -1,19 +1,18 @@
 import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
-import '../channels/channels_screen.dart';
 import '../chat/chats_screen.dart';
 import '../chat/notification_binder.dart';
 import '../chat/signature_ask_host.dart';
-import '../storage/cloud_storage_screen.dart';
+import '../spaces/space_feed_screen.dart';
+import '../spaces/space_list_screen.dart';
 import 'menu_tiles_screen.dart';
 
-/// The main authenticated surface. Chats and Channels are REAL tabs (NAV1:
+/// The main authenticated surface. Chats and Communities are real tabs:
 /// switching keeps the bottom bar and highlights the active destination —
 /// pushing a route on top used to leave "Chats" lit while a different screen
-/// showed). Group chats live inside the Chats list; the Channels tab waits
-/// for the channels epic. Personal cloud and the app-actions menu are real
-/// third and fourth tabs.
+/// showed). A community owns its text/voice channels; personal chats remain
+/// separate. Personal cloud and the app-actions menu are the other tabs.
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
 
@@ -38,8 +37,8 @@ class _HomeShellState extends State<HomeShell> {
             index: _tab,
             children: const [
               ChatsScreen(),
-              ChannelsScreen(),
-              CloudStorageScreen(),
+              SpaceListScreen(),
+              SpaceFeedScreen(),
               MenuTilesScreen(),
             ],
           ),
@@ -57,11 +56,12 @@ class _HomeShellState extends State<HomeShell> {
               NavigationDestination(
                 icon: const Icon(Icons.campaign_outlined),
                 selectedIcon: const Icon(Icons.campaign),
-                label: l.navChannels,
+                label: l.navCommunities,
               ),
               NavigationDestination(
-                icon: const Icon(Icons.cloud_outlined),
-                label: l.navStorage,
+                icon: const Icon(Icons.dynamic_feed_outlined),
+                selectedIcon: const Icon(Icons.dynamic_feed),
+                label: l.navFeed,
               ),
               NavigationDestination(
                 icon: const Icon(Icons.apps_outlined),

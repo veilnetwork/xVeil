@@ -13,6 +13,9 @@ import 'package:xveil/domain/group_content.dart';
 import 'package:xveil/domain/group_message.dart';
 import 'package:xveil/domain/group_payload.dart';
 import 'package:xveil/domain/group_reaction.dart';
+import 'package:xveil/domain/space_channel.dart';
+import 'package:xveil/domain/space_moderation.dart';
+import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/state/group_epoch_service.dart';
 import 'package:xveil/state/group_call_service.dart';
 import 'package:xveil/state/group_service.dart';
@@ -32,6 +35,10 @@ class _Signer implements GroupSigner {
   Uint8List get selfPubKey => Uint8List.fromList(selfId.bytes);
 
   @override
+  SpaceManifest signSpaceManifest(SpaceManifest value) =>
+      value.withSignature(Uint8List(64));
+
+  @override
   ControlEntry signControl(ControlEntry unsigned) =>
       unsigned.withSignature(Uint8List(64), unsigned.author.bytes);
 
@@ -41,6 +48,10 @@ class _Signer implements GroupSigner {
 
   @override
   GroupReaction signReaction(GroupReaction unsigned) =>
+      unsigned.withSignature(Uint8List(64), unsigned.author.bytes);
+
+  @override
+  SpacePost signPost(SpacePost unsigned) =>
       unsigned.withSignature(Uint8List(64), unsigned.author.bytes);
 
   @override
@@ -67,6 +78,9 @@ class _Signer implements GroupSigner {
       _valid(reaction.signature, reaction.authorPubKey);
 
   @override
+  bool verifyPost(SpacePost post) => _valid(post.signature, post.authorPubKey);
+
+  @override
   bool verifyContentRequest(GroupContentRequest request) =>
       _valid(request.signature, request.authorPubKey);
 
@@ -74,6 +88,11 @@ class _Signer implements GroupSigner {
   bool verifyCallSignal(GroupCallSignal signal) =>
       _valid(signal.signature, signal.authorPubKey) &&
       signal.authorPubKey.every((byte) => byte == signal.author.bytes.first);
+
+  @override
+  bool verifySpaceManifest(SpaceManifest value) =>
+      value.owner == NodeId(Uint8List.fromList(value.genesisPubKey)) &&
+      value.signature.length == 64;
 
   @override
   bool verifySovereign({
@@ -171,6 +190,169 @@ void main() {
       expect(GroupCallSignal.tryDecode(unknown), isNull);
     },
   );
+
+  test('Space voice-session v2 binds the signed channel id', () {
+    final channelId = _id(7);
+    final unsigned = GroupCallSignal(
+      groupId: _id(8),
+      channelId: channelId,
+      callId: 'voice-session-1',
+      author: owner,
+      membershipEpoch: 2,
+      type: GroupCallSignalType.announce,
+      media: const CallMedia(audio: true),
+      sentAtMs: 123456,
+      nonce: '00112233445566778899aabb',
+      protocolVersion: kSpaceVoiceSessionProtocolVersion,
+      signature: Uint8List(0),
+      authorPubKey: Uint8List(0),
+    );
+    final signed = _Signer(owner).signCallSignal(unsigned);
+    final decoded = GroupCallSignal.tryDecode(signed.encode());
+    expect(decoded?.channelId, channelId);
+    expect(decoded?.protocolVersion, kSpaceVoiceSessionProtocolVersion);
+    expect(decoded?.canonicalBytes(), signed.canonicalBytes());
+
+    expect(
+      GroupCallSignal(
+        groupId: _id(8),
+        callId: 'missing-channel',
+        author: owner,
+        membershipEpoch: 2,
+        type: GroupCallSignalType.announce,
+        media: const CallMedia(audio: true),
+        sentAtMs: 123456,
+        nonce: '00112233445566778899aabb',
+        protocolVersion: kSpaceVoiceSessionProtocolVersion,
+        signature: Uint8List(0),
+        authorPubKey: Uint8List(0),
+      ).isStructurallyValid,
+      isFalse,
+    );
+  });
+
+  test('Space voice session starts only in an active voice channel', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final groups = GroupService(
+      storage,
+      _Signer(owner),
+      epochService: GroupEpochService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      ),
+      sendGroupCallFrame: (_, _, _) async {},
+    );
+    final spaceId = await groups.createSpace('Voice Space');
+    final textChannel = (await groups.channelsOf(spaceId)).single.channelId;
+    final voiceChannel = await groups.createChannel(
+      spaceId,
+      name: 'Town hall',
+      kind: SpaceChannelKind.voice,
+    );
+    expect(voiceChannel, isNotNull);
+
+    final calls = GroupCallService(groups)..start();
+    addTearDown(calls.dispose);
+    expect(
+      await calls.startCall(
+        spaceId,
+        const CallMedia(audio: true),
+        channelId: textChannel,
+      ),
+      isFalse,
+    );
+    expect(
+      await calls.startCall(
+        spaceId,
+        const CallMedia(audio: true),
+        channelId: _id(99),
+      ),
+      isFalse,
+    );
+    expect(
+      await calls.startCall(
+        spaceId,
+        const CallMedia(audio: true),
+        channelId: voiceChannel,
+      ),
+      isTrue,
+    );
+    expect(calls.current?.channelId, voiceChannel);
+    await calls.leave();
+
+    expect(
+      await groups.setChannelArchived(spaceId, voiceChannel!, true),
+      isTrue,
+    );
+    expect(
+      await calls.startCall(
+        spaceId,
+        const CallMedia(audio: true),
+        channelId: voiceChannel,
+      ),
+      isFalse,
+    );
+  });
+
+  test('signed Space voice restriction prevents starting a session', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final ownerGroups = GroupService(
+      storage,
+      _Signer(owner),
+      epochService: GroupEpochService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      ),
+      sendGroupCallFrame: (_, _, _) async {},
+    );
+    final spaceId = await ownerGroups.createSpace('Quiet room');
+    final voiceChannel = await ownerGroups.createChannel(
+      spaceId,
+      name: 'Town hall',
+      kind: SpaceChannelKind.voice,
+    );
+    expect(voiceChannel, isNotNull);
+    expect(
+      await ownerGroups.addControlOp(
+        spaceId,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      ),
+      isTrue,
+    );
+    expect(
+      await ownerGroups.moderateSpace(
+        spaceId,
+        kind: SpaceModerationKind.restrictVoice,
+        target: bob,
+        scope: SpaceModerationScope.voice,
+        reason: 'voice cool-down',
+      ),
+      isNotNull,
+    );
+
+    final bobGroups = GroupService(
+      storage,
+      _Signer(bob),
+      epochService: GroupEpochService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      ),
+      sendGroupCallFrame: (_, _, _) async {},
+    );
+    final bobCalls = GroupCallService(bobGroups)..start();
+    addTearDown(bobCalls.dispose);
+    addTearDown(ownerGroups.dispose);
+    addTearDown(bobGroups.dispose);
+    expect(
+      await bobCalls.startCall(
+        spaceId,
+        const CallMedia(audio: true),
+        channelId: voiceChannel,
+      ),
+      isFalse,
+    );
+  });
 
   test(
     'group-call AEAD binds gid, epoch and authenticated transport author',
