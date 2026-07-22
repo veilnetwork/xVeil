@@ -6036,9 +6036,11 @@ void main() {
     () async {
       final ownerStorage = FakeHvContainer().storage();
       await ownerStorage.open(password: 'pw', createIfMissing: true);
+      final contentGrants = <(NodeId, String)>[];
       final ownerSvc = GroupService(
         ownerStorage,
         _FakeSigner(owner),
+        grantContentServe: (peer, cid) => contentGrants.add((peer, cid)),
         epochService: GroupEpochService(
           LoopbackMailboxCrypto(senderForOpen: owner),
         ),
@@ -6049,6 +6051,15 @@ void main() {
           spaceId,
           ControlOp.addMember,
           target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      expect(
+        await ownerSvc.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: carol,
           role: GroupRole.member,
         ),
         isTrue,
@@ -6090,9 +6101,20 @@ void main() {
       expect(outsiderWire['cke'], isNull);
       final bobStorage = FakeHvContainer().storage();
       await bobStorage.open(password: 'pw', createIfMissing: true);
+      final scopedRequests = <(NodeId, GroupContentRequest)>[];
+      final scopedPulls = <(List<NodeId>, String)>[];
       final bobSvc = GroupService(
         bobStorage,
         _FakeSigner(bob),
+        sendContentRequest: (holder, requestJson) async {
+          scopedRequests.add((
+            holder,
+            GroupContentRequest.fromJson(jsonDecode(requestJson))!,
+          ));
+        },
+        startContentPullFromAny: (holders, cid) async =>
+            scopedPulls.add((holders, cid)),
+        contentGrantDelay: Duration.zero,
         epochService: GroupEpochService(
           LoopbackMailboxCrypto(senderForOpen: owner),
         ),
@@ -6121,35 +6143,54 @@ void main() {
       expect(
         await bobSvc.postMessage(
           spaceId,
-          'media stays closed',
+          'protected media',
           channelId: channelId,
-          attachment: const GroupAttachment(
+          attachment: MediaObject(
             kind: 'file',
-            dataB64: 'QQ==',
-            w: 1,
-            h: 1,
-            cid: 'must-not-serve',
+            contentId: 'a' * 64,
+            name: 'incident-report.txt',
+            size: 4,
           ),
           broadcast: false,
         ),
-        isFalse,
+        isTrue,
       );
       final bobBundle = (await bobSvc.load(spaceId))!;
-      final storedMessage = bobBundle.messages.single;
+      final storedMessage = bobBundle.messages.first;
       expect(storedMessage.version, 3);
       expect(storedMessage.isChannelEncrypted, isTrue);
       expect(
         jsonEncode(storedMessage.toJson()),
         isNot(contains('channel-key ciphertext')),
       );
+      final storedMedia = bobBundle.messages.last;
+      expect(storedMedia.isChannelEncrypted, isTrue);
+      expect(
+        jsonEncode(storedMedia.toJson()),
+        isNot(contains('incident-report')),
+      );
+      expect(jsonEncode(storedMedia.toJson()), isNot(contains('a' * 64)));
+      final visibleMedia = (await bobSvc.messagesOf(
+        spaceId,
+        channelId: channelId,
+      )).last;
+      expect(visibleMedia.body, 'protected media');
+      expect(visibleMedia.attachment?.contentId, 'a' * 64);
+      expect(visibleMedia.attachment?.inlinePreviewB64, isNull);
+      expect(await bobSvc.referencedContentIds(spaceId), contains('a' * 64));
+      expect(await bobSvc.fetchGroupContent(spaceId, 'a' * 64, owner), isTrue);
+      expect(scopedRequests.map((request) => request.$1), [owner]);
+      expect(scopedRequests.single.$2.channelId, channelId);
+      expect(scopedRequests.single.$2.channelEpoch, 1);
+      expect(scopedPulls.single.$1, [owner]);
       final syncVector = (await bobSvc.buildGroupSyncRequest(spaceId))!;
       expect((syncVector['g'] as Map)[bob.hex], isNull);
       final protectedHead =
           ((syncVector['cg'] as Map)['${channelId!.hex}|channelEpoch:1']
                   as Map)[bob.hex]
               as Map;
-      expect(protectedHead['s'], 0);
-      expect(protectedHead['h'], groupMessageHash(storedMessage));
+      expect(protectedHead['s'], 1);
+      expect(protectedHead['h'], groupMessageHash(storedMedia));
       expect(
         await ownerSvc.ingestSnapshot(
           bobSvc.snapshotJson(bobBundle, recipient: owner),
@@ -6157,9 +6198,64 @@ void main() {
         isTrue,
       );
       expect(
-        (await ownerSvc.messagesOf(spaceId, channelId: channelId)).single.body,
-        'channel-key ciphertext',
+        (await ownerSvc.messagesOf(
+          spaceId,
+          channelId: channelId,
+        )).map((message) => message.body),
+        ['channel-key ciphertext', 'protected media'],
       );
+      GroupContentRequest signedRequest(
+        NodeId requester, {
+        required String nonce,
+        NodeId? scopedChannel,
+        int? scopedEpoch,
+      }) => _FakeSigner(requester).signContentRequest(
+        GroupContentRequest(
+          groupId: spaceId,
+          contentId: 'a' * 64,
+          requester: requester,
+          nonce: nonce,
+          tsMs: DateTime.now().millisecondsSinceEpoch,
+          channelId: scopedChannel,
+          channelEpoch: scopedEpoch,
+          signature: Uint8List(0),
+        ),
+      );
+      expect(
+        await ownerSvc.handleContentRequest(
+          jsonEncode(signedRequest(bob, nonce: 'bob-unscoped').toJson()),
+        ),
+        isFalse,
+        reason: 'legacy Space-wide grants cannot unlock protected refs',
+      );
+      expect(
+        await ownerSvc.handleContentRequest(
+          jsonEncode(
+            signedRequest(
+              carol,
+              nonce: 'carol-scoped',
+              scopedChannel: channelId,
+              scopedEpoch: 1,
+            ).toJson(),
+          ),
+        ),
+        isFalse,
+        reason: 'a current Space member outside channel ACL gets no grant',
+      );
+      expect(
+        await ownerSvc.handleContentRequest(
+          jsonEncode(
+            signedRequest(
+              bob,
+              nonce: 'bob-scoped',
+              scopedChannel: channelId,
+              scopedEpoch: 1,
+            ).toJson(),
+          ),
+        ),
+        isTrue,
+      );
+      expect(contentGrants, [(bob, 'a' * 64)]);
       expect(
         await ownerSvc.setChannelMembers(spaceId, channelId, const []),
         isTrue,
@@ -6169,6 +6265,20 @@ void main() {
           spaceId,
         ))!.protectedChannels[channelId.hex]!.channelEpoch,
         2,
+      );
+      expect(
+        await ownerSvc.handleContentRequest(
+          jsonEncode(
+            signedRequest(
+              bob,
+              nonce: 'bob-stale-epoch',
+              scopedChannel: channelId,
+              scopedEpoch: 1,
+            ).toJson(),
+          ),
+        ),
+        isFalse,
+        reason: 'ACL rotation immediately invalidates old scoped requests',
       );
       expect(
         await bobSvc.ingestSnapshot(
