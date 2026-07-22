@@ -134,6 +134,15 @@ void main() {
       expect(await api.updateDescription(space, 'Blocked'), isNotNull);
       expect(await api.setLifecycle(space, 'restore'), isNull);
       expect((await api.lifecycle(space))!['state'], 'active');
+      expect(await api.setLifecycle(space, 'delete'), isNull);
+      final deleted = (await api.lifecycle(space))!;
+      expect(deleted['state'], 'deleted');
+      expect(deleted['recoveryDeadline'], isA<int>());
+      expect(deleted['canDelete'], isFalse);
+      expect(deleted['canRestore'], isTrue);
+      expect(await api.updateDescription(space, 'Still blocked'), isNotNull);
+      expect(await api.setLifecycle(space, 'restore'), isNull);
+      expect((await api.lifecycle(space))!['state'], 'active');
       expect(await api.setLifecycle(space, 'invalid'), isNotNull);
       expect(await api.createSpace('Bad', '', 'unknown'), isNull);
     } finally {

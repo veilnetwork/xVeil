@@ -160,6 +160,7 @@ class HeadlessRuntime {
           await messaging!.downloadContent(holder, contentId);
         },
       );
+      groups.startSpaceLifecycleMaintenance();
       _wireGroupIngress(messaging, groups);
 
       final relays = mailboxRelayCandidates(config.bootstrapPeers);

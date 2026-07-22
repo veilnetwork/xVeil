@@ -949,6 +949,16 @@ void main() {
           auth,
           body: {'space': 'aa', 'action': 'delete'},
         )).status,
+        200,
+      );
+      expect(spaceLifecycleActions.last, ('aa', 'delete'));
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/lifecycle'),
+          auth,
+          body: {'space': 'aa', 'action': 'destroy'},
+        )).status,
         400,
       );
 

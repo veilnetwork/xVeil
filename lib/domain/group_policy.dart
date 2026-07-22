@@ -98,6 +98,8 @@ class GroupState {
   final String? lifecycleTransitionHash;
 
   bool get isArchived => lifecycleState == SpaceLifecycleState.archived;
+  bool get isDeleted => lifecycleState == SpaceLifecycleState.deleted;
+  bool get isActive => lifecycleState == SpaceLifecycleState.active;
 
   SpaceRulesVersion? get currentRules =>
       rulesHistory.isEmpty ? null : rulesHistory[rulesHistory.length];
@@ -225,6 +227,9 @@ final class SpaceAcl {
   }) {
     final member = state.memberOf(actor);
     if (member == null) return false;
+    // Recoverable deletion keeps the signed roster only so the owner can
+    // restore it. Current content and mutation APIs must reveal nothing.
+    if (state.isDeleted && atMs == null) return false;
     // A current mutation has no historical timestamp and is closed while the
     // Space is archived. Read/materialization paths deliberately evaluate the
     // author's permission at the signed content timestamp; the lifecycle head
@@ -279,6 +284,7 @@ final class SpaceAcl {
       case ControlOp.setPolicy:
       case ControlOp.setRetention:
       case ControlOp.archiveSpace:
+      case ControlOp.deleteSpace:
       case ControlOp.restoreSpace:
         return authorRole == GroupRole.owner;
       case ControlOp.transferOwnership:
@@ -504,6 +510,9 @@ GroupFoldResult foldControlLog({
       continue;
     }
     if ((lifecycleState == SpaceLifecycleState.archived &&
+            e.op != ControlOp.restoreSpace &&
+            e.op != ControlOp.deleteSpace) ||
+        (lifecycleState == SpaceLifecycleState.deleted &&
             e.op != ControlOp.restoreSpace) ||
         (lifecycleState == SpaceLifecycleState.active &&
             e.op == ControlOp.restoreSpace)) {
@@ -696,7 +705,9 @@ GroupFoldResult foldControlLog({
       rejected.add(e);
       continue;
     }
-    if (e.op == ControlOp.archiveSpace || e.op == ControlOp.restoreSpace) {
+    if (e.op == ControlOp.archiveSpace ||
+        e.op == ControlOp.deleteSpace ||
+        e.op == ControlOp.restoreSpace) {
       final transition = e.lifecycleTransition;
       // The checkpoint is the owner's observed causal frontier, not a promise
       // that no concurrent row existed on another offline author chain. Every
@@ -715,7 +726,14 @@ GroupFoldResult foldControlLog({
           );
       final expectedPrevious = lifecycleTransitionHash ?? '';
       final restoring = e.op == ControlOp.restoreSpace;
-      if (e.version != 10 ||
+      final deleting = e.op == ControlOp.deleteSpace;
+      final previousRecovery = lifecycleTransition?.recoveryDeadlineMs;
+      final expectedVersion =
+          deleting ||
+              (restoring && lifecycleState == SpaceLifecycleState.deleted)
+          ? 11
+          : 10;
+      if (e.version != expectedVersion ||
           transition == null ||
           transition.spaceId != e.groupId ||
           transition.changedAtMs != e.createdAtMs ||
@@ -726,7 +744,16 @@ GroupFoldResult foldControlLog({
           (restoring &&
               (lifecycleTransition == null ||
                   transition.contentBoundaryJson() !=
-                      lifecycleTransition.contentBoundaryJson()))) {
+                      lifecycleTransition.contentBoundaryJson())) ||
+          (deleting && transition.recoveryDeadlineMs == null) ||
+          (restoring &&
+              lifecycleState == SpaceLifecycleState.deleted &&
+              (previousRecovery == null ||
+                  transition.recoveryDeadlineMs != previousRecovery ||
+                  transition.changedAtMs > previousRecovery)) ||
+          (restoring &&
+              lifecycleState == SpaceLifecycleState.archived &&
+              transition.recoveryDeadlineMs != null)) {
         rejected.add(e);
         continue;
       }
@@ -835,6 +862,7 @@ GroupFoldResult foldControlLog({
           ),
         );
       case ControlOp.archiveSpace:
+      case ControlOp.deleteSpace:
       case ControlOp.restoreSpace:
         lifecycleState = e.lifecycleTransition!.state;
         lifecycleTransition = e.lifecycleTransition;

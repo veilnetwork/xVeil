@@ -751,6 +751,48 @@ abstract class AppL10n {
   /// **'History remains readable, but messages, posts, reactions, voice rooms, and settings are read-only.'**
   String get spaceArchivedHint;
 
+  /// No description provided for @spaceDeletedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Community is awaiting deletion'**
+  String get spaceDeletedTitle;
+
+  /// No description provided for @spaceDeletedHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Content is hidden and all activity is stopped. The owner can restore the community until the recovery period ends.'**
+  String get spaceDeletedHint;
+
+  /// No description provided for @spaceDeleteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete community?'**
+  String get spaceDeleteTitle;
+
+  /// No description provided for @spaceDeleteConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'The community will be recoverable for 7 days. After that, encrypted local copies are purged in the background and old snapshots cannot restore them.'**
+  String get spaceDeleteConfirm;
+
+  /// No description provided for @spaceDeleteAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete community'**
+  String get spaceDeleteAction;
+
+  /// No description provided for @spaceDeleteHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Starts a 7-day recovery period before physical cleanup.'**
+  String get spaceDeleteHint;
+
+  /// No description provided for @spaceRecoveryUntil.
+  ///
+  /// In en, this message translates to:
+  /// **'Recovery is available until {date}'**
+  String spaceRecoveryUntil(String date);
+
   /// No description provided for @spaceArchiveTitle.
   ///
   /// In en, this message translates to:

@@ -399,6 +399,20 @@ class GroupLogCompaction {
       reactionsBefore != reactionsAfter;
 }
 
+class SpaceDeletionSweep {
+  const SpaceDeletionSweep({
+    required this.scanned,
+    required this.purged,
+    required this.pending,
+    required this.failed,
+  });
+
+  final int scanned;
+  final int purged;
+  final int pending;
+  final int failed;
+}
+
 /// Result of an idempotent local legacy-group -> signed-Space migration.
 class SpaceManifestMigration {
   const SpaceManifestMigration({
@@ -488,6 +502,8 @@ class GroupService {
   /// Bumped on every persisted mutation (local op/post OR an ingested
   /// snapshot) so open group screens re-fetch. Cheap: the UI reads on change.
   final GroupChangeSignal changes = GroupChangeSignal();
+  Timer? _spaceDeletionMaintenanceTimer;
+  bool _spaceDeletionMaintenanceRunning = false;
 
   /// Our own node id — the composer uses it to align outgoing bubbles.
   NodeId get selfId => _signer.selfId;
@@ -2008,6 +2024,29 @@ class GroupService {
   Future<void> _setIndex(List<String> ids) =>
       _storage.putSetting('groups.index', jsonEncode(ids));
 
+  String _spaceDeletionTombstoneKey(NodeId spaceId) =>
+      'space.deleted:${spaceId.hex}.v1';
+
+  Future<SpaceDeletionTombstone?> deletedSpaceTombstone(NodeId spaceId) async {
+    final raw = await _storage.getSetting(_spaceDeletionTombstoneKey(spaceId));
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final tombstone = SpaceDeletionTombstone.fromJson(jsonDecode(raw));
+      return tombstone?.spaceId == spaceId ? tombstone : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _saveDeletedSpaceTombstone(SpaceDeletionTombstone tombstone) =>
+      _storage.putSetting(
+        _spaceDeletionTombstoneKey(tombstone.spaceId),
+        jsonEncode(tombstone.toJson()),
+      );
+
+  Future<void> _clearDeletedSpaceTombstone(NodeId spaceId) =>
+      _storage.putSetting(_spaceDeletionTombstoneKey(spaceId), '');
+
   String _key(NodeId groupId) => 'group:${groupId.hex}';
 
   /// Read a group's serialized bundle. It lives in the CHUNKED file-store, not a
@@ -2154,6 +2193,145 @@ class GroupService {
       name: 'group',
     );
     changes.value++;
+  }
+
+  /// Start the idempotent lifecycle maintenance loop. GUI and headless hosts
+  /// call this once after constructing the service; tests can invoke
+  /// [purgeDeletedSpaces] directly with a deterministic clock.
+  void startSpaceLifecycleMaintenance() {
+    if (_spaceDeletionMaintenanceTimer != null) return;
+    unawaited(_runSpaceDeletionMaintenance());
+    _spaceDeletionMaintenanceTimer = Timer.periodic(
+      const Duration(hours: 1),
+      (_) => unawaited(_runSpaceDeletionMaintenance()),
+    );
+  }
+
+  Future<void> _runSpaceDeletionMaintenance() async {
+    if (_spaceDeletionMaintenanceRunning) return;
+    _spaceDeletionMaintenanceRunning = true;
+    try {
+      await purgeDeletedSpaces();
+    } finally {
+      _spaceDeletionMaintenanceRunning = false;
+    }
+  }
+
+  /// Physically purge expired recoverable Space bundles in bounded batches.
+  /// A compact anti-resurrection tombstone is committed first, then the heavy
+  /// encrypted blob is deleted and scrubbed. Re-running after any partial
+  /// failure is safe and converges to the same result.
+  Future<SpaceDeletionSweep> purgeDeletedSpaces({
+    int? nowMs,
+    int limit = 16,
+  }) async {
+    if (limit <= 0 || limit > 256) {
+      throw ArgumentError.value(limit, 'limit', 'must be 1..256');
+    }
+    final now = nowMs ?? _now();
+    final ids = await _index();
+    final removedIds = <String>{};
+    var scanned = 0;
+    var purged = 0;
+    var pending = 0;
+    var failed = 0;
+    var budget = limit;
+    for (final hex in ids) {
+      if (budget == 0) {
+        continue;
+      }
+      NodeId spaceId;
+      try {
+        spaceId = NodeId.fromHex(hex);
+      } catch (_) {
+        continue;
+      }
+      final bundle = await load(spaceId);
+      if (bundle == null) {
+        if (await deletedSpaceTombstone(spaceId) != null) removedIds.add(hex);
+        continue;
+      }
+      if (!bundle.manifest.isSpace) {
+        continue;
+      }
+      scanned++;
+      final state = foldControlLog(
+        owner: bundle.manifest.owner,
+        entries: bundle.control,
+        verify: (entry) => _validControlFor(bundle.manifest, entry),
+        initialName: bundle.manifest.name,
+        initialDescription: bundle.manifest.description ?? '',
+      ).state;
+      final transition = state.lifecycleTransition;
+      final deadline = transition?.recoveryDeadlineMs;
+      if (!state.isDeleted || deadline == null || now < deadline) {
+        if (state.isDeleted) pending++;
+        continue;
+      }
+      budget--;
+      try {
+        final didPurge = await _serialized(spaceId, () async {
+          final current = await load(spaceId);
+          if (current == null || !current.manifest.isSpace) return false;
+          final currentState = foldControlLog(
+            owner: current.manifest.owner,
+            entries: current.control,
+            verify: (entry) => _validControlFor(current.manifest, entry),
+            initialName: current.manifest.name,
+            initialDescription: current.manifest.description ?? '',
+          ).state;
+          final currentDeadline =
+              currentState.lifecycleTransition?.recoveryDeadlineMs;
+          final transitionHash = currentState.lifecycleTransitionHash;
+          if (!currentState.isDeleted ||
+              currentDeadline == null ||
+              now < currentDeadline) {
+            return false;
+          }
+          if (transitionHash == null) throw StateError('missing delete hash');
+          await _saveDeletedSpaceTombstone(
+            SpaceDeletionTombstone(
+              spaceId: spaceId,
+              deleteTransitionHash: transitionHash,
+              recoveryDeadlineMs: currentDeadline,
+              purgedAtMs: now,
+            ),
+          );
+          await _storage.deleteStoredFile(_key(spaceId));
+          return true;
+        });
+        if (didPurge) {
+          purged++;
+          removedIds.add(hex);
+          devLog(
+            () =>
+                'xVeil[spaces]: purged deleted Space ${spaceId.short} '
+                'after recovery deadline',
+          );
+        } else {
+          pending++;
+        }
+      } catch (_) {
+        failed++;
+      }
+    }
+    if (removedIds.isNotEmpty) {
+      final latest = await _index();
+      await _setIndex([
+        for (final id in latest)
+          if (!removedIds.contains(id)) id,
+      ]);
+    }
+    if (purged > 0) {
+      await _storage.scrubDeleted();
+      changes.value++;
+    }
+    return SpaceDeletionSweep(
+      scanned: scanned,
+      purged: purged,
+      pending: pending,
+      failed: failed,
+    );
   }
 
   /// The group chats we are STILL A MEMBER of, newest-created last. Spaces are
@@ -2593,6 +2771,7 @@ class GroupService {
       verify: (entry) => _validControlFor(bundle.manifest, entry),
       initialName: bundle.manifest.name,
     ).state;
+    if (state.isDeleted) return const [];
     final protected = await _protectedChannelsOf(bundle, state);
     final channels = [
       for (final channel in state.channels.values)
@@ -3055,6 +3234,7 @@ class GroupService {
             op == ControlOp.revokeModeration ||
             op == ControlOp.setRetention ||
             op == ControlOp.archiveSpace ||
+            op == ControlOp.deleteSpace ||
             op == ControlOp.restoreSpace) &&
         !b.manifest.isSpace) {
       return false;
@@ -3142,7 +3322,9 @@ class GroupService {
       final signed = _signer.signControl(
         ControlEntry(
           version: lifecycleTransition != null
-              ? 10
+              ? lifecycleTransition.recoveryDeadlineMs == null
+                    ? 10
+                    : 11
               : retentionPolicy != null
               ? 9
               : moderationAction != null || moderationRevocation != null
@@ -3645,68 +3827,104 @@ class GroupService {
     return records;
   }
 
-  /// Archive or restore a Space through one owner-signed causal transition.
+  /// Move a Space through one owner-signed causal lifecycle transition.
   /// Group chats deliberately have no equivalent operation: their local
   /// conversation archive remains a per-device preference.
-  Future<bool> setSpaceArchived(NodeId spaceId, bool archived) => _serialized(
-    spaceId,
-    () async {
-      final bundle = await load(spaceId);
-      if (bundle == null || !bundle.manifest.isSpace) return false;
-      final folded = foldControlLog(
-        owner: bundle.manifest.owner,
-        entries: bundle.control,
-        verify: (entry) => _validControlFor(bundle.manifest, entry),
-        initialName: bundle.manifest.name,
-        initialDescription: bundle.manifest.description ?? '',
-      );
-      final state = folded.state;
-      if (state.isArchived == archived) return true;
-      if (state.roleOf(_signer.selfId) != GroupRole.owner) return false;
-      final checkpoint = _controlCheckpoint(folded.accepted);
-      if (checkpoint == null) return false;
-      final previous = state.lifecycleTransition;
-      final messageHeads = archived
-          ? _messageLifecycleHeads(bundle)
-          : previous?.messageHeads;
-      final postHeads = archived
-          ? _postLifecycleHeads(bundle)
-          : previous?.postHeads;
-      final reactionHeads = archived
-          ? _reactionLifecycleHeads(bundle)
-          : previous?.reactionHeads;
-      if (messageHeads == null || postHeads == null || reactionHeads == null) {
-        return false;
-      }
-      final changedAt = _now();
-      final transition = SpaceLifecycleTransition(
-        spaceId: spaceId,
-        state: archived
-            ? SpaceLifecycleState.archived
-            : SpaceLifecycleState.active,
-        previousTransitionHash: state.lifecycleTransitionHash ?? '',
-        controlCheckpoint: checkpoint,
-        contentPolicyVersion: archived
-            ? state.policyVersion
-            : state.policyVersion + 1,
-        messageHeads: messageHeads,
-        postHeads: postHeads,
-        reactionHeads: reactionHeads,
-        changedAtMs: changedAt,
-      );
-      if (!transition.isStructurallyValid) return false;
-      return _addControlOp(
+  Future<bool> _setSpaceLifecycle(
+    NodeId spaceId,
+    SpaceLifecycleState targetState, {
+    Duration recoveryPeriod = kSpaceDeletionRecoveryPeriod,
+  }) => _serialized(spaceId, () async {
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) return false;
+    final folded = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+      initialDescription: bundle.manifest.description ?? '',
+    );
+    final state = folded.state;
+    if (state.lifecycleState == targetState) return true;
+    if (state.roleOf(_signer.selfId) != GroupRole.owner) return false;
+    if ((targetState == SpaceLifecycleState.archived && !state.isActive) ||
+        (targetState == SpaceLifecycleState.active && state.isActive) ||
+        (targetState == SpaceLifecycleState.deleted && state.isDeleted) ||
+        recoveryPeriod <= Duration.zero ||
+        recoveryPeriod > kSpaceDeletionRecoveryMax) {
+      return false;
+    }
+    final checkpoint = _controlCheckpoint(folded.accepted);
+    if (checkpoint == null) return false;
+    final previous = state.lifecycleTransition;
+    final closingFromActive =
+        targetState != SpaceLifecycleState.active && state.isActive;
+    final messageHeads = closingFromActive
+        ? _messageLifecycleHeads(bundle)
+        : previous?.messageHeads;
+    final postHeads = closingFromActive
+        ? _postLifecycleHeads(bundle)
+        : previous?.postHeads;
+    final reactionHeads = closingFromActive
+        ? _reactionLifecycleHeads(bundle)
+        : previous?.reactionHeads;
+    if (messageHeads == null || postHeads == null || reactionHeads == null) {
+      return false;
+    }
+    final changedAt = _now();
+    final recoveryDeadline = switch (targetState) {
+      SpaceLifecycleState.deleted => changedAt + recoveryPeriod.inMilliseconds,
+      SpaceLifecycleState.active when state.isDeleted =>
+        previous?.recoveryDeadlineMs,
+      _ => null,
+    };
+    final transition = SpaceLifecycleTransition(
+      spaceId: spaceId,
+      state: targetState,
+      previousTransitionHash: state.lifecycleTransitionHash ?? '',
+      controlCheckpoint: checkpoint,
+      contentPolicyVersion: targetState != SpaceLifecycleState.active
+          ? state.policyVersion
+          : state.policyVersion + 1,
+      messageHeads: messageHeads,
+      postHeads: postHeads,
+      reactionHeads: reactionHeads,
+      changedAtMs: changedAt,
+      recoveryDeadlineMs: recoveryDeadline,
+    );
+    if (!transition.isStructurallyValid) return false;
+    final operation = switch (targetState) {
+      SpaceLifecycleState.archived => ControlOp.archiveSpace,
+      SpaceLifecycleState.deleted => ControlOp.deleteSpace,
+      SpaceLifecycleState.active => ControlOp.restoreSpace,
+    };
+    return _addControlOp(
+      spaceId,
+      operation,
+      lifecycleTransition: transition,
+      createdAtMs: changedAt,
+    );
+  });
+
+  Future<bool> setSpaceArchived(NodeId spaceId, bool archived) =>
+      _setSpaceLifecycle(
         spaceId,
-        archived ? ControlOp.archiveSpace : ControlOp.restoreSpace,
-        lifecycleTransition: transition,
-        createdAtMs: changedAt,
+        archived ? SpaceLifecycleState.archived : SpaceLifecycleState.active,
       );
-    },
-  );
 
   Future<bool> archiveSpace(NodeId spaceId) => setSpaceArchived(spaceId, true);
 
-  Future<bool> restoreSpace(NodeId spaceId) => setSpaceArchived(spaceId, false);
+  Future<bool> deleteSpace(
+    NodeId spaceId, {
+    Duration recoveryPeriod = kSpaceDeletionRecoveryPeriod,
+  }) => _setSpaceLifecycle(
+    spaceId,
+    SpaceLifecycleState.deleted,
+    recoveryPeriod: recoveryPeriod,
+  );
+
+  Future<bool> restoreSpace(NodeId spaceId) =>
+      _setSpaceLifecycle(spaceId, SpaceLifecycleState.active);
 
   /// Atomically move the single effective owner role to an existing member.
   /// The immutable manifest owner remains the genesis signature root; it is
@@ -4874,7 +5092,7 @@ class GroupService {
       return message.seq < boundary.seq ||
           groupMessageHash(message) == boundary.hash;
     }
-    if (state.isArchived) return false;
+    if (!state.isActive) return false;
     return message.lifecycleGeneration == state.lifecycleTransitionHash &&
         message.policyVersion >= transition.contentPolicyVersion;
   }
@@ -4940,7 +5158,7 @@ class GroupService {
     if (boundary != null && post.seq <= boundary.seq) {
       return post.seq < boundary.seq || _spacePostHash(post) == boundary.hash;
     }
-    if (state.isArchived) return false;
+    if (!state.isActive) return false;
     return post.lifecycleGeneration == state.lifecycleTransitionHash &&
         post.policyVersion >= transition.contentPolicyVersion;
   }
@@ -4963,7 +5181,7 @@ class GroupService {
       return reaction.seq < boundary.seq ||
           _reactionHash(reaction) == boundary.hash;
     }
-    if (state.isArchived) return false;
+    if (!state.isActive) return false;
     return reaction.lifecycleGeneration == state.lifecycleTransitionHash;
   }
 
@@ -5173,6 +5391,7 @@ class GroupService {
         case ControlOp.createChannel:
         case ControlOp.updateChannel:
         case ControlOp.archiveSpace:
+        case ControlOp.deleteSpace:
         case ControlOp.restoreSpace:
         case ControlOp.checkpoint:
           break;
@@ -5238,6 +5457,7 @@ class GroupService {
         case ControlOp.createChannel:
         case ControlOp.updateChannel:
         case ControlOp.archiveSpace:
+        case ControlOp.deleteSpace:
         case ControlOp.restoreSpace:
         case ControlOp.checkpoint:
           break;
@@ -6479,7 +6699,9 @@ class GroupService {
     ).state;
     final readAt = DateTime.now().millisecondsSinceEpoch;
     final reader = state.memberOf(_signer.selfId);
-    if (b.manifest.isSpace && reader == null) return const [];
+    if (b.manifest.isSpace && (reader == null || state.isDeleted)) {
+      return const [];
+    }
     final localCutoff = b.manifest.isSpace && applyLocalRetention
         ? await _localSpaceRetentionCutoff(groupId, readAt)
         : -1;
@@ -6610,6 +6832,7 @@ class GroupService {
       entries: b.control,
       verify: (e) => _validControlFor(b.manifest, e),
     ).state;
+    if (b.manifest.isSpace && state.isDeleted) return false;
     if (!SpaceAcl(
       state,
     ).allows(_signer.selfId, SpacePermission.publishMessages)) {
@@ -6745,6 +6968,7 @@ class GroupService {
       entries: b.control,
       verify: (e) => _validControlFor(b.manifest, e),
     ).state;
+    if (b.manifest.isSpace && state.isDeleted) return const {};
     final materialized = <GroupReaction>[];
     for (final reaction in b.reactions) {
       if (!_validReactionFor(groupId, reaction) ||
@@ -7202,10 +7426,11 @@ class GroupService {
       initialName: b.manifest.name,
       initialDescription: b.manifest.description ?? '',
     ).state;
-    final epochEnvelopes = recipient == null
+    final distributesContent = !lifecycleState.isDeleted;
+    final epochEnvelopes = recipient == null || !distributesContent
         ? const <GroupEpochRecipientEnvelope>[]
         : _epochEnvelopesFor(b, recipient);
-    final channelEpochEnvelopes = recipient == null
+    final channelEpochEnvelopes = recipient == null || !distributesContent
         ? const <GroupEpochRecipientEnvelope>[]
         : _channelEpochEnvelopesFor(b, recipient);
     return jsonEncode({
@@ -7219,6 +7444,7 @@ class GroupService {
       'g': _retainedMessageRows(b.manifest, b.messages)
           .where(
             (message) =>
+                distributesContent &&
                 _validMessageFor(b.manifest.groupId, message) &&
                 _messageWithinLifecycleBoundary(
                   b.manifest,
@@ -7249,6 +7475,7 @@ class GroupService {
         'p': b.posts
             .where(
               (post) =>
+                  distributesContent &&
                   _validPostFor(b.manifest.groupId, post) &&
                   _postWithinLifecycleBoundary(lifecycleState, post) &&
                   (!post.isEncrypted ||
@@ -7263,15 +7490,17 @@ class GroupService {
             .toList(),
       'r': _acceptedReactionsWithinLifecycle(b, lifecycleState)
           .where(
-            (reaction) => !encryptionEstablished
-                ? true
-                : reaction.isEncrypted &&
-                      recipient != null &&
-                      _peerCanDecryptEpoch(
-                        b,
-                        recipient,
-                        reaction.membershipEpoch!,
-                      ),
+            (reaction) =>
+                distributesContent &&
+                (!encryptionEstablished
+                    ? true
+                    : reaction.isEncrypted &&
+                          recipient != null &&
+                          _peerCanDecryptEpoch(
+                            b,
+                            recipient,
+                            reaction.membershipEpoch!,
+                          )),
           )
           .map((r) => r.toJson())
           .toList(),
@@ -7343,6 +7572,28 @@ class GroupService {
         .map(GroupEpochRecipientEnvelope.fromJson)
         .whereType<GroupEpochRecipientEnvelope>()
         .toList();
+
+    final deletionTombstone = await deletedSpaceTombstone(manifest.groupId);
+    if (deletionTombstone != null) {
+      final incomingFold = foldControlLog(
+        owner: manifest.owner,
+        entries: inControl,
+        verify: (entry) => _validControlFor(manifest, entry),
+        initialName: manifest.name,
+        initialDescription: manifest.description ?? '',
+      );
+      final containsPurgedDelete = incomingFold.accepted.any(
+        (entry) =>
+            entry.op == ControlOp.deleteSpace &&
+            controlEntryHash(entry) == deletionTombstone.deleteTransitionHash,
+      );
+      if (!containsPurgedDelete) return false;
+      // Re-delivery of the expired deletion is an idempotent no-op. Only a
+      // complete log with a valid owner restore authored inside the signed
+      // recovery window may materialize the Space again.
+      if (incomingFold.state.isDeleted) return true;
+      if (incomingFold.state.lifecycleTransition == null) return false;
+    }
 
     final existing = await load(manifest.groupId);
     if ((existing == null &&
@@ -7649,6 +7900,9 @@ class GroupService {
       sovereignBundle: existing?.sovereignBundle ?? incomingSovereignBundle,
     );
     await _save(saved);
+    if (deletionTombstone != null) {
+      await _clearDeletedSpaceTombstone(man.groupId);
+    }
     final adoptedDeviceGroup =
         man.name == kDeviceGroupName &&
         await deviceGroupIdHex() == man.groupId.hex;
@@ -8688,6 +8942,8 @@ class GroupService {
   /// Hosts must call this before replacing/closing the active identity so a
   /// stale group feed cannot survive an identity switch.
   Future<void> dispose() async {
+    _spaceDeletionMaintenanceTimer?.cancel();
+    _spaceDeletionMaintenanceTimer = null;
     changes.dispose();
     await _groupCallIncomingCtl.close();
     await _deviceIncomingCtl.close();
