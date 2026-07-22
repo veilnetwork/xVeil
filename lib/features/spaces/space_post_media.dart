@@ -176,19 +176,47 @@ class SpacePostMediaList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (post.media.isEmpty) return const SizedBox.shrink();
+    return MediaObjectList(
+      spaceId: spaceId,
+      author: post.author,
+      media: post.media,
+      compact: compact,
+    );
+  }
+}
+
+/// Renders references from any Space-owned object through the same content
+/// fetch/open/save path. Publications and comments intentionally share this
+/// component so neither can accidentally grow a parallel media store.
+class MediaObjectList extends StatelessWidget {
+  const MediaObjectList({
+    super.key,
+    required this.spaceId,
+    required this.author,
+    required this.media,
+    this.compact = false,
+  });
+
+  final NodeId spaceId;
+  final NodeId author;
+  final List<MediaObject> media;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    if (media.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(top: 10),
       child: Wrap(
         spacing: 8,
         runSpacing: 8,
         children: [
-          for (final media in post.media)
+          for (final item in media)
             _SpacePostMediaTile(
-              key: ValueKey('space-post-media-${media.contentId}'),
+              key: ValueKey('space-post-media-${item.contentId}'),
               spaceId: spaceId,
-              author: post.author,
-              media: media,
+              author: author,
+              media: item,
               compact: compact,
             ),
         ],

@@ -118,6 +118,49 @@ void main() {
     expect(GroupMessage.fromJson({...json, 'channel': _id(9).hex}), isNull);
   });
 
+  test('comment media cleartext uses strict reference wire v2', () {
+    final cleartext = GroupMessageCleartext(
+      body: '',
+      attachment: MediaObject(
+        contentId: 'a' * 64,
+        kind: 'image',
+        name: 'comment.png',
+        mimeType: 'image/png',
+        size: 42,
+        width: 7,
+        height: 6,
+      ),
+    );
+    final encoded = cleartext.encode();
+    final wire = jsonDecode(utf8.decode(encoded)) as Map;
+    expect(wire['v'], 2);
+    expect(wire.containsKey('att'), isFalse);
+    expect((wire['media'] as Map)['cid'], 'a' * 64);
+
+    final decoded = GroupMessageCleartext.decode(encoded);
+    expect(decoded?.body, isEmpty);
+    expect(decoded?.attachment?.name, 'comment.png');
+    expect(decoded?.attachment?.mimeType, 'image/png');
+    expect(decoded?.attachment?.size, 42);
+    expect(decoded?.attachment?.width, 7);
+    expect(decoded?.attachment?.height, 6);
+
+    expect(
+      GroupMessageCleartext.decode(
+        Uint8List.fromList(
+          utf8.encode(
+            jsonEncode({
+              'v': 2,
+              'body': '',
+              'media': {'cid': 'legacy-id', 'kind': 'file'},
+            }),
+          ),
+        ),
+      ),
+      isNull,
+    );
+  });
+
   test(
     'v2 stores only authenticated ciphertext and materializes in RAM',
     () async {
