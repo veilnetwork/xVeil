@@ -20,9 +20,11 @@ extension _MessagingInboundDispatch on MessagingService {
     // ack, or we restarted) is re-acked but not re-processed. Consent-gated:
     // only accepted peers reach the durable handlers below.
     final fid = env.frameId;
-    final deferredDocumentAck =
+    final deferredPersistenceAck =
         env.kind == WireKind.cloudDocument ||
-        env.kind == WireKind.cloudDocumentChunk;
+        env.kind == WireKind.cloudDocumentChunk ||
+        env.kind == WireKind.spaceInvite ||
+        env.kind == WireKind.spaceInviteDecision;
     final deferredGroupCallAck = env.kind == WireKind.groupCallSignal;
     if (fid != null && deferredGroupCallAck && _outbox.hasSeen(fid)) {
       // This exact frame passed membership+AEAD+signature once already. A
@@ -34,7 +36,7 @@ extension _MessagingInboundDispatch on MessagingService {
       if (deferredGroupCallAck) {
         // Authorization is the group frame itself, not ContactStatus. The
         // groupCallSignal switch arm ACKs only after the group layer accepts.
-      } else if (deferredDocumentAck) {
+      } else if (deferredPersistenceAck) {
         if (_outbox.hasSeen(fid)) {
           await _ackFrame(m, fid);
           return;
@@ -367,6 +369,31 @@ extension _MessagingInboundDispatch on MessagingService {
               '(${env.body.length} B)',
         );
         onP2PEndpoints?.call(m.src, env.body);
+        return;
+      case WireKind.spaceInvite:
+        // A proposal, not authorization. Keep it contact-gated and let the
+        // Space layer validate the authenticated sender and explicit target.
+        if (existing?.status != ContactStatus.accepted) return;
+        final inviteHandler = onSpaceInvite;
+        if (inviteHandler == null) return;
+        await inviteHandler(m.src, env.body);
+        if (fid != null) {
+          await _ackFrame(m, fid);
+          _outbox.remember(fid);
+        }
+        return;
+      case WireKind.spaceInviteDecision:
+        // The authenticated invitee explicitly accepted/declined. The Space
+        // layer matches it to a durable outgoing proposal before mutating
+        // membership; an arbitrary decision frame grants nothing by itself.
+        if (existing?.status != ContactStatus.accepted) return;
+        final decisionHandler = onSpaceInviteDecision;
+        if (decisionHandler == null) return;
+        await decisionHandler(m.src, env.body);
+        if (fid != null) {
+          await _ackFrame(m, fid);
+          _outbox.remember(fid);
+        }
         return;
       case WireKind.reaction:
         // The peer reacted to a message in THIS conversation. A side annotation

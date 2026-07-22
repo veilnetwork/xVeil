@@ -346,6 +346,34 @@ class ApiServerController extends Notifier<ApiConfig> {
     return started ? null : 'group call unavailable';
   }
 
+  Future<String?> _startSpaceVoiceSession(
+    String spaceHex,
+    String channelHex,
+    String media,
+  ) async {
+    final groups = ref.read(groupServiceProvider);
+    final service = ref.read(groupCallServiceProvider);
+    if (groups == null || service == null) return 'group call unavailable';
+    final NodeId spaceId;
+    final NodeId channelId;
+    try {
+      spaceId = NodeId.fromHex(spaceHex);
+      channelId = NodeId.fromHex(channelHex);
+    } catch (_) {
+      return 'invalid group';
+    }
+    final started = await service.startCall(
+      spaceId,
+      CallMedia(
+        audio: true,
+        video: media == 'video' || media == 'screen',
+        screen: media == 'screen',
+      ),
+      channelId: channelId,
+    );
+    return started ? null : 'group call unavailable';
+  }
+
   Map<String, dynamic>? _groupCallState() {
     final groups = ref.read(groupServiceProvider);
     final service = ref.read(groupCallServiceProvider);
@@ -355,6 +383,7 @@ class ApiServerController extends Notifier<ApiConfig> {
       ..sort((a, b) => a.nodeId.hex.compareTo(b.nodeId.hex));
     return {
       'groupId': call.groupId.hex,
+      if (call.channelId != null) 'channelId': call.channelId!.hex,
       'callId': call.callId,
       'initiator': call.initiator.hex,
       'epoch': call.membershipEpoch,
@@ -550,7 +579,9 @@ class ApiServerController extends Notifier<ApiConfig> {
       callState: _callState,
       callAction: _callAction,
       groups: groupApi == null ? () async => const [] : groupApi.list,
+      spaces: groupApi == null ? () async => const [] : groupApi.listSpaces,
       createGroup: groupApi == null ? (_) async => null : groupApi.create,
+      createSpace: groupApi?.createSpace,
       groupMessages: groupApi == null
           ? (_, _) async => null
           : groupApi.messages,
@@ -577,9 +608,33 @@ class ApiServerController extends Notifier<ApiConfig> {
       leaveGroup: groupApi == null
           ? (_) async => 'groups unavailable'
           : groupApi.leave,
+      spaceChannels: groupApi?.channels,
+      spacePosts: groupApi?.posts,
+      publishSpacePost: groupApi?.publishPost,
+      editSpacePost: groupApi?.editPost,
+      deleteSpacePost: groupApi?.deletePost,
+      reactToSpacePost: groupApi?.reactToPost,
+      spaceFeed: groupApi?.feed,
+      setSpaceFeedEnabled: groupApi?.setFeedEnabled,
+      spaceInvites: groupApi?.invites,
+      decideSpaceInvite: groupApi?.decideInvite,
+      spaceProfile: groupApi?.profile,
+      updateSpaceDescription: groupApi?.updateDescription,
+      spaceRules: groupApi?.rules,
+      publishSpaceRules: groupApi?.publishRules,
+      acceptSpaceRules: groupApi?.acceptRules,
+      spaceModerationAudit: groupApi?.moderationAudit,
+      moderateSpace: groupApi?.moderate,
+      revokeSpaceModeration: groupApi?.revokeModeration,
+      createSpaceChannel: groupApi?.createChannel,
+      spaceChannelAction: groupApi?.channelAction,
+      setSpaceChannelMembers: groupApi?.setChannelMembers,
+      spaceChannelMessages: groupApi?.channelMessages,
+      sendSpaceChannelMessage: groupApi?.sendChannelMessage,
       groupsAvailable: groupService != null,
       groupMediaAvailable: groupApi != null,
       startGroupCall: _startGroupCall,
+      startSpaceVoiceSession: _startSpaceVoiceSession,
       groupCallState: _groupCallState,
       groupCallAction: _groupCallAction,
       groupCallPosture: _groupCallPosture,

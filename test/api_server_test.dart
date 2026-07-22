@@ -10,6 +10,23 @@ void main() {
   final sent = <(String, String)>[];
   final groupPosts = <(String, String, String?)>[];
   final groupActions = <(String, String, String, String?)>[];
+  final channelPosts = <(String, String, String, String?)>[];
+  final channelCreates = <(String, String, List<String>)>[];
+  final channelAcls = <(String, String, List<String>)>[];
+  final spacePublications = <(String, String, String, String)>[];
+  final spacePostEdits = <(String, String, String, String, String?)>[];
+  final spacePostDeletes = <(String, String)>[];
+  final spacePostReactions = <(String, String, String)>[];
+  final subscriptions = <(String, bool)>[];
+  final spaceInviteDecisions = <(String, bool)>[];
+  final spaceCreates = <(String, String, String)>[];
+  final spaceDescriptions = <(String, String)>[];
+  final spaceRulesPublications = <(String, String, String, int?)>[];
+  final spaceRulesAcceptances = <String>[];
+  final spaceModerationActions = <(String, String, String, String, String)>[];
+  final spaceModerationRevocations = <(String, String, String)>[];
+  final renames = <(String, String)>[];
+  final leaves = <String>[];
   Map<String, dynamic>? call;
   Map<String, dynamic>? groupCall;
   ApiHandler make({
@@ -22,6 +39,23 @@ void main() {
     sent.clear();
     groupPosts.clear();
     groupActions.clear();
+    channelPosts.clear();
+    channelCreates.clear();
+    channelAcls.clear();
+    spacePublications.clear();
+    spacePostEdits.clear();
+    spacePostDeletes.clear();
+    spacePostReactions.clear();
+    subscriptions.clear();
+    spaceInviteDecisions.clear();
+    spaceCreates.clear();
+    spaceDescriptions.clear();
+    spaceRulesPublications.clear();
+    spaceRulesAcceptances.clear();
+    spaceModerationActions.clear();
+    spaceModerationRevocations.clear();
+    renames.clear();
+    leaves.clear();
     groupCall = null;
     return ApiHandler(
       tokens: token.isEmpty
@@ -73,6 +107,10 @@ void main() {
         },
       ],
       createGroup: (name) async => name == 'bad' ? null : 'new-group',
+      createSpace: (name, description, visibility) async {
+        spaceCreates.add((name, description, visibility));
+        return name == 'bad' ? null : 'new-space';
+      },
       groupMessages: (group, limit) async => group == 'missing'
           ? null
           : [
@@ -127,16 +165,217 @@ void main() {
         groupActions.add((group, action, peer, role));
         return null;
       },
-      renameGroup: (group, name) async => group == 'missing'
-          ? 'group not found'
-          : group == 'denied'
-          ? 'operation rejected by group policy'
-          : null,
-      leaveGroup: (group) async => group == 'missing'
-          ? 'group not found'
-          : group == 'denied'
-          ? 'operation rejected by group policy'
-          : null,
+      renameGroup: (group, name) async {
+        if (group == 'missing') return 'group not found';
+        if (group == 'denied') return 'operation rejected by group policy';
+        renames.add((group, name));
+        return null;
+      },
+      leaveGroup: (group) async {
+        if (group == 'missing') return 'group not found';
+        if (group == 'denied') return 'operation rejected by group policy';
+        leaves.add(group);
+        return null;
+      },
+      spaceChannels: (space) async => space == 'missing'
+          ? null
+          : [
+              {
+                'spaceId': space,
+                'channelId': '01' * 32,
+                'kind': 'text',
+                'name': 'general',
+                'default': true,
+              },
+            ],
+      spacePosts: (space, limit, before) async => space == 'missing'
+          ? null
+          : {
+              'posts': [
+                {
+                  'postId': '${'04' * 32}:0',
+                  'spaceId': space,
+                  'title': 'Update',
+                  'body': 'community post',
+                  'type': 'post',
+                },
+              ],
+            },
+      publishSpacePost: (space, title, body, type) async {
+        if (space == 'denied') {
+          return (error: 'post publication rejected', post: null);
+        }
+        spacePublications.add((space, title, body, type));
+        return (
+          error: null,
+          post: <String, dynamic>{
+            'spaceId': space,
+            'title': title,
+            'body': body,
+            'type': type,
+          },
+        );
+      },
+      editSpacePost: (space, postId, title, body, type) async {
+        if (space == 'denied') {
+          return (error: 'post edit rejected', post: null);
+        }
+        spacePostEdits.add((space, postId, title, body, type));
+        return (
+          error: null,
+          post: <String, dynamic>{
+            'spaceId': space,
+            'postId': postId,
+            'title': title,
+            'body': body,
+            'type': type ?? 'post',
+            'edited': true,
+          },
+        );
+      },
+      deleteSpacePost: (space, postId) async {
+        if (space == 'denied') return 'post deletion rejected';
+        spacePostDeletes.add((space, postId));
+        return null;
+      },
+      reactToSpacePost: (space, postId, emoji) async {
+        if (space == 'denied') return 'post reaction rejected';
+        spacePostReactions.add((space, postId, emoji));
+        return null;
+      },
+      spaceFeed: (limit, before) async => {
+        'posts': [
+          {'spaceId': 'aa', 'body': 'community post'},
+        ],
+      },
+      setSpaceFeedEnabled: (space, enabled) async {
+        if (space == 'missing') return 'space not found';
+        subscriptions.add((space, enabled));
+        return null;
+      },
+      spaceInvites: () async => [
+        {
+          'inviteId': 'ab' * 32,
+          'spaceId': 'aa' * 32,
+          'name': 'Invite lab',
+          'accepted': false,
+        },
+      ],
+      decideSpaceInvite: (inviteId, accept) async {
+        spaceInviteDecisions.add((inviteId, accept));
+        return null;
+      },
+      spaceProfile: (space) async => space == 'missing'
+          ? null
+          : {
+              'spaceId': space,
+              'name': 'Field lab',
+              'description': 'Initial summary',
+              'visibility': 'secret',
+              'discoverable': false,
+            },
+      updateSpaceDescription: (space, description) async {
+        if (space == 'denied') return 'operation rejected by space policy';
+        spaceDescriptions.add((space, description));
+        return null;
+      },
+      spaceRules: (space) async => space == 'missing'
+          ? null
+          : {
+              'spaceId': space,
+              'current': {
+                'version': 1,
+                'fullText': 'Respect privacy.',
+                'summary': 'Privacy first.',
+                'author': '01' * 32,
+                'publishedAt': 100,
+                'effectiveAt': 100,
+              },
+              'history': const [],
+              'acceptanceRequired': true,
+            },
+      publishSpaceRules: (space, fullText, summary, effectiveAt) async {
+        if (space == 'denied') return 'operation rejected by space policy';
+        spaceRulesPublications.add((space, fullText, summary, effectiveAt));
+        return null;
+      },
+      acceptSpaceRules: (space) async {
+        if (space == 'missing') return 'space not found';
+        spaceRulesAcceptances.add(space);
+        return null;
+      },
+      spaceModerationAudit: (space) async => space == 'missing'
+          ? null
+          : [
+              {
+                'actionId': '${'01' * 32}:2',
+                'kind': 'warning',
+                'target': '02' * 32,
+                'reason': 'signed warning',
+                'active': true,
+              },
+            ],
+      moderateSpace:
+          (
+            space,
+            kind,
+            target,
+            scope,
+            reason,
+            channel,
+            expiresAt,
+            referenceKind,
+            referenceId,
+            referenceChannel,
+          ) async {
+            if (space == 'denied') {
+              return (error: 'moderation action rejected', actionId: null);
+            }
+            spaceModerationActions.add((space, kind, target, scope, reason));
+            return (error: null, actionId: '${'01' * 32}:2');
+          },
+      revokeSpaceModeration: (space, actionId, reason) async {
+        if (space == 'denied') return 'moderation revocation rejected';
+        spaceModerationRevocations.add((space, actionId, reason));
+        return null;
+      },
+      createSpaceChannel:
+          (
+            space,
+            name,
+            kind,
+            category,
+            position,
+            history,
+            historySince,
+            access,
+            members,
+          ) async {
+            channelCreates.add((space, access, members));
+            return space == 'denied'
+                ? (error: 'channel mutation rejected', channelId: null)
+                : (error: null, channelId: '02' * 32);
+          },
+      spaceChannelAction: (space, channel, action) async =>
+          space == 'denied' ? 'channel mutation rejected' : null,
+      setSpaceChannelMembers: (space, channel, members) async {
+        channelAcls.add((space, channel, members));
+        return space == 'denied' ? 'channel ACL mutation rejected' : null;
+      },
+      spaceChannelMessages: (space, channel, limit) async => space == 'missing'
+          ? null
+          : [
+              {
+                'id': '${'03' * 32}:1',
+                'channelId': channel,
+                'body': 'channel hi',
+              },
+            ],
+      sendSpaceChannelMessage: (space, channel, body, replyTo) async {
+        if (space == 'denied') return 'channel is not writable';
+        channelPosts.add((space, channel, body, replyTo));
+        return null;
+      },
       groupMediaAvailable: groupMediaAvailable,
       startGroupCall: (group, media) async {
         if (group == '00' * 32) return 'group not found';
@@ -150,6 +389,21 @@ void main() {
           'micOn': true,
           'cameraOn': media != 'audio',
           'screenOn': media == 'screen',
+        };
+        return null;
+      },
+      startSpaceVoiceSession: (space, channel, media) async {
+        if (space == '00' * 32 || channel == '00' * 32) {
+          return 'group call unavailable';
+        }
+        if (groupCall != null) return 'group call unavailable';
+        groupCall = {
+          'groupId': space,
+          'channelId': channel,
+          'callId': 'voice-session-1',
+          'status': 'connecting',
+          'media': media,
+          'joined': true,
         };
         return null;
       },
@@ -290,7 +544,28 @@ void main() {
         ),
         ('/v1/groups/name', {'group': 'g', 'name': 'G'}),
         ('/v1/groups/leave', {'group': 'g'}),
+        ('/v1/spaces', {'name': 'S'}),
+        ('/v1/spaces/profile', {'space': 's', 'description': 'new'}),
+        ('/v1/spaces/posts', {'space': 's', 'body': 'x'}),
+        ('/v1/spaces/subscription', {'space': 's', 'enabled': false}),
+        ('/v1/spaces/invites', {'inviteId': 'ab' * 32, 'action': 'accept'}),
+        (
+          '/v1/spaces/channels',
+          {'space': 's', 'name': 'general', 'kind': 'text'},
+        ),
+        (
+          '/v1/spaces/channels/action',
+          {'space': 's', 'channel': 'c', 'action': 'archive'},
+        ),
+        (
+          '/v1/spaces/channels/messages',
+          {'space': 's', 'channel': 'c', 'body': 'x'},
+        ),
         ('/v1/groups/calls', {'group': 'aa' * 32, 'media': 'video'}),
+        (
+          '/v1/spaces/voice-sessions',
+          {'space': 'aa' * 32, 'channel': 'bb' * 32, 'media': 'audio'},
+        ),
         ('/v1/groups/calls/join', {}),
         ('/v1/groups/calls/decline', {}),
         ('/v1/groups/calls/leave', {}),
@@ -305,6 +580,24 @@ void main() {
         );
         expect(res.status, 403, reason: '${w.$1} must be read-only-refused');
       }
+      final postId = '${'04' * 32}:0';
+      expect(
+        (await h.handle(
+          'PATCH',
+          u('/v1/spaces/posts'),
+          'Bearer secret-token',
+          body: {'space': 's', 'postId': postId},
+        )).status,
+        403,
+      );
+      expect(
+        (await h.handle(
+          'DELETE',
+          u('/v1/spaces/posts?space=s&postId=$postId'),
+          'Bearer secret-token',
+        )).status,
+        403,
+      );
     },
   );
 
@@ -549,6 +842,535 @@ void main() {
       )).status,
       400,
     );
+  });
+
+  test(
+    'spaces expose only nested channels and channel-scoped messages',
+    () async {
+      final h = make();
+      final auth = 'Bearer secret-token';
+
+      final listed = await h.handle('GET', u('/v1/spaces'), auth);
+      expect(listed.status, 200);
+      expect(((listed.body as Map)['spaces'] as List).single['name'], 'Family');
+      final created = await h.handle(
+        'POST',
+        u('/v1/spaces'),
+        auth,
+        body: {
+          'name': '  Veil  ',
+          'description': '  Protocol builders  ',
+          'visibility': 'secret',
+        },
+      );
+      expect(created.status, 200);
+      expect((created.body as Map)['spaceId'], 'new-space');
+      expect(spaceCreates.single, ('Veil', 'Protocol builders', 'secret'));
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces'),
+          auth,
+          body: {'name': 'Bad visibility', 'visibility': 'world'},
+        )).status,
+        400,
+      );
+
+      final profile = await h.handle(
+        'GET',
+        u('/v1/spaces/profile?space=aa'),
+        auth,
+      );
+      expect(profile.status, 200);
+      expect((profile.body as Map)['description'], 'Initial summary');
+      expect((profile.body as Map)['visibility'], 'secret');
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/profile'),
+          auth,
+          body: {'space': 'aa', 'description': '  Updated summary  '},
+        )).status,
+        200,
+      );
+      expect(spaceDescriptions.single, ('aa', 'Updated summary'));
+
+      final rules = await h.handle('GET', u('/v1/spaces/rules?space=aa'), auth);
+      expect(rules.status, 200);
+      expect(((rules.body as Map)['current'] as Map)['version'], 1);
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/rules'),
+          auth,
+          body: {
+            'space': 'aa',
+            'fullText': '  Verify before sharing.  ',
+            'summary': '  Verify.  ',
+            'effectiveAt': 1234,
+          },
+        )).status,
+        200,
+      );
+      expect(spaceRulesPublications.single, (
+        'aa',
+        'Verify before sharing.',
+        'Verify.',
+        1234,
+      ));
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/rules/accept'),
+          auth,
+          body: {'space': 'aa'},
+        )).status,
+        200,
+      );
+      expect(spaceRulesAcceptances.single, 'aa');
+
+      final moderation = await h.handle(
+        'GET',
+        u('/v1/spaces/moderation?space=aa'),
+        auth,
+      );
+      expect(moderation.status, 200);
+      expect(((moderation.body as Map)['actions'] as List), hasLength(1));
+      final actionId = '${'01' * 32}:2';
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/moderation'),
+          auth,
+          body: {
+            'space': 'aa',
+            'kind': 'warning',
+            'target': '02' * 32,
+            'scope': 'space',
+            'reason': '  signed warning  ',
+          },
+        )).status,
+        200,
+      );
+      expect(spaceModerationActions.single, (
+        'aa',
+        'warning',
+        '02' * 32,
+        'space',
+        'signed warning',
+      ));
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/moderation/revoke'),
+          auth,
+          body: {'space': 'aa', 'actionId': actionId, 'reason': '  reviewed  '},
+        )).status,
+        200,
+      );
+      expect(spaceModerationRevocations.single, ('aa', actionId, 'reviewed'));
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/moderation'),
+          auth,
+          body: {
+            'space': 'aa',
+            'kind': 'warning',
+            'target': '02' * 32,
+            'reason': '   ',
+          },
+        )).status,
+        400,
+      );
+
+      final invites = await h.handle('GET', u('/v1/spaces/invites'), auth);
+      expect(invites.status, 200);
+      expect(
+        (((invites.body as Map)['invites'] as List).single as Map)['name'],
+        'Invite lab',
+      );
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/invites'),
+          auth,
+          body: {'inviteId': 'ab' * 32, 'action': 'accept'},
+        )).status,
+        200,
+      );
+      expect(spaceInviteDecisions.single, ('ab' * 32, true));
+
+      expect(
+        (await h.handle('GET', u('/v1/spaces/channels'), auth)).status,
+        400,
+      );
+      final channels = await h.handle(
+        'GET',
+        u('/v1/spaces/channels?space=aa'),
+        auth,
+      );
+      expect(channels.status, 200);
+      expect(
+        ((channels.body as Map)['channels'] as List).single['name'],
+        'general',
+      );
+      expect(
+        (await h.handle(
+          'GET',
+          u('/v1/spaces/channels?space=missing'),
+          auth,
+        )).status,
+        404,
+      );
+
+      final channel = await h.handle(
+        'POST',
+        u('/v1/spaces/channels'),
+        auth,
+        body: {
+          'space': 'aa',
+          'name': 'protocol',
+          'kind': 'text',
+          'position': 2,
+          'history': 'full',
+          'access': 'restricted',
+          'members': ['03' * 32],
+        },
+      );
+      expect(channel.status, 200);
+      expect((channel.body as Map)['channelId'], '02' * 32);
+      expect(channelCreates.single.$1, 'aa');
+      expect(channelCreates.single.$2, 'restricted');
+      expect(channelCreates.single.$3, orderedEquals(['03' * 32]));
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/channels'),
+          auth,
+          body: {'space': 'aa', 'name': '', 'kind': 'text'},
+        )).status,
+        400,
+      );
+
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/channels/members'),
+          auth,
+          body: {
+            'space': 'aa',
+            'channel': 'cc',
+            'members': ['03' * 32],
+          },
+        )).status,
+        200,
+      );
+      expect(channelAcls.single.$1, 'aa');
+      expect(channelAcls.single.$2, 'cc');
+      expect(channelAcls.single.$3, orderedEquals(['03' * 32]));
+
+      final roster = await h.handle(
+        'GET',
+        u('/v1/spaces/members?space=aa'),
+        auth,
+      );
+      expect(roster.status, 200);
+      expect((roster.body as Map)['spaceId'], 'aa');
+      expect((roster.body as Map).containsKey('groupId'), isFalse);
+      expect(((roster.body as Map)['members'] as List).single['role'], 'owner');
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/members'),
+          auth,
+          body: {
+            'space': 'aa',
+            'action': 'invite',
+            'peer': '04' * 32,
+            'role': 'member',
+          },
+        )).status,
+        200,
+      );
+      expect(groupActions.single, ('aa', 'invite', '04' * 32, 'member'));
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/members'),
+          auth,
+          body: {'space': 'aa', 'action': 'transfer_owner', 'peer': '04' * 32},
+        )).status,
+        200,
+      );
+      expect(groupActions.last, ('aa', 'transfer_owner', '04' * 32, null));
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/groups/members'),
+          auth,
+          body: {'group': 'aa', 'action': 'transfer_owner', 'peer': '04' * 32},
+        )).status,
+        400,
+        reason: 'ownership transfer is Space-native, not a new legacy feature',
+      );
+      final denied = await h.handle(
+        'POST',
+        u('/v1/spaces/members'),
+        auth,
+        body: {'space': 'denied', 'action': 'remove', 'peer': '04' * 32},
+      );
+      expect(denied.status, 403);
+      expect(
+        (denied.body as Map)['error'],
+        'operation rejected by space policy',
+      );
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/name'),
+          auth,
+          body: {'space': 'aa', 'name': '  Renamed community  '},
+        )).status,
+        200,
+      );
+      expect(renames.single, ('aa', 'Renamed community'));
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/leave'),
+          auth,
+          body: {'space': 'aa'},
+        )).status,
+        200,
+      );
+      expect(leaves.single, 'aa');
+
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/channels/action'),
+          auth,
+          body: {'space': 'aa', 'channel': 'cc', 'action': 'archive'},
+        )).status,
+        200,
+      );
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/channels/action'),
+          auth,
+          body: {'space': 'aa', 'channel': 'cc', 'action': 'delete'},
+        )).status,
+        400,
+      );
+
+      final messages = await h.handle(
+        'GET',
+        u('/v1/spaces/channels/messages?space=aa&channel=cc&limit=10'),
+        auth,
+      );
+      expect(messages.status, 200);
+      expect(
+        ((messages.body as Map)['messages'] as List).single['channelId'],
+        'cc',
+      );
+      final reply = '${'ab' * 32}:1';
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/channels/messages'),
+          auth,
+          body: {
+            'space': 'aa',
+            'channel': 'cc',
+            'body': 'hello',
+            'replyTo': reply,
+          },
+        )).status,
+        200,
+      );
+      expect(channelPosts.single, ('aa', 'cc', 'hello', reply));
+    },
+  );
+
+  test(
+    'Space publications, feed and local subscription validate/dispatch',
+    () async {
+      final h = make();
+      const auth = 'Bearer secret-token';
+      final posts = await h.handle(
+        'GET',
+        u('/v1/spaces/posts?space=aa&limit=10'),
+        auth,
+      );
+      expect(posts.status, 200);
+      expect(
+        ((posts.body as Map)['posts'] as List).single['body'],
+        'community post',
+      );
+      expect(
+        (await h.handle(
+          'GET',
+          u('/v1/spaces/posts?space=missing'),
+          auth,
+        )).status,
+        404,
+      );
+      expect(
+        (await h.handle(
+          'GET',
+          u('/v1/spaces/posts?space=aa&before=broken'),
+          auth,
+        )).status,
+        400,
+      );
+
+      final published = await h.handle(
+        'POST',
+        u('/v1/spaces/posts'),
+        auth,
+        body: {
+          'space': 'aa',
+          'title': 'Title',
+          'body': 'Body',
+          'type': 'article',
+        },
+      );
+      expect(published.status, 200);
+      expect(spacePublications.single, ('aa', 'Title', 'Body', 'article'));
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/posts'),
+          auth,
+          body: {'space': 'aa', 'body': '', 'type': 'unknown'},
+        )).status,
+        400,
+      );
+
+      final postId = '${'04' * 32}:0';
+      final edited = await h.handle(
+        'PATCH',
+        u('/v1/spaces/posts'),
+        auth,
+        body: {
+          'space': 'aa',
+          'postId': postId,
+          'title': 'Corrected',
+          'body': 'Revised',
+          'type': 'post',
+        },
+      );
+      expect(edited.status, 200);
+      expect(spacePostEdits.single, (
+        'aa',
+        postId,
+        'Corrected',
+        'Revised',
+        'post',
+      ));
+      expect(
+        (await h.handle(
+          'PATCH',
+          u('/v1/spaces/posts'),
+          auth,
+          body: {'space': 'aa', 'postId': 'bad'},
+        )).status,
+        400,
+      );
+      expect(
+        (await h.handle(
+          'DELETE',
+          u('/v1/spaces/posts?space=aa&postId=$postId'),
+          auth,
+        )).status,
+        200,
+      );
+      expect(spacePostDeletes.single, ('aa', postId));
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/posts/reactions'),
+          auth,
+          body: {'space': 'aa', 'postId': postId, 'emoji': '🔥'},
+        )).status,
+        200,
+      );
+      expect(spacePostReactions.single, ('aa', postId, '🔥'));
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/posts/reactions'),
+          auth,
+          body: {'space': 'aa', 'postId': 'bad', 'emoji': '🔥'},
+        )).status,
+        400,
+      );
+      expect(
+        (await h.handle(
+          'DELETE',
+          u('/v1/spaces/posts?space=aa&postId=bad'),
+          auth,
+        )).status,
+        400,
+      );
+
+      final feed = await h.handle('GET', u('/v1/feed?limit=20'), auth);
+      expect(feed.status, 200);
+      expect(((feed.body as Map)['posts'] as List), hasLength(1));
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/subscription'),
+          auth,
+          body: {'space': 'aa', 'enabled': false},
+        )).status,
+        200,
+      );
+      expect(subscriptions.single, ('aa', false));
+    },
+  );
+
+  test('loopback API parses PATCH JSON for signed Space post edits', () async {
+    final server = ApiServer(make(), const Stream.empty());
+    final port = await server.start(0);
+    final client = HttpClient();
+    try {
+      final postId = '${'04' * 32}:0';
+      final request = await client.openUrl(
+        'PATCH',
+        Uri.parse('http://127.0.0.1:$port/v1/spaces/posts'),
+      );
+      request.headers.set(
+        HttpHeaders.authorizationHeader,
+        'Bearer secret-token',
+      );
+      request.headers.contentType = ContentType.json;
+      request.write(
+        jsonEncode({
+          'space': 'aa',
+          'postId': postId,
+          'title': 'Socket edit',
+          'body': 'Parsed body',
+        }),
+      );
+      final response = await request.close();
+      final decoded =
+          jsonDecode(await utf8.decoder.bind(response).join()) as Map;
+      expect(response.statusCode, 200);
+      expect(decoded['ok'], isTrue);
+      expect(spacePostEdits.single, (
+        'aa',
+        postId,
+        'Socket edit',
+        'Parsed body',
+        null,
+      ));
+    } finally {
+      client.close(force: true);
+      await server.stop();
+    }
   });
 
   test(
@@ -1047,6 +1869,37 @@ void main() {
     },
   );
 
+  test('Space voice-session route requires both signed scope ids', () async {
+    final h = make();
+    final space = 'aa' * 32;
+    final channel = 'bb' * 32;
+    for (final body in <Map<String, dynamic>>[
+      {'space': 'bad', 'channel': channel},
+      {'space': space, 'channel': 'bad'},
+      {'space': space, 'channel': channel, 'media': 'hologram'},
+    ]) {
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/voice-sessions'),
+          'Bearer secret-token',
+          body: body,
+        )).status,
+        400,
+      );
+    }
+
+    final started = await h.handle(
+      'POST',
+      u('/v1/spaces/voice-sessions'),
+      'Bearer secret-token',
+      body: {'space': space, 'channel': channel},
+    );
+    expect(started.status, 200);
+    expect((started.body as Map)['call'], containsPair('groupId', space));
+    expect((started.body as Map)['call'], containsPair('channelId', channel));
+  });
+
   test(
     'a host without group-call media reports group-call routes as 501',
     () async {
@@ -1237,6 +2090,19 @@ void main() {
           '/contacts/accept',
           '/contacts/block',
           '/messages',
+          '/spaces',
+          '/spaces/profile',
+          '/spaces/rules',
+          '/spaces/rules/accept',
+          '/spaces/moderation',
+          '/spaces/moderation/revoke',
+          '/spaces/posts',
+          '/spaces/posts/reactions',
+          '/spaces/subscription',
+          '/feed',
+          '/spaces/channels',
+          '/spaces/channels/action',
+          '/spaces/channels/messages',
           '/groups',
           '/groups/messages',
           '/groups/files',
@@ -1257,6 +2123,14 @@ void main() {
           '/calls/hangup',
         ]),
       );
+      final pathMap = spec['paths'] as Map;
+      expect((pathMap['/contacts/accept'] as Map).keys, {'post'});
+      expect((pathMap['/spaces/posts'] as Map).keys.toSet(), {
+        'get',
+        'post',
+        'patch',
+        'delete',
+      });
       // The security scheme is declared so generated clients wire the token.
       expect(
         ((spec['components'] as Map)['securitySchemes'] as Map)['bearerAuth'],

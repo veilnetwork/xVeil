@@ -152,6 +152,12 @@ class AppL10nRu extends AppL10n {
   String get navChats => 'Чаты';
 
   @override
+  String get navCommunities => 'Сообщества';
+
+  @override
+  String get navFeed => 'Лента';
+
+  @override
   String get navNetwork => 'Сеть';
 
   @override
@@ -183,11 +189,271 @@ class AppL10nRu extends AppL10n {
   String get callOutcomeFailed => 'Не удался';
 
   @override
-  String get channelsEmpty => 'Каналов пока нет';
+  String get spaceCreateTitle => 'Новое сообщество';
 
   @override
-  String get channelsEmptyHint =>
-      'Каналы — подписанные ленты владельца — появятся в будущем обновлении. Групповые чаты теперь живут во вкладке «Чаты».';
+  String get spaceCreateAction => 'Создать';
+
+  @override
+  String get spaceNameHint => 'Название сообщества';
+
+  @override
+  String get spaceDescriptionLabel => 'Описание';
+
+  @override
+  String get spaceDescriptionHint => 'Для чего создано это сообщество';
+
+  @override
+  String get spaceDescriptionEditTitle => 'Изменить описание';
+
+  @override
+  String get spaceDescriptionSave => 'Сохранить описание';
+
+  @override
+  String get spaceVisibilityLabel => 'Видимость';
+
+  @override
+  String get spaceVisibilityPublic => 'Публичное';
+
+  @override
+  String get spaceVisibilityPrivate => 'Приватное';
+
+  @override
+  String get spaceVisibilitySecret => 'Секретное';
+
+  @override
+  String get spaceVisibilityPublicHint =>
+      'Публикациями можно делиться публично. Автоматический поиск не включён до готовности протокола распространителей.';
+
+  @override
+  String get spaceVisibilityPrivateHint =>
+      'Вступление — по приглашению, содержимое шифруется для текущих участников.';
+
+  @override
+  String get spaceVisibilitySecretHint =>
+      'В приглашениях скрывается название; содержимое зашифровано, а сообщество никогда не появляется в поиске.';
+
+  @override
+  String get spaceEmpty => 'Пока нет сообществ';
+
+  @override
+  String get spaceOperationFailed =>
+      'Не удалось изменить сообщество. Проверьте сеть и повторите попытку.';
+
+  @override
+  String get spaceChannelsEmpty => 'В сообществе пока нет каналов';
+
+  @override
+  String get spaceChannelCreateTitle => 'Новый канал';
+
+  @override
+  String get spaceChannelNameHint => 'Название канала';
+
+  @override
+  String get spaceChannelText => 'Текстовый канал';
+
+  @override
+  String get spaceChannelVoice => 'Голосовой канал';
+
+  @override
+  String get spaceChannelCategory => 'Категория';
+
+  @override
+  String get spaceChannelAccess => 'Доступ';
+
+  @override
+  String get spaceChannelAccessSpace => 'Все участники сообщества';
+
+  @override
+  String get spaceChannelAccessRestricted =>
+      'Закрытый · сначала только администраторы';
+
+  @override
+  String get spaceChannelAccessSecret =>
+      'Секретный · сначала только администраторы';
+
+  @override
+  String get spaceVoiceStartFailed =>
+      'Не удалось начать голосовую сессию или присоединиться к ней.';
+
+  @override
+  String get spacePostsTitle => 'Публикации';
+
+  @override
+  String get spacePostsEmpty => 'Публикаций пока нет';
+
+  @override
+  String get spacePostCreateTitle => 'Новая публикация';
+
+  @override
+  String get spacePostTitleHint => 'Заголовок (необязательно)';
+
+  @override
+  String get spacePostBodyHint => 'Поделитесь новостью с сообществом…';
+
+  @override
+  String get spacePostPublish => 'Опубликовать';
+
+  @override
+  String get spacePostEdit => 'Редактировать публикацию';
+
+  @override
+  String get spacePostEdited => 'Изменено';
+
+  @override
+  String get spacePostDelete => 'Удалить публикацию';
+
+  @override
+  String get spacePostDeleteTitle => 'Удалить эту публикацию?';
+
+  @override
+  String get spacePostDeleteBody =>
+      'Подписанный tombstone уберёт её из ленты сообщества на всех синхронизированных устройствах участников. Отменить это действие нельзя.';
+
+  @override
+  String get spacePostTypePost => 'Публикация';
+
+  @override
+  String get spacePostTypeArticle => 'Статья';
+
+  @override
+  String get spaceFeedEnable => 'Показывать сообщество в ленте';
+
+  @override
+  String get spaceFeedDisable => 'Скрыть сообщество из ленты';
+
+  @override
+  String get spaceSettingsTitle => 'Участники и настройки';
+
+  @override
+  String get spaceMembersTooltip => 'Участники и настройки';
+
+  @override
+  String spaceMembers(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count участников',
+      few: '$count участника',
+      one: '1 участник',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get spaceMemberAdd => 'Пригласить участника';
+
+  @override
+  String get spaceNoContactsToAdd => 'Все принятые контакты уже участвуют';
+
+  @override
+  String get spaceInviteSent =>
+      'Приглашение отправлено. Состав и ключи останутся закрыты до принятия.';
+
+  @override
+  String get spaceInvitesTitle => 'Приглашения';
+
+  @override
+  String get spaceSecretInviteTitle => 'Секретное сообщество';
+
+  @override
+  String spaceInviteFrom(String peer) {
+    return 'От $peer';
+  }
+
+  @override
+  String get spaceInviteAccept => 'Принять';
+
+  @override
+  String get spaceInviteDecline => 'Отклонить';
+
+  @override
+  String get spaceInviteJoining => 'Принято · ожидается проверенное членство';
+
+  @override
+  String get spaceRoleLabel => 'Роль в сообществе';
+
+  @override
+  String get spaceRoleOwner => 'Владелец';
+
+  @override
+  String get spaceRoleAdmin => 'Администратор';
+
+  @override
+  String get spaceRoleMember => 'Участник';
+
+  @override
+  String get spaceMemberMuted => 'Публикации запрещены до снятия ограничения';
+
+  @override
+  String get spaceMemberMute => 'Запретить публикации';
+
+  @override
+  String get spaceMemberUnmute => 'Разрешить публикации';
+
+  @override
+  String get spaceMemberPromote => 'Сделать администратором';
+
+  @override
+  String get spaceMemberDemote => 'Сделать участником';
+
+  @override
+  String get spaceMemberRemove => 'Исключить из сообщества';
+
+  @override
+  String spaceMemberRemoveConfirm(String member) {
+    return 'Исключить $member и сменить ключи доступа?';
+  }
+
+  @override
+  String get spaceMemberTransferOwnership => 'Передать владение';
+
+  @override
+  String spaceMemberTransferOwnershipConfirm(String member) {
+    return 'Передать владение пользователю $member? Вы станете администратором, и вернуть владение сможет только новый владелец.';
+  }
+
+  @override
+  String get spaceRenameTitle => 'Переименовать сообщество';
+
+  @override
+  String get spaceRenameAction => 'Переименовать';
+
+  @override
+  String get spaceRenameDenied => 'Нет прав переименовать это сообщество';
+
+  @override
+  String get spaceLeave => 'Выйти из сообщества';
+
+  @override
+  String get spaceLeaveConfirm =>
+      'Вы потеряете доступ к каналам и публикациям. Для оставшихся участников ключи защищённых данных будут сменены.';
+
+  @override
+  String get spaceOwnerLeaveHint =>
+      'Перед выходом из сообщества передайте владение другому участнику.';
+
+  @override
+  String get spaceReplicationTitle => 'Доступность в P2P';
+
+  @override
+  String spaceReplicationNeighbors(int count) {
+    return 'Распространять через $count ближайших участников';
+  }
+
+  @override
+  String get spaceReplicationHint =>
+      'Больше распространителей повышает доступность без владельца и надёжность восстановления, но расходует больше трафика этого устройства.';
+
+  @override
+  String get spaceYou => 'Вы';
+
+  @override
+  String get feedEmpty => 'Лента пока пуста';
+
+  @override
+  String get feedEmptyHint =>
+      'Публикации включённых сообществ появятся здесь в хронологическом порядке.';
 
   @override
   String get chatsEmpty => 'Пока нет переписок';
@@ -276,7 +542,7 @@ class AppL10nRu extends AppL10n {
   String get stickerImport => 'Импорт из фото';
 
   @override
-  String get groupCreateTitle => 'Новая группа';
+  String get groupCreateTitle => 'Новый групповой чат';
 
   @override
   String get groupCreateAction => 'Создать';
@@ -292,10 +558,10 @@ class AppL10nRu extends AppL10n {
   String get groupEncryptionPending => 'Ожидается обновление шифрования';
 
   @override
-  String get groupNameHint => 'Название группы';
+  String get groupNameHint => 'Название группового чата';
 
   @override
-  String get groupEmpty => 'Пока нет групп';
+  String get groupEmpty => 'Пока нет групповых чатов';
 
   @override
   String get groupNoMessages => 'Пока нет сообщений';
@@ -532,9 +798,6 @@ class AppL10nRu extends AppL10n {
   @override
   String get settingsCloseToTrayHint =>
       'Закрытие окна прячет его в системный трей и не выключает приложение — сообщения и уведомления продолжают приходить. Выключено — закрытие завершает работу.';
-
-  @override
-  String get navChannels => 'Каналы';
 
   @override
   String get navStorage => 'Хранилище';
@@ -3443,4 +3706,135 @@ class AppL10nRu extends AppL10n {
   @override
   String get cloudCollectionInvalid =>
       'Подписанное, но некорректное изменение оставлено неактивным.';
+
+  @override
+  String get spaceRulesTitle => 'Правила сообщества';
+
+  @override
+  String get spaceRulesEmpty => 'Сообщество пока не опубликовало правила.';
+
+  @override
+  String get spaceRulesPublish => 'Опубликовать правила';
+
+  @override
+  String spaceRulesPublishVersion(int version) {
+    return 'Опубликовать правила, версия $version';
+  }
+
+  @override
+  String get spaceRulesFullText => 'Полный текст правил';
+
+  @override
+  String get spaceRulesSummary => 'Краткая сводка';
+
+  @override
+  String get spaceRulesEffectiveDate => 'Дата вступления в силу';
+
+  @override
+  String spaceRulesEffective(String date) {
+    return 'Вступают в силу $date';
+  }
+
+  @override
+  String spaceRulesVersion(int version) {
+    return 'Версия $version';
+  }
+
+  @override
+  String get spaceRulesAccept => 'Принять правила';
+
+  @override
+  String get spaceRulesAccepted => 'Правила приняты';
+
+  @override
+  String get spaceRulesAcceptanceRequired =>
+      'Ознакомьтесь и примите актуальные правила';
+
+  @override
+  String get spaceRulesHistory => 'Предыдущие версии';
+
+  @override
+  String get spaceModerationTitle => 'Модерация';
+
+  @override
+  String get spaceModerationEmpty => 'Действий модерации пока нет.';
+
+  @override
+  String get spaceModerationAdd => 'Новое действие модерации';
+
+  @override
+  String get spaceModerationTarget => 'Участник';
+
+  @override
+  String get spaceModerationAction => 'Действие';
+
+  @override
+  String get spaceModerationReason => 'Причина';
+
+  @override
+  String get spaceModerationDuration => 'Срок';
+
+  @override
+  String get spaceModerationNoExpiry => 'До отмены';
+
+  @override
+  String get spaceModerationOneHour => '1 час';
+
+  @override
+  String get spaceModerationOneDay => '24 часа';
+
+  @override
+  String get spaceModerationOneWeek => '7 дней';
+
+  @override
+  String get spaceModerationActive => 'Действует';
+
+  @override
+  String get spaceModerationExpired => 'Срок истёк';
+
+  @override
+  String get spaceModerationRevoked => 'Отменено';
+
+  @override
+  String get spaceModerationRevoke => 'Снять ограничение';
+
+  @override
+  String get spaceModerationRevokeReason => 'Причина снятия';
+
+  @override
+  String get spaceModerationWarning => 'Предупреждение';
+
+  @override
+  String get spaceModerationDeleteMessage => 'Удалить сообщение';
+
+  @override
+  String get spaceModerationDeletePost => 'Удалить публикацию';
+
+  @override
+  String get spaceModerationRestrictPublishing =>
+      'Временно запретить публикации';
+
+  @override
+  String get spaceModerationRestrictMessages => 'Запретить отправку сообщений';
+
+  @override
+  String get spaceModerationRestrictVoice =>
+      'Запретить вход в голосовые каналы';
+
+  @override
+  String get spaceModerationMute => 'Отключить сообщения и голос';
+
+  @override
+  String get spaceModerationTimeout => 'Тайм-аут';
+
+  @override
+  String get spaceModerationTemporaryBan => 'Временная блокировка';
+
+  @override
+  String get spaceModerationPermanentBan => 'Бессрочная блокировка';
+
+  @override
+  String spaceModerationUntil(String date) {
+    return 'До $date';
+  }
 }

@@ -2825,6 +2825,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'ok': true,
       'changed': result.changed,
       'messages': [result.messagesBefore, result.messagesAfter],
+      'posts': [result.postsBefore, result.postsAfter],
       'control': [result.controlBefore, result.controlAfter],
       'reactions': [result.reactionsBefore, result.reactionsAfter],
     });
@@ -3214,6 +3215,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final other = NodeId(Uint8List.fromList(List.filled(32, 0xAB)));
     // Owner adds `other` as a member.
     final unsigned = ControlEntry(
+      version: 2,
       author: me,
       seq: 0,
       prevHash: '',
@@ -3229,6 +3231,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
 
     // Tamper: change the target AFTER signing → signature must not verify.
     final tampered = ControlEntry(
+      version: signed.version,
       author: signed.author,
       seq: signed.seq,
       prevHash: signed.prevHash,
@@ -5020,10 +5023,16 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       }, status: 409);
     }
     final NodeId groupId;
+    final NodeId? channelId;
     try {
       groupId = NodeId.fromHex(groupHex);
+      final channelHex = req.uri.queryParameters['channel'];
+      channelId = channelHex == null ? null : NodeId.fromHex(channelHex);
     } catch (_) {
-      return _json(req, {'ok': false, 'error': 'bad group'}, status: 400);
+      return _json(req, {
+        'ok': false,
+        'error': 'bad group/channel',
+      }, status: 400);
     }
     final media = req.uri.queryParameters['media']?.trim() ?? 'audio';
     final ok = await service.startCall(
@@ -5033,6 +5042,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         video: media == 'video' || media == 'screen',
         screen: media == 'screen',
       ),
+      channelId: channelId,
     );
     await _groupCallState(req, actionOk: ok);
   }
@@ -5060,6 +5070,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           ? null
           : {
               'groupId': call.groupId.hex,
+              if (call.channelId != null) 'channelId': call.channelId!.hex,
               'callId': call.callId,
               'initiator': call.initiator.hex,
               'epoch': call.membershipEpoch,

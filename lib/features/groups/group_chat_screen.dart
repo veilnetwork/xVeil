@@ -10,6 +10,7 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/ids.dart';
 import '../../data/serve_source.dart';
@@ -20,6 +21,8 @@ import '../../domain/group_message.dart';
 import '../../domain/group_policy.dart';
 import '../../domain/group_reaction.dart';
 import '../../domain/inline_custom_emoji.dart';
+import '../../domain/space_channel.dart';
+import '../../domain/space_moderation.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/group_call_service.dart';
@@ -147,8 +150,13 @@ class _GroupCallBannerState extends ConsumerState<_GroupCallBanner> {
 }
 
 class GroupChatScreen extends ConsumerStatefulWidget {
-  const GroupChatScreen({super.key, required this.groupIdHex});
+  const GroupChatScreen({
+    super.key,
+    required this.groupIdHex,
+    this.channelIdHex,
+  });
   final String groupIdHex;
+  final String? channelIdHex;
 
   @override
   ConsumerState<GroupChatScreen> createState() => _GroupChatScreenState();
@@ -158,7 +166,14 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   final _input = CustomEmojiEditingController();
   final _inputFocus = FocusNode();
   late final NodeId _gid = NodeId.fromHex(widget.groupIdHex);
+  late final NodeId? _channelId = widget.channelIdHex == null
+      ? null
+      : NodeId.fromHex(widget.channelIdHex!);
   StateController<String?>? _activeConversation;
+
+  String get _conversationKey => _channelId == null
+      ? 'group:${widget.groupIdHex}'
+      : 'space:${widget.groupIdHex}:channel:${widget.channelIdHex}';
 
   /// The message the composer is replying to, or null.
   GroupMessage? _replyTarget;
@@ -172,13 +187,13 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _activeConversation = ref.read(activeConversationProvider.notifier);
-      _activeConversation!.state = 'group:${widget.groupIdHex}';
+      _activeConversation!.state = _conversationKey;
     });
   }
 
   @override
   void dispose() {
-    if (_activeConversation?.state == 'group:${widget.groupIdHex}') {
+    if (_activeConversation?.state == _conversationKey) {
       _activeConversation!.state = null;
     }
     _input.dispose();
@@ -198,6 +213,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     final posted = await svc.postMessage(
       _gid,
       body,
+      channelId: _channelId,
       attachment: attachment,
       replyTo: reply,
       customEmoji: customEmoji,
@@ -220,7 +236,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   Future<(List<GroupMessage>, Map<String, MessageReactions>)> _loadFeed(
     GroupService svc,
   ) async {
-    final msgs = await svc.messagesOf(_gid);
+    final msgs = await svc.messagesOf(_gid, channelId: _channelId);
     final reacts = await svc.reactionsOf(_gid);
     // Everything rendered is read — advance the unread watermark (covers both
     // opening the chat and messages arriving while it is open).
@@ -232,7 +248,24 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   /// bar honors the "show reactions" display preference.
   Future<void> _showMessageMenu(GroupService svc, GroupMessage m) async {
     final l = AppL10n.of(context);
-    final showReactions = ref.read(showReactionsProvider);
+    final showReactions =
+        !m.isChannelEncrypted && ref.read(showReactionsProvider);
+    final state = await svc.stateOf(_gid);
+    final bundle = await svc.load(_gid);
+    final myRole = state?.roleOf(svc.selfId);
+    final targetRole = state?.roleOf(m.author);
+    final canModerate =
+        bundle?.manifest.isSpace == true &&
+        !m.isChannelEncrypted &&
+        myRole != null &&
+        targetRole != null &&
+        m.author != svc.selfId &&
+        canApply(
+          authorRole: myRole,
+          op: ControlOp.moderate,
+          targetRole: targetRole,
+        );
+    if (!mounted) return;
     await showModalBottomSheet<void>(
       context: context,
       builder: (sheetCtx) => SafeArea(
@@ -268,10 +301,75 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                 setState(() => _replyTarget = m);
               },
             ),
+            if (canModerate)
+              ListTile(
+                leading: const Icon(Icons.delete_outline),
+                title: Text(l.spaceModerationDeleteMessage),
+                onTap: () {
+                  Navigator.of(sheetCtx).pop();
+                  unawaited(_moderateDeleteMessage(svc, m));
+                },
+              ),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _moderateDeleteMessage(
+    GroupService service,
+    GroupMessage message,
+  ) async {
+    final l = AppL10n.of(context);
+    final controller = TextEditingController();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l.spaceModerationDeleteMessage),
+        content: TextField(
+          key: const ValueKey('space-message-moderation-reason'),
+          controller: controller,
+          autofocus: true,
+          maxLength: kSpaceModerationReasonMax,
+          decoration: InputDecoration(labelText: l.spaceModerationReason),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(l.actionCancel),
+          ),
+          FilledButton(
+            onPressed: () {
+              final value = controller.text.trim();
+              if (value.isNotEmpty) Navigator.of(dialogContext).pop(value);
+            },
+            child: Text(l.spaceModerationDeleteMessage),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (reason == null) return;
+    final channelId = message.channelId ?? _channelId;
+    final actionId = await service.moderateSpace(
+      _gid,
+      kind: SpaceModerationKind.deleteMessage,
+      target: message.author,
+      scope: channelId == null
+          ? SpaceModerationScope.space
+          : SpaceModerationScope.channel,
+      reason: reason,
+      channelId: channelId,
+      reference: SpaceModerationReference(
+        kind: SpaceModerationReferenceKind.message,
+        author: message.author,
+        seq: message.seq,
+        channelId: channelId,
+      ),
+    );
+    if (actionId == null && mounted) {
+      _snack(l.spaceOperationFailed);
+    }
   }
 
   /// Display name for a reactor: me → "You", a known contact → its alias,
@@ -823,6 +921,87 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     );
   }
 
+  Future<void> _showChannelMembers(GroupService svc) async {
+    final channelId = _channelId;
+    if (channelId == null) return _showMembers(svc);
+    final state = await svc.stateOf(_gid);
+    final channels = await svc.channelsOf(_gid, includeArchived: true);
+    final channel = channels
+        .where((candidate) => candidate.channelId == channelId)
+        .firstOrNull;
+    if (!mounted || state == null || channel == null) return;
+    if (channel.access == SpaceChannelAccess.space) {
+      await context.push('/space/${_gid.hex}/settings');
+      return;
+    }
+    final current = await svc.channelMembersOf(_gid, channelId);
+    if (!mounted || current == null) return;
+    final canManage = SpaceAcl(
+      state,
+    ).allows(svc.selfId, SpacePermission.manageChannels);
+    final selected = current.map((member) => member.hex).toSet();
+    final saved = await showDialog<Set<String>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(AppL10n.of(context).groupMembers(selected.length)),
+          content: SizedBox(
+            width: 420,
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                for (final member in state.members.values)
+                  CheckboxListTile(
+                    value: selected.contains(member.nodeId.hex),
+                    onChanged:
+                        !canManage || member.role.rank >= GroupRole.admin.rank
+                        ? null
+                        : (value) => setDialogState(() {
+                            if (value ?? false) {
+                              selected.add(member.nodeId.hex);
+                            } else {
+                              selected.remove(member.nodeId.hex);
+                            }
+                          }),
+                    secondary: Icon(
+                      member.role.rank >= GroupRole.admin.rank
+                          ? Icons.shield_outlined
+                          : Icons.person_outline,
+                    ),
+                    title: Text(member.nodeId.short),
+                    subtitle: Text(member.role.name),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(AppL10n.of(context).actionCancel),
+            ),
+            if (canManage)
+              FilledButton(
+                onPressed: () =>
+                    Navigator.of(dialogContext).pop(Set<String>.from(selected)),
+                child: Text(AppL10n.of(context).actionSave),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (saved == null) return;
+    final applied = await svc.setChannelMembers(
+      _gid,
+      channelId,
+      state.members.values
+          .where((member) => saved.contains(member.nodeId.hex))
+          .map((member) => member.nodeId),
+    );
+    if (!applied && mounted) {
+      _snack(AppL10n.of(context).groupOperationFailed);
+    }
+  }
+
   /// Confirm + leave the group: closes the member sheet and returns to the list.
   Future<void> _leaveGroup(GroupService svc) async {
     final l = AppL10n.of(context);
@@ -1045,7 +1224,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
           controller: ctrl,
           autofocus: true,
           maxLength: 64,
-          decoration: InputDecoration(hintText: l.groupNameHint),
+          decoration: InputDecoration(hintText: l.spaceNameHint),
           onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
         ),
         actions: [
@@ -1132,19 +1311,35 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     }
     return Scaffold(
       appBar: AppBar(
-        title: FutureBuilder<GroupState?>(
-          future: svc.stateOf(_gid),
+        title: FutureBuilder<List<Object?>>(
+          future: Future.wait<Object?>([
+            svc.stateOf(_gid),
+            if (_channelId != null) svc.channelsOf(_gid),
+          ]),
           builder: (context, snap) {
-            final state = snap.data;
-            final name = state?.name;
+            final state = snap.data?.firstOrNull as GroupState?;
+            final channels = snap.data != null && snap.data!.length > 1
+                ? snap.data![1] as List<SpaceChannel>
+                : const <SpaceChannel>[];
+            final spaceName = state?.name;
+            final name = _channelId == null
+                ? spaceName
+                : channels
+                      .where((channel) => channel.channelId == _channelId)
+                      .firstOrNull
+                      ?.name;
             return InkWell(
-              onTap: () => _renameDialog(svc, name ?? ''),
+              onTap: _channelId == null
+                  ? () => _renameDialog(svc, spaceName ?? '')
+                  : null,
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Flexible(
                     child: Text(
-                      name == null || name.isEmpty ? l.navChannels : name,
+                      name == null || name.isEmpty
+                          ? (_channelId == null ? l.navChats : l.navCommunities)
+                          : name,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -1171,22 +1366,26 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
           },
         ),
         actions: [
-          IconButton(
-            key: const ValueKey('group-call-start-audio'),
-            icon: const Icon(Icons.call_outlined),
-            tooltip: l.groupCallStartAudio,
-            onPressed: () => _startGroupCall(video: false),
-          ),
-          IconButton(
-            key: const ValueKey('group-call-start-video'),
-            icon: const Icon(Icons.videocam_outlined),
-            tooltip: l.groupCallStartVideo,
-            onPressed: () => _startGroupCall(video: true),
-          ),
+          if (_channelId == null) ...[
+            IconButton(
+              key: const ValueKey('group-call-start-audio'),
+              icon: const Icon(Icons.call_outlined),
+              tooltip: l.groupCallStartAudio,
+              onPressed: () => _startGroupCall(video: false),
+            ),
+            IconButton(
+              key: const ValueKey('group-call-start-video'),
+              icon: const Icon(Icons.videocam_outlined),
+              tooltip: l.groupCallStartVideo,
+              onPressed: () => _startGroupCall(video: true),
+            ),
+          ],
           IconButton(
             icon: const Icon(Icons.group_outlined),
-            tooltip: l.groupMembersTooltip,
-            onPressed: () => _showMembers(svc),
+            tooltip: _channelId == null
+                ? l.groupMembersTooltip
+                : l.spaceMembersTooltip,
+            onPressed: () => _showChannelMembers(svc),
           ),
           IconButton(
             key: const ValueKey('group-sync-settings'),
@@ -1198,7 +1397,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       ),
       body: Column(
         children: [
-          _GroupCallBanner(gid: _gid),
+          if (_channelId == null) _GroupCallBanner(gid: _gid),
           Expanded(
             child: StreamBuilder<int>(
               stream: svc.changes.stream,
@@ -1230,7 +1429,9 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                             quoted: m.replyTo == null ? null : byRef[m.replyTo],
                             reactions: reacts[m.ref],
                             onLongPress: () => _showMessageMenu(svc, m),
-                            onToggleReaction: (e) => svc.react(_gid, m.ref, e),
+                            onToggleReaction: m.isChannelEncrypted
+                                ? null
+                                : (e) => svc.react(_gid, m.ref, e),
                             onShowReactors: () {
                               final r = reacts[m.ref];
                               if (r != null && r.isNotEmpty) {
@@ -1259,19 +1460,41 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   child: _replyBar(context, l),
                 ),
-              MessageComposer(
-                key: const ValueKey('group-message-composer'),
-                controller: _input,
-                focusNode: _inputFocus,
-                hint: l.chatNewMessageHint,
-                onSend: () => _send(svc),
-                onAttachmentAction: (action) =>
-                    _handleAttachmentAction(svc, action),
-                onVoice: (clip) => unawaited(_sendVoiceClip(svc, clip)),
-                onVideoNote: (clip) => unawaited(_sendVnoteClip(svc, clip)),
-                onSticker: (itemId) =>
-                    unawaited(_sendGroupSticker(svc, itemId)),
-                allowStickerPackShare: false,
+              FutureBuilder<List<SpaceChannel>>(
+                future: _channelId == null
+                    ? Future.value(const <SpaceChannel>[])
+                    : svc.channelsOf(_gid),
+                builder: (context, snapshot) {
+                  final protected =
+                      _channelId != null &&
+                      (snapshot.connectionState != ConnectionState.done ||
+                          (snapshot.data?.any(
+                                (channel) =>
+                                    channel.channelId == _channelId &&
+                                    channel.access != SpaceChannelAccess.space,
+                              ) ??
+                              true));
+                  return MessageComposer(
+                    key: const ValueKey('group-message-composer'),
+                    controller: _input,
+                    focusNode: _inputFocus,
+                    hint: l.chatNewMessageHint,
+                    onSend: () => _send(svc),
+                    onAttachmentAction: protected
+                        ? null
+                        : (action) => _handleAttachmentAction(svc, action),
+                    onVoice: protected
+                        ? null
+                        : (clip) => unawaited(_sendVoiceClip(svc, clip)),
+                    onVideoNote: protected
+                        ? null
+                        : (clip) => unawaited(_sendVnoteClip(svc, clip)),
+                    onSticker: protected
+                        ? null
+                        : (itemId) => unawaited(_sendGroupSticker(svc, itemId)),
+                    allowStickerPackShare: false,
+                  );
+                },
               ),
             ],
           ),

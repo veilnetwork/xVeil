@@ -4,11 +4,15 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/api/group_api_adapter.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/group.dart';
 import 'package:xveil/domain/group_call.dart';
 import 'package:xveil/domain/group_content.dart';
 import 'package:xveil/domain/group_message.dart';
 import 'package:xveil/domain/group_reaction.dart';
+import 'package:xveil/domain/space_channel.dart';
+import 'package:xveil/domain/space_moderation.dart';
+import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/state/group_service.dart';
 
 import 'support/fake_hv_container.dart';
@@ -26,6 +30,10 @@ final class _Signer implements GroupSigner {
   Uint8List get selfPubKey => selfId.bytes;
 
   @override
+  SpaceManifest signSpaceManifest(SpaceManifest value) =>
+      value.withSignature(Uint8List(64));
+
+  @override
   ControlEntry signControl(ControlEntry unsigned) =>
       unsigned.withSignature(Uint8List(64), selfPubKey);
 
@@ -35,6 +43,10 @@ final class _Signer implements GroupSigner {
 
   @override
   GroupReaction signReaction(GroupReaction unsigned) =>
+      unsigned.withSignature(Uint8List(64), selfPubKey);
+
+  @override
+  SpacePost signPost(SpacePost unsigned) =>
       unsigned.withSignature(Uint8List(64), selfPubKey);
 
   @override
@@ -58,12 +70,19 @@ final class _Signer implements GroupSigner {
       reaction.signature.length == 64 && reaction.authorPubKey.length == 32;
 
   @override
+  bool verifyPost(SpacePost post) =>
+      post.signature.length == 64 && post.authorPubKey.length == 32;
+
+  @override
   bool verifyContentRequest(GroupContentRequest request) =>
       request.signature.length == 64 && request.authorPubKey.length == 32;
 
   @override
   bool verifyCallSignal(GroupCallSignal signal) =>
       signal.signature.length == 64 && signal.authorPubKey.length == 32;
+
+  @override
+  bool verifySpaceManifest(SpaceManifest value) => value.signature.length == 64;
 
   @override
   bool verifySovereign({
@@ -76,6 +95,322 @@ final class _Signer implements GroupSigner {
 }
 
 void main() {
+  test('Space API creates and updates one signed profile model', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final owner = _id(3);
+    final service = GroupService(storage, _Signer(owner));
+    final api = GroupApiAdapter(
+      service,
+      registerContentSource:
+          (name, size, read, {required close, sourcePath}) async {
+            await close();
+            return 'unused';
+          },
+      loadContent: storage.loadFile,
+    );
+    try {
+      final space = await api.createSpace(
+        'Field lab',
+        'Initial summary',
+        'secret',
+      );
+      expect(space, isNotNull);
+      final listed = (await api.listSpaces()).single;
+      expect(listed['description'], 'Initial summary');
+      expect(listed['visibility'], 'secret');
+      expect(listed['discoverable'], isFalse);
+
+      final profile = (await api.profile(space!))!;
+      expect(profile['description'], 'Initial summary');
+      expect(profile['visibility'], 'secret');
+      expect(await api.updateDescription(space, 'Updated summary'), isNull);
+      expect((await api.profile(space))!['description'], 'Updated summary');
+      expect(await api.createSpace('Bad', '', 'unknown'), isNull);
+    } finally {
+      await service.dispose();
+    }
+  });
+
+  test('Space API exposes rules history and signed acceptance state', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final owner = _id(31);
+    final service = GroupService(storage, _Signer(owner));
+    final api = GroupApiAdapter(
+      service,
+      registerContentSource:
+          (name, size, read, {required close, sourcePath}) async {
+            await close();
+            return 'unused';
+          },
+      loadContent: storage.loadFile,
+    );
+    try {
+      final space = (await api.createSpace('Rules', '', 'private'))!;
+      expect((await api.rules(space))!['history'], isEmpty);
+      expect(
+        await api.publishRules(
+          space,
+          'Respect member privacy.',
+          'Privacy first.',
+          null,
+        ),
+        isNull,
+      );
+      var rules = (await api.rules(space))!;
+      expect((rules['current'] as Map)['version'], 1);
+      expect(rules['acceptanceRequired'], isTrue);
+      expect(await api.acceptRules(space), isNull);
+      rules = (await api.rules(space))!;
+      expect(rules['acceptanceRequired'], isFalse);
+      expect((rules['acceptance'] as Map)['rulesVersion'], 1);
+      expect(await api.rules('invalid'), isNull);
+    } finally {
+      await service.dispose();
+    }
+  });
+
+  test('Space API folds signed post revisions and tombstones', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(storage, _Signer(_id(33)));
+    final api = GroupApiAdapter(
+      service,
+      registerContentSource:
+          (name, size, read, {required close, sourcePath}) async {
+            await close();
+            return 'unused';
+          },
+      loadContent: storage.loadFile,
+    );
+    try {
+      final space = (await api.createSpace('News', '', 'public'))!;
+      final created = await api.publishPost(
+        space,
+        'Initial',
+        'first body',
+        'article',
+      );
+      expect(created.error, isNull);
+      final postId = created.post!['postId'] as String;
+      final cursor = created.post!['cursor'];
+      final edited = await api.editPost(
+        space,
+        postId,
+        'Corrected',
+        'second body',
+        'post',
+      );
+      expect(edited.error, isNull);
+      expect(edited.post!['postId'], postId);
+      expect(edited.post!['revisionId'], isNot(postId));
+      expect(edited.post!['cursor'], cursor);
+      expect(edited.post!['edited'], isTrue);
+      expect(await api.reactToPost(space, postId, '🔥'), isNull);
+      final listed = (await api.posts(space, 50, null))!['posts'] as List;
+      expect(listed, hasLength(1));
+      expect((listed.single['reactions'] as Map)['🔥'], [_id(33).hex]);
+      expect(await api.editPost(space, '${_id(34).hex}:0', '', 'x', null), (
+        error: 'post edit rejected',
+        post: null,
+      ));
+      expect(await api.deletePost(space, postId), isNull);
+      expect((await api.posts(space, 50, null))!['posts'], isEmpty);
+      expect(await api.deletePost(space, postId), 'post deletion rejected');
+    } finally {
+      await service.dispose();
+    }
+  });
+
+  test(
+    'Space API invite proposes consent instead of adding immediately',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final owner = _id(4);
+      final invitee = _id(5);
+      await storage.upsertContact(
+        Contact(nodeId: invitee, status: ContactStatus.accepted),
+      );
+      final sent = <String>[];
+      final service = GroupService(
+        storage,
+        _Signer(owner),
+        sendSpaceInvite: (peer, inviteId, json) async => sent.add(json),
+      );
+      final api = GroupApiAdapter(
+        service,
+        registerContentSource:
+            (name, size, read, {required close, sourcePath}) async {
+              await close();
+              return 'unused';
+            },
+        loadContent: storage.loadFile,
+      );
+      try {
+        final space = (await api.createSpace('Consent', '', 'private'))!;
+        expect(
+          await api.memberAction(space, 'invite', invitee.hex, 'member'),
+          isNull,
+        );
+        expect(sent, hasLength(1));
+        expect(
+          (await service.stateOf(NodeId.fromHex(space)))!.isMember(invitee),
+          isFalse,
+        );
+      } finally {
+        await service.dispose();
+      }
+    },
+  );
+
+  test(
+    'Space API transfers the effective owner through the signed log',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final owner = _id(6);
+      final nextOwner = _id(7);
+      final service = GroupService(storage, _Signer(owner));
+      final api = GroupApiAdapter(
+        service,
+        registerContentSource:
+            (name, size, read, {required close, sourcePath}) async {
+              await close();
+              return 'unused';
+            },
+        loadContent: storage.loadFile,
+      );
+      try {
+        final space = (await api.createSpace('Ownership', '', 'private'))!;
+        expect(
+          await api.memberAction(space, 'add', nextOwner.hex, 'member'),
+          isNull,
+        );
+        expect(
+          await api.memberAction(space, 'transfer_owner', nextOwner.hex, null),
+          isNull,
+        );
+        final roster = (await api.members(space))!;
+        final byId = {
+          for (final member in roster['members'] as List)
+            (member as Map)['nodeId']: member['role'],
+        };
+        expect(byId[owner.hex], GroupRole.admin.name);
+        expect(byId[nextOwner.hex], GroupRole.owner.name);
+        expect(
+          await api.memberAction(space, 'transfer_owner', owner.hex, null),
+          'operation rejected by group policy',
+        );
+      } finally {
+        await service.dispose();
+      }
+    },
+  );
+
+  test(
+    'space API exposes signed nested channels and channel-scoped messages',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final owner = _id(7);
+      final service = GroupService(storage, _Signer(owner));
+      final api = GroupApiAdapter(
+        service,
+        registerContentSource:
+            (name, size, read, {required close, sourcePath}) async {
+              await close();
+              return 'unused';
+            },
+        loadContent: storage.loadFile,
+      );
+      try {
+        final space = (await api.createSpace('Veil builders', '', 'private'))!;
+        final listed = (await api.listSpaces()).single;
+        expect(listed['spaceId'], space);
+        expect(listed['groupId'], space, reason: 'legacy API alias is stable');
+
+        final initial = (await api.channels(space))!;
+        expect(initial, hasLength(1));
+        expect(initial.single['kind'], SpaceChannelKind.text.name);
+        expect(initial.single['default'], isTrue);
+
+        final created = await api.createChannel(
+          space,
+          'protocol',
+          'text',
+          null,
+          10,
+          'full',
+          null,
+          'space',
+          const [],
+        );
+        expect(created.error, isNull);
+        final channel = created.channelId!;
+        expect(
+          await api.sendChannelMessage(space, channel, 'signed note', null),
+          isNull,
+        );
+        final messages = (await api.channelMessages(space, channel, 20))!;
+        expect(messages.single['body'], 'signed note');
+        expect(messages.single['channelId'], channel);
+
+        expect(await api.channelAction(space, channel, 'default'), isNull);
+        expect(
+          await api.channelAction(space, channel, 'archive'),
+          isNotNull,
+          reason: 'the last active default channel cannot be archived',
+        );
+        expect(await api.channels('invalid'), isNull);
+      } finally {
+        await service.dispose();
+      }
+    },
+  );
+
+  test(
+    'Space API keeps publications separate and pages the merged feed',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _Signer(_id(8)));
+      final api = GroupApiAdapter(
+        service,
+        registerContentSource:
+            (name, size, read, {required close, sourcePath}) async {
+              await close();
+              return 'unused';
+            },
+        loadContent: storage.loadFile,
+      );
+      try {
+        final spaceId = await service.createSpace(
+          'Public API',
+          visibility: SpaceVisibility.public,
+        );
+        final result = await api.publishPost(
+          spaceId.hex,
+          'Headline',
+          'Body',
+          SpacePostType.article.name,
+        );
+        expect(result.error, isNull);
+        expect(result.post?['title'], 'Headline');
+        final posts = await api.posts(spaceId.hex, 10, null);
+        expect((posts?['posts'] as List).single['body'], 'Body');
+        final feed = await api.feed(10, null);
+        expect((feed['posts'] as List).single['spaceName'], 'Public API');
+        expect((await service.load(spaceId))!.messages, isEmpty);
+        expect(await api.setFeedEnabled(spaceId.hex, false), isNull);
+        expect((await api.feed(10, null))['posts'], isEmpty);
+      } finally {
+        await service.dispose();
+      }
+    },
+  );
+
   test(
     'group file API posts a signed ref and scopes reads to its message',
     () async {
@@ -304,4 +639,76 @@ void main() {
       await ownerService.dispose();
     },
   );
+
+  test('moderation API is Space-only and keeps an immutable audit', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final owner = _id(41);
+    final member = _id(42);
+    final service = GroupService(storage, _Signer(owner));
+    final api = GroupApiAdapter(
+      service,
+      registerContentSource:
+          (name, size, read, {required close, sourcePath}) async {
+            await close();
+            return 'unused';
+          },
+      loadContent: storage.loadFile,
+    );
+    try {
+      final group = (await api.create('Private group chat'))!;
+      expect(
+        (await api.moderate(
+          group,
+          SpaceModerationKind.warning.name,
+          owner.hex,
+          SpaceModerationScope.space.name,
+          'not a community',
+          null,
+          null,
+          null,
+          null,
+          null,
+        )).error,
+        'space not found',
+      );
+      expect(await api.moderationAudit(group), isNull);
+
+      final space = (await api.createSpace('Community', '', 'public'))!;
+      expect(
+        await api.memberAction(space, 'add', member.hex, 'member'),
+        isNull,
+      );
+      expect(
+        await api.memberAction(space, 'mute', member.hex, null),
+        contains('/v1/spaces/moderation'),
+      );
+      final created = await api.moderate(
+        space,
+        SpaceModerationKind.warning.name,
+        member.hex,
+        SpaceModerationScope.space.name,
+        'signed warning',
+        null,
+        null,
+        null,
+        null,
+        null,
+      );
+      expect(created.error, isNull);
+      final audit = await api.moderationAudit(space);
+      expect(audit, hasLength(1));
+      expect(audit!.single['actionId'], created.actionId);
+      expect(audit.single['reason'], 'signed warning');
+      expect(
+        await api.revokeModeration(space, created.actionId!, 'resolved'),
+        isNull,
+      );
+      final revoked = (await api.moderationAudit(space))!.single;
+      expect(revoked['active'], isFalse);
+      expect(revoked['revocationReason'], 'resolved');
+    } finally {
+      await service.dispose();
+    }
+  });
 }

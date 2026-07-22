@@ -5,7 +5,8 @@ import '../core/ids.dart';
 import 'call_signal.dart';
 import 'group_payload.dart';
 
-const int kGroupCallProtocolVersion = 1;
+const int kLegacyGroupCallProtocolVersion = 1;
+const int kSpaceVoiceSessionProtocolVersion = 2;
 const int maxGroupCallIdBytes = 128;
 const int maxGroupCallSignalBytes = 4096;
 
@@ -39,6 +40,7 @@ T _enumFromIndex<T>(List<T> values, Object? raw, T fallback) {
 class GroupCallSignal {
   GroupCallSignal({
     required this.groupId,
+    this.channelId,
     required this.callId,
     required this.author,
     required this.membershipEpoch,
@@ -49,10 +51,13 @@ class GroupCallSignal {
     required this.authorPubKey,
     this.media,
     this.reason,
-    this.protocolVersion = kGroupCallProtocolVersion,
+    this.protocolVersion = kLegacyGroupCallProtocolVersion,
   });
 
   final NodeId groupId;
+
+  /// Present for v2 Space voice sessions. Legacy v1 group-wide rooms omit it.
+  final NodeId? channelId;
   final String callId;
   final NodeId author;
   final int membershipEpoch;
@@ -75,7 +80,12 @@ class GroupCallSignal {
         !media!.isEmpty ||
         type == GroupCallSignalType.heartbeat ||
         type == GroupCallSignalType.renegotiate;
-    return protocolVersion == kGroupCallProtocolVersion &&
+    final scopeValid =
+        (protocolVersion == kLegacyGroupCallProtocolVersion &&
+            channelId == null) ||
+        (protocolVersion == kSpaceVoiceSessionProtocolVersion &&
+            channelId != null);
+    return scopeValid &&
         membershipEpoch > 0 &&
         membershipEpoch <= 0xffffffff &&
         callIdLength > 0 &&
@@ -91,6 +101,7 @@ class GroupCallSignal {
   Map<String, dynamic> _unsignedJson() => {
     'v': protocolVersion,
     'g': groupId.hex,
+    if (channelId != null) 'h': channelId!.hex,
     'c': callId,
     'a': author.hex,
     'e': membershipEpoch,
@@ -102,7 +113,7 @@ class GroupCallSignal {
   };
 
   Uint8List canonicalBytes() => Uint8List.fromList([
-    ...utf8.encode('xveil.group-call.signal.v1\u0000'),
+    ...utf8.encode('xveil.group-call.signal.v$protocolVersion\u0000'),
     ...utf8.encode(jsonEncode(_unsignedJson())),
   ]);
 
@@ -117,6 +128,7 @@ class GroupCallSignal {
   GroupCallSignal withSignature(Uint8List nextSignature, Uint8List publicKey) =>
       GroupCallSignal(
         groupId: groupId,
+        channelId: channelId,
         callId: callId,
         author: author,
         membershipEpoch: membershipEpoch,
@@ -138,6 +150,9 @@ class GroupCallSignal {
       final mediaJson = json['m'];
       final signal = GroupCallSignal(
         groupId: NodeId.fromHex(json['g'] as String),
+        channelId: json['h'] is String
+            ? NodeId.fromHex(json['h'] as String)
+            : null,
         callId: json['c'] as String,
         author: NodeId.fromHex(json['a'] as String),
         membershipEpoch: (json['e'] as num).toInt(),
@@ -180,11 +195,13 @@ class GroupCallSignal {
 class GroupCallWireFrame {
   GroupCallWireFrame({
     required this.groupId,
+    this.channelId,
     required this.membershipEpoch,
     required this.payload,
   });
 
   final NodeId groupId;
+  final NodeId? channelId;
   final int membershipEpoch;
   final GroupEncryptedPayload payload;
 
@@ -263,6 +280,7 @@ class GroupCallParticipant {
 class GroupCall {
   GroupCall({
     required this.groupId,
+    this.channelId,
     required this.callId,
     required this.initiator,
     required this.membershipEpoch,
@@ -279,6 +297,9 @@ class GroupCall {
   });
 
   final NodeId groupId;
+
+  /// Voice-channel scope for a Space session; null only for legacy rooms.
+  final NodeId? channelId;
   final String callId;
   final NodeId initiator;
   final int membershipEpoch;
@@ -309,6 +330,7 @@ class GroupCall {
     bool? screenOn,
   }) => GroupCall(
     groupId: groupId,
+    channelId: channelId,
     callId: callId,
     initiator: initiator,
     membershipEpoch: membershipEpoch ?? this.membershipEpoch,

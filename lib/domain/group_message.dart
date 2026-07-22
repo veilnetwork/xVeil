@@ -142,7 +142,9 @@ class GroupMessage {
     required this.signature,
     this.version = 1,
     this.membershipEpoch,
+    this.channelEpoch,
     this.encryptedPayload,
+    this.channelId,
     this.attachment,
     this.replyTo,
     this.customEmoji = const [],
@@ -156,7 +158,9 @@ class GroupMessage {
   final String prevHash; // hex of the author's previous message hash, or ''
   final String body;
   final int? membershipEpoch;
+  final int? channelEpoch;
   final GroupEncryptedPayload? encryptedPayload;
+  final NodeId? channelId;
   final int policyVersion; // the policy version the author wrote against
   final int createdAtMs;
   final Uint8List signature;
@@ -173,16 +177,39 @@ class GroupMessage {
   String get ref => '${author.hex}:$seq';
 
   bool get isEncrypted =>
-      version == 2 && membershipEpoch != null && encryptedPayload != null;
+      ((version == 2 && membershipEpoch != null && channelEpoch == null) ||
+          (version == 3 && membershipEpoch == null && channelEpoch != null)) &&
+      encryptedPayload != null;
+
+  bool get isChannelEncrypted =>
+      version == 3 &&
+      channelId != null &&
+      membershipEpoch == null &&
+      channelEpoch != null &&
+      encryptedPayload != null;
 
   /// The bytes the author signs — fixed field order, no signature/pubKey. The
   /// 'att'/'rt' keys are emitted ONLY when present, so a plain text message
   /// signs byte-identically to before these fields existed.
   Uint8List canonicalBytes() {
-    final map = version == 2
+    final map = version == 3
+        ? {
+            'v': 3,
+            'gid': groupId.hex,
+            'channel': channelId?.hex,
+            'author': author.hex,
+            'seq': seq,
+            'prev': prevHash,
+            'cepoch': channelEpoch,
+            'enc': encryptedPayload?.toJson(),
+            'pv': policyVersion,
+            'ts': createdAtMs,
+          }
+        : version == 2
         ? {
             'v': 2,
             'gid': groupId.hex,
+            if (channelId != null) 'channel': channelId!.hex,
             'author': author.hex,
             'seq': seq,
             'prev': prevHash,
@@ -193,6 +220,7 @@ class GroupMessage {
           }
         : {
             'gid': groupId.hex,
+            if (channelId != null) 'channel': channelId!.hex,
             'author': author.hex,
             'seq': seq,
             'prev': prevHash,
@@ -215,7 +243,9 @@ class GroupMessage {
     body: body,
     version: version,
     membershipEpoch: membershipEpoch,
+    channelEpoch: channelEpoch,
     encryptedPayload: encryptedPayload,
+    channelId: channelId,
     policyVersion: policyVersion,
     createdAtMs: createdAtMs,
     signature: sig,
@@ -234,7 +264,9 @@ class GroupMessage {
         body: cleartext.body,
         version: version,
         membershipEpoch: membershipEpoch,
+        channelEpoch: channelEpoch,
         encryptedPayload: encryptedPayload,
+        channelId: channelId,
         policyVersion: policyVersion,
         createdAtMs: createdAtMs,
         signature: signature,
@@ -245,10 +277,27 @@ class GroupMessage {
       );
 
   Map<String, dynamic> toJson() {
+    if (version == 3) {
+      return {
+        'v': 3,
+        'gid': groupId.hex,
+        'channel': channelId?.hex,
+        'author': author.hex,
+        'seq': seq,
+        'prev': prevHash,
+        'cepoch': channelEpoch,
+        'enc': encryptedPayload?.toJson(),
+        'pv': policyVersion,
+        'ts': createdAtMs,
+        'sig': base64Encode(signature),
+        if (authorPubKey.isNotEmpty) 'apk': base64Encode(authorPubKey),
+      };
+    }
     if (version == 2) {
       return {
         'v': 2,
         'gid': groupId.hex,
+        if (channelId != null) 'channel': channelId!.hex,
         'author': author.hex,
         'seq': seq,
         'prev': prevHash,
@@ -262,6 +311,7 @@ class GroupMessage {
     }
     return {
       'gid': groupId.hex,
+      if (channelId != null) 'channel': channelId!.hex,
       'author': author.hex,
       'seq': seq,
       'prev': prevHash,
@@ -279,7 +329,7 @@ class GroupMessage {
   static GroupMessage? fromJson(Object? j) {
     if (j is! Map) return null;
     final version = j['v'] is int ? j['v'] as int : 1;
-    if (version != 1 && version != 2) return null;
+    if (version != 1 && version != 2 && version != 3) return null;
     final gid = j['gid'], author = j['author'], seq = j['seq'];
     final prev = j['prev'], body = j['body'], pv = j['pv'], ts = j['ts'];
     final sig = j['sig'];
@@ -293,15 +343,27 @@ class GroupMessage {
         seq < 0) {
       return null;
     }
-    final encryptedPayload = version == 2
+    final encryptedPayload = version >= 2
         ? GroupEncryptedPayload.fromJson(j['enc'])
         : null;
     final membershipEpoch = version == 2 ? j['epoch'] : null;
+    final channelEpoch = version == 3 ? j['cepoch'] : null;
     if ((version == 1 && body is! String) ||
         (version == 2 &&
             (membershipEpoch is! int ||
                 membershipEpoch < 0 ||
                 encryptedPayload == null ||
+                j.containsKey('body') ||
+                j.containsKey('att') ||
+                j.containsKey('rt') ||
+                j.containsKey('ce'))) ||
+        (version == 3 &&
+            (channelEpoch is! int ||
+                channelEpoch <= 0 ||
+                channelEpoch > 0xffffffff ||
+                j['channel'] is! String ||
+                encryptedPayload == null ||
+                j.containsKey('epoch') ||
                 j.containsKey('body') ||
                 j.containsKey('att') ||
                 j.containsKey('rt') ||
@@ -311,12 +373,16 @@ class GroupMessage {
     try {
       return GroupMessage(
         groupId: NodeId.fromHex(gid),
+        channelId: j['channel'] is String
+            ? NodeId.fromHex(j['channel'] as String)
+            : null,
         author: NodeId.fromHex(author),
         seq: seq,
         prevHash: prev,
         body: version == 1 ? body as String : '',
         version: version,
         membershipEpoch: membershipEpoch as int?,
+        channelEpoch: channelEpoch as int?,
         encryptedPayload: encryptedPayload,
         policyVersion: pv,
         createdAtMs: ts,

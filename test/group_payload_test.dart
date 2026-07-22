@@ -5,8 +5,10 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/group_message.dart';
+import 'package:xveil/domain/group_epoch.dart';
 import 'package:xveil/domain/group_payload.dart';
 import 'package:xveil/domain/group_reaction.dart';
+import 'package:xveil/domain/space_channel.dart';
 
 String _hash(int byte) => List.filled(
   32,
@@ -236,6 +238,224 @@ void main() {
       final mixed = Map<String, dynamic>.from(parsed.toJson())
         ..['emoji'] = 'clear';
       expect(GroupReaction.fromJson(mixed), isNull);
+    },
+  );
+
+  test('typed reaction v4 binds the target namespace to ciphertext', () async {
+    final key = Uint8List.fromList(List.generate(32, (index) => 31 - index));
+    final clear = GroupReactionCleartext(
+      target: '${_id(3).hex}:7',
+      emoji: '👍',
+      targetKind: ReactionTargetKind.spacePost,
+      schemaVersion: 2,
+    ).encode();
+    final payload = await encryptGroupReactionPayload(
+      groupId: _id(10),
+      membershipEpoch: 5,
+      author: _id(1),
+      seq: 9,
+      createdAtMs: 6000,
+      clearText: clear,
+      epochKey: key,
+      reactionVersion: 4,
+      random: Random(13),
+    );
+    clear.fillRange(0, clear.length, 0);
+    final reaction = GroupReaction(
+      groupId: _id(10),
+      author: _id(1),
+      seq: 9,
+      target: '',
+      emoji: '',
+      version: 4,
+      membershipEpoch: 5,
+      encryptedPayload: payload,
+      createdAtMs: 6000,
+      signature: Uint8List(64),
+    );
+    final parsed = GroupReaction.fromJson(reaction.toJson())!;
+    expect(parsed.version, 4);
+    expect(parsed.isEncrypted, isTrue);
+    final opened = await decryptGroupReactionPayload(
+      groupId: parsed.groupId,
+      membershipEpoch: parsed.membershipEpoch!,
+      author: parsed.author,
+      seq: parsed.seq,
+      createdAtMs: parsed.createdAtMs,
+      payload: parsed.encryptedPayload!,
+      epochKey: key,
+      reactionVersion: parsed.version,
+    );
+    final decoded = GroupReactionCleartext.decode(opened)!;
+    expect(decoded.schemaVersion, 2);
+    expect(decoded.targetKind, ReactionTargetKind.spacePost);
+    opened.fillRange(0, opened.length, 0);
+    await expectLater(
+      decryptGroupReactionPayload(
+        groupId: parsed.groupId,
+        membershipEpoch: parsed.membershipEpoch!,
+        author: parsed.author,
+        seq: parsed.seq,
+        createdAtMs: parsed.createdAtMs,
+        payload: parsed.encryptedPayload!,
+        epochKey: key,
+      ),
+      throwsFormatException,
+    );
+
+    final clearTyped = GroupReaction(
+      groupId: _id(10),
+      author: _id(1),
+      seq: 10,
+      target: '${_id(3).hex}:7',
+      emoji: '👍',
+      version: 3,
+      targetKind: ReactionTargetKind.spacePost,
+      createdAtMs: 6001,
+      signature: Uint8List(64),
+    );
+    expect(
+      GroupReaction.fromJson(clearTyped.toJson())!.targetKind,
+      ReactionTargetKind.spacePost,
+    );
+  });
+
+  test(
+    'channel control + message v3 bind the independent channel scope',
+    () async {
+      final spaceId = _id(10);
+      final channelId = _id(11);
+      final author = _id(1);
+      final key = Uint8List.fromList(List.generate(32, (index) => 31 - index));
+      final commitment = groupEpochKeyCommitment(
+        groupId: channelId,
+        epoch: 1,
+        key: key,
+      );
+      final clear = SpaceChannelControlCleartext(
+        channel: SpaceChannel(
+          spaceId: spaceId,
+          channelId: channelId,
+          kind: SpaceChannelKind.text,
+          name: 'hidden',
+          description: 'metadata',
+          position: 1,
+          isDefault: false,
+          archived: false,
+          history: SpaceChannelHistory.fromJoin,
+          createdBy: author,
+          createdAtMs: 1000,
+          access: SpaceChannelAccess.restricted,
+        ),
+        recipients: [author],
+      ).encode();
+      final encryptedControl = await encryptSpaceChannelControlPayload(
+        spaceId: spaceId,
+        channelId: channelId,
+        channelEpoch: 1,
+        keyCommitment: commitment,
+        author: author,
+        policyVersion: 2,
+        createdAtMs: 1001,
+        clearText: clear,
+        channelKey: key,
+        random: Random(19),
+      );
+      clear.fillRange(0, clear.length, 0);
+      final envelope = SpaceChannelControlEnvelope(
+        spaceId: spaceId,
+        channelId: channelId,
+        channelEpoch: 1,
+        keyDescriptor: GroupEpochDescriptor(
+          groupId: channelId,
+          epoch: 1,
+          keyCommitment: commitment,
+          envelopeRoot: _hash(7),
+          recipientCount: 1,
+        ),
+        encryptedControl: encryptedControl,
+      );
+      expect(
+        SpaceChannelControlEnvelope.fromJson(envelope.toJson()),
+        isNotNull,
+      );
+      final openedControl = await decryptSpaceChannelControlPayload(
+        spaceId: spaceId,
+        channelId: channelId,
+        channelEpoch: 1,
+        keyCommitment: commitment,
+        author: author,
+        policyVersion: 2,
+        createdAtMs: 1001,
+        payload: encryptedControl,
+        channelKey: key,
+      );
+      expect(
+        SpaceChannelControlCleartext.decode(openedControl)?.channel.name,
+        'hidden',
+      );
+      openedControl.fillRange(0, openedControl.length, 0);
+      await expectLater(
+        decryptSpaceChannelControlPayload(
+          spaceId: spaceId,
+          channelId: _id(12),
+          channelEpoch: 1,
+          keyCommitment: commitment,
+          author: author,
+          policyVersion: 2,
+          createdAtMs: 1001,
+          payload: encryptedControl,
+          channelKey: key,
+        ),
+        throwsFormatException,
+      );
+
+      final messageClear = const GroupMessageCleartext(body: 'scoped').encode();
+      final encryptedMessage = await encryptSpaceChannelMessagePayload(
+        spaceId: spaceId,
+        channelId: channelId,
+        channelEpoch: 1,
+        author: author,
+        seq: 3,
+        prevHash: '',
+        policyVersion: 2,
+        createdAtMs: 1002,
+        clearText: messageClear,
+        channelKey: key,
+        random: Random(20),
+      );
+      messageClear.fillRange(0, messageClear.length, 0);
+      final message = GroupMessage(
+        groupId: spaceId,
+        channelId: channelId,
+        author: author,
+        seq: 3,
+        prevHash: '',
+        body: '',
+        version: 3,
+        channelEpoch: 1,
+        encryptedPayload: encryptedMessage,
+        policyVersion: 2,
+        createdAtMs: 1002,
+        signature: Uint8List(64),
+      );
+      final parsed = GroupMessage.fromJson(message.toJson())!;
+      expect(parsed.isChannelEncrypted, isTrue);
+      expect(jsonEncode(parsed.toJson()), isNot(contains('scoped')));
+      final openedMessage = await decryptSpaceChannelMessagePayload(
+        spaceId: spaceId,
+        channelId: channelId,
+        channelEpoch: 1,
+        author: author,
+        seq: 3,
+        prevHash: '',
+        policyVersion: 2,
+        createdAtMs: 1002,
+        payload: parsed.encryptedPayload!,
+        channelKey: key,
+      );
+      expect(GroupMessageCleartext.decode(openedMessage)?.body, 'scoped');
+      openedMessage.fillRange(0, openedMessage.length, 0);
     },
   );
 }

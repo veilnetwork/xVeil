@@ -6,7 +6,6 @@ import 'package:go_router/go_router.dart';
 import '../features/calls/call_log_screen.dart';
 import '../features/chat/chat_screen.dart';
 import '../features/groups/group_chat_screen.dart';
-import '../features/groups/group_list_screen.dart';
 import '../features/home/home_shell.dart';
 import '../features/identity/add_identity_screen.dart';
 import '../features/identity/decoy_master_screen.dart';
@@ -30,6 +29,13 @@ import '../features/settings/privacy_settings_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/settings/storage_settings_screen.dart';
 import '../features/splash/splash_screen.dart';
+import '../features/spaces/space_list_screen.dart';
+import '../features/spaces/space_moderation_screen.dart';
+import '../features/spaces/space_posts_screen.dart';
+import '../features/spaces/space_screen.dart';
+import '../features/spaces/space_rules_screen.dart';
+import '../features/spaces/space_settings_screen.dart';
+import '../features/storage/cloud_storage_screen.dart';
 import '../state/app_controller.dart';
 
 /// The routing SECURITY GATE, as a pure function of (phase, current location):
@@ -39,11 +45,7 @@ import '../state/app_controller.dart';
 /// location except `/lock` redirects to `/lock`, and a deep link into `/chat`
 /// while locked bounces to `/lock`. Extracted so this invariant is unit-testable
 /// without pumping a full router.
-String? redirectForPhase(
-  AppPhase phase,
-  String location, {
-  String? resumeTo,
-}) {
+String? redirectForPhase(AppPhase phase, String location, {String? resumeTo}) {
   switch (phase) {
     case AppPhase.bootstrapping:
       return location == '/splash' ? null : '/splash';
@@ -107,8 +109,7 @@ final routerProvider = Provider<GoRouter>((ref) {
     redirect: (context, state) {
       final phase = ref.read(appControllerProvider).phase;
       final location = state.matchedLocation;
-      if (phase == AppPhase.preparingNode &&
-          location.startsWith('/settings')) {
+      if (phase == AppPhase.preparingNode && location.startsWith('/settings')) {
         resumeAfterPrepare = location; // about to be bounced to /preparing
       }
       final resume = resumeAfterPrepare;
@@ -120,10 +121,7 @@ final routerProvider = Provider<GoRouter>((ref) {
     },
     routes: [
       GoRoute(path: '/splash', builder: (_, _) => const SplashScreen()),
-      GoRoute(
-        path: '/onboarding',
-        builder: (_, _) => const OnboardingScreen(),
-      ),
+      GoRoute(path: '/onboarding', builder: (_, _) => const OnboardingScreen()),
       // Debug-only preview of the onboarding wizard from a READY session
       // (the real /onboarding is redirect-locked to the onboarding phase),
       // so the phrase/restore steps can be device-verified without wiping
@@ -151,11 +149,47 @@ final routerProvider = Provider<GoRouter>((ref) {
       // the bottom bar when it became Chats + reserved future sections).
       GoRoute(path: '/network', builder: (_, _) => const NetworkScreen()),
       GoRoute(path: '/calls', builder: (_, _) => const CallLogScreen()),
-      GoRoute(path: '/groups', builder: (_, _) => const GroupListScreen()),
+      GoRoute(path: '/spaces', builder: (_, _) => const SpaceListScreen()),
+      GoRoute(path: '/storage', builder: (_, _) => const CloudStorageScreen()),
+      GoRoute(
+        path: '/space/:id',
+        builder: (_, state) =>
+            SpaceScreen(spaceIdHex: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/space/:id/channel/:channelId',
+        builder: (_, state) => GroupChatScreen(
+          groupIdHex: state.pathParameters['id']!,
+          channelIdHex: state.pathParameters['channelId']!,
+        ),
+      ),
+      GoRoute(
+        path: '/space/:id/posts',
+        builder: (_, state) =>
+            SpacePostsScreen(spaceIdHex: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/space/:id/settings',
+        builder: (_, state) =>
+            SpaceSettingsScreen(spaceIdHex: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/space/:id/rules',
+        builder: (_, state) =>
+            SpaceRulesScreen(spaceIdHex: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/space/:id/moderation',
+        builder: (_, state) =>
+            SpaceModerationScreen(spaceIdHex: state.pathParameters['id']!),
+      ),
+      // Group chats live in the Chats surface; keep the old list deep-link
+      // useful without conflating it with Communities.
+      GoRoute(path: '/groups', redirect: (_, _) => '/home'),
       GoRoute(
         path: '/group/:id',
-        builder: (_, st) =>
-            GroupChatScreen(groupIdHex: st.pathParameters['id']!),
+        builder: (_, state) =>
+            GroupChatScreen(groupIdHex: state.pathParameters['id']!),
       ),
       GoRoute(path: '/settings', builder: (_, _) => const SettingsScreen()),
       GoRoute(

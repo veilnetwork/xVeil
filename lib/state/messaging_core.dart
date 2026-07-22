@@ -206,6 +206,13 @@ class MessagingService {
   /// an accepted [peer], to ingest idempotently. Dropped when unset.
   void Function(NodeId peer, String bundleJson)? onGroupEntry;
 
+  /// Consent-first Space lifecycle frames. Both are delivered only for an
+  /// accepted contact; the Space layer validates sender/target/id and persists
+  /// the proposal or applies the decision.
+  Future<void> Function(NodeId peer, String inviteJson)? onSpaceInvite;
+  Future<void> Function(NodeId peer, String decisionJson)?
+  onSpaceInviteDecision;
+
   /// Attached by shared-document replication. Both whole and reassembled
   /// frames reach this callback only from accepted contacts; the document
   /// layer then verifies root/control signatures and membership epochs. True
@@ -376,6 +383,26 @@ class MessagingService {
     String groupIdHex,
     String bundleJson,
   ) => _replication.sendGroupSnapshot(dst, groupIdHex, bundleJson);
+
+  Future<void> sendSpaceInvite(
+    NodeId dst,
+    String inviteId,
+    String inviteJson,
+  ) => sendDurable(
+    dst,
+    'space-invite:$inviteId',
+    WireEnvelope.spaceInvite(inviteJson),
+  );
+
+  Future<void> sendSpaceInviteDecision(
+    NodeId dst,
+    String inviteId,
+    String decisionJson,
+  ) => sendDurable(
+    dst,
+    'space-invite-decision:$inviteId',
+    WireEnvelope.spaceInviteDecision(decisionJson),
+  );
 
   /// Ship a shared-document invite/snapshot/delta durably.
   Future<void> sendCloudDocumentFrame(

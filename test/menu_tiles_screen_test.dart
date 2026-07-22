@@ -22,6 +22,14 @@ Widget _host() {
         path: '/settings',
         builder: (_, _) => const Scaffold(body: Text('settings-route')),
       ),
+      GoRoute(
+        path: '/spaces',
+        builder: (_, _) => const Scaffold(body: Text('spaces-route')),
+      ),
+      GoRoute(
+        path: '/storage',
+        builder: (_, _) => const Scaffold(body: Text('storage-route')),
+      ),
     ],
   );
   return ProviderScope(
@@ -42,10 +50,11 @@ void main() {
 
       final l = AppL10n.of(tester.element(find.byType(MenuTilesScreen)));
       expect(find.text(l.inviteAddContact), findsOneWidget);
-      expect(find.text(l.groupCreateTitle), findsOneWidget);
+      expect(find.text(l.navCommunities), findsOneWidget);
       expect(find.text(l.navCalls), findsOneWidget);
       expect(find.text(l.navNetwork), findsOneWidget);
       expect(find.text(l.navSettings), findsOneWidget);
+      expect(find.text(l.navStorage), findsOneWidget);
       expect(find.text(l.settingsLockNow), findsOneWidget);
       expect(find.byType(SnackBar), findsNothing);
 
