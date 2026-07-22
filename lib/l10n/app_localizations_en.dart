@@ -316,6 +316,18 @@ class AppL10nEn extends AppL10n {
   String get spacePostTypeArticle => 'Article';
 
   @override
+  String get spacePostTypeVideo => 'Video';
+
+  @override
+  String get spacePostTypeShortVideo => 'Short video';
+
+  @override
+  String get spacePostTypeAudio => 'Audio';
+
+  @override
+  String get spacePostTypeVoiceMessage => 'Voice message';
+
+  @override
   String get spaceFeedEnable => 'Show this community in Feed';
 
   @override
@@ -613,6 +625,22 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get feedPostHideFailed => 'Could not update this Feed preference';
+
+  @override
+  String get feedFilterTitle => 'Filter publications';
+
+  @override
+  String get feedFilterAll => 'All';
+
+  @override
+  String get feedFilterApply => 'Apply';
+
+  @override
+  String get feedFilterEmptyHint =>
+      'No publications match the selected content types.';
+
+  @override
+  String get feedFilterUpdateFailed => 'Could not update the Feed filter';
 
   @override
   String get chatsEmpty => 'No conversations yet';

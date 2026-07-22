@@ -467,10 +467,15 @@ camera/background/push проверяются дополнительно на ф
   immutable edits, не меняет signed log/P2P и не скрывает публикацию внутри
   самого сообщества. Реестр лежит в encrypted chunked store, а не в
   ограниченном по размеру одиночном setting;
+* фильтр общей Ленты по шести `SpacePostType` также является локальным
+  identity-scoped предпочтением в encrypted store. Он применяется единообразно
+  в `GroupService`, GUI и headless REST, переживает перезапуск и не влияет на
+  `postsOf` самого сообщества. Пустой/повреждённый setting безопасно означает
+  «показывать все типы», а явный service-level набор остаётся request override;
 * UI заменил нижний раздел «Хранилище» на «Ленту», а «Хранилище» перенесено в
   основное меню. Публикации Space доступны из самого сообщества; REST/OpenAPI
-  получили `/v1/spaces/posts`, `/v1/spaces/subscription`, `/v1/feed` и
-  локальную мутацию `/v1/feed/hidden`;
+  получили `/v1/spaces/posts`, `/v1/spaces/subscription`, `/v1/feed`,
+  `/v1/feed/filter` и локальную мутацию `/v1/feed/hidden`;
 * правила сообщества используют `ControlEntry` v7: immutable последовательные
   версии и отдельные signed acknowledgements участников сходятся через тот же
   P2P delta/gap-fill. Экран внутри Space показывает полный текущий документ,

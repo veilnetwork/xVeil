@@ -138,6 +138,63 @@ void main() {
     expect(find.text('Release'), findsOneWidget);
   });
 
+  testWidgets('Feed filters publication types and persists the selection', (
+    tester,
+  ) async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final signer = _Signer(_id(7));
+    final service = GroupService(storage, signer);
+    final spaceId = await service.createSpace(
+      'Media lab',
+      visibility: SpaceVisibility.public,
+    );
+    await service.publishSpacePost(
+      spaceId,
+      title: 'Plain update',
+      body: '',
+      broadcast: false,
+    );
+    await service.publishSpacePost(
+      spaceId,
+      title: 'Long read',
+      body: '',
+      type: SpacePostType.article,
+      broadcast: false,
+    );
+
+    await tester.pumpWidget(_host(service, const SpaceFeedScreen()));
+    await tester.pumpAndSettle();
+    expect(find.text('Plain update'), findsOneWidget);
+    expect(find.text('Long read'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('space-feed-type-filter')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('space-feed-filter-post')));
+    await tester.tap(find.byKey(const ValueKey('space-feed-filter-apply')));
+    await tester.pumpAndSettle();
+    expect(find.text('Plain update'), findsNothing);
+    expect(find.text('Long read'), findsOneWidget);
+    expect(
+      await service.spaceFeedTypeFilter(),
+      SpacePostType.values.where((type) => type != SpacePostType.post).toSet(),
+    );
+
+    final reopened = GroupService(storage, signer);
+    await tester.pumpWidget(_host(reopened, const SpaceFeedScreen()));
+    await tester.pumpAndSettle();
+    expect(find.text('Plain update'), findsNothing);
+    expect(find.text('Long read'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('space-feed-type-filter')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('space-feed-filter-all')));
+    await tester.tap(find.byKey(const ValueKey('space-feed-filter-apply')));
+    await tester.pumpAndSettle();
+    expect(find.text('Plain update'), findsOneWidget);
+    expect(find.text('Long read'), findsOneWidget);
+  });
+
   testWidgets('Space publications screen composes and publishes through ACL', (
     tester,
   ) async {

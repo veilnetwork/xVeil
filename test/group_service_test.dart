@@ -4264,6 +4264,53 @@ void main() {
   );
 
   test(
+    'feed type filter is identity-local, survives reopen and keeps Space posts',
+    () async {
+      final (service, reopen) = await setup();
+      final spaceId = await service.createSpace(
+        'Mixed media',
+        visibility: SpaceVisibility.public,
+      );
+      await service.publishSpacePost(
+        spaceId,
+        body: 'plain update',
+        broadcast: false,
+      );
+      await service.publishSpacePost(
+        spaceId,
+        body: 'long read',
+        type: SpacePostType.article,
+        broadcast: false,
+      );
+
+      expect(await service.spaceFeed(), hasLength(2));
+      await service.setSpaceFeedTypeFilter({SpacePostType.article});
+      expect(await service.spaceFeedTypeFilter(), {SpacePostType.article});
+      expect((await service.spaceFeed()).single.post.body, 'long read');
+      expect(await service.postsOf(spaceId), hasLength(2));
+
+      final reopened = reopen(owner) as GroupService;
+      expect(await reopened.spaceFeedTypeFilter(), {SpacePostType.article});
+      expect(
+        (await reopened.spaceFeed()).single.post.type,
+        SpacePostType.article,
+      );
+      expect(
+        await reopened.spaceFeed(types: {SpacePostType.post}),
+        hasLength(1),
+        reason: 'an explicit service-level filter remains an override',
+      );
+
+      await reopened.setSpaceFeedTypeFilter({});
+      expect(
+        await reopened.spaceFeedTypeFilter(),
+        SpacePostType.values.toSet(),
+      );
+      expect(await reopened.spaceFeed(), hasLength(2));
+    },
+  );
+
+  test(
     'hidden feed registry crosses the single-setting limit safely',
     () async {
       final storage = FakeHvContainer().storage();

@@ -19,6 +19,7 @@ void main() {
   final spacePostReactions = <(String, String, String)>[];
   final subscriptions = <(String, bool)>[];
   final feedPostPreferences = <(String, String, bool)>[];
+  final feedTypePreferences = <List<String>>[];
   final spaceInviteDecisions = <(String, bool)>[];
   final spaceJoinActions = <(String, String?, String?, String?)>[];
   final spaceCreates = <(String, String, String)>[];
@@ -52,6 +53,7 @@ void main() {
     spacePostReactions.clear();
     subscriptions.clear();
     feedPostPreferences.clear();
+    feedTypePreferences.clear();
     spaceInviteDecisions.clear();
     spaceJoinActions.clear();
     spaceCreates.clear();
@@ -255,6 +257,14 @@ void main() {
         'posts': [
           {'spaceId': 'aa', 'body': 'community post'},
         ],
+      },
+      spaceFeedTypeFilter: () async => {
+        'types': ['post', 'article'],
+      },
+      setSpaceFeedTypeFilter: (types) async {
+        if (types.contains('unknown')) return 'invalid post type';
+        feedTypePreferences.add(List<String>.of(types));
+        return null;
       },
       setSpaceFeedEnabled: (space, enabled) async {
         if (space == 'missing') return 'space not found';
@@ -1467,6 +1477,30 @@ void main() {
       final feed = await h.handle('GET', u('/v1/feed?limit=20'), auth);
       expect(feed.status, 200);
       expect(((feed.body as Map)['posts'] as List), hasLength(1));
+      final feedFilter = await h.handle('GET', u('/v1/feed/filter'), auth);
+      expect(feedFilter.status, 200);
+      expect((feedFilter.body as Map)['types'], ['post', 'article']);
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/feed/filter'),
+          auth,
+          body: {
+            'types': ['article', 'video'],
+          },
+        )).status,
+        200,
+      );
+      expect(feedTypePreferences.single, ['article', 'video']);
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/feed/filter'),
+          auth,
+          body: {'types': 'article'},
+        )).status,
+        400,
+      );
       expect(
         (await h.handle(
           'POST',
