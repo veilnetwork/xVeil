@@ -19,6 +19,51 @@ class SpaceFeedScreen extends ConsumerWidget {
     if (service == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
+    Future<void> hidePost(SpaceFeedItem item) async {
+      try {
+        await service.setSpaceFeedPostHidden(
+          item.spaceId,
+          item.post.postId,
+          true,
+        );
+      } catch (_) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(l.feedPostHideFailed)));
+        }
+        return;
+      }
+      if (!context.mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(l.feedPostHidden),
+          action: SnackBarAction(
+            label: l.feedPostUndo,
+            onPressed: () {
+              unawaited(() async {
+                try {
+                  await service.setSpaceFeedPostHidden(
+                    item.spaceId,
+                    item.post.postId,
+                    false,
+                  );
+                } catch (_) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(l.feedPostHideFailed)),
+                    );
+                  }
+                }
+              }());
+            },
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(title: Text(l.navFeed)),
       body: StreamBuilder<int>(
@@ -78,6 +123,7 @@ class SpaceFeedScreen extends ConsumerWidget {
                       item.post.postId,
                       emoji,
                     ),
+                    onHide: () => hidePost(item),
                     selfId: service.selfId,
                   );
                 },
@@ -95,12 +141,14 @@ class _PostCard extends StatelessWidget {
     required this.item,
     required this.onTap,
     required this.onReact,
+    required this.onHide,
     required this.selfId,
   });
 
   final SpaceFeedItem item;
   final VoidCallback onTap;
   final Future<bool> Function(String emoji) onReact;
+  final Future<void> Function() onHide;
   final NodeId selfId;
 
   @override
@@ -137,6 +185,23 @@ class _PostCard extends StatelessWidget {
                     ),
                   ),
                   Text(published, style: Theme.of(context).textTheme.bodySmall),
+                  PopupMenuButton<String>(
+                    key: ValueKey('space-feed-post-menu-${post.postId}'),
+                    tooltip: AppL10n.of(context).feedPostHide,
+                    onSelected: (_) => unawaited(onHide()),
+                    itemBuilder: (context) => [
+                      PopupMenuItem(
+                        value: 'hide',
+                        child: Row(
+                          children: [
+                            const Icon(Icons.visibility_off_outlined),
+                            const SizedBox(width: 12),
+                            Text(AppL10n.of(context).feedPostHide),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
               if (post.title.isNotEmpty) ...[

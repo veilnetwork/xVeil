@@ -854,6 +854,28 @@ Map<String, dynamic> openApiSpec() {
           'responses': ok({'type': obj}),
         },
       },
+      '/feed/hidden': {
+        'post': {
+          'summary': 'Hide or restore one post in the local merged feed',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['space', 'postId', 'hidden'],
+                  'properties': {
+                    'space': {'type': 'string'},
+                    'postId': {'type': 'string'},
+                    'hidden': {'type': 'boolean'},
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({'type': obj}),
+        },
+      },
       '/feed': {
         'get': {
           'summary': 'Merged chronological feed of enabled communities',
@@ -1902,6 +1924,7 @@ class ApiHandler {
     this.reactToSpacePost,
     this.spaceFeed,
     this.setSpaceFeedEnabled,
+    this.setSpaceFeedPostHidden,
     this.spaceInvites,
     this.decideSpaceInvite,
     this.spaceJoinRequests,
@@ -2051,6 +2074,8 @@ class ApiHandler {
   spaceFeed;
   final Future<String?> Function(String spaceHex, bool enabled)?
   setSpaceFeedEnabled;
+  final Future<String?> Function(String spaceHex, String postId, bool hidden)?
+  setSpaceFeedPostHidden;
   final Future<List<Map<String, dynamic>>> Function()? spaceInvites;
   final Future<String?> Function(String inviteId, bool accept)?
   decideSpaceInvite;
@@ -2289,7 +2314,7 @@ class ApiHandler {
         'error': 'spaces unavailable on this host',
       });
     }
-    if (path == '/v1/feed' && !groupsAvailable) {
+    if (path.startsWith('/v1/feed') && !groupsAvailable) {
       return const ApiResponse(501, {
         'error': 'community feed unavailable on this host',
       });
@@ -2796,6 +2821,30 @@ class ApiHandler {
       }
       final limit = int.tryParse(uri.queryParameters['limit'] ?? '') ?? 50;
       return ApiResponse(200, await handler(limit.clamp(1, 200), before));
+    }
+    if (method == 'POST' && path == '/v1/feed/hidden') {
+      final handler = setSpaceFeedPostHidden;
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'feed post preferences unavailable',
+        });
+      }
+      final space = body?['space'];
+      final postId = body?['postId'];
+      final hidden = body?['hidden'];
+      if (space is! String ||
+          space.isEmpty ||
+          postId is! String ||
+          !RegExp(r'^[0-9a-f]{64}:[0-9]+$').hasMatch(postId) ||
+          hidden is! bool) {
+        return const ApiResponse(400, {
+          'error': 'valid space + postId + hidden required',
+        });
+      }
+      final error = await handler(space, postId, hidden);
+      return error == null
+          ? const ApiResponse(200, {'ok': true})
+          : ApiResponse(400, {'error': error});
     }
     if (method == 'GET' && path == '/v1/spaces/channels') {
       final space = uri.queryParameters['space'];

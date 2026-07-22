@@ -18,6 +18,7 @@ void main() {
   final spacePostDeletes = <(String, String)>[];
   final spacePostReactions = <(String, String, String)>[];
   final subscriptions = <(String, bool)>[];
+  final feedPostPreferences = <(String, String, bool)>[];
   final spaceInviteDecisions = <(String, bool)>[];
   final spaceJoinActions = <(String, String?, String?, String?)>[];
   final spaceCreates = <(String, String, String)>[];
@@ -50,6 +51,7 @@ void main() {
     spacePostDeletes.clear();
     spacePostReactions.clear();
     subscriptions.clear();
+    feedPostPreferences.clear();
     spaceInviteDecisions.clear();
     spaceJoinActions.clear();
     spaceCreates.clear();
@@ -257,6 +259,11 @@ void main() {
       setSpaceFeedEnabled: (space, enabled) async {
         if (space == 'missing') return 'space not found';
         subscriptions.add((space, enabled));
+        return null;
+      },
+      setSpaceFeedPostHidden: (space, postId, hidden) async {
+        if (space == 'missing') return 'space not found';
+        feedPostPreferences.add((space, postId, hidden));
         return null;
       },
       spaceInvites: () async => [
@@ -597,6 +604,10 @@ void main() {
         ('/v1/spaces/profile', {'space': 's', 'description': 'new'}),
         ('/v1/spaces/posts', {'space': 's', 'body': 'x'}),
         ('/v1/spaces/subscription', {'space': 's', 'enabled': false}),
+        (
+          '/v1/feed/hidden',
+          {'space': 's', 'postId': '${'01' * 32}:0', 'hidden': true},
+        ),
         ('/v1/spaces/invites', {'inviteId': 'ab' * 32, 'action': 'accept'}),
         (
           '/v1/spaces/join-requests',
@@ -1466,6 +1477,25 @@ void main() {
         200,
       );
       expect(subscriptions.single, ('aa', false));
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/feed/hidden'),
+          auth,
+          body: {'space': 'aa', 'postId': postId, 'hidden': true},
+        )).status,
+        200,
+      );
+      expect(feedPostPreferences.single, ('aa', postId, true));
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/feed/hidden'),
+          auth,
+          body: {'space': 'aa', 'postId': 'bad', 'hidden': true},
+        )).status,
+        400,
+      );
     },
   );
 
@@ -1718,6 +1748,19 @@ void main() {
         u('/v1/groups/files'),
         'Bearer secret-token',
         body: {'group': 'g', 'path': '/x'},
+      )).status,
+      501,
+    );
+    expect(
+      (await h.handle('GET', u('/v1/feed'), 'Bearer secret-token')).status,
+      501,
+    );
+    expect(
+      (await h.handle(
+        'POST',
+        u('/v1/feed/hidden'),
+        'Bearer secret-token',
+        body: {'space': 'aa', 'postId': '${'01' * 32}:0', 'hidden': true},
       )).status,
       501,
     );
@@ -2239,6 +2282,7 @@ void main() {
           '/spaces/posts/reactions',
           '/spaces/subscription',
           '/feed',
+          '/feed/hidden',
           '/spaces/channels',
           '/spaces/channels/action',
           '/spaces/channels/messages',

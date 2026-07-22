@@ -59,6 +59,7 @@ bool _listEquals<T>(List<T>? left, List<T>? right) {
 }
 
 final RegExp _channelKeyIdPattern = RegExp(r'^[0-9a-f]{64}:[1-9][0-9]*$');
+final RegExp _spacePostIdPattern = RegExp(r'^[0-9a-f]{64}:[0-9]+$');
 
 String _channelKeyId(NodeId channelId, int epoch) => '${channelId.hex}:$epoch';
 
@@ -6267,6 +6268,131 @@ class GroupService {
   String _spaceSubscriptionKey(NodeId spaceId) =>
       'space.subscription.v1:${spaceId.hex}';
   String _spaceFeedSeenKey(NodeId spaceId) => 'space.feed.seen:${spaceId.hex}';
+  static const String _spaceFeedHiddenStoreKey = 'space.feed.hidden.v1';
+  static const int _maxHiddenSpaceFeedPosts = 4096;
+  Future<void> _spaceFeedPreferenceMutationTail = Future<void>.value();
+
+  String _hiddenSpaceFeedPostKey(NodeId spaceId, String postId) =>
+      '${spaceId.hex}:$postId';
+
+  Future<T> _serializeSpaceFeedPreferences<T>(
+    Future<T> Function() action,
+  ) async {
+    final previous = _spaceFeedPreferenceMutationTail;
+    final gate = Completer<void>();
+    _spaceFeedPreferenceMutationTail = gate.future;
+    try {
+      try {
+        await previous;
+      } catch (_) {
+        // A prior preference write reports its own failure; keep the queue live.
+      }
+      return await action();
+    } finally {
+      gate.complete();
+    }
+  }
+
+  /// Device-local feed dismissals. They live in the active identity's
+  /// encrypted store and never mutate, tombstone, or relay the signed post.
+  Future<Map<String, int>> _hiddenSpaceFeedPosts() async {
+    final blob = await _storage.loadFile(_spaceFeedHiddenStoreKey);
+    if (blob == null || blob.isEmpty) return <String, int>{};
+    try {
+      final raw = utf8.decode(blob);
+      final value = jsonDecode(raw);
+      if (value is! Map || value['v'] != 1 || value['items'] is! List) {
+        return <String, int>{};
+      }
+      final result = <String, int>{};
+      for (final item in value['items'] as List) {
+        if (item is! Map ||
+            item['sid'] is! String ||
+            item['post'] is! String ||
+            item['at'] is! int ||
+            item['at'] as int < 0 ||
+            !_spacePostIdPattern.hasMatch(item['post'] as String)) {
+          continue;
+        }
+        final NodeId spaceId;
+        try {
+          spaceId = NodeId.fromHex(item['sid'] as String);
+        } catch (_) {
+          continue;
+        }
+        result[_hiddenSpaceFeedPostKey(spaceId, item['post'] as String)] =
+            item['at'] as int;
+      }
+      return result;
+    } catch (_) {
+      return <String, int>{};
+    }
+  }
+
+  Future<void> _saveHiddenSpaceFeedPosts(Map<String, int> hidden) async {
+    final entries = hidden.entries.toList()
+      ..sort((left, right) => right.value.compareTo(left.value));
+    final bounded = entries.take(_maxHiddenSpaceFeedPosts);
+    final json = jsonEncode({
+      'v': 1,
+      'items': [
+        for (final entry in bounded)
+          {
+            'sid': entry.key.substring(0, 64),
+            'post': entry.key.substring(65),
+            'at': entry.value,
+          },
+      ],
+    });
+    // The bounded list may still be hundreds of KiB. Use the encrypted
+    // chunked store rather than the ~4 KiB single-setting path.
+    await _storage.storeFile(
+      _spaceFeedHiddenStoreKey,
+      Uint8List.fromList(utf8.encode(json)),
+      name: 'feed-hidden',
+    );
+  }
+
+  Future<bool> isSpaceFeedPostHidden(NodeId spaceId, String postId) async {
+    if (!_spacePostIdPattern.hasMatch(postId)) return false;
+    return (await _hiddenSpaceFeedPosts()).containsKey(
+      _hiddenSpaceFeedPostKey(spaceId, postId),
+    );
+  }
+
+  /// Hide or restore one publication only in this identity's merged Feed.
+  /// The community's own publication history remains intact and visible.
+  Future<void> setSpaceFeedPostHidden(
+    NodeId spaceId,
+    String postId,
+    bool hidden,
+  ) => _serializeSpaceFeedPreferences(() async {
+    if (!_spacePostIdPattern.hasMatch(postId)) {
+      throw ArgumentError.value(postId, 'postId', 'invalid Space post id');
+    }
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) {
+      throw ArgumentError.value(spaceId.hex, 'spaceId', 'unknown Space');
+    }
+    if (hidden) {
+      final visible = await _postsOfBundle(bundle, applyLocalRetention: true);
+      if (!visible.any((post) => post.postId == postId)) {
+        throw ArgumentError.value(postId, 'postId', 'unknown visible post');
+      }
+    }
+    final values = await _hiddenSpaceFeedPosts();
+    final key = _hiddenSpaceFeedPostKey(spaceId, postId);
+    final bool changed;
+    if (hidden) {
+      changed = !values.containsKey(key);
+      if (changed) values[key] = _now();
+    } else {
+      changed = values.remove(key) != null;
+    }
+    if (!changed) return;
+    await _saveHiddenSpaceFeedPosts(values);
+    changes.value++;
+  });
 
   /// Membership and feed subscription are intentionally separate. An active
   /// member follows publications by default but can disable them locally
@@ -6352,6 +6478,7 @@ class GroupService {
     final boundedLimit = limit.clamp(1, 200);
     final items = <SpaceFeedItem>[];
     final seen = <String>{};
+    final hidden = await _hiddenSpaceFeedPosts();
     for (final id in await _index()) {
       final NodeId spaceId;
       try {
@@ -6376,11 +6503,18 @@ class GroupService {
         bundle,
         applyLocalRetention: true,
       );
+      final feedPosts = visiblePosts
+          .where(
+            (post) => !hidden.containsKey(
+              _hiddenSpaceFeedPostKey(spaceId, post.postId),
+            ),
+          )
+          .toList();
       final reactions = await _spacePostReactionsOfBundle(
         bundle,
-        visiblePostIds: {for (final post in visiblePosts) post.postId},
+        visiblePostIds: {for (final post in feedPosts) post.postId},
       );
-      for (final post in visiblePosts) {
+      for (final post in feedPosts) {
         if (types != null && !types.contains(post.type)) continue;
         final cursor = SpaceFeedCursor.fromView(post);
         if (before != null && cursor.compareTo(before) >= 0) continue;
@@ -6408,6 +6542,7 @@ class GroupService {
 
   Future<int> unreadSpacePosts(NodeId spaceId) async {
     if (!await isSpaceFeedEnabled(spaceId)) return 0;
+    final hidden = await _hiddenSpaceFeedPosts();
     final seen = SpaceFeedCursor.decode(
       await _storage.getSetting(_spaceFeedSeenKey(spaceId)),
     );
@@ -6415,6 +6550,9 @@ class GroupService {
     return posts
         .where(
           (post) =>
+              !hidden.containsKey(
+                _hiddenSpaceFeedPostKey(spaceId, post.postId),
+              ) &&
               post.author != _signer.selfId &&
               (seen == null ||
                   SpaceFeedCursor.fromView(post).compareTo(seen) > 0),

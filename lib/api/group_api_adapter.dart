@@ -589,6 +589,21 @@ final class GroupApiAdapter {
     }
   }
 
+  Future<String?> setFeedPostHidden(
+    String spaceHex,
+    String postId,
+    bool hidden,
+  ) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return 'space not found';
+    try {
+      await _groups.setSpaceFeedPostHidden(visible.$1, postId, hidden);
+      return null;
+    } catch (_) {
+      return 'feed post preference rejected';
+    }
+  }
+
   Future<List<Map<String, dynamic>>> invites() async => [
     for (final pending in await _groups.pendingSpaceInvites())
       {

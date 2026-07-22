@@ -603,6 +603,18 @@ class AppL10nRu extends AppL10n {
       'Публикации включённых сообществ появятся здесь в хронологическом порядке.';
 
   @override
+  String get feedPostHide => 'Скрыть из ленты';
+
+  @override
+  String get feedPostHidden => 'Публикация скрыта из вашей ленты';
+
+  @override
+  String get feedPostUndo => 'Вернуть';
+
+  @override
+  String get feedPostHideFailed => 'Не удалось изменить настройку ленты';
+
+  @override
   String get chatsEmpty => 'Пока нет переписок';
 
   @override
