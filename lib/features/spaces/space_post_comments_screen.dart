@@ -9,6 +9,7 @@ import '../../domain/group_policy.dart';
 import '../../domain/space_post.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
+import 'space_post_media.dart';
 
 /// Member discussion for one Space publication. Comments share the signed,
 /// encrypted and P2P-replicated message log, but this dedicated projection is
@@ -217,6 +218,7 @@ class _SpacePostCommentsScreenState
                         itemBuilder: (context, index) {
                           if (index == 0) {
                             return _PublicationHeader(
+                              spaceId: spaceId,
                               post: post,
                               commentCount: comments.length,
                             );
@@ -312,8 +314,13 @@ class _CommentsProjection {
 }
 
 class _PublicationHeader extends StatelessWidget {
-  const _PublicationHeader({required this.post, required this.commentCount});
+  const _PublicationHeader({
+    required this.spaceId,
+    required this.post,
+    required this.commentCount,
+  });
 
+  final NodeId spaceId;
   final SpacePostView post;
   final int commentCount;
 
@@ -332,6 +339,7 @@ class _PublicationHeader extends StatelessWidget {
             if (post.title.isNotEmpty && post.body.isNotEmpty)
               const SizedBox(height: 8),
             if (post.body.isNotEmpty) SelectionArea(child: Text(post.body)),
+            SpacePostMediaList(spaceId: spaceId, post: post),
             const SizedBox(height: 12),
             Row(
               children: [

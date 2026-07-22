@@ -348,6 +348,12 @@ class AppL10nRu extends AppL10n {
       'Черновик зашифрован и сохранён на этом устройстве. До публикации он никуда не отправляется.';
 
   @override
+  String get spacePostMediaAttach => 'Добавить медиа или файл';
+
+  @override
+  String get spacePostMediaRejected => 'Некоторые файлы не удалось прикрепить';
+
+  @override
   String get spacePostEdit => 'Редактировать публикацию';
 
   @override

@@ -12,12 +12,18 @@ import '../../domain/space_post.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/notifications.dart' show activeConversationProvider;
+import 'space_post_media.dart';
 import 'space_post_reactions.dart';
 
 class SpacePostsScreen extends ConsumerStatefulWidget {
-  const SpacePostsScreen({super.key, required this.spaceIdHex});
+  const SpacePostsScreen({
+    super.key,
+    required this.spaceIdHex,
+    this.mediaPicker,
+  });
 
   final String spaceIdHex;
+  final Future<SpacePostMediaPickResult> Function(int remaining)? mediaPicker;
 
   @override
   ConsumerState<SpacePostsScreen> createState() => _SpacePostsScreenState();
@@ -63,11 +69,16 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
         initialTitle: saved?.title ?? '',
         initialBody: saved?.body ?? '',
         initialType: saved?.type ?? SpacePostType.post,
-        onSaveDraft: (title, body, type) => service.saveSpacePostDraft(
+        initialMedia: saved?.media ?? const [],
+        onPickMedia: (remaining) =>
+            widget.mediaPicker?.call(remaining) ??
+            pickAndRegisterSpacePostMedia(ref, remaining: remaining),
+        onSaveDraft: (title, body, type, media) => service.saveSpacePostDraft(
           spaceId,
           title: title,
           body: body,
           type: type,
+          media: media,
         ),
       ),
     );
@@ -77,6 +88,7 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
       title: draft.title,
       body: draft.body,
       type: draft.type,
+      media: draft.media,
     );
     if (post != null) {
       final cleared = await service.clearSpacePostDraft(spaceId);
@@ -105,7 +117,11 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
         initialTitle: post.title,
         initialBody: post.body,
         initialType: post.type,
+        initialMedia: post.media,
         editing: true,
+        onPickMedia: (remaining) =>
+            widget.mediaPicker?.call(remaining) ??
+            pickAndRegisterSpacePostMedia(ref, remaining: remaining),
       ),
     );
     if (draft == null) return;
@@ -117,6 +133,7 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
           title: draft.title,
           body: draft.body,
           type: draft.type,
+          media: draft.media,
         );
     if (updated == null && context.mounted) {
       ScaffoldMessenger.of(
@@ -353,6 +370,7 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
                                 ),
                               ),
                             if (post.body.isNotEmpty) Text(post.body),
+                            SpacePostMediaList(spaceId: spaceId, post: post),
                             if (post.edited)
                               Padding(
                                 padding: const EdgeInsets.only(top: 4),
@@ -479,13 +497,15 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
 enum _PostAction { pin, unpin, edit, delete, moderateDelete }
 
 class _PostComposerValue {
-  const _PostComposerValue(this.title, this.body, this.type);
+  const _PostComposerValue(this.title, this.body, this.type, this.media);
 
   final String title;
   final String body;
   final SpacePostType type;
+  final List<MediaObjectRef> media;
 
-  bool get hasContent => title.trim().isNotEmpty || body.trim().isNotEmpty;
+  bool get hasContent =>
+      title.trim().isNotEmpty || body.trim().isNotEmpty || media.isNotEmpty;
 }
 
 class _PostComposerDialog extends StatefulWidget {
@@ -493,15 +513,24 @@ class _PostComposerDialog extends StatefulWidget {
     this.initialTitle = '',
     this.initialBody = '',
     this.initialType = SpacePostType.post,
+    this.initialMedia = const [],
     this.editing = false,
+    this.onPickMedia,
     this.onSaveDraft,
   });
 
   final String initialTitle;
   final String initialBody;
   final SpacePostType initialType;
+  final List<MediaObjectRef> initialMedia;
   final bool editing;
-  final Future<bool> Function(String title, String body, SpacePostType type)?
+  final Future<SpacePostMediaPickResult> Function(int remaining)? onPickMedia;
+  final Future<bool> Function(
+    String title,
+    String body,
+    SpacePostType type,
+    List<MediaObjectRef> media,
+  )?
   onSaveDraft;
 
   @override
@@ -512,6 +541,7 @@ class _PostComposerDialogState extends State<_PostComposerDialog> {
   late final TextEditingController _title;
   late final TextEditingController _body;
   late SpacePostType _type;
+  late List<MediaObjectRef> _media;
   Timer? _draftTimer;
   bool _draftSettled = false;
   bool _saving = false;
@@ -523,6 +553,7 @@ class _PostComposerDialogState extends State<_PostComposerDialog> {
     _title = TextEditingController(text: widget.initialTitle);
     _body = TextEditingController(text: widget.initialBody);
     _type = widget.initialType;
+    _media = List<MediaObjectRef>.of(widget.initialMedia);
   }
 
   @override
@@ -530,15 +561,21 @@ class _PostComposerDialogState extends State<_PostComposerDialog> {
     _draftTimer?.cancel();
     if (!widget.editing && !_draftSettled && widget.onSaveDraft != null) {
       final value = _value;
-      unawaited(widget.onSaveDraft!(value.title, value.body, value.type));
+      unawaited(
+        widget.onSaveDraft!(value.title, value.body, value.type, value.media),
+      );
     }
     _title.dispose();
     _body.dispose();
     super.dispose();
   }
 
-  _PostComposerValue get _value =>
-      _PostComposerValue(_title.text, _body.text, _type);
+  _PostComposerValue get _value => _PostComposerValue(
+    _title.text,
+    _body.text,
+    _type,
+    List.unmodifiable(_media),
+  );
 
   void _scheduleDraft() {
     if (widget.editing || widget.onSaveDraft == null) {
@@ -553,6 +590,7 @@ class _PostComposerDialogState extends State<_PostComposerDialog> {
         value.title,
         value.body,
         value.type,
+        value.media,
       );
       if (mounted && !saved) setState(() => _saveFailed = true);
     });
@@ -563,13 +601,19 @@ class _PostComposerDialogState extends State<_PostComposerDialog> {
     final value = _value;
     if (publish && !value.hasContent) return;
     _draftTimer?.cancel();
+    setState(() => _saving = true);
     if (!widget.editing && widget.onSaveDraft != null) {
-      setState(() => _saving = true);
-      final saved = await widget.onSaveDraft!(
-        value.title,
-        value.body,
-        value.type,
-      );
+      bool saved;
+      try {
+        saved = await widget.onSaveDraft!(
+          value.title,
+          value.body,
+          value.type,
+          value.media,
+        );
+      } catch (_) {
+        saved = false;
+      }
       if (!mounted) return;
       if (!saved) {
         setState(() {
@@ -581,6 +625,51 @@ class _PostComposerDialogState extends State<_PostComposerDialog> {
       _draftSettled = true;
     }
     if (mounted) Navigator.of(context).pop(publish ? value : null);
+  }
+
+  Future<void> _pickMedia() async {
+    final picker = widget.onPickMedia;
+    if (picker == null || _saving || _media.length >= kSpacePostMediaMax) {
+      return;
+    }
+    setState(() => _saving = true);
+    final SpacePostMediaPickResult result;
+    try {
+      result = await picker(kSpacePostMediaMax - _media.length);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppL10n.of(context).spacePostMediaRejected)),
+      );
+      return;
+    }
+    if (!mounted) return;
+    final known = {for (final item in _media) item.contentId};
+    var rejected = result.rejected;
+    for (final item in result.media) {
+      if (_media.length >= kSpacePostMediaMax ||
+          !item.isStructurallyValid ||
+          !known.add(item.contentId)) {
+        rejected++;
+      } else {
+        _media.add(item);
+      }
+    }
+    setState(() => _saving = false);
+    _scheduleDraft();
+    if (rejected > 0 && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppL10n.of(context).spacePostMediaRejected)),
+      );
+    }
+  }
+
+  void _removeMedia(MediaObjectRef media) {
+    setState(() {
+      _media.removeWhere((item) => item.contentId == media.contentId);
+    });
+    _scheduleDraft();
   }
 
   @override
@@ -630,6 +719,45 @@ class _PostComposerDialogState extends State<_PostComposerDialog> {
                 }
               },
             ),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                key: const ValueKey('space-post-attach-media'),
+                onPressed:
+                    _saving ||
+                        _media.length >= kSpacePostMediaMax ||
+                        widget.onPickMedia == null
+                    ? null
+                    : _pickMedia,
+                icon: const Icon(Icons.attach_file),
+                label: Text(l.spacePostMediaAttach),
+              ),
+            ),
+            if (_media.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final media in _media)
+                      InputChip(
+                        key: ValueKey(
+                          'space-post-draft-media-${media.contentId}',
+                        ),
+                        avatar: Icon(spacePostMediaIcon(media.kind), size: 18),
+                        label: Text(
+                          media.name ?? media.kind,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        onDeleted: _saving ? null : () => _removeMedia(media),
+                      ),
+                  ],
+                ),
+              ),
+            ],
             if (!widget.editing) ...[
               const SizedBox(height: 12),
               Row(

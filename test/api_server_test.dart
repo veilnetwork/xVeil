@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/domain/space_post.dart' show kSpacePostMediaMax;
 import 'package:xveil/state/api_server.dart';
 
 // The automation API's auth + routing (pure ApiHandler — no socket).
@@ -20,6 +21,9 @@ void main() {
   final spacePostPins = <(String, String, bool)>[];
   final spacePostReactions = <(String, String, String)>[];
   final spacePostDraftWrites = <(String, String, String, String)>[];
+  final spacePublicationMedia = <List<Map<String, dynamic>>>[];
+  final spacePostEditMedia = <List<Map<String, dynamic>>?>[];
+  final spacePostDraftMedia = <List<Map<String, dynamic>>>[];
   final spacePostDraftClears = <String>[];
   final spacePostCommentWrites = <(String, String, String, String?)>[];
   final spaceRecommendationShares = <(String, String, String)>[];
@@ -62,6 +66,9 @@ void main() {
     spacePostPins.clear();
     spacePostReactions.clear();
     spacePostDraftWrites.clear();
+    spacePublicationMedia.clear();
+    spacePostEditMedia.clear();
+    spacePostDraftMedia.clear();
     spacePostDraftClears.clear();
     spacePostCommentWrites.clear();
     localSpacePostDraft = null;
@@ -230,16 +237,19 @@ void main() {
       spacePostDraft: (space) async => space == 'missing'
           ? null
           : {'spaceId': space, 'draft': localSpacePostDraft},
-      saveSpacePostDraft: (space, title, body, type) async {
+      saveSpacePostDraft: (space, title, body, type, media) async {
         if (space == 'denied') return 'post draft rejected';
         spacePostDraftWrites.add((space, title, body, type));
+        final mediaJson = [for (final item in media) item.toJson()];
+        spacePostDraftMedia.add(mediaJson);
         localSpacePostDraft = {
-          'v': 1,
+          'v': 2,
           'sid': space,
           'title': title,
           'body': body,
           'type': type,
           'updatedAt': 1,
+          if (mediaJson.isNotEmpty) 'media': mediaJson,
         };
         return null;
       },
@@ -267,11 +277,13 @@ void main() {
         spacePostCommentWrites.add((space, postId, body, replyTo));
         return null;
       },
-      publishSpacePost: (space, title, body, type) async {
+      publishSpacePost: (space, title, body, type, media) async {
         if (space == 'denied') {
           return (error: 'post publication rejected', post: null);
         }
         spacePublications.add((space, title, body, type));
+        final mediaJson = [for (final item in media) item.toJson()];
+        spacePublicationMedia.add(mediaJson);
         return (
           error: null,
           post: <String, dynamic>{
@@ -279,14 +291,19 @@ void main() {
             'title': title,
             'body': body,
             'type': type,
+            'media': mediaJson,
           },
         );
       },
-      editSpacePost: (space, postId, title, body, type) async {
+      editSpacePost: (space, postId, title, body, type, media) async {
         if (space == 'denied') {
           return (error: 'post edit rejected', post: null);
         }
         spacePostEdits.add((space, postId, title, body, type));
+        final mediaJson = media == null
+            ? null
+            : [for (final item in media) item.toJson()];
+        spacePostEditMedia.add(mediaJson);
         return (
           error: null,
           post: <String, dynamic>{
@@ -296,6 +313,7 @@ void main() {
             'body': body,
             'type': type ?? 'post',
             'edited': true,
+            'media': ?mediaJson,
           },
         );
       },
@@ -1543,6 +1561,13 @@ void main() {
     () async {
       final h = make();
       const auth = 'Bearer secret-token';
+      final media = {
+        'cid': 'a' * 64,
+        'kind': 'image',
+        'name': 'release.png',
+        'mime': 'image/png',
+        'size': 42,
+      };
       final posts = await h.handle(
         'GET',
         u('/v1/spaces/posts?space=aa&limit=10'),
@@ -1586,6 +1611,7 @@ void main() {
           'title': 'Local title',
           'body': 'Local body',
           'type': 'audio',
+          'media': [media],
         },
       );
       expect(savedDraft.status, 200);
@@ -1595,6 +1621,7 @@ void main() {
         'Local body',
         'audio',
       ));
+      expect(spacePostDraftMedia.single.single, media);
       final restoredDraft = await h.handle(
         'GET',
         u('/v1/spaces/posts/draft?space=aa'),
@@ -1603,6 +1630,10 @@ void main() {
       expect(
         ((restoredDraft.body as Map)['draft'] as Map)['body'],
         'Local body',
+      );
+      expect(
+        (((restoredDraft.body as Map)['draft'] as Map)['media'] as List).single,
+        media,
       );
       expect(
         (await h.handle(
@@ -1640,10 +1671,25 @@ void main() {
           'title': 'Title',
           'body': 'Body',
           'type': 'article',
+          'media': [media],
         },
       );
       expect(published.status, 200);
       expect(spacePublications.single, ('aa', 'Title', 'Body', 'article'));
+      expect(spacePublicationMedia.single.single, media);
+      expect(((published.body as Map)['post'] as Map)['media'], [media]);
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/posts'),
+          auth,
+          body: {
+            'space': 'aa',
+            'media': [media, media],
+          },
+        )).status,
+        400,
+      );
       expect(
         (await h.handle(
           'POST',
@@ -1713,6 +1759,7 @@ void main() {
           'title': 'Corrected',
           'body': 'Revised',
           'type': 'post',
+          'media': const [],
         },
       );
       expect(edited.status, 200);
@@ -1723,6 +1770,7 @@ void main() {
         'Revised',
         'post',
       ));
+      expect(spacePostEditMedia.single, isEmpty);
       expect(
         (await h.handle(
           'PATCH',
@@ -1978,6 +2026,7 @@ void main() {
         'Parsed body',
         null,
       ));
+      expect(spacePostEditMedia.single, isNull);
     } finally {
       client.close(force: true);
       await server.stop();
@@ -2774,6 +2823,21 @@ void main() {
         'post',
         'patch',
       });
+      final schemas = (spec['components'] as Map)['schemas'] as Map;
+      final mediaSchema = schemas['MediaObjectRef'] as Map;
+      expect(mediaSchema['required'], ['cid', 'kind']);
+      expect(
+        ((mediaSchema['properties'] as Map)['cid'] as Map)['pattern'],
+        r'^[0-9a-f]{64}$',
+      );
+      final postMedia =
+          (((schemas['SpacePost'] as Map)['properties'] as Map)['media']
+              as Map);
+      expect(postMedia['maxItems'], kSpacePostMediaMax);
+      expect(
+        (postMedia['items'] as Map)[r'$ref'],
+        '#/components/schemas/MediaObjectRef',
+      );
       // The security scheme is declared so generated clients wire the token.
       expect(
         ((spec['components'] as Map)['securitySchemes'] as Map)['bearerAuth'],

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/transport/veil_mailbox.dart';
+import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/domain/group.dart';
 import 'package:xveil/domain/group_call.dart';
 import 'package:xveil/domain/group_content.dart';
@@ -18,6 +19,7 @@ import 'package:xveil/features/spaces/space_posts_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/group_service_providers.dart';
 import 'package:xveil/state/group_epoch_service.dart';
+import 'package:xveil/state/providers.dart';
 
 import 'support/fake_hv_container.dart';
 
@@ -84,14 +86,18 @@ class _Signer implements GroupSigner {
   }) => false;
 }
 
-Widget _host(GroupService service, Widget child) => ProviderScope(
-  overrides: [groupServiceProvider.overrideWithValue(service)],
-  child: MaterialApp(
-    localizationsDelegates: AppL10n.localizationsDelegates,
-    supportedLocales: AppL10n.supportedLocales,
-    home: child,
-  ),
-);
+Widget _host(GroupService service, Widget child, {Storage? storage}) =>
+    ProviderScope(
+      overrides: [
+        groupServiceProvider.overrideWithValue(service),
+        if (storage != null) storageProvider.overrideWithValue(storage),
+      ],
+      child: MaterialApp(
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        home: child,
+      ),
+    );
 
 void main() {
   testWidgets('Feed renders a separate chronological Space publication', (
@@ -405,6 +411,87 @@ void main() {
         isEmpty,
       );
       expect((await service.listGroups()), isEmpty);
+    },
+  );
+
+  testWidgets(
+    'Space publication composer persists, publishes and edits shared media refs',
+    (tester) async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _Signer(_id(12)));
+      final spaceId = await service.createSpace(
+        'Media writers',
+        visibility: SpaceVisibility.public,
+      );
+      final media = MediaObjectRef(
+        contentId: 'a' * 64,
+        kind: 'image',
+        name: 'release.png',
+        mimeType: 'image/png',
+        size: 42,
+      );
+      final screen = SpacePostsScreen(
+        spaceIdHex: spaceId.hex,
+        mediaPicker: (_) async => (media: [media], rejected: 0),
+      );
+
+      await tester.pumpWidget(_host(service, screen, storage: storage));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.edit_outlined));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('space-post-attach-media')));
+      await tester.pumpAndSettle();
+      expect(find.text('release.png'), findsOneWidget);
+      await tester.tap(
+        find.text(
+          AppL10n.of(
+            tester.element(find.byType(SpacePostsScreen)),
+          ).actionCancel,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        (await service.spacePostDraft(spaceId))?.media.single.name,
+        'release.png',
+      );
+
+      await tester.tap(find.byIcon(Icons.edit_outlined));
+      await tester.pumpAndSettle();
+      expect(find.text('release.png'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('space-post-publish')));
+      await tester.pumpAndSettle();
+      final published = (await service.postsOf(spaceId)).single;
+      expect(published.media.single.contentId, media.contentId);
+      expect(
+        find.byKey(ValueKey('space-post-media-${media.contentId}')),
+        findsOneWidget,
+      );
+      expect(await service.spacePostDraft(spaceId), isNull);
+
+      final menu = find.byKey(ValueKey('space-post-menu-${published.postId}'));
+      await tester.ensureVisible(menu);
+      await tester.tap(menu);
+      await tester.pumpAndSettle();
+      final l = AppL10n.of(tester.element(find.byType(SpacePostsScreen)));
+      await tester.tap(find.text(l.spacePostEdit));
+      await tester.pumpAndSettle();
+      tester
+          .widget<InputChip>(
+            find.byKey(ValueKey('space-post-draft-media-${media.contentId}')),
+          )
+          .onDeleted!();
+      await tester.enterText(
+        find.byKey(const ValueKey('space-post-body-field')),
+        'Text replacement',
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('space-post-save-edit')));
+      await tester.pumpAndSettle();
+      final edited = (await service.postsOf(spaceId)).single;
+      expect(edited.body, 'Text replacement');
+      expect(edited.media, isEmpty);
+      expect(await service.referencedContentIds(spaceId), isEmpty);
     },
   );
 }
