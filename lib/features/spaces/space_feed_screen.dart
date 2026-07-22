@@ -141,6 +141,7 @@ class _SpaceFeedScreenState extends ConsumerState<SpaceFeedScreen> {
 
     return StreamBuilder<int>(
       stream: service.changes.stream,
+      initialData: service.changes.value,
       builder: (context, _) =>
           FutureBuilder<
             ({
@@ -149,6 +150,7 @@ class _SpaceFeedScreenState extends ConsumerState<SpaceFeedScreen> {
               List<SpaceFeedItem> items,
             })
           >(
+            key: ValueKey(('space-feed', service.feedAccessChanges.value)),
             future: () async {
               final types = await service.spaceFeedTypeFilter();
               final pages = await Future.wait([

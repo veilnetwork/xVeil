@@ -522,11 +522,30 @@ class GroupService {
   /// Bumped on every persisted mutation (local op/post OR an ingested
   /// snapshot) so open group screens re-fetch. Cheap: the UI reads on change.
   final GroupChangeSignal changes = GroupChangeSignal();
+
+  /// A privacy-sensitive subset of [changes]. The merged Feed uses this to
+  /// discard its last rendered snapshot before recalculating access, instead
+  /// of briefly retaining content after a local block, leave, or remote ban.
+  final GroupChangeSignal feedAccessChanges = GroupChangeSignal();
   Timer? _spaceDeletionMaintenanceTimer;
   bool _spaceDeletionMaintenanceRunning = false;
 
   /// Our own node id — the composer uses it to align outgoing bubbles.
   NodeId get selfId => _signer.selfId;
+
+  /// Contact state belongs to [MessagingService], while feed materialization
+  /// belongs here. The Flutter bridge calls this after a local or mirrored
+  /// relationship transition so blocked-author filtering becomes visible
+  /// without waiting for an unrelated group mutation.
+  void notifyContactAccessChanged(NodeId peer) {
+    if (peer == _signer.selfId) return;
+    _invalidateFeedAccess();
+  }
+
+  void _invalidateFeedAccess() {
+    feedAccessChanges.value++;
+    changes.value++;
+  }
 
   static const String _spaceInvitesSetting = 'spaces.invites.v1';
   static const int _maxSpaceInvites = 256;
@@ -4901,7 +4920,8 @@ class GroupService {
     )) {
       return false;
     }
-    await _save(b.copyWith(control: candidate));
+    await _save(b.copyWith(control: candidate), notify: !b.manifest.isSpace);
+    if (b.manifest.isSpace) _invalidateFeedAccess();
     // Tell the members who remain (broadcastDelta folds AFTER the leave, so it
     // fans out to them and never to us). They drop us from their roster.
     await broadcastDelta(groupId, control: [signed]);
@@ -7220,6 +7240,17 @@ class GroupService {
     final items = <SpaceFeedItem>[];
     final seen = <String>{};
     final hidden = await _hiddenSpaceFeedPosts();
+    final blockedAuthors = <String, Future<bool>>{};
+    Future<bool> isBlockedAuthor(NodeId author) {
+      if (author == _signer.selfId) return Future<bool>.value(false);
+      return blockedAuthors.putIfAbsent(
+        author.hex,
+        () async =>
+            (await _storage.getContact(author))?.status ==
+            ContactStatus.blocked,
+      );
+    }
+
     for (final id in await _index()) {
       final NodeId spaceId;
       try {
@@ -7244,13 +7275,14 @@ class GroupService {
         bundle,
         applyLocalRetention: true,
       );
-      final feedPosts = visiblePosts
-          .where(
-            (post) => !hidden.containsKey(
-              _hiddenSpaceFeedPostKey(spaceId, post.postId),
-            ),
-          )
-          .toList();
+      final feedPosts = <SpacePostView>[];
+      for (final post in visiblePosts) {
+        if (hidden.containsKey(_hiddenSpaceFeedPostKey(spaceId, post.postId)) ||
+            await isBlockedAuthor(post.author)) {
+          continue;
+        }
+        feedPosts.add(post);
+      }
       final reactions = await _spacePostReactionsOfBundle(
         bundle,
         visiblePostIds: {for (final post in feedPosts) post.postId},
@@ -7292,17 +7324,19 @@ class GroupService {
       await _storage.getSetting(_spaceFeedSeenKey(spaceId)),
     );
     final posts = await postsOf(spaceId);
-    return posts
-        .where(
-          (post) =>
-              !hidden.containsKey(
-                _hiddenSpaceFeedPostKey(spaceId, post.postId),
-              ) &&
-              post.author != _signer.selfId &&
-              (seen == null ||
-                  SpaceFeedCursor.fromView(post).compareTo(seen) > 0),
-        )
-        .toList(growable: false);
+    final visible = <SpacePostView>[];
+    for (final post in posts) {
+      if (hidden.containsKey(_hiddenSpaceFeedPostKey(spaceId, post.postId)) ||
+          post.author == _signer.selfId ||
+          (await _storage.getContact(post.author))?.status ==
+              ContactStatus.blocked ||
+          (seen != null &&
+              SpaceFeedCursor.fromView(post).compareTo(seen) <= 0)) {
+        continue;
+      }
+      visible.add(post);
+    }
+    return List<SpacePostView>.unmodifiable(visible);
   }
 
   Future<void> markSpaceFeedSeen(NodeId spaceId) async {
@@ -9205,6 +9239,18 @@ class GroupService {
         ? manifest
         : _mergeManifest(existing.manifest, manifest);
     if (man == null) return false;
+    final hadFeedAccess =
+        existing != null &&
+        existing.manifest.isSpace &&
+        SpaceAcl(
+          foldControlLog(
+            owner: existing.manifest.owner,
+            entries: existing.control,
+            verify: (entry) => _validControlFor(existing.manifest, entry),
+            initialName: existing.manifest.name,
+            initialDescription: existing.manifest.description ?? '',
+          ).state,
+        ).allows(_signer.selfId, SpacePermission.view);
     final acceptedPostIdsBefore = !man.isSpace || existing == null
         ? <String>{}
         : {for (final post in await _postsOfBundle(existing)) post.postId};
@@ -9248,6 +9294,9 @@ class GroupService {
       verify: (e) => _validControlFor(man, e),
       initialName: man.name,
     ).state;
+    final hasFeedAccess =
+        man.isSpace &&
+        SpaceAcl(mergedState).allows(_signer.selfId, SpacePermission.view);
     final material = await _mergeEpochMaterial(
       manifest: man,
       control: control,
@@ -9539,7 +9588,9 @@ class GroupService {
       localChannelEpochKeys: channelMaterial.keys,
       sovereignBundle: existing?.sovereignBundle ?? incomingSovereignBundle,
     );
-    await _save(saved);
+    final feedAccessChanged = hadFeedAccess != hasFeedAccess;
+    await _save(saved, notify: !feedAccessChanged);
+    if (feedAccessChanged) _invalidateFeedAccess();
     final freshPosts = !man.isSpace
         ? const <SpacePostView>[]
         : (await _postsOfBundle(saved))
@@ -10675,6 +10726,7 @@ class GroupService {
     _spaceDeletionMaintenanceTimer?.cancel();
     _spaceDeletionMaintenanceTimer = null;
     changes.dispose();
+    feedAccessChanges.dispose();
     await _groupCallIncomingCtl.close();
     await _deviceIncomingCtl.close();
     await _incomingCtl.close();
