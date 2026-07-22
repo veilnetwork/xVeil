@@ -13,6 +13,7 @@ import '../domain/media_file_name.dart';
 import '../domain/group_policy.dart';
 import '../domain/group_reaction.dart';
 import '../domain/space_channel.dart';
+import '../domain/space_lifecycle.dart';
 import '../domain/space_moderation.dart';
 import '../domain/space_post.dart';
 import '../domain/space_retention.dart';
@@ -54,6 +55,7 @@ final class GroupApiAdapter {
     'description': group.description,
     if (group.visibility != null) 'visibility': group.visibility!.name,
     'discoverable': group.discoverable,
+    'lifecycle': group.lifecycleState.name,
     'unread': group.unread,
     'postUnread': group.postUnread,
     'muted': group.muted,
@@ -101,11 +103,55 @@ final class GroupApiAdapter {
       'description': visible.$2.description,
       'visibility': bundle.manifest.visibility!.name,
       'discoverable': bundle.manifest.discoverable ?? false,
+      'lifecycle': visible.$2.lifecycleState.name,
       if (bundle.manifest.avatarContentId != null)
         'avatarContentId': bundle.manifest.avatarContentId,
       if (bundle.manifest.coverContentId != null)
         'coverContentId': bundle.manifest.coverContentId,
     };
+  }
+
+  Future<Map<String, dynamic>?> lifecycle(String spaceHex) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return null;
+    final state = visible.$2;
+    final transition = state.lifecycleTransition;
+    return {
+      'spaceId': visible.$1.hex,
+      'state': state.lifecycleState.name,
+      if (transition != null) ...{
+        'changedAt': transition.changedAtMs,
+        'transitionHash': state.lifecycleTransitionHash,
+        'contentPolicyVersion': transition.contentPolicyVersion,
+        'messageHeads': transition.messageHeads.length,
+        'postHeads': transition.postHeads.length,
+        'reactionHeads': transition.reactionHeads.length,
+        'controlRoot': transition.controlCheckpoint.merkleRoot,
+      },
+      'canArchive':
+          state.lifecycleState == SpaceLifecycleState.active &&
+          state.roleOf(_groups.selfId) == GroupRole.owner,
+      'canRestore':
+          state.lifecycleState == SpaceLifecycleState.archived &&
+          state.roleOf(_groups.selfId) == GroupRole.owner,
+    };
+  }
+
+  Future<String?> setLifecycle(String spaceHex, String action) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return 'space not found';
+    if (visible.$2.roleOf(_groups.selfId) != GroupRole.owner) {
+      return 'operation rejected by space policy';
+    }
+    final archived = switch (action) {
+      'archive' => true,
+      'restore' => false,
+      _ => null,
+    };
+    if (archived == null) return 'invalid lifecycle action';
+    return await _groups.setSpaceArchived(visible.$1, archived)
+        ? null
+        : 'space lifecycle transition failed';
   }
 
   Future<String?> updateDescription(String spaceHex, String description) async {

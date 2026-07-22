@@ -21,6 +21,7 @@ import '../core/ids.dart';
 import 'group.dart';
 import 'group_epoch.dart';
 import 'space_channel.dart';
+import 'space_lifecycle.dart';
 import 'space_moderation.dart';
 import 'space_retention.dart';
 import 'space_rules.dart';
@@ -40,6 +41,9 @@ class GroupState {
     this.rulesAcceptances,
     this.moderationRecords,
     this.retentionHistory,
+    this.lifecycleState,
+    this.lifecycleTransition,
+    this.lifecycleTransitionHash,
   );
 
   /// nodeId hex -> member.
@@ -86,6 +90,14 @@ class GroupState {
   /// expiry evaluation. A later relaxed policy cannot resurrect an item that
   /// expired while an earlier destructive revision was active.
   final List<SpaceRetentionRevision> retentionHistory;
+
+  /// Signed Space lifecycle state. Group chats never author lifecycle ops and
+  /// therefore remain [SpaceLifecycleState.active].
+  final SpaceLifecycleState lifecycleState;
+  final SpaceLifecycleTransition? lifecycleTransition;
+  final String? lifecycleTransitionHash;
+
+  bool get isArchived => lifecycleState == SpaceLifecycleState.archived;
 
   SpaceRulesVersion? get currentRules =>
       rulesHistory.isEmpty ? null : rulesHistory[rulesHistory.length];
@@ -173,6 +185,9 @@ class GroupState {
     const {},
     const {},
     const [],
+    SpaceLifecycleState.active,
+    null,
+    null,
   );
 }
 
@@ -210,6 +225,16 @@ final class SpaceAcl {
   }) {
     final member = state.memberOf(actor);
     if (member == null) return false;
+    // A current mutation has no historical timestamp and is closed while the
+    // Space is archived. Read/materialization paths deliberately evaluate the
+    // author's permission at the signed content timestamp; the lifecycle head
+    // separately proves that the row belongs to the archived readable prefix.
+    if (state.isArchived &&
+        atMs == null &&
+        permission != SpacePermission.view &&
+        permission != SpacePermission.distributeContent) {
+      return false;
+    }
     final effectiveAt = atMs ?? DateTime.now().millisecondsSinceEpoch;
     final actions = state.activeModerationFor(actor, effectiveAt);
     bool appliesToChannel(SpaceModerationAction action) =>
@@ -253,6 +278,8 @@ final class SpaceAcl {
     switch (op) {
       case ControlOp.setPolicy:
       case ControlOp.setRetention:
+      case ControlOp.archiveSpace:
+      case ControlOp.restoreSpace:
         return authorRole == GroupRole.owner;
       case ControlOp.transferOwnership:
         return authorRole == GroupRole.owner &&
@@ -361,6 +388,9 @@ GroupFoldResult foldControlLog({
   final rulesAcceptances = <String, SpaceRulesAcceptance>{};
   final moderationRecords = <String, SpaceModerationRecord>{};
   final retentionHistory = <SpaceRetentionRevision>[];
+  var lifecycleState = SpaceLifecycleState.active;
+  SpaceLifecycleTransition? lifecycleTransition;
+  String? lifecycleTransitionHash;
   var lastRetentionActivationMs = 0;
   final rejected = <ControlEntry>[];
   final accepted = <ControlEntry>[];
@@ -471,6 +501,13 @@ GroupFoldResult foldControlLog({
     }
     if (e.policyVersion != policyVersion) {
       rejected.add(e); // stale/future authorization context: fail closed
+      continue;
+    }
+    if ((lifecycleState == SpaceLifecycleState.archived &&
+            e.op != ControlOp.restoreSpace) ||
+        (lifecycleState == SpaceLifecycleState.active &&
+            e.op == ControlOp.restoreSpace)) {
+      rejected.add(e);
       continue;
     }
     final targetRole = e.target == null ? null : members[e.target!.hex]?.role;
@@ -659,6 +696,44 @@ GroupFoldResult foldControlLog({
       rejected.add(e);
       continue;
     }
+    if (e.op == ControlOp.archiveSpace || e.op == ControlOp.restoreSpace) {
+      final transition = e.lifecycleTransition;
+      // The checkpoint is the owner's observed causal frontier, not a promise
+      // that no concurrent row existed on another offline author chain. Every
+      // committed head must resolve to one exact accepted signed row. A later
+      // merge may add an unseen concurrent no-op checkpoint without invalidating
+      // this transition; unseen policy changes still fail closed through pv.
+      final checkpointResolves =
+          transition != null &&
+          transition.controlCheckpoint.heads.every(
+            (head) => accepted.any(
+              (entry) =>
+                  entry.author == head.author &&
+                  entry.seq == head.seq &&
+                  controlEntryHash(entry) == head.hash,
+            ),
+          );
+      final expectedPrevious = lifecycleTransitionHash ?? '';
+      final restoring = e.op == ControlOp.restoreSpace;
+      if (e.version != 10 ||
+          transition == null ||
+          transition.spaceId != e.groupId ||
+          transition.changedAtMs != e.createdAtMs ||
+          transition.previousTransitionHash != expectedPrevious ||
+          transition.contentPolicyVersion !=
+              (restoring ? policyVersion + 1 : policyVersion) ||
+          !checkpointResolves ||
+          (restoring &&
+              (lifecycleTransition == null ||
+                  transition.contentBoundaryJson() !=
+                      lifecycleTransition.contentBoundaryJson()))) {
+        rejected.add(e);
+        continue;
+      }
+    } else if (e.lifecycleTransition != null) {
+      rejected.add(e);
+      continue;
+    }
     final descriptor = e.epochDescriptor;
     GroupEpochDescriptor? usableDescriptor = descriptor;
     final moderationRemovesMember =
@@ -759,6 +834,12 @@ GroupFoldResult foldControlLog({
             authorSeq: e.seq,
           ),
         );
+      case ControlOp.archiveSpace:
+      case ControlOp.restoreSpace:
+        lifecycleState = e.lifecycleTransition!.state;
+        lifecycleTransition = e.lifecycleTransition;
+        lifecycleTransitionHash = controlEntryHash(e);
+        policyVersion++;
       case ControlOp.setName:
         name = e.text ?? name;
       case ControlOp.setDescription:
@@ -908,6 +989,9 @@ GroupFoldResult foldControlLog({
       Map.unmodifiable(rulesAcceptances),
       Map.unmodifiable(moderationRecords),
       List.unmodifiable(retentionHistory),
+      lifecycleState,
+      lifecycleTransition,
+      lifecycleTransitionHash,
     ),
     rejected,
     List.unmodifiable(accepted),

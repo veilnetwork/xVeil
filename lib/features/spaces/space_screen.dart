@@ -181,6 +181,7 @@ class SpaceScreen extends ConsumerWidget {
           final canManage = SpaceAcl(
             state,
           ).allows(service.selfId, SpacePermission.manageChannels);
+          final archived = state.isArchived;
           return Scaffold(
             appBar: AppBar(
               title: Text(state.name),
@@ -216,63 +217,85 @@ class SpaceScreen extends ConsumerWidget {
                     child: const Icon(Icons.add),
                   )
                 : null,
-            body: channels.isEmpty
-                ? Center(child: Text(l.spaceChannelsEmpty))
-                : ListView.builder(
-                    itemCount: channels.length,
-                    itemBuilder: (context, index) {
-                      final channel = channels[index];
-                      final isCategory =
-                          channel.kind == SpaceChannelKind.category;
-                      final icon = switch (channel.kind) {
-                        SpaceChannelKind.text => Icons.tag,
-                        SpaceChannelKind.voice => Icons.volume_up_outlined,
-                        SpaceChannelKind.category => Icons.folder_outlined,
-                      };
-                      return ListTile(
-                        contentPadding: EdgeInsets.only(
-                          left: channel.categoryId == null ? 16 : 40,
-                          right: 16,
-                        ),
-                        leading: Icon(icon),
-                        title: Text(channel.name),
-                        subtitle: channel.access == SpaceChannelAccess.space
-                            ? null
-                            : Text(
-                                channel.access == SpaceChannelAccess.secret
-                                    ? l.spaceChannelAccessSecret
-                                    : l.spaceChannelAccessRestricted,
-                              ),
-                        trailing: channel.isDefault
-                            ? const Icon(Icons.home_outlined, size: 18)
-                            : channel.access == SpaceChannelAccess.space
-                            ? null
-                            : Icon(
-                                channel.access == SpaceChannelAccess.secret
-                                    ? Icons.visibility_off_outlined
-                                    : Icons.lock_outline,
-                                size: 18,
-                              ),
-                        onTap: isCategory
-                            ? null
-                            : () async {
-                                if (channel.kind == SpaceChannelKind.voice) {
-                                  await _openVoiceChannel(
-                                    context,
-                                    ref,
-                                    spaceId,
-                                    channel.channelId,
-                                  );
-                                  return;
-                                }
-                                context.push(
-                                  '/space/$spaceIdHex/channel/'
-                                  '${channel.channelId.hex}',
-                                );
-                              },
-                      );
-                    },
+            body: Column(
+              children: [
+                if (archived)
+                  MaterialBanner(
+                    leading: const Icon(Icons.archive_outlined),
+                    content: Text(l.spaceArchivedHint),
+                    actions: const [SizedBox.shrink()],
                   ),
+                Expanded(
+                  child: channels.isEmpty
+                      ? Center(child: Text(l.spaceChannelsEmpty))
+                      : ListView.builder(
+                          itemCount: channels.length,
+                          itemBuilder: (context, index) {
+                            final channel = channels[index];
+                            final isCategory =
+                                channel.kind == SpaceChannelKind.category;
+                            final icon = switch (channel.kind) {
+                              SpaceChannelKind.text => Icons.tag,
+                              SpaceChannelKind.voice =>
+                                Icons.volume_up_outlined,
+                              SpaceChannelKind.category =>
+                                Icons.folder_outlined,
+                            };
+                            return ListTile(
+                              contentPadding: EdgeInsets.only(
+                                left: channel.categoryId == null ? 16 : 40,
+                                right: 16,
+                              ),
+                              leading: Icon(icon),
+                              title: Text(channel.name),
+                              subtitle:
+                                  channel.access == SpaceChannelAccess.space
+                                  ? null
+                                  : Text(
+                                      channel.access ==
+                                              SpaceChannelAccess.secret
+                                          ? l.spaceChannelAccessSecret
+                                          : l.spaceChannelAccessRestricted,
+                                    ),
+                              trailing: channel.isDefault
+                                  ? const Icon(Icons.home_outlined, size: 18)
+                                  : channel.access == SpaceChannelAccess.space
+                                  ? null
+                                  : Icon(
+                                      channel.access ==
+                                              SpaceChannelAccess.secret
+                                          ? Icons.visibility_off_outlined
+                                          : Icons.lock_outline,
+                                      size: 18,
+                                    ),
+                              onTap:
+                                  isCategory ||
+                                      (archived &&
+                                          channel.kind ==
+                                              SpaceChannelKind.voice)
+                                  ? null
+                                  : () async {
+                                      if (channel.kind ==
+                                          SpaceChannelKind.voice) {
+                                        await _openVoiceChannel(
+                                          context,
+                                          ref,
+                                          spaceId,
+                                          channel.channelId,
+                                        );
+                                        return;
+                                      }
+                                      context.push(
+                                        '/space/$spaceIdHex/channel/'
+                                        '${channel.channelId.hex}',
+                                      );
+                                    },
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
           );
         },
       ),

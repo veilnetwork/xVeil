@@ -36,6 +36,7 @@ import '../domain/group_reaction.dart';
 import '../domain/inline_custom_emoji.dart';
 import '../domain/space_channel.dart';
 import '../domain/space_invite.dart';
+import '../domain/space_lifecycle.dart';
 import '../domain/space_moderation.dart';
 import '../domain/space_post.dart';
 import '../domain/space_retention.dart';
@@ -1566,6 +1567,7 @@ class GroupService {
         seq: reaction.seq,
         createdAtMs: reaction.createdAtMs,
         reactionVersion: reaction.version,
+        lifecycleGeneration: reaction.lifecycleGeneration ?? '',
         payload: reaction.encryptedPayload!,
         epochKey: key,
       );
@@ -1609,6 +1611,7 @@ class GroupService {
         controlCheckpointHash: post.controlCheckpointHash ?? '',
         postOperation: post.version >= 7 ? post.operation.name : '',
         targetSeq: post.version >= 7 ? post.targetSeq : null,
+        lifecycleGeneration: post.lifecycleGeneration ?? '',
         payload: post.encryptedPayload!,
         epochKey: key,
       );
@@ -1885,8 +1888,9 @@ class GroupService {
       if (current == null || isNewerGroupReaction(r, current)) {
         latest[key] = r;
       }
-      final head = heads[r.author.hex];
-      if (head == null || r.seq > head.seq) heads[r.author.hex] = r;
+      final headKey = '${_reactionGeneration(stored)}|${r.author.hex}';
+      final head = heads[headKey];
+      if (head == null || r.seq > head.seq) heads[headKey] = r;
     }
     final keep = <String>{
       for (final r in latest.values) '${r.author.hex}:${r.seq}',
@@ -2171,6 +2175,7 @@ class GroupService {
             String name,
             String description,
             SpaceVisibility? visibility,
+            SpaceLifecycleState lifecycleState,
             bool discoverable,
             int unread,
             int postUnread,
@@ -2206,6 +2211,7 @@ class GroupService {
           name: state.name,
           description: state.description,
           visibility: b.manifest.visibility,
+          lifecycleState: state.lifecycleState,
           discoverable: b.manifest.discoverable ?? false,
           unread: msgs
               .where((m) => m.createdAtMs > wm && m.author != _signer.selfId)
@@ -3036,6 +3042,7 @@ class GroupService {
     SpaceModerationAction? moderationAction,
     SpaceModerationRevocation? moderationRevocation,
     SpaceRetentionPolicy? retentionPolicy,
+    SpaceLifecycleTransition? lifecycleTransition,
     int? createdAtMs,
   }) async {
     final b = await load(groupId);
@@ -3046,7 +3053,9 @@ class GroupService {
             op == ControlOp.acceptRules ||
             op == ControlOp.moderate ||
             op == ControlOp.revokeModeration ||
-            op == ControlOp.setRetention) &&
+            op == ControlOp.setRetention ||
+            op == ControlOp.archiveSpace ||
+            op == ControlOp.restoreSpace) &&
         !b.manifest.isSpace) {
       return false;
     }
@@ -3132,7 +3141,9 @@ class GroupService {
           : null;
       final signed = _signer.signControl(
         ControlEntry(
-          version: retentionPolicy != null
+          version: lifecycleTransition != null
+              ? 10
+              : retentionPolicy != null
               ? 9
               : moderationAction != null || moderationRevocation != null
               ? 8
@@ -3157,6 +3168,7 @@ class GroupService {
           moderationAction: moderationAction,
           moderationRevocation: moderationRevocation,
           retentionPolicy: retentionPolicy,
+          lifecycleTransition: lifecycleTransition,
           policyVersion: pv,
           createdAtMs: createdAt,
           signature: Uint8List(0),
@@ -3633,6 +3645,69 @@ class GroupService {
     return records;
   }
 
+  /// Archive or restore a Space through one owner-signed causal transition.
+  /// Group chats deliberately have no equivalent operation: their local
+  /// conversation archive remains a per-device preference.
+  Future<bool> setSpaceArchived(NodeId spaceId, bool archived) => _serialized(
+    spaceId,
+    () async {
+      final bundle = await load(spaceId);
+      if (bundle == null || !bundle.manifest.isSpace) return false;
+      final folded = foldControlLog(
+        owner: bundle.manifest.owner,
+        entries: bundle.control,
+        verify: (entry) => _validControlFor(bundle.manifest, entry),
+        initialName: bundle.manifest.name,
+        initialDescription: bundle.manifest.description ?? '',
+      );
+      final state = folded.state;
+      if (state.isArchived == archived) return true;
+      if (state.roleOf(_signer.selfId) != GroupRole.owner) return false;
+      final checkpoint = _controlCheckpoint(folded.accepted);
+      if (checkpoint == null) return false;
+      final previous = state.lifecycleTransition;
+      final messageHeads = archived
+          ? _messageLifecycleHeads(bundle)
+          : previous?.messageHeads;
+      final postHeads = archived
+          ? _postLifecycleHeads(bundle)
+          : previous?.postHeads;
+      final reactionHeads = archived
+          ? _reactionLifecycleHeads(bundle)
+          : previous?.reactionHeads;
+      if (messageHeads == null || postHeads == null || reactionHeads == null) {
+        return false;
+      }
+      final changedAt = _now();
+      final transition = SpaceLifecycleTransition(
+        spaceId: spaceId,
+        state: archived
+            ? SpaceLifecycleState.archived
+            : SpaceLifecycleState.active,
+        previousTransitionHash: state.lifecycleTransitionHash ?? '',
+        controlCheckpoint: checkpoint,
+        contentPolicyVersion: archived
+            ? state.policyVersion
+            : state.policyVersion + 1,
+        messageHeads: messageHeads,
+        postHeads: postHeads,
+        reactionHeads: reactionHeads,
+        changedAtMs: changedAt,
+      );
+      if (!transition.isStructurallyValid) return false;
+      return _addControlOp(
+        spaceId,
+        archived ? ControlOp.archiveSpace : ControlOp.restoreSpace,
+        lifecycleTransition: transition,
+        createdAtMs: changedAt,
+      );
+    },
+  );
+
+  Future<bool> archiveSpace(NodeId spaceId) => setSpaceArchived(spaceId, true);
+
+  Future<bool> restoreSpace(NodeId spaceId) => setSpaceArchived(spaceId, false);
+
   /// Atomically move the single effective owner role to an existing member.
   /// The immutable manifest owner remains the genesis signature root; it is
   /// deliberately not rewritten or re-signed during lifecycle operations.
@@ -3782,13 +3857,18 @@ class GroupService {
     final descriptor = state.epochDescriptor;
     final encryptionEstablished = _encryptionEstablished(b.manifest, b.control);
     final key = descriptor == null ? null : b.localEpochKeys[state.epoch];
+    final lifecycleGeneration = b.manifest.isSpace
+        ? state.lifecycleTransitionHash
+        : null;
     final scopeBase = b.manifest.isSpace ? resolvedChannelId!.hex : 'group';
-    final targetScope = protectedChannel != null
+    final encryptionScope = protectedChannel != null
         ? '$scopeBase|channelEpoch:'
               '${state.protectedChannels[resolvedChannelId!.hex]?.channelEpoch}'
         : descriptor != null && key != null
         ? '$scopeBase|membershipEpoch:${state.epoch}'
         : '$scopeBase|clear';
+    final targetScope =
+        '$encryptionScope${lifecycleGeneration == null ? '' : '|lifecycle:$lifecycleGeneration'}';
     final retainedSelf = _retainedMessageRows(
       b.manifest,
       b.messages,
@@ -3879,12 +3959,13 @@ class GroupService {
           seq: mySeq,
           prevHash: prevHash,
           body: '',
-          version: 3,
+          version: lifecycleGeneration == null ? 3 : 6,
           channelEpoch: opaque.channelEpoch,
           encryptedPayload: encrypted,
           policyVersion: state.policyVersion,
           createdAtMs: createdAt,
           signature: Uint8List(0),
+          lifecycleGeneration: lifecycleGeneration,
         );
       } finally {
         clear.fillRange(0, clear.length, 0);
@@ -3915,12 +3996,13 @@ class GroupService {
           seq: mySeq,
           prevHash: prevHash,
           body: '',
-          version: 2,
+          version: lifecycleGeneration == null ? 2 : 5,
           membershipEpoch: state.epoch,
           encryptedPayload: encrypted,
           policyVersion: state.policyVersion,
           createdAtMs: createdAt,
           signature: Uint8List(0),
+          lifecycleGeneration: lifecycleGeneration,
         );
       } finally {
         clear.fillRange(0, clear.length, 0);
@@ -3939,6 +4021,8 @@ class GroupService {
         attachment: attachment,
         replyTo: replyTo,
         customEmoji: customEmoji,
+        version: lifecycleGeneration == null ? 1 : 4,
+        lifecycleGeneration: lifecycleGeneration,
       );
     }
     final signed = _signer.signMessage(unsigned);
@@ -3998,12 +4082,21 @@ class GroupService {
     if (!SpaceAcl(state).allows(_signer.selfId, SpacePermission.publishPosts)) {
       return null;
     }
-    final authored = _acceptedPostChain(spaceId, bundle.posts, _signer.selfId);
+    final lifecycleGeneration = state.lifecycleTransitionHash;
+    final generationHash =
+        lifecycleGeneration ?? _legacyPostGeneration(spaceId);
+    final authored = _acceptedPostChain(
+      spaceId,
+      bundle.posts,
+      _signer.selfId,
+      generationHash: generationHash,
+    );
     if (!_postMutationChainValid(authored)) return null;
     final acceptedHeadSeq = authored.isEmpty ? -1 : authored.last.seq;
     if (bundle.posts.any(
       (post) =>
           post.author == _signer.selfId &&
+          _postGeneration(post) == generationHash &&
           _validPostFor(spaceId, post) &&
           post.seq > acceptedHeadSeq,
     )) {
@@ -4019,7 +4112,14 @@ class GroupService {
     if (checkpointResult == null) return null;
     final workingBundle = checkpointResult.bundle;
     final checkpointHash = controlEntryHash(checkpointResult.entry);
-    final seq = _nextSeq(authored.map((post) => post.seq));
+    final seq = _nextSeq(
+      bundle.posts
+          .where(
+            (post) =>
+                post.author == _signer.selfId && _validPostFor(spaceId, post),
+          )
+          .map((post) => post.seq),
+    );
     final prevHash = authored.isEmpty ? '' : _spacePostHash(authored.last);
     final now = _now();
     final isPublic = bundle.manifest.visibility == SpaceVisibility.public;
@@ -4038,8 +4138,9 @@ class GroupService {
         policyVersion: state.policyVersion,
         createdAtMs: now,
         publishedAtMs: now,
-        version: 5,
+        version: lifecycleGeneration == null ? 5 : 9,
         controlCheckpointHash: checkpointHash,
+        lifecycleGeneration: lifecycleGeneration,
         signature: Uint8List(0),
       );
     } else {
@@ -4071,6 +4172,7 @@ class GroupService {
           createdAtMs: now,
           publishedAtMs: now,
           controlCheckpointHash: checkpointHash,
+          lifecycleGeneration: lifecycleGeneration ?? '',
           clearText: encoded,
           epochKey: key,
         );
@@ -4086,10 +4188,11 @@ class GroupService {
           policyVersion: state.policyVersion,
           createdAtMs: now,
           publishedAtMs: now,
-          version: 6,
+          version: lifecycleGeneration == null ? 6 : 10,
           membershipEpoch: state.epoch,
           encryptedPayload: encrypted,
           controlCheckpointHash: checkpointHash,
+          lifecycleGeneration: lifecycleGeneration,
           signature: Uint8List(0),
         );
       } finally {
@@ -4208,12 +4311,24 @@ class GroupService {
     if (!SpaceAcl(state).allows(_signer.selfId, SpacePermission.publishPosts)) {
       return null;
     }
-    final authored = _acceptedPostChain(spaceId, bundle.posts, _signer.selfId);
+    final lifecycleGeneration = state.lifecycleTransitionHash;
+    if (target.effective.lifecycleGeneration != lifecycleGeneration) {
+      return null;
+    }
+    final generationHash =
+        lifecycleGeneration ?? _legacyPostGeneration(spaceId);
+    final authored = _acceptedPostChain(
+      spaceId,
+      bundle.posts,
+      _signer.selfId,
+      generationHash: generationHash,
+    );
     if (!_postMutationChainValid(authored)) return null;
     final acceptedHeadSeq = authored.isEmpty ? -1 : authored.last.seq;
     if (bundle.posts.any(
       (post) =>
           post.author == _signer.selfId &&
+          _postGeneration(post) == generationHash &&
           _validPostFor(spaceId, post) &&
           post.seq > acceptedHeadSeq,
     )) {
@@ -4228,7 +4343,14 @@ class GroupService {
     );
     if (checkpointResult == null) return null;
     final checkpointHash = controlEntryHash(checkpointResult.entry);
-    final seq = _nextSeq(authored.map((post) => post.seq));
+    final seq = _nextSeq(
+      bundle.posts
+          .where(
+            (post) =>
+                post.author == _signer.selfId && _validPostFor(spaceId, post),
+          )
+          .map((post) => post.seq),
+    );
     if (targetSeq >= seq) return null;
     final prevHash = authored.isEmpty ? '' : _spacePostHash(authored.last);
     final now = _now();
@@ -4248,10 +4370,11 @@ class GroupService {
         policyVersion: state.policyVersion,
         createdAtMs: now,
         publishedAtMs: now,
-        version: 7,
+        version: lifecycleGeneration == null ? 7 : 9,
         controlCheckpointHash: checkpointHash,
         operation: operation,
         targetSeq: targetSeq,
+        lifecycleGeneration: lifecycleGeneration,
         signature: Uint8List(0),
       );
     } else {
@@ -4285,6 +4408,7 @@ class GroupService {
           controlCheckpointHash: checkpointHash,
           postOperation: operation.name,
           targetSeq: targetSeq,
+          lifecycleGeneration: lifecycleGeneration ?? '',
           clearText: encoded,
           epochKey: key,
         );
@@ -4300,12 +4424,13 @@ class GroupService {
           policyVersion: state.policyVersion,
           createdAtMs: now,
           publishedAtMs: now,
-          version: 8,
+          version: lifecycleGeneration == null ? 8 : 10,
           membershipEpoch: state.epoch,
           encryptedPayload: encrypted,
           controlCheckpointHash: checkpointHash,
           operation: operation,
           targetSeq: targetSeq,
+          lifecycleGeneration: lifecycleGeneration,
           signature: Uint8List(0),
         );
       } finally {
@@ -4433,6 +4558,30 @@ class GroupService {
     ...post.signature,
   ]).toString();
 
+  String _legacyPostGeneration(NodeId spaceId) => crypto.sha256
+      .convert(
+        utf8.encode('xveil.space-post-lifecycle.genesis.v1|${spaceId.hex}'),
+      )
+      .toString();
+
+  String _postGeneration(SpacePost post) =>
+      post.lifecycleGeneration ?? _legacyPostGeneration(post.spaceId);
+
+  String _reactionHash(GroupReaction reaction) => crypto.sha256.convert([
+    ...reaction.canonicalBytes(),
+    ...reaction.signature,
+  ]).toString();
+
+  String _legacyReactionGeneration(NodeId spaceId) => crypto.sha256
+      .convert(
+        utf8.encode('xveil.space-reaction-lifecycle.genesis.v1|${spaceId.hex}'),
+      )
+      .toString();
+
+  String _reactionGeneration(GroupReaction reaction) =>
+      reaction.lifecycleGeneration ??
+      _legacyReactionGeneration(reaction.groupId);
+
   /// A message chain never crosses a visibility boundary. The channel (for a
   /// Space) and encryption epoch are both part of the scope: a new member who
   /// receives only the post-join epoch must not need an undisclosed historical
@@ -4442,13 +4591,13 @@ class GroupService {
     final channel = manifest.isSpace
         ? (message.channelId ?? defaultSpaceChannelId(manifest.groupId)).hex
         : 'group';
-    if (message.isChannelEncrypted) {
-      return '$channel|channelEpoch:${message.channelEpoch}';
-    }
-    if (message.isEncrypted) {
-      return '$channel|membershipEpoch:${message.membershipEpoch}';
-    }
-    return '$channel|clear';
+    final encryption = message.isChannelEncrypted
+        ? 'channelEpoch:${message.channelEpoch}'
+        : message.isEncrypted
+        ? 'membershipEpoch:${message.membershipEpoch}'
+        : 'clear';
+    final lifecycle = message.lifecycleGeneration;
+    return '$channel|$encryption${lifecycle == null ? '' : '|lifecycle:$lifecycle'}';
   }
 
   /// Preserve every distinct valid signed row. Same-scope `(author, seq)`
@@ -4610,6 +4759,257 @@ class GroupService {
     return accepted;
   }
 
+  String _messageLifecycleScopeHash(
+    GroupManifest manifest,
+    GroupMessage message,
+  ) => crypto.sha256
+      .convert(
+        utf8.encode(
+          'xveil.space-message-lifecycle-scope.v1|'
+          '${_messageChainScope(manifest, message)}',
+        ),
+      )
+      .toString();
+
+  List<SpaceMessageLifecycleHead> _messageLifecycleHeads(GroupBundle bundle) {
+    final heads = <String, GroupMessage>{};
+    for (final message in _acceptedMessageRows(
+      bundle.manifest,
+      bundle.messages,
+    )) {
+      final scopeHash = _messageLifecycleScopeHash(bundle.manifest, message);
+      final identity = '$scopeHash|${message.author.hex}';
+      final current = heads[identity];
+      if (current == null || message.seq > current.seq) {
+        heads[identity] = message;
+      }
+    }
+    final ordered = heads.entries.toList()
+      ..sort((left, right) => left.key.compareTo(right.key));
+    return [
+      for (final entry in ordered)
+        SpaceMessageLifecycleHead(
+          scopeHash: entry.key.substring(0, 64),
+          author: entry.value.author,
+          seq: entry.value.seq,
+          hash: groupMessageHash(entry.value),
+        ),
+    ];
+  }
+
+  List<SpacePostLifecycleHead> _postLifecycleHeads(GroupBundle bundle) {
+    final chains = <String, ({String generation, NodeId author})>{
+      for (final post in _canonicalPostRows(
+        bundle.manifest.groupId,
+        bundle.posts,
+      ))
+        '${_postGeneration(post)}|${post.author.hex}': (
+          generation: _postGeneration(post),
+          author: post.author,
+        ),
+    };
+    final heads = <SpacePostLifecycleHead>[];
+    for (final entry in chains.values) {
+      final chain = _acceptedPostChain(
+        bundle.manifest.groupId,
+        bundle.posts,
+        entry.author,
+        generationHash: entry.generation,
+      );
+      if (chain.isEmpty) continue;
+      final terminal = chain.last;
+      heads.add(
+        SpacePostLifecycleHead(
+          generationHash: entry.generation,
+          author: entry.author,
+          seq: terminal.seq,
+          hash: _spacePostHash(terminal),
+        ),
+      );
+    }
+    heads.sort((left, right) => left.identity.compareTo(right.identity));
+    return heads;
+  }
+
+  List<SpaceReactionLifecycleHead> _reactionLifecycleHeads(GroupBundle bundle) {
+    final terminals = <String, GroupReaction>{};
+    for (final reaction in bundle.reactions) {
+      if (!_validReactionFor(bundle.manifest.groupId, reaction)) continue;
+      final generation = _reactionGeneration(reaction);
+      final identity = '$generation|${reaction.author.hex}';
+      final current = terminals[identity];
+      if (current == null || reaction.seq > current.seq) {
+        terminals[identity] = reaction;
+      }
+    }
+    final entries = terminals.entries.toList()
+      ..sort((left, right) => left.key.compareTo(right.key));
+    return [
+      for (final entry in entries)
+        SpaceReactionLifecycleHead(
+          generationHash: _reactionGeneration(entry.value),
+          author: entry.value.author,
+          seq: entry.value.seq,
+          hash: _reactionHash(entry.value),
+        ),
+    ];
+  }
+
+  bool _messageWithinLifecycleBoundary(
+    GroupManifest manifest,
+    GroupState state,
+    GroupMessage message,
+  ) {
+    final transition = state.lifecycleTransition;
+    if (transition == null) return true;
+    final scopeHash = _messageLifecycleScopeHash(manifest, message);
+    SpaceMessageLifecycleHead? boundary;
+    for (final head in transition.messageHeads) {
+      if (head.scopeHash == scopeHash && head.author == message.author) {
+        boundary = head;
+        break;
+      }
+    }
+    if (boundary != null && message.seq <= boundary.seq) {
+      return message.seq < boundary.seq ||
+          groupMessageHash(message) == boundary.hash;
+    }
+    if (state.isArchived) return false;
+    return message.lifecycleGeneration == state.lifecycleTransitionHash &&
+        message.policyVersion >= transition.contentPolicyVersion;
+  }
+
+  List<GroupMessage> _acceptedMessagesWithinLifecycle(
+    GroupBundle bundle,
+    GroupState state,
+  ) {
+    final accepted = _acceptedMessageRows(bundle.manifest, bundle.messages);
+    final transition = state.lifecycleTransition;
+    if (transition == null) return accepted;
+    final completePrefixes = <String>{};
+    for (final head in transition.messageHeads) {
+      if (accepted.any(
+        (message) =>
+            message.author == head.author &&
+            _messageLifecycleScopeHash(bundle.manifest, message) ==
+                head.scopeHash &&
+            message.seq == head.seq &&
+            groupMessageHash(message) == head.hash,
+      )) {
+        completePrefixes.add(head.identity);
+      }
+    }
+    return [
+      for (final message in accepted)
+        if (() {
+          final scopeHash = _messageLifecycleScopeHash(
+            bundle.manifest,
+            message,
+          );
+          SpaceMessageLifecycleHead? boundary;
+          for (final head in transition.messageHeads) {
+            if (head.scopeHash == scopeHash && head.author == message.author) {
+              boundary = head;
+              break;
+            }
+          }
+          if (boundary != null && message.seq <= boundary.seq) {
+            return completePrefixes.contains(boundary.identity);
+          }
+          return _messageWithinLifecycleBoundary(
+            bundle.manifest,
+            state,
+            message,
+          );
+        }())
+          message,
+    ];
+  }
+
+  bool _postWithinLifecycleBoundary(GroupState state, SpacePost post) {
+    final transition = state.lifecycleTransition;
+    if (transition == null) return true;
+    final generation = _postGeneration(post);
+    SpacePostLifecycleHead? boundary;
+    for (final head in transition.postHeads) {
+      if (head.generationHash == generation && head.author == post.author) {
+        boundary = head;
+        break;
+      }
+    }
+    if (boundary != null && post.seq <= boundary.seq) {
+      return post.seq < boundary.seq || _spacePostHash(post) == boundary.hash;
+    }
+    if (state.isArchived) return false;
+    return post.lifecycleGeneration == state.lifecycleTransitionHash &&
+        post.policyVersion >= transition.contentPolicyVersion;
+  }
+
+  bool _reactionWithinLifecycleBoundary(
+    GroupState state,
+    GroupReaction reaction,
+  ) {
+    final transition = state.lifecycleTransition;
+    if (transition == null) return true;
+    final generation = _reactionGeneration(reaction);
+    SpaceReactionLifecycleHead? boundary;
+    for (final head in transition.reactionHeads) {
+      if (head.generationHash == generation && head.author == reaction.author) {
+        boundary = head;
+        break;
+      }
+    }
+    if (boundary != null && reaction.seq <= boundary.seq) {
+      return reaction.seq < boundary.seq ||
+          _reactionHash(reaction) == boundary.hash;
+    }
+    if (state.isArchived) return false;
+    return reaction.lifecycleGeneration == state.lifecycleTransitionHash;
+  }
+
+  List<GroupReaction> _acceptedReactionsWithinLifecycle(
+    GroupBundle bundle,
+    GroupState state,
+  ) {
+    final valid = [
+      for (final reaction in bundle.reactions)
+        if (_validReactionFor(bundle.manifest.groupId, reaction)) reaction,
+    ];
+    final transition = state.lifecycleTransition;
+    if (transition == null) return valid;
+    final completePrefixes = <String>{};
+    for (final head in transition.reactionHeads) {
+      if (valid.any(
+        (reaction) =>
+            _reactionGeneration(reaction) == head.generationHash &&
+            reaction.author == head.author &&
+            reaction.seq == head.seq &&
+            _reactionHash(reaction) == head.hash,
+      )) {
+        completePrefixes.add(head.identity);
+      }
+    }
+    return [
+      for (final reaction in valid)
+        if (() {
+          final generation = _reactionGeneration(reaction);
+          SpaceReactionLifecycleHead? boundary;
+          for (final head in transition.reactionHeads) {
+            if (head.generationHash == generation &&
+                head.author == reaction.author) {
+              boundary = head;
+              break;
+            }
+          }
+          if (boundary != null && reaction.seq <= boundary.seq) {
+            return completePrefixes.contains(boundary.identity);
+          }
+          return _reactionWithinLifecycleBoundary(state, reaction);
+        }())
+          reaction,
+    ];
+  }
+
   /// Return valid rows outside an equivocated suffix. Two distinct valid rows
   /// at the same `(author, seq)` quarantine that fork point and every later
   /// row by the author. Publication authority must never be chosen by a hash
@@ -4621,7 +5021,8 @@ class GroupService {
     final candidates = <String, Map<String, SpacePost>>{};
     for (final post in input) {
       if (!_validPostFor(spaceId, post)) continue;
-      final identity = '${post.author.hex}:${post.seq}';
+      final identity =
+          '${_postGeneration(post)}|${post.author.hex}:${post.seq}';
       candidates.putIfAbsent(
         identity,
         () => <String, SpacePost>{},
@@ -4631,16 +5032,19 @@ class GroupService {
     for (final distinct in candidates.values) {
       if (distinct.length <= 1) continue;
       final sample = distinct.values.first;
-      final current = forkedAt[sample.author.hex];
+      final chain = '${_postGeneration(sample)}|${sample.author.hex}';
+      final current = forkedAt[chain];
       if (current == null || sample.seq < current) {
-        forkedAt[sample.author.hex] = sample.seq;
+        forkedAt[chain] = sample.seq;
       }
     }
     return [
       for (final distinct in candidates.values)
         if (distinct.length == 1 &&
             distinct.values.single.seq <
-                (forkedAt[distinct.values.single.author.hex] ?? (1 << 62)))
+                (forkedAt['${_postGeneration(distinct.values.single)}|'
+                        '${distinct.values.single.author.hex}'] ??
+                    (1 << 62)))
           distinct.values.single,
     ];
   }
@@ -4658,23 +5062,40 @@ class GroupService {
   List<SpacePost> _acceptedPostChain(
     NodeId spaceId,
     Iterable<SpacePost> input,
-    NodeId author,
-  ) {
-    final authored =
-        _canonicalPostRows(
-            spaceId,
-            input,
-          ).where((post) => post.author == author).toList()
-          ..sort((left, right) => left.seq.compareTo(right.seq));
-    final accepted = <SpacePost>[];
-    var expectedSeq = 0;
-    var expectedPrev = '';
-    for (final post in authored) {
-      if (post.seq != expectedSeq || post.prevHash != expectedPrev) break;
-      accepted.add(post);
-      expectedSeq++;
-      expectedPrev = _spacePostHash(post);
+    NodeId author, {
+    String? generationHash,
+  }) {
+    final canonical = _canonicalPostRows(
+      spaceId,
+      input,
+    ).where((post) => post.author == author);
+    final generations = <String, List<SpacePost>>{};
+    for (final post in canonical) {
+      final generation = _postGeneration(post);
+      if (generationHash == null || generation == generationHash) {
+        generations.putIfAbsent(generation, () => []).add(post);
+      }
     }
+    final accepted = <SpacePost>[];
+    for (final entry in generations.entries) {
+      final authored = entry.value
+        ..sort((left, right) => left.seq.compareTo(right.seq));
+      var expectedSeq = 0;
+      var expectedPrev = '';
+      final lifecycleScoped = authored.first.isLifecycleScoped;
+      SpacePost? predecessor;
+      for (final post in authored) {
+        final sequenceValid = lifecycleScoped
+            ? predecessor == null || post.seq > predecessor.seq
+            : post.seq == expectedSeq;
+        if (!sequenceValid || post.prevHash != expectedPrev) break;
+        accepted.add(post);
+        predecessor = post;
+        expectedSeq++;
+        expectedPrev = _spacePostHash(post);
+      }
+    }
+    accepted.sort((left, right) => left.seq.compareTo(right.seq));
     return accepted;
   }
 
@@ -4751,6 +5172,8 @@ class GroupService {
         case ControlOp.revokeModeration:
         case ControlOp.createChannel:
         case ControlOp.updateChannel:
+        case ControlOp.archiveSpace:
+        case ControlOp.restoreSpace:
         case ControlOp.checkpoint:
           break;
       }
@@ -4814,6 +5237,8 @@ class GroupService {
         case ControlOp.acceptRules:
         case ControlOp.createChannel:
         case ControlOp.updateChannel:
+        case ControlOp.archiveSpace:
+        case ControlOp.restoreSpace:
         case ControlOp.checkpoint:
           break;
       }
@@ -4932,9 +5357,9 @@ class GroupService {
         _postGrantAt(manifest, historical.accepted, post.author) != null;
   }
 
-  /// Validated, decrypted publication log for one Space. Per-author chains are
-  /// contiguous from seq 0; an out-of-order suffix remains stored but hidden
-  /// until anti-entropy supplies its missing prefix.
+  /// Validated, decrypted publication log for one Space. Legacy per-author
+  /// chains are contiguous from seq 0; post-restore chains are independently
+  /// scoped by their signed lifecycle generation.
   Future<List<SpacePostView>> postsOf(NodeId spaceId) async {
     final bundle = await load(spaceId);
     if (bundle == null || !bundle.manifest.isSpace) return const [];
@@ -4963,26 +5388,46 @@ class GroupService {
     final localCutoff = applyLocalRetention
         ? await _localSpaceRetentionCutoff(spaceId, readAt)
         : -1;
-    final byAuthor = <String, List<SpacePost>>{};
+    final byChain = <String, ({NodeId author, String generation})>{};
     for (final post in _canonicalPostRows(spaceId, bundle.posts)) {
-      byAuthor.putIfAbsent(post.author.hex, () => []).add(post);
+      final generation = _postGeneration(post);
+      byChain['$generation|${post.author.hex}'] = (
+        author: post.author,
+        generation: generation,
+      );
     }
     final visiblePosts = <SpacePostView>[];
     final historicalCache = <String, GroupFoldResult>{};
     final invalidHistoricalFrontiers = <String>{};
-    for (final authored in byAuthor.values) {
-      authored.sort((left, right) => left.seq.compareTo(right.seq));
+    for (final chainKey in byChain.values) {
       final acceptedAuthorChain = _acceptedPostChain(
         spaceId,
         bundle.posts,
-        authored.first.author,
+        chainKey.author,
+        generationHash: chainKey.generation,
       );
-      var expectedSeq = 0;
-      var expectedPrev = '';
+      SpacePostLifecycleHead? lifecycleBoundary;
+      for (final head in state.lifecycleTransition?.postHeads ?? const []) {
+        if (head.generationHash == chainKey.generation &&
+            head.author == chainKey.author) {
+          lifecycleBoundary = head;
+          break;
+        }
+      }
+      if (lifecycleBoundary != null &&
+          !acceptedAuthorChain.any(
+            (post) =>
+                post.seq == lifecycleBoundary!.seq &&
+                _spacePostHash(post) == lifecycleBoundary.hash,
+          )) {
+        // Do not reveal a partial historical prefix until the exact signed
+        // archive terminal is present; gap-fill can complete it later.
+        continue;
+      }
       final roots = <int, SpacePostView>{};
       final deletedRoots = <int>{};
-      for (final post in authored) {
-        if (post.seq != expectedSeq || post.prevHash != expectedPrev) break;
+      for (final post in acceptedAuthorChain) {
+        if (!_postWithinLifecycleBoundary(state, post)) break;
         final authorized = post.isCausal
             ? _causalPostAuthorized(
                 bundle,
@@ -5032,8 +5477,6 @@ class GroupService {
             }
         }
         if (!semanticValid) break;
-        expectedSeq++;
-        expectedPrev = _spacePostHash(post);
       }
       visiblePosts.addAll(
         roots.entries
@@ -5294,8 +5737,21 @@ class GroupService {
   Future<Map<String, dynamic>?> buildGroupSyncRequest(NodeId groupId) async {
     final b = await load(groupId);
     if (b == null) return null;
-    final retainedMessages = _retainedMessageRows(b.manifest, b.messages);
-    final acceptedMessages = _acceptedMessageRows(b.manifest, b.messages);
+    final syncState = foldControlLog(
+      owner: b.manifest.owner,
+      entries: b.control,
+      verify: (entry) => _validControlFor(b.manifest, entry),
+      initialName: b.manifest.name,
+      initialDescription: b.manifest.description ?? '',
+    ).state;
+    final retainedMessages = _retainedMessageRows(b.manifest, b.messages)
+        .where(
+          (message) =>
+              _messageWithinLifecycleBoundary(b.manifest, syncState, message),
+        )
+        .toList();
+    final acceptedMessages = _acceptedMessagesWithinLifecycle(b, syncState);
+    final acceptedReactions = _acceptedReactionsWithinLifecycle(b, syncState);
     Map<String, int> vector(Iterable<(NodeId, int)> entries) {
       final v = <String, int>{};
       for (final (a, s) in entries) {
@@ -5335,7 +5791,11 @@ class GroupService {
 
     Map<String, Object> postVector() {
       final byAuthor = <String, List<SpacePost>>{};
-      for (final post in _canonicalPostRows(groupId, b.posts)) {
+      for (final post in _canonicalPostRows(groupId, b.posts).where(
+        (post) =>
+            !post.isLifecycleScoped &&
+            _postWithinLifecycleBoundary(syncState, post),
+      )) {
         byAuthor.putIfAbsent(post.author.hex, () => []).add(post);
       }
       final result = <String, Object>{};
@@ -5350,6 +5810,40 @@ class GroupService {
           expectedSeq++;
           expectedPrev = _spacePostHash(post);
         }
+      }
+      return result;
+    }
+
+    Map<String, Object> postGenerationVector() {
+      final result = <String, Object>{};
+      final generations = <String, Map<String, NodeId>>{};
+      for (final post in _canonicalPostRows(groupId, b.posts)) {
+        if (!post.isLifecycleScoped ||
+            !_postWithinLifecycleBoundary(syncState, post)) {
+          continue;
+        }
+        generations.putIfAbsent(
+          _postGeneration(post),
+          () => <String, NodeId>{},
+        )[post.author.hex] = post.author;
+      }
+      for (final generation in generations.entries) {
+        final vector = <String, Object>{};
+        for (final author in generation.value.values) {
+          final chain = _acceptedPostChain(
+            groupId,
+            b.posts,
+            author,
+            generationHash: generation.key,
+          );
+          if (chain.isNotEmpty) {
+            vector[author.hex] = {
+              's': chain.last.seq,
+              'h': _spacePostHash(chain.last),
+            };
+          }
+        }
+        result[generation.key] = vector;
       }
       return result;
     }
@@ -5438,12 +5932,9 @@ class GroupService {
       'c': controlVector(),
       // Reactions ride the same per-author high-water scheme (each author's
       // reaction seq is monotonic). An older responder just ignores the key.
-      'r': vector(
-        b.reactions
-            .where((r) => _validReactionFor(groupId, r))
-            .map((r) => (r.author, r.seq)),
-      ),
+      'r': vector(acceptedReactions.map((r) => (r.author, r.seq))),
       if (b.manifest.isSpace) 'p': postVector(),
+      if (b.manifest.isSpace) 'pg': postGenerationVector(),
       if (b.localEpochKeys.isNotEmpty)
         'ke': (b.localEpochKeys.keys.toList()..sort()),
       if (b.localChannelEpochKeys.isNotEmpty)
@@ -5468,13 +5959,18 @@ class GroupService {
     }
     final b = await load(gid);
     if (b == null) return false;
-    final retainedMessages = _retainedMessageRows(b.manifest, b.messages);
-    final localMessageForks = _messageForks(b.manifest, retainedMessages);
     final state = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
       verify: (e) => _validControlFor(b.manifest, e),
     ).state;
+    final retainedMessages = _retainedMessageRows(b.manifest, b.messages)
+        .where(
+          (message) =>
+              _messageWithinLifecycleBoundary(b.manifest, state, message),
+        )
+        .toList();
+    final localMessageForks = _messageForks(b.manifest, retainedMessages);
     if (!SpaceAcl(state).allows(peer, SpacePermission.distributeContent)) {
       devLog(() => 'xVeil[groups]: sync request from non-member — drop');
       return false;
@@ -5514,6 +6010,12 @@ class GroupService {
     String? seenPostHash(Object? vec, NodeId author) =>
         seenRowHash(vec, author);
     bool hasPostHash(Object? vec, NodeId author) => hasRowHash(vec, author);
+    Object? postVectorFor(SpacePost post) {
+      if (!post.isLifecycleScoped) return req['p'];
+      final generations = req['pg'];
+      return generations is Map ? generations[_postGeneration(post)] : null;
+    }
+
     final heldEpochs = req['ke'] is List
         ? (req['ke'] as List).whereType<int>().toSet()
         : const <int>{};
@@ -5609,7 +6111,7 @@ class GroupService {
     // every held reaction ships; the ingest dedup by (author, seq) makes the
     // over-send harmless.
     final missingRx = [
-      for (final r in b.reactions)
+      for (final r in _acceptedReactionsWithinLifecycle(b, state))
         if (_validReactionFor(gid, r) &&
             r.seq > seen(req['r'], r.author) &&
             (!_encryptionEstablished(b.manifest, b.control) ||
@@ -5620,10 +6122,11 @@ class GroupService {
     final missingPosts = [
       for (final post in _retainedPostRows(gid, b.posts))
         if (_validPostFor(gid, post) &&
-            (post.seq > seen(req['p'], post.author) ||
-                (post.seq == seen(req['p'], post.author) &&
-                    hasPostHash(req['p'], post.author) &&
-                    seenPostHash(req['p'], post.author) !=
+            _postWithinLifecycleBoundary(state, post) &&
+            (post.seq > seen(postVectorFor(post), post.author) ||
+                (post.seq == seen(postVectorFor(post), post.author) &&
+                    hasPostHash(postVectorFor(post), post.author) &&
+                    seenPostHash(postVectorFor(post), post.author) !=
                         _spacePostHash(post))) &&
             (!post.isEncrypted ||
                 _peerCanDecryptEpoch(b, peer, post.membershipEpoch!)))
@@ -5984,7 +6487,7 @@ class GroupService {
         ? await _protectedChannelsOf(b, state)
         : const <String, SpaceChannelControlCleartext>{};
     final out = <GroupMessage>[];
-    for (final m in _acceptedMessageRows(b.manifest, b.messages)) {
+    for (final m in _acceptedMessagesWithinLifecycle(b, state)) {
       final effectiveChannelId = b.manifest.isSpace
           ? m.channelId ?? defaultSpaceChannelId(groupId)
           : null;
@@ -6129,13 +6632,12 @@ class GroupService {
     }
     // My current reaction on this message (if any) → tapping it again clears it.
     final visibleReactions = <GroupReaction>[];
-    for (final reaction in b.reactions) {
-      if (!_validReactionFor(groupId, reaction) ||
-          !SpaceAcl(state).allows(
-            reaction.author,
-            SpacePermission.publishMessages,
-            atMs: reaction.createdAtMs,
-          )) {
+    for (final reaction in _acceptedReactionsWithinLifecycle(b, state)) {
+      if (!SpaceAcl(state).allows(
+        reaction.author,
+        SpacePermission.publishMessages,
+        atMs: reaction.createdAtMs,
+      )) {
         continue;
       }
       final materialized = await _materializeEncryptedReaction(b, reaction);
@@ -6175,6 +6677,9 @@ class GroupService {
       return false;
     }
     final createdAt = _now();
+    final lifecycleGeneration = b.manifest.isSpace
+        ? state.lifecycleTransitionHash
+        : null;
     late final GroupReaction unsigned;
     if (descriptor != null && key != null) {
       final clear = GroupReactionCleartext(
@@ -6192,7 +6697,8 @@ class GroupService {
           createdAtMs: createdAt,
           clearText: clear,
           epochKey: key,
-          reactionVersion: 4,
+          reactionVersion: lifecycleGeneration == null ? 4 : 6,
+          lifecycleGeneration: lifecycleGeneration ?? '',
         );
         unsigned = GroupReaction(
           groupId: groupId,
@@ -6200,9 +6706,10 @@ class GroupService {
           seq: mySeq,
           target: '',
           emoji: '',
-          version: 4,
+          version: lifecycleGeneration == null ? 4 : 6,
           membershipEpoch: state.epoch,
           encryptedPayload: encrypted,
+          lifecycleGeneration: lifecycleGeneration,
           createdAtMs: createdAt,
           signature: Uint8List(0),
         );
@@ -6216,8 +6723,9 @@ class GroupService {
         seq: mySeq,
         target: target,
         emoji: next,
-        version: 3,
+        version: lifecycleGeneration == null ? 3 : 5,
         targetKind: targetKind,
+        lifecycleGeneration: lifecycleGeneration,
         createdAtMs: createdAt,
         signature: Uint8List(0),
       );
@@ -6266,7 +6774,6 @@ class GroupService {
     GroupBundle bundle, {
     Set<String>? visiblePostIds,
   }) async {
-    final spaceId = bundle.manifest.groupId;
     final state = foldControlLog(
       owner: bundle.manifest.owner,
       entries: bundle.control,
@@ -6279,13 +6786,12 @@ class GroupService {
         visiblePostIds ??
         {for (final post in await _postsOfBundle(bundle)) post.postId};
     final materialized = <GroupReaction>[];
-    for (final reaction in bundle.reactions) {
-      if (!_validReactionFor(spaceId, reaction) ||
-          !SpaceAcl(state).allows(
-            reaction.author,
-            SpacePermission.publishMessages,
-            atMs: reaction.createdAtMs,
-          )) {
+    for (final reaction in _acceptedReactionsWithinLifecycle(bundle, state)) {
+      if (!SpaceAcl(state).allows(
+        reaction.author,
+        SpacePermission.publishMessages,
+        atMs: reaction.createdAtMs,
+      )) {
         continue;
       }
       final visible = await _materializeEncryptedReaction(bundle, reaction);
@@ -6689,6 +7195,13 @@ class GroupService {
   /// by legacy unit/debug callers; such snapshots contain no epoch material.
   String snapshotJson(GroupBundle b, {NodeId? recipient}) {
     final encryptionEstablished = _encryptionEstablished(b.manifest, b.control);
+    final lifecycleState = foldControlLog(
+      owner: b.manifest.owner,
+      entries: b.control,
+      verify: (entry) => _validControlFor(b.manifest, entry),
+      initialName: b.manifest.name,
+      initialDescription: b.manifest.description ?? '',
+    ).state;
     final epochEnvelopes = recipient == null
         ? const <GroupEpochRecipientEnvelope>[]
         : _epochEnvelopesFor(b, recipient);
@@ -6707,6 +7220,11 @@ class GroupService {
           .where(
             (message) =>
                 _validMessageFor(b.manifest.groupId, message) &&
+                _messageWithinLifecycleBoundary(
+                  b.manifest,
+                  lifecycleState,
+                  message,
+                ) &&
                 (message.isChannelEncrypted
                     ? recipient != null &&
                           _peerCanDecryptChannelEpoch(
@@ -6732,6 +7250,7 @@ class GroupService {
             .where(
               (post) =>
                   _validPostFor(b.manifest.groupId, post) &&
+                  _postWithinLifecycleBoundary(lifecycleState, post) &&
                   (!post.isEncrypted ||
                       (recipient != null &&
                           _peerCanDecryptEpoch(
@@ -6742,19 +7261,17 @@ class GroupService {
             )
             .map((post) => post.toJson())
             .toList(),
-      'r': b.reactions
+      'r': _acceptedReactionsWithinLifecycle(b, lifecycleState)
           .where(
-            (reaction) =>
-                _validReactionFor(b.manifest.groupId, reaction) &&
-                (!encryptionEstablished
-                    ? true
-                    : reaction.isEncrypted &&
-                          recipient != null &&
-                          _peerCanDecryptEpoch(
-                            b,
-                            recipient,
-                            reaction.membershipEpoch!,
-                          )),
+            (reaction) => !encryptionEstablished
+                ? true
+                : reaction.isEncrypted &&
+                      recipient != null &&
+                      _peerCanDecryptEpoch(
+                        b,
+                        recipient,
+                        reaction.membershipEpoch!,
+                      ),
           )
           .map((r) => r.toJson())
           .toList(),
@@ -6841,10 +7358,20 @@ class GroupService {
     if (man == null) return false;
     final control = [...(existing?.control ?? const <ControlEntry>[])];
     final messages = [...(existing?.messages ?? const <GroupMessage>[])];
-    final acceptedMessageHashesBefore = {
-      for (final message in _acceptedMessageRows(man, messages))
-        groupMessageHash(message),
-    };
+    final acceptedMessageHashesBefore = existing == null
+        ? <String>{}
+        : {
+            for (final message in _acceptedMessagesWithinLifecycle(
+              existing,
+              foldControlLog(
+                owner: existing.manifest.owner,
+                entries: existing.control,
+                verify: (entry) => _validControlFor(existing.manifest, entry),
+                initialName: existing.manifest.name,
+              ).state,
+            ))
+              groupMessageHash(message),
+          };
     final posts = [...(existing?.posts ?? const <SpacePost>[])];
     final reactions = [...(existing?.reactions ?? const <GroupReaction>[])];
     for (final e in inControl) {
@@ -6908,6 +7435,7 @@ class GroupService {
       if (!_validMessageFor(manifest.groupId, m)) {
         continue;
       }
+      if (!_messageWithinLifecycleBoundary(man, mergedState, m)) continue;
       if (man.isSpace) {
         final effectiveChannel =
             m.channelId ?? defaultSpaceChannelId(man.groupId);
@@ -6979,7 +7507,10 @@ class GroupService {
     // the chain, the predecessor and newly-unblocked suffix become visible in
     // one deterministic batch. Fork evidence never produces a notification.
     fresh.addAll(
-      _acceptedMessageRows(man, messages).where(
+      _acceptedMessagesWithinLifecycle(
+        materialBundle.copyWith(messages: messages),
+        mergedState,
+      ).where(
         (message) =>
             message.author != _signer.selfId &&
             !acceptedMessageHashesBefore.contains(groupMessageHash(message)),
@@ -6987,6 +7518,7 @@ class GroupService {
     );
     for (final post in inPosts) {
       if (!man.isSpace || !_validPostFor(man.groupId, post)) continue;
+      if (!_postWithinLifecycleBoundary(mergedState, post)) continue;
       final historicallyAuthorized =
           post.isCausal &&
           _causalPostHistoricallyAuthorized(man, control, post);
@@ -7052,11 +7584,15 @@ class GroupService {
         ? {for (final post in await _postsOfBundle(targetBundle)) post.postId}
         : const <String>{};
     final acceptedMessageRefs = {
-      for (final message in _acceptedMessageRows(man, messages))
+      for (final message in _acceptedMessagesWithinLifecycle(
+        targetBundle,
+        mergedState,
+      ))
         if (!message.isChannelEncrypted) message.ref,
     };
     for (final r in inReactions) {
       if (!_validReactionFor(manifest.groupId, r) ||
+          !_reactionWithinLifecycleBoundary(mergedState, r) ||
           !SpaceAcl(mergedState).allows(
             r.author,
             SpacePermission.publishMessages,
@@ -8063,33 +8599,40 @@ class GroupService {
       );
       final peerMessages = [
         for (final message in messages)
-          if (message.isChannelEncrypted
-              ? _peerCanDecryptChannelEpoch(
-                  b,
-                  peer,
-                  message.channelId!,
-                  message.channelEpoch!,
-                )
-              : !encryptionEstablished ||
-                    (message.isEncrypted &&
-                        _peerCanDecryptEpoch(
-                          b,
-                          peer,
-                          message.membershipEpoch!,
-                        )))
+          if (_messageWithinLifecycleBoundary(b.manifest, state, message) &&
+              (message.isChannelEncrypted
+                  ? _peerCanDecryptChannelEpoch(
+                      b,
+                      peer,
+                      message.channelId!,
+                      message.channelEpoch!,
+                    )
+                  : !encryptionEstablished ||
+                        (message.isEncrypted &&
+                            _peerCanDecryptEpoch(
+                              b,
+                              peer,
+                              message.membershipEpoch!,
+                            ))))
             message,
       ];
       final peerReactions = [
         for (final reaction in reactions)
-          if (!encryptionEstablished ||
-              (reaction.isEncrypted &&
-                  _peerCanDecryptEpoch(b, peer, reaction.membershipEpoch!)))
+          if (_reactionWithinLifecycleBoundary(state, reaction) &&
+              (!encryptionEstablished ||
+                  (reaction.isEncrypted &&
+                      _peerCanDecryptEpoch(
+                        b,
+                        peer,
+                        reaction.membershipEpoch!,
+                      ))))
             reaction,
       ];
       final peerPosts = [
         for (final post in posts)
-          if (!post.isEncrypted ||
-              _peerCanDecryptEpoch(b, peer, post.membershipEpoch!))
+          if (_postWithinLifecycleBoundary(state, post) &&
+              (!post.isEncrypted ||
+                  _peerCanDecryptEpoch(b, peer, post.membershipEpoch!)))
             post,
       ];
       await send(
@@ -8173,6 +8716,7 @@ typedef GroupListEntry = ({
   String name,
   String description,
   SpaceVisibility? visibility,
+  SpaceLifecycleState lifecycleState,
   bool discoverable,
   int unread,
   int postUnread,

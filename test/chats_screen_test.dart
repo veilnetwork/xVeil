@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/node/node_controller.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/space_lifecycle.dart';
 import 'package:xveil/features/chat/chats_screen.dart';
 import 'package:xveil/features/spaces/space_list_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
@@ -95,6 +96,7 @@ void main() {
             name: 'Дача',
             description: '',
             visibility: null,
+            lifecycleState: SpaceLifecycleState.active,
             discoverable: false,
             unread: 2,
             postUnread: 1,
@@ -110,6 +112,7 @@ void main() {
             name: 'Veil Community',
             description: 'Should stay in Communities',
             visibility: null,
+            lifecycleState: SpaceLifecycleState.active,
             discoverable: false,
             unread: 3,
             postUnread: 2,
@@ -146,6 +149,7 @@ void main() {
                 name: 'Дача',
                 description: '',
                 visibility: null,
+                lifecycleState: SpaceLifecycleState.active,
                 discoverable: false,
                 unread: 2,
                 postUnread: 1,

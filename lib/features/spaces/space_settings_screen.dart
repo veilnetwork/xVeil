@@ -323,6 +323,34 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
     if (mounted) context.go('/spaces');
   }
 
+  Future<void> _setArchived(
+    GroupService service,
+    NodeId spaceId, {
+    required bool archived,
+  }) async {
+    final l = AppL10n.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(archived ? l.spaceArchiveTitle : l.spaceRestoreTitle),
+        content: Text(archived ? l.spaceArchiveConfirm : l.spaceRestoreConfirm),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l.actionCancel),
+          ),
+          FilledButton(
+            key: const ValueKey('space-lifecycle-confirm'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(archived ? l.spaceArchiveAction : l.spaceRestoreAction),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    if (!await service.setSpaceArchived(spaceId, archived)) _failure();
+  }
+
   List<PopupMenuEntry<_SpaceMemberAction>> _actionsFor(
     AppL10n l,
     GroupRole myRole,
@@ -433,16 +461,19 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
           final bundle = snapshot.data![2] as GroupBundle?;
           final localRetentionDays = snapshot.data![3] as int?;
           final myRole = state.roleOf(service.selfId)!;
-          final canRename = canApply(authorRole: myRole, op: ControlOp.setName);
-          final canEditDescription = canApply(
-            authorRole: myRole,
-            op: ControlOp.setDescription,
-          );
-          final canAdd = canApply(
-            authorRole: myRole,
-            op: ControlOp.addMember,
-            newRole: GroupRole.member,
-          );
+          final canRename =
+              !state.isArchived &&
+              canApply(authorRole: myRole, op: ControlOp.setName);
+          final canEditDescription =
+              !state.isArchived &&
+              canApply(authorRole: myRole, op: ControlOp.setDescription);
+          final canAdd =
+              !state.isArchived &&
+              canApply(
+                authorRole: myRole,
+                op: ControlOp.addMember,
+                newRole: GroupRole.member,
+              );
           final canManageRetention = SpaceAcl(
             state,
           ).allows(service.selfId, SpacePermission.manageStorage);
@@ -665,6 +696,42 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                               ),
                             ),
                           ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Card(
+                        child: ListTile(
+                          key: const ValueKey('space-lifecycle-tile'),
+                          leading: Icon(
+                            state.isArchived
+                                ? Icons.unarchive_outlined
+                                : Icons.archive_outlined,
+                          ),
+                          title: Text(
+                            state.isArchived
+                                ? l.spaceArchivedTitle
+                                : l.spaceActiveTitle,
+                          ),
+                          subtitle: Text(
+                            state.isArchived
+                                ? l.spaceArchivedHint
+                                : l.spaceActiveHint,
+                          ),
+                          trailing: myRole == GroupRole.owner
+                              ? FilledButton.tonal(
+                                  key: const ValueKey('space-lifecycle-action'),
+                                  onPressed: () => _setArchived(
+                                    service,
+                                    spaceId,
+                                    archived: !state.isArchived,
+                                  ),
+                                  child: Text(
+                                    state.isArchived
+                                        ? l.spaceRestoreAction
+                                        : l.spaceArchiveAction,
+                                  ),
+                                )
+                              : null,
                         ),
                       ),
                     ],

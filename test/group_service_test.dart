@@ -18,6 +18,7 @@ import 'package:xveil/domain/group_message.dart';
 import 'package:xveil/domain/group_policy.dart';
 import 'package:xveil/domain/group_reaction.dart';
 import 'package:xveil/domain/space_channel.dart';
+import 'package:xveil/domain/space_lifecycle.dart';
 import 'package:xveil/domain/space_moderation.dart';
 import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/domain/space_rules.dart';
@@ -4862,6 +4863,256 @@ void main() {
       expect(
         (await ownerSvc.listGroups()).map((entry) => entry.groupId),
         isNot(contains(spaceId)),
+      );
+    },
+  );
+
+  test(
+    'owner-signed Space lifecycle preserves history and starts a fresh content generation',
+    () async {
+      final (ownerSvc, member) = await setup();
+      final bobSvc = member(bob);
+      final groupId = await ownerSvc.createGroup('Friends remain a group chat');
+      expect(await ownerSvc.setSpaceArchived(groupId, true), isFalse);
+
+      final spaceId = await ownerSvc.createSpace(
+        'Archive lab',
+        visibility: SpaceVisibility.public,
+      );
+      expect(
+        await ownerSvc.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      final defaultChannel = (await ownerSvc.channelsOf(spaceId)).single;
+      expect(
+        await ownerSvc.postMessage(
+          spaceId,
+          'before archive',
+          channelId: defaultChannel.channelId,
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      expect(
+        await ownerSvc.publishSpacePost(
+          spaceId,
+          body: 'publication before archive',
+          broadcast: false,
+        ),
+        isNotNull,
+      );
+      expect(
+        await ownerSvc.react(spaceId, '${owner.hex}:0', '👍', broadcast: false),
+        isTrue,
+      );
+
+      expect(await bobSvc.setSpaceArchived(spaceId, true), isFalse);
+      expect(await ownerSvc.setSpaceArchived(spaceId, true), isTrue);
+      var state = (await ownerSvc.stateOf(spaceId))!;
+      expect(state.lifecycleState, SpaceLifecycleState.archived);
+      expect(state.lifecycleTransitionHash, hasLength(64));
+      expect(state.lifecycleTransition!.messageHeads, hasLength(1));
+      expect(state.lifecycleTransition!.postHeads, hasLength(1));
+      expect(state.lifecycleTransition!.reactionHeads, hasLength(1));
+      expect(
+        jsonEncode(state.lifecycleTransition!.toJson()),
+        isNot(contains(defaultChannel.channelId.hex)),
+        reason: 'the global lifecycle record exposes only hashed scopes',
+      );
+      expect(
+        (await ownerSvc.messagesOf(spaceId)).map((message) => message.body),
+        ['before archive'],
+      );
+      expect((await ownerSvc.postsOf(spaceId)).single.body, contains('before'));
+      expect((await ownerSvc.reactionsOf(spaceId))['${owner.hex}:0']?['👍'], [
+        owner,
+      ]);
+
+      expect(
+        await ownerSvc.postMessage(
+          spaceId,
+          'blocked',
+          channelId: defaultChannel.channelId,
+          broadcast: false,
+        ),
+        isFalse,
+      );
+      expect(
+        await ownerSvc.publishSpacePost(
+          spaceId,
+          body: 'blocked',
+          broadcast: false,
+        ),
+        isNull,
+      );
+      expect(
+        await ownerSvc.react(spaceId, '${owner.hex}:0', '👍', broadcast: false),
+        isFalse,
+      );
+      expect(
+        await ownerSvc.createChannel(
+          spaceId,
+          name: 'blocked',
+          kind: SpaceChannelKind.text,
+        ),
+        isNull,
+      );
+      expect(await ownerSvc.setSpaceDescription(spaceId, 'blocked'), isFalse);
+
+      expect(await bobSvc.setSpaceArchived(spaceId, false), isFalse);
+      expect(await ownerSvc.setSpaceArchived(spaceId, false), isTrue);
+      state = (await ownerSvc.stateOf(spaceId))!;
+      expect(state.lifecycleState, SpaceLifecycleState.active);
+      final generation = state.lifecycleTransitionHash;
+      expect(generation, hasLength(64));
+      expect(
+        await ownerSvc.postMessage(
+          spaceId,
+          'after restore',
+          channelId: defaultChannel.channelId,
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      expect(
+        await ownerSvc.publishSpacePost(
+          spaceId,
+          body: 'publication after restore',
+          broadcast: false,
+        ),
+        isNotNull,
+      );
+      expect(
+        await ownerSvc.react(spaceId, '${owner.hex}:0', '❤️', broadcast: false),
+        isTrue,
+      );
+      final bundle = (await ownerSvc.load(spaceId))!;
+      expect(bundle.messages.last.lifecycleGeneration, generation);
+      expect(bundle.posts.last.lifecycleGeneration, generation);
+      expect(bundle.reactions.last.lifecycleGeneration, generation);
+      expect((await ownerSvc.messagesOf(spaceId)).map((m) => m.body), [
+        'before archive',
+        'after restore',
+      ]);
+      expect((await ownerSvc.postsOf(spaceId)).map((post) => post.body), [
+        'publication before archive',
+        'publication after restore',
+      ]);
+    },
+  );
+
+  test(
+    'offline pre-archive suffix cannot rejoin after archive and restore arrive',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      final bobStorage = FakeHvContainer().storage();
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      final ownerSvc = GroupService(ownerStorage, _FakeSigner(owner));
+      final bobSvc = GroupService(bobStorage, _FakeSigner(bob));
+
+      final spaceId = await ownerSvc.createSpace(
+        'Offline boundary',
+        visibility: SpaceVisibility.public,
+      );
+      expect(
+        await ownerSvc.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 2));
+      final ownerChannel = (await ownerSvc.channelsOf(spaceId)).single;
+      expect(
+        await ownerSvc.postMessage(
+          spaceId,
+          'archive boundary message',
+          channelId: ownerChannel.channelId,
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      expect(
+        await bobSvc.ingestSnapshot(
+          ownerSvc.snapshotJson(
+            (await ownerSvc.load(spaceId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+      final channel = (await bobSvc.channelsOf(spaceId)).single;
+      expect(
+        await bobSvc.postMessage(
+          spaceId,
+          'offline stale message',
+          channelId: channel.channelId,
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      expect(
+        await bobSvc.publishSpacePost(
+          spaceId,
+          body: 'offline stale publication',
+          broadcast: false,
+        ),
+        isNotNull,
+      );
+      expect(
+        await bobSvc.react(spaceId, '${owner.hex}:0', '⚠️', broadcast: false),
+        isTrue,
+      );
+
+      expect(await ownerSvc.setSpaceArchived(spaceId, true), isTrue);
+      expect(await ownerSvc.setSpaceArchived(spaceId, false), isTrue);
+      expect(
+        await ownerSvc.ingestSnapshot(
+          bobSvc.snapshotJson((await bobSvc.load(spaceId))!, recipient: owner),
+        ),
+        isTrue,
+      );
+      final mergedLifecycle = (await ownerSvc.stateOf(spaceId))!;
+      expect(mergedLifecycle.lifecycleTransitionHash, isNotNull);
+      expect(mergedLifecycle.lifecycleTransitionHash, isNotEmpty);
+      expect(mergedLifecycle.lifecycleTransition!.messageHeads, hasLength(1));
+      expect(mergedLifecycle.lifecycleTransition!.reactionHeads, isEmpty);
+      final mergedRows = (await ownerSvc.load(spaceId))!.messages;
+      expect(mergedRows.map((message) => message.body), [
+        'archive boundary message',
+      ]);
+      expect(
+        (await ownerSvc.messagesOf(spaceId)).map((message) => message.body),
+        ['archive boundary message'],
+      );
+      expect(await ownerSvc.postsOf(spaceId), isEmpty);
+      expect(await ownerSvc.reactionsOf(spaceId), isEmpty);
+      final retained = (await ownerSvc.load(spaceId))!;
+      expect(retained.messages, hasLength(1));
+      expect(retained.posts, isEmpty);
+      expect(retained.reactions, isEmpty);
+
+      final restored = (await ownerSvc.stateOf(spaceId))!;
+      expect(
+        await ownerSvc.postMessage(
+          spaceId,
+          'fresh message',
+          channelId: channel.channelId,
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      expect(
+        (await ownerSvc.load(spaceId))!.messages.last.lifecycleGeneration,
+        restored.lifecycleTransitionHash,
       );
     },
   );

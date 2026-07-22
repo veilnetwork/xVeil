@@ -318,6 +318,86 @@ void main() {
       GroupReaction.fromJson(clearTyped.toJson())!.targetKind,
       ReactionTargetKind.spacePost,
     );
+
+    final lifecycle = 'ab' * 32;
+    final lifecycleClear = GroupReactionCleartext(
+      target: '${_id(3).hex}:7',
+      emoji: '✅',
+      targetKind: ReactionTargetKind.spacePost,
+      schemaVersion: 2,
+    ).encode();
+    final lifecyclePayload = await encryptGroupReactionPayload(
+      groupId: _id(10),
+      membershipEpoch: 5,
+      author: _id(1),
+      seq: 11,
+      createdAtMs: 6002,
+      clearText: lifecycleClear,
+      epochKey: key,
+      reactionVersion: 6,
+      lifecycleGeneration: lifecycle,
+      random: Random(14),
+    );
+    lifecycleClear.fillRange(0, lifecycleClear.length, 0);
+    final lifecycleReaction = GroupReaction(
+      groupId: _id(10),
+      author: _id(1),
+      seq: 11,
+      target: '',
+      emoji: '',
+      version: 6,
+      membershipEpoch: 5,
+      encryptedPayload: lifecyclePayload,
+      lifecycleGeneration: lifecycle,
+      createdAtMs: 6002,
+      signature: Uint8List(64),
+    );
+    final lifecycleParsed = GroupReaction.fromJson(lifecycleReaction.toJson())!;
+    expect(lifecycleParsed.lifecycleGeneration, lifecycle);
+    final lifecycleOpened = await decryptGroupReactionPayload(
+      groupId: lifecycleParsed.groupId,
+      membershipEpoch: lifecycleParsed.membershipEpoch!,
+      author: lifecycleParsed.author,
+      seq: lifecycleParsed.seq,
+      createdAtMs: lifecycleParsed.createdAtMs,
+      payload: lifecycleParsed.encryptedPayload!,
+      epochKey: key,
+      reactionVersion: 6,
+      lifecycleGeneration: lifecycle,
+    );
+    expect(GroupReactionCleartext.decode(lifecycleOpened)?.emoji, '✅');
+    lifecycleOpened.fillRange(0, lifecycleOpened.length, 0);
+    await expectLater(
+      decryptGroupReactionPayload(
+        groupId: lifecycleParsed.groupId,
+        membershipEpoch: lifecycleParsed.membershipEpoch!,
+        author: lifecycleParsed.author,
+        seq: lifecycleParsed.seq,
+        createdAtMs: lifecycleParsed.createdAtMs,
+        payload: lifecycleParsed.encryptedPayload!,
+        epochKey: key,
+        reactionVersion: 6,
+        lifecycleGeneration: 'cd' * 32,
+      ),
+      throwsFormatException,
+    );
+
+    final lifecyclePublic = GroupReaction(
+      groupId: _id(10),
+      author: _id(1),
+      seq: 12,
+      target: '${_id(3).hex}:7',
+      emoji: '✅',
+      version: 5,
+      targetKind: ReactionTargetKind.spacePost,
+      lifecycleGeneration: lifecycle,
+      createdAtMs: 6003,
+      signature: Uint8List(64),
+    );
+    expect(GroupReaction.fromJson(lifecyclePublic.toJson()), isNotNull);
+    final missingLifecycle = Map<String, dynamic>.from(lifecyclePublic.toJson())
+      ..remove('lifecycle');
+    expect(GroupReaction.fromJson(missingLifecycle), isNull);
   });
 
   test(

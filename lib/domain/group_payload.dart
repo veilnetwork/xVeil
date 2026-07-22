@@ -353,11 +353,15 @@ Future<GroupEncryptedPayload> encryptGroupReactionPayload({
   required Uint8List clearText,
   required Uint8List epochKey,
   int reactionVersion = 2,
+  String lifecycleGeneration = '',
   Random? random,
 }) async {
   if (membershipEpoch < 0 ||
       seq < 0 ||
       createdAtMs < 0 ||
+      (reactionVersion == 6) !=
+          RegExp(r'^[0-9a-f]{64}$').hasMatch(lifecycleGeneration) ||
+      (reactionVersion != 6 && lifecycleGeneration.isNotEmpty) ||
       clearText.length > maxGroupEncryptedPayloadBytes ||
       epochKey.length != 32) {
     throw ArgumentError('invalid group reaction payload input');
@@ -378,6 +382,7 @@ Future<GroupEncryptedPayload> encryptGroupReactionPayload({
       seq: seq,
       createdAtMs: createdAtMs,
       reactionVersion: reactionVersion,
+      lifecycleGeneration: lifecycleGeneration,
     ),
   );
   return GroupEncryptedPayload(
@@ -396,10 +401,14 @@ Future<Uint8List> decryptGroupReactionPayload({
   required GroupEncryptedPayload payload,
   required Uint8List epochKey,
   int reactionVersion = 2,
+  String lifecycleGeneration = '',
 }) async {
   if (membershipEpoch < 0 ||
       seq < 0 ||
       createdAtMs < 0 ||
+      (reactionVersion == 6) !=
+          RegExp(r'^[0-9a-f]{64}$').hasMatch(lifecycleGeneration) ||
+      (reactionVersion != 6 && lifecycleGeneration.isNotEmpty) ||
       !payload.isStructurallyValid ||
       epochKey.length != 32) {
     throw const FormatException('group reaction payload rejected');
@@ -419,6 +428,7 @@ Future<Uint8List> decryptGroupReactionPayload({
         seq: seq,
         createdAtMs: createdAtMs,
         reactionVersion: reactionVersion,
+        lifecycleGeneration: lifecycleGeneration,
       ),
     );
     if (clear.length > maxGroupEncryptedPayloadBytes) {
@@ -445,6 +455,7 @@ Future<GroupEncryptedPayload> encryptSpacePostPayload({
   String controlCheckpointHash = '',
   String postOperation = '',
   int? targetSeq,
+  String lifecycleGeneration = '',
   required Uint8List clearText,
   required Uint8List epochKey,
   Random? random,
@@ -459,6 +470,8 @@ Future<GroupEncryptedPayload> encryptSpacePostPayload({
       (controlFrontier.isNotEmpty && controlCheckpointHash.isNotEmpty) ||
       (controlCheckpointHash.isNotEmpty &&
           !RegExp(r'^[0-9a-f]{64}$').hasMatch(controlCheckpointHash)) ||
+      (lifecycleGeneration.isNotEmpty &&
+          !RegExp(r'^[0-9a-f]{64}$').hasMatch(lifecycleGeneration)) ||
       (postOperation.isEmpty
           ? targetSeq != null
           : !const {'publish', 'edit', 'delete'}.contains(postOperation) ||
@@ -493,6 +506,7 @@ Future<GroupEncryptedPayload> encryptSpacePostPayload({
       controlCheckpointHash: controlCheckpointHash,
       postOperation: postOperation,
       targetSeq: targetSeq,
+      lifecycleGeneration: lifecycleGeneration,
     ),
   );
   return GroupEncryptedPayload(
@@ -517,6 +531,7 @@ Future<Uint8List> decryptSpacePostPayload({
   String controlCheckpointHash = '',
   String postOperation = '',
   int? targetSeq,
+  String lifecycleGeneration = '',
   required GroupEncryptedPayload payload,
   required Uint8List epochKey,
 }) async {
@@ -530,6 +545,8 @@ Future<Uint8List> decryptSpacePostPayload({
       (controlFrontier.isNotEmpty && controlCheckpointHash.isNotEmpty) ||
       (controlCheckpointHash.isNotEmpty &&
           !RegExp(r'^[0-9a-f]{64}$').hasMatch(controlCheckpointHash)) ||
+      (lifecycleGeneration.isNotEmpty &&
+          !RegExp(r'^[0-9a-f]{64}$').hasMatch(lifecycleGeneration)) ||
       (postOperation.isEmpty
           ? targetSeq != null
           : !const {'publish', 'edit', 'delete'}.contains(postOperation) ||
@@ -563,6 +580,7 @@ Future<Uint8List> decryptSpacePostPayload({
         controlCheckpointHash: controlCheckpointHash,
         postOperation: postOperation,
         targetSeq: targetSeq,
+        lifecycleGeneration: lifecycleGeneration,
       ),
     );
     if (clear.length > maxGroupEncryptedPayloadBytes) {
@@ -722,15 +740,19 @@ Uint8List groupReactionPayloadAad({
   required int seq,
   required int createdAtMs,
   int reactionVersion = 2,
+  String lifecycleGeneration = '',
 }) => Uint8List.fromList([
   ...utf8.encode(
     reactionVersion == 2
         ? 'xveil.group-reaction.payload-aad.v1\u0000'
+        : reactionVersion == 6
+        ? 'xveil.group-reaction.payload-aad.v3\u0000'
         : 'xveil.group-reaction.payload-aad.v2\u0000',
   ),
   ...utf8.encode(
     jsonEncode({
       if (reactionVersion != 2) 'rv': reactionVersion,
+      if (reactionVersion == 6) 'lifecycle': lifecycleGeneration,
       'gid': groupId.hex,
       'epoch': membershipEpoch,
       'author': author.hex,
@@ -755,9 +777,12 @@ Uint8List spacePostPayloadAad({
   String controlCheckpointHash = '',
   String postOperation = '',
   int? targetSeq,
+  String lifecycleGeneration = '',
 }) => Uint8List.fromList([
   ...utf8.encode(
-    postOperation.isNotEmpty
+    lifecycleGeneration.isNotEmpty
+        ? 'xveil.space-post.payload-aad.v5\u0000'
+        : postOperation.isNotEmpty
         ? 'xveil.space-post.payload-aad.v4\u0000'
         : controlCheckpointHash.isNotEmpty
         ? 'xveil.space-post.payload-aad.v3\u0000'
@@ -781,6 +806,7 @@ Uint8List spacePostPayloadAad({
       if (controlCheckpointHash.isNotEmpty) 'checkpoint': controlCheckpointHash,
       if (postOperation.isNotEmpty) 'op': postOperation,
       'target': ?targetSeq,
+      if (lifecycleGeneration.isNotEmpty) 'lifecycle': lifecycleGeneration,
     }),
   ),
 ]);

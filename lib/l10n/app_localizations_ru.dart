@@ -350,6 +350,40 @@ class AppL10nRu extends AppL10n {
       'Скрывает только локальную историю и ничего не удаляет у других участников.';
 
   @override
+  String get spaceActiveTitle => 'Сообщество активно';
+
+  @override
+  String get spaceActiveHint =>
+      'Участники могут публиковать материалы, писать в каналах и входить в голосовые комнаты.';
+
+  @override
+  String get spaceArchivedTitle => 'Сообщество в архиве';
+
+  @override
+  String get spaceArchivedHint =>
+      'История доступна для чтения, но сообщения, публикации, реакции, голосовые комнаты и настройки закрыты для изменений.';
+
+  @override
+  String get spaceArchiveTitle => 'Архивировать сообщество?';
+
+  @override
+  String get spaceArchiveConfirm =>
+      'Будет создана подписанная владельцем граница, после которой сообщество станет доступно только для чтения на всех устройствах. Его можно восстановить позже.';
+
+  @override
+  String get spaceArchiveAction => 'Архивировать';
+
+  @override
+  String get spaceRestoreTitle => 'Восстановить сообщество?';
+
+  @override
+  String get spaceRestoreConfirm =>
+      'Новый контент начнёт отдельную подписанную эпоху. Архивная история останется доступна.';
+
+  @override
+  String get spaceRestoreAction => 'Восстановить';
+
+  @override
   String spaceMembers(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
