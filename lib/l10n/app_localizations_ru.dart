@@ -364,6 +364,32 @@ class AppL10nRu extends AppL10n {
       'История доступна для чтения, но сообщения, публикации, реакции, голосовые комнаты и настройки закрыты для изменений.';
 
   @override
+  String get spaceDeletedTitle => 'Сообщество ожидает удаления';
+
+  @override
+  String get spaceDeletedHint =>
+      'Содержимое скрыто, вся активность остановлена. Владелец может восстановить сообщество до окончания периода восстановления.';
+
+  @override
+  String get spaceDeleteTitle => 'Удалить сообщество?';
+
+  @override
+  String get spaceDeleteConfirm =>
+      'Сообщество можно будет восстановить в течение 7 дней. После этого локальные зашифрованные копии удалятся фоновой задачей, а старые снимки не смогут их воскресить.';
+
+  @override
+  String get spaceDeleteAction => 'Удалить сообщество';
+
+  @override
+  String get spaceDeleteHint =>
+      'Запускает 7-дневный период восстановления перед физической очисткой.';
+
+  @override
+  String spaceRecoveryUntil(String date) {
+    return 'Восстановление доступно до $date';
+  }
+
+  @override
   String get spaceArchiveTitle => 'Архивировать сообщество?';
 
   @override

@@ -4,10 +4,13 @@ import '../core/ids.dart';
 import 'space_post.dart';
 
 const int kSpaceLifecycleContentHeadsMax = 4096;
+const Duration kSpaceDeletionRecoveryPeriod = Duration(days: 7);
+const Duration kSpaceDeletionRecoveryMax = Duration(days: 30);
 
 enum SpaceLifecycleState {
   active,
-  archived;
+  archived,
+  deleted;
 
   static SpaceLifecycleState? fromName(String? value) {
     for (final state in values) {
@@ -189,6 +192,7 @@ class SpaceLifecycleTransition {
     required Iterable<SpacePostLifecycleHead> postHeads,
     required Iterable<SpaceReactionLifecycleHead> reactionHeads,
     required this.changedAtMs,
+    this.recoveryDeadlineMs,
   }) : messageHeads = List.unmodifiable(messageHeads),
        postHeads = List.unmodifiable(postHeads),
        reactionHeads = List.unmodifiable(reactionHeads);
@@ -203,6 +207,14 @@ class SpaceLifecycleTransition {
   final List<SpaceReactionLifecycleHead> reactionHeads;
   final int changedAtMs;
 
+  /// Present only for a recoverable deletion and the matching restoration.
+  /// Repeating the deadline in the restore row makes the recovery-window
+  /// decision deterministic on every peer without consulting local settings.
+  final int? recoveryDeadlineMs;
+
+  bool get isRecoverableDeletion =>
+      state == SpaceLifecycleState.deleted && recoveryDeadlineMs != null;
+
   bool get isStructurallyValid {
     if (changedAtMs < 0 ||
         contentPolicyVersion < 0 ||
@@ -212,6 +224,22 @@ class SpaceLifecycleTransition {
         messageHeads.length > kSpaceLifecycleContentHeadsMax ||
         postHeads.length > kSpaceLifecycleContentHeadsMax ||
         reactionHeads.length > kSpaceLifecycleContentHeadsMax) {
+      return false;
+    }
+    final recovery = recoveryDeadlineMs;
+    if (state == SpaceLifecycleState.archived && recovery != null) {
+      return false;
+    }
+    if (state == SpaceLifecycleState.deleted &&
+        (recovery == null ||
+            recovery <= changedAtMs ||
+            recovery - changedAtMs >
+                kSpaceDeletionRecoveryMax.inMilliseconds)) {
+      return false;
+    }
+    if (state == SpaceLifecycleState.active &&
+        recovery != null &&
+        changedAtMs > recovery) {
       return false;
     }
     String? previousMessage;
@@ -241,12 +269,12 @@ class SpaceLifecycleTransition {
       }
       previousReaction = head.identity;
     }
-    return state == SpaceLifecycleState.archived ||
+    return state != SpaceLifecycleState.active ||
         previousTransitionHash.isNotEmpty;
   }
 
   Map<String, dynamic> toJson() => {
-    'v': 1,
+    'v': recoveryDeadlineMs == null ? 1 : 2,
     'space': spaceId.hex,
     'state': state.name,
     'previous': previousTransitionHash,
@@ -255,6 +283,7 @@ class SpaceLifecycleTransition {
     'messages': [for (final head in messageHeads) head.toJson()],
     'posts': [for (final head in postHeads) head.toJson()],
     'reactions': [for (final head in reactionHeads) head.toJson()],
+    if (recoveryDeadlineMs != null) 'recoveryDeadline': recoveryDeadlineMs,
     'ts': changedAtMs,
   };
 
@@ -269,7 +298,7 @@ class SpaceLifecycleTransition {
 
   static SpaceLifecycleTransition? fromJson(Object? value) {
     if (value is! Map ||
-        value['v'] != 1 ||
+        (value['v'] != 1 && value['v'] != 2) ||
         value['space'] is! String ||
         value['state'] is! String ||
         value['previous'] is! String ||
@@ -278,6 +307,12 @@ class SpaceLifecycleTransition {
         value['posts'] is! List ||
         value['reactions'] is! List ||
         value['ts'] is! int) {
+      return null;
+    }
+    final wireVersion = value['v'] as int;
+    final recoveryDeadline = value['recoveryDeadline'];
+    if ((wireVersion == 1 && recoveryDeadline != null) ||
+        (wireVersion == 2 && recoveryDeadline is! int)) {
       return null;
     }
     final state = SpaceLifecycleState.fromName(value['state'] as String);
@@ -314,8 +349,62 @@ class SpaceLifecycleTransition {
         postHeads: posts,
         reactionHeads: reactions,
         changedAtMs: value['ts'] as int,
+        recoveryDeadlineMs: recoveryDeadline as int?,
       );
       return transition.isStructurallyValid ? transition : null;
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+/// Compact local anti-resurrection marker retained after the heavy Space
+/// bundle has been physically purged. The hash names the exact owner-signed
+/// delete control row; only an incoming log containing that row followed by a
+/// valid in-window restore may materialize the Space again.
+class SpaceDeletionTombstone {
+  const SpaceDeletionTombstone({
+    required this.spaceId,
+    required this.deleteTransitionHash,
+    required this.recoveryDeadlineMs,
+    required this.purgedAtMs,
+  });
+
+  final NodeId spaceId;
+  final String deleteTransitionHash;
+  final int recoveryDeadlineMs;
+  final int purgedAtMs;
+
+  bool get isStructurallyValid =>
+      RegExp(r'^[0-9a-f]{64}$').hasMatch(deleteTransitionHash) &&
+      recoveryDeadlineMs >= 0 &&
+      purgedAtMs >= recoveryDeadlineMs;
+
+  Map<String, dynamic> toJson() => {
+    'v': 1,
+    'space': spaceId.hex,
+    'delete': deleteTransitionHash,
+    'recoveryDeadline': recoveryDeadlineMs,
+    'purgedAt': purgedAtMs,
+  };
+
+  static SpaceDeletionTombstone? fromJson(Object? value) {
+    if (value is! Map ||
+        value['v'] != 1 ||
+        value['space'] is! String ||
+        value['delete'] is! String ||
+        value['recoveryDeadline'] is! int ||
+        value['purgedAt'] is! int) {
+      return null;
+    }
+    try {
+      final tombstone = SpaceDeletionTombstone(
+        spaceId: NodeId.fromHex(value['space'] as String),
+        deleteTransitionHash: value['delete'] as String,
+        recoveryDeadlineMs: value['recoveryDeadline'] as int,
+        purgedAtMs: value['purgedAt'] as int,
+      );
+      return tombstone.isStructurallyValid ? tombstone : null;
     } catch (_) {
       return null;
     }
