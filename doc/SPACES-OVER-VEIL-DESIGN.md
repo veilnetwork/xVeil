@@ -454,8 +454,13 @@ camera/background/push проверяются дополнительно на ф
   после boundary хранится только как evidence и не попадает в feed. Legacy
   revoke без boundary скрывает такую историю fail-closed; новый `unmute/add`
   начинает отдельное поколение полномочий;
-* ссылки публикаций используют общую content-addressed `MediaObjectRef`, а
-  content serve разрешает только реально достижимые из валидного Space данные;
+* сообщения и публикации используют одну доменную `MediaObject`: CID,
+  метаданные, preview и существующий content-path/GC. Подписанные исторические
+  group rows сохраняют byte-identical legacy attachment-кодек, а `SpacePost`
+  использует строгий reference-кодек с 64-hex CID; `GroupAttachment` и
+  `MediaObjectRef` остаются только source-compatibility aliases, не отдельными
+  runtime/store сущностями. Content serve разрешает только реально достижимые
+  из валидного Space данные;
 * `SpaceSubscription` хранится локально и не меняет membership. Участник может
   отключить Space в общей ленте, уведомления и рекомендации; это не отзывает
   участие и не выдаёт дополнительные ключи;

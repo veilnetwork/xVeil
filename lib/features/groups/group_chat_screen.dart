@@ -204,7 +204,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   Future<bool> _postGroupMessage(
     GroupService svc,
     String body, {
-    GroupAttachment? attachment,
+    MediaObject? attachment,
     List<InlineCustomEmoji> customEmoji = const [],
     bool clearInput = false,
     bool consumeReply = true,
@@ -441,7 +441,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       await _postGroupMessage(
         svc,
         '',
-        attachment: GroupAttachment(
+        attachment: MediaObject(
           kind: 'voice',
           dataB64: 'QQ==',
           w: clip.durationMs > 0 ? clip.durationMs : 1,
@@ -454,7 +454,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     await _postGroupMessage(
       svc,
       '',
-      attachment: GroupAttachment(
+      attachment: MediaObject(
         kind: 'voice',
         dataB64: base64Encode(clip.bytes),
         w: clip.durationMs > 0 ? clip.durationMs : 1,
@@ -473,7 +473,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     await _postGroupMessage(
       svc,
       '',
-      attachment: GroupAttachment(
+      attachment: MediaObject(
         kind: 'vnote',
         dataB64: 'QQ==',
         w: clip.durationMs > 0 ? clip.durationMs : 1,
@@ -579,7 +579,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
         caption.body,
         customEmoji: caption.customEmoji,
         clearInput: true,
-        attachment: GroupAttachment(
+        attachment: MediaObject(
           // If the platform codec cannot make a bounded preview, keep the
           // bytes accessible as a normal file row instead of rejecting it.
           kind: thumb == null ? 'file' : 'image',
@@ -619,7 +619,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
         caption.body,
         customEmoji: caption.customEmoji,
         clearInput: true,
-        attachment: GroupAttachment(
+        attachment: MediaObject(
           kind: 'image',
           dataB64: thumb.b64,
           w: thumb.w,
@@ -640,7 +640,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       caption.body,
       customEmoji: caption.customEmoji,
       clearInput: true,
-      attachment: GroupAttachment(
+      attachment: MediaObject(
         kind: 'image',
         dataB64: img.b64,
         w: img.w,
@@ -654,7 +654,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   /// (~9 chunks), big enough to preview while the full bytes stream in.
   static const int _kRefThumbRawMax = 16000;
 
-  Future<void> _pickGroupAttachment(
+  Future<void> _pickGroupMedia(
     GroupService svc, {
     FileType type = FileType.any,
     List<String>? allowedExtensions,
@@ -741,7 +741,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       caption.body,
       customEmoji: caption.customEmoji,
       clearInput: true,
-      attachment: GroupAttachment(
+      attachment: MediaObject(
         kind: isVideoFileName(file.name) ? 'video' : 'file',
         dataB64: thumb ?? 'QQ==',
         w: size,
@@ -778,13 +778,13 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
           } catch (_) {}
         }
       case ComposerAttachmentAction.photo:
-        await _pickGroupAttachment(svc, type: FileType.image);
+        await _pickGroupMedia(svc, type: FileType.image);
       case ComposerAttachmentAction.video:
-        await _pickGroupAttachment(svc, type: FileType.video);
+        await _pickGroupMedia(svc, type: FileType.video);
       case ComposerAttachmentAction.file:
-        await _pickGroupAttachment(svc);
+        await _pickGroupMedia(svc);
       case ComposerAttachmentAction.gif:
-        await _pickGroupAttachment(
+        await _pickGroupMedia(
           svc,
           type: FileType.custom,
           allowedExtensions: const ['gif'],
@@ -826,7 +826,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       svc,
       '',
       consumeReply: false,
-      attachment: GroupAttachment(
+      attachment: MediaObject(
         kind: 'sticker',
         dataB64: img.b64,
         w: img.w,
@@ -1803,7 +1803,7 @@ String _formatGroupBytes(int bytes) {
 class _GroupFileAttachment extends ConsumerWidget {
   const _GroupFileAttachment({required this.attachment, this.onFetch});
 
-  final GroupAttachment attachment;
+  final MediaObject attachment;
   final VoidCallback? onFetch;
 
   @override
@@ -1971,7 +1971,7 @@ class _GroupFileAttachment extends ConsumerWidget {
 /// (entry removed) → rebuild → the store now holds the blob → full render.
 class _GroupRefImage extends ConsumerStatefulWidget {
   const _GroupRefImage({required this.attachment, this.onFetch});
-  final GroupAttachment attachment;
+  final MediaObject attachment;
   final VoidCallback? onFetch;
 
   @override
@@ -2099,7 +2099,7 @@ class _GroupVoiceRow extends ConsumerWidget {
     this.onFetch,
   });
   final String messageRef;
-  final GroupAttachment attachment;
+  final MediaObject attachment;
 
   /// Starts the membership-authorized fetch of a ref-form clip.
   final VoidCallback? onFetch;
@@ -2204,7 +2204,7 @@ class _GroupVnoteCircle extends ConsumerWidget {
     this.onFetch,
   });
   final String messageRef;
-  final GroupAttachment attachment;
+  final MediaObject attachment;
   final VoidCallback? onFetch;
 
   @override

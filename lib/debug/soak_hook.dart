@@ -19,7 +19,7 @@ import '../data/serve_source.dart';
 import 'package:veil_media/veil_media.dart';
 
 import '../state/thumbnail.dart' show makeRgbaThumbB64, makeInlineImageB64;
-import '../domain/group_message.dart' show GroupAttachment;
+import '../domain/group_message.dart' show MediaObject;
 
 import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call_signal.dart';
@@ -1122,7 +1122,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final posted = await svc.postMessage(
       gid,
       q['body'] ?? '',
-      attachment: GroupAttachment(
+      attachment: MediaObject(
         kind: 'image',
         dataB64: img.b64,
         w: img.w,
@@ -1161,7 +1161,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final posted = await svc.postMessage(
       NodeId.fromHex(gidHex),
       '',
-      attachment: GroupAttachment(
+      attachment: MediaObject(
         kind: 'sticker',
         dataB64: img.b64,
         w: img.w,
@@ -1218,7 +1218,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final posted = await svc.postMessage(
       NodeId.fromHex(gidHex),
       '',
-      attachment: GroupAttachment(
+      attachment: MediaObject(
         kind: 'voice',
         dataB64: asRef ? 'QQ==' : base64Encode(clip.bytes),
         w: clip.durationMs > 0 ? clip.durationMs : 1,
@@ -1306,7 +1306,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final posted = await svc.postMessage(
       NodeId.fromHex(gidHex),
       '',
-      attachment: GroupAttachment(
+      attachment: MediaObject(
         kind: 'image',
         dataB64: 'QUFBQQ==',
         w: 1,
@@ -2981,7 +2981,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final posted = await svc.postMessage(
       NodeId.fromHex(gidHex),
       '',
-      attachment: GroupAttachment(
+      attachment: MediaObject(
         kind: 'vnote',
         dataB64: 'QQ==',
         w: clip.durationMs > 0 ? clip.durationMs : 1,
@@ -3059,7 +3059,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final posted = await svc.postMessage(
       NodeId.fromHex(gidHex),
       '',
-      attachment: GroupAttachment(
+      attachment: MediaObject(
         kind: 'image',
         dataB64: thumb.b64,
         w: thumb.w,
