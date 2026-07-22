@@ -1,6 +1,7 @@
-import 'dart:typed_data';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -12,6 +13,7 @@ import 'package:xveil/domain/group_content.dart';
 import 'package:xveil/domain/group_message.dart';
 import 'package:xveil/domain/group_reaction.dart';
 import 'package:xveil/domain/space_moderation.dart';
+import 'package:xveil/domain/space_join_request.dart';
 import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/features/spaces/space_list_screen.dart';
 import 'package:xveil/features/spaces/space_moderation_screen.dart';
@@ -140,6 +142,58 @@ void main() {
     expect(created.description, 'Offline protocol builders');
     expect(created.visibility, SpaceVisibility.secret);
     expect(created.discoverable, isFalse);
+  });
+
+  testWidgets('Space list sends a join request from a strict link', (
+    tester,
+  ) async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final requester = _id(61);
+    final approver = _id(62);
+    final sent = <String>[];
+    final service = GroupService(
+      storage,
+      _Signer(requester),
+      sendSpaceJoinRequest: (peer, requestId, json) async {
+        expect(peer, approver);
+        sent.add(json);
+      },
+    );
+    addTearDown(service.dispose);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final link = SpaceJoinCode.encode(
+      SpaceJoinTicket(
+        ticketId: 'a1' * 32,
+        spaceId: _id(63),
+        approver: approver,
+        spaceName: 'Linked community',
+        createdAtMs: now,
+        expiresAtMs: now + kSpaceJoinTicketLifetime.inMilliseconds,
+      ),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [groupServiceProvider.overrideWithValue(service)],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: const SpaceListScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final l = AppL10n.of(tester.element(find.byType(SpaceListScreen)));
+    await tester.tap(find.byKey(const ValueKey('space-join-link-action')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('space-join-code')), link);
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('space-join-submit')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(sent, hasLength(1));
+    expect(find.text(l.spaceJoinRequestSent), findsOneWidget);
+    expect(await service.outgoingSpaceJoinRequests(), hasLength(1));
   });
 
   testWidgets('Space settings manage signed roster, name and P2P redundancy', (
@@ -355,6 +409,115 @@ void main() {
     final transferred = (await service.stateOf(spaceId))!;
     expect(transferred.roleOf(owner), GroupRole.admin);
     expect(transferred.roleOf(alice), GroupRole.owner);
+  });
+
+  testWidgets('public Space join link and approval are available in UI', (
+    tester,
+  ) async {
+    String? copied;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied = (call.arguments as Map)['text'] as String?;
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final owner = _id(51);
+    final requester = _id(52);
+    final service = GroupService(
+      storage,
+      _Signer(owner),
+      sendSpaceJoinDecision: (peer, requestId, json) async {},
+    );
+    addTearDown(service.dispose);
+    final spaceId = await service.createSpace(
+      'Open lab',
+      visibility: SpaceVisibility.public,
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          groupServiceProvider.overrideWithValue(service),
+          conversationsProvider.overrideWith((ref) => Stream.value(const [])),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: SpaceSettingsScreen(spaceIdHex: spaceId.hex),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final l = AppL10n.of(tester.element(find.byType(SpaceSettingsScreen)));
+
+    expect(find.byKey(const ValueKey('space-join-link-tile')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('space-join-link-create')));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    final firstCode = (await service.currentSpaceJoinCode(spaceId))!;
+    expect(firstCode, startsWith('xveil://space/v1#'));
+    expect(copied, firstCode);
+    expect(find.text(l.spaceJoinLinkCopied), findsOneWidget);
+    ScaffoldMessenger.of(
+      tester.element(find.byType(SpaceSettingsScreen)),
+    ).hideCurrentSnackBar();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('space-join-link-revoke')));
+    await tester.pumpAndSettle();
+    expect(await service.currentSpaceJoinCode(spaceId), isNull);
+    await tester.tap(find.byKey(const ValueKey('space-join-link-create')));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    final code = (await service.currentSpaceJoinCode(spaceId))!;
+    expect(code, isNot(firstCode));
+    expect(copied, code);
+    ScaffoldMessenger.of(
+      tester.element(find.byType(SpaceSettingsScreen)),
+    ).hideCurrentSnackBar();
+    await tester.pumpAndSettle();
+
+    final ticket = SpaceJoinCode.parse(code);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final request = SpaceJoinRequest(
+      requestId: 'ef' * 32,
+      ticketId: ticket.ticketId,
+      ticketHash: spaceJoinTicketHash(ticket),
+      spaceId: spaceId,
+      requester: requester,
+      approver: owner,
+      createdAtMs: now,
+    );
+    expect(
+      await service.receiveSpaceJoinRequest(
+        requester,
+        jsonEncode(request.toJson()),
+      ),
+      isTrue,
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(ValueKey('space-join-request-${request.requestId}')),
+      findsOneWidget,
+    );
+    final approve = find.widgetWithText(FilledButton, l.spaceJoinApprove);
+    await tester.ensureVisible(approve);
+    await tester.pumpAndSettle();
+    await tester.tap(approve);
+    await tester.pumpAndSettle();
+    expect((await service.stateOf(spaceId))!.isMember(requester), isTrue);
   });
 
   testWidgets('Space owner archives and restores from settings', (

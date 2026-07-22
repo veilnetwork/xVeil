@@ -451,6 +451,72 @@ class AppL10nEn extends AppL10n {
   String get spaceInviteJoining => 'Accepted · waiting for verified membership';
 
   @override
+  String get spaceJoinAction => 'Join with link';
+
+  @override
+  String get spaceJoinDialogTitle => 'Request to join a community';
+
+  @override
+  String get spaceJoinCodeHint => 'Paste an xveil://space link';
+
+  @override
+  String get spaceJoinSafetyHint =>
+      'The link sends only a membership request. Channels, members and keys stay unavailable until an administrator approves it with a signed grant.';
+
+  @override
+  String get spaceJoinRequestSent =>
+      'Request sent. The community will appear after signed approval.';
+
+  @override
+  String get spaceJoinRequestsTitle => 'Join requests';
+
+  @override
+  String spaceJoinRequestFrom(String peer) {
+    return 'Request from $peer';
+  }
+
+  @override
+  String get spaceJoinRequestPending => 'Waiting for approval';
+
+  @override
+  String get spaceJoinRequestApproved =>
+      'Approved · receiving verified membership';
+
+  @override
+  String get spaceJoinRequestDeclined => 'Declined';
+
+  @override
+  String get spaceJoinDismiss => 'Dismiss';
+
+  @override
+  String get spaceJoinApprove => 'Approve';
+
+  @override
+  String get spaceJoinDecline => 'Decline';
+
+  @override
+  String get spaceJoinLinkTitle => 'Public join link';
+
+  @override
+  String get spaceJoinLinkHint =>
+      'Anyone with this revocable link may request membership. The link never grants access by itself.';
+
+  @override
+  String get spaceJoinLinkCreate => 'Create link';
+
+  @override
+  String get spaceJoinLinkCopy => 'Copy link';
+
+  @override
+  String get spaceJoinLinkRevoke => 'Revoke link';
+
+  @override
+  String get spaceJoinLinkCopied => 'Join link copied';
+
+  @override
+  String get spaceJoinLinkRevoked => 'Join link revoked';
+
+  @override
   String get spaceRoleLabel => 'Community role';
 
   @override

@@ -19,6 +19,7 @@ void main() {
   final spacePostReactions = <(String, String, String)>[];
   final subscriptions = <(String, bool)>[];
   final spaceInviteDecisions = <(String, bool)>[];
+  final spaceJoinActions = <(String, String?, String?, String?)>[];
   final spaceCreates = <(String, String, String)>[];
   final spaceDescriptions = <(String, String)>[];
   final spaceLifecycleActions = <(String, String)>[];
@@ -50,6 +51,7 @@ void main() {
     spacePostReactions.clear();
     subscriptions.clear();
     spaceInviteDecisions.clear();
+    spaceJoinActions.clear();
     spaceCreates.clear();
     spaceDescriptions.clear();
     spaceLifecycleActions.clear();
@@ -268,6 +270,23 @@ void main() {
       decideSpaceInvite: (inviteId, accept) async {
         spaceInviteDecisions.add((inviteId, accept));
         return null;
+      },
+      spaceJoinRequests: (space) async => {
+        'outgoing': const [],
+        if (space != null) ...{
+          'spaceId': space,
+          'joinCode': 'xveil://space/v1#test',
+          'incoming': [
+            {'requestId': 'cd' * 32, 'requester': 'ef' * 32},
+          ],
+        },
+      },
+      spaceJoinRequestAction: (action, space, requestId, code) async {
+        spaceJoinActions.add((action, space, requestId, code));
+        return (
+          error: action == 'decline_bad' ? 'rejected' : null,
+          code: action == 'create_link' ? 'xveil://space/v1#created' : null,
+        );
       },
       spaceProfile: (space) async => space == 'missing'
           ? null
@@ -579,6 +598,10 @@ void main() {
         ('/v1/spaces/posts', {'space': 's', 'body': 'x'}),
         ('/v1/spaces/subscription', {'space': 's', 'enabled': false}),
         ('/v1/spaces/invites', {'inviteId': 'ab' * 32, 'action': 'accept'}),
+        (
+          '/v1/spaces/join-requests',
+          {'action': 'request', 'code': 'xveil://space/v1#invalid'},
+        ),
         (
           '/v1/spaces/channels',
           {'space': 's', 'name': 'general', 'kind': 'text'},
@@ -1088,6 +1111,32 @@ void main() {
         200,
       );
       expect(spaceInviteDecisions.single, ('ab' * 32, true));
+
+      final joinRequests = await h.handle(
+        'GET',
+        u('/v1/spaces/join-requests?space=aa'),
+        auth,
+      );
+      expect(joinRequests.status, 200);
+      expect((joinRequests.body as Map)['joinCode'], 'xveil://space/v1#test');
+      final createJoinLink = await h.handle(
+        'POST',
+        u('/v1/spaces/join-requests'),
+        auth,
+        body: {'action': 'create_link', 'space': 'aa'},
+      );
+      expect(createJoinLink.status, 200);
+      expect((createJoinLink.body as Map)['code'], 'xveil://space/v1#created');
+      expect(spaceJoinActions.single, ('create_link', 'aa', null, null));
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/join-requests'),
+          auth,
+          body: {'action': 'approve', 'requestId': 'short'},
+        )).status,
+        400,
+      );
 
       expect(
         (await h.handle('GET', u('/v1/spaces/channels'), auth)).status,

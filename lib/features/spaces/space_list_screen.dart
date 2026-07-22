@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../domain/group.dart';
 import '../../domain/space_invite.dart';
+import '../../domain/space_join_request.dart';
 import '../../domain/space_lifecycle.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
@@ -51,13 +53,40 @@ class SpaceListScreen extends ConsumerWidget {
     }
   }
 
+  Future<void> _requestJoin(BuildContext context, GroupService service) async {
+    final l = AppL10n.of(context);
+    final code = await showDialog<String>(
+      context: context,
+      builder: (_) => const _JoinSpaceDialog(),
+    );
+    if (code == null) return;
+    final ok = await service.requestToJoinSpace(code);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(ok ? l.spaceJoinRequestSent : l.spaceOperationFailed),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppL10n.of(context);
     final service = ref.watch(groupServiceProvider);
     final spaces = ref.watch(spaceListProvider);
     return Scaffold(
-      appBar: AppBar(title: Text(l.navCommunities)),
+      appBar: AppBar(
+        title: Text(l.navCommunities),
+        actions: [
+          if (service != null)
+            IconButton(
+              key: const ValueKey('space-join-link-action'),
+              tooltip: l.spaceJoinAction,
+              onPressed: () => _requestJoin(context, service),
+              icon: const Icon(Icons.link),
+            ),
+        ],
+      ),
       floatingActionButton: service == null
           ? null
           : FloatingActionButton(
@@ -70,14 +99,28 @@ class SpaceListScreen extends ConsumerWidget {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, _) => Center(child: Text('$error')),
         data: (items) {
-          return FutureBuilder<List<PendingSpaceInvite>>(
-            future: service?.pendingSpaceInvites(),
+          return FutureBuilder<List<Object?>>(
+            future: service == null
+                ? Future.value(const <Object?>[
+                    <PendingSpaceInvite>[],
+                    <SpaceJoinOutboxEntry>[],
+                  ])
+                : Future.wait<Object?>([
+                    service.pendingSpaceInvites(),
+                    service.outgoingSpaceJoinRequests(),
+                  ]),
             builder: (context, inviteSnapshot) {
               if (service != null && !inviteSnapshot.hasData) {
                 return const Center(child: CircularProgressIndicator());
               }
-              final invites = inviteSnapshot.data ?? const [];
-              if (items.isEmpty && invites.isEmpty) {
+              final data = inviteSnapshot.data;
+              final invites = data == null
+                  ? const <PendingSpaceInvite>[]
+                  : data[0] as List<PendingSpaceInvite>;
+              final joinRequests = data == null
+                  ? const <SpaceJoinOutboxEntry>[]
+                  : data[1] as List<SpaceJoinOutboxEntry>;
+              if (items.isEmpty && invites.isEmpty && joinRequests.isEmpty) {
                 return Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -162,6 +205,51 @@ class SpaceListScreen extends ConsumerWidget {
                                       child: Text(l.spaceInviteAccept),
                                     ),
                                   ],
+                                ),
+                        ),
+                      ),
+                    const SizedBox(height: 8),
+                  ],
+                  if (joinRequests.isNotEmpty) ...[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                      child: Text(
+                        l.spaceJoinRequestsTitle,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                    for (final entry in joinRequests)
+                      Card(
+                        key: ValueKey(
+                          'space-join-outgoing-${entry.request.requestId}',
+                        ),
+                        margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                        child: ListTile(
+                          leading: const CircleAvatar(
+                            child: Icon(Icons.how_to_reg_outlined),
+                          ),
+                          title: Text(entry.ticket.spaceName),
+                          subtitle: Text(
+                            entry.approved
+                                ? l.spaceJoinRequestApproved
+                                : entry.declined
+                                ? l.spaceJoinRequestDeclined
+                                : l.spaceJoinRequestPending,
+                          ),
+                          trailing: entry.declined
+                              ? TextButton(
+                                  onPressed: () =>
+                                      service?.dismissSpaceJoinRequest(
+                                        entry.request.requestId,
+                                      ),
+                                  child: Text(l.spaceJoinDismiss),
+                                )
+                              : const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
                                 ),
                         ),
                       ),
@@ -260,6 +348,90 @@ class SpaceListScreen extends ConsumerWidget {
           );
         },
       ),
+    );
+  }
+}
+
+class _JoinSpaceDialog extends StatefulWidget {
+  const _JoinSpaceDialog();
+
+  @override
+  State<_JoinSpaceDialog> createState() => _JoinSpaceDialogState();
+}
+
+class _JoinSpaceDialogState extends State<_JoinSpaceDialog> {
+  final _code = TextEditingController();
+
+  @override
+  void dispose() {
+    _code.dispose();
+    super.dispose();
+  }
+
+  Future<void> _paste() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    if (!mounted || data?.text == null) return;
+    setState(() => _code.text = data!.text!.trim());
+  }
+
+  void _submit() {
+    final value = _code.text.trim();
+    if (value.isEmpty || value.length > 2048) return;
+    try {
+      SpaceJoinCode.parse(value);
+    } catch (_) {
+      return;
+    }
+    Navigator.of(context).pop(value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    return AlertDialog(
+      title: Text(l.spaceJoinDialogTitle),
+      content: SizedBox(
+        width: 480,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              key: const ValueKey('space-join-code'),
+              controller: _code,
+              autofocus: true,
+              minLines: 2,
+              maxLines: 4,
+              maxLength: 2048,
+              decoration: InputDecoration(
+                labelText: l.spaceJoinCodeHint,
+                suffixIcon: IconButton(
+                  tooltip: MaterialLocalizations.of(context).pasteButtonLabel,
+                  onPressed: _paste,
+                  icon: const Icon(Icons.content_paste),
+                ),
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              l.spaceJoinSafetyHint,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(l.actionCancel),
+        ),
+        FilledButton(
+          key: const ValueKey('space-join-submit'),
+          onPressed: _code.text.trim().isEmpty ? null : _submit,
+          child: Text(l.spaceJoinAction),
+        ),
+      ],
     );
   }
 }

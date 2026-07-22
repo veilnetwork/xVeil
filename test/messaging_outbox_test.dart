@@ -466,6 +466,61 @@ void main() {
   );
 
   test(
+    'non-contact Space join ACK is scoped to a persisted valid request',
+    () async {
+      final x = _id(21);
+      final y = _id(22);
+      final tx = _FakeTransport(x);
+      final ty = _FakeTransport(y);
+      tx.peer = ty;
+      ty.peer = tx;
+      final sx = HiddenVolumeStorage(_memOpener());
+      final sy = HiddenVolumeStorage(_memOpener());
+      await sx.open(password: 'x', createIfMissing: true);
+      await sy.open(password: 'y', createIfMissing: true);
+      final mx = MessagingService(tx, sx)..start();
+      final my = MessagingService(ty, sy)..start();
+      addTearDown(() async {
+        await mx.dispose();
+        await my.dispose();
+        await sx.close();
+        await sy.close();
+        await tx.dispose();
+        await ty.dispose();
+      });
+
+      my.onSpaceJoinRequest = (peer, json) async => json == 'valid';
+      await mx.sendSpaceJoinRequest(y, 'aa' * 32, 'valid');
+      await _pump();
+      expect(
+        (await sx.pendingOutboxFrames()).map((frame) => frame.frameId),
+        isNot(contains('space-join-request:${'aa' * 32}')),
+        reason: 'durably accepted request must ACK across the contact boundary',
+      );
+
+      await mx.sendSpaceJoinRequest(y, 'bb' * 32, 'invalid');
+      await _pump();
+      final invalidId = 'space-join-request:${'bb' * 32}';
+      expect(
+        (await sx.pendingOutboxFrames()).map((frame) => frame.frameId),
+        contains(invalidId),
+        reason: 'policy rejection must remain unacknowledged',
+      );
+
+      await ty.send(
+        x,
+        const WireEnvelope.ack('space-join-request:guessed').encode(),
+      );
+      await _pump();
+      expect(
+        (await sx.pendingOutboxFrames()).map((frame) => frame.frameId),
+        contains(invalidId),
+        reason: 'a stranger cannot retire another durable frame by guessing',
+      );
+    },
+  );
+
+  test(
     're-sending an already-delivered message does not duplicate it',
     () async {
       await mA.sendText(b, 'hello');
@@ -494,45 +549,44 @@ void main() {
     );
   });
 
-  test('custom emoji survives send, offline retry, storage, and edit', () async {
-    final first = InlineCustomEmoji(
-      offset: 3,
-      dataB64: base64Encode([1, 2, 3]),
-    );
-    tA.online = false;
-    await mA.sendText(b, 'hi ☺', customEmoji: [first]);
-    final local = (await sA.loadMessages(b.hex)).singleWhere(
-      (m) => m.body == 'hi ☺',
-    );
-    expect(local.customEmoji.single.dataB64, first.dataB64);
+  test(
+    'custom emoji survives send, offline retry, storage, and edit',
+    () async {
+      final first = InlineCustomEmoji(
+        offset: 3,
+        dataB64: base64Encode([1, 2, 3]),
+      );
+      tA.online = false;
+      await mA.sendText(b, 'hi ☺', customEmoji: [first]);
+      final local = (await sA.loadMessages(
+        b.hex,
+      )).singleWhere((m) => m.body == 'hi ☺');
+      expect(local.customEmoji.single.dataB64, first.dataB64);
 
-    tA.online = true;
-    await mA.flushOutbox();
-    await _pump();
-    final received = (await sB.loadMessages(a.hex)).singleWhere(
-      (m) => m.id == local.id,
-    );
-    expect(received.customEmoji.single.offset, 3);
+      tA.online = true;
+      await mA.flushOutbox();
+      await _pump();
+      final received = (await sB.loadMessages(
+        a.hex,
+      )).singleWhere((m) => m.id == local.id);
+      expect(received.customEmoji.single.offset, 3);
 
-    final editedEmoji = InlineCustomEmoji(
-      offset: 4,
-      dataB64: base64Encode([4, 5, 6]),
-    );
-    await mA.editOwnMessage(
-      local.id,
-      'now ☺!',
-      customEmoji: [editedEmoji],
-    );
-    await _pump();
-    for (final stored in [
-      (await sA.loadMessages(b.hex)).singleWhere((m) => m.id == local.id),
-      (await sB.loadMessages(a.hex)).singleWhere((m) => m.id == local.id),
-    ]) {
-      expect(stored.body, 'now ☺!');
-      expect(stored.customEmoji.single.offset, 4);
-      expect(stored.customEmoji.single.dataB64, editedEmoji.dataB64);
-    }
-  });
+      final editedEmoji = InlineCustomEmoji(
+        offset: 4,
+        dataB64: base64Encode([4, 5, 6]),
+      );
+      await mA.editOwnMessage(local.id, 'now ☺!', customEmoji: [editedEmoji]);
+      await _pump();
+      for (final stored in [
+        (await sA.loadMessages(b.hex)).singleWhere((m) => m.id == local.id),
+        (await sB.loadMessages(a.hex)).singleWhere((m) => m.id == local.id),
+      ]) {
+        expect(stored.body, 'now ☺!');
+        expect(stored.customEmoji.single.offset, 4);
+        expect(stored.customEmoji.single.dataB64, editedEmoji.dataB64);
+      }
+    },
+  );
 
   test('editOwnMessage replaces the text and marks it edited', () async {
     await mA.sendText(b, 'wrong');

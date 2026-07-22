@@ -48,6 +48,19 @@ void main() {
     expect(decision.body, contains('accepted'));
   });
 
+  test('public Space join request and decision use distinct v2 frames', () {
+    final request = WireEnvelope.decode(
+      const WireEnvelope.spaceJoinRequest('{"v":1,"id":"request"}').encode(),
+    );
+    final decision = WireEnvelope.decode(
+      const WireEnvelope.spaceJoinDecision(
+        '{"v":1,"id":"request","accepted":true}',
+      ).encode(),
+    );
+    expect(request.kind, WireKind.spaceJoinRequest);
+    expect(decision.kind, WireKind.spaceJoinDecision);
+  });
+
   test('a non-envelope payload decodes as a plain message', () {
     final raw = Uint8List.fromList(utf8.encode('legacy plain text'));
     final out = WireEnvelope.decode(raw);

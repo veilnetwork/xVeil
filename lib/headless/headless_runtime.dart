@@ -151,6 +151,8 @@ class HeadlessRuntime {
             messaging!.sendGroupSnapshot(peer, groupId.hex, json),
         sendSpaceInvite: messaging.sendSpaceInvite,
         sendSpaceInviteDecision: messaging.sendSpaceInviteDecision,
+        sendSpaceJoinRequest: messaging.sendSpaceJoinRequest,
+        sendSpaceJoinDecision: messaging.sendSpaceJoinDecision,
         sendContentRequest: (holder, json) =>
             messaging!.sendGroupContentRequest(holder, json),
         sendGroupCallFrame: (peer, signal, json) =>
@@ -260,6 +262,8 @@ class HeadlessRuntime {
         setSpaceFeedEnabled: groupApi.setFeedEnabled,
         spaceInvites: groupApi.invites,
         decideSpaceInvite: groupApi.decideInvite,
+        spaceJoinRequests: groupApi.joinRequests,
+        spaceJoinRequestAction: groupApi.joinRequestAction,
         spaceProfile: groupApi.profile,
         updateSpaceDescription: groupApi.updateDescription,
         spaceLifecycle: groupApi.lifecycle,
@@ -331,6 +335,8 @@ class HeadlessRuntime {
     messaging.onSpaceInviteDecision = (peer, decisionJson) async {
       await groups.receiveSpaceInviteDecision(peer, decisionJson);
     };
+    messaging.onSpaceJoinRequest = groups.receiveSpaceJoinRequest;
+    messaging.onSpaceJoinDecision = groups.receiveSpaceJoinDecision;
     messaging.onGroupContentRequest = (peer, requestJson) {
       unawaited(groups.handleContentRequest(requestJson));
     };

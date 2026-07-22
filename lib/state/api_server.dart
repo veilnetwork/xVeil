@@ -618,6 +618,8 @@ class ApiServerController extends Notifier<ApiConfig> {
       setSpaceFeedEnabled: groupApi?.setFeedEnabled,
       spaceInvites: groupApi?.invites,
       decideSpaceInvite: groupApi?.decideInvite,
+      spaceJoinRequests: groupApi?.joinRequests,
+      spaceJoinRequestAction: groupApi?.joinRequestAction,
       spaceProfile: groupApi?.profile,
       updateSpaceDescription: groupApi?.updateDescription,
       spaceLifecycle: groupApi?.lifecycle,

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/ids.dart';
@@ -9,6 +10,7 @@ import '../../domain/chat.dart';
 import '../../domain/group.dart';
 import '../../domain/group_policy.dart';
 import '../../domain/space_retention.dart';
+import '../../domain/space_join_request.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/messaging.dart' show conversationsProvider;
@@ -236,6 +238,52 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(l.spaceInviteSent)));
+    }
+  }
+
+  Future<void> _copySpaceJoinLink(GroupService service, NodeId spaceId) async {
+    final link = await service.createSpaceJoinCode(spaceId);
+    if (link == null) {
+      _failure();
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: link));
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppL10n.of(context).spaceJoinLinkCopied)),
+      );
+    });
+  }
+
+  Future<void> _revokeSpaceJoinLink(
+    GroupService service,
+    NodeId spaceId,
+  ) async {
+    if (!await service.revokeSpaceJoinCode(spaceId)) {
+      _failure();
+      return;
+    }
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppL10n.of(context).spaceJoinLinkRevoked)),
+      );
+    });
+  }
+
+  Future<void> _decideJoinRequest(
+    GroupService service,
+    SpaceJoinInboxEntry entry, {
+    required bool accept,
+  }) async {
+    if (!await service.decideSpaceJoinRequest(
+      entry.request.requestId,
+      accept: accept,
+    )) {
+      _failure();
     }
   }
 
@@ -481,6 +529,8 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
           service.isSpaceFeedEnabled(spaceId),
           service.load(spaceId),
           service.localSpaceRetentionDays(spaceId),
+          service.currentSpaceJoinCode(spaceId),
+          service.pendingSpaceJoinRequests(spaceId),
         ]),
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
@@ -495,6 +545,8 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
           final feedEnabled = snapshot.data![1] as bool;
           final bundle = snapshot.data![2] as GroupBundle?;
           final localRetentionDays = snapshot.data![3] as int?;
+          final joinCode = snapshot.data![4] as String?;
+          final joinRequests = snapshot.data![5] as List<SpaceJoinInboxEntry>;
           final myRole = state.roleOf(service.selfId)!;
           final canRename =
               state.isActive &&
@@ -600,7 +652,136 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                           ],
                         ),
                       ),
+                      if (canAdd &&
+                          bundle?.manifest.visibility ==
+                              SpaceVisibility.public) ...[
+                        const SizedBox(height: 12),
+                        Card(
+                          child: Column(
+                            children: [
+                              ListTile(
+                                key: const ValueKey('space-join-link-tile'),
+                                leading: const Icon(Icons.link),
+                                title: Text(l.spaceJoinLinkTitle),
+                                subtitle: Text(l.spaceJoinLinkHint),
+                                trailing: joinCode == null
+                                    ? FilledButton.tonal(
+                                        key: const ValueKey(
+                                          'space-join-link-create',
+                                        ),
+                                        onPressed: () => _copySpaceJoinLink(
+                                          service,
+                                          spaceId,
+                                        ),
+                                        child: Text(l.spaceJoinLinkCreate),
+                                      )
+                                    : Wrap(
+                                        spacing: 4,
+                                        children: [
+                                          IconButton(
+                                            key: const ValueKey(
+                                              'space-join-link-copy',
+                                            ),
+                                            tooltip: l.spaceJoinLinkCopy,
+                                            onPressed: () => _copySpaceJoinLink(
+                                              service,
+                                              spaceId,
+                                            ),
+                                            icon: const Icon(
+                                              Icons.copy_outlined,
+                                            ),
+                                          ),
+                                          IconButton(
+                                            key: const ValueKey(
+                                              'space-join-link-revoke',
+                                            ),
+                                            tooltip: l.spaceJoinLinkRevoke,
+                                            onPressed: () =>
+                                                _revokeSpaceJoinLink(
+                                                  service,
+                                                  spaceId,
+                                                ),
+                                            icon: const Icon(
+                                              Icons.link_off_outlined,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 20),
+                      if (canAdd && joinRequests.isNotEmpty) ...[
+                        Text(
+                          l.spaceJoinRequestsTitle,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 8),
+                        Card(
+                          clipBehavior: Clip.antiAlias,
+                          child: Column(
+                            children: [
+                              for (
+                                var index = 0;
+                                index < joinRequests.length;
+                                index++
+                              ) ...[
+                                if (index > 0)
+                                  const Divider(height: 1, indent: 56),
+                                Builder(
+                                  builder: (context) {
+                                    final entry = joinRequests[index];
+                                    final label = _memberLabel(
+                                      l,
+                                      service,
+                                      entry.request.requester,
+                                      conversations,
+                                    );
+                                    return ListTile(
+                                      key: ValueKey(
+                                        'space-join-request-${entry.request.requestId}',
+                                      ),
+                                      leading: const Icon(
+                                        Icons.person_add_alt_1_outlined,
+                                      ),
+                                      title: Text(
+                                        l.spaceJoinRequestFrom(label),
+                                      ),
+                                      subtitle: Text(
+                                        entry.request.requester.short,
+                                      ),
+                                      trailing: Wrap(
+                                        spacing: 4,
+                                        children: [
+                                          TextButton(
+                                            onPressed: () => _decideJoinRequest(
+                                              service,
+                                              entry,
+                                              accept: false,
+                                            ),
+                                            child: Text(l.spaceJoinDecline),
+                                          ),
+                                          FilledButton.tonal(
+                                            onPressed: () => _decideJoinRequest(
+                                              service,
+                                              entry,
+                                              accept: true,
+                                            ),
+                                            child: Text(l.spaceJoinApprove),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                      ],
                       Row(
                         children: [
                           Expanded(

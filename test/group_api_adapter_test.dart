@@ -283,6 +283,57 @@ void main() {
     },
   );
 
+  test('Space API manages capability-bound public join links', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(storage, _Signer(_id(41)));
+    final api = GroupApiAdapter(
+      service,
+      registerContentSource:
+          (name, size, read, {required close, sourcePath}) async {
+            await close();
+            return 'unused';
+          },
+      loadContent: storage.loadFile,
+    );
+    try {
+      final privateSpace = (await api.createSpace('Private', '', 'private'))!;
+      expect(
+        (await api.joinRequestAction(
+          'create_link',
+          privateSpace,
+          null,
+          null,
+        )).error,
+        isNotNull,
+      );
+      final publicSpace = (await api.createSpace('Public', '', 'public'))!;
+      final created = await api.joinRequestAction(
+        'create_link',
+        publicSpace,
+        null,
+        null,
+      );
+      expect(created.error, isNull);
+      expect(created.code, startsWith('xveil://space/v1#'));
+      final listed = await api.joinRequests(publicSpace);
+      expect(listed['joinCode'], created.code);
+      expect(listed['incoming'], isEmpty);
+      expect(
+        (await api.joinRequestAction(
+          'revoke_link',
+          publicSpace,
+          null,
+          null,
+        )).error,
+        isNull,
+      );
+      expect((await api.joinRequests(publicSpace))['joinCode'], isNull);
+    } finally {
+      await service.dispose();
+    }
+  });
+
   test(
     'Space API transfers the effective owner through the signed log',
     () async {

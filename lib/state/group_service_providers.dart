@@ -108,6 +108,8 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
         messaging.sendGroupSnapshot(peer, groupId.hex, json),
     sendSpaceInvite: messaging.sendSpaceInvite,
     sendSpaceInviteDecision: messaging.sendSpaceInviteDecision,
+    sendSpaceJoinRequest: messaging.sendSpaceJoinRequest,
+    sendSpaceJoinDecision: messaging.sendSpaceJoinDecision,
     sendContentRequest: (holder, json) =>
         messaging.sendGroupContentRequest(holder, json),
     sendGroupCallFrame: (peer, signal, json) =>
@@ -132,6 +134,8 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   messaging.onSpaceInviteDecision = (peer, decisionJson) async {
     await service.receiveSpaceInviteDecision(peer, decisionJson);
   };
+  messaging.onSpaceJoinRequest = service.receiveSpaceJoinRequest;
+  messaging.onSpaceJoinDecision = service.receiveSpaceJoinDecision;
   messaging.onGroupContentRequest = (peer, requestJson) {
     unawaited(service.handleContentRequest(requestJson));
   };
