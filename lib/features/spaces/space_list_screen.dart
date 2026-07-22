@@ -3,12 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../domain/chat.dart';
 import '../../domain/group.dart';
 import '../../domain/space_invite.dart';
 import '../../domain/space_join_request.dart';
 import '../../domain/space_lifecycle.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
+import '../chat/chat_actions.dart';
 import '../home/home_section_scaffold.dart';
 
 /// User-facing list of communities. Group chats remain in the Chats section.
@@ -319,6 +321,15 @@ class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
                     Builder(
                       builder: (context) {
                         final space = items[index];
+                        final notificationMode = space.notificationMode;
+                        final notificationPolicy = NotificationMutePolicy(
+                          mode: notificationMode,
+                          until: space.notificationUntil,
+                        );
+                        final hasLifecycleMarker =
+                            space.lifecycleState != SpaceLifecycleState.active;
+                        final hasUnread =
+                            space.unread > 0 || space.postUnread > 0;
                         return ListTile(
                           leading: CircleAvatar(
                             child: space.visibility == SpaceVisibility.secret
@@ -343,14 +354,28 @@ class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
                             overflow: TextOverflow.ellipsis,
                           ),
                           trailing:
-                              space.unread == 0 &&
-                                  space.postUnread == 0 &&
-                                  space.lifecycleState ==
-                                      SpaceLifecycleState.active
+                              notificationMode == NotificationMuteMode.all &&
+                                  !hasUnread &&
+                                  !hasLifecycleMarker
                               ? null
                               : Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
+                                    if (notificationMode !=
+                                        NotificationMuteMode.all) ...[
+                                      notificationMuteModeIndicator(
+                                        context,
+                                        notificationMode,
+                                        key: ValueKey(
+                                          'space-notification-${notificationMode.name}-${space.groupId.hex}',
+                                        ),
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.onSurfaceVariant,
+                                      ),
+                                      if (hasLifecycleMarker || hasUnread)
+                                        const SizedBox(width: 10),
+                                    ],
                                     if (space.lifecycleState ==
                                         SpaceLifecycleState.archived) ...[
                                       const Icon(
@@ -397,6 +422,18 @@ class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
                                 ),
                           onTap: () =>
                               context.push('/space/${space.groupId.hex}'),
+                          onLongPress: service == null
+                              ? null
+                              : () => showNotificationPolicySheet(
+                                  context,
+                                  notificationPolicy,
+                                  onChanged: (mode, until) =>
+                                      service.setGroupNotificationPolicy(
+                                        space.groupId,
+                                        mode,
+                                        until,
+                                      ),
+                                ),
                         );
                       },
                     ),

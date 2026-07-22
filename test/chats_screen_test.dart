@@ -214,6 +214,7 @@ void main() {
             postUnread: 1,
             muted: true,
             notificationMode: NotificationMuteMode.mentionsOnly,
+            notificationUntil: DateTime(2099),
             preview: 'шашлыки в субботу',
             // Newer than Alice's 2026-01-01 message → the group sorts on top.
             lastTs: DateTime(2026, 6, 1).millisecondsSinceEpoch,
@@ -231,6 +232,7 @@ void main() {
             postUnread: 2,
             muted: false,
             notificationMode: NotificationMuteMode.all,
+            notificationUntil: null,
             preview: 'community channel message',
             lastTs: DateTime(2026, 7, 1).millisecondsSinceEpoch,
           ),
@@ -347,6 +349,7 @@ void main() {
                 postUnread: 1,
                 muted: false,
                 notificationMode: NotificationMuteMode.all,
+                notificationUntil: null,
                 preview: 'шашлыки в субботу',
                 lastTs: DateTime(2026, 6, 1).millisecondsSinceEpoch,
               ),

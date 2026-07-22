@@ -123,8 +123,22 @@ void main() {
       expect(listed['visibility'], 'secret');
       expect(listed['discoverable'], isFalse);
       expect(listed['notificationMode'], NotificationMuteMode.all.name);
+      expect(listed['notificationUntil'], isNull);
 
-      final profile = (await api.profile(space!))!;
+      final notificationUntil = DateTime.now().add(const Duration(hours: 8));
+      await service.setGroupNotificationPolicy(
+        NodeId.fromHex(space!),
+        NotificationMuteMode.mentionsOnly,
+        notificationUntil,
+      );
+      final muted = (await api.listSpaces()).single;
+      expect(muted['notificationMode'], NotificationMuteMode.mentionsOnly.name);
+      expect(
+        muted['notificationUntil'],
+        notificationUntil.millisecondsSinceEpoch,
+      );
+
+      final profile = (await api.profile(space))!;
       expect(profile['description'], 'Initial summary');
       expect(profile['visibility'], 'secret');
       expect(await api.updateDescription(space, 'Updated summary'), isNull);

@@ -149,6 +149,15 @@ Map<String, dynamic> openApiSpec() {
             'unread': {'type': 'integer'},
             'postUnread': {'type': 'integer'},
             'muted': {'type': 'boolean'},
+            'notificationMode': {
+              'type': 'string',
+              'enum': ['all', 'mentionsOnly', 'none'],
+            },
+            'notificationUntil': {
+              'type': 'integer',
+              'format': 'int64',
+              'nullable': true,
+            },
             'preview': {'type': 'string'},
             'lastTs': {'type': 'integer', 'format': 'int64'},
           },
@@ -167,6 +176,15 @@ Map<String, dynamic> openApiSpec() {
             'unread': {'type': 'integer'},
             'postUnread': {'type': 'integer'},
             'muted': {'type': 'boolean'},
+            'notificationMode': {
+              'type': 'string',
+              'enum': ['all', 'mentionsOnly', 'none'],
+            },
+            'notificationUntil': {
+              'type': 'integer',
+              'format': 'int64',
+              'nullable': true,
+            },
             'preview': {'type': 'string'},
             'lastTs': {'type': 'integer', 'format': 'int64'},
           },
