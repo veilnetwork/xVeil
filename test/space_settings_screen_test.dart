@@ -119,6 +119,11 @@ void main() {
         ),
       ),
     );
+
+    final l = AppL10n.of(tester.element(find.byType(SpaceSettingsScreen)));
+    expect(find.text(l.spaceSettingsTitle), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
     service.changes.value++;
     await tester.pumpAndSettle();
 
