@@ -14,6 +14,13 @@ import '../core/ids.dart';
 import 'group_payload.dart';
 import 'inline_custom_emoji.dart';
 
+final RegExp _spacePostCommentTargetPattern = RegExp(r'^[0-9a-f]{64}:[0-9]+$');
+
+/// Text-only V1 discussion payload ceiling. The transport already has a
+/// bounded encrypted payload, but keeping the product limit explicit lets UI,
+/// REST and the authoritative service reject oversized input consistently.
+const int kSpacePostCommentMaxBytes = 512 * 1024;
+
 /// An inline media attachment carried WHOLE inside a group message (groups
 /// epic, phase 1, media brick 1). Unlike 1:1 media — which ships a tiny thumb
 /// in the advert and fetches the full blob over the content-path — a group
@@ -147,6 +154,7 @@ class GroupMessage {
     this.channelEpoch,
     this.encryptedPayload,
     this.channelId,
+    this.spacePostId,
     this.attachment,
     this.replyTo,
     this.customEmoji = const [],
@@ -164,6 +172,11 @@ class GroupMessage {
   final int? channelEpoch;
   final GroupEncryptedPayload? encryptedPayload;
   final NodeId? channelId;
+
+  /// Root publication this row comments on. Comments intentionally reuse the
+  /// Space's signed per-author message log, epoch E2EE and anti-entropy, but
+  /// have a disjoint chain scope and never materialize as channel messages.
+  final String? spacePostId;
   final int policyVersion; // the policy version the author wrote against
   final int createdAtMs;
   final String? lifecycleGeneration;
@@ -219,6 +232,7 @@ class GroupMessage {
             'v': version,
             'gid': groupId.hex,
             if (channelId != null) 'channel': channelId!.hex,
+            if (spacePostId != null) 'post': spacePostId,
             'author': author.hex,
             'seq': seq,
             'prev': prevHash,
@@ -232,6 +246,7 @@ class GroupMessage {
             if (version == 4) 'v': 4,
             'gid': groupId.hex,
             if (channelId != null) 'channel': channelId!.hex,
+            if (spacePostId != null) 'post': spacePostId,
             'author': author.hex,
             'seq': seq,
             'prev': prevHash,
@@ -258,6 +273,7 @@ class GroupMessage {
     channelEpoch: channelEpoch,
     encryptedPayload: encryptedPayload,
     channelId: channelId,
+    spacePostId: spacePostId,
     policyVersion: policyVersion,
     createdAtMs: createdAtMs,
     signature: sig,
@@ -280,6 +296,7 @@ class GroupMessage {
         channelEpoch: channelEpoch,
         encryptedPayload: encryptedPayload,
         channelId: channelId,
+        spacePostId: spacePostId,
         policyVersion: policyVersion,
         createdAtMs: createdAtMs,
         signature: signature,
@@ -313,6 +330,7 @@ class GroupMessage {
         'v': version,
         'gid': groupId.hex,
         if (channelId != null) 'channel': channelId!.hex,
+        if (spacePostId != null) 'post': spacePostId,
         'author': author.hex,
         'seq': seq,
         'prev': prevHash,
@@ -329,6 +347,7 @@ class GroupMessage {
       if (version == 4) 'v': 4,
       'gid': groupId.hex,
       if (channelId != null) 'channel': channelId!.hex,
+      if (spacePostId != null) 'post': spacePostId,
       'author': author.hex,
       'seq': seq,
       'prev': prevHash,
@@ -351,6 +370,7 @@ class GroupMessage {
     final gid = j['gid'], author = j['author'], seq = j['seq'];
     final prev = j['prev'], body = j['body'], pv = j['pv'], ts = j['ts'];
     final sig = j['sig'];
+    final spacePostId = j['post'];
     if (gid is! String ||
         author is! String ||
         seq is! int ||
@@ -358,6 +378,10 @@ class GroupMessage {
         pv is! int ||
         ts is! int ||
         sig is! String ||
+        (spacePostId != null &&
+            (spacePostId is! String ||
+                !_spacePostCommentTargetPattern.hasMatch(spacePostId))) ||
+        (spacePostId != null && j['channel'] != null) ||
         seq < 0) {
       return null;
     }
@@ -404,6 +428,7 @@ class GroupMessage {
         channelId: j['channel'] is String
             ? NodeId.fromHex(j['channel'] as String)
             : null,
+        spacePostId: spacePostId as String?,
         author: NodeId.fromHex(author),
         seq: seq,
         prevHash: prev,

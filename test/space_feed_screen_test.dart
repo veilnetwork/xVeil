@@ -4,16 +4,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/data/transport/veil_mailbox.dart';
 import 'package:xveil/domain/group.dart';
 import 'package:xveil/domain/group_call.dart';
 import 'package:xveil/domain/group_content.dart';
 import 'package:xveil/domain/group_message.dart';
 import 'package:xveil/domain/group_reaction.dart';
 import 'package:xveil/domain/space_post.dart';
+import 'package:xveil/domain/space_channel.dart';
 import 'package:xveil/features/spaces/space_feed_screen.dart';
+import 'package:xveil/features/spaces/space_post_comments_screen.dart';
 import 'package:xveil/features/spaces/space_posts_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/group_service_providers.dart';
+import 'package:xveil/state/group_epoch_service.dart';
 
 import 'support/fake_hv_container.dart';
 
@@ -310,4 +314,97 @@ void main() {
     expect(await service.postsOf(spaceId), isEmpty);
     expect((await service.load(spaceId))!.posts, hasLength(3));
   });
+
+  testWidgets(
+    'Space publication discussion sends replies without becoming channel history',
+    (tester) async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(
+        storage,
+        _Signer(_id(8)),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: _id(8)),
+        ),
+      );
+      final spaceId = await service.createSpace(
+        'Discussion UI',
+        visibility: SpaceVisibility.public,
+      );
+      final post = (await service.publishSpacePost(
+        spaceId,
+        title: 'Design review',
+        body: 'Discuss this independently from channels.',
+        broadcast: false,
+      ))!;
+
+      await tester.pumpWidget(
+        _host(
+          service,
+          SpacePostCommentsScreen(spaceIdHex: spaceId.hex, postId: post.postId),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final l = AppL10n.of(
+        tester.element(find.byType(SpacePostCommentsScreen)),
+      );
+      expect(find.text('Design review'), findsOneWidget);
+      expect(find.text(l.spacePostCommentsEmpty), findsOneWidget);
+      expect(
+        tester
+            .widget<IconButton>(
+              find.byKey(const ValueKey('space-post-comment-send')),
+            )
+            .onPressed,
+        isNull,
+      );
+
+      await tester.enterText(
+        find.byKey(const ValueKey('space-post-comment-composer')),
+        'First comment',
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('space-post-comment-send')));
+      await tester.pumpAndSettle();
+      expect(find.text('First comment'), findsOneWidget);
+
+      final first = (await service.spacePostCommentsOf(
+        spaceId,
+        post.postId,
+      )).single;
+      await tester.tap(
+        find.byKey(ValueKey('space-post-comment-reply-${first.ref}')),
+      );
+      await tester.pump();
+      expect(
+        find.text(l.spacePostCommentReplyingTo(first.author.short)),
+        findsOneWidget,
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('space-post-comment-composer')),
+        'Threaded reply',
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('space-post-comment-send')));
+      await tester.pumpAndSettle();
+
+      final comments = await service.spacePostCommentsOf(spaceId, post.postId);
+      expect(comments.map((comment) => comment.body), [
+        'First comment',
+        'Threaded reply',
+      ]);
+      expect(comments.last.replyTo, comments.first.ref);
+      expect(find.text('Threaded reply'), findsOneWidget);
+      expect(find.text(l.spacePostCommentsCount(2)), findsOneWidget);
+      expect(await service.messagesOf(spaceId), isEmpty);
+      expect(
+        await service.messagesOf(
+          spaceId,
+          channelId: defaultSpaceChannelId(spaceId),
+        ),
+        isEmpty,
+      );
+      expect((await service.listGroups()), isEmpty);
+    },
+  );
 }

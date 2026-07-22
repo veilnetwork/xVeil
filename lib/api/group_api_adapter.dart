@@ -427,6 +427,7 @@ final class GroupApiAdapter {
   static Map<String, dynamic> messageJson(GroupMessage message) => {
     'id': message.ref,
     if (message.channelId != null) 'channelId': message.channelId!.hex,
+    if (message.spacePostId != null) 'postId': message.spacePostId,
     'author': message.author.hex,
     'body': message.body,
     'sentAt': message.createdAtMs,
@@ -493,6 +494,46 @@ final class GroupApiAdapter {
       if (page.length == limit)
         'nextCursor': SpaceFeedCursor.fromView(page.last).encode(),
     };
+  }
+
+  Future<Map<String, dynamic>?> postComments(
+    String spaceHex,
+    String postId,
+    int limit,
+  ) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return null;
+    final postExists = (await _groups.postsOf(
+      visible.$1,
+    )).any((post) => post.postId == postId);
+    if (!postExists) return null;
+    final all = await _groups.spacePostCommentsOf(visible.$1, postId);
+    return {
+      'comments': [
+        for (final comment in all.skip(
+          all.length > limit ? all.length - limit : 0,
+        ))
+          messageJson(comment),
+      ],
+    };
+  }
+
+  Future<String?> postComment(
+    String spaceHex,
+    String postId,
+    String body,
+    String? replyTo,
+  ) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return 'space not found';
+    return await _groups.commentOnSpacePost(
+          visible.$1,
+          postId,
+          body,
+          replyTo: replyTo,
+        )
+        ? null
+        : 'comment publication rejected';
   }
 
   /// The identity-local encrypted composer draft. It is intentionally exposed

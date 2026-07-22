@@ -362,6 +362,58 @@ class AppL10nEn extends AppL10n {
   String get spacePostPinned => 'Pinned';
 
   @override
+  String get spacePostCommentsTitle => 'Comments';
+
+  @override
+  String get spacePostCommentsOpen => 'Open comments';
+
+  @override
+  String get spacePostCommentsEmpty => 'No comments yet';
+
+  @override
+  String get spacePostCommentsEmptyHint =>
+      'Start a discussion about this publication.';
+
+  @override
+  String spacePostCommentsCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count comments',
+      one: '1 comment',
+      zero: 'No comments',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get spacePostCommentHint => 'Write a comment…';
+
+  @override
+  String get spacePostCommentSend => 'Send comment';
+
+  @override
+  String get spacePostCommentReply => 'Reply';
+
+  @override
+  String spacePostCommentReplyingTo(String author) {
+    return 'Replying to $author';
+  }
+
+  @override
+  String get spacePostCommentCancelReply => 'Cancel reply';
+
+  @override
+  String get spacePostCommentFailed => 'Could not publish this comment';
+
+  @override
+  String get spacePostCommentTooLong =>
+      'The comment is too large to encrypt and send.';
+
+  @override
+  String get spacePostCommentReadOnly => 'This discussion is read-only.';
+
+  @override
   String get feedPinnedTitle => 'Pinned';
 
   @override
