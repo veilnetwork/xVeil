@@ -900,16 +900,14 @@ class _ConversationTile extends ConsumerWidget {
             if (notificationMode != NotificationMuteMode.all)
               Padding(
                 padding: const EdgeInsets.only(left: 4),
-                child: Tooltip(
-                  message: notificationMuteModeLabel(context, notificationMode),
-                  child: Icon(
-                    notificationMuteModeIcon(notificationMode),
-                    key: ValueKey(
-                      'chat-notification-${notificationMode.name}-${conversation.id}',
-                    ),
-                    size: 14,
-                    color: scheme.onSurfaceVariant,
+                child: notificationMuteModeIndicator(
+                  context,
+                  notificationMode,
+                  key: ValueKey(
+                    'chat-notification-${notificationMode.name}-${conversation.id}',
                   ),
+                  size: 14,
+                  color: scheme.onSurfaceVariant,
                 ),
               ),
           ],

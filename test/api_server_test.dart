@@ -2968,6 +2968,18 @@ void main() {
         'type': 'integer',
         'format': 'int64',
       });
+      for (final schemaName in ['Group', 'Space']) {
+        final properties = (schemas[schemaName] as Map)['properties'] as Map;
+        expect(properties['notificationMode'], {
+          'type': 'string',
+          'enum': ['all', 'mentionsOnly', 'none'],
+        });
+        expect(properties['notificationUntil'], {
+          'type': 'integer',
+          'format': 'int64',
+          'nullable': true,
+        });
+      }
       expect((schemas['MediaObjectRef'] as Map)['deprecated'], isTrue);
       // The security scheme is declared so generated clients wire the token.
       expect(
