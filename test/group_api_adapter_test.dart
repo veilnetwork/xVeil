@@ -535,6 +535,7 @@ void main() {
             'Draft body',
             SpacePostType.voiceMessage.name,
             [media],
+            null,
           ),
           isNull,
         );
@@ -546,12 +547,40 @@ void main() {
           media.contentId,
         );
         expect(
-          await api.savePostDraft(spaceId.hex, '', '', 'unknown', const []),
+          await api.savePostDraft(
+            spaceId.hex,
+            '',
+            '',
+            'unknown',
+            const [],
+            null,
+          ),
           isNotNull,
         );
         expect(await api.clearPostDraft(spaceId.hex), isNull);
         expect((await api.postDraft(spaceId.hex))?['draft'], isNull);
         expect(await api.postDraft('invalid'), isNull);
+
+        final scheduledAt =
+            DateTime.now().millisecondsSinceEpoch +
+            const Duration(hours: 3).inMilliseconds;
+        final scheduled = await api.schedulePost(
+          spaceId.hex,
+          'Later headline',
+          'Later body',
+          SpacePostType.article.name,
+          [media],
+          scheduledAt,
+        );
+        expect(scheduled.error, isNull);
+        final scheduledId = scheduled.scheduled!['id'] as String;
+        expect(
+          ((await api.scheduledPosts(spaceId.hex))!['scheduled'] as List)
+              .single['scheduledAt'],
+          scheduledAt,
+        );
+        expect(await api.cancelScheduledPost(spaceId.hex, scheduledId), isNull);
+        expect((await api.scheduledPosts(spaceId.hex))!['scheduled'], isEmpty);
 
         final result = await api.publishPost(
           spaceId.hex,

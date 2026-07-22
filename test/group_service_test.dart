@@ -3910,6 +3910,9 @@ void main() {
           body: largeBody,
           type: SpacePostType.shortVideo,
           media: [draftMedia],
+          scheduledAtMs:
+              DateTime.now().millisecondsSinceEpoch +
+              const Duration(hours: 1).inMilliseconds,
         ),
         isTrue,
       );
@@ -3920,7 +3923,7 @@ void main() {
       final storedJson = jsonDecode(utf8.decode(stored!)) as Map;
       // Keep this assertion close to persistence: the local draft must not be
       // confused with opaque content bytes or a signed post row.
-      expect(storedJson['v'], 2);
+      expect(storedJson['v'], 3);
       expect(storedJson['sid'], spaceId.hex);
       expect(storedJson['type'], SpacePostType.shortVideo.name);
       expect(storedJson['title'], 'Work in progress');
@@ -3932,6 +3935,7 @@ void main() {
       expect(draft?.body, largeBody);
       expect(draft?.type, SpacePostType.shortVideo);
       expect(draft?.media.single.name, 'draft.mp4');
+      expect(draft?.scheduledAtMs, isA<int>());
       expect((await service.load(spaceId))!.posts, isEmpty);
 
       final reopened = GroupService(storage, _FakeSigner(owner));
@@ -3966,6 +3970,157 @@ void main() {
           type: SpacePostType.post,
         ),
         isFalse,
+      );
+    },
+  );
+
+  test(
+    'scheduled Space posts stay local, survive restart and publish once when due',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _FakeSigner(owner));
+      final spaceId = await service.createSpace(
+        'Scheduled lab',
+        visibility: SpaceVisibility.public,
+      );
+      final dueAt =
+          DateTime.now().millisecondsSinceEpoch +
+          const Duration(minutes: 10).inMilliseconds;
+      final scheduled = await service.scheduleSpacePost(
+        spaceId,
+        title: 'Release later',
+        body: 'This must not enter P2P before the due time.',
+        type: SpacePostType.article,
+        media: [MediaObjectRef(contentId: 'e' * 64, kind: 'image')],
+        scheduledAtMs: dueAt,
+      );
+      expect(scheduled, isNotNull);
+      expect(await service.postsOf(spaceId), isEmpty);
+      expect(
+        (await service.scheduledSpacePosts(spaceId)).single.id,
+        scheduled!.id,
+      );
+      final index = await storage.getSetting('space.scheduled-posts.index.v1');
+      expect(index, contains(scheduled.id));
+      expect(index, isNot(contains('This must not enter P2P')));
+
+      await service.dispose();
+      final reopened = GroupService(storage, _FakeSigner(owner));
+      expect(
+        (await reopened.scheduledSpacePosts(spaceId)).single.id,
+        scheduled.id,
+      );
+      final early = await reopened.runDueScheduledSpacePosts(nowMs: dueAt - 1);
+      expect(early.scanned, 0);
+      expect(await reopened.postsOf(spaceId), isEmpty);
+
+      final executionAt = dueAt + 1234;
+      final sweep = await reopened.runDueScheduledSpacePosts(
+        nowMs: executionAt,
+      );
+      expect(sweep.published, 1);
+      expect(sweep.failed, 0);
+      expect(await reopened.scheduledSpacePosts(spaceId), isEmpty);
+      final published = (await reopened.postsOf(spaceId)).single;
+      expect(published.title, 'Release later');
+      expect(published.createdAtMs, executionAt);
+      expect(published.publishedAtMs, executionAt);
+      expect((await reopened.load(spaceId))!.messages, isEmpty);
+
+      final again = await reopened.runDueScheduledSpacePosts(
+        nowMs: executionAt + 1,
+      );
+      expect(again.published, 0);
+      expect(await reopened.postsOf(spaceId), hasLength(1));
+
+      final publishNow = await reopened.scheduleSpacePost(
+        spaceId,
+        body: 'Explicitly publish now',
+        scheduledAtMs: executionAt + const Duration(hours: 2).inMilliseconds,
+      );
+      expect(publishNow, isNotNull);
+      expect(
+        await reopened.publishScheduledSpacePostNow(spaceId, publishNow!.id),
+        isTrue,
+      );
+      expect(await reopened.postsOf(spaceId), hasLength(2));
+    },
+  );
+
+  test(
+    'scheduled Space post fails closed after membership generation changes',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      final ownerService = GroupService(ownerStorage, _FakeSigner(owner));
+      final spaceId = await ownerService.createSpace(
+        'Revoked schedule',
+        visibility: SpaceVisibility.public,
+      );
+      expect(
+        await ownerService.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+
+      final bobStorage = FakeHvContainer().storage();
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      final bobService = GroupService(bobStorage, _FakeSigner(bob));
+      expect(
+        await bobService.ingestSnapshot(
+          ownerService.snapshotJson(
+            (await ownerService.load(spaceId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+      final dueAt =
+          DateTime.now().millisecondsSinceEpoch +
+          const Duration(minutes: 5).inMilliseconds;
+      final scheduled = await bobService.scheduleSpacePost(
+        spaceId,
+        body: 'Must never revive after revoke',
+        scheduledAtMs: dueAt,
+      );
+      expect(scheduled, isNotNull);
+
+      expect(
+        await ownerService.addControlOp(spaceId, ControlOp.ban, target: bob),
+        isTrue,
+      );
+      expect(
+        await bobService.ingestSnapshot(
+          ownerService.snapshotJson(
+            (await ownerService.load(spaceId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+      final sweep = await bobService.runDueScheduledSpacePosts(nowMs: dueAt);
+      expect(sweep.published, 0);
+      expect(sweep.failed, 1);
+      final failed = (await bobService.scheduledSpacePosts(spaceId)).single;
+      expect(failed.status, ScheduledSpacePostStatus.failed);
+      expect(await bobService.postsOf(spaceId), isEmpty);
+      expect(
+        (await bobService.runDueScheduledSpacePosts(nowMs: dueAt + 1)).scanned,
+        0,
+        reason: 'failed authority is never retried silently',
+      );
+      expect(
+        await bobService.publishScheduledSpacePostNow(spaceId, failed.id),
+        isFalse,
+      );
+      expect(
+        await bobService.cancelScheduledSpacePost(spaceId, failed.id),
+        isTrue,
       );
     },
   );

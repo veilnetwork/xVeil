@@ -216,6 +216,7 @@ class SpacePostDraft {
     required this.type,
     required this.updatedAtMs,
     this.media = const [],
+    this.scheduledAtMs,
   });
 
   final NodeId spaceId;
@@ -224,6 +225,7 @@ class SpacePostDraft {
   final SpacePostType type;
   final int updatedAtMs;
   final List<MediaObject> media;
+  final int? scheduledAtMs;
 
   bool get hasContent =>
       title.trim().isNotEmpty || body.trim().isNotEmpty || media.isNotEmpty;
@@ -234,26 +236,29 @@ class SpacePostDraft {
       media.length <= kSpacePostMediaMax &&
       media.every((item) => item.isStructurallyValid) &&
       media.map((item) => item.contentId).toSet().length == media.length &&
-      updatedAtMs >= 0;
+      updatedAtMs >= 0 &&
+      (scheduledAtMs == null || scheduledAtMs! >= 0);
 
   Map<String, dynamic> toJson() => {
-    'v': 2,
+    'v': 3,
     'sid': spaceId.hex,
     'title': title,
     'body': body,
     'type': type.name,
     'updatedAt': updatedAtMs,
     if (media.isNotEmpty) 'media': [for (final item in media) item.toJson()],
+    if (scheduledAtMs != null) 'scheduledAt': scheduledAtMs,
   };
 
   static SpacePostDraft? fromJson(Object? value, NodeId expectedSpaceId) {
     if (value is! Map ||
-        (value['v'] != 1 && value['v'] != 2) ||
+        (value['v'] != 1 && value['v'] != 2 && value['v'] != 3) ||
         value['sid'] != expectedSpaceId.hex ||
         value['title'] is! String ||
         value['body'] is! String ||
         value['type'] is! String ||
         value['updatedAt'] is! int ||
+        (value['scheduledAt'] != null && value['scheduledAt'] is! int) ||
         (value['media'] != null && value['media'] is! List)) {
       return null;
     }
@@ -272,8 +277,157 @@ class SpacePostDraft {
       type: type,
       updatedAtMs: value['updatedAt'] as int,
       media: media,
+      scheduledAtMs: value['scheduledAt'] as int?,
     );
     return draft.isStructurallyValid ? draft : null;
+  }
+}
+
+enum ScheduledSpacePostStatus {
+  pending,
+  failed;
+
+  static ScheduledSpacePostStatus? fromName(String? value) {
+    for (final status in values) {
+      if (status.name == value) return status;
+    }
+    return null;
+  }
+}
+
+/// A future publication stored only inside the active deniable identity.
+///
+/// The payload is deliberately unsigned and never enters Space replication
+/// before [scheduledAtMs]. At execution the service rechecks the exact
+/// membership grant, lifecycle generation, policy and current ACL, then signs
+/// a normal [SpacePost]. A failed job is retained for explicit review instead
+/// of silently retrying after authority changes.
+class ScheduledSpacePost {
+  const ScheduledSpacePost({
+    required this.id,
+    required this.spaceId,
+    required this.title,
+    required this.body,
+    required this.type,
+    required this.queuedAtMs,
+    required this.scheduledAtMs,
+    required this.membershipGrant,
+    required this.lifecycleGeneration,
+    required this.policyVersion,
+    this.media = const [],
+    this.status = ScheduledSpacePostStatus.pending,
+    this.publicationAtMs,
+    this.lastAttemptAtMs,
+  });
+
+  final String id;
+  final NodeId spaceId;
+  final String title;
+  final String body;
+  final SpacePostType type;
+  final List<MediaObject> media;
+  final int queuedAtMs;
+  final int scheduledAtMs;
+  final String membershipGrant;
+  final String lifecycleGeneration;
+  final int policyVersion;
+  final ScheduledSpacePostStatus status;
+  final int? publicationAtMs;
+  final int? lastAttemptAtMs;
+
+  bool get hasContent =>
+      title.trim().isNotEmpty || body.trim().isNotEmpty || media.isNotEmpty;
+
+  bool get isStructurallyValid =>
+      RegExp(r'^[0-9a-f]{64}$').hasMatch(id) &&
+      title.length <= kSpacePostTitleMax &&
+      body.length <= kSpacePostBodyMax &&
+      media.length <= kSpacePostMediaMax &&
+      media.every((item) => item.isStructurallyValid) &&
+      media.map((item) => item.contentId).toSet().length == media.length &&
+      queuedAtMs >= 0 &&
+      scheduledAtMs >= queuedAtMs &&
+      scheduledAtMs <= queuedAtMs + const Duration(days: 365).inMilliseconds &&
+      (membershipGrant == 'genesis' ||
+          RegExp(r'^[0-9a-f]{64}$').hasMatch(membershipGrant)) &&
+      RegExp(r'^[0-9a-f]{64}$').hasMatch(lifecycleGeneration) &&
+      policyVersion >= 0 &&
+      (status == ScheduledSpacePostStatus.pending
+          ? lastAttemptAtMs == null
+          : publicationAtMs != null &&
+                lastAttemptAtMs != null &&
+                lastAttemptAtMs! >= publicationAtMs!) &&
+      (publicationAtMs == null || publicationAtMs! >= scheduledAtMs) &&
+      hasContent;
+
+  Map<String, dynamic> toJson() => {
+    'v': 1,
+    'id': id,
+    'sid': spaceId.hex,
+    'title': title,
+    'body': body,
+    'type': type.name,
+    if (media.isNotEmpty) 'media': [for (final item in media) item.toJson()],
+    'queuedAt': queuedAtMs,
+    'scheduledAt': scheduledAtMs,
+    'grant': membershipGrant,
+    'lifecycle': lifecycleGeneration,
+    'pv': policyVersion,
+    'status': status.name,
+    if (publicationAtMs != null) 'publicationAt': publicationAtMs,
+    if (lastAttemptAtMs != null) 'lastAttemptAt': lastAttemptAtMs,
+  };
+
+  static ScheduledSpacePost? fromJson(Object? value, {String? expectedId}) {
+    if (value is! Map ||
+        value['v'] != 1 ||
+        value['id'] is! String ||
+        (expectedId != null && value['id'] != expectedId) ||
+        value['sid'] is! String ||
+        value['title'] is! String ||
+        value['body'] is! String ||
+        value['type'] is! String ||
+        (value['media'] != null && value['media'] is! List) ||
+        value['queuedAt'] is! int ||
+        value['scheduledAt'] is! int ||
+        value['grant'] is! String ||
+        value['lifecycle'] is! String ||
+        value['pv'] is! int ||
+        value['status'] is! String ||
+        (value['publicationAt'] != null && value['publicationAt'] is! int) ||
+        (value['lastAttemptAt'] != null && value['lastAttemptAt'] is! int)) {
+      return null;
+    }
+    final type = SpacePostType.fromName(value['type'] as String);
+    final status = ScheduledSpacePostStatus.fromName(value['status'] as String);
+    if (type == null || status == null) return null;
+    final rawMedia = value['media'] as List? ?? const [];
+    final media = rawMedia
+        .map(MediaObject.fromReferenceJson)
+        .whereType<MediaObject>()
+        .toList(growable: false);
+    if (media.length != rawMedia.length) return null;
+    try {
+      final scheduled = ScheduledSpacePost(
+        id: value['id'] as String,
+        spaceId: NodeId.fromHex(value['sid'] as String),
+        title: value['title'] as String,
+        body: value['body'] as String,
+        type: type,
+        media: media,
+        queuedAtMs: value['queuedAt'] as int,
+        scheduledAtMs: value['scheduledAt'] as int,
+        membershipGrant: value['grant'] as String,
+        lifecycleGeneration: value['lifecycle'] as String,
+        policyVersion: value['pv'] as int,
+        status: status,
+        publicationAtMs: value['publicationAt'] as int?,
+        lastAttemptAtMs: value['lastAttemptAt'] as int?,
+      );
+      return scheduled.isStructurallyValid ? scheduled : null;
+    } catch (_) {
+      return null;
+    }
   }
 }
 

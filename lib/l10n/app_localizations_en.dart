@@ -380,6 +380,48 @@ class AppL10nEn extends AppL10n {
       'Saved encrypted on this device. The draft is not shared until you publish it.';
 
   @override
+  String get spacePostSchedule => 'Schedule';
+
+  @override
+  String get spacePostScheduleClear => 'Publish immediately instead';
+
+  @override
+  String get spacePostScheduleFuture => 'Choose a time in the future.';
+
+  @override
+  String get spacePostScheduleDeviceHint =>
+      'Encrypted on this device and not shared before publication. If xVeil is closed or locked at that time, it will publish after the next unlock.';
+
+  @override
+  String get spacePostScheduledSuccess => 'Publication scheduled';
+
+  @override
+  String get spacePostScheduledPublications => 'Scheduled publications';
+
+  @override
+  String get spacePostScheduledFailed =>
+      'Not published. Review it and retry or cancel.';
+
+  @override
+  String get spacePostPublishNow => 'Publish now';
+
+  @override
+  String get spacePostPublishedNow => 'Publication published';
+
+  @override
+  String get spacePostCancelSchedule => 'Cancel schedule';
+
+  @override
+  String get spacePostCancelScheduleTitle => 'Cancel scheduled publication?';
+
+  @override
+  String get spacePostCancelScheduleBody =>
+      'The encrypted local copy of this scheduled publication will be removed.';
+
+  @override
+  String get spacePostScheduleCancelled => 'Scheduled publication cancelled';
+
+  @override
   String get spacePostMediaAttach => 'Add media or file';
 
   @override
