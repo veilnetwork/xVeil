@@ -757,6 +757,84 @@ abstract class AppL10n {
   /// **'Pinned'**
   String get spacePostPinned;
 
+  /// No description provided for @spacePostCommentsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Comments'**
+  String get spacePostCommentsTitle;
+
+  /// No description provided for @spacePostCommentsOpen.
+  ///
+  /// In en, this message translates to:
+  /// **'Open comments'**
+  String get spacePostCommentsOpen;
+
+  /// No description provided for @spacePostCommentsEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No comments yet'**
+  String get spacePostCommentsEmpty;
+
+  /// No description provided for @spacePostCommentsEmptyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Start a discussion about this publication.'**
+  String get spacePostCommentsEmptyHint;
+
+  /// No description provided for @spacePostCommentsCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{No comments} one{1 comment} other{{count} comments}}'**
+  String spacePostCommentsCount(int count);
+
+  /// No description provided for @spacePostCommentHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Write a comment…'**
+  String get spacePostCommentHint;
+
+  /// No description provided for @spacePostCommentSend.
+  ///
+  /// In en, this message translates to:
+  /// **'Send comment'**
+  String get spacePostCommentSend;
+
+  /// No description provided for @spacePostCommentReply.
+  ///
+  /// In en, this message translates to:
+  /// **'Reply'**
+  String get spacePostCommentReply;
+
+  /// No description provided for @spacePostCommentReplyingTo.
+  ///
+  /// In en, this message translates to:
+  /// **'Replying to {author}'**
+  String spacePostCommentReplyingTo(String author);
+
+  /// No description provided for @spacePostCommentCancelReply.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel reply'**
+  String get spacePostCommentCancelReply;
+
+  /// No description provided for @spacePostCommentFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not publish this comment'**
+  String get spacePostCommentFailed;
+
+  /// No description provided for @spacePostCommentTooLong.
+  ///
+  /// In en, this message translates to:
+  /// **'The comment is too large to encrypt and send.'**
+  String get spacePostCommentTooLong;
+
+  /// No description provided for @spacePostCommentReadOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'This discussion is read-only.'**
+  String get spacePostCommentReadOnly;
+
   /// No description provided for @feedPinnedTitle.
   ///
   /// In en, this message translates to:

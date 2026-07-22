@@ -363,6 +363,61 @@ class AppL10nRu extends AppL10n {
   String get spacePostPinned => 'Закреплено';
 
   @override
+  String get spacePostCommentsTitle => 'Комментарии';
+
+  @override
+  String get spacePostCommentsOpen => 'Открыть комментарии';
+
+  @override
+  String get spacePostCommentsEmpty => 'Комментариев пока нет';
+
+  @override
+  String get spacePostCommentsEmptyHint =>
+      'Начните обсуждение этой публикации.';
+
+  @override
+  String spacePostCommentsCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count комментария',
+      many: '$count комментариев',
+      few: '$count комментария',
+      one: '$count комментарий',
+      zero: 'Нет комментариев',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get spacePostCommentHint => 'Напишите комментарий…';
+
+  @override
+  String get spacePostCommentSend => 'Отправить комментарий';
+
+  @override
+  String get spacePostCommentReply => 'Ответить';
+
+  @override
+  String spacePostCommentReplyingTo(String author) {
+    return 'Ответ для $author';
+  }
+
+  @override
+  String get spacePostCommentCancelReply => 'Отменить ответ';
+
+  @override
+  String get spacePostCommentFailed => 'Не удалось опубликовать комментарий';
+
+  @override
+  String get spacePostCommentTooLong =>
+      'Комментарий слишком большой для шифрования и отправки.';
+
+  @override
+  String get spacePostCommentReadOnly =>
+      'Обсуждение доступно только для чтения.';
+
+  @override
   String get feedPinnedTitle => 'Закреплённые';
 
   @override

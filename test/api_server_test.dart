@@ -21,6 +21,7 @@ void main() {
   final spacePostReactions = <(String, String, String)>[];
   final spacePostDraftWrites = <(String, String, String, String)>[];
   final spacePostDraftClears = <String>[];
+  final spacePostCommentWrites = <(String, String, String, String?)>[];
   final spaceRecommendationShares = <(String, String, String)>[];
   final subscriptions = <(String, bool)>[];
   final subscriptionUpdates = <(String, bool?, bool?, bool?)>[];
@@ -62,6 +63,7 @@ void main() {
     spacePostReactions.clear();
     spacePostDraftWrites.clear();
     spacePostDraftClears.clear();
+    spacePostCommentWrites.clear();
     localSpacePostDraft = null;
     spaceRecommendationShares.clear();
     subscriptions.clear();
@@ -245,6 +247,24 @@ void main() {
         if (space == 'denied') return 'post draft rejected';
         spacePostDraftClears.add(space);
         localSpacePostDraft = null;
+        return null;
+      },
+      spacePostComments: (space, postId, limit) async => space == 'missing'
+          ? null
+          : {
+              'comments': [
+                {
+                  'id': '${'05' * 32}:1',
+                  'postId': postId,
+                  'author': '05' * 32,
+                  'body': 'member comment',
+                  'sentAt': 123,
+                },
+              ].take(limit).toList(),
+            },
+      publishSpacePostComment: (space, postId, body, replyTo) async {
+        if (space == 'denied') return 'comment publication rejected';
+        spacePostCommentWrites.add((space, postId, body, replyTo));
         return null;
       },
       publishSpacePost: (space, title, body, type) async {
@@ -714,6 +734,10 @@ void main() {
         ('/v1/spaces', {'name': 'S'}),
         ('/v1/spaces/profile', {'space': 's', 'description': 'new'}),
         ('/v1/spaces/posts', {'space': 's', 'body': 'x'}),
+        (
+          '/v1/spaces/posts/comments',
+          {'space': 's', 'postId': '${'01' * 32}:0', 'body': 'x'},
+        ),
         (
           '/v1/spaces/posts/pin',
           {'space': 's', 'postId': '${'01' * 32}:0', 'pinned': true},
@@ -1631,6 +1655,54 @@ void main() {
       );
 
       final postId = '${'04' * 32}:0';
+      final comments = await h.handle(
+        'GET',
+        u('/v1/spaces/posts/comments?space=aa&postId=$postId&limit=1'),
+        auth,
+      );
+      expect(comments.status, 200);
+      expect(
+        ((comments.body as Map)['comments'] as List).single['body'],
+        'member comment',
+      );
+      final replyTo = '${'05' * 32}:1';
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/posts/comments'),
+          auth,
+          body: {
+            'space': 'aa',
+            'postId': postId,
+            'body': '  API discussion  ',
+            'replyTo': replyTo,
+          },
+        )).status,
+        200,
+      );
+      expect(spacePostCommentWrites.single, (
+        'aa',
+        postId,
+        'API discussion',
+        replyTo,
+      ));
+      expect(
+        (await h.handle(
+          'GET',
+          u('/v1/spaces/posts/comments?space=missing&postId=$postId'),
+          auth,
+        )).status,
+        404,
+      );
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/posts/comments'),
+          auth,
+          body: {'space': 'aa', 'postId': 'bad', 'body': 'x'},
+        )).status,
+        400,
+      );
       final edited = await h.handle(
         'PATCH',
         u('/v1/spaces/posts'),
@@ -2652,6 +2724,7 @@ void main() {
           '/spaces/moderation/revoke',
           '/spaces/posts',
           '/spaces/posts/draft',
+          '/spaces/posts/comments',
           '/spaces/posts/reactions',
           '/spaces/subscription',
           '/feed',
@@ -2691,6 +2764,10 @@ void main() {
         'get',
         'put',
         'delete',
+      });
+      expect((pathMap['/spaces/posts/comments'] as Map).keys.toSet(), {
+        'get',
+        'post',
       });
       expect((pathMap['/spaces/channels'] as Map).keys.toSet(), {
         'get',

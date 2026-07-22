@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/api/group_api_adapter.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/data/transport/veil_mailbox.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/group.dart';
 import 'package:xveil/domain/group_call.dart';
@@ -14,6 +15,7 @@ import 'package:xveil/domain/space_channel.dart';
 import 'package:xveil/domain/space_moderation.dart';
 import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/state/group_service.dart';
+import 'package:xveil/state/group_epoch_service.dart';
 
 import 'support/fake_hv_container.dart';
 
@@ -467,7 +469,13 @@ void main() {
     () async {
       final storage = FakeHvContainer().storage();
       await storage.open(password: 'pw', createIfMissing: true);
-      final service = GroupService(storage, _Signer(_id(8)));
+      final service = GroupService(
+        storage,
+        _Signer(_id(8)),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: _id(8)),
+        ),
+      );
       final api = GroupApiAdapter(
         service,
         registerContentSource:
@@ -542,6 +550,49 @@ void main() {
         expect(await api.setFeedPostHidden(spaceId.hex, postId, false), isNull);
         expect((await api.feed(10, null))['posts'], hasLength(1));
         expect((await service.load(spaceId))!.messages, isEmpty);
+        expect(
+          await api.postComment(spaceId.hex, postId, 'First API comment', null),
+          isNull,
+        );
+        final firstComment =
+            ((await api.postComments(spaceId.hex, postId, 10))!['comments']
+                        as List)
+                    .single
+                as Map;
+        expect(firstComment['body'], 'First API comment');
+        expect(firstComment['postId'], postId);
+        expect(
+          await api.postComment(
+            spaceId.hex,
+            postId,
+            'API reply',
+            firstComment['id'] as String,
+          ),
+          isNull,
+        );
+        final lastComment =
+            ((await api.postComments(spaceId.hex, postId, 1))!['comments']
+                        as List)
+                    .single
+                as Map;
+        expect(lastComment['body'], 'API reply');
+        expect(lastComment['replyTo'], firstComment['id']);
+        final defaultChannel =
+            (await api.channels(spaceId.hex))!.single['channelId'] as String;
+        expect(
+          await api.channelMessages(spaceId.hex, defaultChannel, 20),
+          isEmpty,
+          reason: 'post comments must not enter channel history',
+        );
+        expect(
+          await api.postComment(
+            spaceId.hex,
+            '${_id(12).hex}:99',
+            'missing root',
+            null,
+          ),
+          isNotNull,
+        );
         expect(await api.setFeedEnabled(spaceId.hex, false), isNull);
         expect((await api.feed(10, null))['posts'], isEmpty);
         expect((await api.subscription(spaceId.hex))?['feedEnabled'], isFalse);

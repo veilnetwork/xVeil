@@ -15,6 +15,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import '../domain/group_message.dart';
 import '../domain/space_post.dart';
 
 /// The loopback port the automation API binds when enabled. Distinct from the
@@ -22,6 +23,8 @@ import '../domain/space_post.dart';
 const int kApiPort = 8787;
 
 bool _validFeedCursor(String value) => SpaceFeedCursor.decode(value) != null;
+bool _validPostId(String value) =>
+    RegExp(r'^[0-9a-f]{64}:[0-9]+$').hasMatch(value);
 
 /// Why [url] is unusable as a webhook target, or null if it is fine.
 /// Privacy canon: cleartext HTTP must never leave the machine, so the target
@@ -235,6 +238,7 @@ Map<String, dynamic> openApiSpec() {
           'properties': {
             'id': {'type': 'string'},
             'channelId': {'type': 'string'},
+            'postId': {'type': 'string'},
             'author': {'type': 'string'},
             'body': {'type': 'string'},
             'sentAt': {'type': 'integer', 'format': 'int64'},
@@ -894,6 +898,63 @@ Map<String, dynamic> openApiSpec() {
               'schema': {'type': 'string'},
             },
           ],
+          'responses': ok({'type': obj}),
+        },
+      },
+      '/spaces/posts/comments': {
+        'get': {
+          'summary': 'List member-visible comments bound to one Space post',
+          'parameters': [
+            {
+              'name': 'space',
+              'in': 'query',
+              'required': true,
+              'schema': {'type': 'string'},
+            },
+            {
+              'name': 'postId',
+              'in': 'query',
+              'required': true,
+              'schema': {'type': 'string'},
+            },
+            {
+              'name': 'limit',
+              'in': 'query',
+              'schema': {'type': 'integer', 'minimum': 1, 'maximum': 500},
+            },
+          ],
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'comments': {
+                'type': 'array',
+                'items': {r'$ref': '#/components/schemas/GroupMessage'},
+              },
+            },
+          }),
+        },
+        'post': {
+          'summary': 'Publish a signed, member-encrypted Space post comment',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['space', 'postId', 'body'],
+                  'properties': {
+                    'space': {'type': 'string'},
+                    'postId': {'type': 'string'},
+                    'body': {
+                      'type': 'string',
+                      'maxLength': kSpacePostCommentMaxBytes,
+                    },
+                    'replyTo': {'type': 'string'},
+                  },
+                },
+              },
+            },
+          },
           'responses': ok({'type': obj}),
         },
       },
@@ -2211,6 +2272,8 @@ class ApiHandler {
     this.spacePostDraft,
     this.saveSpacePostDraft,
     this.clearSpacePostDraft,
+    this.spacePostComments,
+    this.publishSpacePostComment,
     this.publishSpacePost,
     this.editSpacePost,
     this.deleteSpacePost,
@@ -2363,6 +2426,19 @@ class ApiHandler {
   )?
   saveSpacePostDraft;
   final Future<String?> Function(String spaceHex)? clearSpacePostDraft;
+  final Future<Map<String, dynamic>?> Function(
+    String spaceHex,
+    String postId,
+    int limit,
+  )?
+  spacePostComments;
+  final Future<String?> Function(
+    String spaceHex,
+    String postId,
+    String body,
+    String? replyTo,
+  )?
+  publishSpacePostComment;
   final Future<({String? error, Map<String, dynamic>? post})> Function(
     String spaceHex,
     String title,
@@ -3008,6 +3084,54 @@ class ApiHandler {
         return const ApiResponse(400, {'error': 'valid space required'});
       }
       return _spaceMutationResponse(await handler(space));
+    }
+    if (method == 'GET' && path == '/v1/spaces/posts/comments') {
+      final handler = spacePostComments;
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'Space post comments unavailable',
+        });
+      }
+      final space = uri.queryParameters['space'];
+      final postId = uri.queryParameters['postId'];
+      if (space == null ||
+          space.isEmpty ||
+          postId == null ||
+          !_validPostId(postId)) {
+        return const ApiResponse(400, {
+          'error': 'valid space + postId required',
+        });
+      }
+      final limit = int.tryParse(uri.queryParameters['limit'] ?? '') ?? 50;
+      final result = await handler(space, postId, limit.clamp(1, 500));
+      return result == null
+          ? const ApiResponse(404, {'error': 'post not found'})
+          : ApiResponse(200, result);
+    }
+    if (method == 'POST' && path == '/v1/spaces/posts/comments') {
+      final handler = publishSpacePostComment;
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'Space post comments unavailable',
+        });
+      }
+      final space = body?['space'];
+      final postId = body?['postId'];
+      final text = body?['body'];
+      final replyTo = body?['replyTo'];
+      if (space is! String ||
+          space.isEmpty ||
+          postId is! String ||
+          !_validPostId(postId) ||
+          text is! String ||
+          text.trim().isEmpty ||
+          utf8.encode(text).length > kSpacePostCommentMaxBytes ||
+          (replyTo != null && (replyTo is! String || !_validPostId(replyTo)))) {
+        return const ApiResponse(400, {'error': 'invalid Space post comment'});
+      }
+      return _spaceMutationResponse(
+        await handler(space, postId, text.trim(), replyTo as String?),
+      );
     }
     if (method == 'POST' && path == '/v1/spaces/posts') {
       final handler = publishSpacePost;

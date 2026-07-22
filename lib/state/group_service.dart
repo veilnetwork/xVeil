@@ -1806,7 +1806,14 @@ class GroupService {
   }
 
   bool _validMessageFor(NodeId groupId, GroupMessage m) =>
-      m.groupId == groupId && _signer.verifyMessage(m);
+      m.groupId == groupId &&
+      (m.spacePostId == null ||
+          (_spacePostIdPattern.hasMatch(m.spacePostId!) &&
+              m.channelId == null &&
+              m.isEncrypted &&
+              !m.isChannelEncrypted &&
+              m.attachment == null)) &&
+      _signer.verifyMessage(m);
 
   bool _validReactionFor(NodeId groupId, GroupReaction r) =>
       r.groupId == groupId &&
@@ -4915,16 +4922,45 @@ class GroupService {
     ),
   );
 
+  /// Add a text comment to one visible root publication. The row uses the
+  /// existing signed message log and Space epoch, but its scope is the post
+  /// root rather than a channel, so neither Chats nor channel history sees it.
+  Future<bool> commentOnSpacePost(
+    NodeId spaceId,
+    String postId,
+    String body, {
+    String? replyTo,
+    bool broadcast = true,
+  }) {
+    final normalized = body.trim();
+    if (normalized.isEmpty ||
+        utf8.encode(normalized).length > kSpacePostCommentMaxBytes) {
+      return Future.value(false);
+    }
+    return _serialized(
+      spaceId,
+      () => _postMessage(
+        spaceId,
+        normalized,
+        spacePostId: postId,
+        replyTo: replyTo,
+        broadcast: broadcast,
+      ),
+    );
+  }
+
   Future<bool> _postMessage(
     NodeId groupId,
     String body, {
     NodeId? channelId,
+    String? spacePostId,
     GroupAttachment? attachment,
     String? replyTo,
     List<InlineCustomEmoji> customEmoji = const [],
     bool broadcast = true,
   }) async {
     if (!isValidInlineCustomEmoji(body, customEmoji)) return false;
+    if (spacePostId != null && body.trim().isEmpty) return false;
     final b = await load(groupId);
     if (b == null) return false;
     final state = foldControlLog(
@@ -4940,38 +4976,72 @@ class GroupService {
     NodeId? resolvedChannelId = channelId;
     SpaceChannelControlCleartext? protectedChannel;
     if (b.manifest.isSpace) {
-      resolvedChannelId ??= state.channels.values
-          .where(
-            (channel) =>
-                channel.kind == SpaceChannelKind.text &&
-                channel.isDefault &&
-                !channel.archived,
-          )
-          .firstOrNull
-          ?.channelId;
-      final protected = await _protectedChannelsOf(b, state);
-      protectedChannel = resolvedChannelId == null
-          ? null
-          : protected[resolvedChannelId.hex];
-      final channel = resolvedChannelId == null
-          ? null
-          : state.channels[resolvedChannelId.hex] ?? protectedChannel?.channel;
-      if (channel == null ||
-          channel.kind != SpaceChannelKind.text ||
-          channel.archived ||
-          (protectedChannel != null && attachment != null)) {
-        return false;
+      if (spacePostId != null) {
+        if (resolvedChannelId != null ||
+            attachment != null ||
+            !_spacePostIdPattern.hasMatch(spacePostId) ||
+            !(await _postsOfBundle(
+              b,
+            )).any((post) => post.postId == spacePostId)) {
+          return false;
+        }
+        if (replyTo != null) {
+          if (!_spacePostIdPattern.hasMatch(replyTo) ||
+              !(await spacePostCommentsOf(
+                groupId,
+                spacePostId,
+              )).any((comment) => comment.ref == replyTo)) {
+            return false;
+          }
+        }
+      } else {
+        resolvedChannelId ??= state.channels.values
+            .where(
+              (channel) =>
+                  channel.kind == SpaceChannelKind.text &&
+                  channel.isDefault &&
+                  !channel.archived,
+            )
+            .firstOrNull
+            ?.channelId;
+        final protected = await _protectedChannelsOf(b, state);
+        protectedChannel = resolvedChannelId == null
+            ? null
+            : protected[resolvedChannelId.hex];
+        final channel = resolvedChannelId == null
+            ? null
+            : state.channels[resolvedChannelId.hex] ??
+                  protectedChannel?.channel;
+        if (channel == null ||
+            channel.kind != SpaceChannelKind.text ||
+            channel.archived ||
+            (protectedChannel != null && attachment != null)) {
+          return false;
+        }
       }
-    } else if (resolvedChannelId != null) {
+    } else if (resolvedChannelId != null || spacePostId != null) {
       return false;
     }
     final descriptor = state.epochDescriptor;
     final encryptionEstablished = _encryptionEstablished(b.manifest, b.control);
     final key = descriptor == null ? null : b.localEpochKeys[state.epoch];
+    if (spacePostId != null &&
+        (descriptor == null ||
+            key == null ||
+            !_validLocalEpochKey(b.manifest, b.control, state.epoch, key))) {
+      // A discussion is member-private even when its root publication is
+      // public. Never downgrade it to a clear legacy row when epoch material
+      // is unavailable.
+      return false;
+    }
     final lifecycleGeneration = b.manifest.isSpace
         ? state.lifecycleTransitionHash
         : null;
-    final scopeBase = b.manifest.isSpace ? resolvedChannelId!.hex : 'group';
+    final scopeBase = b.manifest.isSpace
+        ? spacePostId == null
+              ? resolvedChannelId!.hex
+              : 'post:$spacePostId'
+        : 'group';
     final encryptionScope = protectedChannel != null
         ? '$scopeBase|channelEpoch:'
               '${state.protectedChannels[resolvedChannelId!.hex]?.channelEpoch}'
@@ -5103,6 +5173,7 @@ class GroupService {
         unsigned = GroupMessage(
           groupId: groupId,
           channelId: resolvedChannelId,
+          spacePostId: spacePostId,
           author: _signer.selfId,
           seq: mySeq,
           prevHash: prevHash,
@@ -5122,6 +5193,7 @@ class GroupService {
       unsigned = GroupMessage(
         groupId: groupId,
         channelId: resolvedChannelId,
+        spacePostId: spacePostId,
         author: _signer.selfId,
         seq: mySeq,
         prevHash: prevHash,
@@ -5836,7 +5908,10 @@ class GroupService {
   /// next epoch's head through a shared sync vector.
   String _messageChainScope(GroupManifest manifest, GroupMessage message) {
     final channel = manifest.isSpace
-        ? (message.channelId ?? defaultSpaceChannelId(manifest.groupId)).hex
+        ? message.spacePostId == null
+              ? (message.channelId ?? defaultSpaceChannelId(manifest.groupId))
+                    .hex
+              : 'post:${message.spacePostId}'
         : 'group';
     final encryption = message.isChannelEncrypted
         ? 'channelEpoch:${message.channelEpoch}'
@@ -8000,6 +8075,7 @@ class GroupService {
   Future<List<GroupMessage>> messagesOf(
     NodeId groupId, {
     NodeId? channelId,
+    String? spacePostId,
     bool applyLocalRetention = true,
   }) async {
     final b = await load(groupId);
@@ -8022,34 +8098,47 @@ class GroupService {
         : const <String, SpaceChannelControlCleartext>{};
     final out = <GroupMessage>[];
     for (final m in _acceptedMessagesWithinLifecycle(b, state)) {
-      final effectiveChannelId = b.manifest.isSpace
+      final isComment = m.spacePostId != null;
+      if (spacePostId == null ? isComment : m.spacePostId != spacePostId) {
+        continue;
+      }
+      final effectiveChannelId = b.manifest.isSpace && !isComment
           ? m.channelId ?? defaultSpaceChannelId(groupId)
           : null;
       if (b.manifest.isSpace) {
-        final effectiveChannel = effectiveChannelId!;
-        final protectedChannel = protected[effectiveChannel.hex];
-        final channel =
-            state.channels[effectiveChannel.hex] ?? protectedChannel?.channel;
-        if (channel == null ||
-            (channelId != null && effectiveChannel != channelId)) {
-          continue;
+        if (isComment) {
+          if (channelId != null ||
+              m.channelId != null ||
+              m.isChannelEncrypted) {
+            continue;
+          }
+        } else {
+          final effectiveChannel = effectiveChannelId!;
+          final protectedChannel = protected[effectiveChannel.hex];
+          final channel =
+              state.channels[effectiveChannel.hex] ?? protectedChannel?.channel;
+          if (channel == null ||
+              (channelId != null && effectiveChannel != channelId)) {
+            continue;
+          }
+          if ((protectedChannel != null && !m.isChannelEncrypted) ||
+              (protectedChannel == null && m.isChannelEncrypted)) {
+            continue;
+          }
+          final historyAllows = switch (channel.history) {
+            // Equal wall-clock milliseconds are causally ambiguous across
+            // authors. Exclude them: history access is fail-closed.
+            SpaceChannelHistory.fromJoin => m.createdAtMs > reader!.joinedAtMs,
+            SpaceChannelHistory.since =>
+              m.createdAtMs >= channel.historySinceMs!,
+            SpaceChannelHistory.full => true,
+          };
+          if (!historyAllows) continue;
         }
-        if ((protectedChannel != null && !m.isChannelEncrypted) ||
-            (protectedChannel == null && m.isChannelEncrypted)) {
-          continue;
-        }
-        final historyAllows = switch (channel.history) {
-          // Equal wall-clock milliseconds are causally ambiguous across
-          // authors. Exclude them: history access is fail-closed.
-          SpaceChannelHistory.fromJoin => m.createdAtMs > reader!.joinedAtMs,
-          SpaceChannelHistory.since => m.createdAtMs >= channel.historySinceMs!,
-          SpaceChannelHistory.full => true,
-        };
-        if (!historyAllows) continue;
         if (state.isRetentionExpired(
               createdAtMs: m.createdAtMs,
               atMs: readAt,
-              channelId: effectiveChannel,
+              channelId: effectiveChannelId,
             ) ||
             m.createdAtMs <= localCutoff) {
           continue;
@@ -8088,6 +8177,26 @@ class GroupService {
       return a.seq.compareTo(b.seq);
     });
     return out;
+  }
+
+  Future<List<GroupMessage>> spacePostCommentsOf(
+    NodeId spaceId,
+    String postId, {
+    bool applyLocalRetention = true,
+  }) async {
+    if (!_spacePostIdPattern.hasMatch(postId)) return const [];
+    final posts = await postsOf(spaceId);
+    if (!posts.any((post) => post.postId == postId)) return const [];
+    final comments = await messagesOf(
+      spaceId,
+      spacePostId: postId,
+      applyLocalRetention: applyLocalRetention,
+    );
+    final refs = {for (final comment in comments) comment.ref};
+    return [
+      for (final comment in comments)
+        if (comment.replyTo == null || refs.contains(comment.replyTo)) comment,
+    ];
   }
 
   /// Toggle our reaction [emoji] on [msgRef] (`<authorHex>:<seq>`):
@@ -8996,6 +9105,23 @@ class GroupService {
         ? await _protectedChannelsOf(materialBundle, mergedState)
         : const <String, SpaceChannelControlCleartext>{};
     final encryptionEstablished = _encryptionEstablished(man, control);
+    final acceptedCommentRoots = <String>{...acceptedPostIdsBefore};
+    if (man.isSpace) {
+      for (final post in inPosts) {
+        if (!_validPostFor(man.groupId, post) ||
+            !_postWithinLifecycleBoundary(mergedState, post)) {
+          continue;
+        }
+        final authorized = post.isCausal
+            ? _causalPostHistoricallyAuthorized(man, control, post)
+            : SpaceAcl(mergedState).allows(
+                post.author,
+                SpacePermission.publishPosts,
+                atMs: post.createdAtMs,
+              );
+        if (authorized) acceptedCommentRoots.add(post.postId);
+      }
+    }
     final fresh = <GroupMessage>[];
     for (final m in inMsgs) {
       if (!_validMessageFor(manifest.groupId, m)) {
@@ -9003,24 +9129,34 @@ class GroupService {
       }
       if (!_messageWithinLifecycleBoundary(man, mergedState, m)) continue;
       if (man.isSpace) {
-        final effectiveChannel =
-            m.channelId ?? defaultSpaceChannelId(man.groupId);
-        final protected = protectedChannels[effectiveChannel.hex];
-        if (!mergedState.channels.containsKey(effectiveChannel.hex) &&
-            protected == null) {
-          continue;
-        }
-        if (protected != null) {
-          final opaque = mergedState.protectedChannels[effectiveChannel.hex];
-          if (!m.isChannelEncrypted ||
-              opaque == null ||
-              m.channelEpoch != opaque.channelEpoch ||
-              !protected.recipients.contains(m.author)) {
+        if (m.spacePostId != null) {
+          if (m.channelId != null ||
+              m.isChannelEncrypted ||
+              !acceptedCommentRoots.contains(m.spacePostId)) {
             continue;
           }
-        } else if (m.isChannelEncrypted) {
-          continue;
+        } else {
+          final effectiveChannel =
+              m.channelId ?? defaultSpaceChannelId(man.groupId);
+          final protected = protectedChannels[effectiveChannel.hex];
+          if (!mergedState.channels.containsKey(effectiveChannel.hex) &&
+              protected == null) {
+            continue;
+          }
+          if (protected != null) {
+            final opaque = mergedState.protectedChannels[effectiveChannel.hex];
+            if (!m.isChannelEncrypted ||
+                opaque == null ||
+                m.channelEpoch != opaque.channelEpoch ||
+                !protected.recipients.contains(m.author)) {
+              continue;
+            }
+          } else if (m.isChannelEncrypted) {
+            continue;
+          }
         }
+      } else if (m.spacePostId != null) {
+        continue;
       }
       if (m.isEncrypted) {
         if (m.isChannelEncrypted) {
@@ -9051,6 +9187,13 @@ class GroupService {
               !_validLocalEpochKey(man, control, epoch, key) ||
               !mergedState.isMember(m.author)) {
             continue;
+          }
+          if (m.spacePostId != null) {
+            final visible = await _materializeEncryptedMessage(
+              materialBundle,
+              m,
+            );
+            if (visible == null || visible.attachment != null) continue;
           }
         }
       } else if (encryptionEstablished || !mergedState.isMember(m.author)) {
@@ -9275,7 +9418,14 @@ class GroupService {
       for (final m in fresh) {
         final materialized = await _materializeEncryptedMessage(saved, m);
         if (materialized != null) {
-          _incomingCtl.add((groupId: man.groupId, message: materialized));
+          if (materialized.spacePostId == null) {
+            _incomingCtl.add((groupId: man.groupId, message: materialized));
+          } else {
+            _incomingCommentCtl.add((
+              spaceId: man.groupId,
+              message: materialized,
+            ));
+          }
         }
       }
       for (final post in freshPosts) {
@@ -9298,6 +9448,14 @@ class GroupService {
   _incomingCtl = StreamController.broadcast();
   Stream<({NodeId groupId, GroupMessage message})> get incoming =>
       _incomingCtl.stream;
+
+  /// Newly accepted SpacePost comments are deliberately separate from the
+  /// channel/group incoming stream so chat unread and notifications cannot
+  /// misclassify a publication discussion as a chat message.
+  final StreamController<({NodeId spaceId, GroupMessage message})>
+  _incomingCommentCtl = StreamController.broadcast();
+  Stream<({NodeId spaceId, GroupMessage message})> get incomingComments =>
+      _incomingCommentCtl.stream;
 
   /// Newly accepted publication roots after validation, ACL checks,
   /// decryption and chain folding. Edits keep the root id and therefore do not
@@ -10284,6 +10442,7 @@ class GroupService {
     await _groupCallIncomingCtl.close();
     await _deviceIncomingCtl.close();
     await _incomingCtl.close();
+    await _incomingCommentCtl.close();
     await _incomingPostCtl.close();
   }
 }

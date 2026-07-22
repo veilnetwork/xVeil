@@ -195,6 +195,10 @@ class SpaceFeedScreen extends ConsumerWidget {
                                   item.post.postId,
                                   emoji,
                                 ),
+                                onComments: () => context.push(
+                                  '/space/${item.spaceId.hex}/comments?post='
+                                  '${Uri.encodeQueryComponent(item.post.postId)}',
+                                ),
                                 onHide: () => hidePost(item),
                                 selfId: service.selfId,
                               ),
@@ -217,6 +221,10 @@ class SpaceFeedScreen extends ConsumerWidget {
                                   item.spaceId,
                                   item.post.postId,
                                   emoji,
+                                ),
+                                onComments: () => context.push(
+                                  '/space/${item.spaceId.hex}/comments?post='
+                                  '${Uri.encodeQueryComponent(item.post.postId)}',
                                 ),
                                 onHide: () => hidePost(item),
                                 selfId: service.selfId,
@@ -355,6 +363,7 @@ class _PostCard extends StatelessWidget {
     required this.item,
     required this.onTap,
     required this.onReact,
+    required this.onComments,
     required this.onHide,
     required this.selfId,
   });
@@ -362,6 +371,7 @@ class _PostCard extends StatelessWidget {
   final SpaceFeedItem item;
   final VoidCallback onTap;
   final Future<bool> Function(String emoji) onReact;
+  final VoidCallback onComments;
   final Future<void> Function() onHide;
   final NodeId selfId;
 
@@ -455,6 +465,12 @@ class _PostCard extends StatelessWidget {
                 reactions: item.reactions,
                 selfId: selfId,
                 onReact: onReact,
+              ),
+              TextButton.icon(
+                key: ValueKey('space-feed-comments-${post.postId}'),
+                onPressed: onComments,
+                icon: const Icon(Icons.forum_outlined, size: 18),
+                label: Text(AppL10n.of(context).spacePostCommentsOpen),
               ),
             ],
           ),
