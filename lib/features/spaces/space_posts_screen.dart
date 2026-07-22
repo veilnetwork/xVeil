@@ -17,6 +17,8 @@ import '../../state/voice_message.dart' show formatVoiceDuration;
 import '../../state/voice_record_controller.dart';
 import '../chat/vnote_preview.dart';
 import '../chat/voice_waveform.dart';
+import 'space_post_body.dart';
+import 'space_post_body_editor.dart';
 import 'space_post_media.dart';
 import 'space_post_reactions.dart';
 
@@ -409,7 +411,7 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
                                   ],
                                 ),
                               ),
-                            if (post.body.isNotEmpty) Text(post.body),
+                            if (post.body.isNotEmpty) SpacePostBody(post.body),
                             SpacePostMediaList(spaceId: spaceId, post: post),
                             if (post.edited)
                               Padding(
@@ -596,6 +598,7 @@ class _PostComposerDialogState extends ConsumerState<_PostComposerDialog> {
   bool _startingVoiceRecording = false;
   bool _startingVnoteRecording = false;
   final List<double> _liveVoiceLevels = [];
+  final ScrollController _dialogScrollController = ScrollController();
 
   bool get _recordingBusy =>
       _startingVoiceRecording ||
@@ -629,6 +632,7 @@ class _PostComposerDialogState extends ConsumerState<_PostComposerDialog> {
     }
     _title.dispose();
     _body.dispose();
+    _dialogScrollController.dispose();
     super.dispose();
   }
 
@@ -761,6 +765,7 @@ class _PostComposerDialogState extends ConsumerState<_PostComposerDialog> {
       _startingVoiceRecording = false;
       _ownsVoiceRecording = recording && _type == SpacePostType.voiceMessage;
     });
+    if (_ownsVoiceRecording) _revealComposerEnd();
   }
 
   Future<void> _startVnoteRecording() async {
@@ -792,6 +797,24 @@ class _PostComposerDialogState extends ConsumerState<_PostComposerDialog> {
     setState(() {
       _startingVnoteRecording = false;
       _ownsVnoteRecording = recording && _type == SpacePostType.shortVideo;
+    });
+    if (_ownsVnoteRecording) _revealComposerEnd();
+  }
+
+  void _revealComposerEnd() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_dialogScrollController.hasClients) return;
+        _dialogScrollController.jumpTo(
+          _dialogScrollController.position.maxScrollExtent,
+        );
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || !_dialogScrollController.hasClients) return;
+          _dialogScrollController.jumpTo(
+            _dialogScrollController.position.maxScrollExtent,
+          );
+        });
+      });
     });
   }
 
@@ -1036,160 +1059,166 @@ class _PostComposerDialogState extends ConsumerState<_PostComposerDialog> {
     });
     final voiceRecording = ref.watch(voiceRecordControllerProvider);
     final vnoteRecording = ref.watch(vnoteRecordControllerProvider);
+    final contentMaxHeight = (MediaQuery.sizeOf(context).height * 0.62).clamp(
+      280.0,
+      680.0,
+    );
     return AlertDialog(
       title: Text(widget.editing ? l.spacePostEdit : l.spacePostCreateTitle),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              key: const ValueKey('space-post-title-field'),
-              controller: _title,
-              maxLength: kSpacePostTitleMax,
-              onChanged: (_) => _scheduleDraft(),
-              decoration: InputDecoration(hintText: l.spacePostTitleHint),
-            ),
-            TextField(
-              key: const ValueKey('space-post-body-field'),
-              controller: _body,
-              autofocus: true,
-              minLines: 4,
-              maxLines: 10,
-              maxLength: kSpacePostBodyMax,
-              onChanged: (_) => _scheduleDraft(),
-              decoration: InputDecoration(
+      content: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: contentMaxHeight),
+        child: SingleChildScrollView(
+          controller: _dialogScrollController,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                key: const ValueKey('space-post-title-field'),
+                controller: _title,
+                maxLength: kSpacePostTitleMax,
+                onChanged: (_) => _scheduleDraft(),
+                decoration: InputDecoration(hintText: l.spacePostTitleHint),
+              ),
+              SpacePostBodyEditor(
+                controller: _body,
+                autofocus: true,
+                maxLength: kSpacePostBodyMax,
                 hintText: l.spacePostBodyHint,
-                counterText: '',
+                onChanged: (_) => _scheduleDraft(),
               ),
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<SpacePostType>(
-              key: const ValueKey('space-post-type-field'),
-              initialValue: _type,
-              items: [
-                for (final type in SpacePostType.values)
-                  DropdownMenuItem(
-                    value: type,
-                    child: Text(_postTypeLabel(l, type)),
-                  ),
-              ],
-              onChanged: _startingVoiceRecording || _startingVnoteRecording
-                  ? null
-                  : (value) {
-                      if (value != null) {
-                        if (_ownsVoiceRecording) _cancelVoiceRecording();
-                        if (_ownsVnoteRecording) _cancelVnoteRecording();
-                        _type = value;
-                        _scheduleDraft();
-                      }
-                    },
-            ),
-            const SizedBox(height: 12),
-            if (_type == SpacePostType.voiceMessage &&
-                widget.onRecordVoice != null) ...[
-              Align(
-                alignment: Alignment.centerLeft,
-                child: _ownsVoiceRecording && voiceRecording.isRecording
-                    ? _voiceRecordingCard(context, l, voiceRecording)
-                    : OutlinedButton.icon(
-                        key: const ValueKey('space-post-record-voice'),
-                        onPressed:
-                            _saving ||
-                                _recordingBusy ||
-                                _media.length >= kSpacePostMediaMax
-                            ? null
-                            : _startVoiceRecording,
-                        icon: const Icon(Icons.mic_none_outlined),
-                        label: Text(l.spacePostRecordVoice),
-                      ),
-              ),
-              const SizedBox(height: 8),
-            ],
-            if (_type == SpacePostType.shortVideo &&
-                widget.onRecordVnote != null) ...[
-              Align(
-                alignment: Alignment.centerLeft,
-                child: _ownsVnoteRecording && vnoteRecording.isRecording
-                    ? _vnoteRecordingCard(context, l, vnoteRecording)
-                    : OutlinedButton.icon(
-                        key: const ValueKey('space-post-record-vnote'),
-                        onPressed:
-                            _saving ||
-                                _recordingBusy ||
-                                _media.length >= kSpacePostMediaMax
-                            ? null
-                            : _startVnoteRecording,
-                        icon: const Icon(Icons.video_camera_front_outlined),
-                        label: Text(l.spacePostRecordShortVideo),
-                      ),
-              ),
-              const SizedBox(height: 8),
-            ],
-            Align(
-              alignment: Alignment.centerLeft,
-              child: OutlinedButton.icon(
-                key: const ValueKey('space-post-attach-media'),
-                onPressed:
-                    _saving ||
-                        _recordingBusy ||
-                        _media.length >= kSpacePostMediaMax ||
-                        widget.onPickMedia == null
+              const SizedBox(height: 12),
+              DropdownButtonFormField<SpacePostType>(
+                key: const ValueKey('space-post-type-field'),
+                initialValue: _type,
+                items: [
+                  for (final type in SpacePostType.values)
+                    DropdownMenuItem(
+                      value: type,
+                      child: Text(_postTypeLabel(l, type)),
+                    ),
+                ],
+                onChanged: _startingVoiceRecording || _startingVnoteRecording
                     ? null
-                    : _pickMedia,
-                icon: const Icon(Icons.attach_file),
-                label: Text(l.spacePostMediaAttach),
+                    : (value) {
+                        if (value != null) {
+                          if (_ownsVoiceRecording) _cancelVoiceRecording();
+                          if (_ownsVnoteRecording) _cancelVnoteRecording();
+                          _type = value;
+                          _scheduleDraft();
+                          _revealComposerEnd();
+                        }
+                      },
               ),
-            ),
-            if (_media.isNotEmpty) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
+              if (_type == SpacePostType.voiceMessage &&
+                  widget.onRecordVoice != null) ...[
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: _ownsVoiceRecording && voiceRecording.isRecording
+                      ? _voiceRecordingCard(context, l, voiceRecording)
+                      : OutlinedButton.icon(
+                          key: const ValueKey('space-post-record-voice'),
+                          onPressed:
+                              _saving ||
+                                  _recordingBusy ||
+                                  _media.length >= kSpacePostMediaMax
+                              ? null
+                              : _startVoiceRecording,
+                          icon: const Icon(Icons.mic_none_outlined),
+                          label: Text(l.spacePostRecordVoice),
+                        ),
+                ),
+                const SizedBox(height: 8),
+              ],
+              if (_type == SpacePostType.shortVideo &&
+                  widget.onRecordVnote != null) ...[
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: _ownsVnoteRecording && vnoteRecording.isRecording
+                      ? _vnoteRecordingCard(context, l, vnoteRecording)
+                      : OutlinedButton.icon(
+                          key: const ValueKey('space-post-record-vnote'),
+                          onPressed:
+                              _saving ||
+                                  _recordingBusy ||
+                                  _media.length >= kSpacePostMediaMax
+                              ? null
+                              : _startVnoteRecording,
+                          icon: const Icon(Icons.video_camera_front_outlined),
+                          label: Text(l.spacePostRecordShortVideo),
+                        ),
+                ),
+                const SizedBox(height: 8),
+              ],
               Align(
                 alignment: Alignment.centerLeft,
-                child: Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (final media in _media)
-                      InputChip(
-                        key: ValueKey(
-                          'space-post-draft-media-${media.contentId}',
-                        ),
-                        avatar: Icon(spacePostMediaIcon(media.kind), size: 18),
-                        label: Text(
-                          media.name ?? media.kind,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        onDeleted: _saving ? null : () => _removeMedia(media),
-                      ),
-                  ],
+                child: OutlinedButton.icon(
+                  key: const ValueKey('space-post-attach-media'),
+                  onPressed:
+                      _saving ||
+                          _recordingBusy ||
+                          _media.length >= kSpacePostMediaMax ||
+                          widget.onPickMedia == null
+                      ? null
+                      : _pickMedia,
+                  icon: const Icon(Icons.attach_file),
+                  label: Text(l.spacePostMediaAttach),
                 ),
               ),
-            ],
-            if (!widget.editing) ...[
-              const SizedBox(height: 12),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.only(top: 2),
-                    child: Icon(Icons.lock_outline, size: 18),
+              if (_media.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final media in _media)
+                        InputChip(
+                          key: ValueKey(
+                            'space-post-draft-media-${media.contentId}',
+                          ),
+                          avatar: Icon(
+                            spacePostMediaIcon(media.kind),
+                            size: 18,
+                          ),
+                          label: Text(
+                            media.name ?? media.kind,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onDeleted: _saving ? null : () => _removeMedia(media),
+                        ),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _saveFailed
-                          ? l.spaceOperationFailed
-                          : l.spacePostDraftHint,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: _saveFailed
-                            ? Theme.of(context).colorScheme.error
-                            : null,
+                ),
+              ],
+              if (!widget.editing) ...[
+                const SizedBox(height: 12),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.only(top: 2),
+                      child: Icon(Icons.lock_outline, size: 18),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _saveFailed
+                            ? l.spaceOperationFailed
+                            : l.spacePostDraftHint,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: _saveFailed
+                              ? Theme.of(context).colorScheme.error
+                              : null,
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
       actions: [

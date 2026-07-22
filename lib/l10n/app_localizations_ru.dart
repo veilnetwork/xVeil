@@ -341,6 +341,39 @@ class AppL10nRu extends AppL10n {
   String get spacePostBodyHint => 'Поделитесь новостью с сообществом…';
 
   @override
+  String get spacePostBlocks => 'Блоки';
+
+  @override
+  String get spacePostBlockParagraph => 'Абзац';
+
+  @override
+  String get spacePostBlockHeading1 => 'Крупный заголовок';
+
+  @override
+  String get spacePostBlockHeading2 => 'Средний заголовок';
+
+  @override
+  String get spacePostBlockHeading3 => 'Малый заголовок';
+
+  @override
+  String get spacePostBlockBulletList => 'Маркированный список';
+
+  @override
+  String get spacePostBlockOrderedList => 'Нумерованный список';
+
+  @override
+  String get spacePostBlockCode => 'Блок кода';
+
+  @override
+  String get spacePostBlockDivider => 'Разделитель';
+
+  @override
+  String get spacePostPreview => 'Предпросмотр публикации';
+
+  @override
+  String get spacePostContinueEditing => 'Продолжить редактирование';
+
+  @override
   String get spacePostPublish => 'Опубликовать';
 
   @override

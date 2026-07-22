@@ -340,6 +340,39 @@ class AppL10nEn extends AppL10n {
   String get spacePostBodyHint => 'Share an update with the community…';
 
   @override
+  String get spacePostBlocks => 'Blocks';
+
+  @override
+  String get spacePostBlockParagraph => 'Paragraph';
+
+  @override
+  String get spacePostBlockHeading1 => 'Large heading';
+
+  @override
+  String get spacePostBlockHeading2 => 'Medium heading';
+
+  @override
+  String get spacePostBlockHeading3 => 'Small heading';
+
+  @override
+  String get spacePostBlockBulletList => 'Bulleted list';
+
+  @override
+  String get spacePostBlockOrderedList => 'Numbered list';
+
+  @override
+  String get spacePostBlockCode => 'Code block';
+
+  @override
+  String get spacePostBlockDivider => 'Divider';
+
+  @override
+  String get spacePostPreview => 'Preview publication';
+
+  @override
+  String get spacePostContinueEditing => 'Continue editing';
+
+  @override
   String get spacePostPublish => 'Publish';
 
   @override

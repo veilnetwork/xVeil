@@ -690,7 +690,10 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byIcon(Icons.edit_outlined));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('space-post-attach-media')));
+      final attach = find.byKey(const ValueKey('space-post-attach-media'));
+      await tester.ensureVisible(attach);
+      await tester.pumpAndSettle();
+      await tester.tap(attach);
       await tester.pumpAndSettle();
       expect(find.text('release.png'), findsOneWidget);
       await tester.tap(

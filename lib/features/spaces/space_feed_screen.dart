@@ -8,6 +8,7 @@ import '../../core/ids.dart';
 import '../../domain/space_post.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
+import 'space_post_body.dart';
 import 'space_post_media.dart';
 import 'space_post_reactions.dart';
 
@@ -448,7 +449,7 @@ class _PostCard extends StatelessWidget {
               ],
               if (post.body.isNotEmpty) ...[
                 const SizedBox(height: 8),
-                Text(post.body),
+                SpacePostBody(post.body),
               ],
               SpacePostMediaList(
                 spaceId: item.spaceId,

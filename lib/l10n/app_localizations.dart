@@ -715,6 +715,72 @@ abstract class AppL10n {
   /// **'Share an update with the community…'**
   String get spacePostBodyHint;
 
+  /// No description provided for @spacePostBlocks.
+  ///
+  /// In en, this message translates to:
+  /// **'Blocks'**
+  String get spacePostBlocks;
+
+  /// No description provided for @spacePostBlockParagraph.
+  ///
+  /// In en, this message translates to:
+  /// **'Paragraph'**
+  String get spacePostBlockParagraph;
+
+  /// No description provided for @spacePostBlockHeading1.
+  ///
+  /// In en, this message translates to:
+  /// **'Large heading'**
+  String get spacePostBlockHeading1;
+
+  /// No description provided for @spacePostBlockHeading2.
+  ///
+  /// In en, this message translates to:
+  /// **'Medium heading'**
+  String get spacePostBlockHeading2;
+
+  /// No description provided for @spacePostBlockHeading3.
+  ///
+  /// In en, this message translates to:
+  /// **'Small heading'**
+  String get spacePostBlockHeading3;
+
+  /// No description provided for @spacePostBlockBulletList.
+  ///
+  /// In en, this message translates to:
+  /// **'Bulleted list'**
+  String get spacePostBlockBulletList;
+
+  /// No description provided for @spacePostBlockOrderedList.
+  ///
+  /// In en, this message translates to:
+  /// **'Numbered list'**
+  String get spacePostBlockOrderedList;
+
+  /// No description provided for @spacePostBlockCode.
+  ///
+  /// In en, this message translates to:
+  /// **'Code block'**
+  String get spacePostBlockCode;
+
+  /// No description provided for @spacePostBlockDivider.
+  ///
+  /// In en, this message translates to:
+  /// **'Divider'**
+  String get spacePostBlockDivider;
+
+  /// No description provided for @spacePostPreview.
+  ///
+  /// In en, this message translates to:
+  /// **'Preview publication'**
+  String get spacePostPreview;
+
+  /// No description provided for @spacePostContinueEditing.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue editing'**
+  String get spacePostContinueEditing;
+
   /// No description provided for @spacePostPublish.
   ///
   /// In en, this message translates to:
