@@ -12,6 +12,7 @@ import '../../domain/space_post.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/notifications.dart' show activeConversationProvider;
+import 'space_post_body.dart';
 import 'space_post_media.dart';
 
 /// Member discussion for one Space publication. Comments share the signed,
@@ -493,7 +494,7 @@ class _PublicationHeader extends StatelessWidget {
               Text(post.title, style: Theme.of(context).textTheme.titleLarge),
             if (post.title.isNotEmpty && post.body.isNotEmpty)
               const SizedBox(height: 8),
-            if (post.body.isNotEmpty) SelectionArea(child: Text(post.body)),
+            if (post.body.isNotEmpty) SpacePostBody(post.body),
             SpacePostMediaList(spaceId: spaceId, post: post),
             const SizedBox(height: 12),
             Row(
