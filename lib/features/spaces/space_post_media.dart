@@ -27,6 +27,34 @@ import '../chat/video_player_screen.dart';
 
 typedef SpacePostMediaPickResult = ({List<MediaObject> media, int rejected});
 
+/// Registers recorder output through the same content-addressed path as picked
+/// publication files. Recorder bytes never enter the signed post or draft;
+/// only this strict [MediaObject] reference does.
+Future<MediaObject?> registerSpacePostRecording(
+  WidgetRef ref, {
+  required Uint8List bytes,
+  required String name,
+  required String kind,
+  required String mimeType,
+  required int durationMs,
+}) async {
+  if (bytes.isEmpty || name.isEmpty || kind.isEmpty || durationMs < 0) {
+    return null;
+  }
+  final contentId = await ref
+      .read(messagingServiceProvider)
+      .registerGroupContent(bytes, name: name);
+  final media = MediaObject(
+    contentId: contentId,
+    kind: kind,
+    name: name,
+    mimeType: mimeType,
+    size: bytes.length,
+    durationMs: durationMs,
+  );
+  return media.isStructurallyValid ? media : null;
+}
+
 String spacePostMediaKind(String name) {
   if (isImageFileName(name)) return 'image';
   if (isVideoFileName(name)) return 'video';
@@ -606,6 +634,8 @@ IconData spacePostMediaIcon(String kind) => switch (kind) {
   'image' => Icons.image_outlined,
   'video' => Icons.movie_outlined,
   'audio' => Icons.audio_file_outlined,
+  'voice' => Icons.mic_none_outlined,
+  'vnote' => Icons.video_camera_front_outlined,
   _ => Icons.insert_drive_file_outlined,
 };
 
