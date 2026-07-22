@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/ids.dart';
 import '../../domain/group_message.dart';
@@ -182,6 +183,14 @@ class _SpacePostCommentsScreenState
     _composerFocus.requestFocus();
   }
 
+  void _goBack() {
+    if (context.canPop()) {
+      context.pop();
+      return;
+    }
+    context.go('/space/${widget.spaceIdHex}/posts');
+  }
+
   void _scheduleTail(int commentCount) {
     final firstProjection = _renderedCommentCount < 0;
     final grew = commentCount > _renderedCommentCount;
@@ -214,7 +223,13 @@ class _SpacePostCommentsScreenState
     _bind(service, spaceId);
 
     return Scaffold(
-      appBar: AppBar(title: Text(l.spacePostCommentsTitle)),
+      appBar: AppBar(
+        leading: BackButton(
+          key: const ValueKey('space-post-comments-back'),
+          onPressed: _goBack,
+        ),
+        title: Text(l.spacePostCommentsTitle),
+      ),
       body: FutureBuilder<_CommentsProjection>(
         future: _projection,
         builder: (context, snapshot) {
