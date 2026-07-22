@@ -2514,7 +2514,10 @@ class AppL10nEn extends AppL10n {
   String get scanNotInvite => 'That QR is not an xVeil invite';
 
   @override
-  String get scanTorch => 'Torch';
+  String get scanTorchOn => 'Turn torch on';
+
+  @override
+  String get scanTorchOff => 'Turn torch off';
 
   @override
   String get inviteAddButton => 'Add contact';

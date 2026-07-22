@@ -4669,11 +4669,17 @@ abstract class AppL10n {
   /// **'That QR is not an xVeil invite'**
   String get scanNotInvite;
 
-  /// No description provided for @scanTorch.
+  /// No description provided for @scanTorchOn.
   ///
   /// In en, this message translates to:
-  /// **'Torch'**
-  String get scanTorch;
+  /// **'Turn torch on'**
+  String get scanTorchOn;
+
+  /// No description provided for @scanTorchOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn torch off'**
+  String get scanTorchOff;
 
   /// No description provided for @inviteAddButton.
   ///

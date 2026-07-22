@@ -2526,7 +2526,10 @@ class AppL10nRu extends AppL10n {
   String get scanNotInvite => 'Этот QR не является инвайтом xVeil';
 
   @override
-  String get scanTorch => 'Подсветка';
+  String get scanTorchOn => 'Включить подсветку';
+
+  @override
+  String get scanTorchOff => 'Выключить подсветку';
 
   @override
   String get inviteAddButton => 'Добавить контакт';
