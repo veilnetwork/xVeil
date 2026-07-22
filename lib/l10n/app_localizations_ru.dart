@@ -354,6 +354,15 @@ class AppL10nRu extends AppL10n {
   String get spacePostMediaRejected => 'Некоторые файлы не удалось прикрепить';
 
   @override
+  String get spacePostRecordVoice => 'Записать голосовое сообщение';
+
+  @override
+  String get spacePostRecordShortVideo => 'Записать короткое видео';
+
+  @override
+  String get spacePostUseRecording => 'Добавить запись';
+
+  @override
   String get spacePostEdit => 'Редактировать публикацию';
 
   @override

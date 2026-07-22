@@ -739,6 +739,24 @@ abstract class AppL10n {
   /// **'Some files couldn\'t be attached'**
   String get spacePostMediaRejected;
 
+  /// No description provided for @spacePostRecordVoice.
+  ///
+  /// In en, this message translates to:
+  /// **'Record voice message'**
+  String get spacePostRecordVoice;
+
+  /// No description provided for @spacePostRecordShortVideo.
+  ///
+  /// In en, this message translates to:
+  /// **'Record short video'**
+  String get spacePostRecordShortVideo;
+
+  /// No description provided for @spacePostUseRecording.
+  ///
+  /// In en, this message translates to:
+  /// **'Use recording'**
+  String get spacePostUseRecording;
+
   /// No description provided for @spacePostEdit.
   ///
   /// In en, this message translates to:
