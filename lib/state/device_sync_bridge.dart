@@ -16,7 +16,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/ids.dart';
 import '../domain/call_log.dart';
-import '../domain/chat.dart' show ContactStatus, SignaturePolicy;
+import '../domain/chat.dart'
+    show ContactStatus, NotificationMuteMode, SignaturePolicy;
 import '../domain/device_sync.dart';
 import 'call_log.dart';
 import 'device_settings_sync.dart';
@@ -88,6 +89,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
           payload: {
             'name': c.name,
             'mutedMs': c.mutedUntil?.millisecondsSinceEpoch,
+            'muteMode': c.notificationMuteMode.name,
             'pin': c.pinned,
             'arc': c.archived,
             'ret': c.retentionDays,
@@ -226,11 +228,16 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   // Shared by the live pref apply and the post-materialization replay below.
   Future<bool> applyPrefs(NodeId peer, DeviceSyncEvent e) {
     final name = e.payload['name'], muted = e.payload['mutedMs'];
+    final muteMode = NotificationMuteMode.values.firstWhere(
+      (mode) => mode.name == e.payload['muteMode'],
+      orElse: () => NotificationMuteMode.none,
+    );
     final ret = e.payload['ret'];
     return messaging.applyMirroredContact(
       peer: peer,
       name: name is String && name.isNotEmpty ? name : null,
       mutedUntilMs: muted is int ? muted : null,
+      notificationMuteMode: muteMode,
       pinned: e.payload['pin'] == true,
       archived: e.payload['arc'] == true,
       retentionDays: ret is int ? ret : null,

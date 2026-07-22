@@ -15,6 +15,7 @@ import '../../state/notifications.dart' show activeConversationProvider;
 import '../../state/vnote_record_controller.dart';
 import '../../state/voice_message.dart' show formatVoiceDuration;
 import '../../state/voice_record_controller.dart';
+import '../chat/custom_emoji_controller.dart';
 import '../chat/vnote_preview.dart';
 import '../chat/voice_waveform.dart';
 import 'space_post_body.dart';
@@ -94,6 +95,7 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
     BuildContext context,
     WidgetRef ref,
     NodeId spaceId,
+    Iterable<NodeId> mentionTargets,
   ) async {
     final l = AppL10n.of(context);
     final service = ref.read(groupServiceProvider);
@@ -108,6 +110,7 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
         initialBody: saved?.body ?? '',
         initialType: saved?.type ?? SpacePostType.post,
         initialMedia: saved?.media ?? const [],
+        mentionTargets: mentionTargets,
         onPickMedia: (remaining) =>
             widget.mediaPicker?.call(remaining) ??
             pickAndRegisterSpacePostMedia(ref, remaining: remaining),
@@ -149,6 +152,7 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
     WidgetRef ref,
     NodeId spaceId,
     SpacePostView post,
+    Iterable<NodeId> mentionTargets,
   ) async {
     final l = AppL10n.of(context);
     final draft = await showDialog<_PostComposerValue>(
@@ -158,6 +162,7 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
         initialBody: post.body,
         initialType: post.type,
         initialMedia: post.media,
+        mentionTargets: mentionTargets,
         editing: true,
         onPickMedia: (remaining) =>
             widget.mediaPicker?.call(remaining) ??
@@ -372,7 +377,12 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
                 ? FloatingActionButton(
                     heroTag: 'xveil-space-post-${widget.spaceIdHex}',
                     tooltip: l.spacePostCreateTitle,
-                    onPressed: () => _compose(context, ref, spaceId),
+                    onPressed: () => _compose(
+                      context,
+                      ref,
+                      spaceId,
+                      state.members.values.map((member) => member.nodeId),
+                    ),
                     child: const Icon(Icons.edit_outlined),
                   )
                 : null,
@@ -460,7 +470,15 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
                                   switch (action) {
                                     case _PostAction.edit:
                                       unawaited(
-                                        _edit(context, ref, spaceId, post),
+                                        _edit(
+                                          context,
+                                          ref,
+                                          spaceId,
+                                          post,
+                                          state.members.values.map(
+                                            (member) => member.nodeId,
+                                          ),
+                                        ),
                                       );
                                     case _PostAction.delete:
                                       unawaited(
@@ -561,12 +579,14 @@ class _PostComposerDialog extends ConsumerStatefulWidget {
     this.onRecordVoice,
     this.onRecordVnote,
     this.onSaveDraft,
+    this.mentionTargets = const [],
   });
 
   final String initialTitle;
   final String initialBody;
   final SpacePostType initialType;
   final List<MediaObject> initialMedia;
+  final Iterable<NodeId> mentionTargets;
   final bool editing;
   final Future<SpacePostMediaPickResult> Function(int remaining)? onPickMedia;
   final SpacePostVoiceMediaRegistrar? onRecordVoice;
@@ -586,7 +606,7 @@ class _PostComposerDialog extends ConsumerStatefulWidget {
 
 class _PostComposerDialogState extends ConsumerState<_PostComposerDialog> {
   late final TextEditingController _title;
-  late final TextEditingController _body;
+  late final CustomEmojiEditingController _body;
   late SpacePostType _type;
   late List<MediaObject> _media;
   Timer? _draftTimer;
@@ -610,7 +630,8 @@ class _PostComposerDialogState extends ConsumerState<_PostComposerDialog> {
   void initState() {
     super.initState();
     _title = TextEditingController(text: widget.initialTitle);
-    _body = TextEditingController(text: widget.initialBody);
+    _body = CustomEmojiEditingController()
+      ..loadWireValue(widget.initialBody, const []);
     _type = widget.initialType;
     _media = List<MediaObject>.of(widget.initialMedia);
   }
@@ -638,7 +659,7 @@ class _PostComposerDialogState extends ConsumerState<_PostComposerDialog> {
 
   _PostComposerValue get _value => _PostComposerValue(
     _title.text,
-    _body.text,
+    _body.toWireValue().body,
     _type,
     List.unmodifiable(_media),
   );
@@ -1081,6 +1102,7 @@ class _PostComposerDialogState extends ConsumerState<_PostComposerDialog> {
               ),
               SpacePostBodyEditor(
                 controller: _body,
+                mentionTargets: widget.mentionTargets,
                 autofocus: true,
                 maxLength: kSpacePostBodyMax,
                 hintText: l.spacePostBodyHint,

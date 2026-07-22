@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../features/calls/call_log_screen.dart';
 import '../features/chat/chat_screen.dart';
+import '../features/chat/mentions_screen.dart';
 import '../features/groups/group_chat_screen.dart';
 import '../features/home/home_shell.dart';
 import '../features/identity/add_identity_screen.dart';
@@ -146,6 +147,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         pageBuilder: (_, _) => const NoTransitionPage(child: PreparingScreen()),
       ),
       GoRoute(path: '/home', builder: (_, _) => const HomeShell()),
+      GoRoute(path: '/mentions', builder: (_, _) => const MentionsScreen()),
       // Network and Settings are pushed from the drawer app-menu (they left
       // the bottom bar when it became Chats + reserved future sections).
       GoRoute(path: '/network', builder: (_, _) => const NetworkScreen()),
@@ -162,6 +164,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, state) => GroupChatScreen(
           groupIdHex: state.pathParameters['id']!,
           channelIdHex: state.pathParameters['channelId']!,
+          initialJumpTo: state.uri.queryParameters['msg'],
         ),
       ),
       GoRoute(
@@ -174,6 +177,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, state) => SpacePostCommentsScreen(
           spaceIdHex: state.pathParameters['id']!,
           postId: state.uri.queryParameters['post'] ?? '',
+          initialCommentRef: state.uri.queryParameters['comment'],
         ),
       ),
       GoRoute(
@@ -196,8 +200,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/groups', redirect: (_, _) => '/home'),
       GoRoute(
         path: '/group/:id',
-        builder: (_, state) =>
-            GroupChatScreen(groupIdHex: state.pathParameters['id']!),
+        builder: (_, state) => GroupChatScreen(
+          groupIdHex: state.pathParameters['id']!,
+          initialJumpTo: state.uri.queryParameters['msg'],
+        ),
       ),
       GoRoute(path: '/settings', builder: (_, _) => const SettingsScreen()),
       GoRoute(

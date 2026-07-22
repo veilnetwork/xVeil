@@ -154,9 +154,11 @@ class GroupChatScreen extends ConsumerStatefulWidget {
     super.key,
     required this.groupIdHex,
     this.channelIdHex,
+    this.initialJumpTo,
   });
   final String groupIdHex;
   final String? channelIdHex;
+  final String? initialJumpTo;
 
   @override
   ConsumerState<GroupChatScreen> createState() => _GroupChatScreenState();
@@ -165,6 +167,11 @@ class GroupChatScreen extends ConsumerStatefulWidget {
 class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   final _input = CustomEmojiEditingController();
   final _inputFocus = FocusNode();
+  final _scroll = ScrollController();
+  final _initialTargetKey = GlobalKey();
+  Timer? _highlightTimer;
+  bool _initialJumpScheduled = false;
+  String? _highlightRef;
   late final NodeId _gid = NodeId.fromHex(widget.groupIdHex);
   late final NodeId? _channelId = widget.channelIdHex == null
       ? null
@@ -198,7 +205,41 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     }
     _input.dispose();
     _inputFocus.dispose();
+    _scroll.dispose();
+    _highlightTimer?.cancel();
     super.dispose();
+  }
+
+  void _scheduleInitialJump(List<GroupMessage> messages) {
+    final target = widget.initialJumpTo;
+    if (_initialJumpScheduled || target == null) return;
+    final index = messages.indexWhere((message) => message.ref == target);
+    if (index < 0) return;
+    _initialJumpScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients) return;
+      final fraction = messages.length <= 1
+          ? 0.0
+          : index / (messages.length - 1);
+      _scroll.jumpTo(_scroll.position.maxScrollExtent * fraction);
+      Future<void>.delayed(const Duration(milliseconds: 80), () async {
+        if (!mounted) return;
+        final targetContext = _initialTargetKey.currentContext;
+        if (targetContext != null && targetContext.mounted) {
+          await Scrollable.ensureVisible(
+            targetContext,
+            alignment: 0.45,
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+          );
+        }
+        if (!mounted) return;
+        setState(() => _highlightRef = target);
+        _highlightTimer = Timer(const Duration(milliseconds: 1800), () {
+          if (mounted) setState(() => _highlightRef = null);
+        });
+      });
+    });
   }
 
   Future<bool> _postGroupMessage(
@@ -1408,6 +1449,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                     future: _loadFeed(svc),
                     builder: (context, snap) {
                       final msgs = snap.data?.$1 ?? const <GroupMessage>[];
+                      _scheduleInitialJump(msgs);
                       final showReactions = ref.watch(showReactionsProvider);
                       final reacts = !showReactions
                           ? const <String, MessageReactions>{}
@@ -1417,34 +1459,48 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                       }
                       final byRef = {for (final m in msgs) m.ref: m};
                       return ListView.builder(
+                        controller: _scroll,
                         padding: const EdgeInsets.all(8),
                         itemCount: msgs.length,
                         itemBuilder: (context, i) {
                           final m = msgs[i];
                           final mine = m.author == svc.selfId;
-                          return _GroupBubble(
-                            message: m,
-                            mine: mine,
-                            selfId: svc.selfId,
-                            quoted: m.replyTo == null ? null : byRef[m.replyTo],
-                            reactions: reacts[m.ref],
-                            onLongPress: () => _showMessageMenu(svc, m),
-                            onToggleReaction: m.isChannelEncrypted
-                                ? null
-                                : (e) => svc.react(_gid, m.ref, e),
-                            onShowReactors: () {
-                              final r = reacts[m.ref];
-                              if (r != null && r.isNotEmpty) {
-                                _showReactors(svc, r);
-                              }
-                            },
-                            onFetchContent: m.attachment?.cid == null
-                                ? null
-                                : () => svc.fetchGroupContent(
-                                    _gid,
-                                    m.attachment!.cid!,
-                                    m.author,
-                                  ),
+                          return AnimatedContainer(
+                            key: m.ref == widget.initialJumpTo
+                                ? _initialTargetKey
+                                : null,
+                            duration: const Duration(milliseconds: 400),
+                            color: m.ref == _highlightRef
+                                ? Theme.of(
+                                    context,
+                                  ).colorScheme.primary.withValues(alpha: 0.14)
+                                : Colors.transparent,
+                            child: _GroupBubble(
+                              message: m,
+                              mine: mine,
+                              selfId: svc.selfId,
+                              quoted: m.replyTo == null
+                                  ? null
+                                  : byRef[m.replyTo],
+                              reactions: reacts[m.ref],
+                              onLongPress: () => _showMessageMenu(svc, m),
+                              onToggleReaction: m.isChannelEncrypted
+                                  ? null
+                                  : (e) => svc.react(_gid, m.ref, e),
+                              onShowReactors: () {
+                                final r = reacts[m.ref];
+                                if (r != null && r.isNotEmpty) {
+                                  _showReactors(svc, r);
+                                }
+                              },
+                              onFetchContent: m.attachment?.cid == null
+                                  ? null
+                                  : () => svc.fetchGroupContent(
+                                      _gid,
+                                      m.attachment!.cid!,
+                                      m.author,
+                                    ),
+                            ),
                           );
                         },
                       );
@@ -1460,41 +1516,54 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   child: _replyBar(context, l),
                 ),
-              FutureBuilder<List<SpaceChannel>>(
-                future: _channelId == null
-                    ? Future.value(const <SpaceChannel>[])
-                    : svc.channelsOf(_gid),
-                builder: (context, snapshot) {
-                  final protected =
-                      _channelId != null &&
-                      (snapshot.connectionState != ConnectionState.done ||
-                          (snapshot.data?.any(
-                                (channel) =>
-                                    channel.channelId == _channelId &&
-                                    channel.access != SpaceChannelAccess.space,
-                              ) ??
-                              true));
-                  return MessageComposer(
-                    key: const ValueKey('group-message-composer'),
-                    controller: _input,
-                    focusNode: _inputFocus,
-                    hint: l.chatNewMessageHint,
-                    onSend: () => _send(svc),
-                    onAttachmentAction: protected
-                        ? null
-                        : (action) => _handleAttachmentAction(svc, action),
-                    onVoice: protected
-                        ? null
-                        : (clip) => unawaited(_sendVoiceClip(svc, clip)),
-                    onVideoNote: protected
-                        ? null
-                        : (clip) => unawaited(_sendVnoteClip(svc, clip)),
-                    onSticker: protected
-                        ? null
-                        : (itemId) => unawaited(_sendGroupSticker(svc, itemId)),
-                    allowStickerPackShare: false,
-                  );
-                },
+              FutureBuilder<GroupState?>(
+                future: svc.stateOf(_gid),
+                builder: (context, stateSnapshot) =>
+                    FutureBuilder<List<SpaceChannel>>(
+                      future: _channelId == null
+                          ? Future.value(const <SpaceChannel>[])
+                          : svc.channelsOf(_gid),
+                      builder: (context, channelSnapshot) {
+                        final protected =
+                            _channelId != null &&
+                            (channelSnapshot.connectionState !=
+                                    ConnectionState.done ||
+                                (channelSnapshot.data?.any(
+                                      (channel) =>
+                                          channel.channelId == _channelId &&
+                                          channel.access !=
+                                              SpaceChannelAccess.space,
+                                    ) ??
+                                    true));
+                        return MessageComposer(
+                          key: const ValueKey('group-message-composer'),
+                          controller: _input,
+                          focusNode: _inputFocus,
+                          hint: l.chatNewMessageHint,
+                          onSend: () => _send(svc),
+                          mentionTargets:
+                              stateSnapshot.data?.members.values
+                                  .map((member) => member.nodeId)
+                                  .toList(growable: false) ??
+                              const [],
+                          onAttachmentAction: protected
+                              ? null
+                              : (action) =>
+                                    _handleAttachmentAction(svc, action),
+                          onVoice: protected
+                              ? null
+                              : (clip) => unawaited(_sendVoiceClip(svc, clip)),
+                          onVideoNote: protected
+                              ? null
+                              : (clip) => unawaited(_sendVnoteClip(svc, clip)),
+                          onSticker: protected
+                              ? null
+                              : (itemId) =>
+                                    unawaited(_sendGroupSticker(svc, itemId)),
+                          allowStickerPackShare: false,
+                        );
+                      },
+                    ),
               ),
             ],
           ),

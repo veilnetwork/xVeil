@@ -9,10 +9,39 @@ import '../../domain/space_join_request.dart';
 import '../../domain/space_lifecycle.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
+import '../home/home_section_scaffold.dart';
 
 /// User-facing list of communities. Group chats remain in the Chats section.
-class SpaceListScreen extends ConsumerWidget {
+class SpaceListScreen extends ConsumerStatefulWidget {
   const SpaceListScreen({super.key});
+
+  @override
+  ConsumerState<SpaceListScreen> createState() => _SpaceListScreenState();
+}
+
+class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
+  final _searchController = TextEditingController();
+  bool _searching = false;
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _startSearch() => setState(() => _searching = true);
+
+  void _closeSearch() {
+    _searchController.clear();
+    setState(() {
+      _searching = false;
+      _query = '';
+    });
+  }
+
+  bool _matches(String value) =>
+      value.toLowerCase().contains(_query.trim().toLowerCase());
 
   Future<void> _decideInvite(
     BuildContext context,
@@ -70,23 +99,27 @@ class SpaceListScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final service = ref.watch(groupServiceProvider);
     final spaces = ref.watch(spaceListProvider);
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(l.navCommunities),
-        actions: [
-          if (service != null)
-            IconButton(
-              key: const ValueKey('space-join-link-action'),
-              tooltip: l.spaceJoinAction,
-              onPressed: () => _requestJoin(context, service),
-              icon: const Icon(Icons.link),
-            ),
-        ],
-      ),
+    return HomeSectionScaffold(
+      title: l.navCommunities,
+      searching: _searching,
+      searchController: _searchController,
+      searchHint: l.searchHint,
+      onSearchStart: _startSearch,
+      onSearchClose: _closeSearch,
+      onSearchChanged: (value) => setState(() => _query = value),
+      contextActions: [
+        if (service != null)
+          IconButton(
+            key: const ValueKey('space-join-link-action'),
+            tooltip: l.spaceJoinAction,
+            onPressed: () => _requestJoin(context, service),
+            icon: const Icon(Icons.link),
+          ),
+      ],
       floatingActionButton: service == null
           ? null
           : FloatingActionButton(
@@ -98,7 +131,19 @@ class SpaceListScreen extends ConsumerWidget {
       body: spaces.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, _) => Center(child: Text('$error')),
-        data: (items) {
+        data: (allItems) {
+          final searching = _query.trim().isNotEmpty;
+          final items = searching
+              ? allItems
+                    .where(
+                      (space) =>
+                          _matches(space.name) ||
+                          _matches(space.description) ||
+                          _matches(space.preview) ||
+                          _matches(space.groupId.hex),
+                    )
+                    .toList(growable: false)
+              : allItems;
           return FutureBuilder<List<Object?>>(
             future: service == null
                 ? Future.value(const <Object?>[
@@ -114,12 +159,26 @@ class SpaceListScreen extends ConsumerWidget {
                 return const Center(child: CircularProgressIndicator());
               }
               final data = inviteSnapshot.data;
-              final invites = data == null
+              final allInvites = data == null
                   ? const <PendingSpaceInvite>[]
                   : data[0] as List<PendingSpaceInvite>;
-              final joinRequests = data == null
+              final allJoinRequests = data == null
                   ? const <SpaceJoinOutboxEntry>[]
                   : data[1] as List<SpaceJoinOutboxEntry>;
+              final invites = searching
+                  ? allInvites
+                        .where(
+                          (pending) =>
+                              _matches(pending.invite.spaceName) ||
+                              _matches(pending.invite.inviter.hex),
+                        )
+                        .toList(growable: false)
+                  : allInvites;
+              final joinRequests = searching
+                  ? allJoinRequests
+                        .where((entry) => _matches(entry.ticket.spaceName))
+                        .toList(growable: false)
+                  : allJoinRequests;
               if (items.isEmpty && invites.isEmpty && joinRequests.isEmpty) {
                 return Center(
                   child: Column(
@@ -131,7 +190,7 @@ class SpaceListScreen extends ConsumerWidget {
                         color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
                       const SizedBox(height: 12),
-                      Text(l.spaceEmpty),
+                      Text(searching ? l.searchNoResults : l.spaceEmpty),
                     ],
                   ),
                 );

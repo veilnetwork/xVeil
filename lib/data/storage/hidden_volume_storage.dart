@@ -310,6 +310,9 @@ class HiddenVolumeStorage implements Storage {
       // record's 'm':true reads back as muted-forever (see _contactFor).
       if (contact.mutedUntil != null)
         'mu': contact.mutedUntil!.millisecondsSinceEpoch,
+      if (contact.mutedUntil != null &&
+          contact.notificationMuteMode != NotificationMuteMode.none)
+        'mm': contact.notificationMuteMode.name,
       if (contact.pinned) 'p': true,
       if (contact.archived) 'a': true,
       if (contact.retentionDays != null) 'rd': contact.retentionDays,
@@ -362,6 +365,10 @@ class HiddenVolumeStorage implements Storage {
       mutedUntil: m['mu'] != null
           ? DateTime.fromMillisecondsSinceEpoch(m['mu'] as int)
           : (m['m'] == true ? kMuteForever : null),
+      notificationMuteMode: NotificationMuteMode.values.firstWhere(
+        (mode) => mode.name == m['mm'],
+        orElse: () => NotificationMuteMode.none,
+      ),
       pinned: m['p'] as bool? ?? false,
       archived: m['a'] as bool? ?? false,
       retentionDays: m['rd'] as int?,
