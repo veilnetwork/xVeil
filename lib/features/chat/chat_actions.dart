@@ -342,6 +342,35 @@ String notificationMuteModeLabel(
   };
 }
 
+/// A compact policy marker with an explicit accessibility label. Tooltips are
+/// useful for pointer users, while [Semantics] keeps the exact mode available
+/// to screen readers and the debug UI driver without making the icon itself an
+/// extra focus target.
+Widget notificationMuteModeIndicator(
+  BuildContext context,
+  NotificationMuteMode mode, {
+  Key? key,
+  double size = 16,
+  Color? color,
+}) {
+  final label = notificationMuteModeLabel(context, mode);
+  return Tooltip(
+    message: label,
+    excludeFromSemantics: true,
+    child: Semantics(
+      label: label,
+      child: ExcludeSemantics(
+        child: Icon(
+          notificationMuteModeIcon(mode),
+          key: key,
+          size: size,
+          color: color,
+        ),
+      ),
+    ),
+  );
+}
+
 String notificationMutePolicyLabel(
   BuildContext context,
   NotificationMutePolicy policy,
@@ -356,6 +385,52 @@ String notificationMutePolicyLabel(
   return mode == NotificationMuteMode.mentionsOnly
       ? l.notificationMuteCurrentMentionsOnly(until)
       : l.notificationMuteCurrentNone(until);
+}
+
+/// Shared quick editor for group chats and Spaces. Both surfaces use the same
+/// encrypted local policy and must expose the same exact mode/deadline without
+/// duplicating slightly different sheets.
+Future<void> showNotificationPolicySheet(
+  BuildContext context,
+  NotificationMutePolicy policy, {
+  required Future<void> Function(NotificationMuteMode mode, DateTime? until)
+  onChanged,
+}) async {
+  final l = AppL10n.of(context);
+  final mode = policy.effectiveAt(DateTime.now());
+  await showModalBottomSheet<void>(
+    context: context,
+    builder: (sheet) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            key: const ValueKey('notification-policy-edit'),
+            leading: Icon(notificationMuteModeIcon(mode)),
+            title: Text(l.notificationsTitle),
+            subtitle: Text(notificationMutePolicyLabel(context, policy)),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () async {
+              Navigator.of(sheet).pop();
+              final picked = await pickNotificationMutePolicy(context);
+              if (picked == null) return;
+              await onChanged(picked.mode, picked.until);
+            },
+          ),
+          if (mode != NotificationMuteMode.all)
+            ListTile(
+              key: const ValueKey('notification-policy-unmute'),
+              leading: const Icon(Icons.notifications_active_outlined),
+              title: Text(l.chatMenuUnmute),
+              onTap: () async {
+                Navigator.of(sheet).pop();
+                await onChanged(NotificationMuteMode.all, null);
+              },
+            ),
+        ],
+      ),
+    ),
+  );
 }
 
 /// Pick both the suppression level and its duration. The duration page reuses

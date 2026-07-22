@@ -3223,6 +3223,7 @@ class GroupService {
             int postUnread,
             bool muted,
             NotificationMuteMode notificationMode,
+            DateTime? notificationUntil,
             String preview,
             int lastTs,
           })
@@ -3256,9 +3257,8 @@ class GroupService {
         final postIsLatest =
             lastPost != null &&
             (last == null || lastPost.publishedAtMs >= last.createdAtMs);
-        final notificationMode = (await groupNotificationPolicy(
-          gid,
-        )).effectiveAt(DateTime.now());
+        final notificationPolicy = await groupNotificationPolicy(gid);
+        final notificationMode = notificationPolicy.effectiveAt(DateTime.now());
         out.add((
           groupId: gid,
           name: state.name,
@@ -3272,6 +3272,9 @@ class GroupService {
           postUnread: await unreadSpacePosts(gid),
           muted: notificationMode != NotificationMuteMode.all,
           notificationMode: notificationMode,
+          notificationUntil: notificationMode == NotificationMuteMode.all
+              ? null
+              : notificationPolicy.until,
           preview: postIsLatest
               ? (lastPost.title.trim().isNotEmpty
                     ? lastPost.title
@@ -10707,6 +10710,7 @@ typedef GroupListEntry = ({
   int postUnread,
   bool muted,
   NotificationMuteMode notificationMode,
+  DateTime? notificationUntil,
   String preview,
   int lastTs,
 });

@@ -19,6 +19,7 @@ import 'package:xveil/domain/space_moderation.dart';
 import 'package:xveil/domain/space_join_request.dart';
 import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/domain/space_channel.dart';
+import 'package:xveil/features/chat/chat_actions.dart';
 import 'package:xveil/features/spaces/space_list_screen.dart';
 import 'package:xveil/features/spaces/space_moderation_screen.dart';
 import 'package:xveil/features/spaces/space_rules_screen.dart';
@@ -192,6 +193,86 @@ void main() {
     expect(created.description, 'Offline protocol builders');
     expect(created.visibility, SpaceVisibility.secret);
     expect(created.discoverable, isFalse);
+  });
+
+  testWidgets('Space list exposes and edits the exact notification policy', (
+    tester,
+  ) async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(storage, _Signer(_id(12)));
+    addTearDown(service.dispose);
+    final spaceId = await service.createSpace('Quick policy');
+    final until = DateTime(2099, 1, 2, 3, 4);
+    await service.setGroupNotificationPolicy(
+      spaceId,
+      NotificationMuteMode.mentionsOnly,
+      until,
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [groupServiceProvider.overrideWithValue(service)],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: const SpaceListScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final context = tester.element(find.byType(SpaceListScreen));
+    final l = AppL10n.of(context);
+
+    expect(
+      find.byKey(ValueKey('space-notification-mentionsOnly-${spaceId.hex}')),
+      findsOneWidget,
+    );
+    expect(
+      find.bySemanticsLabel(RegExp(l.notificationMuteMentionsOnly)),
+      findsOneWidget,
+    );
+
+    await tester.longPress(find.text('Quick policy'));
+    await tester.pumpAndSettle();
+    expect(
+      find.text(
+        notificationMutePolicyLabel(
+          context,
+          NotificationMutePolicy(
+            mode: NotificationMuteMode.mentionsOnly,
+            until: until,
+          ),
+        ),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('notification-policy-edit')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('notification-mute-none')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l.mute30m).last);
+    await tester.pumpAndSettle();
+
+    var policy = await service.groupNotificationPolicy(spaceId);
+    expect(policy.effectiveAt(DateTime.now()), NotificationMuteMode.none);
+    expect(
+      find.byKey(ValueKey('space-notification-none-${spaceId.hex}')),
+      findsOneWidget,
+    );
+
+    await tester.longPress(find.text('Quick policy'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('notification-policy-unmute')));
+    await tester.pumpAndSettle();
+
+    policy = await service.groupNotificationPolicy(spaceId);
+    expect(policy.effectiveAt(DateTime.now()), NotificationMuteMode.all);
+    expect(
+      find.byKey(ValueKey('space-notification-none-${spaceId.hex}')),
+      findsNothing,
+    );
   });
 
   testWidgets('Space list sends a join request from a strict link', (

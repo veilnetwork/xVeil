@@ -1469,10 +1469,11 @@ void main() {
       await ownerSvc.setGroupMuted(gid, true);
       expect(await ownerSvc.isGroupMuted(gid), isTrue);
       expect((await ownerSvc.listGroups()).single.muted, isTrue);
+      final mentionUntil = DateTime.now().add(const Duration(hours: 8));
       await ownerSvc.setGroupNotificationPolicy(
         gid,
         NotificationMuteMode.mentionsOnly,
-        DateTime.now().add(const Duration(hours: 8)),
+        mentionUntil,
       );
       final mentionPolicy = await ownerSvc.groupNotificationPolicy(gid);
       expect(
@@ -1482,6 +1483,19 @@ void main() {
       final mentionListed = (await ownerSvc.listGroups()).single;
       expect(mentionListed.muted, isTrue);
       expect(mentionListed.notificationMode, NotificationMuteMode.mentionsOnly);
+      expect(
+        mentionListed.notificationUntil?.millisecondsSinceEpoch,
+        mentionUntil.millisecondsSinceEpoch,
+      );
+      await ownerSvc.setGroupNotificationPolicy(
+        gid,
+        NotificationMuteMode.mentionsOnly,
+        DateTime.now().subtract(const Duration(minutes: 1)),
+      );
+      final expiredListed = (await ownerSvc.listGroups()).single;
+      expect(expiredListed.muted, isFalse);
+      expect(expiredListed.notificationMode, NotificationMuteMode.all);
+      expect(expiredListed.notificationUntil, isNull);
       await ownerSvc.setGroupMuted(gid, false);
       expect(await ownerSvc.isGroupMuted(gid), isFalse);
     },
