@@ -24,7 +24,10 @@ class AppTheme {
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          minimumSize: const Size.fromHeight(52),
+          // Size.fromHeight uses an infinite width. That works in a bounded
+          // form but makes every FilledButton impossible to lay out inside a
+          // Row, including compact trailing actions on desktop.
+          minimumSize: const Size(0, 52),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
@@ -33,9 +36,7 @@ class AppTheme {
       cardTheme: CardThemeData(
         elevation: 0,
         color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,

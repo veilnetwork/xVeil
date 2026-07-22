@@ -641,60 +641,58 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
     if (spaceId == null) {
       return Scaffold(body: Center(child: Text(l.spaceOperationFailed)));
     }
-    return StreamBuilder<int>(
-      stream: service.changes.stream,
-      builder: (context, changes) => FutureBuilder<List<Object?>>(
-        future: _settingsSnapshot(service, spaceId, changes.data),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            return const Scaffold(
-              body: Center(child: CircularProgressIndicator()),
+    return Scaffold(
+      appBar: AppBar(title: Text(l.spaceSettingsTitle)),
+      body: StreamBuilder<int>(
+        stream: service.changes.stream,
+        builder: (context, changes) => FutureBuilder<List<Object?>>(
+          future: _settingsSnapshot(service, spaceId, changes.data),
+          builder: (context, snapshot) {
+            if (!snapshot.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            final state = snapshot.data![0] as GroupState?;
+            if (state == null || !state.isMember(service.selfId)) {
+              return Center(child: Text(l.spaceOperationFailed));
+            }
+            final subscription = snapshot.data![1] as SpaceSubscription;
+            final bundle = snapshot.data![2] as GroupBundle?;
+            final localRetentionDays = snapshot.data![3] as int?;
+            final joinCode = snapshot.data![4] as String?;
+            final joinRequests = snapshot.data![5] as List<SpaceJoinInboxEntry>;
+            final recommendationCampaigns =
+                snapshot.data![6] as List<SpaceRecommendationCampaign>;
+            final myRole = state.roleOf(service.selfId)!;
+            final canRename =
+                state.isActive &&
+                canApply(authorRole: myRole, op: ControlOp.setName);
+            final canEditDescription =
+                state.isActive &&
+                canApply(authorRole: myRole, op: ControlOp.setDescription);
+            final canAdd =
+                state.isActive &&
+                canApply(
+                  authorRole: myRole,
+                  op: ControlOp.addMember,
+                  newRole: GroupRole.member,
+                );
+            final canManageRetention = SpaceAcl(
+              state,
+            ).allows(service.selfId, SpacePermission.manageStorage);
+            final canManageRecommendations =
+                bundle?.manifest.visibility == SpaceVisibility.public &&
+                SpaceAcl(
+                  state,
+                ).allows(service.selfId, SpacePermission.manageRecommendations);
+            final globalRetentionDays = _retentionDays(
+              state.effectiveRetentionPolicy(),
             );
-          }
-          final state = snapshot.data![0] as GroupState?;
-          if (state == null || !state.isMember(service.selfId)) {
-            return Scaffold(body: Center(child: Text(l.spaceOperationFailed)));
-          }
-          final subscription = snapshot.data![1] as SpaceSubscription;
-          final bundle = snapshot.data![2] as GroupBundle?;
-          final localRetentionDays = snapshot.data![3] as int?;
-          final joinCode = snapshot.data![4] as String?;
-          final joinRequests = snapshot.data![5] as List<SpaceJoinInboxEntry>;
-          final recommendationCampaigns =
-              snapshot.data![6] as List<SpaceRecommendationCampaign>;
-          final myRole = state.roleOf(service.selfId)!;
-          final canRename =
-              state.isActive &&
-              canApply(authorRole: myRole, op: ControlOp.setName);
-          final canEditDescription =
-              state.isActive &&
-              canApply(authorRole: myRole, op: ControlOp.setDescription);
-          final canAdd =
-              state.isActive &&
-              canApply(
-                authorRole: myRole,
-                op: ControlOp.addMember,
-                newRole: GroupRole.member,
-              );
-          final canManageRetention = SpaceAcl(
-            state,
-          ).allows(service.selfId, SpacePermission.manageStorage);
-          final canManageRecommendations =
-              bundle?.manifest.visibility == SpaceVisibility.public &&
-              SpaceAcl(
-                state,
-              ).allows(service.selfId, SpacePermission.manageRecommendations);
-          final globalRetentionDays = _retentionDays(
-            state.effectiveRetentionPolicy(),
-          );
-          final members = state.members.values.toList()
-            ..sort((a, b) {
-              final rank = b.role.rank.compareTo(a.role.rank);
-              return rank != 0 ? rank : a.nodeId.hex.compareTo(b.nodeId.hex);
-            });
-          return Scaffold(
-            appBar: AppBar(title: Text(l.spaceSettingsTitle)),
-            body: LayoutBuilder(
+            final members = state.members.values.toList()
+              ..sort((a, b) {
+                final rank = b.role.rank.compareTo(a.role.rank);
+                return rank != 0 ? rank : a.nodeId.hex.compareTo(b.nodeId.hex);
+              });
+            return LayoutBuilder(
               builder: (context, constraints) => Center(
                 child: SizedBox(
                   width: constraints.maxWidth > 760 ? 720 : null,
@@ -1241,9 +1239,9 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                   ),
                 ),
               ),
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }
