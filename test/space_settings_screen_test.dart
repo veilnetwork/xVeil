@@ -401,6 +401,25 @@ void main() {
     await tester.pumpAndSettle();
     expect((await service.stateOf(spaceId))!.isArchived, isFalse);
     expect(find.text(l.spaceActiveTitle), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('space-delete-action')));
+    await tester.pumpAndSettle();
+    expect(find.text(l.spaceDeleteConfirm), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('space-delete-confirm')));
+    await tester.pumpAndSettle();
+    final deleted = (await service.stateOf(spaceId))!;
+    expect(deleted.isDeleted, isTrue);
+    expect(deleted.lifecycleTransition?.recoveryDeadlineMs, isNotNull);
+    expect(find.text(l.spaceDeletedTitle), findsOneWidget);
+    expect(find.byKey(const ValueKey('space-delete-action')), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('space-lifecycle-action')));
+    await tester.pumpAndSettle();
+    expect(find.text(l.spaceRestoreConfirm), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('space-lifecycle-confirm')));
+    await tester.pumpAndSettle();
+    expect((await service.stateOf(spaceId))!.isActive, isTrue);
+    expect(find.text(l.spaceActiveTitle), findsOneWidget);
   });
 
   testWidgets('Space rules publish, display history and require acceptance', (

@@ -4874,6 +4874,7 @@ void main() {
       final bobSvc = member(bob);
       final groupId = await ownerSvc.createGroup('Friends remain a group chat');
       expect(await ownerSvc.setSpaceArchived(groupId, true), isFalse);
+      expect(await ownerSvc.deleteSpace(groupId), isFalse);
 
       final spaceId = await ownerSvc.createSpace(
         'Archive lab',
@@ -5003,6 +5004,140 @@ void main() {
         'publication before archive',
         'publication after restore',
       ]);
+    },
+  );
+
+  test(
+    'recoverable Space deletion hides content, purges idempotently, and resists stale snapshots',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final recoveryStorage = FakeHvContainer().storage();
+      await recoveryStorage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _FakeSigner(owner));
+      final recoveryService = GroupService(recoveryStorage, _FakeSigner(owner));
+      addTearDown(service.dispose);
+      addTearDown(recoveryService.dispose);
+
+      final spaceId = await service.createSpace(
+        'Recoverable deletion',
+        visibility: SpaceVisibility.public,
+      );
+      final channel = (await service.channelsOf(spaceId)).single;
+      expect(
+        await service.postMessage(
+          spaceId,
+          'retained until purge',
+          channelId: channel.channelId,
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      expect(
+        await service.publishSpacePost(
+          spaceId,
+          body: 'recoverable publication',
+          broadcast: false,
+        ),
+        isNotNull,
+      );
+      expect(
+        await recoveryService.ingestSnapshot(
+          service.snapshotJson(
+            (await service.load(spaceId))!,
+            recipient: owner,
+          ),
+        ),
+        isTrue,
+      );
+
+      expect(
+        await service.deleteSpace(
+          spaceId,
+          recoveryPeriod: const Duration(minutes: 1),
+        ),
+        isTrue,
+      );
+      final deletedBundle = (await service.load(spaceId))!;
+      final deletedState = (await service.stateOf(spaceId))!;
+      final deadline = deletedState.lifecycleTransition!.recoveryDeadlineMs!;
+      expect(deletedState.lifecycleState, SpaceLifecycleState.deleted);
+      expect(deletedBundle.control.last.version, 11);
+      expect(deletedBundle.control.last.op, ControlOp.deleteSpace);
+      expect(await service.channelsOf(spaceId), isEmpty);
+      expect(await service.messagesOf(spaceId), isEmpty);
+      expect(await service.postsOf(spaceId), isEmpty);
+      expect(await service.reactionsOf(spaceId), isEmpty);
+      expect(
+        (await service.listSpaces()).single.lifecycleState,
+        SpaceLifecycleState.deleted,
+      );
+      expect(
+        await service.postMessage(
+          spaceId,
+          'blocked while deleted',
+          channelId: channel.channelId,
+          broadcast: false,
+        ),
+        isFalse,
+      );
+
+      final deletedSnapshot = service.snapshotJson(
+        deletedBundle,
+        recipient: owner,
+      );
+      final deletedWire = jsonDecode(deletedSnapshot) as Map<String, dynamic>;
+      expect(deletedWire['g'], isEmpty);
+      expect(deletedWire['p'], isEmpty);
+      expect(deletedWire['r'], isEmpty);
+      expect(deletedWire, isNot(contains('ke')));
+      expect(await recoveryService.ingestSnapshot(deletedSnapshot), isTrue);
+      expect(await recoveryService.restoreSpace(spaceId), isTrue);
+      final restoredSnapshot = recoveryService.snapshotJson(
+        (await recoveryService.load(spaceId))!,
+        recipient: owner,
+      );
+      expect(
+        (await recoveryService.stateOf(
+          spaceId,
+        ))!.lifecycleTransition!.changedAtMs,
+        lessThanOrEqualTo(deadline),
+      );
+
+      final sweep = await service.purgeDeletedSpaces(nowMs: deadline);
+      expect(sweep.scanned, 1);
+      expect(sweep.purged, 1);
+      expect(sweep.failed, 0);
+      expect(await service.load(spaceId), isNull);
+      expect(await service.listSpaces(), isEmpty);
+      expect(await storage.loadFile('group:${spaceId.hex}'), isNull);
+      final tombstone = await service.deletedSpaceTombstone(spaceId);
+      expect(
+        tombstone?.deleteTransitionHash,
+        deletedState.lifecycleTransitionHash,
+      );
+      expect((await service.purgeDeletedSpaces(nowMs: deadline)).purged, 0);
+
+      // The expired delete snapshot is acknowledged but cannot recreate its
+      // heavy bundle or index entry.
+      expect(await service.ingestSnapshot(deletedSnapshot), isTrue);
+      expect(await service.load(spaceId), isNull);
+      expect(await service.deletedSpaceTombstone(spaceId), isNotNull);
+
+      // A complete restore signed before the deadline may arrive late. It
+      // includes the exact purged delete row and therefore clears the compact
+      // anti-resurrection marker without losing history.
+      expect(await service.ingestSnapshot(restoredSnapshot), isTrue);
+      expect(await service.deletedSpaceTombstone(spaceId), isNull);
+      expect((await service.stateOf(spaceId))!.isActive, isTrue);
+      expect(
+        (await service.messagesOf(spaceId)).single.body,
+        'retained until purge',
+      );
+      expect(
+        (await service.postsOf(spaceId)).single.body,
+        'recoverable publication',
+      );
     },
   );
 

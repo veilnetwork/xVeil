@@ -363,6 +363,32 @@ class AppL10nEn extends AppL10n {
       'History remains readable, but messages, posts, reactions, voice rooms, and settings are read-only.';
 
   @override
+  String get spaceDeletedTitle => 'Community is awaiting deletion';
+
+  @override
+  String get spaceDeletedHint =>
+      'Content is hidden and all activity is stopped. The owner can restore the community until the recovery period ends.';
+
+  @override
+  String get spaceDeleteTitle => 'Delete community?';
+
+  @override
+  String get spaceDeleteConfirm =>
+      'The community will be recoverable for 7 days. After that, encrypted local copies are purged in the background and old snapshots cannot restore them.';
+
+  @override
+  String get spaceDeleteAction => 'Delete community';
+
+  @override
+  String get spaceDeleteHint =>
+      'Starts a 7-day recovery period before physical cleanup.';
+
+  @override
+  String spaceRecoveryUntil(String date) {
+    return 'Recovery is available until $date';
+  }
+
+  @override
   String get spaceArchiveTitle => 'Archive community?';
 
   @override

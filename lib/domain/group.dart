@@ -346,6 +346,7 @@ enum ControlOp {
   updateChannel,
   transferOwnership,
   archiveSpace,
+  deleteSpace,
   restoreSpace,
   checkpoint,
   leave; // the author removes THEMSELVES (any member may leave)
@@ -426,7 +427,8 @@ class ControlEntry {
   /// a versioned Space rules document or one member's acknowledgement. V8
   /// carries an immutable moderation action or a signed revocation of one. V9
   /// carries a typed Space retention policy revision. V10 carries an exact
-  /// causal Space archive/restore boundary.
+  /// causal Space archive/restore boundary. V11 adds recoverable deletion and
+  /// restoration bound to a signed recovery deadline.
   final int version;
 
   /// Group binding for replay resistance. Legacy entries omit it and retain
@@ -473,7 +475,8 @@ class ControlEntry {
           version == 7 ||
           version == 8 ||
           version == 9 ||
-          version == 10) &&
+          version == 10 ||
+          version == 11) &&
       seq >= 0 &&
       policyVersion >= 0 &&
       createdAtMs >= 0 &&
@@ -583,13 +586,22 @@ class ControlEntry {
                 moderationAction == null &&
                 moderationRevocation == null
           : retentionPolicy == null && op != ControlOp.setRetention) &&
-      (version == 10
-          ? (op == ControlOp.archiveSpace || op == ControlOp.restoreSpace) &&
+      (version == 10 || version == 11
+          ? ((version == 10 &&
+                        (op == ControlOp.archiveSpace ||
+                            op == ControlOp.restoreSpace) &&
+                        lifecycleTransition?.recoveryDeadlineMs == null) ||
+                    (version == 11 &&
+                        (op == ControlOp.deleteSpace ||
+                            op == ControlOp.restoreSpace) &&
+                        lifecycleTransition?.recoveryDeadlineMs != null)) &&
                 lifecycleTransition != null &&
                 lifecycleTransition!.isStructurallyValid &&
                 lifecycleTransition!.state ==
                     (op == ControlOp.archiveSpace
                         ? SpaceLifecycleState.archived
+                        : op == ControlOp.deleteSpace
+                        ? SpaceLifecycleState.deleted
                         : SpaceLifecycleState.active) &&
                 groupId == lifecycleTransition!.spaceId &&
                 target == null &&
@@ -607,6 +619,7 @@ class ControlEntry {
                 retentionPolicy == null
           : lifecycleTransition == null &&
                 op != ControlOp.archiveSpace &&
+                op != ControlOp.deleteSpace &&
                 op != ControlOp.restoreSpace) &&
       (controlCheckpoint == null
           ? op != ControlOp.checkpoint
@@ -739,7 +752,8 @@ class ControlEntry {
             version != 7 &&
             version != 8 &&
             version != 9 &&
-            version != 10) ||
+            version != 10 &&
+            version != 11) ||
         author is! String ||
         seq is! int ||
         prev is! String ||

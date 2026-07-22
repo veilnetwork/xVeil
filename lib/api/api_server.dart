@@ -499,7 +499,8 @@ Map<String, dynamic> openApiSpec() {
           'responses': ok({'type': obj}),
         },
         'post': {
-          'summary': 'Archive or restore a community as its owner',
+          'summary':
+              'Archive, recoverably delete, or restore a community as its owner',
           'requestBody': {
             'required': true,
             'content': {
@@ -511,7 +512,7 @@ Map<String, dynamic> openApiSpec() {
                     'space': {'type': 'string'},
                     'action': {
                       'type': 'string',
-                      'enum': ['archive', 'restore'],
+                      'enum': ['archive', 'delete', 'restore'],
                     },
                   },
                 },
@@ -2317,7 +2318,7 @@ class ApiHandler {
       final action = body?['action'];
       if (space is! String ||
           space.isEmpty ||
-          (action != 'archive' && action != 'restore')) {
+          (action != 'archive' && action != 'delete' && action != 'restore')) {
         return const ApiResponse(400, {
           'error': 'valid space and lifecycle action required',
         });

@@ -127,12 +127,17 @@ final class GroupApiAdapter {
         'postHeads': transition.postHeads.length,
         'reactionHeads': transition.reactionHeads.length,
         'controlRoot': transition.controlCheckpoint.merkleRoot,
+        if (transition.recoveryDeadlineMs != null)
+          'recoveryDeadline': transition.recoveryDeadlineMs,
       },
       'canArchive':
           state.lifecycleState == SpaceLifecycleState.active &&
           state.roleOf(_groups.selfId) == GroupRole.owner,
       'canRestore':
-          state.lifecycleState == SpaceLifecycleState.archived &&
+          state.lifecycleState != SpaceLifecycleState.active &&
+          state.roleOf(_groups.selfId) == GroupRole.owner,
+      'canDelete':
+          state.lifecycleState != SpaceLifecycleState.deleted &&
           state.roleOf(_groups.selfId) == GroupRole.owner,
     };
   }
@@ -143,15 +148,14 @@ final class GroupApiAdapter {
     if (visible.$2.roleOf(_groups.selfId) != GroupRole.owner) {
       return 'operation rejected by space policy';
     }
-    final archived = switch (action) {
-      'archive' => true,
-      'restore' => false,
+    final applied = switch (action) {
+      'archive' => _groups.archiveSpace(visible.$1),
+      'delete' => _groups.deleteSpace(visible.$1),
+      'restore' => _groups.restoreSpace(visible.$1),
       _ => null,
     };
-    if (archived == null) return 'invalid lifecycle action';
-    return await _groups.setSpaceArchived(visible.$1, archived)
-        ? null
-        : 'space lifecycle transition failed';
+    if (applied == null) return 'invalid lifecycle action';
+    return await applied ? null : 'space lifecycle transition failed';
   }
 
   Future<String?> updateDescription(String spaceHex, String description) async {

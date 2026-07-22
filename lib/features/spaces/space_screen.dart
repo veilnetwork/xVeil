@@ -178,6 +178,40 @@ class SpaceScreen extends ConsumerWidget {
           if (state == null) {
             return Scaffold(body: Center(child: Text(l.spaceOperationFailed)));
           }
+          if (state.isDeleted) {
+            return Scaffold(
+              appBar: AppBar(title: Text(state.name)),
+              body: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.delete_forever_outlined,
+                        size: 52,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        l.spaceDeletedTitle,
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(l.spaceDeletedHint, textAlign: TextAlign.center),
+                      const SizedBox(height: 20),
+                      FilledButton.tonalIcon(
+                        onPressed: () =>
+                            context.push('/space/$spaceIdHex/settings'),
+                        icon: const Icon(Icons.settings_outlined),
+                        label: Text(l.spaceSettingsTitle),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }
           final canManage = SpaceAcl(
             state,
           ).allows(service.selfId, SpacePermission.manageChannels);

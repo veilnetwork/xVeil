@@ -63,6 +63,13 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
       ? policy.retentionMs! ~/ const Duration(days: 1).inMilliseconds
       : null;
 
+  String _date(BuildContext context, int timestampMs) {
+    final date = DateTime.fromMillisecondsSinceEpoch(timestampMs).toLocal();
+    final material = MaterialLocalizations.of(context);
+    return '${material.formatMediumDate(date)} '
+        '${material.formatTimeOfDay(TimeOfDay.fromDateTime(date))}';
+  }
+
   Future<void> _setGlobalRetention(
     GroupService service,
     NodeId spaceId,
@@ -351,6 +358,34 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
     if (!await service.setSpaceArchived(spaceId, archived)) _failure();
   }
 
+  Future<void> _deleteSpace(GroupService service, NodeId spaceId) async {
+    final l = AppL10n.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l.spaceDeleteTitle),
+        content: Text(l.spaceDeleteConfirm),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l.actionCancel),
+          ),
+          FilledButton(
+            key: const ValueKey('space-delete-confirm'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
+            child: Text(l.spaceDeleteAction),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    if (!await service.deleteSpace(spaceId)) _failure();
+  }
+
   List<PopupMenuEntry<_SpaceMemberAction>> _actionsFor(
     AppL10n l,
     GroupRole myRole,
@@ -462,13 +497,13 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
           final localRetentionDays = snapshot.data![3] as int?;
           final myRole = state.roleOf(service.selfId)!;
           final canRename =
-              !state.isArchived &&
+              state.isActive &&
               canApply(authorRole: myRole, op: ControlOp.setName);
           final canEditDescription =
-              !state.isArchived &&
+              state.isActive &&
               canApply(authorRole: myRole, op: ControlOp.setDescription);
           final canAdd =
-              !state.isArchived &&
+              state.isActive &&
               canApply(
                 authorRole: myRole,
                 op: ControlOp.addMember,
@@ -604,7 +639,8 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                                     conversations,
                                   );
                                   final actions =
-                                      member.nodeId == service.selfId
+                                      !state.isActive ||
+                                          member.nodeId == service.selfId
                                       ? <PopupMenuEntry<_SpaceMemberAction>>[]
                                       : _actionsFor(l, myRole, member);
                                   return Column(
@@ -661,7 +697,7 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                           leading: const Icon(Icons.info_outline),
                           title: Text(l.spaceOwnerLeaveHint),
                         )
-                      else
+                      else if (state.isActive)
                         OutlinedButton.icon(
                           onPressed: () => _leave(service, spaceId),
                           icon: const Icon(Icons.logout),
@@ -700,38 +736,80 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                       ),
                       const SizedBox(height: 12),
                       Card(
-                        child: ListTile(
-                          key: const ValueKey('space-lifecycle-tile'),
-                          leading: Icon(
-                            state.isArchived
-                                ? Icons.unarchive_outlined
-                                : Icons.archive_outlined,
-                          ),
-                          title: Text(
-                            state.isArchived
-                                ? l.spaceArchivedTitle
-                                : l.spaceActiveTitle,
-                          ),
-                          subtitle: Text(
-                            state.isArchived
-                                ? l.spaceArchivedHint
-                                : l.spaceActiveHint,
-                          ),
-                          trailing: myRole == GroupRole.owner
-                              ? FilledButton.tonal(
-                                  key: const ValueKey('space-lifecycle-action'),
-                                  onPressed: () => _setArchived(
-                                    service,
-                                    spaceId,
-                                    archived: !state.isArchived,
+                        child: Column(
+                          children: [
+                            ListTile(
+                              key: const ValueKey('space-lifecycle-tile'),
+                              leading: Icon(
+                                state.isDeleted
+                                    ? Icons.delete_forever_outlined
+                                    : state.isArchived
+                                    ? Icons.unarchive_outlined
+                                    : Icons.archive_outlined,
+                              ),
+                              title: Text(
+                                state.isDeleted
+                                    ? l.spaceDeletedTitle
+                                    : state.isArchived
+                                    ? l.spaceArchivedTitle
+                                    : l.spaceActiveTitle,
+                              ),
+                              subtitle: Text(
+                                state.isDeleted
+                                    ? [
+                                        l.spaceDeletedHint,
+                                        if (state
+                                                .lifecycleTransition
+                                                ?.recoveryDeadlineMs !=
+                                            null)
+                                          l.spaceRecoveryUntil(
+                                            _date(
+                                              context,
+                                              state
+                                                  .lifecycleTransition!
+                                                  .recoveryDeadlineMs!,
+                                            ),
+                                          ),
+                                      ].join('\n')
+                                    : state.isArchived
+                                    ? l.spaceArchivedHint
+                                    : l.spaceActiveHint,
+                              ),
+                              trailing: myRole == GroupRole.owner
+                                  ? FilledButton.tonal(
+                                      key: const ValueKey(
+                                        'space-lifecycle-action',
+                                      ),
+                                      onPressed: () => _setArchived(
+                                        service,
+                                        spaceId,
+                                        archived: state.isActive,
+                                      ),
+                                      child: Text(
+                                        state.isActive
+                                            ? l.spaceArchiveAction
+                                            : l.spaceRestoreAction,
+                                      ),
+                                    )
+                                  : null,
+                            ),
+                            if (myRole == GroupRole.owner && !state.isDeleted)
+                              ListTile(
+                                key: const ValueKey('space-delete-action'),
+                                leading: Icon(
+                                  Icons.delete_outline,
+                                  color: Theme.of(context).colorScheme.error,
+                                ),
+                                title: Text(
+                                  l.spaceDeleteAction,
+                                  style: TextStyle(
+                                    color: Theme.of(context).colorScheme.error,
                                   ),
-                                  child: Text(
-                                    state.isArchived
-                                        ? l.spaceRestoreAction
-                                        : l.spaceArchiveAction,
-                                  ),
-                                )
-                              : null,
+                                ),
+                                subtitle: Text(l.spaceDeleteHint),
+                                onTap: () => _deleteSpace(service, spaceId),
+                              ),
+                          ],
                         ),
                       ),
                     ],

@@ -214,6 +214,19 @@ class SpaceListScreen extends ConsumerWidget {
                                           space.postUnread > 0)
                                         const SizedBox(width: 10),
                                     ],
+                                    if (space.lifecycleState ==
+                                        SpaceLifecycleState.deleted) ...[
+                                      Icon(
+                                        Icons.delete_forever_outlined,
+                                        size: 18,
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.error,
+                                      ),
+                                      if (space.unread > 0 ||
+                                          space.postUnread > 0)
+                                        const SizedBox(width: 10),
+                                    ],
                                     if (space.unread > 0) ...[
                                       const Icon(
                                         Icons.chat_bubble_outline,
